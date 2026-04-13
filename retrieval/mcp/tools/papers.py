@@ -2,8 +2,8 @@
 Paper-related MCP tools.
 
 Provides:
-- paper_search: Semantic search over papers using SPECTER
-- semantic_scholar_search: Search Semantic Scholar API (200M+ papers)
+- paper_search: Semantic search over papers using SPECTER (multi-query fan-out)
+- semantic_scholar_search: Search Semantic Scholar API (200M+ papers, multi-query fan-out)
 - paper_lookup: Look up paper by DOI
 - get_citations: Get papers citing a paper
 - get_references: Get papers cited by a paper
@@ -12,12 +12,15 @@ Provides:
 - check_papers_availability: Batch check PDF availability for multiple DOIs
 """
 
+import asyncio
 import os
+from typing import Optional
 from urllib.parse import quote
 
 import httpx
 
 from database import get_qdrant, get_neo4j, get_specter, PAPERS_PDF_DIR
+from .query_expansion import expand_queries
 
 # Semantic Scholar API
 SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
@@ -101,75 +104,133 @@ def get_pdf_path(doi: str) -> str | None:
     return None
 
 
-async def paper_search(query: str, top_k: int = 5) -> dict:
-    """
-    Search papers using SPECTER embeddings.
+def _paper_dedupe_key(paper: dict) -> str:
+    """Best-effort identifier for a paper to dedupe across queries."""
+    doi = (paper.get("doi") or "").strip().lower()
+    if doi:
+        return f"doi:{doi}"
+    pid = (paper.get("paper_id") or paper.get("semantic_scholar_id") or "").strip().lower()
+    if pid:
+        return f"id:{pid}"
+    title = (paper.get("title") or "").strip().lower()
+    return f"title:{title}" if title else f"unk:{id(paper)}"
 
-    Args:
-        query: Search query
-        top_k: Number of results
 
-    Returns:
-        Dict with 'results' list
-    """
-    qdrant = get_qdrant()
-    specter = get_specter()
-
-    if not qdrant or not specter:
-        return {"error": "Paper search not available (database or model not loaded)"}
-
+def _qdrant_search_one(qdrant, specter, q: str, top_k: int) -> list[dict]:
+    """Run one SPECTER-embedded Qdrant query_points call and shape the payload."""
     try:
-        # Generate query embedding
-        query_vector = specter.encode(query).tolist()
-
-        # Search Qdrant (qdrant-client 1.7+ uses query_points instead of search)
+        vec = specter.encode(q).tolist()
         results = qdrant.query_points(
             collection_name="papers",
-            query=query_vector,
-            limit=top_k
+            query=vec,
+            limit=top_k,
         )
-
-        papers = []
+        out: list[dict] = []
         for r in results.points:
             payload = r.payload or {}
             authors = payload.get("authors", [])
             if isinstance(authors, list):
                 authors = [a if isinstance(a, str) else a.get("name", "") for a in authors][:5]
-
-            papers.append({
+            out.append({
                 "title": payload.get("title"),
                 "doi": payload.get("doi"),
                 "year": payload.get("year"),
                 "authors": authors,
-                "score": round(r.score, 3)
+                "score": round(float(r.score), 3),
+                "matched_query": q,
             })
-
-        return {"results": papers}
-
+        return out
     except Exception as e:
-        return {"error": f"Paper search failed: {str(e)}"}
+        print(f"[WARNING] paper_search '{q}' failed: {e}")
+        return []
 
 
-async def semantic_scholar_search(query: str, top_k: int = 10, year: str = "") -> dict:
+async def paper_search(
+    query: Optional[str] = None,
+    queries: Optional[list[str]] = None,
+    top_k: int = 5,
+) -> dict:
     """
-    Search the Semantic Scholar API for academic papers.
+    Search the local papers corpus using SPECTER embeddings with multi-query
+    fan-out.
 
-    Provides access to 200M+ papers across all fields. Use this for broad
-    academic search when local paper database may not have relevant results.
+    Behaviour:
+        - If `queries` is a list: run exactly those queries (no expansion).
+        - Elif `query` is a string: expand it to 3-5 variants and run them.
+        - Results deduped by DOI/paper id/title; max Qdrant score across
+          queries is kept; `matched_by` counts how many queries surfaced the
+          paper.
 
     Args:
-        query: Search query
-        top_k: Number of results (max 100)
-        year: Optional year filter (e.g., "2020-2024", "2024-", "2024")
+        query: Single query. Will be fanned out automatically.
+        queries: Explicit list of queries. Takes precedence.
+        top_k: Max number of deduped results to return.
 
     Returns:
-        Dict with 'results' list of papers
+        Dict with queries_executed, total_hits, results.
     """
-    top_k = min(top_k, 100)
-    fields = "paperId,title,authors,year,citationCount,abstract,externalIds,journal,tldr,publicationTypes"
+    qdrant = get_qdrant()
+    specter = get_specter()
+    if not qdrant or not specter:
+        return {"error": "Paper search not available (database or model not loaded)"}
 
+    if queries:
+        query_list = [q.strip() for q in queries if q and q.strip()]
+    elif query:
+        query_list = await expand_queries(query, n=5)
+    else:
+        return {"error": "paper_search requires either 'query' or 'queries'"}
+
+    if not query_list:
+        return {"error": "paper_search got empty query list after normalization"}
+
+    # SPECTER encoding + Qdrant queries are CPU-bound / blocking; run them in
+    # a thread pool so multiple queries can progress in parallel.
+    loop = asyncio.get_running_loop()
+    per_query = max(top_k, 5)
+    batches: list[list[dict]] = await asyncio.gather(
+        *(
+            loop.run_in_executor(None, _qdrant_search_one, qdrant, specter, q, per_query)
+            for q in query_list
+        )
+    )
+
+    seen: dict[str, dict] = {}
+    total_hits = 0
+    for hits in batches:
+        for p in hits:
+            total_hits += 1
+            key = _paper_dedupe_key(p)
+            existing = seen.get(key)
+            if existing is None:
+                seen[key] = {**p, "matched_by": 1}
+            else:
+                existing["matched_by"] += 1
+                if p.get("score", 0) > existing.get("score", 0):
+                    existing["score"] = p["score"]
+
+    merged = sorted(
+        seen.values(),
+        key=lambda r: (-r.get("matched_by", 1), -r.get("score", 0)),
+    )
+
+    return {
+        "queries_executed": query_list,
+        "total_hits": total_hits,
+        "results": merged[:top_k],
+    }
+
+
+async def _semantic_scholar_one(
+    client: httpx.AsyncClient,
+    q: str,
+    top_k: int,
+    year: str,
+) -> list[dict]:
+    """Run one Semantic Scholar /paper/search query and shape the results."""
+    fields = "paperId,title,authors,year,citationCount,abstract,externalIds,journal,tldr,publicationTypes"
     params = {
-        "query": query,
+        "query": q,
         "limit": top_k,
         "fields": fields,
     }
@@ -181,56 +242,124 @@ async def semantic_scholar_search(query: str, top_k: int = 10, year: str = "") -
         headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.get(
-                f"{SEMANTIC_SCHOLAR_BASE_URL}/paper/search",
-                params=params,
-                headers=headers,
-            )
-            response.raise_for_status()
-            data = response.json()
-
-        papers = []
-        for paper in data.get("data", []):
-            # Extract DOI from externalIds
-            external_ids = paper.get("externalIds") or {}
-            doi = external_ids.get("DOI", "")
-
-            # Extract author names
-            authors = []
-            for author in (paper.get("authors") or [])[:10]:
-                name = author.get("name", "")
-                if name:
-                    authors.append(name)
-
-            # Extract TLDR if available
-            tldr = ""
-            if paper.get("tldr") and paper["tldr"].get("text"):
-                tldr = paper["tldr"]["text"]
-
-            papers.append({
-                "title": paper.get("title", ""),
-                "doi": doi,
-                "year": paper.get("year"),
-                "authors": authors,
-                "citation_count": paper.get("citationCount", 0),
-                "abstract": (paper.get("abstract") or "")[:500],
-                "tldr": tldr,
-                "journal": (paper.get("journal") or {}).get("name", ""),
-                "semantic_scholar_id": paper.get("paperId", ""),
-            })
-
-        return {
-            "total": data.get("total", len(papers)),
-            "results": papers,
-        }
-
+        response = await client.get(
+            f"{SEMANTIC_SCHOLAR_BASE_URL}/paper/search",
+            params=params,
+            headers=headers,
+        )
+        response.raise_for_status()
+        data = response.json()
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 429:
-            return {"error": "Semantic Scholar rate limit exceeded. Try again in a moment."}
-        return {"error": f"Semantic Scholar API error: {e.response.status_code}"}
+            print(f"[WARNING] semantic_scholar_search '{q}' rate limited")
+        else:
+            print(f"[WARNING] semantic_scholar_search '{q}' HTTP {e.response.status_code}")
+        return []
+    except Exception as e:
+        print(f"[WARNING] semantic_scholar_search '{q}' failed: {e}")
+        return []
+
+    out: list[dict] = []
+    for paper in data.get("data", []):
+        external_ids = paper.get("externalIds") or {}
+        doi = external_ids.get("DOI", "")
+
+        authors: list[str] = []
+        for author in (paper.get("authors") or [])[:10]:
+            name = author.get("name", "")
+            if name:
+                authors.append(name)
+
+        tldr = ""
+        if paper.get("tldr") and paper["tldr"].get("text"):
+            tldr = paper["tldr"]["text"]
+
+        out.append({
+            "title": paper.get("title", ""),
+            "doi": doi,
+            "year": paper.get("year"),
+            "authors": authors,
+            "citation_count": paper.get("citationCount", 0),
+            "abstract": (paper.get("abstract") or "")[:500],
+            "tldr": tldr,
+            "journal": (paper.get("journal") or {}).get("name", ""),
+            "semantic_scholar_id": paper.get("paperId", ""),
+            "matched_query": q,
+        })
+    return out
+
+
+async def semantic_scholar_search(
+    query: Optional[str] = None,
+    queries: Optional[list[str]] = None,
+    top_k: int = 10,
+    year: str = "",
+) -> dict:
+    """
+    Search the Semantic Scholar API for academic papers with multi-query
+    fan-out. 200M+ papers across all fields.
+
+    Behaviour:
+        - `queries` list → run exactly those queries in parallel, no expansion.
+        - `query` string → expand via expand_queries, then fan out.
+        - Results deduped by DOI/paperId; `matched_by` counts hits across
+          queries, used as the primary sort key ahead of citation count.
+
+    Args:
+        query: Single query. Automatically expanded.
+        queries: Explicit list of queries. Takes precedence.
+        top_k: Max deduped results (max 100).
+        year: Optional year filter applied to every query (e.g. "2020-2024").
+
+    Returns:
+        Dict with queries_executed, total, results.
+    """
+    top_k = min(top_k, 100)
+
+    if queries:
+        query_list = [q.strip() for q in queries if q and q.strip()]
+    elif query:
+        query_list = await expand_queries(query, n=5)
+    else:
+        return {"error": "semantic_scholar_search requires either 'query' or 'queries'"}
+
+    if not query_list:
+        return {"error": "semantic_scholar_search got empty query list after normalization"}
+
+    per_query = max(top_k, 10)
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            batches = await asyncio.gather(
+                *(_semantic_scholar_one(client, q, per_query, year) for q in query_list)
+            )
     except Exception as e:
         return {"error": f"Semantic Scholar search failed: {str(e)}"}
+
+    seen: dict[str, dict] = {}
+    total_hits = 0
+    for hits in batches:
+        for paper in hits:
+            total_hits += 1
+            key = _paper_dedupe_key(paper)
+            existing = seen.get(key)
+            if existing is None:
+                seen[key] = {**paper, "matched_by": 1}
+            else:
+                existing["matched_by"] += 1
+                # Keep the higher citation count if they disagree.
+                if (paper.get("citation_count") or 0) > (existing.get("citation_count") or 0):
+                    existing["citation_count"] = paper.get("citation_count", 0)
+
+    merged = sorted(
+        seen.values(),
+        key=lambda r: (-r.get("matched_by", 1), -(r.get("citation_count") or 0)),
+    )
+
+    return {
+        "queries_executed": query_list,
+        "total": total_hits,
+        "results": merged[:top_k],
+    }
 
 
 async def paper_lookup(doi: str) -> dict:

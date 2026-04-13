@@ -10,64 +10,76 @@ Each tool has:
 MCP_TOOLS = {
     "web_search": {
         "name": "web_search",
-        "description": "Search the web using SearXNG meta-search engine. Returns relevant web pages with titles, URLs, and snippets.",
+        "description": "Search the web using SearXNG meta-search engine with multi-query fan-out. For the best coverage, pass a `queries` array of 3-5 varied phrasings instead of a single `query` — the tool runs them in parallel, dedupes by URL, and returns results ranked by how many queries surfaced each URL. If you pass only `query` (a single string), the backend will expand it into 3-5 variants for you automatically.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "The search query"
+                    "description": "Single search query. Backend will auto-expand into 3-5 variants. Ignored when `queries` is provided."
+                },
+                "queries": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Explicit list of 2-6 search queries to run in parallel. Takes precedence over `query` when provided. Use this when you have multiple specific angles to cover."
                 },
                 "top_k": {
                     "type": "integer",
-                    "description": "Number of results to return (default: 10)",
+                    "description": "Maximum deduped results to return (default: 10)",
                     "default": 10
                 }
-            },
-            "required": ["query"]
+            }
         }
     },
     "paper_search": {
         "name": "paper_search",
-        "description": "Search the scientific paper database using semantic search (SPECTER). Returns academic papers with titles, authors, years, DOIs, and relevance scores.",
+        "description": "Search the local scientific paper corpus using SPECTER semantic search with multi-query fan-out. Pass `queries` as an array of 3-5 varied phrasings for best coverage; the tool runs them in parallel and dedupes by DOI. Passing a single `query` string triggers automatic expansion into 3-5 variants. Returns papers with titles, authors, years, DOIs, and scores.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "The search query for finding papers"
+                    "description": "Single search query. Backend will auto-expand into 3-5 variants. Ignored when `queries` is provided."
+                },
+                "queries": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Explicit list of 2-6 paper search queries to run in parallel. Takes precedence over `query`."
                 },
                 "top_k": {
                     "type": "integer",
-                    "description": "Number of results to return (default: 5)",
+                    "description": "Maximum deduped results to return (default: 5)",
                     "default": 5
                 }
-            },
-            "required": ["query"]
+            }
         }
     },
     "semantic_scholar_search": {
         "name": "semantic_scholar_search",
-        "description": "Search Semantic Scholar for academic papers across 200M+ publications. Returns papers with titles, authors, DOIs, citation counts, abstracts, and AI-generated TLDRs. Use this for broad academic search.",
+        "description": "Search Semantic Scholar (200M+ papers across all fields) with multi-query fan-out. Returns papers with titles, authors, DOIs, citation counts, abstracts, and AI-generated TLDRs. Pass `queries` as a list of 3-5 varied search phrasings for broad coverage, or a single `query` string which will be auto-expanded. Takes an optional `year` filter applied to every query.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "The search query for finding papers"
+                    "description": "Single search query. Backend will auto-expand into 3-5 variants. Ignored when `queries` is provided."
+                },
+                "queries": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Explicit list of 2-6 search queries to run in parallel. Takes precedence over `query`."
                 },
                 "top_k": {
                     "type": "integer",
-                    "description": "Number of results to return (default: 10, max: 100)",
+                    "description": "Maximum deduped results to return (default: 10, max: 100)",
                     "default": 10
                 },
                 "year": {
                     "type": "string",
-                    "description": "Optional year filter (e.g., '2020-2024', '2024-', '2024')",
+                    "description": "Optional year filter applied to every query (e.g., '2020-2024', '2024-', '2024')",
                     "default": ""
                 }
-            },
-            "required": ["query"]
+            }
         }
     },
     "paper_lookup": {
@@ -109,23 +121,18 @@ MCP_TOOLS = {
     },
     "web_fetch": {
         "name": "web_fetch",
-        "description": "Fetch and extract content from a URL. Returns the main text content of the webpage. Optionally summarize using LLM.",
+        "description": "Fetch a URL, extract its main text content, and return a CONDENSED SUMMARY (not the raw page). Long pages are automatically split into sections and summarised in parallel by multiple LLM calls, then composed into one coherent summary — so raw web content never bloats the conversation context. Use this whenever you need to read the content of a web page. Pass `summary_instruction` to bias what the summariser focuses on (e.g. 'focus on methodology', 'extract only the conclusions about X').",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "url": {
                     "type": "string",
-                    "description": "The URL to fetch"
-                },
-                "summarize": {
-                    "type": "boolean",
-                    "description": "Whether to summarize the content using LLM (default: false)",
-                    "default": False
+                    "description": "The URL to fetch and summarise"
                 },
                 "summary_instruction": {
                     "type": "string",
-                    "description": "Instructions for summarization (if summarize=true)",
-                    "default": "Summarize the main points of this content"
+                    "description": "Optional bias for the summariser: what to focus on or extract. Applies to both per-section and final summaries.",
+                    "default": "Summarize the main points and key findings, focusing on factual content."
                 }
             },
             "required": ["url"]

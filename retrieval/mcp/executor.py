@@ -34,20 +34,26 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
     """
     try:
         if tool_name == "web_search":
-            query = arguments.get("query", "")
-            top_k = arguments.get("top_k", 5)
-            return await web_search(query, top_k)
+            return await web_search(
+                query=arguments.get("query"),
+                queries=arguments.get("queries"),
+                top_k=arguments.get("top_k", 10),
+            )
 
         elif tool_name == "paper_search":
-            query = arguments.get("query", "")
-            top_k = arguments.get("top_k", 5)
-            return await paper_search(query, top_k)
+            return await paper_search(
+                query=arguments.get("query"),
+                queries=arguments.get("queries"),
+                top_k=arguments.get("top_k", 5),
+            )
 
         elif tool_name == "semantic_scholar_search":
-            query = arguments.get("query", "")
-            top_k = arguments.get("top_k", 10)
-            year = arguments.get("year", "")
-            return await semantic_scholar_search(query, top_k, year)
+            return await semantic_scholar_search(
+                query=arguments.get("query"),
+                queries=arguments.get("queries"),
+                top_k=arguments.get("top_k", 10),
+                year=arguments.get("year", ""),
+            )
 
         elif tool_name == "paper_lookup":
             doi = arguments.get("doi", "")
@@ -61,9 +67,13 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
 
         elif tool_name == "web_fetch":
             url = arguments.get("url", "")
-            summarize = arguments.get("summarize", False)
-            summary_instruction = arguments.get("summary_instruction", "Summarize the main points")
-            return await web_fetch_content(url, summarize, summary_instruction)
+            # Backwards-compat shim: older callers may still pass `summarize`;
+            # we ignore it because web_fetch always summarises now.
+            summary_instruction = arguments.get(
+                "summary_instruction",
+                "Summarize the main points and key findings, focusing on factual content.",
+            )
+            return await web_fetch_content(url, summary_instruction)
 
         elif tool_name == "get_citations":
             doi = arguments.get("doi", "")
