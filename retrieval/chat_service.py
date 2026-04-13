@@ -24,6 +24,7 @@ import asyncio
 import json
 import time
 import uuid
+from datetime import datetime
 from typing import Any, AsyncIterator, Optional
 
 import httpx
@@ -50,66 +51,6 @@ def _sse(event: str, payload: dict) -> dict:
 
 def _error_sse(message: str) -> dict:
     return _sse("error", {"message": message})
-
-
-# --- RAG retrieval ------------------------------------------------------------
-
-async def _rag_retrieve(
-    query: str, sources: list[str], user_email: str
-) -> dict:
-    """
-    Fetch context snippets from the requested sources in parallel. This
-    piggybacks on the existing MCP tools so we stay consistent with how the
-    frontend's tool execution works.
-
-    Returns a dict shaped like the `rag_context` SSE payload.
-    """
-    source_tasks: list[tuple[str, asyncio.Task]] = []
-
-    if "papers" in sources:
-        source_tasks.append((
-            "papers",
-            asyncio.create_task(execute_mcp_tool("paper_search", {"query": query, "top_k": 5})),
-        ))
-    if "web" in sources:
-        source_tasks.append((
-            "web",
-            asyncio.create_task(execute_mcp_tool("web_search", {"query": query, "top_k": 5})),
-        ))
-
-    documents: list[dict] = []
-    sources_used: list[str] = []
-
-    for source, task in source_tasks:
-        try:
-            result = await task
-        except Exception as e:
-            print(f"[WARNING] RAG {source} failed: {e}")
-            continue
-        if not isinstance(result, dict) or "error" in result:
-            continue
-
-        raw_docs = (
-            result.get("results")
-            or result.get("documents")
-            or result.get("papers")
-            or []
-        )
-        if not raw_docs:
-            continue
-        sources_used.append(source)
-        for d in raw_docs[:5]:
-            if not isinstance(d, dict):
-                continue
-            documents.append({
-                "title": d.get("title") or d.get("url") or "result",
-                "source": source,
-                "score": d.get("score"),
-                "doi": d.get("doi"),
-                "content": (d.get("content") or d.get("snippet") or d.get("abstract") or "")[:800],
-            })
-
-    return {"sources_used": sources_used, "documents": documents}
 
 
 # --- vLLM tool-call converters ------------------------------------------------
@@ -234,7 +175,10 @@ async def _stream_vllm_once(
                     choice = choices[0]
                     delta = choice.get("delta") or {}
 
-                    reasoning = delta.get("reasoning_content")
+                    # vLLM's qwen3 reasoning parser emits reasoning on
+                    # `delta.reasoning` (NOT `delta.reasoning_content`).
+                    # Accept both names so we survive a future vLLM rename.
+                    reasoning = delta.get("reasoning") or delta.get("reasoning_content")
                     if reasoning:
                         acc.thinking_parts.append(reasoning)
                         yield ("thinking", {"content": reasoning}, acc)
@@ -321,9 +265,23 @@ async def stream_chat_completion(
     current_conversation_id.set(conversation_id)
 
     system_prompt = persona_module.build_system_prompt(persona)
+
+    # Inject an ambient-context block so the model doesn't waste a tool call
+    # on trivia it should just know (today's date, etc.). Placed before the
+    # agent summaries so the persona prompt still leads.
+    now_local = datetime.now().astimezone()
+    ambient = (
+        f"Current date: {now_local.strftime('%A, %B %d, %Y')} "
+        f"({now_local.strftime('%Y-%m-%d %H:%M %Z')}). "
+        "Use this directly — do not search the web for the date."
+    )
+    system_prompt = (
+        f"{system_prompt}\n\n{ambient}" if system_prompt else ambient
+    )
+
     agent_hint = agents_pkg.agent_summaries_for_prompt()
     if agent_hint:
-        system_prompt = f"{system_prompt}\n\n{agent_hint}" if system_prompt else agent_hint
+        system_prompt = f"{system_prompt}\n\n{agent_hint}"
     sampling = persona_module.sampling_params(persona)
 
     # --- 1. Resolve the conversation ---
@@ -347,21 +305,15 @@ async def stream_chat_completion(
         {"id": conversation["id"], "title": conversation.get("title"), "is_new": is_new},
     )
 
-    # --- 2. Optional RAG retrieval ---
+    # --- 2. RAG is model-driven ---
+    # The main model has paper_search / semantic_scholar_search / web_search /
+    # search_user_docs as MCP tools and picks them itself. We no longer run
+    # a deterministic paper_search before the first turn — that forced every
+    # message to hit the paper corpus even for "what day is it today" style
+    # prompts and surprised the user with irrelevant RAG context. The
+    # `rag_config` argument is accepted for backwards-compat but ignored.
+    _ = rag_config  # kept in signature for API stability
     rag_context: Optional[dict] = None
-    if rag_config and rag_config.get("enabled"):
-        sources = rag_config.get("sources") or ["papers"]
-        try:
-            rag_context = await _rag_retrieve(
-                query=user_message.get("content", ""),
-                sources=sources,
-                user_email=user_email,
-            )
-        except Exception as e:
-            print(f"[WARNING] RAG failed: {e}")
-            rag_context = None
-        if rag_context:
-            yield _sse("rag_context", rag_context)
 
     # --- 3. Persist the user message ---
     await chat_store.add_message(

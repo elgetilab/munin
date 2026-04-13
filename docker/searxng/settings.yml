@@ -50,9 +50,19 @@ ui:
 # Enabled search engines
 engines:
   # General web search
+  #
+  # Google is intentionally disabled: SearXNG scrapes google.com HTML and
+  # Google blocks datacenter IPs (returns empty SERPs or CAPTCHA pages, so
+  # `unresponsive_engines` stays empty but 0 results come back). Startpage
+  # re-serves Google results via a clean proxy and works fine.
   - name: google
     engine: google
     shortcut: g
+    disabled: true
+
+  - name: startpage
+    engine: startpage
+    shortcut: sp
     disabled: false
 
   - name: bing

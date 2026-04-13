@@ -153,7 +153,9 @@ async def execute_agent(agent_config: dict, query: str) -> dict:
             final_text = "Agent failed: vLLM unreachable."
             break
 
-        reasoning = message.get("reasoning_content")
+        # vLLM's qwen3 reasoning parser emits `reasoning` (non-streaming)
+        # or used to emit `reasoning_content` (older builds). Accept either.
+        reasoning = message.get("reasoning") or message.get("reasoning_content")
         if reasoning:
             await _emit("agent_thinking", {"content": reasoning})
 

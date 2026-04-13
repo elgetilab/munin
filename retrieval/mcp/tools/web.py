@@ -30,7 +30,11 @@ async def web_search(query: str, top_k: int = 10) -> dict:
                 params={
                     "q": query,
                     "format": "json",
-                    "engines": "google,duckduckgo,brave",
+                    # Google is excluded on purpose: it silently returns 0
+                    # results from datacenter IPs. Startpage re-serves Google
+                    # results cleanly, so we get Google-quality ranking
+                    # without the scraper arms race.
+                    "engines": "startpage,duckduckgo,brave",
                     "language": "en"
                 }
             )

@@ -16,6 +16,7 @@
 #   sudo ./deploy.sh deepresearch   - scripts/deepresearch/* + systemd unit + MiroThinker model
 #   sudo ./deploy.sh tunnel         - munin-tunnel.service (+ daemon-reload + restart)
 #   sudo ./deploy.sh retrieval      - retrieval/ code, rebuild + restart container
+#   sudo ./deploy.sh searxng        - searxng settings.yml + restart container
 #   sudo ./deploy.sh cleanup        - remove Open WebUI + status-page containers and dirs
 #   sudo ./deploy.sh verify         - smoke-test /api/status and /api/personas
 #   sudo ./deploy.sh --dry-run <mode> - show what would change, do nothing
@@ -35,7 +36,7 @@ fi
 MODE=${1:-}
 if [ -z "$MODE" ]; then
     echo "Usage: sudo $0 [--dry-run] <mode>"
-    echo "Modes: all dirs compose personas agents vllm deepresearch tunnel retrieval cleanup verify"
+    echo "Modes: all dirs compose personas agents vllm deepresearch tunnel retrieval searxng cleanup verify"
     exit 1
 fi
 
@@ -50,6 +51,7 @@ MUNIN_LOGS=$MUNIN_ROOT/logs
 MUNIN_DEEPRESEARCH=$MUNIN_ROOT/deepresearch
 MUNIN_DOCKER=$MUNIN_ROOT/docker
 MUNIN_RETRIEVAL=$MUNIN_ROOT/services/retrieval
+MUNIN_SEARXNG=$MUNIN_ROOT/services/searxng
 
 CLUSTER_SCRIPTS=/opt/cluster/scripts/llm
 SYSTEMD_DIR=/etc/systemd/system
@@ -252,6 +254,28 @@ deploy_tunnel() {
 }
 
 # ------------------------------------------------------------------------------
+# searxng: install settings.yml and restart the container
+# ------------------------------------------------------------------------------
+deploy_searxng() {
+    echo "[searxng] Installing settings.yml..."
+    need_file "$REPO_DIR/docker/searxng/settings.yml"
+    run "install -d -m 0755 $MUNIN_SEARXNG"
+    run "install -m 0644 $REPO_DIR/docker/searxng/settings.yml $MUNIN_SEARXNG/settings.yml"
+
+    if [ "$DRY_RUN" = "0" ]; then
+        if docker info >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -q '^munin-searxng$'; then
+            run "cd $MUNIN_DOCKER && docker compose --profile rag restart searxng"
+            echo "[OK] searxng — config reloaded"
+        else
+            echo "[WARN] munin-searxng not running; bring it up with: docker compose --profile rag up -d searxng"
+        fi
+    else
+        echo "  [dry-run] would docker compose restart searxng"
+    fi
+}
+
+
+# ------------------------------------------------------------------------------
 # retrieval: sync code, rebuild container, restart
 # ------------------------------------------------------------------------------
 deploy_retrieval() {
@@ -411,6 +435,7 @@ case "$MODE" in
     vllm)         deploy_vllm ;;
     deepresearch) deploy_deepresearch ;;
     tunnel)       deploy_tunnel ;;
+    searxng)      deploy_searxng ;;
     retrieval)    deploy_retrieval ;;
     cleanup)      deploy_cleanup ;;
     verify)       deploy_verify ;;
@@ -422,12 +447,13 @@ case "$MODE" in
         deploy_vllm
         deploy_deepresearch
         deploy_tunnel
+        deploy_searxng
         deploy_cleanup
         deploy_retrieval     # ends with deploy_verify
         ;;
     *)
         echo "[ERROR] Unknown mode: $MODE"
-        echo "Modes: all dirs compose personas agents vllm deepresearch tunnel retrieval cleanup verify"
+        echo "Modes: all dirs compose personas agents vllm deepresearch tunnel retrieval searxng cleanup verify"
         exit 1
         ;;
 esac
