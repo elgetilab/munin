@@ -21,6 +21,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 import time
 from dataclasses import dataclass, field
@@ -515,6 +516,169 @@ async def test_maximal_single_message(client):
     return t
 
 
+# ==============================================================================
+# STYLE COMPLIANCE (emojis, em/en dashes, decorative Unicode)
+# ==============================================================================
+# All three personas have an OUTPUT STYLE block that bans these characters.
+# These tests pose prompts that historically trigger them (headered research
+# answers, pros/cons lists, explanatory paragraphs, Curie research queries)
+# and assert the response body contains none.
+# ==============================================================================
+
+# Unicode ranges that count as "decorative" pictograms / emojis / symbols.
+_DECORATIVE_PATTERN = re.compile(
+    "["
+    "\U0001F300-\U0001F5FF"  # Misc Symbols and Pictographs
+    "\U0001F600-\U0001F64F"  # Emoticons
+    "\U0001F680-\U0001F6FF"  # Transport and Map
+    "\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
+    "\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
+    "\u2600-\u26FF"           # Misc Symbols (✓ ✗ ☀ ☂ ...)
+    "\u2700-\u27BF"           # Dingbats (✨ ➡ ❌ ...)
+    "]"
+)
+
+_EM_DASH = "\u2014"
+_EN_DASH = "\u2013"
+
+
+def _find_style_violations(text: str) -> dict:
+    """
+    Scan an assistant message for banned characters. Returns a dict with
+    distinct emoji/symbol codepoints and counts of em/en dashes.
+    """
+    emojis = sorted(set(_DECORATIVE_PATTERN.findall(text or "")))
+    return {
+        "emojis": emojis,
+        "em_dashes": (text or "").count(_EM_DASH),
+        "en_dashes": (text or "").count(_EN_DASH),
+    }
+
+
+def _style_violation_total(v: dict) -> int:
+    return len(v.get("emojis", [])) + v.get("em_dashes", 0) + v.get("en_dashes", 0)
+
+
+def _check_style(res: dict) -> tuple[dict, Optional[str]]:
+    """Shared postcheck for style tests. Returns (violations, reason or None)."""
+    if res.get("http_status", 200) >= 500:
+        return {}, f"server error {res['http_status']}"
+    if res["errors"]:
+        return {}, f"stream error: {res['errors'][0]}"
+    ans = res["content"] or ""
+    if len(ans.strip()) < 50:
+        return {}, f"answer too short to evaluate ({len(ans)} chars)"
+    violations = _find_style_violations(ans)
+    if _style_violation_total(violations) > 0:
+        parts: list[str] = []
+        if violations["emojis"]:
+            parts.append(f"{len(violations['emojis'])} distinct emoji/symbol(s): {violations['emojis']}")
+        if violations["em_dashes"] > 0:
+            parts.append(f"{violations['em_dashes']} em-dash(es)")
+        if violations["en_dashes"] > 0:
+            parts.append(f"{violations['en_dashes']} en-dash(es)")
+        return violations, "; ".join(parts)
+    return violations, None
+
+
+async def test_style_no_emojis_research_headers(client):
+    """
+    A topic that historically produces emoji-decorated headers
+    (🌍 International / 🇺🇸 Domestic / etc.). With the OUTPUT STYLE
+    block, none should appear.
+    """
+    t = TestResult(name="")
+    res = await send_chat(
+        client,
+        "Give me a brief overview of fusion reactor progress in 2025. "
+        "Organize the answer with headers for different aspects: "
+        "international projects, private sector, technology, challenges.",
+    )
+    violations, reason = _check_style(res)
+    t.metrics = {
+        "answer_chars": len(res["content"] or ""),
+        "violations": violations,
+    }
+    if reason:
+        t.reason = reason
+        return t
+    t.passed = True
+    return t
+
+
+async def test_style_no_decorative_in_list(client):
+    """
+    Lists frequently get decorated with ✓ / ✗ / → / ➕ / etc. The OUTPUT
+    STYLE block mandates plain markdown list bullets.
+    """
+    t = TestResult(name="")
+    res = await send_chat(
+        client,
+        "List the pros and cons of molecular dynamics simulations for "
+        "studying lipid bilayers, as two short bulleted lists. No tool calls needed.",
+    )
+    violations, reason = _check_style(res)
+    t.metrics = {
+        "answer_chars": len(res["content"] or ""),
+        "violations": violations,
+    }
+    if reason:
+        t.reason = reason
+        return t
+    t.passed = True
+    return t
+
+
+async def test_style_no_emdashes_in_explanation(client):
+    """
+    Paragraph-form explanations usually produce em dashes for parenthetical
+    insertions. The OUTPUT STYLE block mandates commas/parentheses/semicolons
+    instead.
+    """
+    t = TestResult(name="")
+    res = await send_chat(
+        client,
+        "Briefly explain what a lipid bilayer is and how cholesterol "
+        "affects its fluidity. Use a paragraph of prose, not bullets. "
+        "No tool calls needed.",
+    )
+    violations, reason = _check_style(res)
+    t.metrics = {
+        "answer_chars": len(res["content"] or ""),
+        "violations": violations,
+    }
+    if reason:
+        t.reason = reason
+        return t
+    t.passed = True
+    return t
+
+
+async def test_style_curie_academic_writing(client):
+    """
+    Curie tends to produce long, heavily-formatted research prose, the
+    worst offender for decorative punctuation. Marked heavy because she
+    typically calls deep_research.
+    """
+    t = TestResult(name="")
+    res = await send_chat(
+        client,
+        "Briefly summarize the main approaches to molecular dynamics "
+        "simulation of lipid membranes. Keep it under 400 words.",
+        persona="research",
+    )
+    violations, reason = _check_style(res)
+    t.metrics = {
+        "answer_chars": len(res["content"] or ""),
+        "violations": violations,
+    }
+    if reason:
+        t.reason = reason
+        return t
+    t.passed = True
+    return t
+
+
 async def test_rolling_conversation_compaction(client):
     """
     Drive a multi-turn conversation with heavy per-turn payloads until the
@@ -631,6 +795,10 @@ ALL_TESTS = [
     ("nonsense_trailing", test_nonsense_trailing, False),
     ("maximal_single_message", test_maximal_single_message, True),  # heavy (~25k tokens)
     ("rolling_conversation_compaction", test_rolling_conversation_compaction, True),  # heavy (6 turns × ~50k chars)
+    ("style_no_emojis_research_headers", test_style_no_emojis_research_headers, False),
+    ("style_no_decorative_in_list", test_style_no_decorative_in_list, False),
+    ("style_no_emdashes_in_explanation", test_style_no_emdashes_in_explanation, False),
+    ("style_curie_academic_writing", test_style_curie_academic_writing, True),  # heavy (Curie + deep_research)
 ]
 
 
