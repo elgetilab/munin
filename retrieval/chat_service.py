@@ -444,12 +444,16 @@ async def stream_chat_completion(
                 "content": json.dumps(res["result"])[:8000],
             })
 
-    # --- 4b. Wrap-up: force a final synthesis if the loop exhausted its turn
-    # budget (or produced no content at all) while still holding unused tool
-    # results. Mirrors the pattern in agents/executor.py::execute_agent. We
-    # make a streaming, tools-disabled vLLM call so the user sees the final
-    # answer arrive in real time even though we're past MAX_TURNS.
-    if hit_turn_cap or not final_content.strip():
+    # --- 4b. Wrap-up: force a final synthesis if the loop exhausted its
+    # turn budget, OR the last turn produced no real content. The empty-last-
+    # turn case is important: the model sometimes emits only a "let me look
+    # up X..." preamble on turn N, then stalls with a zero-content turn
+    # N+1 (no tool_calls, no text), which naturally breaks the loop. We
+    # must detect that and force a synthesis — checking `final_content`
+    # (cumulative) would miss it because the preamble already populated
+    # final_content on turn N. Mirrors agents/executor.py::execute_agent.
+    last_turn_content = (acc.content if acc is not None else "").strip()
+    if hit_turn_cap or not last_turn_content:
         wrap_up_messages = list(messages) + [
             {
                 "role": "user",
