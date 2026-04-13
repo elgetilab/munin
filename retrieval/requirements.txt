@@ -1,0 +1,38 @@
+# Munin Retrieval Service Dependencies
+
+# Web framework
+fastapi>=0.104.0
+uvicorn>=0.24.0
+
+# HTTP client
+httpx>=0.25.0
+
+# Vector database
+qdrant-client>=1.7.0
+
+# Graph database
+neo4j>=5.0.0
+
+# Embeddings
+sentence-transformers>=2.2.0
+torch>=2.0.0
+
+# Data validation
+pydantic>=2.0.0
+
+# MCP SSE transport
+sse-starlette>=1.6.0
+
+# Chat persistence
+aiosqlite>=0.19.0
+
+# File uploads (multipart) and document parsing
+python-multipart>=0.0.6
+pypdf>=4.0.0
+python-docx>=1.1.0
+
+# Agent configuration
+pyyaml>=6.0
+
+# Web content extraction
+trafilatura>=1.6.0

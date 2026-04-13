@@ -1,0 +1,160 @@
+# ==============================================================================
+# SEARXNG CONFIGURATION - Munin Research Cluster
+# ==============================================================================
+# Self-hosted meta-search engine for RAG web search
+# Documentation: https://docs.searxng.org/admin/settings/settings.html
+# ==============================================================================
+
+use_default_settings: true
+
+general:
+  instance_name: "Munin Search"
+  debug: false
+  privacypolicy_url: false
+  donation_url: false
+  contact_url: false
+  enable_metrics: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "en"
+  max_page: 0
+  formats:
+    - html
+    - json
+
+# Categories as tabs in UI
+categories_as_tabs:
+  general:
+  science:
+  images:
+  files:
+  it:
+
+server:
+  # Only accessible from localhost (via Docker network)
+  bind_address: "0.0.0.0"
+  port: 8080
+  secret_key: "${SEARXNG_SECRET}"
+  limiter: false  # Disable rate limiting for internal use
+  image_proxy: false
+  method: "GET"
+
+ui:
+  static_use_hash: true
+  default_theme: simple
+  theme_args:
+    simple_style: dark
+
+# Enabled search engines
+engines:
+  # General web search
+  - name: google
+    engine: google
+    shortcut: g
+    disabled: false
+
+  - name: bing
+    engine: bing
+    shortcut: b
+    disabled: true  # Disabled: returns unrelated results
+
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+
+  # Academic/Scientific - Preprint Servers
+  - name: arxiv
+    engine: arxiv
+    shortcut: ar
+    disabled: false
+    categories: [science]
+
+  - name: biorxiv
+    engine: biorxiv
+    shortcut: bx
+    disabled: false
+    categories: [science]
+
+  - name: medrxiv
+    engine: medrxiv
+    shortcut: mx
+    disabled: false
+    categories: [science]
+
+  # Academic/Scientific - Search Engines & Databases
+  - name: google scholar
+    engine: google_scholar
+    shortcut: gs
+    disabled: false
+    categories: [science]
+
+  - name: semantic scholar
+    engine: semantic_scholar
+    shortcut: ss
+    disabled: false
+    categories: [science]
+
+  - name: pubmed
+    engine: pubmed
+    shortcut: pm
+    disabled: false
+    categories: [science]
+
+  - name: crossref
+    engine: crossref
+    shortcut: cr
+    disabled: false
+    categories: [science]
+
+  - name: openalex
+    engine: openalex
+    shortcut: oa
+    disabled: false
+    categories: [science]
+
+  - name: base
+    engine: base
+    shortcut: ba
+    disabled: false
+    categories: [science]
+
+  # Reference
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: w
+    disabled: false
+
+  - name: wikidata
+    engine: wikidata
+    shortcut: wd
+    disabled: false
+
+  # Code/Tech
+  - name: github
+    engine: github
+    shortcut: gh
+    disabled: false
+
+  - name: stackoverflow
+    engine: stackoverflow
+    shortcut: so
+    disabled: false
+
+# Outgoing requests
+outgoing:
+  request_timeout: 10.0
+  max_request_timeout: 30.0
+  useragent_suffix: ""
+  pool_connections: 100
+  pool_maxsize: 20
+  enable_http2: true
+
+# Disable features not needed for RAG
+enabled_plugins: []
+
+# Result settings
+result_proxy:
+  url: null

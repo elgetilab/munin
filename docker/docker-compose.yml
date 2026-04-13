@@ -1,0 +1,140 @@
+# ==============================================================================
+# MUNIN SERVICES - Docker Compose
+# ==============================================================================
+# Always-on services for the Munin research cluster.
+# vLLM is started separately by SLURM job.
+# ==============================================================================
+
+services:
+  # ============================================================================
+  # QDRANT - Vector database for paper embeddings
+  # ============================================================================
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: munin-qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
+    volumes:
+      - /opt/munin/knowledge/qdrant_storage:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+
+  # ============================================================================
+  # NEO4J - Graph database for citations and author networks
+  # ============================================================================
+  neo4j:
+    image: neo4j:5-community
+    container_name: munin-neo4j
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+    volumes:
+      - /opt/munin/knowledge/neo4j_data:/data
+      - /opt/munin/knowledge/neo4j_logs:/logs
+    environment:
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-munin-neo4j-password}
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+      - NEO4J_dbms_memory_heap_initial__size=512m
+      - NEO4J_dbms_memory_heap_max__size=1G
+
+  # ============================================================================
+  # GROBID - Scientific PDF parsing
+  # ============================================================================
+  grobid:
+    image: lfoppiano/grobid:0.8.0
+    container_name: munin-grobid
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8070:8070"
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+
+  # ============================================================================
+  # SEARXNG - Self-hosted meta-search engine (free web search)
+  # ============================================================================
+  searxng:
+    image: searxng/searxng:latest
+    container_name: munin-searxng
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8888:8080"
+    volumes:
+      - /opt/munin/services/searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8888
+      - SEARXNG_SECRET=${SEARXNG_SECRET:-munin-searxng-secret-key}
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+
+  # ============================================================================
+  # RETRIEVAL SERVICE - RAG API for multiple knowledge bases
+  # ============================================================================
+  retrieval:
+    build:
+      context: /opt/munin/services/retrieval
+      dockerfile: Dockerfile
+    image: munin-retrieval:latest
+    container_name: munin-retrieval
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Allows container to reach host services
+    volumes:
+      - /opt/munin/data/models/bge-base:/models/bge-base:ro
+      - /opt/munin/data/models/specter:/models/specter:ro
+      - /opt/munin/data/papers/pdf:/papers:ro
+      # Persona definitions (chat personas + logos)
+      - /opt/munin/personas:/app/personas:ro
+      # Agent registry (agents.yml)
+      - /opt/munin/config:/app/config:ro
+      # Chat persistence (SQLite) and user document store
+      - /opt/munin/data:/data:rw
+      - /opt/munin/data/user_docs:/data/user_docs:rw
+      # Deep Research volumes
+      - /opt/munin/deepresearch/queue:/deepresearch/queue:rw
+      - /opt/munin/deepresearch/jobs:/deepresearch/jobs:ro
+      - /opt/munin/deepresearch:/deepresearch/status:ro
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-munin-neo4j-password}
+      - SEARXNG_URL=http://searxng:8080
+      - SPECTER_MODEL_PATH=/models/specter
+      - BGE_MODEL_PATH=/models/bge-base
+      - PAPERS_PDF_DIR=/papers
+      # Chat persistence + user docs
+      - CHATS_DB_PATH=/data/chats.db
+      - USER_DOCS_DIR=/data/user_docs
+      # Deep Research environment
+      - DEEPRESEARCH_QUEUE_DIR=/deepresearch/queue
+      - DEEPRESEARCH_JOBS_DIR=/deepresearch/jobs
+      - SLURM_QUEUE_FILE=/deepresearch/status/slurm_queue.json
+      # vLLM for MCP tools (llm_summarize, web_fetch with summarize)
+      # Uses host.docker.internal to reach vLLM running on host
+      - VLLM_URL=http://<cluster-lan-ip>:8000
+      - VLLM_MODEL_NAME=qwen3.5-35b-a3b
+      # Semantic Scholar API (for semantic_scholar_search tool)
+      - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
+    depends_on:
+      - qdrant
+      - neo4j
+      - searxng
+    profiles:
+      - rag  # Start with: docker compose --profile rag up
+
+networks:
+  default:
+    name: munin-network

@@ -1,0 +1,22 @@
+[Unit]              
+Description=Munin reverse SSH tunnel to VPS                                                                         After=network-online.target                                                                                         Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Environment=AUTOSSH_GATETIME=0
+Environment=AUTOSSH_POLL=30
+ExecStart=/usr/bin/autossh -M 0 -N \
+    -o "ServerAliveInterval=15" \
+    -o "ServerAliveCountMax=3" \
+    -o "ExitOnForwardFailure=yes" \
+    -o "StrictHostKeyChecking=accept-new" \
+    -i /root/.ssh/munin_tunnel \
+    -R 127.0.0.1:13000:localhost:3000 \
+    -R 127.0.0.1:18080:localhost:8080 \
+    tunnel@<vps-host>
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

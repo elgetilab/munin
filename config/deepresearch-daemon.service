@@ -1,0 +1,38 @@
+[Unit]
+Description=Deep Research Queue Daemon
+Documentation=https://github.com/your-repo/HuginSLURM
+After=network.target slurmd.service
+Wants=slurmd.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+
+# Main process
+ExecStart=/usr/bin/python3 /opt/cluster/scripts/llm/deepresearch-daemon.py
+
+# Environment
+Environment="DEEPRESEARCH_QUEUE_DIR=/opt/munin/deepresearch/queue"
+Environment="DEEPRESEARCH_JOBS_DIR=/opt/munin/deepresearch/jobs"
+Environment="SLURM_QUEUE_FILE=/opt/munin/deepresearch/slurm_queue.json"
+Environment="DEEPRESEARCH_JOB_SCRIPT=/opt/cluster/scripts/llm/deepresearch-job.sh"
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=deepresearch-daemon
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/munin/deepresearch
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
