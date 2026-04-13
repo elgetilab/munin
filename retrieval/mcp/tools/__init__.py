@@ -22,6 +22,7 @@ from .papers import (
 from .llm import llm_summarize
 from .documents import search_user_docs
 from .agents import invoke_agent
+from .research import deep_research
 
 __all__ = [
     "web_search",
@@ -37,4 +38,5 @@ __all__ = [
     "llm_summarize",
     "search_user_docs",
     "invoke_agent",
+    "deep_research",
 ]

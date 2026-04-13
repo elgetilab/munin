@@ -362,19 +362,18 @@ async def semantic_scholar_search(
     }
 
 
-async def paper_lookup(doi: str) -> dict:
+CROSSREF_BASE_URL = "https://api.crossref.org"
+
+
+def _paper_lookup_local(doi: str) -> Optional[dict]:
     """
-    Look up detailed paper information by DOI.
-
-    Args:
-        doi: Paper DOI
-
-    Returns:
-        Dict with paper metadata or error
+    Try the local Qdrant papers corpus. Returns None on miss. This is the
+    fastest source and is the only one that carries citation-graph counts
+    from our Neo4j mirror, so we prefer it when available.
     """
     qdrant = get_qdrant()
     if not qdrant:
-        return {"error": "Vector database not available"}
+        return None
 
     try:
         from qdrant_client.models import Filter, FieldCondition, MatchValue
@@ -385,32 +384,215 @@ async def paper_lookup(doi: str) -> dict:
                 must=[FieldCondition(key="doi", match=MatchValue(value=doi))]
             ),
             limit=1,
-            with_payload=True
+            with_payload=True,
         )
-
         if not results[0]:
-            return {"error": f"Paper not found: {doi}"}
+            return None
 
-        paper_data = results[0][0].payload
+        payload = results[0][0].payload or {}
         citation_info = get_citation_counts([doi]).get(doi, {})
 
-        authors = paper_data.get("authors", [])
+        authors = payload.get("authors", [])
         if isinstance(authors, list):
             authors = [a if isinstance(a, str) else a.get("name", "") for a in authors]
 
         return {
-            "title": paper_data.get("title"),
+            "title": payload.get("title"),
             "doi": doi,
             "authors": authors,
-            "year": paper_data.get("year"),
-            "journal": paper_data.get("journal"),
-            "abstract": paper_data.get("abstract"),
+            "year": payload.get("year"),
+            "journal": payload.get("journal"),
+            "abstract": payload.get("abstract"),
             "citation_count": citation_info.get("citation_count", 0),
-            "reference_count": citation_info.get("reference_count", 0)
+            "reference_count": citation_info.get("reference_count", 0),
+            "source": "local",
         }
-
     except Exception as e:
-        return {"error": f"Paper lookup failed: {str(e)}"}
+        print(f"[WARNING] local paper_lookup failed for {doi}: {e}")
+        return None
+
+
+async def _paper_lookup_semantic_scholar(doi: str) -> Optional[dict]:
+    """
+    Try Semantic Scholar's `/graph/v1/paper/DOI:{doi}` endpoint. Returns None
+    on 404 or any error. S2 has the richest metadata (TLDR, abstract,
+    citation counts, open-access PDF links) when it has the paper at all.
+    """
+    fields = (
+        "paperId,title,authors,year,citationCount,abstract,externalIds,"
+        "journal,tldr,venue,openAccessPdf,publicationTypes"
+    )
+    headers = {}
+    if SEMANTIC_SCHOLAR_API_KEY:
+        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(
+                f"{SEMANTIC_SCHOLAR_BASE_URL}/paper/DOI:{quote(doi, safe='')}",
+                params={"fields": fields},
+                headers=headers,
+            )
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            paper = response.json()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 429:
+            print(f"[WARNING] semantic_scholar paper_lookup rate limited for {doi}")
+        else:
+            print(f"[WARNING] semantic_scholar paper_lookup HTTP {e.response.status_code} for {doi}")
+        return None
+    except Exception as e:
+        print(f"[WARNING] semantic_scholar paper_lookup failed for {doi}: {e}")
+        return None
+
+    if not paper or not paper.get("title"):
+        return None
+
+    authors: list[str] = []
+    for author in (paper.get("authors") or [])[:15]:
+        name = author.get("name", "")
+        if name:
+            authors.append(name)
+
+    tldr = ""
+    if paper.get("tldr") and paper["tldr"].get("text"):
+        tldr = paper["tldr"]["text"]
+
+    oa_pdf = (paper.get("openAccessPdf") or {}).get("url", "")
+    journal_name = (paper.get("journal") or {}).get("name") or paper.get("venue") or ""
+
+    return {
+        "title": paper.get("title"),
+        "doi": doi,
+        "authors": authors,
+        "year": paper.get("year"),
+        "journal": journal_name,
+        "abstract": (paper.get("abstract") or "").strip() or None,
+        "tldr": tldr or None,
+        "citation_count": paper.get("citationCount", 0),
+        "open_access_pdf": oa_pdf or None,
+        "semantic_scholar_id": paper.get("paperId"),
+        "external_ids": paper.get("externalIds") or {},
+        "source": "semantic_scholar",
+    }
+
+
+async def _paper_lookup_crossref(doi: str) -> Optional[dict]:
+    """
+    Try Crossref's `/works/{doi}` endpoint. Returns None on 404 or any error.
+    Crossref is the most reliable source for recent DOIs (it's the DOI
+    registry for most publishers) but has the sparsest metadata — no TLDR,
+    abstracts are often missing or HTML-wrapped.
+    """
+    import re
+
+    headers = {
+        "User-Agent": (
+            "MuninBot/1.0 (https://muninai.org; mailto:research@muninai.org)"
+        )
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(
+                f"{CROSSREF_BASE_URL}/works/{quote(doi, safe='')}",
+                headers=headers,
+            )
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            data = response.json()
+    except Exception as e:
+        print(f"[WARNING] crossref paper_lookup failed for {doi}: {e}")
+        return None
+
+    msg = data.get("message") or {}
+    title_list = msg.get("title") or []
+    title = title_list[0] if title_list else None
+    if not title:
+        return None
+
+    authors: list[str] = []
+    for author in (msg.get("author") or [])[:15]:
+        given = (author.get("given") or "").strip()
+        family = (author.get("family") or "").strip()
+        name = f"{given} {family}".strip()
+        if name:
+            authors.append(name)
+
+    year = None
+    for field in ("issued", "published-print", "published", "created"):
+        date_parts = ((msg.get(field) or {}).get("date-parts") or [[None]])
+        first = date_parts[0] if date_parts else None
+        if first and first[0]:
+            year = first[0]
+            break
+
+    container = msg.get("container-title") or []
+    journal = container[0] if container else ""
+
+    abstract = (msg.get("abstract") or "").strip()
+    if abstract:
+        # Crossref abstracts are wrapped in <jats:p> et al.
+        abstract = re.sub(r"<[^>]+>", " ", abstract)
+        abstract = re.sub(r"\s+", " ", abstract).strip()
+
+    return {
+        "title": title,
+        "doi": doi,
+        "authors": authors,
+        "year": year,
+        "journal": journal,
+        "abstract": abstract or None,
+        "citation_count": msg.get("is-referenced-by-count", 0),
+        "type": msg.get("type"),
+        "publisher": msg.get("publisher"),
+        "source": "crossref",
+    }
+
+
+async def paper_lookup(doi: str) -> dict:
+    """
+    Look up detailed paper information by DOI, cascading through sources:
+
+        1. Local Qdrant papers corpus (fast, has citation graph from Neo4j)
+        2. Semantic Scholar /graph/v1/paper/DOI:{doi} (richest metadata)
+        3. Crossref /works/{doi} (most reliable for recent DOIs)
+
+    Returns the first successful lookup with the originating source marked
+    in the `source` field. Fails only if all three sources miss.
+
+    Args:
+        doi: Paper DOI (case-insensitive, slashes preserved).
+
+    Returns:
+        Dict with paper metadata + source field, or {"error": "..."} if
+        the DOI could not be resolved anywhere.
+    """
+    doi = (doi or "").strip()
+    if not doi:
+        return {"error": "paper_lookup requires a non-empty DOI"}
+
+    local = _paper_lookup_local(doi)
+    if local and local.get("title"):
+        return local
+
+    s2 = await _paper_lookup_semantic_scholar(doi)
+    if s2 and s2.get("title"):
+        return s2
+
+    crossref = await _paper_lookup_crossref(doi)
+    if crossref and crossref.get("title"):
+        return crossref
+
+    return {
+        "error": (
+            f"Paper not found in local corpus, Semantic Scholar, or Crossref: {doi}"
+        ),
+        "doi": doi,
+    }
 
 
 async def get_citations(doi: str, limit: int = 20) -> dict:

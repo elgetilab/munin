@@ -18,6 +18,7 @@ from .tools import (
     llm_summarize,
     search_user_docs,
     invoke_agent,
+    deep_research,
 )
 
 
@@ -107,6 +108,11 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
             agent = arguments.get("agent", "")
             query = arguments.get("query", "")
             return await invoke_agent(agent, query)
+
+        elif tool_name == "deep_research":
+            question = arguments.get("question", "")
+            depth = arguments.get("depth", "medium")
+            return await deep_research(question, depth)
 
         else:
             return {"error": f"Unknown tool: {tool_name}"}

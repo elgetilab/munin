@@ -84,7 +84,7 @@ MCP_TOOLS = {
     },
     "paper_lookup": {
         "name": "paper_lookup",
-        "description": "Look up detailed information about a specific paper by DOI. Returns full metadata including title, authors, journal, year, abstract, and citation counts.",
+        "description": "Look up detailed information about a specific paper by DOI. Cascades through three sources in order: (1) local Qdrant papers corpus — fastest, carries citation-graph counts from Neo4j, (2) Semantic Scholar — richest metadata with TLDR summaries and open-access PDF links when available, (3) Crossref — most reliable for recent DOIs. The `source` field in the response tells you which source the data came from. Only fails if all three miss. Safe to call on any DOI; no need to restrict to papers in the local corpus.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -259,6 +259,26 @@ MCP_TOOLS = {
                 }
             },
             "required": ["agent", "query"]
+        }
+    },
+    "deep_research": {
+        "name": "deep_research",
+        "description": "One-shot composite research tool. Decomposes a research question into sub-questions, expands each into search query variants, fans out across the local paper corpus + Semantic Scholar + the web in parallel, and fetches + map-reduce-summarises the top web pages — all in a single deterministic call. Returns a structured dict with {sub_questions, queries_executed, papers, web_sources, web_summaries, sources_used}. USE THIS INSTEAD OF CALLING web_search / paper_search / web_fetch SEPARATELY when the user asks a substantive research question (\"tell me about X\", \"what's the state of the art in Y\", \"find papers about Z and summarise them\"). Much more efficient than firing individual tool calls because it reuses the same query pool across all three sources and runs everything in parallel. For short factual lookups or single-source queries, still prefer the individual search tools — deep_research is heavier. Use depth=\"deep\" for exhaustive coverage (5 sub-questions, 5 fetches); default \"medium\" (3 sub-questions, 3 fetches) is the right choice for most questions.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": "The research question or topic to investigate. Should be a full question or topic, not a single search term."
+                },
+                "depth": {
+                    "type": "string",
+                    "enum": ["medium", "deep"],
+                    "description": "Coverage level. 'medium' = 3 sub-questions, 3 web fetches (~15-30s). 'deep' = 5 sub-questions, 5 web fetches (~30-90s). Default: medium.",
+                    "default": "medium"
+                }
+            },
+            "required": ["question"]
         }
     }
 }
