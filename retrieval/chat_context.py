@@ -67,7 +67,15 @@ def _rag_context_to_text(rag_context: Optional[dict]) -> str:
 
 
 async def _call_vllm(messages: list[dict], max_tokens: int) -> Optional[str]:
-    """Call vLLM /v1/chat/completions non-streaming. Returns text or None."""
+    """
+    Call vLLM /v1/chat/completions non-streaming. Returns text or None.
+
+    Qwen3's default reasoning phase would otherwise consume the entire
+    token budget for simple tasks like summarisation and title generation,
+    returning empty content and silently breaking compaction. We disable
+    thinking via chat_template_kwargs — same fix applied to
+    query_expansion.py and mcp/tools/llm.py.
+    """
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             r = await client.post(
@@ -78,6 +86,7 @@ async def _call_vllm(messages: list[dict], max_tokens: int) -> Optional[str]:
                     "max_tokens": max_tokens,
                     "temperature": 0.3,
                     "stream": False,
+                    "chat_template_kwargs": {"enable_thinking": False},
                 },
             )
             if r.status_code != 200:
@@ -86,7 +95,8 @@ async def _call_vllm(messages: list[dict], max_tokens: int) -> Optional[str]:
             choices = data.get("choices") or []
             if not choices:
                 return None
-            return (choices[0].get("message") or {}).get("content")
+            content = (choices[0].get("message") or {}).get("content")
+            return content if content else None
     except Exception:
         return None
 

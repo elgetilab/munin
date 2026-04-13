@@ -466,6 +466,150 @@ async def test_nonsense_trailing(client):
     return t
 
 
+async def test_maximal_single_message(client):
+    """
+    Push a single user message close to the model's context window. With
+    MAX_CONTEXT=60000 and GENERATION_RESERVE=8000, a ~25k-token (~100k-char)
+    user message still fits but leaves thin headroom — this exercises the
+    context-assembly arithmetic without tripping compaction (no history).
+    """
+    t = TestResult(name="")
+    preamble = (
+        "Here is a long technical context I want you to help me with. Please "
+        "read carefully and then answer the question at the end.\n\n"
+    )
+    # Build ~100k chars of coherent-ish technical filler.
+    fact = (
+        "Kinase inhibitors interact with lipid bilayers through "
+        "hydrophobic embedding, hydrogen bonding with phosphate groups, "
+        "and electrostatic interactions with lipid headgroups. "
+        "The depth of insertion depends on molecular weight, logP, and "
+        "polar surface area. Sunitinib embeds more deeply than erlotinib "
+        "despite lower logP, due to structural planarity. "
+    )
+    filler = fact * 300  # ~300 * 330 chars ≈ 99k chars
+    question = (
+        "\n\nQuestion: In three bullet points, what are the key physicochemical "
+        "determinants of membrane embedding for small molecule kinase inhibitors?"
+    )
+    msg = preamble + filler + question
+    res = await send_chat(client, msg)
+    ans = res["content"].strip()
+    t.metrics = {
+        "message_chars": len(msg),
+        "approx_message_tokens": len(msg) // 4,
+        "answer_chars": len(ans),
+        "tool_calls": len(res["tool_calls"]),
+        "errors": res["errors"],
+    }
+    if res.get("http_status", 200) >= 500:
+        t.reason = f"server error {res['http_status']}"
+        return t
+    if res["errors"]:
+        t.reason = f"stream error: {res['errors'][0]}"
+        return t
+    if len(ans) < MIN_ANSWER_CHARS:
+        t.reason = f"answer too short ({len(ans)} chars)"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_rolling_conversation_compaction(client):
+    """
+    Drive a multi-turn conversation with heavy per-turn payloads until the
+    accumulated history forces `chat_context.assemble_context` to run its
+    summary compaction path. After the final turn, fetch the conversation
+    via /api/chats/{id} and check whether `summary` / `summary_through_index`
+    were populated — that's the signal that compaction actually fired.
+
+    Budget math:
+      MAX_CONTEXT 60000 - RESERVE 8000 - system ~1500 - new_msg ~11000
+        = ~39500 tokens ≈ 158k chars of history budget
+      Each turn contributes ~50k-char user + ~4k assistant ≈ 54k chars
+      → compaction should fire around turn 4-5.
+    """
+    t = TestResult(name="")
+    conv_id = None
+    topics = [
+        "lipid bilayer fluidity and phase behaviour",
+        "membrane protein lateral diffusion",
+        "cholesterol's role in raft formation",
+        "phosphoinositide signalling at membranes",
+        "GPCR conformational dynamics on bilayers",
+        "ion channel gating mechanisms",
+    ]
+    # ~45k chars of coherent filler per turn.
+    padding_sentence = (
+        "Background context I've been reading: membrane biophysics relies on "
+        "biophysical techniques (NMR, EPR, fluorescence, scattering) to probe "
+        "bilayer structure, phase behaviour, and protein-lipid coupling. Key "
+        "concepts include liquid-ordered vs liquid-disordered phases, domain "
+        "formation, hydrophobic mismatch, and lipid composition effects. "
+    )
+    padding = padding_sentence * 160  # ~160 * 310 chars ≈ 50k chars
+
+    turn_lengths: list[int] = []
+    for i, topic in enumerate(topics):
+        msg = f"Briefly explain {topic}. {padding}"
+        res = await send_chat(client, msg, conv_id)
+        conv_id = res["conversation_id"]
+        if res["errors"]:
+            t.reason = f"turn {i + 1}/{len(topics)} stream error: {res['errors'][0]}"
+            t.metrics = {"turn_lengths": turn_lengths}
+            return t
+        if res.get("http_status", 200) >= 500:
+            t.reason = f"turn {i + 1} server error {res['http_status']}"
+            t.metrics = {"turn_lengths": turn_lengths}
+            return t
+        ans_len = len(res["content"].strip())
+        turn_lengths.append(ans_len)
+        if ans_len < MIN_ANSWER_CHARS:
+            t.reason = f"turn {i + 1} produced {ans_len}-char answer"
+            t.metrics = {"turn_lengths": turn_lengths}
+            return t
+
+    # Fetch the conversation row to inspect the summary field.
+    try:
+        conv_resp = await client.get(
+            f"{BASE}/api/chats/{conv_id}",
+            headers={"X-Munin-Email": EMAIL},
+            timeout=30,
+        )
+    except Exception as e:
+        t.reason = f"GET /api/chats/{{id}} raised: {e}"
+        t.metrics = {"turn_lengths": turn_lengths}
+        return t
+
+    if conv_resp.status_code != 200:
+        t.reason = f"GET /api/chats returned {conv_resp.status_code}"
+        t.metrics = {"turn_lengths": turn_lengths}
+        return t
+
+    conv = conv_resp.json()
+    summary = conv.get("summary") or ""
+    through = conv.get("summary_through_index")
+    n_msgs = len(conv.get("messages") or [])
+
+    t.metrics = {
+        "turn_lengths": turn_lengths,
+        "total_messages_persisted": n_msgs,
+        "compaction_fired": bool(summary),
+        "summary_through_index": through,
+        "summary_chars": len(summary),
+        "summary_preview": (summary[:180] + "...") if len(summary) > 180 else summary,
+    }
+    # We don't hard-fail on "compaction didn't fire" — if every turn produced
+    # a coherent answer, the context path is exercised either way. We just
+    # surface the signal for the operator to read.
+    t.passed = True
+    if not summary:
+        t.reason = "compaction did not fire (see metrics)"
+    else:
+        t.reason = f"compaction fired at index {through}, summary {len(summary)} chars"
+    return t
+
+
 # ==============================================================================
 # MAIN
 # ==============================================================================
@@ -485,6 +629,8 @@ ALL_TESTS = [
     ("bare_url", test_bare_url, True),  # heavy (fetches wikipedia)
     ("mixed_languages", test_mixed_languages, False),
     ("nonsense_trailing", test_nonsense_trailing, False),
+    ("maximal_single_message", test_maximal_single_message, True),  # heavy (~25k tokens)
+    ("rolling_conversation_compaction", test_rolling_conversation_compaction, True),  # heavy (6 turns × ~50k chars)
 ]
 
 
