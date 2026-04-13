@@ -347,7 +347,8 @@ async def stream_chat_completion(
     final_usage: Optional[dict] = None
     finish_reason: Optional[str] = None
 
-    MAX_TURNS = 5
+    MAX_TURNS = 10
+    hit_turn_cap = True  # assume exhaustion unless we break cleanly below
     for turn in range(MAX_TURNS):
         acc: Optional[_StreamAccumulator] = None
         stream_error: Optional[str] = None
@@ -376,6 +377,7 @@ async def stream_chat_completion(
 
         tool_calls = acc.finalized_tool_calls()
         if not tool_calls:
+            hit_turn_cap = False
             break
 
         # Execute all tool calls for this turn in parallel, with a side
@@ -442,8 +444,43 @@ async def stream_chat_completion(
                 "content": json.dumps(res["result"])[:8000],
             })
 
-        if turn == MAX_TURNS - 1:
-            break
+    # --- 4b. Wrap-up: force a final synthesis if the loop exhausted its turn
+    # budget (or produced no content at all) while still holding unused tool
+    # results. Mirrors the pattern in agents/executor.py::execute_agent. We
+    # make a streaming, tools-disabled vLLM call so the user sees the final
+    # answer arrive in real time even though we're past MAX_TURNS.
+    if hit_turn_cap or not final_content.strip():
+        wrap_up_messages = list(messages) + [
+            {
+                "role": "user",
+                "content": (
+                    "You have reached your tool-use budget. Based on the "
+                    "tool results you have gathered so far, write your "
+                    "final answer to the user now. Do not call any more "
+                    "tools. Be specific and cite sources (DOIs, URLs) from "
+                    "the tool results where possible."
+                ),
+            }
+        ]
+
+        wrap_acc: Optional[_StreamAccumulator] = None
+        async for event_name, payload, accumulator in _stream_vllm_once(
+            messages=wrap_up_messages, sampling=sampling, enable_tools=False
+        ):
+            wrap_acc = accumulator
+            if event_name == "error":
+                yield _sse("error", payload)
+                continue
+            # `tool_call` frames can't happen here because enable_tools=False,
+            # but we pass everything else (thinking/token) straight through.
+            yield _sse(event_name, payload)
+
+        if wrap_acc is not None:
+            final_thinking += wrap_acc.thinking
+            final_content += wrap_acc.content
+            if wrap_acc.usage:
+                final_usage = wrap_acc.usage
+            finish_reason = wrap_acc.finish_reason or finish_reason
 
     # --- 5. Persist assistant message ---
     await chat_store.add_message(
