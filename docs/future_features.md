@@ -1643,29 +1643,968 @@ Schema entries. Executor dispatch. Test plan. **Half a day total.**
 
 ---
 
-## Updated priority order (agreed 2026-04-13)
+## 21. Projects — persistent scoped workspaces
+
+### Problem
+
+Research is organized into projects, but conversations are not. Every
+new chat starts from zero — the model has no idea that you're
+finishing a PhD on kinase inhibitors, that your reference corpus is
+the 40 PDFs you uploaded last month, that you only care about papers
+from 2023+. Users end up re-establishing context constantly.
+
+### Design
+
+A **Project** is a top-level organizational unit owned by one user,
+consisting of:
+
+- A name, description, and optional long-form instructions
+- A set of conversations (many-to-one)
+- A set of scoped documents (many-to-one, separate from the user's
+  global document store)
+- Optional default persona override
+- Created/updated timestamps
+
+Conversations can live outside a project (legacy conversations stay
+where they are; "Unfiled" is the default). When a conversation is
+moved into a project, it inherits the project's context for every
+subsequent turn.
+
+### Schema
+
+```sql
+CREATE TABLE projects (
+    id TEXT PRIMARY KEY,
+    user_email TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    instructions TEXT,                -- long-form "about this project"
+    default_persona TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+ALTER TABLE conversations ADD COLUMN project_id TEXT REFERENCES projects(id);
+CREATE INDEX idx_conversations_project ON conversations(project_id);
+
+-- Project-scoped documents live alongside user-scoped ones:
+-- document_store already has payload.conversation_id; add payload.project_id.
+-- Existing user docs (no project) continue to work as before.
+```
+
+Migration is idempotent (the `ALTER TABLE ADD COLUMN` runs on startup
+if missing, same pattern as §16).
+
+### Context injection in `chat_service`
+
+When a conversation has a `project_id`, extend `assemble_context` to
+prepend a project context block to the system prompt:
+
+```
+=== PROJECT CONTEXT ===
+You are working inside project "Kinase Inhibitor Thesis".
+
+Description: Finishing a PhD on small-molecule kinase inhibitors
+interacting with lipid membranes.
+
+Instructions: Prefer papers from 2023 onwards. Always cite with DOIs.
+I know biophysics well, skip basic explanations.
+
+The user has uploaded 40 project documents, searchable via
+search_user_docs (automatically scoped to this project).
+=== END PROJECT CONTEXT ===
+```
+
+`search_user_docs` gets a new optional `project_id` parameter that
+defaults to the current conversation's project (via contextvar).
+Passing `project_id=None` searches the user's global docs only;
+passing a specific project scopes there; no arg searches project docs
+first, falling back to global.
+
+### New endpoints
+
+```
+POST   /api/projects                → create
+GET    /api/projects                → list user's projects
+GET    /api/projects/{id}           → load, with conversation + doc counts
+PATCH  /api/projects/{id}           → rename, update instructions, set default persona
+DELETE /api/projects/{id}           → delete (plus cascading conversation unfile — conversations are orphaned into the "Unfiled" bucket, not deleted)
+
+POST   /api/projects/{id}/conversations/{cid}   → file a conversation into a project
+DELETE /api/projects/{id}/conversations/{cid}   → unfile back to unorganized
+```
+
+Documents are filed into a project at upload time via an optional
+`project_id` form field on `POST /api/documents/upload`.
+
+### MCP tools
+
+```python
+list_projects() -> dict                   # so the model can reference others
+get_current_project() -> dict             # for "what project am I in?" questions
+search_project_docs(query, top_k=5)       # alias for search_user_docs scoped to project
+```
+
+### Frontend changes (not in this repo)
+
+- Sidebar: top-level "Projects" section above the conversation list,
+  each project expands to show its conversations
+- Project picker / settings page with instructions textarea
+- File upload zone scoped to the active project
+- "Move to project" right-click on a conversation
+
+### Test plan
+
+- `test_create_and_list_project`: CRUD roundtrip
+- `test_conversation_filed_in_project`: create project, create
+  conversation with `project_id`, verify GET conversation includes
+  project metadata
+- `test_project_instructions_injected`: set project instructions,
+  send a chat, assert the system prompt (via tool_call inspection)
+  contained the instructions
+- `test_project_docs_scoped_search`: upload doc A to project P,
+  upload doc B unscoped, search inside project P, assert only A
+  returns
+- `test_cross_project_isolation`: user's project A docs don't leak
+  into project B
+
+### Effort
+
+~1 week. Breakdown:
+
+- Schema + migration: 30 min
+- CRUD endpoints: 3 h
+- `chat_service` context injection: 2 h
+- `search_user_docs` project scoping: 1 h
+- Project-aware document upload: 1 h
+- MCP tools: 1 h
+- Tests: 3 h
+- Frontend (separate repo): 2-3 days
+
+### Open questions
+
+- **Project instructions token cost**: injecting on every turn adds
+  to context overhead. Cap at 2000 chars per project. UI should
+  warn if the user writes more.
+- **Shared projects** (multi-user collab): NO for v1. Single-user
+  projects only. Revisit if users ask.
+- **Archive vs delete**: should projects have an "archived" state
+  that hides them without deleting? Probably yes; add a `archived`
+  boolean column.
+- **Project export**: should users be able to export a project (all
+  conversations + docs + instructions) as a tarball for backup? Nice
+  to have, not required.
+
+---
+
+## 22. Artifacts — iterative document side panel
+
+### Problem
+
+When the model produces a document, code snippet, LaTeX manuscript,
+or SVG diagram, it currently dumps the whole thing inline. Users
+iterate by scrolling through 15 near-identical copies across the
+chat history. There's no concept of "the current version of the
+abstract I'm working on". Research writing workflows are the biggest
+victim — papers, grant proposals, reviewer responses all benefit
+enormously from an edit-in-place surface.
+
+### Design
+
+An **artifact** is a versioned document associated with a
+conversation. The model can create new artifacts, read existing
+ones, and produce new versions. The frontend renders them in a side
+panel with version history.
+
+### Schema
+
+```sql
+CREATE TABLE artifacts (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    user_email TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content_type TEXT NOT NULL,  -- "text/markdown", "text/latex",
+                                 -- "application/python", "image/svg+xml", ...
+    language TEXT,                -- "python", "latex", etc. for syntax highlighting
+    latest_version INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+);
+
+CREATE TABLE artifact_versions (
+    artifact_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    content TEXT NOT NULL,        -- full snapshot per version (storage is cheap)
+    change_summary TEXT,          -- one-line model-generated describe of the change
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,     -- "user" or "assistant"
+    PRIMARY KEY (artifact_id, version),
+    FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_artifacts_conversation ON artifacts(conversation_id);
+```
+
+Full snapshots per version (no diff chain). Storage is cheap; rollback
+and diff views are trivial; the complexity of a proper diff-based
+store isn't worth it at our scale.
+
+### MCP tools
+
+```python
+create_artifact(
+    title: str,
+    content: str,
+    content_type: str,   # "text/markdown" etc.
+    language: str = None,
+) -> dict
+#   → {"artifact_id", "version": 1, "title", "content_type"}
+
+update_artifact(
+    artifact_id: str,
+    content: str,                  # new full content OR unified diff
+    is_diff: bool = False,         # if True, content is a unified diff to apply
+    change_summary: str = None,
+) -> dict
+#   → {"artifact_id", "version": N+1, "applied", "errors"?}
+#   If is_diff=True, backend applies the diff to the previous version
+#   server-side and returns errors if the diff doesn't apply cleanly.
+#   This saves tokens vs. rewriting the full doc every time.
+
+read_artifact(artifact_id: str, version: int = None) -> dict
+#   → latest or specified version
+
+list_artifacts() -> dict
+#   → all artifacts in the current conversation
+```
+
+The diff-based update flow is important: for a 5000-word abstract
+that the user wants one paragraph tweaked in, the model shouldn't
+have to rewrite the whole thing. It emits a unified diff
+(`@@ -45,7 +45,9 @@`-style), the backend applies it with the `diff_match_patch`
+or `difflib.unified_diff` library, versions bump, done.
+
+### SSE events
+
+Two new event types:
+
+```
+event: artifact_created
+data: {"id", "title", "content_type", "version", "content_preview"}
+
+event: artifact_updated
+data: {"id", "version", "change_summary", "diff_lines_added",
+       "diff_lines_removed"}
+```
+
+The frontend subscribes and updates the side panel live as the model
+writes. For long artifacts (a full paper draft), the panel should
+scroll to the active section the model is currently editing (nice
+polish, not required).
+
+### HTTP endpoints (for the side panel to drive manual user edits)
+
+```
+GET   /api/chats/{cid}/artifacts                → list
+GET   /api/chats/{cid}/artifacts/{aid}          → latest version
+GET   /api/chats/{cid}/artifacts/{aid}?version=N → specific version
+PATCH /api/chats/{cid}/artifacts/{aid}          → user edits in side panel,
+                                                   creates version with
+                                                   created_by="user"
+```
+
+User-driven edits show up in the next chat context as part of the
+artifact's latest version — so the model sees what the user changed
+and can pick up from there.
+
+### Context injection
+
+When an artifact exists in the current conversation, inject a summary
+into the system prompt (NOT the full content, to preserve tokens):
+
+```
+=== ACTIVE ARTIFACTS ===
+1. "Kinase inhibitor abstract" (text/markdown, 5 versions, 487 words)
+2. "Figure 3 plot script" (application/python, 2 versions, 34 lines)
+=== END ===
+
+Use read_artifact(id) to see the current content of any artifact.
+Use update_artifact(id, content_or_diff) to produce new versions.
+```
+
+This keeps context overhead bounded regardless of how many artifacts
+exist. The model fetches content on-demand via `read_artifact`.
+
+### Test plan
+
+- `test_create_artifact`: create a markdown artifact, assert v1
+  stored, artifact_created event fired
+- `test_update_artifact_full`: update with new full content, assert
+  v2 stored, artifact_updated event fired
+- `test_update_artifact_diff`: update with a unified diff, assert
+  diff applied correctly, v2 content matches expected
+- `test_diff_rejection`: update with malformed diff, assert error
+  returned and no new version created
+- `test_user_edit_persists`: PATCH via the HTTP endpoint, next chat
+  turn asks "what did I change?" and assert the model correctly
+  describes the edit
+- `test_artifact_conversation_isolation`: artifact in convo A
+  invisible in convo B
+
+### Effort
+
+1.5-2 weeks. The biggest feature in the doc. Backend alone is maybe
+5 days; frontend (side panel with version picker, inline edit mode,
+diff view, live updates) is another 5-7 days in the separate repo.
+
+Backend breakdown:
+- Schema + migration: 1 h
+- CRUD endpoints: 1 day
+- MCP tools (create/read/update/list): 1 day
+- Diff application logic with error handling: 0.5 day
+- SSE event wiring in chat_service: 0.5 day
+- Context injection + artifact summary rendering: 0.5 day
+- Tests: 1 day
+
+### Open questions
+
+- **Artifact size cap**: 100 KB per version? Users writing full
+  dissertations (maybe 500 KB+) might hit this. Start at 500 KB.
+- **Version cap**: keep all versions forever, or prune old ones?
+  Start with all forever, add pruning if storage becomes an issue.
+- **Cross-conversation artifacts**: can an artifact be "shared" into
+  another conversation? Probably not v1 — scope to current chat.
+- **Binary artifacts** (PNG plots from the sandbox): store as
+  base64 in the content column, or as files on disk referenced by
+  id? Probably files, since they'll come from the sandbox artifacts
+  feature (§2/§3) anyway. Unify with those.
+- **Integration with §18 LaTeX and §2 sandbox**: when the sandbox
+  produces a PDF or an image, should it become an artifact
+  automatically? Probably yes — artifacts are the natural surface
+  for any generated file.
+- **Merging sandbox artifacts with document artifacts**: both are
+  files the user wants to see, just different origins. Probably the
+  same underlying table (§22) with a `source` field distinguishing
+  `"model_written"` vs `"sandbox_generated"`.
+
+---
+
+## 23. Morning research digests (lightweight scheduler)
+
+### Problem
+
+Researchers want a daily update on what's new in their field:
+*"what preprints landed on arxiv/biorxiv/medrxiv overnight that touch
+my topics?"*. The existing deep research daemon (§10) is overkill for
+this — we don't need 300-second SLURM jobs, we need a cheap query
+that runs once a day per user and displays the results next time
+they open the chat.
+
+### Design — lightweight, cheap, cron-driven
+
+This is **not** §10. No SLURM, no agents, no deep_research. Just:
+
+1. User configures 1-5 "topics" (free-text queries like *"kinase
+   inhibitors lipid membranes"*, *"gated deltanet attention"*).
+2. Every morning, a sweeper hits Semantic Scholar with a `year=2026,
+   publicationDateFrom=yesterday` filter for each topic, plus
+   optionally arxiv/biorxiv RSS feeds if the user opted in.
+3. Results are stored in a `digests` table.
+4. Next time the user opens the chat (or on a new conversation
+   start), the frontend fetches pending digests via a new endpoint
+   and shows them as a dismissible top-of-sidebar card OR as an
+   injected first assistant message.
+
+Cost: maybe 3 S2 API calls per user per day. At 100 users, 300
+calls/day. S2's authenticated tier is 1 req/sec — trivial.
+
+### Schema
+
+```sql
+CREATE TABLE user_digest_topics (
+    id TEXT PRIMARY KEY,
+    user_email TEXT NOT NULL,
+    topic TEXT NOT NULL,                -- e.g. "kinase inhibitors lipid membranes"
+    sources TEXT NOT NULL,              -- JSON array, e.g. ["arxiv","biorxiv","semantic_scholar"]
+    max_results_per_day INTEGER NOT NULL DEFAULT 10,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE user_digest_runs (
+    id TEXT PRIMARY KEY,
+    user_email TEXT NOT NULL,
+    topic_id TEXT NOT NULL,
+    run_at TEXT NOT NULL,
+    results TEXT NOT NULL,              -- JSON array of paper records
+    read_at TEXT,                        -- null until user marks as read
+    FOREIGN KEY (topic_id) REFERENCES user_digest_topics(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_digest_runs_user_unread
+    ON user_digest_runs(user_email, read_at)
+    WHERE read_at IS NULL;
+```
+
+### Scheduler
+
+Daily cron entry (or a systemd timer) runs
+`scripts/digests/run_daily_digests.py` at 7 AM in the **server's
+local time** (keeping it simple). For every topic with `enabled=1`:
+
+1. Query each configured source for papers dated `>= yesterday 00:00
+   UTC`:
+   - Semantic Scholar: `paper/search?query=...&fields=...&year=2026`
+     with post-filtering on `publicationDate`
+   - arXiv: OAI-PMH or the query API `http://export.arxiv.org/api/query`
+     with `start_date` filter, filtered by topic via the `search_query`
+     parameter
+   - bioRxiv/medRxiv: their public details feed
+     `https://api.biorxiv.org/details/{server}/{interval}/0`
+2. Rank by relevance (simple BM25 over title+abstract against the topic
+   string, via SQLite FTS or a tiny in-memory rank)
+3. Keep top N (user-configurable, default 5 per topic)
+4. Write a row to `user_digest_runs`
+
+If no results: skip writing a row (don't clutter with empty digests).
+
+### Endpoints
+
+```
+GET    /api/digests                    → user's current topics + any pending unread runs
+POST   /api/digests/topics             → add a topic: {topic, sources, max_results}
+PATCH  /api/digests/topics/{id}        → enable/disable/edit
+DELETE /api/digests/topics/{id}        → remove
+POST   /api/digests/runs/{id}/read     → mark a digest run as read
+GET    /api/digests/unread_count       → badge count for the frontend sidebar
+```
+
+### Frontend presentation
+
+Two options (pick based on UI preference):
+
+**A. Sidebar card**: a dismissible "🔔 3 new preprints since
+yesterday" card at the top of the conversation list. Click expands
+to show the paper list with title, authors, abstract, and a
+"discuss in a new chat" button that opens a pre-filled chat with the
+paper already in context.
+
+**B. First-message injection**: when the user opens any chat, the
+first message is an assistant card summarizing what's new. Dismissible.
+
+My vote: **A** (sidebar card). More explicit, less intrusive, easier
+to ignore.
+
+### MCP tools (so the model can interact with digests)
+
+```python
+list_digest_topics() -> dict
+add_digest_topic(topic: str, sources: list[str] = None) -> dict
+remove_digest_topic(topic_id: str) -> dict
+get_unread_digests() -> dict
+```
+
+So users can say *"Add a digest topic for lipid-protein interactions"*
+in chat and the model configures it for them. Much lower friction
+than navigating to a settings page.
+
+### Test plan
+
+- `test_add_topic`: POST topic, GET digests, assert listed
+- `test_digest_run_fake`: inject a synthetic run, GET unread, assert
+  returned
+- `test_mark_read`: POST read endpoint, assert subsequent unread
+  count is zero
+- `test_user_isolation`: user A's digests invisible to user B
+- `test_add_topic_via_chat`: ask Meitner "add a digest for X", assert
+  an `add_digest_topic` tool call and a matching row in the DB
+- **Manual test**: actually run the sweeper against real sources for
+  a day, inspect the results
+
+### Effort
+
+2-3 days including the sweeper script, endpoints, tools, and tests.
+Breakdown:
+
+- Schema + migration: 30 min
+- Sweeper script (arxiv + biorxiv + S2 sources): 1 day
+- Endpoints + MCP tools: half a day
+- `chat_service` integration (unread badge, new-chat injection hook): 2 h
+- Tests: 4 h
+- Cron/systemd wiring: 30 min
+- Manual verification pass: 2 h
+
+### Open questions
+
+- **Time zone**: digest runs at 7 AM server local. For users in other
+  time zones, this is fine for v1 — they see yesterday's new papers
+  when they wake up. Revisit if users complain. Full per-user
+  timezone requires §25 (user profile) to exist first.
+- **Arxiv API terms**: the API is public and rate-limited to 1
+  request per 3 seconds. Our sweeper batches one call per topic
+  per day, well within limits.
+- **De-duplication across topics**: if two topics both return the
+  same paper, should it show up once or twice? Show twice (under
+  each topic) for clarity.
+- **Historical catch-up**: if the sweeper missed a day (server down),
+  should it catch up on the next run? Probably yes — widen the
+  `publicationDateFrom` filter to cover the gap.
+
+---
+
+## 24. Temporary / ephemeral chats
+
+### Problem
+
+Some queries shouldn't stick around — privacy-sensitive questions,
+quick fact checks, experiments ("how would you describe X differently
+in persona Y?"). Currently everything is persisted.
+
+### Design
+
+Request body flag in `/api/chat/completions`:
+
+```json
+{
+  "persona": "chat",
+  "ephemeral": true,
+  "messages": [{"role": "user", "content": "..."}]
+}
+```
+
+When `ephemeral: true`:
+
+- `chat_service` skips ALL persistence:
+  - No `conversations` row created
+  - No `messages` rows written
+  - No auto-title generation
+  - No summary generation
+- The `conversation` SSE event still fires but with a synthetic in-memory
+  id (prefix `ephemeral-`) so the frontend can display the chat
+  session-scoped, and nothing else references it
+- If the user sends a follow-up in the same ephemeral session, the
+  frontend must include the previous messages in the `messages`
+  array (as the model would otherwise have no history — nothing is
+  stored server-side). Same way stateless OpenAI-compatible chat
+  completions work.
+
+### No DB changes
+
+This is the cleanest part — nothing new to store because nothing is
+stored.
+
+### Backend changes
+
+- `api_chat_completions` reads the `ephemeral` flag from the body
+- `stream_chat_completion` gets a new `ephemeral: bool = False`
+  parameter; when True, it skips `chat_store.create_conversation`,
+  `chat_store.add_message`, title generation, and summary
+  compaction. It still reads and uses the `messages` array from
+  the request as-is (no server-side history).
+
+### Frontend changes
+
+- Toggle somewhere near the chat input ("🕶 Ephemeral mode")
+- When active, submitted messages go into a local-only conversation
+  array; each subsequent POST includes the full history
+- A banner: "This chat won't be saved."
+- Leaving the page or refreshing loses the session; that's the point
+
+### Test plan
+
+- `test_ephemeral_no_db_rows`: POST with `ephemeral: true`, assert
+  no new conversations/messages in `chats.db`
+- `test_ephemeral_stream_works`: assert the stream still produces a
+  valid answer
+- `test_ephemeral_follow_up`: POST ephemeral, then POST ephemeral
+  again with the prior messages in the body, assert coherent
+  multi-turn with no DB writes
+- `test_ephemeral_doesnt_leak_to_listings`: after several ephemeral
+  chats, GET /api/chats returns nothing new
+
+### Effort
+
+~2 hours. Tiny feature, high clarity.
+
+### Open questions
+
+- **Ephemeral + deep_research**: if the user fires deep_research in
+  an ephemeral chat, the model still makes real tool calls (web
+  searches etc.) that may be logged by external services. Document
+  this — "ephemeral means not stored by Munin, not untrackable by
+  the world".
+- **Ephemeral + document upload**: disallow. Uploading a file and
+  then not storing its context is contradictory. Reject with 400 if
+  the user attempts it.
+- **Ephemeral + artifacts**: artifacts also don't persist. Artifact
+  side panel shows them session-scoped only.
+
+---
+
+## 25. Custom user instructions / profile
+
+### Problem
+
+Users have response preferences they want applied to every
+conversation without repeating themselves: *"I know molecular
+biology, skip the basics"*, *"always cite DOIs"*, *"I prefer British
+spelling"*, *"I'm finishing my PhD"*. Currently there's no place to
+put this.
+
+### Relationship to §9 (user memory)
+
+Deliberately distinct:
+
+- **§9 user memory** = facts I've told you, stored via tool calls
+  during conversation (*"remember that I work with Sunitinib"*).
+  Model-curated.
+- **§25 user profile** = how I want you to respond to me, set once
+  in a profile page. User-curated, static across conversations.
+
+They complement each other. Profile goes at the top of the system
+prompt; memory goes below. Both get injected by `chat_service` on
+every turn.
+
+### Schema
+
+```sql
+CREATE TABLE user_profiles (
+    user_email TEXT PRIMARY KEY,
+    about_me TEXT,                 -- "I'm a biophysics PhD..."
+    response_format TEXT,          -- "always cite DOIs, British spelling..."
+    default_persona TEXT,          -- overrides global default
+    default_rag_sources TEXT,      -- JSON array, e.g. ["papers","web"]
+    timezone TEXT,                 -- IANA tz name, e.g. "Europe/Berlin"
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+```
+
+Fields are all optional. Missing fields fall back to system
+defaults.
+
+Cap `about_me` and `response_format` at 1500 chars each (combined
+~750 tokens, well-bounded system prompt overhead).
+
+### Endpoints
+
+```
+GET  /api/profile              → load current user's profile (may be empty)
+PUT  /api/profile              → upsert; returns the updated profile
+DELETE /api/profile            → reset to defaults
+```
+
+All three scoped to `current_user_email`.
+
+### Context injection in `chat_service`
+
+Right before the existing persona system prompt, add:
+
+```
+=== USER PROFILE ===
+About you: I'm a biophysics PhD candidate finishing up on kinase
+inhibitors in lipid membranes. I know the field well — skip basic
+biochemistry explanations.
+
+Response preferences: Always cite DOIs when discussing papers.
+Use British spelling. Prefer concise, technical responses with
+inline code examples where relevant.
+=== END USER PROFILE ===
+```
+
+### Frontend changes (not in this repo)
+
+- New "Profile" page under settings
+- Two textareas ("About you", "How I want you to respond")
+- Persona / RAG source defaults
+- Timezone picker (pulls IANA names from the frontend's locale
+  library)
+- Character count indicator with the 1500-char cap
+
+### MCP tools (so the model can help set it up)
+
+```python
+get_my_profile() -> dict
+update_my_profile(about_me=None, response_format=None,
+                  default_persona=None, timezone=None) -> dict
+```
+
+Useful for "remember that I prefer..." flow where the user tells
+the model once and it writes to the profile. Distinct from §9
+memory because the target is structured fields, not free-form
+memories.
+
+### Test plan
+
+- `test_profile_roundtrip`: PUT profile, GET, assert fields match
+- `test_profile_injected_into_system_prompt`: set `about_me`,
+  trigger a chat, inspect the constructed system prompt via a tool
+  that echoes it back (or a private debug endpoint)
+- `test_profile_default_persona`: set `default_persona=research`
+  in profile, POST chat completion without persona, assert Curie
+  was used
+- `test_profile_cap`: PUT profile with 3000-char `about_me`, assert
+  400 or silent truncation
+- `test_profile_user_isolation`: same as every other feature
+
+### Effort
+
+~2 hours. ~100 lines of code.
+
+### Open questions
+
+- **Profile vs per-project instructions (§21)**: overlap. Profile is
+  user-global; project instructions are scoped to one project.
+  Precedence: project > profile > defaults. Both get injected when
+  both exist — project instructions come AFTER profile in the
+  system prompt so they override on conflict.
+- **`timezone` field's immediate use**: §23 digests can honor it in
+  v2 (per-user morning digest timing). v1 runs at server local time.
+- **Import from §9 memory**: if the user has accumulated facts in
+  memory and then creates a profile, should we offer to "promote"
+  some memories to profile fields? Nice-to-have, not required.
+
+---
+
+## 26. Calculator tool (numeric / symbolic / physical)
+
+### Problem
+
+LLMs mis-compute arithmetic, especially when chained across multiple
+operations or involving units. Claude and ChatGPT route math through
+their code execution sandboxes — there's no dedicated "calculator"
+feature in either. Munin's sandbox (§2) will eventually cover this,
+but:
+
+1. Sandbox kernel dispatch is ~500 ms per call; a dedicated tool is
+   ~10 ms. Matters for in-flow arithmetic.
+2. Sandbox is 1-2 weeks away; the calculator is ~1-2 hours.
+3. Researchers need more than basic arithmetic: arbitrary precision,
+   symbolic operations, physical constants, unit conversions.
+
+### Design
+
+One MCP tool, three modes:
+
+```python
+calculate(expression: str, mode: str = "numeric") -> dict
+# mode ∈ {"numeric", "symbolic", "physical"}
+#
+#  → {"expression", "result", "mode", "error"?}
+```
+
+**Numeric mode** — safe arithmetic evaluation via `asteval` or
+`simpleeval`. Whitelist of math functions (`math.*`, basic operators,
+min/max/abs/round). No subprocess, no `eval`. Handles percentages,
+parenthesized expressions, chained operations:
+
+```
+calculate("17% of 450")                  → 76.5
+calculate("2**1024 mod 1000007")         → (exact big integer)
+calculate("sqrt(2) * pi / log(10)")      → 1.931...
+```
+
+**Symbolic mode** — `sympy.parse_expr` + `sympy.sympify`, then
+evaluate whatever callable the expression maps to. Supports
+derivatives, integrals, equation solving, simplification, series
+expansion, limits:
+
+```
+calculate("diff(sin(x)**2, x)", "symbolic")
+  → "2*sin(x)*cos(x)"
+
+calculate("integrate(exp(-x**2), (x, -oo, oo))", "symbolic")
+  → "sqrt(pi)"
+
+calculate("solve(x**2 - 3*x + 2, x)", "symbolic")
+  → "[1, 2]"
+
+calculate("limit(sin(x)/x, x, 0)", "symbolic")
+  → "1"
+
+calculate("series(cos(x), x, 0, 6)", "symbolic")
+  → "1 - x**2/2 + x**4/24 + O(x**6)"
+```
+
+**Physical mode** — `pint.UnitRegistry` with its built-in physical
+constants catalog. Handles unit-aware arithmetic and unit
+conversions:
+
+```
+calculate("8.6 MJ to kcal", "physical")
+  → "2054.59... kcal"
+
+calculate("1 eV to J", "physical")
+  → "1.60218e-19 J"
+
+calculate("avogadro_constant * 1.66e-24 g", "physical")
+  → "0.9997 g"  (≈ 1 gram, because 1 Da = 1/Na g)
+
+calculate("boltzmann_constant * 310 K to eV", "physical")
+  → "0.0267 eV"  (thermal energy at body temperature)
+
+calculate("planck_constant * c / (500 nm) to eV", "physical")
+  → "2.480 eV"  (energy of a 500 nm photon)
+```
+
+### Implementation notes
+
+**File**: `retrieval/mcp/tools/calculator.py`, ~150 lines total.
+
+**Safety** — the biggest concern is `eval`-style code execution.
+Mitigations per mode:
+
+- **Numeric**: use `asteval` with the default whitelist (no imports,
+  no dunder access, no attribute access). Hard-block `__`,
+  `globals`, `locals`, `exec`, `compile`, `open`.
+- **Symbolic**: `sympy.parse_expr` with an explicit namespace that
+  includes only whitelisted sympy functions. Block `lambdify`
+  (which can compile arbitrary Python). Block `Symbol.__init__`
+  with unsafe names.
+- **Physical**: `pint.Quantity` and `pint.UnitRegistry`, operating
+  on pre-parsed strings. pint's parser is strict and doesn't
+  execute arbitrary code.
+
+All three modes wrap execution in `try/except` and return
+`{"error": "..."}` on failure rather than crashing. A short wall-clock
+timeout (1 second, via `signal.alarm` or `concurrent.futures`) catches
+pathological symbolic operations that would otherwise hang sympy.
+
+### New dependencies
+
+Add to `retrieval/requirements.txt`:
+
+```
+sympy>=1.12
+pint>=0.23
+asteval>=1.0   # safer than raw eval, whitelist-based
+```
+
+All three are pure Python, MIT-licensed, tens of MB each. No native
+extensions, no GPU deps. Drop into the existing retrieval container
+without any Dockerfile changes beyond `pip install -r requirements.txt`.
+
+### Schema description
+
+> Evaluate mathematical expressions precisely. Three modes:
+>
+> - `numeric`: arithmetic, trigonometry, logs, powers. Use for
+>   percentages, chained arithmetic, concrete numbers.
+> - `symbolic`: derivatives, integrals, equation solving, limits,
+>   series expansions, simplification. Use when the user asks you
+>   to compute symbolically or wants an exact answer.
+> - `physical`: unit-aware arithmetic with physical constants (speed
+>   of light, Planck's constant, Avogadro's number, Boltzmann,
+>   gas constant, etc.) and unit conversions. Use whenever units
+>   are involved.
+>
+> Always prefer this tool over doing arithmetic yourself — LLMs
+> make silent math errors, and researchers notice.
+
+### Persona prompt nudge
+
+One sentence added to Meitner and Curie (Turing is debatable — code
+questions rarely need a calculator):
+
+> For any calculation beyond trivial single-digit arithmetic, use
+> the `calculate` tool. Do not compute in your head.
+
+### Test plan
+
+- `test_numeric_basic`: `"17% of 450"` → 76.5
+- `test_numeric_arbitrary_precision`: `"2**1024"` → exact integer
+- `test_symbolic_derivative`: `"diff(x**3, x)"` → `"3*x**2"`
+- `test_symbolic_integral`: `"integrate(1/x, x)"` → `"log(x)"`
+- `test_symbolic_solve`: `"solve(x**2 - 4, x)"` → `"[-2, 2]"`
+- `test_physical_conversion`: `"1 eV to J"` → `"1.60218e-19 J"`
+- `test_physical_constants`: expression using
+  `speed_of_light * 1 s to km` → `"299792.458 km"`
+- `test_safety_no_import`: `"__import__('os').system('id')"` →
+  error, not execution
+- `test_safety_no_dunder`: `"(1).__class__.__bases__[0]"` → error
+- `test_safety_timeout`: `"integrate(exp(exp(exp(x))), x)",
+  symbolic` → error within 1 s, not hang
+- `test_model_uses_calculator`: ask *"what's 17.3% of 6820?"*,
+  assert the model calls `calculate` rather than answering from
+  general knowledge
+
+### Effort
+
+~1-2 hours. Distribution:
+
+- Tool module (three modes, safety wrappers, timeout): 45 min
+- Schema + executor dispatch: 10 min
+- Persona prompt additions: 5 min
+- Requirements update: 2 min
+- Test plan: 30 min
+- Deploy + verify: 15 min
+
+### Open questions
+
+- **Unit registry scope**: `pint` ships with a large default
+  registry (~500 units). Researchers in biology might want extras
+  like daltons, angstroms, molar mass units — pint has these built
+  in, so no extra work.
+- **Precision for symbolic mode**: sympy can return exact answers
+  (`sqrt(2)`), decimal approximations (`1.41421356...`), or both.
+  Default to showing both when they differ: `"sqrt(2) ≈ 1.4142"`.
+- **Unit parsing ambiguity**: pint has a few quirks — e.g. `m`
+  could be meters or milli-. Set a disambiguation policy (prefer
+  SI base units) in the registry config.
+- **Upgrade path to sandbox**: once §2 is live, we could route
+  complex symbolic operations through the sandbox (for faster
+  sympy with compiled backends), but the dedicated tool stays for
+  fast-path arithmetic and unit conversions. Not a retirement.
+
+---
+
+## Updated priority order (agreed 2026-04-14)
 
 1. **§2 Sandbox** — unlocks §3 (plotting), §18 (LaTeX), and parts of §12
 2. **§5 Vision** — probed and confirmed, unlocks §11 and plot critique
 3. **§6 Citation export** — trivial quick win
 4. **§13 Paper download prominence** — tiny backend change, big UX lift
-5. **§16 Pin conversations** — small, cross-device persistence
-6. **§17 Search past conversations** — small, high utility
-7. **§9 User memory** — builds on persistence infra
-8. **§7 read_paper** — chains existing pieces
-9. **§4 Self-description** — passive + FAQ tool
-10. **§8 compare_papers** — builds on §7
-11. **§20 S2-wide citation tools** — builds on §13
-12. **§14 `ask_clarification` v2** — supersedes §1
-13. **§18 LaTeX via sandbox** — requires §2
-14. **§19 Autonomous agent selection** — prompt tuning + investigation
-15. **§10 Background research jobs** — reuses SLURM infra
-16. **§15 Embedding 2D map** — offline-heavy, good researcher-facing feature
-17. **§11 Equation OCR** — tiny on top of §5
-18. **§12 Reproducibility helper** — speculative, do last
-19. **§1 `ask_clarification` v1** — DELETED, replaced by §14
+5. **§26 Calculator** — 1-2 hour quick win, fixes LLM arithmetic silently
+6. **§24 Temporary chats** — 2-hour quick win, nice privacy feature
+7. **§25 User profile** — 2-hour quick win, enables per-user timezone for §23
+8. **§16 Pin conversations** — small, cross-device persistence
+9. **§17 Search past conversations** — small, high utility
+10. **§21 Projects** — biggest organizational improvement, ~1 week
+11. **§9 User memory** — builds on profile/project infra
+12. **§23 Morning digests** — researcher-specific, reuses S2 API
+13. **§7 read_paper** — chains existing pieces
+14. **§4 Self-description** — passive + FAQ tool
+15. **§8 compare_papers** — builds on §7
+16. **§20 S2-wide citation tools** — builds on §13
+17. **§14 `ask_clarification` v2** — supersedes §1
+18. **§22 Artifacts** — biggest UX transformation, ~2 weeks
+19. **§18 LaTeX via sandbox** — requires §2
+20. **§19 Autonomous agent selection** — prompt tuning + investigation
+21. **§10 Background research jobs** — reuses SLURM infra
+22. **§15 Embedding 2D map** — offline-heavy, good researcher-facing feature
+23. **§11 Equation OCR** — tiny on top of §5
+24. **§12 Reproducibility helper** — speculative, do last
+25. **§1 `ask_clarification` v1** — DELETED, replaced by §14
 
 §19 has an **Investigation column** to compare `research_orchestrator`
 vs `deep_research` with real usage data before deciding whether to
 retire the former.
+
+### Rough grouping by "what to tackle in what order"
+
+**Sprint 1 — quick wins (1-2 days total)**: §6, §13, §26, §24, §25, §16, §17
+
+**Sprint 2 — foundation (1 week total)**: §2 sandbox (unblocks most
+other things)
+
+**Sprint 3 — organizational (1 week)**: §21 projects
+
+**Sprint 4 — researcher-specific (1 week)**: §23 digests, §7
+read_paper, §20 S2 citations
+
+**Sprint 5 — transformation (2 weeks)**: §22 artifacts
+
+**Sprint 6 — everything else**: remaining items by priority
 
