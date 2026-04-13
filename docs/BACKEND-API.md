@@ -1,0 +1,538 @@
+# Munin Backend — API Reference
+
+Hand-off document for the frontend / gateway repo. Describes what the
+`munin-retrieval` FastAPI service actually delivers today (Streams 1–5 are
+all live as of the first deploy on `hugin`). This is the counterpart to
+`FRONTEND-REFERENCE.md` — the frontend expresses the *intent*, this file
+describes the *implementation*. Where they disagree, this file wins.
+
+## 1. Overview
+
+| | |
+|---|---|
+| Service | `munin-retrieval` (FastAPI, uvicorn) |
+| Where it runs | Docker container on cluster head `hugin`, bound to `127.0.0.1:8080` |
+| How the VPS reaches it | Reverse SSH tunnel: VPS `127.0.0.1:18080` ↔ cluster `127.0.0.1:8080` (`config/munin-tunnel.service`) |
+| Framing | JSON everywhere except `/api/chat/completions`, which uses SSE (`sse-starlette`) |
+| Python side | 3.11; async throughout; lazy-loaded Qdrant/Neo4j/SPECTER/BGE singletons |
+| Persistence | SQLite at `/data/chats.db` (chat history), Qdrant `user_docs` collection (user files), Qdrant `papers` (papers) |
+
+The service also exposes the legacy `/retrieve`, `/search/hybrid`,
+`/citations/{doi}`, `/mcp/*`, `/deepresearch/*`, etc. routes — those are
+**not** part of the frontend contract. Ignore them for the UI.
+
+## 2. Authentication
+
+Forward-auth pattern: Caddy on the VPS validates the session and attaches
+headers to the proxied request.
+
+| Header | Purpose | Required |
+|---|---|---|
+| `X-Munin-Email` | user identity (primary) | Yes |
+| `X-Authentik-Email` | transitional fallback | No (accepted if `X-Munin-Email` missing) |
+| `X-Munin-Name` | display name | No, not consumed by backend today |
+
+Every `/api/*` route except `/api/status` and `/api/personas/{id}/icon`
+requires one of the two email headers; missing → **401** with
+`{"error": {"message": "Missing authentication header"}}`.
+
+All conversations and documents are scoped by the lowercased email. There
+is **no cross-user visibility** at any layer (DB query and Qdrant filter
+both clamp to `user_email`).
+
+## 3. Error format
+
+Uniform across every endpoint:
+
+```json
+{"error": {"message": "Human-readable description"}}
+```
+
+FastAPI `HTTPException` is serialised into this exact shape. HTTP status
+codes follow the usual convention (400 / 401 / 404 / 413 / 500). Streaming
+errors come through the SSE stream as `event: error` instead of a HTTP
+status flip.
+
+## 4. Endpoint catalogue
+
+### 4.1 `GET /api/status`
+
+Polled by the frontend's `useStatus` hook every 60 s.
+
+**Request**: no body, no auth needed.
+
+**Response (200)**:
+
+```json
+{
+  "vllm": {
+    "status": "running",
+    "model": "qwen3.5-35b-a3b",
+    "next_start": "2026-04-14T06:00:00+02:00"
+  },
+  "services": {
+    "retrieval": "ok",
+    "embedding": "ok",
+    "qdrant": "ok",
+    "neo4j": "ok",
+    "grobid": "ok",
+    "searxng": "ok"
+  },
+  "timestamp": "2026-04-13T16:30:00Z"
+}
+```
+
+Notes:
+
+- `vllm.status` is one of `running` / `offline` / `starting`. When `offline`
+  the frontend should render `SleepingPage`.
+- `vllm.next_start` is **only present** when `status === "offline"`. It's
+  computed as the next 6 AM local time from the cluster's clock.
+- `services.embedding` reports whether SPECTER + BGE have already been
+  loaded. On a fresh boot it will be `"unavailable"` until the first call
+  that needs them (first RAG call or first document upload). This is not a
+  bug — it means "not loaded yet", not "broken".
+- `services.grobid` may read `unavailable` in the container-DNS form; it's
+  probed at `http://grobid:8070/api/isalive`.
+
+### 4.2 `GET /api/personas`
+
+**Response (200)**:
+
+```json
+{
+  "personas": [
+    {
+      "id": "chat",
+      "name": "Meitner - Chat",
+      "description": "General-purpose assistant ...",
+      "icon_url": "/api/personas/chat/icon",
+      "tags": ["general", "writing"],
+      "capabilities": {"web_search": true, "code_interpreter": false, "image_generation": false},
+      "prompt_suggestions": [
+        {"title": "Search the web", "subtitle": "for current information", "content": "Search the web for ..."}
+      ]
+    },
+    {"id": "code",     "name": "Turing - Code",     "...": "..."},
+    {"id": "research", "name": "Curie - Research",  "...": "..."}
+  ],
+  "default_persona": "chat"
+}
+```
+
+Three personas are currently loaded: `chat`, `code`, `research` (from
+`personas/*.json`). Icon URLs are served by the next endpoint.
+
+### 4.3 `GET /api/personas/{id}/icon`
+
+Returns `image/svg+xml`. Files come from `personas/logos/`, resolved in
+this order: `{name}-{id}-inverted.svg` → `{name}-{id}.svg` → `logo-{id}.svg`.
+Missing persona or missing file → **404**.
+
+### 4.4 `GET /api/chats`
+
+Lists the authenticated user's conversations.
+
+**Query params** (all optional):
+
+| Name | Type | Default | Notes |
+|---|---|---|---|
+| `limit` | int | `20` | clamped `[1, 200]` |
+| `offset` | int | `0` | ≥0 |
+| `persona` | string | — | filter to one persona id |
+| `search` | string | — | SQLite FTS5 over all `messages.content` |
+
+**Response (200)**:
+
+```json
+{
+  "conversations": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "user_email": "alice@example.com",
+      "title": "Polymer simulation methods",
+      "persona": "chat",
+      "created_at": "2026-04-13T10:00:00Z",
+      "updated_at": "2026-04-13T10:05:00Z",
+      "summary": null,
+      "summary_through_index": null,
+      "message_count": 4,
+      "preview": "Can you explain the differences between..."
+    }
+  ],
+  "total": 42
+}
+```
+
+Notes:
+
+- Ordered by `updated_at DESC`.
+- `preview` is the **first user message** of the conversation, truncated to
+  117 chars + ellipsis.
+- `search` uses FTS5 with the porter/unicode61 tokenizer and can be any
+  FTS5 MATCH expression (a plain word is fine).
+
+### 4.5 `GET /api/chats/{id}`
+
+Loads a full conversation with messages in order.
+
+**Response (200)**:
+
+```json
+{
+  "id": "...",
+  "user_email": "alice@example.com",
+  "title": "Polymer crystallization",
+  "persona": "chat",
+  "created_at": "...",
+  "updated_at": "...",
+  "summary": null,
+  "summary_through_index": null,
+  "messages": [
+    {
+      "id": "msg-uuid",
+      "role": "user",
+      "content": "What are...",
+      "thinking": null,
+      "tool_calls": null,
+      "rag_context": null,
+      "created_at": "...",
+      "token_count": null,
+      "index_in_conversation": 0
+    },
+    {
+      "id": "msg-uuid",
+      "role": "assistant",
+      "content": "Molecular dynamics...",
+      "thinking": "The user is asking...",
+      "tool_calls": [
+        {"id": "tc-1", "name": "paper_search", "arguments": {...}, "result": {...}, "duration_ms": 1200}
+      ],
+      "rag_context": {"sources_used": ["papers"], "documents": [{"title": "...", "source": "papers", "score": 0.9, "doi": "...", "content": "..."}]},
+      "created_at": "...",
+      "token_count": null,
+      "index_in_conversation": 1
+    }
+  ]
+}
+```
+
+- **404** if the conversation doesn't exist or belongs to another user.
+- `tool_calls` and `rag_context` are parsed from the stored JSON columns
+  back into Python objects — frontend receives them as structured JSON,
+  not strings.
+- `thinking` is the accumulated `reasoning_content` from the vLLM stream.
+- Ownership is enforced by `WHERE user_email = ?`; we don't leak 403 vs 404.
+
+### 4.6 `PATCH /api/chats/{id}`
+
+**Body**: `{"title": "New title"}` (non-empty string, trimmed).
+
+**Response (200)**: the updated conversation row (same shape as the row in
+`/api/chats`, minus `message_count`/`preview`).
+
+**400** if body is not JSON or title is missing/empty. **404** if the
+conversation doesn't exist or is owned by another user.
+
+### 4.7 `DELETE /api/chats/{id}`
+
+**Response (200)**: `{"deleted": true}`.
+
+Deletes both the conversation row and all of its messages (explicit
+cascade, not FK-based, so FTS triggers fire reliably). **404** if missing.
+
+### 4.8 `POST /api/chat/completions` — SSE streaming
+
+**The only SSE endpoint.** Everything else is plain JSON.
+
+**Request body**:
+
+```json
+{
+  "persona": "chat",
+  "conversation_id": null,
+  "messages": [{"role": "user", "content": "What is polymer crystallization?"}],
+  "rag": {"enabled": true, "sources": ["papers", "web"]},
+  "stream": true
+}
+```
+
+- `persona` defaults to `chat` if omitted.
+- `conversation_id: null` → backend creates a new conversation.
+- `messages` must be a non-empty list; the **last** element must be
+  `role: "user"`. Prior messages are ignored — the backend loads persisted
+  history for `conversation_id` and uses that as context. Only the trailing
+  new user turn is read from the request.
+- `rag.enabled: true` triggers parallel `paper_search` + `web_search` via
+  the MCP executor. Supported `rag.sources`: `papers`, `web`. If unset,
+  defaults to `["papers"]`. Omit `rag` entirely to disable retrieval.
+- `stream` is implicit; the response is always SSE.
+
+**Response**: `Content-Type: text/event-stream`, frames are
+`event: <name>\ndata: <json>\n\n`. See §5 for the full event catalogue.
+
+**On success** the stream contains one `conversation` event at the start,
+optional `rag_context`, the generation events, and a terminal `done`. On
+**brand-new conversations** a second `conversation` event is emitted near
+the end once the auto-generated title is ready (re-use the same `id`, just
+update the title in the UI).
+
+**Errors**: surfaced as `event: error` frames, not HTTP error codes (the
+status is already `200 OK` once the stream is open). The stream is
+terminated after any `error` event.
+
+### 4.9 `POST /api/documents/upload`
+
+Multipart form upload.
+
+**Form fields**:
+
+- `file` (required) — PDF / TXT / MD / DOCX / PNG / JPG / JPEG / WEBP
+- `conversation_id` (optional) — associates the upload with a conversation
+  for the `payload.conversation_id` filter
+
+**Server-side limit**: 50 MB, same as the frontend. **413** if exceeded.
+
+**Response (200)**:
+
+```json
+{
+  "document_id": "doc_abc123",
+  "filename": "my_draft.pdf",
+  "chunks": 24,
+  "status": "embedded",
+  "upload_time": "2026-04-13T14:30:00Z"
+}
+```
+
+- `status` is one of:
+  - `"embedded"` — text was extracted, chunked, embedded, and upserted into
+    Qdrant. Ready for RAG.
+  - `"stored"` — file is on disk but not embedded. This is the state for
+    images, zero-chunk documents, or uploads that occurred before the BGE
+    model / Qdrant was reachable.
+- `chunks` reflects the number of Qdrant points written (0 for `stored`).
+
+Extraction strategy:
+
+| Extension | Extractor | Notes |
+|---|---|---|
+| `.pdf` | GROBID `processFulltextDocument` → pypdf fallback | GROBID is good for papers, pypdf is the safety net |
+| `.txt`, `.md` | direct read (`utf-8` → `latin-1` fallback) | |
+| `.docx` | `python-docx` paragraph walk | |
+| `.png`, `.jpg`, `.jpeg`, `.webp` | none | file saved, `status: "stored"` |
+
+Chunking: ~512 tokens (2048 chars) per chunk, ~50-token overlap, respects
+paragraph boundaries, splits oversized paragraphs on sentence then on
+character. Embeddings via BGE-base (768-dim, cosine).
+
+File storage: `/data/user_docs/{sha256(email)[:16]}/{document_id}/{filename}`
+inside the container (`/opt/munin/data/user_docs/...` on the host).
+
+### 4.10 `GET /api/documents`
+
+**Query params**:
+
+- `conversation_id` (optional) — filter to docs uploaded in that chat
+
+**Response (200)**:
+
+```json
+{
+  "documents": [
+    {
+      "document_id": "doc_abc123",
+      "filename": "my_draft.pdf",
+      "chunks": 24,
+      "status": "embedded",
+      "upload_time": "2026-04-13T14:30:00Z"
+    }
+  ]
+}
+```
+
+Sources of truth:
+
+1. Qdrant scroll — authoritative for embedded documents (one row per
+   `document_id`, with `total_chunks` and `upload_time` from the payload).
+2. Disk scan — adds any file the user has under their user dir that isn't
+   in Qdrant (images, zero-chunk docs). Only included when
+   `conversation_id` is not specified.
+
+### 4.11 `DELETE /api/documents/{id}`
+
+Removes both the on-disk directory and every Qdrant point whose payload
+matches `{user_email, document_id}`.
+
+**Response (200)**: `{"deleted": true}`. **404** only if neither a
+directory nor any Qdrant points existed.
+
+## 5. SSE event catalogue for `/api/chat/completions`
+
+All events follow the SSE framing:
+
+```
+event: <name>
+data: <minified json>
+
+```
+
+| Event | Payload | Emitted when |
+|---|---|---|
+| `conversation` | `{"id": "...", "title": "..." \| null, "is_new": true \| false}` | At stream start; again after auto-title for new conversations |
+| `rag_context` | `{"sources_used": ["papers","web"], "documents": [{"title":"...", "source":"...", "score":0.0, "doi":"...", "content":"..."}, ...]}` | After RAG retrieval, before any generation, only if `rag.enabled: true` and at least one source returned hits |
+| `thinking` | `{"content": "partial reasoning text"}` | Multiple. Accumulate client-side. Sourced from vLLM `delta.reasoning_content` (qwen3 reasoning parser) |
+| `tool_call` | `{"id": "tc-1", "name": "paper_search", "arguments": {...}}` | Once per finalized tool call the main model asks for. Emitted after the vLLM delta for that turn finishes, not mid-arguments |
+| `tool_result` | `{"id": "tc-1", "name": "paper_search", "result": {...}, "duration_ms": 800}` | After the tool actually finishes. Matches `tool_call.id` |
+| `agent_start` | `{"agent": "research_orchestrator", "query": "..."}` | When the model invokes an agent via the `invoke_agent` tool |
+| `agent_thinking` | `{"content": "..."}` | Nested reasoning stream from the agent's own vLLM loop |
+| `agent_tool_call` | `{"id": "atc-1", "name": "paper_search", "arguments": {...}}` | Each tool the agent fires |
+| `agent_tool_result` | `{"id": "atc-1", "name": "paper_search", "result": {...}, "duration_ms": 42}` | Paired with `agent_tool_call` by id |
+| `agent_done` | `{"agent": "...", "tool_calls": 8, "duration_seconds": 34, "stopped_reason": "done"}` | When the agent returns. `stopped_reason` ∈ `done`/`max_iterations`/`max_tool_calls`/`timeout`/`error` |
+| `token` | `{"content": "partial response text"}` | Many. Accumulate into the visible answer. Sourced from vLLM `delta.content` |
+| `done` | `{"usage": {"prompt_tokens": N, "completion_tokens": N}, "finish_reason": "stop"}` | Always the last event on success |
+| `error` | `{"message": "Human-readable error"}` | On failure. Stream terminates after this |
+
+Ordering for a normal RAG-enabled chat with one tool call:
+
+```
+conversation → rag_context → thinking* → tool_call → tool_result
+             → thinking* → token* → done
+```
+
+Ordering when the model invokes an agent:
+
+```
+conversation → tool_call(invoke_agent)
+             → agent_start → agent_thinking* → agent_tool_call → agent_tool_result
+             → agent_done → tool_result(invoke_agent)
+             → token* → done
+```
+
+The parent `tool_result` for `invoke_agent` still lands after `agent_done`,
+so the `TaskLog` in the frontend can either render it as a nested workflow
+or as a single tool entry — both views are supported by the stream.
+
+## 6. Persona context injection
+
+Every chat completion assembles its system prompt as:
+
+```
+{persona.params.system}
+
+{agent summaries — one bullet per registered agent, with invocation hint}
+```
+
+The agent summaries are injected automatically so the main model knows it
+can delegate to `research_orchestrator`, `code_checker`, or `writing_agent`.
+The summaries come from `config/agents.yml` and re-load on every service
+restart. Frontend does not need to touch this.
+
+## 7. Context budgeting & summarization
+
+- Budget: `MAX_CONTEXT = 60000`, `GENERATION_RESERVE = 8000` (overridable
+  via env). Tokens are estimated heuristically at ~4 chars/token.
+- If `system_prompt + summary + history + new_message` fits, sent as-is.
+- If not: keep the newest messages that fit in half the history budget,
+  summarize everything older via a non-streaming vLLM call, persist the
+  summary + `summary_through_index` to the `conversations` row, rebuild.
+- Fallback: if vLLM is unreachable mid-summarization, hard-truncate the
+  history and proceed. No 500 to the user.
+
+Frontend implication: **the `summary` field on a conversation row will
+start populated after long chats.** Don't render it as part of the message
+list — treat it as background metadata.
+
+## 8. Auto-title generation
+
+On a brand-new conversation, after the first assistant response completes:
+
+- If the first user message is ≤ 60 chars → use it verbatim as the title.
+- Otherwise → non-streaming vLLM call with a title-generation prompt. Falls
+  back to a 60-char truncation if vLLM fails.
+
+Result is persisted via `PATCH`, and a **second `conversation` SSE event**
+with the new title is pushed into the same stream. The frontend should
+update the title in place without creating a new tab or reloading.
+
+## 9. MCP tool registry
+
+Tools available to the main model and agents (see `retrieval/mcp/schemas.py`):
+
+| Tool | What it does |
+|---|---|
+| `web_search` | SearXNG web search |
+| `web_fetch` | Fetch a URL and optionally summarise with vLLM |
+| `paper_search` | SPECTER semantic search over the local papers corpus |
+| `semantic_scholar_search` | Semantic Scholar API |
+| `paper_lookup` | Paper metadata by DOI |
+| `get_citations` / `get_references` | Neo4j citation graph traversal |
+| `get_author_papers` | Author-indexed lookup |
+| `get_paper_pdf` | Local PDF availability by DOI |
+| `check_papers_availability` | Bulk DOI availability check |
+| `llm_summarize` | vLLM summarisation helper |
+| `search_user_docs` | Semantic search over the current user's uploaded docs (auto-filters by `X-Munin-Email` via contextvar — never pass a user id) |
+| `invoke_agent` | Delegate to an agent workflow. Input: `{"agent": "...", "query": "..."}` |
+
+Agents themselves (`research_orchestrator`, `code_checker`, `writing_agent`)
+are defined in `config/agents.yml` with their own tool allowlists, iteration
+limits, and wall-clock timeouts. Agents cannot invoke each other.
+
+## 10. Known gotchas for frontend devs
+
+1. **`services.embedding: "unavailable"` is normal on a cold start.** It
+   flips to `"ok"` after the first retrieval or upload that loads the model.
+   Don't show a red dot — show "warming up" or hide the field.
+2. **Two `conversation` events per new chat.** The first carries
+   `is_new: true` and a null title; the second lands after auto-title.
+   Accumulator model: match on `id`, replace the title field, don't clear.
+3. **Tool calls use the OpenAI tool_call ID format** (`"tc-1"`, `"atc-1"`).
+   Match `tool_result.id` against `tool_call.id` to pair them.
+4. **Agent events are mid-stream.** While a `tool_call` with name
+   `invoke_agent` is executing, the stream will emit `agent_*` events
+   *before* the matching `tool_result`. The TaskLog needs to render them
+   nested (or as a chronological list) without assuming tool_result comes
+   straight after tool_call.
+5. **Thinking text can be huge.** Qwen3 reasoning traces can exceed the
+   visible answer. Collapse by default, show a "Reasoning" toggle.
+6. **Document upload returns synchronously.** There's no `"processing"`
+   status from the backend today — either `"embedded"` or `"stored"`.
+   If you see `"processing"` in the frontend code, that's a leftover from
+   the original FRONTEND-REFERENCE draft; the backend never emits it.
+7. **`persona` filter on `/api/chats` is exact-match** on the id. Passing
+   `persona=Chat` won't find conversations created with `persona: "chat"`.
+8. **FTS search is not fuzzy.** `polymer` matches; `polym` doesn't. Use
+   FTS5 prefix syntax (`polym*`) if you want prefix matching.
+9. **Rate limits / quotas are on the VPS gateway**, not this service.
+   `/api/chat/completions` will happily stream until vLLM runs out of
+   capacity or the tunnel drops.
+
+## 11. Quick curl recipes
+
+```bash
+# Health + status
+curl -s http://127.0.0.1:8080/api/status | python3 -m json.tool
+
+# List personas
+curl -s -H "X-Munin-Email: you@muninai.org" \
+    http://127.0.0.1:8080/api/personas | python3 -m json.tool
+
+# Send a chat message (streaming)
+curl -N -H "X-Munin-Email: you@muninai.org" \
+    -H "Content-Type: application/json" \
+    -d '{"persona":"chat","messages":[{"role":"user","content":"hi"}],"rag":{"enabled":false}}' \
+    http://127.0.0.1:8080/api/chat/completions
+
+# Upload a document
+curl -H "X-Munin-Email: you@muninai.org" \
+    -F "file=@/path/to/paper.pdf" \
+    http://127.0.0.1:8080/api/documents/upload
+
+# List + delete
+curl -s -H "X-Munin-Email: you@muninai.org" http://127.0.0.1:8080/api/documents
+curl -X DELETE -H "X-Munin-Email: you@muninai.org" \
+    http://127.0.0.1:8080/api/documents/doc_abc123
+```
+
+For a full end-to-end sanity run, see `scripts/smoke-test.sh` at the repo
+root — 16 checks covering every endpoint in this doc.
