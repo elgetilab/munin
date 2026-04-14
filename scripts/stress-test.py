@@ -4359,6 +4359,330 @@ async def test_artifact_conversation_isolation(client):
     return t
 
 
+async def _artifact_update_diff_via_mcp(
+    client,
+    conv_id: str,
+    artifact_id: str,
+    diff_text: str,
+    base_version: Optional[int] = None,
+    change_summary: Optional[str] = None,
+    email: str = ARTIFACT_EMAIL,
+) -> tuple[int, dict]:
+    args: dict = {
+        "artifact_id": artifact_id,
+        "content": diff_text,
+        "is_diff": True,
+    }
+    if base_version is not None:
+        args["base_version"] = base_version
+    if change_summary is not None:
+        args["change_summary"] = change_summary
+    return await _mcp_call(
+        client,
+        "update_artifact",
+        args,
+        email=email,
+        conversation_id=conv_id,
+    )
+
+
+async def test_diff_clean_apply(client):
+    """Apply a two-hunk unified diff to an existing artifact and check
+    the resulting content is exactly what we expect."""
+    t = TestResult(name="")
+    conv_id = await _seed_conversation(client)
+    if not conv_id:
+        t.reason = "no conversation id"
+        return t
+    try:
+        source = "\n".join([
+            "line one",
+            "line two",
+            "line three",
+            "line four",
+            "line five",
+        ]) + "\n"
+        _, body = await _artifact_create_via_mcp(
+            client, conv_id, "Diff target", source, "text/plain"
+        )
+        aid = body.get("id")
+        if not aid:
+            t.reason = "create failed"
+            return t
+        diff_text = (
+            "@@ -1,3 +1,3 @@\n"
+            " line one\n"
+            "-line two\n"
+            "+LINE TWO (edited)\n"
+            " line three\n"
+            "@@ -5,1 +5,2 @@\n"
+            " line five\n"
+            "+line six (added)\n"
+        )
+        status, upd = await _artifact_update_diff_via_mcp(
+            client, conv_id, aid, diff_text, base_version=1,
+            change_summary="tweak line 2 and append line 6",
+        )
+        t.metrics = {
+            "version": upd.get("version"),
+            "hunks": upd.get("applied_hunks"),
+            "added": upd.get("lines_added"),
+            "removed": upd.get("lines_removed"),
+            "base_version": upd.get("base_version"),
+            "error": upd.get("error"),
+        }
+        if status != 200 or upd.get("error"):
+            t.reason = f"update returned {status}: {upd}"
+            return t
+        if upd.get("version") != 2:
+            t.reason = f"expected version 2, got {upd.get('version')}"
+            return t
+        if upd.get("applied_hunks") != 2:
+            t.reason = f"expected 2 hunks, got {upd.get('applied_hunks')}"
+            return t
+        if upd.get("lines_added") != 2 or upd.get("lines_removed") != 1:
+            t.reason = f"unexpected line delta: {upd}"
+            return t
+        # Verify the resulting content
+        _, v2 = await _artifact_read_via_mcp(client, conv_id, aid)
+        expected = "\n".join([
+            "line one",
+            "LINE TWO (edited)",
+            "line three",
+            "line four",
+            "line five",
+            "line six (added)",
+        ]) + "\n"
+        if v2.get("content") != expected:
+            t.reason = f"content mismatch: {v2.get('content')!r}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, ARTIFACT_EMAIL)
+    return t
+
+
+async def test_diff_pure_insert(client):
+    """A diff that only adds lines (no removals) must apply cleanly."""
+    t = TestResult(name="")
+    conv_id = await _seed_conversation(client)
+    if not conv_id:
+        t.reason = "no conversation id"
+        return t
+    try:
+        source = "alpha\nbeta\n"
+        _, body = await _artifact_create_via_mcp(
+            client, conv_id, "Insert", source, "text/plain"
+        )
+        aid = body["id"]
+        diff_text = (
+            "@@ -2,1 +2,3 @@\n"
+            " beta\n"
+            "+gamma\n"
+            "+delta\n"
+        )
+        status, upd = await _artifact_update_diff_via_mcp(
+            client, conv_id, aid, diff_text, base_version=1,
+        )
+        if status != 200 or upd.get("error"):
+            t.reason = f"update failed: {upd}"
+            return t
+        _, v2 = await _artifact_read_via_mcp(client, conv_id, aid)
+        t.metrics = {
+            "content": v2.get("content"),
+            "added": upd.get("lines_added"),
+            "removed": upd.get("lines_removed"),
+        }
+        if v2.get("content") != "alpha\nbeta\ngamma\ndelta\n":
+            t.reason = f"content mismatch: {v2.get('content')!r}"
+            return t
+        if upd.get("lines_added") != 2 or upd.get("lines_removed") != 0:
+            t.reason = f"wrong stats: {upd}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, ARTIFACT_EMAIL)
+    return t
+
+
+async def test_diff_pure_delete(client):
+    """A diff that only removes lines must apply cleanly."""
+    t = TestResult(name="")
+    conv_id = await _seed_conversation(client)
+    if not conv_id:
+        t.reason = "no conversation id"
+        return t
+    try:
+        source = "keep1\ndrop1\ndrop2\nkeep2\n"
+        _, body = await _artifact_create_via_mcp(
+            client, conv_id, "Delete", source, "text/plain"
+        )
+        aid = body["id"]
+        diff_text = (
+            "@@ -1,4 +1,2 @@\n"
+            " keep1\n"
+            "-drop1\n"
+            "-drop2\n"
+            " keep2\n"
+        )
+        status, upd = await _artifact_update_diff_via_mcp(
+            client, conv_id, aid, diff_text, base_version=1,
+        )
+        if status != 200 or upd.get("error"):
+            t.reason = f"update failed: {upd}"
+            return t
+        _, v2 = await _artifact_read_via_mcp(client, conv_id, aid)
+        t.metrics = {"content": v2.get("content")}
+        if v2.get("content") != "keep1\nkeep2\n":
+            t.reason = f"content mismatch: {v2.get('content')!r}"
+            return t
+        if upd.get("lines_added") != 0 or upd.get("lines_removed") != 2:
+            t.reason = f"wrong stats: {upd}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, ARTIFACT_EMAIL)
+    return t
+
+
+async def test_diff_malformed_rejected(client):
+    """A diff with a bogus @@ header must be rejected with a clear error."""
+    t = TestResult(name="")
+    conv_id = await _seed_conversation(client)
+    if not conv_id:
+        t.reason = "no conversation id"
+        return t
+    try:
+        _, body = await _artifact_create_via_mcp(
+            client, conv_id, "Bad", "hello\n", "text/plain"
+        )
+        aid = body["id"]
+        diff_text = (
+            "@@ not a real header @@\n"
+            "+garbage\n"
+        )
+        _, upd = await _artifact_update_diff_via_mcp(
+            client, conv_id, aid, diff_text, base_version=1,
+        )
+        t.metrics = {"error": upd.get("error")}
+        err = upd.get("error") or ""
+        if "malformed" not in err.lower() and "header" not in err.lower():
+            t.reason = f"expected malformed-header error, got {err!r}"
+            return t
+        # Artifact should still be at version 1
+        _, listing = await _artifact_list_http(client, conv_id)
+        version = listing["artifacts"][0].get("latest_version")
+        if version != 1:
+            t.reason = f"artifact bumped despite error: v{version}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, ARTIFACT_EMAIL)
+    return t
+
+
+async def test_diff_context_mismatch_rejected(client):
+    """A diff whose context line doesn't match the source must be rejected."""
+    t = TestResult(name="")
+    conv_id = await _seed_conversation(client)
+    if not conv_id:
+        t.reason = "no conversation id"
+        return t
+    try:
+        _, body = await _artifact_create_via_mcp(
+            client, conv_id, "Context", "real line one\nreal line two\n", "text/plain"
+        )
+        aid = body["id"]
+        diff_text = (
+            "@@ -1,2 +1,2 @@\n"
+            " wrong context line\n"  # does not match source
+            "-real line two\n"
+            "+replaced\n"
+        )
+        _, upd = await _artifact_update_diff_via_mcp(
+            client, conv_id, aid, diff_text, base_version=1,
+        )
+        t.metrics = {"error": upd.get("error")}
+        err = (upd.get("error") or "").lower()
+        if "context mismatch" not in err:
+            t.reason = f"expected context mismatch error, got {err!r}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, ARTIFACT_EMAIL)
+    return t
+
+
+async def test_diff_base_version_stale_rejected(client):
+    """Stale base_version is rejected with a clear retry message."""
+    t = TestResult(name="")
+    conv_id = await _seed_conversation(client)
+    if not conv_id:
+        t.reason = "no conversation id"
+        return t
+    try:
+        _, body = await _artifact_create_via_mcp(
+            client, conv_id, "Staleness", "initial\n", "text/plain"
+        )
+        aid = body["id"]
+        # Bump the artifact via a full-content update (user-style)
+        await _artifact_patch_http(
+            client, conv_id, aid, "user edited\n",
+        )
+        # Now attempt a diff with base_version=1, but latest is 2
+        diff_text = (
+            "@@ -1,1 +1,1 @@\n"
+            "-initial\n"
+            "+initial (edited by model)\n"
+        )
+        _, upd = await _artifact_update_diff_via_mcp(
+            client, conv_id, aid, diff_text, base_version=1,
+        )
+        t.metrics = {"error": upd.get("error")}
+        err = (upd.get("error") or "").lower()
+        if "stale" not in err or "version 2" not in err:
+            t.reason = f"expected stale-base error referencing v2, got {err!r}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, ARTIFACT_EMAIL)
+    return t
+
+
+async def test_diff_result_exceeds_cap_rejected(client):
+    """A diff whose RESULT would exceed the 500 KB cap is rejected."""
+    t = TestResult(name="")
+    conv_id = await _seed_conversation(client)
+    if not conv_id:
+        t.reason = "no conversation id"
+        return t
+    try:
+        source = "tiny\n"
+        _, body = await _artifact_create_via_mcp(
+            client, conv_id, "Cap", source, "text/plain"
+        )
+        aid = body["id"]
+        # A diff that inserts ~600 KB of content
+        big_payload = "x" * (600 * 1024)
+        diff_text = (
+            "@@ -1,1 +1,2 @@\n"
+            " tiny\n"
+            f"+{big_payload}\n"
+        )
+        _, upd = await _artifact_update_diff_via_mcp(
+            client, conv_id, aid, diff_text, base_version=1,
+        )
+        t.metrics = {"error": (upd.get("error") or "")[:120]}
+        err = upd.get("error") or ""
+        if "cap" not in err.lower() and "exceeds" not in err.lower():
+            t.reason = f"expected size cap error, got {err!r}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, ARTIFACT_EMAIL)
+    return t
+
+
 async def test_artifact_size_cap(client):
     """600 KB content must be rejected with an error."""
     t = TestResult(name="")
@@ -4556,6 +4880,13 @@ ALL_TESTS = [
     ("artifact_user_patch", test_artifact_user_patch, False),
     ("artifact_conversation_isolation", test_artifact_conversation_isolation, False),
     ("artifact_size_cap", test_artifact_size_cap, False),
+    ("diff_clean_apply", test_diff_clean_apply, False),
+    ("diff_pure_insert", test_diff_pure_insert, False),
+    ("diff_pure_delete", test_diff_pure_delete, False),
+    ("diff_malformed_rejected", test_diff_malformed_rejected, False),
+    ("diff_context_mismatch_rejected", test_diff_context_mismatch_rejected, False),
+    ("diff_base_version_stale_rejected", test_diff_base_version_stale_rejected, False),
+    ("diff_result_exceeds_cap_rejected", test_diff_result_exceeds_cap_rejected, False),
     ("project_crud_roundtrip", test_project_crud_roundtrip, False),
     ("project_instructions_cap", test_project_instructions_cap, False),
     ("project_conversation_filing", test_project_conversation_filing, False),

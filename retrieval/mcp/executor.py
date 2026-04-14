@@ -158,6 +158,8 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
                 artifact_id=arguments.get("artifact_id", ""),
                 content=arguments.get("content", ""),
                 change_summary=arguments.get("change_summary"),
+                is_diff=bool(arguments.get("is_diff", False)),
+                base_version=arguments.get("base_version"),
             )
 
         elif tool_name == "list_artifacts":

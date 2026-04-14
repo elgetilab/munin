@@ -578,10 +578,49 @@ side. 400 if `content` is missing or exceeds the 500 KB cap.
 
 **MCP tools**: `create_artifact`, `read_artifact`, `update_artifact`,
 `list_artifacts`. All four refused in ephemeral chats. `create_artifact`
-requires `title`, `content`, `content_type`; `update_artifact` takes
-full replacement content (diffs are Stage B). The model discovers
+requires `title`, `content`, `content_type`. `update_artifact` supports
+two modes - full-content replacement (default) and unified-diff
+application (`is_diff=true`, Stage B). Both modes accept an optional
+`base_version` that the backend checks against `latest_version`; a
+mismatch is rejected as stale so concurrent edits from the user's
+side-panel PATCH don't get silently clobbered. The model discovers
 existing artifacts from the `=== ACTIVE ARTIFACTS ===` block injected
 into the system prompt on every persistent turn.
+
+**Diff format** (Stage B): standard unified diff with `@@ -old_start,old_len
++new_start,new_len @@` hunk headers and ` `/`-`/`+`-prefixed body lines.
+Optional `--- a/ +++ b/` file headers are accepted and ignored. Strict
+matching only: context lines and removal lines must match the source
+exactly at the indicated line number. On any mismatch the whole update
+is rejected with a clear `"hunk N: context mismatch at line M"` error so
+the caller can re-read and retry. Multi-hunk diffs work. Line numbers
+are 1-based (standard unified-diff convention). The 500 KB byte cap is
+enforced against the *result* of applying the diff, not the diff text
+itself.
+
+**`update_artifact` response shape** (same for both modes):
+
+```json
+{
+  "id": "art_abc123",
+  "title": "...",
+  "content_type": "text/markdown",
+  "language": "markdown",
+  "version": 4,
+  "change_summary": "...",
+  "created_by": "assistant",
+  "updated_at": "...",
+  "base_version": 3,
+  "applied_hunks": 2,
+  "lines_added": 12,
+  "lines_removed": 4
+}
+```
+
+For full-content updates, `applied_hunks` is `null` and `lines_added`/
+`lines_removed` are computed from `difflib.ndiff(prev, new)` so the
+frontend can display a uniform `+12 −4` chip regardless of which
+update mode was used.
 
 **SSE events** on `/api/chat/completions` when the model calls
 create/update tools:

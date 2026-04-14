@@ -2345,12 +2345,42 @@ Shipped:
 - Text-only content types. Binary outputs come via §2/§3.
 - User PATCH takes full content, no diff mode on either side.
 
-**Stage B - DEFERRED**
+**Stage B - DONE 2026-04-14**
 
-- `update_artifact(content=<diff>, is_diff=True)` with
-  `difflib` or `diff_match_patch` for token-efficient edits on
-  long documents. Ship when the model's full-rewrite overhead
-  becomes a real token-cost pain point. ~0.5 day.
+Shipped:
+
+- `update_artifact(content=<diff>, is_diff=True)` applies a
+  unified diff to the base version's content instead of
+  replacing it wholesale. Hand-rolled ~200-line parser +
+  applier in `artifact_store.py`, no new dependencies. Accepts
+  core `@@` hunks, optional `--- a/ +++ b/` file headers,
+  `\ No newline at end of file` markers, and normalises line
+  endings. Strict matching only - any hunk whose context or
+  removal lines don't match the source exactly at the indicated
+  position is rejected with a clear `"hunk N: context mismatch
+  at line M"` error so the caller can re-read and retry.
+- Optional `base_version` parameter on `update_artifact` works
+  for BOTH the full-content and diff paths. When set, the
+  backend verifies it still matches `latest_version` and
+  rejects stale updates with a retry message
+  (`"base_version 3 is stale; the artifact is now at version 4.
+  Re-read the latest content via read_artifact and retry."`).
+  This closes the concurrent-edit race between model iteration
+  and user PATCH hand-edits.
+- Enriched `update_artifact` response includes `applied_hunks`
+  (null for full-content updates), `lines_added`,
+  `lines_removed`, and the `base_version` that was applied
+  against. The frontend side panel can use these to show a
+  `+12 -4` diff indicator next to each version.
+- For full-content updates, `lines_added`/`lines_removed` are
+  computed via stdlib `difflib.ndiff` so the response shape is
+  uniform between the two paths.
+- Seven stress tests: `diff_clean_apply` (two-hunk edit with
+  context/additions/removals), `diff_pure_insert`,
+  `diff_pure_delete`, `diff_malformed_rejected`,
+  `diff_context_mismatch_rejected`,
+  `diff_base_version_stale_rejected`,
+  `diff_result_exceeds_cap_rejected`. All fast, no LLM needed.
 
 **Stage C - DEFERRED**
 

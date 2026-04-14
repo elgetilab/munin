@@ -33,6 +33,7 @@ of how many artifacts a conversation accumulates.
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Any, Optional
 
@@ -51,6 +52,260 @@ MAX_CHANGE_SUMMARY_CHARS = 500
 class ArtifactError(ValueError):
     """Raised for any invalid artifact input. Callers convert to the
     tool-result ``error`` shape or HTTP 400."""
+
+
+# ---------------------------------------------------------------------------
+# Unified diff parser + applier (Stage B)
+# ---------------------------------------------------------------------------
+#
+# Hand-rolled because unified diff is a small, well-understood format and
+# we only need a narrow subset:
+#
+#   - Optional ``--- a/...`` / ``+++ b/...`` file headers (ignored)
+#   - ``@@ -old_start,old_len +new_start,new_len @@`` hunk headers
+#   - Lines prefixed with ' ' (context), '-' (remove), '+' (add)
+#   - ``\\ No newline at end of file`` markers (respected on both sides)
+#
+# We don't accept git-style diffs (``diff --git``, ``index`` lines), binary
+# diffs, multi-file diffs, or fuzzy application. Strict matching: if any
+# hunk's context or removed lines don't match the source exactly at the
+# indicated position, the whole update is rejected with a clear error
+# message identifying the failing hunk. See §22 Stage B decisions.
+#
+# The model is the only caller of this path (user edits always go through
+# the full-content PATCH endpoint), and the model just called
+# read_artifact before producing the diff, so strict is a safe default.
+# If we see real-world "line numbers drifted by 1" errors we can add
+# fuzzy application as a follow-up.
+
+_HUNK_HEADER_RE = re.compile(
+    r"^@@ -(?P<old_start>\d+)(?:,(?P<old_len>\d+))? "
+    r"\+(?P<new_start>\d+)(?:,(?P<new_len>\d+))? @@"
+)
+
+
+def _strip_file_headers(lines: list[str]) -> list[str]:
+    """
+    Drop a standard ``--- a/... \\n +++ b/...`` preamble if present. We
+    know the target artifact from the tool call arguments, so these
+    lines carry no information we need - but rejecting them would be
+    annoying for callers generating diffs with ``diff -u``.
+    """
+    out = list(lines)
+    while out and out[0].startswith(("---", "+++", "diff --git", "index ")):
+        out.pop(0)
+    return out
+
+
+def _split_hunks(diff_lines: list[str]) -> list[list[str]]:
+    """Break a diff into hunks. Each hunk is a list starting with its ``@@``
+    header followed by its body lines."""
+    hunks: list[list[str]] = []
+    current: list[str] = []
+    for line in diff_lines:
+        if line.startswith("@@"):
+            if current:
+                hunks.append(current)
+            current = [line]
+        elif current:
+            current.append(line)
+        else:
+            # Content before the first hunk header is a protocol
+            # violation. Be strict.
+            stripped = line.strip()
+            if stripped:
+                raise ArtifactError(
+                    f"diff content before first @@ hunk header: {stripped!r}"
+                )
+    if current:
+        hunks.append(current)
+    return hunks
+
+
+def apply_unified_diff(source: str, diff_text: str) -> tuple[str, dict]:
+    """
+    Apply a unified diff to ``source`` and return ``(new_content, stats)``.
+    Stats is a dict with keys ``hunks_applied``, ``lines_added``,
+    ``lines_removed``. Raises ``ArtifactError`` on any mismatch so
+    callers can surface a single, actionable error to the model.
+    """
+    if not isinstance(diff_text, str) or not diff_text.strip():
+        raise ArtifactError("diff must be a non-empty string")
+
+    # Normalise line endings. We operate on lists of lines without
+    # terminators, then re-join with \n at the end.
+    diff_normalised = diff_text.replace("\r\n", "\n").replace("\r", "\n")
+    raw_diff_lines = diff_normalised.split("\n")
+    # Strip a trailing empty entry from the final newline of the diff
+    # blob (split("\n") gives one extra "" for a trailing \n).
+    if raw_diff_lines and raw_diff_lines[-1] == "":
+        raw_diff_lines.pop()
+    diff_lines = _strip_file_headers(raw_diff_lines)
+    if not diff_lines:
+        raise ArtifactError("diff has no content after stripping headers")
+
+    source_normalised = source.replace("\r\n", "\n").replace("\r", "\n")
+    source_lines = source_normalised.split("\n")
+    # If the source ends in a newline, split leaves a trailing empty
+    # element. Track the "source ends in newline" state separately so
+    # we can reproduce it on output.
+    source_ends_in_newline = False
+    if source_lines and source_lines[-1] == "":
+        source_lines.pop()
+        source_ends_in_newline = True
+
+    hunks = _split_hunks(diff_lines)
+    if not hunks:
+        raise ArtifactError("diff has no @@ hunks")
+
+    # We rebuild the new content as a list of lines. Walk the source
+    # and splice each hunk's replacement in at the right index.
+    output_lines: list[str] = []
+    cursor = 0  # index into source_lines (0-based)
+    lines_added_total = 0
+    lines_removed_total = 0
+    result_ends_in_newline = source_ends_in_newline
+
+    for hunk_index, hunk in enumerate(hunks, start=1):
+        header = hunk[0]
+        match = _HUNK_HEADER_RE.match(header)
+        if not match:
+            raise ArtifactError(
+                f"hunk {hunk_index}: malformed header {header!r}"
+            )
+        old_start = int(match.group("old_start"))
+        old_len_raw = match.group("old_len")
+        old_len = int(old_len_raw) if old_len_raw is not None else 1
+
+        # Unified diff uses 1-based line numbers, and old_start=0 is
+        # used for "add at beginning of empty file". Translate to a
+        # 0-based index.
+        if old_start == 0:
+            hunk_source_index = 0
+        else:
+            hunk_source_index = old_start - 1
+
+        # Carry over any unchanged source lines between the cursor and
+        # this hunk's starting line.
+        if hunk_source_index < cursor:
+            raise ArtifactError(
+                f"hunk {hunk_index}: old_start={old_start} is before "
+                f"previous hunk's end (cursor={cursor + 1})"
+            )
+        output_lines.extend(source_lines[cursor:hunk_source_index])
+        cursor = hunk_source_index
+
+        # Walk the hunk body. Verify context/removed lines match the
+        # source exactly; append added lines to the output.
+        hunk_added = 0
+        hunk_removed = 0
+        for body_line in hunk[1:]:
+            if body_line.startswith("\\"):
+                # "\\ No newline at end of file" markers affect the
+                # expected EOL state of the side they follow. We track
+                # the final state for the output.
+                if body_line.strip() == "\\ No newline at end of file":
+                    # The preceding operation's side is now "no EOL".
+                    # Our output line list doesn't carry EOL info; we
+                    # just remember this for the final join step.
+                    result_ends_in_newline = False
+                continue
+            if not body_line:
+                # Empty string in the body = a blank line in the source
+                # (context " "), but a properly-formed unified diff
+                # always has a single-space prefix on blank context
+                # lines. A truly empty body line is a protocol glitch -
+                # accept it as a blank context line to be forgiving.
+                sig = " "
+                content_line = ""
+            else:
+                sig = body_line[0]
+                content_line = body_line[1:]
+            if sig == " ":  # context
+                if cursor >= len(source_lines):
+                    raise ArtifactError(
+                        f"hunk {hunk_index}: context line past end of "
+                        f"source: {content_line!r}"
+                    )
+                if source_lines[cursor] != content_line:
+                    raise ArtifactError(
+                        f"hunk {hunk_index}: context mismatch at line "
+                        f"{cursor + 1}: expected {content_line!r}, "
+                        f"found {source_lines[cursor]!r}"
+                    )
+                output_lines.append(content_line)
+                cursor += 1
+            elif sig == "-":  # removal
+                if cursor >= len(source_lines):
+                    raise ArtifactError(
+                        f"hunk {hunk_index}: removal past end of source: "
+                        f"{content_line!r}"
+                    )
+                if source_lines[cursor] != content_line:
+                    raise ArtifactError(
+                        f"hunk {hunk_index}: removal mismatch at line "
+                        f"{cursor + 1}: expected {content_line!r}, "
+                        f"found {source_lines[cursor]!r}"
+                    )
+                cursor += 1
+                hunk_removed += 1
+            elif sig == "+":  # addition
+                output_lines.append(content_line)
+                hunk_added += 1
+            else:
+                raise ArtifactError(
+                    f"hunk {hunk_index}: unknown line prefix {sig!r} in "
+                    f"body line {body_line!r}"
+                )
+
+        # Sanity-check the hunk's old_len if it was explicit. Discrepancy
+        # is usually a sign the model miscounted and the diff is
+        # nonsense.
+        consumed = cursor - hunk_source_index
+        if consumed != old_len:
+            raise ArtifactError(
+                f"hunk {hunk_index}: header claims old_len={old_len} "
+                f"but body consumed {consumed} source lines"
+            )
+
+        lines_added_total += hunk_added
+        lines_removed_total += hunk_removed
+
+    # Append any trailing source lines past the last hunk.
+    output_lines.extend(source_lines[cursor:])
+
+    # Rejoin with \n. Restore the trailing newline if the source had
+    # one (and wasn't flipped by a ``\\ No newline at end of file``
+    # marker).
+    result = "\n".join(output_lines)
+    if result_ends_in_newline:
+        result += "\n"
+
+    return result, {
+        "hunks_applied": len(hunks),
+        "lines_added": lines_added_total,
+        "lines_removed": lines_removed_total,
+    }
+
+
+def _compute_line_delta(old: str, new: str) -> tuple[int, int]:
+    """
+    Cheap before/after line-delta for full-content updates so the
+    response shape matches what diff updates return. Uses
+    ``difflib.ndiff`` at module import time rather than a full diff
+    library since we already depend on stdlib.
+    """
+    import difflib
+    old_lines = old.split("\n")
+    new_lines = new.split("\n")
+    added = 0
+    removed = 0
+    for token in difflib.ndiff(old_lines, new_lines):
+        if token.startswith("+ "):
+            added += 1
+        elif token.startswith("- "):
+            removed += 1
+    return added, removed
 
 
 # ---------------------------------------------------------------------------
@@ -319,24 +574,103 @@ async def update_artifact(
     content: str,
     change_summary: Optional[str] = None,
     created_by: str = "assistant",
+    is_diff: bool = False,
+    base_version: Optional[int] = None,
 ) -> Optional[dict]:
     """
-    Append a new version to an existing artifact with full replacement
-    content. ``created_by`` is "assistant" when called from the MCP
-    tool and "user" when called from the HTTP PATCH path.
+    Append a new version to an existing artifact.
+
+    Stage A path (``is_diff=False``): ``content`` is the full
+    replacement text. The new version is a complete snapshot.
+
+    Stage B path (``is_diff=True``): ``content`` is a unified diff to
+    apply to the content of ``base_version`` (or the latest version
+    if ``base_version`` is omitted). Token-efficient for small edits
+    on long documents.
+
+    Concurrency guard: when ``base_version`` is supplied it must
+    match the artifact's current ``latest_version``. A mismatch
+    means someone else (typically the user via the PATCH endpoint)
+    has bumped the artifact since the caller read it, and applying
+    our write would silently clobber their edit. We reject with a
+    clear error so the caller can re-read and retry.
+
+    Returns a dict with the enriched response shape: in addition to
+    the basic metadata, ``applied_hunks`` (None for full-content
+    updates), ``lines_added``, ``lines_removed``, and the
+    ``base_version`` that was actually applied against.
     """
     meta = await _verify_artifact_owned(artifact_id, conversation_id, user_email)
     if meta is None:
         return None
 
-    content = _validate_content(content)
     summary = _validate_change_summary(change_summary)
     if created_by not in ("assistant", "user"):
         raise ArtifactError("created_by must be 'assistant' or 'user'")
 
+    latest_version = int(meta["latest_version"])
+
+    # Concurrency check: if the caller pinned a base_version, it must
+    # still be the latest. This applies uniformly to both is_diff
+    # paths and full-content updates - a stale full-content overwrite
+    # is just as destructive as a stale diff.
+    if base_version is not None:
+        if not isinstance(base_version, int):
+            raise ArtifactError("base_version must be an integer")
+        if base_version != latest_version:
+            raise ArtifactError(
+                f"base_version {base_version} is stale; the artifact is "
+                f"now at version {latest_version}. Re-read the latest "
+                f"content via read_artifact and retry."
+            )
+
+    applied_base = base_version if base_version is not None else latest_version
+    applied_hunks: Optional[int] = None
+
+    if is_diff:
+        # Load the base version's content and apply the diff.
+        db = await get_db()
+        cur = await db.execute(
+            "SELECT content FROM artifact_versions "
+            "WHERE artifact_id = ? AND version = ?",
+            (artifact_id, applied_base),
+        )
+        base_row = await cur.fetchone()
+        if base_row is None:
+            raise ArtifactError(
+                f"base version {applied_base} not found for this artifact"
+            )
+        base_content = base_row["content"] or ""
+        try:
+            new_content, stats = apply_unified_diff(base_content, content)
+        except ArtifactError:
+            raise
+        applied_hunks = stats["hunks_applied"]
+        lines_added = stats["lines_added"]
+        lines_removed = stats["lines_removed"]
+        # Now apply the SIZE cap against the RESULT, not the diff.
+        new_content = _validate_content(new_content)
+    else:
+        # Full-content path: validate the incoming string then
+        # compute lines_added/removed by diffing the previous latest
+        # version against the new content so the response shape is
+        # the same for both paths.
+        new_content = _validate_content(content)
+        db = await get_db()
+        prev_cur = await db.execute(
+            "SELECT content FROM artifact_versions "
+            "WHERE artifact_id = ? AND version = ?",
+            (artifact_id, latest_version),
+        )
+        prev_row = await prev_cur.fetchone()
+        prev_content = (prev_row["content"] or "") if prev_row else ""
+        lines_added, lines_removed = _compute_line_delta(
+            prev_content, new_content
+        )
+
     db = await get_db()
     now = _iso_now()
-    next_version = int(meta["latest_version"]) + 1
+    next_version = latest_version + 1
 
     await db.execute(
         """
@@ -345,7 +679,7 @@ async def update_artifact(
              created_at, created_by)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (artifact_id, next_version, content, summary, now, created_by),
+        (artifact_id, next_version, new_content, summary, now, created_by),
     )
     await db.execute(
         "UPDATE artifacts SET latest_version = ?, updated_at = ? "
@@ -363,6 +697,10 @@ async def update_artifact(
         "change_summary": summary,
         "created_by": created_by,
         "updated_at": now,
+        "base_version": applied_base,
+        "applied_hunks": applied_hunks,
+        "lines_added": lines_added,
+        "lines_removed": lines_removed,
     }
 
 

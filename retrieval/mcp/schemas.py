@@ -325,7 +325,7 @@ MCP_TOOLS = {
     },
     "update_artifact": {
         "name": "update_artifact",
-        "description": "Append a new version to an existing artifact with complete replacement content. Use this when you're iterating on an artifact the user has asked you to work on: you called read_artifact, decided what to change, and are now writing the next version. ALWAYS send the full new content, not a diff or fragment - Stage A does not support diff-based updates (diffs come in Stage B). change_summary is a short one-line description of WHAT changed ('expanded the methods section', 'fixed a typo in equation 3', 'added a discussion paragraph about lipid compaction'). Returns {id, version, change_summary, ...}. Not available in ephemeral chats.",
+        "description": "Append a new version to an existing artifact. Two modes: (1) default full-content mode sends the COMPLETE new document in `content` - use this for new drafts, heavy restructures, or small documents where the whole thing is cheap to re-send; (2) `is_diff=True` mode sends a unified diff in `content` that the backend applies to `base_version` - use this for small edits to long documents to save tokens (e.g. a one-paragraph tweak to a 50 KB paper draft becomes a ~1 KB diff). In diff mode, the diff must be a standard unified diff (`@@ -old,len +new,len @@` hunks with space/minus/plus-prefixed lines), line numbers must be correct, and context/removal lines must match the source exactly - strict matching only, no fuzz. Always pass `base_version` to whichever version you just read via read_artifact; if someone else has updated the artifact since then, you'll get a clear stale-base error and should re-read and retry instead of clobbering. change_summary is a short description of WHAT changed in this version. Returns {id, version, base_version, applied_hunks, lines_added, lines_removed, ...}. Not available in ephemeral chats.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -335,7 +335,16 @@ MCP_TOOLS = {
                 },
                 "content": {
                     "type": "string",
-                    "description": "The complete new content of the artifact. Max 500 KB of UTF-8 text. Send the WHOLE document, not a patch."
+                    "description": "Either the full new content (default, `is_diff=False`) OR a unified diff to apply to the base version (`is_diff=True`). Max 500 KB either way; in diff mode the cap is checked against the RESULT of applying the diff, not the diff text itself."
+                },
+                "is_diff": {
+                    "type": "boolean",
+                    "description": "If true, `content` is a unified diff to apply; if false (default), `content` is the complete replacement text.",
+                    "default": False
+                },
+                "base_version": {
+                    "type": "integer",
+                    "description": "Optional but strongly recommended: the version number you just read and are basing this update on. If this differs from the artifact's current latest_version, the call is rejected with a stale-base error so you can re-read and retry instead of silently overwriting a concurrent edit. In diff mode, the diff is applied against this version's content."
                 },
                 "change_summary": {
                     "type": "string",

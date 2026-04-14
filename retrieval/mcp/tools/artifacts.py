@@ -113,11 +113,21 @@ async def update_artifact(
     artifact_id: str,
     content: str,
     change_summary: Optional[str] = None,
+    is_diff: bool = False,
+    base_version: Optional[int] = None,
 ) -> dict:
     """
-    Append a new version to an existing artifact with full replacement
-    content. Stage A does not support diff-based updates; the caller
-    must send the complete new content.
+    Append a new version to an existing artifact.
+
+    Two modes:
+      * Full content (default): ``content`` is the complete new text.
+      * Diff (``is_diff=True``): ``content`` is a unified diff to
+        apply to ``base_version`` (or the current latest if omitted).
+
+    Optional ``base_version`` guards against concurrent edits: if it
+    does not match the artifact's current latest_version the call is
+    rejected with a stale-base error so the caller can re-read and
+    retry instead of silently clobbering whatever landed in between.
     """
     import artifact_store
 
@@ -135,6 +145,8 @@ async def update_artifact(
             content=content,
             change_summary=change_summary,
             created_by="assistant",
+            is_diff=bool(is_diff),
+            base_version=base_version,
         )
     except artifact_store.ArtifactError as exc:
         return {"error": str(exc)}
