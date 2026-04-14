@@ -36,3 +36,7 @@ pyyaml>=6.0
 
 # Web content extraction
 trafilatura>=1.6.0
+
+# Calculator tool — symbolic math + unit-aware physical constants
+sympy>=1.12
+pint>=0.23

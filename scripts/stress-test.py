@@ -654,6 +654,213 @@ async def test_style_no_emdashes_in_explanation(client):
     return t
 
 
+async def _call_calculate(client, expression: str, mode: str = "numeric") -> dict:
+    """Helper: call calculate via /mcp/call and return the parsed result dict."""
+    response = await client.post(
+        f"{BASE}/mcp/call",
+        json={
+            "name": "calculate",
+            "arguments": {"expression": expression, "mode": mode},
+        },
+        timeout=15,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+async def test_calculate_numeric_percentage(client):
+    """§26: numeric mode handles "X% of Y" natural language."""
+    t = TestResult(name="")
+    data = await _call_calculate(client, "17% of 450", "numeric")
+    t.metrics = {"raw": data}
+    if "error" in data:
+        t.reason = f"calculator returned error: {data['error']}"
+        return t
+    if data.get("mode") != "numeric":
+        t.reason = f"wrong mode: {data.get('mode')}"
+        return t
+    result = data.get("result")
+    if not isinstance(result, (int, float)):
+        t.reason = f"result not numeric: {result!r}"
+        return t
+    # 17% of 450 = 76.5
+    if abs(result - 76.5) > 0.001:
+        t.reason = f"expected 76.5, got {result}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_calculate_numeric_arbitrary_precision(client):
+    """
+    §26: numeric mode preserves arbitrary-precision integers via sympy. The
+    exact value of 2**1024 starts with "17976931348623159..." and is 309
+    digits long. Note this differs from float64's max (1.7976931348623157e+308)
+    starting at the 16th digit because float64 cannot represent integers
+    above 2**53 exactly — getting the correct prefix here proves we never
+    converted to a lossy Float internally.
+    """
+    t = TestResult(name="")
+    data = await _call_calculate(client, "2**1024", "numeric")
+    t.metrics = {
+        "result_str_preview": (data.get("result_str") or "")[:60],
+        "result_type": type(data.get("result")).__name__,
+    }
+    if "error" in data:
+        t.reason = f"calculator returned error: {data['error']}"
+        return t
+    rs = data.get("result_str") or ""
+    # The exact 16-digit prefix of 2**1024 — distinct from float64 max
+    if not rs.startswith("17976931348623159"):
+        t.reason = f"prefix mismatch (lossy conversion?): got {rs[:30]}..."
+        return t
+    if len(rs) != 309:
+        t.reason = f"expected 309 digits for 2**1024, got {len(rs)}"
+        return t
+    # The result field should be a Python int with the same digit count
+    result = data.get("result")
+    if not isinstance(result, int):
+        t.reason = f"result should be int, got {type(result).__name__}"
+        return t
+    if len(str(result)) != 309:
+        t.reason = f"result int has {len(str(result))} digits, expected 309"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_calculate_symbolic_derivative(client):
+    """§26: symbolic mode handles derivatives via sympy."""
+    t = TestResult(name="")
+    data = await _call_calculate(client, "diff(sin(x)**2, x)", "symbolic")
+    t.metrics = {"raw": data}
+    if "error" in data:
+        t.reason = f"calculator returned error: {data['error']}"
+        return t
+    result = (data.get("result") or "").replace(" ", "")
+    # The derivative of sin(x)**2 is 2*sin(x)*cos(x)
+    expected_substrings = ("sin(x)", "cos(x)", "2")
+    for sub in expected_substrings:
+        if sub.replace(" ", "") not in result:
+            t.reason = f"missing expected substring {sub!r} in result {result!r}"
+            return t
+    t.passed = True
+    return t
+
+
+async def test_calculate_symbolic_integral(client):
+    """§26: symbolic mode handles integrals via sympy."""
+    t = TestResult(name="")
+    data = await _call_calculate(client, "integrate(1/x, x)", "symbolic")
+    t.metrics = {"raw": data}
+    if "error" in data:
+        t.reason = f"calculator returned error: {data['error']}"
+        return t
+    result = (data.get("result") or "").lower()
+    # Integral of 1/x is log(x) (sympy's natural log)
+    if "log" not in result:
+        t.reason = f"expected 'log' in integral result, got {result!r}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_calculate_symbolic_solve(client):
+    """§26: symbolic mode handles equation solving via sympy."""
+    t = TestResult(name="")
+    data = await _call_calculate(client, "solve(x**2 - 4, x)", "symbolic")
+    t.metrics = {"raw": data}
+    if "error" in data:
+        t.reason = f"calculator returned error: {data['error']}"
+        return t
+    result = data.get("result") or ""
+    # Roots are -2 and 2; sympy returns "[-2, 2]"
+    if "-2" not in result or "2" not in result:
+        t.reason = f"expected roots -2 and 2 in result, got {result!r}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_calculate_physical_conversion(client):
+    """§26: physical mode handles unit conversion via pint."""
+    t = TestResult(name="")
+    data = await _call_calculate(client, "1 eV to J", "physical")
+    t.metrics = {"raw": data}
+    if "error" in data:
+        t.reason = f"calculator returned error: {data['error']}"
+        return t
+    magnitude = data.get("magnitude")
+    if magnitude is None:
+        t.reason = f"no magnitude in result: {data}"
+        return t
+    # 1 eV ≈ 1.602176634e-19 J
+    if not (1.6e-19 < magnitude < 1.7e-19):
+        t.reason = f"expected ~1.602e-19, got {magnitude}"
+        return t
+    units = (data.get("units") or "").lower()
+    if "joule" not in units and "j" not in units:
+        t.reason = f"expected joule units, got {units!r}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_calculate_physical_constant(client):
+    """§26: physical mode resolves named constants."""
+    t = TestResult(name="")
+    data = await _call_calculate(
+        client,
+        "boltzmann_constant * 310 K to eV",
+        "physical",
+    )
+    t.metrics = {"raw": data}
+    if "error" in data:
+        t.reason = f"calculator returned error: {data['error']}"
+        return t
+    magnitude = data.get("magnitude")
+    if magnitude is None:
+        t.reason = f"no magnitude in result: {data}"
+        return t
+    # k_B * 310 K ≈ 0.0267 eV (thermal energy at body temperature)
+    if not (0.020 < magnitude < 0.035):
+        t.reason = f"expected ~0.0267 eV, got {magnitude}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_calculate_safety_dunder(client):
+    """§26 safety: dunder access must be rejected before parsing."""
+    t = TestResult(name="")
+    data = await _call_calculate(client, "(1).__class__.__bases__[0]", "numeric")
+    t.metrics = {"raw": data}
+    if "error" not in data:
+        t.reason = f"expected error for dunder access, got: {data}"
+        return t
+    if "forbidden" not in data["error"].lower() and "__" not in data["error"]:
+        t.reason = f"error message should mention dunder ban: {data['error']}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_calculate_safety_import(client):
+    """§26 safety: __import__ and import statements must be rejected."""
+    t = TestResult(name="")
+    data = await _call_calculate(
+        client,
+        "__import__('os').system('id')",
+        "numeric",
+    )
+    t.metrics = {"raw": data}
+    if "error" not in data:
+        t.reason = f"expected error for __import__, got: {data}"
+        return t
+    t.passed = True
+    return t
+
+
 async def test_export_citations_bibtex(client):
     """
     §6: export_citations should resolve a known-good DOI via doi.org content
@@ -941,6 +1148,15 @@ ALL_TESTS = [
     ("paper_search_has_download_url", test_paper_search_has_download_url, False),
     ("export_citations_bibtex", test_export_citations_bibtex, False),
     ("export_citations_format_validation", test_export_citations_format_validation, False),
+    ("calculate_numeric_percentage", test_calculate_numeric_percentage, False),
+    ("calculate_numeric_arbitrary_precision", test_calculate_numeric_arbitrary_precision, False),
+    ("calculate_symbolic_derivative", test_calculate_symbolic_derivative, False),
+    ("calculate_symbolic_integral", test_calculate_symbolic_integral, False),
+    ("calculate_symbolic_solve", test_calculate_symbolic_solve, False),
+    ("calculate_physical_conversion", test_calculate_physical_conversion, False),
+    ("calculate_physical_constant", test_calculate_physical_constant, False),
+    ("calculate_safety_dunder", test_calculate_safety_dunder, False),
+    ("calculate_safety_import", test_calculate_safety_import, False),
 ]
 
 

@@ -24,6 +24,7 @@ from .documents import search_user_docs
 from .agents import invoke_agent
 from .research import deep_research
 from .citations import export_citations
+from .calculator import calculate
 
 __all__ = [
     "web_search",
@@ -41,4 +42,5 @@ __all__ = [
     "invoke_agent",
     "deep_research",
     "export_citations",
+    "calculate",
 ]

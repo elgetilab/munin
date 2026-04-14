@@ -20,6 +20,7 @@ from .tools import (
     invoke_agent,
     deep_research,
     export_citations,
+    calculate,
 )
 
 
@@ -119,6 +120,11 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
             dois = arguments.get("dois", [])
             fmt = arguments.get("format", "bibtex")
             return await export_citations(dois=dois, format=fmt)
+
+        elif tool_name == "calculate":
+            expression = arguments.get("expression", "")
+            mode = arguments.get("mode", "numeric")
+            return await calculate(expression=expression, mode=mode)
 
         else:
             return {"error": f"Unknown tool: {tool_name}"}
