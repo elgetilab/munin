@@ -275,6 +275,85 @@ MCP_TOOLS = {
             "required": ["document_id"]
         }
     },
+    "create_artifact": {
+        "name": "create_artifact",
+        "description": "Start a new versioned document in the current conversation (§22 artifacts). Use this when the user asks you to write something longer than a short reply that they'll want to ITERATE on: a paper abstract, a grant proposal section, a LaTeX manuscript, a python script, an SVG diagram, a reviewer-response letter, a bibliography entry. The artifact appears in the side panel on the right of the chat and the user can edit it directly. Subsequent edits from you go through update_artifact; subsequent user edits come back to you via the next turn's === ACTIVE ARTIFACTS === block (which is already in your system prompt). Do NOT use create_artifact for quick inline answers, short code snippets that the user just wants to copy once, or anything the user did not ask you to PRODUCE as a document. content_type should be one of: text/markdown, text/latex, text/plain, text/html, application/python, application/json, image/svg+xml (SVG source as XML, not a binary image). language is optional syntax-highlighting hint (e.g. 'python', 'latex'). Returns {id, version: 1, title, content_type, ...}. 500 KB byte cap per version. Not available in ephemeral chats.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Short human-readable title for the artifact (max 200 chars), e.g. 'Kinase inhibitor abstract' or 'Figure 3 plot script'."
+                },
+                "content": {
+                    "type": "string",
+                    "description": "The initial content of the document. Max 500 KB of UTF-8 text."
+                },
+                "content_type": {
+                    "type": "string",
+                    "description": "MIME type: text/markdown, text/latex, text/plain, text/html, application/python, application/json, image/svg+xml."
+                },
+                "language": {
+                    "type": "string",
+                    "description": "Optional syntax-highlighting hint for the frontend (e.g. 'python', 'latex', 'markdown'). Can be omitted."
+                },
+                "change_summary": {
+                    "type": "string",
+                    "description": "Optional short description of what this initial version contains. Max 500 chars."
+                }
+            },
+            "required": ["title", "content", "content_type"]
+        }
+    },
+    "read_artifact": {
+        "name": "read_artifact",
+        "description": "Load the full current (or a specific past) version of an artifact in the current conversation. Use this when you need to see the actual content of an artifact to reason about it, quote it, or decide how to update it. The === ACTIVE ARTIFACTS === block in your system prompt shows only titles and word counts to keep context overhead bounded - this tool is the on-demand fetch for the content itself. For the current draft, omit the version argument; for a historical version, pass version=N where N is between 1 and the artifact's latest_version.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "artifact_id": {
+                    "type": "string",
+                    "description": "The id of the artifact to read, taken from the === ACTIVE ARTIFACTS === block or from a previous create_artifact/list_artifacts result."
+                },
+                "version": {
+                    "type": "integer",
+                    "description": "Optional specific version number. Omit to get the latest."
+                }
+            },
+            "required": ["artifact_id"]
+        }
+    },
+    "update_artifact": {
+        "name": "update_artifact",
+        "description": "Append a new version to an existing artifact with complete replacement content. Use this when you're iterating on an artifact the user has asked you to work on: you called read_artifact, decided what to change, and are now writing the next version. ALWAYS send the full new content, not a diff or fragment - Stage A does not support diff-based updates (diffs come in Stage B). change_summary is a short one-line description of WHAT changed ('expanded the methods section', 'fixed a typo in equation 3', 'added a discussion paragraph about lipid compaction'). Returns {id, version, change_summary, ...}. Not available in ephemeral chats.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "artifact_id": {
+                    "type": "string",
+                    "description": "The id of the artifact to update."
+                },
+                "content": {
+                    "type": "string",
+                    "description": "The complete new content of the artifact. Max 500 KB of UTF-8 text. Send the WHOLE document, not a patch."
+                },
+                "change_summary": {
+                    "type": "string",
+                    "description": "Short one-line description of what changed in this version (max 500 chars). Helps the user and future-you navigate the version history."
+                }
+            },
+            "required": ["artifact_id", "content"]
+        }
+    },
+    "list_artifacts": {
+        "name": "list_artifacts",
+        "description": "List all artifacts in the current conversation. Usually you do NOT need this - the === ACTIVE ARTIFACTS === block in your system prompt already shows the same summary. Use it only when the user asks 'what documents am I working on?' or 'show me everything you have open' and you want to return a fresh list. Returns {artifacts: [{id, title, content_type, latest_version, word_count, ...}], total}.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
     "remember": {
         "name": "remember",
         "description": "Store a persistent fact about the user across conversations. Use this sparingly and only for facts that will matter in FUTURE chats: who the user is (field, role, affiliation), their long-term preferences (citation style, language, tone, units), ongoing projects they'll want you to recall next session, and anything they explicitly ask you to 'remember'. Do NOT use it for ephemeral conversation context, one-off questions, or things that belong in the current chat only. Keys should be short snake_case labels (e.g. 'research_area', 'citation_style', 'preferred_plot_style'). Values are capped at 200 characters. The store is bounded at 20 entries per user - if full, the oldest entry is auto-evicted and its key is returned in the 'evicted' field. Complementary to the user profile (user-curated via settings); memory is model-curated via this tool. Not available in ephemeral chats.",

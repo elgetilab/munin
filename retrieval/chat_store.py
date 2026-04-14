@@ -169,6 +169,33 @@ async def init_db() -> aiosqlite.Connection:
 
         CREATE INDEX IF NOT EXISTS idx_user_memory_updated
             ON user_memory(user_email, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS artifacts (
+            id TEXT PRIMARY KEY,
+            conversation_id TEXT NOT NULL,
+            user_email TEXT NOT NULL,
+            title TEXT NOT NULL,
+            content_type TEXT NOT NULL,
+            language TEXT,
+            latest_version INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_artifacts_conversation
+            ON artifacts(conversation_id, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS artifact_versions (
+            artifact_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            change_summary TEXT,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            PRIMARY KEY (artifact_id, version),
+            FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+        );
         """
     )
 

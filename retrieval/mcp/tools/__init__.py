@@ -24,6 +24,12 @@ from .documents import search_user_docs, view_attachment
 from .equation import transcribe_equation
 from .chats import search_past_conversations
 from .memory import remember, forget, recall
+from .artifacts import (
+    create_artifact,
+    read_artifact,
+    update_artifact,
+    list_artifacts,
+)
 from .projects import list_projects, get_current_project
 from .agents import invoke_agent
 from .research import deep_research
@@ -50,6 +56,10 @@ __all__ = [
     "remember",
     "forget",
     "recall",
+    "create_artifact",
+    "read_artifact",
+    "update_artifact",
+    "list_artifacts",
     "list_projects",
     "get_current_project",
     "invoke_agent",
