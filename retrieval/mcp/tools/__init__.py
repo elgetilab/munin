@@ -20,7 +20,7 @@ from .papers import (
     check_papers_availability,
 )
 from .llm import llm_summarize
-from .documents import search_user_docs
+from .documents import search_user_docs, view_attachment
 from .chats import search_past_conversations
 from .projects import list_projects, get_current_project
 from .agents import invoke_agent
@@ -42,6 +42,7 @@ __all__ = [
     "check_papers_availability",
     "llm_summarize",
     "search_user_docs",
+    "view_attachment",
     "search_past_conversations",
     "list_projects",
     "get_current_project",

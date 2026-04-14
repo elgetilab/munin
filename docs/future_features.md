@@ -678,24 +678,33 @@ Shipped:
   both use a ground-truth read from the sandbox kernel via a
   second `/mcp/call` after the chat completes).
 
-**DEFERRED - IMPORTANT FOR FUTURE WORK**
+**Image re-view capability - CLOSED 2026-04-14**
 
-> **Image re-view capability**: once an inline image has been
-> funnelled to the documents store on the turn the user sent it, the
-> model currently cannot pull it back into context on a LATER turn
-> even though the bytes are still on disk and referenceable by
-> `document_id`. If the user follows up two turns later with "what
-> was that arrow pointing at in the screenshot I sent?", the model
-> sees only the text portion of the earlier turn and has no path to
-> re-fetch the image. This was deliberately deferred to keep the
-> Stage A surface small.
->
-> The right fix is a new MCP tool `view_attachment(document_id)` that
-> returns the image as a data URL. `chat_service` splices it into
-> the next tool-loop iteration as a multimodal user observation
-> (exactly the same path `build_tool_result_followup` already uses
-> for sandbox artifacts). Effort: ~2 hours. Blocks: none - the
-> persistence layer and the splicing machinery both already exist.
+Shipped the deferred `view_attachment` MCP tool as a follow-up small
+PR (Stage B).
+
+- `view_attachment(document_id)` MCP tool in
+  `retrieval/mcp/tools/documents.py`. Validates ownership via
+  `current_user_email`, resolves the doc to disk, refuses non-image
+  types with an explicit error.
+- `vision.build_view_attachment_followup` mirrors the existing
+  sandbox-artifact follow-up: on the next tool-loop iteration,
+  `chat_service` injects a synthetic multimodal user message carrying
+  the requested attachment bytes. The tool's own return value stays a
+  small metadata marker so the serialized tool message doesn't
+  become a base64 wall of garbage.
+- `chat_context.assemble_context` now inlines an
+  `[Attachments on this message: <doc_id> (<filename>, <mime>). Call
+  view_attachment(document_id="...") to see one again.]` marker into
+  past-turn content when the stored row has attachments. The model
+  discovers document_ids from these markers without needing an
+  extra discovery tool call. The stored `messages.content` column
+  is unchanged, so FTS search keeps working against the clean text.
+- Tests: `view_attachment_mcp_call` (direct tool invocation),
+  `view_attachment_mcp_rejects_non_image`, and
+  `view_attachment_end_to_end` (two-turn chat where turn 1 uploads a
+  red square and turn 2 asks the model to recall its colour via
+  `view_attachment`).
 
 Other deferred items:
 

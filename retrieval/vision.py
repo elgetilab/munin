@@ -216,6 +216,85 @@ def multimodal_user_content(text: str, data_urls: list[str]) -> list[dict]:
 
 
 # ----------------------------------------------------------------------------
+# view_attachment follow-up synthesis (§5 re-view)
+# ----------------------------------------------------------------------------
+
+_VIEW_ATTACHMENT_LEADER = (
+    "[view_attachment] The attachment(s) you requested are shown below. "
+    "Use them to answer the user's question; if you can no longer tell "
+    "what the user was asking about, say so honestly."
+)
+
+
+def _view_attachment_requests_from_results(
+    tool_results: list[dict],
+) -> list[tuple[str, str]]:
+    """
+    Walk tool_results for view_attachment calls that succeeded and
+    return ``[(document_id, filename)]`` so the caller can resolve
+    each to bytes. Failed calls (``error`` key set) are skipped.
+    """
+    out: list[tuple[str, str]] = []
+    for tr in tool_results:
+        if not isinstance(tr, dict):
+            continue
+        if tr.get("name") != "view_attachment":
+            continue
+        result = tr.get("result") or {}
+        if not isinstance(result, dict):
+            continue
+        if result.get("error"):
+            continue
+        doc_id = result.get("document_id")
+        filename = result.get("filename") or ""
+        if isinstance(doc_id, str) and doc_id:
+            out.append((doc_id, filename))
+    return out
+
+
+def build_view_attachment_followup(
+    tool_results: list[dict],
+    user_email: str,
+) -> Optional[dict]:
+    """
+    Synthesise the multimodal user message that carries images the
+    model asked to see via ``view_attachment``. Mirrors
+    ``build_tool_result_followup`` but reads bytes from the local
+    documents store instead of fetching from the sandbox sidecar.
+
+    Returns ``None`` when there are no successful view_attachment
+    calls in this batch, so the chat loop can skip injecting the
+    message entirely.
+    """
+    import document_store  # lazy - same rationale as elsewhere
+
+    requests = _view_attachment_requests_from_results(tool_results)
+    if not requests:
+        return None
+    if not user_email:
+        return None
+
+    data_urls: list[str] = []
+    for doc_id, _filename in requests:
+        if len(data_urls) >= MAX_IMAGES_PER_TURN:
+            break
+        path = document_store.get_document_file_path(user_email, doc_id)
+        if not path:
+            continue
+        try:
+            image_bytes, subtype = read_user_document_image(path)
+            data_urls.append(_build_data_url(image_bytes, subtype))
+        except VisionError:
+            continue
+    if not data_urls:
+        return None
+    return {
+        "role": "user",
+        "content": multimodal_user_content(_VIEW_ATTACHMENT_LEADER, data_urls),
+    }
+
+
+# ----------------------------------------------------------------------------
 # Feedback-loop synthesis
 # ----------------------------------------------------------------------------
 

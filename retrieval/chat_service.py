@@ -747,6 +747,23 @@ async def stream_chat_completion(
         if followup is not None:
             messages.append(followup)
 
+        # §5 view_attachment follow-up: if the model called
+        # view_attachment, inject the referenced image(s) as a separate
+        # synthetic user message (parallel to the sandbox feedback loop
+        # above). We run this AFTER the sandbox followup so a turn that
+        # happens to do both ends up with run_python artifacts first
+        # and re-viewed attachments second in the context.
+        try:
+            view_followup = vision.build_view_attachment_followup(
+                tool_results=results,
+                user_email=user_email,
+            )
+        except Exception as e:
+            print(f"[WARNING] view_attachment followup failed: {e}")
+            view_followup = None
+        if view_followup is not None:
+            messages.append(view_followup)
+
     # --- 5b. Wrap-up: force a final synthesis if the loop exhausted its
     # turn budget, OR the last turn produced no real content. The empty-last-
     # turn case is important: the model sometimes emits only a "let me look

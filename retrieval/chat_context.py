@@ -91,6 +91,41 @@ def _message_tokens(message: dict) -> int:
     return text_tokens + image_tokens + 4
 
 
+def _augment_with_attachments(message: dict) -> str:
+    """
+    Return the message content augmented with an inline
+    ``[Attachments: ...]`` marker if the stored row has attachments.
+    This is how the model discovers the document_ids of past
+    attachments so it can reference them via ``view_attachment``
+    (§5 re-view). The stored ``messages.content`` column is NOT
+    modified - the marker only appears in the assembled context we
+    send to vLLM, so FTS search keeps working against the clean text.
+    """
+    raw = message.get("content") or ""
+    if not isinstance(raw, str):
+        # Historical rows store text-only content; a non-string is
+        # defensive. Fall back to string coercion and skip the marker.
+        return str(raw)
+    attachments = message.get("attachments") or []
+    if not attachments:
+        return raw
+    parts: list[str] = []
+    for att in attachments:
+        if not isinstance(att, dict):
+            continue
+        doc_id = att.get("document_id")
+        filename = att.get("filename") or "unknown"
+        ctype = att.get("content_type") or "application/octet-stream"
+        if doc_id:
+            parts.append(f"{doc_id} ({filename}, {ctype})")
+    if not parts:
+        return raw
+    marker = "[Attachments on this message: " + "; ".join(parts) + (
+        ". Call view_attachment(document_id=\"...\") to see one again.]"
+    )
+    return f"{raw}\n\n{marker}" if raw else marker
+
+
 def _rag_context_to_text(rag_context: Optional[dict]) -> str:
     if not rag_context:
         return ""
@@ -222,7 +257,10 @@ async def assemble_context(
     def build(history: list[dict]) -> list[dict]:
         return [
             {"role": "system", "content": combined_system},
-            *[{"role": m["role"], "content": m["content"]} for m in history],
+            *[
+                {"role": m["role"], "content": _augment_with_attachments(m)}
+                for m in history
+            ],
             new_msg,
         ]
 
@@ -280,7 +318,10 @@ async def assemble_context(
         combined_system = "\n\n".join(rebuilt_system_parts)
         return [
             {"role": "system", "content": combined_system},
-            *[{"role": m["role"], "content": m["content"]} for m in kept],
+            *[
+                {"role": m["role"], "content": _augment_with_attachments(m)}
+                for m in kept
+            ],
             new_msg,
         ]
 

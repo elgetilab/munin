@@ -3340,6 +3340,185 @@ async def test_project_persona_precedence(client):
     return t
 
 
+VIEW_ATTACHMENT_EMAIL = "view-attachment-test@munin.local"
+
+
+async def test_view_attachment_mcp_call(client):
+    """
+    Upload an image via /api/documents/upload, then call the
+    view_attachment MCP tool directly through /mcp/call. Verifies
+    the tool's own return shape without going through a full chat
+    completion.
+    """
+    t = TestResult(name="")
+    png = make_solid_png(64, 64, (220, 30, 30))
+    files = {"file": ("red.png", png, "image/png")}
+    up = await client.post(
+        f"{BASE}/api/documents/upload",
+        headers={"X-Munin-Email": VIEW_ATTACHMENT_EMAIL},
+        files=files,
+        timeout=30,
+    )
+    if up.status_code != 200:
+        t.reason = f"upload returned {up.status_code}: {up.text[:200]}"
+        return t
+    doc_id = up.json().get("document_id")
+    if not doc_id:
+        t.reason = "upload returned no document_id"
+        return t
+    try:
+        status, body = await _mcp_call(
+            client,
+            "view_attachment",
+            {"document_id": doc_id},
+            email=VIEW_ATTACHMENT_EMAIL,
+        )
+        t.metrics = {
+            "status": status,
+            "viewing": body.get("viewing"),
+            "document_id": body.get("document_id"),
+            "content_type": body.get("content_type"),
+            "error": body.get("error"),
+        }
+        if status != 200:
+            t.reason = f"/mcp/call returned {status}: {body}"
+            return t
+        if body.get("error"):
+            t.reason = f"unexpected error: {body['error']}"
+            return t
+        if body.get("viewing") is not True:
+            t.reason = f"expected viewing=True, got {body.get('viewing')!r}"
+            return t
+        if body.get("document_id") != doc_id:
+            t.reason = f"document_id mismatch: {body.get('document_id')} vs {doc_id}"
+            return t
+        if (body.get("content_type") or "").lower() != "image/png":
+            t.reason = f"expected content_type image/png, got {body.get('content_type')!r}"
+            return t
+        t.passed = True
+    finally:
+        try:
+            await client.delete(
+                f"{BASE}/api/documents/{doc_id}",
+                headers={"X-Munin-Email": VIEW_ATTACHMENT_EMAIL},
+                timeout=10,
+            )
+        except Exception:
+            pass
+    return t
+
+
+async def test_view_attachment_mcp_rejects_non_image(client):
+    """Uploading a text doc and calling view_attachment on it must error."""
+    t = TestResult(name="")
+    files = {"file": ("notes.txt", b"hello world", "text/plain")}
+    up = await client.post(
+        f"{BASE}/api/documents/upload",
+        headers={"X-Munin-Email": VIEW_ATTACHMENT_EMAIL},
+        files=files,
+        timeout=30,
+    )
+    if up.status_code != 200:
+        t.reason = f"upload returned {up.status_code}"
+        return t
+    doc_id = up.json().get("document_id")
+    if not doc_id:
+        t.reason = "no doc id"
+        return t
+    try:
+        status, body = await _mcp_call(
+            client,
+            "view_attachment",
+            {"document_id": doc_id},
+            email=VIEW_ATTACHMENT_EMAIL,
+        )
+        t.metrics = {"error": body.get("error")}
+        if status != 200:
+            t.reason = f"/mcp/call returned {status}: {body}"
+            return t
+        err = body.get("error") or ""
+        if "image" not in err.lower():
+            t.reason = f"expected image-only error, got {err!r}"
+            return t
+        t.passed = True
+    finally:
+        try:
+            await client.delete(
+                f"{BASE}/api/documents/{doc_id}",
+                headers={"X-Munin-Email": VIEW_ATTACHMENT_EMAIL},
+                timeout=10,
+            )
+        except Exception:
+            pass
+    return t
+
+
+async def test_view_attachment_end_to_end(client):
+    """
+    Turn 1: send a chat with a red-square inline image and ask the
+    model to acknowledge it. The image gets funnelled to the
+    documents store and the message's attachments column carries the
+    new doc_id.
+
+    Turn 2: on the SAME conversation, ask the model what colour the
+    earlier image was, and explicitly instruct it to use
+    view_attachment. The model should see the inline
+    [Attachments: ...] marker on the persisted turn 1, call
+    view_attachment with the doc_id, receive the image via the
+    synthetic user follow-up, and answer 'red'.
+    """
+    t = TestResult(name="")
+    png = make_solid_png(64, 64, (220, 30, 30))
+    data_url = png_to_data_url(png)
+    # Turn 1: attach the image and tell the model to just acknowledge.
+    first = await send_chat(
+        client,
+        "Here is a test image. Just reply with 'noted' - do not describe it yet.",
+        email=VIEW_ATTACHMENT_EMAIL,
+        images=[data_url],
+    )
+    conv_id = first["conversation_id"]
+    if not conv_id:
+        t.reason = f"turn 1 no conversation id; errors={first['errors']}"
+        return t
+    try:
+        if first["errors"]:
+            t.reason = f"turn 1 stream error: {first['errors'][0]}"
+            return t
+        # Turn 2: ask about the earlier image, telling the model to
+        # use view_attachment.
+        second = await send_chat(
+            client,
+            (
+                "What colour was the image I sent in my previous message? "
+                "Use the view_attachment tool to look at it again - the "
+                "document id is in the '[Attachments on this message: ...]' "
+                "marker on my earlier turn. Reply with just the colour name."
+            ),
+            conversation_id=conv_id,
+            email=VIEW_ATTACHMENT_EMAIL,
+        )
+        answer = (second["content"] or "").strip().lower()
+        tool_calls = second.get("tool_calls") or []
+        t.metrics = {
+            "tool_calls": tool_calls,
+            "answer_preview": answer[:160],
+        }
+        if second["errors"]:
+            t.reason = f"turn 2 stream error: {second['errors'][0]}"
+            return t
+        if "view_attachment" not in tool_calls:
+            t.reason = f"model did not call view_attachment; calls={tool_calls}"
+            return t
+        if "red" not in answer:
+            t.reason = f"expected 'red' in answer, got {answer!r}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, VIEW_ATTACHMENT_EMAIL)
+    return t
+
+
 async def test_rolling_conversation_compaction(client):
     """
     Drive a multi-turn conversation with heavy per-turn payloads until the
@@ -3492,6 +3671,9 @@ ALL_TESTS = [
     ("vision_unit_synthesis", test_vision_unit_synthesis, False),
     ("feedback_loop_ocr_forced", test_feedback_loop_ocr_forced, True),       # heavy, chat-driven
     ("feedback_loop_color_forced", test_feedback_loop_color_forced, True),   # heavy, chat-driven
+    ("view_attachment_mcp_call", test_view_attachment_mcp_call, False),
+    ("view_attachment_mcp_rejects_non_image", test_view_attachment_mcp_rejects_non_image, False),
+    ("view_attachment_end_to_end", test_view_attachment_end_to_end, True),   # heavy, 2-turn chat
     ("project_crud_roundtrip", test_project_crud_roundtrip, False),
     ("project_instructions_cap", test_project_instructions_cap, False),
     ("project_conversation_filing", test_project_conversation_filing, False),

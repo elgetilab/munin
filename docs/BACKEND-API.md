@@ -344,11 +344,17 @@ Unpins a conversation. Idempotent.
   returns HTTP 400 with an error message identifying the offending
   block.
 
-  **One-shot across turns**: images are included only on the turn
-  they were sent. On subsequent turns the stored transcript has the
-  text portion only; the raw image bytes are not re-injected. Future
-  work (§5 Stage B) will let the model request an image again via a
-  dedicated tool when a user follow-up references it.
+  **One-shot across turns with on-demand re-view**: images are
+  included only on the turn they were sent. On subsequent turns the
+  stored transcript has the text portion only; the raw image bytes
+  are not automatically re-injected. When the user follows up with a
+  question about an earlier image, the model can call the
+  `view_attachment(document_id)` MCP tool to pull the image bytes
+  back into its context for the next turn. The model discovers
+  available document_ids from inline `[Attachments on this message:
+  <doc_id> (<filename>, <mime>)]` markers that `chat_context` splices
+  into past-turn content - the stored `messages.content` column is
+  unchanged, so FTS search still sees the clean text.
 - `stream` is implicit; the response is always SSE.
 
 **Response**: `Content-Type: text/event-stream`, frames are

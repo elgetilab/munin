@@ -17,6 +17,7 @@ from .tools import (
     check_papers_availability,
     llm_summarize,
     search_user_docs,
+    view_attachment,
     search_past_conversations,
     list_projects,
     get_current_project,
@@ -118,6 +119,11 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
                     project_id=arguments.get("project_id"),
                 )
             return await search_user_docs(query=query, top_k=top_k)
+
+        elif tool_name == "view_attachment":
+            return await view_attachment(
+                document_id=arguments.get("document_id", ""),
+            )
 
         elif tool_name == "list_projects":
             return await list_projects()
