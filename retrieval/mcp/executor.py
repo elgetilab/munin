@@ -19,6 +19,7 @@ from .tools import (
     search_user_docs,
     invoke_agent,
     deep_research,
+    export_citations,
 )
 
 
@@ -113,6 +114,11 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
             question = arguments.get("question", "")
             depth = arguments.get("depth", "medium")
             return await deep_research(question, depth)
+
+        elif tool_name == "export_citations":
+            dois = arguments.get("dois", [])
+            fmt = arguments.get("format", "bibtex")
+            return await export_citations(dois=dois, format=fmt)
 
         else:
             return {"error": f"Unknown tool: {tool_name}"}

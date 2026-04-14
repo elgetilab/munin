@@ -654,6 +654,87 @@ async def test_style_no_emdashes_in_explanation(client):
     return t
 
 
+async def test_export_citations_bibtex(client):
+    """
+    §6: export_citations should resolve a known-good DOI via doi.org content
+    negotiation and return a valid BibTeX entry. Uses the AlphaFold paper as
+    the canary — it's been a stable Crossref entry since 2021.
+    """
+    t = TestResult(name="")
+    body = {
+        "name": "export_citations",
+        "arguments": {
+            "dois": ["10.1038/s41586-021-03819-2"],
+            "format": "bibtex",
+        },
+    }
+    response = await client.post(
+        f"{BASE}/mcp/call",
+        json=body,
+        timeout=30,
+    )
+    if response.status_code != 200:
+        t.reason = f"http {response.status_code}"
+        return t
+
+    data = response.json()
+    t.metrics = {
+        "format": data.get("format"),
+        "successful": data.get("successful"),
+        "failed": data.get("failed"),
+        "first_doi": data.get("citations", [{}])[0].get("doi"),
+        "first_text_preview": (data.get("citations", [{}])[0].get("text", "") or "")[:120],
+    }
+
+    if data.get("successful") != 1:
+        t.reason = f"expected 1 successful citation, got {data.get('successful')}"
+        return t
+    citation = data["citations"][0]
+    if "text" not in citation:
+        t.reason = f"first citation has no text: {citation}"
+        return t
+    text = citation["text"]
+    if "@article" not in text and "@inproceedings" not in text and "@misc" not in text:
+        t.reason = f"BibTeX entry missing @-type marker; got: {text[:200]}"
+        return t
+    if "10.1038/s41586-021-03819-2" not in text:
+        t.reason = f"BibTeX entry missing the DOI; got: {text[:200]}"
+        return t
+
+    t.passed = True
+    return t
+
+
+async def test_export_citations_format_validation(client):
+    """Unsupported format should error cleanly with a helpful message."""
+    t = TestResult(name="")
+    body = {
+        "name": "export_citations",
+        "arguments": {
+            "dois": ["10.1038/s41586-021-03819-2"],
+            "format": "totally-fake-format",
+        },
+    }
+    response = await client.post(
+        f"{BASE}/mcp/call",
+        json=body,
+        timeout=15,
+    )
+    if response.status_code != 200:
+        t.reason = f"http {response.status_code}"
+        return t
+    data = response.json()
+    t.metrics = {"raw": data}
+    if "error" not in data:
+        t.reason = "expected an error key for invalid format"
+        return t
+    if "format" not in data["error"].lower():
+        t.reason = f"error message should mention format: {data['error']}"
+        return t
+    t.passed = True
+    return t
+
+
 async def test_paper_search_has_download_url(client):
     """
     §13: paper_search should always return download_url + local_pdf_available
@@ -858,6 +939,8 @@ ALL_TESTS = [
     ("style_no_emdashes_in_explanation", test_style_no_emdashes_in_explanation, False),
     ("style_curie_academic_writing", test_style_curie_academic_writing, True),  # heavy (Curie + deep_research)
     ("paper_search_has_download_url", test_paper_search_has_download_url, False),
+    ("export_citations_bibtex", test_export_citations_bibtex, False),
+    ("export_citations_format_validation", test_export_citations_format_validation, False),
 ]
 
 

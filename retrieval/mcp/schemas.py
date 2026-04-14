@@ -261,6 +261,30 @@ MCP_TOOLS = {
             "required": ["agent", "query"]
         }
     },
+    "export_citations": {
+        "name": "export_citations",
+        "description": "Export formatted bibliographic citations for a list of DOIs. Hits doi.org content negotiation in parallel and returns the formatted strings, ready to drop into Zotero, Mendeley, EndNote, or a LaTeX bibliography. Use this whenever the user asks for citations in a specific format ('give me BibTeX for these papers', 'export these as RIS', 'format these in APA style'). Supported formats: bibtex, ris, csl-json, apa, chicago, nature, ieee, vancouver. Up to 50 DOIs per call.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "dois": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of DOI strings (without https://doi.org/ prefix). Max 50 per call."
+                },
+                "format": {
+                    "type": "string",
+                    "enum": [
+                        "bibtex", "ris", "csl-json",
+                        "apa", "chicago", "nature", "ieee", "vancouver"
+                    ],
+                    "description": "Citation format. Default: bibtex.",
+                    "default": "bibtex"
+                }
+            },
+            "required": ["dois"]
+        }
+    },
     "deep_research": {
         "name": "deep_research",
         "description": "One-shot composite research tool. Decomposes a research question into sub-questions, expands each into search query variants, fans out across the local paper corpus + Semantic Scholar + the web in parallel, and fetches + map-reduce-summarises the top web pages — all in a single deterministic call. Returns a structured dict with {sub_questions, queries_executed, papers, web_sources, web_summaries, sources_used}. USE THIS INSTEAD OF CALLING web_search / paper_search / web_fetch SEPARATELY when the user asks a substantive research question (\"tell me about X\", \"what's the state of the art in Y\", \"find papers about Z and summarise them\"). Much more efficient than firing individual tool calls because it reuses the same query pool across all three sources and runs everything in parallel. For short factual lookups or single-source queries, still prefer the individual search tools — deep_research is heavier. Use depth=\"deep\" for exhaustive coverage (5 sub-questions, 5 fetches); default \"medium\" (3 sub-questions, 3 fetches) is the right choice for most questions.",

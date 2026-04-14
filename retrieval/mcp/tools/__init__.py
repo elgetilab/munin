@@ -23,6 +23,7 @@ from .llm import llm_summarize
 from .documents import search_user_docs
 from .agents import invoke_agent
 from .research import deep_research
+from .citations import export_citations
 
 __all__ = [
     "web_search",
@@ -39,4 +40,5 @@ __all__ = [
     "search_user_docs",
     "invoke_agent",
     "deep_research",
+    "export_citations",
 ]
