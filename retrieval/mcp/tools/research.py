@@ -217,14 +217,26 @@ def _merge_papers(
             "citation_count": paper.get("citation_count"),
             "matched_by": paper.get("matched_by", 1),
             "source": source_label,
+            # Carry through download attribution from §13. Either field may
+            # be None on any given paper; merge logic below promotes the
+            # better one when both sources have data on the same DOI.
+            "download_url": paper.get("download_url"),
+            "local_pdf_available": paper.get("local_pdf_available", False),
+            "open_access_pdf": paper.get("open_access_pdf"),
         }
         if existing is None:
             merged[key] = enriched
         else:
             # Prefer the version with richer metadata; merge missing fields.
-            for field in ("tldr", "abstract", "citation_count", "year", "doi", "authors"):
+            for field in (
+                "tldr", "abstract", "citation_count", "year", "doi", "authors",
+                "download_url", "open_access_pdf",
+            ):
                 if not existing.get(field) and enriched.get(field):
                     existing[field] = enriched[field]
+            # local_pdf_available is OR-merged: True wins.
+            if enriched.get("local_pdf_available"):
+                existing["local_pdf_available"] = True
             existing["matched_by"] = max(
                 existing.get("matched_by", 1), enriched.get("matched_by", 1)
             )

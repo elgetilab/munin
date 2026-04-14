@@ -116,6 +116,26 @@ def _paper_dedupe_key(paper: dict) -> str:
     return f"title:{title}" if title else f"unk:{id(paper)}"
 
 
+def _local_download_fields(doi: str) -> dict:
+    """
+    Return {"download_url": ..., "local_pdf_available": True} when a PDF for
+    this DOI exists in the local corpus, or an empty dict otherwise. Used by
+    every search tool to surface clickable downloads on local hits without
+    needing a follow-up `get_paper_pdf` tool call.
+    """
+    if not doi:
+        return {}
+    try:
+        if get_pdf_path(doi):
+            return {
+                "download_url": f"{PUBLIC_URL}/paper/{quote(doi, safe='')}/pdf",
+                "local_pdf_available": True,
+            }
+    except Exception:
+        pass
+    return {}
+
+
 def _qdrant_search_one(qdrant, specter, q: str, top_k: int) -> list[dict]:
     """Run one SPECTER-embedded Qdrant query_points call and shape the payload."""
     try:
@@ -131,14 +151,20 @@ def _qdrant_search_one(qdrant, specter, q: str, top_k: int) -> list[dict]:
             authors = payload.get("authors", [])
             if isinstance(authors, list):
                 authors = [a if isinstance(a, str) else a.get("name", "") for a in authors][:5]
-            out.append({
+            doi = payload.get("doi")
+            row = {
                 "title": payload.get("title"),
-                "doi": payload.get("doi"),
+                "doi": doi,
                 "year": payload.get("year"),
                 "authors": authors,
                 "score": round(float(r.score), 3),
                 "matched_query": q,
-            })
+            }
+            # Local hits always have a PDF on disk (they came from the local
+            # papers Qdrant collection). Surface the download link so the
+            # model doesn't need a follow-up get_paper_pdf call.
+            row.update(_local_download_fields(doi))
+            out.append(row)
         return out
     except Exception as e:
         print(f"[WARNING] paper_search '{q}' failed: {e}")
@@ -227,8 +253,18 @@ async def _semantic_scholar_one(
     top_k: int,
     year: str,
 ) -> list[dict]:
-    """Run one Semantic Scholar /paper/search query and shape the results."""
-    fields = "paperId,title,authors,year,citationCount,abstract,externalIds,journal,tldr,publicationTypes"
+    """Run one Semantic Scholar /paper/search query and shape the results.
+
+    Each returned row carries:
+      * `download_url` + `local_pdf_available=True` if the DOI exists in
+        our local corpus (model can render an immediate download link).
+      * `open_access_pdf` if S2 reports an OA URL, even when the paper is
+        not in our local corpus (model can render a "read online" link).
+    """
+    fields = (
+        "paperId,title,authors,year,citationCount,abstract,externalIds,"
+        "journal,tldr,publicationTypes,openAccessPdf"
+    )
     params = {
         "query": q,
         "limit": top_k,
@@ -274,7 +310,9 @@ async def _semantic_scholar_one(
         if paper.get("tldr") and paper["tldr"].get("text"):
             tldr = paper["tldr"]["text"]
 
-        out.append({
+        oa_pdf = (paper.get("openAccessPdf") or {}).get("url") or None
+
+        row = {
             "title": paper.get("title", ""),
             "doi": doi,
             "year": paper.get("year"),
@@ -284,8 +322,14 @@ async def _semantic_scholar_one(
             "tldr": tldr,
             "journal": (paper.get("journal") or {}).get("name", ""),
             "semantic_scholar_id": paper.get("paperId", ""),
+            "open_access_pdf": oa_pdf,
             "matched_query": q,
-        })
+        }
+        # If the DOI is also in our local corpus, surface a direct download
+        # link so the model prefers it over the OA mirror. Local copies are
+        # GROBID-parsed and SPECTER-embedded, often with cleaner extraction.
+        row.update(_local_download_fields(doi))
+        out.append(row)
     return out
 
 

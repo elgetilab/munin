@@ -506,6 +506,17 @@ limits, and wall-clock timeouts. Agents cannot invoke each other.
 9. **Rate limits / quotas are on the VPS gateway**, not this service.
    `/api/chat/completions` will happily stream until vLLM runs out of
    capacity or the tunnel drops.
+10. **The model emits bare URLs sometimes — your renderer must auto-link
+    them.** Tool results from `paper_search` and `semantic_scholar_search`
+    contain a `download_url` field for papers in the local corpus, and
+    persona prompts instruct the model to render them as `[Download PDF](url)`.
+    Qwen3 frequently ignores that instruction and emits `**Download URL:**
+    https://...` instead. Bare URLs are valid markdown content; making
+    them clickable is the renderer's job. Enable a markdown auto-linkify
+    plugin (e.g. `remark-gfm` for `react-markdown`) so both `[text](url)`
+    AND bare URLs become clickable. See `docs/FRONTEND-TASKS.md` for
+    the full handoff. Don't try to fix this on the backend — three rounds
+    of prompt strengthening did not move the needle.
 
 ## 11. Quick curl recipes
 

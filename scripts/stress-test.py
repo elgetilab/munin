@@ -654,6 +654,64 @@ async def test_style_no_emdashes_in_explanation(client):
     return t
 
 
+async def test_paper_search_has_download_url(client):
+    """
+    §13: paper_search should always return download_url + local_pdf_available
+    on local-corpus hits. Calls /mcp/call directly so the test doesn't depend
+    on any model behaviour — we only check what the tool layer produces.
+    """
+    t = TestResult(name="")
+    body = {
+        "name": "paper_search",
+        "arguments": {"query": "lipid bilayer", "top_k": 5},
+    }
+    response = await client.post(
+        f"{BASE}/mcp/call",
+        json=body,
+        timeout=30,
+    )
+    if response.status_code != 200:
+        t.reason = f"http {response.status_code}"
+        return t
+
+    data = response.json()
+    results = data.get("results") or []
+    if not results:
+        t.reason = "paper_search returned no results"
+        t.metrics = {"raw": data}
+        return t
+
+    with_url = sum(1 for r in results if r.get("download_url"))
+    with_flag = sum(1 for r in results if r.get("local_pdf_available"))
+    t.metrics = {
+        "n_results": len(results),
+        "with_download_url": with_url,
+        "with_local_pdf_available": with_flag,
+        "first_url_sample": next(
+            (r.get("download_url") for r in results if r.get("download_url")), None
+        ),
+    }
+
+    if with_url == 0:
+        t.reason = "no result had a download_url field populated"
+        return t
+    if with_flag == 0:
+        t.reason = "no result had local_pdf_available=True"
+        return t
+
+    t.passed = True
+    return t
+
+
+# NOTE: a previous version of this file had a `test_model_renders_download_
+# link_as_markdown` test that asserted the model uses `[text](url)` syntax
+# in chat responses. We removed it because Qwen3 is heavily trained to use
+# `**Label:** url` for metadata fields and three rounds of prompt
+# strengthening did not budge it. Bare URLs are valid markdown content;
+# making them clickable is the frontend's job (auto-linkify via
+# remark-gfm or similar). See docs/FRONTEND-TASKS.md.
+
+
 async def test_style_curie_academic_writing(client):
     """
     Curie tends to produce long, heavily-formatted research prose, the
@@ -799,6 +857,7 @@ ALL_TESTS = [
     ("style_no_decorative_in_list", test_style_no_decorative_in_list, False),
     ("style_no_emdashes_in_explanation", test_style_no_emdashes_in_explanation, False),
     ("style_curie_academic_writing", test_style_curie_academic_writing, True),  # heavy (Curie + deep_research)
+    ("paper_search_has_download_url", test_paper_search_has_download_url, False),
 ]
 
 
