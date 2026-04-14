@@ -129,9 +129,26 @@ A one-line plugin enable in the renderer is the right fix.
 
 ## 2. Render sandbox `artifact` SSE events inline
 
-**Status:** open
+**Status:** DEPRECATED - superseded by entry #9 after §22 Stage C
 **Driven by:** munin-backend §2 "Python sandbox"
-**Date:** 2026-04-14
+**Date:** 2026-04-14 (deprecated same-day by §22 Stage C)
+**Effort:** n/a
+
+**DO NOT IMPLEMENT THIS ENTRY AS WRITTEN.** §22 Stage C unified the
+sandbox artifact path with the model-written artifacts path. The
+old standalone `artifact` SSE event has been **removed** from the
+backend. Sandbox-generated files now fire `artifact_created` events
+with `source: "sandbox_generated"` alongside the usual fields
+(`filename`, `size_bytes`, `external_url`), and the frontend work
+is described under **entry #9 "Artifacts side panel (§22)"** below.
+The routing logic lives there: check the `source` field on
+incoming `artifact_created` events and render sandbox-generated
+ones as inline thumbnails/download chips in the chat transcript,
+and model-written ones as side-panel entries.
+
+The rest of this entry is kept for historical context. Skip to
+entry #9 for what the frontend actually needs to do.
+
 **Effort:** ~30-50 lines: a new SSE event handler + an inline renderer
 
 ### What the backend does
@@ -614,13 +631,14 @@ clipboard. Saves the user a couple of sentences of prompting.
 
 ---
 
-## 9. Artifacts side panel (§22 Stage A)
+## 9. Artifacts side panel + unified artifact rendering (§22 all stages)
 
 **Status:** open
-**Driven by:** munin-backend §22 "Artifacts"
+**Driven by:** munin-backend §22 "Artifacts" (Stages A+B+C all done
+on the backend)
 **Date:** 2026-04-14
 **Effort:** ~1 week: side panel with version picker, inline edit
-mode, live SSE subscription, CRUD wiring
+mode, live SSE subscription, CRUD wiring, routing by `source`
 
 ### What the backend ships (Stage A)
 
@@ -739,16 +757,50 @@ frontend should react to the `artifact_created` SSE event.
 - Try to save 600 KB: client blocks via the cap warning, server
   returns 400 if you bypass.
 
-### Note: separate from the §2/§3 `artifact` event
+### Routing by `source` (§22 Stage C unification)
 
-The existing `artifact` SSE event (used by the sandbox for PNG
-plots and xlsx downloads) lives alongside the new
-`artifact_created` / `artifact_updated` events and is NOT
-deprecated. The sandbox stream is for throwaway files rendered
-inline in the transcript; §22 is for versioned documents in the
-side panel. Stage C will unify the two concepts into one
-artifacts table with a `source` column - until then, route the
-two event types to two different UI surfaces.
+After §22 Stage C the backend unified the old sandbox `artifact`
+SSE event with the §22 `artifact_created` event - there is only
+one event type now, with a `source` discriminator. The old
+`artifact` event has been **removed** from the backend
+(FRONTEND-TASKS.md entry #2 is superseded by this one).
+
+Every `artifact_created` payload carries:
+
+- `id` - unified `art_*` id
+- `source` - `"model_written"` or `"sandbox_generated"`
+- `title`, `content_type`, `version`
+- For `model_written`: `language`
+- For `sandbox_generated`: `filename`, `size_bytes`, `external_url`
+
+Route by `source`:
+
+- **`model_written`** → open in the side panel as before. Use
+  `GET /api/chats/{cid}/artifacts/{aid}` for full content.
+- **`sandbox_generated`** → render inline in the chat transcript
+  under the `run_python` tool call that produced it.
+  - `content_type: image/*` → `<img src="${BASE}${external_url}">`
+  - Anything else → download chip with `filename` + `size_bytes`,
+    link pointing at `external_url`
+  - Clicking the chip can optionally ALSO open the side-panel
+    view, which renders the metadata row and offers a
+    "save to documents" action (see below).
+
+`artifact_updated` events are only fired for `model_written`
+artifacts - sandbox-generated ones are version-1-only and
+read-only (call `run_python` again to regenerate).
+
+### Nice-to-have: "save to documents" action
+
+Any artifact (model-written or sandbox-generated) can be promoted
+to the user's persistent documents store via the
+`save_artifact_to_documents(artifact_id)` MCP tool. The model
+calls this on its own when the user says "save this for later"
+etc. The frontend can optionally expose a manual button in the
+artifact viewer that does the same thing by sending a chat
+message "save artifact X to my documents" - the model picks up
+the id from the inline `[Attachments: ...]` marker or the
+`=== ACTIVE ARTIFACTS ===` block and invokes the tool.
 
 ---
 

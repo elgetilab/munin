@@ -226,6 +226,27 @@ async def init_db() -> aiosqlite.Connection:
         "ON conversations(user_email, project_id, updated_at DESC)"
     )
 
+    # §22 Stage C: unify sandbox-generated artifacts with the
+    # model-written ones by adding source/filename/external_url
+    # columns to the existing artifacts table. Sandbox rows carry
+    # source='sandbox_generated' and point external_url at the
+    # existing /api/artifacts/{cid}/{aid} proxy endpoint.
+    cur = await _db.execute("PRAGMA table_info(artifacts)")
+    artifact_cols = {row["name"] for row in await cur.fetchall()}
+    if "source" not in artifact_cols:
+        await _db.execute(
+            "ALTER TABLE artifacts ADD COLUMN source TEXT NOT NULL "
+            "DEFAULT 'model_written'"
+        )
+    if "filename" not in artifact_cols:
+        await _db.execute(
+            "ALTER TABLE artifacts ADD COLUMN filename TEXT"
+        )
+    if "external_url" not in artifact_cols:
+        await _db.execute(
+            "ALTER TABLE artifacts ADD COLUMN external_url TEXT"
+        )
+
     # Multimodal attachments metadata (§5). JSON list of
     # {document_id, filename, content_type} per message. Nullable.
     cur = await _db.execute("PRAGMA table_info(messages)")

@@ -403,6 +403,10 @@ async def _verify_artifact_owned(
 # Create
 # ---------------------------------------------------------------------------
 
+SOURCE_MODEL_WRITTEN = "model_written"
+SOURCE_SANDBOX_GENERATED = "sandbox_generated"
+
+
 async def create_artifact(
     user_email: str,
     conversation_id: str,
@@ -434,12 +438,12 @@ async def create_artifact(
         """
         INSERT INTO artifacts
             (id, conversation_id, user_email, title, content_type,
-             language, latest_version, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+             language, latest_version, created_at, updated_at, source)
+        VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
         """,
         (
             aid, conversation_id, user_email, title, content_type,
-            language, now, now,
+            language, now, now, SOURCE_MODEL_WRITTEN,
         ),
     )
     await db.execute(
@@ -458,6 +462,93 @@ async def create_artifact(
         "title": title,
         "content_type": content_type,
         "language": language,
+        "source": SOURCE_MODEL_WRITTEN,
+        "version": 1,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+async def register_sandbox_artifact(
+    user_email: str,
+    conversation_id: str,
+    sandbox_artifact_id: str,
+    filename: str,
+    content_type: str,
+    size_bytes: int,
+) -> dict:
+    """
+    Register a sandbox-generated file in the unified artifacts table
+    (§22 Stage C). The actual file stays on disk inside the sandbox
+    container and is served via the existing
+    ``/api/artifacts/{cid}/{sandbox_artifact_id}`` proxy endpoint -
+    this helper just creates a row pointing at it so the side panel
+    (and the model's list_artifacts / read_artifact tools) can see
+    sandbox outputs alongside model-written documents.
+
+    We verify the caller's conversation ownership but we don't
+    re-validate filename/content_type/size - those came from the
+    sandbox-svc response which already enforces its own caps.
+    """
+    if not await _verify_conversation_owned(conversation_id, user_email):
+        raise ArtifactError("conversation not found or not owned by user")
+
+    if not isinstance(sandbox_artifact_id, str) or not sandbox_artifact_id.strip():
+        raise ArtifactError("sandbox_artifact_id must be a non-empty string")
+    if not isinstance(filename, str) or not filename.strip():
+        filename = "unnamed"
+
+    # Use the filename as the artifact title - that's what the user
+    # will see in the side panel ("plot.png", "data.xlsx", etc.).
+    title = filename.strip()[:MAX_TITLE_CHARS]
+    external_url = f"/api/artifacts/{conversation_id}/{sandbox_artifact_id}"
+
+    # Placeholder content string so artifact_versions isn't empty
+    # and read_artifact has something meaningful to return for
+    # sandbox rows. We don't store the actual bytes - those live on
+    # disk in the sandbox container and are fetched via external_url.
+    placeholder = (
+        f"[Sandbox-generated file: {filename} ({content_type}, "
+        f"{size_bytes} bytes). The actual bytes live in the sandbox "
+        f"container; fetch them via GET {external_url}.]"
+    )
+
+    db = await get_db()
+    aid = f"art_{uuid.uuid4().hex[:12]}"
+    now = _iso_now()
+
+    await db.execute(
+        """
+        INSERT INTO artifacts
+            (id, conversation_id, user_email, title, content_type,
+             language, latest_version, created_at, updated_at,
+             source, filename, external_url)
+        VALUES (?, ?, ?, ?, ?, NULL, 1, ?, ?, ?, ?, ?)
+        """,
+        (
+            aid, conversation_id, user_email, title, content_type,
+            now, now, SOURCE_SANDBOX_GENERATED, filename, external_url,
+        ),
+    )
+    await db.execute(
+        """
+        INSERT INTO artifact_versions
+            (artifact_id, version, content, change_summary,
+             created_at, created_by)
+        VALUES (?, 1, ?, ?, ?, 'assistant')
+        """,
+        (aid, placeholder, f"sandbox produced {filename}", now),
+    )
+    await db.commit()
+    return {
+        "id": aid,
+        "conversation_id": conversation_id,
+        "title": title,
+        "content_type": content_type,
+        "source": SOURCE_SANDBOX_GENERATED,
+        "filename": filename,
+        "size_bytes": size_bytes,
+        "external_url": external_url,
         "version": 1,
         "created_at": now,
         "updated_at": now,
@@ -496,12 +587,18 @@ async def get_artifact_version(
     row = await cur.fetchone()
     if row is None:
         return None
+    # Older rows (created before §22 Stage C) don't have source set;
+    # treat missing/NULL as model_written for back-compat.
+    source = meta.get("source") or SOURCE_MODEL_WRITTEN
     return {
         "id": artifact_id,
         "conversation_id": conversation_id,
         "title": meta["title"],
         "content_type": meta["content_type"],
         "language": meta["language"],
+        "source": source,
+        "filename": meta.get("filename"),
+        "external_url": meta.get("external_url"),
         "latest_version": int(meta["latest_version"]),
         "version": int(row["version"]),
         "content": row["content"],
@@ -530,6 +627,7 @@ async def list_artifacts(
         SELECT
             a.id, a.title, a.content_type, a.language,
             a.latest_version, a.created_at, a.updated_at,
+            a.source, a.filename, a.external_url,
             v.content AS latest_content
         FROM artifacts a
         JOIN artifact_versions v
@@ -543,14 +641,29 @@ async def list_artifacts(
     out = []
     for row in rows:
         content = row["latest_content"] or ""
+        source = row["source"] or SOURCE_MODEL_WRITTEN
+        # For sandbox rows the `content` we store is a placeholder
+        # describing the file, not the real content. Word-count of
+        # the placeholder would be misleading, so we zero it out
+        # for sandbox rows and let the frontend show size_bytes or
+        # a file icon instead.
+        if source == SOURCE_SANDBOX_GENERATED:
+            word_count = 0
+            byte_size = 0
+        else:
+            word_count = _count_words(content)
+            byte_size = len(content.encode("utf-8"))
         out.append({
             "id": row["id"],
             "title": row["title"],
             "content_type": row["content_type"],
             "language": row["language"],
+            "source": source,
+            "filename": row["filename"],
+            "external_url": row["external_url"],
             "latest_version": int(row["latest_version"]),
-            "word_count": _count_words(content),
-            "byte_size": len(content.encode("utf-8")),
+            "word_count": word_count,
+            "byte_size": byte_size,
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         })
@@ -603,6 +716,16 @@ async def update_artifact(
     meta = await _verify_artifact_owned(artifact_id, conversation_id, user_email)
     if meta is None:
         return None
+
+    # §22 Stage C: sandbox-generated artifacts are read-only from the
+    # update path. If the model wants to regenerate, it calls
+    # run_python again which produces a fresh artifact with a new id.
+    source = meta.get("source") or SOURCE_MODEL_WRITTEN
+    if source == SOURCE_SANDBOX_GENERATED:
+        raise ArtifactError(
+            "cannot update sandbox-generated artifacts; call run_python "
+            "again to regenerate the file"
+        )
 
     summary = _validate_change_summary(change_summary)
     if created_by not in ("assistant", "user"):
@@ -693,6 +816,7 @@ async def update_artifact(
         "title": meta["title"],
         "content_type": meta["content_type"],
         "language": meta["language"],
+        "source": source,
         "version": next_version,
         "change_summary": summary,
         "created_by": created_by,
@@ -711,30 +835,44 @@ async def update_artifact(
 def build_artifact_summary_block(artifacts: list[dict]) -> Optional[str]:
     """
     Render the ``=== ACTIVE ARTIFACTS ===`` block chat_service
-    prepends to the system prompt. Summary-only by design:
-    title + type + version + word count per artifact. The model
-    calls ``read_artifact(id)`` when it needs the actual content.
-    Returns None when there are no artifacts so the caller can skip
-    the block entirely rather than emit an empty header.
+    prepends to the system prompt. Summary-only by design: for
+    model-written artifacts we show title + type + version +
+    word count; for sandbox-generated ones we show filename +
+    type + ``[sandbox output, read-only]`` since they aren't
+    editable via update_artifact. Returns None when there are no
+    artifacts so the caller can skip the block.
     """
     if not artifacts:
         return None
     lines = ["=== ACTIVE ARTIFACTS ==="]
     for i, a in enumerate(artifacts, start=1):
-        title = (a.get("title") or "").strip() or "untitled"
+        source = a.get("source") or SOURCE_MODEL_WRITTEN
         ctype = a.get("content_type") or "text/plain"
-        version = a.get("latest_version") or 1
-        words = a.get("word_count") or 0
-        lines.append(
-            f'{i}. "{title}" ({ctype}, v{version}, {words} words)'
-        )
+        aid = a.get("id") or "?"
+        if source == SOURCE_SANDBOX_GENERATED:
+            filename = a.get("filename") or a.get("title") or "unnamed"
+            lines.append(
+                f'{i}. id={aid} "{filename}" ({ctype}, sandbox output, '
+                f"read-only)"
+            )
+        else:
+            title = (a.get("title") or "").strip() or "untitled"
+            version = a.get("latest_version") or 1
+            words = a.get("word_count") or 0
+            lines.append(
+                f'{i}. id={aid} "{title}" ({ctype}, v{version}, '
+                f"{words} words)"
+            )
     lines.append("")
     lines.append(
-        "Use read_artifact(artifact_id) to see the current content of "
-        "any of these. Use update_artifact(artifact_id, content) to "
-        "produce a new version after editing. Use create_artifact(...) "
-        "to start a new document. Only reference an artifact by its id "
-        "when interacting with these tools."
+        "Model-written artifacts can be read with read_artifact(id), "
+        "edited with update_artifact(id, content) to produce a new "
+        "version, or created fresh with create_artifact(...). "
+        "Sandbox-generated artifacts (plots, spreadsheets, files "
+        "produced by run_python) are read-only - call run_python "
+        "again if you need to regenerate. Either kind can be "
+        "promoted to the user's persistent document store via "
+        "save_artifact_to_documents(artifact_id)."
     )
     lines.append("=== END ACTIVE ARTIFACTS ===")
     return "\n".join(lines)

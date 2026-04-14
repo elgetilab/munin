@@ -2382,16 +2382,63 @@ Shipped:
   `diff_base_version_stale_rejected`,
   `diff_result_exceeds_cap_rejected`. All fast, no LLM needed.
 
-**Stage C - DEFERRED**
+**Stage C - DONE 2026-04-14**
 
-- Unification with the §2/§3 sandbox artifact pipeline: one
-  `artifacts` table covers both model-written documents and
-  sandbox-generated files, distinguished by a new `source`
-  column (`"model_written"` vs `"sandbox_generated"`). Requires
-  migrating the existing sandbox artifact path and keeping a
-  back-compat shim for `GET /api/artifacts/{cid}/{aid}`. ~0.5-1
-  day. This is what finally closes the deferred
-  `save_artifact_to_documents` from §3.
+Shipped:
+
+- Schema migration adds `source`, `filename`, and `external_url`
+  columns to the existing `artifacts` table (idempotent ALTER
+  TABLE via PRAGMA table_info). Pre-Stage-C rows default to
+  `source='model_written'`.
+- `artifact_store.register_sandbox_artifact` inserts a unified
+  row for each file produced by `run_python`, with
+  `source='sandbox_generated'`, the original filename as title,
+  and `external_url` pointing at the existing
+  `/api/artifacts/{cid}/{sandbox_id}` proxy endpoint. Actual
+  file bytes stay on disk inside the sandbox container; the row
+  is a metadata pointer.
+- Registration happens inside the `run_python` MCP tool itself,
+  so it fires whether the call comes through chat_service or
+  directly via `/mcp/call`. The tool's result now carries a
+  `registered_artifact_id` alongside the legacy sandbox id plus
+  `source`/`external_url` fields for each artifact.
+- `update_artifact` rejects sandbox rows with a clear
+  `"cannot update sandbox-generated artifacts; call run_python
+  again to regenerate the file"` error. The old standalone
+  `artifact` SSE event is removed; the unified `artifact_created`
+  event is now fired for both model-written and sandbox-generated
+  artifacts, distinguished by the `source` field. Frontend
+  tracking for this in `FRONTEND-TASKS.md` entries #2 and #9.
+- `list_artifacts` and `build_artifact_summary_block`
+  differentiate by source: sandbox rows render as `"filename
+  (type, sandbox output, read-only)"` and model-written as
+  `"title (type, vN, W words)"`.
+- New MCP tool `save_artifact_to_documents(artifact_id,
+  filename=None)` promotes either source into the user's
+  persistent documents store. Model-written artifacts upload the
+  inline content; sandbox-generated artifacts fetch the real
+  bytes from the sandbox sidecar via the existing proxy path
+  before uploading. Filename derivation falls back to
+  `title + extension(content_type)` when omitted. This finally
+  closes the deferred `save_artifact_to_documents` thread from §3.
+- Tests: `sandbox_artifact_registered` (run_python creates a
+  unified row with source=sandbox_generated + external_url),
+  `update_sandbox_artifact_rejected`,
+  `save_model_written_to_documents`,
+  `save_sandbox_to_documents`. Existing plot-via-chat tests
+  updated to read `external_url` from the unified event payload
+  instead of constructing the old `/api/artifacts/{cid}/{aid}`
+  path from the artifact id.
+
+**What did NOT change**
+
+- The `sandbox-svc` container code is untouched. File storage
+  stays per-container in `/scratch/{cid}/` under the existing
+  `_artifacts.json` manifest. Stage C is purely a retrieval-side
+  metadata overlay on top of the existing sandbox pipeline.
+- `GET /api/artifacts/{cid}/{aid}` (the sandbox proxy) works
+  exactly as before - it's still the endpoint `external_url`
+  points at. No URL migration for the frontend.
 
 ---
 

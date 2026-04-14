@@ -523,14 +523,27 @@ was nothing to delete.
 ### 4.15 Artifact routes (§22 Stage A)
 
 Artifacts are versioned documents scoped to a conversation - papers,
-LaTeX sources, code snippets, SVG figures, anything the user wants
-to iterate on rather than re-scroll through the chat history. The
-backend stores full content snapshots per version in
-`artifact_versions`; there is no diff chain in Stage A.
+LaTeX sources, code snippets, SVG figures, sandbox-generated files,
+anything the user wants to iterate on or revisit rather than
+re-scroll through the chat history. After §22 Stage C the table
+unifies both **model-written** artifacts (created via
+`create_artifact`, edited via `update_artifact`, stored inline in
+`artifact_versions.content`) and **sandbox-generated** artifacts
+(created by `run_python`, stored on disk in the sandbox container,
+referenced via `external_url`). Rows carry a `source` field
+(`'model_written'` or `'sandbox_generated'`) to distinguish them.
 
-**Text only in Stage A.** 500 KB per version byte cap. Binary
-artifacts (PNG plots from the sandbox, PDFs) stay in the §2/§3
-sandbox pipeline until Stage C unifies the two concepts.
+Model-written artifacts are versioned and editable; sandbox-generated
+artifacts are always `latest_version: 1` and read-only (`update_artifact`
+returns an error on a sandbox row — regenerate via `run_python` instead).
+The full content snapshot chain lives in `artifact_versions`; there is
+no diff chain, just full snapshots per version.
+
+**Text in SQLite, binary on disk.** Model-written artifacts hold text
+inline under a 500 KB byte cap. Sandbox-generated artifacts store
+a short metadata placeholder inline and point `external_url` at
+`GET /api/artifacts/{cid}/{sandbox_aid}` (the existing sandbox proxy
+endpoint) for the real file bytes.
 
 **`GET /api/chats/{conversation_id}/artifacts`** - list every
 artifact in a conversation. Metadata only (no content). Ordered by
@@ -786,9 +799,9 @@ data: <minified json>
 | `thinking` | `{"content": "partial reasoning text"}` | Multiple. Accumulate client-side. Sourced from vLLM `delta.reasoning_content` (qwen3 reasoning parser) |
 | `tool_call` | `{"id": "tc-1", "name": "paper_search", "arguments": {...}}` | Once per finalized tool call the main model asks for. Emitted after the vLLM delta for that turn finishes, not mid-arguments |
 | `tool_result` | `{"id": "tc-1", "name": "paper_search", "result": {...}, "duration_ms": 800}` | After the tool actually finishes. Matches `tool_call.id` |
-| `artifact` | `{"id": "...", "filename": "...", "content_type": "image/png", "size_bytes": N, "display_url": "/api/artifacts/{cid}/{aid}", "conversation_id": "...", "tool_call_id": "tc-2"}` | After a `run_python` tool_result that produced one or more artifacts (e.g. matplotlib plots). One event per artifact. Render images inline via the `display_url`; render non-image artifacts as download links |
-| `artifact_created` | `{"id": "art_...", "title": "...", "content_type": "text/markdown", "language": "markdown", "version": 1, "conversation_id": "...", "tool_call_id": "..."}` | §22. After a successful `create_artifact` tool call. Render in the side panel as a new document entry; the frontend should fetch content via `GET /api/chats/{cid}/artifacts/{aid}` when the user opens it |
-| `artifact_updated` | `{"id": "art_...", "title": "...", "version": N, "change_summary": "...", "created_by": "assistant" \| "user", "conversation_id": "...", "tool_call_id": "..."}` | §22. After a successful `update_artifact` tool call (or a user PATCH reflected back on the next streaming turn). Bumps the side panel's version picker and refreshes content |
+| `artifact_created` | `{"id": "art_...", "source": "model_written" \| "sandbox_generated", "title": "...", "content_type": "...", "version": 1, "conversation_id": "...", "tool_call_id": "...", "language": "...", "filename": "...", "size_bytes": N, "external_url": "/api/artifacts/{cid}/{sandbox_aid}"}` | §22. Fired after both `create_artifact` (model-written) and `run_python` (sandbox-generated) produce a new artifact. Frontend routes by the `source` discriminator: model-written → side-panel entry with version picker and editable content; sandbox-generated → download chip or inline image using `external_url`. The `language` field is only present for model-written rows; `filename`, `size_bytes`, and `external_url` are only present for sandbox-generated rows |
+| `artifact_updated` | `{"id": "art_...", "source": "...", "title": "...", "version": N, "change_summary": "...", "created_by": "assistant" \| "user", "conversation_id": "...", "tool_call_id": "...", "applied_hunks": N \| null, "lines_added": N, "lines_removed": N, "base_version": N}` | §22. After a successful `update_artifact` tool call (or a user PATCH reflected back on the next streaming turn). Bumps the side panel's version picker and refreshes content. Only fires for model-written artifacts - sandbox-generated rows are read-only |
+| ~~`artifact`~~ | ~~*deprecated, removed in §22 Stage C*~~ | ~~The old standalone sandbox-artifact event has been removed. Consume `artifact_created` with `source: "sandbox_generated"` instead.~~ |
 | `agent_start` | `{"agent": "research_orchestrator", "query": "..."}` | When the model invokes an agent via the `invoke_agent` tool |
 | `agent_thinking` | `{"content": "..."}` | Nested reasoning stream from the agent's own vLLM loop |
 | `agent_tool_call` | `{"id": "atc-1", "name": "paper_search", "arguments": {...}}` | Each tool the agent fires |

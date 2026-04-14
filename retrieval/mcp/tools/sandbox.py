@@ -23,6 +23,26 @@ import httpx
 from ..context import current_user_email, current_conversation_id
 
 
+def _require_persistent_user_and_conv() -> tuple[Optional[str], Optional[str], Optional[dict]]:
+    """Same as _require_persistent_conversation below but also returns
+    the user_email so the caller can register unified artifacts
+    (§22 Stage C)."""
+    user_email = current_user_email.get()
+    if not user_email:
+        return None, None, {"error": "sandbox tools require an authenticated user context"}
+    conv_id = current_conversation_id.get()
+    if not conv_id:
+        return None, None, {"error": "sandbox tools require an active conversation context"}
+    if conv_id.startswith("ephemeral-"):
+        return None, None, {
+            "error": (
+                "sandbox is unavailable in ephemeral chats by design. "
+                "Switch to a regular (persistent) chat to run code."
+            )
+        }
+    return user_email, conv_id, None
+
+
 SANDBOX_URL = os.environ.get("SANDBOX_URL", "http://sandbox:8090")
 SANDBOX_TIMEOUT_S = float(os.environ.get("SANDBOX_HTTP_TIMEOUT_S", "180"))
 
@@ -63,9 +83,10 @@ async def run_python(code: str, timeout_s: int = 30) -> dict:
         timeout_s = 30
     timeout_s = max(1, min(timeout_s, 120))
 
-    conv_id, refusal = _require_persistent_conversation()
+    user_email, conv_id, refusal = _require_persistent_user_and_conv()
     if refusal is not None:
         return refusal
+    assert user_email is not None and conv_id is not None
 
     try:
         async with httpx.AsyncClient(timeout=SANDBOX_TIMEOUT_S) as client:
@@ -83,14 +104,31 @@ async def run_python(code: str, timeout_s: int = 30) -> dict:
         }
 
     payload = r.json()
-    # Rewrite each artifact's metadata to include the public retrieval URL
-    # so the model can reference it directly in its answer. The actual
-    # display_url/{id}/{aid} pattern is enforced one layer up by the
-    # /api/artifacts handler in main.py.
+    # §22 Stage C: register each sandbox-produced artifact in the
+    # unified artifacts table so it shows up alongside model-written
+    # documents in the side panel and in the model's list_artifacts
+    # tool. Each artifact dict gets a new ``registered_artifact_id``
+    # field (the new art_* id) added to its metadata; the legacy
+    # ``display_url`` still points at the sandbox proxy endpoint so
+    # back-compat is intact. Registration failures are logged but
+    # don't fail the tool call - the bytes are still on disk.
+    import artifact_store  # lazy to avoid circular init
     for art in payload.get("artifacts") or []:
-        art["display_url"] = (
-            f"/api/artifacts/{conv_id}/{art['id']}"
-        )
+        art["display_url"] = f"/api/artifacts/{conv_id}/{art['id']}"
+        try:
+            registered = await artifact_store.register_sandbox_artifact(
+                user_email=user_email,
+                conversation_id=conv_id,
+                sandbox_artifact_id=art.get("id") or "",
+                filename=art.get("filename") or "unnamed",
+                content_type=art.get("content_type") or "application/octet-stream",
+                size_bytes=int(art.get("size_bytes") or 0),
+            )
+            art["registered_artifact_id"] = registered.get("id")
+            art["source"] = registered.get("source")
+            art["external_url"] = registered.get("external_url")
+        except Exception as e:
+            print(f"[WARNING] register_sandbox_artifact failed: {e}")
     payload["conversation_id"] = conv_id
     return payload
 

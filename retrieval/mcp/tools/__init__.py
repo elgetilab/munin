@@ -29,6 +29,7 @@ from .artifacts import (
     read_artifact,
     update_artifact,
     list_artifacts,
+    save_artifact_to_documents,
 )
 from .projects import list_projects, get_current_project
 from .agents import invoke_agent
@@ -60,6 +61,7 @@ __all__ = [
     "read_artifact",
     "update_artifact",
     "list_artifacts",
+    "save_artifact_to_documents",
     "list_projects",
     "get_current_project",
     "invoke_agent",

@@ -737,31 +737,40 @@ async def stream_chat_completion(
             })
             yield _sse("tool_result", res)
 
-            # If this was a run_python call that produced artifacts (plots,
-            # files), surface them as separate `artifact` SSE events so the
-            # frontend can render them inline at the right place in the
-            # transcript instead of digging them out of the tool_result blob.
+            # §22 Stage C: sandbox-generated files (run_python outputs)
+            # are registered in the unified artifacts table by the
+            # run_python tool itself, so the result dict already
+            # carries a ``registered_artifact_id`` alongside the
+            # legacy sandbox id. We just fan out an `artifact_created`
+            # SSE event per artifact for the side panel to pick up.
+            # The old standalone `artifact` SSE event is deprecated
+            # and no longer fires (§22 Stage C migration).
             if res.get("name") == "run_python":
                 tool_result = res.get("result") or {}
                 for art in (tool_result.get("artifacts") or []):
+                    registered_id = art.get("registered_artifact_id")
+                    if not registered_id:
+                        continue  # registration failed; nothing to emit
                     yield _sse(
-                        "artifact",
+                        "artifact_created",
                         {
-                            "id": art.get("id"),
-                            "filename": art.get("filename"),
+                            "id": registered_id,
+                            "source": art.get("source") or "sandbox_generated",
+                            "title": art.get("filename") or "unnamed",
                             "content_type": art.get("content_type"),
+                            "filename": art.get("filename"),
                             "size_bytes": art.get("size_bytes"),
-                            "display_url": art.get("display_url"),
+                            "external_url": art.get("external_url"),
+                            "version": 1,
                             "conversation_id": tool_result.get("conversation_id"),
                             "tool_call_id": res["id"],
                         },
                     )
 
-            # §22: versioned-document artifacts. Separate event types
-            # from the §2/§3 sandbox artifacts above so the frontend
-            # can route them to the side panel rather than the inline
-            # transcript. Only emitted on successful tool results
-            # (result dicts without an error field).
+            # §22: versioned-document artifacts. Shared event type with
+            # the sandbox registrations above - both model-written and
+            # sandbox-generated artifacts use `artifact_created` (Stage
+            # C unification). Only emitted on successful tool results.
             if res.get("name") == "create_artifact":
                 tr = res.get("result") or {}
                 if isinstance(tr, dict) and not tr.get("error"):
@@ -769,6 +778,7 @@ async def stream_chat_completion(
                         "artifact_created",
                         {
                             "id": tr.get("id"),
+                            "source": tr.get("source") or "model_written",
                             "title": tr.get("title"),
                             "content_type": tr.get("content_type"),
                             "language": tr.get("language"),
@@ -784,12 +794,17 @@ async def stream_chat_completion(
                         "artifact_updated",
                         {
                             "id": tr.get("id"),
+                            "source": tr.get("source") or "model_written",
                             "title": tr.get("title"),
                             "version": tr.get("version"),
                             "change_summary": tr.get("change_summary"),
                             "created_by": tr.get("created_by"),
                             "conversation_id": tr.get("conversation_id"),
                             "tool_call_id": res["id"],
+                            "applied_hunks": tr.get("applied_hunks"),
+                            "lines_added": tr.get("lines_added"),
+                            "lines_removed": tr.get("lines_removed"),
+                            "base_version": tr.get("base_version"),
                         },
                     )
 

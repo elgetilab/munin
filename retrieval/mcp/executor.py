@@ -27,6 +27,7 @@ from .tools import (
     read_artifact,
     update_artifact,
     list_artifacts,
+    save_artifact_to_documents,
     list_projects,
     get_current_project,
     invoke_agent,
@@ -164,6 +165,12 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
 
         elif tool_name == "list_artifacts":
             return await list_artifacts()
+
+        elif tool_name == "save_artifact_to_documents":
+            return await save_artifact_to_documents(
+                artifact_id=arguments.get("artifact_id", ""),
+                filename=arguments.get("filename"),
+            )
 
         elif tool_name == "remember":
             return await remember(

@@ -75,7 +75,14 @@ def parse_sse(text: str) -> dict:
                 thinking_len += len(d.get("content", ""))
             elif current_event == "tool_call":
                 tool_calls.append(d.get("name"))
-            elif current_event == "artifact":
+            elif current_event == "artifact_created":
+                # §22 Stage C unified both the old sandbox `artifact`
+                # event and the model-written `artifact_created` event
+                # into a single `artifact_created` payload with a
+                # `source` discriminator. The old `artifact` event is
+                # gone. Tests that used to read res["artifacts"] keep
+                # working because we still put every artifact_created
+                # payload in the same bucket.
                 artifacts.append(d)
             elif current_event == "error":
                 errors.append(d.get("message", ""))
@@ -2302,11 +2309,12 @@ async def test_sandbox_output_cap_truncates(client):
 async def test_plot_simple_via_chat(client):
     """
     Chat-driven §3 test: the model should reach for run_python on its own
-    when the user asks for a plot. We verify that:
-      - run_python appears in the tool_calls
-      - at least one artifact event fires
-      - the artifact content_type is image/*
-      - the artifact is fetchable via /api/artifacts and is non-trivial
+    when the user asks for a plot. After §22 Stage C the sandbox artifact
+    is registered in the unified artifacts table and surfaces via an
+    `artifact_created` SSE event with source='sandbox_generated'. We
+    fetch the bytes via the event's external_url (not by constructing
+    the path from the artifact id, which is now the new art_* id rather
+    than the sandbox uuid).
     """
     t = TestResult(name="")
     res = await send_chat(
@@ -2334,16 +2342,19 @@ async def test_plot_simple_via_chat(client):
             t.reason = "no artifact SSE events emitted"
             return t
         first = artifacts[0]
+        if first.get("source") != "sandbox_generated":
+            t.reason = f"expected sandbox_generated source, got {first.get('source')!r}"
+            return t
         ctype = (first.get("content_type") or "").lower()
         if not ctype.startswith("image/"):
             t.reason = f"first artifact is not an image: content_type={ctype!r}"
             return t
-        aid = first.get("id")
-        if not aid:
-            t.reason = f"artifact missing id: {first}"
+        external_url = first.get("external_url")
+        if not external_url:
+            t.reason = f"artifact missing external_url: {first}"
             return t
         r = await client.get(
-            f"{BASE}/api/artifacts/{conv_id}/{aid}",
+            f"{BASE}{external_url}",
             headers={"X-Munin-Email": "plot-test@munin.local"},
             timeout=15,
         )
@@ -2404,10 +2415,14 @@ async def test_plot_xlsx_via_chat(client):
         if not xlsx:
             t.reason = f"no .xlsx artifact in {t.metrics['filenames']}"
             return t
-        # Ownership-checked fetch sanity check.
+        # Ownership-checked fetch sanity check via external_url.
         first = xlsx[0]
+        external_url = first.get("external_url")
+        if not external_url:
+            t.reason = f"xlsx artifact missing external_url: {first}"
+            return t
         r = await client.get(
-            f"{BASE}/api/artifacts/{conv_id}/{first['id']}",
+            f"{BASE}{external_url}",
             headers={"X-Munin-Email": "plot-test@munin.local"},
             timeout=15,
         )
@@ -4709,6 +4724,252 @@ async def test_artifact_size_cap(client):
     return t
 
 
+async def _run_python_via_mcp(
+    client,
+    conv_id: str,
+    code: str,
+    email: str = ARTIFACT_EMAIL,
+) -> tuple[int, dict]:
+    return await _mcp_call(
+        client,
+        "run_python",
+        {"code": code, "timeout_s": 30},
+        email=email,
+        conversation_id=conv_id,
+    )
+
+
+async def test_sandbox_artifact_registered(client):
+    """
+    run_python produces a sandbox file that is auto-registered in
+    the unified artifacts table via the §22 Stage C path. List via
+    /api/chats/{cid}/artifacts and verify source='sandbox_generated',
+    external_url populated, filename preserved.
+    """
+    t = TestResult(name="")
+    conv_id = await _seed_conversation(client)
+    if not conv_id:
+        t.reason = "no conversation id"
+        return t
+    try:
+        code = (
+            "with open('hello.txt', 'w') as f:\n"
+            "    f.write('stage c test')\n"
+        )
+        status, body = await _run_python_via_mcp(client, conv_id, code)
+        if status != 200 or body.get("error"):
+            t.reason = f"run_python failed: {body}"
+            return t
+        sandbox_artifacts = body.get("artifacts") or []
+        if not sandbox_artifacts:
+            t.reason = "run_python produced no artifacts"
+            return t
+        registered_id = sandbox_artifacts[0].get("registered_artifact_id")
+        if not registered_id:
+            t.reason = (
+                f"artifact has no registered_artifact_id: "
+                f"{sandbox_artifacts[0]}"
+            )
+            return t
+        # List via HTTP and find the row
+        list_status, listing = await _artifact_list_http(client, conv_id)
+        if list_status != 200:
+            t.reason = f"list returned {list_status}"
+            return t
+        rows = listing.get("artifacts") or []
+        match = next(
+            (r for r in rows if r.get("id") == registered_id), None
+        )
+        t.metrics = {
+            "registered_id": registered_id,
+            "listing_ids": [r.get("id") for r in rows],
+            "source": match.get("source") if match else None,
+            "filename": match.get("filename") if match else None,
+        }
+        if match is None:
+            t.reason = "registered sandbox artifact not in listing"
+            return t
+        if match.get("source") != "sandbox_generated":
+            t.reason = f"wrong source: {match.get('source')!r}"
+            return t
+        if match.get("filename") != "hello.txt":
+            t.reason = f"filename mismatch: {match.get('filename')!r}"
+            return t
+        if not match.get("external_url"):
+            t.reason = "external_url missing"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, ARTIFACT_EMAIL)
+    return t
+
+
+async def test_update_sandbox_artifact_rejected(client):
+    """Updating a sandbox-generated artifact must return a clear error."""
+    t = TestResult(name="")
+    conv_id = await _seed_conversation(client)
+    if not conv_id:
+        t.reason = "no conversation id"
+        return t
+    try:
+        code = (
+            "with open('readonly.txt', 'w') as f:\n"
+            "    f.write('nope')\n"
+        )
+        _, body = await _run_python_via_mcp(client, conv_id, code)
+        aid = (body.get("artifacts") or [{}])[0].get("registered_artifact_id")
+        if not aid:
+            t.reason = "no registered_artifact_id from run_python"
+            return t
+        _, upd = await _artifact_update_via_mcp(
+            client, conv_id, aid, "new content",
+        )
+        t.metrics = {"error": upd.get("error")}
+        err = (upd.get("error") or "").lower()
+        if "sandbox" not in err or "run_python" not in err:
+            t.reason = f"expected sandbox refusal error, got {err!r}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, ARTIFACT_EMAIL)
+    return t
+
+
+async def test_save_model_written_to_documents(client):
+    """save_artifact_to_documents promotes a model-written artifact
+    into the documents store."""
+    t = TestResult(name="")
+    conv_id = await _seed_conversation(client)
+    if not conv_id:
+        t.reason = "no conversation id"
+        return t
+    try:
+        _, created = await _artifact_create_via_mcp(
+            client, conv_id,
+            title="Kinase abstract",
+            content="# Abstract\n\nThis is the draft abstract text.",
+            content_type="text/markdown",
+            language="markdown",
+        )
+        aid = created.get("id")
+        if not aid:
+            t.reason = "create failed"
+            return t
+        _, saved = await _mcp_call(
+            client,
+            "save_artifact_to_documents",
+            {"artifact_id": aid},
+            email=ARTIFACT_EMAIL,
+            conversation_id=conv_id,
+        )
+        t.metrics = {
+            "saved": saved.get("saved"),
+            "document_id": saved.get("document_id"),
+            "filename": saved.get("filename"),
+            "status": saved.get("status"),
+            "source": saved.get("source"),
+            "error": saved.get("error"),
+        }
+        if saved.get("error"):
+            t.reason = f"save error: {saved['error']}"
+            return t
+        if not saved.get("saved"):
+            t.reason = f"saved flag missing: {saved}"
+            return t
+        if saved.get("source") != "model_written":
+            t.reason = f"wrong source echo: {saved.get('source')!r}"
+            return t
+        doc_id = saved.get("document_id")
+        if not doc_id:
+            t.reason = "no document_id returned"
+            return t
+        # Derived filename should be "Kinase abstract.md"
+        if not (saved.get("filename") or "").endswith(".md"):
+            t.reason = f"filename not .md: {saved.get('filename')!r}"
+            return t
+        t.passed = True
+        # Best-effort cleanup of the new document
+        try:
+            await client.delete(
+                f"{BASE}/api/documents/{doc_id}",
+                headers={"X-Munin-Email": ARTIFACT_EMAIL},
+                timeout=10,
+            )
+        except Exception:
+            pass
+    finally:
+        await _delete_chat(client, conv_id, ARTIFACT_EMAIL)
+    return t
+
+
+async def test_save_sandbox_to_documents(client):
+    """save_artifact_to_documents promotes a sandbox-generated file
+    (PNG plot) into the documents store as a stored image."""
+    t = TestResult(name="")
+    conv_id = await _seed_conversation(client)
+    if not conv_id:
+        t.reason = "no conversation id"
+        return t
+    try:
+        code = (
+            "import matplotlib.pyplot as plt\n"
+            "fig, ax = plt.subplots()\n"
+            "ax.plot([0,1,2],[0,1,4])\n"
+            "ax.set_title('stage c save test')\n"
+            "plt.show()\n"
+        )
+        _, body = await _run_python_via_mcp(client, conv_id, code)
+        arts = body.get("artifacts") or []
+        if not arts:
+            t.reason = "run_python produced no artifacts"
+            return t
+        aid = arts[0].get("registered_artifact_id")
+        if not aid:
+            t.reason = "no registered_artifact_id"
+            return t
+        _, saved = await _mcp_call(
+            client,
+            "save_artifact_to_documents",
+            {"artifact_id": aid},
+            email=ARTIFACT_EMAIL,
+            conversation_id=conv_id,
+        )
+        t.metrics = {
+            "saved": saved.get("saved"),
+            "document_id": saved.get("document_id"),
+            "filename": saved.get("filename"),
+            "source": saved.get("source"),
+            "status": saved.get("status"),
+            "error": saved.get("error"),
+        }
+        if saved.get("error"):
+            t.reason = f"save error: {saved['error']}"
+            return t
+        if saved.get("source") != "sandbox_generated":
+            t.reason = f"wrong source echo: {saved.get('source')!r}"
+            return t
+        if not saved.get("document_id"):
+            t.reason = "no document_id returned"
+            return t
+        # Images are stored, not embedded
+        if saved.get("status") not in ("stored", "embedded"):
+            t.reason = f"unexpected status {saved.get('status')!r}"
+            return t
+        t.passed = True
+        # Cleanup
+        try:
+            await client.delete(
+                f"{BASE}/api/documents/{saved['document_id']}",
+                headers={"X-Munin-Email": ARTIFACT_EMAIL},
+                timeout=10,
+            )
+        except Exception:
+            pass
+    finally:
+        await _delete_chat(client, conv_id, ARTIFACT_EMAIL)
+    return t
+
+
 async def test_rolling_conversation_compaction(client):
     """
     Drive a multi-turn conversation with heavy per-turn payloads until the
@@ -4887,6 +5148,10 @@ ALL_TESTS = [
     ("diff_context_mismatch_rejected", test_diff_context_mismatch_rejected, False),
     ("diff_base_version_stale_rejected", test_diff_base_version_stale_rejected, False),
     ("diff_result_exceeds_cap_rejected", test_diff_result_exceeds_cap_rejected, False),
+    ("sandbox_artifact_registered", test_sandbox_artifact_registered, False),
+    ("update_sandbox_artifact_rejected", test_update_sandbox_artifact_rejected, False),
+    ("save_model_written_to_documents", test_save_model_written_to_documents, False),
+    ("save_sandbox_to_documents", test_save_sandbox_to_documents, False),
     ("project_crud_roundtrip", test_project_crud_roundtrip, False),
     ("project_instructions_cap", test_project_instructions_cap, False),
     ("project_conversation_filing", test_project_conversation_filing, False),

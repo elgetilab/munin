@@ -356,11 +356,29 @@ MCP_TOOLS = {
     },
     "list_artifacts": {
         "name": "list_artifacts",
-        "description": "List all artifacts in the current conversation. Usually you do NOT need this - the === ACTIVE ARTIFACTS === block in your system prompt already shows the same summary. Use it only when the user asks 'what documents am I working on?' or 'show me everything you have open' and you want to return a fresh list. Returns {artifacts: [{id, title, content_type, latest_version, word_count, ...}], total}.",
+        "description": "List all artifacts in the current conversation. Usually you do NOT need this - the === ACTIVE ARTIFACTS === block in your system prompt already shows the same summary. Use it only when the user asks 'what documents am I working on?' or 'show me everything you have open' and you want to return a fresh list. Returns {artifacts: [{id, title, content_type, source, latest_version, word_count, filename, external_url, ...}], total}. The `source` field is either 'model_written' (you created it via create_artifact/update_artifact) or 'sandbox_generated' (run_python produced it as a file output).",
         "inputSchema": {
             "type": "object",
             "properties": {},
             "required": []
+        }
+    },
+    "save_artifact_to_documents": {
+        "name": "save_artifact_to_documents",
+        "description": "Promote an artifact (model-written OR sandbox-generated) into the user's persistent documents store so it can be RAG-searched in future conversations and referenced later via `document:<doc_id>` image attachments. Use this when the user says things like 'save this as a note', 'keep this for later', 'add this to my documents', or when you've produced a figure/spreadsheet they're likely to reference in another chat. Does NOT copy artifacts between conversations on its own - it puts them in the global user_docs store where the user can then reference them anywhere. `filename` is optional and will be derived from the artifact title + content_type if omitted (e.g. 'Kinase abstract v1' with text/markdown becomes 'Kinase abstract v1.md'). Returns {saved, artifact_id, source, document_id, filename, status}. Not available in ephemeral chats.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "artifact_id": {
+                    "type": "string",
+                    "description": "The id of the artifact to promote. Can be either a model-written artifact (from create_artifact) or a sandbox-generated file (from run_python)."
+                },
+                "filename": {
+                    "type": "string",
+                    "description": "Optional filename for the saved document. If omitted, derived from the artifact's title and content_type. Must NOT contain slashes."
+                }
+            },
+            "required": ["artifact_id"]
         }
     },
     "remember": {

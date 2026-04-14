@@ -171,3 +171,151 @@ async def list_artifacts() -> dict:
         "total": len(artifacts),
         "conversation_id": conv_id,
     }
+
+
+# ---------------------------------------------------------------------------
+# save_artifact_to_documents (§22 Stage C)
+# ---------------------------------------------------------------------------
+
+# Map content types to sensible filename extensions when the caller
+# doesn't provide an explicit filename. Covers the common model-written
+# types; anything unknown falls back to ``.txt``.
+_EXT_BY_CONTENT_TYPE = {
+    "text/markdown": ".md",
+    "text/latex": ".tex",
+    "text/plain": ".txt",
+    "text/html": ".html",
+    "application/python": ".py",
+    "application/json": ".json",
+    "image/svg+xml": ".svg",
+}
+
+
+def _derive_filename(title: str, content_type: str) -> str:
+    """
+    Turn an artifact title + content_type into a sensible filename for
+    the documents store. Strips path separators, caps length at 120
+    chars, appends the extension for known content types.
+    """
+    base = (title or "artifact").strip().replace("/", "_").replace("\\", "_")
+    base = base[:120] or "artifact"
+    # Don't append an extension if the title already has one matching
+    # the content type.
+    wanted_ext = _EXT_BY_CONTENT_TYPE.get(
+        (content_type or "").lower(), ".txt"
+    )
+    if base.lower().endswith(wanted_ext):
+        return base
+    return base + wanted_ext
+
+
+async def save_artifact_to_documents(
+    artifact_id: str,
+    filename: Optional[str] = None,
+) -> dict:
+    """
+    Promote an artifact (model-written OR sandbox-generated) into the
+    user's persistent document store so it can be RAG-searched in
+    future conversations and referenced via ``document:<doc_id>``
+    image_url inputs.
+
+    For model-written artifacts the latest version's content is
+    uploaded inline. For sandbox-generated artifacts the bytes are
+    fetched from the sandbox sidecar via the existing
+    ``/api/artifacts/{cid}/{aid}`` proxy path. ``filename`` is
+    optional - if omitted we derive one from the artifact's title +
+    content_type.
+    """
+    import artifact_store
+    import document_store
+    import os as _os
+
+    user_email, conv_id, refusal = _require_persistent_conversation()
+    if refusal is not None:
+        return refusal
+    assert user_email is not None and conv_id is not None
+    if not isinstance(artifact_id, str) or not artifact_id.strip():
+        return {"error": "artifact_id must be a non-empty string"}
+
+    row = await artifact_store.get_artifact_version(
+        user_email=user_email,
+        conversation_id=conv_id,
+        artifact_id=artifact_id,
+    )
+    if row is None:
+        return {"error": f"artifact not found: {artifact_id!r}"}
+
+    source = row.get("source") or "model_written"
+    content_type = row.get("content_type") or "text/plain"
+    title = row.get("title") or "artifact"
+
+    # Resolve bytes + effective filename per source.
+    if source == "sandbox_generated":
+        # Fetch the real bytes from the sandbox container via the
+        # same proxy path the HTTP surface uses. The sandbox URL is
+        # controlled by env var; do not trust client-provided URLs.
+        import httpx
+        sandbox_url = _os.environ.get("SANDBOX_URL", "http://sandbox:8090")
+        sandbox_artifact_id = ""
+        external_url = row.get("external_url") or ""
+        # external_url has the shape /api/artifacts/{cid}/{aid};
+        # extract the trailing segment as the sandbox artifact id.
+        if "/" in external_url:
+            sandbox_artifact_id = external_url.rsplit("/", 1)[-1]
+        if not sandbox_artifact_id:
+            return {
+                "error": (
+                    "sandbox artifact has no resolvable external id; "
+                    "cannot fetch bytes"
+                )
+            }
+        fetch_url = (
+            f"{sandbox_url}/artifacts/{conv_id}/{sandbox_artifact_id}"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.get(fetch_url)
+        except httpx.RequestError as exc:
+            return {
+                "error": f"sandbox unreachable: {type(exc).__name__}: {exc}"
+            }
+        if r.status_code != 200:
+            return {
+                "error": (
+                    f"sandbox returned {r.status_code} when fetching "
+                    f"artifact bytes"
+                )
+            }
+        file_bytes = r.content
+        effective_filename = (
+            filename or row.get("filename") or _derive_filename(title, content_type)
+        )
+    else:
+        # Model-written: content lives inline in artifact_versions.
+        text_content = row.get("content") or ""
+        file_bytes = text_content.encode("utf-8")
+        effective_filename = filename or _derive_filename(title, content_type)
+
+    try:
+        uploaded = await document_store.upload_document(
+            filename=effective_filename,
+            file_bytes=file_bytes,
+            user_email=user_email,
+            conversation_id=conv_id,
+        )
+    except ValueError as exc:
+        return {"error": f"upload rejected: {exc}"}
+    except Exception as exc:
+        return {
+            "error": f"upload failed: {type(exc).__name__}: {exc}"
+        }
+
+    return {
+        "saved": True,
+        "artifact_id": artifact_id,
+        "source": source,
+        "document_id": uploaded.get("document_id"),
+        "filename": uploaded.get("filename"),
+        "status": uploaded.get("status"),
+        "chunks": uploaded.get("chunks"),
+    }
