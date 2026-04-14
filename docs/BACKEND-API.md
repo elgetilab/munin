@@ -141,6 +141,7 @@ Lists the authenticated user's conversations.
 | `offset` | int | `0` | ≥0 |
 | `persona` | string | — | filter to one persona id |
 | `search` | string | — | SQLite FTS5 over all `messages.content` |
+| `pinned_only` | bool | `false` | when `true`, return only pinned conversations |
 
 **Response (200)**:
 
@@ -156,6 +157,8 @@ Lists the authenticated user's conversations.
       "updated_at": "2026-04-13T10:05:00Z",
       "summary": null,
       "summary_through_index": null,
+      "pinned": true,
+      "pinned_at": "2026-04-14T09:00:00Z",
       "message_count": 4,
       "preview": "Can you explain the differences between..."
     }
@@ -166,7 +169,9 @@ Lists the authenticated user's conversations.
 
 Notes:
 
-- Ordered by `updated_at DESC`.
+- Ordered by `pinned DESC, updated_at DESC` - pinned conversations float
+  to the top of the listing regardless of their last activity.
+- `pinned_at` is `null` for unpinned rows.
 - `preview` is the **first user message** of the conversation, truncated to
   117 chars + ellipsis.
 - `search` uses FTS5 with the porter/unicode61 tokenizer and can be any
@@ -240,6 +245,27 @@ conversation doesn't exist or is owned by another user.
 
 Deletes both the conversation row and all of its messages (explicit
 cascade, not FK-based, so FTS triggers fire reliably). **404** if missing.
+
+### 4.7a `POST /api/chats/{id}/pin`
+
+Pins a conversation so it floats to the top of the user's listing
+across devices. Idempotent.
+
+**Response (200)**:
+
+```json
+{"pinned": true, "pinned_at": "2026-04-14T09:00:00Z"}
+```
+
+**404** if the conversation does not exist or belongs to another user.
+
+### 4.7b `DELETE /api/chats/{id}/pin`
+
+Unpins a conversation. Idempotent.
+
+**Response (200)**: `{"pinned": false}`.
+
+**404** under the same conditions as `POST .../pin`.
 
 ### 4.8 `POST /api/chat/completions` — SSE streaming
 

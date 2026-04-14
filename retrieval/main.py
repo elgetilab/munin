@@ -647,6 +647,7 @@ async def api_list_chats(
     offset: int = Query(0, ge=0),
     persona: Optional[str] = None,
     search: Optional[str] = None,
+    pinned_only: bool = Query(False),
 ):
     """List the authenticated user's conversations."""
     user_email = _require_user_email(request)
@@ -656,6 +657,7 @@ async def api_list_chats(
         offset=offset,
         persona=persona,
         search=search,
+        pinned_only=pinned_only,
     )
 
 
@@ -706,6 +708,34 @@ async def api_delete_chat(conversation_id: str, request: Request):
     if not deleted:
         raise _error_404("Conversation not found")
     return {"deleted": True}
+
+
+@app.post("/api/chats/{conversation_id}/pin")
+async def api_pin_chat(conversation_id: str, request: Request):
+    """Pin a conversation so it floats to the top of the listing."""
+    user_email = _require_user_email(request)
+    meta = await chat_store.set_conversation_pinned(
+        conversation_id=conversation_id,
+        user_email=user_email,
+        pinned=True,
+    )
+    if meta is None:
+        raise _error_404("Conversation not found")
+    return {"pinned": True, "pinned_at": meta.get("pinned_at")}
+
+
+@app.delete("/api/chats/{conversation_id}/pin")
+async def api_unpin_chat(conversation_id: str, request: Request):
+    """Unpin a conversation."""
+    user_email = _require_user_email(request)
+    meta = await chat_store.set_conversation_pinned(
+        conversation_id=conversation_id,
+        user_email=user_email,
+        pinned=False,
+    )
+    if meta is None:
+        raise _error_404("Conversation not found")
+    return {"pinned": False}
 
 
 # ==============================================================================

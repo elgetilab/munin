@@ -76,7 +76,9 @@ async def init_db() -> aiosqlite.Connection:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             summary TEXT,
-            summary_through_index INTEGER
+            summary_through_index INTEGER,
+            pinned INTEGER NOT NULL DEFAULT 0,
+            pinned_at TEXT
         );
 
         CREATE TABLE IF NOT EXISTS messages (
@@ -133,6 +135,26 @@ async def init_db() -> aiosqlite.Connection:
         );
         """
     )
+
+    # Additive migrations for DBs created before columns were introduced.
+    # SQLite's CREATE TABLE IF NOT EXISTS won't add new columns to an
+    # existing table, so we inspect PRAGMA table_info and ALTER TABLE for
+    # anything missing. Idempotent across restarts.
+    cur = await _db.execute("PRAGMA table_info(conversations)")
+    existing_cols = {row["name"] for row in await cur.fetchall()}
+    if "pinned" not in existing_cols:
+        await _db.execute(
+            "ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0"
+        )
+    if "pinned_at" not in existing_cols:
+        await _db.execute(
+            "ALTER TABLE conversations ADD COLUMN pinned_at TEXT"
+        )
+    await _db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_conversations_pinned "
+        "ON conversations(user_email, pinned DESC, updated_at DESC)"
+    )
+
     await _db.commit()
     return _db
 
@@ -191,11 +213,13 @@ async def get_conversations(
     offset: int = 0,
     persona: Optional[str] = None,
     search: Optional[str] = None,
+    pinned_only: bool = False,
 ) -> dict:
     """
     List a user's conversations with message_count and preview. Supports FTS5
     search across message content (matches any conversation containing a
-    matching message).
+    matching message). Pinned conversations float to the top of the listing;
+    set ``pinned_only=True`` to limit the result to pinned rows.
     """
     db = await get_db()
 
@@ -204,6 +228,8 @@ async def get_conversations(
     if persona:
         where.append("c.persona = ?")
         params.append(persona)
+    if pinned_only:
+        where.append("c.pinned = 1")
 
     if search:
         where.append(
@@ -217,14 +243,14 @@ async def get_conversations(
     list_sql = f"""
         SELECT
             c.id, c.user_email, c.title, c.persona, c.created_at, c.updated_at,
-            c.summary, c.summary_through_index,
+            c.summary, c.summary_through_index, c.pinned, c.pinned_at,
             (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) AS message_count,
             (SELECT content FROM messages
                 WHERE conversation_id = c.id AND role = 'user'
                 ORDER BY index_in_conversation ASC LIMIT 1) AS preview
         FROM conversations c
         WHERE {where_sql}
-        ORDER BY c.updated_at DESC
+        ORDER BY c.pinned DESC, c.updated_at DESC
         LIMIT ? OFFSET ?
     """
     list_params = list(params) + [limit, offset]
@@ -240,12 +266,39 @@ async def get_conversations(
     conversations = []
     for row in rows:
         conv = dict(row)
+        conv["pinned"] = bool(conv.get("pinned"))
         preview = conv.get("preview")
         if preview and len(preview) > 120:
             conv["preview"] = preview[:117] + "..."
         conversations.append(conv)
 
     return {"conversations": conversations, "total": total}
+
+
+async def set_conversation_pinned(
+    conversation_id: str,
+    user_email: str,
+    pinned: bool,
+) -> Optional[dict]:
+    """
+    Pin or unpin a conversation. Returns the updated meta row (with
+    ``pinned`` and ``pinned_at`` fields), or None if the conversation is
+    not owned by the user. Idempotent.
+    """
+    db = await get_db()
+    pinned_at = _iso_now() if pinned else None
+    cursor = await db.execute(
+        "UPDATE conversations SET pinned = ?, pinned_at = ? "
+        "WHERE id = ? AND user_email = ?",
+        (1 if pinned else 0, pinned_at, conversation_id, user_email),
+    )
+    await db.commit()
+    if cursor.rowcount == 0:
+        return None
+    meta = await _get_conversation_meta(conversation_id, user_email)
+    if meta is not None and "pinned" in meta:
+        meta["pinned"] = bool(meta["pinned"])
+    return meta
 
 
 async def get_conversation(conversation_id: str, user_email: str) -> Optional[dict]:
@@ -260,6 +313,8 @@ async def get_conversation(conversation_id: str, user_email: str) -> Optional[di
         return None
 
     conversation = dict(row)
+    if "pinned" in conversation:
+        conversation["pinned"] = bool(conversation["pinned"])
 
     cursor = await db.execute(
         """
@@ -313,7 +368,10 @@ async def _get_conversation_meta(
         "SELECT * FROM conversations WHERE id = ? AND user_email = ?",
         (conversation_id, user_email),
     )
-    return _row_to_dict(await cursor.fetchone())
+    meta = _row_to_dict(await cursor.fetchone())
+    if meta is not None and "pinned" in meta:
+        meta["pinned"] = bool(meta["pinned"])
+    return meta
 
 
 async def delete_conversation(conversation_id: str, user_email: str) -> bool:

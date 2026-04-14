@@ -96,6 +96,7 @@ async def send_chat(
     persona: str = "chat",
     ephemeral: bool = False,
     history: Optional[list[dict]] = None,
+    email: Optional[str] = None,
 ) -> dict:
     msgs: list[dict] = list(history or [])
     msgs.append({"role": "user", "content": message})
@@ -106,7 +107,7 @@ async def send_chat(
         "ephemeral": ephemeral,
     }
     headers = {
-        "X-Munin-Email": EMAIL,
+        "X-Munin-Email": email or EMAIL,
         "Content-Type": "application/json",
     }
     text_buf: list[str] = []
@@ -1408,6 +1409,210 @@ async def test_profile_user_isolation(client):
     return t
 
 
+async def _pin_chat(client, conv_id: str, email: str) -> tuple[int, dict]:
+    r = await client.post(
+        f"{BASE}/api/chats/{conv_id}/pin",
+        headers={"X-Munin-Email": email},
+        timeout=10,
+    )
+    try:
+        return r.status_code, r.json()
+    except Exception:
+        return r.status_code, {}
+
+
+async def _unpin_chat(client, conv_id: str, email: str) -> tuple[int, dict]:
+    r = await client.delete(
+        f"{BASE}/api/chats/{conv_id}/pin",
+        headers={"X-Munin-Email": email},
+        timeout=10,
+    )
+    try:
+        return r.status_code, r.json()
+    except Exception:
+        return r.status_code, {}
+
+
+async def _list_chats_for(client, email: str, params: Optional[dict] = None) -> dict:
+    r = await client.get(
+        f"{BASE}/api/chats",
+        headers={"X-Munin-Email": email},
+        params={"limit": 200, "offset": 0, **(params or {})},
+        timeout=30,
+    )
+    if r.status_code != 200:
+        return {"conversations": [], "total": 0}
+    data = r.json()
+    if isinstance(data, dict):
+        return data
+    return {"conversations": data, "total": len(data)}
+
+
+async def _delete_chat(client, conv_id: str, email: str) -> int:
+    r = await client.delete(
+        f"{BASE}/api/chats/{conv_id}",
+        headers={"X-Munin-Email": email},
+        timeout=10,
+    )
+    return r.status_code
+
+
+async def test_pin_persists(client):
+    """Pin a conversation, fetch via GET, assert pinned and pinned_at set."""
+    t = TestResult(name="")
+    email = "pin-test-persists@munin.local"
+    res = await send_chat(client, "say hi briefly", email=email)
+    conv_id = res["conversation_id"]
+    if not conv_id:
+        t.reason = f"no conversation id; errors={res['errors']}"
+        return t
+    try:
+        status, body = await _pin_chat(client, conv_id, email)
+        t.metrics = {"pin_status": status, "pin_body": body}
+        if status != 200 or body.get("pinned") is not True or not body.get("pinned_at"):
+            t.reason = f"pin returned {status} {body}"
+            return t
+        listing = await _list_chats_for(client, email)
+        target = next((c for c in listing["conversations"] if c.get("id") == conv_id), None)
+        if target is None:
+            t.reason = "pinned conversation missing from listing"
+            return t
+        if target.get("pinned") is not True or not target.get("pinned_at"):
+            t.reason = f"listing row not marked pinned: {target}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, email)
+    return t
+
+
+async def test_unpin_clears(client):
+    """Unpinning sets pinned=false and clears pinned_at."""
+    t = TestResult(name="")
+    email = "pin-test-unpin@munin.local"
+    res = await send_chat(client, "say hi briefly", email=email)
+    conv_id = res["conversation_id"]
+    if not conv_id:
+        t.reason = f"no conversation id; errors={res['errors']}"
+        return t
+    try:
+        await _pin_chat(client, conv_id, email)
+        status, body = await _unpin_chat(client, conv_id, email)
+        t.metrics = {"unpin_status": status, "unpin_body": body}
+        if status != 200 or body.get("pinned") is not False:
+            t.reason = f"unpin returned {status} {body}"
+            return t
+        listing = await _list_chats_for(client, email)
+        target = next((c for c in listing["conversations"] if c.get("id") == conv_id), None)
+        if target is None:
+            t.reason = "conversation missing from listing after unpin"
+            return t
+        if target.get("pinned") is not False or target.get("pinned_at") is not None:
+            t.reason = f"row still has pin state: {target}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, email)
+    return t
+
+
+async def test_pin_user_isolation(client):
+    """User A pinning a chat must not affect user B's listing."""
+    t = TestResult(name="")
+    user_a = "pin-iso-a@munin.local"
+    user_b = "pin-iso-b@munin.local"
+    res_a = await send_chat(client, "user A chat", email=user_a)
+    res_b = await send_chat(client, "user B chat", email=user_b)
+    conv_a = res_a["conversation_id"]
+    conv_b = res_b["conversation_id"]
+    if not conv_a or not conv_b:
+        t.reason = "could not create both conversations"
+        return t
+    try:
+        # A pins their own chat.
+        await _pin_chat(client, conv_a, user_a)
+        # B should see no pinned rows in their listing.
+        listing_b = await _list_chats_for(client, user_b, {"pinned_only": "true"})
+        t.metrics = {"b_pinned_count": len(listing_b["conversations"])}
+        if listing_b["conversations"]:
+            t.reason = f"user B sees {len(listing_b['conversations'])} pinned rows"
+            return t
+        # B trying to pin A's conversation must 404.
+        status, _ = await _pin_chat(client, conv_a, user_b)
+        if status != 404:
+            t.reason = f"expected 404 when user B pins A's chat, got {status}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_a, user_a)
+        await _delete_chat(client, conv_b, user_b)
+    return t
+
+
+async def test_pinned_first_in_listing(client):
+    """
+    Pinning the OLDEST of three chats should still float it to the top of
+    the listing (default order: pinned DESC, updated_at DESC).
+    """
+    t = TestResult(name="")
+    email = "pin-test-order@munin.local"
+    # Create three chats in temporal order.
+    ids: list[str] = []
+    for q in ("first chat", "second chat", "third chat"):
+        res = await send_chat(client, q, email=email)
+        if not res["conversation_id"]:
+            t.reason = f"could not create chat for {q!r}"
+            return t
+        ids.append(res["conversation_id"])
+    oldest = ids[0]
+    try:
+        # Without pinning, the oldest should be last (newest first).
+        before = await _list_chats_for(client, email)
+        before_ids = [c["id"] for c in before["conversations"]]
+        # Pin the oldest.
+        status, _ = await _pin_chat(client, oldest, email)
+        if status != 200:
+            t.reason = f"pin returned {status}"
+            return t
+        after = await _list_chats_for(client, email)
+        after_ids = [c["id"] for c in after["conversations"]]
+        t.metrics = {"before_order": before_ids, "after_order": after_ids}
+        if not after_ids or after_ids[0] != oldest:
+            t.reason = f"oldest did not float to top after pinning: {after_ids}"
+            return t
+        t.passed = True
+    finally:
+        for cid in ids:
+            await _delete_chat(client, cid, email)
+    return t
+
+
+async def test_pinned_only_filter(client):
+    """pinned_only=true should return ONLY pinned conversations."""
+    t = TestResult(name="")
+    email = "pin-test-only@munin.local"
+    res1 = await send_chat(client, "kept chat", email=email)
+    res2 = await send_chat(client, "unkept chat", email=email)
+    pinned_id = res1["conversation_id"]
+    other_id = res2["conversation_id"]
+    if not pinned_id or not other_id:
+        t.reason = "could not create both conversations"
+        return t
+    try:
+        await _pin_chat(client, pinned_id, email)
+        listing = await _list_chats_for(client, email, {"pinned_only": "true"})
+        ids = [c["id"] for c in listing["conversations"]]
+        t.metrics = {"pinned_ids": ids}
+        if ids != [pinned_id]:
+            t.reason = f"expected only [{pinned_id}], got {ids}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, pinned_id, email)
+        await _delete_chat(client, other_id, email)
+    return t
+
+
 async def test_rolling_conversation_compaction(client):
     """
     Drive a multi-turn conversation with heavy per-turn payloads until the
@@ -1532,6 +1737,11 @@ ALL_TESTS = [
     ("profile_default_persona_override", test_profile_default_persona_override, False),
     ("profile_injected_behavioural", test_profile_injected_behavioural, False),
     ("profile_user_isolation", test_profile_user_isolation, False),
+    ("pin_persists", test_pin_persists, False),
+    ("unpin_clears", test_unpin_clears, False),
+    ("pin_user_isolation", test_pin_user_isolation, False),
+    ("pinned_first_in_listing", test_pinned_first_in_listing, False),
+    ("pinned_only_filter", test_pinned_only_filter, False),
     ("rolling_conversation_compaction", test_rolling_conversation_compaction, True),  # heavy (6 turns × ~50k chars)
     ("style_no_emojis_research_headers", test_style_no_emojis_research_headers, False),
     ("style_no_decorative_in_list", test_style_no_decorative_in_list, False),
