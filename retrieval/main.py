@@ -54,7 +54,7 @@ from datetime import datetime
 from typing import Optional
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 # Import from local modules
@@ -707,6 +707,14 @@ async def api_delete_chat(conversation_id: str, request: Request):
     deleted = await chat_store.delete_conversation(conversation_id, user_email)
     if not deleted:
         raise _error_404("Conversation not found")
+    # Best-effort: release the sandbox kernel for this conversation, if any.
+    # We don't await on a failure - the kernel may not exist (most chats
+    # never call run_python), and the idle reaper is a backstop anyway.
+    try:
+        from mcp.tools.sandbox import sandbox_shutdown
+        await sandbox_shutdown(conversation_id)
+    except Exception as e:
+        print(f"[WARNING] sandbox_shutdown for {conversation_id} failed: {e}")
     return {"deleted": True}
 
 
@@ -868,6 +876,65 @@ async def api_delete_profile(request: Request):
     user_email = _require_user_email(request)
     removed = await user_profile_store.delete_profile(user_email)
     return {"removed": removed}
+
+
+# ==============================================================================
+# Frontend Sandbox Artifacts (/api/artifacts/{cid}/{aid})
+# ==============================================================================
+@app.get("/api/artifacts/{conversation_id}/{artifact_id}")
+async def api_get_artifact(
+    conversation_id: str,
+    artifact_id: str,
+    request: Request,
+):
+    """
+    Serve an artifact (plot, file) produced by the run_python sandbox tool
+    inside the given conversation. Auth via X-Munin-Email + ownership of
+    the conversation. The actual file lives in the sandbox sidecar; we
+    proxy the bytes through so the host never needs to expose the sandbox
+    container's port directly.
+    """
+    user_email = _require_user_email(request)
+
+    # Ownership: the user must own the conversation row this artifact came
+    # from. Without this check, anyone with the artifact id could pull
+    # arbitrary files from another user's chat.
+    conv = await chat_store.get_conversation(conversation_id, user_email)
+    if conv is None:
+        raise _error_404("Artifact not found")
+
+    sandbox_url = os.environ.get("SANDBOX_URL", "http://sandbox:8090")
+    proxy_url = f"{sandbox_url}/artifacts/{conversation_id}/{artifact_id}"
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(proxy_url)
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=502,
+            detail={"error": {"message": f"sandbox unreachable: {e}"}},
+        )
+    if r.status_code == 404:
+        raise _error_404("Artifact not found")
+    if r.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail={"error": {"message": f"sandbox returned {r.status_code}"}},
+        )
+
+    # Pass through the content-type and a sensible filename. The sandbox
+    # sets these in its FileResponse; httpx surfaces them as headers.
+    return Response(
+        content=r.content,
+        media_type=r.headers.get("content-type", "application/octet-stream"),
+        headers={
+            "Content-Disposition": r.headers.get(
+                "content-disposition",
+                f'inline; filename="{artifact_id}"',
+            ),
+            "Cache-Control": "private, max-age=300",
+        },
+    )
 
 
 # ==============================================================================

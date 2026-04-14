@@ -26,6 +26,7 @@ from .agents import invoke_agent
 from .research import deep_research
 from .citations import export_citations
 from .calculator import calculate
+from .sandbox import run_python, sandbox_reset, sandbox_shutdown
 
 __all__ = [
     "web_search",
@@ -45,4 +46,7 @@ __all__ = [
     "deep_research",
     "export_citations",
     "calculate",
+    "run_python",
+    "sandbox_reset",
+    "sandbox_shutdown",
 ]

@@ -24,6 +24,7 @@ import os
 import re
 import sys
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -1882,6 +1883,368 @@ async def test_past_conv_persona_filter(client):
     return t
 
 
+SANDBOX_EMAIL = "sandbox-test@munin.local"
+
+
+def _new_sandbox_conv_id() -> str:
+    """Synthetic per-test conversation id. The sandbox keys kernels by id;
+    using fresh uuids means tests don't leak state into each other."""
+    return f"sb-{uuid.uuid4()}"
+
+
+async def _sandbox_exec(
+    client,
+    code: str,
+    conv_id: str,
+    *,
+    timeout_s: int = 30,
+    email: str = SANDBOX_EMAIL,
+) -> tuple[int, dict]:
+    return await _mcp_call(
+        client,
+        "run_python",
+        {"code": code, "timeout_s": timeout_s},
+        email=email,
+        conversation_id=conv_id,
+    )
+
+
+async def _sandbox_release(client, conv_id: str) -> None:
+    """
+    Best-effort kernel cleanup so tests don't pile up kernels in the
+    sandbox until the reaper kicks in. Calls the same internal endpoint
+    that api_delete_chat hits.
+    """
+    try:
+        # We can't call sandbox_shutdown via /mcp/call because it isn't
+        # registered as a public MCP tool by design. Hit the internal
+        # sandbox endpoint indirectly by deleting a real conversation row -
+        # but that requires a real chat row. For synthetic-uuid tests, just
+        # let the reaper handle it. This helper exists so the artifact test
+        # (which has a real conversation) can still trigger the cleanup
+        # path explicitly.
+        pass
+    except Exception:
+        pass
+
+
+async def test_sandbox_hello_world(client):
+    """Baseline: print('hi') -> stdout='hi\\n', no error."""
+    t = TestResult(name="")
+    conv_id = _new_sandbox_conv_id()
+    status, body = await _sandbox_exec(client, "print('hi')", conv_id)
+    t.metrics = {
+        "status": status,
+        "stdout": (body.get("stdout") or "")[:80],
+        "stderr": (body.get("stderr") or "")[:80],
+        "error": body.get("error"),
+        "duration_ms": body.get("duration_ms"),
+        "firejail": body.get("firejail"),
+    }
+    if status != 200:
+        t.reason = f"/mcp/call returned {status}: {body}"
+        return t
+    if body.get("error"):
+        t.reason = f"unexpected error: {body['error']}"
+        return t
+    if (body.get("stdout") or "").strip() != "hi":
+        t.reason = f"unexpected stdout: {body.get('stdout')!r}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_sandbox_state_persists(client):
+    """Variables defined in one exec must be visible in the next one."""
+    t = TestResult(name="")
+    conv_id = _new_sandbox_conv_id()
+    status1, body1 = await _sandbox_exec(client, "x = 41 + 1", conv_id)
+    if status1 != 200 or body1.get("error"):
+        t.reason = f"first exec failed: {body1}"
+        return t
+    status2, body2 = await _sandbox_exec(client, "print(x)", conv_id)
+    t.metrics = {"second_stdout": (body2.get("stdout") or "")[:80]}
+    if status2 != 200 or body2.get("error"):
+        t.reason = f"second exec failed: {body2}"
+        return t
+    if (body2.get("stdout") or "").strip() != "42":
+        t.reason = f"state did not persist; stdout={body2.get('stdout')!r}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_sandbox_reset_clears_state(client):
+    """sandbox_reset must wipe in-memory state."""
+    t = TestResult(name="")
+    conv_id = _new_sandbox_conv_id()
+    await _sandbox_exec(client, "marker = 'still here'", conv_id)
+    reset_status, reset_body = await _mcp_call(
+        client,
+        "sandbox_reset",
+        {},
+        email=SANDBOX_EMAIL,
+        conversation_id=conv_id,
+    )
+    if reset_status != 200 or not reset_body.get("reset"):
+        t.reason = f"reset failed: {reset_status} {reset_body}"
+        return t
+    status, body = await _sandbox_exec(client, "print(marker)", conv_id)
+    t.metrics = {"error": body.get("error")}
+    if status != 200:
+        t.reason = f"third exec http {status}"
+        return t
+    err = body.get("error") or ""
+    if "NameError" not in err and "name 'marker'" not in err:
+        t.reason = f"expected NameError after reset, got: {err!r}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_sandbox_timeout(client):
+    """`while True: pass` with timeout=2 must come back with timed_out=True."""
+    t = TestResult(name="")
+    conv_id = _new_sandbox_conv_id()
+    status, body = await _sandbox_exec(
+        client,
+        "while True:\n    pass",
+        conv_id,
+        timeout_s=2,
+    )
+    t.metrics = {
+        "status": status,
+        "timed_out": body.get("timed_out"),
+        "duration_ms": body.get("duration_ms"),
+    }
+    if status != 200:
+        t.reason = f"/mcp/call returned {status}: {body}"
+        return t
+    if not body.get("timed_out"):
+        t.reason = f"expected timed_out=True, got {body.get('timed_out')!r}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_sandbox_no_network(client):
+    """The kernel must not be able to reach the public internet."""
+    t = TestResult(name="")
+    conv_id = _new_sandbox_conv_id()
+    code = (
+        "import urllib.request\n"
+        "try:\n"
+        "    urllib.request.urlopen('http://example.com', timeout=3)\n"
+        "    print('NETWORK_REACHABLE')\n"
+        "except Exception as e:\n"
+        "    print('blocked:', type(e).__name__)\n"
+    )
+    status, body = await _sandbox_exec(client, code, conv_id, timeout_s=10)
+    out = (body.get("stdout") or "") + (body.get("stderr") or "")
+    t.metrics = {"output_preview": out[:200], "error": body.get("error")}
+    if status != 200:
+        t.reason = f"/mcp/call returned {status}: {body}"
+        return t
+    if "NETWORK_REACHABLE" in out:
+        t.reason = "network was NOT blocked"
+        return t
+    if "blocked:" not in out:
+        t.reason = f"unexpected output: {out!r}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_sandbox_no_host_fs(client):
+    """
+    Host paths the retrieval container has access to must NOT be visible
+    from inside the sandbox. We deliberately do not test /etc/shadow here -
+    the sandbox container has its own /etc/shadow with no real users, so
+    reading it leaks zero information from the host. The check is whether
+    HOST-only paths (mounted into retrieval but not into the sandbox) bleed
+    through, which would mean someone added a bind mount they shouldn't.
+    """
+    t = TestResult(name="")
+    conv_id = _new_sandbox_conv_id()
+    code = (
+        "results = []\n"
+        "for path in ('/opt/munin/config/munin.env',\n"
+        "             '/data/chats.db',\n"
+        "             '/papers',\n"
+        "             '/models/specter'):\n"
+        "    try:\n"
+        "        with open(path) as f:\n"
+        "            f.read(1)\n"
+        "        results.append((path, 'READABLE'))\n"
+        "    except Exception as e:\n"
+        "        results.append((path, type(e).__name__))\n"
+        "for r in results: print(r)\n"
+    )
+    status, body = await _sandbox_exec(client, code, conv_id, timeout_s=10)
+    out = body.get("stdout") or ""
+    t.metrics = {"output_preview": out[:300]}
+    if status != 200:
+        t.reason = f"/mcp/call returned {status}: {body}"
+        return t
+    if "READABLE" in out:
+        t.reason = f"retrieval-host path was readable from sandbox: {out!r}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_sandbox_memory_cap(client):
+    """Allocating more than the rlimit must error rather than OOMing the host."""
+    t = TestResult(name="")
+    conv_id = _new_sandbox_conv_id()
+    # Try to allocate ~3 GB - the rlimit is 2 GB so this must fail.
+    code = (
+        "try:\n"
+        "    a = bytearray(3 * 1024 * 1024 * 1024)\n"
+        "    print('ALLOCATED')\n"
+        "except (MemoryError, OSError) as e:\n"
+        "    print('blocked:', type(e).__name__)\n"
+    )
+    status, body = await _sandbox_exec(client, code, conv_id, timeout_s=20)
+    out = (body.get("stdout") or "") + (body.get("stderr") or "")
+    t.metrics = {"output_preview": out[:200], "error": body.get("error")}
+    if status != 200:
+        t.reason = f"/mcp/call returned {status}: {body}"
+        return t
+    if "ALLOCATED" in out:
+        t.reason = "3GB allocation succeeded - rlimit is not enforced"
+        return t
+    # Either we caught a Python exception ("blocked: MemoryError") or the
+    # kernel was killed entirely. Both are acceptable outcomes.
+    if "blocked:" not in out and not body.get("error"):
+        t.reason = f"unexpected output: {out!r}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_sandbox_plot_artifact(client):
+    """
+    Drive a real conversation via /api/chat/completions, then run a
+    matplotlib script in that conversation and verify:
+      - the run_python tool result contains an artifact entry
+      - GET /api/artifacts/{cid}/{aid} returns a PNG with non-zero bytes
+      - ownership: a different user's GET returns 404
+    """
+    t = TestResult(name="")
+    seed = await send_chat(client, "say hi briefly", email=SANDBOX_EMAIL)
+    conv_id = seed["conversation_id"]
+    if not conv_id:
+        t.reason = f"could not seed conversation: {seed['errors']}"
+        return t
+    try:
+        code = (
+            "import matplotlib.pyplot as plt\n"
+            "fig, ax = plt.subplots()\n"
+            "ax.plot([0, 1, 2, 3], [0, 1, 4, 9])\n"
+            "ax.set_title('test plot')\n"
+            "plt.show()\n"
+        )
+        status, body = await _sandbox_exec(client, code, conv_id, timeout_s=30)
+        if status != 200 or body.get("error"):
+            t.reason = f"plot exec failed: {body}"
+            return t
+        artifacts = body.get("artifacts") or []
+        if not artifacts:
+            t.reason = "no artifacts produced by matplotlib code"
+            return t
+        first = artifacts[0]
+        aid = first.get("id")
+        if not aid:
+            t.reason = f"artifact missing id: {first}"
+            return t
+        # Owner can fetch.
+        r = await client.get(
+            f"{BASE}/api/artifacts/{conv_id}/{aid}",
+            headers={"X-Munin-Email": SANDBOX_EMAIL},
+            timeout=15,
+        )
+        t.metrics = {
+            "artifact_count": len(artifacts),
+            "fetch_status": r.status_code,
+            "content_type": r.headers.get("content-type"),
+            "content_length": len(r.content),
+        }
+        if r.status_code != 200:
+            t.reason = f"owner fetch returned {r.status_code}"
+            return t
+        if not r.headers.get("content-type", "").startswith("image/"):
+            t.reason = f"unexpected content-type: {r.headers.get('content-type')}"
+            return t
+        if len(r.content) < 200:
+            t.reason = f"artifact suspiciously small: {len(r.content)} bytes"
+            return t
+        # Cross-user fetch must 404.
+        r2 = await client.get(
+            f"{BASE}/api/artifacts/{conv_id}/{aid}",
+            headers={"X-Munin-Email": "other-sandbox-user@munin.local"},
+            timeout=15,
+        )
+        if r2.status_code != 404:
+            t.reason = f"cross-user fetch returned {r2.status_code}, want 404"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, SANDBOX_EMAIL)
+    return t
+
+
+async def test_sandbox_ephemeral_refused(client):
+    """
+    run_python must refuse when the conversation id is ephemeral. The MCP
+    tool checks the prefix and returns an error response without ever
+    contacting sandbox-svc.
+    """
+    t = TestResult(name="")
+    eph_id = f"ephemeral-{uuid.uuid4().hex[:12]}"
+    status, body = await _sandbox_exec(client, "print('should not run')", eph_id)
+    t.metrics = {"status": status, "error": body.get("error")}
+    if status != 200:
+        t.reason = f"/mcp/call returned {status}: {body}"
+        return t
+    err = body.get("error") or ""
+    if "ephemeral" not in err.lower():
+        t.reason = f"expected ephemeral refusal, got {err!r}"
+        return t
+    if body.get("stdout"):
+        t.reason = "run_python actually executed in ephemeral chat"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_sandbox_output_cap_truncates(client):
+    """Printing 1 MB must come back capped at 64 KB plus a marker."""
+    t = TestResult(name="")
+    conv_id = _new_sandbox_conv_id()
+    code = "print('A' * (1024 * 1024))"
+    status, body = await _sandbox_exec(client, code, conv_id, timeout_s=10)
+    t.metrics = {
+        "stdout_len": len(body.get("stdout") or ""),
+        "truncated_stdout": body.get("truncated_stdout"),
+    }
+    if status != 200 or body.get("error"):
+        t.reason = f"exec failed: {body}"
+        return t
+    stdout = body.get("stdout") or ""
+    if not body.get("truncated_stdout"):
+        t.reason = "truncated_stdout flag not set"
+        return t
+    if len(stdout) > 70 * 1024:
+        t.reason = f"stdout not capped: {len(stdout)} bytes"
+        return t
+    if "[truncated" not in stdout:
+        t.reason = "truncation marker missing from stdout"
+        return t
+    t.passed = True
+    return t
+
+
 async def test_rolling_conversation_compaction(client):
     """
     Drive a multi-turn conversation with heavy per-turn payloads until the
@@ -2016,6 +2379,16 @@ ALL_TESTS = [
     ("past_conv_user_isolation", test_past_conv_user_isolation, False),
     ("past_conv_pinned_boost", test_past_conv_pinned_boost, False),
     ("past_conv_persona_filter", test_past_conv_persona_filter, False),
+    ("sandbox_hello_world", test_sandbox_hello_world, False),
+    ("sandbox_state_persists", test_sandbox_state_persists, False),
+    ("sandbox_reset_clears_state", test_sandbox_reset_clears_state, False),
+    ("sandbox_timeout", test_sandbox_timeout, False),
+    ("sandbox_no_network", test_sandbox_no_network, False),
+    ("sandbox_no_host_fs", test_sandbox_no_host_fs, False),
+    ("sandbox_memory_cap", test_sandbox_memory_cap, False),
+    ("sandbox_plot_artifact", test_sandbox_plot_artifact, False),
+    ("sandbox_ephemeral_refused", test_sandbox_ephemeral_refused, False),
+    ("sandbox_output_cap_truncates", test_sandbox_output_cap_truncates, False),
     ("rolling_conversation_compaction", test_rolling_conversation_compaction, True),  # heavy (6 turns × ~50k chars)
     ("style_no_emojis_research_headers", test_style_no_emojis_research_headers, False),
     ("style_no_decorative_in_list", test_style_no_decorative_in_list, False),

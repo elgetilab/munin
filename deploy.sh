@@ -52,6 +52,7 @@ MUNIN_DEEPRESEARCH=$MUNIN_ROOT/deepresearch
 MUNIN_DOCKER=$MUNIN_ROOT/docker
 MUNIN_RETRIEVAL=$MUNIN_ROOT/services/retrieval
 MUNIN_SEARXNG=$MUNIN_ROOT/services/searxng
+MUNIN_SANDBOX=$MUNIN_ROOT/services/sandbox
 
 CLUSTER_SCRIPTS=/opt/cluster/scripts/llm
 SYSTEMD_DIR=/etc/systemd/system
@@ -106,7 +107,7 @@ deploy_dirs() {
     run "mkdir -p $MUNIN_CONFIG $MUNIN_PERSONAS/logos"
     run "mkdir -p $MUNIN_DATA $MUNIN_USER_DOCS $MUNIN_LOGS"
     run "mkdir -p $MUNIN_DEEPRESEARCH/queue $MUNIN_DEEPRESEARCH/jobs"
-    run "mkdir -p $MUNIN_DOCKER $MUNIN_RETRIEVAL"
+    run "mkdir -p $MUNIN_DOCKER $MUNIN_RETRIEVAL $MUNIN_SANDBOX"
     run "mkdir -p $CLUSTER_SCRIPTS"
 
     # Deep research queue needs docker group write access
@@ -276,6 +277,72 @@ deploy_searxng() {
 
 
 # ------------------------------------------------------------------------------
+# sandbox: sync sandbox/, rebuild image, restart container
+# ------------------------------------------------------------------------------
+deploy_sandbox() {
+    echo "[sandbox] Syncing code to $MUNIN_SANDBOX..."
+    need_file "$REPO_DIR/sandbox"
+    run "install -d -m 0755 $MUNIN_SANDBOX"
+
+    run "rsync -a --delete \
+        --exclude='__pycache__' \
+        --exclude='*.pyc' \
+        --exclude='.pytest_cache' \
+        $REPO_DIR/sandbox/ $MUNIN_SANDBOX/"
+
+    # Make sure the compose file is current too — sandbox is a new service
+    # and the network/security_opt blocks must be in place before `up -d`.
+    run "install -m 0644 $REPO_DIR/docker/docker-compose.yml $MUNIN_DOCKER/docker-compose.yml"
+
+    echo "[sandbox] Rebuilding container..."
+    run "cd $MUNIN_DOCKER && docker compose --profile rag build sandbox"
+    echo "[sandbox] Restarting container..."
+    run "cd $MUNIN_DOCKER && docker compose --profile rag up -d sandbox"
+
+    if [ "$DRY_RUN" = "0" ]; then
+        sleep 3
+        if docker ps --format '{{.Names}}' | grep -q '^munin-sandbox$'; then
+            echo "[OK] sandbox container is running"
+        else
+            echo "[WARN] sandbox container is not running — check logs:"
+            echo "       docker logs --tail 200 munin-sandbox"
+            return 1
+        fi
+
+        # Probe /healthz from the sandbox container's own loopback. We used
+        # to probe from inside retrieval, but if retrieval was started with
+        # an older compose file it isn't on sandbox-net yet and the DNS
+        # lookup for `sandbox` fails. Loopback always works.
+        local probe
+        probe=$(docker exec munin-sandbox python -c \
+            "import httpx;r=httpx.get('http://localhost:8090/healthz',timeout=5);print(r.status_code);print(r.text)" \
+            2>&1 || true)
+        if echo "$probe" | head -n1 | grep -q '^200$'; then
+            echo "  [OK] /healthz: $(echo "$probe" | tail -n1)"
+        else
+            echo "[WARN] /healthz probe failed:"
+            echo "$probe"
+            return 1
+        fi
+
+        # If retrieval is already running, reconcile it too: the compose
+        # file we just installed adds sandbox-net to retrieval's networks
+        # list, but `up -d sandbox` alone does NOT touch the retrieval
+        # container, so retrieval still can't reach sandbox by hostname
+        # until it is recreated. `up -d retrieval` is a no-op if the
+        # config hasn't changed and a clean recreate if it has.
+        if docker ps --format '{{.Names}}' | grep -q '^munin-retrieval$'; then
+            echo "[sandbox] Reconciling retrieval container so it joins sandbox-net..."
+            run "cd $MUNIN_DOCKER && docker compose --profile rag up -d retrieval"
+        else
+            echo "[sandbox] Note: retrieval is not running. After you start it,"
+            echo "          it will pick up the sandbox-net automatically."
+        fi
+    fi
+}
+
+
+# ------------------------------------------------------------------------------
 # retrieval: sync code, rebuild container, restart
 # ------------------------------------------------------------------------------
 deploy_retrieval() {
@@ -436,6 +503,7 @@ case "$MODE" in
     deepresearch) deploy_deepresearch ;;
     tunnel)       deploy_tunnel ;;
     searxng)      deploy_searxng ;;
+    sandbox)      deploy_sandbox ;;
     retrieval)    deploy_retrieval ;;
     cleanup)      deploy_cleanup ;;
     verify)       deploy_verify ;;
@@ -449,11 +517,13 @@ case "$MODE" in
         deploy_tunnel
         deploy_searxng
         deploy_cleanup
+        deploy_sandbox       # must be up before retrieval starts since
+                             # retrieval depends_on sandbox in the compose
         deploy_retrieval     # ends with deploy_verify
         ;;
     *)
         echo "[ERROR] Unknown mode: $MODE"
-        echo "Modes: all dirs compose personas agents vllm deepresearch tunnel retrieval searxng cleanup verify"
+        echo "Modes: all dirs compose personas agents vllm deepresearch tunnel retrieval sandbox searxng cleanup verify"
         exit 1
         ;;
 esac

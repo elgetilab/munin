@@ -127,6 +127,103 @@ A one-line plugin enable in the renderer is the right fix.
 
 ---
 
+## 2. Render sandbox `artifact` SSE events inline
+
+**Status:** open
+**Driven by:** munin-backend §2 "Python sandbox"
+**Date:** 2026-04-14
+**Effort:** ~30-50 lines: a new SSE event handler + an inline renderer
+
+### What the backend does
+
+The new `run_python` MCP tool runs Python code in a per-conversation
+Jupyter kernel inside the sandbox sidecar container. When the kernel
+produces matplotlib figures (or any `display_data` PNG), the backend:
+
+1. Persists the bytes to the sandbox's per-conversation scratch
+   directory.
+2. Emits a new SSE event on the `/api/chat/completions` stream after
+   the matching `tool_result`:
+
+```
+event: artifact
+data: {"id": "<uuid hex>",
+       "filename": "<id>.png",
+       "content_type": "image/png",
+       "size_bytes": 12345,
+       "display_url": "/api/artifacts/<conversation_id>/<artifact_id>",
+       "conversation_id": "<conv id>",
+       "tool_call_id": "tc-2"}
+```
+
+3. Exposes `GET /api/artifacts/{conversation_id}/{artifact_id}` which
+   returns the raw file bytes with the correct `Content-Type`. Auth
+   piggybacks on `X-Munin-Email` plus a server-side ownership check
+   against the conversation row.
+
+### What the frontend needs to do
+
+Two things:
+
+**(a) Add an `artifact` event handler to the SSE consumer.** Wherever
+you currently switch on `event: token`, `event: tool_call`, etc.,
+add an `event: artifact` branch. Push the parsed payload onto the
+current message's `artifacts` array (alongside `tool_calls`), keyed
+by `tool_call_id` so you can render each artifact under the call
+that produced it.
+
+**(b) Render artifacts inline in the assistant transcript.** For each
+artifact attached to a message, render based on `content_type`:
+
+- `image/*` -> `<img src="${BASE}${display_url}" alt="${filename}" />`
+  Click-to-expand with the same URL is nice-to-have. The image
+  inherits the user's auth automatically because it's on the same
+  origin.
+- Anything else -> a download chip / link with the filename, file
+  size (use `size_bytes`), and an icon based on extension. Clicking
+  triggers a normal browser download from `display_url`.
+
+Place the artifact block right under the corresponding tool call in
+the TaskLog (you already have a similar nesting for `agent_*`
+events).
+
+### Important: auth on the image URL
+
+`display_url` is a same-origin path on the retrieval service. The
+browser will send cookies / forward-auth headers automatically as
+long as the image request hits the same domain that served the chat
+page. No code change needed beyond pointing `<img src>` at the URL.
+If the frontend ever fetches images via `fetch()` for some reason,
+make sure to include the same auth headers as other API calls.
+
+### Test plan for the frontend
+
+1. Open a regular (non-ephemeral) chat with the chat persona.
+2. Ask: "Plot y = x^2 from 0 to 5 with matplotlib."
+3. The model should call `run_python` with a small matplotlib
+   snippet. After the `tool_result` arrives, expect an `artifact`
+   event with `content_type: image/png`.
+4. The image should render inline below the tool call, with a
+   visible plot of the parabola.
+5. Ask: "Now save the values to a CSV and let me download it."
+6. The model produces a CSV artifact. The frontend should render it
+   as a download chip rather than an inline image.
+7. Open the same chat in a second tab as the same user. The
+   artifacts should still be fetchable (they live in the sandbox's
+   scratch dir, not in the SSE event itself).
+8. Open the chat URL while logged in as a different user. Artifact
+   `<img>` should 404 (the backend enforces ownership).
+
+### Why the backend can't fix this
+
+The artifact bytes have to land in front of the user's eyes
+somewhere, and the model can't paste them inline as base64 without
+blowing the SSE budget and the assistant's own context window. The
+streaming `display_url` + frontend renderer is the only architecture
+that scales.
+
+---
+
 ## How to add new entries
 
 When the backend identifies frontend work, append a new section here

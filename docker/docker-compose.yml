@@ -128,13 +128,71 @@ services:
       - VLLM_MODEL_NAME=qwen3.5-35b-a3b
       # Semantic Scholar API (for semantic_scholar_search tool)
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
+      # Sandbox sidecar (§2). Reached over the internal sandbox-net.
+      - SANDBOX_URL=http://sandbox:8090
     depends_on:
       - qdrant
       - neo4j
       - searxng
+      - sandbox
+    networks:
+      # Retrieval is on both the public-facing munin-network (where qdrant /
+      # neo4j / searxng live) and the internal-only sandbox-net so it can
+      # reach the sandbox container at http://sandbox:8090. The sandbox
+      # itself is on sandbox-net only and cannot reach the internet or any
+      # other Munin service.
+      - default
+      - sandbox-net
     profiles:
       - rag  # Start with: docker compose --profile rag up
+
+  # ============================================================================
+  # SANDBOX SERVICE - Jupyter kernels for run_python (§2)
+  # ============================================================================
+  sandbox:
+    build:
+      context: /opt/munin/services/sandbox
+      dockerfile: Dockerfile
+    image: munin-sandbox:latest
+    container_name: munin-sandbox
+    restart: unless-stopped
+    # No host port. Reachable only from the retrieval container over the
+    # internal docker network at http://sandbox:8090.
+    cap_add:
+      # firejail needs SYS_ADMIN inside an unprivileged container so it can
+      # set up user/network namespaces for each kernel. This is the smallest
+      # capability that lets the in-container firejail spawn work; without
+      # it firejail falls back to a much weaker "no-namespace" mode and our
+      # network isolation gets lost.
+      - SYS_ADMIN
+    security_opt:
+      # firejail applies its own seccomp + AppArmor. Docker's defaults
+      # conflict with firejail's namespace setup, so we let firejail manage
+      # both rather than stacking them.
+      - seccomp=unconfined
+      - apparmor=unconfined
+    environment:
+      - SANDBOX_SCRATCH_DIR=/scratch
+      - SANDBOX_IDLE_TTL_S=900
+      - SANDBOX_REAPER_INTERVAL_S=60
+      - SANDBOX_MAX_TIMEOUT_S=120
+    networks:
+      - sandbox-net
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    profiles:
+      - rag
 
 networks:
   default:
     name: munin-network
+  sandbox-net:
+    name: munin-sandbox-net
+    # internal: true means containers on this network have no route to the
+    # outside world. Combined with firejail --net=none on the kernel
+    # subprocess itself, the kernel ends up doubly isolated: the kernel
+    # process has only loopback in its own namespace, and the container
+    # hosting the sandbox-svc parent has no public IP either.
+    internal: true

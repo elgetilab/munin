@@ -22,6 +22,8 @@ from .tools import (
     deep_research,
     export_citations,
     calculate,
+    run_python,
+    sandbox_reset,
 )
 
 
@@ -134,6 +136,15 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
             expression = arguments.get("expression", "")
             mode = arguments.get("mode", "numeric")
             return await calculate(expression=expression, mode=mode)
+
+        elif tool_name == "run_python":
+            return await run_python(
+                code=arguments.get("code", ""),
+                timeout_s=arguments.get("timeout_s", 30),
+            )
+
+        elif tool_name == "sandbox_reset":
+            return await sandbox_reset()
 
         else:
             return {"error": f"Unknown tool: {tool_name}"}

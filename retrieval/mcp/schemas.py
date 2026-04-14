@@ -352,5 +352,33 @@ MCP_TOOLS = {
             },
             "required": ["question"]
         }
+    },
+    "run_python": {
+        "name": "run_python",
+        "description": "Execute Python code in a sandboxed Jupyter kernel scoped to the current conversation. Use this whenever the user asks you to compute, plot, analyse data, generate a spreadsheet, or otherwise do something a Python script could do better than prose. State persists between calls in the same chat (variables, imports, dataframes), and files written to the current working directory become artifacts the user can download. The sandbox has no internet, no GPU, no host filesystem; pre-installed packages: numpy, scipy, pandas, matplotlib, seaborn, scikit-learn, sympy, networkx, openpyxl, Pillow, pyyaml, requests. Resource caps: 30 s default wall clock, 2 GB memory, 100 MB max file size. matplotlib figures created with `plt.show()` or display() are auto-captured as PNG artifacts. Do NOT call this tool for trivial arithmetic - use `calculate` instead.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "Python source to execute. Multi-line is fine."
+                },
+                "timeout_s": {
+                    "type": "integer",
+                    "description": "Per-execution wall clock timeout in seconds (default 30, max 120). Increase only when you genuinely need it.",
+                    "default": 30
+                }
+            },
+            "required": ["code"]
+        }
+    },
+    "sandbox_reset": {
+        "name": "sandbox_reset",
+        "description": "Restart the current conversation's Jupyter kernel, wiping all in-memory state (variables, imports, open files). Files in the conversation's scratch directory survive the reset. Use this when previous code left the kernel in a bad state, when you want a clean namespace, or when the user explicitly asks you to start over.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
     }
 }

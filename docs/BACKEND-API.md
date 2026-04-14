@@ -469,6 +469,34 @@ Resets the profile by removing the row. Returns **200** with
 `{"removed": true}` if a row was deleted, `{"removed": false}` if there
 was nothing to delete.
 
+### 4.15 `GET /api/artifacts/{conversation_id}/{artifact_id}`
+
+Serves an artifact (plot, file, generated document) produced by the
+`run_python` sandbox tool inside the given conversation. The actual
+file lives in the sandbox sidecar; this endpoint proxies the bytes so
+the host never needs to expose the sandbox container's port.
+
+**Auth + ownership**: requires `X-Munin-Email` and the caller must own
+the conversation. A user fetching another user's artifact gets **404**
+(we deliberately do not distinguish 403 from 404 here so artifact ids
+cannot be probed).
+
+**Path params**:
+
+- `conversation_id` - the chat the artifact was produced in.
+- `artifact_id` - the id from the `artifact` SSE event (also present
+  inside the `run_python` tool result's `artifacts` array).
+
+**Response (200)**: the raw file bytes with `Content-Type` set to the
+artifact's media type (`image/png` for plots, etc.) and a
+`Content-Disposition: inline` header so browsers can render images
+directly. **404** for unknown ids or cross-user access. **502** if the
+sandbox sidecar is unreachable.
+
+`display_url` on the `artifact` SSE event always points at this route.
+The frontend can drop it straight into an `<img>` `src` for images or
+into a download anchor for non-image artifacts.
+
 ## 5. SSE event catalogue for `/api/chat/completions`
 
 All events follow the SSE framing:
@@ -486,6 +514,7 @@ data: <minified json>
 | `thinking` | `{"content": "partial reasoning text"}` | Multiple. Accumulate client-side. Sourced from vLLM `delta.reasoning_content` (qwen3 reasoning parser) |
 | `tool_call` | `{"id": "tc-1", "name": "paper_search", "arguments": {...}}` | Once per finalized tool call the main model asks for. Emitted after the vLLM delta for that turn finishes, not mid-arguments |
 | `tool_result` | `{"id": "tc-1", "name": "paper_search", "result": {...}, "duration_ms": 800}` | After the tool actually finishes. Matches `tool_call.id` |
+| `artifact` | `{"id": "...", "filename": "...", "content_type": "image/png", "size_bytes": N, "display_url": "/api/artifacts/{cid}/{aid}", "conversation_id": "...", "tool_call_id": "tc-2"}` | After a `run_python` tool_result that produced one or more artifacts (e.g. matplotlib plots). One event per artifact. Render images inline via the `display_url`; render non-image artifacts as download links |
 | `agent_start` | `{"agent": "research_orchestrator", "query": "..."}` | When the model invokes an agent via the `invoke_agent` tool |
 | `agent_thinking` | `{"content": "..."}` | Nested reasoning stream from the agent's own vLLM loop |
 | `agent_tool_call` | `{"id": "atc-1", "name": "paper_search", "arguments": {...}}` | Each tool the agent fires |

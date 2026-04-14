@@ -490,6 +490,26 @@ async def stream_chat_completion(
             })
             yield _sse("tool_result", res)
 
+            # If this was a run_python call that produced artifacts (plots,
+            # files), surface them as separate `artifact` SSE events so the
+            # frontend can render them inline at the right place in the
+            # transcript instead of digging them out of the tool_result blob.
+            if res.get("name") == "run_python":
+                tool_result = res.get("result") or {}
+                for art in (tool_result.get("artifacts") or []):
+                    yield _sse(
+                        "artifact",
+                        {
+                            "id": art.get("id"),
+                            "filename": art.get("filename"),
+                            "content_type": art.get("content_type"),
+                            "size_bytes": art.get("size_bytes"),
+                            "display_url": art.get("display_url"),
+                            "conversation_id": tool_result.get("conversation_id"),
+                            "tool_call_id": res["id"],
+                        },
+                    )
+
         # Append the assistant turn (with tool_calls) and each tool result to
         # the message list so vLLM can continue generating.
         messages.append({
