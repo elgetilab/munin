@@ -1173,6 +1173,241 @@ async def test_ephemeral_no_listing_drift(client):
     return t
 
 
+PROFILE_EMAIL = "profile-test@munin.local"
+
+
+async def _profile_get(client, email: str = PROFILE_EMAIL) -> tuple[int, dict]:
+    r = await client.get(
+        f"{BASE}/api/profile",
+        headers={"X-Munin-Email": email},
+        timeout=10,
+    )
+    try:
+        return r.status_code, r.json()
+    except Exception:
+        return r.status_code, {}
+
+
+async def _profile_put(client, body: dict, email: str = PROFILE_EMAIL) -> tuple[int, dict]:
+    r = await client.put(
+        f"{BASE}/api/profile",
+        headers={"X-Munin-Email": email, "Content-Type": "application/json"},
+        json=body,
+        timeout=10,
+    )
+    try:
+        return r.status_code, r.json()
+    except Exception:
+        return r.status_code, {}
+
+
+async def _profile_delete(client, email: str = PROFILE_EMAIL) -> int:
+    r = await client.delete(
+        f"{BASE}/api/profile",
+        headers={"X-Munin-Email": email},
+        timeout=10,
+    )
+    return r.status_code
+
+
+async def test_profile_roundtrip(client):
+    """PUT a profile, GET it back, DELETE it, GET again -> empty."""
+    t = TestResult(name="")
+    await _profile_delete(client)
+    payload = {
+        "about_me": "I am a biophysics PhD student studying lipid bilayers.",
+        "response_format": "Always cite DOIs. Use British spelling.",
+        "default_persona": "research",
+        "timezone": "Europe/Berlin",
+    }
+    put_status, put_body = await _profile_put(client, payload)
+    if put_status != 200:
+        t.reason = f"PUT returned {put_status}: {put_body}"
+        return t
+    get_status, got = await _profile_get(client)
+    t.metrics = {
+        "get_status": get_status,
+        "about_me": (got.get("about_me") or "")[:60],
+        "default_persona": got.get("default_persona"),
+        "timezone": got.get("timezone"),
+    }
+    if get_status != 200:
+        t.reason = f"GET returned {get_status}"
+        return t
+    for k, v in payload.items():
+        if got.get(k) != v:
+            t.reason = f"field {k!r} mismatch: got {got.get(k)!r}, want {v!r}"
+            return t
+    del_status = await _profile_delete(client)
+    if del_status != 200:
+        t.reason = f"DELETE returned {del_status}"
+        return t
+    _, after = await _profile_get(client)
+    if after.get("about_me") is not None or after.get("default_persona") is not None:
+        t.reason = f"profile not cleared after DELETE: {after}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_profile_cap(client):
+    """about_me beyond 1500 chars must return 400."""
+    t = TestResult(name="")
+    await _profile_delete(client)
+    big = "x" * 3000
+    status, body = await _profile_put(client, {"about_me": big})
+    t.metrics = {"status": status, "msg": json.dumps(body)[:160]}
+    if status != 400:
+        t.reason = f"expected 400 for 3000-char about_me, got {status}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_profile_default_persona_override(client):
+    """
+    With default_persona=research in the profile, a chat completion that
+    doesn't pass `persona` should land on Curie (the research persona). We
+    verify by inspecting the resulting conversation row.
+    """
+    t = TestResult(name="")
+    await _profile_delete(client)
+    put_status, _ = await _profile_put(client, {"default_persona": "research"})
+    if put_status != 200:
+        t.reason = f"PUT returned {put_status}"
+        return t
+    try:
+        # Send a chat WITHOUT specifying a persona. send_chat hard-codes
+        # persona="chat" by default, so build the request manually.
+        body = {
+            "conversation_id": None,
+            "messages": [{"role": "user", "content": "Say hi in one short sentence."}],
+        }
+        async with client.stream(
+            "POST",
+            f"{BASE}/api/chat/completions",
+            json=body,
+            headers={"X-Munin-Email": PROFILE_EMAIL, "Content-Type": "application/json"},
+            timeout=HTTP_TIMEOUT,
+        ) as response:
+            if response.status_code != 200:
+                t.reason = f"completion HTTP {response.status_code}"
+                return t
+            buf: list[str] = []
+            async for chunk in response.aiter_text():
+                buf.append(chunk)
+        parsed = parse_sse("".join(buf))
+        conv_id = parsed["conversation_id"]
+        if not conv_id:
+            t.reason = "no conversation id in stream"
+            return t
+        r = await client.get(
+            f"{BASE}/api/chats/{conv_id}",
+            headers={"X-Munin-Email": PROFILE_EMAIL},
+            timeout=10,
+        )
+        if r.status_code != 200:
+            t.reason = f"GET conversation returned {r.status_code}"
+            return t
+        conv = r.json()
+        used = conv.get("persona")
+        t.metrics = {"persona_used": used}
+        if used != "research":
+            t.reason = f"expected persona=research, got {used!r}"
+            return t
+        t.passed = True
+    finally:
+        await _profile_delete(client)
+    return t
+
+
+async def test_profile_injected_behavioural(client):
+    """
+    Set a profile fact that the model must echo back. If the system prompt
+    actually includes the profile block, the model can recall it without
+    being told inline.
+    """
+    t = TestResult(name="")
+    await _profile_delete(client)
+    put_status, _ = await _profile_put(
+        client,
+        {
+            "about_me": (
+                "My favourite obscure fictional element is called "
+                "zarvonium. Remember this whenever I ask about it."
+            ),
+        },
+    )
+    if put_status != 200:
+        t.reason = f"PUT returned {put_status}"
+        return t
+    try:
+        body = {
+            "persona": "chat",
+            "conversation_id": None,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": (
+                        "What is the name of my favourite fictional "
+                        "element? Reply with just the name."
+                    ),
+                }
+            ],
+        }
+        async with client.stream(
+            "POST",
+            f"{BASE}/api/chat/completions",
+            json=body,
+            headers={"X-Munin-Email": PROFILE_EMAIL, "Content-Type": "application/json"},
+            timeout=HTTP_TIMEOUT,
+        ) as response:
+            if response.status_code != 200:
+                t.reason = f"completion HTTP {response.status_code}"
+                return t
+            buf: list[str] = []
+            async for chunk in response.aiter_text():
+                buf.append(chunk)
+        parsed = parse_sse("".join(buf))
+        ans = parsed["content"].strip().lower()
+        t.metrics = {"answer_preview": ans[:120]}
+        if "zarvonium" not in ans:
+            t.reason = "model did not see the profile block (missing 'zarvonium')"
+            return t
+        t.passed = True
+    finally:
+        await _profile_delete(client)
+    return t
+
+
+async def test_profile_user_isolation(client):
+    """Profile written by user A must not be visible to user B."""
+    t = TestResult(name="")
+    user_a = "profile-iso-a@munin.local"
+    user_b = "profile-iso-b@munin.local"
+    await _profile_delete(client, email=user_a)
+    await _profile_delete(client, email=user_b)
+    put_status, _ = await _profile_put(
+        client,
+        {"about_me": "user A only secret"},
+        email=user_a,
+    )
+    if put_status != 200:
+        t.reason = f"PUT for A returned {put_status}"
+        return t
+    try:
+        _, got_b = await _profile_get(client, email=user_b)
+        t.metrics = {"b_about_me": got_b.get("about_me")}
+        if got_b.get("about_me") is not None:
+            t.reason = f"user B sees A's profile: {got_b.get('about_me')!r}"
+            return t
+        t.passed = True
+    finally:
+        await _profile_delete(client, email=user_a)
+        await _profile_delete(client, email=user_b)
+    return t
+
+
 async def test_rolling_conversation_compaction(client):
     """
     Drive a multi-turn conversation with heavy per-turn payloads until the
@@ -1292,6 +1527,11 @@ ALL_TESTS = [
     ("ephemeral_no_persistence", test_ephemeral_no_persistence, False),
     ("ephemeral_multiturn_history", test_ephemeral_multiturn_history, False),
     ("ephemeral_no_listing_drift", test_ephemeral_no_listing_drift, False),
+    ("profile_roundtrip", test_profile_roundtrip, False),
+    ("profile_cap", test_profile_cap, False),
+    ("profile_default_persona_override", test_profile_default_persona_override, False),
+    ("profile_injected_behavioural", test_profile_injected_behavioural, False),
+    ("profile_user_isolation", test_profile_user_isolation, False),
     ("rolling_conversation_compaction", test_rolling_conversation_compaction, True),  # heavy (6 turns × ~50k chars)
     ("style_no_emojis_research_headers", test_style_no_emojis_research_headers, False),
     ("style_no_decorative_in_list", test_style_no_decorative_in_list, False),

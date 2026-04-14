@@ -120,6 +120,17 @@ async def init_db() -> aiosqlite.Connection:
         AFTER UPDATE OF content ON messages BEGIN
             UPDATE messages_fts SET content = new.content WHERE rowid = new.rowid;
         END;
+
+        CREATE TABLE IF NOT EXISTS user_profiles (
+            user_email TEXT PRIMARY KEY,
+            about_me TEXT,
+            response_format TEXT,
+            default_persona TEXT,
+            default_rag_sources TEXT,
+            timezone TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         """
     )
     await _db.commit()

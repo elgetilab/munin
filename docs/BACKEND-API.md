@@ -379,6 +379,70 @@ matches `{user_email, document_id}`.
 **Response (200)**: `{"deleted": true}`. **404** only if neither a
 directory nor any Qdrant points existed.
 
+### 4.12 `GET /api/profile`
+
+Loads the authenticated user's profile. Always returns 200; users who
+never set a profile get an all-`null` shape.
+
+**Response (200)**:
+
+```json
+{
+  "user_email": "alice@example.org",
+  "about_me": "I'm a biophysics PhD candidate working on lipid bilayers.",
+  "response_format": "Always cite DOIs. British spelling.",
+  "default_persona": "research",
+  "default_rag_sources": ["papers", "web"],
+  "timezone": "Europe/Berlin",
+  "created_at": "2026-04-14T09:00:00Z",
+  "updated_at": "2026-04-14T09:30:00Z"
+}
+```
+
+### 4.13 `PUT /api/profile`
+
+Upserts profile fields. Only keys present in the body are written; missing
+keys are left untouched. Send `null` (or `""`) to clear a field.
+
+**Body** (all keys optional):
+
+```json
+{
+  "about_me": "I'm a biophysics PhD...",
+  "response_format": "Cite DOIs, British spelling, concise answers.",
+  "default_persona": "research",
+  "default_rag_sources": ["papers", "web"],
+  "timezone": "Europe/Berlin"
+}
+```
+
+**Caps**: `about_me` and `response_format` are each capped at **1500
+characters**. Bodies that exceed the cap return **400** with an error
+message identifying the offending field.
+
+**Response (200)**: the full profile after the upsert (same shape as
+`GET /api/profile`).
+
+**Effect on chat completions**:
+
+- The non-empty parts of `about_me` + `response_format` are rendered as a
+  `=== USER PROFILE === ... === END USER PROFILE ===` block prepended to
+  the persona system prompt on every persistent chat turn. **Ephemeral
+  chats deliberately skip this injection** so privacy mode does not
+  carry user-identifying preferences into the model.
+- `default_persona` is consulted only when the request body of
+  `POST /api/chat/completions` does not pin a persona itself. Body
+  always wins.
+- `default_rag_sources` and `timezone` are stored but not yet wired
+  into request handling (RAG is currently model-driven, and timezone
+  awaits §23 digests).
+
+### 4.14 `DELETE /api/profile`
+
+Resets the profile by removing the row. Returns **200** with
+`{"removed": true}` if a row was deleted, `{"removed": false}` if there
+was nothing to delete.
+
 ## 5. SSE event catalogue for `/api/chat/completions`
 
 All events follow the SSE framing:

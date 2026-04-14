@@ -83,6 +83,7 @@ import personas as persona_module
 import chat_service
 import document_store
 import agents as agents_pkg
+import user_profile_store
 
 # Static dir (not in database.py since it's app-specific)
 STATIC_DIR = os.getenv("STATIC_DIR", "/app/static")
@@ -750,7 +751,20 @@ async def api_chat_completions(request: Request):
             detail={"error": {"message": "Request body must be an object"}},
         )
 
-    persona_id = body.get("persona") or persona_module.DEFAULT_PERSONA_ID
+    explicit_persona = body.get("persona")
+    if explicit_persona:
+        persona_id = explicit_persona
+    else:
+        # Profile may override the global default. Only consulted when the
+        # request body did not pin a persona itself.
+        try:
+            profile = await user_profile_store.get_profile(user_email)
+        except Exception:
+            profile = None
+        persona_id = (
+            (profile or {}).get("default_persona")
+            or persona_module.DEFAULT_PERSONA_ID
+        )
     conversation_id = body.get("conversation_id")
     messages = body.get("messages") or []
     rag_config = body.get("rag") or {}
@@ -786,6 +800,44 @@ async def api_chat_completions(request: Request):
             yield event
 
     return EventSourceResponse(event_stream())
+
+
+# ==============================================================================
+# Frontend Profile Routes (/api/profile)
+# ==============================================================================
+@app.get("/api/profile")
+async def api_get_profile(request: Request):
+    """Load the authenticated user's profile (all-None if never set)."""
+    user_email = _require_user_email(request)
+    return await user_profile_store.get_profile(user_email)
+
+
+@app.put("/api/profile")
+async def api_put_profile(request: Request):
+    """Upsert profile fields. Body keys are merged onto the existing row."""
+    user_email = _require_user_email(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": "Invalid JSON body"}},
+        )
+    try:
+        cleaned = user_profile_store.validate_profile_input(body)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400, detail={"error": {"message": str(e)}}
+        )
+    return await user_profile_store.upsert_profile(user_email, cleaned)
+
+
+@app.delete("/api/profile")
+async def api_delete_profile(request: Request):
+    """Reset the profile to defaults (deletes the row)."""
+    user_email = _require_user_email(request)
+    removed = await user_profile_store.delete_profile(user_email)
+    return {"removed": removed}
 
 
 # ==============================================================================

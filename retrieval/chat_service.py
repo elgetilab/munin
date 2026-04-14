@@ -33,6 +33,7 @@ import chat_store
 import chat_context
 import personas as persona_module
 import agents as agents_pkg
+import user_profile_store
 from database import VLLM_URL, VLLM_MODEL_NAME
 from mcp.schemas import MCP_TOOLS
 from mcp.executor import execute_mcp_tool
@@ -274,6 +275,26 @@ async def stream_chat_completion(
     current_conversation_id.set(conversation_id)
 
     system_prompt = persona_module.build_system_prompt(persona)
+
+    # Inject the user profile (§25). Profile is user-curated and goes at the
+    # very top of the system prompt so the model sees it before persona
+    # instructions, ambient context, and agent hints. Skipped for ephemeral
+    # chats so privacy-mode requests don't quietly carry user-identifying
+    # preferences into the model. If the user has no profile (or only empty
+    # fields) build_profile_block returns None and nothing is prepended.
+    if not ephemeral:
+        try:
+            profile = await user_profile_store.get_profile(user_email)
+            profile_block = user_profile_store.build_profile_block(profile)
+        except Exception as e:
+            print(f"[WARNING] profile load failed: {e}")
+            profile_block = None
+        if profile_block:
+            system_prompt = (
+                f"{profile_block}\n\n{system_prompt}"
+                if system_prompt
+                else profile_block
+            )
 
     # Inject an ambient-context block so the model doesn't waste a tool call
     # on trivia it should just know (today's date, etc.). Placed before the

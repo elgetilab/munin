@@ -37,6 +37,7 @@ COPY chat_context.py .
 COPY chat_service.py .
 COPY personas.py .
 COPY document_store.py .
+COPY user_profile_store.py .
 
 # Copy MCP module
 COPY mcp/ /app/mcp/
