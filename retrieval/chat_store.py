@@ -275,6 +275,86 @@ async def get_conversations(
     return {"conversations": conversations, "total": total}
 
 
+async def search_user_messages(
+    user_email: str,
+    query: str,
+    limit: int = 5,
+    persona: Optional[str] = None,
+    exclude_conversation_id: Optional[str] = None,
+) -> dict:
+    """
+    Full-text search over a user's own past messages. Reuses the FTS5
+    virtual table built for /api/chats search, but returns per-message
+    rows with snippets and conversation metadata so an MCP tool can
+    surface them to the model. Pinned conversations are boosted to the
+    top of the result set; within a pin tier, ranking is FTS5 BM25
+    (lower = more relevant).
+
+    ``query`` is passed through to FTS5 MATCH unchanged. Plain words
+    work; advanced FTS5 syntax (phrase queries, NEAR, OR) also works.
+    """
+    db = await get_db()
+
+    where = ["c.user_email = ?", "fts.content MATCH ?"]
+    params: list[Any] = [user_email, query]
+    if persona:
+        where.append("c.persona = ?")
+        params.append(persona)
+    if exclude_conversation_id:
+        where.append("c.id != ?")
+        params.append(exclude_conversation_id)
+    where_sql = " AND ".join(where)
+
+    list_sql = f"""
+        SELECT
+            m.id AS message_id,
+            m.role AS matching_message_role,
+            m.created_at AS message_created_at,
+            m.index_in_conversation AS message_index,
+            c.id AS conversation_id,
+            c.title AS conversation_title,
+            c.persona AS persona,
+            c.created_at AS conversation_created_at,
+            c.pinned AS pinned,
+            snippet(messages_fts, 0, '<<', '>>', '...', 16) AS snippet
+        FROM messages_fts fts
+        JOIN messages m ON m.rowid = fts.rowid
+        JOIN conversations c ON c.id = m.conversation_id
+        WHERE {where_sql}
+        ORDER BY c.pinned DESC, bm25(messages_fts) ASC
+        LIMIT ?
+    """
+    cursor = await db.execute(list_sql, list(params) + [limit])
+    rows = await cursor.fetchall()
+
+    count_sql = f"""
+        SELECT COUNT(*) AS total
+        FROM messages_fts fts
+        JOIN messages m ON m.rowid = fts.rowid
+        JOIN conversations c ON c.id = m.conversation_id
+        WHERE {where_sql}
+    """
+    cursor = await db.execute(count_sql, params)
+    count_row = await cursor.fetchone()
+    total = int(count_row["total"]) if count_row else 0
+
+    results = []
+    for row in rows:
+        results.append({
+            "conversation_id": row["conversation_id"],
+            "conversation_title": row["conversation_title"],
+            "persona": row["persona"],
+            "created_at": row["conversation_created_at"],
+            "matching_message_role": row["matching_message_role"],
+            "matching_message_index": row["message_index"],
+            "matching_message_created_at": row["message_created_at"],
+            "pinned": bool(row["pinned"]),
+            "snippet": row["snippet"],
+        })
+
+    return {"results": results, "total_matches": total}
+
+
 async def set_conversation_pinned(
     conversation_id: str,
     user_email: str,

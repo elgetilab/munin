@@ -17,6 +17,7 @@ from .tools import (
     check_papers_availability,
     llm_summarize,
     search_user_docs,
+    search_past_conversations,
     invoke_agent,
     deep_research,
     export_citations,
@@ -105,6 +106,14 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
             query = arguments.get("query", "")
             top_k = arguments.get("top_k", 5)
             return await search_user_docs(query, top_k)
+
+        elif tool_name == "search_past_conversations":
+            return await search_past_conversations(
+                query=arguments.get("query", ""),
+                limit=arguments.get("limit", 5),
+                persona=arguments.get("persona"),
+                include_current=arguments.get("include_current", False),
+            )
 
         elif tool_name == "invoke_agent":
             agent = arguments.get("agent", "")

@@ -243,6 +243,34 @@ MCP_TOOLS = {
             "required": ["query"]
         }
     },
+    "search_past_conversations": {
+        "name": "search_past_conversations",
+        "description": "Full-text search over the authenticated user's OWN past conversations on this server. Use this when the user mentions something from a prior chat ('didn't we discuss X?', 'what was that paper I found last week?', 'I asked about Y earlier'). Returns matching message snippets with the conversation id, title, persona, role of the matching message, and a pinned flag. Pinned conversations are boosted in ranking. Does NOT search the current conversation by default — that is already in your context. The user is determined automatically from the request context; do not pass a user id.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query. Plain words work; FTS5 syntax (phrase queries, NEAR, OR) also works."
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max number of matching messages to return (default: 5, max: 20).",
+                    "default": 5
+                },
+                "persona": {
+                    "type": "string",
+                    "description": "Optional persona id filter (e.g. 'research', 'chat'). Omit to search across all personas."
+                },
+                "include_current": {
+                    "type": "boolean",
+                    "description": "If true, allow results from the current conversation. Default false because the current chat is already in your context.",
+                    "default": False
+                }
+            },
+            "required": ["query"]
+        }
+    },
     "invoke_agent": {
         "name": "invoke_agent",
         "description": "Delegate a task to a named agent workflow defined in agents.yml. Agents run their own tool-calling loop with guardrails and return a structured answer. Use this when a request is substantially more work than a single tool call — deep literature review, structured code reviews, long-form writing with citations. The `agent` must be one of the registered agent names listed in the system prompt.",

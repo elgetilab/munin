@@ -16,6 +16,7 @@ from fastapi import APIRouter, Request, HTTPException
 from models import MCPCallRequest
 from .schemas import MCP_TOOLS
 from .executor import execute_mcp_tool
+from .context import current_user_email, current_conversation_id
 
 router = APIRouter(prefix="/mcp", tags=["MCP"])
 
@@ -176,24 +177,33 @@ async def mcp_messages_endpoint(request: Request):
 
 
 @router.post("/call")
-async def call_mcp_tool_rest(request: MCPCallRequest):
+async def call_mcp_tool_rest(request: MCPCallRequest, http_request: Request):
     """
-    REST endpoint for MCP tool execution (used by Deep Research).
+    REST endpoint for MCP tool execution (used by Deep Research and the
+    stress test harness).
 
-    This provides a simpler REST interface for tool calls, without the
-    full JSON-RPC protocol overhead. Use this for programmatic access.
-
-    Args:
-        request: MCPCallRequest with tool name and arguments
-
-    Returns:
-        Tool execution result as JSON
+    Sets ``current_user_email`` from the ``X-Munin-Email`` (or
+    ``X-Authentik-Email``) header before dispatching, so user-scoped
+    tools like ``search_user_docs`` and ``search_past_conversations``
+    work the same way they do from inside chat completions. Optional;
+    callers without a header (e.g. the deep research daemon) get a
+    None user context, just like before.
     """
     if request.name not in MCP_TOOLS:
         raise HTTPException(
             status_code=400,
             detail=f"Unknown tool: {request.name}. Available: {list(MCP_TOOLS.keys())}"
         )
+
+    user_email = (
+        http_request.headers.get("X-Munin-Email")
+        or http_request.headers.get("X-Authentik-Email")
+    )
+    conv_id = http_request.headers.get("X-Munin-Conversation-Id")
+    if user_email:
+        current_user_email.set(user_email)
+    if conv_id:
+        current_conversation_id.set(conv_id)
 
     result = await execute_mcp_tool(request.name, request.arguments)
     return result

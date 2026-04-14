@@ -21,6 +21,7 @@ from .papers import (
 )
 from .llm import llm_summarize
 from .documents import search_user_docs
+from .chats import search_past_conversations
 from .agents import invoke_agent
 from .research import deep_research
 from .citations import export_citations
@@ -39,6 +40,7 @@ __all__ = [
     "check_papers_availability",
     "llm_summarize",
     "search_user_docs",
+    "search_past_conversations",
     "invoke_agent",
     "deep_research",
     "export_citations",

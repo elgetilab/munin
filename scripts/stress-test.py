@@ -1613,6 +1613,275 @@ async def test_pinned_only_filter(client):
     return t
 
 
+async def _mcp_call(
+    client,
+    name: str,
+    arguments: dict,
+    email: str,
+    conversation_id: Optional[str] = None,
+) -> tuple[int, dict]:
+    headers = {"X-Munin-Email": email, "Content-Type": "application/json"}
+    if conversation_id:
+        headers["X-Munin-Conversation-Id"] = conversation_id
+    r = await client.post(
+        f"{BASE}/mcp/call",
+        headers=headers,
+        json={"name": name, "arguments": arguments},
+        timeout=30,
+    )
+    try:
+        return r.status_code, r.json()
+    except Exception:
+        return r.status_code, {}
+
+
+async def test_past_conv_finds_prior(client):
+    """
+    Seed a chat with a unique token, then call search_past_conversations
+    via the MCP REST endpoint and assert the seeded chat shows up.
+    """
+    t = TestResult(name="")
+    email = "past-conv-finds@munin.local"
+    token = "zyloxalin42"
+    seed = await send_chat(
+        client,
+        f"Just remember the codename {token}. Reply with 'ok'.",
+        email=email,
+    )
+    seed_id = seed["conversation_id"]
+    if not seed_id:
+        t.reason = f"could not seed chat: {seed['errors']}"
+        return t
+    try:
+        status, body = await _mcp_call(
+            client,
+            "search_past_conversations",
+            {"query": token, "limit": 5},
+            email=email,
+        )
+        results = body.get("results") or []
+        ids = [r.get("conversation_id") for r in results]
+        t.metrics = {
+            "status": status,
+            "total_matches": body.get("total_matches"),
+            "result_count": len(results),
+            "first_conversation_id": ids[0] if ids else None,
+        }
+        if status != 200:
+            t.reason = f"/mcp/call returned {status}: {body}"
+            return t
+        if seed_id not in ids:
+            t.reason = f"seeded chat not in results: {ids}"
+            return t
+        first = results[0]
+        if token not in (first.get("snippet") or "").lower():
+            t.reason = f"snippet missing token: {first.get('snippet')!r}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, seed_id, email)
+    return t
+
+
+async def test_past_conv_excludes_current(client):
+    """
+    With X-Munin-Conversation-Id set to the seeded chat, search should
+    return zero results for the unique token (current chat is excluded
+    by default).
+    """
+    t = TestResult(name="")
+    email = "past-conv-excl@munin.local"
+    token = "qwerax77vortex"
+    seed = await send_chat(
+        client,
+        f"Remember the marker {token}. Reply with 'ok'.",
+        email=email,
+    )
+    seed_id = seed["conversation_id"]
+    if not seed_id:
+        t.reason = f"could not seed chat: {seed['errors']}"
+        return t
+    try:
+        status, body = await _mcp_call(
+            client,
+            "search_past_conversations",
+            {"query": token},
+            email=email,
+            conversation_id=seed_id,
+        )
+        results = body.get("results") or []
+        t.metrics = {
+            "status": status,
+            "total_matches": body.get("total_matches"),
+            "result_count": len(results),
+        }
+        if status != 200:
+            t.reason = f"/mcp/call returned {status}: {body}"
+            return t
+        if results:
+            t.reason = (
+                f"current conversation not excluded: {len(results)} results"
+            )
+            return t
+        # Sanity: without the exclusion header it must show up.
+        _, body2 = await _mcp_call(
+            client,
+            "search_past_conversations",
+            {"query": token},
+            email=email,
+        )
+        if not (body2.get("results") or []):
+            t.reason = "control search without exclusion also empty (FTS broken?)"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, seed_id, email)
+    return t
+
+
+async def test_past_conv_user_isolation(client):
+    """User A seeds; user B searches the same token -> no hits."""
+    t = TestResult(name="")
+    user_a = "past-conv-iso-a@munin.local"
+    user_b = "past-conv-iso-b@munin.local"
+    token = "voltrixoptimum88"
+    seed = await send_chat(
+        client,
+        f"Remember the marker {token}. Reply with 'ok'.",
+        email=user_a,
+    )
+    seed_id = seed["conversation_id"]
+    if not seed_id:
+        t.reason = f"could not seed chat: {seed['errors']}"
+        return t
+    try:
+        status, body = await _mcp_call(
+            client,
+            "search_past_conversations",
+            {"query": token},
+            email=user_b,
+        )
+        results = body.get("results") or []
+        t.metrics = {"status": status, "results_count": len(results)}
+        if status != 200:
+            t.reason = f"/mcp/call returned {status}: {body}"
+            return t
+        if results:
+            t.reason = f"user B sees {len(results)} of A's results"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, seed_id, user_a)
+    return t
+
+
+async def test_past_conv_pinned_boost(client):
+    """
+    Seed two chats containing the same unique token, pin the OLDER one,
+    search, assert the pinned one is first in the results.
+    """
+    t = TestResult(name="")
+    email = "past-conv-pin@munin.local"
+    token = "kryptionine99boost"
+    seed_a = await send_chat(
+        client,
+        f"Marker {token} - first chat. Reply 'ok'.",
+        email=email,
+    )
+    seed_b = await send_chat(
+        client,
+        f"Marker {token} - second chat. Reply 'ok'.",
+        email=email,
+    )
+    a_id = seed_a["conversation_id"]
+    b_id = seed_b["conversation_id"]
+    if not a_id or not b_id:
+        t.reason = "could not seed both chats"
+        return t
+    try:
+        # Pin the older one.
+        await _pin_chat(client, a_id, email)
+        status, body = await _mcp_call(
+            client,
+            "search_past_conversations",
+            {"query": token, "limit": 10},
+            email=email,
+        )
+        results = body.get("results") or []
+        ids = [r.get("conversation_id") for r in results]
+        t.metrics = {"status": status, "ids": ids}
+        if status != 200 or not results:
+            t.reason = f"empty result set ({status} {body})"
+            return t
+        if ids[0] != a_id:
+            t.reason = f"pinned chat not first: {ids}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, a_id, email)
+        await _delete_chat(client, b_id, email)
+    return t
+
+
+async def test_past_conv_persona_filter(client):
+    """
+    Seed two chats with the same token under different personas; search
+    with persona=research and assert only the research chat is returned.
+    """
+    t = TestResult(name="")
+    email = "past-conv-persona@munin.local"
+    token = "magnetariumxtra13"
+    seed_chat = await send_chat(
+        client,
+        f"Marker {token}. Reply 'ok'.",
+        email=email,
+        persona="chat",
+    )
+    seed_research = await send_chat(
+        client,
+        f"Marker {token}. Reply 'ok'.",
+        email=email,
+        persona="research",
+    )
+    chat_id = seed_chat["conversation_id"]
+    research_id = seed_research["conversation_id"]
+    if not chat_id or not research_id:
+        t.reason = "could not seed both personas"
+        return t
+    try:
+        status, body = await _mcp_call(
+            client,
+            "search_past_conversations",
+            {"query": token, "persona": "research", "limit": 10},
+            email=email,
+        )
+        results = body.get("results") or []
+        personas = sorted({r.get("persona") for r in results})
+        ids = [r.get("conversation_id") for r in results]
+        t.metrics = {
+            "status": status,
+            "personas_in_results": personas,
+            "ids": ids,
+        }
+        if status != 200:
+            t.reason = f"/mcp/call returned {status}: {body}"
+            return t
+        if not results:
+            t.reason = "empty filtered result set"
+            return t
+        if personas != ["research"]:
+            t.reason = f"persona filter leaked: {personas}"
+            return t
+        if chat_id in ids:
+            t.reason = "chat-persona conversation appeared in research filter"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, chat_id, email)
+        await _delete_chat(client, research_id, email)
+    return t
+
+
 async def test_rolling_conversation_compaction(client):
     """
     Drive a multi-turn conversation with heavy per-turn payloads until the
@@ -1742,6 +2011,11 @@ ALL_TESTS = [
     ("pin_user_isolation", test_pin_user_isolation, False),
     ("pinned_first_in_listing", test_pinned_first_in_listing, False),
     ("pinned_only_filter", test_pinned_only_filter, False),
+    ("past_conv_finds_prior", test_past_conv_finds_prior, False),
+    ("past_conv_excludes_current", test_past_conv_excludes_current, False),
+    ("past_conv_user_isolation", test_past_conv_user_isolation, False),
+    ("past_conv_pinned_boost", test_past_conv_pinned_boost, False),
+    ("past_conv_persona_filter", test_past_conv_persona_filter, False),
     ("rolling_conversation_compaction", test_rolling_conversation_compaction, True),  # heavy (6 turns × ~50k chars)
     ("style_no_emojis_research_headers", test_style_no_emojis_research_headers, False),
     ("style_no_decorative_in_list", test_style_no_decorative_in_list, False),

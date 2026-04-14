@@ -3207,7 +3207,7 @@ retire the former.
 
 ### Rough grouping by "what to tackle in what order"
 
-**Sprint 1 — quick wins (1-2 days total)**: §6, §13, §26, §24, §25, §16, §17
+**Sprint 1 — quick wins (1-2 days total)**: §6, §13, §26, §24, §25, §16, §17 — **DONE 2026-04-14**
 
 **Sprint 2 — foundation (1 week total)**: §2 sandbox (unblocks most
 other things)
