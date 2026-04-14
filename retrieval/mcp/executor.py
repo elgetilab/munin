@@ -11,6 +11,7 @@ from .tools import (
     semantic_scholar_search,
     paper_lookup,
     read_paper,
+    compare_papers,
     get_citations,
     get_references,
     s2_get_citations,
@@ -39,6 +40,7 @@ from .tools import (
     calculate,
     run_python,
     sandbox_reset,
+    faq,
 )
 
 
@@ -84,6 +86,13 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
             return await read_paper(
                 doi=arguments.get("doi", ""),
                 focus=arguments.get("focus"),
+            )
+
+        elif tool_name == "compare_papers":
+            return await compare_papers(
+                dois=arguments.get("dois", []),
+                focus=arguments.get("focus"),
+                max_papers=arguments.get("max_papers", 5),
             )
 
         elif tool_name == "llm_summarize":
@@ -250,6 +259,12 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
 
         elif tool_name == "sandbox_reset":
             return await sandbox_reset()
+
+        elif tool_name == "faq":
+            return await faq(
+                topic=arguments.get("topic"),
+                search=arguments.get("search"),
+            )
 
         else:
             return {"error": f"Unknown tool: {tool_name}"}

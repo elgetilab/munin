@@ -170,6 +170,14 @@ deploy_agents() {
         run "install -m 0644 $REPO_DIR/config/munin.env.template $MUNIN_CONFIG/munin.env.template"
     fi
 
+    # §4: the faq tool reads /app/config/faq.yml inside the retrieval
+    # container (mounted from $MUNIN_CONFIG). Sync it alongside
+    # agents.yml so `./deploy.sh agents` picks up admin-curated
+    # how-to answers in one step.
+    if [ -f "$REPO_DIR/config/faq.yml" ]; then
+        run "install -m 0644 $REPO_DIR/config/faq.yml $MUNIN_CONFIG/faq.yml"
+    fi
+
     # Note: we do NOT touch $MUNIN_CONFIG/munin.env if it already exists.
     # Docker compose sources /opt/hugin/config/cluster.env via the .env symlink.
     # munin.env.template is kept in-tree as documentation / override reference.

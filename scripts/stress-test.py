@@ -4997,6 +4997,40 @@ async def _discover_local_doi(client) -> Optional[str]:
     return None
 
 
+async def _discover_local_dois(client, n: int) -> list[str]:
+    """Return up to `n` distinct DOIs from the local corpus, pulled
+    via paper_search across several generic queries. Used by tests
+    that need more than one local paper (compare_papers, etc.)."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for query in (
+        "lipid membrane",
+        "protein structure",
+        "cell biology",
+        "x-ray crystallography",
+        "molecular dynamics",
+        "neurobiology",
+        "spectroscopy",
+    ):
+        if len(found) >= n:
+            break
+        _, body = await _mcp_call(
+            client,
+            "paper_search",
+            {"query": query, "top_k": 10},
+            email=READ_PAPER_EMAIL,
+        )
+        for row in (body.get("results") or []):
+            doi = row.get("doi")
+            if not doi or doi in seen or not row.get("local_pdf_available"):
+                continue
+            seen.add(doi)
+            found.append(doi)
+            if len(found) >= n:
+                break
+    return found
+
+
 async def test_read_paper_local_corpus(client):
     """
     Discover a DOI from the local corpus via paper_search, then call
@@ -5363,6 +5397,370 @@ async def test_s2_citations_unknown_doi(client):
     return t
 
 
+COMPARE_EMAIL = "compare-papers-test@munin.local"
+
+
+async def test_compare_papers_local_corpus(client):
+    """
+    Discover 2-3 local DOIs via paper_search, call compare_papers
+    with a focus, verify a non-empty markdown comparison and that
+    `papers` lists all successfully-read inputs.
+    """
+    t = TestResult(name="")
+    dois = await _discover_local_dois(client, 3)
+    if len(dois) < 2:
+        t.passed = True
+        t.reason = f"SKIP: only {len(dois)} local DOIs discoverable"
+        return t
+    status, body = await _mcp_call(
+        client,
+        "compare_papers",
+        {
+            "dois": dois,
+            "focus": "research methods and experimental techniques",
+        },
+        email=COMPARE_EMAIL,
+    )
+    t.metrics = {
+        "status": status,
+        "input_count": len(dois),
+        "n_compared": body.get("n_compared"),
+        "failed_count": len(body.get("failed") or []),
+        "comparison_chars": len(body.get("comparison") or ""),
+        "error": body.get("error"),
+    }
+    if status != 200:
+        t.reason = f"/mcp/call returned {status}: {body}"
+        return t
+    if body.get("error"):
+        t.reason = f"compare_papers error: {body['error']}"
+        return t
+    if body.get("n_compared") != len(dois):
+        t.reason = (
+            f"expected {len(dois)} papers compared, got "
+            f"{body.get('n_compared')}; failed={body.get('failed')}"
+        )
+        return t
+    comparison = body.get("comparison") or ""
+    if len(comparison) < 200:
+        t.reason = f"comparison suspiciously short: {len(comparison)} chars"
+        return t
+    # The structured prompt asks for specific section headings.
+    # Be lenient: accept at least one of the expected headers.
+    lower = comparison.lower()
+    header_hits = sum(
+        1 for h in ("methods", "results", "common ground", "disagree", "verdict")
+        if h in lower
+    )
+    if header_hits < 2:
+        t.reason = (
+            f"comparison missing expected section headers; "
+            f"preview={comparison[:200]!r}"
+        )
+        return t
+    t.passed = True
+    return t
+
+
+async def test_compare_papers_partial_failure(client):
+    """
+    Mix a known-bad DOI with good local ones, verify the tool
+    returns a comparison for the good ones AND lists the bad one
+    under `failed`.
+    """
+    t = TestResult(name="")
+    good_dois = await _discover_local_dois(client, 2)
+    if len(good_dois) < 2:
+        t.passed = True
+        t.reason = f"SKIP: only {len(good_dois)} local DOIs discoverable"
+        return t
+    bad_doi = "10.9999/nonexistent-paper-for-partial-failure-test"
+    mixed = good_dois + [bad_doi]
+    _, body = await _mcp_call(
+        client,
+        "compare_papers",
+        {"dois": mixed, "focus": "methodology"},
+        email=COMPARE_EMAIL,
+    )
+    failed = body.get("failed") or []
+    t.metrics = {
+        "input_count": len(mixed),
+        "n_compared": body.get("n_compared"),
+        "failed_count": len(failed),
+        "failed_dois": [f.get("doi") for f in failed],
+    }
+    if body.get("error"):
+        t.reason = f"compare_papers error: {body['error']}"
+        return t
+    if body.get("n_compared") != len(good_dois):
+        t.reason = (
+            f"expected {len(good_dois)} successful, got "
+            f"{body.get('n_compared')}"
+        )
+        return t
+    failed_dois = [f.get("doi") for f in failed]
+    if bad_doi not in failed_dois:
+        t.reason = (
+            f"bad DOI not in failed list; failed={failed_dois}"
+        )
+        return t
+    if not (body.get("comparison") or "").strip():
+        t.reason = "comparison empty despite successful reads"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_compare_papers_exceeds_cap(client):
+    """
+    Pass 7 DOIs with max_papers=3, verify only 3 are processed
+    (silent trim). Uses mostly-bogus DOIs since we only care that
+    the cap is enforced, not that the comparison succeeds.
+    """
+    t = TestResult(name="")
+    local = await _discover_local_dois(client, 3)
+    if not local:
+        t.passed = True
+        t.reason = "SKIP: no local DOIs discoverable"
+        return t
+    # Pad with extras so the input exceeds the cap by a clear margin.
+    padded = local + [
+        "10.9999/pad-one",
+        "10.9999/pad-two",
+        "10.9999/pad-three",
+        "10.9999/pad-four",
+    ]
+    _, body = await _mcp_call(
+        client,
+        "compare_papers",
+        {"dois": padded, "focus": "methods", "max_papers": 3},
+        email=COMPARE_EMAIL,
+    )
+    total_handled = (body.get("n_compared") or 0) + len(body.get("failed") or [])
+    t.metrics = {
+        "padded_count": len(padded),
+        "n_compared": body.get("n_compared"),
+        "failed_count": len(body.get("failed") or []),
+        "total_handled": total_handled,
+    }
+    if total_handled > 3:
+        t.reason = (
+            f"expected at most 3 papers handled after cap, got "
+            f"{total_handled} (n_compared + failed)"
+        )
+        return t
+    t.passed = True
+    return t
+
+
+FAQ_EMAIL = "faq-test@munin.local"
+
+
+async def test_faq_specific_topic(client):
+    """faq(topic='upload_documents') should return a non-empty answer
+    and echo the topic back."""
+    t = TestResult(name="")
+    _, body = await _mcp_call(
+        client,
+        "faq",
+        {"topic": "upload_documents"},
+        email=FAQ_EMAIL,
+    )
+    t.metrics = {
+        "topic": body.get("topic"),
+        "question_preview": (body.get("question") or "")[:80],
+        "answer_chars": len(body.get("answer") or ""),
+        "error": body.get("error"),
+    }
+    if body.get("error"):
+        t.reason = f"faq error: {body['error']}"
+        return t
+    if body.get("topic") != "upload_documents":
+        t.reason = f"topic not echoed: {body.get('topic')!r}"
+        return t
+    answer = body.get("answer") or ""
+    if len(answer) < 50:
+        t.reason = f"answer suspiciously short: {len(answer)} chars"
+        return t
+    # The YAML answer talks about files and the paperclip button, not
+    # necessarily the literal word "upload". Settle for any of a few
+    # high-signal tokens that must appear in any plausible
+    # upload-documents answer.
+    plausible = ("file", "paperclip", "pdf", "+", "upload", "document")
+    lower = answer.lower()
+    if not any(token in lower for token in plausible):
+        t.reason = f"answer has no plausible upload-related token: {answer[:120]!r}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_faq_search(client):
+    """faq(search='upload') should match at least the upload_documents
+    topic."""
+    t = TestResult(name="")
+    _, body = await _mcp_call(
+        client,
+        "faq",
+        {"search": "upload"},
+        email=FAQ_EMAIL,
+    )
+    matches = body.get("matches") or []
+    match_topics = {m.get("topic") for m in matches}
+    t.metrics = {
+        "total_matches": body.get("total_matches"),
+        "match_topics": sorted(match_topics),
+    }
+    if not matches:
+        t.reason = f"no matches for 'upload': {body}"
+        return t
+    if "upload_documents" not in match_topics:
+        t.reason = (
+            f"expected upload_documents in matches, got {match_topics}"
+        )
+        return t
+    t.passed = True
+    return t
+
+
+async def test_faq_unknown_topic(client):
+    """An unknown topic id should return a clean error with the list
+    of valid topics."""
+    t = TestResult(name="")
+    _, body = await _mcp_call(
+        client,
+        "faq",
+        {"topic": "nonsense_topic_that_does_not_exist"},
+        email=FAQ_EMAIL,
+    )
+    t.metrics = {
+        "error": body.get("error"),
+        "available_count": len(body.get("available_topics") or []),
+    }
+    if not body.get("error"):
+        t.reason = f"expected error, got {body}"
+        return t
+    available = body.get("available_topics") or []
+    if not available:
+        t.reason = "no available_topics list returned"
+        return t
+    if "upload_documents" not in available:
+        t.reason = (
+            f"expected upload_documents in available list, got "
+            f"{available[:5]}..."
+        )
+        return t
+    t.passed = True
+    return t
+
+
+async def test_faq_table_of_contents(client):
+    """faq() with no arguments returns the full TOC."""
+    t = TestResult(name="")
+    _, body = await _mcp_call(
+        client,
+        "faq",
+        {},
+        email=FAQ_EMAIL,
+    )
+    toc = body.get("table_of_contents") or []
+    topic_ids = {e.get("topic") for e in toc}
+    t.metrics = {
+        "total_topics": body.get("total_topics"),
+        "topic_ids_sample": sorted(topic_ids)[:6],
+    }
+    if body.get("total_topics") != len(toc):
+        t.reason = (
+            f"total_topics {body.get('total_topics')} != len(toc) {len(toc)}"
+        )
+        return t
+    # Seed file has 8 topics; we accept >= 6 in case someone trims.
+    if len(toc) < 6:
+        t.reason = f"TOC too small: {len(toc)} entries"
+        return t
+    # Every entry should have topic + question, and NO answer body
+    # (the TOC is deliberately answer-free to save tokens).
+    for entry in toc:
+        if "topic" not in entry or "question" not in entry:
+            t.reason = f"TOC entry missing fields: {entry}"
+            return t
+        if "answer" in entry:
+            t.reason = (
+                f"TOC entry unexpectedly contains answer body: {entry}"
+            )
+            return t
+    t.passed = True
+    return t
+
+
+async def test_capabilities_in_system_prompt(client):
+    """
+    Chat-driven test: ask the model to name three tools it has
+    access to. Verify the response mentions at least one real tool
+    from the MCP_TOOLS registry, proving the capabilities block
+    reached the system prompt.
+    """
+    t = TestResult(name="")
+    res = await send_chat(
+        client,
+        (
+            "List exactly three of the MCP tools you have access to. "
+            "Reply with just the tool names separated by commas, "
+            "nothing else, no prose, no numbering."
+        ),
+        email=FAQ_EMAIL,
+    )
+    conv_id = res["conversation_id"]
+    if not conv_id:
+        t.reason = f"no conversation id; errors={res['errors']}"
+        return t
+    try:
+        answer = (res["content"] or "").strip().lower()
+        t.metrics = {
+            "answer_preview": answer[:200],
+        }
+        if res["errors"]:
+            t.reason = f"stream error: {res['errors'][0]}"
+            return t
+        # Any real tool name showing up in the reply is proof the
+        # capabilities block made it into the system prompt. Pick a
+        # broad set of distinctive tool names that are unlikely to be
+        # in the model's training data as generic terms.
+        known_tools = [
+            "paper_search",
+            "paper_lookup",
+            "deep_research",
+            "run_python",
+            "semantic_scholar_search",
+            "read_paper",
+            "compare_papers",
+            "s2_get_citations",
+            "search_user_docs",
+            "transcribe_equation",
+            "view_attachment",
+            "list_artifacts",
+            "remember",
+            "recall",
+            "list_projects",
+            "faq",
+            "calculate",
+            "llm_summarize",
+            "web_fetch",
+            "web_search",
+        ]
+        found = [tool for tool in known_tools if tool in answer]
+        if not found:
+            t.reason = (
+                f"no known tool names in reply; got {answer[:200]!r}"
+            )
+            return t
+        t.metrics["found_tools"] = found
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, FAQ_EMAIL)
+    return t
+
+
 async def test_rolling_conversation_compaction(client):
     """
     Drive a multi-turn conversation with heavy per-turn payloads until the
@@ -5553,6 +5951,14 @@ ALL_TESTS = [
     ("s2_get_citations_include_contexts", test_s2_get_citations_include_contexts, False),
     ("s2_local_download_url_injected", test_s2_local_download_url_injected, False),
     ("s2_citations_unknown_doi", test_s2_citations_unknown_doi, False),
+    ("compare_papers_local_corpus", test_compare_papers_local_corpus, True),      # heavy
+    ("compare_papers_partial_failure", test_compare_papers_partial_failure, True), # heavy
+    ("compare_papers_exceeds_cap", test_compare_papers_exceeds_cap, True),         # heavy
+    ("faq_specific_topic", test_faq_specific_topic, False),
+    ("faq_search", test_faq_search, False),
+    ("faq_unknown_topic", test_faq_unknown_topic, False),
+    ("faq_table_of_contents", test_faq_table_of_contents, False),
+    ("capabilities_in_system_prompt", test_capabilities_in_system_prompt, True),   # heavy, chat-driven
     ("project_crud_roundtrip", test_project_crud_roundtrip, False),
     ("project_instructions_cap", test_project_instructions_cap, False),
     ("project_conversation_filing", test_project_conversation_filing, False),

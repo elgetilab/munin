@@ -156,6 +156,30 @@ MCP_TOOLS = {
             "required": ["doi"]
         }
     },
+    "compare_papers": {
+        "name": "compare_papers",
+        "description": "Compare 2-5 papers side-by-side on a specific axis. Fans out `read_paper` for each DOI in parallel (so a comparison of 5 papers takes about the same wall-clock time as reading one), then runs a single LLM call that produces a structured markdown comparison with sections for Methods, Results, Scope and limitations, Where they disagree, Common ground, and a Verdict. Use this whenever the user asks things like 'compare these three papers', 'how do X and Y differ on method Z', 'which of these papers has the strongest evidence for X'. The `focus` argument biases every section of the comparison toward a specific question - strongly recommended since focused comparisons are much more useful than generic ones. Returns {focus, papers, comparison (markdown string), failed, sources_used, n_compared}. If some DOIs can't be read, the tool returns partial results with the failures listed under `failed` - the model should acknowledge them to the user. Hard cap of 5 papers per call. Do NOT use this for single-paper reads (call `read_paper` directly instead).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "dois": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of 2-5 DOIs to compare. Duplicates are deduped; more than 5 are silently trimmed to 5."
+                },
+                "focus": {
+                    "type": "string",
+                    "description": "The specific question or axis of comparison, e.g. 'handling of batch effects', 'sample size and statistical power', 'treatment of reproducibility'. Omit for a generic comparison but strongly recommended."
+                },
+                "max_papers": {
+                    "type": "integer",
+                    "description": "Maximum number of papers to compare. Default 5, hard cap 5.",
+                    "default": 5
+                }
+            },
+            "required": ["dois"]
+        }
+    },
     "get_citations": {
         "name": "get_citations",
         "description": "Get papers that cite a given paper. Queries the LOCAL Neo4j citation graph built from the curated paper corpus - fast but only covers papers in our corpus. If the user wants broader coverage across the whole Semantic Scholar graph (~200M papers), use `s2_get_citations` instead.",
@@ -650,6 +674,24 @@ MCP_TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {},
+            "required": []
+        }
+    },
+    "faq": {
+        "name": "faq",
+        "description": "Look up admin-curated answers to user-facing how-to questions. Use this ONLY when the user asks how the Munin interface works ('how do I upload a document?', 'what is incognito mode?', 'what's the difference between the personas?', 'how do I start a project?'). Do NOT use it for research questions - those go through deep_research / paper_search / web_search / read_paper / etc. The list of available topic ids is in the === CAPABILITIES === block of your system prompt under 'FAQ topics'. Three call modes: (1) faq(topic='upload_documents') returns the full answer for one topic; (2) faq(search='upload') does substring matching and returns a list of previews; (3) faq() with no arguments returns the table of contents (all topics with their questions, no answer bodies). Start with mode (1) when you know the exact topic; fall back to (2) or (3) when you don't.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "topic": {
+                    "type": "string",
+                    "description": "Exact snake_case topic id (e.g. 'upload_documents', 'personas', 'projects'). Returns the full answer. See the === CAPABILITIES === FAQ topics line for valid ids."
+                },
+                "search": {
+                    "type": "string",
+                    "description": "Case-insensitive substring to match against topic ids, questions, and answers. Returns a list of matches with answer previews."
+                }
+            },
             "required": []
         }
     }

@@ -549,7 +549,56 @@ Half a day for (a), half a day for (b). The FAQ YAML can start with
 
 - Should `faq` entries support templating so e.g. the current upload
   limit (50 MB) is pulled from config instead of hard-coded? Probably
-  overkill for v1.
+  overkill for v1. **Decided 2026-04-14: no templating, values are
+  hard-coded in the YAML. Revisit if it gets annoying to keep in
+  sync.**
+
+### Status
+
+**DONE 2026-04-14**
+
+Shipped both halves of §4:
+
+**(a) Passive capabilities block** in
+`retrieval/capabilities.py`. Pulls tool names + first-sentence
+descriptions from `MCP_TOOLS`, agents from `agents.list_agents()`,
+personas from `personas.public_personas()`, and a static list of
+user-facing features (upload / persona picker / projects /
+artifacts / ephemeral / status). Also lists FAQ topic ids at the
+bottom so the model knows what topics to pass to the `faq` tool.
+Rendered as an `=== CAPABILITIES === ... === END CAPABILITIES ===`
+block and injected into the system prompt by `chat_service`
+right after the existing agent_hint. Skipped in ephemeral mode
+for consistency with profile / memory / project injection.
+Budgeted ~500-600 tokens per request.
+
+**(b) Active `faq` MCP tool** in `retrieval/mcp/tools/faq.py`
+backed by `config/faq.yml`. Three call modes: `faq(topic=...)`
+returns the full answer for one topic, `faq(search=...)` does
+case-insensitive substring matching and returns previews,
+`faq()` returns the table of contents (topic ids + questions,
+no answer bodies). Eight seed topics: upload_documents,
+personas, agents, ephemeral_chats, projects, artifacts, sandbox,
+memory. YAML is lazy-loaded + module-cached; changes require a
+container restart. Admin-curated in the repo, synced by
+`./deploy.sh agents` alongside `agents.yml`.
+
+**Locked-in decisions**:
+
+- Capabilities block: persistent chats only, skipped in ephemeral.
+- Capability block is identical across personas.
+- FAQ is admin-curated, not user-editable.
+- FAQ reloads only on container restart.
+- No templating in FAQ answers; values like the 50 MB upload cap
+  are hard-coded in the YAML and updated manually if they drift.
+- The capabilities block lists FAQ topic ids but NOT their
+  questions or answers - the model calls the `faq` tool when it
+  wants the content, keeping the prompt budget bounded.
+
+Five stress tests: `faq_specific_topic`, `faq_search`,
+`faq_unknown_topic`, `faq_table_of_contents`,
+`capabilities_in_system_prompt` (chat-driven, verifies the model
+can name real MCP tools on request).
 
 ---
 
@@ -856,6 +905,49 @@ Internal flow:
 
 ~80 lines, mostly a slightly-larger prompt template. 2 hours on top
 of §7.
+
+### Status
+
+**DONE 2026-04-14**
+
+Shipped:
+
+- New `compare_papers(dois, focus=None, max_papers=5)` MCP tool
+  in `retrieval/mcp/tools/compare_papers.py`. Fans out
+  `read_paper(doi, focus=focus)` in parallel via
+  `asyncio.gather`, then runs ONE more `llm_summarize` call with
+  a structured prompt asking for markdown with sections:
+  *Methods / Approach*, *Results*, *Scope and limitations*,
+  *Where they disagree*, *Common ground*, *Verdict*. The focus
+  argument (when provided) biases every section toward the
+  user's question.
+- Returns `{focus, papers, comparison, failed, sources_used,
+  n_compared}`. `papers` carries the per-paper metadata + summary
+  + key_findings from read_paper (trimmed). `comparison` is the
+  single markdown string from the LLM call. `failed` carries any
+  DOIs that couldn't be resolved alongside the ones that could.
+- **Partial success by design**: if 1 of 3 DOIs fails to resolve
+  (nonsense DOI, paper_lookup miss, GROBID chokes), the tool
+  continues with the successful reads and lists the failure
+  under `failed` so the model can tell the user "I couldn't find
+  X but here's what I found for Y and Z".
+- **Dropped** the spec's structured `comparison_table` /
+  `disagreements` / `common_findings` fields in favour of a
+  single markdown `comparison` string. Parsing free-form LLM
+  output into reliable structured fields is fragile; markdown is
+  easier to render and the model can still quote sections back.
+- **Hard cap at 5 papers per call**, enforced server-side
+  regardless of what the caller passes for `max_papers`. Input
+  DOIs are deduped and silently trimmed to the cap.
+- **Single-paper shortcut**: if only one DOI resolves, the tool
+  returns the one paper's summary with a note that there is
+  nothing to compare (rather than firing a wasted LLM call).
+- Tests: `compare_papers_local_corpus` (2-3 local DOIs, focus,
+  non-empty markdown with at least 2 of the expected section
+  headers), `compare_papers_partial_failure` (good local DOIs +
+  one nonsense DOI, verify the failure is listed and the good
+  ones still produce a comparison), `compare_papers_exceeds_cap`
+  (7 DOIs with max_papers=3, verify the cap holds).
 
 ---
 

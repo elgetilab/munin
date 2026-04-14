@@ -22,7 +22,9 @@ from .papers import (
 from .llm import llm_summarize
 from .documents import search_user_docs, view_attachment
 from .equation import transcribe_equation
+from .faq import faq
 from .read_paper import read_paper
+from .compare_papers import compare_papers
 from .s2_citations import s2_get_citations, s2_get_references
 from .chats import search_past_conversations
 from .memory import remember, forget, recall
@@ -47,6 +49,7 @@ __all__ = [
     "semantic_scholar_search",
     "paper_lookup",
     "read_paper",
+    "compare_papers",
     "get_citations",
     "get_references",
     "s2_get_citations",
@@ -58,6 +61,7 @@ __all__ = [
     "search_user_docs",
     "view_attachment",
     "transcribe_equation",
+    "faq",
     "search_past_conversations",
     "remember",
     "forget",

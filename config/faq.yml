@@ -1,0 +1,127 @@
+# Munin user-facing FAQ
+#
+# This file is consumed by the `faq` MCP tool (§4 Self-description).
+# Each entry is a snake_case topic id with a short `question` and a
+# longer `answer`. The model calls `faq(topic=...)` or
+# `faq(search=...)` when the user asks how-to questions like "how do I
+# upload a document?" or "what's the difference between the personas?".
+#
+# The answers here are administrator-curated: edit them to match the
+# actual UI, then `./deploy.sh agents` to sync into the container.
+# The file is re-read on container restart (no hot reload).
+#
+# When adding a topic: keep questions under ~80 chars, keep answers
+# under ~500 chars. The full file is NOT injected into every prompt;
+# only the topic list is (so the model knows what to ask for). The
+# answer is fetched on demand when the model calls the tool.
+
+topics:
+
+  upload_documents:
+    question: "How do I upload a document?"
+    answer: |
+      Click the paperclip (+) button in the chat input, pick a PDF, TXT,
+      MD, DOCX, PNG, JPG, JPEG, or WEBP, and send your message. The
+      file is embedded into a per-user knowledge store and becomes
+      searchable in future chats via the `search_user_docs` tool. Size
+      limit is 50 MB per file. If you are inside a project, the doc is
+      automatically scoped to that project so searches inside the
+      project return it first before falling back to the user-global
+      store.
+
+  personas:
+    question: "What's the difference between the personas?"
+    answer: |
+      Munin ships three personas you can pick from the sidebar:
+      - **Meitner (chat)**: general-purpose assistant for day-to-day
+        tasks, writing, web search, and quick lookups.
+      - **Turing (code)**: code-focused. Scientific Python, PyTorch,
+        HPC/SLURM, debugging, code review. Can self-test Python via the
+        sandbox.
+      - **Curie (research)**: thorough literature review, paper
+        analysis, citation exploration. Higher effort, more tools,
+        always prefers tool-grounded answers over general knowledge.
+      Each persona has the same tool access but different system
+      prompts, sampling parameters, and output style.
+
+  agents:
+    question: "What are agents?"
+    answer: |
+      Agents are bounded tool-calling workflows the main model can
+      delegate to via `invoke_agent(agent, query)`. They run their own
+      nested tool loop under a dedicated system prompt with guardrails
+      (max iterations, max tool calls, wall-clock timeout) and return a
+      structured answer. Use them for work that is substantially more
+      than a single tool call - deep literature reviews, structured
+      code reviews, long-form writing with citations. See the
+      `=== AVAILABLE AGENTS ===` block in the system prompt for the
+      currently-registered agents.
+
+  ephemeral_chats:
+    question: "What is incognito / ephemeral mode?"
+    answer: |
+      Toggle "Ephemeral" near the chat input to run a conversation that
+      is never written to the database: no conversation row, no
+      messages, no auto-title, no summary. The user profile, user
+      memory, project context, and sandbox (`run_python`) tools are
+      refused in ephemeral mode to keep the privacy contract honest.
+      Refreshing the page loses the session; that is the feature.
+      Incognito is not "untrackable by the world" - web searches,
+      paper lookups, and other external API calls still leave traces
+      at those services.
+
+  projects:
+    question: "What are projects?"
+    answer: |
+      Projects are top-level workspaces that group conversations and
+      documents under one set of instructions and an optional default
+      persona. Create one from the sidebar's Projects section, add an
+      instruction block (max 2000 chars) describing the research
+      focus, and start a new chat inside it. The project's
+      instructions are auto-injected into every turn, its default
+      persona is used when you do not pin one, and uploaded documents
+      are auto-scoped so `search_user_docs` finds them first. Deleting
+      a project unfiles its conversations and docs back to the default
+      bucket - they are preserved, not deleted.
+
+  artifacts:
+    question: "What are artifacts and where do I see them?"
+    answer: |
+      Artifacts are versioned documents tied to a conversation: paper
+      drafts, LaTeX sources, code snippets, generated plots,
+      spreadsheets. The model creates them via `create_artifact` when
+      you ask it to write something longer than a short reply, and
+      edits them via `update_artifact` which produces a new version.
+      Sandbox outputs from `run_python` (plots, xlsx files) also land
+      in the same artifacts table. Everything appears in the side
+      panel on the right of the chat view, with a version picker and
+      diff view per artifact. You can edit an artifact yourself by
+      clicking Edit in the side panel.
+
+  sandbox:
+    question: "Can the model run code?"
+    answer: |
+      Yes: the main model has a `run_python` tool that executes Python
+      in a sandboxed Jupyter kernel scoped to the current conversation.
+      State (variables, imports, dataframes) persists between calls.
+      Pre-installed packages include numpy, scipy, pandas, matplotlib,
+      seaborn, scikit-learn, sympy, networkx, openpyxl, Pillow. No
+      internet, no GPU, 30 second default wall-clock per execution,
+      2 GB memory cap, 100 MB max file size. Plots created with
+      plt.show() are captured as downloadable PNG artifacts. The
+      sandbox is refused in ephemeral chats.
+
+  memory:
+    question: "What does the model remember about me?"
+    answer: |
+      Munin maintains TWO complementary stores of facts about you:
+      - **User profile** (you curate): set via the settings page.
+        Fields like `about_me`, `response_format`, `default_persona`,
+        `timezone`. Cap of 1500 chars per field. Applied to every
+        persistent chat automatically.
+      - **User memory** (the model curates): the model calls
+        `remember(key, value)` when you tell it something it should
+        retain across sessions. Capped at 20 entries, 200 chars per
+        value, LRU eviction on overflow. Call `recall()` to see what
+        the model currently remembers, or `forget(key)` to delete one.
+      Both stores are skipped in ephemeral chats.

@@ -38,6 +38,7 @@ import user_profile_store
 import project_store
 import memory_store
 import artifact_store
+import capabilities as capabilities_module
 import vision
 from database import VLLM_URL, VLLM_MODEL_NAME
 from mcp.schemas import MCP_TOOLS
@@ -507,6 +508,23 @@ async def stream_chat_completion(
     agent_hint = agents_pkg.agent_summaries_for_prompt()
     if agent_hint:
         system_prompt = f"{system_prompt}\n\n{agent_hint}"
+
+    # §4 passive: capabilities introspection block. Describes every
+    # MCP tool, agent, persona, user-facing feature, and FAQ topic
+    # in ~500-600 tokens so the model can honestly answer "what can
+    # you do?" without hallucinating. Skipped in ephemeral mode
+    # alongside profile / memory / project for the same privacy
+    # consistency (nothing user-identifying, but the block is a
+    # known-answers-for-this-server signal).
+    if not ephemeral:
+        try:
+            capabilities_block = capabilities_module.build_capabilities_block()
+        except Exception as e:
+            print(f"[WARNING] capabilities block build failed: {e}")
+            capabilities_block = None
+        if capabilities_block:
+            system_prompt = f"{system_prompt}\n\n{capabilities_block}"
+
     sampling = persona_module.sampling_params(persona)
 
     # --- 1. Resolve the conversation ---
