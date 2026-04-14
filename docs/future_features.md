@@ -2681,6 +2681,496 @@ shipped immediately and can tolerate occasional rate-limit retries.
 
 ---
 
+## 28. Tag-scoped knowledge with contributor attribution
+
+### Problem
+
+Three related gaps:
+
+1. **Personal in-chat notes**: users want to drop short facts into a
+   private knowledge bucket they can query later (*"my standard buffer
+   is 50 mM Tris pH 7.4, 37 °C"*) without uploading PDFs.
+2. **Contributor-attributed uploads**: select users want to upload
+   their own paper collection so it becomes searchable by everyone,
+   with credit visible (*"this paper was contributed by Mustermann"*).
+   Today the upload pipeline (§3) treats every doc as private to the
+   uploader.
+3. **Topic-scoped queries**: once §15 produces an embedding map with
+   labelled clusters, users want to scope a query to a specific topic
+   (*"#nmr what's the typical chemical shift for ..."*) rather than
+   competing with the whole corpus.
+
+The unifying surface is a **`#tag` syntax** in the chat input that
+boosts or filters retrieval. Three flavours of tag, one mechanism.
+
+### Design — tag taxonomy
+
+Three tag namespaces, parsed by the frontend, passed to the backend
+as a structured field in the chat completion request body:
+
+| Tag form | Meaning | Backed by |
+|---|---|---|
+| `#me` | The asker's personal notes | new `user_notes` Qdrant collection (BGE-base embeddings, separate from papers) |
+| `#@username` | Papers a contributor uploaded via the upload page | **the main `papers` Qdrant collection**, filtered by `payload.contributor == username`. Embedded with SPECTER via the existing `paper_pipeline.py`, indistinguishable from admin-curated papers in every other respect. |
+| `#topic` (e.g. `#nmr`, `#lipids`) | Papers in that cluster | `papers` collection, filtered by `payload.cluster_id` matching the §15-derived slug |
+
+Two of the three tags (`#@user` and `#topic`) query the **same**
+underlying `papers` collection — they're just different payload
+filters. Contributed papers participate in clustering automatically
+because they live in the same collection §15 walks. A paper
+contributed by Mustermann that happens to fall in the NMR cluster
+is retrievable by both `#@mustermann` AND `#nmr`. That's the
+behaviour you want.
+
+`#me` is the only tag that touches a different collection.
+
+The model isn't asked to parse tags — the frontend does that on
+input and sends the chat request body with a structured field:
+
+```json
+{
+  "persona": "research",
+  "messages": [{"role": "user", "content": "explain CSA in lipid bilayers"}],
+  "tags": [
+    {"kind": "topic", "value": "nmr"},
+    {"kind": "contributor", "value": "mustermann"}
+  ]
+}
+```
+
+Backend `chat_service` reads `tags`, sets a contextvar
+`current_query_tags`, which the search tools (`paper_search`,
+`semantic_scholar_search`, `search_user_docs`, `deep_research`)
+consume to scope or boost results.
+
+### Schema changes
+
+#### Personal notes — new piece
+
+```sql
+CREATE TABLE user_notes (
+    id TEXT PRIMARY KEY,
+    user_email TEXT NOT NULL,
+    content TEXT NOT NULL,         -- free text, ~max 2000 chars
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_user_notes_user ON user_notes(user_email, updated_at DESC);
+```
+
+Per-user quota: 100 notes or 200 KB total content (whichever first).
+Each note also gets a BGE-base embedding stored in a new Qdrant
+collection `user_notes` (768d, cosine), with payload
+`{user_email, note_id, content, created_at}`. Filtered by
+`user_email` on every search — the same isolation pattern as
+`user_docs`.
+
+MCP tools:
+
+```python
+add_note(content: str) -> dict
+list_notes(limit: int = 20) -> dict
+search_my_notes(query: str, top_k: int = 5) -> dict
+delete_note(note_id: str) -> dict
+```
+
+The model invokes these when the user says *"remember that..."* or
+*"check my notes for..."*. The model never has direct access to
+another user's notes — `current_user_email` contextvar enforces it.
+
+#### Contributor uploads — into the main `papers` collection
+
+Two completely separate upload paths today:
+
+| Path | Endpoint | Storage | Embedder | Purpose |
+|---|---|---|---|---|
+| **Personal docs** | `POST /api/documents/upload` (private flow today) | `user_docs` collection, scoped per uploader | BGE-base | Chat-attached docs that only the uploader sees |
+| **Curated corpus** | `paper_pipeline.py` (offline admin tool) | `papers` collection + Neo4j citation graph | SPECTER | Searchable corpus shared by everyone |
+
+The contributor flow needs to land an uploaded PDF in **path 2**, not
+path 1. That means the upload endpoint has to detect "this is a
+contributor upload" and route the file through the heavier pipeline
+(GROBID extract → CrossRef enrich → SPECTER embed → Qdrant `papers`
++ Neo4j Paper node), with a `contributor` field stamped on the
+resulting payload.
+
+**Allowlist gating.** A new file `config/contributors.yml` (admin-
+only, edited in the repo and synced via `deploy.sh`) lists which
+emails are allowed to contribute:
+
+```yaml
+contributors:
+  - email: mustermann@example.com
+    username: mustermann
+    display_name: Hans Mustermann
+  - email: alice@example.com
+    username: alice
+    display_name: Alice Schmidt
+```
+
+When a request comes in, `chat_service` resolves the uploader's
+email against this list. If they're on it AND the upload form had
+`contribute=true`, route through the contributor pipeline. Otherwise,
+fall back to the standard private path. Non-contributors who set
+`contribute=true` get coerced to `private` silently — no error.
+
+**Upload endpoint extension.** `POST /api/documents/upload` learns
+one new optional form field:
+
+```
+file: <PDF binary>
+contribute: "true"   (optional — only honored for allowlist members)
+```
+
+Backend behaviour when `contribute=true` and uploader is allowlisted:
+
+1. Save the PDF to `/opt/munin/data/papers/pdf/inbox/{uuid}.pdf`
+2. Write a sidecar marker `/opt/munin/data/papers/pdf/inbox/{uuid}.contributor.json`
+   containing the contributor metadata pulled from `contributors.yml`:
+   ```json
+   {
+     "contributor_email": "mustermann@example.com",
+     "contributor_username": "mustermann",
+     "contributor_display_name": "Hans Mustermann",
+     "uploaded_at": "2026-04-14T01:30:00Z"
+   }
+   ```
+3. Call `paper_pipeline.py --single /opt/munin/data/papers/pdf/inbox/{uuid}.pdf`
+   in a subprocess (or queue for async processing — see open question).
+4. `paper_pipeline.py` is taught to look for the `.contributor.json`
+   sidecar next to the PDF it's about to process and, if present,
+   stamp `contributor`, `contributor_username`, `contributor_display_name`
+   into the Qdrant `papers` payload AND into the Neo4j `Paper` node
+   as properties.
+5. After successful processing, move the PDF into the regular
+   `pdf/` directory and delete the sidecar.
+6. Return a job-status response to the user (`processing` or
+   `embedded`, with the eventual `paper_id` once known).
+
+**Extended `papers` Qdrant payload schema:**
+
+```python
+{
+    # existing fields
+    "title": "...",
+    "doi": "...",
+    "year": 2024,
+    "authors": [...],
+    "abstract": "...",
+
+    # new from §15 (cluster_id is set on EVERY paper, not just contributed)
+    "cluster_id": 7,
+    "topic_label": "Kinase inhibitors in membranes",
+    "topic_slug": "kinase-inhibitors-membranes",
+
+    # new for contributors (only set on contributed papers; absent otherwise)
+    "contributor_username": "mustermann",
+    "contributor_display_name": "Hans Mustermann",
+    "contributed_at": "2026-04-14T01:30:00Z",
+}
+```
+
+Non-contributed papers simply don't have the `contributor_*` fields.
+Qdrant's payload filter handles "field exists" naturally so
+`#@mustermann` filters work without any null-handling.
+
+**Neo4j `Paper` node extended properties:**
+
+```cypher
+(:Paper {
+    doi: "10.1234/example",
+    title: "...",
+    year: 2024,
+    contributor_username: "mustermann",        // optional
+    contributor_display_name: "Hans Mustermann",
+    contributed_at: "2026-04-14T01:30:00Z"
+})
+```
+
+So citation graph traversal can also surface attribution.
+
+**Result rendering.** When `paper_search`/`semantic_scholar_search`/
+`deep_research` returns a paper that has a `contributor_display_name`
+field, the result row includes it:
+
+```json
+{
+  "title": "...",
+  "doi": "...",
+  "score": 0.92,
+  "contributor_display_name": "Hans Mustermann"
+}
+```
+
+The model is told (via persona prompts) to surface contributor
+attribution in citations:
+
+> When citing a paper that has a `contributor_display_name` field,
+> include the contributor in the citation: *"according to a paper
+> contributed by Hans Mustermann (DOI: 10.1234/example), ..."*
+
+This makes the recognition / "reward" aspect explicit in the user-
+facing output.
+
+**The `user_docs` collection stays strictly personal.** No
+`visibility` flag, no shared mode, no contributor field. Uploads
+that don't go through the contributor path remain private to the
+uploader, indistinguishable from today's behaviour.
+
+#### Topic tags — derived from §15
+
+When §15 ships, the embedding map script writes
+`{cluster_id, topic_label}` back to each Qdrant point in the
+`papers` collection (extending the existing payload schema):
+
+```python
+{
+    # existing
+    "title": "...",
+    "doi": "...",
+    "year": 2024,
+    "authors": [...],
+
+    # new (from §15 build_embedding_map.py)
+    "cluster_id": 7,
+    "topic_label": "Kinase inhibitors in membranes",
+    "topic_slug": "kinase-inhibitors-membranes",  # url/tag-safe
+}
+```
+
+`topic_slug` is the lowercase-dashed version that becomes the `#tag`.
+A user types `#nmr` and the frontend autocompletes against a tag
+catalog endpoint (see below) to find the closest matching slug.
+
+### New endpoint: tag catalog
+
+`GET /api/tags` returns everything the frontend autocomplete needs:
+
+```json
+{
+  "topics": [
+    {"slug": "nmr", "label": "Solid-state NMR", "paper_count": 1234},
+    {"slug": "lipid-rafts", "label": "Lipid rafts", "paper_count": 567}
+  ],
+  "contributors": [
+    {"username": "mustermann", "display_name": "Hans Mustermann",
+     "doc_count": 42}
+  ],
+  "system": [
+    {"slug": "me", "label": "My personal notes"}
+  ]
+}
+```
+
+Topics are read from the §15 cluster output. Contributors are
+distinct from `user_docs` payloads where `visibility = "shared"`.
+
+### Search tool integration
+
+All three existing search tools gain an optional `tags` parameter.
+
+```python
+paper_search(
+    query: str = None,
+    queries: list[str] = None,
+    top_k: int = 5,
+    tags: list[dict] = None,  # [{"kind": "topic", "value": "nmr"}, ...]
+)
+```
+
+How tags affect retrieval:
+
+| Tag kind | Effect on `paper_search` / `semantic_scholar_search` / `deep_research` | Effect on `search_user_docs` | Effect on `search_my_notes` |
+|---|---|---|---|
+| `topic` (`#nmr`) | Filter `papers` collection by `payload.cluster_id` matching the slug. AND-filter when multiple topic tags. | No effect | No effect |
+| `contributor` (`#@mustermann`) | Filter `papers` collection by `payload.contributor_username` matching the value. AND-filter when multiple. | No effect | No effect |
+| `me` | No effect | No effect | Routes to the personal notes collection |
+
+When `#nmr` and `#@mustermann` are passed together, both filters
+apply to the **same** `papers` collection query — the result is
+"papers in the NMR cluster contributed by Mustermann". This is
+clean because both tags target the same Qdrant collection; no
+fan-out across collections is needed.
+
+When `#me` is also present, the backend additionally calls
+`search_my_notes` and merges its results into the response with a
+clear "from your personal notes" label. That's the only case where
+results from two collections get merged in one response.
+
+`deep_research` reads the same `current_query_tags` contextvar and
+plumbs the filters through to its internal `paper_search` and
+`semantic_scholar_search` calls. Sub-question expansion is
+unaffected (the model still generates varied query phrasings); the
+filter is applied at the search layer below.
+
+### Frontend changes (not in this repo)
+
+- Tag autocomplete on `#` input: fetch `/api/tags`, fuzzy-match,
+  show inline chips
+- Render contributor attribution in result snippets:
+  *"...from a paper contributed by Hans Mustermann (uploaded 2026-03-15)"*
+- A "My Notes" page in settings showing the personal notes list
+  (CRUD via the new endpoints), with a "use in chat" toggle
+- The upload page (currently for private docs) gains a "Share with
+  the cluster" checkbox, only enabled for users on the contributors
+  allowlist
+
+### Backend changes summary
+
+| File | Change |
+|---|---|
+| `chat_store.py` | New `user_notes` table + CRUD (notes are stored both here for ground-truth and embedded into the new Qdrant `user_notes` collection for retrieval) |
+| `retrieval/notes_store.py` (new) | Per-user notes embedding + retrieval; mirrors `document_store` shape but for short free text. New Qdrant collection `user_notes`, BGE-base embeddings. |
+| `retrieval/mcp/tools/notes.py` (new) | `add_note`, `list_notes`, `search_my_notes`, `delete_note` — `#me` tag dispatch target |
+| `retrieval/document_store.py` | **Extended `upload_document`**: accepts `contribute=true` form flag. When the uploader is on the contributors allowlist, the file is dropped into `pdf/inbox/` with a sidecar JSON, and `paper_pipeline.py --single` is invoked (subprocess or queue) to route it through the heavyweight pipeline. Otherwise unchanged — file goes to `user_docs` as today. |
+| `scripts/pipeline/paper_pipeline.py` | Reads `{uuid}.contributor.json` sidecar next to the input PDF (when present) and stamps `contributor_username`, `contributor_display_name`, `contributed_at` into both Qdrant `papers` payload and Neo4j `Paper` properties |
+| `retrieval/mcp/tools/papers.py` | `paper_search` and `semantic_scholar_search` accept `tags`. Topic filter on `cluster_id`, contributor filter on `contributor_username`. Both apply to the `papers` Qdrant collection. |
+| `retrieval/mcp/tools/research.py` | `deep_research` reads `current_query_tags` contextvar and plumbs filters through to internal sub-searches |
+| `retrieval/mcp/tools/documents.py` | **No `tags` extension** — `user_docs` stays strictly personal. `search_user_docs` is unchanged. |
+| `retrieval/mcp/schemas.py` | Schema additions for the four notes tools, the `tags` parameter on paper-search tools, and clarifying descriptions |
+| `retrieval/main.py` | New endpoints: `GET /api/tags`, `POST /api/notes`, `GET /api/notes`, `DELETE /api/notes/{id}`. Existing `POST /api/documents/upload` accepts the new `contribute` form field. |
+| `retrieval/chat_service.py` | Reads `tags` from request body, sets `current_query_tags` contextvar before dispatching tool calls. Optionally injects active tag list into the system prompt as context. |
+| `retrieval/mcp/context.py` | New `current_query_tags` ContextVar |
+| `config/contributors.yml` (new) | Admin-edited allowlist with email → username + display name mapping |
+| `deploy.sh` | New `contributors` mode that copies `config/contributors.yml` to `/opt/munin/config/` |
+| `personas/*.json` | Persona prompt update: explain tag semantics, instruct the model to surface contributor attribution in citations when `contributor_display_name` is present |
+
+### Test plan
+
+**Personal notes:**
+- `test_add_and_search_note`: add a note, search for it, assert hit
+- `test_notes_user_isolation`: user A's notes invisible to user B
+- `test_notes_quota`: hit the 100-note limit, assert 429 or oldest-evict
+
+**Contributor uploads:**
+- `test_contribute_upload_allowlisted`: POST `/api/documents/upload`
+  with `contribute=true` as a user listed in `contributors.yml`,
+  assert the file lands in `pdf/inbox/` with a `.contributor.json`
+  sidecar, then assert the resulting Qdrant `papers` point has
+  `contributor_username` and `contributor_display_name` set.
+- `test_contribute_upload_non_allowlisted`: POST same flag as a
+  user NOT on the allowlist, assert the file is silently routed to
+  `user_docs` (private) instead and no Qdrant `papers` point is
+  created. No 4xx error.
+- `test_contribute_upload_creates_neo4j_node`: after the pipeline
+  processes a contributed PDF, assert the corresponding Neo4j
+  `Paper` node has `contributor_username` and `contributed_at`
+  properties.
+- `test_search_finds_contributor_with_tag`: contribute a paper as
+  Mustermann, then query `paper_search(tags=[{kind:"contributor",
+  value:"mustermann"}])`, assert that paper appears in the results.
+- `test_search_omits_contributor_when_no_tag`: same paper, query
+  `paper_search` with no tags, assert it still appears (it's a
+  first-class corpus member, just unfiltered) and that the result
+  row carries `contributor_display_name` so the model can render
+  attribution.
+- `test_topic_and_contributor_combined`: contribute a paper that
+  ends up in cluster `nmr`, query with both
+  `tags=[{kind:"topic",value:"nmr"},{kind:"contributor",value:"mustermann"}]`,
+  assert it's returned by the AND-combined filter.
+- `test_user_docs_unchanged`: existing per-user document upload
+  flow still works; non-contributor uploads still land in
+  `user_docs` collection only.
+
+**Topic tags:**
+- `test_topic_tag_filters_papers`: paper_search with
+  `tags=[{kind:"topic", value:"nmr"}]` returns only papers with
+  matching cluster
+- `test_unknown_tag_silently_ignored`: `#xyz123` (no matching
+  cluster/contributor) doesn't break, just falls back to unfiltered
+  search
+
+**Tag catalog:**
+- `test_tag_catalog_returns_topics_and_contributors`: GET `/api/tags`
+  returns both lists with counts
+
+**End-to-end:**
+- `test_chat_with_topic_tag`: send a chat with a topic tag, assert
+  the backend search results were scoped (e.g. by inspecting the
+  tool_call arguments in the SSE stream)
+- `test_chat_with_personal_tag`: ask `#me what's my standard buffer`,
+  assert `search_my_notes` was called instead of paper_search
+
+### Effort
+
+~1.5 weeks total. Substantial because it touches a lot of surface
+area, but no individual piece is hard.
+
+Breakdown:
+
+- `user_notes` table + CRUD + Qdrant collection: 1 day
+- `notes_store.py` + MCP tools: 1 day
+- `document_store.py` extensions for visibility + contributor: 0.5 day
+- Allowlist gating + `config/contributors.yml`: 0.5 day
+- §15 cluster_id payload write-back (depends on §15 shipping): 0.5 day
+- Search tool tag plumbing across all 3 search tools + deep_research: 1 day
+- `chat_service.py` tag contextvar + system prompt hint: 0.5 day
+- `/api/tags` catalog endpoint: 0.5 day
+- HTTP endpoints for notes CRUD: 0.5 day
+- Personas update: 0.25 day
+- Test plan: 1 day
+- Frontend (separate repo): 3-4 days
+
+### Open questions
+
+- **Tag visibility in the system prompt**: should the model see a
+  list of all available tags every turn, or only when the user
+  actively passes one? Always-visible would cost ~500 tokens per
+  request but lets the model proactively suggest tags. I'd lean
+  toward "only when present" for v1 and revisit.
+- **Tag inheritance to follow-ups**: if the user opens a chat with
+  `#nmr` then asks five follow-up questions, do those follow-ups
+  inherit the `#nmr` tag? Probably yes, set as a conversation-level
+  attribute (new column on `conversations`). User can clear it
+  with `#none` or by removing from the input chip UI.
+- **Allowlist mechanism**: `config/contributors.yml` is admin-only
+  (single admin per global decisions). When a new user wants
+  contributor rights, they email the admin who edits the YAML and
+  re-deploys (no UI). Acceptable for the current scale.
+- **Personal notes vs §9 user memory**: overlap. §9 is for
+  conversation-history-derived facts (the model curates), §28 notes
+  are user-curated free text. Could unify them: `user_notes` becomes
+  the storage backend for both, with a `kind: "user_curated" |
+  "model_curated"` flag. Worth considering during implementation.
+- **Tag namespaces collision**: if a topic slug happens to match a
+  username (`#alice` exists as both a topic and a user), the
+  frontend should show both in autocomplete and let the user pick.
+  Backend treats them as distinct kinds (different parameters).
+- **Contributor attribution beyond uploads**: should papers in the
+  shared `papers` corpus also have contributor attribution if the
+  ingestion source was a particular user? Probably yes — extend the
+  `papers` collection payload too. Less common case, save for later.
+- **#me tag privacy**: when `#me` is in play, the model must not
+  echo the personal notes back to other users in any context. This
+  is enforced naturally by the per-user Qdrant filter, but worth a
+  test (`test_me_tag_user_isolation`).
+- **Note size cap**: 2000 chars per note, 100 notes per user. Could
+  also support longer "long-form notes" (10k chars) but at lower
+  quota. Open question — start with one tier.
+- **Citation in the chat response**: when search results come from
+  a shared contribution, the assistant should naturally include
+  attribution like *"according to the paper contributed by
+  Mustermann, ..."*. This is prompt-level guidance, no code change
+  needed beyond ensuring the tool result includes
+  `contributor_display_name`.
+
+### Connection to other features
+
+- **§9 user memory** — overlap with personal notes. Consider
+  unification (see open question above).
+- **§15 embedding map** — provides the `cluster_id` and `topic_label`
+  fields that power `#topic` tags. §28 cannot ship without §15
+  having shipped first.
+- **§3 document store** (already shipped) — extended in-place rather
+  than replaced.
+- **§4 self-description** — the FAQ tool should explain how tags
+  work; one of the canned topics should be *"how do I use #tags?"*.
+- **§21 projects** — projects could have default tags. *"Project
+  Kinase Thesis defaults to `#kinase-inhibitors`"*. Out of scope
+  for v1 but a natural extension once both ship.
+
+---
+
 ## Updated priority order (agreed 2026-04-14)
 
 1. **§2 Sandbox** — unlocks §3 (plotting), §18 (LaTeX), and parts of §12
@@ -2705,10 +3195,11 @@ shipped immediately and can tolerate occasional rate-limit retries.
 20. **§19 Autonomous agent selection** — prompt tuning + investigation
 21. **§10 Background research jobs** — reuses SLURM infra
 22. **§15 Embedding 2D map** — offline-heavy, good researcher-facing feature
-23. **§11 Equation OCR** — tiny on top of §5
-24. **§27 `paper_cleanup` parallelization** — pipeline admin tool, ~8h → ~2-4h full sweeps
-25. **§12 Reproducibility helper** — speculative, do last
-26. **§1 `ask_clarification` v1** — DELETED, replaced by §14
+23. **§28 Tag-scoped knowledge** — depends on §15; personal notes + contributor uploads + #topic queries
+24. **§11 Equation OCR** — tiny on top of §5
+25. **§27 `paper_cleanup` parallelization** — pipeline admin tool, ~8h → ~2-4h full sweeps
+26. **§12 Reproducibility helper** — speculative, do last
+27. **§1 `ask_clarification` v1** — DELETED, replaced by §14
 
 §19 has an **Investigation column** to compare `research_orchestrator`
 vs `deep_research` with real usage data before deciding whether to
