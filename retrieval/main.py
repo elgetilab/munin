@@ -754,6 +754,7 @@ async def api_chat_completions(request: Request):
     conversation_id = body.get("conversation_id")
     messages = body.get("messages") or []
     rag_config = body.get("rag") or {}
+    ephemeral = bool(body.get("ephemeral", False))
 
     if not isinstance(messages, list) or not messages:
         raise HTTPException(
@@ -766,6 +767,9 @@ async def api_chat_completions(request: Request):
             status_code=400,
             detail={"error": {"message": "last message must be from role 'user'"}},
         )
+    # In ephemeral mode the frontend echoes the full thread; everything
+    # before the trailing user turn is the prior history.
+    prior_messages = messages[:-1] if ephemeral else None
 
     async def event_stream():
         async for event in chat_service.stream_chat_completion(
@@ -774,6 +778,8 @@ async def api_chat_completions(request: Request):
             conversation_id=conversation_id,
             user_message=user_message,
             rag_config=rag_config,
+            ephemeral=ephemeral,
+            prior_messages=prior_messages,
         ):
             if await request.is_disconnected():
                 break

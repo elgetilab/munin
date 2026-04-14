@@ -94,11 +94,16 @@ async def send_chat(
     message: str,
     conversation_id: Optional[str] = None,
     persona: str = "chat",
+    ephemeral: bool = False,
+    history: Optional[list[dict]] = None,
 ) -> dict:
+    msgs: list[dict] = list(history or [])
+    msgs.append({"role": "user", "content": message})
     body = {
         "persona": persona,
         "conversation_id": conversation_id,
-        "messages": [{"role": "user", "content": message}],
+        "messages": msgs,
+        "ephemeral": ephemeral,
     }
     headers = {
         "X-Munin-Email": EMAIL,
@@ -1025,6 +1030,149 @@ async def test_style_curie_academic_writing(client):
     return t
 
 
+async def _list_chats(client) -> list[dict]:
+    r = await client.get(
+        f"{BASE}/api/chats",
+        headers={"X-Munin-Email": EMAIL},
+        params={"limit": 200, "offset": 0},
+        timeout=30,
+    )
+    if r.status_code != 200:
+        return []
+    data = r.json()
+    if isinstance(data, dict):
+        return data.get("conversations") or data.get("items") or []
+    return data if isinstance(data, list) else []
+
+
+async def test_ephemeral_basic(client):
+    """An ephemeral chat returns a non-empty answer with an ephemeral- id."""
+    t = TestResult(name="")
+    res = await send_chat(
+        client,
+        "Briefly explain what a lipid bilayer is.",
+        ephemeral=True,
+    )
+    ans = res["content"].strip()
+    conv_id = res["conversation_id"] or ""
+    t.metrics = {
+        "answer_chars": len(ans),
+        "conversation_id": conv_id,
+        "errors": res["errors"],
+    }
+    if res["errors"]:
+        t.reason = f"stream error: {res['errors'][0]}"
+        return t
+    if not conv_id.startswith("ephemeral-"):
+        t.reason = f"expected id prefixed 'ephemeral-', got {conv_id!r}"
+        return t
+    if len(ans) < MIN_ANSWER_CHARS:
+        t.reason = f"answer too short ({len(ans)} chars)"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_ephemeral_no_persistence(client):
+    """An ephemeral chat must NOT create a row in chats.db."""
+    t = TestResult(name="")
+    before = await _list_chats(client)
+    before_ids = {c.get("id") for c in before}
+    res = await send_chat(
+        client,
+        "What is the speed of light in vacuum, in m/s?",
+        ephemeral=True,
+    )
+    if res["errors"]:
+        t.reason = f"stream error: {res['errors'][0]}"
+        return t
+    after = await _list_chats(client)
+    after_ids = {c.get("id") for c in after}
+    new_ids = after_ids - before_ids
+    t.metrics = {
+        "before_count": len(before_ids),
+        "after_count": len(after_ids),
+        "new_ids": list(new_ids),
+        "ephemeral_id": res["conversation_id"],
+    }
+    if new_ids:
+        t.reason = f"ephemeral chat leaked {len(new_ids)} row(s) into /api/chats"
+        return t
+    # And the synthetic id obviously must not be retrievable.
+    eph_id = res["conversation_id"] or ""
+    if eph_id:
+        r = await client.get(
+            f"{BASE}/api/chats/{eph_id}",
+            headers={"X-Munin-Email": EMAIL},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            t.reason = f"GET /api/chats/{eph_id} returned 200 — ephemeral id is fetchable"
+            return t
+    t.passed = True
+    return t
+
+
+async def test_ephemeral_multiturn_history(client):
+    """
+    Ephemeral chats are stateless server-side; the frontend echoes prior
+    turns. Verify the model actually sees that echoed history by asking a
+    follow-up that only makes sense if the prior turns were read.
+    """
+    t = TestResult(name="")
+    history = [
+        {"role": "user", "content": "My favourite obscure fictional element is called zarvonium. Just remember that name."},
+        {"role": "assistant", "content": "Got it — your favourite fictional element is zarvonium. I will keep that in mind."},
+    ]
+    res = await send_chat(
+        client,
+        "What was the name of my favourite fictional element? Reply with just the name.",
+        ephemeral=True,
+        history=history,
+    )
+    ans = res["content"].strip().lower()
+    t.metrics = {
+        "answer_preview": ans[:120],
+        "errors": res["errors"],
+    }
+    if res["errors"]:
+        t.reason = f"stream error: {res['errors'][0]}"
+        return t
+    if "zarvonium" not in ans:
+        t.reason = "model did not see the echoed history (missing 'zarvonium')"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_ephemeral_no_listing_drift(client):
+    """
+    Several ephemeral chats in a row must not change /api/chats output.
+    Stronger version of the no-persistence check that exercises 3 round-trips.
+    """
+    t = TestResult(name="")
+    before = await _list_chats(client)
+    before_ids = {c.get("id") for c in before}
+    for q in ("What is pi to 4 digits?", "Name two noble gases.", "What year did Marie Curie win the Nobel?"):
+        res = await send_chat(client, q, ephemeral=True)
+        if res["errors"]:
+            t.reason = f"stream error on {q!r}: {res['errors'][0]}"
+            return t
+    after = await _list_chats(client)
+    after_ids = {c.get("id") for c in after}
+    new_ids = after_ids - before_ids
+    t.metrics = {
+        "before_count": len(before_ids),
+        "after_count": len(after_ids),
+        "new_ids": list(new_ids),
+    }
+    if new_ids:
+        t.reason = f"3 ephemeral chats leaked {len(new_ids)} row(s)"
+        return t
+    t.passed = True
+    return t
+
+
 async def test_rolling_conversation_compaction(client):
     """
     Drive a multi-turn conversation with heavy per-turn payloads until the
@@ -1140,6 +1288,10 @@ ALL_TESTS = [
     ("mixed_languages", test_mixed_languages, False),
     ("nonsense_trailing", test_nonsense_trailing, False),
     ("maximal_single_message", test_maximal_single_message, True),  # heavy (~25k tokens)
+    ("ephemeral_basic", test_ephemeral_basic, False),
+    ("ephemeral_no_persistence", test_ephemeral_no_persistence, False),
+    ("ephemeral_multiturn_history", test_ephemeral_multiturn_history, False),
+    ("ephemeral_no_listing_drift", test_ephemeral_no_listing_drift, False),
     ("rolling_conversation_compaction", test_rolling_conversation_compaction, True),  # heavy (6 turns × ~50k chars)
     ("style_no_emojis_research_headers", test_style_no_emojis_research_headers, False),
     ("style_no_decorative_in_list", test_style_no_decorative_in_list, False),

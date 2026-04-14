@@ -251,9 +251,18 @@ async def stream_chat_completion(
     conversation_id: Optional[str],
     user_message: dict,
     rag_config: Optional[dict],
+    ephemeral: bool = False,
+    prior_messages: Optional[list[dict]] = None,
 ) -> AsyncIterator[dict]:
     """
     Orchestrate a single /api/chat/completions request. Yields SSE events.
+
+    When ``ephemeral`` is True, no rows are written to ``chats.db``: the
+    conversation is synthesised in-memory with an ``ephemeral-`` id, history
+    comes from ``prior_messages`` (frontend echoes the full thread on each
+    turn), and persistence/title/summary side effects are all skipped. The
+    model still has full access to tools — "ephemeral" means not stored by
+    Munin, not untrackable by the world.
     """
     persona = persona_module.get_persona(persona_id)
     if persona is None:
@@ -287,7 +296,33 @@ async def stream_chat_completion(
     # --- 1. Resolve the conversation ---
     is_new = False
     conversation: Optional[dict]
-    if conversation_id:
+    if ephemeral:
+        # Synthesise an in-memory conversation. History comes from the
+        # request body (frontend echoes prior turns) since nothing is stored.
+        synthetic_history: list[dict] = []
+        for i, m in enumerate(prior_messages or []):
+            if not isinstance(m, dict):
+                continue
+            role = m.get("role")
+            content = m.get("content")
+            if role not in ("user", "assistant") or not isinstance(content, str):
+                continue
+            synthetic_history.append({
+                "role": role,
+                "content": content,
+                "index_in_conversation": i,
+            })
+        conversation = {
+            "id": f"ephemeral-{uuid.uuid4().hex[:12]}",
+            "user_email": user_email,
+            "persona_id": persona_id,
+            "title": None,
+            "summary": None,
+            "summary_through_index": None,
+            "messages": synthetic_history,
+        }
+        is_new = True
+    elif conversation_id:
         conversation = await chat_store.get_conversation(conversation_id, user_email)
         if conversation is None:
             yield _error_sse("Conversation not found")
@@ -302,7 +337,12 @@ async def stream_chat_completion(
     current_conversation_id.set(conversation["id"])
     yield _sse(
         "conversation",
-        {"id": conversation["id"], "title": conversation.get("title"), "is_new": is_new},
+        {
+            "id": conversation["id"],
+            "title": conversation.get("title"),
+            "is_new": is_new,
+            "ephemeral": ephemeral,
+        },
     )
 
     # --- 2. RAG is model-driven ---
@@ -316,28 +356,37 @@ async def stream_chat_completion(
     rag_context: Optional[dict] = None
 
     # --- 3. Persist the user message ---
-    await chat_store.add_message(
-        conversation_id=conversation["id"],
-        role="user",
-        content=user_message.get("content", ""),
-    )
-    # Reload so the new message is part of the context assembly.
-    conversation = await chat_store.get_conversation(conversation["id"], user_email)
-    assert conversation is not None
-
-    # The user message is already persisted and included in conversation.messages.
-    # Pop it back off so assemble_context doesn't double-count it.
-    persisted_user = conversation["messages"].pop() if conversation["messages"] else None
-    new_msg = {
-        "role": "user",
-        "content": (persisted_user or user_message).get("content", ""),
-    }
+    if not ephemeral:
+        await chat_store.add_message(
+            conversation_id=conversation["id"],
+            role="user",
+            content=user_message.get("content", ""),
+        )
+        # Reload so the new message is part of the context assembly.
+        conversation = await chat_store.get_conversation(conversation["id"], user_email)
+        assert conversation is not None
+        # The user message is already persisted and included in
+        # conversation.messages. Pop it back off so assemble_context doesn't
+        # double-count it.
+        persisted_user = conversation["messages"].pop() if conversation["messages"] else None
+        new_msg = {
+            "role": "user",
+            "content": (persisted_user or user_message).get("content", ""),
+        }
+    else:
+        # Ephemeral: history is already in conversation["messages"] from the
+        # synthetic build above; nothing to persist or reload.
+        new_msg = {
+            "role": "user",
+            "content": user_message.get("content", ""),
+        }
 
     messages = await chat_context.assemble_context(
         conversation=conversation,
         new_message=new_msg,
         system_prompt=system_prompt,
         rag_context=rag_context,
+        ephemeral=ephemeral,
     )
 
     # --- 4. Streaming loop with tool execution ---
@@ -487,17 +536,18 @@ async def stream_chat_completion(
             finish_reason = wrap_acc.finish_reason or finish_reason
 
     # --- 5. Persist assistant message ---
-    await chat_store.add_message(
-        conversation_id=conversation["id"],
-        role="assistant",
-        content=final_content,
-        thinking=final_thinking or None,
-        tool_calls=final_tool_calls or None,
-        rag_context=rag_context,
-    )
+    if not ephemeral:
+        await chat_store.add_message(
+            conversation_id=conversation["id"],
+            role="assistant",
+            content=final_content,
+            thinking=final_thinking or None,
+            tool_calls=final_tool_calls or None,
+            rag_context=rag_context,
+        )
 
     # --- 6. Auto-title on brand-new conversations ---
-    if is_new and not conversation.get("title"):
+    if not ephemeral and is_new and not conversation.get("title"):
         try:
             title = await chat_context.generate_title(
                 user_message.get("content", ""), final_content

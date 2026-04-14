@@ -141,6 +141,7 @@ async def assemble_context(
     new_message: dict,
     system_prompt: str,
     rag_context: Optional[dict] = None,
+    ephemeral: bool = False,
 ) -> list[dict]:
     """
     Build a list of vLLM chat messages for the next completion.
@@ -152,6 +153,10 @@ async def assemble_context(
         4. Otherwise, keep only the tail that fits in half the budget,
            summarize the dropped prefix via vLLM, persist the summary, and
            rebuild.
+
+    When ``ephemeral`` is True, compaction still runs (long ephemeral threads
+    must fit in the context window) but the resulting summary is NOT written
+    back to the database, since no row exists for the conversation.
     """
     conversation_id = conversation["id"]
 
@@ -222,7 +227,8 @@ async def assemble_context(
     )
 
     if new_summary:
-        await update_summary(conversation_id, new_summary, last_dropped_index)
+        if not ephemeral:
+            await update_summary(conversation_id, new_summary, last_dropped_index)
         conversation["summary"] = new_summary
         conversation["summary_through_index"] = last_dropped_index
 

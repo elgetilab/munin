@@ -253,6 +253,7 @@ cascade, not FK-based, so FTS triggers fire reliably). **404** if missing.
   "conversation_id": null,
   "messages": [{"role": "user", "content": "What is polymer crystallization?"}],
   "rag": {"enabled": true, "sources": ["papers", "web"]},
+  "ephemeral": false,
   "stream": true
 }
 ```
@@ -260,12 +261,23 @@ cascade, not FK-based, so FTS triggers fire reliably). **404** if missing.
 - `persona` defaults to `chat` if omitted.
 - `conversation_id: null` → backend creates a new conversation.
 - `messages` must be a non-empty list; the **last** element must be
-  `role: "user"`. Prior messages are ignored — the backend loads persisted
-  history for `conversation_id` and uses that as context. Only the trailing
-  new user turn is read from the request.
+  `role: "user"`. Prior messages are ignored in the **persistent** mode -
+  the backend loads persisted history for `conversation_id` and uses that
+  as context. Only the trailing new user turn is read from the request.
 - `rag.enabled: true` triggers parallel `paper_search` + `web_search` via
   the MCP executor. Supported `rag.sources`: `papers`, `web`. If unset,
   defaults to `["papers"]`. Omit `rag` entirely to disable retrieval.
+- `ephemeral` (default `false`) - when `true`, **nothing** is written to
+  `chats.db`: no conversation row, no message rows, no auto-title, no
+  summary persistence. The `conversation` SSE event still fires but with
+  a synthetic id of the form `ephemeral-<12 hex chars>` and an extra
+  `ephemeral: true` flag in the payload. Because the server stores
+  nothing, the **frontend must echo the full prior conversation** in the
+  `messages` array on every follow-up turn (same as a stateless
+  OpenAI-compatible chat completions call). `conversation_id` is ignored
+  when `ephemeral: true`. Tool calls (web search, paper search, etc.)
+  still execute normally - "ephemeral" means not stored by Munin, not
+  untrackable by the world.
 - `stream` is implicit; the response is always SSE.
 
 **Response**: `Content-Type: text/event-stream`, frames are
@@ -379,7 +391,7 @@ data: <minified json>
 
 | Event | Payload | Emitted when |
 |---|---|---|
-| `conversation` | `{"id": "...", "title": "..." \| null, "is_new": true \| false}` | At stream start; again after auto-title for new conversations |
+| `conversation` | `{"id": "...", "title": "..." \| null, "is_new": true \| false, "ephemeral": true \| false}` | At stream start; again after auto-title for new conversations. `ephemeral: true` means the id has the `ephemeral-` prefix and was never persisted; the auto-title follow-up event is skipped |
 | `rag_context` | `{"sources_used": ["papers","web"], "documents": [{"title":"...", "source":"...", "score":0.0, "doi":"...", "content":"..."}, ...]}` | After RAG retrieval, before any generation, only if `rag.enabled: true` and at least one source returned hits |
 | `thinking` | `{"content": "partial reasoning text"}` | Multiple. Accumulate client-side. Sourced from vLLM `delta.reasoning_content` (qwen3 reasoning parser) |
 | `tool_call` | `{"id": "tc-1", "name": "paper_search", "arguments": {...}}` | Once per finalized tool call the main model asks for. Emitted after the vLLM delta for that turn finishes, not mid-arguments |
