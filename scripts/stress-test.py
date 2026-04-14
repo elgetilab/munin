@@ -3669,6 +3669,291 @@ async def test_equation_ocr_rejects_non_image(client):
     return t
 
 
+MEMORY_EMAIL = "memory-test@munin.local"
+
+
+async def _memory_call(
+    client,
+    tool: str,
+    args: dict,
+    *,
+    email: str = MEMORY_EMAIL,
+    conversation_id: Optional[str] = None,
+) -> tuple[int, dict]:
+    return await _mcp_call(
+        client,
+        tool,
+        args,
+        email=email,
+        conversation_id=conversation_id,
+    )
+
+
+async def _wipe_memory(client, email: str = MEMORY_EMAIL) -> None:
+    """Best-effort: drain the memory store for a test user by recall+forget."""
+    _, body = await _memory_call(client, "recall", {}, email=email)
+    for mem in (body.get("memories") or []):
+        await _memory_call(client, "forget", {"key": mem["key"]}, email=email)
+
+
+async def test_memory_roundtrip(client):
+    """remember, recall (without search), verify the entry is there."""
+    t = TestResult(name="")
+    await _wipe_memory(client)
+    status, body = await _memory_call(
+        client, "remember", {"key": "research_area", "value": "kinase inhibitors in lipid membranes"}
+    )
+    if status != 200 or body.get("error"):
+        t.reason = f"remember failed: {body}"
+        return t
+    if body.get("total_memories") != 1:
+        t.reason = f"expected 1 memory, got {body.get('total_memories')}"
+        return t
+    _, body = await _memory_call(client, "recall", {})
+    memories = body.get("memories") or []
+    t.metrics = {"count": len(memories), "keys": [m["key"] for m in memories]}
+    if len(memories) != 1:
+        t.reason = f"expected 1 recall, got {len(memories)}"
+        return t
+    if memories[0]["key"] != "research_area":
+        t.reason = f"unexpected key: {memories[0]!r}"
+        return t
+    if memories[0]["value"] != "kinase inhibitors in lipid membranes":
+        t.reason = f"unexpected value: {memories[0]!r}"
+        return t
+    await _wipe_memory(client)
+    t.passed = True
+    return t
+
+
+async def test_memory_forget(client):
+    """remember, forget, recall returns empty for that key."""
+    t = TestResult(name="")
+    await _wipe_memory(client)
+    await _memory_call(
+        client, "remember", {"key": "citation_style", "value": "APA"}
+    )
+    _, body = await _memory_call(client, "forget", {"key": "citation_style"})
+    t.metrics = {"forget_body": body}
+    if not body.get("forgotten"):
+        t.reason = f"forget did not report success: {body}"
+        return t
+    _, recall_body = await _memory_call(client, "recall", {})
+    if (recall_body.get("memories") or []) != []:
+        t.reason = f"memory survived forget: {recall_body}"
+        return t
+    # Idempotent: forgetting a non-existent key is a successful no-op
+    _, body2 = await _memory_call(client, "forget", {"key": "does_not_exist"})
+    if body2.get("forgotten") is not False:
+        t.reason = f"expected forgotten=False for missing key, got {body2}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_memory_persistence_across_conversations(client):
+    """
+    Remember a fact in one conversation, send a chat in a NEW
+    conversation as the same user, and verify the model's response
+    reflects the memory (via system-prompt injection).
+    """
+    t = TestResult(name="")
+    await _wipe_memory(client)
+    token = "zarvon_blue_9942"
+    _, body = await _memory_call(
+        client,
+        "remember",
+        {
+            "key": "favourite_colour_code",
+            "value": f"my preferred chart accent is {token}",
+        },
+    )
+    if body.get("error"):
+        t.reason = f"remember failed: {body}"
+        return t
+    # Fresh conversation: the user asks about the fact without
+    # re-stating it. If the memory block is injected correctly the
+    # model will reply with the token; if not, it will say it doesn't
+    # know.
+    res = await send_chat(
+        client,
+        "What is my preferred chart accent code? Reply with just the code.",
+        email=MEMORY_EMAIL,
+    )
+    answer = (res["content"] or "").strip().lower()
+    t.metrics = {"answer_preview": answer[:120]}
+    conv_id = res["conversation_id"]
+    try:
+        if res["errors"]:
+            t.reason = f"stream error: {res['errors'][0]}"
+            return t
+        if token not in answer:
+            t.reason = f"memory not injected; got {answer!r}"
+            return t
+        t.passed = True
+    finally:
+        if conv_id:
+            await _delete_chat(client, conv_id, MEMORY_EMAIL)
+        await _wipe_memory(client)
+    return t
+
+
+async def test_memory_user_isolation(client):
+    """User A's memory must not be visible to user B."""
+    t = TestResult(name="")
+    user_a = "mem-iso-a@munin.local"
+    user_b = "mem-iso-b@munin.local"
+    await _wipe_memory(client, email=user_a)
+    await _wipe_memory(client, email=user_b)
+    _, body = await _memory_call(
+        client,
+        "remember",
+        {"key": "secret_fact", "value": "user A only"},
+        email=user_a,
+    )
+    if body.get("error"):
+        t.reason = f"remember for A failed: {body}"
+        return t
+    try:
+        _, b_body = await _memory_call(client, "recall", {}, email=user_b)
+        mems = b_body.get("memories") or []
+        t.metrics = {"b_memory_count": len(mems)}
+        if mems:
+            t.reason = f"user B sees {len(mems)} of A's memories"
+            return t
+        t.passed = True
+    finally:
+        await _wipe_memory(client, email=user_a)
+        await _wipe_memory(client, email=user_b)
+    return t
+
+
+async def test_memory_lru_eviction(client):
+    """
+    Fill the store to the 20-entry cap, write one more, verify the
+    oldest entry got LRU-evicted and reported in the 'evicted' field.
+    """
+    t = TestResult(name="")
+    await _wipe_memory(client)
+    try:
+        # Fill to exactly 20.
+        for i in range(20):
+            _, body = await _memory_call(
+                client,
+                "remember",
+                {"key": f"fact_{i:02d}", "value": f"value number {i}"},
+            )
+            if body.get("error"):
+                t.reason = f"fill remember {i} failed: {body}"
+                return t
+        # 21st write: should LRU-evict fact_00 (oldest updated_at).
+        _, body = await _memory_call(
+            client,
+            "remember",
+            {"key": "fact_new", "value": "the one that pushes"},
+        )
+        evicted = body.get("evicted") or []
+        t.metrics = {
+            "total_memories": body.get("total_memories"),
+            "evicted": evicted,
+        }
+        if body.get("total_memories") != 20:
+            t.reason = f"expected 20 after eviction, got {body.get('total_memories')}"
+            return t
+        if evicted != ["fact_00"]:
+            t.reason = f"expected to evict fact_00, got {evicted}"
+            return t
+        # Verify fact_00 is gone and fact_new is present.
+        _, recall_body = await _memory_call(client, "recall", {})
+        keys = [m["key"] for m in (recall_body.get("memories") or [])]
+        if "fact_00" in keys:
+            t.reason = "fact_00 still present after eviction"
+            return t
+        if "fact_new" not in keys:
+            t.reason = "fact_new missing after eviction"
+            return t
+        t.passed = True
+    finally:
+        await _wipe_memory(client)
+    return t
+
+
+async def test_memory_injected_in_system_prompt(client):
+    """
+    Set a memory with a unique sentinel, send an unrelated chat, and
+    verify the model can recall the sentinel without being told to
+    use a tool — proves system-prompt injection is reaching the
+    model. This is the strong end-to-end test.
+    """
+    t = TestResult(name="")
+    await _wipe_memory(client)
+    sentinel = "my favourite fictional element is called xylophium42"
+    _, body = await _memory_call(
+        client,
+        "remember",
+        {"key": "favourite_element", "value": sentinel},
+    )
+    if body.get("error"):
+        t.reason = f"remember failed: {body}"
+        return t
+    res = await send_chat(
+        client,
+        "What is my favourite fictional element? Reply with just the name.",
+        email=MEMORY_EMAIL,
+    )
+    answer = (res["content"] or "").strip().lower()
+    t.metrics = {"answer_preview": answer[:120]}
+    conv_id = res["conversation_id"]
+    try:
+        if res["errors"]:
+            t.reason = f"stream error: {res['errors'][0]}"
+            return t
+        if "xylophium42" not in answer:
+            t.reason = f"model could not recall memory; got {answer!r}"
+            return t
+        t.passed = True
+    finally:
+        if conv_id:
+            await _delete_chat(client, conv_id, MEMORY_EMAIL)
+        await _wipe_memory(client)
+    return t
+
+
+async def test_memory_ephemeral_refused(client):
+    """remember/forget/recall must refuse when the conversation is ephemeral."""
+    t = TestResult(name="")
+    eph_id = f"ephemeral-{uuid.uuid4().hex[:12]}"
+    status, body = await _memory_call(
+        client,
+        "remember",
+        {"key": "should_fail", "value": "nothing"},
+        conversation_id=eph_id,
+    )
+    t.metrics = {"status": status, "error": body.get("error")}
+    if status != 200:
+        t.reason = f"/mcp/call returned {status}: {body}"
+        return t
+    err = body.get("error") or ""
+    if "ephemeral" not in err.lower():
+        t.reason = f"expected ephemeral refusal, got {err!r}"
+        return t
+    # recall and forget should also refuse
+    _, recall_body = await _memory_call(
+        client, "recall", {}, conversation_id=eph_id
+    )
+    if "ephemeral" not in (recall_body.get("error") or "").lower():
+        t.reason = f"recall did not refuse: {recall_body}"
+        return t
+    _, forget_body = await _memory_call(
+        client, "forget", {"key": "anything"}, conversation_id=eph_id
+    )
+    if "ephemeral" not in (forget_body.get("error") or "").lower():
+        t.reason = f"forget did not refuse: {forget_body}"
+        return t
+    t.passed = True
+    return t
+
+
 async def test_rolling_conversation_compaction(client):
     """
     Drive a multi-turn conversation with heavy per-turn payloads until the
@@ -3826,6 +4111,13 @@ ALL_TESTS = [
     ("view_attachment_end_to_end", test_view_attachment_end_to_end, True),   # heavy, 2-turn chat
     ("equation_ocr_basic", test_equation_ocr_basic, False),
     ("equation_ocr_rejects_non_image", test_equation_ocr_rejects_non_image, False),
+    ("memory_roundtrip", test_memory_roundtrip, False),
+    ("memory_forget", test_memory_forget, False),
+    ("memory_persistence_across_conversations", test_memory_persistence_across_conversations, True),  # heavy, chat-driven
+    ("memory_user_isolation", test_memory_user_isolation, False),
+    ("memory_lru_eviction", test_memory_lru_eviction, False),
+    ("memory_injected_in_system_prompt", test_memory_injected_in_system_prompt, True),  # heavy
+    ("memory_ephemeral_refused", test_memory_ephemeral_refused, False),
     ("project_crud_roundtrip", test_project_crud_roundtrip, False),
     ("project_instructions_cap", test_project_instructions_cap, False),
     ("project_conversation_filing", test_project_conversation_filing, False),

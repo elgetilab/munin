@@ -20,6 +20,9 @@ from .tools import (
     view_attachment,
     transcribe_equation,
     search_past_conversations,
+    remember,
+    forget,
+    recall,
     list_projects,
     get_current_project,
     invoke_agent,
@@ -130,6 +133,18 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
             return await transcribe_equation(
                 image_ref=arguments.get("image_ref", ""),
             )
+
+        elif tool_name == "remember":
+            return await remember(
+                key=arguments.get("key", ""),
+                value=arguments.get("value", ""),
+            )
+
+        elif tool_name == "forget":
+            return await forget(key=arguments.get("key", ""))
+
+        elif tool_name == "recall":
+            return await recall(search=arguments.get("search"))
 
         elif tool_name == "list_projects":
             return await list_projects()

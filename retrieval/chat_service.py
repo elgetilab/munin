@@ -36,6 +36,7 @@ import personas as persona_module
 import agents as agents_pkg
 import user_profile_store
 import project_store
+import memory_store
 import vision
 from database import VLLM_URL, VLLM_MODEL_NAME
 from mcp.schemas import MCP_TOOLS
@@ -420,6 +421,27 @@ async def stream_chat_completion(
                 f"{profile_block}\n\n{system_prompt}"
                 if system_prompt
                 else profile_block
+            )
+
+    # Inject user memory (§9). Model-curated facts persist across chats
+    # via the remember/forget/recall MCP tools. The memory block sits
+    # between profile and persona in the system prompt order, so the
+    # model sees "what the user told you directly" (profile) before
+    # "what you've learned while working with them" (memory). Skipped
+    # in ephemeral mode - the same privacy contract as profile, and
+    # the memory tools themselves are refused there too.
+    if not ephemeral:
+        try:
+            memories = await memory_store.recall_all(user_email)
+            memory_block = memory_store.build_memory_block(memories)
+        except Exception as e:
+            print(f"[WARNING] memory load failed: {e}")
+            memory_block = None
+        if memory_block:
+            system_prompt = (
+                f"{memory_block}\n\n{system_prompt}"
+                if system_prompt
+                else memory_block
             )
 
     # Inject the project context block (§21). Goes ABOVE the persona

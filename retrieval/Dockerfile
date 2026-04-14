@@ -39,6 +39,7 @@ COPY personas.py .
 COPY document_store.py .
 COPY user_profile_store.py .
 COPY project_store.py .
+COPY memory_store.py .
 COPY vision.py .
 
 # Copy MCP module

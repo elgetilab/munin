@@ -874,6 +874,63 @@ bloat is capped at ~4 KB.
 
 ~150 lines (schema + tools + chat_service injection). ~2 hours.
 
+### Status
+
+**DONE 2026-04-14**
+
+Shipped:
+
+- New `user_memory` table in `chats.db` with `PRIMARY KEY
+  (user_email, key)` and an `(user_email, updated_at DESC)` index
+  for LRU lookups. No migration needed (new table).
+- `retrieval/memory_store.py` with `remember`, `forget`,
+  `recall_all`, `recall_matching`, `count_memories`, and
+  `build_memory_block`. Validation caps keys at 100 chars and
+  values at 200 chars.
+- LRU eviction: when a `remember` call would push the store past
+  20 entries, the oldest-touched entry (by `updated_at`) is
+  silently dropped and its key is returned in the `evicted` list
+  so the model can surface it to the user. The cap and the
+  eviction happen in the store layer so the MCP tool stays thin.
+- Three new MCP tools under `retrieval/mcp/tools/memory.py`:
+  `remember(key, value)`, `forget(key)`, and
+  `recall(search=None)`. All three are refused in ephemeral chats
+  with a clear error - the privacy contract for §24 extends to
+  memory the same way it extends to §25 profile and §2 sandbox.
+- `chat_service` loads `memory_store.recall_all(user_email)` on
+  every persistent chat turn and prepends the
+  `=== WHAT YOU REMEMBER ABOUT THIS USER ===` block BELOW the
+  profile block and ABOVE the persona prompt. Skipped in
+  ephemeral mode.
+- Tests: `memory_roundtrip`, `memory_forget`,
+  `memory_persistence_across_conversations` (chat-driven, sets a
+  sentinel then asks the model to recall it in a fresh
+  conversation), `memory_user_isolation`, `memory_lru_eviction`
+  (fills to 20, writes one more, verifies `fact_00` was evicted),
+  `memory_injected_in_system_prompt` (chat-driven, proves the
+  block actually reaches the model), `memory_ephemeral_refused`.
+
+**Locked-in decisions**
+
+- User-scope only; no per-project or per-conversation scoping.
+  Project-specific context lives in `projects.instructions`.
+- LRU auto-evict at cap (chose over hard-reject) so the model
+  never has its write blocked.
+- Full refusal in ephemeral chats (block not injected, tools
+  return errors).
+- Plain substring search; no FTS5 (overkill at 20 entries).
+- No write-gate: the model calls `remember` freely without user
+  confirmation. Tool description strongly guides *when* to
+  remember vs when not to.
+
+**Deferred / not needed**
+
+- No project-scoped memory column - if real demand shows up, add
+  a `project_id` column as a small follow-up.
+- No vector search / embeddings - tiny store, not needed.
+- No export/import endpoints - §25 profile has the same issue
+  and no one has asked.
+
 ---
 
 ## 10. Long-running / background research jobs

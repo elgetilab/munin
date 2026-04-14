@@ -157,6 +157,18 @@ async def init_db() -> aiosqlite.Connection:
 
         CREATE INDEX IF NOT EXISTS idx_projects_user
             ON projects(user_email, archived, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS user_memory (
+            user_email TEXT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (user_email, key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_user_memory_updated
+            ON user_memory(user_email, updated_at DESC);
         """
     )
 
