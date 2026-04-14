@@ -13,6 +13,24 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# TeX Live install (§18 LaTeX via sandbox). Split into its own layer so
+# other Dockerfile edits don't invalidate the ~1 GB texlive cache on
+# every rebuild. Medium-set package list chosen per the §18 spec:
+# latex-base + latex-extra + latex-recommended covers the common class
+# and package set; science adds math-heavy packages (amsmath extras,
+# physics, siunitx); bibtex-extra pulls in the bibtex binary + common
+# .bst styles; fonts-recommended gets the usual CM+Latin Modern fonts
+# plus a handful of widely-used PS fonts. ~1 GB in the final image.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        texlive-latex-base \
+        texlive-latex-extra \
+        texlive-latex-recommended \
+        texlive-science \
+        texlive-bibtex-extra \
+        texlive-fonts-recommended \
+        biber \
+    && rm -rf /var/lib/apt/lists/*
+
 # System dependencies: firejail for kernel network/fs sandboxing, build tools
 # for the few wheels that compile from source on slim, plus tini for proper
 # child-process reaping (matplotlib subprocesses, dead kernels, etc.).

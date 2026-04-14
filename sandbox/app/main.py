@@ -33,6 +33,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from .kernel import FIREJAIL_AVAILABLE, KernelHandle
+from . import latex as latex_compiler
 
 
 # ----------------------------------------------------------------------------
@@ -169,6 +170,43 @@ class ExecResponse(BaseModel):
     firejail: bool
 
 
+class LatexRequest(BaseModel):
+    source: str = Field(..., description="Main .tex file contents")
+    bibliography: Optional[str] = Field(
+        None, description="Optional .bib file contents"
+    )
+    extra_files: Optional[dict[str, str]] = Field(
+        None,
+        description=(
+            "Optional filename → content map. Values are raw text by "
+            "default; values prefixed with 'base64:' are decoded as "
+            "binary (for images, .cls/.bst/.sty files, etc.)."
+        ),
+    )
+    timeout_s: float = Field(60.0, ge=1, le=MAX_TIMEOUT_S)
+
+
+class LatexArtifactDict(BaseModel):
+    id: str
+    filename: str
+    content_type: str
+    size_bytes: int
+
+
+class LatexResponse(BaseModel):
+    success: bool
+    tex_artifact: Optional[LatexArtifactDict]
+    pdf_artifact: Optional[LatexArtifactDict]
+    errors: list[dict]
+    warnings: list[str]
+    log_tail: str
+    stdout_tail: str
+    duration_ms: int
+    timed_out: bool
+    error_message: Optional[str]
+    firejail: bool
+
+
 # ----------------------------------------------------------------------------
 # Routes
 # ----------------------------------------------------------------------------
@@ -205,6 +243,49 @@ async def exec_code(
     )
 
 
+@app.post("/latex/{conversation_id}", response_model=LatexResponse)
+async def compile_latex_route(
+    body: LatexRequest,
+    conversation_id: str = Path(..., min_length=1),
+) -> LatexResponse:
+    """
+    §18: compile a LaTeX document and return structured error/artifact info.
+
+    Independent of the kernel registry: we don't spin up a Jupyter
+    kernel for a compile. We still share the conversation's scratch
+    directory so the compiled .tex and .pdf live alongside any other
+    files the kernel has produced in the same conversation.
+    """
+    result = await latex_compiler.compile_latex(
+        scratch_root=SCRATCH_ROOT,
+        conversation_id=conversation_id,
+        source=body.source,
+        bibliography=body.bibliography,
+        extra_files=body.extra_files,
+        timeout_s=body.timeout_s,
+        firejail_available=FIREJAIL_AVAILABLE,
+    )
+    return LatexResponse(
+        success=result.success,
+        tex_artifact=(
+            LatexArtifactDict(**result.tex_artifact.__dict__)
+            if result.tex_artifact else None
+        ),
+        pdf_artifact=(
+            LatexArtifactDict(**result.pdf_artifact.__dict__)
+            if result.pdf_artifact else None
+        ),
+        errors=result.errors,
+        warnings=result.warnings,
+        log_tail=result.log_tail,
+        stdout_tail=result.stdout_tail,
+        duration_ms=result.duration_ms,
+        timed_out=result.timed_out,
+        error_message=result.error_message,
+        firejail=FIREJAIL_AVAILABLE,
+    )
+
+
 @app.post("/reset/{conversation_id}")
 async def reset_kernel(conversation_id: str) -> dict:
     handle = await registry.get(conversation_id)
@@ -237,17 +318,26 @@ async def get_artifact(conversation_id: str, artifact_id: str):
     # Look up the artifact through the manifest written by KernelHandle.
     # The manifest preserves the original filename and the sniffed content
     # type, so xlsx/csv/png all serve correctly without filename guessing.
-    manifest_path = os.path.join(conv_dir, "_artifacts.json")
-    try:
-        with open(manifest_path) as f:
-            import json as _json
-            manifest = _json.load(f)
-    except (FileNotFoundError, ValueError, OSError):
-        raise HTTPException(status_code=404, detail="artifact not found")
-    if not isinstance(manifest, list):
+    #
+    # §18 added a sibling ``_latex_artifacts.json`` for compile_latex
+    # outputs (kept separate from KernelHandle's manifest to avoid a
+    # write-race). Check both manifests here so .tex and .pdf artifacts
+    # served via the same URL shape.
+    import json as _json
+    manifest: list[dict] = []
+    for mfname in ("_artifacts.json", "_latex_artifacts.json"):
+        mpath = os.path.join(conv_dir, mfname)
+        try:
+            with open(mpath) as f:
+                data = _json.load(f)
+            if isinstance(data, list):
+                manifest.extend(e for e in data if isinstance(e, dict))
+        except (FileNotFoundError, ValueError, OSError):
+            continue
+    if not manifest:
         raise HTTPException(status_code=404, detail="artifact not found")
     entry = next(
-        (e for e in manifest if isinstance(e, dict) and e.get("id") == artifact_id),
+        (e for e in manifest if e.get("id") == artifact_id),
         None,
     )
     if entry is None:

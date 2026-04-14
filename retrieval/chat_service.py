@@ -845,15 +845,19 @@ async def stream_chat_completion(
             })
             yield _sse("tool_result", res)
 
-            # §22 Stage C: sandbox-generated files (run_python outputs)
-            # are registered in the unified artifacts table by the
-            # run_python tool itself, so the result dict already
-            # carries a ``registered_artifact_id`` alongside the
-            # legacy sandbox id. We just fan out an `artifact_created`
-            # SSE event per artifact for the side panel to pick up.
-            # The old standalone `artifact` SSE event is deprecated
-            # and no longer fires (§22 Stage C migration).
-            if res.get("name") == "run_python":
+            # §22 Stage C: sandbox-generated files (run_python outputs,
+            # compile_latex outputs) are registered in the unified
+            # artifacts table by the tool itself, so the result dict
+            # already carries a ``registered_artifact_id`` alongside
+            # the legacy sandbox id. We just fan out an
+            # `artifact_created` SSE event per artifact for the side
+            # panel to pick up. The old standalone `artifact` SSE
+            # event is deprecated and no longer fires (§22 Stage C
+            # migration). §18 added compile_latex which reuses the
+            # same payload shape - it returns a `.tex` artifact
+            # always and a `.pdf` artifact on success, both via the
+            # same `artifacts` list.
+            if res.get("name") in ("run_python", "compile_latex"):
                 tool_result = res.get("result") or {}
                 for art in (tool_result.get("artifacts") or []):
                     registered_id = art.get("registered_artifact_id")

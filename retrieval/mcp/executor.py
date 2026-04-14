@@ -40,6 +40,7 @@ from .tools import (
     calculate,
     run_python,
     sandbox_reset,
+    compile_latex,
     faq,
     ask_clarification,
 )
@@ -260,6 +261,14 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
 
         elif tool_name == "sandbox_reset":
             return await sandbox_reset()
+
+        elif tool_name == "compile_latex":
+            return await compile_latex(
+                source=arguments.get("source", ""),
+                bibliography=arguments.get("bibliography"),
+                extra_files=arguments.get("extra_files"),
+                timeout_s=arguments.get("timeout_s", 60),
+            )
 
         elif tool_name == "faq":
             return await faq(

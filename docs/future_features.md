@@ -1820,6 +1820,63 @@ verification.
 - **Streaming compilation output?** pdflatex is fast (<5s for most
   docs), probably not worth streaming. Return the result at the end.
 
+### Status
+
+**Shipped 2026-04-14.** Backend landed:
+
+- `sandbox/Dockerfile` — TeX Live install split into its own layer
+  (placed before the pip install layer for cache retention). Package
+  set: `texlive-latex-base` + `latex-extra` + `latex-recommended` +
+  `science` + `bibtex-extra` + `fonts-recommended`, plus `biber`.
+  ~1 GB image bloat.
+- `sandbox/app/latex.py` — new compiler module. Per-compile working
+  subdir under `/scratch/{cid}/latex-{uuid}/`, firejail-wrapped
+  pdflatex with `-no-shell-escape -interaction=nonstopmode
+  -halt-on-error -file-line-error`, automatic BibTeX cycle when a
+  `.bib` is provided, second pass on `Rerun to get cross-references`,
+  structured error parsing (max 10 entries) + 50-line log tail,
+  25 MB PDF size cap. On completion, copies `main.tex` →
+  `latex_{uuid}.tex` and `main.pdf` → `latex_{uuid}.pdf` to
+  conv-root and wipes the working subdir so scratch stays clean.
+- `sandbox/app/main.py` — new `POST /latex/{conversation_id}`
+  endpoint. The GET `/artifacts/{cid}/{aid}` route now checks both
+  `_artifacts.json` (kernel manifest) and `_latex_artifacts.json`
+  (compile_latex manifest), so the two stores coexist without
+  racing on disk writes.
+- `retrieval/mcp/tools/latex.py` — thin async proxy. Validates input
+  sizes, rejects ephemeral chats, forwards to the sandbox, and
+  registers both the `.tex` and (on success) the `.pdf` in the
+  unified `artifact_store` so they surface in the side panel via
+  the §22 Stage C `artifact_created` SSE flow.
+- `retrieval/mcp/schemas.py` + `retrieval/mcp/executor.py` —
+  schema with explicit USE rule and dispatch wiring.
+- `retrieval/chat_service.py` — the `run_python` artifact-emit
+  branch was broadened to also match `compile_latex`, since both
+  return the same `artifacts` + `conversation_id` payload shape.
+- Personas (Meitner + Curie + Turing) got a "must call
+  compile_latex before shipping LaTeX" paragraph. The .tex artifact
+  is always returned (user can download the source even on
+  compile failure); the .pdf artifact is only returned on success.
+
+Tests added to `scripts/stress-test.py`:
+
+- `latex_simple` — trivial article, assert PDF + .tex artifacts.
+- `latex_math` — amsmath, display equations, inline math.
+- `latex_bibtex` — .bib cycle, assert no undefined-citation in log.
+- `latex_image_include` — base64-encoded PNG via `extra_files`,
+  \\includegraphics resolved.
+- `latex_compile_error_returns_structured` — broken source, assert
+  `success=false`, no `pdf_artifact`, but `.tex` artifact still
+  present and errors/log_tail populated.
+- `latex_error_iteration` (heavy, chat-driven Turing) — model writes
+  LaTeX, calls compile_latex, iterates on errors until success,
+  final PDF artifact surfaces in the stream.
+
+Security: shell-escape disabled, firejail with `--net=none`, rlimits
+on address space / file size / fd count. Timeout 60s default per
+pass (max 120s); a .bib compile burns up to 3× that (pdflatex →
+bibtex → pdflatex → pdflatex).
+
 ---
 
 ## 19. Autonomous agent selection (prompt tuning + investigation)

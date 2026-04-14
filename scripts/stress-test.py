@@ -2314,6 +2314,340 @@ async def test_sandbox_output_cap_truncates(client):
     return t
 
 
+# ==============================================================================
+# §18 compile_latex — pdflatex via sandbox
+# ==============================================================================
+
+LATEX_EMAIL = "latex-test@munin.local"
+
+
+async def _compile_latex(
+    client,
+    source: str,
+    conv_id: str,
+    *,
+    bibliography: Optional[str] = None,
+    extra_files: Optional[dict] = None,
+    timeout_s: int = 60,
+) -> tuple[int, dict]:
+    arguments: dict = {"source": source, "timeout_s": timeout_s}
+    if bibliography is not None:
+        arguments["bibliography"] = bibliography
+    if extra_files is not None:
+        arguments["extra_files"] = extra_files
+    return await _mcp_call(
+        client,
+        "compile_latex",
+        arguments,
+        email=LATEX_EMAIL,
+        conversation_id=conv_id,
+    )
+
+
+_LATEX_SIMPLE = r"""
+\documentclass{article}
+\begin{document}
+Hello, \LaTeX{} world.
+\end{document}
+""".strip()
+
+
+_LATEX_MATH = r"""
+\documentclass{article}
+\usepackage{amsmath}
+\begin{document}
+The Schr\"odinger equation:
+\begin{equation}
+i\hbar \frac{\partial}{\partial t} \Psi(\mathbf{r}, t)
+  = \hat{H}\, \Psi(\mathbf{r}, t)
+\end{equation}
+And the normalised Gaussian:
+\[
+\psi(x) = \left(\frac{1}{\pi\sigma^2}\right)^{1/4}
+         \exp\!\left(-\frac{x^2}{2\sigma^2}\right)
+\]
+\end{document}
+""".strip()
+
+
+_LATEX_BIBTEX_MAIN = r"""
+\documentclass{article}
+\begin{document}
+AlphaFold~\cite{jumper2021} changed protein structure prediction.
+\bibliographystyle{plain}
+\bibliography{refs}
+\end{document}
+""".strip()
+
+
+_LATEX_BIBTEX_BIB = r"""
+@article{jumper2021,
+  author = {Jumper, John and others},
+  title  = {Highly accurate protein structure prediction with AlphaFold},
+  journal= {Nature},
+  year   = {2021},
+  volume = {596},
+  pages  = {583--589},
+}
+""".strip()
+
+
+_LATEX_BROKEN = r"""
+\documentclass{article}
+\begin{document}
+This document has a missing brace: \textbf{hello
+and an undefined command: \nonexistentmacro
+\end{document}
+""".strip()
+
+
+async def test_latex_simple(client):
+    """Trivial article should compile cleanly and return both artifacts."""
+    t = TestResult(name="")
+    conv_id = _new_sandbox_conv_id()
+    status, body = await _compile_latex(client, _LATEX_SIMPLE, conv_id)
+    t.metrics = {
+        "status": status,
+        "success": body.get("success"),
+        "tex_filename": (body.get("tex_artifact") or {}).get("filename"),
+        "pdf_filename": (body.get("pdf_artifact") or {}).get("filename"),
+        "pdf_size": (body.get("pdf_artifact") or {}).get("size_bytes"),
+        "duration_ms": body.get("duration_ms"),
+        "errors": body.get("errors"),
+    }
+    if status != 200:
+        t.reason = f"/mcp/call http {status}: {body}"
+        return t
+    if body.get("error"):
+        t.reason = f"tool error: {body['error']}"
+        return t
+    if not body.get("success"):
+        t.reason = f"compile failed: {body.get('errors')} log={body.get('log_tail')[:300]}"
+        return t
+    if not body.get("tex_artifact"):
+        t.reason = "tex_artifact missing on success"
+        return t
+    pdf = body.get("pdf_artifact") or {}
+    if not pdf or pdf.get("content_type") != "application/pdf":
+        t.reason = f"pdf_artifact missing or wrong content_type: {pdf}"
+        return t
+    if not isinstance(pdf.get("size_bytes"), int) or pdf["size_bytes"] < 500:
+        t.reason = f"pdf suspiciously small: {pdf.get('size_bytes')}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_latex_math(client):
+    """amsmath + display equations + inline math should compile."""
+    t = TestResult(name="")
+    conv_id = _new_sandbox_conv_id()
+    status, body = await _compile_latex(client, _LATEX_MATH, conv_id, timeout_s=90)
+    t.metrics = {
+        "success": body.get("success"),
+        "duration_ms": body.get("duration_ms"),
+        "errors_count": len(body.get("errors") or []),
+    }
+    if status != 200 or body.get("error"):
+        t.reason = f"tool error: status={status} body={body}"
+        return t
+    if not body.get("success"):
+        t.reason = f"math compile failed: {body.get('errors')}"
+        return t
+    if not (body.get("pdf_artifact") or {}).get("size_bytes"):
+        t.reason = "no pdf artifact from math compile"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_latex_bibtex(client):
+    """.bib cycle should resolve and the final PDF should not contain
+    the ?? placeholder for an unresolved citation."""
+    t = TestResult(name="")
+    conv_id = _new_sandbox_conv_id()
+    status, body = await _compile_latex(
+        client,
+        _LATEX_BIBTEX_MAIN,
+        conv_id,
+        bibliography=_LATEX_BIBTEX_BIB,
+        timeout_s=120,
+    )
+    t.metrics = {
+        "success": body.get("success"),
+        "duration_ms": body.get("duration_ms"),
+        "warnings_count": len(body.get("warnings") or []),
+    }
+    if status != 200 or body.get("error"):
+        t.reason = f"tool error: status={status} body={body}"
+        return t
+    if not body.get("success"):
+        t.reason = f"bibtex compile failed: {body.get('errors')} log_tail={body.get('log_tail')[:400]}"
+        return t
+    # The final log tail should NOT contain an undefined-citation warning
+    # if the bibtex cycle ran. LaTeX's undefined-citation warning text is
+    # stable across TeX Live versions.
+    log_tail = body.get("log_tail") or ""
+    if "Citation `jumper2021' on page" in log_tail and "undefined" in log_tail:
+        t.reason = "citation stayed undefined even after bibtex cycle"
+        return t
+    t.passed = True
+    return t
+
+
+def _make_minimal_png() -> str:
+    """
+    Build a valid 1x1 red PNG at test time and return it as base64
+    text. Hand-crafted because we don't want a Pillow/numpy import
+    in the stress harness. The bytes below are a minimal RGBA8 PNG
+    with IHDR + IDAT (zlib-compressed) + IEND, all CRC32-checked.
+    """
+    import base64 as _b64
+    import struct as _struct
+    import zlib as _zlib
+
+    def _chunk(tag: bytes, data: bytes) -> bytes:
+        length = _struct.pack(">I", len(data))
+        crc = _zlib.crc32(tag + data) & 0xFFFFFFFF
+        return length + tag + data + _struct.pack(">I", crc)
+
+    sig = b"\x89PNG\r\n\x1a\n"
+    ihdr = _struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)  # 1x1, 8-bit, RGB
+    raw = b"\x00\xff\x00\x00"  # filter byte + one RGB pixel (red)
+    idat = _zlib.compress(raw)
+    png = sig + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", idat) + _chunk(b"IEND", b"")
+    return _b64.b64encode(png).decode("ascii")
+
+
+async def test_latex_image_include(client):
+    """extra_files should let us ship a PNG and \\includegraphics it."""
+    t = TestResult(name="")
+    conv_id = _new_sandbox_conv_id()
+    red_png_b64 = _make_minimal_png()
+    source = r"""
+\documentclass{article}
+\usepackage{graphicx}
+\begin{document}
+Here is a tiny image:
+\includegraphics[width=1cm]{logo.png}
+\end{document}
+""".strip()
+    status, body = await _compile_latex(
+        client,
+        source,
+        conv_id,
+        extra_files={"logo.png": f"base64:{red_png_b64}"},
+        timeout_s=90,
+    )
+    t.metrics = {
+        "success": body.get("success"),
+        "errors_count": len(body.get("errors") or []),
+        "pdf_size": (body.get("pdf_artifact") or {}).get("size_bytes"),
+    }
+    if status != 200 or body.get("error"):
+        t.reason = f"tool error: status={status} body={body}"
+        return t
+    if not body.get("success"):
+        t.reason = f"image compile failed: {body.get('errors')}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_latex_compile_error_returns_structured(client):
+    """Broken source must return success=false with structured errors and
+    still surface the .tex artifact so the user can grab the source."""
+    t = TestResult(name="")
+    conv_id = _new_sandbox_conv_id()
+    status, body = await _compile_latex(client, _LATEX_BROKEN, conv_id)
+    t.metrics = {
+        "success": body.get("success"),
+        "errors_count": len(body.get("errors") or []),
+        "log_tail_len": len(body.get("log_tail") or ""),
+        "tex_filename": (body.get("tex_artifact") or {}).get("filename"),
+        "pdf_artifact": body.get("pdf_artifact"),
+    }
+    if status != 200 or body.get("error"):
+        t.reason = f"tool error: status={status} body={body}"
+        return t
+    if body.get("success") is not False:
+        t.reason = f"expected success=false, got {body.get('success')}"
+        return t
+    if body.get("pdf_artifact") is not None:
+        t.reason = "broken compile should not return a pdf_artifact"
+        return t
+    # tex_artifact is the key user affordance — they can still grab the
+    # source even when compile broke.
+    if not body.get("tex_artifact"):
+        t.reason = "tex_artifact missing on failure path"
+        return t
+    log_tail = body.get("log_tail") or ""
+    errors = body.get("errors") or []
+    # We accept either structured errors OR a non-empty log_tail as proof
+    # the failure path wired up correctly. Some pdflatex error shapes
+    # escape the structured-error regex — the log_tail is the safety net.
+    if not errors and not log_tail.strip():
+        t.reason = "neither errors nor log_tail were populated on failure"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_latex_error_iteration(client):
+    """Chat-driven: Turing should call compile_latex, see the error,
+    fix the source, and re-compile until it succeeds within the turn
+    budget. Heavy test."""
+    t = TestResult(name="")
+    res = await send_chat(
+        client,
+        (
+            "Write me a minimal LaTeX article that prints the quadratic "
+            "formula in display math mode, wrapped in \\documentclass{article} "
+            "+ amsmath. Verify it compiles before handing it back."
+        ),
+        persona="code",
+        email=LATEX_EMAIL,
+    )
+    conv_id = res.get("conversation_id")
+    try:
+        t.metrics = {
+            "tool_calls": res.get("tool_calls") or [],
+            "compile_count": sum(
+                1 for tc in (res.get("tool_calls") or []) if tc == "compile_latex"
+            ),
+            "artifacts_count": len(res.get("artifacts") or []),
+            "answer_chars": len(res.get("content") or ""),
+        }
+        if res.get("errors"):
+            t.reason = f"stream error: {res['errors'][0]}"
+            return t
+        tool_calls = res.get("tool_calls") or []
+        if "compile_latex" not in tool_calls:
+            t.reason = f"model did not call compile_latex; tool_calls={tool_calls}"
+            return t
+        # At least one artifact (the .tex) must have been registered.
+        arts = res.get("artifacts") or []
+        if not arts:
+            t.reason = "no artifacts registered from compile_latex"
+            return t
+        # A successful compile produces a PDF. The test passes if we
+        # see at least one application/pdf artifact.
+        has_pdf = any(
+            (a.get("content_type") == "application/pdf")
+            for a in arts
+        )
+        if not has_pdf:
+            t.reason = (
+                f"no PDF artifact surfaced; artifacts={[a.get('content_type') for a in arts]}"
+            )
+            return t
+        t.passed = True
+    finally:
+        if conv_id:
+            await _delete_chat(client, conv_id, LATEX_EMAIL)
+    return t
+
+
 async def test_plot_simple_via_chat(client):
     """
     Chat-driven §3 test: the model should reach for run_python on its own
@@ -6198,6 +6532,12 @@ ALL_TESTS = [
     ("sandbox_plot_artifact", test_sandbox_plot_artifact, False),
     ("sandbox_ephemeral_refused", test_sandbox_ephemeral_refused, False),
     ("sandbox_output_cap_truncates", test_sandbox_output_cap_truncates, False),
+    ("latex_simple", test_latex_simple, False),
+    ("latex_math", test_latex_math, False),
+    ("latex_bibtex", test_latex_bibtex, False),
+    ("latex_image_include", test_latex_image_include, False),
+    ("latex_compile_error_returns_structured", test_latex_compile_error_returns_structured, False),
+    ("latex_error_iteration", test_latex_error_iteration, True),  # heavy, chat-driven
     ("plot_simple_via_chat", test_plot_simple_via_chat, True),       # heavy (chat-driven, ~5-15s)
     ("plot_xlsx_via_chat", test_plot_xlsx_via_chat, True),           # heavy (chat-driven, ~5-15s)
     ("vision_color", test_vision_color, False),

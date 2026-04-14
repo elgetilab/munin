@@ -41,6 +41,7 @@ from .research import deep_research
 from .citations import export_citations
 from .calculator import calculate
 from .sandbox import run_python, sandbox_reset, sandbox_shutdown
+from .latex import compile_latex
 from .clarification import (
     ask_clarification,
     validate_clarification_payload,
@@ -85,6 +86,7 @@ __all__ = [
     "run_python",
     "sandbox_reset",
     "sandbox_shutdown",
+    "compile_latex",
     "ask_clarification",
     "validate_clarification_payload",
     "render_markdown_fallback",

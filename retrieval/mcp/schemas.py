@@ -677,6 +677,64 @@ MCP_TOOLS = {
             "required": []
         }
     },
+    "compile_latex": {
+        "name": "compile_latex",
+        "description": (
+            "Compile a LaTeX document with pdflatex inside the sandbox "
+            "and return both the source .tex file and the compiled .pdf "
+            "as downloadable artifacts, plus structured compile errors "
+            "when the build fails. Use this ANY time you write LaTeX for "
+            "the user - a full article, a Beamer deck, a standalone "
+            "figure, a table, or even just an equation wrapped in a "
+            "minimal document - so you can verify it compiles before "
+            "handing it over. Iterate on failure: read the `errors` "
+            "list (structured file/line/message entries) or `log_tail` "
+            "(last 50 lines of main.log), fix the source, and call "
+            "compile_latex again. The sandbox has texlive-latex-base + "
+            "latex-extra + latex-recommended + science + bibtex-extra "
+            "+ fonts-recommended, so amsmath, siunitx, physics, "
+            "tikz/pgf, beamer, biblatex, and the usual class/style "
+            "packages are all available. Shell-escape is disabled "
+            "(`\\write18` will not work) and there is no network. "
+            "Bibliography: pass a full .bib file as `bibliography` and "
+            "the tool will run the pdflatex → bibtex → pdflatex → "
+            "pdflatex cycle automatically. Extra files: pass "
+            "`extra_files` as a filename→content dict for .cls/.bst/.sty "
+            "helpers or \\includegraphics targets. Text files go as "
+            "plain strings; binary files (images) must be base64 with "
+            "a 'base64:' prefix, e.g. {'logo.png': 'base64:iVBOR...'}. "
+            "The .tex source artifact is ALWAYS returned (even on "
+            "failure) so the user can download and fix it manually; "
+            "the .pdf is only returned on success. Timeout default 60s, "
+            "max 120s. Unavailable in ephemeral chats."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": "Full contents of main.tex. Must be a complete, compilable document (\\documentclass, body, \\end{document}). No snippets - wrap partial content in a minimal standalone document if you're verifying an equation or figure.",
+                },
+                "bibliography": {
+                    "type": "string",
+                    "description": "Optional full contents of refs.bib. If provided, the tool runs the standard pdflatex → bibtex → pdflatex → pdflatex cycle so citations resolve.",
+                },
+                "extra_files": {
+                    "type": "object",
+                    "description": "Optional filename → content map for auxiliary files shipped alongside main.tex in the same working directory (e.g. custom .cls/.sty, .bst styles, or images). Values are plain text by default; values prefixed with 'base64:' are decoded as binary. Max 20 files, 10 MB each.",
+                    "additionalProperties": {"type": "string"},
+                },
+                "timeout_s": {
+                    "type": "integer",
+                    "description": "Per-pass timeout in seconds (default 60, max 120). Counts against each pdflatex invocation individually, so a .bib document can burn up to 3× this.",
+                    "default": 60,
+                    "minimum": 5,
+                    "maximum": 120,
+                },
+            },
+            "required": ["source"],
+        },
+    },
     "ask_clarification": {
         "name": "ask_clarification",
         "description": (
