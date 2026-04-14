@@ -2560,6 +2560,127 @@ questions rarely need a calculator):
 
 ---
 
+## 27. Parallelize `paper_cleanup repair-and-clean`
+
+### Problem
+
+`scripts/pipeline/paper_cleanup.py` (and the deployed copy at
+`/opt/cluster/scripts/knowledge/paper_cleanup.py`) walks papers
+strictly serially. Each paper triggers three sequential HTTP calls
+to OpenAlex → Semantic Scholar → Crossref via
+`MultiSourceMetadataFetcher.fetch_all()`. At ~3-5 seconds per paper
+and a ~30k-paper corpus, a full `--max-check 30000` sweep takes
+**25-40 hours of wall clock**. Nightly `--max-check 5000` runs are
+workable but mean full-corpus coverage takes about a week.
+
+### Design
+
+Replace the `for i, doi in enumerate(dois_to_check)` loop in
+`repair_and_clean` (around line 1036) with an async batch:
+
+```python
+import asyncio
+import httpx
+
+CLEANUP_CONCURRENCY = 8  # 8 concurrent metadata fan-outs
+
+async def _fetch_one(client: httpx.AsyncClient, fetcher, doi: str,
+                     check_pdf: bool, sem: asyncio.Semaphore) -> tuple[str, AggregatedMetadata]:
+    async with sem:
+        # MultiSourceMetadataFetcher needs an async variant;
+        # either rewrite it with httpx or wrap the sync version
+        # in asyncio.to_thread() for a minimal change.
+        metadata = await asyncio.to_thread(fetcher.fetch_all, doi, check_pdf)
+        return doi, metadata
+
+async def _run_batch(fetcher, dois: list[str], check_pdf: bool):
+    sem = asyncio.Semaphore(CLEANUP_CONCURRENCY)
+    async with httpx.AsyncClient() as client:
+        results = await asyncio.gather(
+            *(_fetch_one(client, fetcher, d, check_pdf, sem) for d in dois)
+        )
+    return dict(results)
+```
+
+The Neo4j updates (enrichment) still happen serially after the fetch
+stage, because Neo4j connections are typically shared and writes to
+the same nodes from multiple coroutines would need locking anyway.
+That's fine — Neo4j writes are ~50 ms each, not the bottleneck.
+
+### Expected speedup
+
+- Current: ~3-5s/paper × 30k = 25-40 hours
+- With 8-way concurrency: ~30k / 8 × 4s avg = ~4 hours
+- With 16-way concurrency: ~2 hours, but risks hitting S2 / OpenAlex
+  rate limits. 8 is the polite ceiling.
+
+### API rate limits to respect
+
+- **OpenAlex**: 100,000 requests/day (polite pool with
+  `ADMIN_EMAIL`). 10 req/s sustained. 8 concurrent is fine.
+- **Semantic Scholar**: with API key, 1 req/s sustained. **This is
+  the bottleneck.** Need a per-source semaphore, not just a global
+  one. Implementation:
+
+  ```python
+  class SourceSemaphores:
+      def __init__(self):
+          self.openalex = asyncio.Semaphore(8)
+          self.s2 = asyncio.Semaphore(1)   # strict 1 req/s
+          self.crossref = asyncio.Semaphore(5)
+  ```
+
+  and the fetcher uses the appropriate semaphore per source.
+- **Crossref**: polite pool with email, 50 req/s theoretical but
+  they throttle hard at sustained traffic. 5 concurrent safe.
+
+With per-source semaphores the real-world speedup is limited by S2
+(~1 req/s). For 30k papers: 30000 seconds / 1 = ~8 hours of S2 time.
+OpenAlex and Crossref fetches overlap that window for free. So the
+realistic full-sweep time becomes **~8 hours**, down from ~30-40.
+
+### Implementation approach
+
+Two paths:
+
+**A. Minimal change** — wrap `MultiSourceMetadataFetcher.fetch_all`
+in `asyncio.to_thread()`, add a global semaphore, run the main loop
+inside `asyncio.run()`. ~30 lines of code. Does not respect per-
+source rate limits, so might hit S2 429s.
+
+**B. Proper async rewrite** — port `MultiSourceMetadataFetcher` to
+`httpx.AsyncClient` with per-source semaphores. ~100 lines. Safer
+and faster. Recommended.
+
+### Test plan
+
+- `test_parallel_correctness`: process the same 20-DOI set serially
+  and in parallel, assert identical `results` dict
+- `test_rate_limit_respected`: mock S2 to return 429 on second
+  concurrent request, assert the semaphore prevents it
+- `test_speedup_smoke`: process 100 papers, assert wall clock is
+  under 3 minutes (would be ~7 minutes serial)
+
+### Effort
+
+Half a day for path B. 1-2 hours for path A if you want it
+shipped immediately and can tolerate occasional rate-limit retries.
+
+### Open questions
+
+- **Should this replace the existing serial path or coexist?** Keep
+  both via a `--parallel N` flag. Default to `N=1` (serial) for
+  safety; explicit opt-in for the async path.
+- **Retry logic on 429**: needs exponential backoff. Currently the
+  serial code just prints a warning and moves on. Parallel version
+  should be stricter about retries.
+- **Apply same treatment to `repair-auto`?** Probably not — that
+  mode shells out to `paper_crawler.py` and `paper_pipeline.py`
+  per paper, which are themselves heavy jobs. Parallelizing
+  subprocess spawns would hammer disk + GPU.
+
+---
+
 ## Updated priority order (agreed 2026-04-14)
 
 1. **§2 Sandbox** — unlocks §3 (plotting), §18 (LaTeX), and parts of §12
@@ -2585,8 +2706,9 @@ questions rarely need a calculator):
 21. **§10 Background research jobs** — reuses SLURM infra
 22. **§15 Embedding 2D map** — offline-heavy, good researcher-facing feature
 23. **§11 Equation OCR** — tiny on top of §5
-24. **§12 Reproducibility helper** — speculative, do last
-25. **§1 `ask_clarification` v1** — DELETED, replaced by §14
+24. **§27 `paper_cleanup` parallelization** — pipeline admin tool, ~8h → ~2-4h full sweeps
+25. **§12 Reproducibility helper** — speculative, do last
+26. **§1 `ask_clarification` v1** — DELETED, replaced by §14
 
 §19 has an **Investigation column** to compare `research_orchestrator`
 vs `deep_research` with real usage data before deciding whether to
