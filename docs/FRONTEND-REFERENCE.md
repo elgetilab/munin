@@ -206,7 +206,7 @@ When `conversation_id` is null, the backend creates a new conversation. The back
 
 ```
 event: conversation
-data: {"id": "550e8400-...", "title": "Polymer crystallization", "is_new": true}
+data: {"id": "550e8400-...", "title": "Polymer crystallization", "is_new": true, "ephemeral": false}
 
 event: rag_context
 data: {"sources_used": ["papers"], "documents": [{...}]}
@@ -236,6 +236,15 @@ event: done
 data: {"usage": {"prompt_tokens": 1500, "completion_tokens": 300}, "finish_reason": "stop"}
 ```
 
+**Other SSE events the frontend needs to handle** (triggered by specific features):
+
+- `artifact_created` (§22) — fires when a model-written document (`create_artifact` tool) OR a sandbox file (`run_python`, `compile_latex`) is produced. Has a `source` discriminator: `"model_written"` routes to the side panel with version picker; `"sandbox_generated"` routes to an inline download chip / thumbnail (comes with `filename`, `size_bytes`, `external_url`).
+- `artifact_updated` (§22) — fires when `update_artifact` successfully mutates a model-written row. Bumps the side panel's version picker. Never fires for sandbox artifacts (they're read-only).
+- `clarification` (§14) — fires when the model calls `ask_clarification` on an ambiguous request. The turn is short-circuited: no `tool_result`, no wrap-up text, `done` follows immediately with `finish_reason: "clarification"`. Payload: `{tool_call_id, conversation_id, what_i_understood, questions: [{id, text, options, allow_custom}, ...]}`. Render as an inline multiple-choice card in the transcript. See FRONTEND-TASKS.md entry #10.
+- `agent_start` / `agent_thinking` / `agent_tool_call` / `agent_tool_result` / `agent_done` — emitted mid-stream when the model invokes an agent via `invoke_agent`. Nested under the parent `tool_call(invoke_agent)` in the TaskLog.
+
+**The authoritative SSE event catalogue** (with every field for every event) lives in `docs/BACKEND-API.md` §5. Prefer that table over this section when the two disagree; this section is a quick tour, the table is the contract.
+
 Or on error:
 
 ```
@@ -245,14 +254,17 @@ data: {"message": "Rate limit exceeded"}
 
 **How the frontend processes this stream:**
 
-1. `conversation` event: sets `conversationId` state, updates URL to `/c/{id}`
+1. `conversation` event: sets `conversationId` state, updates URL to `/c/{id}`. A second `conversation` event may arrive later carrying the auto-generated `title` once the first assistant response is synthesised. `ephemeral: true` on this event means the id has an `ephemeral-` prefix and was never persisted; the auto-title follow-up is skipped.
 2. `rag_context` event: stored and passed to streaming state (currently not rendered but preserved)
 3. `thinking` events: accumulated into a string, shown in TaskLog as "Reasoning..."
 4. `tool_call` events: each pushed to an array, shown in TaskLog with icon and arguments
 5. `tool_result` events: matched by `id` to update the corresponding tool_call entry
-6. `token` events: accumulated into the response content, shown with a blinking cursor
-7. `done` event: finalizes the assistant message, adds it to messages array, resets streaming state
-8. `error` event: displayed as a red banner at the top of the chat
+6. `artifact_created` / `artifact_updated` events: routed by `source` field (see FRONTEND-TASKS.md entry #9). `model_written` → side panel; `sandbox_generated` → inline chip.
+7. `clarification` event: render an inline multiple-choice card on the in-flight assistant message; the turn ends on the next `done`. See FRONTEND-TASKS.md entry #10.
+8. `agent_*` events: nested rendering under the parent `tool_call(invoke_agent)` in the TaskLog.
+9. `token` events: accumulated into the response content, shown with a blinking cursor
+10. `done` event: finalizes the assistant message, adds it to messages array, resets streaming state. `finish_reason: "clarification"` indicates the turn was short-circuited by an `ask_clarification` card.
+11. `error` event: displayed as a red banner at the top of the chat
 
 **SSE format details:** The frontend parser expects:
 - Lines starting with `event: ` set the event type
@@ -262,18 +274,42 @@ data: {"message": "Rate limit exceeded"}
 
 **Tool calls the frontend recognizes (for icons):**
 
+The canonical list of MCP tool names the backend advertises to the
+model is fetched from `GET /mcp/tools` and also hard-coded in
+`retrieval/mcp/schemas.py::MCP_TOOLS` - **treat that as the source of
+truth** rather than this table, which is maintained by hand and will
+drift. New tools added since the original table include
+`deep_research`, `read_paper`, `compare_papers`, `s2_get_citations` /
+`s2_get_references`, `search_user_docs`, `view_attachment`,
+`transcribe_equation`, `faq`, `ask_clarification`, `remember` /
+`forget` / `recall`, `create_artifact` / `read_artifact` /
+`update_artifact` / `list_artifacts` / `save_artifact_to_documents`,
+`list_projects` / `get_current_project`, `run_python` /
+`sandbox_reset`, `compile_latex`, `calculate`, `export_citations`,
+`invoke_agent`, `search_past_conversations`, `check_papers_availability`,
+`get_paper_pdf`. The legacy icon assignments below still apply to the
+tools they cover; everything else falls through to the gear icon.
+
 | Tool name | Icon |
 |-----------|------|
 | `paper_search` | Books |
 | `semantic_scholar_search` | Books |
 | `paper_lookup` | Books |
-| `get_citations` | Link |
-| `get_references` | Link |
+| `read_paper` | Books |
+| `compare_papers` | Books |
+| `get_citations` / `s2_get_citations` | Link |
+| `get_references` / `s2_get_references` | Link |
 | `get_author_papers` | Link |
 | `web_search` | Globe |
 | `web_fetch` | Globe |
 | `llm_summarize` | Memo |
 | `get_paper_pdf` | Page |
+| `run_python` | Terminal |
+| `compile_latex` | Page |
+| `ask_clarification` | Question mark (or handled specially - see FRONTEND-TASKS #10) |
+| `calculate` | Calculator |
+| `deep_research` | Magnifier |
+| `invoke_agent` | Robot |
 | (any other) | Gear |
 
 Tool calls also display `arguments.query` if present (e.g., `paper search: "polymer crystallization"`).

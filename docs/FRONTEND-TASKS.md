@@ -127,117 +127,18 @@ A one-line plugin enable in the renderer is the right fix.
 
 ---
 
-## 2. Render sandbox `artifact` SSE events inline
+## 2. ~~Render sandbox `artifact` SSE events inline~~ (DELETED)
 
-**Status:** DEPRECATED - superseded by entry #9 after §22 Stage C
-**Driven by:** munin-backend §2 "Python sandbox"
-**Date:** 2026-04-14 (deprecated same-day by §22 Stage C)
-**Effort:** n/a
+**Status:** DELETED 2026-04-14, work absorbed by entry #9.
 
-**DO NOT IMPLEMENT THIS ENTRY AS WRITTEN.** §22 Stage C unified the
-sandbox artifact path with the model-written artifacts path. The
-old standalone `artifact` SSE event has been **removed** from the
-backend. Sandbox-generated files now fire `artifact_created` events
-with `source: "sandbox_generated"` alongside the usual fields
-(`filename`, `size_bytes`, `external_url`), and the frontend work
-is described under **entry #9 "Artifacts side panel (§22)"** below.
-The routing logic lives there: check the `source` field on
-incoming `artifact_created` events and render sandbox-generated
-ones as inline thumbnails/download chips in the chat transcript,
-and model-written ones as side-panel entries.
-
-The rest of this entry is kept for historical context. Skip to
-entry #9 for what the frontend actually needs to do.
-
-**Effort:** ~30-50 lines: a new SSE event handler + an inline renderer
-
-### What the backend does
-
-The new `run_python` MCP tool runs Python code in a per-conversation
-Jupyter kernel inside the sandbox sidecar container. When the kernel
-produces matplotlib figures (or any `display_data` PNG), the backend:
-
-1. Persists the bytes to the sandbox's per-conversation scratch
-   directory.
-2. Emits a new SSE event on the `/api/chat/completions` stream after
-   the matching `tool_result`:
-
-```
-event: artifact
-data: {"id": "<uuid hex>",
-       "filename": "<id>.png",
-       "content_type": "image/png",
-       "size_bytes": 12345,
-       "display_url": "/api/artifacts/<conversation_id>/<artifact_id>",
-       "conversation_id": "<conv id>",
-       "tool_call_id": "tc-2"}
-```
-
-3. Exposes `GET /api/artifacts/{conversation_id}/{artifact_id}` which
-   returns the raw file bytes with the correct `Content-Type`. Auth
-   piggybacks on `X-Munin-Email` plus a server-side ownership check
-   against the conversation row.
-
-### What the frontend needs to do
-
-Two things:
-
-**(a) Add an `artifact` event handler to the SSE consumer.** Wherever
-you currently switch on `event: token`, `event: tool_call`, etc.,
-add an `event: artifact` branch. Push the parsed payload onto the
-current message's `artifacts` array (alongside `tool_calls`), keyed
-by `tool_call_id` so you can render each artifact under the call
-that produced it.
-
-**(b) Render artifacts inline in the assistant transcript.** For each
-artifact attached to a message, render based on `content_type`:
-
-- `image/*` -> `<img src="${BASE}${display_url}" alt="${filename}" />`
-  Click-to-expand with the same URL is nice-to-have. The image
-  inherits the user's auth automatically because it's on the same
-  origin.
-- Anything else -> a download chip / link with the filename, file
-  size (use `size_bytes`), and an icon based on extension. Clicking
-  triggers a normal browser download from `display_url`.
-
-Place the artifact block right under the corresponding tool call in
-the TaskLog (you already have a similar nesting for `agent_*`
-events).
-
-### Important: auth on the image URL
-
-`display_url` is a same-origin path on the retrieval service. The
-browser will send cookies / forward-auth headers automatically as
-long as the image request hits the same domain that served the chat
-page. No code change needed beyond pointing `<img src>` at the URL.
-If the frontend ever fetches images via `fetch()` for some reason,
-make sure to include the same auth headers as other API calls.
-
-### Test plan for the frontend
-
-1. Open a regular (non-ephemeral) chat with the chat persona.
-2. Ask: "Plot y = x^2 from 0 to 5 with matplotlib."
-3. The model should call `run_python` with a small matplotlib
-   snippet. After the `tool_result` arrives, expect an `artifact`
-   event with `content_type: image/png`.
-4. The image should render inline below the tool call, with a
-   visible plot of the parabola.
-5. Ask: "Now save the values to a CSV and let me download it."
-6. The model produces a CSV artifact. The frontend should render it
-   as a download chip rather than an inline image.
-7. Open the same chat in a second tab as the same user. The
-   artifacts should still be fetchable (they live in the sandbox's
-   scratch dir, not in the SSE event itself).
-8. Open the chat URL while logged in as a different user. Artifact
-   `<img>` should 404 (the backend enforces ownership).
-
-### Why the backend can't fix this
-
-The artifact bytes have to land in front of the user's eyes
-somewhere, and the model can't paste them inline as base64 without
-blowing the SSE budget and the assistant's own context window. The
-streaming `display_url` + frontend renderer is the only architecture
-that scales.
+The standalone `artifact` SSE event was removed when §22 Stage C
+unified sandbox-generated and model-written artifacts into a
+single `artifact_created` event with a `source` discriminator.
+All sandbox-output rendering (matplotlib plots, CSV downloads,
+compile_latex `.tex`/`.pdf`) is now handled under **entry #9
+"Artifacts side panel (§22)"** - check the `source` field on
+incoming `artifact_created` events and route `sandbox_generated`
+rows to inline thumbnails/download chips.
 
 ---
 
@@ -801,6 +702,228 @@ artifact viewer that does the same thing by sending a chat
 message "save artifact X to my documents" - the model picks up
 the id from the inline `[Attachments: ...]` marker or the
 `=== ACTIVE ARTIFACTS ===` block and invokes the tool.
+
+---
+
+## 10. `ask_clarification` card (§14)
+
+**Status:** open
+**Driven by:** munin-backend §14 "ask_clarification v2 - option chips + Q/A format"
+**Date:** 2026-04-14
+**Effort:** ~1-2 hours: one SSE handler + one inline card component
+
+### What the backend ships
+
+When the model thinks a user request is too ambiguous to act on
+(typical triggers: "help me with my paper", "what's new?", "look
+into photosynthesis", "fix it", single-word messages), it calls the
+`ask_clarification` MCP tool. The backend intercepts the call
+**before** running any other tool in the same turn, emits a single
+new SSE event, and short-circuits the turn cleanly - no
+`tool_result`, no wrap-up text, no other tool calls in the same
+response. `done` fires immediately after with
+`finish_reason: "clarification"`.
+
+**New SSE event:**
+
+```
+event: clarification
+data: {
+  "tool_call_id": "tc-1",
+  "conversation_id": "<uuid>",
+  "what_i_understood": "You want recent papers on kinase inhibitors in lipid membranes, with a focus on recent work.",
+  "questions": [
+    {
+      "id": "year_range",
+      "text": "How recent is \"recent\"?",
+      "options": ["Last 2 years (2024-)", "Last 5 years", "No year filter"],
+      "allow_custom": true
+    },
+    {
+      "id": "membrane_type",
+      "text": "Which membrane type interests you most?",
+      "options": ["Plasma membrane", "Mitochondrial", "Model bilayers (LUVs, BLMs)"],
+      "allow_custom": true
+    }
+  ]
+}
+```
+
+Validation the backend has already done:
+- 1-5 questions per card
+- 2-6 options per question, each ≤100 chars
+- `what_i_understood` ≤500 chars
+- question text ≤300 chars
+- `id` is auto-assigned (`q1`, `q2`, ...) if the model omits it
+
+The server also persists an assistant message with a markdown
+fallback of the card (so conversation history replay still shows
+something readable in clients that don't render the structured
+card). You generally want to prefer the structured payload over
+the markdown fallback when both are available.
+
+### What actually happens
+
+Without a dedicated handler, the frontend sees `event: clarification`
+as an unknown event and drops it. The turn ends with `done` and no
+visible assistant response. The user thinks the chat broke.
+
+### What the frontend needs to do
+
+**(a) Add a `clarification` event branch to the SSE consumer.**
+Parse the payload, attach it to the currently-streaming assistant
+message (not as a new message - same message id as whatever the
+turn would otherwise be), and flag the message as a "clarification
+card" so the renderer knows to show the structured UI instead of
+the fallback markdown.
+
+**(b) Render an inline card in the message thread.** Not a modal.
+Layout roughly:
+
+```
+┌────────────────────────────────────────────────────────────┐
+│ Just to make sure I understand:                            │
+│ "<what_i_understood>"                                      │
+│                                                            │
+│ Q1: How recent is recent?                                  │
+│  ( ) Last 2 years (2024-)                                  │
+│  ( ) Last 5 years                                          │
+│  ( ) No year filter                                        │
+│  [ type your own answer....................... ]          │
+│                                                            │
+│ Q2: Which membrane type interests you most?                │
+│  ( ) Plasma membrane                                       │
+│  ( ) Mitochondrial                                         │
+│  ( ) Model bilayers (LUVs, BLMs)                           │
+│  [ type your own answer....................... ]          │
+│                                                            │
+│                                         [ Submit answers ] │
+└────────────────────────────────────────────────────────────┘
+```
+
+Radio buttons per question. The "type your own" field is only
+shown when `allow_custom === true` (which defaults true). Clicking
+an option radio fills the text field, or vice versa - the two are
+the same "answer" slot from the user's POV.
+
+**(c) On submit, send a normal follow-up chat message.** No new API
+shape - just format the answers as Markdown and POST them as a
+regular user turn to `/api/chat/completions`:
+
+```
+Q1: Last 5 years
+Q2: Model bilayers (LUVs, BLMs)
+```
+
+The model reads this as the next user turn and continues with the
+refined understanding. Zero special-case backend handling.
+
+**(d) Show "Answered" state after submit.** After the user submits,
+the card should remain visible in the transcript but with its
+controls disabled and a subtle "Answered" badge, so scrolling back
+through the conversation shows what was asked and what was chosen.
+
+### How to verify
+
+1. In the chat persona, send "help me with my paper".
+2. Expect exactly one `event: clarification` in the stream and
+   zero `event: tool_call` / `event: tool_result` for the same
+   turn.
+3. The card renders with 1-3 questions.
+4. Pick an answer on each question; hit submit.
+5. The user message "Q1: ... Q2: ..." should show in the transcript
+   and the model's next response should reflect the chosen
+   answers.
+6. In the research persona, send "find recent papers on polymer
+   crystallization" and verify that NO clarification event fires
+   (control case - clear request should route straight to
+   `deep_research`).
+
+### Why the backend can't fix this
+
+The clarification card is a UI affordance - structured chips the
+user can tap on. Returning it as markdown prose works as a
+fallback but loses the one-tap-to-answer speed the feature exists
+to provide. The frontend is where the UX value lives.
+
+---
+
+## 11. LaTeX artifacts from `compile_latex` (§18)
+
+**Status:** open (small addition on top of entry #9)
+**Driven by:** munin-backend §18 "LaTeX via sandbox"
+**Date:** 2026-04-14
+**Effort:** ~30 min: content_type routing + PDF preview/download
+
+### What the backend ships
+
+The new `compile_latex` MCP tool compiles LaTeX via pdflatex in
+the sandbox and returns BOTH the `.tex` source and (on success)
+the compiled `.pdf` as sandbox-generated artifacts. Both flow
+through the same `artifact_created` event you already handle under
+entry #9, with `source: "sandbox_generated"` and the usual
+`filename` / `size_bytes` / `external_url` fields. On compile
+failure, only the `.tex` artifact is surfaced so users can still
+download the source and fix it manually.
+
+Relevant `content_type` values the frontend should route:
+
+- `application/x-tex` - the LaTeX source. Render as a download
+  chip with a .tex icon. Optionally preview as highlighted source
+  in a modal if you already have a code viewer.
+- `application/pdf` - the compiled PDF. Render as a download chip
+  with a PDF icon. Optional inline preview: `<iframe src>` or
+  `<embed>` with the existing `external_url`.
+
+### What actually happens
+
+Without explicit routing, entry #9's generic "unknown content_type
+→ download chip" fallback should already work. This entry exists
+so a frontend engineer knows these file types are coming through
+the same artifact pipeline.
+
+### What the frontend needs to do
+
+Entry #9 covers the core plumbing. The LaTeX-specific bits:
+
+**(a) Content-type icons.** Add `.tex` and `.pdf` icons to the
+sandbox-artifact download chip component. No new fetch logic.
+
+**(b) Optional: inline PDF preview.** For `application/pdf`
+artifacts, consider rendering a clickable thumbnail that opens a
+modal or a split-pane preview. The browser's built-in PDF
+renderer handles this fine via `<iframe src={external_url}>`; the
+backend already sets `Content-Disposition: inline` on the sandbox
+proxy route.
+
+**(c) Pair the .tex and .pdf visually.** A single `compile_latex`
+call usually produces both; they arrive back-to-back in the SSE
+stream with the same `tool_call_id`. Optionally group them under
+one visual container ("LaTeX output: [tex] [pdf]") to make the
+relationship clear.
+
+### How to verify
+
+1. In the chat or code persona, ask "Write a minimal LaTeX article
+   with an equation and compile it."
+2. Expect two `artifact_created` events with the same
+   `tool_call_id`: one `content_type: application/x-tex`, one
+   `content_type: application/pdf`.
+3. Both should render as download chips in the transcript under
+   the `compile_latex` tool call.
+4. Clicking the PDF chip downloads or previews the compiled PDF.
+5. Clicking the .tex chip downloads the source.
+6. For failure case: ask "Write a broken LaTeX document: `\\begin
+   {document} hello` with no end". Expect only the `.tex` artifact
+   to surface (no PDF). The model should iterate on the error and
+   retry.
+
+### Why the backend can't fix this
+
+Same as entry #9: the bytes have to land somewhere visible. The
+backend already registers the artifacts in the unified table and
+streams the events; the frontend's job is to pick a nice icon and
+optionally preview the output.
 
 ---
 

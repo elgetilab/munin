@@ -529,13 +529,19 @@ re-scroll through the chat history. After §22 Stage C the table
 unifies both **model-written** artifacts (created via
 `create_artifact`, edited via `update_artifact`, stored inline in
 `artifact_versions.content`) and **sandbox-generated** artifacts
-(created by `run_python`, stored on disk in the sandbox container,
-referenced via `external_url`). Rows carry a `source` field
-(`'model_written'` or `'sandbox_generated'`) to distinguish them.
+(created by `run_python` **or** `compile_latex`, stored on disk in
+the sandbox container, referenced via `external_url`). Rows carry a
+`source` field (`'model_written'` or `'sandbox_generated'`) to
+distinguish them. §18 `compile_latex` returns two sandbox artifacts
+per successful call: the `.tex` source (always) and the compiled
+`.pdf` (on success only); on compile failure only the `.tex`
+artifact is surfaced so users can still download and edit the
+source manually.
 
 Model-written artifacts are versioned and editable; sandbox-generated
 artifacts are always `latest_version: 1` and read-only (`update_artifact`
-returns an error on a sandbox row — regenerate via `run_python` instead).
+returns an error on a sandbox row — regenerate via `run_python` or
+`compile_latex` instead).
 The full content snapshot chain lives in `artifact_versions`; there is
 no diff chain, just full snapshots per version.
 
@@ -635,15 +641,32 @@ For full-content updates, `applied_hunks` is `null` and `lines_added`/
 frontend can display a uniform `+12 −4` chip regardless of which
 update mode was used.
 
-**SSE events** on `/api/chat/completions` when the model calls
-create/update tools:
+**SSE events** on `/api/chat/completions` when an artifact is
+written or updated:
 
-- `artifact_created`: `{id, title, content_type, language, version, conversation_id, tool_call_id}`
-- `artifact_updated`: `{id, title, version, change_summary, created_by, conversation_id, tool_call_id}`
+- `artifact_created`: unified event for both model-written
+  (`create_artifact` tool) and sandbox-generated (`run_python` and
+  `compile_latex` tool outputs) files. The payload always contains
+  `{id, source, title, content_type, version, conversation_id,
+  tool_call_id}`. A **`source` discriminator** tells the frontend
+  which branch to render:
+  - `source: "model_written"` — additional fields: `language`
+    (only for text/code artifacts). Route to the side panel with
+    version picker + editable content.
+  - `source: "sandbox_generated"` — additional fields: `filename`,
+    `size_bytes`, `external_url` (points at
+    `/api/artifacts/{cid}/{sandbox_aid}` for download / inline
+    image rendering). Read-only; no version picker.
+- `artifact_updated`: `{id, source, title, version, change_summary,
+  created_by, conversation_id, tool_call_id, applied_hunks,
+  lines_added, lines_removed, base_version}`. Only fires for
+  model-written artifacts — sandbox-generated rows are read-only.
 
-Both are separate from the existing `artifact` event used by §2/§3
-sandbox outputs so the frontend can route them to the side panel
-rather than inline transcript rendering.
+**§22 Stage C unified the sandbox output path**: the legacy
+standalone `artifact` event is removed. Both `run_python` PNG/CSV
+outputs and `compile_latex` `.tex`/`.pdf` outputs now flow through
+`artifact_created` with `source: "sandbox_generated"`. See §5 for
+the full event catalogue row including the `~~artifact~~` tombstone.
 
 ### 4.16 Project routes (§21)
 
@@ -756,10 +779,13 @@ results are returned alongside `sources_used: ["project", "global"]`.
 
 ### 4.17 `GET /api/artifacts/{conversation_id}/{artifact_id}` (sandbox)
 
-Serves an artifact (plot, file, generated document) produced by the
-`run_python` sandbox tool inside the given conversation. The actual
-file lives in the sandbox sidecar; this endpoint proxies the bytes so
-the host never needs to expose the sandbox container's port.
+Serves an artifact (plot, file, generated document) produced by a
+sandbox tool inside the given conversation. Today that means
+`run_python` output (PNG, CSV, XLSX, arbitrary file writes) or
+`compile_latex` output (the `.tex` source and, on success, the
+compiled `.pdf`). The actual file lives in the sandbox sidecar;
+this endpoint proxies the bytes so the host never needs to expose
+the sandbox container's port.
 
 **Auth + ownership**: requires `X-Munin-Email` and the caller must own
 the conversation. A user fetching another user's artifact gets **404**
@@ -769,8 +795,14 @@ cannot be probed).
 **Path params**:
 
 - `conversation_id` - the chat the artifact was produced in.
-- `artifact_id` - the id from the `artifact` SSE event (also present
-  inside the `run_python` tool result's `artifacts` array).
+- `artifact_id` - the `id` field from the `artifact_created` SSE
+  event (also present inside the tool result's `artifacts` array
+  for both `run_python` and `compile_latex`). Both kernel-produced
+  and compile_latex-produced files use the same URL shape - the
+  sandbox service reads from two sibling manifests
+  (`_artifacts.json` for kernel outputs, `_latex_artifacts.json`
+  for compile_latex outputs) under the conversation's scratch
+  directory, transparent to callers.
 
 **Response (200)**: the raw file bytes with `Content-Type` set to the
 artifact's media type (`image/png` for plots, etc.) and a
