@@ -21,6 +21,7 @@ from .papers import (
 )
 from .llm import llm_summarize
 from .documents import search_user_docs, view_attachment
+from .equation import transcribe_equation
 from .chats import search_past_conversations
 from .projects import list_projects, get_current_project
 from .agents import invoke_agent
@@ -43,6 +44,7 @@ __all__ = [
     "llm_summarize",
     "search_user_docs",
     "view_attachment",
+    "transcribe_equation",
     "search_past_conversations",
     "list_projects",
     "get_current_project",

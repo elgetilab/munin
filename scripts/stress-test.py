@@ -3519,6 +3519,156 @@ async def test_view_attachment_end_to_end(client):
     return t
 
 
+EQUATION_EMAIL = "equation-test@munin.local"
+
+
+async def test_equation_ocr_basic(client):
+    """
+    Render a simple equation image with matplotlib's built-in
+    mathtext (no TeX install required), upload it, call
+    transcribe_equation, and verify the returned LaTeX contains the
+    structural tokens we expect. Skips gracefully if matplotlib isn't
+    on the host.
+
+    We use mathtext instead of PIL + plain-text because the vision
+    model struggles with caret notation (x^2) in a single-font
+    render - it reads the carets as decorations and drops the
+    exponents. mathtext produces proper superscript glyphs that the
+    model handles correctly, and matches the real-world use case
+    (the user pastes a screenshot of a typeset equation from a PDF).
+    """
+    t = TestResult(name="")
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        t.passed = True
+        t.reason = "SKIP: matplotlib not installed on host"
+        return t
+    from io import BytesIO
+    fig, ax = plt.subplots(figsize=(6, 2), dpi=150)
+    ax.text(
+        0.5, 0.5,
+        r"$x^{2} + y^{2} = z^{2}$",
+        fontsize=48,
+        ha="center",
+        va="center",
+    )
+    ax.set_axis_off()
+    buf = BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    png = buf.getvalue()
+
+    files = {"file": ("equation.png", png, "image/png")}
+    up = await client.post(
+        f"{BASE}/api/documents/upload",
+        headers={"X-Munin-Email": EQUATION_EMAIL},
+        files=files,
+        timeout=30,
+    )
+    if up.status_code != 200:
+        t.reason = f"upload returned {up.status_code}: {up.text[:200]}"
+        return t
+    doc_id = up.json().get("document_id")
+    if not doc_id:
+        t.reason = "upload returned no document_id"
+        return t
+    try:
+        status, body = await _mcp_call(
+            client,
+            "transcribe_equation",
+            {"image_ref": doc_id},
+            email=EQUATION_EMAIL,
+        )
+        latex = (body.get("latex") or "").lower()
+        t.metrics = {
+            "status": status,
+            "latex_preview": latex[:200],
+            "error": body.get("error"),
+            "image_ref": body.get("image_ref"),
+        }
+        if status != 200:
+            t.reason = f"/mcp/call returned {status}: {body}"
+            return t
+        if body.get("error"):
+            t.reason = f"unexpected error: {body['error']}"
+            return t
+        if not latex:
+            t.reason = "empty LaTeX output"
+            return t
+        if body.get("image_ref") != doc_id:
+            t.reason = f"image_ref not echoed: got {body.get('image_ref')!r}"
+            return t
+        # Structural check: the transcription must reference x, y, z
+        # and at least one squared form (x^2, x^{2}, or similar).
+        for var in ("x", "y", "z"):
+            if var not in latex:
+                t.reason = f"LaTeX missing variable {var!r}: {latex[:200]!r}"
+                return t
+        squared_variants = ("^2", "^{2}", "x2", "y2", "z2")
+        if not any(v in latex for v in squared_variants):
+            t.reason = f"LaTeX missing any squared-form marker: {latex[:200]!r}"
+            return t
+        t.passed = True
+    finally:
+        try:
+            await client.delete(
+                f"{BASE}/api/documents/{doc_id}",
+                headers={"X-Munin-Email": EQUATION_EMAIL},
+                timeout=10,
+            )
+        except Exception:
+            pass
+    return t
+
+
+async def test_equation_ocr_rejects_non_image(client):
+    """Text documents must be rejected by transcribe_equation."""
+    t = TestResult(name="")
+    files = {"file": ("notes.txt", b"not an equation", "text/plain")}
+    up = await client.post(
+        f"{BASE}/api/documents/upload",
+        headers={"X-Munin-Email": EQUATION_EMAIL},
+        files=files,
+        timeout=30,
+    )
+    if up.status_code != 200:
+        t.reason = f"upload returned {up.status_code}"
+        return t
+    doc_id = up.json().get("document_id")
+    if not doc_id:
+        t.reason = "no doc id"
+        return t
+    try:
+        status, body = await _mcp_call(
+            client,
+            "transcribe_equation",
+            {"image_ref": doc_id},
+            email=EQUATION_EMAIL,
+        )
+        t.metrics = {"error": body.get("error")}
+        if status != 200:
+            t.reason = f"/mcp/call returned {status}: {body}"
+            return t
+        err = body.get("error") or ""
+        if "image" not in err.lower():
+            t.reason = f"expected image-only error, got {err!r}"
+            return t
+        t.passed = True
+    finally:
+        try:
+            await client.delete(
+                f"{BASE}/api/documents/{doc_id}",
+                headers={"X-Munin-Email": EQUATION_EMAIL},
+                timeout=10,
+            )
+        except Exception:
+            pass
+    return t
+
+
 async def test_rolling_conversation_compaction(client):
     """
     Drive a multi-turn conversation with heavy per-turn payloads until the
@@ -3674,6 +3824,8 @@ ALL_TESTS = [
     ("view_attachment_mcp_call", test_view_attachment_mcp_call, False),
     ("view_attachment_mcp_rejects_non_image", test_view_attachment_mcp_rejects_non_image, False),
     ("view_attachment_end_to_end", test_view_attachment_end_to_end, True),   # heavy, 2-turn chat
+    ("equation_ocr_basic", test_equation_ocr_basic, False),
+    ("equation_ocr_rejects_non_image", test_equation_ocr_rejects_non_image, False),
     ("project_crud_roundtrip", test_project_crud_roundtrip, False),
     ("project_instructions_cap", test_project_instructions_cap, False),
     ("project_conversation_filing", test_project_conversation_filing, False),

@@ -247,6 +247,20 @@ MCP_TOOLS = {
             "required": ["query"]
         }
     },
+    "transcribe_equation": {
+        "name": "transcribe_equation",
+        "description": "Transcribe an equation from an uploaded image as LaTeX source. Use this when the user attaches a screenshot/photograph of an equation from a paper and wants it in editable LaTeX form - 'give me the LaTeX for this equation', 'transcribe this formula', 'copy this into my notes'. Pass the document_id of an image the user has uploaded in this conversation (you can find document_ids in the '[Attachments on this message: ...]' markers on earlier turns, or in the result of list_projects / list_attachments). Returns {latex: '...', image_ref: '...'}. If the image contains no mathematics, latex will be null and a message field will explain. Only image documents (png/jpeg/webp) are supported.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "image_ref": {
+                    "type": "string",
+                    "description": "The document_id of an uploaded image to transcribe."
+                }
+            },
+            "required": ["image_ref"]
+        }
+    },
     "view_attachment": {
         "name": "view_attachment",
         "description": "Re-attach an image the user uploaded earlier in this conversation so you can look at it again. Use this when the user asks a follow-up about a previously-attached image ('what colour was the shape in the screenshot I sent?', 'look at that figure again and tell me...'). You learn the document_id of past attachments from the inline '[Attachments on this message: doc_xxx (filename, mime)]' markers that appear in earlier turns' content. The image will be shown to you as a multimodal user message on the NEXT tool-loop iteration (not in this tool's return value, which is just a metadata marker). Only works for image attachments; non-image docs return an error. The tool is always available in persistent chats and not in ephemeral chats.",

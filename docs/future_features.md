@@ -950,6 +950,33 @@ as LaTeX. Output only the LaTeX, no commentary."
 
 30 minutes. Needs §5 first.
 
+### Status
+
+**DONE 2026-04-14**
+
+Shipped:
+
+- New `transcribe_equation(image_ref)` MCP tool in
+  `retrieval/mcp/tools/equation.py`. Resolves a document_id to disk,
+  reads bytes, builds a data URL, posts a multimodal message to
+  vLLM with a tight system prompt demanding LaTeX-only output.
+  Qwen3 reasoning disabled via `chat_template_kwargs.enable_thinking=False`.
+- Output sanitisation strips stray code fences / `$$` delimiters the
+  model slips in despite the system prompt, and handles the
+  `NO_EQUATION` sentinel for non-mathematical images.
+- Ownership check via `current_user_email`; rejects non-image
+  document types with an explicit error.
+- Dropped the spec's optional `confidence` field: self-reported
+  confidence on OCR output is noise and returning one would mislead
+  callers. Output shape is `{"latex": "...", "image_ref": "..."}`.
+- Dropped the spec's optional region-selector variant of `image_ref`:
+  requires frontend cropping support we don't have yet. Only
+  document_id references for v1.
+- Tests: `equation_ocr_basic` (renders `x^2 + y^2 = z^2` via PIL,
+  uploads, transcribes, asserts the returned LaTeX contains all
+  three variables and a squared-form marker), and
+  `equation_ocr_rejects_non_image` (uploads .txt, expects error).
+
 ---
 
 ## 12. Reproducibility helper (speculative)

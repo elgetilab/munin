@@ -18,6 +18,7 @@ from .tools import (
     llm_summarize,
     search_user_docs,
     view_attachment,
+    transcribe_equation,
     search_past_conversations,
     list_projects,
     get_current_project,
@@ -123,6 +124,11 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
         elif tool_name == "view_attachment":
             return await view_attachment(
                 document_id=arguments.get("document_id", ""),
+            )
+
+        elif tool_name == "transcribe_equation":
+            return await transcribe_equation(
+                image_ref=arguments.get("image_ref", ""),
             )
 
         elif tool_name == "list_projects":
