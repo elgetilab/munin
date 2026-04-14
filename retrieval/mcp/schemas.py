@@ -138,6 +138,24 @@ MCP_TOOLS = {
             "required": ["url"]
         }
     },
+    "read_paper": {
+        "name": "read_paper",
+        "description": "Fetch, parse, and summarise a paper by DOI in one call. Chains paper_lookup (for title/authors/OA URL) → PDF resolution (local corpus first, then on-disk cache, then fresh download from the OA URL) → GROBID text extraction → two separate LLM summarisation calls (one for the narrative summary, one for a bulleted key-findings list). Falls back to the Semantic Scholar abstract if no PDF is reachable. Use this when the user asks substantive questions about a specific paper ('what are the main findings of 10.1234/xyz', 'summarise this paper for me', 'what methods did paper X use') and you want deep content rather than just the title + abstract you get from paper_lookup alone. The optional `focus` parameter biases both summaries toward a specific topic ('lipid rafts', 'statistical methods', 'the mouse cohort') - use it when the user's question has a clear angle rather than a generic ask. Returns {doi, title, authors, abstract, summary, key_findings: [...], sources_used, cache_size_mb}. sources_used values: 'local' (paper was in the curated corpus), 'cache' (previously downloaded), 'open_access_pdf' (freshly downloaded), or 's2_abstract' (no PDF available, summarised from the abstract).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "doi": {
+                    "type": "string",
+                    "description": "Paper DOI (e.g. '10.1038/nature12373')."
+                },
+                "focus": {
+                    "type": "string",
+                    "description": "Optional topic bias for the summary. E.g. 'methods', 'lipid rafts', 'the mouse cohort'. Omit for a general summary covering the whole paper."
+                }
+            },
+            "required": ["doi"]
+        }
+    },
     "get_citations": {
         "name": "get_citations",
         "description": "Get papers that cite a given paper. Useful for finding follow-up research.",

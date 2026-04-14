@@ -4970,6 +4970,145 @@ async def test_save_sandbox_to_documents(client):
     return t
 
 
+READ_PAPER_EMAIL = "read-paper-test@munin.local"
+
+
+async def _discover_local_doi(client) -> Optional[str]:
+    """Ask paper_search for something generic and return the first DOI that
+    has local_pdf_available set. We don't hard-code a DOI because the
+    corpus contents change over time."""
+    for query in (
+        "lipid membrane",
+        "protein structure",
+        "cell biology",
+        "x-ray crystallography",
+        "molecular dynamics",
+    ):
+        _, body = await _mcp_call(
+            client,
+            "paper_search",
+            {"query": query, "top_k": 10},
+            email=READ_PAPER_EMAIL,
+        )
+        for row in (body.get("results") or []):
+            doi = row.get("doi")
+            if doi and row.get("local_pdf_available"):
+                return doi
+    return None
+
+
+async def test_read_paper_local_corpus(client):
+    """
+    Discover a DOI from the local corpus via paper_search, then call
+    read_paper on it. Verify we get a non-empty summary and that
+    sources_used says 'local' (not an external download).
+    """
+    t = TestResult(name="")
+    doi = await _discover_local_doi(client)
+    if not doi:
+        t.passed = True
+        t.reason = "SKIP: no DOIs with local_pdf_available found"
+        return t
+    status, body = await _mcp_call(
+        client,
+        "read_paper",
+        {"doi": doi},
+        email=READ_PAPER_EMAIL,
+    )
+    t.metrics = {
+        "status": status,
+        "doi": doi,
+        "title_preview": (body.get("title") or "")[:100],
+        "sources_used": body.get("sources_used"),
+        "summary_chars": len(body.get("summary") or ""),
+        "key_findings_count": len(body.get("key_findings") or []),
+        "extracted_chars": body.get("extracted_text_chars"),
+        "cache_size_mb": body.get("cache_size_mb"),
+    }
+    if status != 200:
+        t.reason = f"/mcp/call returned {status}: {body}"
+        return t
+    if body.get("error"):
+        t.reason = f"read_paper error: {body['error']}"
+        return t
+    if "local" not in (body.get("sources_used") or []):
+        t.reason = (
+            f"expected 'local' in sources_used, got "
+            f"{body.get('sources_used')!r}"
+        )
+        return t
+    if not (body.get("summary") or "").strip():
+        t.reason = "summary is empty"
+        return t
+    if len(body.get("summary") or "") < 80:
+        t.reason = f"summary suspiciously short: {len(body.get('summary') or '')} chars"
+        return t
+    if not body.get("key_findings"):
+        t.reason = "key_findings list is empty"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_read_paper_with_focus(client):
+    """
+    Same as local_corpus but passes a focus argument. Verifies the
+    call still succeeds and the focus is echoed in the response.
+    """
+    t = TestResult(name="")
+    doi = await _discover_local_doi(client)
+    if not doi:
+        t.passed = True
+        t.reason = "SKIP: no DOIs with local_pdf_available found"
+        return t
+    status, body = await _mcp_call(
+        client,
+        "read_paper",
+        {"doi": doi, "focus": "methods and experimental techniques"},
+        email=READ_PAPER_EMAIL,
+    )
+    t.metrics = {
+        "status": status,
+        "focus_echo": body.get("focus"),
+        "summary_chars": len(body.get("summary") or ""),
+    }
+    if status != 200 or body.get("error"):
+        t.reason = f"failed: {body}"
+        return t
+    if body.get("focus") != "methods and experimental techniques":
+        t.reason = f"focus not echoed: {body.get('focus')!r}"
+        return t
+    if not (body.get("summary") or "").strip():
+        t.reason = "summary empty"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_read_paper_unknown_doi(client):
+    """A made-up DOI must return a clean error, not a crash."""
+    t = TestResult(name="")
+    status, body = await _mcp_call(
+        client,
+        "read_paper",
+        {"doi": "10.9999/this-doi-does-not-exist-zzz42"},
+        email=READ_PAPER_EMAIL,
+    )
+    t.metrics = {"status": status, "error": body.get("error")}
+    if status != 200:
+        t.reason = f"/mcp/call returned {status}: {body}"
+        return t
+    if not body.get("error"):
+        t.reason = f"expected error for unknown DOI, got {body}"
+        return t
+    err = (body.get("error") or "").lower()
+    if "not found" not in err and "paper_lookup" not in err:
+        t.reason = f"unexpected error phrasing: {err!r}"
+        return t
+    t.passed = True
+    return t
+
+
 async def test_rolling_conversation_compaction(client):
     """
     Drive a multi-turn conversation with heavy per-turn payloads until the
@@ -5152,6 +5291,9 @@ ALL_TESTS = [
     ("update_sandbox_artifact_rejected", test_update_sandbox_artifact_rejected, False),
     ("save_model_written_to_documents", test_save_model_written_to_documents, False),
     ("save_sandbox_to_documents", test_save_sandbox_to_documents, False),
+    ("read_paper_local_corpus", test_read_paper_local_corpus, True),   # heavy, 2 LLM calls
+    ("read_paper_with_focus", test_read_paper_with_focus, True),       # heavy
+    ("read_paper_unknown_doi", test_read_paper_unknown_doi, False),
     ("project_crud_roundtrip", test_project_crud_roundtrip, False),
     ("project_instructions_cap", test_project_instructions_cap, False),
     ("project_conversation_filing", test_project_conversation_filing, False),

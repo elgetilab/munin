@@ -784,6 +784,49 @@ Flow:
 
 ~60 lines. 1-2 hours. Entirely chains existing infrastructure.
 
+### Status
+
+**DONE 2026-04-14**
+
+Shipped:
+
+- New `read_paper(doi, focus=None)` MCP tool in
+  `retrieval/mcp/tools/read_paper.py`. Resolves PDF bytes in this
+  order: local corpus (`/papers/pdf/` via the existing
+  `get_pdf_path` helper) → on-disk cache
+  (`/data/papers_cached/`) → fresh download from
+  `open_access_pdf` URL (50 MB cap, streaming so a pathological
+  URL cannot OOM the container). If all three miss, falls back
+  to the Semantic Scholar abstract.
+- PDF extraction reuses `document_store._extract_pdf` (GROBID
+  first, pypdf fallback) so the bytes-to-text path matches the
+  document upload pipeline exactly - one extraction
+  implementation, two callers.
+- Two separate LLM calls run in parallel via `asyncio.gather`:
+  one for the narrative 3-5 sentence summary (biased by
+  `focus` if provided), one for a bulleted key-findings list.
+  Two calls instead of one structured call so each prompt is
+  clean and each parse is deterministic; the extra cost is
+  dominated by PDF fetch + GROBID anyway.
+- Cache policy per the Stage A decisions: no automatic
+  eviction, unbounded growth. Every write to the cache
+  computes the total directory size and logs
+  `[WARN] papers_cached exceeded N GB` when it crosses
+  `PAPERS_CACHE_WARN_GB` (default 5 GB). The tool also returns
+  `cache_size_mb` on every call so a diligent user can see
+  the current size at a glance.
+- `sources_used` return field values: `"local"` (served from
+  the curated corpus), `"cache"` (on-disk cache hit),
+  `"open_access_pdf"` (freshly downloaded), or
+  `"s2_abstract"` (fell back to the abstract).
+- Tests: `read_paper_local_corpus` (discover a DOI with
+  `local_pdf_available` via paper_search then read_paper on
+  it, assert non-empty summary + key_findings and
+  `"local"` in sources_used), `read_paper_with_focus`
+  (same flow with a focus argument, verify focus is echoed),
+  `read_paper_unknown_doi` (clean error path for nonsense
+  DOIs).
+
 ---
 
 ## 8. `compare_papers` composite tool

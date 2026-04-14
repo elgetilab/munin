@@ -22,6 +22,7 @@ from .papers import (
 from .llm import llm_summarize
 from .documents import search_user_docs, view_attachment
 from .equation import transcribe_equation
+from .read_paper import read_paper
 from .chats import search_past_conversations
 from .memory import remember, forget, recall
 from .artifacts import (
@@ -44,6 +45,7 @@ __all__ = [
     "paper_search",
     "semantic_scholar_search",
     "paper_lookup",
+    "read_paper",
     "get_citations",
     "get_references",
     "get_author_papers",

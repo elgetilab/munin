@@ -10,6 +10,7 @@ from .tools import (
     paper_search,
     semantic_scholar_search,
     paper_lookup,
+    read_paper,
     get_citations,
     get_references,
     get_author_papers,
@@ -76,6 +77,12 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
         elif tool_name == "paper_lookup":
             doi = arguments.get("doi", "")
             return await paper_lookup(doi)
+
+        elif tool_name == "read_paper":
+            return await read_paper(
+                doi=arguments.get("doi", ""),
+                focus=arguments.get("focus"),
+            )
 
         elif tool_name == "llm_summarize":
             text = arguments.get("text", "")
