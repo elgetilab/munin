@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 import uuid
 from datetime import datetime
@@ -34,6 +35,7 @@ import chat_context
 import personas as persona_module
 import agents as agents_pkg
 import user_profile_store
+import vision
 from database import VLLM_URL, VLLM_MODEL_NAME
 from mcp.schemas import MCP_TOOLS
 from mcp.executor import execute_mcp_tool
@@ -48,6 +50,120 @@ from mcp.context import (
 
 def _sse(event: str, payload: dict) -> dict:
     return {"event": event, "data": json.dumps(payload)}
+
+
+# --- Multimodal content resolution (§5) --------------------------------------
+
+async def _resolve_user_content_images(
+    content: Any,
+    user_email: str,
+    conversation_id: str,
+    ephemeral: bool,
+) -> tuple[Any, list[dict]]:
+    """
+    Walk an OpenAI-style multimodal user content list, turn every
+    ``image_url`` block into a concrete ``data:image/...;base64,...``
+    URL, and (for persistent chats) funnel inline images to the
+    documents store so they can be re-viewed later.
+
+    Returns ``(resolved_content, attachments_metadata)``. If the input is
+    a plain string, both return values are passed through untouched so
+    text-only turns cost nothing extra.
+
+    Accepts three image_url shapes:
+      * ``data:image/...;base64,<payload>`` - inline bytes
+      * ``document:<doc_id>`` - reference to an already-uploaded doc
+      * ``http://sandbox:8090/artifacts/<cid>/<aid>`` - passthrough for
+        tests that want to reference a sandbox artifact directly (rare)
+
+    On any validation failure, raises ``vision.VisionError`` so the
+    caller can surface it as an ``error`` SSE event.
+    """
+    if not isinstance(content, list):
+        return content, []
+
+    import document_store  # lazy to avoid any startup ordering snags
+
+    resolved_blocks: list[dict] = []
+    attachments: list[dict] = []
+    image_count = 0
+
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type")
+        if btype == "text":
+            resolved_blocks.append(vision.text_block(block.get("text") or ""))
+            continue
+        if btype != "image_url":
+            continue
+
+        image_count += 1
+        if image_count > vision.MAX_IMAGES_PER_TURN:
+            raise vision.VisionError(
+                f"at most {vision.MAX_IMAGES_PER_TURN} image attachments per turn"
+            )
+
+        url = (block.get("image_url") or {}).get("url") or ""
+        data_url: Optional[str] = None
+        attachment_meta: Optional[dict] = None
+
+        if url.startswith("data:image/"):
+            image_bytes, subtype = vision.parse_inline_data_url(url)
+            if not ephemeral:
+                # Funnel to the documents store so the user can reference
+                # this attachment later. We upload synchronously (image
+                # uploads skip embedding and finish in <100 ms). Naming:
+                # use the message index + subtype as the filename so
+                # multiple pastes in one turn don't collide.
+                filename = f"pasted-{uuid.uuid4().hex[:8]}.{subtype}"
+                try:
+                    doc = await document_store.upload_document(
+                        filename=filename,
+                        file_bytes=image_bytes,
+                        user_email=user_email,
+                        conversation_id=conversation_id,
+                    )
+                    attachment_meta = {
+                        "document_id": doc.get("document_id"),
+                        "filename": doc.get("filename"),
+                        "content_type": f"image/{subtype}",
+                        "source": "inline",
+                    }
+                except Exception as exc:
+                    # Funnel failure should not block the turn. The
+                    # image still reaches the model via data URL; it
+                    # just won't be persistently referenceable.
+                    print(f"[WARNING] inline image funnel failed: {exc}")
+            data_url = url  # already a valid data URL
+
+        elif url.startswith("document:"):
+            doc_id = url[len("document:"):]
+            path = document_store.get_document_file_path(user_email, doc_id)
+            if not path:
+                raise vision.VisionError(
+                    f"document not found: {doc_id!r}"
+                )
+            image_bytes, subtype = vision.read_user_document_image(path)
+            data_url = vision._build_data_url(image_bytes, subtype)
+            attachment_meta = {
+                "document_id": doc_id,
+                "filename": os.path.basename(path),
+                "content_type": f"image/{subtype}",
+                "source": "document",
+            }
+
+        else:
+            raise vision.VisionError(
+                f"unsupported image_url scheme: {url[:32]!r}"
+            )
+
+        if data_url:
+            resolved_blocks.append(vision.image_url_block(data_url))
+        if attachment_meta:
+            attachments.append(attachment_meta)
+
+    return resolved_blocks, attachments
 
 
 def _error_sse(message: str) -> dict:
@@ -376,30 +492,64 @@ async def stream_chat_completion(
     _ = rag_config  # kept in signature for API stability
     rag_context: Optional[dict] = None
 
-    # --- 3. Persist the user message ---
+    # --- 3. Multimodal resolution (§5) ---
+    # If the user's trailing message contains image_url content blocks,
+    # resolve them to concrete data URLs, funnel inline pastes to the
+    # documents store on persistent chats, and collect attachment
+    # metadata for the chat_store row. Text-only content passes through
+    # as-is. Errors are surfaced as an SSE error frame and the stream
+    # terminates so the frontend can show the 400-style reason.
+    raw_content = user_message.get("content", "")
+    try:
+        resolved_content, user_attachments = await _resolve_user_content_images(
+            content=raw_content,
+            user_email=user_email,
+            conversation_id=conversation["id"],
+            ephemeral=ephemeral,
+        )
+    except vision.VisionError as exc:
+        yield _error_sse(str(exc))
+        return
+
+    # Derive the text-only form once so it can be persisted in the
+    # messages.content column (which is FTS5-indexed and therefore
+    # must stay a flat string). The full resolved_content goes to vLLM.
+    if isinstance(resolved_content, list):
+        persisted_text = "\n".join(
+            block.get("text", "") for block in resolved_content
+            if isinstance(block, dict) and block.get("type") == "text"
+        ).strip()
+    else:
+        persisted_text = raw_content if isinstance(raw_content, str) else ""
+
+    # --- 4. Persist the user message ---
     if not ephemeral:
         await chat_store.add_message(
             conversation_id=conversation["id"],
             role="user",
-            content=user_message.get("content", ""),
+            content=persisted_text,
+            attachments=user_attachments or None,
         )
         # Reload so the new message is part of the context assembly.
         conversation = await chat_store.get_conversation(conversation["id"], user_email)
         assert conversation is not None
         # The user message is already persisted and included in
         # conversation.messages. Pop it back off so assemble_context doesn't
-        # double-count it.
-        persisted_user = conversation["messages"].pop() if conversation["messages"] else None
+        # double-count it. We replace the persisted string content with
+        # the multimodal content on the way to vLLM so the model sees
+        # the images on this turn (one-shot).
+        if conversation["messages"]:
+            conversation["messages"].pop()
         new_msg = {
             "role": "user",
-            "content": (persisted_user or user_message).get("content", ""),
+            "content": resolved_content if resolved_content else persisted_text,
         }
     else:
         # Ephemeral: history is already in conversation["messages"] from the
         # synthetic build above; nothing to persist or reload.
         new_msg = {
             "role": "user",
-            "content": user_message.get("content", ""),
+            "content": resolved_content if resolved_content else persisted_text,
         }
 
     messages = await chat_context.assemble_context(
@@ -410,7 +560,7 @@ async def stream_chat_completion(
         ephemeral=ephemeral,
     )
 
-    # --- 4. Streaming loop with tool execution ---
+    # --- 5. Streaming loop with tool execution ---
     final_content = ""
     final_thinking = ""
     final_tool_calls: list[dict] = []
@@ -534,7 +684,26 @@ async def stream_chat_completion(
                 "content": json.dumps(res["result"])[:8000],
             })
 
-    # --- 4b. Wrap-up: force a final synthesis if the loop exhausted its
+        # §3 plot-critique feedback loop: if any of the results were
+        # run_python calls that produced image artifacts, inject a
+        # synthetic user turn carrying the image so the model can look
+        # at its own output and decide whether to iterate. vision.py
+        # fetches the bytes from the sandbox sidecar and returns a
+        # multimodal content block; we append it to the message list so
+        # the next vLLM iteration sees it. No-op if the results had no
+        # image artifacts.
+        try:
+            followup = await vision.build_tool_result_followup(
+                tool_results=results,
+                conversation_id=conversation["id"],
+            )
+        except Exception as e:
+            print(f"[WARNING] vision feedback loop failed: {e}")
+            followup = None
+        if followup is not None:
+            messages.append(followup)
+
+    # --- 5b. Wrap-up: force a final synthesis if the loop exhausted its
     # turn budget, OR the last turn produced no real content. The empty-last-
     # turn case is important: the model sometimes emits only a "let me look
     # up X..." preamble on turn N, then stalls with a zero-content turn
@@ -576,7 +745,7 @@ async def stream_chat_completion(
                 final_usage = wrap_acc.usage
             finish_reason = wrap_acc.finish_reason or finish_reason
 
-    # --- 5. Persist assistant message ---
+    # --- 6. Persist assistant message ---
     if not ephemeral:
         await chat_store.add_message(
             conversation_id=conversation["id"],
@@ -587,7 +756,7 @@ async def stream_chat_completion(
             rag_context=rag_context,
         )
 
-    # --- 6. Auto-title on brand-new conversations ---
+    # --- 7. Auto-title on brand-new conversations ---
     if not ephemeral and is_new and not conversation.get("title"):
         try:
             title = await chat_context.generate_title(
@@ -606,7 +775,7 @@ async def stream_chat_completion(
         except Exception as e:
             print(f"[WARNING] Auto-title failed: {e}")
 
-    # --- 7. Done ---
+    # --- 8. Done ---
     yield _sse(
         "done",
         {

@@ -239,6 +239,29 @@ def chunk_text(text: str) -> list[str]:
 # Upload / list / delete
 # ==============================================================================
 
+def get_document_file_path(user_email: str, document_id: str) -> Optional[str]:
+    """
+    Resolve ``document_id`` to the on-disk path of the single file stored
+    for that document. Returns None if the directory is missing or empty.
+    Convention: upload_document writes exactly one file per doc_dir, so
+    we return the first regular file we find.
+    """
+    if not document_id or not user_email:
+        return None
+    target = _doc_dir(user_email, document_id)
+    if not os.path.isdir(target):
+        return None
+    try:
+        entries = os.listdir(target)
+    except OSError:
+        return None
+    for name in sorted(entries):
+        full = os.path.join(target, name)
+        if os.path.isfile(full):
+            return full
+    return None
+
+
 async def upload_document(
     filename: str,
     file_bytes: bytes,

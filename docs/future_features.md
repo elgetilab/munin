@@ -455,14 +455,11 @@ Shipped:
 
 **Deferred (separate PRs)**
 
-- **Vision feedback loop**: the spec calls for chat_service to inject
-  prior plot images back into the model's next-turn context as
-  `image_url` content blocks so the model can critique its own
-  figures. This needs message-assembly changes, image fetch from the
-  sandbox into the chat context, base64 encoding, an "include the last
-  N images" policy to avoid blowing context, and depends on
-  vLLM/Qwen's multimodal message format. Belongs grouped with §5
-  Vision since it shares the multimodal plumbing. ~half-day.
+- ~~**Vision feedback loop**~~: **CLOSED 2026-04-14 as part of §5
+  Stage A**. `chat_service` now injects a synthetic multimodal user
+  message carrying the plot image after each `run_python` tool_result,
+  via `vision.build_tool_result_followup`. See §5 Status for the full
+  scope.
 - **`quick_plot` and `compare_plots` MCP helper tools**: the spec calls
   them optional. Skip until a user asks; raw `run_python` is enough
   for now.
@@ -638,9 +635,77 @@ reference + round-trip caching.
 
 - **Image size limits?** vLLM's tokeniser handles images by resizing.
   Probably cap at 2048×2048 server-side to avoid pathological inputs.
+  **Decided 2026-04-14**: cap at 5 MB per image and 3 images per turn.
+  Pixel dimensions left to vLLM.
 - **Preprocessing?** For scientific figures, we might want to pre-crop
   whitespace or enhance contrast before sending. Nice-to-have, not
   required.
+
+### Status
+
+**Stage A - DONE 2026-04-14**
+
+Shipped:
+
+- OpenAI-style multimodal content lists on the last user message of
+  `POST /api/chat/completions`. Backwards-compatible: string content
+  still works. Supports inline `data:image/...;base64,...` URLs and
+  `document:<doc_id>` references; the resolver lives in
+  `retrieval/vision.py`.
+- 5 MB per image and 3 images per turn caps enforced server-side.
+- On persistent chats, inline data URLs are auto-funnelled into the
+  documents store so the attachment is findable later. The
+  `messages.attachments` column (new, idempotent migration) holds
+  `{document_id, filename, content_type, source}` metadata for each
+  image on the row. Text-only content stays in `messages.content` so
+  FTS5 search keeps working.
+- On ephemeral chats, inline images reach the model on the turn they
+  were sent and then vanish (matches the "nothing stored" contract).
+  `document:<id>` references still work in ephemeral mode because the
+  documents table already existed.
+- §3 plot-critique feedback loop closed: after a `run_python`
+  tool_result with image artifacts, `chat_service` calls
+  `vision.build_tool_result_followup` which fetches the artifact bytes
+  from the sandbox sidecar and appends a synthetic multimodal user
+  message to the vLLM message list so the model can look at its own
+  plot on the next tool-loop iteration. Errors on fetch are logged
+  but do not break the loop.
+- Tests: `test_vision_color`, `test_vision_ocr`,
+  `test_vision_document_upload`, `test_vision_unit_synthesis`
+  (in-container unit test via `docker exec`),
+  `test_feedback_loop_ocr_forced` (strong, 1-in-9000 false-pass),
+  `test_feedback_loop_color_forced` (softer, 1-in-3 false-pass;
+  both use a ground-truth read from the sandbox kernel via a
+  second `/mcp/call` after the chat completes).
+
+**DEFERRED - IMPORTANT FOR FUTURE WORK**
+
+> **Image re-view capability**: once an inline image has been
+> funnelled to the documents store on the turn the user sent it, the
+> model currently cannot pull it back into context on a LATER turn
+> even though the bytes are still on disk and referenceable by
+> `document_id`. If the user follows up two turns later with "what
+> was that arrow pointing at in the screenshot I sent?", the model
+> sees only the text portion of the earlier turn and has no path to
+> re-fetch the image. This was deliberately deferred to keep the
+> Stage A surface small.
+>
+> The right fix is a new MCP tool `view_attachment(document_id)` that
+> returns the image as a data URL. `chat_service` splices it into
+> the next tool-loop iteration as a multimodal user observation
+> (exactly the same path `build_tool_result_followup` already uses
+> for sandbox artifacts). Effort: ~2 hours. Blocks: none - the
+> persistence layer and the splicing machinery both already exist.
+
+Other deferred items:
+
+- **Preprocessing / whitespace cropping** for scientific figures.
+  Nice-to-have, not required for the core flow. Would live in
+  `vision.py` as a resize/crop step before base64.
+- **Image carry-over across conversation history**: deliberate "one-shot"
+  design (see §5 Stage A status above). Changing this would require
+  a context-budget policy on how many past images to re-include and
+  is entangled with the re-view capability above.
 
 ---
 
@@ -3296,8 +3361,16 @@ retire the former.
 
 **Sprint 1 — quick wins (1-2 days total)**: §6, §13, §26, §24, §25, §16, §17 — **DONE 2026-04-14**
 
-**Sprint 2 — foundation (1 week total)**: §2 sandbox (unblocks most
-other things)
+**Sprint 2 — foundation (1 week total)**: §2 sandbox, §3 scientific
+plotting, §5 multimodal vision — **DONE 2026-04-14**. §2 shipped the
+sidecar + run_python + artifact pipeline; §3 closed it with persona
+prompts + on-disk file artifacts + xlsx support; §5 added multimodal
+user attachments and closed §3's deferred vision feedback loop.
+Deferred: sandbox Stage B (live stdout streaming,
+`sandbox_install_package`, `save_artifact_to_documents`), §5 image
+re-view capability (tracked prominently in §5 Status). (§2 was
+defined as "unblocks most other things" — §3 and §5 were both
+unblocked by §2 and shipped alongside it in the same sprint.)
 
 **Sprint 3 — organizational (1 week)**: §21 projects
 

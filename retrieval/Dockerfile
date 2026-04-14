@@ -38,9 +38,14 @@ COPY chat_service.py .
 COPY personas.py .
 COPY document_store.py .
 COPY user_profile_store.py .
+COPY vision.py .
 
 # Copy MCP module
 COPY mcp/ /app/mcp/
+
+# Copy in-container test scripts (stress-test.py exec's them via
+# docker exec; see §5.8).
+COPY tests/ /app/tests/
 
 # Copy agents module
 COPY agents/ /app/agents/

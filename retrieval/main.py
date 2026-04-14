@@ -819,6 +819,54 @@ async def api_chat_completions(request: Request):
             status_code=400,
             detail={"error": {"message": "last message must be from role 'user'"}},
         )
+    # Shallow validation of multimodal content: if the frontend sent an
+    # OpenAI-style content list, check the per-turn image cap and the
+    # shape of each block. The actual image resolution (data URL parsing,
+    # document reference lookup, size caps, funnelling to the documents
+    # store) happens inside chat_service which has access to the user
+    # context it needs. See retrieval/vision.py.
+    user_content = user_message.get("content")
+    if isinstance(user_content, list):
+        image_count = 0
+        for block in user_content:
+            if not isinstance(block, dict):
+                raise HTTPException(
+                    status_code=400,
+                    detail={"error": {"message": "content blocks must be objects"}},
+                )
+            btype = block.get("type")
+            if btype == "text":
+                if not isinstance(block.get("text"), str):
+                    raise HTTPException(
+                        status_code=400,
+                        detail={"error": {"message": "text block missing text field"}},
+                    )
+            elif btype == "image_url":
+                image_count += 1
+                iu = block.get("image_url") or {}
+                if not isinstance(iu, dict) or not isinstance(iu.get("url"), str):
+                    raise HTTPException(
+                        status_code=400,
+                        detail={"error": {"message": "image_url block missing url"}},
+                    )
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": {
+                            "message": f"unknown content block type: {btype!r}"
+                        }
+                    },
+                )
+        if image_count > 3:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": {
+                        "message": "at most 3 image attachments per turn"
+                    }
+                },
+            )
     # In ephemeral mode the frontend echoes the full thread; everything
     # before the trailing user turn is the prior history.
     prior_messages = messages[:-1] if ephemeral else None

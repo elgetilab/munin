@@ -46,10 +46,49 @@ def approx_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+def _content_to_text(content: Any) -> str:
+    """
+    Flatten a vLLM message ``content`` field (str OR OpenAI-style list of
+    typed blocks) into a string for approximate token accounting. The
+    image_url blocks themselves cost ~100 vLLM tokens each regardless of
+    source, which we can budget for explicitly rather than trying to
+    approximate from a data URL length.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "text":
+                parts.append(block.get("text") or "")
+        return "\n".join(p for p in parts if p)
+    return ""
+
+
+def _count_image_blocks(content: Any) -> int:
+    if not isinstance(content, list):
+        return 0
+    return sum(
+        1 for block in content
+        if isinstance(block, dict) and block.get("type") == "image_url"
+    )
+
+
+# A fixed per-image vLLM token cost. Matches the probe result documented
+# in future_features.md §5 (~100 tokens per image regardless of resolution
+# because vLLM resizes internally). Budgeted here so multimodal turns
+# don't silently overflow the context window.
+_PER_IMAGE_TOKENS = 120
+
+
 def _message_tokens(message: dict) -> int:
-    content = message.get("content") or ""
+    content = message.get("content")
+    text_tokens = approx_tokens(_content_to_text(content))
+    image_tokens = _count_image_blocks(content) * _PER_IMAGE_TOKENS
     # Add a small framing overhead per message (~4 tokens for role/wrapping).
-    return approx_tokens(content) + 4
+    return text_tokens + image_tokens + 4
 
 
 def _rag_context_to_text(rag_context: Optional[dict]) -> str:

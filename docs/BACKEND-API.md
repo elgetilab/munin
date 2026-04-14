@@ -304,6 +304,43 @@ Unpins a conversation. Idempotent.
   when `ephemeral: true`. Tool calls (web search, paper search, etc.)
   still execute normally - "ephemeral" means not stored by Munin, not
   untrackable by the world.
+- **Multimodal content on the last user message** (§5): the trailing
+  user message's `content` field may be an OpenAI-style content list
+  instead of a plain string. Older clients sending a string keep
+  working unchanged. The list shape looks like:
+
+  ```json
+  {
+    "role": "user",
+    "content": [
+      {"type": "text", "text": "Describe this figure."},
+      {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBOR..."}}
+    ]
+  }
+  ```
+
+  Supported `image_url.url` schemes:
+
+  - `data:image/<png|jpeg|webp>;base64,<payload>` - inline bytes.
+    On **persistent** chats, inline images are funnelled to the
+    documents store so the user can re-reference them later (the
+    `document_id` ends up in the message's `attachments` column).
+    On **ephemeral** chats, inline images reach the model on this
+    turn and then vanish, matching the "nothing stored" contract.
+  - `document:<doc_id>` - reference to a previously-uploaded
+    document. The backend resolves the file path (ownership-checked
+    via `user_docs/<email_hash>/<doc_id>/`), reads the bytes, and
+    injects them as a data URL on the model's turn.
+
+  **Caps**: 5 MB per image, 3 images per turn. Exceeding either
+  returns HTTP 400 with an error message identifying the offending
+  block.
+
+  **One-shot across turns**: images are included only on the turn
+  they were sent. On subsequent turns the stored transcript has the
+  text portion only; the raw image bytes are not re-injected. Future
+  work (§5 Stage B) will let the model request an image again via a
+  dedicated tool when a user follow-up references it.
 - `stream` is implicit; the response is always SSE.
 
 **Response**: `Content-Type: text/event-stream`, frames are

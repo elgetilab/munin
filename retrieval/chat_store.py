@@ -38,6 +38,13 @@ def _parse_json(value: Any) -> Any:
 
 
 def _message_row_to_dict(row: aiosqlite.Row) -> dict:
+    # attachments column was added after the initial schema (§5). Older
+    # rows simply don't have the key; we surface None in that case so
+    # callers can treat "missing" and "null" the same way.
+    try:
+        attachments = _parse_json(row["attachments"])
+    except (IndexError, KeyError):
+        attachments = None
     return {
         "id": row["id"],
         "role": row["role"],
@@ -45,6 +52,7 @@ def _message_row_to_dict(row: aiosqlite.Row) -> dict:
         "thinking": row["thinking"],
         "tool_calls": _parse_json(row["tool_calls"]),
         "rag_context": _parse_json(row["rag_context"]),
+        "attachments": attachments,
         "created_at": row["created_at"],
         "token_count": row["token_count"],
         "index_in_conversation": row["index_in_conversation"],
@@ -90,6 +98,7 @@ async def init_db() -> aiosqlite.Connection:
             thinking TEXT,
             tool_calls TEXT,
             rag_context TEXT,
+            attachments TEXT,
             created_at TEXT NOT NULL,
             token_count INTEGER,
             FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
@@ -154,6 +163,15 @@ async def init_db() -> aiosqlite.Connection:
         "CREATE INDEX IF NOT EXISTS idx_conversations_pinned "
         "ON conversations(user_email, pinned DESC, updated_at DESC)"
     )
+
+    # Multimodal attachments metadata (§5). JSON list of
+    # {document_id, filename, content_type} per message. Nullable.
+    cur = await _db.execute("PRAGMA table_info(messages)")
+    message_cols = {row["name"] for row in await cur.fetchall()}
+    if "attachments" not in message_cols:
+        await _db.execute(
+            "ALTER TABLE messages ADD COLUMN attachments TEXT"
+        )
 
     await _db.commit()
     return _db
@@ -399,7 +417,7 @@ async def get_conversation(conversation_id: str, user_email: str) -> Optional[di
     cursor = await db.execute(
         """
         SELECT id, role, content, thinking, tool_calls, rag_context,
-               created_at, token_count, index_in_conversation
+               attachments, created_at, token_count, index_in_conversation
         FROM messages
         WHERE conversation_id = ?
         ORDER BY index_in_conversation ASC
@@ -496,6 +514,7 @@ async def add_message(
     thinking: Optional[str] = None,
     tool_calls: Optional[list] = None,
     rag_context: Optional[dict] = None,
+    attachments: Optional[list] = None,
     token_count: Optional[int] = None,
 ) -> dict:
     db = await get_db()
@@ -514,8 +533,9 @@ async def add_message(
         """
         INSERT INTO messages
             (id, conversation_id, index_in_conversation, role, content,
-             thinking, tool_calls, rag_context, created_at, token_count)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             thinking, tool_calls, rag_context, attachments, created_at,
+             token_count)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             msg_id,
@@ -526,6 +546,7 @@ async def add_message(
             thinking,
             json.dumps(tool_calls) if tool_calls is not None else None,
             json.dumps(rag_context) if rag_context is not None else None,
+            json.dumps(attachments) if attachments is not None else None,
             now,
             token_count,
         ),
@@ -545,6 +566,7 @@ async def add_message(
         "thinking": thinking,
         "tool_calls": tool_calls,
         "rag_context": rag_context,
+        "attachments": attachments,
         "created_at": now,
         "token_count": token_count,
     }
@@ -555,7 +577,7 @@ async def get_messages_after_index(conversation_id: str, index: int) -> list[dic
     cursor = await db.execute(
         """
         SELECT id, role, content, thinking, tool_calls, rag_context,
-               created_at, token_count, index_in_conversation
+               attachments, created_at, token_count, index_in_conversation
         FROM messages
         WHERE conversation_id = ? AND index_in_conversation > ?
         ORDER BY index_in_conversation ASC

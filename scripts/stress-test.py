@@ -102,9 +102,23 @@ async def send_chat(
     ephemeral: bool = False,
     history: Optional[list[dict]] = None,
     email: Optional[str] = None,
+    images: Optional[list[str]] = None,
 ) -> dict:
+    """
+    ``message`` is the text content. If ``images`` is provided, the user
+    message is built as an OpenAI-style multimodal content list with the
+    text block first followed by one ``image_url`` block per entry in
+    ``images``. Each entry can be a data URL or a ``document:<id>``
+    reference.
+    """
     msgs: list[dict] = list(history or [])
-    msgs.append({"role": "user", "content": message})
+    if images:
+        content: list[dict] = [{"type": "text", "text": message}]
+        for url in images:
+            content.append({"type": "image_url", "image_url": {"url": url}})
+        msgs.append({"role": "user", "content": content})
+    else:
+        msgs.append({"role": "user", "content": message})
     body = {
         "persona": persona,
         "conversation_id": conversation_id,
@@ -1619,6 +1633,41 @@ async def test_pinned_only_filter(client):
     return t
 
 
+# ---- image generation helpers (§5 vision tests) ----------------------------
+
+def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
+    import struct
+    import zlib
+    length = struct.pack(">I", len(data))
+    crc = struct.pack(">I", zlib.crc32(chunk_type + data) & 0xFFFFFFFF)
+    return length + chunk_type + data + crc
+
+
+def make_solid_png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
+    """
+    Pure-Python PNG encoder for solid-colour images. Used by the vision
+    stress tests so we don't need PIL just to generate 64x64 red squares.
+    """
+    import struct
+    import zlib
+    signature = b"\x89PNG\r\n\x1a\n"
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)  # RGB, 8-bit
+    row = bytes([0]) + bytes(rgb) * width  # filter byte 0 + raw pixels
+    raw = row * height
+    idat = zlib.compress(raw)
+    return (
+        signature
+        + _png_chunk(b"IHDR", ihdr)
+        + _png_chunk(b"IDAT", idat)
+        + _png_chunk(b"IEND", b"")
+    )
+
+
+def png_to_data_url(png_bytes: bytes) -> str:
+    import base64
+    return "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
+
+
 async def _mcp_call(
     client,
     name: str,
@@ -2387,6 +2436,358 @@ async def test_plot_xlsx_via_chat(client):
     return t
 
 
+VISION_EMAIL = "vision-test@munin.local"
+
+
+async def test_vision_color(client):
+    """
+    Inline 64x64 solid-red PNG via multimodal content list; ask the model
+    what colour it is. Proves the data URL → vLLM plumbing works.
+    """
+    t = TestResult(name="")
+    png = make_solid_png(64, 64, (220, 30, 30))
+    data_url = png_to_data_url(png)
+    res = await send_chat(
+        client,
+        "What is the dominant colour of this image? Reply with one word.",
+        email=VISION_EMAIL,
+        images=[data_url],
+    )
+    conv_id = res["conversation_id"]
+    if not conv_id:
+        t.reason = f"no conversation id; errors={res['errors']}"
+        return t
+    try:
+        answer = (res["content"] or "").strip().lower()
+        t.metrics = {"answer_preview": answer[:120]}
+        if res["errors"]:
+            t.reason = f"stream error: {res['errors'][0]}"
+            return t
+        if "red" not in answer:
+            t.reason = f"model did not identify red; got {answer!r}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, VISION_EMAIL)
+    return t
+
+
+async def test_vision_ocr(client):
+    """
+    Rendered-text PNG via PIL. If PIL is not available on the host we
+    skip the test with a clear marker rather than failing.
+    """
+    t = TestResult(name="")
+    try:
+        from PIL import Image, ImageDraw, ImageFont  # type: ignore
+    except ImportError:
+        t.passed = True
+        t.reason = "SKIP: Pillow not installed on host"
+        return t
+    from io import BytesIO
+    img = Image.new("RGB", (320, 120), color=(255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36
+        )
+    except (IOError, OSError):
+        font = ImageFont.load_default()
+    draw.text((20, 30), "KINASE-7743", fill=(0, 0, 0), font=font)
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    data_url = png_to_data_url(buf.getvalue())
+
+    res = await send_chat(
+        client,
+        "What text is written in this image? Reply with the text only.",
+        email=VISION_EMAIL,
+        images=[data_url],
+    )
+    conv_id = res["conversation_id"]
+    if not conv_id:
+        t.reason = f"no conversation id; errors={res['errors']}"
+        return t
+    try:
+        answer = (res["content"] or "").strip().lower()
+        t.metrics = {"answer_preview": answer[:120]}
+        if res["errors"]:
+            t.reason = f"stream error: {res['errors'][0]}"
+            return t
+        if "kinase-7743" not in answer and "kinase 7743" not in answer:
+            t.reason = f"model did not OCR 'KINASE-7743'; got {answer!r}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, VISION_EMAIL)
+    return t
+
+
+async def test_vision_document_upload(client):
+    """
+    Upload a 64x64 green PNG via /api/documents/upload, then reference it
+    from a chat request via document:<doc_id>. Verifies the doc-ref
+    resolution path in vision.py / chat_service.
+    """
+    t = TestResult(name="")
+    png = make_solid_png(64, 64, (30, 180, 60))
+    files = {
+        "file": ("green.png", png, "image/png"),
+    }
+    up = await client.post(
+        f"{BASE}/api/documents/upload",
+        headers={"X-Munin-Email": VISION_EMAIL},
+        files=files,
+        timeout=30,
+    )
+    if up.status_code != 200:
+        t.reason = f"upload returned {up.status_code}: {up.text[:200]}"
+        return t
+    doc_id = up.json().get("document_id")
+    if not doc_id:
+        t.reason = f"upload returned no document_id: {up.json()}"
+        return t
+    try:
+        res = await send_chat(
+            client,
+            "What colour is this image? One word.",
+            email=VISION_EMAIL,
+            images=[f"document:{doc_id}"],
+        )
+        conv_id = res["conversation_id"]
+        if not conv_id:
+            t.reason = f"no conversation id; errors={res['errors']}"
+            return t
+        try:
+            answer = (res["content"] or "").strip().lower()
+            t.metrics = {"answer_preview": answer[:120], "document_id": doc_id}
+            if res["errors"]:
+                t.reason = f"stream error: {res['errors'][0]}"
+                return t
+            if "green" not in answer:
+                t.reason = f"model did not identify green; got {answer!r}"
+                return t
+            t.passed = True
+        finally:
+            await _delete_chat(client, conv_id, VISION_EMAIL)
+    finally:
+        # Best-effort document cleanup; tolerate missing endpoint.
+        try:
+            await client.delete(
+                f"{BASE}/api/documents/{doc_id}",
+                headers={"X-Munin-Email": VISION_EMAIL},
+                timeout=10,
+            )
+        except Exception:
+            pass
+    return t
+
+
+async def _read_kernel_var(client, conv_id: str, var: str) -> Optional[str]:
+    """Read a variable from the sandbox kernel directly via /mcp/call."""
+    status, body = await _mcp_call(
+        client,
+        "run_python",
+        {"code": f"print({var})"},
+        email=VISION_EMAIL,
+        conversation_id=conv_id,
+    )
+    if status != 200 or body.get("error"):
+        return None
+    return (body.get("stdout") or "").strip()
+
+
+async def test_feedback_loop_ocr_forced(client):
+    """
+    Strong feedback-loop test: the model generates a random 4-digit
+    integer, saves it to `_hidden_number` and draws it as large centred
+    text on a matplotlib figure without printing the value anywhere.
+    Because we pre-seed the ground truth by reading `_hidden_number`
+    after the chat completes, the model only has ~1/9000 chance of
+    guessing correctly if the feedback loop isn't actually delivering
+    the image.
+    """
+    t = TestResult(name="")
+    prompt = (
+        "Use run_python to (1) import random, (2) assign "
+        "_hidden_number = random.randint(1000, 9999), (3) create a "
+        "matplotlib figure with `_hidden_number` rendered as large "
+        "centred black text on a white background (fontsize 80, "
+        "axis off), and (4) show the figure with plt.show(). Do NOT "
+        "print `_hidden_number` anywhere, and do NOT put it in the "
+        "figure title. After the figure is shown, tell me the number "
+        "by finishing your reply with exactly:\n\n"
+        "ANSWER: <integer>"
+    )
+    res = await send_chat(client, prompt, email=VISION_EMAIL)
+    conv_id = res["conversation_id"]
+    if not conv_id:
+        t.reason = f"no conversation id; errors={res['errors']}"
+        return t
+    try:
+        if res["errors"]:
+            t.reason = f"stream error: {res['errors'][0]}"
+            return t
+        if "run_python" not in (res.get("tool_calls") or []):
+            t.reason = f"model did not call run_python; calls={res['tool_calls']}"
+            return t
+
+        # Ground truth: read the hidden variable from the kernel
+        # directly via a second /mcp/call.
+        truth = await _read_kernel_var(client, conv_id, "_hidden_number")
+        if not truth or not truth.isdigit():
+            t.reason = f"could not read _hidden_number from kernel; got {truth!r}"
+            return t
+
+        content = res["content"] or ""
+        import re as _re
+        m = _re.search(r"ANSWER:\s*(\d{3,5})", content, _re.IGNORECASE)
+        if not m:
+            # Fallback: last 4-digit run in the reply
+            digits = _re.findall(r"\b\d{4}\b", content)
+            guess = digits[-1] if digits else None
+        else:
+            guess = m.group(1)
+
+        t.metrics = {
+            "truth": truth,
+            "guess": guess,
+            "content_tail": content[-200:],
+        }
+        if not guess:
+            t.reason = "no 4-digit guess in model reply"
+            return t
+        # Exact match, or 3/4 digit agreement (absorb one OCR misread).
+        if guess == truth:
+            t.passed = True
+            return t
+        if len(guess) == len(truth):
+            matches = sum(1 for a, b in zip(guess, truth) if a == b)
+            if matches >= 3:
+                t.passed = True
+                return t
+        t.reason = f"answer mismatch: truth={truth} guess={guess}"
+    finally:
+        await _delete_chat(client, conv_id, VISION_EMAIL)
+    return t
+
+
+async def test_feedback_loop_color_forced(client):
+    """
+    Softer feedback-loop test (1/3 blind-guess chance): the model picks
+    a random colour from {crimson, teal, goldenrod}, saves it to
+    `_hidden_color`, and draws a solid rectangle of that colour
+    without ever mentioning the name in stdout or the figure title.
+    Ground truth via a direct /mcp/call read of `_hidden_color`.
+    """
+    t = TestResult(name="")
+    prompt = (
+        "Use run_python to (1) import random, (2) assign "
+        "_hidden_color = random.choice(['crimson', 'teal', 'goldenrod']), "
+        "(3) create a matplotlib figure that is a single filled "
+        "rectangle of that colour covering the whole axes area "
+        "(no title, no axis labels, axis off), and (4) show the "
+        "figure. Do NOT print `_hidden_color` anywhere, and do NOT "
+        "put the colour name in the title or any text. After the "
+        "figure is shown, tell me which colour it is by finishing "
+        "your reply with exactly:\n\nANSWER: <color>"
+    )
+    res = await send_chat(client, prompt, email=VISION_EMAIL)
+    conv_id = res["conversation_id"]
+    if not conv_id:
+        t.reason = f"no conversation id; errors={res['errors']}"
+        return t
+    try:
+        if res["errors"]:
+            t.reason = f"stream error: {res['errors'][0]}"
+            return t
+        if "run_python" not in (res.get("tool_calls") or []):
+            t.reason = f"model did not call run_python; calls={res['tool_calls']}"
+            return t
+        truth = await _read_kernel_var(client, conv_id, "_hidden_color")
+        if not truth:
+            t.reason = "could not read _hidden_color from kernel"
+            return t
+        # Strip python quotes around the printed string.
+        truth = truth.strip().strip("'").strip('"').lower()
+        content = (res["content"] or "").lower()
+        import re as _re
+        m = _re.search(r"answer:\s*([a-z]+)", content, _re.IGNORECASE)
+        guess = m.group(1).strip() if m else None
+        t.metrics = {
+            "truth": truth,
+            "guess": guess,
+            "content_tail": content[-200:],
+        }
+        if not guess:
+            t.reason = "no ANSWER line in model reply"
+            return t
+        if guess != truth:
+            t.reason = f"colour mismatch: truth={truth} guess={guess}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, VISION_EMAIL)
+    return t
+
+
+async def test_vision_unit_synthesis(client):
+    """
+    Runner for the in-container unit test that exercises
+    vision.build_tool_result_followup in isolation (no LLM). Shells out
+    via ``docker exec munin-retrieval`` so the test runs with the real
+    retrieval vision module, not a stale host copy.
+
+    If the stress-test process can't reach the docker socket (user not
+    in the docker group, running without sudo, etc.), the test skips
+    gracefully rather than failing - you can still invoke the unit
+    test manually via ``sudo docker exec munin-retrieval python
+    /app/tests/test_vision_synthesis.py``.
+    """
+    import subprocess
+    t = TestResult(name="")
+    try:
+        proc = subprocess.run(
+            [
+                "docker", "exec", "munin-retrieval",
+                "python", "/app/tests/test_vision_synthesis.py",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except FileNotFoundError:
+        t.passed = True
+        t.reason = "SKIP: docker CLI not available"
+        return t
+    except subprocess.TimeoutExpired:
+        t.reason = "docker exec timed out"
+        return t
+    combined_err = (proc.stderr or "") + (proc.stdout or "")
+    docker_perm_error = (
+        "permission denied" in combined_err.lower()
+        and "docker" in combined_err.lower()
+    )
+    t.metrics = {
+        "exit_code": proc.returncode,
+        "stdout_tail": (proc.stdout or "")[-300:],
+        "stderr_tail": (proc.stderr or "")[-300:],
+    }
+    if proc.returncode != 0 and docker_perm_error:
+        t.passed = True
+        t.reason = (
+            "SKIP: docker socket not reachable from stress-test user "
+            "(run `sudo docker exec munin-retrieval python "
+            "/app/tests/test_vision_synthesis.py` for coverage)"
+        )
+        return t
+    if proc.returncode != 0:
+        t.reason = f"unit test exit={proc.returncode}"
+        return t
+    t.passed = True
+    return t
+
+
 async def test_rolling_conversation_compaction(client):
     """
     Drive a multi-turn conversation with heavy per-turn payloads until the
@@ -2533,6 +2934,12 @@ ALL_TESTS = [
     ("sandbox_output_cap_truncates", test_sandbox_output_cap_truncates, False),
     ("plot_simple_via_chat", test_plot_simple_via_chat, True),       # heavy (chat-driven, ~5-15s)
     ("plot_xlsx_via_chat", test_plot_xlsx_via_chat, True),           # heavy (chat-driven, ~5-15s)
+    ("vision_color", test_vision_color, False),
+    ("vision_ocr", test_vision_ocr, False),
+    ("vision_document_upload", test_vision_document_upload, False),
+    ("vision_unit_synthesis", test_vision_unit_synthesis, False),
+    ("feedback_loop_ocr_forced", test_feedback_loop_ocr_forced, True),       # heavy, chat-driven
+    ("feedback_loop_color_forced", test_feedback_loop_color_forced, True),   # heavy, chat-driven
     ("rolling_conversation_compaction", test_rolling_conversation_compaction, True),  # heavy (6 turns × ~50k chars)
     ("style_no_emojis_research_headers", test_style_no_emojis_research_headers, False),
     ("style_no_decorative_in_list", test_style_no_decorative_in_list, False),
