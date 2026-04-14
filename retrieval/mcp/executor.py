@@ -41,6 +41,7 @@ from .tools import (
     run_python,
     sandbox_reset,
     faq,
+    ask_clarification,
 )
 
 
@@ -264,6 +265,12 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
             return await faq(
                 topic=arguments.get("topic"),
                 search=arguments.get("search"),
+            )
+
+        elif tool_name == "ask_clarification":
+            return await ask_clarification(
+                what_i_understood=arguments.get("what_i_understood", ""),
+                questions=arguments.get("questions", []),
             )
 
         else:

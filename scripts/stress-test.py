@@ -49,6 +49,7 @@ def parse_sse(text: str) -> dict:
     errors: list[str] = []
     content_chunks: list[str] = []
     artifacts: list[dict] = []
+    clarifications: list[dict] = []
     thinking_len = 0
     conversation_id: Optional[str] = None
     title: Optional[str] = None
@@ -75,6 +76,12 @@ def parse_sse(text: str) -> dict:
                 thinking_len += len(d.get("content", ""))
             elif current_event == "tool_call":
                 tool_calls.append(d.get("name"))
+            elif current_event == "clarification":
+                # §14 ask_clarification intercept — the backend emits
+                # one clarification SSE event per short-circuited turn
+                # with the full card payload (what_i_understood +
+                # questions).
+                clarifications.append(d)
             elif current_event == "artifact_created":
                 # §22 Stage C unified both the old sandbox `artifact`
                 # event and the model-written `artifact_created` event
@@ -92,6 +99,7 @@ def parse_sse(text: str) -> dict:
         "content": "".join(content_chunks),
         "tool_calls": tool_calls,
         "artifacts": artifacts,
+        "clarifications": clarifications,
         "errors": errors,
         "thinking_len": thinking_len,
         "conversation_id": conversation_id,
@@ -5761,6 +5769,291 @@ async def test_capabilities_in_system_prompt(client):
     return t
 
 
+# ==============================================================================
+# §14 ask_clarification — direct /mcp/call and chat-driven
+# ==============================================================================
+
+CLARIFICATION_EMAIL = "clarification-test@munin.local"
+
+
+async def test_clarification_direct_echo(client):
+    """Direct /mcp/call with a well-formed payload should echo back."""
+    t = TestResult(name="")
+    _, body = await _mcp_call(
+        client,
+        "ask_clarification",
+        {
+            "what_i_understood": "You want recent papers on polymer crystallization.",
+            "questions": [
+                {
+                    "id": "year_range",
+                    "text": "How recent is recent?",
+                    "options": ["Last 2 years", "Last 5 years", "No filter"],
+                    "allow_custom": True,
+                }
+            ],
+        },
+        email=CLARIFICATION_EMAIL,
+    )
+    t.metrics = {
+        "status": body.get("status"),
+        "question_count": len(body.get("questions") or []),
+    }
+    if body.get("error"):
+        t.reason = f"unexpected error: {body['error']}"
+        return t
+    if body.get("status") != "direct_call_echo":
+        t.reason = f"status mismatch: {body.get('status')!r}"
+        return t
+    qs = body.get("questions") or []
+    if len(qs) != 1 or qs[0].get("id") != "year_range":
+        t.reason = f"question normalisation failed: {qs!r}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_clarification_missing_questions(client):
+    """Zero-length questions list must be rejected."""
+    t = TestResult(name="")
+    _, body = await _mcp_call(
+        client,
+        "ask_clarification",
+        {"what_i_understood": "Something.", "questions": []},
+        email=CLARIFICATION_EMAIL,
+    )
+    t.metrics = {"error": body.get("error")}
+    if not body.get("error"):
+        t.reason = f"expected error, got {body}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_clarification_too_many_options(client):
+    """An option list above the cap (max 6) must be rejected."""
+    t = TestResult(name="")
+    _, body = await _mcp_call(
+        client,
+        "ask_clarification",
+        {
+            "what_i_understood": "Pick one of many.",
+            "questions": [
+                {
+                    "text": "Which?",
+                    "options": [f"opt{i}" for i in range(8)],
+                }
+            ],
+        },
+        email=CLARIFICATION_EMAIL,
+    )
+    t.metrics = {"error": body.get("error")}
+    if not body.get("error"):
+        t.reason = f"expected error, got {body}"
+        return t
+    if "options" not in (body.get("error") or ""):
+        t.reason = f"error should mention options: {body.get('error')!r}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_clarification_empty_understanding(client):
+    """Blank what_i_understood must be rejected."""
+    t = TestResult(name="")
+    _, body = await _mcp_call(
+        client,
+        "ask_clarification",
+        {
+            "what_i_understood": "   ",
+            "questions": [
+                {"text": "Which?", "options": ["a", "b"]},
+            ],
+        },
+        email=CLARIFICATION_EMAIL,
+    )
+    t.metrics = {"error": body.get("error")}
+    if not body.get("error"):
+        t.reason = f"expected error, got {body}"
+        return t
+    t.passed = True
+    return t
+
+
+async def _expect_clarification(client, message: str, persona: str = "chat") -> dict:
+    """
+    Helper: send a chat message and return the parsed SSE response. The
+    caller decides whether a clarification event SHOULD or SHOULD NOT
+    have fired.
+    """
+    res = await send_chat(
+        client,
+        message,
+        persona=persona,
+        email=CLARIFICATION_EMAIL,
+    )
+    # Clean up immediately so ambiguous-test conversations don't leak.
+    if res.get("conversation_id"):
+        await _delete_chat(client, res["conversation_id"], CLARIFICATION_EMAIL)
+    return res
+
+
+async def _assert_clarification_fired(res: dict) -> Optional[str]:
+    """Return a failure reason string, or None if the assertion holds."""
+    if res.get("errors"):
+        return f"stream error: {res['errors'][0]}"
+    clars = res.get("clarifications") or []
+    if len(clars) != 1:
+        return f"expected exactly 1 clarification event, got {len(clars)}"
+    card = clars[0]
+    understood = (card.get("what_i_understood") or "").strip()
+    if not understood:
+        return "clarification card missing what_i_understood"
+    questions = card.get("questions") or []
+    if not (1 <= len(questions) <= 5):
+        return f"clarification question count out of range: {len(questions)}"
+    # Short-circuit guarantee: no other tool calls fired this turn.
+    other_calls = [tc for tc in (res.get("tool_calls") or []) if tc != "ask_clarification"]
+    if other_calls:
+        return f"other tool calls fired alongside clarification: {other_calls}"
+    return None
+
+
+async def _assert_no_clarification(res: dict) -> Optional[str]:
+    if res.get("errors"):
+        return f"stream error: {res['errors'][0]}"
+    clars = res.get("clarifications") or []
+    if clars:
+        return f"unexpected clarification fired: {clars[0].get('what_i_understood')!r}"
+    if len(res.get("content", "").strip()) < 20:
+        return f"answer suspiciously short: {res.get('content', '')!r}"
+    return None
+
+
+async def test_ambiguous_help(client):
+    """`help me with my paper` is the textbook ambiguous prompt."""
+    t = TestResult(name="")
+    res = await _expect_clarification(client, "help me with my paper")
+    t.metrics = {
+        "clarifications": len(res.get("clarifications") or []),
+        "tool_calls": res.get("tool_calls") or [],
+    }
+    reason = await _assert_clarification_fired(res)
+    if reason:
+        t.reason = reason
+        return t
+    t.passed = True
+    return t
+
+
+async def test_ambiguous_whats_new(client):
+    """`what's new?` — no scope, no target, no timeframe."""
+    t = TestResult(name="")
+    res = await _expect_clarification(client, "what's new?")
+    t.metrics = {
+        "clarifications": len(res.get("clarifications") or []),
+        "tool_calls": res.get("tool_calls") or [],
+    }
+    reason = await _assert_clarification_fired(res)
+    if reason:
+        t.reason = reason
+        return t
+    t.passed = True
+    return t
+
+
+async def test_vague_look_into(client):
+    """`look into photosynthesis` — broad topic, no angle specified."""
+    t = TestResult(name="")
+    res = await _expect_clarification(client, "look into photosynthesis")
+    t.metrics = {
+        "clarifications": len(res.get("clarifications") or []),
+        "tool_calls": res.get("tool_calls") or [],
+    }
+    reason = await _assert_clarification_fired(res)
+    if reason:
+        t.reason = reason
+        return t
+    t.passed = True
+    return t
+
+
+async def test_single_word_fix(client):
+    """Single-word `fix it` — no referent."""
+    t = TestResult(name="")
+    res = await _expect_clarification(client, "fix it", persona="code")
+    t.metrics = {
+        "clarifications": len(res.get("clarifications") or []),
+        "tool_calls": res.get("tool_calls") or [],
+    }
+    reason = await _assert_clarification_fired(res)
+    if reason:
+        t.reason = reason
+        return t
+    t.passed = True
+    return t
+
+
+async def test_clear_date_no_clarification(client):
+    """`what day is it?` is unambiguous — no clarification expected."""
+    t = TestResult(name="")
+    res = await _expect_clarification(client, "What day is it today?")
+    t.metrics = {
+        "clarifications": len(res.get("clarifications") or []),
+        "content_preview": (res.get("content") or "")[:120],
+    }
+    reason = await _assert_no_clarification(res)
+    if reason:
+        t.reason = reason
+        return t
+    t.passed = True
+    return t
+
+
+async def test_clear_research_no_clarification(client):
+    """`find recent papers on polymer crystallization` is broad but clear."""
+    t = TestResult(name="")
+    res = await _expect_clarification(
+        client,
+        "Find recent papers on polymer crystallization and give me a brief overview.",
+        persona="research",
+    )
+    t.metrics = {
+        "clarifications": len(res.get("clarifications") or []),
+        "content_chars": len(res.get("content") or ""),
+        "tool_calls": res.get("tool_calls") or [],
+    }
+    reason = await _assert_no_clarification(res)
+    if reason:
+        t.reason = reason
+        return t
+    t.passed = True
+    return t
+
+
+async def test_clear_code_no_clarification(client):
+    """Reviewing a concrete pasted Python function is unambiguous."""
+    t = TestResult(name="")
+    code_prompt = (
+        "Review this Python function for bugs:\n\n"
+        "```python\n"
+        "def average(xs):\n"
+        "    return sum(xs) / len(xs)\n"
+        "```\n"
+    )
+    res = await _expect_clarification(client, code_prompt, persona="code")
+    t.metrics = {
+        "clarifications": len(res.get("clarifications") or []),
+        "content_chars": len(res.get("content") or ""),
+    }
+    reason = await _assert_no_clarification(res)
+    if reason:
+        t.reason = reason
+        return t
+    t.passed = True
+    return t
+
+
 async def test_rolling_conversation_compaction(client):
     """
     Drive a multi-turn conversation with heavy per-turn payloads until the
@@ -5959,6 +6252,17 @@ ALL_TESTS = [
     ("faq_unknown_topic", test_faq_unknown_topic, False),
     ("faq_table_of_contents", test_faq_table_of_contents, False),
     ("capabilities_in_system_prompt", test_capabilities_in_system_prompt, True),   # heavy, chat-driven
+    ("clarification_direct_echo", test_clarification_direct_echo, False),
+    ("clarification_missing_questions", test_clarification_missing_questions, False),
+    ("clarification_too_many_options", test_clarification_too_many_options, False),
+    ("clarification_empty_understanding", test_clarification_empty_understanding, False),
+    ("ambiguous_help", test_ambiguous_help, True),                 # heavy, chat-driven
+    ("ambiguous_whats_new", test_ambiguous_whats_new, True),       # heavy, chat-driven
+    ("vague_look_into", test_vague_look_into, True),               # heavy, chat-driven
+    ("single_word_fix", test_single_word_fix, True),               # heavy, chat-driven
+    ("clear_date_no_clarification", test_clear_date_no_clarification, True),       # heavy, chat-driven
+    ("clear_research_no_clarification", test_clear_research_no_clarification, True),  # heavy, chat-driven (research persona)
+    ("clear_code_no_clarification", test_clear_code_no_clarification, True),       # heavy, chat-driven
     ("project_crud_roundtrip", test_project_crud_roundtrip, False),
     ("project_instructions_cap", test_project_instructions_cap, False),
     ("project_conversation_filing", test_project_conversation_filing, False),

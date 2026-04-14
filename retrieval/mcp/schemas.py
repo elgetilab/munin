@@ -677,6 +677,72 @@ MCP_TOOLS = {
             "required": []
         }
     },
+    "ask_clarification": {
+        "name": "ask_clarification",
+        "description": (
+            "Pause and ask the user 1-5 structured multiple-choice questions "
+            "when their request is too ambiguous to act on confidently. Always "
+            "provide a short restatement of what you think they're asking in "
+            "`what_i_understood`, then offer each question with 2-6 plausible "
+            "`options` the user can tap on. Leave `allow_custom: true` so they "
+            "can type a free-form answer if none fit.\n\n"
+            "USE THIS when the request is so vague that multiple very different "
+            "plans would all be reasonable: 'help me with my paper', 'what's "
+            "new?', 'look into photosynthesis', single-word messages like 'fix "
+            "it', or when a critical parameter (time window, scope, format, "
+            "target) is missing. Ask BEFORE calling any other tool on the same "
+            "turn - this tool short-circuits the rest of the turn; no other "
+            "tool calls in the same response will run.\n\n"
+            "DO NOT USE for clear requests even if they're broad: 'find recent "
+            "papers on polymer crystallization', 'what day is it?', 'review "
+            "this code', 'summarise this paper'. Do not use it as a stalling "
+            "tactic or to second-guess reasonable defaults - pick sensible "
+            "defaults and proceed if a single clarification wouldn't change "
+            "your whole plan."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "what_i_understood": {
+                    "type": "string",
+                    "description": "One-sentence restatement of the user's request. Shown prominently at the top of the clarification card so the user can confirm or correct your interpretation. Keep under 500 characters."
+                },
+                "questions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "description": "1 to 5 clarifying sub-questions, each with its own set of multiple-choice options.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "string",
+                                "description": "Stable identifier for this sub-question (e.g. 'year_range', 'scope'). Optional - auto-assigned as q1/q2/... if omitted."
+                            },
+                            "text": {
+                                "type": "string",
+                                "description": "The question itself. Keep under 300 characters."
+                            },
+                            "options": {
+                                "type": "array",
+                                "minItems": 2,
+                                "maxItems": 6,
+                                "items": {"type": "string"},
+                                "description": "2 to 6 plausible answers for the user to choose from. Each under 100 characters."
+                            },
+                            "allow_custom": {
+                                "type": "boolean",
+                                "description": "Whether to show a 'type your own' text field beside the preset options. Default: true.",
+                                "default": True
+                            }
+                        },
+                        "required": ["text", "options"]
+                    }
+                }
+            },
+            "required": ["what_i_understood", "questions"]
+        }
+    },
     "faq": {
         "name": "faq",
         "description": "Look up admin-curated answers to user-facing how-to questions. Use this ONLY when the user asks how the Munin interface works ('how do I upload a document?', 'what is incognito mode?', 'what's the difference between the personas?', 'how do I start a project?'). Do NOT use it for research questions - those go through deep_research / paper_search / web_search / read_paper / etc. The list of available topic ids is in the === CAPABILITIES === block of your system prompt under 'FAQ topics'. Three call modes: (1) faq(topic='upload_documents') returns the full answer for one topic; (2) faq(search='upload') does substring matching and returns a list of previews; (3) faq() with no arguments returns the table of contents (all topics with their questions, no answer bodies). Start with mode (1) when you know the exact topic; fall back to (2) or (3) when you don't.",

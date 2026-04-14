@@ -43,6 +43,7 @@ import vision
 from database import VLLM_URL, VLLM_MODEL_NAME
 from mcp.schemas import MCP_TOOLS
 from mcp.executor import execute_mcp_tool
+from mcp.tools import clarification as clarification_tool
 from mcp.context import (
     current_user_email,
     current_conversation_id,
@@ -714,6 +715,95 @@ async def stream_chat_completion(
         if not tool_calls:
             hit_turn_cap = False
             break
+
+        # --- §14 ask_clarification intercept ---
+        # If the model called ask_clarification, short-circuit the whole
+        # turn: emit a single `clarification` SSE event with the full
+        # card payload, persist an assistant message with a markdown
+        # fallback, emit `done`, and return. We do NOT run any other
+        # tool calls from the same turn (the decision was to honor
+        # clarification and silently drop the rest), and we do NOT
+        # invoke the wrap-up synthesis pass.
+        clar_tc = next(
+            (tc for tc in tool_calls if tc.get("name") == "ask_clarification"),
+            None,
+        )
+        if clar_tc is not None:
+            args = clar_tc.get("arguments") or {}
+            normalised, err = clarification_tool.validate_clarification_payload(
+                args.get("what_i_understood"),
+                args.get("questions"),
+            )
+            if err is not None:
+                yield _error_sse(f"Invalid ask_clarification payload: {err}")
+                return
+
+            fallback_md = clarification_tool.render_markdown_fallback(normalised)
+
+            yield _sse(
+                "clarification",
+                {
+                    "tool_call_id": clar_tc["id"],
+                    "conversation_id": conversation["id"],
+                    "what_i_understood": normalised["what_i_understood"],
+                    "questions": normalised["questions"],
+                },
+            )
+
+            final_content += fallback_md
+            final_tool_calls.append({
+                "id": clar_tc["id"],
+                "name": "ask_clarification",
+                "arguments": normalised,
+                "result": {"status": "awaiting_user_response"},
+                "duration_ms": 0,
+            })
+
+            if not ephemeral:
+                await chat_store.add_message(
+                    conversation_id=conversation["id"],
+                    role="assistant",
+                    content=final_content,
+                    thinking=final_thinking or None,
+                    tool_calls=final_tool_calls or None,
+                    rag_context=rag_context,
+                )
+
+                if is_new and not conversation.get("title"):
+                    # Feed what_i_understood as the stand-in assistant
+                    # response so clarification-first conversations get
+                    # a title that reflects the user's intent rather
+                    # than the clarification questions themselves.
+                    try:
+                        title = await chat_context.generate_title(
+                            user_message.get("content", ""),
+                            normalised["what_i_understood"],
+                        )
+                        if title:
+                            await chat_store.update_conversation(
+                                conversation_id=conversation["id"],
+                                user_email=user_email,
+                                title=title,
+                            )
+                            yield _sse(
+                                "conversation",
+                                {
+                                    "id": conversation["id"],
+                                    "title": title,
+                                    "is_new": False,
+                                },
+                            )
+                    except Exception as e:
+                        print(f"[WARNING] Auto-title (clarification) failed: {e}")
+
+            yield _sse(
+                "done",
+                {
+                    "usage": final_usage or {},
+                    "finish_reason": "clarification",
+                },
+            )
+            return
 
         # Execute all tool calls for this turn in parallel, with a side
         # channel queue so nested agent events can stream to the client

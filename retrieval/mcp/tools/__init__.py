@@ -41,6 +41,11 @@ from .research import deep_research
 from .citations import export_citations
 from .calculator import calculate
 from .sandbox import run_python, sandbox_reset, sandbox_shutdown
+from .clarification import (
+    ask_clarification,
+    validate_clarification_payload,
+    render_markdown_fallback,
+)
 
 __all__ = [
     "web_search",
@@ -80,4 +85,7 @@ __all__ = [
     "run_python",
     "sandbox_reset",
     "sandbox_shutdown",
+    "ask_clarification",
+    "validate_clarification_payload",
+    "render_markdown_fallback",
 ]

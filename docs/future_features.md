@@ -1451,6 +1451,47 @@ more structured:
   in the next request body. Cleaner data model but requires a new
   request shape. Defer — string synthesis is fine for v1.
 
+### Status
+
+**Shipped 2026-04-14.** Backend landed:
+
+- `retrieval/mcp/tools/clarification.py` — validation (`what_i_understood`
+  ≤500 chars; 1-5 questions; question text ≤300; 2-6 options each
+  ≤100; `allow_custom` bool; auto-assigned `id`) + markdown fallback
+  renderer for conversation history.
+- `retrieval/mcp/schemas.py` — `ask_clarification` entry with an
+  explicit USE / DO-NOT-USE decision rule; `retrieval/mcp/executor.py`
+  dispatches the stub for `POST /mcp/call`-style direct tests.
+- `retrieval/chat_service.py` — intercept before `_run_tool_calls`:
+  detects `ask_clarification`, validates payload, emits a single
+  `clarification` SSE event, persists the assistant turn with
+  markdown fallback content + the `awaiting_user_response` tool_call
+  record, emits `done` with `finish_reason: "clarification"`, and
+  returns. Skips wrap-up synthesis and silently drops any other
+  tool calls the model tried to run in the same turn.
+- Auto-title uses `what_i_understood` as the stand-in assistant
+  response so clarification-first conversations get a title from the
+  user's intent, not the questions.
+- All three personas (`chat`, `research`, `code`) got a prompt
+  addition with concrete ambiguous-vs-clear examples.
+- SSE catalogue row added to `docs/BACKEND-API.md`.
+
+Tests added to `scripts/stress-test.py`:
+
+- Direct `/mcp/call` echo + validation: `clarification_direct_echo`,
+  `clarification_missing_questions`, `clarification_too_many_options`,
+  `clarification_empty_understanding` (all light, no chat).
+- Chat-driven ambiguous (expect clarification event, zero other tool
+  calls): `ambiguous_help`, `ambiguous_whats_new`, `vague_look_into`,
+  `single_word_fix` (Turing persona).
+- Chat-driven clear (expect normal answer, zero clarification events):
+  `clear_date_no_clarification`, `clear_research_no_clarification`
+  (Curie persona), `clear_code_no_clarification` (Turing persona).
+
+SSE contract: exactly one `clarification` event per short-circuited
+turn, `finish_reason: "clarification"` on `done`, no `tool_result`
+events from the same turn.
+
 ---
 
 ## 15. Paper-embedding 2D map with clustering
