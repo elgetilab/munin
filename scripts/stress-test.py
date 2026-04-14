@@ -2788,6 +2788,558 @@ async def test_vision_unit_synthesis(client):
     return t
 
 
+PROJECT_EMAIL = "project-test@munin.local"
+
+
+async def _project_create(client, payload: dict, email: str = PROJECT_EMAIL) -> tuple[int, dict]:
+    r = await client.post(
+        f"{BASE}/api/projects",
+        headers={"X-Munin-Email": email, "Content-Type": "application/json"},
+        json=payload,
+        timeout=10,
+    )
+    try:
+        return r.status_code, r.json()
+    except Exception:
+        return r.status_code, {}
+
+
+async def _project_get(client, pid: str, email: str = PROJECT_EMAIL) -> tuple[int, dict]:
+    r = await client.get(
+        f"{BASE}/api/projects/{pid}",
+        headers={"X-Munin-Email": email},
+        timeout=10,
+    )
+    try:
+        return r.status_code, r.json()
+    except Exception:
+        return r.status_code, {}
+
+
+async def _project_list(client, email: str = PROJECT_EMAIL, params: Optional[dict] = None) -> dict:
+    r = await client.get(
+        f"{BASE}/api/projects",
+        headers={"X-Munin-Email": email},
+        params=params or {},
+        timeout=10,
+    )
+    try:
+        return r.json() if r.status_code == 200 else {"projects": [], "total": 0}
+    except Exception:
+        return {"projects": [], "total": 0}
+
+
+async def _project_patch(client, pid: str, payload: dict, email: str = PROJECT_EMAIL) -> tuple[int, dict]:
+    r = await client.patch(
+        f"{BASE}/api/projects/{pid}",
+        headers={"X-Munin-Email": email, "Content-Type": "application/json"},
+        json=payload,
+        timeout=10,
+    )
+    try:
+        return r.status_code, r.json()
+    except Exception:
+        return r.status_code, {}
+
+
+async def _project_delete(client, pid: str, email: str = PROJECT_EMAIL) -> int:
+    r = await client.delete(
+        f"{BASE}/api/projects/{pid}",
+        headers={"X-Munin-Email": email},
+        timeout=10,
+    )
+    return r.status_code
+
+
+async def _file_conversation(client, pid: str, cid: str, email: str = PROJECT_EMAIL) -> tuple[int, dict]:
+    r = await client.post(
+        f"{BASE}/api/projects/{pid}/conversations/{cid}",
+        headers={"X-Munin-Email": email},
+        timeout=10,
+    )
+    try:
+        return r.status_code, r.json()
+    except Exception:
+        return r.status_code, {}
+
+
+async def _upload_text_doc(
+    client,
+    content: str,
+    filename: str = "note.txt",
+    email: str = PROJECT_EMAIL,
+    project_id: Optional[str] = None,
+) -> tuple[int, dict]:
+    files = {"file": (filename, content.encode("utf-8"), "text/plain")}
+    data: dict[str, str] = {}
+    if project_id:
+        data["project_id"] = project_id
+    r = await client.post(
+        f"{BASE}/api/documents/upload",
+        headers={"X-Munin-Email": email},
+        files=files,
+        data=data,
+        timeout=60,
+    )
+    try:
+        return r.status_code, r.json()
+    except Exception:
+        return r.status_code, {}
+
+
+async def test_project_crud_roundtrip(client):
+    """POST, GET, PATCH, DELETE, GET→404."""
+    t = TestResult(name="")
+    status, body = await _project_create(
+        client,
+        {
+            "name": "Kinase Thesis",
+            "description": "PhD on small-molecule kinase inhibitors",
+            "instructions": "Prefer 2023+ papers. Always cite DOIs.",
+            "default_persona": "research",
+        },
+    )
+    if status != 200:
+        t.reason = f"create returned {status}: {body}"
+        return t
+    pid = body.get("id")
+    if not pid:
+        t.reason = f"create returned no id: {body}"
+        return t
+    try:
+        # GET single
+        get_status, got = await _project_get(client, pid)
+        if get_status != 200:
+            t.reason = f"GET returned {get_status}"
+            return t
+        if got.get("name") != "Kinase Thesis":
+            t.reason = f"name mismatch: {got.get('name')!r}"
+            return t
+        if "conversation_count" not in got:
+            t.reason = "missing conversation_count in single-GET"
+            return t
+        if "document_count" not in got:
+            t.reason = "missing document_count in single-GET"
+            return t
+        # PATCH
+        patch_status, patched = await _project_patch(
+            client, pid, {"instructions": "Updated instructions."}
+        )
+        if patch_status != 200 or patched.get("instructions") != "Updated instructions.":
+            t.reason = f"PATCH returned {patch_status}: {patched}"
+            return t
+        t.metrics = {"id": pid}
+        t.passed = True
+    finally:
+        await _project_delete(client, pid)
+        after_status, _ = await _project_get(client, pid)
+        if after_status != 404:
+            t.reason = f"after delete, GET returned {after_status} (want 404)"
+            t.passed = False
+    return t
+
+
+async def test_project_instructions_cap(client):
+    """3000-char instructions must return 400."""
+    t = TestResult(name="")
+    status, body = await _project_create(
+        client,
+        {
+            "name": "Oversized",
+            "instructions": "x" * 3000,
+        },
+    )
+    t.metrics = {"status": status, "msg": json.dumps(body)[:160]}
+    if status != 400:
+        t.reason = f"expected 400 for 3000-char instructions, got {status}"
+        return t
+    t.passed = True
+    return t
+
+
+async def test_project_conversation_filing(client):
+    """Create a project, create a conversation via send_chat, file it into the project, verify list filter."""
+    t = TestResult(name="")
+    _, proj = await _project_create(client, {"name": "Filing Test"})
+    pid = proj.get("id")
+    if not pid:
+        t.reason = f"create failed: {proj}"
+        return t
+    try:
+        res = await send_chat(client, "say hi briefly", email=PROJECT_EMAIL)
+        conv_id = res["conversation_id"]
+        if not conv_id:
+            t.reason = f"no conv id: {res['errors']}"
+            return t
+        try:
+            f_status, f_body = await _file_conversation(client, pid, conv_id)
+            if f_status != 200:
+                t.reason = f"file returned {f_status}: {f_body}"
+                return t
+            # Filter /api/chats by project_id
+            listing = await _list_chats_for(
+                client, PROJECT_EMAIL, {"project_id": pid}
+            )
+            ids_in_project = [c["id"] for c in listing.get("conversations", [])]
+            t.metrics = {"project_conversation_ids": ids_in_project}
+            if conv_id not in ids_in_project:
+                t.reason = "conversation missing from project-filtered listing"
+                return t
+            # Unfile sentinel
+            unfiled = await _list_chats_for(
+                client, PROJECT_EMAIL, {"project_id": "__unfiled__"}
+            )
+            unfiled_ids = [c["id"] for c in unfiled.get("conversations", [])]
+            if conv_id in unfiled_ids:
+                t.reason = "filed conversation still appears in __unfiled__ bucket"
+                return t
+            t.passed = True
+        finally:
+            await _delete_chat(client, conv_id, PROJECT_EMAIL)
+    finally:
+        await _project_delete(client, pid)
+    return t
+
+
+async def test_project_instructions_injected(client):
+    """
+    Set a unique keyword in project instructions, send a chat that asks
+    the model to recall it, verify the model saw the instructions.
+    """
+    t = TestResult(name="")
+    token = "quintarium42"
+    _, proj = await _project_create(
+        client,
+        {
+            "name": "Keyword Injection",
+            "instructions": (
+                f"My favourite fictional element is called {token}. "
+                "Remember this whenever I ask about it."
+            ),
+        },
+    )
+    pid = proj.get("id")
+    if not pid:
+        t.reason = f"create failed: {proj}"
+        return t
+    try:
+        # Seed a conversation and file it
+        seed = await send_chat(client, "start", email=PROJECT_EMAIL)
+        conv_id = seed["conversation_id"]
+        if not conv_id:
+            t.reason = "no conv id"
+            return t
+        try:
+            await _file_conversation(client, pid, conv_id)
+            # Now send a follow-up IN the filed conversation.
+            res = await send_chat(
+                client,
+                "What is the name of my favourite fictional element? Reply with just the name.",
+                conversation_id=conv_id,
+                email=PROJECT_EMAIL,
+            )
+            answer = (res["content"] or "").strip().lower()
+            t.metrics = {"answer_preview": answer[:120]}
+            if token not in answer:
+                t.reason = f"model did not see project instructions; got {answer!r}"
+                return t
+            t.passed = True
+        finally:
+            await _delete_chat(client, conv_id, PROJECT_EMAIL)
+    finally:
+        await _project_delete(client, pid)
+    return t
+
+
+async def test_project_scoped_doc_search(client):
+    """
+    Upload doc A into project P1, doc B into project P2, then call
+    search_user_docs via /mcp/call with conversation_id that is filed
+    into P1. Assert only A is returned.
+    """
+    t = TestResult(name="")
+    _, p1 = await _project_create(client, {"name": "Scoped P1"})
+    _, p2 = await _project_create(client, {"name": "Scoped P2"})
+    p1_id = p1.get("id")
+    p2_id = p2.get("id")
+    if not p1_id or not p2_id:
+        t.reason = "could not create both projects"
+        return t
+    seed = await send_chat(client, "start", email=PROJECT_EMAIL)
+    conv_id = seed["conversation_id"]
+    if not conv_id:
+        t.reason = "no conv id"
+        return t
+    try:
+        await _file_conversation(client, p1_id, conv_id)
+        doc_a_content = (
+            "Project P1 specific note: the internal codename for the P1 "
+            "project is orchidsapphire. All experiments are run at 37 degrees."
+        )
+        doc_b_content = (
+            "Project P2 specific note: the internal codename for the P2 "
+            "project is thunderferret. All experiments are run at 4 degrees."
+        )
+        up_a_status, _ = await _upload_text_doc(
+            client, doc_a_content, filename="p1_notes.txt", project_id=p1_id
+        )
+        up_b_status, _ = await _upload_text_doc(
+            client, doc_b_content, filename="p2_notes.txt", project_id=p2_id
+        )
+        if up_a_status != 200 or up_b_status != 200:
+            t.reason = f"upload failed: a={up_a_status} b={up_b_status}"
+            return t
+        status, body = await _mcp_call(
+            client,
+            "search_user_docs",
+            {"query": "internal codename experiments", "top_k": 5},
+            email=PROJECT_EMAIL,
+            conversation_id=conv_id,
+        )
+        if status != 200:
+            t.reason = f"/mcp/call returned {status}: {body}"
+            return t
+        results = body.get("results") or []
+        sources = body.get("sources_used") or []
+        combined_text = " ".join(r.get("content", "") for r in results).lower()
+        t.metrics = {
+            "sources_used": sources,
+            "result_count": len(results),
+            "snippet_preview": combined_text[:200],
+        }
+        if "thunderferret" in combined_text:
+            t.reason = "P2 doc leaked into P1-scoped search"
+            return t
+        if "orchidsapphire" not in combined_text:
+            t.reason = "P1-scoped search did not return P1 doc"
+            return t
+        if sources != ["project"]:
+            t.reason = f"expected sources_used=['project'], got {sources}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, PROJECT_EMAIL)
+        await _project_delete(client, p1_id)
+        await _project_delete(client, p2_id)
+    return t
+
+
+async def test_project_doc_search_global_fallback(client):
+    """
+    Upload a global doc only (no project), start a chat filed into a
+    project that has NO docs, then search. Expect the fallback path to
+    kick in and return the global doc with sources_used=['project',
+    'global'].
+    """
+    t = TestResult(name="")
+    _, proj = await _project_create(client, {"name": "Fallback Test"})
+    pid = proj.get("id")
+    if not pid:
+        t.reason = "create failed"
+        return t
+    seed = await send_chat(client, "start", email=PROJECT_EMAIL)
+    conv_id = seed["conversation_id"]
+    if not conv_id:
+        t.reason = "no conv id"
+        return t
+    try:
+        await _file_conversation(client, pid, conv_id)
+        global_content = (
+            "User-global note: my preferred buffer recipe is called "
+            "hexalysine-pink and uses 50 mM HEPES at pH 7.4."
+        )
+        up_status, up_body = await _upload_text_doc(
+            client, global_content, filename="global_note.txt"
+        )
+        if up_status != 200:
+            t.reason = f"global upload returned {up_status}: {up_body}"
+            return t
+        status, body = await _mcp_call(
+            client,
+            "search_user_docs",
+            {"query": "preferred buffer recipe HEPES", "top_k": 5},
+            email=PROJECT_EMAIL,
+            conversation_id=conv_id,
+        )
+        if status != 200:
+            t.reason = f"/mcp/call returned {status}: {body}"
+            return t
+        sources = body.get("sources_used") or []
+        results = body.get("results") or []
+        content_blob = " ".join(r.get("content", "") for r in results).lower()
+        t.metrics = {
+            "sources_used": sources,
+            "result_count": len(results),
+            "hexalysine_in_results": "hexalysine-pink" in content_blob,
+        }
+        if "global" not in sources:
+            t.reason = f"fallback did not mark sources_used=global: {sources}"
+            return t
+        if "hexalysine-pink" not in content_blob:
+            t.reason = "global doc missing from fallback results"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, PROJECT_EMAIL)
+        await _project_delete(client, pid)
+    return t
+
+
+async def test_project_cross_user_isolation(client):
+    """User A's project is invisible to user B."""
+    t = TestResult(name="")
+    user_a = "proj-iso-a@munin.local"
+    user_b = "proj-iso-b@munin.local"
+    _, proj = await _project_create(
+        client, {"name": "Secret Project"}, email=user_a
+    )
+    pid = proj.get("id")
+    if not pid:
+        t.reason = "create failed"
+        return t
+    try:
+        # B's list should not see A's project
+        b_list = await _project_list(client, email=user_b)
+        ids = [p.get("id") for p in b_list.get("projects", [])]
+        t.metrics = {"b_project_ids": ids}
+        if pid in ids:
+            t.reason = "user B sees user A's project in list"
+            return t
+        # B's GET by id should 404
+        status, _ = await _project_get(client, pid, email=user_b)
+        if status != 404:
+            t.reason = f"user B GET returned {status}, want 404"
+            return t
+        t.passed = True
+    finally:
+        await _project_delete(client, pid, email=user_a)
+    return t
+
+
+async def test_project_archived_hidden_by_default(client):
+    """Archived projects hidden from default list, visible with ?archived=true."""
+    t = TestResult(name="")
+    _, proj = await _project_create(client, {"name": "Archive Me"})
+    pid = proj.get("id")
+    if not pid:
+        t.reason = "create failed"
+        return t
+    try:
+        # Archive via PATCH
+        status, _ = await _project_patch(client, pid, {"archived": True})
+        if status != 200:
+            t.reason = f"archive PATCH returned {status}"
+            return t
+        default_list = await _project_list(client)
+        default_ids = [p.get("id") for p in default_list.get("projects", [])]
+        archived_list = await _project_list(
+            client, params={"archived": "true"}
+        )
+        archived_ids = [p.get("id") for p in archived_list.get("projects", [])]
+        t.metrics = {
+            "default_has_archived": pid in default_ids,
+            "archived_list_has_it": pid in archived_ids,
+        }
+        if pid in default_ids:
+            t.reason = "archived project visible in default list"
+            return t
+        if pid not in archived_ids:
+            t.reason = "archived=true query did not surface the project"
+            return t
+        t.passed = True
+    finally:
+        await _project_delete(client, pid)
+    return t
+
+
+async def test_project_persona_precedence(client):
+    """
+    project.default_persona > profile.default_persona > global default.
+    Set profile.default_persona=chat and project.default_persona=research,
+    then start a BRAND-NEW conversation with project_id in the body.
+    The conversation row's persona is set at creation time, so the
+    resolver's project step must win over the profile step for this
+    single creation call.
+    """
+    t = TestResult(name="")
+    r = await client.put(
+        f"{BASE}/api/profile",
+        headers={"X-Munin-Email": PROJECT_EMAIL, "Content-Type": "application/json"},
+        json={"default_persona": "chat"},
+        timeout=10,
+    )
+    if r.status_code != 200:
+        t.reason = f"profile PUT returned {r.status_code}"
+        return t
+    _, proj = await _project_create(
+        client, {"name": "Persona Precedence", "default_persona": "research"}
+    )
+    pid = proj.get("id")
+    if not pid:
+        t.reason = "project create failed"
+        return t
+    conv_id: Optional[str] = None
+    try:
+        # Start a FRESH conversation with project_id in the body. The
+        # backend should (a) create the conversation, (b) file it into
+        # the project during creation, and (c) set persona=research
+        # because the resolver consults project.default_persona when
+        # no conversation_id is supplied and a project_id is.
+        body = {
+            "project_id": pid,
+            "messages": [{"role": "user", "content": "say hi briefly"}],
+        }
+        async with client.stream(
+            "POST",
+            f"{BASE}/api/chat/completions",
+            json=body,
+            headers={
+                "X-Munin-Email": PROJECT_EMAIL,
+                "Content-Type": "application/json",
+            },
+            timeout=HTTP_TIMEOUT,
+        ) as response:
+            if response.status_code != 200:
+                t.reason = f"chat completion HTTP {response.status_code}"
+                return t
+            buf: list[str] = []
+            async for chunk in response.aiter_text():
+                buf.append(chunk)
+        parsed = parse_sse("".join(buf))
+        conv_id = parsed["conversation_id"]
+        if not conv_id:
+            t.reason = "no conversation id from stream"
+            return t
+        r = await client.get(
+            f"{BASE}/api/chats/{conv_id}",
+            headers={"X-Munin-Email": PROJECT_EMAIL},
+            timeout=10,
+        )
+        conv = r.json() if r.status_code == 200 else {}
+        used = conv.get("persona")
+        filed_project = conv.get("project_id")
+        t.metrics = {"persona_used": used, "filed_project": filed_project}
+        if filed_project != pid:
+            t.reason = (
+                f"conversation not auto-filed into project: got {filed_project!r}"
+            )
+            return t
+        if used != "research":
+            t.reason = f"expected persona=research, got {used!r}"
+            return t
+        t.passed = True
+    finally:
+        if conv_id:
+            await _delete_chat(client, conv_id, PROJECT_EMAIL)
+        await _project_delete(client, pid)
+        await client.delete(
+            f"{BASE}/api/profile",
+            headers={"X-Munin-Email": PROJECT_EMAIL},
+            timeout=10,
+        )
+    return t
+
+
 async def test_rolling_conversation_compaction(client):
     """
     Drive a multi-turn conversation with heavy per-turn payloads until the
@@ -2940,6 +3492,15 @@ ALL_TESTS = [
     ("vision_unit_synthesis", test_vision_unit_synthesis, False),
     ("feedback_loop_ocr_forced", test_feedback_loop_ocr_forced, True),       # heavy, chat-driven
     ("feedback_loop_color_forced", test_feedback_loop_color_forced, True),   # heavy, chat-driven
+    ("project_crud_roundtrip", test_project_crud_roundtrip, False),
+    ("project_instructions_cap", test_project_instructions_cap, False),
+    ("project_conversation_filing", test_project_conversation_filing, False),
+    ("project_instructions_injected", test_project_instructions_injected, True),   # heavy
+    ("project_scoped_doc_search", test_project_scoped_doc_search, True),           # heavy
+    ("project_doc_search_global_fallback", test_project_doc_search_global_fallback, True),  # heavy
+    ("project_cross_user_isolation", test_project_cross_user_isolation, False),
+    ("project_archived_hidden_by_default", test_project_archived_hidden_by_default, False),
+    ("project_persona_precedence", test_project_persona_precedence, True),          # heavy
     ("rolling_conversation_compaction", test_rolling_conversation_compaction, True),  # heavy (6 turns × ~50k chars)
     ("style_no_emojis_research_headers", test_style_no_emojis_research_headers, False),
     ("style_no_decorative_in_list", test_style_no_decorative_in_list, False),

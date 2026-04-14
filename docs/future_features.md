@@ -1937,15 +1937,74 @@ search_project_docs(query, top_k=5)       # alias for search_user_docs scoped to
 
 - **Project instructions token cost**: injecting on every turn adds
   to context overhead. Cap at 2000 chars per project. UI should
-  warn if the user writes more.
+  warn if the user writes more. **Decided 2026-04-14: 2000 chars,
+  400 on exceed.**
 - **Shared projects** (multi-user collab): NO for v1. Single-user
-  projects only. Revisit if users ask.
+  projects only. Revisit if users ask. **Confirmed: deferred to a
+  future sprint, no Stage A work.**
 - **Archive vs delete**: should projects have an "archived" state
   that hides them without deleting? Probably yes; add a `archived`
-  boolean column.
+  boolean column. **Decided + shipped 2026-04-14: `archived` column
+  on projects + `?archived=true` query param on list.**
 - **Project export**: should users be able to export a project (all
   conversations + docs + instructions) as a tarball for backup? Nice
-  to have, not required.
+  to have, not required. **Deferred.**
+
+### Status
+
+**Stage A - DONE 2026-04-14**
+
+Shipped:
+
+- `projects` table with `id, user_email, name, description,
+  instructions, default_persona, archived, created_at, updated_at`;
+  idempotent `conversations.project_id` column migration (same
+  `PRAGMA table_info` + `ALTER TABLE` pattern as `pinned`).
+- `retrieval/project_store.py` with CRUD, per-project conversation
+  count, filing/unfiling, and the `=== PROJECT CONTEXT ===` prompt
+  block renderer.
+- Full HTTP surface under `/api/projects` (POST/GET/PATCH/DELETE,
+  `POST/DELETE /api/projects/{id}/conversations/{cid}` for filing),
+  plus `GET /api/chats?project_id=<pid>` with a `__unfiled__`
+  sentinel for the default bucket, plus a new `project_id` form
+  field on `POST /api/documents/upload` (ownership-checked).
+- Two-phase `search_user_docs`: project-scoped first, user-global
+  fallback if the scoped search returns zero. Response carries
+  `sources_used: ["project"|"project","global"|"global"]` so the
+  model can be honest about provenance. Qdrant payload now has
+  `project_id`; existing points without it remain user-global.
+- `chat_service` prepends the project context block to the system
+  prompt above the persona prompt, binds a new
+  `current_project_id` ContextVar for tool dispatch, and passes
+  the pre-resolved project down from `main.py` to avoid a duplicate
+  DB lookup.
+- Persona precedence in `api_chat_completions`:
+  `project.default_persona` > `profile.default_persona` >
+  `DEFAULT_PERSONA_ID`. Explicit body `persona` still wins.
+- Ephemeral + project is refused with HTTP 400 (the two features
+  have incompatible persistence stories).
+- Two new MCP tools: `list_projects` and `get_current_project`.
+- Delete semantics: **no cascade, no tombstones, no reaper**. When
+  a project is deleted, conversations are unfiled
+  (`project_id → NULL`) and docs have their Qdrant `project_id`
+  payload cleared. Users keep their data in the Unfiled bucket and
+  can delete individual items manually.
+- Tests: `project_crud_roundtrip`, `project_instructions_cap`,
+  `project_conversation_filing`, `project_instructions_injected`,
+  `project_scoped_doc_search`, `project_doc_search_global_fallback`,
+  `project_cross_user_isolation`, `project_archived_hidden_by_default`,
+  `project_persona_precedence`.
+
+**Deferred (separate PRs)**
+
+- **Multi-user shared projects**: biggest known-unknown. Requires
+  an ACL layer and probably a new endpoint for invitation/acceptance.
+  Ship when users ask.
+- **Project export tarball**: nice-to-have, not blocking any other
+  feature.
+- **Project templates**: spin up a new project pre-filled with an
+  instructions template for common research patterns (e.g. a
+  "literature review" template). Future nice-to-have.
 
 ---
 

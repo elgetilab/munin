@@ -226,7 +226,7 @@ MCP_TOOLS = {
     },
     "search_user_docs": {
         "name": "search_user_docs",
-        "description": "Search the authenticated user's uploaded documents (PDFs, notes, DOCX) using semantic search over BGE-base embeddings. The user is determined automatically from the request context — do not pass a user id. Returns matching text chunks with filename, chunk index, score, and content.",
+        "description": "Search the authenticated user's uploaded documents (PDFs, notes, DOCX) using semantic search over BGE-base embeddings. The user is determined automatically from the request context — do not pass a user id. When this chat is filed into a project (§21), the search automatically scopes to the project's docs first, and falls back to the user's global docs only if the project-scoped search returned zero hits; the response includes a `sources_used` field (`[\"project\"]`, `[\"project\", \"global\"]`, or `[\"global\"]`) so you can tell the user honestly whether the result came from their project or from the broader corpus. Pass `project_id=null` to force a user-global search ignoring the project. Returns matching text chunks with filename, chunk index, score, and content.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -238,9 +238,31 @@ MCP_TOOLS = {
                     "type": "integer",
                     "description": "Number of results to return (default: 5)",
                     "default": 5
+                },
+                "project_id": {
+                    "type": ["string", "null"],
+                    "description": "Override the auto-scoped project. Pass null to force a user-global search; pass a specific project id to search only that project; omit entirely to inherit the current conversation's project (the common case)."
                 }
             },
             "required": ["query"]
+        }
+    },
+    "list_projects": {
+        "name": "list_projects",
+        "description": "List the user's projects (workspaces that group conversations + docs + instructions together). Returns names, descriptions, conversation counts, and default personas. Use this when the user asks 'what projects do I have?' or when deciding which project to suggest filing a conversation into. Archived projects are excluded.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    "get_current_project": {
+        "name": "get_current_project",
+        "description": "Return the project the current conversation is filed into, or {\"project\": null} if this chat is unfiled. Use when the user asks 'what project am I in?', 'what are this project's instructions?', or when you want to reference the workspace explicitly. The project's instructions and description are already injected into your system prompt when a project is active, but this tool lets you quote them back verbatim if needed.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
         }
     },
     "search_past_conversations": {

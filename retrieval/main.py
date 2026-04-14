@@ -84,6 +84,7 @@ import chat_service
 import document_store
 import agents as agents_pkg
 import user_profile_store
+import project_store
 
 # Static dir (not in database.py since it's app-specific)
 STATIC_DIR = os.getenv("STATIC_DIR", "/app/static")
@@ -648,8 +649,13 @@ async def api_list_chats(
     persona: Optional[str] = None,
     search: Optional[str] = None,
     pinned_only: bool = Query(False),
+    project_id: Optional[str] = Query(None),
 ):
-    """List the authenticated user's conversations."""
+    """
+    List the authenticated user's conversations. Pass ``project_id`` as
+    a concrete project id to filter to that project's conversations, or
+    as ``__unfiled__`` to list only conversations that have no project.
+    """
     user_email = _require_user_email(request)
     return await chat_store.get_conversations(
         user_email=user_email,
@@ -658,6 +664,7 @@ async def api_list_chats(
         persona=persona,
         search=search,
         pinned_only=pinned_only,
+        project_id=project_id,
     )
 
 
@@ -789,24 +796,88 @@ async def api_chat_completions(request: Request):
             detail={"error": {"message": "Request body must be an object"}},
         )
 
+    conversation_id = body.get("conversation_id")
+    messages = body.get("messages") or []
+    rag_config = body.get("rag") or {}
+    ephemeral = bool(body.get("ephemeral", False))
+    # §21: the body may carry a project_id so brand-new conversations
+    # can be created pre-filed into a project (and get that project's
+    # default_persona). Ignored on ephemeral chats (refused below) and
+    # on existing conversations (the conversation already has a
+    # project, if any).
+    body_project_id = body.get("project_id")
+
+    # Resolve the project for this conversation (if any). Ephemeral
+    # chats cannot belong to a project by design - the two features
+    # have incompatible persistence stories. For existing conversations
+    # we look up the project through the conversation row; for new
+    # conversations we look up via body_project_id if provided.
+    project_for_request: Optional[dict] = None
+    if not ephemeral:
+        if conversation_id:
+            try:
+                project_for_request = (
+                    await project_store.get_project_for_conversation(
+                        conversation_id, user_email
+                    )
+                )
+            except Exception:
+                project_for_request = None
+        elif body_project_id:
+            try:
+                project_for_request = await project_store.get_project(
+                    body_project_id, user_email
+                )
+            except Exception:
+                project_for_request = None
+            if project_for_request is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail={"error": {"message": "Project not found"}},
+                )
+    if ephemeral and body_project_id:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "message": (
+                        "projects and ephemeral chats are mutually "
+                        "exclusive; drop either ephemeral or project_id"
+                    )
+                }
+            },
+        )
+
+    # Persona resolution:
+    #   1. Body `persona` always wins.
+    #   2. Existing conversations keep their stored persona (we do NOT
+    #      switch personas mid-flight when a conversation is filed into
+    #      a project later). The body_project_id path is skipped.
+    #   3. Brand-new conversations resolve project > profile > global.
     explicit_persona = body.get("persona")
     if explicit_persona:
         persona_id = explicit_persona
+    elif conversation_id:
+        # Existing conversation - read the stored persona and use it.
+        existing_conv = await chat_store.get_conversation(
+            conversation_id, user_email
+        )
+        if existing_conv is None:
+            raise _error_404("Conversation not found")
+        persona_id = existing_conv.get("persona") or persona_module.DEFAULT_PERSONA_ID
     else:
-        # Profile may override the global default. Only consulted when the
-        # request body did not pin a persona itself.
+        project_default = (
+            (project_for_request or {}).get("default_persona")
+        )
         try:
             profile = await user_profile_store.get_profile(user_email)
         except Exception:
             profile = None
         persona_id = (
-            (profile or {}).get("default_persona")
+            project_default
+            or (profile or {}).get("default_persona")
             or persona_module.DEFAULT_PERSONA_ID
         )
-    conversation_id = body.get("conversation_id")
-    messages = body.get("messages") or []
-    rag_config = body.get("rag") or {}
-    ephemeral = bool(body.get("ephemeral", False))
 
     if not isinstance(messages, list) or not messages:
         raise HTTPException(
@@ -880,6 +951,8 @@ async def api_chat_completions(request: Request):
             rag_config=rag_config,
             ephemeral=ephemeral,
             prior_messages=prior_messages,
+            project=project_for_request,
+            file_into_project_id=body_project_id if not conversation_id else None,
         ):
             if await request.is_disconnected():
                 break
@@ -924,6 +997,148 @@ async def api_delete_profile(request: Request):
     user_email = _require_user_email(request)
     removed = await user_profile_store.delete_profile(user_email)
     return {"removed": removed}
+
+
+# ==============================================================================
+# Frontend Project Routes (/api/projects) — §21
+# ==============================================================================
+@app.post("/api/projects")
+async def api_create_project(request: Request):
+    user_email = _require_user_email(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": "Invalid JSON body"}},
+        )
+    try:
+        cleaned = project_store.validate_project_input(body)
+        if not cleaned.get("name"):
+            raise ValueError("name is required")
+        return await project_store.create_project(user_email, cleaned)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400, detail={"error": {"message": str(e)}}
+        )
+
+
+@app.get("/api/projects")
+async def api_list_projects(
+    request: Request,
+    archived: bool = Query(False),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    user_email = _require_user_email(request)
+    return await project_store.list_projects(
+        user_email=user_email,
+        include_archived=archived,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@app.get("/api/projects/{project_id}")
+async def api_get_project(project_id: str, request: Request):
+    user_email = _require_user_email(request)
+    proj = await project_store.get_project(
+        project_id, user_email, include_counts=True
+    )
+    if proj is None:
+        raise _error_404("Project not found")
+    # Document count comes from Qdrant rather than project_store so
+    # the store module stays Qdrant-free.
+    try:
+        proj["document_count"] = document_store.count_project_documents(
+            user_email, project_id
+        )
+    except Exception:
+        proj["document_count"] = 0
+    return proj
+
+
+@app.patch("/api/projects/{project_id}")
+async def api_update_project(project_id: str, request: Request):
+    user_email = _require_user_email(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": "Invalid JSON body"}},
+        )
+    try:
+        cleaned = project_store.validate_project_input(body)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400, detail={"error": {"message": str(e)}}
+        )
+    updated = await project_store.update_project(
+        project_id, user_email, cleaned
+    )
+    if updated is None:
+        raise _error_404("Project not found")
+    return updated
+
+
+@app.delete("/api/projects/{project_id}")
+async def api_delete_project(project_id: str, request: Request):
+    """
+    Hard-delete the project row, unfile its conversations (project_id
+    -> NULL), and unfile its documents in Qdrant (project_id payload
+    cleared). No tombstones - the user's data stays in the Unfiled
+    bucket and is not reaped. See §21 Status block in future_features.
+    """
+    user_email = _require_user_email(request)
+    ok = await project_store.delete_project(project_id, user_email)
+    if not ok:
+        raise _error_404("Project not found")
+    # Sweep user_docs for any points that were filed into this project
+    # and clear their project_id payload so search treats them as
+    # user-global again. project_store already unfiled the
+    # conversations SQL rows before we got here.
+    try:
+        document_store.unfile_project_documents(user_email, project_id)
+    except Exception as e:
+        print(f"[WARNING] unfile_project_documents {project_id}: {e}")
+    return {"deleted": True}
+
+
+@app.post("/api/projects/{project_id}/conversations/{conversation_id}")
+async def api_file_conversation(
+    project_id: str,
+    conversation_id: str,
+    request: Request,
+):
+    """File a conversation into a project."""
+    user_email = _require_user_email(request)
+    result = await project_store.file_conversation(
+        project_id=project_id,
+        conversation_id=conversation_id,
+        user_email=user_email,
+    )
+    if result is None:
+        raise _error_404("Project or conversation not found")
+    return result
+
+
+@app.delete("/api/projects/{project_id}/conversations/{conversation_id}")
+async def api_unfile_conversation(
+    project_id: str,
+    conversation_id: str,
+    request: Request,
+):
+    """Remove a conversation from a project (moves to Unfiled)."""
+    user_email = _require_user_email(request)
+    # project_id is part of the URL for symmetry with the file route
+    # but we don't actually need to verify it matches - the caller is
+    # just saying "get this conversation out of whatever project it's in".
+    _ = project_id
+    ok = await project_store.unfile_conversation(conversation_id, user_email)
+    if not ok:
+        raise _error_404("Conversation not found")
+    return {"unfiled": True}
 
 
 # ==============================================================================
@@ -996,14 +1211,27 @@ async def api_upload_document(
     request: Request,
     file: UploadFile = File(...),
     conversation_id: Optional[str] = Form(None),
+    project_id: Optional[str] = Form(None),
 ):
-    """Upload + embed a user document. Returns a document record."""
+    """Upload + embed a user document. Returns a document record.
+
+    Optional ``project_id`` files the document into a project (§21) so
+    subsequent project-scoped search finds it. The project must be owned
+    by the requesting user or we return 404.
+    """
     user_email = _require_user_email(request)
     if not file.filename:
         raise HTTPException(
             status_code=400,
             detail={"error": {"message": "filename is required"}},
         )
+
+    if project_id:
+        owner_project = await project_store.get_project(
+            project_id, user_email
+        )
+        if owner_project is None:
+            raise _error_404("Project not found")
 
     contents = await file.read()
     if len(contents) == 0:
@@ -1023,6 +1251,7 @@ async def api_upload_document(
             file_bytes=contents,
             user_email=user_email,
             conversation_id=conversation_id,
+            project_id=project_id,
         )
     except ValueError as e:
         raise HTTPException(

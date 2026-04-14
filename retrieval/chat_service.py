@@ -35,6 +35,7 @@ import chat_context
 import personas as persona_module
 import agents as agents_pkg
 import user_profile_store
+import project_store
 import vision
 from database import VLLM_URL, VLLM_MODEL_NAME
 from mcp.schemas import MCP_TOOLS
@@ -42,6 +43,7 @@ from mcp.executor import execute_mcp_tool
 from mcp.context import (
     current_user_email,
     current_conversation_id,
+    current_project_id,
     current_sse_emitter,
 )
 
@@ -370,6 +372,8 @@ async def stream_chat_completion(
     rag_config: Optional[dict],
     ephemeral: bool = False,
     prior_messages: Optional[list[dict]] = None,
+    project: Optional[dict] = None,
+    file_into_project_id: Optional[str] = None,
 ) -> AsyncIterator[dict]:
     """
     Orchestrate a single /api/chat/completions request. Yields SSE events.
@@ -389,6 +393,12 @@ async def stream_chat_completion(
     # Bind per-request context for MCP tool dispatch (e.g. search_user_docs).
     current_user_email.set(user_email)
     current_conversation_id.set(conversation_id)
+    # Project context (§21): bind the project_id so search_user_docs
+    # auto-scopes via contextvar. Ephemeral chats never have a project,
+    # so the contextvar stays None in that branch.
+    current_project_id.set(
+        (project or {}).get("id") if not ephemeral else None
+    )
 
     system_prompt = persona_module.build_system_prompt(persona)
 
@@ -410,6 +420,22 @@ async def stream_chat_completion(
                 f"{profile_block}\n\n{system_prompt}"
                 if system_prompt
                 else profile_block
+            )
+
+    # Inject the project context block (§21). Goes ABOVE the persona
+    # prompt so the model sees the workspace framing first. Skipped for
+    # ephemeral chats and for conversations without a project.
+    if not ephemeral and project:
+        try:
+            project_block = project_store.build_project_prompt_block(project)
+        except Exception as e:
+            print(f"[WARNING] project block render failed: {e}")
+            project_block = None
+        if project_block:
+            system_prompt = (
+                f"{project_block}\n\n{system_prompt}"
+                if system_prompt
+                else project_block
             )
 
     # Inject an ambient-context block so the model doesn't waste a tool call
@@ -468,6 +494,24 @@ async def stream_chat_completion(
         created = await chat_store.create_conversation(user_email, persona_id, title=None)
         conversation = await chat_store.get_conversation(created["id"], user_email)
         is_new = True
+        # §21: if the caller asked to file this brand-new conversation
+        # into a project, do it now so the project context block (and
+        # the per-turn project_id contextvar set further down) both
+        # see the correct workspace. We've already validated the
+        # project belongs to the user in api_chat_completions, so a
+        # failure here is a race condition and we just log and
+        # proceed (the conversation remains unfiled).
+        if file_into_project_id and conversation is not None:
+            try:
+                filed = await project_store.file_conversation(
+                    project_id=file_into_project_id,
+                    conversation_id=conversation["id"],
+                    user_email=user_email,
+                )
+                if filed is not None:
+                    conversation["project_id"] = file_into_project_id
+            except Exception as e:
+                print(f"[WARNING] auto-file new conversation failed: {e}")
 
     assert conversation is not None
     # Now that we know the concrete id, re-bind the MCP context var.

@@ -239,6 +239,84 @@ def chunk_text(text: str) -> list[str]:
 # Upload / list / delete
 # ==============================================================================
 
+def unfile_project_documents(user_email: str, project_id: str) -> int:
+    """
+    Clear the ``project_id`` payload key on every user_docs point that
+    is currently filed into ``project_id`` for this user. Used when a
+    project is deleted - the docs become user-global (equivalent to
+    never having been filed). Returns the Qdrant operation status.
+    """
+    qdrant = get_qdrant()
+    if qdrant is None:
+        return 0
+    try:
+        from qdrant_client.http import models as qm
+        qdrant.delete_payload(
+            collection_name=USER_DOCS_COLLECTION,
+            keys=["project_id"],
+            points_selector=qm.FilterSelector(
+                filter=qm.Filter(
+                    must=[
+                        qm.FieldCondition(
+                            key="user_email",
+                            match=qm.MatchValue(value=user_email),
+                        ),
+                        qm.FieldCondition(
+                            key="project_id",
+                            match=qm.MatchValue(value=project_id),
+                        ),
+                    ]
+                )
+            ),
+        )
+        return 1
+    except Exception as e:
+        print(f"[WARNING] unfile_project_documents failed: {e}")
+        return 0
+
+
+def count_project_documents(user_email: str, project_id: str) -> int:
+    """Return the number of distinct user_docs document_ids filed in
+    ``project_id``. Used by the GET /api/projects/{id} counts payload."""
+    qdrant = get_qdrant()
+    if qdrant is None:
+        return 0
+    try:
+        from qdrant_client.http import models as qm
+        seen: set[str] = set()
+        offset = None
+        while True:
+            points, offset = qdrant.scroll(
+                collection_name=USER_DOCS_COLLECTION,
+                scroll_filter=qm.Filter(
+                    must=[
+                        qm.FieldCondition(
+                            key="user_email",
+                            match=qm.MatchValue(value=user_email),
+                        ),
+                        qm.FieldCondition(
+                            key="project_id",
+                            match=qm.MatchValue(value=project_id),
+                        ),
+                    ]
+                ),
+                limit=256,
+                offset=offset,
+                with_payload=["document_id"],
+                with_vectors=False,
+            )
+            for point in points:
+                doc_id = (point.payload or {}).get("document_id")
+                if doc_id:
+                    seen.add(doc_id)
+            if offset is None:
+                break
+        return len(seen)
+    except Exception as e:
+        print(f"[WARNING] count_project_documents failed: {e}")
+        return 0
+
+
 def get_document_file_path(user_email: str, document_id: str) -> Optional[str]:
     """
     Resolve ``document_id`` to the on-disk path of the single file stored
@@ -267,6 +345,7 @@ async def upload_document(
     file_bytes: bytes,
     user_email: str,
     conversation_id: Optional[str] = None,
+    project_id: Optional[str] = None,
 ) -> dict:
     ext = os.path.splitext(filename)[1].lower()
     if ext not in SUPPORTED_TEXT_EXT and ext not in SUPPORTED_IMAGE_EXT:
@@ -328,6 +407,7 @@ async def upload_document(
                 payload={
                     "user_email": user_email,
                     "conversation_id": conversation_id,
+                    "project_id": project_id,
                     "document_id": document_id,
                     "filename": safe_filename,
                     "chunk_index": i,
@@ -511,48 +591,104 @@ async def search_user_docs(
     user_email: str,
     conversation_id: Optional[str] = None,
     top_k: int = 5,
+    project_id: Optional[str] = None,
+    project_fallback: bool = True,
 ) -> dict:
+    """
+    Semantic search over the user's uploaded documents (BGE-base
+    embeddings in Qdrant, collection ``user_docs``).
+
+    Project scoping (§21):
+      * ``project_id=None`` (default) means the caller is not inside a
+        project, or wants user-global results unconditionally.
+      * ``project_id="<pid>"`` searches only that project's docs.
+      * When ``project_id`` is set AND ``project_fallback=True``, and
+        the scoped search returns zero hits, a second search is run
+        without the project filter and its results are returned under
+        the same key. The response carries a ``sources_used`` list so
+        callers (and the model) can tell which path actually found
+        something.
+    """
     qdrant = get_qdrant()
     bge = get_bge()
     if qdrant is None or bge is None or not query:
-        return {"results": []}
+        return {"results": [], "sources_used": []}
 
     try:
         from qdrant_client.http import models as qm
 
-        must = [
-            qm.FieldCondition(
-                key="user_email", match=qm.MatchValue(value=user_email)
-            )
-        ]
-        if conversation_id:
-            must.append(
+        def _run(with_project: Optional[str]) -> list[dict]:
+            must = [
                 qm.FieldCondition(
-                    key="conversation_id",
-                    match=qm.MatchValue(value=conversation_id),
+                    key="user_email",
+                    match=qm.MatchValue(value=user_email),
                 )
+            ]
+            if conversation_id:
+                must.append(
+                    qm.FieldCondition(
+                        key="conversation_id",
+                        match=qm.MatchValue(value=conversation_id),
+                    )
+                )
+            if with_project:
+                must.append(
+                    qm.FieldCondition(
+                        key="project_id",
+                        match=qm.MatchValue(value=with_project),
+                    )
+                )
+            vector = bge.encode(query).tolist()
+            results = qdrant.query_points(
+                collection_name=USER_DOCS_COLLECTION,
+                query=vector,
+                query_filter=qm.Filter(must=must),
+                limit=top_k,
+                with_payload=True,
             )
+            out = []
+            for hit in results.points:
+                payload = hit.payload or {}
+                out.append({
+                    "score": float(hit.score),
+                    "document_id": payload.get("document_id"),
+                    "filename": payload.get("filename"),
+                    "chunk_index": payload.get("chunk_index"),
+                    "content": payload.get("chunk_text", ""),
+                    "project_id": payload.get("project_id"),
+                })
+            return out
 
-        vector = bge.encode(query).tolist()
-        results = qdrant.query_points(
-            collection_name=USER_DOCS_COLLECTION,
-            query=vector,
-            query_filter=qm.Filter(must=must),
-            limit=top_k,
-            with_payload=True,
-        )
-
-        out = []
-        for hit in results.points:
-            payload = hit.payload or {}
-            out.append({
-                "score": float(hit.score),
-                "document_id": payload.get("document_id"),
-                "filename": payload.get("filename"),
-                "chunk_index": payload.get("chunk_index"),
-                "content": payload.get("chunk_text", ""),
-            })
-        return {"results": out}
+        if project_id:
+            scoped = _run(project_id)
+            if scoped:
+                return {
+                    "results": scoped,
+                    "sources_used": ["project"],
+                    "project_id": project_id,
+                }
+            if not project_fallback:
+                return {
+                    "results": [],
+                    "sources_used": ["project"],
+                    "project_id": project_id,
+                }
+            # Two-phase fallback: the scoped search returned zero, try
+            # user-global so the model can answer with something and
+            # honestly note the fallback in its response.
+            fallback = _run(None)
+            return {
+                "results": fallback,
+                "sources_used": ["project", "global"] if fallback else ["project"],
+                "project_id": project_id,
+                "fallback_reason": (
+                    "no results in project, searched user-global"
+                    if fallback else
+                    "no results in project or user-global"
+                ),
+            }
+        # No project context - straight user-global search.
+        return {"results": _run(None), "sources_used": ["global"]}
     except Exception as e:
         print(f"[ERROR] search_user_docs failed: {e}")
-        return {"results": [], "error": str(e)}
+        return {"results": [], "sources_used": [], "error": str(e)}

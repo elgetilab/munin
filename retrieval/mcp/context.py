@@ -16,6 +16,9 @@ current_user_email: ContextVar[Optional[str]] = ContextVar(
 current_conversation_id: ContextVar[Optional[str]] = ContextVar(
     "current_conversation_id", default=None
 )
+current_project_id: ContextVar[Optional[str]] = ContextVar(
+    "current_project_id", default=None
+)
 
 # Synchronous push-style SSE emitter. Signature: `emit(event_name, data_dict)`.
 # chat_service sets this before dispatching tool calls so that nested async

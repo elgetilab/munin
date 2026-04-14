@@ -142,6 +142,21 @@ async def init_db() -> aiosqlite.Connection:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS projects (
+            id TEXT PRIMARY KEY,
+            user_email TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            instructions TEXT,
+            default_persona TEXT,
+            archived INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_projects_user
+            ON projects(user_email, archived, updated_at DESC);
         """
     )
 
@@ -159,9 +174,17 @@ async def init_db() -> aiosqlite.Connection:
         await _db.execute(
             "ALTER TABLE conversations ADD COLUMN pinned_at TEXT"
         )
+    if "project_id" not in existing_cols:
+        await _db.execute(
+            "ALTER TABLE conversations ADD COLUMN project_id TEXT"
+        )
     await _db.execute(
         "CREATE INDEX IF NOT EXISTS idx_conversations_pinned "
         "ON conversations(user_email, pinned DESC, updated_at DESC)"
+    )
+    await _db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_conversations_project "
+        "ON conversations(user_email, project_id, updated_at DESC)"
     )
 
     # Multimodal attachments metadata (§5). JSON list of
@@ -225,6 +248,9 @@ async def create_conversation(
     }
 
 
+_UNFILED_SENTINEL = "__unfiled__"
+
+
 async def get_conversations(
     user_email: str,
     limit: int = 20,
@@ -232,12 +258,16 @@ async def get_conversations(
     persona: Optional[str] = None,
     search: Optional[str] = None,
     pinned_only: bool = False,
+    project_id: Optional[str] = None,
 ) -> dict:
     """
     List a user's conversations with message_count and preview. Supports FTS5
     search across message content (matches any conversation containing a
     matching message). Pinned conversations float to the top of the listing;
-    set ``pinned_only=True`` to limit the result to pinned rows.
+    set ``pinned_only=True`` to limit the result to pinned rows. Set
+    ``project_id`` to a concrete project id to list only that project's
+    conversations, or to ``__unfiled__`` to list conversations with no
+    project at all.
     """
     db = await get_db()
 
@@ -248,6 +278,11 @@ async def get_conversations(
         params.append(persona)
     if pinned_only:
         where.append("c.pinned = 1")
+    if project_id == _UNFILED_SENTINEL:
+        where.append("c.project_id IS NULL")
+    elif project_id:
+        where.append("c.project_id = ?")
+        params.append(project_id)
 
     if search:
         where.append(
@@ -262,6 +297,7 @@ async def get_conversations(
         SELECT
             c.id, c.user_email, c.title, c.persona, c.created_at, c.updated_at,
             c.summary, c.summary_through_index, c.pinned, c.pinned_at,
+            c.project_id,
             (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) AS message_count,
             (SELECT content FROM messages
                 WHERE conversation_id = c.id AND role = 'user'

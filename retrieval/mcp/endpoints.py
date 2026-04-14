@@ -16,7 +16,11 @@ from fastapi import APIRouter, Request, HTTPException
 from models import MCPCallRequest
 from .schemas import MCP_TOOLS
 from .executor import execute_mcp_tool
-from .context import current_user_email, current_conversation_id
+from .context import (
+    current_user_email,
+    current_conversation_id,
+    current_project_id,
+)
 
 router = APIRouter(prefix="/mcp", tags=["MCP"])
 
@@ -204,6 +208,20 @@ async def call_mcp_tool_rest(request: MCPCallRequest, http_request: Request):
         current_user_email.set(user_email)
     if conv_id:
         current_conversation_id.set(conv_id)
+    # Auto-resolve the project for this conversation (§21) so
+    # user-scoped tools like search_user_docs see the right project
+    # context when invoked from outside chat_service. Lazy import to
+    # avoid circular-init concerns; the lookup is a single-row SELECT.
+    if user_email and conv_id:
+        try:
+            import project_store
+            proj = await project_store.get_project_for_conversation(
+                conv_id, user_email
+            )
+        except Exception:
+            proj = None
+        if proj is not None:
+            current_project_id.set(proj.get("id"))
 
     result = await execute_mcp_tool(request.name, request.arguments)
     return result

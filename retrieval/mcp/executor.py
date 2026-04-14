@@ -18,6 +18,8 @@ from .tools import (
     llm_summarize,
     search_user_docs,
     search_past_conversations,
+    list_projects,
+    get_current_project,
     invoke_agent,
     deep_research,
     export_citations,
@@ -107,7 +109,21 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
         elif tool_name == "search_user_docs":
             query = arguments.get("query", "")
             top_k = arguments.get("top_k", 5)
-            return await search_user_docs(query, top_k)
+            # Pass project_id through only if the caller actually provided
+            # it; otherwise let the tool's contextvar default apply.
+            if "project_id" in arguments:
+                return await search_user_docs(
+                    query=query,
+                    top_k=top_k,
+                    project_id=arguments.get("project_id"),
+                )
+            return await search_user_docs(query=query, top_k=top_k)
+
+        elif tool_name == "list_projects":
+            return await list_projects()
+
+        elif tool_name == "get_current_project":
+            return await get_current_project()
 
         elif tool_name == "search_past_conversations":
             return await search_past_conversations(

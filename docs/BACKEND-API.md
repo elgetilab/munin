@@ -293,6 +293,14 @@ Unpins a conversation. Idempotent.
 - `rag.enabled: true` triggers parallel `paper_search` + `web_search` via
   the MCP executor. Supported `rag.sources`: `papers`, `web`. If unset,
   defaults to `["papers"]`. Omit `rag` entirely to disable retrieval.
+- `project_id` (optional, §21) - when creating a **new** conversation
+  (i.e. `conversation_id` is null), pass a project id to auto-file
+  the new conversation into that project at creation time and have
+  its persona resolved against `project.default_persona` before
+  `profile.default_persona`. Ignored for existing conversations
+  (their project membership is already set via the
+  `/api/projects/{id}/conversations/{cid}` routes). Refused with 400
+  when combined with `ephemeral: true`.
 - `ephemeral` (default `false`) - when `true`, **nothing** is written to
   `chats.db`: no conversation row, no message rows, no auto-title, no
   summary persistence. The `conversation` SSE event still fires but with
@@ -506,7 +514,116 @@ Resets the profile by removing the row. Returns **200** with
 `{"removed": true}` if a row was deleted, `{"removed": false}` if there
 was nothing to delete.
 
-### 4.15 `GET /api/artifacts/{conversation_id}/{artifact_id}`
+### 4.15 Project routes (§21)
+
+Projects are top-level workspaces that scope conversations and
+documents together under a single set of instructions. A conversation
+may live inside a project (filed) or outside it (unfiled / in the
+default bucket); deleting a project leaves its conversations and
+documents in the Unfiled bucket - **no cascading delete**.
+
+**`POST /api/projects`** — create a project.
+
+Body (all strings optional except `name`):
+
+```json
+{
+  "name": "Kinase Thesis",
+  "description": "PhD on small-molecule kinase inhibitors",
+  "instructions": "Prefer 2023+ papers. Always cite DOIs.",
+  "default_persona": "research"
+}
+```
+
+Caps: `name` ≤ 200 chars, `description` ≤ 1000, `instructions` ≤ 2000.
+**400** for cap violations or missing name.
+
+**`GET /api/projects`** — list the user's projects.
+
+Query params: `archived` (bool, default `false` - archived projects
+are hidden unless this is set), `limit`, `offset`.
+
+Response:
+
+```json
+{
+  "projects": [
+    {
+      "id": "proj_...",
+      "user_email": "...",
+      "name": "Kinase Thesis",
+      "description": "...",
+      "instructions": "...",
+      "default_persona": "research",
+      "archived": false,
+      "created_at": "...",
+      "updated_at": "...",
+      "conversation_count": 24
+    }
+  ],
+  "total": 3
+}
+```
+
+Ordered by `updated_at DESC`.
+
+**`GET /api/projects/{id}`** — single project with inline counts.
+Same shape as above plus `document_count` (sourced from Qdrant).
+**404** if the id is unknown or owned by another user.
+
+**`PATCH /api/projects/{id}`** — update any subset of `name`,
+`description`, `instructions`, `default_persona`, `archived`. Returns
+the updated project. **400** on cap violation, **404** on unknown id.
+
+**`DELETE /api/projects/{id}`** — hard-delete the project row. Unfiles
+its conversations (`project_id` → NULL) and its docs (Qdrant
+`project_id` payload cleared). Responds **200** with
+`{"deleted": true}`. **Conversations and docs are preserved** in the
+Unfiled bucket - the user can re-file them later or delete them
+individually.
+
+**`POST /api/projects/{id}/conversations/{conversation_id}`** — file a
+conversation into a project. **404** if either id is unknown or owned
+by another user.
+
+**`DELETE /api/projects/{id}/conversations/{conversation_id}`** —
+unfile a conversation back to the default bucket. The URL includes the
+project id for symmetry with the file route, but the backend does not
+verify it matches the current filing.
+
+**`GET /api/chats?project_id=<pid>`** — list conversations inside a
+specific project. Pass the literal `__unfiled__` sentinel to list
+only the conversations that have no project.
+
+**`POST /api/documents/upload`** — accepts an optional `project_id`
+form field to file the document into a project at upload time. The
+project must be owned by the requesting user (**404** otherwise).
+
+**Ephemeral chats + projects**: mutually exclusive by design. If a
+request is `ephemeral: true` AND references a conversation that
+belongs to a project, the backend returns **400**.
+
+**Persona precedence**: when the request body has no `persona` field,
+the backend resolves the persona in this order:
+`project.default_persona` > `profile.default_persona` >
+`DEFAULT_PERSONA_ID`. An explicit `persona` in the request body always
+wins.
+
+**Project context injection**: when a conversation has a `project_id`,
+`chat_service` prepends a `=== PROJECT CONTEXT === ... === END
+PROJECT CONTEXT ===` block to the system prompt on every turn,
+containing the project name, description, and instructions.
+
+**`search_user_docs` project scoping**: when a conversation is filed
+into a project, the MCP `search_user_docs` tool auto-scopes to the
+project's docs. The response includes a `sources_used` field
+(`["project"]`, `["project", "global"]`, or `["global"]`) so the
+model can honestly tell the user whether a hit came from their
+project or from the broader corpus. Two-phase fallback: if the
+scoped search returns zero, a user-global search is run and its
+results are returned alongside `sources_used: ["project", "global"]`.
+
+### 4.16 `GET /api/artifacts/{conversation_id}/{artifact_id}`
 
 Serves an artifact (plot, file, generated document) produced by the
 `run_python` sandbox tool inside the given conversation. The actual

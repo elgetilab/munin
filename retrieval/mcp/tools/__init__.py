@@ -22,6 +22,7 @@ from .papers import (
 from .llm import llm_summarize
 from .documents import search_user_docs
 from .chats import search_past_conversations
+from .projects import list_projects, get_current_project
 from .agents import invoke_agent
 from .research import deep_research
 from .citations import export_citations
@@ -42,6 +43,8 @@ __all__ = [
     "llm_summarize",
     "search_user_docs",
     "search_past_conversations",
+    "list_projects",
+    "get_current_project",
     "invoke_agent",
     "deep_research",
     "export_citations",
