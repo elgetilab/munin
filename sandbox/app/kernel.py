@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
+import mimetypes
 import os
 import time
 import uuid
@@ -34,6 +36,49 @@ from typing import Optional
 from jupyter_client.manager import AsyncKernelManager
 
 from .output_cap import CappedBuffer
+
+
+# Files the kernel uses internally that should never be served as artifacts.
+_ARTIFACT_MANIFEST_FILENAME = "_artifacts.json"
+_INTERNAL_FILES = {_ARTIFACT_MANIFEST_FILENAME}
+
+
+# Stock mimetypes.guess_type misses a lot of formats common in scientific
+# Python (xlsx/docx/parquet/h5/...). We patch the global mimetypes table at
+# import time so artifacts get a useful Content-Type instead of falling back
+# to application/octet-stream and rendering as a generic download in the
+# frontend. add_type is idempotent and keyed on extension, so re-imports
+# won't drift.
+def _register_extra_mimetypes() -> None:
+    extras = {
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".xls": "application/vnd.ms-excel",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".doc": "application/msword",
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ".csv": "text/csv",
+        ".tsv": "text/tab-separated-values",
+        ".md": "text/markdown",
+        ".parquet": "application/vnd.apache.parquet",
+        ".feather": "application/vnd.apache.arrow.file",
+        ".arrow": "application/vnd.apache.arrow.file",
+        ".h5": "application/x-hdf5",
+        ".hdf5": "application/x-hdf5",
+        ".nc": "application/x-netcdf",
+        ".npy": "application/x-numpy",
+        ".npz": "application/x-numpy",
+        ".pkl": "application/x-pickle",
+        ".pickle": "application/x-pickle",
+        ".tif": "image/tiff",
+        ".tiff": "image/tiff",
+        ".webp": "image/webp",
+    }
+    import mimetypes as _m
+    for ext, ctype in extras.items():
+        _m.add_type(ctype, ext)
+
+
+_register_extra_mimetypes()
 
 
 # ----------------------------------------------------------------------------
@@ -134,6 +179,17 @@ class KernelHandle:
         self._lock = asyncio.Lock()
         self.created_at: float = time.time()
         self.last_used_at: float = time.time()
+        # Per-kernel artifact bookkeeping. The manifest is the cumulative list
+        # of artifacts surfaced from this conversation; the served filenames
+        # set is a fast lookup so the post-execute scan doesn't re-emit files
+        # that were already turned into artifacts on a previous turn.
+        self._manifest_path = os.path.join(
+            self.scratch_dir, _ARTIFACT_MANIFEST_FILENAME
+        )
+        self._manifest: list[dict] = self._load_manifest()
+        self._known_files: set[str] = {
+            entry["filename"] for entry in self._manifest
+        }
 
     # ---- lifecycle -------------------------------------------------------
 
@@ -255,6 +311,12 @@ class KernelHandle:
                     "is preserved"
                 )
 
+            # Surface any files the user code wrote to the scratch dir
+            # this turn as artifacts, alongside the inline images that the
+            # iopub handler already captured. Done after the timeout branch
+            # so partial outputs from interrupted runs still get exposed.
+            self._scan_for_new_files(state["artifacts"])
+
             duration_ms = int((time.monotonic() - started) * 1000)
             stdout: CappedBuffer = state["stdout"]
             stderr: CappedBuffer = state["stderr"]
@@ -368,12 +430,75 @@ class KernelHandle:
         path = os.path.join(self.scratch_dir, filename)
         with open(path, "wb") as f:
             f.write(png_bytes)
-        artifacts.append({
+        entry = {
             "id": artifact_id,
             "filename": filename,
             "content_type": "image/png",
             "size_bytes": len(png_bytes),
-        })
+        }
+        artifacts.append(entry)
+        self._register_artifact(entry)
+
+    # ---- artifact manifest -------------------------------------------------
+
+    def _load_manifest(self) -> list[dict]:
+        """Load the cumulative artifact manifest from disk if present."""
+        try:
+            with open(self._manifest_path) as f:
+                data = json.load(f)
+            return data if isinstance(data, list) else []
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return []
+
+    def _save_manifest(self) -> None:
+        try:
+            tmp = self._manifest_path + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(self._manifest, f)
+            os.replace(tmp, self._manifest_path)
+        except OSError:
+            pass
+
+    def _register_artifact(self, entry: dict) -> None:
+        self._manifest.append(entry)
+        self._known_files.add(entry["filename"])
+        self._save_manifest()
+
+    def _scan_for_new_files(self, artifacts: list[dict]) -> None:
+        """
+        Walk the scratch dir for files the user code wrote during this
+        execution and surface each one as a fresh artifact. Files already
+        in the manifest (from earlier turns or from the inline-image path)
+        are skipped. Internal bookkeeping files (the manifest itself) are
+        ignored. New files get a uuid id, an extension-sniffed content
+        type, and a size_bytes from the filesystem.
+        """
+        try:
+            entries = os.listdir(self.scratch_dir)
+        except OSError:
+            return
+        for fname in sorted(entries):
+            if fname in _INTERNAL_FILES:
+                continue
+            if fname in self._known_files:
+                continue
+            full = os.path.join(self.scratch_dir, fname)
+            if not os.path.isfile(full):
+                continue
+            try:
+                size = os.path.getsize(full)
+            except OSError:
+                continue
+            ctype, _ = mimetypes.guess_type(fname)
+            ctype = ctype or "application/octet-stream"
+            entry = {
+                "id": uuid.uuid4().hex,
+                "filename": fname,
+                "content_type": ctype,
+                "size_bytes": size,
+            }
+            artifacts.append(entry)
+            self._register_artifact(entry)
 
 
 def _strip_ansi(line: str) -> str:

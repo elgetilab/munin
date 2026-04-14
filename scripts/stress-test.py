@@ -48,6 +48,7 @@ def parse_sse(text: str) -> dict:
     tool_calls: list[str] = []
     errors: list[str] = []
     content_chunks: list[str] = []
+    artifacts: list[dict] = []
     thinking_len = 0
     conversation_id: Optional[str] = None
     title: Optional[str] = None
@@ -74,6 +75,8 @@ def parse_sse(text: str) -> dict:
                 thinking_len += len(d.get("content", ""))
             elif current_event == "tool_call":
                 tool_calls.append(d.get("name"))
+            elif current_event == "artifact":
+                artifacts.append(d)
             elif current_event == "error":
                 errors.append(d.get("message", ""))
 
@@ -81,6 +84,7 @@ def parse_sse(text: str) -> dict:
         "events": events,
         "content": "".join(content_chunks),
         "tool_calls": tool_calls,
+        "artifacts": artifacts,
         "errors": errors,
         "thinking_len": thinking_len,
         "conversation_id": conversation_id,
@@ -128,6 +132,7 @@ async def send_chat(
                 "content": "",
                 "events": {},
                 "tool_calls": [],
+                "artifacts": [],
                 "errors": [],
                 "thinking_len": 0,
                 "conversation_id": None,
@@ -2245,6 +2250,143 @@ async def test_sandbox_output_cap_truncates(client):
     return t
 
 
+async def test_plot_simple_via_chat(client):
+    """
+    Chat-driven §3 test: the model should reach for run_python on its own
+    when the user asks for a plot. We verify that:
+      - run_python appears in the tool_calls
+      - at least one artifact event fires
+      - the artifact content_type is image/*
+      - the artifact is fetchable via /api/artifacts and is non-trivial
+    """
+    t = TestResult(name="")
+    res = await send_chat(
+        client,
+        (
+            "Plot sin(x) from 0 to 2*pi using matplotlib. Use run_python; "
+            "label the axes; show the figure."
+        ),
+        email="plot-test@munin.local",
+    )
+    conv_id = res["conversation_id"]
+    if not conv_id:
+        t.reason = f"no conversation id; errors={res['errors']}"
+        return t
+    try:
+        t.metrics = {
+            "tool_calls": res["tool_calls"],
+            "artifact_count": len(res.get("artifacts") or []),
+        }
+        if "run_python" not in (res.get("tool_calls") or []):
+            t.reason = f"model did not call run_python; calls={res['tool_calls']}"
+            return t
+        artifacts = res.get("artifacts") or []
+        if not artifacts:
+            t.reason = "no artifact SSE events emitted"
+            return t
+        first = artifacts[0]
+        ctype = (first.get("content_type") or "").lower()
+        if not ctype.startswith("image/"):
+            t.reason = f"first artifact is not an image: content_type={ctype!r}"
+            return t
+        aid = first.get("id")
+        if not aid:
+            t.reason = f"artifact missing id: {first}"
+            return t
+        r = await client.get(
+            f"{BASE}/api/artifacts/{conv_id}/{aid}",
+            headers={"X-Munin-Email": "plot-test@munin.local"},
+            timeout=15,
+        )
+        t.metrics["fetch_status"] = r.status_code
+        t.metrics["bytes"] = len(r.content)
+        if r.status_code != 200:
+            t.reason = f"artifact fetch returned {r.status_code}"
+            return t
+        if len(r.content) < 500:
+            t.reason = f"artifact suspiciously small: {len(r.content)} bytes"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, "plot-test@munin.local")
+    return t
+
+
+async def test_plot_xlsx_via_chat(client):
+    """
+    Chat-driven §3 test: the model should use openpyxl + run_python to
+    produce a downloadable .xlsx file when asked for a spreadsheet.
+    """
+    t = TestResult(name="")
+    res = await send_chat(
+        client,
+        (
+            "Use run_python with the openpyxl library to create a small "
+            "Excel workbook with three columns ('x', 'y', 'z') and five "
+            "rows of synthetic numeric data. Save the workbook to a file "
+            "in the current directory so it becomes a downloadable "
+            "artifact."
+        ),
+        email="plot-test@munin.local",
+    )
+    conv_id = res["conversation_id"]
+    if not conv_id:
+        t.reason = f"no conversation id; errors={res['errors']}"
+        return t
+    try:
+        artifacts = res.get("artifacts") or []
+        t.metrics = {
+            "tool_calls": res["tool_calls"],
+            "artifact_count": len(artifacts),
+            "filenames": [a.get("filename") for a in artifacts],
+            "content_types": [a.get("content_type") for a in artifacts],
+        }
+        if "run_python" not in (res.get("tool_calls") or []):
+            t.reason = f"model did not call run_python; calls={res['tool_calls']}"
+            return t
+        # Acceptance: at least one artifact whose filename ends in .xlsx
+        # OR whose content-type is the spreadsheet MIME type. We are lenient
+        # because the sandbox falls back to application/octet-stream for
+        # extensions it does not recognise.
+        xlsx = [
+            a for a in artifacts
+            if (a.get("filename") or "").lower().endswith(".xlsx")
+        ]
+        if not xlsx:
+            t.reason = f"no .xlsx artifact in {t.metrics['filenames']}"
+            return t
+        # Ownership-checked fetch sanity check.
+        first = xlsx[0]
+        r = await client.get(
+            f"{BASE}/api/artifacts/{conv_id}/{first['id']}",
+            headers={"X-Munin-Email": "plot-test@munin.local"},
+            timeout=15,
+        )
+        t.metrics["fetch_status"] = r.status_code
+        t.metrics["bytes"] = len(r.content)
+        if r.status_code != 200:
+            t.reason = f"xlsx fetch returned {r.status_code}"
+            return t
+        # An openpyxl-produced .xlsx is a zip file; the magic bytes are PK\x03\x04.
+        if r.content[:2] != b"PK":
+            t.reason = "xlsx magic bytes missing - file is not a real zip"
+            return t
+        # The sandbox should sniff .xlsx as the proper Office MIME, not fall
+        # back to application/octet-stream. This is the regression guard for
+        # the post-§3 mimetype overlay.
+        ctype = (first.get("content_type") or "").lower()
+        expected = (
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        if ctype != expected:
+            t.reason = f"expected content_type {expected}, got {ctype!r}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, "plot-test@munin.local")
+    return t
+
+
 async def test_rolling_conversation_compaction(client):
     """
     Drive a multi-turn conversation with heavy per-turn payloads until the
@@ -2389,6 +2531,8 @@ ALL_TESTS = [
     ("sandbox_plot_artifact", test_sandbox_plot_artifact, False),
     ("sandbox_ephemeral_refused", test_sandbox_ephemeral_refused, False),
     ("sandbox_output_cap_truncates", test_sandbox_output_cap_truncates, False),
+    ("plot_simple_via_chat", test_plot_simple_via_chat, True),       # heavy (chat-driven, ~5-15s)
+    ("plot_xlsx_via_chat", test_plot_xlsx_via_chat, True),           # heavy (chat-driven, ~5-15s)
     ("rolling_conversation_compaction", test_rolling_conversation_compaction, True),  # heavy (6 turns × ~50k chars)
     ("style_no_emojis_research_headers", test_style_no_emojis_research_headers, False),
     ("style_no_decorative_in_list", test_style_no_decorative_in_list, False),

@@ -308,14 +308,62 @@ the `tool_result`.
 - **Sidecar container or in-process?** Sidecar is cleaner (separate
   cgroups, easier to restart) but adds a network hop. In-process is
   simpler but couples sandbox lifetime to retrieval container lifetime.
-  Lean sidecar.
+  Lean sidecar. **Decided 2026-04-14: sidecar.**
 - **Kernel pool vs per-conversation spawn?** Per-conversation is
   simpler but wastes resources on idle conversations. A pool of N
   warm kernels with LRU assignment would be more efficient at scale.
-  Start with per-conversation, optimise later.
+  Start with per-conversation, optimise later. **Decided 2026-04-14:
+  per-conversation.**
 - **Idle kernel timeout?** Kill after 15 min of no use? Reclaim memory
   without killing conversation state (forgivable — user can just
-  re-upload data). Probably yes.
+  re-upload data). Probably yes. **Decided + shipped 2026-04-14: 15 min,
+  configurable via SANDBOX_IDLE_TTL_S.**
+
+### Status
+
+**Stage A — DONE 2026-04-14**
+
+Shipped: sandbox sidecar container on a private internal docker network,
+per-conversation Jupyter kernels under firejail --net=none, idle reaper
+(15 min default), 64 KB stdout/stderr cap, in-kernel setrlimit
+belt-and-suspenders for the 2 GB RLIMIT_AS, matplotlib inline backend
+auto-enabled, plot-to-PNG-artifact pipeline, /api/artifacts/{cid}/{aid}
+ownership-checked endpoint, `artifact` SSE event, run_python +
+sandbox_reset MCP tools, ephemeral chat refusal, explicit kernel
+cleanup on conversation delete. 10/10 stress tests pass.
+
+Pre-installed package set baked into the sandbox image: numpy, scipy,
+pandas, matplotlib, seaborn, scikit-learn, sympy, networkx, openpyxl,
+Pillow, pyyaml, requests, jupyter-client, ipykernel, ipython,
+matplotlib-inline.
+
+**Stage B — DEFERRED**
+
+Three follow-ups are explicitly deferred and need their own small PRs
+when there is real user demand:
+
+- **Live `sandbox_stdout` / `sandbox_stderr` SSE streaming** during long
+  executions. Stage A captures the full output server-side and emits it
+  with the final `tool_result`; live streaming would let the user watch
+  long-running scripts character-by-character. Needs sandbox-svc to
+  stream its `/exec/{cid}` response and chat_service to forward the
+  bytes as they arrive. ~2 hours.
+- **`sandbox_install_package` MCP tool** for backend-mediated pip
+  installs. Requires a whitelist file at `config/sandbox_packages.yml`,
+  a wheelhouse cache mounted into the sandbox container, dynamic
+  `PYTHONPATH` manipulation per kernel, and a security model around
+  what the model is allowed to install. Without this, the sandbox is
+  hard-frozen to the package set above. ~4 hours.
+- **`save_artifact_to_documents`** tool that copies an artifact from
+  the sandbox's per-conversation scratch dir into the user's persistent
+  document store, so users can reuse generated plots / spreadsheets in
+  later conversations without re-running the code. ~1 hour but depends
+  on the artifact-id surface settling.
+
+**Frontend work tracked in `docs/FRONTEND-TASKS.md` entry #2**:
+rendering the new `artifact` SSE event inline in the assistant
+transcript (image tag for image artifacts, download chip for
+everything else).
 
 ---
 
@@ -379,6 +427,45 @@ Both optional; `run_python` is enough to start.
 
 ~1 day on top of §2. Mostly SSE artifact pipeline + the image
 round-trip in chat_service.
+
+### Status
+
+**Stage A - DONE 2026-04-14**
+
+Shipped:
+
+- Persona prompt updates for chat (Meitner), research (Curie), and code
+  (Turing). Each persona now has a paragraph telling the model when to
+  reach for `run_python` and how to caption the resulting artifacts.
+  Curie gets stronger guidance around publication-quality figures
+  (axis labels with units, perceptually-uniform colormaps, tight_layout).
+  Turing gets framing as "self-test the code you write" rather than
+  "compute the answer".
+- Sandbox now extracts on-disk file artifacts in addition to the inline
+  `display_data` images shipped in §2 Stage A. Each per-conversation
+  scratch directory carries an `_artifacts.json` manifest mapping
+  artifact ids to filenames + content types, so an `openpyxl.save("a.xlsx")`
+  produces a downloadable artifact with the correct filename and MIME
+  type. The `/api/artifacts/{cid}/{aid}` endpoint reads the manifest
+  rather than glob-by-prefix.
+- Stress tests: `plot_simple_via_chat` (model called run_python on
+  "plot sin(x)..." and the artifact rendered as image/png) and
+  `plot_xlsx_via_chat` (model produced a real .xlsx with PK magic
+  bytes via openpyxl).
+
+**Deferred (separate PRs)**
+
+- **Vision feedback loop**: the spec calls for chat_service to inject
+  prior plot images back into the model's next-turn context as
+  `image_url` content blocks so the model can critique its own
+  figures. This needs message-assembly changes, image fetch from the
+  sandbox into the chat context, base64 encoding, an "include the last
+  N images" policy to avoid blowing context, and depends on
+  vLLM/Qwen's multimodal message format. Belongs grouped with §5
+  Vision since it shares the multimodal plumbing. ~half-day.
+- **`quick_plot` and `compare_plots` MCP helper tools**: the spec calls
+  them optional. Skip until a user asks; raw `run_python` is enough
+  for now.
 
 ---
 

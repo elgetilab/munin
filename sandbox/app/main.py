@@ -222,21 +222,44 @@ async def shutdown_kernel(conversation_id: str) -> dict:
 
 @app.get("/artifacts/{conversation_id}/{artifact_id}")
 async def get_artifact(conversation_id: str, artifact_id: str):
-    # Artifact ids are uuid hex; refuse anything that could escape the
-    # scratch directory (defence-in-depth, the registry never produces
-    # paths outside /scratch but the URL is user-influenced).
+    # Defence-in-depth: refuse anything that could escape the scratch
+    # directory. The registry never produces paths outside /scratch but
+    # the URL is user-influenced, so we validate the shape here.
     if not artifact_id.replace("-", "").isalnum() or "/" in artifact_id:
         raise HTTPException(status_code=400, detail="bad artifact id")
     if not conversation_id.replace("-", "").isalnum() or "/" in conversation_id:
         raise HTTPException(status_code=400, detail="bad conversation id")
 
-    # Conventionally artifacts are stored as <id>.<ext>; we glob by prefix
-    # because the kernel may have produced .png / .csv / .xlsx / etc.
     conv_dir = os.path.join(SCRATCH_ROOT, conversation_id)
     if not os.path.isdir(conv_dir):
         raise HTTPException(status_code=404, detail="artifact not found")
-    for name in os.listdir(conv_dir):
-        if name.startswith(artifact_id + "."):
-            full = os.path.join(conv_dir, name)
-            return FileResponse(full, filename=name)
-    raise HTTPException(status_code=404, detail="artifact not found")
+
+    # Look up the artifact through the manifest written by KernelHandle.
+    # The manifest preserves the original filename and the sniffed content
+    # type, so xlsx/csv/png all serve correctly without filename guessing.
+    manifest_path = os.path.join(conv_dir, "_artifacts.json")
+    try:
+        with open(manifest_path) as f:
+            import json as _json
+            manifest = _json.load(f)
+    except (FileNotFoundError, ValueError, OSError):
+        raise HTTPException(status_code=404, detail="artifact not found")
+    if not isinstance(manifest, list):
+        raise HTTPException(status_code=404, detail="artifact not found")
+    entry = next(
+        (e for e in manifest if isinstance(e, dict) and e.get("id") == artifact_id),
+        None,
+    )
+    if entry is None:
+        raise HTTPException(status_code=404, detail="artifact not found")
+    fname = entry.get("filename") or ""
+    if not fname or "/" in fname or fname.startswith(".."):
+        raise HTTPException(status_code=400, detail="bad manifest entry")
+    full = os.path.join(conv_dir, fname)
+    if not os.path.isfile(full):
+        raise HTTPException(status_code=404, detail="artifact file missing")
+    return FileResponse(
+        full,
+        filename=fname,
+        media_type=entry.get("content_type") or "application/octet-stream",
+    )
