@@ -2276,22 +2276,92 @@ Backend breakdown:
 
 - **Artifact size cap**: 100 KB per version? Users writing full
   dissertations (maybe 500 KB+) might hit this. Start at 500 KB.
+  **Decided 2026-04-14: 500 KB per version byte cap.**
 - **Version cap**: keep all versions forever, or prune old ones?
   Start with all forever, add pruning if storage becomes an issue.
+  **Decided 2026-04-14: keep forever; revisit if storage grows.**
 - **Cross-conversation artifacts**: can an artifact be "shared" into
   another conversation? Probably not v1 — scope to current chat.
+  **Decided 2026-04-14: conversation-scoped only.**
 - **Binary artifacts** (PNG plots from the sandbox): store as
   base64 in the content column, or as files on disk referenced by
   id? Probably files, since they'll come from the sandbox artifacts
-  feature (§2/§3) anyway. Unify with those.
+  feature (§2/§3) anyway. Unify with those. **Deferred to Stage C
+  (sandbox unification).**
 - **Integration with §18 LaTeX and §2 sandbox**: when the sandbox
   produces a PDF or an image, should it become an artifact
   automatically? Probably yes — artifacts are the natural surface
-  for any generated file.
+  for any generated file. **Deferred to Stage C.**
 - **Merging sandbox artifacts with document artifacts**: both are
   files the user wants to see, just different origins. Probably the
   same underlying table (§22) with a `source` field distinguishing
-  `"model_written"` vs `"sandbox_generated"`.
+  `"model_written"` vs `"sandbox_generated"`. **Deferred to Stage C.**
+
+### Status
+
+**Stage A - DONE 2026-04-14**
+
+Shipped:
+
+- `artifacts` + `artifact_versions` tables in `chats.db`. Full
+  content snapshots per version. FK cascade from conversations.
+- `retrieval/artifact_store.py` with CRUD, version management,
+  ownership checks (artifact → conversation → user), word count,
+  and the `=== ACTIVE ARTIFACTS ===` summary block renderer.
+- Four MCP tools in `retrieval/mcp/tools/artifacts.py`:
+  `create_artifact`, `read_artifact`, `update_artifact`,
+  `list_artifacts`. All four refuse in ephemeral chats. Tool
+  descriptions strongly guide when to use create vs update vs
+  read, and explicitly note that full content is required on
+  updates (diffs come in Stage B).
+- HTTP surface under `/api/chats/{cid}/artifacts`: list, GET
+  single-with-content (with optional `?version=N`), and PATCH
+  for user-driven side-panel edits. The PATCH creates a new
+  version with `created_by="user"`, visible to the model on the
+  next turn via the updated summary block.
+- `chat_service` injects the summary block BELOW profile/memory
+  and ABOVE the persona prompt in the system prompt order.
+  Skipped for ephemeral chats and for conversations without
+  artifacts. Summary-only rendering (title + type + version +
+  word count, NOT content) to keep context overhead bounded.
+- Two new SSE event types emitted by `chat_service` after the
+  tool loop processes create/update results:
+  `artifact_created` and `artifact_updated`. Separate from the
+  existing `artifact` event used by §2/§3 sandbox outputs so the
+  frontend can route them to the side panel rather than inline
+  transcript rendering.
+- Tests: `artifact_create`, `artifact_read`, `artifact_update_full`,
+  `artifact_list_scoped`, `artifact_user_patch`,
+  `artifact_conversation_isolation`, `artifact_size_cap`.
+- Frontend tracked in `docs/FRONTEND-TASKS.md` entry 9.
+
+**Locked-in decisions (Stage A)**
+
+- 500 KB per version byte cap (per user override of the 200 KB
+  default I proposed).
+- Conversation-scoped, no cross-conversation sharing.
+- Summary-only context injection; model calls `read_artifact` for
+  content.
+- Text-only content types. Binary outputs come via §2/§3.
+- User PATCH takes full content, no diff mode on either side.
+
+**Stage B - DEFERRED**
+
+- `update_artifact(content=<diff>, is_diff=True)` with
+  `difflib` or `diff_match_patch` for token-efficient edits on
+  long documents. Ship when the model's full-rewrite overhead
+  becomes a real token-cost pain point. ~0.5 day.
+
+**Stage C - DEFERRED**
+
+- Unification with the §2/§3 sandbox artifact pipeline: one
+  `artifacts` table covers both model-written documents and
+  sandbox-generated files, distinguished by a new `source`
+  column (`"model_written"` vs `"sandbox_generated"`). Requires
+  migrating the existing sandbox artifact path and keeping a
+  back-compat shim for `GET /api/artifacts/{cid}/{aid}`. ~0.5-1
+  day. This is what finally closes the deferred
+  `save_artifact_to_documents` from §3.
 
 ---
 

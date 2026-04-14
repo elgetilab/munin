@@ -3954,6 +3954,437 @@ async def test_memory_ephemeral_refused(client):
     return t
 
 
+ARTIFACT_EMAIL = "artifact-test@munin.local"
+
+
+async def _seed_conversation(client, email: str = ARTIFACT_EMAIL) -> Optional[str]:
+    res = await send_chat(client, "start", email=email)
+    return res["conversation_id"]
+
+
+async def _artifact_create_via_mcp(
+    client,
+    conv_id: str,
+    title: str,
+    content: str,
+    content_type: str = "text/markdown",
+    language: Optional[str] = None,
+    email: str = ARTIFACT_EMAIL,
+) -> tuple[int, dict]:
+    args: dict = {
+        "title": title,
+        "content": content,
+        "content_type": content_type,
+    }
+    if language is not None:
+        args["language"] = language
+    return await _mcp_call(
+        client,
+        "create_artifact",
+        args,
+        email=email,
+        conversation_id=conv_id,
+    )
+
+
+async def _artifact_read_via_mcp(
+    client,
+    conv_id: str,
+    artifact_id: str,
+    version: Optional[int] = None,
+    email: str = ARTIFACT_EMAIL,
+) -> tuple[int, dict]:
+    args: dict = {"artifact_id": artifact_id}
+    if version is not None:
+        args["version"] = version
+    return await _mcp_call(
+        client,
+        "read_artifact",
+        args,
+        email=email,
+        conversation_id=conv_id,
+    )
+
+
+async def _artifact_update_via_mcp(
+    client,
+    conv_id: str,
+    artifact_id: str,
+    content: str,
+    change_summary: Optional[str] = None,
+    email: str = ARTIFACT_EMAIL,
+) -> tuple[int, dict]:
+    args: dict = {"artifact_id": artifact_id, "content": content}
+    if change_summary is not None:
+        args["change_summary"] = change_summary
+    return await _mcp_call(
+        client,
+        "update_artifact",
+        args,
+        email=email,
+        conversation_id=conv_id,
+    )
+
+
+async def _artifact_list_http(
+    client, conv_id: str, email: str = ARTIFACT_EMAIL,
+) -> tuple[int, dict]:
+    r = await client.get(
+        f"{BASE}/api/chats/{conv_id}/artifacts",
+        headers={"X-Munin-Email": email},
+        timeout=10,
+    )
+    try:
+        return r.status_code, r.json()
+    except Exception:
+        return r.status_code, {}
+
+
+async def _artifact_get_http(
+    client,
+    conv_id: str,
+    artifact_id: str,
+    version: Optional[int] = None,
+    email: str = ARTIFACT_EMAIL,
+) -> tuple[int, dict]:
+    params = {"version": version} if version is not None else None
+    r = await client.get(
+        f"{BASE}/api/chats/{conv_id}/artifacts/{artifact_id}",
+        headers={"X-Munin-Email": email},
+        params=params,
+        timeout=10,
+    )
+    try:
+        return r.status_code, r.json()
+    except Exception:
+        return r.status_code, {}
+
+
+async def _artifact_patch_http(
+    client,
+    conv_id: str,
+    artifact_id: str,
+    content: str,
+    change_summary: Optional[str] = None,
+    email: str = ARTIFACT_EMAIL,
+) -> tuple[int, dict]:
+    body: dict = {"content": content}
+    if change_summary is not None:
+        body["change_summary"] = change_summary
+    r = await client.patch(
+        f"{BASE}/api/chats/{conv_id}/artifacts/{artifact_id}",
+        headers={"X-Munin-Email": email, "Content-Type": "application/json"},
+        json=body,
+        timeout=10,
+    )
+    try:
+        return r.status_code, r.json()
+    except Exception:
+        return r.status_code, {}
+
+
+async def test_artifact_create(client):
+    """Create an artifact via the MCP tool, confirm it surfaces via
+    the HTTP list endpoint with the right metadata."""
+    t = TestResult(name="")
+    conv_id = await _seed_conversation(client)
+    if not conv_id:
+        t.reason = "no conversation id"
+        return t
+    try:
+        # Use unambiguous plain-text content so the whitespace-split
+        # word count in artifact_store._count_words has a deterministic
+        # answer. Markdown heading markers like `#` count as
+        # whitespace-separated tokens which is why the original fixture
+        # was ambiguous.
+        content = "one two three four five"  # exactly 5 words
+        status, body = await _artifact_create_via_mcp(
+            client, conv_id,
+            title="Kinase abstract v1",
+            content=content,
+            content_type="text/markdown",
+            language="markdown",
+        )
+        if status != 200 or body.get("error"):
+            t.reason = f"create returned {status}: {body}"
+            return t
+        aid = body.get("id")
+        if not aid:
+            t.reason = f"create returned no id: {body}"
+            return t
+        list_status, listing = await _artifact_list_http(client, conv_id)
+        artifacts = listing.get("artifacts") or []
+        t.metrics = {
+            "artifact_id": aid,
+            "total": listing.get("total"),
+            "titles": [a.get("title") for a in artifacts],
+            "word_count": next(
+                (a.get("word_count") for a in artifacts if a.get("id") == aid),
+                None,
+            ),
+        }
+        if list_status != 200:
+            t.reason = f"list returned {list_status}"
+            return t
+        if not any(a.get("id") == aid for a in artifacts):
+            t.reason = "created artifact missing from listing"
+            return t
+        first = next(a for a in artifacts if a.get("id") == aid)
+        if first.get("latest_version") != 1:
+            t.reason = f"expected latest_version=1, got {first.get('latest_version')}"
+            return t
+        if first.get("word_count") != 5:
+            t.reason = f"unexpected word_count {first.get('word_count')} (expected 5)"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, ARTIFACT_EMAIL)
+    return t
+
+
+async def test_artifact_read(client):
+    """Read an artifact back via both /mcp/call and the HTTP endpoint."""
+    t = TestResult(name="")
+    conv_id = await _seed_conversation(client)
+    if not conv_id:
+        t.reason = "no conversation id"
+        return t
+    try:
+        content = "# Title\n\nbody paragraph with some words."
+        _, body = await _artifact_create_via_mcp(
+            client, conv_id, "Read Test", content, "text/markdown"
+        )
+        aid = body.get("id")
+        if not aid:
+            t.reason = f"create failed: {body}"
+            return t
+        _, mcp_body = await _artifact_read_via_mcp(client, conv_id, aid)
+        if mcp_body.get("content") != content:
+            t.reason = f"mcp read content mismatch: {mcp_body.get('content')!r}"
+            return t
+        status, http_body = await _artifact_get_http(client, conv_id, aid)
+        t.metrics = {
+            "mcp_version": mcp_body.get("version"),
+            "http_version": http_body.get("version"),
+        }
+        if status != 200:
+            t.reason = f"http GET returned {status}"
+            return t
+        if http_body.get("content") != content:
+            t.reason = f"http content mismatch: {http_body.get('content')!r}"
+            return t
+        if http_body.get("version") != 1:
+            t.reason = f"expected version 1, got {http_body.get('version')}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, ARTIFACT_EMAIL)
+    return t
+
+
+async def test_artifact_update_full(client):
+    """Update an artifact with new full content, verify v2 stored and v1 still readable."""
+    t = TestResult(name="")
+    conv_id = await _seed_conversation(client)
+    if not conv_id:
+        t.reason = "no conversation id"
+        return t
+    try:
+        _, body = await _artifact_create_via_mcp(
+            client, conv_id, "Update Test", "initial draft", "text/markdown"
+        )
+        aid = body.get("id")
+        if not aid:
+            t.reason = f"create failed: {body}"
+            return t
+        _, upd = await _artifact_update_via_mcp(
+            client, conv_id, aid,
+            "revised draft with more words added",
+            change_summary="expanded intro",
+        )
+        if upd.get("error"):
+            t.reason = f"update failed: {upd}"
+            return t
+        if upd.get("version") != 2:
+            t.reason = f"expected version 2, got {upd.get('version')}"
+            return t
+        # v2 read
+        _, v2 = await _artifact_read_via_mcp(client, conv_id, aid)
+        # v1 read (historical)
+        _, v1 = await _artifact_read_via_mcp(client, conv_id, aid, version=1)
+        t.metrics = {
+            "v1_content": (v1.get("content") or "")[:60],
+            "v2_content": (v2.get("content") or "")[:60],
+            "latest": v2.get("latest_version"),
+        }
+        if v2.get("content") != "revised draft with more words added":
+            t.reason = f"v2 content mismatch: {v2.get('content')!r}"
+            return t
+        if v1.get("content") != "initial draft":
+            t.reason = f"v1 content mismatch: {v1.get('content')!r}"
+            return t
+        if v2.get("latest_version") != 2:
+            t.reason = f"latest_version did not bump to 2: {v2}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, ARTIFACT_EMAIL)
+    return t
+
+
+async def test_artifact_list_scoped(client):
+    """List returns all artifacts in the current conversation, none from others."""
+    t = TestResult(name="")
+    conv_id = await _seed_conversation(client)
+    if not conv_id:
+        t.reason = "no conversation id"
+        return t
+    try:
+        _, a1 = await _artifact_create_via_mcp(
+            client, conv_id, "Alpha", "first", "text/plain"
+        )
+        _, a2 = await _artifact_create_via_mcp(
+            client, conv_id, "Beta", "second", "text/plain"
+        )
+        if not a1.get("id") or not a2.get("id"):
+            t.reason = f"create returned no ids: {a1} {a2}"
+            return t
+        _, body = await _mcp_call(
+            client,
+            "list_artifacts",
+            {},
+            email=ARTIFACT_EMAIL,
+            conversation_id=conv_id,
+        )
+        artifacts = body.get("artifacts") or []
+        titles = sorted(a.get("title") for a in artifacts)
+        t.metrics = {"titles": titles, "total": body.get("total")}
+        if titles != ["Alpha", "Beta"]:
+            t.reason = f"expected [Alpha, Beta], got {titles}"
+            return t
+        if body.get("total") != 2:
+            t.reason = f"expected total=2, got {body.get('total')}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, ARTIFACT_EMAIL)
+    return t
+
+
+async def test_artifact_user_patch(client):
+    """PATCH via the HTTP endpoint creates a new version with created_by=user."""
+    t = TestResult(name="")
+    conv_id = await _seed_conversation(client)
+    if not conv_id:
+        t.reason = "no conversation id"
+        return t
+    try:
+        _, body = await _artifact_create_via_mcp(
+            client, conv_id, "User Edit Test", "original from model", "text/plain"
+        )
+        aid = body.get("id")
+        if not aid:
+            t.reason = "no id"
+            return t
+        status, patch_body = await _artifact_patch_http(
+            client, conv_id, aid,
+            "user hand-edited content",
+            change_summary="fixed a typo",
+        )
+        t.metrics = {
+            "patch_status": status,
+            "new_version": patch_body.get("version"),
+            "created_by": patch_body.get("created_by"),
+        }
+        if status != 200:
+            t.reason = f"patch returned {status}: {patch_body}"
+            return t
+        if patch_body.get("version") != 2:
+            t.reason = f"expected version 2, got {patch_body.get('version')}"
+            return t
+        if patch_body.get("created_by") != "user":
+            t.reason = f"created_by should be 'user', got {patch_body.get('created_by')!r}"
+            return t
+        # Verify the new version is readable and has the right content
+        _, v2 = await _artifact_read_via_mcp(client, conv_id, aid)
+        if v2.get("content") != "user hand-edited content":
+            t.reason = f"v2 content mismatch after patch: {v2.get('content')!r}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, ARTIFACT_EMAIL)
+    return t
+
+
+async def test_artifact_conversation_isolation(client):
+    """An artifact in conversation A must not be visible from conversation B."""
+    t = TestResult(name="")
+    conv_a = await _seed_conversation(client)
+    conv_b = await _seed_conversation(client)
+    if not conv_a or not conv_b:
+        t.reason = "could not seed both conversations"
+        return t
+    try:
+        _, body = await _artifact_create_via_mcp(
+            client, conv_a, "Secret A", "A-only content", "text/plain"
+        )
+        aid = body.get("id")
+        if not aid:
+            t.reason = "no id"
+            return t
+        # List from conversation B should not see it
+        _, listing_b = await _artifact_list_http(client, conv_b)
+        b_ids = [a.get("id") for a in (listing_b.get("artifacts") or [])]
+        t.metrics = {"b_count": len(b_ids)}
+        if aid in b_ids:
+            t.reason = "artifact leaked into sibling conversation"
+            return t
+        # HTTP GET from conversation B's URL must 404
+        status, _ = await _artifact_get_http(client, conv_b, aid)
+        if status != 404:
+            t.reason = f"cross-conv HTTP GET returned {status}, want 404"
+            return t
+        # /mcp/call read_artifact with conversation B as the header must error
+        _, mcp_body = await _mcp_call(
+            client, "read_artifact", {"artifact_id": aid},
+            email=ARTIFACT_EMAIL, conversation_id=conv_b,
+        )
+        if not mcp_body.get("error"):
+            t.reason = f"mcp read in conv B did not error: {mcp_body}"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_a, ARTIFACT_EMAIL)
+        await _delete_chat(client, conv_b, ARTIFACT_EMAIL)
+    return t
+
+
+async def test_artifact_size_cap(client):
+    """600 KB content must be rejected with an error."""
+    t = TestResult(name="")
+    conv_id = await _seed_conversation(client)
+    if not conv_id:
+        t.reason = "no conversation id"
+        return t
+    try:
+        oversized = "x" * (600 * 1024)  # 600 KB of ASCII = 600 KB of bytes
+        _, body = await _artifact_create_via_mcp(
+            client, conv_id, "Too Big", oversized, "text/plain"
+        )
+        t.metrics = {"error": body.get("error")}
+        err = body.get("error") or ""
+        if "exceeds" not in err and "cap" not in err:
+            t.reason = f"expected size cap error, got {err!r}"
+            return t
+        if body.get("id"):
+            t.reason = "oversized artifact was still created"
+            return t
+        t.passed = True
+    finally:
+        await _delete_chat(client, conv_id, ARTIFACT_EMAIL)
+    return t
+
+
 async def test_rolling_conversation_compaction(client):
     """
     Drive a multi-turn conversation with heavy per-turn payloads until the
@@ -4118,6 +4549,13 @@ ALL_TESTS = [
     ("memory_lru_eviction", test_memory_lru_eviction, False),
     ("memory_injected_in_system_prompt", test_memory_injected_in_system_prompt, True),  # heavy
     ("memory_ephemeral_refused", test_memory_ephemeral_refused, False),
+    ("artifact_create", test_artifact_create, False),
+    ("artifact_read", test_artifact_read, False),
+    ("artifact_update_full", test_artifact_update_full, False),
+    ("artifact_list_scoped", test_artifact_list_scoped, False),
+    ("artifact_user_patch", test_artifact_user_patch, False),
+    ("artifact_conversation_isolation", test_artifact_conversation_isolation, False),
+    ("artifact_size_cap", test_artifact_size_cap, False),
     ("project_crud_roundtrip", test_project_crud_roundtrip, False),
     ("project_instructions_cap", test_project_instructions_cap, False),
     ("project_conversation_filing", test_project_conversation_filing, False),

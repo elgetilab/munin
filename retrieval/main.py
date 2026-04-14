@@ -85,6 +85,7 @@ import document_store
 import agents as agents_pkg
 import user_profile_store
 import project_store
+import artifact_store
 
 # Static dir (not in database.py since it's app-specific)
 STATIC_DIR = os.getenv("STATIC_DIR", "/app/static")
@@ -751,6 +752,96 @@ async def api_unpin_chat(conversation_id: str, request: Request):
     if meta is None:
         raise _error_404("Conversation not found")
     return {"pinned": False}
+
+
+# ==============================================================================
+# Artifacts (§22) - /api/chats/{cid}/artifacts
+# ==============================================================================
+@app.get("/api/chats/{conversation_id}/artifacts")
+async def api_list_artifacts(conversation_id: str, request: Request):
+    """List all artifacts in a conversation (metadata only, no content)."""
+    user_email = _require_user_email(request)
+    conv = await chat_store.get_conversation(conversation_id, user_email)
+    if conv is None:
+        raise _error_404("Conversation not found")
+    artifacts = await artifact_store.list_artifacts(
+        user_email=user_email,
+        conversation_id=conversation_id,
+    )
+    return {"artifacts": artifacts, "total": len(artifacts)}
+
+
+@app.get("/api/chats/{conversation_id}/artifacts/{artifact_id}")
+async def api_get_artifact(
+    conversation_id: str,
+    artifact_id: str,
+    request: Request,
+    version: Optional[int] = Query(None, ge=1),
+):
+    """
+    Load the latest (or a specific) version of an artifact. Returns
+    title, content_type, language, version metadata, and the full
+    content as a string.
+    """
+    user_email = _require_user_email(request)
+    row = await artifact_store.get_artifact_version(
+        user_email=user_email,
+        conversation_id=conversation_id,
+        artifact_id=artifact_id,
+        version=version,
+    )
+    if row is None:
+        raise _error_404("Artifact not found")
+    return row
+
+
+@app.patch("/api/chats/{conversation_id}/artifacts/{artifact_id}")
+async def api_patch_artifact(
+    conversation_id: str,
+    artifact_id: str,
+    request: Request,
+):
+    """
+    User-driven edit from the side panel. Creates a new version with
+    ``created_by="user"``, visible to the model on the next chat turn
+    via the updated artifact summary block.
+    """
+    user_email = _require_user_email(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": "Invalid JSON body"}},
+        )
+    if not isinstance(body, dict):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": "Request body must be an object"}},
+        )
+    content = body.get("content")
+    if not isinstance(content, str):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": "content (string) is required"}},
+        )
+    change_summary = body.get("change_summary")
+    try:
+        row = await artifact_store.update_artifact(
+            user_email=user_email,
+            conversation_id=conversation_id,
+            artifact_id=artifact_id,
+            content=content,
+            change_summary=change_summary,
+            created_by="user",
+        )
+    except artifact_store.ArtifactError as exc:
+        raise HTTPException(
+            status_code=400, detail={"error": {"message": str(exc)}}
+        )
+    if row is None:
+        raise _error_404("Artifact not found")
+    return row
 
 
 # ==============================================================================

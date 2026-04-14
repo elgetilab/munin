@@ -520,7 +520,80 @@ Resets the profile by removing the row. Returns **200** with
 `{"removed": true}` if a row was deleted, `{"removed": false}` if there
 was nothing to delete.
 
-### 4.15 Project routes (§21)
+### 4.15 Artifact routes (§22 Stage A)
+
+Artifacts are versioned documents scoped to a conversation - papers,
+LaTeX sources, code snippets, SVG figures, anything the user wants
+to iterate on rather than re-scroll through the chat history. The
+backend stores full content snapshots per version in
+`artifact_versions`; there is no diff chain in Stage A.
+
+**Text only in Stage A.** 500 KB per version byte cap. Binary
+artifacts (PNG plots from the sandbox, PDFs) stay in the §2/§3
+sandbox pipeline until Stage C unifies the two concepts.
+
+**`GET /api/chats/{conversation_id}/artifacts`** - list every
+artifact in a conversation. Metadata only (no content). Ordered by
+`updated_at DESC`. Response:
+
+```json
+{
+  "artifacts": [
+    {
+      "id": "art_abc123",
+      "title": "Kinase abstract v1",
+      "content_type": "text/markdown",
+      "language": "markdown",
+      "latest_version": 3,
+      "word_count": 487,
+      "byte_size": 2893,
+      "created_at": "...",
+      "updated_at": "..."
+    }
+  ],
+  "total": 1
+}
+```
+
+**`GET /api/chats/{conversation_id}/artifacts/{artifact_id}`** - load
+the latest version of a specific artifact, including the full
+content. Optional `?version=N` returns a historical version
+instead. 404 if the artifact doesn't exist, belongs to a different
+conversation, or is owned by another user.
+
+**`PATCH /api/chats/{conversation_id}/artifacts/{artifact_id}`** -
+user-driven side-panel edit. Creates a new version with
+`created_by="user"`, visible to the model on the next chat turn via
+the updated `=== ACTIVE ARTIFACTS ===` summary block. Request:
+
+```json
+{
+  "content": "<full new content>",
+  "change_summary": "fixed a typo in equation 3"
+}
+```
+
+Full-content replacement only - there is no diff mode on the user
+side. 400 if `content` is missing or exceeds the 500 KB cap.
+
+**MCP tools**: `create_artifact`, `read_artifact`, `update_artifact`,
+`list_artifacts`. All four refused in ephemeral chats. `create_artifact`
+requires `title`, `content`, `content_type`; `update_artifact` takes
+full replacement content (diffs are Stage B). The model discovers
+existing artifacts from the `=== ACTIVE ARTIFACTS ===` block injected
+into the system prompt on every persistent turn.
+
+**SSE events** on `/api/chat/completions` when the model calls
+create/update tools:
+
+- `artifact_created`: `{id, title, content_type, language, version, conversation_id, tool_call_id}`
+- `artifact_updated`: `{id, title, version, change_summary, created_by, conversation_id, tool_call_id}`
+
+Both are separate from the existing `artifact` event used by §2/§3
+sandbox outputs so the frontend can route them to the side panel
+rather than inline transcript rendering.
+
+### 4.16 Project routes (§21)
 
 Projects are top-level workspaces that scope conversations and
 documents together under a single set of instructions. A conversation
@@ -629,7 +702,7 @@ project or from the broader corpus. Two-phase fallback: if the
 scoped search returns zero, a user-global search is run and its
 results are returned alongside `sources_used: ["project", "global"]`.
 
-### 4.16 `GET /api/artifacts/{conversation_id}/{artifact_id}`
+### 4.17 `GET /api/artifacts/{conversation_id}/{artifact_id}` (sandbox)
 
 Serves an artifact (plot, file, generated document) produced by the
 `run_python` sandbox tool inside the given conversation. The actual
@@ -675,6 +748,8 @@ data: <minified json>
 | `tool_call` | `{"id": "tc-1", "name": "paper_search", "arguments": {...}}` | Once per finalized tool call the main model asks for. Emitted after the vLLM delta for that turn finishes, not mid-arguments |
 | `tool_result` | `{"id": "tc-1", "name": "paper_search", "result": {...}, "duration_ms": 800}` | After the tool actually finishes. Matches `tool_call.id` |
 | `artifact` | `{"id": "...", "filename": "...", "content_type": "image/png", "size_bytes": N, "display_url": "/api/artifacts/{cid}/{aid}", "conversation_id": "...", "tool_call_id": "tc-2"}` | After a `run_python` tool_result that produced one or more artifacts (e.g. matplotlib plots). One event per artifact. Render images inline via the `display_url`; render non-image artifacts as download links |
+| `artifact_created` | `{"id": "art_...", "title": "...", "content_type": "text/markdown", "language": "markdown", "version": 1, "conversation_id": "...", "tool_call_id": "..."}` | §22. After a successful `create_artifact` tool call. Render in the side panel as a new document entry; the frontend should fetch content via `GET /api/chats/{cid}/artifacts/{aid}` when the user opens it |
+| `artifact_updated` | `{"id": "art_...", "title": "...", "version": N, "change_summary": "...", "created_by": "assistant" \| "user", "conversation_id": "...", "tool_call_id": "..."}` | §22. After a successful `update_artifact` tool call (or a user PATCH reflected back on the next streaming turn). Bumps the side panel's version picker and refreshes content |
 | `agent_start` | `{"agent": "research_orchestrator", "query": "..."}` | When the model invokes an agent via the `invoke_agent` tool |
 | `agent_thinking` | `{"content": "..."}` | Nested reasoning stream from the agent's own vLLM loop |
 | `agent_tool_call` | `{"id": "atc-1", "name": "paper_search", "arguments": {...}}` | Each tool the agent fires |

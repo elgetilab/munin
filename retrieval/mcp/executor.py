@@ -23,6 +23,10 @@ from .tools import (
     remember,
     forget,
     recall,
+    create_artifact,
+    read_artifact,
+    update_artifact,
+    list_artifacts,
     list_projects,
     get_current_project,
     invoke_agent,
@@ -133,6 +137,31 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
             return await transcribe_equation(
                 image_ref=arguments.get("image_ref", ""),
             )
+
+        elif tool_name == "create_artifact":
+            return await create_artifact(
+                title=arguments.get("title", ""),
+                content=arguments.get("content", ""),
+                content_type=arguments.get("content_type", ""),
+                language=arguments.get("language"),
+                change_summary=arguments.get("change_summary"),
+            )
+
+        elif tool_name == "read_artifact":
+            return await read_artifact(
+                artifact_id=arguments.get("artifact_id", ""),
+                version=arguments.get("version"),
+            )
+
+        elif tool_name == "update_artifact":
+            return await update_artifact(
+                artifact_id=arguments.get("artifact_id", ""),
+                content=arguments.get("content", ""),
+                change_summary=arguments.get("change_summary"),
+            )
+
+        elif tool_name == "list_artifacts":
+            return await list_artifacts()
 
         elif tool_name == "remember":
             return await remember(

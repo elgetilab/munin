@@ -37,6 +37,7 @@ import agents as agents_pkg
 import user_profile_store
 import project_store
 import memory_store
+import artifact_store
 import vision
 from database import VLLM_URL, VLLM_MODEL_NAME
 from mcp.schemas import MCP_TOOLS
@@ -444,6 +445,36 @@ async def stream_chat_completion(
                 else memory_block
             )
 
+    # Inject active artifacts summary (§22). Summary-only by design:
+    # title, type, version, word count. The model calls
+    # read_artifact(id) when it needs the actual content, so context
+    # overhead stays bounded regardless of how many artifacts a
+    # conversation accumulates. Only injected for persistent
+    # conversations that have at least one artifact. Ephemeral chats
+    # never have artifacts (the tools refuse), so the block is
+    # skipped there automatically. This block sits BELOW profile /
+    # memory but ABOVE the persona prompt so the "what are we working
+    # on right now" framing comes just before the persona's stylistic
+    # instructions.
+    if not ephemeral and conversation_id:
+        try:
+            artifact_rows = await artifact_store.list_artifacts(
+                user_email=user_email,
+                conversation_id=conversation_id,
+            )
+            artifact_block = artifact_store.build_artifact_summary_block(
+                artifact_rows
+            )
+        except Exception as e:
+            print(f"[WARNING] artifact summary load failed: {e}")
+            artifact_block = None
+        if artifact_block:
+            system_prompt = (
+                f"{artifact_block}\n\n{system_prompt}"
+                if system_prompt
+                else artifact_block
+            )
+
     # Inject the project context block (§21). Goes ABOVE the persona
     # prompt so the model sees the workspace framing first. Skipped for
     # ephemeral chats and for conversations without a project.
@@ -722,6 +753,42 @@ async def stream_chat_completion(
                             "size_bytes": art.get("size_bytes"),
                             "display_url": art.get("display_url"),
                             "conversation_id": tool_result.get("conversation_id"),
+                            "tool_call_id": res["id"],
+                        },
+                    )
+
+            # §22: versioned-document artifacts. Separate event types
+            # from the §2/§3 sandbox artifacts above so the frontend
+            # can route them to the side panel rather than the inline
+            # transcript. Only emitted on successful tool results
+            # (result dicts without an error field).
+            if res.get("name") == "create_artifact":
+                tr = res.get("result") or {}
+                if isinstance(tr, dict) and not tr.get("error"):
+                    yield _sse(
+                        "artifact_created",
+                        {
+                            "id": tr.get("id"),
+                            "title": tr.get("title"),
+                            "content_type": tr.get("content_type"),
+                            "language": tr.get("language"),
+                            "version": tr.get("version"),
+                            "conversation_id": tr.get("conversation_id"),
+                            "tool_call_id": res["id"],
+                        },
+                    )
+            elif res.get("name") == "update_artifact":
+                tr = res.get("result") or {}
+                if isinstance(tr, dict) and not tr.get("error"):
+                    yield _sse(
+                        "artifact_updated",
+                        {
+                            "id": tr.get("id"),
+                            "title": tr.get("title"),
+                            "version": tr.get("version"),
+                            "change_summary": tr.get("change_summary"),
+                            "created_by": tr.get("created_by"),
+                            "conversation_id": tr.get("conversation_id"),
                             "tool_call_id": res["id"],
                         },
                     )
