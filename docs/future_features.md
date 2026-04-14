@@ -1922,12 +1922,60 @@ Schema entries. Executor dispatch. Test plan. **Half a day total.**
   configured via `SEMANTIC_SCHOLAR_API_KEY`), it's 1 req/sec. For
   citation lookups on heavy papers this can get eaten quickly. Add
   polite backoff and surface rate-limit errors clearly.
+  **Decided 2026-04-14**: surface HTTP 429 as a clean error asking
+  the caller to retry in ~60s, no retry loop. Model decides.
 - **Multi-hop**: "papers that cite the papers that cite X" — possible
-  but explodes fast. Not building v1 unless asked.
+  but explodes fast. Not building v1 unless asked. **Deferred.**
 - **Citation context**: S2 can return the *actual sentence* where
   paper A cites paper B (the `contexts` field). Very valuable for
   understanding *how* papers are cited. Add as an optional flag:
-  `include_contexts: bool = False`.
+  `include_contexts: bool = False`. **Decided + shipped 2026-04-14:
+  opt-in via the `include_contexts` parameter, default False.**
+
+### Status
+
+**DONE 2026-04-14**
+
+Shipped:
+
+- New `retrieval/mcp/tools/s2_citations.py` with two public MCP
+  tools plus a shared `_s2_citation_call` helper. The helper does
+  two parallel S2 API calls per invocation: one for the source
+  paper's metadata (`title` + `citationCount`, surfaced as
+  `total_citations` in the response) and one for the
+  citations/references list. Wall time is roughly one RTT via
+  `asyncio.gather`.
+- `s2_get_citations(doi, limit=50, year_from=None, include_contexts=False)`
+  → papers that cite the DOI. `year_from` drops entries older than
+  the cutoff. `include_contexts=True` adds the `contexts`,
+  `intents`, and `is_influential` fields from S2.
+- `s2_get_references(doi, limit=50, include_contexts=False)` →
+  papers the DOI cites. `year_from` is rejected (conceptually
+  incoherent for a fixed reference list).
+- Max `limit` hard cap is 100 regardless of what the caller passes.
+  Larger requests are usually noise for a single model turn.
+- Dedupe by DOI as the final step — S2 occasionally returns the
+  same paper twice with different paperIds.
+- §13 local-download injection: every returned entry runs through
+  `get_pdf_path(doi)` from papers.py. Hits in the local corpus
+  get `download_url` + `local_pdf_available: True` so the frontend
+  can surface a direct download link.
+- HTTP 429 surfaces as a clean
+  `{"error": "Semantic Scholar rate-limited this request (HTTP 429).
+  Retry in ~60s..."}` — no retry loop, the model decides.
+- The existing Neo4j-backed `get_citations` / `get_references`
+  tools are **kept** alongside the new ones. Tool descriptions in
+  `mcp/schemas.py` now distinguish them: Neo4j tools are
+  fast-local and cover only the curated corpus; S2 tools are
+  wide-graph and cover ~200M papers.
+- Five stress tests: `s2_get_citations_known_paper` (AlphaFold,
+  total_citations > 100), `s2_get_references_round_trip` (get refs
+  of paper A, pick reference B, check B's citations list is
+  non-empty — relaxed from strict round-trip because S2 pagination
+  may exclude A from B's first 100), `s2_get_citations_include_contexts`
+  (verify `contexts` field populated when asked),
+  `s2_local_download_url_injected` (opportunistic, SKIP if no
+  overlap), `s2_citations_unknown_doi` (clean error path).
 
 ---
 

@@ -23,6 +23,7 @@ from .llm import llm_summarize
 from .documents import search_user_docs, view_attachment
 from .equation import transcribe_equation
 from .read_paper import read_paper
+from .s2_citations import s2_get_citations, s2_get_references
 from .chats import search_past_conversations
 from .memory import remember, forget, recall
 from .artifacts import (
@@ -48,6 +49,8 @@ __all__ = [
     "read_paper",
     "get_citations",
     "get_references",
+    "s2_get_citations",
+    "s2_get_references",
     "get_author_papers",
     "get_paper_pdf",
     "check_papers_availability",

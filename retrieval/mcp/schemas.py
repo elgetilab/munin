@@ -158,7 +158,7 @@ MCP_TOOLS = {
     },
     "get_citations": {
         "name": "get_citations",
-        "description": "Get papers that cite a given paper. Useful for finding follow-up research.",
+        "description": "Get papers that cite a given paper. Queries the LOCAL Neo4j citation graph built from the curated paper corpus - fast but only covers papers in our corpus. If the user wants broader coverage across the whole Semantic Scholar graph (~200M papers), use `s2_get_citations` instead.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -177,7 +177,7 @@ MCP_TOOLS = {
     },
     "get_references": {
         "name": "get_references",
-        "description": "Get papers cited by a given paper (its references). Useful for finding foundational research.",
+        "description": "Get papers cited by a given paper (its references). Queries the LOCAL Neo4j citation graph built from the curated paper corpus - fast but only covers papers in our corpus. If the user wants broader coverage across the whole Semantic Scholar graph (~200M papers), use `s2_get_references` instead.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -189,6 +189,58 @@ MCP_TOOLS = {
                     "type": "integer",
                     "description": "Maximum number of references to return (default: 50)",
                     "default": 50
+                }
+            },
+            "required": ["doi"]
+        }
+    },
+    "s2_get_citations": {
+        "name": "s2_get_citations",
+        "description": "Papers that CITE a given paper, from the full Semantic Scholar graph (~200M papers). Use this when the user asks 'who cites this?', 'what papers build on X?', 'what's the follow-up work?'. Broader than `get_citations` (which only sees our curated local corpus) but slower (two S2 API calls per invocation). Returns `total_citations` (the full S2 count) plus a list of `citations` with DOI, title, authors, year, citation_count, and openAccessPdf URL. (Note: S2's /citations endpoint does not serve tldr summaries - call paper_lookup(doi) on specific entries if you need the tldr.) Any citation whose DOI is in our local corpus also gets a `download_url` + `local_pdf_available: True` so you can direct the user to the local PDF. Pass `year_from` to filter to recent citers ('papers since 2023 that cite X'). Pass `include_contexts: true` to get the actual sentences where each citing paper references the original (useful for 'how is this cited' questions). Max `limit` is 100.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "doi": {
+                    "type": "string",
+                    "description": "The DOI of the paper whose citations you want."
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max number of citing papers to return (default 50, hard cap 100).",
+                    "default": 50
+                },
+                "year_from": {
+                    "type": "integer",
+                    "description": "Optional: only return citing papers published in this year or later."
+                },
+                "include_contexts": {
+                    "type": "boolean",
+                    "description": "If true, each result includes the `contexts` field with the actual sentence(s) where the citing paper references the original. Costs a little more payload but is valuable for 'how is X cited' questions.",
+                    "default": False
+                }
+            },
+            "required": ["doi"]
+        }
+    },
+    "s2_get_references": {
+        "name": "s2_get_references",
+        "description": "Papers that the given paper CITES (its reference list), from the full Semantic Scholar graph. Use when the user asks 'what does this paper cite?', 'what did the authors build on?', 'what's the foundational work for paper X?'. Broader than `get_references` (which only sees our curated local corpus). Returns `references` with DOI, title, authors, year, citation_count, openAccessPdf, and `download_url` + `local_pdf_available: True` for any reference that happens to be in the local corpus. (Note: S2's /references endpoint does not serve tldr summaries - call paper_lookup(doi) on specific entries if you need the tldr.) `include_contexts: true` includes the sentence(s) where each reference is cited. Max `limit` is 100.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "doi": {
+                    "type": "string",
+                    "description": "The DOI of the paper whose references you want."
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max number of references to return (default 50, hard cap 100).",
+                    "default": 50
+                },
+                "include_contexts": {
+                    "type": "boolean",
+                    "description": "If true, each result includes the `contexts` field with the sentence(s) where the source paper references it.",
+                    "default": False
                 }
             },
             "required": ["doi"]

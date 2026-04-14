@@ -13,6 +13,8 @@ from .tools import (
     read_paper,
     get_citations,
     get_references,
+    s2_get_citations,
+    s2_get_references,
     get_author_papers,
     get_paper_pdf,
     check_papers_availability,
@@ -109,6 +111,21 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
             doi = arguments.get("doi", "")
             limit = arguments.get("limit", 50)
             return await get_references(doi, limit)
+
+        elif tool_name == "s2_get_citations":
+            return await s2_get_citations(
+                doi=arguments.get("doi", ""),
+                limit=arguments.get("limit", 50),
+                year_from=arguments.get("year_from"),
+                include_contexts=bool(arguments.get("include_contexts", False)),
+            )
+
+        elif tool_name == "s2_get_references":
+            return await s2_get_references(
+                doi=arguments.get("doi", ""),
+                limit=arguments.get("limit", 50),
+                include_contexts=bool(arguments.get("include_contexts", False)),
+            )
 
         elif tool_name == "get_author_papers":
             author_name = arguments.get("author_name", "")
