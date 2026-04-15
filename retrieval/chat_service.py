@@ -268,63 +268,100 @@ def _looks_like_prose_clarification(content: str) -> bool:
 async def _force_clarification_retry(
     messages: list[dict],
     sampling: dict,
+    max_attempts: int = 3,
 ) -> Optional[dict]:
     """
     Non-streaming vLLM call with ``tool_choice`` forced to
     ``ask_clarification``. Returns a finalised tool-call dict shaped like
     ``_StreamAccumulator.finalized_tool_calls()`` entries, or None if the
-    retry failed to produce a parseable call.
+    retry failed to produce a parseable AND schema-valid call after
+    ``max_attempts`` tries.
 
     This is the qwen3-coder escape hatch: when the model wrote a prose
     clarification in the first pass (detected by
     ``_looks_like_prose_clarification``), the direct verification shows the
-    model will emit a perfectly structured tool call when forced. So we just
-    force it.
+    model will emit a perfectly structured tool call when forced. But the
+    forced call sometimes comes back malformed (e.g. ``questions`` as an
+    object instead of a list) due to sampling variance, so we retry with
+    fresh samplings up to ``max_attempts`` times and run the same
+    validation the chat_service intercept uses so we never bubble a bad
+    payload up to the SSE event.
     """
-    body: dict[str, Any] = {
-        "model": VLLM_MODEL_NAME,
-        "messages": messages,
-        "stream": False,
-        "tools": _openai_tools_schema(),
-        "tool_choice": {
-            "type": "function",
-            "function": {"name": "ask_clarification"},
-        },
-    }
-    body.update(sampling)
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            r = await client.post(
-                f"{VLLM_URL}/v1/chat/completions",
-                json=body,
+    for attempt in range(max_attempts):
+        body: dict[str, Any] = {
+            "model": VLLM_MODEL_NAME,
+            "messages": messages,
+            "stream": False,
+            "tools": _openai_tools_schema(),
+            "tool_choice": {
+                "type": "function",
+                "function": {"name": "ask_clarification"},
+            },
+        }
+        body.update(sampling)
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                r = await client.post(
+                    f"{VLLM_URL}/v1/chat/completions",
+                    json=body,
+                )
+        except httpx.RequestError as e:
+            print(
+                f"[WARNING] forced clarification retry HTTP error "
+                f"(attempt {attempt + 1}/{max_attempts}): {e}"
             )
-    except httpx.RequestError as e:
-        print(f"[WARNING] forced clarification retry HTTP error: {e}")
-        return None
-    if r.status_code != 200:
-        print(
-            f"[WARNING] forced clarification retry returned "
-            f"{r.status_code}: {r.text[:200]}"
+            continue
+        if r.status_code != 200:
+            print(
+                f"[WARNING] forced clarification retry returned "
+                f"{r.status_code} (attempt {attempt + 1}/{max_attempts}): "
+                f"{r.text[:200]}"
+            )
+            continue
+        try:
+            d = r.json()
+        except Exception as e:
+            print(
+                f"[WARNING] forced clarification retry parse error "
+                f"(attempt {attempt + 1}/{max_attempts}): {e}"
+            )
+            continue
+        msg = (d.get("choices") or [{}])[0].get("message") or {}
+        tcs = msg.get("tool_calls") or []
+        if not tcs:
+            print(
+                f"[WARNING] forced clarification retry produced no tool "
+                f"call (attempt {attempt + 1}/{max_attempts})"
+            )
+            continue
+        fn = tcs[0].get("function") or {}
+        if fn.get("name") != "ask_clarification":
+            print(
+                f"[WARNING] forced clarification retry picked wrong tool "
+                f"{fn.get('name')!r} (attempt {attempt + 1}/{max_attempts})"
+            )
+            continue
+        args = _parse_arguments(fn.get("arguments"))
+        # Validate the payload against the §14 schema before trusting it.
+        # qwen3 sometimes emits ``questions`` as a dict, a string, or None
+        # under forced tool_choice. When validation fails we burn another
+        # attempt with fresh sampling variance.
+        _, err = clarification_tool.validate_clarification_payload(
+            args.get("what_i_understood"),
+            args.get("questions"),
         )
-        return None
-    try:
-        d = r.json()
-    except Exception as e:
-        print(f"[WARNING] forced clarification retry parse error: {e}")
-        return None
-    msg = (d.get("choices") or [{}])[0].get("message") or {}
-    tcs = msg.get("tool_calls") or []
-    if not tcs:
-        return None
-    fn = tcs[0].get("function") or {}
-    if fn.get("name") != "ask_clarification":
-        return None
-    args = _parse_arguments(fn.get("arguments"))
-    return {
-        "id": tcs[0].get("id") or "tc-forced-clarification",
-        "name": "ask_clarification",
-        "arguments": args,
-    }
+        if err is not None:
+            print(
+                f"[WARNING] forced clarification retry payload invalid "
+                f"(attempt {attempt + 1}/{max_attempts}): {err}"
+            )
+            continue
+        return {
+            "id": tcs[0].get("id") or "tc-forced-clarification",
+            "name": "ask_clarification",
+            "arguments": args,
+        }
+    return None
 
 
 # --- vLLM streaming -----------------------------------------------------------
@@ -888,8 +925,53 @@ async def stream_chat_completion(
                 args.get("questions"),
             )
             if err is not None:
-                yield _error_sse(f"Invalid ask_clarification payload: {err}")
-                return
+                # qwen3 sometimes emits ``ask_clarification`` with malformed
+                # arguments under normal tool_choice="auto" sampling (e.g.
+                # ``questions`` as an object instead of a list, or an option
+                # list of size 1 or 7). Rather than bail the whole turn with
+                # an error SSE, fall through to the forced-retry path: it
+                # runs up to 3 attempts with fresh samplings and validates
+                # each, so a schema-valid call almost always drops out.
+                print(
+                    f"[WARNING] organic ask_clarification payload invalid "
+                    f"({err}); trying forced-retry fallback"
+                )
+                forced = await _force_clarification_retry(messages, sampling)
+                if forced is None:
+                    # Forced retry also failed. Don't break the turn — just
+                    # drop the malformed clarification call so the existing
+                    # prose content (if any) reaches the user as a normal
+                    # response.
+                    print(
+                        "[WARNING] forced clarification retry also failed; "
+                        "dropping malformed clarification and continuing"
+                    )
+                    tool_calls = [
+                        tc for tc in tool_calls
+                        if tc.get("name") != "ask_clarification"
+                    ]
+                    if not tool_calls:
+                        hit_turn_cap = False
+                        break
+                    continue  # re-enter loop to run the remaining tool calls
+                clar_tc = forced
+                args = forced.get("arguments") or {}
+                normalised, err = clarification_tool.validate_clarification_payload(
+                    args.get("what_i_understood"),
+                    args.get("questions"),
+                )
+                if err is not None:
+                    # Should be unreachable - force retry validates already.
+                    print(
+                        f"[WARNING] forced-retry payload still invalid "
+                        f"after validation: {err}"
+                    )
+                    hit_turn_cap = False
+                    break
+                # Wipe streamed prose so the persisted message is the
+                # card's markdown fallback, not the rejected draft.
+                acc.content_parts.clear()
+                final_content = ""
 
             fallback_md = clarification_tool.render_markdown_fallback(normalised)
 
