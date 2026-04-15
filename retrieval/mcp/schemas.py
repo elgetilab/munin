@@ -371,7 +371,7 @@ MCP_TOOLS = {
     },
     "create_artifact": {
         "name": "create_artifact",
-        "description": "Start a new versioned document in the current conversation (§22 artifacts). Use this when the user asks you to write something longer than a short reply that they'll want to ITERATE on: a paper abstract, a grant proposal section, a LaTeX manuscript, a python script, an SVG diagram, a reviewer-response letter, a bibliography entry. The artifact appears in the side panel on the right of the chat and the user can edit it directly. Subsequent edits from you go through update_artifact; subsequent user edits come back to you via the next turn's === ACTIVE ARTIFACTS === block (which is already in your system prompt). Do NOT use create_artifact for quick inline answers, short code snippets that the user just wants to copy once, or anything the user did not ask you to PRODUCE as a document. content_type should be one of: text/markdown, text/latex, text/plain, text/html, application/python, application/json, image/svg+xml (SVG source as XML, not a binary image). language is optional syntax-highlighting hint (e.g. 'python', 'latex'). Returns {id, version: 1, title, content_type, ...}. 500 KB byte cap per version. Not available in ephemeral chats.",
+        "description": "Start a new versioned document in the current conversation (§22 artifacts). Use this when the user asks you to write something longer than a short reply that they'll want to ITERATE on: a paper abstract, a grant proposal section, a LaTeX manuscript, a python script, an SVG diagram, a reviewer-response letter, a bibliography entry. The artifact appears in the side panel on the right of the chat and the user can edit it directly. Subsequent edits from you go through update_artifact; subsequent user edits come back to you via the next turn's === ACTIVE ARTIFACTS === block (which is already in your system prompt). Do NOT use create_artifact for quick inline answers, short code snippets that the user just wants to copy once, or anything the user did not ask you to PRODUCE as a document. **Do NOT call create_artifact speculatively or as a \"general-purpose template\" when a critical parameter of what the user wants is missing or unclear.** If you don't know the programming language, the input format, which variant of an ambiguous acronym the user means (EPR? HMM? MD?), or what specific analysis/section/structure they want, call `ask_clarification` FIRST on its own turn and wait for the user's answer; only THEN create the artifact with the clarified scope. Writing a speculative template artifact AND then asking clarifying questions at the end is a failure mode: the user did not want a template, they wanted the right thing. content_type should be one of: text/markdown, text/latex, text/plain, text/html, application/python, application/json, image/svg+xml (SVG source as XML, not a binary image). language is optional syntax-highlighting hint (e.g. 'python', 'latex'). Returns {id, version: 1, title, content_type, ...}. 500 KB byte cap per version. Not available in ephemeral chats.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -744,13 +744,24 @@ MCP_TOOLS = {
             "`what_i_understood`, then offer each question with 2-6 plausible "
             "`options` the user can tap on. Leave `allow_custom: true` so they "
             "can type a free-form answer if none fit.\n\n"
+            "CRITICAL CALLING RULE: this tool MUST be called ALONE on its own "
+            "turn. Do NOT combine it with `create_artifact`, `run_python`, "
+            "`deep_research`, `paper_search`, `web_search`, or ANY other tool "
+            "in the same response. Do NOT write any prose answer alongside "
+            "the tool call - the backend short-circuits the turn as soon as "
+            "you emit this call, so other tool calls and trailing text are "
+            "silently dropped. Writing a speculative 'starting-point' artifact "
+            "AND then asking clarifying questions is the single most common "
+            "failure mode of this tool - it wastes tool calls and produces "
+            "code/results the user did not ask for. If you are unsure whether "
+            "to ask, ask FIRST (alone) and wait for the answer; never ask "
+            "AFTER doing speculative work.\n\n"
             "USE THIS when the request is so vague that multiple very different "
             "plans would all be reasonable: 'help me with my paper', 'what's "
             "new?', 'look into photosynthesis', single-word messages like 'fix "
-            "it', or when a critical parameter (time window, scope, format, "
-            "target) is missing. Ask BEFORE calling any other tool on the same "
-            "turn - this tool short-circuits the rest of the turn; no other "
-            "tool calls in the same response will run.\n\n"
+            "it', ambiguous domain acronyms (EPR, NMR, MD...), or when a "
+            "critical parameter (programming language, input file format, time "
+            "window, scope, target, output format) is missing.\n\n"
             "DO NOT USE for clear requests even if they're broad: 'find recent "
             "papers on polymer crystallization', 'what day is it?', 'review "
             "this code', 'summarise this paper'. Do not use it as a stalling "

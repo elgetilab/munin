@@ -204,6 +204,129 @@ def _parse_arguments(raw: Any) -> dict:
         return {"_raw": str(raw)}
 
 
+# --- §14 prose-clarification fallback ----------------------------------------
+
+# Phrases that strongly indicate the model wrote a clarification response as
+# prose instead of calling the ``ask_clarification`` tool. qwen3-coder has a
+# baked-in bias against using tools for conversational clarifications, so even
+# with the strongest persona-level instructions it sometimes emits text that
+# reads like a clarification card ("Could you clarify...", "What I understood:
+# ...", bulleted question list). When that happens we detect it post-hoc and
+# re-run the first turn with ``tool_choice`` forced to ``ask_clarification``.
+_PROSE_CLARIFICATION_MARKERS = (
+    "could you clarify",
+    "could you tell me",
+    "could you specify",
+    "could you provide",
+    "could you confirm",
+    "let me clarify",
+    "let me understand",
+    "let me make sure",
+    "what i understand",
+    "what i understood",
+    "i need to clarify",
+    "i need more details",
+    "i need to know",
+    "i need to understand",
+    "which type of",
+    "which kind of",
+    "which variant",
+    "please clarify",
+    "please specify",
+    "please tell me",
+    "before i proceed",
+    "before proceeding",
+    "before diving in",
+    "before writing",
+    "to give you the most useful",
+    "to provide the most useful",
+    "to tailor",
+)
+
+
+def _looks_like_prose_clarification(content: str) -> bool:
+    """
+    Return True if ``content`` looks like the model wrote a clarification
+    response as prose instead of calling ``ask_clarification``. Requires at
+    least one strong phrase marker AND at least two question marks, OR two
+    separate phrase markers. Length-bounded so we don't false-positive on
+    normal long answers that happen to include a follow-up question.
+    """
+    if not content:
+        return False
+    stripped = content.strip()
+    if len(stripped) > 4000 or len(stripped) < 40:
+        return False
+    low = stripped.lower()
+    marker_hits = sum(1 for m in _PROSE_CLARIFICATION_MARKERS if m in low)
+    if marker_hits == 0:
+        return False
+    q_count = stripped.count("?")
+    return marker_hits >= 2 or q_count >= 2
+
+
+async def _force_clarification_retry(
+    messages: list[dict],
+    sampling: dict,
+) -> Optional[dict]:
+    """
+    Non-streaming vLLM call with ``tool_choice`` forced to
+    ``ask_clarification``. Returns a finalised tool-call dict shaped like
+    ``_StreamAccumulator.finalized_tool_calls()`` entries, or None if the
+    retry failed to produce a parseable call.
+
+    This is the qwen3-coder escape hatch: when the model wrote a prose
+    clarification in the first pass (detected by
+    ``_looks_like_prose_clarification``), the direct verification shows the
+    model will emit a perfectly structured tool call when forced. So we just
+    force it.
+    """
+    body: dict[str, Any] = {
+        "model": VLLM_MODEL_NAME,
+        "messages": messages,
+        "stream": False,
+        "tools": _openai_tools_schema(),
+        "tool_choice": {
+            "type": "function",
+            "function": {"name": "ask_clarification"},
+        },
+    }
+    body.update(sampling)
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.post(
+                f"{VLLM_URL}/v1/chat/completions",
+                json=body,
+            )
+    except httpx.RequestError as e:
+        print(f"[WARNING] forced clarification retry HTTP error: {e}")
+        return None
+    if r.status_code != 200:
+        print(
+            f"[WARNING] forced clarification retry returned "
+            f"{r.status_code}: {r.text[:200]}"
+        )
+        return None
+    try:
+        d = r.json()
+    except Exception as e:
+        print(f"[WARNING] forced clarification retry parse error: {e}")
+        return None
+    msg = (d.get("choices") or [{}])[0].get("message") or {}
+    tcs = msg.get("tool_calls") or []
+    if not tcs:
+        return None
+    fn = tcs[0].get("function") or {}
+    if fn.get("name") != "ask_clarification":
+        return None
+    args = _parse_arguments(fn.get("arguments"))
+    return {
+        "id": tcs[0].get("id") or "tc-forced-clarification",
+        "name": "ask_clarification",
+        "arguments": args,
+    }
+
+
 # --- vLLM streaming -----------------------------------------------------------
 
 class _StreamAccumulator:
@@ -712,6 +835,36 @@ async def stream_chat_completion(
         finish_reason = acc.finish_reason
 
         tool_calls = acc.finalized_tool_calls()
+
+        # §14 prose-clarification fallback: qwen3-coder sometimes writes
+        # clarification questions as prose text instead of calling the
+        # ``ask_clarification`` tool, even with the strongest persona-level
+        # instructions - it's a baked-in training bias ("tools are for
+        # actions, prose is for talking to the user"). When that happens on
+        # the FIRST turn of a user message, detect the prose pattern and
+        # retry with tool_choice forced to ask_clarification. The forced
+        # retry always produces a proper structured call because the model
+        # absolutely knows how to use the tool - it just won't pick it on
+        # its own. Restricted to turn==0 so we don't interfere with
+        # follow-up turns where the model is mid-task.
+        if (
+            not tool_calls
+            and turn == 0
+            and _looks_like_prose_clarification(acc.content)
+        ):
+            forced = await _force_clarification_retry(messages, sampling)
+            if forced is not None:
+                tool_calls = [forced]
+                # Wipe the prose content we accumulated during the
+                # streamed first pass so the persisted assistant message
+                # shows the clarification fallback markdown instead of
+                # the rejected prose draft. The tokens have already been
+                # streamed to the client, so the frontend needs to drop
+                # its in-progress buffer when the ``clarification`` SSE
+                # event arrives (see FRONTEND-TASKS entry #10).
+                acc.content_parts.clear()
+                final_content = ""
+
         if not tool_calls:
             hit_turn_cap = False
             break

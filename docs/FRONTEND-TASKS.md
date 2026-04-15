@@ -777,6 +777,27 @@ turn would otherwise be), and flag the message as a "clarification
 card" so the renderer knows to show the structured UI instead of
 the fallback markdown.
 
+**IMPORTANT - discard in-progress prose on arrival.** The backend
+has a post-hoc fallback path: qwen3-coder sometimes writes a
+prose clarification ("Could you clarify which EPR you mean? ...
+- option a - option b") instead of calling the tool, even with
+the strongest prompt rules. When the backend detects that prose
+pattern on the first turn of a user message, it retries with
+`tool_choice` forced to `ask_clarification` and emits a normal
+`clarification` SSE event. But by the time the retry runs, the
+client has already streamed the prose draft via `token` events.
+**When a `clarification` event arrives for an in-progress
+assistant message, the client MUST discard any `token` content
+accumulated on that message and replace it with the structured
+card.** The backend resets its own `final_content` before
+persisting, so the chat history also stores only the card's
+markdown fallback - the prose draft is never persisted to SQLite.
+Without this client-side discard, users briefly see prose
+questions that then vanish when the card renders, which is
+confusing. Simplest implementation: when an in-progress message
+receives a `clarification` event, clear its content buffer before
+mounting the card.
+
 **(b) Render an inline card in the message thread.** Not a modal.
 Layout roughly:
 

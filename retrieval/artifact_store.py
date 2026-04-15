@@ -839,11 +839,28 @@ def build_artifact_summary_block(artifacts: list[dict]) -> Optional[str]:
     model-written artifacts we show title + type + version +
     word count; for sandbox-generated ones we show filename +
     type + ``[sandbox output, read-only]`` since they aren't
-    editable via update_artifact. Returns None when there are no
-    artifacts so the caller can skip the block.
+    editable via update_artifact.
+
+    Always returns a block (never None) even when the conversation
+    has no artifacts yet. The MCP tool descriptions for
+    ``create_artifact``, ``read_artifact``, and ``list_artifacts``
+    all reference "the === ACTIVE ARTIFACTS === block in your
+    system prompt"; if that block is silently absent on an
+    empty-state conversation, the model has been observed to
+    confabulate one from those tool-description hints
+    (hallucinating filler text like "No active artifacts in this
+    conversation.") and sometimes emit it into the assistant
+    response. Grounding the empty state with a real block - even
+    a one-line stub - removes that foot-gun for ~15 tokens.
     """
     if not artifacts:
-        return None
+        return (
+            "=== ACTIVE ARTIFACTS ===\n"
+            "(none yet - use create_artifact to start a new versioned "
+            "document when the user asks you to produce something they'll "
+            "want to iterate on)\n"
+            "=== END ACTIVE ARTIFACTS ==="
+        )
     lines = ["=== ACTIVE ARTIFACTS ==="]
     for i, a in enumerate(artifacts, start=1):
         source = a.get("source") or SOURCE_MODEL_WRITTEN

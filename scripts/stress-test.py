@@ -6297,12 +6297,42 @@ async def test_ambiguous_whats_new(client):
 
 
 async def test_vague_look_into(client):
-    """`look into photosynthesis` — broad topic, no angle specified."""
+    """`look into it` — no referent, no target, no scope. The older
+    test used "look into photosynthesis" but photosynthesis is
+    actually a specific enough topic that the model can (and
+    correctly does now, after the §14 prompt hardening) treat it as
+    a concrete research target and fire `deep_research` directly.
+    The genuinely vague "look into it" has no referent at all."""
     t = TestResult(name="")
-    res = await _expect_clarification(client, "look into photosynthesis")
+    res = await _expect_clarification(client, "look into it")
     t.metrics = {
         "clarifications": len(res.get("clarifications") or []),
         "tool_calls": res.get("tool_calls") or [],
+    }
+    reason = await _assert_clarification_fired(res)
+    if reason:
+        t.reason = reason
+        return t
+    t.passed = True
+    return t
+
+
+async def test_ambiguous_epr_script(client):
+    """Real-world regression (conv 65378cf4... on 2026-04-15): an EPR
+    acronym with multiple plausible meanings (electron paramagnetic
+    resonance vs. electronic patient record vs. employee performance
+    review) plus no language/format/scope. The model should route
+    this through ask_clarification instead of writing a prose
+    multiple-choice list."""
+    t = TestResult(name="")
+    res = await _expect_clarification(
+        client,
+        "I need you help with a project, I need to code an analysis script for an EPR record",
+    )
+    t.metrics = {
+        "clarifications": len(res.get("clarifications") or []),
+        "tool_calls": res.get("tool_calls") or [],
+        "content_preview": (res.get("content") or "")[:200],
     }
     reason = await _assert_clarification_fired(res)
     if reason:
@@ -6599,6 +6629,7 @@ ALL_TESTS = [
     ("ambiguous_help", test_ambiguous_help, True),                 # heavy, chat-driven
     ("ambiguous_whats_new", test_ambiguous_whats_new, True),       # heavy, chat-driven
     ("vague_look_into", test_vague_look_into, True),               # heavy, chat-driven
+    ("ambiguous_epr_script", test_ambiguous_epr_script, True),     # heavy, chat-driven (regression for conv 65378cf4)
     ("single_word_fix", test_single_word_fix, True),               # heavy, chat-driven
     ("clear_date_no_clarification", test_clear_date_no_clarification, True),       # heavy, chat-driven
     ("clear_research_no_clarification", test_clear_research_no_clarification, True),  # heavy, chat-driven (research persona)
