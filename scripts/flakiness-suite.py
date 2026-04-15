@@ -635,6 +635,54 @@ def _clarification_scenario() -> Scenario:
         out.passed = True
         return out
 
+    def sequential_no_prose_q(res: dict, state: dict) -> TurnOutcome:
+        # Regression guard for conv a870e6f5 (2026-04-15): after a
+        # partial/incomplete answer on turn 2, if the model decides it
+        # still needs one more piece of info, the follow-up clarification
+        # MUST go through the ask_clarification tool (structured
+        # ``clarification`` SSE event). Writing the sequential question
+        # as prose ("Q4: ... - option A - option B") is the failure
+        # mode the updated chat_service heuristic should catch and
+        # convert to a forced-retry tool call.
+        tc = _brief_tool_calls(res)
+        clars = res.get("clarifications") or []
+        out = TurnOutcome(
+            passed=False,
+            tool_calls=tc,
+            clarifications=len(clars),
+            content_preview=_content_preview(res),
+        )
+        if res.get("errors"):
+            out.reason = f"stream error: {res['errors'][0]}"
+            return out
+        content = (res.get("content") or "").strip().lower()
+        # Signals that the model wrote a clarification as prose. Any of
+        # these appearing WITHOUT a structured clarification event means
+        # the fallback failed to catch it.
+        prose_markers = (
+            "q4:", "q5:", "**q4", "**q5",
+            "one more detail",
+            "one more question",
+            "before i write",
+            "before i can",
+            "could you clarify",
+        )
+        has_prose_marker = any(m in content for m in prose_markers)
+        if has_prose_marker and not clars:
+            out.reason = (
+                f"prose clarification markers present without structured "
+                f"clarification event; markers found, content preview: "
+                f"{content[:200]!r}"
+            )
+            return out
+        # Otherwise: any end state (structured clarification, substantive
+        # prose, or tool calls) is acceptable. Empty turns fail.
+        if not content and not tc and not clars:
+            out.reason = "empty turn: no content, tools, or clarification"
+            return out
+        out.passed = True
+        return out
+
     return Scenario(
         name="clarification_full_loop",
         description=(
@@ -696,6 +744,34 @@ def _clarification_scenario() -> Scenario:
                         ),
                         assertion=follow_up_answer,
                         persona="code",
+                    ),
+                ],
+            ),
+            Variant(
+                # Regression for conv a870e6f5: EPR prompt → card →
+                # partial answer that intentionally omits ONE parameter
+                # (file format) so the model wants to clarify again →
+                # the follow-up clarification must go through the tool,
+                # not prose. Exercises the full sequential Q/A loop.
+                label="epr_sequential_partial_answer",
+                turns=[
+                    Turn(
+                        message=(
+                            "I need you help with a project, I need to "
+                            "code an analysis script for an EPR record"
+                        ),
+                        assertion=assert_clarification_fired,
+                        label="turn_1_ambiguous",
+                    ),
+                    Turn(
+                        message=(
+                            "Q1: Electron Paramagnetic Resonance "
+                            "(physics/chemistry spectroscopy). "
+                            "Q2: R. "
+                            "Q3: Data parsing and visualization."
+                        ),
+                        assertion=sequential_no_prose_q,
+                        label="turn_2_partial_answer",
                     ),
                 ],
             ),

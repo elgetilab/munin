@@ -228,6 +228,8 @@ _PROSE_CLARIFICATION_MARKERS = (
     "i need more details",
     "i need to know",
     "i need to understand",
+    "i need one more",
+    "i just need one more",
     "which type of",
     "which kind of",
     "which variant",
@@ -238,19 +240,65 @@ _PROSE_CLARIFICATION_MARKERS = (
     "before proceeding",
     "before diving in",
     "before writing",
+    "before i write",
+    "before i can",
+    "one more detail",
+    "one more question",
+    "one last question",
+    "one more thing",
     "to give you the most useful",
     "to provide the most useful",
     "to tailor",
 )
 
 
+# Sequential clarification marker: "Q4: ..." style numbered questions
+# are what the model writes when it's mid-Q/A loop and has already
+# written an ask_clarification card previously. Any response
+# containing this pattern is almost certainly a prose clarification
+# attempt the fallback should catch. We accept both "Q4:" and "**Q4:"
+# bolded versions.
+import re as _re
+
+_NUMBERED_Q_RE = _re.compile(r"(?m)(?:^|\*\*)\s*Q\d+\s*[:.]")
+
+
+def _count_bulleted_options(stripped: str) -> int:
+    """
+    Count lines starting with a markdown bullet marker. A response with
+    2+ bulleted lines paired with a clarification marker is a strong
+    signal the model wrote a multiple-choice card in prose.
+    """
+    count = 0
+    for line in stripped.split("\n"):
+        s = line.lstrip()
+        if s.startswith(("- ", "* ", "• ")) or (s[:2].isdigit() and s[2:3] in (".", ")")):
+            count += 1
+    return count
+
+
 def _looks_like_prose_clarification(content: str) -> bool:
     """
     Return True if ``content`` looks like the model wrote a clarification
-    response as prose instead of calling ``ask_clarification``. Requires at
-    least one strong phrase marker AND at least two question marks, OR two
-    separate phrase markers. Length-bounded so we don't false-positive on
-    normal long answers that happen to include a follow-up question.
+    response as prose instead of calling ``ask_clarification``. Length-
+    bounded so we don't false-positive on normal long answers that happen
+    to include a follow-up question.
+
+    Fires when any of the following holds:
+
+    - ``markers >= 2`` — at least two distinct clarification phrases
+      overlap in the same response (e.g. "could you clarify" +
+      "to tailor").
+    - ``markers >= 1 AND question_marks >= 2`` — one phrase + two or
+      more questions lined up.
+    - ``markers >= 1 AND bulleted_options >= 2`` — one phrase followed
+      by a bullet list of two or more options. Catches sequential
+      multi-turn clarifications like "I need one more detail: Q4: ... -
+      option A - option B" where the model writes the next round of
+      the Q/A loop as prose.
+    - ``numbered_Q_markers >= 1 AND bulleted_options >= 2`` — "Q1:"
+      / "Q2:" / ... patterns are almost always prose clarification on
+      follow-up turns, even when no other marker phrase is present.
     """
     if not content:
         return False
@@ -259,10 +307,19 @@ def _looks_like_prose_clarification(content: str) -> bool:
         return False
     low = stripped.lower()
     marker_hits = sum(1 for m in _PROSE_CLARIFICATION_MARKERS if m in low)
-    if marker_hits == 0:
-        return False
     q_count = stripped.count("?")
-    return marker_hits >= 2 or q_count >= 2
+    bullet_count = _count_bulleted_options(stripped)
+    numbered_q_count = len(_NUMBERED_Q_RE.findall(stripped))
+
+    if marker_hits >= 2:
+        return True
+    if marker_hits >= 1 and q_count >= 2:
+        return True
+    if marker_hits >= 1 and bullet_count >= 2:
+        return True
+    if numbered_q_count >= 1 and bullet_count >= 2:
+        return True
+    return False
 
 
 async def _force_clarification_retry(
