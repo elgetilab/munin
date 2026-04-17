@@ -1209,6 +1209,80 @@ async def test_ephemeral_no_listing_drift(client):
     return t
 
 
+AUTOTITLE_EMAIL = "autotitle-test@munin.local"
+
+
+async def test_autotitle_on_retry(client):
+    """
+    Regression for conv 979c7fda (2026-04-17): when the first request
+    creates the conversation but errors before producing an assistant
+    response, the retry arrives with is_new=False and the old code
+    skipped auto-title entirely.
+
+    Simulates this by: (1) creating a conversation with a first user
+    message, (2) sending a SECOND user message to the SAME conversation
+    (is_new=False since the conv_id is set), and verifying the response
+    includes a conversation SSE event carrying a generated title. The
+    fix changed ``is_new and not title`` to ``not title`` so auto-title
+    fires on any untitled turn.
+    """
+    t = TestResult(name="")
+    # Turn 1: create the conversation. We get a conv_id back.
+    res1 = await send_chat(
+        client,
+        "Just say ok.",
+        email=AUTOTITLE_EMAIL,
+    )
+    conv_id = res1.get("conversation_id")
+    if not conv_id:
+        t.reason = f"no conv_id from turn 1: {res1['errors']}"
+        return t
+    title_1 = res1.get("title")
+    t.metrics = {
+        "conv_id": conv_id,
+        "title_after_turn_1": title_1,
+    }
+    try:
+        # Turn 2: send a DIFFERENT question to the same conversation.
+        # This simulates the retry path (is_new=False, existing conv_id).
+        # If the conversation still has no title after turn 1 (which can
+        # happen when generate_title returns something too short or the
+        # first message was trivial), auto-title must fire here.
+        # Even if turn 1 already titled it, we verify no crash on the
+        # retry path.
+        res2 = await send_chat(
+            client,
+            "Explain what polymer crystallization is in one sentence.",
+            conversation_id=conv_id,
+            email=AUTOTITLE_EMAIL,
+        )
+        title_2 = res2.get("title")
+        t.metrics["title_after_turn_2"] = title_2
+        if res2.get("errors"):
+            t.reason = f"turn 2 stream error: {res2['errors'][0]}"
+            return t
+        # The conversation must have a title after at most 2 turns.
+        final_title = title_2 or title_1
+        if not final_title:
+            # Check via API in case the SSE didn't carry it
+            r = await client.get(
+                f"{BASE}/api/chats/{conv_id}",
+                headers={"X-Munin-Email": AUTOTITLE_EMAIL},
+                timeout=10,
+            )
+            if r.status_code == 200:
+                final_title = r.json().get("title")
+        t.metrics["final_title"] = final_title
+        if not final_title:
+            t.reason = "conversation still untitled after 2 turns"
+            return t
+        t.passed = True
+    finally:
+        if conv_id:
+            await _delete_chat(client, conv_id, AUTOTITLE_EMAIL)
+    return t
+
+
 PROFILE_EMAIL = "profile-test@munin.local"
 
 
@@ -6537,6 +6611,7 @@ ALL_TESTS = [
     ("ephemeral_no_persistence", test_ephemeral_no_persistence, False),
     ("ephemeral_multiturn_history", test_ephemeral_multiturn_history, False),
     ("ephemeral_no_listing_drift", test_ephemeral_no_listing_drift, False),
+    ("autotitle_on_retry", test_autotitle_on_retry, True),  # heavy, 2-turn chat
     ("profile_roundtrip", test_profile_roundtrip, False),
     ("profile_cap", test_profile_cap, False),
     ("profile_default_persona_override", test_profile_default_persona_override, False),

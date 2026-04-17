@@ -782,11 +782,40 @@ def _clarification_scenario() -> Scenario:
 # --- §18 compile_latex -------------------------------------------------------
 
 
+def _no_hallucinated_artifact_urls(res: dict, state: dict) -> TurnOutcome:
+    """
+    Regression for conv 979c7fda (2026-04-17): the model linked a
+    compile_latex PDF using ``search.muninai.org/paper/<artifact_id>``
+    (the paper download URL pattern) instead of the correct
+    ``external_url`` from the tool result. The resulting link opened the
+    chat page in a new tab instead of downloading the PDF.
+
+    Negative assertion: the assistant content must NOT contain the
+    paper-download URL pattern when the turn produced sandbox artifacts.
+    """
+    content = (res.get("content") or "").lower()
+    t = TurnOutcome(
+        passed=True,
+        tool_calls=_brief_tool_calls(res),
+        clarifications=len(res.get("clarifications") or []),
+        content_preview=_content_preview(res),
+    )
+    if "search.muninai.org/paper/" in content:
+        t.passed = False
+        t.reason = (
+            "hallucinated paper-download URL for a sandbox artifact; "
+            "model used search.muninai.org/paper/... instead of "
+            "the external_url from the tool result"
+        )
+    return t
+
+
 def _latex_scenario() -> Scenario:
     latex_ok = assert_all_of(
         assert_tool_called("compile_latex"),
         assert_artifact_produced(content_type="application/pdf"),
         assert_artifact_produced(content_type="application/x-tex"),
+        _no_hallucinated_artifact_urls,
     )
 
     return Scenario(
