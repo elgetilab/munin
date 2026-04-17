@@ -651,7 +651,7 @@ MCP_TOOLS = {
     },
     "run_python": {
         "name": "run_python",
-        "description": "Execute Python code in a sandboxed Jupyter kernel scoped to the current conversation. Use this whenever the user asks you to compute, plot, analyse data, generate a spreadsheet, or otherwise do something a Python script could do better than prose. State persists between calls in the same chat (variables, imports, dataframes), and files written to the current working directory become artifacts the user can download. The sandbox has no internet, no GPU, no host filesystem; pre-installed packages: numpy, scipy, pandas, matplotlib, seaborn, scikit-learn, sympy, networkx, openpyxl, Pillow, pyyaml, requests. Resource caps: 30 s default wall clock, 2 GB memory, 100 MB max file size. matplotlib figures created with `plt.show()` or display() are auto-captured as PNG artifacts. Do NOT call this tool for trivial arithmetic - use `calculate` instead.",
+        "description": "Execute Python code in a sandboxed Jupyter kernel scoped to the current conversation. Use this whenever the user asks you to compute, plot, analyse data, generate a spreadsheet, or otherwise do something a Python script could do better than prose. State persists between calls in the same chat (variables, imports, dataframes), and files written to the current working directory become artifacts the user can download. The sandbox has no internet, no GPU, no host filesystem; pre-installed packages: numpy, scipy, pandas, matplotlib, seaborn, scikit-learn, sympy, networkx, openpyxl, Pillow, pyyaml, requests. Resource caps: 30 s default wall clock, 2 GB memory, 100 MB max file size. matplotlib figures created with `plt.show()` or display() are auto-captured as PNG artifacts. Do NOT call this tool for trivial arithmetic - use `calculate` instead. IMPORTANT - artifact download links: the tool result includes `display_url` and `external_url` fields on each artifact. When mentioning a produced file in your prose response, ALWAYS link to it using the `external_url` from the result. Do NOT construct URLs yourself.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -706,7 +706,15 @@ MCP_TOOLS = {
             "The .tex source artifact is ALWAYS returned (even on "
             "failure) so the user can download and fix it manually; "
             "the .pdf is only returned on success. Timeout default 60s, "
-            "max 120s. Unavailable in ephemeral chats."
+            "max 120s. Unavailable in ephemeral chats.\n\n"
+            "IMPORTANT - artifact download links: the tool result "
+            "includes an `external_url` field on each artifact (tex "
+            "and pdf). When you mention the PDF or .tex in your prose "
+            "response, you MUST use this `external_url` value as the "
+            "link target. Format: `[Download PDF](EXTERNAL_URL)`. "
+            "Do NOT construct URLs yourself - do NOT use "
+            "`search.muninai.org/paper/...` or any other URL pattern. "
+            "The `external_url` is the ONLY correct path to the file."
         ),
         "inputSchema": {
             "type": "object",

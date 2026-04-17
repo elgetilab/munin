@@ -1061,7 +1061,7 @@ async def stream_chat_completion(
                     rag_context=rag_context,
                 )
 
-                if is_new and not conversation.get("title"):
+                if not conversation.get("title"):
                     # Feed what_i_understood as the stand-in assistant
                     # response so clarification-first conversations get
                     # a title that reflects the user's intent rather
@@ -1325,8 +1325,17 @@ async def stream_chat_completion(
             rag_context=rag_context,
         )
 
-    # --- 7. Auto-title on brand-new conversations ---
-    if not ephemeral and is_new and not conversation.get("title"):
+    # --- 7. Auto-title on untitled conversations ---
+    # Relaxed from ``is_new and not title`` to just ``not title`` so
+    # auto-title also fires on the retry turn after a first-request
+    # failure. Scenario: user sends a message → backend creates the
+    # conversation row and persists the user message → vLLM errors
+    # before producing an assistant response → user re-sends → the
+    # retry arrives with the existing conversation_id (is_new=False)
+    # and no assistant response was ever generated, so the title is
+    # still empty. Without this fix, auto-title was permanently
+    # skipped for that conversation.
+    if not ephemeral and not conversation.get("title"):
         try:
             title = await chat_context.generate_title(
                 user_message.get("content", ""), final_content
