@@ -814,6 +814,82 @@ sandbox sidecar is unreachable.
 The frontend can drop it straight into an `<img>` `src` for images or
 into a download anchor for non-image artifacts.
 
+### 4.18 `POST /api/chats/{id}/report` — report a chat for review
+
+Flag a conversation for developer review. The backend serialises the
+full conversation (metadata, all messages with content/thinking/
+tool_calls/rag_context, and artifact metadata) to a timestamped JSON
+file under `/opt/munin/data/reported/`. These reports serve as input
+for the test harness — each reported conversation can be turned into
+a regression test that replays the user's turns and asserts on the
+assistant's behaviour.
+
+**Auth + ownership**: requires `X-Munin-Email`. The caller must own the
+conversation — reporting someone else's chat returns **404**.
+
+**Body** (JSON, all fields optional):
+
+```json
+{
+  "reason": "Download link didn't work — opened the chat page instead of the PDF"
+}
+```
+
+`reason` is a free-text description of what went wrong (max 2000
+chars). If omitted, the report is filed without a description.
+
+**Response (200)**:
+
+```json
+{
+  "reported": true,
+  "report_id": "rpt_20260418T091500_979c7fda"
+}
+```
+
+**Idempotent**: reporting the same conversation twice overwrites the
+previous report file (same `report_id` derived from conversation id).
+No rate limit beyond idempotency.
+
+**Report file structure** (`/opt/munin/data/reported/{report_id}.json`):
+
+```json
+{
+  "report_id": "rpt_20260418T091500_979c7fda",
+  "conversation_id": "979c7fda-...",
+  "user_email": "user@example.com",
+  "persona": "research",
+  "title": "VS protocol design",
+  "reason": "Download link didn't work",
+  "reported_at": "2026-04-18T09:15:00Z",
+  "messages": [
+    {
+      "index": 0,
+      "role": "user",
+      "content": "...",
+      "thinking": null,
+      "tool_calls": null,
+      "rag_context": null,
+      "created_at": "2026-04-17T08:41:12Z"
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "art_...",
+      "title": "...",
+      "content_type": "application/pdf",
+      "source": "sandbox_generated",
+      "latest_version": 1
+    }
+  ]
+}
+```
+
+**Errors**: 404 if conversation not found or not owned by caller. 400
+if `reason` exceeds 2000 chars.
+
+---
+
 ## 5. SSE event catalogue for `/api/chat/completions`
 
 All events follow the SSE framing:

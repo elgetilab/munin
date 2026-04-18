@@ -1283,6 +1283,67 @@ async def test_autotitle_on_retry(client):
     return t
 
 
+REPORT_EMAIL = "report-test@munin.local"
+
+
+async def test_report_chat(client):
+    """POST /api/chats/{id}/report serialises the conversation to a
+    JSON file and returns a report_id. Re-reporting is idempotent."""
+    t = TestResult(name="")
+    res = await send_chat(
+        client,
+        "What is 2+2?",
+        email=REPORT_EMAIL,
+    )
+    conv_id = res.get("conversation_id")
+    if not conv_id:
+        t.reason = f"no conversation id: {res['errors']}"
+        return t
+    try:
+        r = await client.post(
+            f"{BASE}/api/chats/{conv_id}/report",
+            headers={
+                "X-Munin-Email": REPORT_EMAIL,
+                "Content-Type": "application/json",
+            },
+            json={"reason": "stress test report"},
+            timeout=10,
+        )
+        t.metrics = {
+            "status": r.status_code,
+            "body": r.json() if r.status_code == 200 else r.text[:200],
+        }
+        if r.status_code != 200:
+            t.reason = f"report returned {r.status_code}: {r.text[:200]}"
+            return t
+        body = r.json()
+        if not body.get("reported"):
+            t.reason = f"reported field not True: {body}"
+            return t
+        report_id = body.get("report_id") or ""
+        if not report_id.startswith("rpt_"):
+            t.reason = f"unexpected report_id format: {report_id!r}"
+            return t
+        # Re-report should also succeed (idempotent).
+        r2 = await client.post(
+            f"{BASE}/api/chats/{conv_id}/report",
+            headers={
+                "X-Munin-Email": REPORT_EMAIL,
+                "Content-Type": "application/json",
+            },
+            json={"reason": "re-report for idempotency check"},
+            timeout=10,
+        )
+        if r2.status_code != 200:
+            t.reason = f"re-report failed: {r2.status_code}"
+            return t
+        t.passed = True
+    finally:
+        if conv_id:
+            await _delete_chat(client, conv_id, REPORT_EMAIL)
+    return t
+
+
 PROFILE_EMAIL = "profile-test@munin.local"
 
 
@@ -6612,6 +6673,7 @@ ALL_TESTS = [
     ("ephemeral_multiturn_history", test_ephemeral_multiturn_history, False),
     ("ephemeral_no_listing_drift", test_ephemeral_no_listing_drift, False),
     ("autotitle_on_retry", test_autotitle_on_retry, True),  # heavy, 2-turn chat
+    ("report_chat", test_report_chat, True),  # heavy, 1-turn chat + report API
     ("profile_roundtrip", test_profile_roundtrip, False),
     ("profile_cap", test_profile_cap, False),
     ("profile_default_persona_override", test_profile_default_persona_override, False),

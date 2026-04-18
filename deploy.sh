@@ -105,7 +105,7 @@ need_file() {
 deploy_dirs() {
     echo "[dirs] Ensuring filesystem layout..."
     run "mkdir -p $MUNIN_CONFIG $MUNIN_PERSONAS/logos"
-    run "mkdir -p $MUNIN_DATA $MUNIN_USER_DOCS $MUNIN_LOGS"
+    run "mkdir -p $MUNIN_DATA $MUNIN_DATA/reported $MUNIN_USER_DOCS $MUNIN_LOGS"
     run "mkdir -p $MUNIN_DEEPRESEARCH/queue $MUNIN_DEEPRESEARCH/jobs"
     run "mkdir -p $MUNIN_DOCKER $MUNIN_RETRIEVAL $MUNIN_SANDBOX"
     run "mkdir -p $CLUSTER_SCRIPTS"

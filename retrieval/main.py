@@ -755,6 +755,110 @@ async def api_unpin_chat(conversation_id: str, request: Request):
 
 
 # ==============================================================================
+# Report chat for review — /api/chats/{cid}/report
+# ==============================================================================
+
+REPORTED_DIR = os.environ.get(
+    "MUNIN_REPORTED_DIR", "/opt/munin/data/reported"
+)
+
+
+@app.post("/api/chats/{conversation_id}/report")
+async def api_report_chat(conversation_id: str, request: Request):
+    """
+    Flag a conversation for developer review. Serialises the full
+    conversation (metadata + all messages with content/thinking/
+    tool_calls/rag_context + artifact metadata) to a timestamped JSON
+    file under REPORTED_DIR. Reported conversations serve as inputs
+    for the test harness — each one can be turned into a regression
+    test that replays the user's turns.
+
+    Idempotent: re-reporting the same conversation overwrites the
+    previous report file.
+    """
+    user_email = _require_user_email(request)
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    reason = (body.get("reason") or "").strip() if isinstance(body, dict) else ""
+    if len(reason) > 2000:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": "reason must be at most 2000 characters"}},
+        )
+
+    conversation = await chat_store.get_conversation(conversation_id, user_email)
+    if conversation is None:
+        raise _error_404("Conversation not found")
+
+    artifacts = []
+    try:
+        artifacts = await artifact_store.list_artifacts(
+            user_email=user_email,
+            conversation_id=conversation_id,
+        )
+    except Exception as e:
+        print(f"[WARNING] report: artifact listing failed: {e}")
+
+    now = datetime.utcnow()
+    short_id = conversation_id.split("-")[0] if "-" in conversation_id else conversation_id[:8]
+    report_id = f"rpt_{now.strftime('%Y%m%dT%H%M%S')}_{short_id}"
+
+    report = {
+        "report_id": report_id,
+        "conversation_id": conversation_id,
+        "user_email": user_email,
+        "persona": conversation.get("persona"),
+        "title": conversation.get("title"),
+        "reason": reason or None,
+        "reported_at": now.isoformat() + "Z",
+        "messages": [
+            {
+                "index": msg.get("index_in_conversation", i),
+                "role": msg.get("role"),
+                "content": msg.get("content"),
+                "thinking": msg.get("thinking"),
+                "tool_calls": msg.get("tool_calls"),
+                "rag_context": msg.get("rag_context"),
+                "attachments": msg.get("attachments"),
+                "created_at": msg.get("created_at"),
+            }
+            for i, msg in enumerate(conversation.get("messages") or [])
+        ],
+        "artifacts": [
+            {
+                "id": a.get("id"),
+                "title": a.get("title"),
+                "content_type": a.get("content_type"),
+                "source": a.get("source"),
+                "latest_version": a.get("latest_version"),
+                "filename": a.get("filename"),
+                "external_url": a.get("external_url"),
+            }
+            for a in artifacts
+        ],
+    }
+
+    os.makedirs(REPORTED_DIR, exist_ok=True)
+    report_path = os.path.join(REPORTED_DIR, f"{report_id}.json")
+    try:
+        import json as _json
+        tmp = report_path + ".tmp"
+        with open(tmp, "w") as f:
+            _json.dump(report, f, indent=2, default=str)
+        os.replace(tmp, report_path)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": {"message": f"Failed to write report: {e}"}},
+        )
+
+    return {"reported": True, "report_id": report_id}
+
+
+# ==============================================================================
 # Artifacts (§22) - /api/chats/{cid}/artifacts
 # ==============================================================================
 @app.get("/api/chats/{conversation_id}/artifacts")

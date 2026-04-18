@@ -948,6 +948,56 @@ optionally preview the output.
 
 ---
 
+## 12. "Report this chat" action
+
+**Status:** open
+**Driven by:** user feedback pipeline — reported chats become regression test inputs
+**Date:** 2026-04-18
+**Effort:** ~1 hour: menu item + API call + confirmation toast + optional reason field
+
+### What the backend ships
+
+`POST /api/chats/{id}/report` — serialises the full conversation
+(messages, tool_calls, thinking, rag_context, artifacts metadata) to
+a timestamped JSON file under `/opt/munin/data/reported/`. Body is
+optional: `{"reason": "free text, max 2000 chars"}`. Response:
+`{"reported": true, "report_id": "rpt_..."}`. Idempotent (re-
+reporting overwrites). Auth: must own the conversation.
+
+### What the frontend needs to do
+
+**(a) Add a "Report this chat" menu item.** Place it in the chat
+header's overflow menu (alongside rename / delete). Icon suggestion:
+flag or warning triangle.
+
+**(b) Optional reason dialog.** When clicked, show a small dialog
+or inline text field asking "What went wrong?" (optional, can be
+left blank). Max 2000 chars. Submit calls `POST /api/chats/{id}/
+report` with `{"reason": "..."}`.
+
+**(c) Confirmation toast.** On success, show "Chat reported —
+thank you for helping us improve." On error, show the error
+message from the response.
+
+**(d) Visual indicator.** After reporting, show a small flag/badge
+on the chat in the sidebar so the user knows which chats they've
+already reported. This is purely cosmetic — the backend doesn't
+track report status on the conversation row, so the frontend would
+need to remember this in local state or check for the report file
+via a future endpoint.
+
+### How to verify
+
+1. Open any conversation with at least one assistant response.
+2. Click the overflow menu → "Report this chat".
+3. Type a short reason, submit.
+4. Expect a 200 response with `reported: true`.
+5. Verify the JSON file appears in `/opt/munin/data/reported/`
+   with the conversation's full message history.
+6. Report the same chat again — should overwrite, not duplicate.
+
+---
+
 ## How to add new entries
 
 When the backend identifies frontend work, append a new section here
