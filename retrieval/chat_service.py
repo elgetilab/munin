@@ -470,6 +470,12 @@ async def _stream_vllm_once(
         "model": VLLM_MODEL_NAME,
         "messages": messages,
         "stream": True,
+        # Without include_usage the final chunk of the SSE stream
+        # carries no ``usage`` field and all token counts reach the
+        # gateway as 0 — breaking per-user quota enforcement and the
+        # admin usage dashboard. vLLM (like the OpenAI API) requires
+        # an explicit opt-in.
+        "stream_options": {"include_usage": True},
     }
     body.update(sampling)
     if enable_tools:
