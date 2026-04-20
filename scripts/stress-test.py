@@ -46,6 +46,7 @@ def parse_sse(text: str) -> dict:
     """Collapse a full SSE response body into a structured dict."""
     events: dict[str, int] = {}
     tool_calls: list[str] = []
+    tool_results: list[dict] = []
     errors: list[str] = []
     content_chunks: list[str] = []
     artifacts: list[dict] = []
@@ -76,6 +77,11 @@ def parse_sse(text: str) -> dict:
                 thinking_len += len(d.get("content", ""))
             elif current_event == "tool_call":
                 tool_calls.append(d.get("name"))
+            elif current_event == "tool_result":
+                # Keep the full payload (id, name, result, duration_ms)
+                # so behavioural tests can assert on structured fields
+                # like applied_tags from §28 paper_search results.
+                tool_results.append(d)
             elif current_event == "clarification":
                 # §14 ask_clarification intercept — the backend emits
                 # one clarification SSE event per short-circuited turn
@@ -98,6 +104,7 @@ def parse_sse(text: str) -> dict:
         "events": events,
         "content": "".join(content_chunks),
         "tool_calls": tool_calls,
+        "tool_results": tool_results,
         "artifacts": artifacts,
         "clarifications": clarifications,
         "errors": errors,
@@ -118,6 +125,7 @@ async def send_chat(
     history: Optional[list[dict]] = None,
     email: Optional[str] = None,
     images: Optional[list[str]] = None,
+    tags: Optional[list[dict]] = None,
 ) -> dict:
     """
     ``message`` is the text content. If ``images`` is provided, the user
@@ -125,6 +133,11 @@ async def send_chat(
     text block first followed by one ``image_url`` block per entry in
     ``images``. Each entry can be a data URL or a ``document:<id>``
     reference.
+
+    ``tags`` (§28) is a list of ``{kind, value}`` dicts (kind ∈
+    ``topic`` / ``group`` / ``contributor``) that scope paper_search /
+    deep_research to the matching subset of the corpus. Set this when
+    you want the same tag-chip semantics the frontend applies.
     """
     msgs: list[dict] = list(history or [])
     if images:
@@ -140,6 +153,8 @@ async def send_chat(
         "messages": msgs,
         "ephemeral": ephemeral,
     }
+    if tags:
+        body["tags"] = tags
     headers = {
         "X-Munin-Email": email or EMAIL,
         "Content-Type": "application/json",
@@ -161,6 +176,7 @@ async def send_chat(
                 "content": "",
                 "events": {},
                 "tool_calls": [],
+                "tool_results": [],
                 "artifacts": [],
                 "errors": [],
                 "thinking_len": 0,

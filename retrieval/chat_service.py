@@ -613,6 +613,47 @@ def _normalize_query_tags(raw) -> Optional[list[dict]]:
     return out or None
 
 
+def build_active_tags_block(tags: Optional[list[dict]]) -> Optional[str]:
+    """Format a short system-prompt block describing currently-active
+    `#tag` scope filters so the model knows what knowledge is attached.
+
+    Without this, the ContextVar flows silently into paper_search's
+    Qdrant filter — the user sees scoped results, but when they ask
+    "what knowledge do I have attached?" the model has no awareness
+    and incorrectly reports "nothing". The block makes the scope
+    visible at every turn.
+    """
+    if not tags:
+        return None
+    lines = ["=== ACTIVE SCOPE TAGS ==="]
+    lines.append(
+        "The user has attached the following knowledge scope filters to "
+        "this chat. Every paper_search / deep_research call automatically "
+        "scopes Qdrant results to papers matching ALL of these filters:"
+    )
+    lines.append("")
+    for tag in tags:
+        kind = tag.get("kind")
+        value = tag.get("value")
+        if kind == "group":
+            lines.append(f"- #{value} (research-group scope)")
+        elif kind == "contributor":
+            lines.append(f"- #@{value} (individual-contributor scope)")
+        elif kind == "topic":
+            lines.append(f"- #{value} (topic-cluster scope)")
+    lines.append("")
+    lines.append(
+        "When the user asks 'what knowledge do I have attached', 'what can "
+        "you see', 'what am I scoped to', or similar — tell them about "
+        "these active scope tags explicitly. When citing papers surfaced "
+        "by a scoped search, mention the scope ('I searched the Zeitler "
+        "Lab corpus for...'). Do NOT silently claim corpus-wide coverage "
+        "when the scope was narrower."
+    )
+    lines.append("=== END ACTIVE SCOPE TAGS ===")
+    return "\n".join(lines)
+
+
 # --- Main entry point ---------------------------------------------------------
 
 async def stream_chat_completion(
@@ -654,7 +695,8 @@ async def stream_chat_completion(
     # §28: tag-scoped search. Frontend maps `#zeitler` / `#nmr` chips to
     # the request body's `tags` field; paper_search and deep_research
     # read this ContextVar to scope Qdrant queries.
-    current_query_tags.set(_normalize_query_tags(query_tags))
+    normalized_tags = _normalize_query_tags(query_tags)
+    current_query_tags.set(normalized_tags)
 
     system_prompt = persona_module.build_system_prompt(persona)
 
@@ -777,6 +819,14 @@ async def stream_chat_completion(
             capabilities_block = None
         if capabilities_block:
             system_prompt = f"{system_prompt}\n\n{capabilities_block}"
+
+    # §28: active-tags block. Injected on every turn that has tags so
+    # the model can (a) honestly answer "what knowledge is attached"
+    # and (b) cite the scope in its final prose. No PII in the block,
+    # so it's fine for ephemeral mode too.
+    active_tags_block = build_active_tags_block(normalized_tags)
+    if active_tags_block:
+        system_prompt = f"{system_prompt}\n\n{active_tags_block}"
 
     sampling = persona_module.sampling_params(persona)
 

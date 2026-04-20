@@ -177,6 +177,10 @@ class Turn:
     # image" when that token happens to be sampled first at rate ~3-4%
     # despite the image being perfectly present in vLLM's context.
     soft_retries: int = 0
+    # §28 tag-scoped search. Maps directly to the request body's
+    # `tags` field. Each entry is {"kind": "topic"|"group"|"contributor",
+    # "value": "<slug>"}. None / empty = no scope filter.
+    tags: Optional[list[dict]] = None
 
 
 @dataclass
@@ -456,6 +460,8 @@ async def run_rep(
                 }
                 if turn.images:
                     send_kwargs["images"] = turn.images
+                if turn.tags:
+                    send_kwargs["tags"] = turn.tags
                 try:
                     res = await send_chat(client, **send_kwargs)
                 except Exception as e:
@@ -1203,6 +1209,205 @@ def _compose_scenario() -> Scenario:
     )
 
 
+# ----------------------------------------------------------------------------
+# §28 Scenario: tag-scoped search (#group / #@user / #topic)
+# ----------------------------------------------------------------------------
+#
+# Three behavioural assertions the unit tests in
+# retrieval/tests/test_query_tags.py can't make:
+#
+# 1. With tags in the request body, the model SEES the active scope
+#    and reports it back when asked "what knowledge do I have
+#    attached" (regression test for the original bug — model used to
+#    answer "no documents found" because the ContextVar was never
+#    surfaced into the system prompt).
+#
+# 2. With tags, paper_search's tool result carries `applied_tags`
+#    matching what we sent. This is the structured contract the
+#    frontend depends on for the "scoped to X corpus" UI.
+#
+# 3. With multiple tags, all of them reach paper_search (AND-combine).
+
+
+def _expected_paper_search_with_tags(expected_tags: list[dict]) -> Assertion:
+    """paper_search must have been called AND its tool_result must
+    carry applied_tags matching `expected_tags` exactly (order-
+    insensitive comparison on (kind, value) pairs)."""
+
+    expected_set = {(t["kind"], t["value"]) for t in expected_tags}
+
+    def _inner(res: dict, state: dict) -> TurnOutcome:
+        tc = _brief_tool_calls(res)
+        t = TurnOutcome(
+            passed=False,
+            tool_calls=tc,
+            clarifications=len(res.get("clarifications") or []),
+            content_preview=_content_preview(res),
+        )
+        if res.get("errors"):
+            t.reason = f"stream error: {res['errors'][0]}"
+            return t
+        if "paper_search" not in tc:
+            t.reason = (
+                f"expected paper_search to fire, got {tc}; the model "
+                f"may have skipped local search — try a more search-y "
+                f"prompt or check persona prompts"
+            )
+            return t
+        # Find the paper_search tool_result
+        tool_results = res.get("tool_results") or []
+        ps = next(
+            (tr for tr in tool_results if tr.get("name") == "paper_search"),
+            None,
+        )
+        if ps is None:
+            t.reason = (
+                "paper_search tool_call event fired but no matching "
+                "tool_result event arrived (stream cut off?); cannot "
+                "verify applied_tags"
+            )
+            return t
+        result = (ps or {}).get("result") or {}
+        applied = result.get("applied_tags") or []
+        applied_set = {
+            (a.get("kind"), a.get("value"))
+            for a in applied
+            if isinstance(a, dict)
+        }
+        if applied_set != expected_set:
+            t.reason = (
+                f"applied_tags mismatch: expected {expected_set!r}, "
+                f"got {applied_set!r}"
+            )
+            return t
+        t.passed = True
+        return t
+
+    return _inner
+
+
+def _content_mentions_active_scope(needles: list[str]) -> Assertion:
+    """Final-prose check: the model's answer must mention every needle
+    (case-insensitive). Used to verify the model surfaced the active
+    scope in human language ('I searched the Zeitler Lab corpus...')."""
+
+    def _inner(res: dict, state: dict) -> TurnOutcome:
+        tc = _brief_tool_calls(res)
+        t = TurnOutcome(
+            passed=False,
+            tool_calls=tc,
+            clarifications=len(res.get("clarifications") or []),
+            content_preview=_content_preview(res),
+        )
+        if res.get("errors"):
+            t.reason = f"stream error: {res['errors'][0]}"
+            return t
+        content_lower = (res.get("content") or "").lower()
+        missing = [n for n in needles if n.lower() not in content_lower]
+        if missing:
+            t.reason = (
+                f"final answer did not mention {missing!r} (active "
+                f"scope tags); model may not have noticed the ACTIVE "
+                f"SCOPE TAGS block in the system prompt"
+            )
+            return t
+        t.passed = True
+        return t
+
+    return _inner
+
+
+def _query_tags_scenario() -> Scenario:
+    return Scenario(
+        name="query_tags",
+        description=(
+            "§28 tag-scoped search: model knows about active #tag "
+            "filters, paper_search results carry applied_tags, "
+            "multiple tags AND-combine through to the Qdrant filter."
+        ),
+        variants=[
+            # Variant 1: model awareness — when asked, the model must
+            # report the active scope. This is the regression test for
+            # the original 789c9f0c bug.
+            Variant(
+                label="awareness_with_group_tag",
+                turns=[
+                    Turn(
+                        message=(
+                            "What knowledge or scope filters do I "
+                            "currently have attached to this chat? "
+                            "Be specific."
+                        ),
+                        assertion=_content_mentions_active_scope(["zeitler"]),
+                        persona="chat",
+                        ephemeral=True,
+                        tags=[{"kind": "group", "value": "zeitler"}],
+                        # Model can phrase it many ways; sampling
+                        # variance can drop the slug occasionally.
+                        soft_retries=1,
+                    ),
+                ],
+            ),
+            # Variant 2: paper_search is invoked AND scoped. Confirms
+            # the ContextVar → Qdrant filter wiring all the way to
+            # the structured tool_result the frontend reads.
+            Variant(
+                label="paper_search_applied_tags",
+                turns=[
+                    Turn(
+                        message=(
+                            "Search the local corpus for papers "
+                            "about angioedema. Use the paper_search "
+                            "tool."
+                        ),
+                        assertion=_expected_paper_search_with_tags(
+                            [{"kind": "group", "value": "zeitler"}]
+                        ),
+                        persona="research",
+                        ephemeral=True,
+                        tags=[{"kind": "group", "value": "zeitler"}],
+                        soft_retries=1,
+                    ),
+                ],
+            ),
+            # Variant 3: multiple tags AND-combine — both must reach
+            # paper_search's applied_tags echo.
+            Variant(
+                label="multi_tag_and_combine",
+                turns=[
+                    Turn(
+                        message=(
+                            "Search the local corpus for papers on "
+                            "membrane proteins. Use paper_search."
+                        ),
+                        assertion=_expected_paper_search_with_tags([
+                            {"kind": "group", "value": "zeitler"},
+                            {
+                                "kind": "topic",
+                                "value": "nmr-of-membrane-proteins",
+                            },
+                        ]),
+                        persona="research",
+                        ephemeral=True,
+                        tags=[
+                            {"kind": "group", "value": "zeitler"},
+                            {
+                                "kind": "topic",
+                                "value": "nmr-of-membrane-proteins",
+                            },
+                        ],
+                        soft_retries=1,
+                    ),
+                ],
+            ),
+        ],
+        # 3 reps — model-prose checks have higher variance than tool
+        # firings so we want enough samples to distinguish FAIL from
+        # FLAKY without burning vLLM time.
+        reps_override=3,
+    )
+
+
 SCENARIOS = [
     _clarification_scenario(),
     _latex_scenario(),
@@ -1212,6 +1417,7 @@ SCENARIOS = [
     _vision_scenario(),
     _profile_scenario(),
     _compose_scenario(),
+    _query_tags_scenario(),
 ]
 
 
