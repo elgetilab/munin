@@ -54,7 +54,9 @@ import secrets
 import shutil
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
+from urllib.parse import quote
+
 import httpx
 import yaml
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -1185,6 +1187,171 @@ async def api_embedding_map():
             detail={"error": {"message": "Embedding map not yet built"}},
         )
     return FileResponse(EMBEDDING_MAP_PATH, media_type="application/json")
+
+
+_TAG_KIND_TO_FILTER_KEY = {
+    "topic": "topic_slug",
+    "group": "contributors[].group_slug",
+    "contributor": "contributors[].username",
+}
+
+# Public host used to build `download_url` fields on browse results.
+# Same convention as retrieval/mcp/tools/papers.py.
+PUBLIC_MUNIN_URL = os.getenv("MUNIN_PUBLIC_URL", "https://search.muninai.org")
+
+
+@app.get("/api/tags/{kind}/{slug}/papers")
+async def api_tag_papers(
+    kind: str,
+    slug: str,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    sort: str = Query("year_desc", pattern="^(year_desc|year_asc|upload_desc)$"),
+):
+    """Paginated list of papers matching a tag.
+
+    Unlike `paper_search`, this is a **browse** view — no ranking, no
+    SPECTER query, ordered by metadata (year descending by default).
+    Used by the knowledge browser page in the frontend.
+
+    `kind` is one of `topic` / `group` / `contributor`; `slug` is the
+    value (topic_slug, research_group slug, or username). Returns
+    small paper stubs (title/doi/year/authors/contributors/topic/
+    download_url). Clients paginate with `offset` + `limit`.
+    """
+    filter_key = _TAG_KIND_TO_FILTER_KEY.get(kind)
+    if filter_key is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": f"unknown tag kind: {kind!r}"}},
+        )
+    slug = (slug or "").strip().lower()
+    if not slug:
+        raise HTTPException(
+            status_code=400, detail={"error": {"message": "slug is required"}}
+        )
+
+    qdrant = get_qdrant()
+    if qdrant is None:
+        raise HTTPException(
+            status_code=503, detail={"error": {"message": "Qdrant unavailable"}}
+        )
+
+    from qdrant_client.http import models as qm
+    flt = qm.Filter(
+        must=[qm.FieldCondition(key=filter_key, match=qm.MatchValue(value=slug))]
+    )
+
+    # Total count is cheap with payload indexes — the frontend uses it
+    # to render "1 of 418".
+    try:
+        count_res = qdrant.count(
+            collection_name="papers", count_filter=flt, exact=True
+        )
+        total = getattr(count_res, "count", 0)
+    except Exception:
+        total = 0
+
+    # Qdrant scroll doesn't do offset directly — we paginate by walking
+    # pages until we've skipped `offset`. Cheap at current scale; for
+    # >100k corpora we'd want a DB-side ordering column.
+    papers: list[dict] = []
+    seen = 0
+    scroll_offset: Optional[Any] = None
+    page_size = min(256, offset + limit)
+    try:
+        while seen < offset + limit:
+            points, scroll_offset = qdrant.scroll(
+                collection_name="papers",
+                scroll_filter=flt,
+                limit=page_size,
+                offset=scroll_offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not points:
+                break
+            for p in points:
+                payload = p.payload or {}
+                if seen >= offset:
+                    papers.append(_paper_stub(payload))
+                seen += 1
+                if len(papers) >= limit:
+                    break
+            if scroll_offset is None:
+                break
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": {"message": f"Qdrant scroll failed: {e}"}},
+        )
+
+    # Sort within the page (Qdrant doesn't sort-by-payload natively).
+    # For a true corpus-wide sort we'd need to materialise everything,
+    # which isn't scalable — but for a single page of ≤200 this is fine.
+    if sort == "year_desc":
+        papers.sort(key=lambda p: (p.get("year") or 0), reverse=True)
+    elif sort == "year_asc":
+        papers.sort(key=lambda p: (p.get("year") or 9999))
+    elif sort == "upload_desc":
+        papers.sort(
+            key=lambda p: ((p.get("contributors") or [{}])[-1].get("upload_time") or ""),
+            reverse=True,
+        )
+
+    return {
+        "kind": kind,
+        "slug": slug,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "sort": sort,
+        "papers": papers,
+    }
+
+
+def _paper_stub(payload: dict) -> dict:
+    """Shape a Qdrant payload into the public paper-card shape used by
+    browse + search results. Mirrors what paper_search returns, minus
+    the score/matched_query fields."""
+    authors = payload.get("authors") or []
+    if isinstance(authors, list):
+        authors = [a if isinstance(a, str) else (a or {}).get("name", "") for a in authors][:5]
+    doi = payload.get("doi")
+    stub = {
+        "title": payload.get("title"),
+        "doi": doi,
+        "year": payload.get("year"),
+        "authors": authors,
+        "journal": payload.get("journal"),
+    }
+    contributors = payload.get("contributors")
+    if contributors:
+        stub["contributors"] = [
+            {
+                "display_name": (c or {}).get("display_name"),
+                "group_slug": (c or {}).get("group_slug"),
+                "group_display_name": (c or {}).get("group_display_name"),
+                "upload_time": (c or {}).get("upload_time"),
+            }
+            for c in contributors
+            if isinstance(c, dict)
+        ]
+    topic_label = payload.get("topic_label")
+    if topic_label and payload.get("topic_slug") != "unclustered":
+        stub["topic"] = {
+            "label": topic_label,
+            "slug": payload.get("topic_slug"),
+        }
+    if doi:
+        # Convention: only return a download_url when the PDF is on disk.
+        # Cheap to check — os.path.exists against PAPERS_PDF_DIR.
+        pdf_path = os.path.join(
+            PAPERS_PDF_DIR, f"doi_{doi.replace('/', '_')}.pdf"
+        )
+        if os.path.isfile(pdf_path):
+            stub["download_url"] = f"{PUBLIC_MUNIN_URL}/paper/{quote(doi, safe='')}/pdf"
+    return stub
 
 
 @app.get("/api/tags")
