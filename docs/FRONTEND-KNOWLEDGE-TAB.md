@@ -55,7 +55,7 @@ No auth.
     { "slug": "rhodopsin-gene-expression-and-characteri",
       "label": "Rhodopsin gene expression and characterization",
       "paper_count": 994 },
-    ... 213 total, sorted desc by paper_count
+    ... ~200 total at corpus size 29,894, sorted desc by paper_count
   ],
   "groups": [
     {
@@ -126,14 +126,18 @@ view, not a ranked search — no SPECTER, no query required.
          "upload_time": "2026-04-20T13:28:28.622014Z"}
       ],
       "topic": {
-        "label": "NMR studies of lipid bilayers",
-        "slug": "nmr-studies-of-lipid-bilayers"
+        "label": "Renin-angiotensin system in pregnancy",
+        "slug": "renin-angiotensin-system-in-pregnancy"
       },
       "download_url": "https://search.muninai.org/paper/10.1288%2F00005537-199203000-00005/pdf"
     }
   ]
 }
 ```
+
+The `topic` field is present once the paper has been clustered by the
+nightly §15 run — newly-ingested papers have it missing until the
+next rebuild fires (or the operator kicks the timer manually).
 
 - `total` is the full filtered-corpus count — use for "Page 1 of 9"
   and infinite-scroll stop conditions.
