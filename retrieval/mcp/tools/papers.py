@@ -21,6 +21,58 @@ import httpx
 
 from database import get_qdrant, get_neo4j, get_specter, PAPERS_PDF_DIR
 from .query_expansion import expand_queries
+from ..context import current_query_tags
+
+
+def _build_tag_filter(tags: Optional[list[dict]]):
+    """Translate `tags` (list of {kind, value}) into a Qdrant filter object,
+    or None when no filter applies.
+
+    - `topic`        → filter on payload.topic_slug (§15 writes this).
+    - `group`        → filter on array-member payload.contributors[].group_slug.
+    - `contributor`  → filter on array-member payload.contributors[].username
+                       (for the #@username shortcut; papers without a
+                       contributors[] array won't match, which is correct).
+
+    Multiple tags AND-combine (Qdrant `must`). Unknown kinds are silently
+    dropped so the model passing a malformed tag doesn't break the call.
+    """
+    if not tags:
+        return None
+    try:
+        from qdrant_client.http import models as qm
+    except Exception:
+        return None
+    conds: list = []
+    for tag in tags:
+        if not isinstance(tag, dict):
+            continue
+        kind = (tag.get("kind") or "").strip().lower()
+        value = tag.get("value")
+        if not isinstance(value, str) or not value.strip():
+            continue
+        value = value.strip().lower()
+        if kind == "topic":
+            conds.append(
+                qm.FieldCondition(key="topic_slug", match=qm.MatchValue(value=value))
+            )
+        elif kind == "group":
+            conds.append(
+                qm.FieldCondition(
+                    key="contributors[].group_slug",
+                    match=qm.MatchValue(value=value),
+                )
+            )
+        elif kind == "contributor":
+            conds.append(
+                qm.FieldCondition(
+                    key="contributors[].username",
+                    match=qm.MatchValue(value=value),
+                )
+            )
+    if not conds:
+        return None
+    return qm.Filter(must=conds)
 
 # Semantic Scholar API
 SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
@@ -136,14 +188,19 @@ def _local_download_fields(doi: str) -> dict:
     return {}
 
 
-def _qdrant_search_one(qdrant, specter, q: str, top_k: int) -> list[dict]:
-    """Run one SPECTER-embedded Qdrant query_points call and shape the payload."""
+def _qdrant_search_one(
+    qdrant, specter, q: str, top_k: int, query_filter=None
+) -> list[dict]:
+    """Run one SPECTER-embedded Qdrant query_points call and shape the
+    payload. `query_filter` — a Qdrant `Filter` from `_build_tag_filter`
+    — scopes the search to a topic/group/contributor tag (§28)."""
     try:
         vec = specter.encode(q).tolist()
         results = qdrant.query_points(
             collection_name="papers",
             query=vec,
             limit=top_k,
+            query_filter=query_filter,
         )
         out: list[dict] = []
         for r in results.points:
@@ -160,6 +217,27 @@ def _qdrant_search_one(qdrant, specter, q: str, top_k: int) -> list[dict]:
                 "score": round(float(r.score), 3),
                 "matched_query": q,
             }
+            # Surface contributor attribution when present so the model
+            # can cite it honestly ("a paper contributed by Zeitler Lab").
+            contributors = payload.get("contributors")
+            if contributors:
+                # Keep the shape small for the tool result; the model
+                # doesn't need emails or upload times.
+                row["contributors"] = [
+                    {
+                        "display_name": c.get("display_name"),
+                        "group_slug": c.get("group_slug"),
+                        "group_display_name": c.get("group_display_name"),
+                    }
+                    for c in contributors
+                    if isinstance(c, dict)
+                ]
+            topic_label = payload.get("topic_label")
+            if topic_label and payload.get("topic_slug") != "unclustered":
+                row["topic"] = {
+                    "label": topic_label,
+                    "slug": payload.get("topic_slug"),
+                }
             # Local hits always have a PDF on disk (they came from the local
             # papers Qdrant collection). Surface the download link so the
             # model doesn't need a follow-up get_paper_pdf call.
@@ -175,6 +253,7 @@ async def paper_search(
     query: Optional[str] = None,
     queries: Optional[list[str]] = None,
     top_k: int = 5,
+    tags: Optional[list[dict]] = None,
 ) -> dict:
     """
     Search the local papers corpus using SPECTER embeddings with multi-query
@@ -191,9 +270,14 @@ async def paper_search(
         query: Single query. Will be fanned out automatically.
         queries: Explicit list of queries. Takes precedence.
         top_k: Max number of deduped results to return.
+        tags: Optional scope filter — list of {"kind": "topic"|"group"|
+              "contributor", "value": str}. Tags AND-combine (paper must
+              match all). Falls back to the `current_query_tags` ContextVar
+              set by chat_service when omitted, so #zeitler in the chat
+              input automatically scopes every paper_search call.
 
     Returns:
-        Dict with queries_executed, total_hits, results.
+        Dict with queries_executed, total_hits, applied_tags, results.
     """
     qdrant = get_qdrant()
     specter = get_specter()
@@ -210,13 +294,20 @@ async def paper_search(
     if not query_list:
         return {"error": "paper_search got empty query list after normalization"}
 
+    # §28: explicit `tags` argument overrides the ContextVar; None falls
+    # back to the conversation's inherited tags.
+    effective_tags = tags if tags is not None else current_query_tags.get()
+    query_filter = _build_tag_filter(effective_tags)
+
     # SPECTER encoding + Qdrant queries are CPU-bound / blocking; run them in
     # a thread pool so multiple queries can progress in parallel.
     loop = asyncio.get_running_loop()
     per_query = max(top_k, 5)
     batches: list[list[dict]] = await asyncio.gather(
         *(
-            loop.run_in_executor(None, _qdrant_search_one, qdrant, specter, q, per_query)
+            loop.run_in_executor(
+                None, _qdrant_search_one, qdrant, specter, q, per_query, query_filter
+            )
             for q in query_list
         )
     )
@@ -240,11 +331,16 @@ async def paper_search(
         key=lambda r: (-r.get("matched_by", 1), -r.get("score", 0)),
     )
 
-    return {
+    response: dict = {
         "queries_executed": query_list,
         "total_hits": total_hits,
         "results": merged[:top_k],
     }
+    if effective_tags:
+        # Echo the applied filter so the model can be honest about scope
+        # in its response ("I searched papers contributed by Zeitler Lab").
+        response["applied_tags"] = effective_tags
+    return response
 
 
 async def _semantic_scholar_one(

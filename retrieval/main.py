@@ -47,12 +47,16 @@ Environment Variables:
 """
 
 import asyncio
+import hashlib
 import json
 import os
+import secrets
+import shutil
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 import httpx
+import yaml
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -1137,6 +1141,9 @@ async def api_chat_completions(request: Request):
     # before the trailing user turn is the prior history.
     prior_messages = messages[:-1] if ephemeral else None
 
+    # §28: #tag chips from the composer, normalised by chat_service.
+    query_tags = body.get("tags")
+
     async def event_stream():
         async for event in chat_service.stream_chat_completion(
             user_email=user_email,
@@ -1148,6 +1155,7 @@ async def api_chat_completions(request: Request):
             prior_messages=prior_messages,
             project=project_for_request,
             file_into_project_id=body_project_id if not conversation_id else None,
+            query_tags=query_tags,
         ):
             if await request.is_disconnected():
                 break
@@ -1177,6 +1185,386 @@ async def api_embedding_map():
             detail={"error": {"message": "Embedding map not yet built"}},
         )
     return FileResponse(EMBEDDING_MAP_PATH, media_type="application/json")
+
+
+@app.get("/api/tags")
+async def api_tags():
+    """Tag autocomplete catalog for the chat composer (§28 Sprint B).
+
+    Returns three families:
+
+    - `topics`: distinct `{slug, label, paper_count}` from the §15
+      embedding map. Noise/unclustered bucket is omitted.
+    - `groups`: one entry per research group in `contributors.yml`,
+      `paper_count` counted from Qdrant via distinct paper IDs whose
+      payload `contributors[].group_slug` matches.
+    - `contributors`: individual uploaders (for the `#@username`
+      shortcut).
+
+    No auth — tag names are public (the model already sees them in
+    search results).
+    """
+    topics: list[dict] = []
+    if os.path.isfile(EMBEDDING_MAP_PATH):
+        try:
+            with open(EMBEDDING_MAP_PATH, encoding="utf-8") as f:
+                emb_map = json.load(f)
+            for cluster in emb_map.get("clusters", []) or []:
+                slug = cluster.get("slug")
+                if not slug or slug == "unclustered":
+                    continue
+                topics.append({
+                    "slug": slug,
+                    "label": cluster.get("label"),
+                    "paper_count": cluster.get("size", 0),
+                })
+            topics.sort(key=lambda t: -t["paper_count"])
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    groups: list[dict] = []
+    contributors: list[dict] = []
+    known = _load_contributors()
+    # Count papers per group via Qdrant. Uses the payload filter; a
+    # missing payload index on `contributors[].group_slug` just makes
+    # this scan slower, not wrong (we lazy-create the index at startup;
+    # see `_ensure_contributor_indexes`).
+    qdrant = get_qdrant()
+    group_counts: dict[str, int] = {}
+    contributor_counts: dict[str, int] = {}
+    if qdrant is not None:
+        try:
+            from qdrant_client.http import models as qm
+            for entry in known.values():
+                slug = entry.get("research_group")
+                if slug:
+                    try:
+                        res = qdrant.count(
+                            collection_name="papers",
+                            count_filter=qm.Filter(
+                                must=[
+                                    qm.FieldCondition(
+                                        key="contributors[].group_slug",
+                                        match=qm.MatchValue(value=slug),
+                                    )
+                                ]
+                            ),
+                            exact=True,
+                        )
+                        group_counts[slug] = getattr(res, "count", 0)
+                    except Exception:
+                        group_counts[slug] = 0
+                username = entry.get("username")
+                if username:
+                    try:
+                        res = qdrant.count(
+                            collection_name="papers",
+                            count_filter=qm.Filter(
+                                must=[
+                                    qm.FieldCondition(
+                                        key="contributors[].username",
+                                        match=qm.MatchValue(value=username),
+                                    )
+                                ]
+                            ),
+                            exact=True,
+                        )
+                        contributor_counts[username] = getattr(res, "count", 0)
+                    except Exception:
+                        contributor_counts[username] = 0
+        except Exception as e:
+            print(f"[WARN] tag catalog Qdrant counts failed: {e}")
+
+    # Dedup groups by slug (two allowlist rows could share a group).
+    seen_groups: set[str] = set()
+    for entry in known.values():
+        slug = entry.get("research_group")
+        if not slug or slug in seen_groups:
+            continue
+        seen_groups.add(slug)
+        groups.append({
+            "slug": slug,
+            "display_name": entry.get("research_group_display_name") or slug,
+            "paper_count": group_counts.get(slug, 0),
+        })
+        username = entry.get("username")
+        if username:
+            contributors.append({
+                "username": username,
+                "display_name": entry.get("display_name") or username,
+                "group_slug": slug,
+                "paper_count": contributor_counts.get(username, 0),
+            })
+
+    groups.sort(key=lambda g: -g["paper_count"])
+    contributors.sort(key=lambda c: -c["paper_count"])
+
+    return {
+        "topics": topics,
+        "groups": groups,
+        "contributors": contributors,
+    }
+
+
+# ==============================================================================
+# Admin Ingest (/api/admin/ingest) — §28
+#
+# Accepts a single PDF from the VPS-side hook_service (upload.muninai.org →
+# tusd → hook_service → POST /api/admin/ingest over the autossh tunnel),
+# looks up the uploader against contributors.yml, drops the file into
+# pdf/inbox/ with a sidecar, and invokes paper_pipeline.py --single
+# synchronously. Returns 200 only after the paper is fully indexed.
+# ==============================================================================
+ADMIN_INGEST_TOKEN = os.getenv("ADMIN_INGEST_TOKEN", "")
+CONTRIBUTORS_CONFIG_PATH = os.getenv(
+    "CONTRIBUTORS_CONFIG", "/app/config/contributors.yml"
+)
+PAPER_PIPELINE_SCRIPT = os.getenv(
+    "PAPER_PIPELINE_SCRIPT", "/app/pipeline/paper_pipeline.py"
+)
+PAPERS_INBOX_DIR = os.path.join(PAPERS_PDF_DIR, "inbox")
+PIPELINE_TIMEOUT_SECS = int(os.getenv("PIPELINE_TIMEOUT_SECS", "600"))
+
+_contributors_cache: Optional[dict[str, dict]] = None
+_contributors_cache_mtime: float = 0.0
+
+
+def _load_contributors() -> dict[str, dict]:
+    """Parse contributors.yml, keyed by lowercased email. Auto-reloads
+    when the YAML file's mtime changes so editing the allowlist doesn't
+    require a container restart."""
+    global _contributors_cache, _contributors_cache_mtime
+    try:
+        mtime = os.path.getmtime(CONTRIBUTORS_CONFIG_PATH)
+    except OSError:
+        return {}
+    if _contributors_cache is not None and mtime == _contributors_cache_mtime:
+        return _contributors_cache
+    try:
+        with open(CONTRIBUTORS_CONFIG_PATH, encoding="utf-8") as f:
+            doc = yaml.safe_load(f) or {}
+    except (OSError, yaml.YAMLError) as e:
+        print(f"[WARN] contributors.yml unreadable: {e}")
+        return {}
+    out: dict[str, dict] = {}
+    for entry in doc.get("contributors", []) or []:
+        email = (entry.get("email") or "").strip().lower()
+        if email:
+            out[email] = entry
+    _contributors_cache = out
+    _contributors_cache_mtime = mtime
+    return out
+
+
+def _require_admin_token(request: Request) -> None:
+    if not ADMIN_INGEST_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": {"message": "Admin ingest not configured (ADMIN_INGEST_TOKEN unset)"}},
+        )
+    header = request.headers.get("Authorization", "")
+    if not header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail={"error": {"message": "Missing bearer token"}},
+        )
+    if not secrets.compare_digest(header[7:], ADMIN_INGEST_TOKEN):
+        raise HTTPException(
+            status_code=401,
+            detail={"error": {"message": "Invalid admin token"}},
+        )
+
+
+@app.post("/api/admin/ingest")
+async def api_admin_ingest(
+    request: Request,
+    file: UploadFile = File(...),
+    email: str = Form(...),
+    filename: Optional[str] = Form(None),
+    upload_time: Optional[str] = Form(None),
+):
+    """Shared-corpus ingest for files arriving from upload.muninai.org.
+
+    Synchronous: returns 200 only after the pipeline has fully processed
+    the PDF (GROBID → CrossRef → SPECTER → Qdrant `papers` + Neo4j).
+    """
+    _require_admin_token(request)
+
+    email = (email or "").strip().lower()
+    if not email:
+        raise HTTPException(
+            status_code=400, detail={"error": {"message": "email is required"}}
+        )
+
+    contents = await file.read()
+    if not contents or not contents.startswith(b"%PDF"):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": "File is empty or not a PDF"}},
+        )
+
+    os.makedirs(PAPERS_INBOX_DIR, exist_ok=True)
+    inbox_id = uuid.uuid4().hex[:16]
+    inbox_pdf = os.path.join(PAPERS_INBOX_DIR, f"{inbox_id}.pdf")
+    sidecar_path = os.path.join(PAPERS_INBOX_DIR, f"{inbox_id}.contributor.json")
+    with open(inbox_pdf, "wb") as f:
+        f.write(contents)
+
+    # Resolve uploader against the allowlist. Unknown emails still
+    # ingest (per USER-DOCUMENTS-ANSWERS §4) — they land with
+    # research_group="unknown" and no display name.
+    known = _load_contributors().get(email)
+    sidecar_payload = {
+        "contributor_email": email,
+        "contributor_username": (known or {}).get("username"),
+        "contributor_display_name": (known or {}).get("display_name"),
+        "research_group": (known or {}).get("research_group") or "unknown",
+        "research_group_display_name": (known or {}).get("research_group_display_name"),
+        "uploaded_at": upload_time or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "original_filename": filename,
+    }
+    with open(sidecar_path, "w", encoding="utf-8") as f:
+        json.dump(sidecar_payload, f)
+
+    # Run the pipeline synchronously. Pipeline auto-detects the sidecar.
+    pipeline_env = {**os.environ}
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "python3",
+            PAPER_PIPELINE_SCRIPT,
+            "--single",
+            inbox_pdf,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=pipeline_env,
+        )
+        try:
+            stdout_bytes, _ = await asyncio.wait_for(
+                proc.communicate(), timeout=PIPELINE_TIMEOUT_SECS
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            raise HTTPException(
+                status_code=504,
+                detail={"error": {"message": f"Pipeline timed out after {PIPELINE_TIMEOUT_SECS}s"}},
+            )
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": {"message": f"Pipeline script not found: {e}"}},
+        )
+
+    full_stdout = stdout_bytes.decode("utf-8", errors="replace")
+    tail = full_stdout[-2000:]
+    if proc.returncode != 0:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": {"message": f"Pipeline exited {proc.returncode}", "log_tail": tail}},
+        )
+
+    # Pipeline doesn't return structured output — parse its stdout for
+    # the DOI (printed as "[INFO] DOI from filename: <doi>" or embedded
+    # in the CrossRef enrichment line, or in the Paper JSON dump at the
+    # end). We scan the FULL stdout, not just the tail, because the
+    # trailing JSON dump can push the CrossRef line out of a 2 KB window.
+    pipeline_doi: Optional[str] = None
+    for line in full_stdout.splitlines():
+        line = line.strip()
+        if line.startswith("[INFO] DOI from filename:"):
+            pipeline_doi = line.split(":", 1)[1].strip()
+            break
+        if "Enriching via CrossRef (DOI:" in line:
+            pipeline_doi = line.split("DOI:", 1)[1].rstrip(").").strip()
+            break
+    # Last resort: parse the "doi": "..." line from the Paper JSON dump.
+    if pipeline_doi is None:
+        import re as _re
+        m = _re.search(r'"doi":\s*"([^"]+)"', full_stdout)
+        if m:
+            pipeline_doi = m.group(1)
+
+    paper_id_hex = hashlib.sha256(inbox_pdf.encode()).hexdigest()[:16]
+    candidate_ids: list[int] = []
+    if pipeline_doi:
+        candidate_ids.append(
+            int(hashlib.sha256(pipeline_doi.lower().encode()).hexdigest()[:16], 16)
+        )
+    candidate_ids.append(int(paper_id_hex, 16))
+
+    qdrant = get_qdrant()
+    if qdrant is None:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": {"message": "Qdrant unavailable post-pipeline"}},
+        )
+
+    point_record = None
+    try:
+        records = qdrant.retrieve(
+            collection_name="papers",
+            ids=candidate_ids,
+            with_payload=True,
+            with_vectors=False,
+        )
+        if records:
+            point_record = records[0]
+    except Exception as e:
+        print(f"[WARN] Qdrant retrieve post-pipeline failed: {e}")
+
+    # If still no record, the pipeline probably skipped the PDF.
+    if point_record is None:
+        # Leave the inbox file + sidecar for forensic inspection.
+        return {
+            "status": "skipped",
+            "reason": "Pipeline completed but no Qdrant point was created "
+                      "(likely quality filter, non-research content, or "
+                      "duplicate with existing DOI).",
+            "log_tail": tail,
+        }
+
+    payload = point_record.payload or {}
+    doi = payload.get("doi")
+
+    # Move PDF out of inbox into the main pdf/ directory so
+    # get_pdf_path can find it by DOI.
+    final_path: Optional[str] = None
+    if doi:
+        safe_doi = doi.replace("/", "_")
+        final_path = os.path.join(PAPERS_PDF_DIR, f"doi_{safe_doi}.pdf")
+        try:
+            if not os.path.exists(final_path):
+                shutil.move(inbox_pdf, final_path)
+            else:
+                # Same DOI already on disk (uploaded by a different group
+                # earlier). Keep the existing file, discard the new copy.
+                os.remove(inbox_pdf)
+            qdrant.set_payload(
+                collection_name="papers",
+                payload={"pdf_path": final_path},
+                points=[point_record.id],
+                wait=False,
+            )
+        except OSError as e:
+            print(f"[WARN] post-ingest PDF move failed: {e}")
+
+    # Clean up the sidecar regardless — it's served its purpose.
+    try:
+        os.remove(sidecar_path)
+    except OSError:
+        pass
+
+    return {
+        "status": "ingested",
+        "paper_id": payload.get("paper_id") or paper_id_hex,
+        "doi": doi,
+        "title": payload.get("title"),
+        "final_pdf_path": final_path,
+        "contributor": {
+            "email": email,
+            "group_slug": sidecar_payload["research_group"],
+            "known": known is not None,
+        },
+    }
 
 
 # ==============================================================================
@@ -2656,6 +3044,32 @@ async def startup():
         document_store.ensure_collection()
     except Exception as e:
         print(f"[WARNING] Failed to ensure user_docs collection: {e}")
+
+    # §28 Sprint B: payload indexes on the `papers` collection so
+    # contributor/topic filters on paper_search don't do full scans.
+    # Qdrant create_payload_index raises if the index already exists;
+    # we swallow and move on so repeated starts are idempotent.
+    try:
+        qd = get_qdrant()
+        if qd is not None:
+            from qdrant_client.http import models as qm
+            for key, schema in (
+                ("contributors[].group_slug", qm.PayloadSchemaType.KEYWORD),
+                ("contributors[].username", qm.PayloadSchemaType.KEYWORD),
+                ("contributors[].email", qm.PayloadSchemaType.KEYWORD),
+                ("topic_slug", qm.PayloadSchemaType.KEYWORD),
+                ("cluster_id", qm.PayloadSchemaType.INTEGER),
+            ):
+                try:
+                    qd.create_payload_index(
+                        collection_name="papers",
+                        field_name=key,
+                        field_schema=schema,
+                    )
+                except Exception:
+                    pass  # already exists or collection not present yet
+    except Exception as e:
+        print(f"[WARNING] Failed to ensure papers payload indexes: {e}")
 
     # Load agent registry
     try:

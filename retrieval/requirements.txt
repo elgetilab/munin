@@ -40,3 +40,7 @@ trafilatura>=1.6.0
 # Calculator tool — symbolic math + unit-aware physical constants
 sympy>=1.12
 pint>=0.23
+
+# §28 /api/admin/ingest subprocess-invokes paper_pipeline.py which
+# still uses `requests` for GROBID/CrossRef/OpenAlex HTTP.
+requests>=2.31

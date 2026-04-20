@@ -3424,6 +3424,18 @@ shipped immediately and can tolerate occasional rate-limit retries.
 
 ## 28. Tag-scoped knowledge with contributor attribution
 
+**Status:** SHIPPED 2026-04-20 (cluster side). Sprint A (ingest path)
+and Sprint B (tag-scoped search) both landed. See
+`docs/CONTRIBUTOR-INGEST.md` and `docs/TAG-SCOPED-SEARCH.md` for
+operator references. Implementation diverged from this original
+design in two ways: (1) Qdrant `papers` point IDs switched to
+DOI-hashed so multiple uploads of the same paper converge to one
+point with a `contributors[]` list (the design assumed pdf_path
+hashing + external dedup); (2) personal notes `#me` tag deferred to
+the §9 user memory feature, which shipped independently. VPS-side
+`hook_service.py` update + backfill of the 4,236 existing
+`/mnt/uploads/complete/` files still outstanding.
+
 ### Problem
 
 Three related gaps:

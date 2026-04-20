@@ -20,6 +20,16 @@ current_project_id: ContextVar[Optional[str]] = ContextVar(
     "current_project_id", default=None
 )
 
+# §28 Sprint B: tag-scoped search. chat_service.stream_chat_completion
+# reads the `tags` field from the request body and sets this ContextVar
+# before dispatching tool calls. Search tools (paper_search,
+# semantic_scholar_search, deep_research) read it to scope their Qdrant
+# queries. Shape: a list of {"kind": "topic"|"group"|"contributor",
+# "value": str}; empty list or None means unfiltered.
+current_query_tags: ContextVar[Optional[list[dict]]] = ContextVar(
+    "current_query_tags", default=None
+)
+
 # Synchronous push-style SSE emitter. Signature: `emit(event_name, data_dict)`.
 # chat_service sets this before dispatching tool calls so that nested async
 # work (notably the agent executor) can stream progress without changing tool

@@ -101,6 +101,38 @@ class Paper:
     sections: List[Dict[str, str]] = field(default_factory=list)
     pdf_path: str = ""
     processed_at: str = ""
+    # §28: when a PDF arrives with a sibling `{pdf}.contributor.json`
+    # sidecar, that JSON is loaded here and stamped onto the Qdrant
+    # payload (as a merged-in element of a `contributors` list) and
+    # Neo4j (as a :Contributor node + CONTRIBUTED relationship).
+    # Absent for normal admin-curated ingests, so untouched paths stay
+    # byte-for-byte identical.
+    contributor: Optional[Dict[str, str]] = None
+
+
+def _load_contributor_sidecar(pdf_path: str) -> Optional[Dict[str, str]]:
+    """Look for `{pdf_path_without_ext}.contributor.json` next to the
+    PDF and return its parsed contents. Missing or unparseable sidecar
+    → None (the caller ingests without attribution)."""
+    base = os.path.splitext(pdf_path)[0]
+    sidecar = f"{base}.contributor.json"
+    if not os.path.isfile(sidecar):
+        return None
+    try:
+        with open(sidecar, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"  [WARN] contributor sidecar unreadable ({sidecar}): {e}")
+        return None
+    # Normalise to exactly the keys we store. Anything extra is ignored.
+    return {
+        "email": (data.get("contributor_email") or "").strip().lower() or None,
+        "username": data.get("contributor_username"),
+        "display_name": data.get("contributor_display_name"),
+        "group_slug": data.get("research_group"),
+        "group_display_name": data.get("research_group_display_name"),
+        "upload_time": data.get("uploaded_at") or data.get("upload_time"),
+    }
 
 
 # ==============================================================================
@@ -586,6 +618,16 @@ class PaperPipeline:
                 print(f"  [SKIP] Sparse metadata + short title: '{title}'")
                 return None
 
+            # §28: pick up contributor sidecar if present. Silent no-op
+            # for non-contributor (admin/crawler) pipelines.
+            contributor = _load_contributor_sidecar(pdf_path)
+            if contributor and contributor.get("email"):
+                print(
+                    f"  [INFO] Contributor attribution: "
+                    f"{contributor.get('display_name') or contributor['email']} "
+                    f"({contributor.get('group_slug') or 'unknown group'})"
+                )
+
             paper = Paper(
                 id=paper_id,
                 title=title,
@@ -596,7 +638,8 @@ class PaperPipeline:
                 journal=grobid_data.get("journal"),
                 references=grobid_data.get("references", []),
                 pdf_path=pdf_path,
-                processed_at=datetime.now().isoformat()
+                processed_at=datetime.now().isoformat(),
+                contributor=contributor,
             )
 
             # Step 4: Store in databases
@@ -875,33 +918,112 @@ class PaperPipeline:
         return grobid
 
     def _store_vectors(self, paper: Paper):
-        """Store paper embeddings in Qdrant"""
+        """Store paper embeddings in Qdrant.
+
+        §28: when `paper.contributor` is set, we preserve any existing
+        `contributors` list on the point (paper may have been uploaded by
+        a different group earlier) and append the new entry dedup'd by
+        email. The §15 cluster_id/topic_label/topic_slug fields are also
+        preserved — they're set by `build_embedding_map.py`, which runs
+        on a different schedule and would otherwise be clobbered by this
+        upsert.
+        """
         from qdrant_client.models import PointStruct
 
         # Generate embedding for title + abstract
         main_text = f"{paper.title}\n\n{paper.abstract}"
         embedding = self.embedder.encode(main_text).tolist()
 
-        # Convert hex ID to integer (Qdrant requires int or UUID)
-        point_id = int(paper.id, 16)
+        # §28: key the Qdrant point on the DOI when known so multiple
+        # uploads of the same paper share one point (contributors merge).
+        # DOI-less papers fall back to the original pdf_path-derived ID.
+        # Neo4j already keys on DOI, so this brings the two stores into
+        # alignment.
+        if paper.doi:
+            point_id = int(
+                hashlib.sha256(paper.doi.lower().encode()).hexdigest()[:16], 16
+            )
+        else:
+            point_id = int(paper.id, 16)
+
+        # Preserve fields from any existing point that upsert would wipe.
+        existing_contributors, existing_cluster = self._fetch_preserved_fields(point_id)
+        merged_contributors = self._merge_contributors(
+            existing_contributors, paper.contributor
+        )
+
+        payload = {
+            "paper_id": paper.id,  # Keep original hex ID in payload
+            "title": paper.title,
+            "abstract": paper.abstract[:2000],
+            "doi": paper.doi,
+            "year": paper.year,
+            "authors": [a.get("name") for a in paper.authors],
+            "journal": paper.journal,
+            "pdf_path": paper.pdf_path,
+        }
+        if merged_contributors:
+            payload["contributors"] = merged_contributors
+        # §15 clustering fields — only write back if they were already set
+        # by the nightly embedding map; otherwise leave absent so we don't
+        # pre-populate nonsense.
+        if existing_cluster:
+            payload.update(existing_cluster)
 
         self.qdrant.upsert(
             collection_name=COLLECTION_NAME,
             points=[PointStruct(
                 id=point_id,
                 vector=embedding,
-                payload={
-                    "paper_id": paper.id,  # Keep original hex ID in payload
-                    "title": paper.title,
-                    "abstract": paper.abstract[:2000],
-                    "doi": paper.doi,
-                    "year": paper.year,
-                    "authors": [a.get("name") for a in paper.authors],
-                    "journal": paper.journal,
-                    "pdf_path": paper.pdf_path
-                }
+                payload=payload,
             )]
         )
+
+    def _fetch_preserved_fields(self, point_id: int) -> Tuple[List[Dict], Dict]:
+        """Return (contributors_list, cluster_fields) for the existing point
+        at `point_id`, or ([], {}) if none. Used to avoid clobbering fields
+        that live on paper payloads but aren't set by this pipeline."""
+        try:
+            records = self.qdrant.retrieve(
+                collection_name=COLLECTION_NAME,
+                ids=[point_id],
+                with_payload=True,
+                with_vectors=False,
+            )
+        except Exception as e:
+            print(f"        [WARN] Qdrant retrieve failed, treating as new point: {e}")
+            return [], {}
+        if not records:
+            return [], {}
+        payload = records[0].payload or {}
+        contributors = payload.get("contributors") or []
+        cluster_fields = {
+            k: payload[k]
+            for k in ("cluster_id", "topic_label", "topic_slug")
+            if k in payload
+        }
+        return list(contributors), cluster_fields
+
+    @staticmethod
+    def _merge_contributors(
+        existing: List[Dict], new: Optional[Dict]
+    ) -> List[Dict]:
+        """Append `new` to `existing` dedup'd by `email`. A second upload
+        by the same email just refreshes its entry (latest upload_time
+        wins). Contributors without email (malformed sidecar) are dropped."""
+        if not new or not new.get("email"):
+            return existing or []
+        email = new["email"].strip().lower()
+        out = [c for c in (existing or []) if (c.get("email") or "").lower() != email]
+        out.append({
+            "email": email,
+            "username": new.get("username"),
+            "display_name": new.get("display_name"),
+            "group_slug": new.get("group_slug") or "unknown",
+            "group_display_name": new.get("group_display_name"),
+            "upload_time": new.get("upload_time"),
+        })
+        return out
 
     def _store_graph(self, paper: Paper):
         """Store paper and relationships in Neo4j"""
@@ -969,6 +1091,54 @@ class PaperPipeline:
                         MERGE (cited:Paper {doi: $ref})
                         MERGE (p)-[:CITES]->(cited)
                     """, pid=paper.id, ref=ref_doi)
+
+            # §28: contributor attribution. If a sidecar was present,
+            # upsert the :Contributor node and link it to this paper.
+            # CONTRIBUTED relationships are keyed by (contributor, paper)
+            # via MERGE, so re-ingesting the same PDF from the same
+            # uploader is idempotent (only upload_time is refreshed).
+            if paper.contributor and paper.contributor.get("email"):
+                c = paper.contributor
+                if paper.doi:
+                    session.run("""
+                        MERGE (co:Contributor {email: $email})
+                        SET co.username = coalesce($username, co.username),
+                            co.display_name = coalesce($display_name, co.display_name),
+                            co.group_slug = coalesce($group_slug, co.group_slug),
+                            co.group_display_name = coalesce($group_display_name, co.group_display_name)
+                        WITH co
+                        MATCH (p:Paper {doi: $doi})
+                        MERGE (co)-[r:CONTRIBUTED]->(p)
+                        SET r.upload_time = $upload_time
+                    """,
+                        email=c["email"],
+                        username=c.get("username"),
+                        display_name=c.get("display_name"),
+                        group_slug=c.get("group_slug") or "unknown",
+                        group_display_name=c.get("group_display_name"),
+                        doi=paper.doi,
+                        upload_time=c.get("upload_time"),
+                    )
+                else:
+                    session.run("""
+                        MERGE (co:Contributor {email: $email})
+                        SET co.username = coalesce($username, co.username),
+                            co.display_name = coalesce($display_name, co.display_name),
+                            co.group_slug = coalesce($group_slug, co.group_slug),
+                            co.group_display_name = coalesce($group_display_name, co.group_display_name)
+                        WITH co
+                        MATCH (p:Paper {paper_id: $pid})
+                        MERGE (co)-[r:CONTRIBUTED]->(p)
+                        SET r.upload_time = $upload_time
+                    """,
+                        email=c["email"],
+                        username=c.get("username"),
+                        display_name=c.get("display_name"),
+                        group_slug=c.get("group_slug") or "unknown",
+                        group_display_name=c.get("group_display_name"),
+                        pid=paper.id,
+                        upload_time=c.get("upload_time"),
+                    )
 
     def _process_single_grobid(self, pdf_path: str, delay: float = 0.5) -> Tuple[str, Optional[Dict]]:
         """Process a single PDF with GROBID (for parallel processing)"""
@@ -1086,7 +1256,8 @@ class PaperPipeline:
                 journal=grobid_data.get("journal"),
                 references=grobid_data.get("references", []),
                 pdf_path=pdf_path,
-                processed_at=datetime.now().isoformat()
+                processed_at=datetime.now().isoformat(),
+                contributor=_load_contributor_sidecar(pdf_path),
             )
             papers_to_store.append(paper)
             texts_to_embed.append(f"{paper.title}\n\n{paper.abstract}")
@@ -1100,7 +1271,17 @@ class PaperPipeline:
             from qdrant_client.models import PointStruct
             points = []
             for paper, embedding in zip(papers_to_store, embeddings):
-                point_id = int(paper.id, 16)
+                # §28 DOI-keyed point IDs (see _store_vectors). Fast mode
+                # does not preserve contributors / cluster fields — it's
+                # intended for bulk crawler reprocessing where those fields
+                # aren't yet present.
+                if paper.doi:
+                    point_id = int(
+                        hashlib.sha256(paper.doi.lower().encode()).hexdigest()[:16],
+                        16,
+                    )
+                else:
+                    point_id = int(paper.id, 16)
                 points.append(PointStruct(
                     id=point_id,
                     vector=embedding.tolist(),

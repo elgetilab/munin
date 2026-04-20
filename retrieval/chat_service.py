@@ -48,6 +48,7 @@ from mcp.context import (
     current_user_email,
     current_conversation_id,
     current_project_id,
+    current_query_tags,
     current_sse_emitter,
 )
 
@@ -589,6 +590,29 @@ async def _run_tool_calls(tool_calls: list[dict]) -> list[dict]:
     return await asyncio.gather(*(one(tc) for tc in tool_calls))
 
 
+_ALLOWED_TAG_KINDS = {"topic", "group", "contributor"}
+
+
+def _normalize_query_tags(raw) -> Optional[list[dict]]:
+    """Drop anything that isn't a well-formed {kind, value} tag so a bad
+    request body doesn't reach paper_search. Returns None on empty input
+    (lets the ContextVar default propagate) or a cleaned list."""
+    if not raw or not isinstance(raw, list):
+        return None
+    out: list[dict] = []
+    for tag in raw:
+        if not isinstance(tag, dict):
+            continue
+        kind = (tag.get("kind") or "").strip().lower()
+        value = tag.get("value")
+        if kind not in _ALLOWED_TAG_KINDS:
+            continue
+        if not isinstance(value, str) or not value.strip():
+            continue
+        out.append({"kind": kind, "value": value.strip().lower()})
+    return out or None
+
+
 # --- Main entry point ---------------------------------------------------------
 
 async def stream_chat_completion(
@@ -601,6 +625,7 @@ async def stream_chat_completion(
     prior_messages: Optional[list[dict]] = None,
     project: Optional[dict] = None,
     file_into_project_id: Optional[str] = None,
+    query_tags: Optional[list[dict]] = None,
 ) -> AsyncIterator[dict]:
     """
     Orchestrate a single /api/chat/completions request. Yields SSE events.
@@ -626,6 +651,10 @@ async def stream_chat_completion(
     current_project_id.set(
         (project or {}).get("id") if not ephemeral else None
     )
+    # §28: tag-scoped search. Frontend maps `#zeitler` / `#nmr` chips to
+    # the request body's `tags` field; paper_search and deep_research
+    # read this ContextVar to scope Qdrant queries.
+    current_query_tags.set(_normalize_query_tags(query_tags))
 
     system_prompt = persona_module.build_system_prompt(persona)
 

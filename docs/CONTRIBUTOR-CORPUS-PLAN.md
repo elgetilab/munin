@@ -17,7 +17,40 @@ This file is the agreed slice of those, with sequencing decisions.
   live. See `docs/KNOWLEDGE-MAP.md` for operator reference. First
   build: 29,893 papers → 213 clusters, payload write-back confirmed,
   `/api/embedding_map` endpoint serving real data.
-- **§28 — IN PROGRESS.** Starts next.
+- **§28 Sprint A (ingestion path) — SHIPPED 2026-04-20.** See
+  `docs/CONTRIBUTOR-INGEST.md` for operator reference. `POST
+  /api/admin/ingest` with bearer-token auth, `paper_pipeline.py`
+  reads contributor sidecars, DOI-keyed Qdrant points, `:Contributor`
+  nodes + `[:CONTRIBUTED]` relationships in Neo4j, smoke-tested
+  end-to-end on a real paper (Zeitler group attribution verified on
+  both stores). **VPS side outstanding**: `hook_service.py` update
+  to POST to the endpoint + one-time backfill of the 4,236 existing
+  files at `/mnt/uploads/complete/<email>/`.
+- **§28 Sprint B (tag-scoped search) — SHIPPED 2026-04-20.** See
+  `docs/TAG-SCOPED-SEARCH.md` for operator reference. `#topic`,
+  `#group`, `#@username` tag chips supported end-to-end:
+  `GET /api/tags` catalog live (213 topics from §15 + 3 groups + 3
+  contributors from allowlist), `current_query_tags` ContextVar
+  flows from `/api/chat/completions` body → `chat_service` →
+  `paper_search` → Qdrant `must` filters. Payload indexes created
+  on startup for `contributors[].{group_slug,username,email}`,
+  `topic_slug`, `cluster_id`. `paper_search` results now surface
+  `contributors[]` + `topic` + `applied_tags`; persona prompts
+  instruct the model to credit `group_display_name` in citations
+  and acknowledge scope. End-to-end smoke-tested.
+
+## What remains (not in this repo)
+
+- **VPS-side hook**: `hook_service.py` update to POST each
+  newly-landed file to `http://127.0.0.1:18080/api/admin/ingest`
+  with the shared bearer token; move `complete/<email>/` →
+  `processed/<email>/` on 200.
+- **VPS-side backfill**: one-time script to walk
+  `/mnt/uploads/complete/` and POST every existing file (~4,236
+  across 3 non-admin uploaders; admin's 1 test file skipped).
+- **Frontend**: `#tag` composer chip parsing, autocomplete against
+  `GET /api/tags`, render `contributors` + `applied_tags` in paper
+  cards. Lives in munin-vps.
 
 ## Agreed decisions (2026-04-20)
 

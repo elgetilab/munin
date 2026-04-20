@@ -16,6 +16,7 @@
 #   sudo ./deploy.sh deepresearch   - scripts/deepresearch/* + systemd unit + MiroThinker model
 #   sudo ./deploy.sh tunnel         - munin-tunnel.service (+ daemon-reload + restart)
 #   sudo ./deploy.sh knowledge      - §15 embedding-map script + nightly timer
+#   sudo ./deploy.sh pipeline       - paper_pipeline.py → /opt/cluster/scripts/pipeline/ (§28)
 #   sudo ./deploy.sh retrieval      - retrieval/ code, rebuild + restart container
 #   sudo ./deploy.sh searxng        - searxng settings.yml + restart container
 #   sudo ./deploy.sh cleanup        - remove Open WebUI + status-page containers and dirs
@@ -179,6 +180,12 @@ deploy_agents() {
         run "install -m 0644 $REPO_DIR/config/faq.yml $MUNIN_CONFIG/faq.yml"
     fi
 
+    # §28: contributor allowlist. Read by the retrieval service
+    # (`/api/admin/ingest`, `/api/tags`) and by backfill scripts.
+    if [ -f "$REPO_DIR/config/contributors.yml" ]; then
+        run "install -m 0644 $REPO_DIR/config/contributors.yml $MUNIN_CONFIG/contributors.yml"
+    fi
+
     # Note: we do NOT touch $MUNIN_CONFIG/munin.env if it already exists.
     # Docker compose sources /opt/hugin/config/cluster.env via the .env symlink.
     # munin.env.template is kept in-tree as documentation / override reference.
@@ -250,6 +257,22 @@ deploy_deepresearch() {
 # knowledge: install the §15 embedding-map script + nightly timer
 # ------------------------------------------------------------------------------
 KNOWLEDGE_VENV=/opt/munin/services/knowledge/venv
+PIPELINE_DIR=/opt/cluster/scripts/pipeline
+
+# ------------------------------------------------------------------------------
+# pipeline: sync paper_pipeline.py → /opt/cluster/scripts/pipeline/
+# (mounted read-only into the retrieval container for /api/admin/ingest)
+# ------------------------------------------------------------------------------
+deploy_pipeline() {
+    echo "[pipeline] Syncing paper_pipeline.py..."
+    need_file "$REPO_DIR/scripts/pipeline/paper_pipeline.py"
+    run "install -d -m 0755 $PIPELINE_DIR"
+    run "install -m 0755 $REPO_DIR/scripts/pipeline/paper_pipeline.py \
+        $PIPELINE_DIR/paper_pipeline.py"
+    # Inbox directory the endpoint writes into before invoking the pipeline.
+    run "install -d -m 0755 $MUNIN_DATA/papers/pdf/inbox"
+    echo "[OK] pipeline — synced to $PIPELINE_DIR"
+}
 
 deploy_knowledge() {
     echo "[knowledge] Installing build_embedding_map.py + timer..."
@@ -565,6 +588,7 @@ case "$MODE" in
     deepresearch) deploy_deepresearch ;;
     tunnel)       deploy_tunnel ;;
     knowledge)    deploy_knowledge ;;
+    pipeline)     deploy_pipeline ;;
     searxng)      deploy_searxng ;;
     sandbox)      deploy_sandbox ;;
     retrieval)    deploy_retrieval ;;
@@ -579,6 +603,7 @@ case "$MODE" in
         deploy_deepresearch
         deploy_tunnel
         deploy_knowledge
+        deploy_pipeline
         deploy_searxng
         deploy_cleanup
         deploy_sandbox       # must be up before retrieval starts since
@@ -587,7 +612,7 @@ case "$MODE" in
         ;;
     *)
         echo "[ERROR] Unknown mode: $MODE"
-        echo "Modes: all dirs compose personas agents vllm deepresearch tunnel knowledge retrieval sandbox searxng cleanup verify"
+        echo "Modes: all dirs compose personas agents vllm deepresearch tunnel knowledge pipeline retrieval sandbox searxng cleanup verify"
         exit 1
         ;;
 esac

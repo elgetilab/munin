@@ -93,7 +93,9 @@ services:
     volumes:
       - /opt/munin/data/models/bge-base:/models/bge-base:ro
       - /opt/munin/data/models/specter:/models/specter:ro
-      - /opt/munin/data/papers/pdf:/papers:ro
+      # :rw because /api/admin/ingest writes PDFs into pdf/inbox/ and
+      # moves them to pdf/{doi_hash}.pdf after the pipeline succeeds (§28).
+      - /opt/munin/data/papers/pdf:/papers:rw
       # Persona definitions (chat personas + logos)
       - /opt/munin/personas:/app/personas:ro
       # Agent registry (agents.yml)
@@ -107,6 +109,8 @@ services:
       - /opt/munin/deepresearch:/deepresearch/status:ro
       # §15 embedding map (built by host-side systemd timer)
       - /opt/munin/knowledge:/knowledge:ro
+      # §28 paper pipeline (invoked as subprocess by /api/admin/ingest)
+      - /opt/cluster/scripts/pipeline:/app/pipeline:ro
     environment:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
@@ -132,6 +136,13 @@ services:
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
       # Sandbox sidecar (§2). Reached over the internal sandbox-net.
       - SANDBOX_URL=http://sandbox:8090
+      # §28 contributor ingest (VPS hook → POST /api/admin/ingest)
+      - ADMIN_INGEST_TOKEN=${ADMIN_INGEST_TOKEN:-}
+      - CONTRIBUTORS_CONFIG=/app/config/contributors.yml
+      - PAPER_PIPELINE_SCRIPT=/app/pipeline/paper_pipeline.py
+      # paper_pipeline.py subprocess reads this for GROBID connectivity
+      # (QDRANT_HOST / NEO4J_PASSWORD are already set above and inherited).
+      - GROBID_URL=http://grobid:8070
     depends_on:
       - qdrant
       - neo4j
