@@ -105,6 +105,8 @@ services:
       - /opt/munin/deepresearch/queue:/deepresearch/queue:rw
       - /opt/munin/deepresearch/jobs:/deepresearch/jobs:ro
       - /opt/munin/deepresearch:/deepresearch/status:ro
+      # §15 embedding map (built by host-side systemd timer)
+      - /opt/munin/knowledge:/knowledge:ro
     environment:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333

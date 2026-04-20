@@ -1496,6 +1496,15 @@ events from the same turn.
 
 ## 15. Paper-embedding 2D map with clustering
 
+**Status:** SHIPPED 2026-04-20. See `docs/KNOWLEDGE-MAP.md` for the
+operator reference. First build: 29,893 papers → 213 clusters,
+`cluster_id`/`topic_label`/`topic_slug` stamped on every Qdrant
+point, `GET /api/embedding_map` live. Implementation diverged
+slightly from this original design: L2-normalise vectors first, do
+two UMAP passes (10d for HDBSCAN, 2d for the map) rather than
+clustering on 2D directly. 2D clustering produced one mega-cluster
+on this corpus.
+
 ### Problem
 
 Users have no way to explore the shape of the paper corpus visually.

@@ -1,0 +1,35 @@
+[Unit]
+Description=Munin paper-embedding 2D map + cluster rebuild (§15)
+Documentation=https://github.com/your-repo/munin-backend
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+
+ExecStart=/opt/munin/services/knowledge/venv/bin/python3 /opt/cluster/scripts/knowledge/build_embedding_map.py
+
+Environment="QDRANT_HOST=127.0.0.1"
+Environment="QDRANT_PORT=6333"
+Environment="QDRANT_COLLECTION=papers"
+Environment="VLLM_URL=http://127.0.0.1:8000"
+Environment="VLLM_MODEL_NAME=qwen3.5-35b-a3b"
+Environment="EMBEDDING_MAP_PATH=/opt/munin/knowledge/embedding_map.json"
+# Numba (UMAP's JIT) needs a writable cache dir. ProtectSystem=strict +
+# ProtectHome=yes kill the default locations (site-packages, ~/.cache).
+Environment="NUMBA_CACHE_DIR=/opt/munin/knowledge/numba-cache"
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=munin-embedding-map
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/munin/knowledge
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

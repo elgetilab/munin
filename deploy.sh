@@ -15,6 +15,7 @@
 #   sudo ./deploy.sh vllm           - scripts/vllm/*.sh → /opt/cluster/scripts/llm/
 #   sudo ./deploy.sh deepresearch   - scripts/deepresearch/* + systemd unit + MiroThinker model
 #   sudo ./deploy.sh tunnel         - munin-tunnel.service (+ daemon-reload + restart)
+#   sudo ./deploy.sh knowledge      - §15 embedding-map script + nightly timer
 #   sudo ./deploy.sh retrieval      - retrieval/ code, rebuild + restart container
 #   sudo ./deploy.sh searxng        - searxng settings.yml + restart container
 #   sudo ./deploy.sh cleanup        - remove Open WebUI + status-page containers and dirs
@@ -244,6 +245,59 @@ deploy_deepresearch() {
 
     echo "[OK] deepresearch — enable with: systemctl enable --now deepresearch-daemon"
 }
+
+# ------------------------------------------------------------------------------
+# knowledge: install the §15 embedding-map script + nightly timer
+# ------------------------------------------------------------------------------
+KNOWLEDGE_VENV=/opt/munin/services/knowledge/venv
+
+deploy_knowledge() {
+    echo "[knowledge] Installing build_embedding_map.py + timer..."
+    need_file "$REPO_DIR/scripts/knowledge/build_embedding_map.py"
+    need_file "$REPO_DIR/scripts/knowledge/requirements.txt"
+    need_file "$REPO_DIR/config/munin-embedding-map.service"
+    need_file "$REPO_DIR/config/munin-embedding-map.timer"
+
+    run "install -d -m 0755 $CLUSTER_SCRIPTS/../knowledge"
+    run "install -m 0755 $REPO_DIR/scripts/knowledge/build_embedding_map.py \
+        /opt/cluster/scripts/knowledge/build_embedding_map.py"
+    run "install -m 0644 $REPO_DIR/scripts/knowledge/requirements.txt \
+        /opt/cluster/scripts/knowledge/requirements.txt"
+    run "install -d -m 0755 $MUNIN_ROOT/knowledge"
+    run "install -d -m 0755 $(dirname $KNOWLEDGE_VENV)"
+
+    # Dedicated venv — Debian 12+ enforces PEP 668, so system pip is off-limits.
+    # Mirrors the vLLM venv pattern. Idempotent: venv is created once, then
+    # requirements are re-synced on every deploy.
+    if [ "$DRY_RUN" = "0" ]; then
+        if [ ! -x "$KNOWLEDGE_VENV/bin/python3" ]; then
+            echo "[knowledge] Creating venv at $KNOWLEDGE_VENV..."
+            python3 -m venv "$KNOWLEDGE_VENV"
+        fi
+        if "$KNOWLEDGE_VENV/bin/python3" -m pip install --quiet --upgrade \
+                -r "$REPO_DIR/scripts/knowledge/requirements.txt"; then
+            echo "[OK] knowledge — deps installed into $KNOWLEDGE_VENV"
+        else
+            echo "[WARN] knowledge — pip install into venv failed; install manually:"
+            echo "       $KNOWLEDGE_VENV/bin/pip install -r /opt/cluster/scripts/knowledge/requirements.txt"
+        fi
+    else
+        echo "  [dry-run] would create venv at $KNOWLEDGE_VENV and install requirements"
+    fi
+
+    run "install -m 0644 $REPO_DIR/config/munin-embedding-map.service \
+        $SYSTEMD_DIR/munin-embedding-map.service"
+    run "install -m 0644 $REPO_DIR/config/munin-embedding-map.timer \
+        $SYSTEMD_DIR/munin-embedding-map.timer"
+    run "systemctl daemon-reload"
+
+    run "systemctl enable munin-embedding-map.timer"
+    run "systemctl restart munin-embedding-map.timer"
+    echo "[OK] knowledge — nightly timer enabled (03:00 local)"
+    echo "      First run manually with:  systemctl start munin-embedding-map.service"
+    echo "      Watch progress with:       journalctl -fu munin-embedding-map.service"
+}
+
 
 # ------------------------------------------------------------------------------
 # tunnel: install cleaned munin-tunnel.service and restart it
@@ -510,6 +564,7 @@ case "$MODE" in
     vllm)         deploy_vllm ;;
     deepresearch) deploy_deepresearch ;;
     tunnel)       deploy_tunnel ;;
+    knowledge)    deploy_knowledge ;;
     searxng)      deploy_searxng ;;
     sandbox)      deploy_sandbox ;;
     retrieval)    deploy_retrieval ;;
@@ -523,6 +578,7 @@ case "$MODE" in
         deploy_vllm
         deploy_deepresearch
         deploy_tunnel
+        deploy_knowledge
         deploy_searxng
         deploy_cleanup
         deploy_sandbox       # must be up before retrieval starts since
@@ -531,7 +587,7 @@ case "$MODE" in
         ;;
     *)
         echo "[ERROR] Unknown mode: $MODE"
-        echo "Modes: all dirs compose personas agents vllm deepresearch tunnel retrieval sandbox searxng cleanup verify"
+        echo "Modes: all dirs compose personas agents vllm deepresearch tunnel knowledge retrieval sandbox searxng cleanup verify"
         exit 1
         ;;
 esac

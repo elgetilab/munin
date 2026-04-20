@@ -1,0 +1,15 @@
+[Unit]
+Description=Nightly rebuild of the paper-embedding 2D map
+Documentation=https://github.com/your-repo/munin-backend
+
+[Timer]
+# 03:00 every day, cluster-local time.
+OnCalendar=*-*-* 03:00:00
+# If the cluster was off at 03:00, run on the next boot.
+Persistent=true
+# Spread across a few minutes so concurrent daily timers don't thunder.
+RandomizedDelaySec=300
+Unit=munin-embedding-map.service
+
+[Install]
+WantedBy=timers.target

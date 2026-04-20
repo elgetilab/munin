@@ -1157,6 +1157,29 @@ async def api_chat_completions(request: Request):
 
 
 # ==============================================================================
+# Embedding Map (/api/embedding_map) — §15
+# ==============================================================================
+EMBEDDING_MAP_PATH = os.getenv(
+    "EMBEDDING_MAP_PATH", "/knowledge/embedding_map.json"
+)
+
+
+@app.get("/api/embedding_map")
+async def api_embedding_map():
+    """Serve the flat JSON produced by scripts/knowledge/build_embedding_map.py.
+
+    Returns 404 with the standard error envelope if the map hasn't been
+    built yet (first-run state before the nightly timer fires).
+    """
+    if not os.path.isfile(EMBEDDING_MAP_PATH):
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"message": "Embedding map not yet built"}},
+        )
+    return FileResponse(EMBEDDING_MAP_PATH, media_type="application/json")
+
+
+# ==============================================================================
 # Frontend Profile Routes (/api/profile)
 # ==============================================================================
 @app.get("/api/profile")
