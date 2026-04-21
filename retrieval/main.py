@@ -975,6 +975,131 @@ async def api_persona_icon(persona_id: str):
 # ==============================================================================
 # Frontend Chat Completions (/api/chat/completions) — SSE streaming
 # ==============================================================================
+
+
+# ------------------------------------------------------------------------------
+# Raw-mode helpers for OpenAI-compatible /v1/ passthrough.
+# ------------------------------------------------------------------------------
+_RAW_PERSONA_ALIASES = {"raw", "none"}
+
+# Munin-specific body fields that must NOT be forwarded to vLLM — they
+# would either confuse its validator or cause it to emit a 4xx. Every
+# other field is passed through unchanged so future OpenAI params keep
+# working without code changes here.
+_MUNIN_ONLY_FIELDS = frozenset({
+    "persona",
+    "conversation_id",
+    "project_id",
+    "ephemeral",
+    "rag",
+    "tags",
+})
+
+
+def _is_raw_mode_request(body: dict) -> bool:
+    persona = body.get("persona")
+    if isinstance(persona, str) and persona.strip().lower() in _RAW_PERSONA_ALIASES:
+        return True
+    if persona is None or persona == "":
+        return (
+            not body.get("conversation_id")
+            and not body.get("project_id")
+        )
+    return False
+
+
+async def _raw_chat_proxy(
+    request: Request, body: dict, user_email: str
+) -> Response:
+    """Forward the request straight to vLLM with no persona / tool /
+    RAG / chat_store machinery. vLLM's response is already an
+    OpenAI-compatible stream (or JSON for stream=False), so we just
+    relay bytes. Preserves the client's streaming preference and any
+    OpenAI parameters we don't recognise."""
+    # Build the forwarded body. Default model to whatever vLLM is
+    # serving if the client didn't specify one.
+    forward: dict = {k: v for k, v in body.items() if k not in _MUNIN_ONLY_FIELDS}
+    if not forward.get("model"):
+        forward["model"] = os.getenv("VLLM_MODEL_NAME", "qwen3.5-35b-a3b")
+    if not isinstance(forward.get("messages"), list) or not forward["messages"]:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": "messages must be a non-empty list"}},
+        )
+
+    vllm_url = os.getenv("VLLM_URL", "http://127.0.0.1:8000").rstrip("/")
+    endpoint = f"{vllm_url}/v1/chat/completions"
+
+    wants_stream = bool(forward.get("stream", False))
+
+    client = httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=30.0))
+
+    if not wants_stream:
+        # Simple JSON round-trip; external client didn't ask to stream.
+        try:
+            r = await client.post(endpoint, json=forward)
+        finally:
+            await client.aclose()
+        return Response(
+            content=r.content,
+            status_code=r.status_code,
+            media_type=r.headers.get("content-type", "application/json"),
+        )
+
+    # Streaming passthrough. vLLM emits OpenAI SSE format
+    # (`data: {...}\n\n`, terminated by `data: [DONE]`) — we relay bytes
+    # without interpretation so any future OpenAI streaming field (tool
+    # calls, logprobs, etc.) keeps working.
+    async def _relay():
+        try:
+            async with client.stream("POST", endpoint, json=forward) as r:
+                if r.status_code != 200:
+                    # vLLM returned an error BEFORE the stream started.
+                    body_bytes = await r.aread()
+                    yield (
+                        b"data: "
+                        + json.dumps({
+                            "error": {
+                                "message": (
+                                    body_bytes.decode("utf-8", errors="replace")
+                                    or f"vLLM returned HTTP {r.status_code}"
+                                ),
+                                "type": "upstream_error",
+                                "code": r.status_code,
+                            }
+                        }).encode("utf-8")
+                        + b"\n\n"
+                    )
+                    return
+                async for chunk in r.aiter_raw():
+                    if chunk:
+                        yield chunk
+        except Exception as e:
+            yield (
+                b"data: "
+                + json.dumps({
+                    "error": {
+                        "message": f"proxy error: {type(e).__name__}: {e}",
+                        "type": "proxy_error",
+                    }
+                }).encode("utf-8")
+                + b"\n\n"
+            )
+        finally:
+            await client.aclose()
+
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(
+        _relay(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "X-Munin-Raw-Mode": "1",
+        },
+    )
+
+
 @app.post("/api/chat/completions")
 async def api_chat_completions(request: Request):
     """
@@ -996,6 +1121,27 @@ async def api_chat_completions(request: Request):
             status_code=400,
             detail={"error": {"message": "Request body must be an object"}},
         )
+
+    # ------------------------------------------------------------------
+    # Raw-mode passthrough for OpenAI-compatible /v1/ callers.
+    #
+    # External API users (Cursor, aider, custom scripts) hit
+    # api.muninai.org/v1/chat/completions. The VPS gateway proxies that
+    # path to this endpoint without setting a persona. If we let the
+    # usual persona resolver fall through it would prepend Meitner's
+    # system prompt to their messages — those callers provide their own
+    # system prompt and don't want Munin's persona layered on top.
+    #
+    # Detection (no gateway change required):
+    #   - persona is the literal string "raw" or "none", OR
+    #   - persona absent AND conversation_id absent AND project_id
+    #     absent (the shape of every external /v1/ call).
+    #
+    # Frontend flows never hit the second condition: new chats always
+    # carry an explicit persona from the picker, existing chats always
+    # carry conversation_id, ephemeral chats always carry a persona.
+    if _is_raw_mode_request(body):
+        return await _raw_chat_proxy(request, body, user_email)
 
     conversation_id = body.get("conversation_id")
     messages = body.get("messages") or []
