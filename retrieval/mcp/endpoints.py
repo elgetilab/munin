@@ -186,12 +186,12 @@ async def call_mcp_tool_rest(request: MCPCallRequest, http_request: Request):
     REST endpoint for MCP tool execution (used by Deep Research and the
     stress test harness).
 
-    Sets ``current_user_email`` from the ``X-Munin-Email`` (or
-    ``X-Authentik-Email``) header before dispatching, so user-scoped
-    tools like ``search_user_docs`` and ``search_past_conversations``
-    work the same way they do from inside chat completions. Optional;
-    callers without a header (e.g. the deep research daemon) get a
-    None user context, just like before.
+    Sets ``current_user_email`` from the ``X-Munin-Email`` header
+    before dispatching, so user-scoped tools like ``search_user_docs``
+    and ``search_past_conversations`` work the same way they do from
+    inside chat completions. Optional; callers without a header (e.g.
+    the deep research daemon) get a None user context, just like
+    before.
     """
     if request.name not in MCP_TOOLS:
         raise HTTPException(
@@ -199,10 +199,7 @@ async def call_mcp_tool_rest(request: MCPCallRequest, http_request: Request):
             detail=f"Unknown tool: {request.name}. Available: {list(MCP_TOOLS.keys())}"
         )
 
-    user_email = (
-        http_request.headers.get("X-Munin-Email")
-        or http_request.headers.get("X-Authentik-Email")
-    )
+    user_email = http_request.headers.get("X-Munin-Email")
     conv_id = http_request.headers.get("X-Munin-Conversation-Id")
     if user_email:
         current_user_email.set(user_email)

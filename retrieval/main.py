@@ -623,14 +623,11 @@ async def api_status():
 # ==============================================================================
 def _require_user_email(request: Request) -> str:
     """
-    Extract the authenticated user's email from forward-auth headers.
-    Accepts X-Munin-Email (primary) with X-Authentik-Email as a transitional
-    fallback. Raises 401 if neither is present.
+    Extract the authenticated user's email from the forward-auth header
+    set by the VPS gateway (both for browser sessions and API-key
+    `/v1/*` requests). Raises 401 if absent.
     """
-    email = (
-        request.headers.get("X-Munin-Email")
-        or request.headers.get("X-Authentik-Email")
-    )
+    email = request.headers.get("X-Munin-Email")
     if not email:
         raise HTTPException(
             status_code=401,
@@ -1045,6 +1042,20 @@ async def _raw_chat_proxy(
     endpoint = f"{vllm_url}/v1/chat/completions"
 
     wants_stream = bool(forward.get("stream", False))
+
+    # Make vLLM emit a final `usage` chunk so the VPS gateway's per-user
+    # token accounting records real numbers for API-key requests.
+    # External clients (Cursor, aider, OpenAI SDK) don't set this
+    # themselves — they don't care about usage — but the gateway does.
+    # The extra chunk is standard OpenAI SSE; clients that aren't
+    # usage-aware ignore it. Respect a client-set value if they sent
+    # their own preference.
+    if wants_stream:
+        existing_opts = forward.get("stream_options")
+        if not isinstance(existing_opts, dict):
+            forward["stream_options"] = {"include_usage": True}
+        elif "include_usage" not in existing_opts:
+            forward["stream_options"] = {**existing_opts, "include_usage": True}
 
     client = httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=30.0))
 

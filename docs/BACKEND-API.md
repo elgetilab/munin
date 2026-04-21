@@ -23,18 +23,21 @@ The service also exposes the legacy `/retrieve`, `/search/hybrid`,
 
 ## 2. Authentication
 
-Forward-auth pattern: Caddy on the VPS validates the session and attaches
-headers to the proxied request.
+Forward-auth pattern: Caddy on the VPS validates the session (or API
+key) and attaches headers to the proxied request.
 
 | Header | Purpose | Required |
 |---|---|---|
-| `X-Munin-Email` | user identity (primary) | Yes |
-| `X-Authentik-Email` | transitional fallback | No (accepted if `X-Munin-Email` missing) |
+| `X-Munin-Email` | user identity | Yes |
 | `X-Munin-Name` | display name | No, not consumed by backend today |
+| `X-Munin-Ephemeral` | when `true`, forces ephemeral chat (no persistence); VPS gateway stamps this on every `/v1/*` API-key request | No |
 
 Every `/api/*` route except `/api/status` and `/api/personas/{id}/icon`
-requires one of the two email headers; missing → **401** with
+requires `X-Munin-Email`; missing → **401** with
 `{"error": {"message": "Missing authentication header"}}`.
+
+The old `X-Authentik-Email` transitional fallback was removed on
+2026-04-21 — the gateway sets `X-Munin-Email` exclusively now.
 
 All conversations and documents are scoped by the lowercased email. There
 is **no cross-user visibility** at any layer (DB query and Qdrant filter

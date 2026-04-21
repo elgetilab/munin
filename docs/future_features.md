@@ -3924,39 +3924,76 @@ Breakdown:
 
 ---
 
-## Updated priority order (agreed 2026-04-14)
+## Status as of 2026-04-21
 
-1. **§2 Sandbox** — unlocks §3 (plotting), §18 (LaTeX), and parts of §12
-2. **§5 Vision** — probed and confirmed, unlocks §11 and plot critique
-3. **§6 Citation export** — trivial quick win
-4. **§13 Paper download prominence** — tiny backend change, big UX lift
-5. **§26 Calculator** — 1-2 hour quick win, fixes LLM arithmetic silently
-6. **§24 Temporary chats** — 2-hour quick win, nice privacy feature
-7. **§25 User profile** — 2-hour quick win, enables per-user timezone for §23
-8. **§16 Pin conversations** — small, cross-device persistence
-9. **§17 Search past conversations** — small, high utility
-10. **§21 Projects** — biggest organizational improvement, ~1 week
-11. **§9 User memory** — builds on profile/project infra
-12. **§23 Morning digests** — researcher-specific, reuses S2 API
-13. **§7 read_paper** — chains existing pieces
-14. **§4 Self-description** — passive + FAQ tool
-15. **§8 compare_papers** — builds on §7
-16. **§20 S2-wide citation tools** — builds on §13
-17. **§14 `ask_clarification` v2** — supersedes §1
-18. **§22 Artifacts** — biggest UX transformation, ~2 weeks
-19. **§18 LaTeX via sandbox** — requires §2
-20. **§19 Autonomous agent selection** — prompt tuning + investigation
-21. **§10 Background research jobs** — reuses SLURM infra
-22. **§15 Embedding 2D map** — offline-heavy, good researcher-facing feature
-23. **§28 Tag-scoped knowledge** — depends on §15; personal notes + contributor uploads + #topic queries
-24. **§11 Equation OCR** — tiny on top of §5
-25. **§27 `paper_cleanup` parallelization** — pipeline admin tool, ~8h → ~2-4h full sweeps
-26. **§12 Reproducibility helper** — speculative, do last
-27. **§1 `ask_clarification` v1** — DELETED, replaced by §14
+### Shipped
 
-§19 has an **Investigation column** to compare `research_orchestrator`
-vs `deep_research` with real usage data before deciding whether to
-retire the former.
+All of Sprint 1-5 landed. See each numbered section above for
+implementation detail and follow-up operator docs
+(`KNOWLEDGE-MAP.md`, `TAG-SCOPED-SEARCH.md`,
+`CONTRIBUTOR-INGEST.md`, `FRONTEND-KNOWLEDGE-TAB.md`).
+
+| Done | § |
+|---|---|
+| Sprint 1 (quick wins) | §6, §13, §16, §17, §24, §25, §26 |
+| Sprint 2 (foundation) | §2 sandbox, §3 plotting, §5 vision |
+| Sprint 3 | §21 projects |
+| Sprint 4 (researcher) | §7 read_paper, §20 S2 citation tools |
+| Sprint 5 (transformation) | §22 artifacts (all stages) |
+| Feature additions | §4 FAQ, §8 compare_papers, §9 memory, §11 equation OCR, §14 clarification v2, §15 embedding map, §18 LaTeX, §28 tag-scoped knowledge (Sprint A + B) |
+| Platform | raw-mode passthrough for external `/v1/` API, `X-Munin-Ephemeral` gateway header, §15 vLLM-downtime guardrails |
+
+### Current focus — reliability and automation (priority)
+
+Stabilise what's shipped and automate manual processes that currently
+require operator attention. **Reliability beats new surface area.**
+
+1. **§19 Autonomous agent selection** — investigate
+   `research_orchestrator` vs `deep_research` with real usage data,
+   decide which to retire or consolidate, then tune the remaining
+   agent's prompt. Why now: each agent gets invoked dozens of times
+   a day; having two nearly-redundant paths fragments prompt tuning
+   and confuses the model's routing.
+2. **§27 `paper_cleanup` parallelization** — reduce 8 h full-sweep
+   runs to ~2-4 h. Why now: ties directly into automating paper
+   ingestion (the user explicitly wants ingestion to stop being a
+   hand-operated pipeline). A faster cleanup means faster
+   recoveries from GROBID misidentification, CrossRef drift, and
+   other routine corpus-health sweeps.
+3. **Cluster-side follow-ups** already identified during §28
+   (tracked separately below; all small, half-day each):
+   - CrossRef title round-trip for DOI validation
+     (`CONTRIBUTOR-INGEST.md` Known Issues)
+   - Fix empty `usage: {}` in SSE `done` event
+     (`CLUSTER-USAGE-TRACKING.md`)
+   - Conversation-level `default_tags` — tags persist across
+     follow-up turns (§28 open questions)
+   - Migrate pre-§28 Qdrant point IDs to DOI-keyed
+     (`CONTRIBUTOR-INGEST.md` Known Issues)
+
+### Backburner — pending group discussion
+
+Features the team hasn't confirmed are wanted. Skip until someone
+explicitly asks for them.
+
+- **§23 Morning digests** — S2-sourced daily paper sweep per user.
+  Low certainty it's a habit researchers will keep.
+- **§10 Background research jobs** — SLURM-queued long-running
+  deep_research. Unclear if the wait pattern is real.
+- **§12 Reproducibility helper** — always marked "do last";
+  speculative; defer until someone asks.
+
+### Deleted / superseded
+
+- **§1 `ask_clarification` v1** — replaced by §14.
+
+### Investigation attached to §19
+
+§19 carries an investigation column: instrument `research_orchestrator`
+and `deep_research` in production, log per-invocation outcomes for
+two weeks, then decide whether to retire one. The data collection
+is the first half of the work; prompt tuning / retirement is the
+second.
 
 ### Rough grouping by "what to tackle in what order"
 
