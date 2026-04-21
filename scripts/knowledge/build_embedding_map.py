@@ -253,6 +253,40 @@ def centroids_and_samples(
 # vLLM labelling
 # ---------------------------------------------------------------------------
 
+def check_vllm_healthy(
+    url: str, model: str, timeout: float = 5.0
+) -> tuple[bool, str]:
+    """Probe vLLM's /v1/models and confirm the configured model is
+    loaded. Returns (ok, reason). Called once before the labelling
+    phase so we can abort cleanly if vLLM is in its nightly 02:00-06:00
+    downtime window (or mid-restart) rather than clobbering existing
+    topic labels with 'cluster-N' fallbacks.
+    """
+    try:
+        r = requests.get(f"{url}/v1/models", timeout=timeout)
+    except requests.RequestException as e:
+        return False, f"/v1/models request failed: {e.__class__.__name__}: {e}"
+    if r.status_code != 200:
+        return False, f"/v1/models returned HTTP {r.status_code}"
+    try:
+        data = r.json().get("data", [])
+    except ValueError:
+        return False, "/v1/models response was not JSON"
+    served = [m.get("id") for m in data if isinstance(m, dict)]
+    if model not in served:
+        return False, (
+            f"vLLM is up but not serving {model!r}; loaded models: {served}"
+        )
+    return True, "ok"
+
+
+# Abort the run if more than this fraction of clusters fell back to
+# 'cluster-N' labels. vLLM outages partway through the labelling pass
+# would otherwise clobber good payloads with meaningless labels, so
+# we treat systemic failure as fatal before any Qdrant write.
+FALLBACK_FAIL_THRESHOLD = 0.5
+
+
 LABEL_PROMPT = """You are labelling a cluster of scientific papers by their common topic.
 
 Here are {n} sample titles from the cluster:
@@ -464,6 +498,21 @@ def main() -> int:
 
     cluster_meta = centroids_and_samples(records, cluster_ids, xy)
 
+    # §15 guardrail: before touching any payloads with labels, probe
+    # vLLM so we fail fast during the 02:00-06:00 downtime window
+    # rather than clobbering existing good labels with 'cluster-N'.
+    if not args.no_label:
+        healthy, reason = check_vllm_healthy(VLLM_URL, VLLM_MODEL_NAME)
+        if not healthy:
+            print(
+                f"[FATAL] vLLM not ready for labelling: {reason}. "
+                f"Refusing to overwrite Qdrant topic labels with "
+                f"'cluster-N' fallbacks. Retry when vLLM is up, or "
+                f"pass --no-label to force fallback labels.",
+                file=sys.stderr,
+            )
+            return 3
+
     # Label each cluster
     cluster_labels: dict[int, tuple[str, str]] = {}
     # Noise cluster gets a static label so points still have payload values.
@@ -477,6 +526,32 @@ def main() -> int:
                 meta["sample_titles"], VLLM_URL, VLLM_MODEL_NAME
             ) or f"cluster-{cid}"
         cluster_labels[cid] = (label, _slugify(label))
+
+    # §15 guardrail: post-labelling sanity check. If vLLM was up for
+    # the probe but flaked mid-run (restart, OOM, timeout cascade),
+    # more than half of clusters would get 'cluster-N' fallbacks.
+    # Treat that as systemic failure and abort before the Qdrant
+    # write, preserving the previous run's good labels.
+    if not args.no_label:
+        real_clusters = [
+            cid for cid in cluster_labels if cid != NOISE_CLUSTER_ID
+        ]
+        fallback_count = sum(
+            1
+            for cid in real_clusters
+            if cluster_labels[cid][0].startswith("cluster-")
+        )
+        total = len(real_clusters)
+        if total > 0 and fallback_count / total > FALLBACK_FAIL_THRESHOLD:
+            print(
+                f"[FATAL] {fallback_count}/{total} clusters fell back "
+                f"to 'cluster-N' labels "
+                f"(>{int(FALLBACK_FAIL_THRESHOLD * 100)}%). vLLM "
+                f"probably became unresponsive mid-run. Aborting "
+                f"before Qdrant write to preserve existing labels.",
+                file=sys.stderr,
+            )
+            return 4
 
     if args.dry_run:
         print("[DRY RUN] Skipping payload write-back and JSON emit.")

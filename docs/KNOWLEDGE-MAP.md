@@ -178,6 +178,42 @@ Tuning knobs you'd actually touch:
 - **Cluster count exploding** (> 500): raise `--min-cluster-size`
   or lower `--umap-neighbors` (less global structure).
 
+## Guardrails
+
+The script refuses to clobber existing good labels when vLLM is
+unreachable or mid-outage. Two checks:
+
+1. **Pre-labelling health probe.** Before the first label call, the
+   script GETs `VLLM_URL/v1/models` (5 s timeout) and confirms the
+   configured `VLLM_MODEL_NAME` is in the loaded-models list. If
+   either fails, the script exits **3** without touching Qdrant.
+   This is the check that protects the nightly 01:30 run from
+   firing while vLLM is in its 02:00-06:00 downtime window, or
+   mid-restart.
+
+2. **Post-labelling success-rate threshold.** After the labelling
+   loop, the script counts how many clusters fell back to
+   `cluster-N`. If more than 50% (the `FALLBACK_FAIL_THRESHOLD`
+   constant) got fallbacks, the script exits **4** without
+   writing payloads or the JSON. Catches the case where vLLM was
+   up for the initial probe but flaked mid-run (restart, OOM, S2
+   timeout cascade pushing requests out of window).
+
+Both guardrails are suppressed by `--no-label`, which explicitly
+asks for `cluster-N` labels.
+
+| Exit code | Meaning |
+|---|---|
+| 0 | Success (or freshness skip) |
+| 1 | Clustering error or unexpected failure |
+| 2 | Not enough points in the corpus to cluster |
+| 3 | vLLM health probe failed |
+| 4 | Labelling success rate below threshold |
+
+systemd surfaces non-zero exits in `systemctl status` and
+`journalctl -u munin-embedding-map.service`. Treat 3 and 4 as
+"skipped this run — the previous map is still authoritative."
+
 ## Idempotency
 
 The script skips the rebuild when:
