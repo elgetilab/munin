@@ -32,7 +32,11 @@ import traceback
 # Retrieval code lives at /app inside the container.
 sys.path.insert(0, "/app")
 
-from chat_service import _normalize_query_tags, build_active_tags_block  # noqa: E402
+from chat_service import (  # noqa: E402
+    _normalize_query_tags,
+    _resolve_effective_tags,
+    build_active_tags_block,
+)
 from mcp.context import current_query_tags  # noqa: E402
 from mcp.tools.papers import _build_tag_filter  # noqa: E402
 
@@ -254,6 +258,70 @@ def test_active_tags_block_mentions_each_tag_value() -> bool:
     )
 
 
+def test_resolve_effective_tags_body_wins_when_present() -> bool:
+    """Body tags are a per-turn override. Even if the conversation has
+    `default_tags`, the explicit body tags from THIS turn must win so
+    the user can change scope mid-conversation."""
+    body = [{"kind": "group", "value": "corzilius"}]
+    default = [{"kind": "group", "value": "zeitler"}]
+    got = _resolve_effective_tags(body, default)
+    return _check(
+        "body tags override conversation default_tags",
+        got == body,
+        f"got {got!r}",
+    )
+
+
+def test_resolve_effective_tags_falls_back_to_default() -> bool:
+    """When body tags are missing/empty, the conversation's persisted
+    default_tags are the effective scope. This is the §28 follow-up
+    behaviour — tags pinned on turn 1 stick through follow-ups
+    without the frontend re-submitting."""
+    default = [{"kind": "topic", "value": "nmr-of-membrane-proteins"}]
+    for body in (None, []):
+        got = _resolve_effective_tags(body, default)
+        if got != default:
+            return _check(
+                "body empty → conversation default_tags used",
+                False,
+                f"body={body!r}: expected {default!r}, got {got!r}",
+            )
+    return _check("body empty → conversation default_tags used", True)
+
+
+def test_resolve_effective_tags_both_empty_returns_none() -> bool:
+    """No body tags and no stored default → unscoped search (None).
+    The ContextVar ends up None and paper_search runs without a
+    Qdrant filter, same as a vanilla non-tag chat."""
+    for body in (None, []):
+        for default in (None, []):
+            got = _resolve_effective_tags(body, default)
+            if got is not None:
+                return _check(
+                    "both empty → None (unscoped)",
+                    False,
+                    f"body={body!r} default={default!r}: got {got!r}",
+                )
+    return _check("both empty → None (unscoped)", True)
+
+
+def test_resolve_effective_tags_never_merges() -> bool:
+    """We intentionally do NOT union body tags with default_tags.
+    Body is an override, not an addition. If the user explicitly
+    removes a tag, the default_tags must NOT sneak it back in."""
+    body = [{"kind": "group", "value": "corzilius"}]
+    default = [
+        {"kind": "group", "value": "zeitler"},
+        {"kind": "topic", "value": "nmr-of-membrane-proteins"},
+    ]
+    got = _resolve_effective_tags(body, default)
+    return _check(
+        "body overrides — never merges with default",
+        got == body,
+        f"got {got!r} (expected body-only)",
+    )
+
+
 def test_active_tags_block_tells_model_to_acknowledge_scope() -> bool:
     """The persona prompts already cover this, but the block restates
     it inline so a thin / non-research persona that doesn't carry the
@@ -284,6 +352,10 @@ TESTS = [
     test_contextvar_roundtrip,
     test_active_tags_block_none_for_empty,
     test_active_tags_block_mentions_each_tag_value,
+    test_resolve_effective_tags_body_wins_when_present,
+    test_resolve_effective_tags_falls_back_to_default,
+    test_resolve_effective_tags_both_empty_returns_none,
+    test_resolve_effective_tags_never_merges,
     test_active_tags_block_tells_model_to_acknowledge_scope,
 ]
 

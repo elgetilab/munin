@@ -3971,17 +3971,28 @@ require operator attention. **Reliability beats new surface area.**
    - Migrate pre-§28 Qdrant point IDs to DOI-keyed
      (`CONTRIBUTOR-INGEST.md` Known Issues)
 
-### Backburner — pending group discussion
+### Backburner — on the "maybe" list
 
-Features the team hasn't confirmed are wanted. Skip until someone
-explicitly asks for them.
+**Not deprecated. Not scheduled.** These features have full designs
+elsewhere in this doc and can be resurrected whenever the team
+asks. They're pushed below reliability work so we can stabilise
+what's shipped before adding surface area.
 
 - **§23 Morning digests** — S2-sourced daily paper sweep per user.
-  Low certainty it's a habit researchers will keep.
+  Low certainty it's a habit researchers will keep; revisit after
+  gathering feedback on how §28 / knowledge-browser is actually
+  used.
 - **§10 Background research jobs** — SLURM-queued long-running
-  deep_research. Unclear if the wait pattern is real.
-- **§12 Reproducibility helper** — always marked "do last";
-  speculative; defer until someone asks.
+  `deep_research`. Unclear if the "fire and come back later" wait
+  pattern is real for this user base; revisit if someone complains
+  about deep_research taking too long in-band.
+- **§12 Reproducibility helper** — speculative from day one;
+  revisit only if a specific paper-reproduction workflow forces
+  the issue.
+
+Their detailed design sections (§10, §12, §23 above) are kept
+intact. If any of these ever promotes to "current focus",
+the design is ready to execute.
 
 ### Deleted / superseded
 

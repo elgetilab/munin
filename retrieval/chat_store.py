@@ -217,6 +217,14 @@ async def init_db() -> aiosqlite.Connection:
         await _db.execute(
             "ALTER TABLE conversations ADD COLUMN project_id TEXT"
         )
+    # §28 follow-up: conversation-level `default_tags` so #tag chips
+    # pinned on turn 1 stick through follow-up turns without the
+    # frontend resubmitting. Stored as a JSON-serialised
+    # list[{kind,value}]; NULL means no default.
+    if "default_tags" not in existing_cols:
+        await _db.execute(
+            "ALTER TABLE conversations ADD COLUMN default_tags TEXT"
+        )
     await _db.execute(
         "CREATE INDEX IF NOT EXISTS idx_conversations_pinned "
         "ON conversations(user_email, pinned DESC, updated_at DESC)"
@@ -281,17 +289,26 @@ async def create_conversation(
     user_email: str,
     persona: str,
     title: Optional[str] = None,
+    default_tags: Optional[list[dict]] = None,
 ) -> dict:
     db = await get_db()
     cid = str(uuid.uuid4())
     now = _iso_now()
+    # §28 follow-up: persist the first request's #tag chips so
+    # subsequent turns fall back to them when the frontend omits
+    # `tags`. An explicit empty list and None both store as NULL
+    # (= no default).
+    default_tags_json = (
+        json.dumps(default_tags) if default_tags else None
+    )
     await db.execute(
         """
         INSERT INTO conversations
-            (id, user_email, title, persona, created_at, updated_at, summary, summary_through_index)
-        VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)
+            (id, user_email, title, persona, created_at, updated_at,
+             summary, summary_through_index, default_tags)
+        VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?)
         """,
-        (cid, user_email, title, persona, now, now),
+        (cid, user_email, title, persona, now, now, default_tags_json),
     )
     await db.commit()
     return {
@@ -303,6 +320,7 @@ async def create_conversation(
         "updated_at": now,
         "summary": None,
         "summary_through_index": None,
+        "default_tags": default_tags or None,
         "message_count": 0,
         "preview": None,
     }
@@ -509,6 +527,17 @@ async def get_conversation(conversation_id: str, user_email: str) -> Optional[di
     conversation = dict(row)
     if "pinned" in conversation:
         conversation["pinned"] = bool(conversation["pinned"])
+    # §28 follow-up: deserialize default_tags from its JSON column.
+    # Malformed JSON (shouldn't happen — we wrote it) → treated as
+    # unset rather than crashing.
+    raw = conversation.get("default_tags")
+    if raw:
+        try:
+            conversation["default_tags"] = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            conversation["default_tags"] = None
+    else:
+        conversation["default_tags"] = None
 
     cursor = await db.execute(
         """

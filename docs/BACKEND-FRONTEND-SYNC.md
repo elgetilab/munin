@@ -380,6 +380,15 @@ turn. Before we commit to the API:
 > - **Yes, the frontend re-submits `tags` on every turn.** `activeTags` is React state in `App.tsx` that persists across messages and is included in every `sendMessage()` call. Tags are never auto-cleared.
 > - **Preference: backend auto-persists the first request's tags as the default.** This is simpler — no extra PATCH call needed. The frontend can continue sending `tags` on every turn (harmless), and the backend uses the conversation's `default_tags` as a fallback when the frontend omits `tags` (e.g., when resuming an old conversation).
 > - **Edge case to handle:** If the user changes tags mid-conversation (removes one, adds another), the frontend will send the updated `tags` array. The backend should use the explicitly-sent `tags` when present, falling back to `default_tags` only when `tags` is absent/empty.
+>
+> **Backend follow-up (2026-04-21, shipped):** implemented exactly as specified.
+>
+> - New `default_tags` column on `conversations` (JSON-serialised `list[{kind, value}]`, NULL = no default).
+> - On new-conversation creation, the first request's normalised tags are persisted as `default_tags`. `normalized_tags` is None → NULL stored.
+> - Per-turn resolution in `_resolve_effective_tags(body_tags, default_tags)`: body tags (this turn) override; missing body tags fall back to `default_tags`; neither → None (unscoped). Pure function, unit-tested.
+> - Never merges — per your edge case, an explicit body `tags` removes the implicit default for that turn. If the user wants to re-pin, they send tags again.
+> - Ephemeral conversations skip the fallback entirely (no persistence layer; body tags are the only signal).
+> - No new endpoint — the frontend contract is unchanged. You can keep re-submitting tags every turn, or stop submitting them on follow-ups and rely on the persisted default. Both work.
 
 ### Q8. Report-chat action UI
 
@@ -596,10 +605,19 @@ Actions taken by the backend side on 2026-04-21:
   so `/v1/*` API-key requests emit usage (QF2).
 - ✅ `X-Authentik-Email` fallback dropped from
   `retrieval/main.py` + `retrieval/mcp/endpoints.py` (QF5).
-- ⏳ Conversation-level `default_tags` (Q7) — design confirmed,
-  implementation pending. Next feature.
-- ⏳ §23 / §10 / §12 → deprecated-or-backburner decision —
-  pending research-group discussion.
+- ✅ Conversation-level `default_tags` (Q7) — shipped 2026-04-21.
+  `conversations.default_tags` TEXT column (JSON-serialised
+  `list[{kind, value}]`); `chat_store.create_conversation` accepts
+  and persists; `chat_service._resolve_effective_tags` decides per
+  turn (body tags override persisted default; absent body tags fall
+  back to default; neither → unscoped). Ephemeral chats skip the
+  fallback (no persistence layer). Four unit tests added to
+  `retrieval/tests/test_query_tags.py` covering override,
+  fallback, both-empty, and the "never merge" semantics.
+- 📌 §23 / §10 / §12 → on the "maybe" list (NOT deprecated). Kept
+  in `future_features.md` under "Backburner — pending group
+  discussion" with their full design intact so they can be
+  resurrected when the team confirms. Not scheduled.
 
 Actions outstanding on the frontend side (VPS repo):
 

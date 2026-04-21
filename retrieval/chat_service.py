@@ -613,6 +613,28 @@ def _normalize_query_tags(raw) -> Optional[list[dict]]:
     return out or None
 
 
+def _resolve_effective_tags(
+    body_tags: Optional[list[dict]],
+    conversation_default_tags: Optional[list[dict]],
+) -> Optional[list[dict]]:
+    """§28 follow-up: decide which tag list a given turn uses.
+
+    Precedence:
+      1. Body tags (this turn's `tags` field) win when present. Lets
+         the user change scope mid-conversation.
+      2. Conversation's persisted `default_tags` (set on turn 1) is
+         the fallback when body tags are absent or empty.
+      3. None → unscoped search.
+
+    Pure function so it can be unit-tested without a running service.
+    """
+    if body_tags:
+        return body_tags
+    if conversation_default_tags:
+        return conversation_default_tags
+    return None
+
+
 def build_active_tags_block(tags: Optional[list[dict]]) -> Optional[str]:
     """Format a short system-prompt block describing currently-active
     `#tag` scope filters so the model knows what knowledge is attached.
@@ -694,9 +716,14 @@ async def stream_chat_completion(
     )
     # §28: tag-scoped search. Frontend maps `#zeitler` / `#nmr` chips to
     # the request body's `tags` field; paper_search and deep_research
-    # read this ContextVar to scope Qdrant queries.
+    # read current_query_tags ContextVar to scope Qdrant queries.
+    #
+    # We defer the ContextVar set until AFTER conversation resolution
+    # below — for existing conversations with no body tags, we fall
+    # back to the conversation's persisted `default_tags` (§28
+    # follow-up). `effective_tags` picks the right one.
     normalized_tags = _normalize_query_tags(query_tags)
-    current_query_tags.set(normalized_tags)
+    effective_tags: Optional[list[dict]] = normalized_tags
 
     system_prompt = persona_module.build_system_prompt(persona)
 
@@ -820,13 +847,9 @@ async def stream_chat_completion(
         if capabilities_block:
             system_prompt = f"{system_prompt}\n\n{capabilities_block}"
 
-    # §28: active-tags block. Injected on every turn that has tags so
-    # the model can (a) honestly answer "what knowledge is attached"
-    # and (b) cite the scope in its final prose. No PII in the block,
-    # so it's fine for ephemeral mode too.
-    active_tags_block = build_active_tags_block(normalized_tags)
-    if active_tags_block:
-        system_prompt = f"{system_prompt}\n\n{active_tags_block}"
+    # §28: active-tags block is injected further down, AFTER conversation
+    # resolution, because `effective_tags` depends on the conversation's
+    # persisted default_tags. See the block marker further below.
 
     sampling = persona_module.sampling_params(persona)
 
@@ -865,7 +888,16 @@ async def stream_chat_completion(
             yield _error_sse("Conversation not found")
             return
     else:
-        created = await chat_store.create_conversation(user_email, persona_id, title=None)
+        # §28 follow-up: persist the first request's tags as the
+        # conversation's default_tags so future turns that omit `tags`
+        # still get scoped. `normalized_tags` may be None here — in
+        # that case nothing is persisted and default_tags stays NULL.
+        created = await chat_store.create_conversation(
+            user_email,
+            persona_id,
+            title=None,
+            default_tags=normalized_tags,
+        )
         conversation = await chat_store.get_conversation(created["id"], user_email)
         is_new = True
         # §21: if the caller asked to file this brand-new conversation
@@ -890,6 +922,25 @@ async def stream_chat_completion(
     assert conversation is not None
     # Now that we know the concrete id, re-bind the MCP context var.
     current_conversation_id.set(conversation["id"])
+
+    # §28 follow-up: fold conversation default_tags into effective_tags.
+    # Body tags (when present) win; otherwise inherit the persisted
+    # default. Ephemeral conversations never have default_tags (no
+    # persistence layer), so ephemeral → body tags only.
+    if not ephemeral:
+        effective_tags = _resolve_effective_tags(
+            normalized_tags, conversation.get("default_tags")
+        )
+    current_query_tags.set(effective_tags)
+
+    # §28: active-tags block. Injected on every turn that has tags so
+    # the model can (a) honestly answer "what knowledge is attached"
+    # and (b) cite the scope in its final prose. No PII in the block,
+    # so it's fine for ephemeral mode too.
+    active_tags_block = build_active_tags_block(effective_tags)
+    if active_tags_block:
+        system_prompt = f"{system_prompt}\n\n{active_tags_block}"
+
     yield _sse(
         "conversation",
         {
