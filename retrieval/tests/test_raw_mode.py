@@ -22,7 +22,11 @@ import traceback
 
 sys.path.insert(0, "/app")
 
-from main import _is_raw_mode_request, _MUNIN_ONLY_FIELDS  # noqa: E402
+from main import (  # noqa: E402
+    _is_raw_mode_request,
+    _MUNIN_ONLY_FIELDS,
+    _header_ephemeral_flag,
+)
 
 
 def _check(name: str, ok: bool, detail: str = "") -> bool:
@@ -156,6 +160,67 @@ def test_munin_only_fields_covered() -> bool:
     )
 
 
+def test_header_ephemeral_truthy_values() -> bool:
+    """VPS gateway stamps `true`; external scripts might send `1` or
+    `yes`. All should flip the flag on."""
+    cases = ["true", "True", "TRUE", " true ", "1", "yes", "YES", "Yes"]
+    for raw in cases:
+        if not _header_ephemeral_flag(raw):
+            return _check(
+                "header ephemeral truthy values trip the flag",
+                False,
+                f"{raw!r} should be truthy",
+            )
+    return _check("header ephemeral truthy values trip the flag", True)
+
+
+def test_header_ephemeral_falsy_values() -> bool:
+    """Anything that isn't in the truthy set must NOT trip the flag.
+    Explicit enumerations of common falsy spellings so a regression
+    that silently widens the set gets caught."""
+    cases = [
+        "",
+        "   ",
+        "false",
+        "False",
+        "0",
+        "no",
+        "off",
+        "random",
+        "truthy",   # partial match — must NOT trip
+        "yes please",
+    ]
+    for raw in cases:
+        if _header_ephemeral_flag(raw):
+            return _check(
+                "header ephemeral falsy values keep the flag off",
+                False,
+                f"{raw!r} should be falsy",
+            )
+    return _check("header ephemeral falsy values keep the flag off", True)
+
+
+def test_header_ephemeral_non_string_input() -> bool:
+    """Defensive: the FastAPI header accessor always returns a string,
+    but if something upstream passes None / bytes / dict we must not
+    crash — just return False."""
+    for raw in (None, b"true", 1, {"x": "true"}, ["true"]):
+        try:
+            if _header_ephemeral_flag(raw):  # type: ignore[arg-type]
+                return _check(
+                    "non-string header values default to False (no crash)",
+                    False,
+                    f"{raw!r} unexpectedly returned True",
+                )
+        except Exception as e:
+            return _check(
+                "non-string header values default to False (no crash)",
+                False,
+                f"{raw!r} raised {type(e).__name__}: {e}",
+            )
+    return _check("non-string header values default to False (no crash)", True)
+
+
 def test_standard_openai_fields_not_stripped() -> bool:
     """OpenAI params the client depends on must NOT be in the strip
     list. Catches accidental over-filtering."""
@@ -186,6 +251,9 @@ TESTS = [
     test_frontend_new_project_chat_without_persona_not_raw,
     test_frontend_ephemeral_with_persona_not_raw,
     test_empty_persona_string_treated_as_missing,
+    test_header_ephemeral_truthy_values,
+    test_header_ephemeral_falsy_values,
+    test_header_ephemeral_non_string_input,
     test_munin_only_fields_covered,
     test_standard_openai_fields_not_stripped,
 ]

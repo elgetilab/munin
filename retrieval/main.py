@@ -996,6 +996,20 @@ _MUNIN_ONLY_FIELDS = frozenset({
 })
 
 
+_TRUTHY_HEADER_VALUES = frozenset({"true", "1", "yes"})
+
+
+def _header_ephemeral_flag(value: str) -> bool:
+    """Parse an X-Munin-Ephemeral header value. The VPS gateway stamps
+    `true` on every /v1/* API-key request so external callers don't
+    create persistent chat records. Case-insensitive; tolerates
+    whitespace; accepts ``true`` / ``1`` / ``yes``. Anything else
+    (including ``false`` / ``0`` / ``no`` / empty / absent) → False."""
+    if not isinstance(value, str):
+        return False
+    return value.strip().lower() in _TRUTHY_HEADER_VALUES
+
+
 def _is_raw_mode_request(body: dict) -> bool:
     persona = body.get("persona")
     if isinstance(persona, str) and persona.strip().lower() in _RAW_PERSONA_ALIASES:
@@ -1146,7 +1160,15 @@ async def api_chat_completions(request: Request):
     conversation_id = body.get("conversation_id")
     messages = body.get("messages") or []
     rag_config = body.get("rag") or {}
-    ephemeral = bool(body.get("ephemeral", False))
+    # `X-Munin-Ephemeral: true` is stamped by the VPS gateway on every
+    # /v1/* API-key request so external callers never create persistent
+    # chat records even if they bypass raw-mode detection (e.g. a
+    # future Munin-aware client that hits /v1/ with an explicit
+    # persona). An explicit header wins over body.ephemeral=false —
+    # we OR the two so either signal forces the ephemeral path.
+    ephemeral = bool(body.get("ephemeral", False)) or _header_ephemeral_flag(
+        request.headers.get("X-Munin-Ephemeral", "")
+    )
     # §21: the body may carry a project_id so brand-new conversations
     # can be created pre-filed into a project (and get that project's
     # default_persona). Ignored on ephemeral chats (refused below) and
