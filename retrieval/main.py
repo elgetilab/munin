@@ -1677,6 +1677,14 @@ PAPERS_INBOX_DIR = os.path.join(PAPERS_PDF_DIR, "inbox")
 # trivial to `ls pdf/skipped/` to see what didn't make it.
 PAPERS_SKIPPED_DIR = os.path.join(PAPERS_PDF_DIR, "skipped")
 PAPERS_FAILED_DIR = os.path.join(PAPERS_PDF_DIR, "failed")
+# paper_pipeline.py --watch looks at THIS directory for marker files
+# matching a PDF's basename; if one exists, it skips that PDF. We
+# write one here on successful /api/admin/ingest so the new
+# pipeline-daemon doesn't re-ingest papers the admin-ingest path
+# just handled.
+PAPERS_PROCESSED_MARKER_DIR = os.getenv(
+    "PAPERS_PROCESSED_DIR", "/papers-processed"
+)
 PIPELINE_TIMEOUT_SECS = int(os.getenv("PIPELINE_TIMEOUT_SECS", "600"))
 
 
@@ -1972,6 +1980,34 @@ async def api_admin_ingest(
             )
         except OSError as e:
             print(f"[WARN] post-ingest PDF move failed: {e}")
+
+        # Write a processed marker so the new pipeline-daemon watcher
+        # skips this paper. Contents mirror what paper_pipeline.py
+        # writes itself so the file is indistinguishable from a
+        # native-watched ingest. Best-effort — marker absence just
+        # means the watcher will re-evaluate the paper next pass
+        # (and skip it anyway because it's already in Qdrant).
+        try:
+            os.makedirs(PAPERS_PROCESSED_MARKER_DIR, exist_ok=True)
+            marker_path = os.path.join(
+                PAPERS_PROCESSED_MARKER_DIR, f"doi_{safe_doi}.json"
+            )
+            with open(marker_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "paper_id": payload.get("paper_id"),
+                        "doi": doi,
+                        "title": payload.get("title"),
+                        "pdf_path": final_path,
+                        "ingested_via": "admin/ingest",
+                        "processed_at": datetime.now(timezone.utc)
+                        .isoformat()
+                        .replace("+00:00", "Z"),
+                    },
+                    f,
+                )
+        except OSError as e:
+            print(f"[WARN] processed-marker write failed: {e}")
 
     # Clean up the sidecar regardless — it's served its purpose.
     try:

@@ -96,6 +96,11 @@ services:
       # :rw because /api/admin/ingest writes PDFs into pdf/inbox/ and
       # moves them to pdf/{doi_hash}.pdf after the pipeline succeeds (§28).
       - /opt/munin/data/papers/pdf:/papers:rw
+      # Processed-marker dir the pipeline watcher consults (one
+      # JSON per PDF basename). /api/admin/ingest writes a marker
+      # on success so the watcher daemon skips papers the
+      # admin-ingest path already handled.
+      - /opt/munin/data/papers/processed:/papers-processed:rw
       # Persona definitions (chat personas + logos)
       - /opt/munin/personas:/app/personas:ro
       # Agent registry (agents.yml)
@@ -143,6 +148,9 @@ services:
       # paper_pipeline.py subprocess reads this for GROBID connectivity
       # (QDRANT_HOST / NEO4J_PASSWORD are already set above and inherited).
       - GROBID_URL=http://grobid:8070
+      # /api/admin/ingest writes a processed-marker here so the
+      # host-side munin-paper-pipeline.service watcher skips the paper.
+      - PAPERS_PROCESSED_DIR=/papers-processed
     depends_on:
       - qdrant
       - neo4j

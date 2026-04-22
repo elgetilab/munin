@@ -1379,8 +1379,14 @@ def process_directory(pipeline: PaperPipeline, papers_dir: str, reprocess: bool 
 
 
 def watch_directory(pipeline: PaperPipeline, papers_dir: str):
-    """Watch directory for new PDFs and process them"""
-    print(f"Watching {papers_dir} for new PDFs...")
+    """Watch directory for new PDFs and process them.
+
+    Poll interval is controlled by the ``WATCH_POLL_SECS`` env var
+    (default 60 s). Keep it low for operator-drop responsiveness,
+    high to avoid churn on a mostly-idle corpus.
+    """
+    poll_secs = max(1, int(os.getenv("WATCH_POLL_SECS", "60")))
+    print(f"Watching {papers_dir} for new PDFs (poll every {poll_secs}s)...")
     print("Press Ctrl+C to stop")
 
     processed_path = Path(PROCESSED_DIR)
@@ -1396,7 +1402,7 @@ def watch_directory(pipeline: PaperPipeline, papers_dir: str):
                         with open(marker, "w") as f:
                             json.dump(asdict(paper), f, indent=2)
 
-            time.sleep(10)  # Check every 10 seconds
+            time.sleep(poll_secs)
         except KeyboardInterrupt:
             print("\nStopping watch...")
             break

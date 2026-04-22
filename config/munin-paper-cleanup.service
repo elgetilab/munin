@@ -1,0 +1,39 @@
+[Unit]
+Description=Munin paper-cleanup — nightly repair-and-clean sweep
+Documentation=docs/PAPER-PIPELINE-AUTOMATION.md
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+
+# Walks up to 200 papers per run, re-enriches metadata from OpenAlex /
+# Semantic Scholar / CrossRef, auto-removes papers ALL three sources
+# fail to confirm (capped at 20 removals per run so a bad-source day
+# can't nuke the corpus). No vLLM dependency → safe in any window
+# including 02:00-06:00.
+ExecStart=/opt/munin/services/pipeline/venv/bin/python3 \
+    /opt/cluster/scripts/pipeline/paper_cleanup.py \
+    repair-and-clean \
+    --max-check 200 \
+    --auto-remove \
+    --limit 20
+
+Environment="QDRANT_HOST=127.0.0.1"
+Environment="QDRANT_PORT=6333"
+Environment="NEO4J_URI=bolt://127.0.0.1:7687"
+Environment="NEO4J_USER=neo4j"
+Environment="ADMIN_EMAIL=admin@muninai.org"
+EnvironmentFile=-/opt/hugin/config/cluster.env
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=munin-paper-cleanup
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/munin/data/papers
+ProtectHome=yes
+PrivateTmp=yes

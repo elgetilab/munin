@@ -263,21 +263,75 @@ PIPELINE_DIR=/opt/cluster/scripts/pipeline
 # pipeline: sync paper_pipeline.py → /opt/cluster/scripts/pipeline/
 # (mounted read-only into the retrieval container for /api/admin/ingest)
 # ------------------------------------------------------------------------------
+PIPELINE_VENV=/opt/munin/services/pipeline/venv
+
 deploy_pipeline() {
-    echo "[pipeline] Syncing paper_pipeline.py..."
+    echo "[pipeline] Syncing paper_pipeline.py + paper_cleanup.py..."
     need_file "$REPO_DIR/scripts/pipeline/paper_pipeline.py"
+    need_file "$REPO_DIR/scripts/pipeline/paper_cleanup.py"
+    need_file "$REPO_DIR/scripts/pipeline/requirements.txt"
+    need_file "$REPO_DIR/config/munin-paper-pipeline.service"
+    need_file "$REPO_DIR/config/munin-paper-cleanup.service"
+    need_file "$REPO_DIR/config/munin-paper-cleanup.timer"
+
     run "install -d -m 0755 $PIPELINE_DIR"
     run "install -m 0755 $REPO_DIR/scripts/pipeline/paper_pipeline.py \
         $PIPELINE_DIR/paper_pipeline.py"
-    # Inbox directory the endpoint writes into before invoking the pipeline.
+    run "install -m 0755 $REPO_DIR/scripts/pipeline/paper_cleanup.py \
+        $PIPELINE_DIR/paper_cleanup.py"
+    run "install -m 0644 $REPO_DIR/scripts/pipeline/requirements.txt \
+        $PIPELINE_DIR/requirements.txt"
+
+    # PDF drop + inbox + quarantine directories. The watcher daemon
+    # scans /opt/munin/data/papers/pdf/*.pdf; /api/admin/ingest writes
+    # to pdf/inbox/ and moves to pdf/{doi_hash}.pdf (same dir the
+    # watcher scans, so we also need the processed-markers dir).
     run "install -d -m 0755 $MUNIN_DATA/papers/pdf/inbox"
-    # Quarantine sidesteps for /api/admin/ingest — pipeline-skipped
-    # papers move to skipped/, crashed/timed-out ones to failed/.
-    # The endpoint auto-creates on first use, but pre-creating means
-    # the dirs are owned by root (same as inbox) from day one.
     run "install -d -m 0755 $MUNIN_DATA/papers/pdf/skipped"
     run "install -d -m 0755 $MUNIN_DATA/papers/pdf/failed"
-    echo "[OK] pipeline — synced to $PIPELINE_DIR"
+    run "install -d -m 0755 $MUNIN_DATA/papers/processed"
+    run "install -d -m 0755 $(dirname $PIPELINE_VENV)"
+
+    # Dedicated venv for the host-side watcher + cleanup daemons.
+    # Debian 12+ enforces PEP 668 so system pip is off-limits;
+    # mirrors the knowledge + vLLM patterns.
+    if [ "$DRY_RUN" = "0" ]; then
+        if [ ! -x "$PIPELINE_VENV/bin/python3" ]; then
+            echo "[pipeline] Creating venv at $PIPELINE_VENV..."
+            python3 -m venv "$PIPELINE_VENV"
+        fi
+        if "$PIPELINE_VENV/bin/python3" -m pip install --quiet --upgrade \
+                -r "$REPO_DIR/scripts/pipeline/requirements.txt"; then
+            echo "[OK] pipeline — deps installed into $PIPELINE_VENV"
+        else
+            echo "[WARN] pipeline — pip install into venv failed; install manually:"
+            echo "       $PIPELINE_VENV/bin/pip install -r $PIPELINE_DIR/requirements.txt"
+        fi
+    else
+        echo "  [dry-run] would create venv at $PIPELINE_VENV and install requirements"
+    fi
+
+    # Systemd units: watcher daemon + nightly cleanup timer.
+    run "install -m 0644 $REPO_DIR/config/munin-paper-pipeline.service \
+        $SYSTEMD_DIR/munin-paper-pipeline.service"
+    run "install -m 0644 $REPO_DIR/config/munin-paper-cleanup.service \
+        $SYSTEMD_DIR/munin-paper-cleanup.service"
+    run "install -m 0644 $REPO_DIR/config/munin-paper-cleanup.timer \
+        $SYSTEMD_DIR/munin-paper-cleanup.timer"
+    run "systemctl daemon-reload"
+
+    # Start the watcher + enable the cleanup timer. --now on enable
+    # starts the timer immediately; the service itself fires at 04:00
+    # (jitter up to 5 min).
+    run "systemctl enable munin-paper-pipeline.service"
+    run "systemctl restart munin-paper-pipeline.service"
+    run "systemctl enable munin-paper-cleanup.timer"
+    run "systemctl restart munin-paper-cleanup.timer"
+
+    echo "[OK] pipeline — daemon running, cleanup timer armed (04:00 local)"
+    echo "      Logs: journalctl -fu munin-paper-pipeline.service"
+    echo "            journalctl -u munin-paper-cleanup.service --since today"
+    echo "      Next cleanup: systemctl list-timers munin-paper-cleanup.timer"
 }
 
 deploy_knowledge() {

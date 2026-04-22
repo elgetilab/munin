@@ -1,0 +1,17 @@
+[Unit]
+Description=Nightly munin-paper-cleanup trigger
+Documentation=docs/PAPER-PIPELINE-AUTOMATION.md
+
+[Timer]
+# 04:00 every day, cluster-local time. Comfortably outside the
+# 01:30 munin-embedding-map run (finishes by ~01:45) and the
+# 02:00-06:00 vLLM window (cleanup doesn't need vLLM anyway).
+# Until §27 parallelisation ships, cap on --max-check keeps
+# runtime to a few minutes.
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+RandomizedDelaySec=300
+Unit=munin-paper-cleanup.service
+
+[Install]
+WantedBy=timers.target
