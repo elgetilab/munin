@@ -1669,7 +1669,42 @@ PAPER_PIPELINE_SCRIPT = os.getenv(
     "PAPER_PIPELINE_SCRIPT", "/app/pipeline/paper_pipeline.py"
 )
 PAPERS_INBOX_DIR = os.path.join(PAPERS_PDF_DIR, "inbox")
+# Quarantine sidesteps — PDFs that finished the pipeline but weren't
+# usable (quality filter, duplicate DOI, non-research content) land in
+# SKIPPED_DIR; PDFs where the pipeline crashed/timed out land in
+# FAILED_DIR. Both directories keep the file + sidecar + a small
+# skip_info.json for auditing. Keeps /inbox/ clean and makes it
+# trivial to `ls pdf/skipped/` to see what didn't make it.
+PAPERS_SKIPPED_DIR = os.path.join(PAPERS_PDF_DIR, "skipped")
+PAPERS_FAILED_DIR = os.path.join(PAPERS_PDF_DIR, "failed")
 PIPELINE_TIMEOUT_SECS = int(os.getenv("PIPELINE_TIMEOUT_SECS", "600"))
+
+
+def _quarantine_inbox_paper(
+    inbox_pdf: str,
+    sidecar_path: str,
+    dest_dir: str,
+    skip_info: dict,
+) -> None:
+    """Move a stuck inbox paper + its sidecar to a quarantine dir and
+    write a companion skip_info.json. Best-effort: logs and swallows
+    failures so the caller's error path isn't clobbered by a
+    secondary move-error. Idempotent across retries — same UUID
+    overwrites."""
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        uuid_stem = os.path.splitext(os.path.basename(inbox_pdf))[0]
+        dest_pdf = os.path.join(dest_dir, f"{uuid_stem}.pdf")
+        dest_sidecar = os.path.join(dest_dir, f"{uuid_stem}.contributor.json")
+        dest_info = os.path.join(dest_dir, f"{uuid_stem}.skip_info.json")
+        if os.path.isfile(inbox_pdf):
+            shutil.move(inbox_pdf, dest_pdf)
+        if os.path.isfile(sidecar_path):
+            shutil.move(sidecar_path, dest_sidecar)
+        with open(dest_info, "w", encoding="utf-8") as f:
+            json.dump(skip_info, f, indent=2)
+    except OSError as e:
+        print(f"[WARN] quarantine move failed ({dest_dir}): {e}")
 
 _contributors_cache: Optional[dict[str, dict]] = None
 _contributors_cache_mtime: float = 0.0
@@ -1790,6 +1825,19 @@ async def api_admin_ingest(
             )
         except asyncio.TimeoutError:
             proc.kill()
+            _quarantine_inbox_paper(
+                inbox_pdf,
+                sidecar_path,
+                PAPERS_FAILED_DIR,
+                {
+                    "outcome": "timeout",
+                    "reason": f"Pipeline timed out after {PIPELINE_TIMEOUT_SECS}s",
+                    "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "email": email,
+                    "group_slug": sidecar_payload["research_group"],
+                    "original_filename": filename,
+                },
+            )
             raise HTTPException(
                 status_code=504,
                 detail={"error": {"message": f"Pipeline timed out after {PIPELINE_TIMEOUT_SECS}s"}},
@@ -1803,6 +1851,21 @@ async def api_admin_ingest(
     full_stdout = stdout_bytes.decode("utf-8", errors="replace")
     tail = full_stdout[-2000:]
     if proc.returncode != 0:
+        _quarantine_inbox_paper(
+            inbox_pdf,
+            sidecar_path,
+            PAPERS_FAILED_DIR,
+            {
+                "outcome": "pipeline_error",
+                "reason": f"Pipeline exited {proc.returncode}",
+                "returncode": proc.returncode,
+                "log_tail": tail,
+                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "email": email,
+                "group_slug": sidecar_payload["research_group"],
+                "original_filename": filename,
+            },
+        )
         raise HTTPException(
             status_code=500,
             detail={"error": {"message": f"Pipeline exited {proc.returncode}", "log_tail": tail}},
@@ -1859,13 +1922,30 @@ async def api_admin_ingest(
 
     # If still no record, the pipeline probably skipped the PDF.
     if point_record is None:
-        # Leave the inbox file + sidecar for forensic inspection.
+        reason = (
+            "Pipeline completed but no Qdrant point was created "
+            "(likely quality filter, non-research content, or "
+            "duplicate with existing DOI)."
+        )
+        _quarantine_inbox_paper(
+            inbox_pdf,
+            sidecar_path,
+            PAPERS_SKIPPED_DIR,
+            {
+                "outcome": "skipped",
+                "reason": reason,
+                "log_tail": tail,
+                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "email": email,
+                "group_slug": sidecar_payload["research_group"],
+                "original_filename": filename,
+            },
+        )
         return {
             "status": "skipped",
-            "reason": "Pipeline completed but no Qdrant point was created "
-                      "(likely quality filter, non-research content, or "
-                      "duplicate with existing DOI).",
+            "reason": reason,
             "log_tail": tail,
+            "quarantined_to": PAPERS_SKIPPED_DIR,
         }
 
     payload = point_record.payload or {}

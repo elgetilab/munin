@@ -271,6 +271,12 @@ deploy_pipeline() {
         $PIPELINE_DIR/paper_pipeline.py"
     # Inbox directory the endpoint writes into before invoking the pipeline.
     run "install -d -m 0755 $MUNIN_DATA/papers/pdf/inbox"
+    # Quarantine sidesteps for /api/admin/ingest — pipeline-skipped
+    # papers move to skipped/, crashed/timed-out ones to failed/.
+    # The endpoint auto-creates on first use, but pre-creating means
+    # the dirs are owned by root (same as inbox) from day one.
+    run "install -d -m 0755 $MUNIN_DATA/papers/pdf/skipped"
+    run "install -d -m 0755 $MUNIN_DATA/papers/pdf/failed"
     echo "[OK] pipeline — synced to $PIPELINE_DIR"
 }
 
