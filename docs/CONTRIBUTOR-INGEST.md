@@ -275,13 +275,85 @@ sudo ./deploy.sh compose      # new volume mounts (:rw on /papers, pipeline moun
 sudo ./deploy.sh retrieval    # rebuild container with the endpoint + `requests` dep
 ```
 
-Adding/editing an allowlist entry:
+### Adding a new contributor
 
-```bash
-# Edit config/contributors.yml in this repo, then:
-sudo ./deploy.sh agents
-# The endpoint auto-reloads on file mtime change — no container restart.
-```
+The workflow takes ~5 minutes and doesn't require a container restart.
+
+1. **Edit `config/contributors.yml`** in this repo. Two YAML shapes
+   are supported:
+
+   ```yaml
+   # Single person, single email (most common).
+   - email: alice@example.org
+     username: alice
+     display_name: Alice Mustermann
+     research_group: alice
+     research_group_display_name: Mustermann Lab (Leipzig)
+
+   # One person with multiple aliases (use `emails:` list).
+   - emails:
+       - bob@example.org
+       - bob.example@gmail.com
+     username: bob
+     display_name: Bob Beispiel
+     research_group: bob
+     research_group_display_name: Beispiel Group (Leipzig)
+   ```
+
+   **Multiple people in the same group**: write each as a separate
+   entry, all sharing the same `research_group` slug. Per-person
+   attribution AND `#group` filtering both work that way:
+
+   ```yaml
+   - email: contributor-d@example.org
+     username: elgeti
+     display_name: Contributor D
+     research_group: elgeti
+     research_group_display_name: Elgeti Lab (Leipzig)
+
+   - email: contributor-e@example.org
+     username: contributor-e
+     display_name: Contributor E
+     research_group: elgeti                          # SAME group slug
+     research_group_display_name: Elgeti Lab (Leipzig)
+   ```
+
+2. **Deploy the change** — syncs `contributors.yml` to
+   `/opt/munin/config/`:
+
+   ```bash
+   sudo ./deploy.sh agents
+   ```
+
+   The endpoint auto-reloads the YAML on file mtime change. **No
+   container restart needed.** Future uploads from any of the
+   listed emails get attributed correctly from that moment on.
+
+3. **Backfill past `unknown` uploads** (optional but recommended).
+   Uploads from a person who was added LATER are stamped as
+   `group_slug: "unknown"` until you re-attribute them:
+
+   ```bash
+   # Dry-run first — see what WOULD change
+   sudo /opt/munin/services/pipeline/venv/bin/python3 \
+       /opt/cluster/scripts/pipeline/reattribute_unknown.py --dry-run
+
+   # Real run — updates Qdrant payloads + Neo4j Contributor edges
+   sudo /opt/munin/services/pipeline/venv/bin/python3 \
+       /opt/cluster/scripts/pipeline/reattribute_unknown.py
+   ```
+
+   The script walks every paper with `contributors[].group_slug
+   == "unknown"`, looks up the email against the current
+   `contributors.yml`, and rewrites the contributor entry if the
+   uploader is now allowlisted. Idempotent — safe to re-run after
+   every allowlist edit.
+
+4. **Verify** the new contributor's papers are visible:
+
+   ```bash
+   curl -s 'http://127.0.0.1:8080/api/tags/group/<slug>/papers?limit=5' | jq .
+   ```
 
 ## Smoke test
 

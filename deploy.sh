@@ -285,6 +285,12 @@ deploy_pipeline() {
     # deploy; idempotent.
     run "install -m 0755 $REPO_DIR/scripts/pipeline/seed_processed_markers.py \
         $PIPELINE_DIR/seed_processed_markers.py"
+    # Retroactively attributes papers ingested under
+    # group_slug="unknown" once their uploader is added to
+    # contributors.yml. Run manually after each allowlist edit;
+    # idempotent.
+    run "install -m 0755 $REPO_DIR/scripts/pipeline/reattribute_unknown.py \
+        $PIPELINE_DIR/reattribute_unknown.py"
     run "install -m 0644 $REPO_DIR/scripts/pipeline/requirements.txt \
         $PIPELINE_DIR/requirements.txt"
 

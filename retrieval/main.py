@@ -1744,7 +1744,20 @@ _contributors_cache_mtime: float = 0.0
 def _load_contributors() -> dict[str, dict]:
     """Parse contributors.yml, keyed by lowercased email. Auto-reloads
     when the YAML file's mtime changes so editing the allowlist doesn't
-    require a container restart."""
+    require a container restart.
+
+    Each entry may declare its email(s) in EITHER form:
+
+        - email: alice@x        # single-email entry (one person)
+
+        - emails:               # multi-email entry (several aliases
+            - bob@x             # / a shared lab account; all map to
+            - bob@y.de          # the same contributor identity)
+
+    Multiple PEOPLE in one research group should be separate entries
+    that share the same `research_group` slug (preserves per-person
+    attribution while keeping `#group` filtering correct).
+    """
     global _contributors_cache, _contributors_cache_mtime
     try:
         mtime = os.path.getmtime(CONTRIBUTORS_CONFIG_PATH)
@@ -1760,9 +1773,23 @@ def _load_contributors() -> dict[str, dict]:
         return {}
     out: dict[str, dict] = {}
     for entry in doc.get("contributors", []) or []:
-        email = (entry.get("email") or "").strip().lower()
-        if email:
-            out[email] = entry
+        # Collect every email this entry claims (both forms allowed).
+        addrs: list[str] = []
+        single = entry.get("email")
+        if isinstance(single, str) and single.strip():
+            addrs.append(single.strip().lower())
+        listed = entry.get("emails")
+        if isinstance(listed, list):
+            for a in listed:
+                if isinstance(a, str) and a.strip():
+                    addrs.append(a.strip().lower())
+        for addr in addrs:
+            if addr in out:
+                print(
+                    f"[WARN] contributors.yml: duplicate email {addr!r} — "
+                    f"later entry wins ({entry.get('display_name')!r})"
+                )
+            out[addr] = entry
     _contributors_cache = out
     _contributors_cache_mtime = mtime
     return out
