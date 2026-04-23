@@ -433,6 +433,68 @@ becomes a blocker.
 > 3. **`/api/status` `next_start` field**: When vLLM is offline, does the `next_start` field reliably contain the ISO timestamp for the next scheduled start? The SleepingPage component depends on this.
 > 4. **No other blockers.** All endpoints listed in §1 are working. The frontend has caught up with the backend API surface.
 
+### Q11. Honour `503 Retry-After` from `/api/admin/ingest`
+
+Added 2026-04-23 post-incident.
+
+> Late on 2026-04-23 GROBID's request handlers wedged for ~2 hours.
+> Two compounding root causes:
+>
+> 1. **GROBID JVM heap** (default ~4 GB in lfoppiano/grobid:0.8.0)
+>    OOM'd in the AsyncAppender thread under sustained concurrent
+>    load. Container stayed `Up`, but every PDF parse 503'd
+>    silently.
+> 2. **`/api/admin/ingest` had no concurrency cap.** Your hook
+>    service + cron retry forked **37+ paper_pipeline subprocesses
+>    in parallel**, each holding an HTTP connection to GROBID's
+>    10-engine pool. The pool stayed permanently saturated. The
+>    cron's inner loop kept spinning at ~1 req/s producing 503s
+>    without backoff, sustaining the saturation indefinitely.
+>
+> Two backend fixes shipped same day (already deployed):
+>
+> - GROBID JVM heap → 12 GB via `JAVA_TOOL_OPTIONS=-Xmx12g -Xms2g`
+>   on the grobid service in `docker-compose.yml`. (lfoppiano image
+>   ignores `JAVA_OPTS`; only `JAVA_TOOL_OPTIONS` is honoured.)
+> - `/api/admin/ingest` now caps at `INGEST_CONCURRENCY=4`
+>   concurrent pipelines. Over-cap requests fast-fail in ~5 s with:
+>
+>   ```
+>   HTTP/1.1 503 Service Unavailable
+>   Retry-After: 60
+>   Content-Type: application/json
+>
+>   {"detail": {"error": {"message": "Ingest pipeline saturated
+>    (>= 4 concurrent jobs). Retry after the cooldown."}}}
+>   ```
+>
+> Watcher daemon's `--workers` reduced to 2 so admin-ingest (4) +
+> watcher (2) = 6 of GROBID's 10 engines, leaving headroom.
+>
+> **What we need on your side**: `hook_service.py` and your
+> cron-driven retry sweep need to honour `Retry-After`. Spinning
+> at 1 req/s against a 503 endpoint accomplishes nothing and
+> recreates the saturation. Reference implementation in
+> `scripts/vps/backfill_contributed.py` `post_paper()` — about 8
+> lines. Documented in `docs/CONTRIBUTOR-INGEST.md` §"503 +
+> Retry-After backpressure".
+>
+> **Recommended split**:
+>
+> - `hook_service.py` BackgroundTask: on 503, sleep
+>   `Retry-After` seconds → return without moving the file →
+>   cron picks it up next pass.
+> - Cron-driven retry sweep: on first 503 in the loop, **break
+>   out of the loop entirely** rather than continuing through the
+>   queue. The next cron tick will succeed once the cluster has
+>   spare capacity. Simpler than per-paper sleep, lighter on the
+>   cluster.
+
+**Frontend answer:**
+
+> _(to be filled in by frontend team — please confirm both pieces
+> shipped or flag any blockers)_
+
 ---
 
 ## 5. Questions from the frontend to the backend
@@ -518,38 +580,6 @@ response section below each)_
 >
 > Both collapsed to read `X-Munin-Email` only. If any legacy request is still sending the old header, it'll now 401 with "Missing authentication header" — that's the right failure (loudly) rather than the current silent acceptance. `docs/BACKEND-API.md` section 2 updated accordingly.
 
-### QF2. Does `usage` populate correctly for browser chat SSE?
-
-> We observed that browser chat requests via `/api/chat/completions` (persona mode, SSE) DO log non-zero token counts on the gateway side (e.g. florian.taube: 14648, 9560 tokens). But API key requests via `/v1/chat/completions` log 0 tokens. Is the cluster emitting `usage` in persona-mode `done` events but not in raw-mode? Or is the gateway parsing one correctly and not the other?
-
-**Backend answer:**
-
-> _(backend will fill in)_
-
-### QF3. `X-Munin-Ephemeral` — is `ephemeral` body field also supported?
-
-> §1.1 says both `"ephemeral": true` in the request body AND `X-Munin-Ephemeral: true` header are OR'd. The gateway currently only sends the header for `/v1/*`. Should the gateway also set `"ephemeral": true` in the JSON body for belt-and-suspenders, or is the header sufficient?
-
-**Backend answer:**
-
-> _(backend will fill in)_
-
-### QF4. Conversation title for API requests that slip through
-
-> Before the ephemeral fix was deployed, API "ping" test messages created real conversations with title "ping". Now that ephemeral is live, this shouldn't recur. But if a conversation IS created from an API request (e.g., user sends `persona: "chat"` via API intentionally), does the auto-title generator use the first user message? Could we have a fallback like "API conversation" for single-turn API chats?
-
-**Backend answer:**
-
-> _(backend will fill in)_
-
-### QF5. Auth header: `X-Munin-Email` vs `X-Authentik-Email`
-
-> §1.14 mentions both `X-Munin-Email` and `X-Authentik-Email`. The VPS gateway sets `X-Munin-Email` exclusively (both for browser sessions via munin-auth forward-auth and for API key requests). We never send `X-Authentik-Email` — that was the old Authentik header. Can the backend drop `X-Authentik-Email` support entirely, or are there other clients still sending it?
-
-**Backend answer:**
-
-> _(backend will fill in)_
-
 ---
 
 ## 6. Decisions we need to jointly agree on
@@ -614,6 +644,15 @@ Actions taken by the backend side on 2026-04-21:
   fallback (no persistence layer). Four unit tests added to
   `retrieval/tests/test_query_tags.py` covering override,
   fallback, both-empty, and the "never merge" semantics.
+- ✅ GROBID heap + ingest concurrency cap (Q11) — shipped
+  2026-04-23 post-incident. JVM heap → 12 GB via
+  `JAVA_TOOL_OPTIONS` on the grobid service;
+  `/api/admin/ingest` now caps at `INGEST_CONCURRENCY=4`
+  with 503 + `Retry-After: 60` backpressure; watcher daemon
+  `--workers 4` → `--workers 2`. VPS-side work pending:
+  `hook_service.py` + cron retry must honour `Retry-After`.
+  Reference implementation in
+  `scripts/vps/backfill_contributed.py` `post_paper()`.
 - 📌 §23 / §10 / §12 → on the "maybe" list (NOT deprecated). Kept
   in `future_features.md` under "Backburner — pending group
   discussion" with their full design intact so they can be

@@ -110,8 +110,14 @@ Expected output:
 - `SKIP` — pipeline ran but quality-filtered the paper (non-research
   content, empty title, etc.). Still moved to `processed/` because
   "the cluster has seen it".
-- `FAIL` — HTTP non-2xx, timeout, or network error. File stays in
-  `complete/` so you can re-run later.
+- `FAIL HTTP503:saturated` — cluster's ingest pipeline is at its
+  concurrency cap (`INGEST_CONCURRENCY`, default 4). Script sleeps
+  for the response's `Retry-After` seconds (clamped 5-600), leaves
+  the file in `complete/` for the next pass. **Not an error — this
+  is graceful backpressure.** Expect occasional bursts during
+  heavy upload activity.
+- `FAIL` (other) — HTTP non-2xx, timeout, or network error. File
+  stays in `complete/` so you can re-run later.
 
 If the 3 probes all succeed, you're clear to proceed.
 

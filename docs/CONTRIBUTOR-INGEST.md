@@ -123,16 +123,68 @@ forensic inspection.
 
 **Other statuses:**
 
-| Code | Meaning |
-|---|---|
-| 400 | File empty or not a PDF (`%PDF` header missing), or `email` missing |
-| 401 | Missing or wrong bearer token |
-| 500 | Pipeline exited non-zero (traceback in `log_tail`) |
-| 503 | `ADMIN_INGEST_TOKEN` not configured on the server |
-| 504 | Pipeline exceeded `PIPELINE_TIMEOUT_SECS` (default 600) |
+| Code | Meaning | Client action |
+|---|---|---|
+| 400 | File empty or not a PDF (`%PDF` header missing), or `email` missing | Don't retry — fix the request |
+| 401 | Missing or wrong bearer token | Don't retry — fix auth |
+| 500 | Pipeline exited non-zero (traceback in `log_tail`) | Don't retry — file moved to `pdf/failed/` |
+| **503** | **Either `ADMIN_INGEST_TOKEN` not configured (rare), OR the ingest-pipeline concurrency cap has been hit (common under heavy load)** | **Honour the `Retry-After: <seconds>` response header. Sleep that long, then retry the same file.** |
+| 504 | Pipeline exceeded `PIPELINE_TIMEOUT_SECS` (default 600) | File moved to `pdf/failed/`. Manual triage; don't auto-retry. |
 
 All errors use the standard `{"detail": {"error": {"message": "..."}}}`
 envelope.
+
+### 503 + Retry-After backpressure (from 2026-04-23)
+
+`/api/admin/ingest` runs at most `INGEST_CONCURRENCY` (default 4)
+pipeline subprocesses simultaneously. The cap exists because each
+in-flight call holds an HTTP connection to GROBID, and GROBID's
+engine pool is bounded (10 by default). Without the cap a high-
+volume client (VPS hook + cron retry) saturated the pool and
+produced sustained 503s (the 2026-04-23 fork-bomb incident).
+
+When over the cap, the endpoint waits up to 5 s for a free slot,
+then fast-fails:
+
+```
+HTTP/1.1 503 Service Unavailable
+Retry-After: 60
+Content-Type: application/json
+
+{"detail": {"error": {"message": "Ingest pipeline saturated (>= 4 concurrent jobs). Retry after the cooldown."}}}
+```
+
+**Clients MUST honour `Retry-After`.** Spinning at 1 req/s against
+a 503 endpoint accomplishes nothing and wastes both sides' cycles.
+Recommended client logic:
+
+```python
+if r.status_code == 503:
+    sleep_secs = int(r.headers.get("Retry-After", "60"))
+    log.info("cluster saturated, sleeping %ds before next paper", sleep_secs)
+    time.sleep(sleep_secs)
+    return False, "503:saturated", None    # leave file in complete/
+```
+
+For the VPS-side `hook_service.py` + cron, this means:
+
+- **`hook_service.py`** background task: on 503, log + sleep
+  Retry-After + leave the file in `complete/<email>/`. The next
+  cron sweep retries.
+- **The cron-driven retry sweep**: on 503, exit the loop (don't
+  process more files this run); next cron tick will succeed once
+  the cluster has spare capacity.
+
+The cap is env-tunable on the cluster:
+
+```
+# docker-compose.yml retrieval service
+INGEST_CONCURRENCY=${INGEST_CONCURRENCY:-4}
+```
+
+Bump to 6-8 only if GROBID's pool is also raised
+(`grobid.yaml: concurrency`); never above `<grobid concurrency> -
+<watcher --workers>` or you re-create the saturation.
 
 ## Payload shape on Qdrant `papers`
 
@@ -264,6 +316,22 @@ curl -s -X POST http://127.0.0.1:7474/db/neo4j/tx/commit \
 ```
 
 ## Known issues
+
+### GROBID heap + concurrency tuning (resolved 2026-04-23)
+
+Default lfoppiano/grobid:0.8.0 ships with a ~4 GB JVM heap, which
+OOMs in the AsyncAppender thread under sustained concurrent load
+without crashing the container (so docker shows healthy while
+requests time out). Fixed by setting `JAVA_TOOL_OPTIONS=-Xmx12g
+-Xms2g` on the grobid service in `docker-compose.yml` (the
+lfoppiano image ignores `JAVA_OPTS`; only the JVM-built-in
+`JAVA_TOOL_OPTIONS` is honoured).
+
+Companion fix on the cluster API side: the new
+`INGEST_CONCURRENCY` semaphore on `/api/admin/ingest` documented
+above prevents the engine pool from being starved in the first
+place. Both fixes are in place; a future GROBID upgrade or pool-
+size increase would let us tune `INGEST_CONCURRENCY` higher.
 
 ### DOI misidentification by GROBID
 

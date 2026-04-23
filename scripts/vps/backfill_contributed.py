@@ -163,6 +163,12 @@ def post_paper(
     Success means the cluster returned 200 AND status != "skipped".
     Skipped papers (quality filter, non-research content) are moved to
     processed/ anyway — they've been seen and shouldn't be retried.
+
+    HTTP 503 with `Retry-After` is the cluster's saturation signal
+    (the /api/admin/ingest concurrency cap was hit). We sleep
+    `Retry-After` seconds in-place before returning False so the next
+    paper in the loop is held off too. The current paper stays in
+    complete/ and gets retried on the next pass.
     """
     try:
         with pdf.open("rb") as f:
@@ -181,6 +187,21 @@ def post_paper(
         return False, "TIMEOUT", None
     except requests.RequestException as e:
         return False, f"NETERR:{e.__class__.__name__}", None
+
+    # 503 = cluster is saturated. Honour Retry-After so we don't
+    # spin uselessly against a wedged endpoint.
+    if r.status_code == 503:
+        try:
+            retry_after = int(r.headers.get("Retry-After", "60"))
+        except (TypeError, ValueError):
+            retry_after = 60
+        retry_after = max(5, min(retry_after, 600))
+        log.info(
+            "503 saturated for %s — sleeping %ds (Retry-After) before next paper",
+            pdf.name, retry_after,
+        )
+        time.sleep(retry_after)
+        return False, "503:saturated", None
 
     if r.status_code != 200:
         tail = r.text[:300].replace("\n", " ")
