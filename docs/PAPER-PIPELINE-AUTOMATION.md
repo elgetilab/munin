@@ -148,6 +148,39 @@ sudo ls /opt/munin/data/papers/processed/ | grep -F some-paper
 sudo journalctl -u munin-paper-pipeline.service --since "2 min ago"
 ```
 
+## One-shot: seed processed-markers for legacy ingests
+
+`scripts/pipeline/seed_processed_markers.py` is a stop-gap that
+walks `pdf/*.pdf`, parses the DOI from the filename, checks
+Qdrant for that DOI, and writes a stub marker if the paper is
+already indexed. Run once after the daemon goes live for the first
+time so the watcher doesn't waste days re-running the full pipeline
+on the ~30k papers from the original crawler ingest (which predate
+marker writing).
+
+```bash
+# Dry run first — count what WOULD be seeded
+sudo /opt/munin/services/pipeline/venv/bin/python3 \
+    /opt/cluster/scripts/pipeline/seed_processed_markers.py --dry-run
+
+# Real run — should write ~30k markers in 1-3 min
+sudo /opt/munin/services/pipeline/venv/bin/python3 \
+    /opt/cluster/scripts/pipeline/seed_processed_markers.py
+
+# Verify the watcher's backlog dropped sharply
+ls /opt/munin/data/papers/processed/ | wc -l
+```
+
+The script prints a summary at the end:
+- `total PDFs scanned` — how many `pdf/*.pdf` files exist
+- `already had marker` — skipped (idempotent)
+- `no doi_ in filename` — non-crawler files; left alone
+- `doi not in Qdrant` — genuinely un-ingested; the watcher will
+  pick these up
+- `markers seeded` — what we just wrote
+
+Idempotent: re-running on a fully-seeded corpus does nothing.
+
 ## Health checks
 
 ### Qdrant growing?

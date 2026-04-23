@@ -279,6 +279,12 @@ deploy_pipeline() {
         $PIPELINE_DIR/paper_pipeline.py"
     run "install -m 0755 $REPO_DIR/scripts/pipeline/paper_cleanup.py \
         $PIPELINE_DIR/paper_cleanup.py"
+    # One-shot stop-gap. Seeds processed-markers for any
+    # `doi_*.pdf` already in Qdrant so the watcher's first pass
+    # doesn't grind through 60k+ duplicates. Run manually after
+    # deploy; idempotent.
+    run "install -m 0755 $REPO_DIR/scripts/pipeline/seed_processed_markers.py \
+        $PIPELINE_DIR/seed_processed_markers.py"
     run "install -m 0644 $REPO_DIR/scripts/pipeline/requirements.txt \
         $PIPELINE_DIR/requirements.txt"
 
