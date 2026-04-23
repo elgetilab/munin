@@ -50,6 +50,22 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:8070:8070"
+    environment:
+      # GROBID's JVM defaults to ~4 GB heap — too small once the
+      # watcher daemon + admin-ingest + cron retry all hammer it
+      # concurrently with --workers 4. We saw an OOM in the
+      # AsyncAppender thread that wedged request handlers without
+      # killing the container (so HTTP timed out instead of
+      # refusing). 12 GB heap leaves 4 GB for off-heap (model
+      # files, native LSTM/CRF buffers, OS cache) inside the 16 GB
+      # cap below.
+      #
+      # Set BOTH JAVA_OPTS (used by some launch wrappers) and
+      # JAVA_TOOL_OPTIONS (always honored by the JVM regardless of
+      # wrapper). Belt + suspenders so the heap actually grows.
+      # Restart GROBID with `up -d --force-recreate` after editing.
+      - JAVA_OPTS=-Xmx12g -Xms2g
+      - JAVA_TOOL_OPTIONS=-Xmx12g -Xms2g
     deploy:
       resources:
         limits:
@@ -151,6 +167,13 @@ services:
       # /api/admin/ingest writes a processed-marker here so the
       # host-side munin-paper-pipeline.service watcher skips the paper.
       - PAPERS_PROCESSED_DIR=/papers-processed
+      # Concurrency cap on /api/admin/ingest so the VPS hook + cron
+      # can't fork 37+ paper_pipeline subprocesses in parallel and
+      # saturate GROBID's 10-engine pool. Over-cap requests fast-fail
+      # with 503 + Retry-After: 60. Keep below GROBID's pool size
+      # (10) minus the watcher's --workers (2) → 4 leaves comfortable
+      # headroom.
+      - INGEST_CONCURRENCY=${INGEST_CONCURRENCY:-4}
     depends_on:
       - qdrant
       - neo4j

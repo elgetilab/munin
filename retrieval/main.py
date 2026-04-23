@@ -1687,6 +1687,29 @@ PAPERS_PROCESSED_MARKER_DIR = os.getenv(
 )
 PIPELINE_TIMEOUT_SECS = int(os.getenv("PIPELINE_TIMEOUT_SECS", "600"))
 
+# Max concurrent /api/admin/ingest pipelines. GROBID has 10 engine
+# slots (grobid.yaml: concurrency: 10) so we cap at 4 by default,
+# leaving 6 engines headroom for the watcher (--workers 2) plus
+# ad-hoc test calls. Without this cap a VPS-side hook + cron
+# combination forked 37+ paper_pipeline subprocesses simultaneously,
+# saturating GROBID's pool and producing sustained 503s
+# (2026-04-23 incident).
+INGEST_CONCURRENCY = int(os.getenv("INGEST_CONCURRENCY", "4"))
+# How long to wait for a free slot before rejecting with 503.
+# Fast-fail keeps the VPS-side cron retry from accumulating
+# in-flight HTTP connections; the cron picks the file up next pass.
+INGEST_ACQUIRE_TIMEOUT_SECS = float(os.getenv("INGEST_ACQUIRE_TIMEOUT_SECS", "5"))
+_ingest_semaphore: Optional[asyncio.Semaphore] = None
+
+
+def _get_ingest_semaphore() -> asyncio.Semaphore:
+    """Lazy-init so the semaphore binds to the running event loop
+    instead of the import-time absence of one."""
+    global _ingest_semaphore
+    if _ingest_semaphore is None:
+        _ingest_semaphore = asyncio.Semaphore(INGEST_CONCURRENCY)
+    return _ingest_semaphore
+
 
 def _quarantine_inbox_paper(
     inbox_pdf: str,
@@ -1776,6 +1799,12 @@ async def api_admin_ingest(
 
     Synchronous: returns 200 only after the pipeline has fully processed
     the PDF (GROBID → CrossRef → SPECTER → Qdrant `papers` + Neo4j).
+
+    Concurrency-capped: at most ``INGEST_CONCURRENCY`` (default 4)
+    pipeline subprocesses run in parallel. Over-cap requests fail
+    fast with 503 + Retry-After so the VPS-side cron can retry next
+    pass instead of stacking up subprocess fork bombs that saturate
+    GROBID's engine pool (2026-04-23 incident).
     """
     _require_admin_token(request)
 
@@ -1785,6 +1814,45 @@ async def api_admin_ingest(
             status_code=400, detail={"error": {"message": "email is required"}}
         )
 
+    sem = _get_ingest_semaphore()
+    try:
+        await asyncio.wait_for(
+            sem.acquire(), timeout=INGEST_ACQUIRE_TIMEOUT_SECS
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": {
+                    "message": (
+                        f"Ingest pipeline saturated "
+                        f"(>= {INGEST_CONCURRENCY} concurrent jobs). "
+                        f"Retry after the cooldown."
+                    )
+                }
+            },
+            headers={"Retry-After": "60"},
+        )
+
+    try:
+        return await _api_admin_ingest_inner(
+            request=request,
+            file=file,
+            email=email,
+            filename=filename,
+            upload_time=upload_time,
+        )
+    finally:
+        sem.release()
+
+
+async def _api_admin_ingest_inner(
+    request: Request,
+    file: UploadFile,
+    email: str,
+    filename: Optional[str],
+    upload_time: Optional[str],
+):
     contents = await file.read()
     if not contents or not contents.startswith(b"%PDF"):
         raise HTTPException(
