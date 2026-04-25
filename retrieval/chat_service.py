@@ -635,6 +635,73 @@ def _resolve_effective_tags(
     return None
 
 
+# --- Phantom-artifact-URL audit (regression guard for chat 25e3f2b) ---
+#
+# The model occasionally narrates "I've updated the file" and includes
+# a fabricated /api/artifacts/<uuid>/<file> URL without actually
+# calling the tool that would have produced it. The chat persona's
+# CORE RULES forbid this, but the failure shape is severe enough
+# (broken downloads, hallucinated success) that we run a post-turn
+# audit as a backstop. Phantom URLs get a warning marker prepended
+# to the saved content + a loud log line for triage.
+
+_ARTIFACT_URL_RE = _re.compile(r"/api/artifacts/[\w-]+/[\w.\-+%]+")
+
+
+def _collect_artifact_urls(obj) -> set:
+    """Walk a tool result (string / dict / list) and collect every
+    `/api/artifacts/...` URL it contains, anywhere in the structure."""
+    found: set = set()
+    if isinstance(obj, str):
+        for m in _ARTIFACT_URL_RE.findall(obj):
+            found.add(m)
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            found.update(_collect_artifact_urls(v))
+    elif isinstance(obj, list):
+        for v in obj:
+            found.update(_collect_artifact_urls(v))
+    return found
+
+
+def audit_artifact_urls_in_content(
+    content: str, tool_calls: Optional[list]
+) -> tuple:
+    """Return (content, phantom_urls).
+
+    `phantom_urls` lists every `/api/artifacts/...` URL that appears
+    in `content` but does NOT appear in any of `tool_calls`' result
+    payloads from this turn. When non-empty, the returned content
+    is prepended with a [backend warning] marker so the saved
+    message carries the audit trail through to chat_store and
+    future replays.
+
+    Pure function — no I/O, safe to unit-test.
+    """
+    if not isinstance(content, str) or not content:
+        return content, []
+    found = set(_ARTIFACT_URL_RE.findall(content))
+    if not found:
+        return content, []
+    legit: set = set()
+    for tc in tool_calls or []:
+        if isinstance(tc, dict):
+            legit.update(_collect_artifact_urls(tc.get("result")))
+    phantoms = sorted(found - legit)
+    if not phantoms:
+        return content, []
+    notice_lines = [
+        "**[backend warning]** This response references "
+        f"{len(phantoms)} artifact URL(s) that were NOT created by a "
+        "tool call in this turn. The link(s) below may be invalid, "
+        "stale, or hallucinated:"
+    ]
+    for u in phantoms:
+        notice_lines.append(f"- `{u}`")
+    notice_lines.extend(["", "---", ""])
+    return "\n".join(notice_lines) + "\n" + content, phantoms
+
+
 def build_active_tags_block(tags: Optional[list[dict]]) -> Optional[str]:
     """Format a short system-prompt block describing currently-active
     `#tag` scope filters so the model knows what knowledge is attached.
@@ -1451,6 +1518,20 @@ async def stream_chat_completion(
             finish_reason = wrap_acc.finish_reason or finish_reason
 
     # --- 6. Persist assistant message ---
+    # Phantom-artifact-URL audit. If the model wrote a
+    # `/api/artifacts/<uuid>/...` URL that wasn't produced by any tool
+    # this turn, prepend a warning marker and log loudly. Persona
+    # CORE RULES forbid this; the audit is a backstop so the saved
+    # transcript carries an audit trail when the rule slips.
+    final_content, _phantom_urls = audit_artifact_urls_in_content(
+        final_content, final_tool_calls
+    )
+    if _phantom_urls:
+        print(
+            f"[WARN] phantom artifact URLs in conversation "
+            f"{conversation['id']}: {_phantom_urls}"
+        )
+
     if not ephemeral:
         await chat_store.add_message(
             conversation_id=conversation["id"],

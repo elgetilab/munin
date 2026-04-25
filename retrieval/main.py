@@ -852,6 +852,13 @@ async def api_report_chat(conversation_id: str, request: Request):
         with open(tmp, "w") as f:
             _json.dump(report, f, indent=2, default=str)
         os.replace(tmp, report_path)
+        # Reports are operator-readable by design (admin reviews them
+        # to triage model failures). Ensure host-side users can read
+        # without sudo regardless of the container's umask.
+        try:
+            os.chmod(report_path, 0o644)
+        except OSError:
+            pass
     except Exception as e:
         raise HTTPException(
             status_code=500,

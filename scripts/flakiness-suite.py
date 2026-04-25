@@ -860,6 +860,43 @@ def _latex_scenario() -> Scenario:
                     ),
                 ],
             ),
+            # Regression for chat e45e3f2b (2026-04-25): model
+            # initially compiled a Beamer deck successfully, then on
+            # the second turn ("make the colour theme red") wrote
+            # prose claiming success + a fabricated artifact UUID
+            # WITHOUT actually calling compile_latex. The user had
+            # to send "Can you check again?" before the model
+            # noticed it had hallucinated the workflow.
+            #
+            # Two turns: build, then modify. Both turns MUST fire
+            # compile_latex. The second turn is the one that used
+            # to fail.
+            Variant(
+                label="modify_colour_theme_after_initial_build",
+                turns=[
+                    Turn(
+                        message=(
+                            "Please make me a Beamer slide deck "
+                            "explaining basic quantum mechanics. "
+                            "Compile it."
+                        ),
+                        assertion=latex_ok,
+                        persona="chat",
+                    ),
+                    Turn(
+                        message=(
+                            "Could you make the presentation colour "
+                            "theme red?"
+                        ),
+                        assertion=latex_ok,
+                        persona="chat",
+                        # Allow one soft retry — the regression we're
+                        # guarding against was sampling-rare-ish, and
+                        # the persona rule may not catch every path.
+                        soft_retries=1,
+                    ),
+                ],
+            ),
         ],
         # LaTeX compiles are fast but model latency is ~10-30s; 3 reps keeps
         # total runtime reasonable.

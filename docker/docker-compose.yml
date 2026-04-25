@@ -167,6 +167,13 @@ services:
       # /api/admin/ingest writes a processed-marker here so the
       # host-side munin-paper-pipeline.service watcher skips the paper.
       - PAPERS_PROCESSED_DIR=/papers-processed
+      # POST /api/chats/{id}/report writes here. Default
+      # /opt/munin/data/reported doesn't exist inside the container
+      # (host's /opt/munin/data is mounted at /data), so without
+      # this override reports land in the container's ephemeral
+      # writable layer and vanish on rebuild. /data/reported is on
+      # the persistent host volume.
+      - MUNIN_REPORTED_DIR=/data/reported
       # Concurrency cap on /api/admin/ingest so the VPS hook + cron
       # can't fork 37+ paper_pipeline subprocesses in parallel and
       # saturate GROBID's 10-engine pool. Over-cap requests fast-fail
