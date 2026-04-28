@@ -558,13 +558,26 @@ async def update_conversation(
     conversation_id: str,
     user_email: str,
     title: Optional[str] = None,
+    persona: Optional[str] = None,
 ) -> Optional[dict]:
+    """Patch an existing conversation row. Pass any subset of
+    ``title`` / ``persona``. Empty-set call is a no-op fast path
+    that just returns the current row.
+
+    ``persona`` is used by the §X delegation flow so a chat that the
+    model hands off to ``code`` mid-conversation persists as belonging
+    to the new persona; future turns then resolve to the delegated
+    persona's prompt + tool subset without paying the delegation
+    round-trip again."""
     db = await get_db()
     updates: list[str] = []
     params: list[Any] = []
     if title is not None:
         updates.append("title = ?")
         params.append(title)
+    if persona is not None:
+        updates.append("persona = ?")
+        params.append(persona)
     if not updates:
         return await _get_conversation_meta(conversation_id, user_email)
 

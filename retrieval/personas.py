@@ -152,3 +152,42 @@ def sampling_params(persona: dict) -> dict:
         if key in params:
             out[key] = params[key]
     return out
+
+
+def tool_allowlist(persona: Optional[dict]) -> Optional[list[str]]:
+    """
+    Return the persona's explicit tool allowlist, or None if it has
+    no ``params.tool_allowlist`` field.
+
+    None means "fall back to all tools" — back-compat for personas
+    written before the per-persona-tool-subset change (2026-04-28).
+    Callers that filter the MCP schema must accept None and emit the
+    full tool list in that case.
+
+    Side effect: ``delegate_to_persona`` is auto-injected into every
+    explicit allowlist (deduped). This means every persona can hand
+    a turn off to another persona via the delegation tool without
+    each persona JSON having to spell it out. Personas that opt out
+    by passing ``"-delegate_to_persona"`` in their list are NOT
+    supported yet — keep the auto-inject simple.
+
+    The list is normalised to a list of strings (drops any non-string
+    entries silently).
+    """
+    if not isinstance(persona, dict):
+        return None
+    params = persona.get("params") or {}
+    raw = params.get("tool_allowlist")
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        return None
+    out: list[str] = []
+    seen: set = set()
+    for entry in raw:
+        if isinstance(entry, str) and entry and entry not in seen:
+            out.append(entry)
+            seen.add(entry)
+    if "delegate_to_persona" not in seen:
+        out.append("delegate_to_persona")
+    return out

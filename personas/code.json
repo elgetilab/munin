@@ -9,7 +9,26 @@
     "top_p": 0.95,
     "top_k": 20,
     "min_p": 0.0,
-    "presence_penalty": 0.0
+    "presence_penalty": 0.0,
+    "tool_allowlist": [
+      "web_search",
+      "web_fetch",
+      "compile_latex",
+      "run_python",
+      "calculate",
+      "sandbox_reset",
+      "ask_clarification",
+      "view_attachment",
+      "create_artifact",
+      "read_artifact",
+      "update_artifact",
+      "list_artifacts",
+      "save_artifact_to_documents",
+      "search_user_docs",
+      "list_projects",
+      "get_current_project",
+      "faq"
+    ]
   },
   "meta": {
     "description": "Code assistant for programming, scientific computing, debugging, and code review.",

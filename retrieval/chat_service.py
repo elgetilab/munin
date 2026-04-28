@@ -179,19 +179,93 @@ def _error_sse(message: str) -> dict:
 
 # --- vLLM tool-call converters ------------------------------------------------
 
-def _openai_tools_schema() -> list[dict]:
-    """Translate MCP_TOOLS into the OpenAI `tools` array vLLM expects."""
+def _openai_tools_schema(persona: Optional[dict] = None) -> list[dict]:
+    """
+    Translate MCP_TOOLS into the OpenAI ``tools`` array vLLM expects.
+
+    Filters by the persona's ``params.tool_allowlist`` when present.
+    Personas without an allowlist (legacy / unset) get the full
+    schema with a one-time warning printed at load time.
+
+    Filtering matters because the full 38-tool schema tokenizes to
+    ~19K tokens and pushes prefill past a hang cliff at ~40K total
+    tokens (see scripts/repro_vllm_hang.py, 2026-04-28). Per-persona
+    subsets keep the schema in the safe zone for typical multi-turn
+    contexts.
+    """
+    allow: Optional[list[str]] = None
+    if persona is not None:
+        allow = persona_module.tool_allowlist(persona)
+        if allow is None:
+            pid = persona.get("id") if isinstance(persona, dict) else "?"
+            # One-shot warning per process. Legacy personas without
+            # an explicit allowlist still work — just at the cost of
+            # the larger schema.
+            global _UNSCOPED_PERSONA_WARNED
+            if pid not in _UNSCOPED_PERSONA_WARNED:
+                print(
+                    f"[WARNING] persona {pid!r} has no params.tool_allowlist; "
+                    f"falling back to full {len(MCP_TOOLS)}-tool schema. "
+                    f"Add an allowlist to keep prompt size below the prefill "
+                    f"cliff."
+                )
+                _UNSCOPED_PERSONA_WARNED.add(pid)
+
+    allow_set: Optional[set[str]] = set(allow) if allow is not None else None
+    src_persona_id = (persona or {}).get("id") if isinstance(persona, dict) else None
     tools: list[dict] = []
     for name, spec in MCP_TOOLS.items():
+        if allow_set is not None and name not in allow_set:
+            continue
+        params = spec.get("inputSchema", {"type": "object"})
+        # delegate_to_persona's persona_id enum lists every persona;
+        # at runtime we narrow it to "every persona EXCEPT the source"
+        # so the model can't accidentally delegate to itself (no-op
+        # that wastes a turn). All other tools pass through unchanged.
+        if name == "delegate_to_persona" and src_persona_id:
+            params = _narrow_delegate_enum(params, src_persona_id)
         tools.append({
             "type": "function",
             "function": {
                 "name": name,
                 "description": spec.get("description", ""),
-                "parameters": spec.get("inputSchema", {"type": "object"}),
+                "parameters": params,
             },
         })
     return tools
+
+
+def _narrow_delegate_enum(params: dict, src_persona_id: str) -> dict:
+    """Return a deep-ish copy of the delegate_to_persona inputSchema
+    with ``persona_id`` enum narrowed to exclude ``src_persona_id``.
+    Falls back to the original schema if the structure isn't shaped
+    as expected (defensive against schema drift)."""
+    try:
+        props = params.get("properties") or {}
+        target = props.get("persona_id") or {}
+        full_enum = target.get("enum") or []
+        if not full_enum:
+            return params
+        narrowed = [pid for pid in full_enum if pid != src_persona_id]
+        if not narrowed or narrowed == list(full_enum):
+            return params
+        # Shallow copy is enough — only the enum list changes; nothing
+        # else aliases that level.
+        new_target = dict(target)
+        new_target["enum"] = narrowed
+        new_props = dict(props)
+        new_props["persona_id"] = new_target
+        new_params = dict(params)
+        new_params["properties"] = new_props
+        return new_params
+    except Exception:
+        return params
+
+
+# Tracks personas we've already warned about in this process. Reset
+# on module reload (e.g. after a deploy). Module-level so the
+# warning fires at most once per persona id per process.
+_UNSCOPED_PERSONA_WARNED: set = set()
 
 
 def _parse_arguments(raw: Any) -> dict:
@@ -439,6 +513,7 @@ def _looks_like_prose_action_promise(content: str) -> bool:
 async def _force_clarification_retry(
     messages: list[dict],
     sampling: dict,
+    persona: Optional[dict] = None,
     max_attempts: int = 3,
 ) -> Optional[dict]:
     """
@@ -463,7 +538,7 @@ async def _force_clarification_retry(
             "model": VLLM_MODEL_NAME,
             "messages": messages,
             "stream": False,
-            "tools": _openai_tools_schema(),
+            "tools": _openai_tools_schema(persona),
             "tool_choice": {
                 "type": "function",
                 "function": {"name": "ask_clarification"},
@@ -544,6 +619,7 @@ async def _force_required_tool_retry(
     messages: list[dict],
     sampling: dict,
     nudge_text: str,
+    persona: Optional[dict] = None,
     max_attempts: int = 2,
 ) -> Optional[list[dict]]:
     """
@@ -575,7 +651,7 @@ async def _force_required_tool_retry(
             "model": VLLM_MODEL_NAME,
             "messages": nudged_messages,
             "stream": False,
-            "tools": _openai_tools_schema(),
+            "tools": _openai_tools_schema(persona),
             "tool_choice": "required",
             # Cap generation. A forced tool call should resolve in well
             # under this; without a cap, an off-the-rails generation on
@@ -675,6 +751,7 @@ async def _stream_vllm_once(
     messages: list[dict],
     sampling: dict,
     enable_tools: bool,
+    persona: Optional[dict] = None,
 ) -> AsyncIterator[tuple[str, dict, _StreamAccumulator]]:
     """
     Make one streaming call to vLLM and yield (event_name, payload, acc)
@@ -708,7 +785,7 @@ async def _stream_vllm_once(
     }
     body.update(sampling)
     if enable_tools:
-        body["tools"] = _openai_tools_schema()
+        body["tools"] = _openai_tools_schema(persona)
         body["tool_choice"] = "auto"
 
     try:
@@ -799,18 +876,61 @@ async def _stream_vllm_once(
 
 # --- Tool execution -----------------------------------------------------------
 
-async def _run_tool_calls(tool_calls: list[dict]) -> list[dict]:
-    """Execute all tool calls in parallel, preserving order."""
+async def _run_tool_calls(
+    tool_calls: list[dict],
+    persona_id: Optional[str] = None,
+    allowed_tools: Optional[set[str]] = None,
+) -> list[dict]:
+    """Execute all tool calls in parallel, preserving order.
+
+    When ``allowed_tools`` is supplied, any tool call whose name is
+    not in the set is short-circuited with a synthetic error result
+    instead of being dispatched to the executor. qwen3 emits tool
+    calls from training memory regardless of the schema we send (the
+    schema is guidance, not enforcement), so a research-persona user
+    asking for "run this Python script" still produces a run_python
+    call even though the persona's allowlist excludes it. The
+    synthetic error nudges the model toward delegate_to_persona on
+    the next iteration without actually executing the off-allowlist
+    tool.
+
+    ``persona_id`` is folded into the error message so the model
+    knows whose budget it tripped.
+    """
     async def one(tc: dict) -> dict:
+        name = tc.get("name") or ""
+        if allowed_tools is not None and name not in allowed_tools:
+            print(
+                f"[INFO] persona-allowlist reject "
+                f"(persona={persona_id!r}, tool={name!r})"
+            )
+            return {
+                "id": tc["id"],
+                "name": name,
+                "result": {
+                    "error": (
+                        f"The {name!r} tool is not available in the "
+                        f"{persona_id!r} persona's tool set. "
+                        f"To use it, call delegate_to_persona "
+                        f"({{'persona_id': '<target>', 'reason': "
+                        f"'<one-line>'}}) where target is the persona "
+                        f"that has this tool — typically 'code' for "
+                        f"run_python / sandbox_reset, or 'research' "
+                        f"for deep paper-search tools. Otherwise "
+                        f"answer using only the tools you do have."
+                    ),
+                },
+                "duration_ms": 0,
+            }
         started = time.monotonic()
         try:
-            result = await execute_mcp_tool(tc["name"], tc["arguments"])
+            result = await execute_mcp_tool(name, tc["arguments"])
         except Exception as e:
             result = {"error": f"tool execution failed: {e}"}
         duration_ms = int((time.monotonic() - started) * 1000)
         return {
             "id": tc["id"],
-            "name": tc["name"],
+            "name": name,
             "result": result,
             "duration_ms": duration_ms,
         }
@@ -930,6 +1050,128 @@ def audit_artifact_urls_in_content(
     return "\n".join(notice_lines) + "\n" + content, phantoms
 
 
+async def _build_full_system_prompt(
+    persona: dict,
+    user_email: str,
+    conversation_id: Optional[str],
+    ephemeral: bool,
+    project: Optional[dict],
+) -> str:
+    """
+    Assemble the full system prompt for a persona by stacking the
+    persona's own ``params.system`` text under the standard set of
+    ambient blocks: user profile, user memory, active artifacts,
+    project context, current-date, agent summaries, capabilities.
+
+    Factored out of ``stream_chat_completion`` so the same build can
+    run twice in one request when a delegation swaps personas
+    mid-flight (the new persona's text replaces the old; everything
+    else stays the same — the user, the conversation, the workspace
+    don't change).
+
+    Block stacking order (top to bottom):
+
+        project_block                  -- §21
+        artifact_block                 -- §22
+        memory_block                   -- §9
+        profile_block                  -- §25
+        <persona system prompt>
+        ambient (current date)
+        agent_hint                     -- agent registry
+        capabilities_block             -- §4 passive
+
+    Each block is gated by ``ephemeral``/conversation_id/project
+    presence the same way the original inline code was — so an
+    ephemeral chat gets the same minimal stack as before.
+    """
+    system_prompt = persona_module.build_system_prompt(persona)
+
+    if not ephemeral:
+        try:
+            profile = await user_profile_store.get_profile(user_email)
+            profile_block = user_profile_store.build_profile_block(profile)
+        except Exception as e:
+            print(f"[WARNING] profile load failed: {e}")
+            profile_block = None
+        if profile_block:
+            system_prompt = (
+                f"{profile_block}\n\n{system_prompt}"
+                if system_prompt
+                else profile_block
+            )
+
+    if not ephemeral:
+        try:
+            memories = await memory_store.recall_all(user_email)
+            memory_block = memory_store.build_memory_block(memories)
+        except Exception as e:
+            print(f"[WARNING] memory load failed: {e}")
+            memory_block = None
+        if memory_block:
+            system_prompt = (
+                f"{memory_block}\n\n{system_prompt}"
+                if system_prompt
+                else memory_block
+            )
+
+    if not ephemeral and conversation_id:
+        try:
+            artifact_rows = await artifact_store.list_artifacts(
+                user_email=user_email,
+                conversation_id=conversation_id,
+            )
+            artifact_block = artifact_store.build_artifact_summary_block(
+                artifact_rows
+            )
+        except Exception as e:
+            print(f"[WARNING] artifact summary load failed: {e}")
+            artifact_block = None
+        if artifact_block:
+            system_prompt = (
+                f"{artifact_block}\n\n{system_prompt}"
+                if system_prompt
+                else artifact_block
+            )
+
+    if not ephemeral and project:
+        try:
+            project_block = project_store.build_project_prompt_block(project)
+        except Exception as e:
+            print(f"[WARNING] project block render failed: {e}")
+            project_block = None
+        if project_block:
+            system_prompt = (
+                f"{project_block}\n\n{system_prompt}"
+                if system_prompt
+                else project_block
+            )
+
+    now_local = datetime.now().astimezone()
+    ambient = (
+        f"Current date: {now_local.strftime('%A, %B %d, %Y')} "
+        f"({now_local.strftime('%Y-%m-%d %H:%M %Z')}). "
+        "Use this directly — do not search the web for the date."
+    )
+    system_prompt = (
+        f"{system_prompt}\n\n{ambient}" if system_prompt else ambient
+    )
+
+    agent_hint = agents_pkg.agent_summaries_for_prompt()
+    if agent_hint:
+        system_prompt = f"{system_prompt}\n\n{agent_hint}"
+
+    if not ephemeral:
+        try:
+            capabilities_block = capabilities_module.build_capabilities_block()
+        except Exception as e:
+            print(f"[WARNING] capabilities block build failed: {e}")
+            capabilities_block = None
+        if capabilities_block:
+            system_prompt = f"{system_prompt}\n\n{capabilities_block}"
+
+    return system_prompt
+
+
 def build_active_tags_block(tags: Optional[list[dict]]) -> Optional[str]:
     """Format a short system-prompt block describing currently-active
     `#tag` scope filters so the model knows what knowledge is attached.
@@ -1020,127 +1262,18 @@ async def stream_chat_completion(
     normalized_tags = _normalize_query_tags(query_tags)
     effective_tags: Optional[list[dict]] = normalized_tags
 
-    system_prompt = persona_module.build_system_prompt(persona)
-
-    # Inject the user profile (§25). Profile is user-curated and goes at the
-    # very top of the system prompt so the model sees it before persona
-    # instructions, ambient context, and agent hints. Skipped for ephemeral
-    # chats so privacy-mode requests don't quietly carry user-identifying
-    # preferences into the model. If the user has no profile (or only empty
-    # fields) build_profile_block returns None and nothing is prepended.
-    if not ephemeral:
-        try:
-            profile = await user_profile_store.get_profile(user_email)
-            profile_block = user_profile_store.build_profile_block(profile)
-        except Exception as e:
-            print(f"[WARNING] profile load failed: {e}")
-            profile_block = None
-        if profile_block:
-            system_prompt = (
-                f"{profile_block}\n\n{system_prompt}"
-                if system_prompt
-                else profile_block
-            )
-
-    # Inject user memory (§9). Model-curated facts persist across chats
-    # via the remember/forget/recall MCP tools. The memory block sits
-    # between profile and persona in the system prompt order, so the
-    # model sees "what the user told you directly" (profile) before
-    # "what you've learned while working with them" (memory). Skipped
-    # in ephemeral mode - the same privacy contract as profile, and
-    # the memory tools themselves are refused there too.
-    if not ephemeral:
-        try:
-            memories = await memory_store.recall_all(user_email)
-            memory_block = memory_store.build_memory_block(memories)
-        except Exception as e:
-            print(f"[WARNING] memory load failed: {e}")
-            memory_block = None
-        if memory_block:
-            system_prompt = (
-                f"{memory_block}\n\n{system_prompt}"
-                if system_prompt
-                else memory_block
-            )
-
-    # Inject active artifacts summary (§22). Summary-only by design:
-    # title, type, version, word count. The model calls
-    # read_artifact(id) when it needs the actual content, so context
-    # overhead stays bounded regardless of how many artifacts a
-    # conversation accumulates. Only injected for persistent
-    # conversations that have at least one artifact. Ephemeral chats
-    # never have artifacts (the tools refuse), so the block is
-    # skipped there automatically. This block sits BELOW profile /
-    # memory but ABOVE the persona prompt so the "what are we working
-    # on right now" framing comes just before the persona's stylistic
-    # instructions.
-    if not ephemeral and conversation_id:
-        try:
-            artifact_rows = await artifact_store.list_artifacts(
-                user_email=user_email,
-                conversation_id=conversation_id,
-            )
-            artifact_block = artifact_store.build_artifact_summary_block(
-                artifact_rows
-            )
-        except Exception as e:
-            print(f"[WARNING] artifact summary load failed: {e}")
-            artifact_block = None
-        if artifact_block:
-            system_prompt = (
-                f"{artifact_block}\n\n{system_prompt}"
-                if system_prompt
-                else artifact_block
-            )
-
-    # Inject the project context block (§21). Goes ABOVE the persona
-    # prompt so the model sees the workspace framing first. Skipped for
-    # ephemeral chats and for conversations without a project.
-    if not ephemeral and project:
-        try:
-            project_block = project_store.build_project_prompt_block(project)
-        except Exception as e:
-            print(f"[WARNING] project block render failed: {e}")
-            project_block = None
-        if project_block:
-            system_prompt = (
-                f"{project_block}\n\n{system_prompt}"
-                if system_prompt
-                else project_block
-            )
-
-    # Inject an ambient-context block so the model doesn't waste a tool call
-    # on trivia it should just know (today's date, etc.). Placed before the
-    # agent summaries so the persona prompt still leads.
-    now_local = datetime.now().astimezone()
-    ambient = (
-        f"Current date: {now_local.strftime('%A, %B %d, %Y')} "
-        f"({now_local.strftime('%Y-%m-%d %H:%M %Z')}). "
-        "Use this directly — do not search the web for the date."
+    # Persona system prompt + all ambient blocks (profile, memory,
+    # artifacts, project, current date, agents, capabilities). Same
+    # function is called again later if the model triggers
+    # ``delegate_to_persona`` so the new persona ends up sitting in
+    # the same block stack.
+    system_prompt = await _build_full_system_prompt(
+        persona=persona,
+        user_email=user_email,
+        conversation_id=conversation_id,
+        ephemeral=ephemeral,
+        project=project,
     )
-    system_prompt = (
-        f"{system_prompt}\n\n{ambient}" if system_prompt else ambient
-    )
-
-    agent_hint = agents_pkg.agent_summaries_for_prompt()
-    if agent_hint:
-        system_prompt = f"{system_prompt}\n\n{agent_hint}"
-
-    # §4 passive: capabilities introspection block. Describes every
-    # MCP tool, agent, persona, user-facing feature, and FAQ topic
-    # in ~500-600 tokens so the model can honestly answer "what can
-    # you do?" without hallucinating. Skipped in ephemeral mode
-    # alongside profile / memory / project for the same privacy
-    # consistency (nothing user-identifying, but the block is a
-    # known-answers-for-this-server signal).
-    if not ephemeral:
-        try:
-            capabilities_block = capabilities_module.build_capabilities_block()
-        except Exception as e:
-            print(f"[WARNING] capabilities block build failed: {e}")
-            capabilities_block = None
-        if capabilities_block:
-            system_prompt = f"{system_prompt}\n\n{capabilities_block}"
 
     # §28: active-tags block is injected further down, AFTER conversation
     # resolution, because `effective_tags` depends on the conversation's
@@ -1331,6 +1464,22 @@ async def stream_chat_completion(
     final_usage: Optional[dict] = None
     finish_reason: Optional[str] = None
 
+    # Snapshot the freshly-assembled messages so the delegation
+    # intercept can rewind to a clean pre-loop state when it swaps
+    # personas mid-flight. The loop body otherwise mutates ``messages``
+    # by appending assistant tool_call turns + tool_result turns.
+    messages_pre_loop = list(messages)
+
+    # Per-request budget for delegate_to_persona. The model is allowed
+    # to hand off ONCE per user turn; a second delegation attempt is
+    # rejected with a synthetic tool_result so the receiving persona
+    # answers directly. Counter is intentionally request-scoped, not
+    # turn-scoped — once the delegated persona starts running, it has
+    # the full remaining MAX_TURNS budget to do its work but cannot
+    # delegate further.
+    delegations_used = 0
+    DELEGATION_BUDGET = 1
+
     MAX_TURNS = 10
     hit_turn_cap = True  # assume exhaustion unless we break cleanly below
     for turn in range(MAX_TURNS):
@@ -1339,7 +1488,10 @@ async def stream_chat_completion(
         recovery_used_this_turn = False
 
         async for event_name, payload, accumulator in _stream_vllm_once(
-            messages=messages, sampling=sampling, enable_tools=True
+            messages=messages,
+            sampling=sampling,
+            enable_tools=True,
+            persona=persona,
         ):
             acc = accumulator
             if event_name == "error":
@@ -1378,7 +1530,9 @@ async def stream_chat_completion(
             and turn == 0
             and _looks_like_prose_clarification(acc.content)
         ):
-            forced = await _force_clarification_retry(messages, sampling)
+            forced = await _force_clarification_retry(
+                messages, sampling, persona=persona
+            )
             if forced is not None:
                 tool_calls = [forced]
                 # Wipe the prose content we accumulated during the
@@ -1431,7 +1585,7 @@ async def stream_chat_completion(
                         "until a tool actually creates them."
                     )
                 recovered = await _force_required_tool_retry(
-                    messages, sampling, nudge
+                    messages, sampling, nudge, persona=persona
                 )
                 recovery_used_this_turn = True
                 if recovered:
@@ -1459,6 +1613,197 @@ async def stream_chat_completion(
         if not tool_calls:
             hit_turn_cap = False
             break
+
+        # --- delegate_to_persona intercept ---
+        # The chat / code / research personas can each call
+        # ``delegate_to_persona`` to hand the current user turn to a
+        # different persona when the user's request fits another
+        # persona's tools/style better (e.g. chat user asks for a
+        # multi-paper literature review → delegate to research).
+        # Detected here, before _run_tool_calls fires, because the
+        # delegate_to_persona MCP tool has no executor counterpart —
+        # the actual handoff is implemented as a re-entry into this
+        # same loop with a swapped persona. Any non-delegation tool
+        # calls from the same response are dropped (matches the
+        # ``ask_clarification`` precedent: a turn that picks a
+        # control-flow tool can't also do regular work).
+        delegate_tc = next(
+            (tc for tc in tool_calls if tc.get("name") == "delegate_to_persona"),
+            None,
+        )
+        if delegate_tc is not None:
+            args = delegate_tc.get("arguments") or {}
+            target_id = (args.get("persona_id") or "").strip()
+            reason = (args.get("reason") or "").strip()[:200]
+            target_persona = (
+                persona_module.get_persona(target_id) if target_id else None
+            )
+
+            # Validation: bad target / self-delegation / budget.
+            # On any of these we synthesise a tool_result with an
+            # error, append it to messages so the model sees the
+            # rejection on the next iteration, and continue the loop.
+            reject_reason: Optional[str] = None
+            if not target_id:
+                reject_reason = (
+                    "delegate_to_persona requires a non-empty persona_id."
+                )
+            elif target_persona is None:
+                reject_reason = (
+                    f"persona {target_id!r} not found; valid options "
+                    f"are 'chat', 'code', 'research'."
+                )
+            elif target_id == persona_id:
+                reject_reason = (
+                    f"cannot delegate to your own persona "
+                    f"({persona_id!r}); answer directly."
+                )
+            elif delegations_used >= DELEGATION_BUDGET:
+                reject_reason = (
+                    "delegation budget exhausted (one delegation per "
+                    "user turn). Answer directly using your own tools."
+                )
+
+            if reject_reason is not None:
+                print(
+                    f"[INFO] delegate_to_persona rejected "
+                    f"(from={persona_id!r}, target={target_id!r}, "
+                    f"reason={reject_reason!r})"
+                )
+                synthetic_result = {
+                    "id": delegate_tc["id"],
+                    "name": "delegate_to_persona",
+                    "arguments": args,
+                    "result": {"error": reject_reason},
+                    "duration_ms": 0,
+                }
+                final_tool_calls.append(synthetic_result)
+                yield _sse(
+                    "tool_result",
+                    {
+                        "id": delegate_tc["id"],
+                        "name": "delegate_to_persona",
+                        "result": synthetic_result["result"],
+                        "duration_ms": 0,
+                    },
+                )
+                # Append the rejection into the message list so the
+                # model can see it and write a real reply on the next
+                # iteration. Drop any other tool calls in the same
+                # response (per the schema contract).
+                messages.append({
+                    "role": "assistant",
+                    "content": acc.content or "",
+                    "tool_calls": [
+                        {
+                            "id": delegate_tc["id"],
+                            "type": "function",
+                            "function": {
+                                "name": "delegate_to_persona",
+                                "arguments": json.dumps(args),
+                            },
+                        }
+                    ],
+                })
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": delegate_tc["id"],
+                    "content": json.dumps(synthetic_result["result"])[:2000],
+                })
+                continue
+
+            # Real delegation: swap persona, rebuild system_prompt,
+            # rewind messages to the pre-loop snapshot (so the new
+            # persona sees a clean conversation, not the rejected
+            # prose draft + tool calls that the source persona
+            # accumulated this turn), reset accumulators, and let the
+            # loop run another iteration with the new persona.
+            delegations_used += 1
+            print(
+                f"[INFO] delegate_to_persona firing "
+                f"(from={persona_id!r}, to={target_id!r}, "
+                f"reason={reason!r})"
+            )
+            yield _sse(
+                "delegated",
+                {
+                    "from_persona": persona_id,
+                    "to_persona": target_id,
+                    "reason": reason,
+                },
+            )
+
+            # Persist the persona switch on the conversation row so
+            # subsequent user turns resolve to the delegated persona
+            # by default (the user effectively switched personas
+            # mid-conversation; no need to pay the delegation
+            # round-trip again). Skipped for ephemeral chats.
+            if not ephemeral:
+                try:
+                    await chat_store.update_conversation(
+                        conversation_id=conversation["id"],
+                        user_email=user_email,
+                        persona=target_id,
+                    )
+                except Exception as e:
+                    print(f"[WARNING] persona persistence failed: {e}")
+                yield _sse(
+                    "persona_changed",
+                    {
+                        "id": conversation["id"],
+                        "persona": target_id,
+                    },
+                )
+
+            # Swap state.
+            persona_id = target_id
+            persona = target_persona
+            sampling = persona_module.sampling_params(persona)
+            try:
+                system_prompt = await _build_full_system_prompt(
+                    persona=persona,
+                    user_email=user_email,
+                    conversation_id=conversation["id"] if not ephemeral else None,
+                    ephemeral=ephemeral,
+                    project=project,
+                )
+            except Exception as e:
+                print(f"[WARNING] post-delegation system_prompt rebuild failed: {e}")
+            # Re-apply tags block if it was originally injected — same
+            # block sits below the persona prompt; rebuilt above
+            # already includes it via _build_full_system_prompt? No —
+            # the tags block is applied separately further down in
+            # the original flow (after conversation resolution). We
+            # reapply it inline here so the delegated persona sees
+            # the same active-tags context.
+            tags_block = build_active_tags_block(effective_tags)
+            if tags_block:
+                system_prompt = f"{system_prompt}\n\n{tags_block}"
+
+            # Rebuild messages from pre-loop snapshot but with the new
+            # system prompt swapped in. The snapshot's first entry is
+            # the system message; replace its content rather than
+            # re-running assemble_context (which would re-fetch
+            # history + summarise — unnecessary work and could hit
+            # vLLM during a delegation hot path).
+            messages = list(messages_pre_loop)
+            if messages and messages[0].get("role") == "system":
+                messages[0] = {"role": "system", "content": system_prompt}
+            else:
+                messages.insert(0, {"role": "system", "content": system_prompt})
+            messages_pre_loop = list(messages)
+
+            # Reset accumulators so the persisted assistant message
+            # reflects the delegated persona's work, not the source
+            # persona's rejected draft.
+            final_content = ""
+            final_thinking = ""
+            final_tool_calls = []
+            final_usage = None
+            if acc is not None:
+                acc.content_parts.clear()
+                acc.thinking_parts.clear()
+            continue
 
         # --- §14 ask_clarification intercept ---
         # If the model called ask_clarification, short-circuit the whole
@@ -1490,7 +1835,9 @@ async def stream_chat_completion(
                     f"[WARNING] organic ask_clarification payload invalid "
                     f"({err}); trying forced-retry fallback"
                 )
-                forced = await _force_clarification_retry(messages, sampling)
+                forced = await _force_clarification_retry(
+                    messages, sampling, persona=persona
+                )
                 if forced is None:
                     # Forced retry also failed. Don't break the turn — just
                     # drop the malformed clarification call so the existing
@@ -1605,9 +1952,27 @@ async def stream_chat_completion(
 
         current_sse_emitter.set(_push)
 
+        # Build the persona's effective allowlist so _run_tool_calls
+        # can reject off-allowlist calls with a synthetic error
+        # tool_result. ask_clarification + delegate_to_persona are
+        # always permitted (control-flow tools). Personas without an
+        # explicit allowlist (back-compat path) get None, which means
+        # "all tools allowed" inside _run_tool_calls.
+        _allow_list = persona_module.tool_allowlist(persona)
+        allowed_tools_set: Optional[set[str]] = None
+        if _allow_list is not None:
+            allowed_tools_set = set(_allow_list) | {
+                "ask_clarification",
+                "delegate_to_persona",
+            }
+
         async def _runner() -> list[dict]:
             try:
-                return await _run_tool_calls(tool_calls)
+                return await _run_tool_calls(
+                    tool_calls,
+                    persona_id=persona_id,
+                    allowed_tools=allowed_tools_set,
+                )
             finally:
                 await event_queue.put(SENTINEL)
 

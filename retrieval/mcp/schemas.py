@@ -872,5 +872,51 @@ MCP_TOOLS = {
             },
             "required": []
         }
+    },
+    "delegate_to_persona": {
+        "name": "delegate_to_persona",
+        "description": (
+            "Hand this turn to a different persona when their tools and "
+            "style fit the user's request better than yours. Each "
+            "persona has a curated tool set: 'chat' is the general "
+            "assistant, 'code' is the programmer (deep run_python + "
+            "compile_latex iteration, no paper search), 'research' is "
+            "the literature-review specialist (deep_research, semantic "
+            "scholar, citation graphs). Use sparingly and only when "
+            "your own tools clearly cannot fulfil the request. The "
+            "user keeps the conversation, the new persona just takes "
+            "over from this turn forward.\n\n"
+            "Examples of when to delegate:\n"
+            "- User in 'chat' asks for a multi-paper literature review "
+            "with citation tracing: delegate to 'research'.\n"
+            "- User in 'chat' asks for a long debugging session on a "
+            "Python script: delegate to 'code'.\n"
+            "- User in 'research' asks for a quick general fact: "
+            "delegate to 'chat'.\n"
+            "- User in 'code' asks for a paper review: delegate to "
+            "'research'.\n\n"
+            "Do NOT delegate for trivial tweaks you can handle. Do NOT "
+            "delegate to your own persona id (no-op). Each user turn "
+            "permits at most ONE delegation hop — the receiving "
+            "persona must answer directly. If you call this tool "
+            "alongside others in the same response, only the "
+            "delegation runs; the other tool calls are dropped."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "persona_id": {
+                    "type": "string",
+                    "enum": ["chat", "code", "research"],
+                    "description": "Target persona id. Cannot equal your own id."
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "One-line explanation shown to the user (max 200 chars). Be concrete: 'this needs deep_research for citation graph traversal' beats 'this fits research better'.",
+                    "maxLength": 200
+                }
+            },
+            "required": ["persona_id", "reason"]
+        }
     }
 }
