@@ -476,6 +476,7 @@ async def register_sandbox_artifact(
     filename: str,
     content_type: str,
     size_bytes: int,
+    inline_content: Optional[str] = None,
 ) -> dict:
     """
     Register a sandbox-generated file in the unified artifacts table
@@ -489,6 +490,14 @@ async def register_sandbox_artifact(
     We verify the caller's conversation ownership but we don't
     re-validate filename/content_type/size - those came from the
     sandbox-svc response which already enforces its own caps.
+
+    When ``inline_content`` is supplied the artifact_versions row
+    stores that exact text (capped at MAX_CONTENT_BYTES) instead of
+    the standard "[Sandbox-generated file: ...]" placeholder. Used by
+    compile_latex to keep the .tex source readable via read_artifact
+    and reusable via compile_latex(artifact_id=...). Pass None for
+    binaries (PDFs, plot PNGs) where the bytes only make sense via
+    external_url.
     """
     if not await _verify_conversation_owned(conversation_id, user_email):
         raise ArtifactError("conversation not found or not owned by user")
@@ -507,11 +516,19 @@ async def register_sandbox_artifact(
     # and read_artifact has something meaningful to return for
     # sandbox rows. We don't store the actual bytes - those live on
     # disk in the sandbox container and are fetched via external_url.
-    placeholder = (
-        f"[Sandbox-generated file: {filename} ({content_type}, "
-        f"{size_bytes} bytes). The actual bytes live in the sandbox "
-        f"container; fetch them via GET {external_url}.]"
-    )
+    # When the caller passes inline_content (compile_latex .tex
+    # source), we store that instead so subsequent reads / diffed
+    # recompiles work without re-fetching from the sandbox.
+    if isinstance(inline_content, str) and inline_content:
+        # Reuse MAX_CONTENT_BYTES validation so a giant inline blob
+        # can't squeeze past the existing model-written cap.
+        version_content = _validate_content(inline_content)
+    else:
+        version_content = (
+            f"[Sandbox-generated file: {filename} ({content_type}, "
+            f"{size_bytes} bytes). The actual bytes live in the sandbox "
+            f"container; fetch them via GET {external_url}.]"
+        )
 
     db = await get_db()
     aid = f"art_{uuid.uuid4().hex[:12]}"
@@ -537,7 +554,7 @@ async def register_sandbox_artifact(
              created_at, created_by)
         VALUES (?, 1, ?, ?, ?, 'assistant')
         """,
-        (aid, placeholder, f"sandbox produced {filename}", now),
+        (aid, version_content, f"sandbox produced {filename}", now),
     )
     await db.commit()
     return {

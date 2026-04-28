@@ -816,12 +816,50 @@ def _no_hallucinated_artifact_urls(res: dict, state: dict) -> TurnOutcome:
     return t
 
 
+def _no_phantom_warning_in_response(res: dict, state: dict) -> TurnOutcome:
+    """
+    Regression for conv cbb006ff (2026-04-27): the model wrote prose
+    claiming it had recompiled a Beamer deck for 16:9 and emitted two
+    fabricated ``/api/artifacts/<uuid>/...`` URLs without calling
+    compile_latex. The phantom-URL audit
+    (``audit_artifact_urls_in_content`` in chat_service) caught it and
+    prepended a ``**[backend warning]**`` marker to the persisted
+    response — but the marker landed in user-visible content and the
+    model spent eight more turns apologising without ever firing the
+    tool.
+
+    This assertion treats the presence of the warning marker in
+    persisted content as a hard failure: if it shows up at all, either
+    the model hallucinated URLs (the original failure) or the audit
+    has fired spuriously (also worth investigating). Pairs with
+    ``assert_tool_called`` so a turn can't pass by simply skipping
+    artifact URLs entirely.
+    """
+    content = res.get("content") or ""
+    t = TurnOutcome(
+        passed=True,
+        tool_calls=_brief_tool_calls(res),
+        clarifications=len(res.get("clarifications") or []),
+        content_preview=_content_preview(res),
+    )
+    if "[backend warning]" in content.lower():
+        t.passed = False
+        t.reason = (
+            "phantom-URL audit fired: response references artifact "
+            "URL(s) not produced by any tool call this turn. The "
+            "marker is in the persisted content, which means the "
+            "model emitted fabricated /api/artifacts/... links."
+        )
+    return t
+
+
 def _latex_scenario() -> Scenario:
     latex_ok = assert_all_of(
         assert_tool_called("compile_latex"),
         assert_artifact_produced(content_type="application/pdf"),
         assert_artifact_produced(content_type="application/x-tex"),
         _no_hallucinated_artifact_urls,
+        _no_phantom_warning_in_response,
     )
 
     return Scenario(
@@ -893,6 +931,54 @@ def _latex_scenario() -> Scenario:
                         # Allow one soft retry — the regression we're
                         # guarding against was sampling-rare-ish, and
                         # the persona rule may not catch every path.
+                        soft_retries=1,
+                    ),
+                ],
+            ),
+            # Regression for chat cbb006ff (2026-04-27): three-turn
+            # follow-up to the colour-theme regression above. Build,
+            # change colour, then change aspect ratio. The third turn
+            # ("16:9 format") is where the model wrote prose claiming
+            # it had recompiled and emitted fabricated artifact UUIDs
+            # without calling compile_latex. The phantom-URL audit
+            # caught the URLs and prepended a [backend warning]
+            # marker, but the model then spent eight more turns
+            # apologising without ever firing the tool.
+            #
+            # All three turns must call compile_latex; the third turn
+            # is the one that historically failed.
+            Variant(
+                label="modify_aspect_ratio_after_colour_change",
+                turns=[
+                    Turn(
+                        message=(
+                            "Please make me a Beamer slide deck "
+                            "explaining basic quantum mechanics. "
+                            "Compile it."
+                        ),
+                        assertion=latex_ok,
+                        persona="chat",
+                    ),
+                    Turn(
+                        message=(
+                            "Could you make the presentation colour "
+                            "theme red?"
+                        ),
+                        assertion=latex_ok,
+                        persona="chat",
+                        soft_retries=1,
+                    ),
+                    Turn(
+                        message=(
+                            "Can you have the beamer presentation "
+                            "in a 16:9 format?"
+                        ),
+                        assertion=latex_ok,
+                        persona="chat",
+                        # The historically-failing turn. Same
+                        # soft-retry budget as turn 2 — sampling-rare
+                        # regression, persona rule may miss some
+                        # paths.
                         soft_retries=1,
                     ),
                 ],

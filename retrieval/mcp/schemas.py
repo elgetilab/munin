@@ -687,26 +687,50 @@ MCP_TOOLS = {
             "the user - a full article, a Beamer deck, a standalone "
             "figure, a table, or even just an equation wrapped in a "
             "minimal document - so you can verify it compiles before "
-            "handing it over. Iterate on failure: read the `errors` "
-            "list (structured file/line/message entries) or `log_tail` "
-            "(last 50 lines of main.log), fix the source, and call "
-            "compile_latex again. The sandbox has texlive-latex-base + "
-            "latex-extra + latex-recommended + science + bibtex-extra "
-            "+ fonts-recommended, so amsmath, siunitx, physics, "
-            "tikz/pgf, beamer, biblatex, and the usual class/style "
-            "packages are all available. Shell-escape is disabled "
-            "(`\\write18` will not work) and there is no network. "
-            "Bibliography: pass a full .bib file as `bibliography` and "
-            "the tool will run the pdflatex → bibtex → pdflatex → "
-            "pdflatex cycle automatically. Extra files: pass "
-            "`extra_files` as a filename→content dict for .cls/.bst/.sty "
-            "helpers or \\includegraphics targets. Text files go as "
-            "plain strings; binary files (images) must be base64 with "
-            "a 'base64:' prefix, e.g. {'logo.png': 'base64:iVBOR...'}. "
+            "handing it over.\n\n"
+            "**Three input modes — pick the cheapest one that fits the "
+            "request:**\n"
+            "1. `source` (full text): brand-new document. Pass the "
+            "complete LaTeX in `source`.\n"
+            "2. `artifact_id` (unchanged recompile): the user wants the "
+            "exact same artifact recompiled (rare). Pass the id from a "
+            "previous compile_latex result; the tool reads its latest "
+            "version content as the source.\n"
+            "3. `artifact_id` + `diff` (THE ITERATION FLOW — use this "
+            "for almost every follow-up turn like \"make it 16:9\", "
+            "\"change the colour to red\", \"fix this typo\"): pass "
+            "the .tex artifact id from the previous compile_latex "
+            "result plus a unified diff in `diff`. The tool resolves "
+            "the source server-side, applies the diff, then compiles. "
+            "This saves thousands of tokens vs re-emitting the full "
+            "body — a one-line aspectratio tweak becomes a ~150-byte "
+            "diff. Diff format mirrors the standard unified diff "
+            "(`@@ -old_start,old_len +new_start,new_len @@` hunks "
+            "with space/minus/plus-prefixed lines); context and "
+            "removal lines must match the source EXACTLY (no fuzz). "
+            "If you're not sure of the exact line content, call "
+            "read_artifact first to see the latest version, then "
+            "build the diff against it.\n\n"
+            "Iterate on failure: read the `errors` list (structured "
+            "file/line/message entries) or `log_tail` (last 50 lines "
+            "of main.log), fix the source, and call compile_latex "
+            "again. The sandbox has texlive-latex-base + latex-extra + "
+            "latex-recommended + science + bibtex-extra + "
+            "fonts-recommended, so amsmath, siunitx, physics, tikz/pgf, "
+            "beamer, biblatex, and the usual class/style packages are "
+            "all available. Shell-escape is disabled (`\\write18` will "
+            "not work) and there is no network. Bibliography: pass a "
+            "full .bib file as `bibliography` and the tool will run "
+            "the pdflatex → bibtex → pdflatex → pdflatex cycle "
+            "automatically. Extra files: pass `extra_files` as a "
+            "filename→content dict for .cls/.bst/.sty helpers or "
+            "\\includegraphics targets. Text files go as plain "
+            "strings; binary files (images) must be base64 with a "
+            "'base64:' prefix, e.g. {'logo.png': 'base64:iVBOR...'}. "
             "The .tex source artifact is ALWAYS returned (even on "
             "failure) so the user can download and fix it manually; "
-            "the .pdf is only returned on success. Timeout default 60s, "
-            "max 120s. Unavailable in ephemeral chats.\n\n"
+            "the .pdf is only returned on success. Timeout default "
+            "60s, max 120s. Unavailable in ephemeral chats.\n\n"
             "IMPORTANT - artifact download links: the tool result "
             "includes an `external_url` field on each artifact (tex "
             "and pdf). When you mention the PDF or .tex in your prose "
@@ -721,7 +745,15 @@ MCP_TOOLS = {
             "properties": {
                 "source": {
                     "type": "string",
-                    "description": "Full contents of main.tex. Must be a complete, compilable document (\\documentclass, body, \\end{document}). No snippets - wrap partial content in a minimal standalone document if you're verifying an equation or figure.",
+                    "description": "Full contents of main.tex. Must be a complete, compilable document (\\documentclass, body, \\end{document}). Use this for brand-new documents only — for follow-up edits to an existing artifact, use `artifact_id` + `diff` instead so you don't burn tokens re-emitting the body.",
+                },
+                "artifact_id": {
+                    "type": "string",
+                    "description": "Id of an existing .tex artifact (returned by a previous compile_latex call as `tex_artifact.registered_artifact_id`, or visible in the === ACTIVE ARTIFACTS === block). The tool reads its latest version content as the base source. Pass alone for an unchanged recompile, or pair with `diff` to apply a unified-diff edit before compiling.",
+                },
+                "diff": {
+                    "type": "string",
+                    "description": "Optional unified diff to apply to the artifact's latest version before compiling. Only valid alongside `artifact_id`. Standard format: `@@ -old_start,old_len +new_start,new_len @@` hunks with space/minus/plus-prefixed lines. Context and removal lines must match the source EXACTLY — no fuzz. If a hunk fails to apply, read_artifact the latest version and rebuild the diff. Saves thousands of tokens vs re-emitting the full body for small edits.",
                 },
                 "bibliography": {
                     "type": "string",
@@ -740,7 +772,10 @@ MCP_TOOLS = {
                     "maximum": 120,
                 },
             },
-            "required": ["source"],
+            "oneOf": [
+                {"required": ["source"]},
+                {"required": ["artifact_id"]},
+            ],
         },
     },
     "ask_clarification": {

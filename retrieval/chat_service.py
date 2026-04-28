@@ -323,6 +323,119 @@ def _looks_like_prose_clarification(content: str) -> bool:
     return False
 
 
+# --- prose-only action promise detection -------------------------------------
+#
+# Regression for chat cbb006ff (2026-04-27) and the broader pattern surfaced
+# by scripts/flakiness-suite.py latex_compile multi-turn variants: on follow-
+# up turns ("change the colour theme", "make it 16:9"), qwen3 sometimes
+# writes a short future-tense announcement of intent ("I'll update the
+# Beamer presentation to use 16:9 format and compile it for you.") and then
+# stops without emitting any tool call. The model's thinking trace in the
+# original chat explicitly says "I need to call compile_latex" — so this is
+# a tool-emission failure, not a reasoning failure. The recovery hook in
+# the streaming loop calls `_force_required_tool_retry` whenever this
+# heuristic fires and the streaming pass produced no tool calls.
+#
+# Pattern: a short response opening with future-tense self-reference
+# ("I'll", "Let me", "I will", "I'm going to") followed by an action verb
+# the model has tools for (compile, recompile, update, run, fix, create,
+# write, generate, regenerate). Bounded length so we don't false-positive
+# on legitimate long answers that happen to include "I'll explain..."
+# alongside the actual answer.
+_PROSE_ACTION_OPENERS = (
+    "i'll ",
+    "i will ",
+    "let me ",
+    "i'm going to ",
+    "i am going to ",
+    "i'll go ahead and ",
+    "i'll now ",
+    "now i'll ",
+    "now let me ",
+    "let me now ",
+)
+
+# Action verbs that imply a tool call should follow. Deliberately narrow:
+# verbs like "explain", "describe", "show you", "walk through" are pure
+# prose and must NOT trigger recovery.
+_PROSE_ACTION_VERBS = (
+    "compile",
+    "recompile",
+    "update",
+    "regenerate",
+    "rewrite",
+    "rerun",
+    "re-run",
+    "run ",
+    "execute",
+    "fix ",
+    "create ",
+    "generate ",
+    "write ",
+    "build ",
+    "rebuild",
+    "modify ",
+    "change ",
+    "edit ",
+    "save ",
+    "search ",
+    "look up",
+    "fetch ",
+    "download",
+    "read the ",
+    "load the ",
+    "compute",
+    "calculate",
+    "plot ",
+    "render",
+)
+
+
+def _looks_like_prose_action_promise(content: str) -> bool:
+    """
+    Return True if ``content`` looks like the model announced an action
+    in future tense without actually calling a tool. Length-bounded so a
+    long answer that happens to begin "I'll explain..." doesn't trip.
+
+    Examples that fire (from observed failures):
+        "I'll update the Beamer presentation to use 16:9 widescreen
+         format by adding aspectratio=16 to the document class options,
+         then recompile it."
+        "I'll update the Beamer presentation to use 16:9 format and
+         compile it for you."
+        "Let me read the current LaTeX source file and update it."
+
+    Examples that do NOT fire:
+        "I'll explain how the Schrödinger equation governs..." (no
+         action verb the model has tools for)
+        "I've compiled the deck. [Download](...)" (completion tense, not
+         future tense)
+        Long multi-paragraph responses (length cap)
+    """
+    if not content:
+        return False
+    stripped = content.strip()
+    # Length window. Lower bound rejects empty/near-empty content; upper
+    # bound rejects long answers that legitimately discuss future work
+    # alongside their main response.
+    if len(stripped) > 600 or len(stripped) < 20:
+        return False
+    low = stripped.lower()
+    has_opener = any(low.startswith(o) or f" {o}" in low[:200] for o in _PROSE_ACTION_OPENERS)
+    if not has_opener:
+        return False
+    has_verb = any(v in low for v in _PROSE_ACTION_VERBS)
+    if not has_verb:
+        return False
+    # Reject completion-tense ("I've compiled", "I have updated") even
+    # when an action verb is present — those describe finished work,
+    # not pending work.
+    completion_markers = ("i've ", "i have ", "i've just ", "just compiled", "just updated")
+    if any(m in low for m in completion_markers):
+        return False
+    return True
+
+
 async def _force_clarification_retry(
     messages: list[dict],
     sampling: dict,
@@ -355,6 +468,11 @@ async def _force_clarification_retry(
                 "type": "function",
                 "function": {"name": "ask_clarification"},
             },
+            # Clarification cards are short (≤6 questions, each ≤200
+            # chars) so a tight cap is safe and protects against the
+            # same runaway-decode failure mode the streaming path now
+            # bounds.
+            "max_tokens": 2048,
         }
         body.update(sampling)
         try:
@@ -422,6 +540,104 @@ async def _force_clarification_retry(
     return None
 
 
+async def _force_required_tool_retry(
+    messages: list[dict],
+    sampling: dict,
+    nudge_text: str,
+    max_attempts: int = 2,
+) -> Optional[list[dict]]:
+    """
+    Non-streaming vLLM call with ``tool_choice="required"`` so the model
+    MUST emit at least one tool call instead of plain prose. Used as the
+    recovery path when the streaming pass produced a prose-only action
+    promise (`_looks_like_prose_action_promise`) or hallucinated artifact
+    URLs without any matching tool call.
+
+    Appends ``nudge_text`` as a synthetic user-role turn before the
+    retry. The original user message is already in ``messages``; the
+    nudge reinforces "use your tool, don't promise". Returns a list of
+    finalised tool-call dicts (same shape as
+    ``_StreamAccumulator.finalized_tool_calls()`` entries) or None if
+    every attempt failed to produce parseable tool calls.
+
+    Distinct from ``_force_clarification_retry`` in two ways:
+    - No specific tool name is forced — vLLM picks any. This matters
+      because the recovery path doesn't know which tool the model
+      should have called (compile_latex, update_artifact, run_python,
+      paper_search, ...).
+    - Returns all tool calls, not just the first. The recovered turn
+      may legitimately want multiple calls (e.g. read_artifact +
+      compile_latex).
+    """
+    nudged_messages = list(messages) + [{"role": "user", "content": nudge_text}]
+    for attempt in range(max_attempts):
+        body: dict[str, Any] = {
+            "model": VLLM_MODEL_NAME,
+            "messages": nudged_messages,
+            "stream": False,
+            "tools": _openai_tools_schema(),
+            "tool_choice": "required",
+            # Cap generation. A forced tool call should resolve in well
+            # under this; without a cap, an off-the-rails generation on
+            # a long multi-turn context can run vLLM until the model
+            # length limit, blocking the engine for minutes. 8k tokens
+            # comfortably fits compile_latex/run_python source payloads
+            # which are the largest realistic argument size.
+            "max_tokens": 8000,
+        }
+        body.update(sampling)
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                r = await client.post(
+                    f"{VLLM_URL}/v1/chat/completions",
+                    json=body,
+                )
+        except httpx.RequestError as e:
+            print(
+                f"[WARNING] forced-required retry HTTP error "
+                f"(attempt {attempt + 1}/{max_attempts}): {e}"
+            )
+            continue
+        if r.status_code != 200:
+            print(
+                f"[WARNING] forced-required retry returned "
+                f"{r.status_code} (attempt {attempt + 1}/{max_attempts}): "
+                f"{r.text[:200]}"
+            )
+            continue
+        try:
+            d = r.json()
+        except Exception as e:
+            print(
+                f"[WARNING] forced-required retry parse error "
+                f"(attempt {attempt + 1}/{max_attempts}): {e}"
+            )
+            continue
+        msg = (d.get("choices") or [{}])[0].get("message") or {}
+        tcs = msg.get("tool_calls") or []
+        if not tcs:
+            print(
+                f"[WARNING] forced-required retry produced no tool calls "
+                f"(attempt {attempt + 1}/{max_attempts})"
+            )
+            continue
+        out: list[dict] = []
+        for i, tc in enumerate(tcs):
+            fn = tc.get("function") or {}
+            name = fn.get("name")
+            if not name:
+                continue
+            args = _parse_arguments(fn.get("arguments"))
+            out.append({
+                "id": tc.get("id") or f"tc-forced-required-{i}",
+                "name": name,
+                "arguments": args,
+            })
+        if out:
+            return out
+    return None
+
+
 # --- vLLM streaming -----------------------------------------------------------
 
 class _StreamAccumulator:
@@ -477,6 +693,18 @@ async def _stream_vllm_once(
         # admin usage dashboard. vLLM (like the OpenAI API) requires
         # an explicit opt-in.
         "stream_options": {"include_usage": True},
+        # Cap generation. Without this vLLM defaults to
+        # ``max_model_len - prompt_tokens`` (≈30-60K tokens on a
+        # 65K-context model after a few multi-turn iterations). A
+        # degenerate decode can then park one of the
+        # ``--max-num-seqs 2`` slots for 10+ minutes while it walks the
+        # full budget — the symptom we hit on 2026-04-27 when the
+        # flakiness suite stalled mid-run. 16K leaves plenty of room
+        # for thinking traces + tool-call payloads (compile_latex
+        # source ≈ 9KB ≈ 3K tokens, so even argument-heavy turns fit
+        # comfortably) while bounding worst-case occupancy. Personas
+        # can override via params.max_tokens.
+        "max_tokens": 16384,
     }
     body.update(sampling)
     if enable_tools:
@@ -1108,6 +1336,7 @@ async def stream_chat_completion(
     for turn in range(MAX_TURNS):
         acc: Optional[_StreamAccumulator] = None
         stream_error: Optional[str] = None
+        recovery_used_this_turn = False
 
         async for event_name, payload, accumulator in _stream_vllm_once(
             messages=messages, sampling=sampling, enable_tools=True
@@ -1161,6 +1390,71 @@ async def stream_chat_completion(
                 # event arrives (see FRONTEND-TASKS entry #10).
                 acc.content_parts.clear()
                 final_content = ""
+
+        # Prose-action recovery: when the streaming pass produced no
+        # tool calls but the model wrote a future-tense action promise
+        # ("I'll compile and recompile it") or fabricated artifact URLs
+        # without a backing tool call, force a non-streaming retry with
+        # tool_choice="required". Catches the cbb006ff (2026-04-27)
+        # failure shape: the model knows it needs to call compile_latex
+        # (the thinking trace says so) but emits prose instead. Unlike
+        # the clarification fallback above, this fires on ANY turn —
+        # the failure can appear on follow-up modify-and-recompile
+        # turns, not just turn 0. Single recovery attempt per turn.
+        if not tool_calls and not recovery_used_this_turn:
+            _, _phantoms_inline = audit_artifact_urls_in_content(
+                acc.content, []
+            )
+            phantom_trigger = bool(_phantoms_inline)
+            prose_trigger = _looks_like_prose_action_promise(acc.content)
+            if phantom_trigger or prose_trigger:
+                trigger_label = (
+                    "phantom_url" if phantom_trigger else "prose_action_promise"
+                )
+                print(
+                    f"[INFO] prose-action recovery firing "
+                    f"(trigger={trigger_label}, conv={conversation['id']}, "
+                    f"turn={turn}, content_len={len(acc.content)})"
+                )
+                nudge = (
+                    "Your previous response described what you were going "
+                    "to do but did not actually call any tool. Call the "
+                    "appropriate tool now to fulfil the user's request. "
+                    "Do not write prose explaining your plan — emit the "
+                    "tool call directly."
+                )
+                if phantom_trigger:
+                    nudge += (
+                        " Note: any /api/artifacts/... URLs in your "
+                        "previous response were not produced by a tool "
+                        "call this turn and must not be referenced again "
+                        "until a tool actually creates them."
+                    )
+                recovered = await _force_required_tool_retry(
+                    messages, sampling, nudge
+                )
+                recovery_used_this_turn = True
+                if recovered:
+                    tool_calls = recovered
+                    # NOTE: We deliberately do NOT clear acc.content /
+                    # final_content here. Unlike the clarification
+                    # fallback above (which replaces the prose entirely
+                    # with a substitute card), the prose-action draft
+                    # is a future-tense announcement that reads
+                    # naturally followed by the recovered tool calls
+                    # + their results. Keeping it preserves the live-
+                    # streamed UX (user sees "I'll update..." then the
+                    # tool card spins up) and keeps the persisted
+                    # transcript coherent on reload.
+                    for tc in tool_calls:
+                        yield _sse(
+                            "tool_call",
+                            {
+                                "id": tc["id"],
+                                "name": tc["name"],
+                                "arguments": tc["arguments"],
+                            },
+                        )
 
         if not tool_calls:
             hit_turn_cap = False

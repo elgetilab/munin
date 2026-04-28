@@ -264,7 +264,9 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
 
         elif tool_name == "compile_latex":
             return await compile_latex(
-                source=arguments.get("source", ""),
+                source=arguments.get("source"),
+                artifact_id=arguments.get("artifact_id"),
+                diff=arguments.get("diff"),
                 bibliography=arguments.get("bibliography"),
                 extra_files=arguments.get("extra_files"),
                 timeout_s=arguments.get("timeout_s", 60),

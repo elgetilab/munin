@@ -141,7 +141,14 @@ def sampling_params(persona: dict) -> dict:
     """Extract vLLM sampling parameters from a raw persona dict."""
     params = persona.get("params") or {}
     out: dict[str, Any] = {}
-    for key in ("temperature", "top_p", "top_k", "min_p", "presence_penalty"):
+    for key in (
+        "temperature",
+        "top_p",
+        "top_k",
+        "min_p",
+        "presence_penalty",
+        "max_tokens",
+    ):
         if key in params:
             out[key] = params[key]
     return out
