@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify Code - Munin</title>
+    <link rel="stylesheet" href="/shared/style.css">
+    <style>
+        .auth-container {
+            max-width: 400px;
+            margin: 120px auto;
+            padding: 0 24px;
+        }
+
+        .auth-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 40px 32px;
+            text-align: center;
+        }
+
+        .auth-logo {
+            height: 48px;
+            width: auto;
+            filter: brightness(0) invert(1);
+            margin-bottom: 24px;
+        }
+
+        .auth-title {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .auth-subtitle {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 32px;
+        }
+
+        .auth-subtitle strong {
+            color: var(--text-primary);
+        }
+
+        .auth-form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .auth-form input[type="text"] {
+            width: 100%;
+            padding: 14px 16px;
+            font-size: 28px;
+            text-align: center;
+            letter-spacing: 8px;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+        }
+
+        .auth-form button {
+            width: 100%;
+            padding: 14px;
+            font-size: 16px;
+        }
+
+        .auth-error {
+            background: rgba(248, 81, 73, 0.1);
+            border: 1px solid var(--error);
+            border-radius: 8px;
+            padding: 12px;
+            color: var(--error);
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+
+        .auth-links {
+            margin-top: 24px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .auth-links a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .auth-verifying {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            padding: 14px;
+        }
+
+        .auth-verifying canvas {
+            width: 40px;
+            height: 40px;
+        }
+
+        .auth-verifying span {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="auth-logo">
+            <h1 class="auth-title">Check your email</h1>
+            <p class="auth-subtitle">We sent a 6-digit code to <strong>{{ email }}</strong></p>
+
+            {% if error %}
+            <div class="auth-error">{{ error }}</div>
+            {% endif %}
+
+            <form id="verify-form" class="auth-form" method="POST" action="/verify">
+                <input type="hidden" name="email" value="{{ email }}">
+                <input type="hidden" name="redirect" value="{{ redirect }}">
+                <input type="text" name="code" placeholder="000000" maxlength="6" pattern="\d{6}" required autofocus autocomplete="one-time-code" inputmode="numeric">
+                <button id="verify-btn" type="submit" class="btn btn-primary">Verify</button>
+                <div id="verify-loading" class="auth-verifying" style="display: none;">
+                    <canvas id="verify-vortex" width="128" height="128"></canvas>
+                    <span>Verifying...</span>
+                </div>
+            </form>
+
+            <div class="auth-links">
+                <a href="/login?redirect={{ redirect | urlencode }}">Request a new code</a>
+                <a href="https://muninai.org">&larr; Back to Munin</a>
+            </div>
+        </div>
+    </div>
+
+    <script src="/shared/feather-vortex.js"></script>
+    <script>
+        document.getElementById('verify-form').addEventListener('submit', function() {
+            document.getElementById('verify-btn').style.display = 'none';
+            var loading = document.getElementById('verify-loading');
+            loading.style.display = 'flex';
+            createVortex(document.getElementById('verify-vortex'), 10, 7.0);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+# --- Node / Vite (frontend/webui) ---
+node_modules/
+dist/
+.vite/
+*.log
+npm-debug.log*
+
+# --- IDE / editors ---
+.idea/
+.vscode/
+*.swp
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Secrets / local config ---
+.env
+.env.local
+*.env
+!*.env.template
+!*.env.example
+!secrets.env.example
+
+# --- Local artifacts ---
+*.local
+*.bak

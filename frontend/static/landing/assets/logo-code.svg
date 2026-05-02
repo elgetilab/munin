@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <rect width="400" height="400" fill="white"/>
+
+  <!-- Left < bracket -->
+  <path d="M 52 200 L 148 108 L 148 138 L 94 200 L 148 262 L 148 292 Z" fill="black"/>
+
+  <!-- Right > bracket -->
+  <path d="M 348 200 L 252 108 L 252 138 L 306 200 L 252 262 L 252 292 Z" fill="black"/>
+
+  <!-- Forward slash -->
+  <rect x="186" y="88" width="28" height="224" rx="10" fill="black" transform="rotate(-18, 200, 200)"/>
+</svg>

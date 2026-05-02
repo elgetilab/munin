@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Architecture - Munin</title>
+    <link rel="stylesheet" href="/shared/style.css">
+    <style>
+        .container {
+            max-width: 1200px;
+        }
+
+        main {
+            padding: 48px 0;
+        }
+
+        h1 {
+            font-size: 32px;
+            margin-bottom: 24px;
+        }
+
+        h2 {
+            font-size: 24px;
+            margin: 48px 0 24px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        h3 {
+            font-size: 18px;
+            margin: 24px 0 12px;
+            color: var(--accent);
+        }
+
+        p {
+            margin-bottom: 16px;
+            color: var(--text-secondary);
+        }
+
+        .diagram {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            overflow-x: auto;
+            margin: 24px 0;
+        }
+
+        table {
+            margin: 24px 0;
+            font-size: 14px;
+        }
+
+        th, td {
+            padding: 12px 16px;
+        }
+
+        th {
+            background: var(--bg-secondary);
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        td {
+            color: var(--text-secondary);
+        }
+
+        .flow-step {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            margin: 12px 0;
+        }
+
+        .flow-step-num {
+            display: inline-block;
+            width: 28px;
+            height: 28px;
+            background: var(--accent);
+            color: var(--bg-primary);
+            border-radius: 50%;
+            text-align: center;
+            line-height: 28px;
+            font-weight: 600;
+            margin-right: 12px;
+        }
+
+        .flow-step-title {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container header-content">
+            <a href="https://muninai.org" class="logo">
+                <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="logo-img">
+                <span class="logo-text">Munin</span>
+            </a>
+            <nav>
+                <a href="https://muninai.org">Home</a>
+                <a href="https://search.muninai.org">Search</a>
+                <a href="https://research.muninai.org">Research</a>
+                <a href="https://docs.muninai.org" class="active">Docs</a>
+                <a href="https://chat.muninai.org/knowledge">Knowledge</a>
+                <a href="https://chat.muninai.org">Chat</a>
+                <a href="https://upload.muninai.org">Upload</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <h1>System Architecture</h1>
+        <p>Technical overview of the Munin research assistant system.</p>
+
+        <h2>High-Level Overview</h2>
+        <div class="diagram">
+<pre>
+                                    +---------------------+
+                                    |       Users         |
+                                    +----------+----------+
+                                               |
+                                               v
+                                    +---------------------+
+                                    |    Hetzner VPS      |
+                                    |  Caddy + munin-auth |
+                                    |  React Chat UI      |
+                                    |  API Gateway        |
+                                    +----------+----------+
+                                               |
+                                          SSH tunnel
+                                               |
+                                               v
++-----------------------------------------------------------------------------+
+|                              MUNIN CLUSTER                                   |
+|                                                                              |
+|  +-------------------+     +-------------------+     +-------------------+   |
+|  |  Retrieval API    |---->|      Qdrant       |     |      Neo4j        |   |
+|  |   (RAG Layer)     |     |   (Vector DB)     |     |   (Citations)     |   |
+|  |   Port 8080       |     |   Port 6333       |     |   Port 7474       |   |
+|  +---------+---------+     +-------------------+     +-------------------+   |
+|            |                                                                 |
+|            v                                                                 |
+|  +-------------------+     +-------------------+                             |
+|  |     SearXNG       |     |       vLLM        |     Personas:              |
+|  |  (Web Search)     |     |     Port 8000     |       - Meitner (Chat)     |
+|  |   Port 8888       |     |                   |       - Turing (Code)      |
+|  +-------------------+     | Qwen3.5-35B-A3B |       - Curie (Research)   |
+|                             | (MoE 35B/3B)      |                             |
+|                             +-------------------+                             |
+|                                                                              |
+|                         GPU 1 (RTX 5090) - 90% VRAM                         |
++-----------------------------------------------------------------------------+
+</pre>
+        </div>
+
+        <h2>Persona Comparison</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Persona</th>
+                    <th>Purpose</th>
+                    <th>Thinking Mode</th>
+                    <th>Tools Available</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Meitner</strong></td>
+                    <td>General-purpose chat, writing, web search, quick lookups</td>
+                    <td>Enabled</td>
+                    <td>Paper Search, Web Search, Date/Time</td>
+                </tr>
+                <tr>
+                    <td><strong>Turing</strong></td>
+                    <td>Code assistant, scientific Python, debugging, code review</td>
+                    <td>Enabled</td>
+                    <td>Web Search, Date/Time</td>
+                </tr>
+                <tr>
+                    <td><strong>Curie</strong></td>
+                    <td>Research assistant, literature search, paper analysis, citations</td>
+                    <td>Enabled</td>
+                    <td>Paper Search, Citations, Academic Search (Semantic Scholar, OpenAlex), Web Search</td>
+                </tr>
+            </tbody>
+        </table>
+        <p>All personas use the same underlying model: <code>Qwen3.5-35B-A3B</code> (MoE architecture, always-thinking).</p>
+        <p><strong>Workflow:</strong> Use Curie to discover and analyze papers, Turing to implement methods, and Meitner for general tasks and writing.</p>
+
+        <h2>RAG (Retrieval-Augmented Generation) Flow</h2>
+        <p>When you ask a question with RAG enabled, here's what happens:</p>
+
+        <div class="flow-step">
+            <span class="flow-step-num">1</span>
+            <span class="flow-step-title">Query Received</span>
+            <p style="margin: 8px 0 0 40px;">The chat UI receives your question and routes it to the API gateway.</p>
+        </div>
+
+        <div class="flow-step">
+            <span class="flow-step-num">2</span>
+            <span class="flow-step-title">Parallel Retrieval</span>
+            <p style="margin: 8px 0 0 40px;">The retrieval service queries all selected sources simultaneously (papers, web).</p>
+        </div>
+
+        <div class="flow-step">
+            <span class="flow-step-num">3</span>
+            <span class="flow-step-title">Semantic Search</span>
+            <p style="margin: 8px 0 0 40px;">Your query is embedded using SPECTER (papers) and compared against stored vectors in Qdrant.</p>
+        </div>
+
+        <div class="flow-step">
+            <span class="flow-step-num">4</span>
+            <span class="flow-step-title">Context Assembly</span>
+            <p style="margin: 8px 0 0 40px;">Top matching documents are ranked and assembled into context for the LLM, with source attribution.</p>
+        </div>
+
+        <div class="flow-step">
+            <span class="flow-step-num">5</span>
+            <span class="flow-step-title">LLM Generation</span>
+            <p style="margin: 8px 0 0 40px;">The LLM receives your question + retrieved context and generates a grounded response with citations.</p>
+        </div>
+
+        <h2>Knowledge Bases</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Source</th>
+                    <th>Content</th>
+                    <th>Embeddings</th>
+                    <th>Update Frequency</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Papers</td>
+                    <td>Scientific PDFs (title, abstract, metadata)</td>
+                    <td>SPECTER (768 dim)</td>
+                    <td>Manual upload</td>
+                </tr>
+                <tr>
+                    <td>Web</td>
+                    <td>Live web search results</td>
+                    <td>N/A (real-time)</td>
+                    <td>Real-time</td>
+                </tr>
+                <tr>
+                    <td>Academic DBs</td>
+                    <td>Semantic Scholar, OpenAlex</td>
+                    <td>N/A (API queries)</td>
+                    <td>Real-time</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>Model Configuration</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Parameter</th>
+                    <th>Value</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Model</td>
+                    <td>Qwen3.5-35B-A3B-4bit</td>
+                    <td>MoE architecture, always-thinking</td>
+                </tr>
+                <tr>
+                    <td>Total Parameters</td>
+                    <td>35B</td>
+                    <td>With 3B active per forward pass</td>
+                </tr>
+                <tr>
+                    <td>Quantization</td>
+                    <td>AWQ 4-bit</td>
+                    <td>~17GB model size</td>
+                </tr>
+                <tr>
+                    <td>Context Window</td>
+                    <td>32,768 tokens</td>
+                    <td>Constrained by RTX 5090 VRAM</td>
+                </tr>
+                <tr>
+                    <td>Concurrent Requests</td>
+                    <td>3</td>
+                    <td>Balance between throughput and latency</td>
+                </tr>
+                <tr>
+                    <td>Thinking Mode</td>
+                    <td>Always enabled</td>
+                    <td>Outputs reasoning in collapsible section</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>Service Ports</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Port</th>
+                    <th>Service</th>
+                    <th>Access</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>80/443</td>
+                    <td>Caddy (VPS)</td>
+                    <td>Public, auto TLS</td>
+                </tr>
+                <tr>
+                    <td>6333</td>
+                    <td>Qdrant Vector DB</td>
+                    <td>Internal only</td>
+                </tr>
+                <tr>
+                    <td>7474 / 7687</td>
+                    <td>Neo4j Graph DB</td>
+                    <td>Internal only</td>
+                </tr>
+                <tr>
+                    <td>8000</td>
+                    <td>vLLM (all personas)</td>
+                    <td>Internal only</td>
+                </tr>
+                <tr>
+                    <td>8070</td>
+                    <td>GROBID (PDF parsing)</td>
+                    <td>Internal only</td>
+                </tr>
+                <tr>
+                    <td>8080</td>
+                    <td>Retrieval Service</td>
+                    <td>Internal only</td>
+                </tr>
+                <tr>
+                    <td>8888</td>
+                    <td>SearXNG</td>
+                    <td>Internal only</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>Technology Stack</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Layer</th>
+                    <th>Technology</th>
+                    <th>Purpose</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Edge</td>
+                    <td>Caddy + munin-auth</td>
+                    <td>Reverse proxy, email OTP auth, auto TLS</td>
+                </tr>
+                <tr>
+                    <td>UI</td>
+                    <td>React + TypeScript</td>
+                    <td>Custom chat interface with SSE streaming</td>
+                </tr>
+                <tr>
+                    <td>RAG</td>
+                    <td>Custom FastAPI Service</td>
+                    <td>Multi-source retrieval</td>
+                </tr>
+                <tr>
+                    <td>Search</td>
+                    <td>SearXNG</td>
+                    <td>Privacy-respecting web search</td>
+                </tr>
+                <tr>
+                    <td>Inference</td>
+                    <td>vLLM</td>
+                    <td>Fast LLM serving (OpenAI-compatible)</td>
+                </tr>
+                <tr>
+                    <td>Model</td>
+                    <td>Qwen3.5-35B-A3B</td>
+                    <td>MoE architecture (35B/3B active)</td>
+                </tr>
+                <tr>
+                    <td>Vectors</td>
+                    <td>Qdrant</td>
+                    <td>Semantic search</td>
+                </tr>
+                <tr>
+                    <td>Graph</td>
+                    <td>Neo4j</td>
+                    <td>Citation relationships</td>
+                </tr>
+                <tr>
+                    <td>Parsing</td>
+                    <td>GROBID</td>
+                    <td>Scientific PDF extraction</td>
+                </tr>
+                <tr>
+                    <td>Embeddings</td>
+                    <td>SPECTER, BGE-base</td>
+                    <td>Text to vectors</td>
+                </tr>
+                <tr>
+                    <td>Compute</td>
+                    <td>SLURM</td>
+                    <td>Job scheduling, GPU allocation</td>
+                </tr>
+                <tr>
+                    <td>Containers</td>
+                    <td>Docker Compose</td>
+                    <td>Service orchestration</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>User Types</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>WebUI Users (Remote Researchers)</th>
+                    <th>Cluster Users (SLURM/SSH Access)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Access: muninai.org (chat, search, research)</td>
+                    <td>Access: VPN, SSH, SLURM</td>
+                </tr>
+                <tr>
+                    <td>Auth: Email OTP (30-day sessions)</td>
+                    <td>Auth: Linux accounts + SSH keys</td>
+                </tr>
+                <tr>
+                    <td>GPU: Via vLLM service</td>
+                    <td>GPU: GPU 0 via SLURM jobs</td>
+                </tr>
+                <tr>
+                    <td>Can: Chat with personas, search papers, deep research, upload</td>
+                    <td>Can: Submit SLURM jobs, run training/inference, SSH access</td>
+                </tr>
+            </tbody>
+        </table>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/" style="color: var(--accent);">Elgeti Lab</a></p>
+            <p style="margin-top: 8px;"><a href="https://search.muninai.org">Search</a> | <a href="https://research.muninai.org">Research</a> | <a href="https://chat.muninai.org">Chat</a> | <a href="https://upload.muninai.org">Upload</a> | <a href="mailto:support@muninai.org">Get Access</a></p>
+        </div>
+    </footer>
+</body>
+</html>

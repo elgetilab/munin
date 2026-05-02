@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Guide - Munin</title>
+    <link rel="stylesheet" href="/shared/style.css">
+    <style>
+        .container {
+            max-width: 800px;
+        }
+
+        main {
+            padding: 48px 0;
+        }
+
+        h1 {
+            font-size: 32px;
+            margin-bottom: 24px;
+        }
+
+        h2 {
+            font-size: 24px;
+            margin: 48px 0 24px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        h3 {
+            font-size: 18px;
+            margin: 24px 0 12px;
+            color: var(--accent);
+        }
+
+        p, li {
+            color: var(--text-secondary);
+            line-height: 1.7;
+        }
+
+        p {
+            margin-bottom: 12px;
+        }
+
+        ul {
+            margin: 8px 0 16px 20px;
+        }
+
+        li {
+            margin-bottom: 6px;
+        }
+
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 16px 0;
+        }
+
+        .card h4 {
+            font-size: 15px;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+
+        .card p {
+            font-size: 14px;
+            margin-bottom: 0;
+        }
+
+        .persona-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .persona-row:last-child {
+            border-bottom: none;
+        }
+
+        .persona-row img {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+        }
+
+        .persona-row strong {
+            color: var(--text-primary);
+        }
+
+        a {
+            color: var(--accent);
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-bottom: 24px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .back-link:hover {
+            color: var(--text-primary);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container header-content">
+            <a href="https://muninai.org" class="logo">
+                <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="logo-img">
+                <span class="logo-text">Munin</span>
+            </a>
+            <nav>
+                <a href="https://muninai.org">Home</a>
+                <a href="https://search.muninai.org">Search</a>
+                <a href="https://research.muninai.org">Research</a>
+                <a href="https://docs.muninai.org" class="active">Docs</a>
+                <a href="https://chat.muninai.org/knowledge">Knowledge</a>
+                <a href="https://chat.muninai.org">Chat</a>
+                <a href="https://upload.muninai.org">Upload</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <a href="." class="back-link">&larr; Back to Docs</a>
+        <h1>User Guide</h1>
+
+        <h2>Chat</h2>
+        <p>
+            The <a href="https://chat.muninai.org">chat interface</a> is the main way to interact with Munin.
+            Type a question, and the assistant will respond with a streamed answer. Your conversations are saved automatically and accessible from the sidebar.
+        </p>
+
+        <h3>Choosing a persona</h3>
+        <p>Use the persona selector (bottom right of the input) to switch between three specialized assistants:</p>
+
+        <div class="card">
+            <div class="persona-row">
+                <img src="/shared/meitner-chat-inverted.svg" alt="Meitner">
+                <div>
+                    <strong>Meitner [Chat]</strong>
+                    <p>General-purpose assistant. Use for writing, web lookups, brainstorming, email drafts, and everyday questions.</p>
+                </div>
+            </div>
+            <div class="persona-row">
+                <img src="/shared/turing-code-inverted.svg" alt="Turing">
+                <div>
+                    <strong>Turing [Code]</strong>
+                    <p>Code assistant. Use for Python scripts, debugging, data analysis, SLURM jobs, and technical questions.</p>
+                </div>
+            </div>
+            <div class="persona-row">
+                <img src="/shared/curie-research-inverted.svg" alt="Curie">
+                <div>
+                    <strong>Curie [Research]</strong>
+                    <p>Research assistant. Use for literature search, paper analysis, citation exploration, and finding related work.</p>
+                </div>
+            </div>
+        </div>
+        <p>You can switch personas at any time, even mid-conversation. All three use the same underlying model with different system prompts and tool access.</p>
+
+        <h3>Extended thinking</h3>
+        <p>
+            The model reasons through your question step by step before answering. This thinking process is shown in a collapsible section at the top of each response. You can expand it if you're curious, or just ignore it.
+        </p>
+
+        <h2>Paper Search</h2>
+        <p>
+            <a href="https://search.muninai.org">Paper Search</a> is a fast, interactive search tool for finding scientific papers in our database.
+        </p>
+        <ul>
+            <li>Type a topic, author name, or DOI into the search bar.</li>
+            <li>Results are ranked by semantic similarity, not just keywords, so you'll find conceptually related work even if the exact terms don't match.</li>
+            <li>Click a result to see its abstract, metadata, and a link to the full PDF (when available).</li>
+            <li>Filter by author or year range to narrow results.</li>
+        </ul>
+
+        <h2>Deep Research</h2>
+        <p>
+            <a href="https://research.muninai.org">Deep Research</a> is for complex questions that need thorough investigation. Unlike chat (which responds in seconds), deep research jobs run for 5 to 20 minutes and produce structured reports.
+        </p>
+        <ul>
+            <li>Submit a research question (e.g. "What are the current approaches to studying lipid raft formation in cell membranes?").</li>
+            <li>The system searches multiple sources, reads papers, and synthesizes a report with citations.</li>
+            <li>When the job finishes, download the result as PDF or Markdown.</li>
+        </ul>
+        <p>Use deep research when you need a comprehensive overview of a topic. For quick lookups or specific paper searches, chat or paper search are faster.</p>
+
+        <h2>Knowledge Browser</h2>
+        <p>
+            The <a href="https://chat.muninai.org/knowledge">Knowledge Browser</a> gives you a visual overview of everything in the internal paper database — organized by research group, topic cluster, and contributor.
+        </p>
+
+        <h3>Overview page</h3>
+        <ul>
+            <li><strong>Stats:</strong> See total paper count, number of topics, research groups, and contributors at a glance.</li>
+            <li><strong>Embedding map:</strong> A 2D visualization of all papers projected into a scatter plot. Papers are colored by topic cluster. Hover to see titles, click to browse that topic. Use the cluster chips below to filter the map to a single topic.</li>
+            <li><strong>Research groups:</strong> Cards showing each group's contribution. Click "Browse papers" to see their papers or "Discuss in chat" to start a conversation scoped to that group.</li>
+            <li><strong>Topics:</strong> Searchable list of all topic clusters. Click any topic to browse its papers.</li>
+        </ul>
+
+        <h3>Browsing papers</h3>
+        <p>When you click into a group, topic, or contributor, you get a paginated list of papers with:</p>
+        <ul>
+            <li>Title, year, journal, and authors</li>
+            <li>Topic label and contributor attribution</li>
+            <li>PDF download link (when available)</li>
+            <li>Sorting by newest, oldest, or recently added</li>
+        </ul>
+
+        <h3>Tag filters in chat</h3>
+        <p>
+            You can scope chat conversations to specific knowledge subsets using <strong>#tag filters</strong>:
+        </p>
+        <ul>
+            <li>Type <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">#</code> in the chat input to open the tag autocomplete.</li>
+            <li>Select a research group, topic, or contributor to add it as a filter chip.</li>
+            <li>Multiple tags are combined (AND logic) — e.g., a group + topic restricts to papers in that group about that topic.</li>
+            <li>Click "Discuss in chat" on any Knowledge Browser page to jump to chat with that tag pre-filled.</li>
+        </ul>
+        <p>Tags tell the assistant which part of the knowledge base to search. Without tags, it searches everything.</p>
+
+        <h2>Knowledge Sources</h2>
+        <p>When you ask a question, the assistants can draw from three sources:</p>
+
+        <div class="card">
+            <h4>Web Search</h4>
+            <p>All personas can search the web for current information: news, documentation, tutorials, or anything beyond their training data.</p>
+        </div>
+        <div class="card">
+            <h4>Academic Databases</h4>
+            <p>The assistants query Semantic Scholar and OpenAlex to find published papers, citations, and author information across all scientific fields.</p>
+        </div>
+        <div class="card">
+            <h4>Internal Paper Database</h4>
+            <p>Our own curated collection of papers, searchable by meaning (not just keywords). This is the same database that powers Paper Search.</p>
+        </div>
+
+        <p>The assistant will indicate which source a piece of information came from. If you're unsure whether an answer is grounded in a source or generated from the model's training, just ask.</p>
+
+        <h2>Contributing to the Knowledge Base</h2>
+        <p>
+            You can grow the internal paper database by uploading PDFs on the <a href="https://upload.muninai.org">Upload page</a>.
+        </p>
+        <ul>
+            <li>Drag and drop PDFs (or click to browse). You can upload up to 1,000 files at once.</li>
+            <li>Uploads are resumable: if your connection drops, they pick up where they left off.</li>
+            <li>Uploaded papers are automatically indexed (title, abstract, metadata extracted) and become searchable for all users.</li>
+            <li>This is different from attaching a file in chat. Files attached in chat are only visible in that conversation. Files uploaded via the Upload page go into the shared database permanently.</li>
+        </ul>
+
+        <h2 id="api-access">API Access</h2>
+        <p>
+            Munin provides an API at <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">https://api.muninai.org/v1</code>. The API supports two modes: a <strong>raw mode</strong> that is fully OpenAI-compatible, and a <strong>persona mode</strong> that uses Munin's research assistants with custom SSE streaming.
+        </p>
+
+        <h3>Getting an API key</h3>
+        <p>
+            Open <a href="https://chat.muninai.org">Chat</a> → click your name (bottom of the sidebar) → <strong>Settings</strong> → scroll to <strong>API Keys</strong>. Create a key — it starts with <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">sk-munin-</code>. Copy it immediately; it won't be shown again.
+        </p>
+
+        <h3>Authentication</h3>
+        <p>
+            Pass your key as a Bearer token in the <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">Authorization</code> header:
+        </p>
+        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">Authorization: Bearer sk-munin-...</pre>
+
+        <h3>Available endpoints</h3>
+        <div class="card">
+            <h4>POST /v1/chat/completions</h4>
+            <p>Send a chat message. Accepts the same JSON body as the OpenAI API (model + messages array). Response format depends on the mode — see below.</p>
+        </div>
+
+        <h3>Two modes</h3>
+        <p>The response format depends on whether you include a <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">persona</code> field in your request:</p>
+
+        <div class="card">
+            <h4>Raw mode (default, OpenAI-compatible)</h4>
+            <p style="margin-bottom: 8px;">Omit the <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">persona</code> field or set it to <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">"raw"</code>. The model runs without any system prompt — your messages are passed directly to the LLM. Returns <strong>standard OpenAI JSON</strong>.</p>
+            <p style="margin-bottom: 0;">This mode works with the OpenAI Python SDK, Cursor, aider, and any OpenAI-compatible client.</p>
+        </div>
+
+        <div class="card">
+            <h4>Persona mode (Munin assistants)</h4>
+            <p style="margin-bottom: 8px;">Set <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">"persona"</code> to <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">"chat"</code> (Meitner), <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">"code"</code> (Turing), or <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">"research"</code> (Curie). The assistant's system prompt is injected and tools (web search, paper search, citations) are available. Returns a <strong>custom SSE stream</strong>.</p>
+            <p style="margin-bottom: 0;">Standard OpenAI SDKs will not parse the persona SSE response correctly — use a raw HTTP client or SSE library instead.</p>
+        </div>
+
+        <h3>Raw mode — OpenAI-compatible response</h3>
+        <p>When using raw mode, the response is standard OpenAI JSON:</p>
+        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">{
+  "id": "chatcmpl-...",
+  "object": "chat.completion",
+  "model": "qwen3.5-35b-a3b",
+  "choices": [{
+    "index": 0,
+    "message": {
+      "role": "assistant",
+      "content": "Hello!",
+      "reasoning": "The user wants me to say hello..."
+    },
+    "finish_reason": "stop"
+  }],
+  "usage": {
+    "prompt_tokens": 15,
+    "completion_tokens": 42,
+    "total_tokens": 57
+  }
+}</pre>
+        <p>The <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">reasoning</code> field contains the model's chain-of-thought (always-on). The model is Qwen3.5-35B-A3B, a Mixture-of-Experts architecture with 3B active parameters per forward pass.</p>
+
+        <h3>Persona mode — custom SSE response</h3>
+        <p>When using persona mode, the response is a Server-Sent Events stream with these event types:</p>
+        <div class="card">
+            <h4>Event types</h4>
+            <p style="margin-bottom: 8px;"><code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">conversation</code> — Conversation metadata (ID, title). Sent at the start and when the title is generated.</p>
+            <p style="margin-bottom: 8px;"><code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">thinking</code> — Chain-of-thought reasoning tokens. Can be ignored if you only want the final answer.</p>
+            <p style="margin-bottom: 8px;"><code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">token</code> — Response content tokens. Concatenate these to build the assistant's reply.</p>
+            <p style="margin-bottom: 8px;"><code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">tool_call</code> — Tool invocation (web search, paper search, etc.).</p>
+            <p style="margin-bottom: 0;"><code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">done</code> — Final event with usage statistics and finish reason.</p>
+        </div>
+
+        <h3>Rate limits</h3>
+        <ul>
+            <li><strong>1</strong> concurrent request</li>
+            <li><strong>10</strong> requests per minute</li>
+            <li><strong>2,000,000</strong> tokens per month (API usage only — browser chat does not count)</li>
+        </ul>
+        <p>When a limit is hit you'll receive a <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">429</code> response. Check your current usage in chat Settings.</p>
+
+        <h3>Python example — raw mode (OpenAI SDK)</h3>
+        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">from openai import OpenAI
+
+client = OpenAI(
+    api_key="sk-munin-...",
+    base_url="https://api.muninai.org/v1",
+)
+
+response = client.chat.completions.create(
+    model="qwen3.5-35b-a3b",
+    messages=[{"role": "user", "content": "Hello!"}],
+)
+
+print(response.choices[0].message.content)
+print(f"Tokens used: {response.usage.total_tokens}")</pre>
+
+        <h3>Python example — persona mode (SSE)</h3>
+        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">import httpx, json
+
+API_KEY = "sk-munin-..."
+BASE_URL = "https://api.muninai.org/v1"
+
+with httpx.stream(
+    "POST",
+    f"{BASE_URL}/chat/completions",
+    headers={"Authorization": f"Bearer {API_KEY}"},
+    json={
+        "model": "qwen3.5-35b-a3b",
+        "persona": "research",
+        "messages": [{"role": "user", "content": "Find papers on lipid rafts"}],
+    },
+    timeout=120,
+) as response:
+    reply = ""
+    event = ""
+    for line in response.iter_lines():
+        if line.startswith("event: "):
+            event = line[7:]
+        elif line.startswith("data: "):
+            data = json.loads(line[6:])
+            if event == "token":
+                reply += data["content"]
+            elif event == "done":
+                print(f"Tokens used: {data['usage']['total_tokens']}")
+
+    print(reply)</pre>
+
+        <h3>curl example — raw mode</h3>
+        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">curl https://api.muninai.org/v1/chat/completions \
+  -H "Authorization: Bearer sk-munin-..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3.5-35b-a3b",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+
+# Returns standard OpenAI JSON response</pre>
+
+        <h3>curl example — persona mode</h3>
+        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">curl -N https://api.muninai.org/v1/chat/completions \
+  -H "Authorization: Bearer sk-munin-..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3.5-35b-a3b",
+    "persona": "research",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+
+# Returns SSE stream with event/data lines</pre>
+
+        <h2 id="opencode">Using Munin with opencode</h2>
+        <p>
+            <a href="https://opencode.ai" target="_blank" rel="noopener">opencode</a> is an open-source terminal coding agent that supports any OpenAI-compatible API. You can point it at Munin and use Turing (the code persona) as your local coding assistant. The setup is a single config file plus an environment variable.
+        </p>
+
+        <h3>1. Install opencode</h3>
+        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;"># macOS / Linux
+curl -fsSL https://opencode.ai/install | bash
+
+# Or via npm
+npm install -g opencode-ai</pre>
+
+        <h3>2. Create an API key</h3>
+        <p>
+            Open <a href="https://chat.muninai.org">Chat</a> &rarr; click your name &rarr; <strong>Settings</strong> &rarr; <strong>API Keys</strong>. Create a key (it starts with <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">sk-munin-</code>) and copy it &mdash; it won't be shown again.
+        </p>
+
+        <h3>3. Export your key</h3>
+        <p>Add this to your shell profile (<code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">~/.bashrc</code>, <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">~/.zshrc</code>, etc.) so opencode can pick it up:</p>
+        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">export MUNIN_API_KEY="sk-munin-..."</pre>
+
+        <h3>4. Configure the provider</h3>
+        <p>Create <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">~/.config/opencode/opencode.json</code> for a global setup, or drop an <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">opencode.json</code> in any project root for a per-project setup:</p>
+        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "munin": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Munin",
+      "options": {
+        "baseURL": "https://api.muninai.org/v1",
+        "apiKey": "{env:MUNIN_API_KEY}"
+      },
+      "models": {
+        "qwen3.5-35b-a3b": {
+          "name": "Qwen 3.5 35B"
+        }
+      }
+    }
+  }
+}</pre>
+        <p>
+            Notes:
+        </p>
+        <ul>
+            <li>opencode uses standard OpenAI chat completions, so requests automatically hit Munin's <strong>raw mode</strong> &mdash; the underlying model with no Munin persona, no system prompt, and no Munin tools. Opencode injects its own coding agent prompt.</li>
+            <li>Munin's API rate limits apply: <strong>1 concurrent request</strong>, <strong>10 requests/minute</strong>, <strong>2M tokens/month</strong>. Opencode can burn tokens fast on large repos &mdash; keep an eye on usage in chat Settings.</li>
+        </ul>
+
+        <h3>5. Run it</h3>
+        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">cd your-project
+opencode</pre>
+        <p>
+            On first launch, pick the <strong>Munin</strong> provider and the <strong>qwen3.5-35b-a3b</strong> model. You can switch model/provider any time inside the TUI with <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">/model</code>.
+        </p>
+
+        <h2>Tips</h2>
+        <ul>
+            <li><strong>Be specific.</strong> "Find papers on cholesterol-lipid interactions in DPPC membranes" works better than "find papers on lipids".</li>
+            <li><strong>Use the right tool.</strong> Quick factual question? Chat. Need a specific paper? Paper Search. Need a full literature overview? Deep Research.</li>
+            <li><strong>Switch personas freely.</strong> Start with Curie to find papers, switch to Turing to implement something, use Meitner to write it up.</li>
+            <li><strong>Upload your papers.</strong> The more papers in the database, the better the search results for everyone.</li>
+        </ul>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/" style="color: var(--accent);">Elgeti Lab</a></p>
+            <p style="margin-top: 8px;"><a href="https://search.muninai.org">Search</a> | <a href="https://research.muninai.org">Research</a> | <a href="https://chat.muninai.org">Chat</a> | <a href="https://upload.muninai.org">Upload</a> | <a href="mailto:support@muninai.org">Get Access</a> | <a href="mailto:support@muninai.org">Support</a></p>
+        </div>
+    </footer>
+<script src="/shared/support-widget.js"></script>
+</body>
+</html>

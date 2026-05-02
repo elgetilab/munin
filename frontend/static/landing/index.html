@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Munin - Research Assistant</title>
+    <link rel="stylesheet" href="/shared/style.css">
+    <style>
+        /* Landing page overrides and page-specific styles */
+        .container {
+            max-width: 1200px;
+        }
+
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        /* Hero */
+        .hero {
+            text-align: center;
+            padding: 80px 0;
+            background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
+        }
+
+        .hero h1 {
+            font-size: 48px;
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, var(--accent) 0%, #a371f7 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero p {
+            font-size: 20px;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin: 0 auto 32px;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+        }
+
+        /* How To Section */
+        .howto {
+            padding: 80px 0;
+        }
+
+        .howto h2 {
+            text-align: center;
+            font-size: 32px;
+            margin-bottom: 48px;
+        }
+
+        .howto-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+        }
+
+        .howto-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            transition: border-color 0.2s, background 0.2s;
+        }
+
+        .howto-card:hover {
+            border-color: var(--accent);
+            background: var(--bg-tertiary);
+        }
+
+        .howto-step {
+            display: inline-block;
+            width: 32px;
+            height: 32px;
+            background: var(--accent);
+            color: var(--bg-primary);
+            border-radius: 50%;
+            text-align: center;
+            line-height: 32px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+
+        .howto-card h3 {
+            font-size: 18px;
+            margin-bottom: 12px;
+        }
+
+        .howto-card p {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+
+        .howto-card ul {
+            list-style: none;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .howto-card li {
+            padding: 4px 0;
+        }
+
+        .howto-card li::before {
+            content: "-";
+            color: var(--accent);
+            margin-right: 8px;
+        }
+
+        /* Personas Section */
+        .personas {
+            padding: 80px 0;
+            background: var(--bg-secondary);
+        }
+
+        .personas h2 {
+            text-align: center;
+            font-size: 32px;
+            margin-bottom: 16px;
+        }
+
+        .personas > .container > p {
+            text-align: center;
+            color: var(--text-secondary);
+            margin-bottom: 48px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .persona-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 24px;
+        }
+
+        .persona-card {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            transition: border-color 0.2s, background 0.2s;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+
+        .persona-card:hover {
+            border-color: var(--accent);
+            background: var(--bg-tertiary);
+        }
+
+        .persona-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .persona-img {
+            width: 64px;
+            height: 64px;
+            border-radius: 12px;
+            object-fit: cover;
+        }
+
+        .persona-title {
+            flex: 1;
+        }
+
+        .persona-name {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .persona-tag {
+            background: var(--bg-tertiary);
+            color: var(--accent);
+            padding: 4px 12px;
+            border-radius: 16px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .persona-description {
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+
+        .persona-uses {
+            list-style: none;
+        }
+
+        .persona-uses li {
+            padding: 8px 0;
+            border-top: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .persona-uses li::before {
+            content: ">";
+            color: var(--success);
+            margin-right: 8px;
+        }
+
+        /* Knowledge Sources */
+        .knowledge {
+            padding: 48px 0;
+        }
+
+        /* Footer override */
+        footer {
+            padding: 48px 0;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 32px;
+            }
+
+            .hero-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container header-content">
+            <a href="/" class="logo">
+                <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="logo-img">
+                <span class="logo-text">Munin</span>
+            </a>
+            <nav>
+                <a href="https://muninai.org" class="active">Home</a>
+                <a href="https://search.muninai.org">Search</a>
+                <a href="https://research.muninai.org">Research</a>
+                <a href="https://docs.muninai.org">Docs</a>
+                <a href="https://chat.muninai.org/knowledge">Knowledge</a>
+                <a href="https://chat.muninai.org">Chat</a>
+                <a href="https://upload.muninai.org">Upload</a>
+            </nav>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="container">
+            <h1>Munin Research Assistant</h1>
+            <p>AI-powered research assistant with access to your papers and the web. Three specialized personas (Meitner, Turing, and Curie) for chat, coding, and research.</p>
+            <div class="hero-buttons">
+                <a href="https://chat.muninai.org" class="btn btn-primary">Open Chat</a>
+                <a href="https://search.muninai.org" class="btn btn-secondary">Search Papers</a>
+                <a href="https://research.muninai.org" class="btn btn-secondary">Research</a>
+            </div>
+        </div>
+    </section>
+
+    <section id="howto" class="howto">
+        <div class="container">
+            <h2>What You Can Do</h2>
+            <div class="howto-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
+                <a href="https://chat.muninai.org" class="howto-card" style="text-decoration: none; color: inherit;">
+                    <div class="howto-step">1</div>
+                    <h3>Chat with AI</h3>
+                    <p>Ask questions, write text, get help with code, or explore research topics. Choose from three specialized personas: Meitner, Turing, and Curie.</p>
+                    <ul>
+                        <li>General questions and writing</li>
+                        <li>Programming and debugging</li>
+                        <li>Literature search and analysis</li>
+                    </ul>
+                </a>
+                <a href="https://search.muninai.org" class="howto-card" style="text-decoration: none; color: inherit;">
+                    <div class="howto-step">2</div>
+                    <h3>Search Papers</h3>
+                    <p>Search our paper database by topic, author, year, or DOI. Results are ranked by meaning, not just keywords, so you find conceptually related work.</p>
+                    <ul>
+                        <li>Semantic search by topic</li>
+                        <li>Filter by author and year</li>
+                        <li>DOI lookup and PDF download</li>
+                    </ul>
+                </a>
+                <a href="https://research.muninai.org" class="howto-card" style="text-decoration: none; color: inherit;">
+                    <div class="howto-step">3</div>
+                    <h3>Deep Research</h3>
+                    <p>Submit a complex research question and get a comprehensive report. Jobs run on cluster GPUs and typically take 5 to 20 minutes.</p>
+                    <ul>
+                        <li>In-depth analysis of a topic</li>
+                        <li>Structured report with references</li>
+                        <li>Download as PDF or Markdown</li>
+                    </ul>
+                </a>
+                <a href="https://upload.muninai.org" class="howto-card" style="text-decoration: none; color: inherit;">
+                    <div class="howto-step">4</div>
+                    <h3>Upload Papers</h3>
+                    <p>Contribute papers to the shared database. Uploaded PDFs are indexed and become searchable for everyone. Supports large batches with resumable uploads.</p>
+                    <ul>
+                        <li>Add papers to the shared database</li>
+                        <li>Upload up to 1,000 PDFs at once</li>
+                        <li>Resumes automatically if interrupted</li>
+                    </ul>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <section id="personas" class="personas">
+        <div class="container">
+            <h2>Choose Your Assistant</h2>
+            <p>Three specialized personas, each optimized for different tasks. All use extended thinking to reason through complex problems.</p>
+            <div class="persona-grid">
+                <a href="https://chat.muninai.org?persona=chat" class="persona-card">
+                    <div class="persona-header">
+                        <img src="assets/meitner-chat-inverted.svg" alt="Meitner" class="persona-img">
+                        <div class="persona-title">
+                            <div class="persona-name">Meitner</div>
+                            <span class="persona-tag">Chat</span>
+                        </div>
+                    </div>
+                    <p class="persona-description">General-purpose assistant for writing, web search, quick lookups, and brainstorming.</p>
+                </a>
+                <a href="https://chat.muninai.org?persona=code" class="persona-card">
+                    <div class="persona-header">
+                        <img src="assets/turing-code-inverted.svg" alt="Turing" class="persona-img">
+                        <div class="persona-title">
+                            <div class="persona-name">Turing</div>
+                            <span class="persona-tag">Code</span>
+                        </div>
+                    </div>
+                    <p class="persona-description">Code assistant for programming, scientific computing, debugging, and code review.</p>
+                </a>
+                <a href="https://chat.muninai.org?persona=research" class="persona-card">
+                    <div class="persona-header">
+                        <img src="assets/curie-research-inverted.svg" alt="Curie" class="persona-img">
+                        <div class="persona-title">
+                            <div class="persona-name">Curie</div>
+                            <span class="persona-tag">Research</span>
+                        </div>
+                    </div>
+                    <p class="persona-description">Research assistant for literature search, paper analysis, citation exploration, and academic investigation.</p>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <section id="knowledge" class="knowledge">
+        <div class="container">
+            <p style="text-align: center; color: var(--text-secondary); max-width: 700px; margin: 0 auto; font-size: 15px;">
+                All assistants draw from <strong style="color: var(--text-primary);">web search</strong>, <strong style="color: var(--text-primary);">academic databases</strong> (Semantic Scholar, OpenAlex), and our <strong style="color: var(--text-primary);"><a href="https://upload.muninai.org" style="color: var(--accent);">internal paper collection</a></strong>, searchable by meaning, not just keywords.
+            </p>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/" style="color: var(--accent);">Elgeti Lab</a></p>
+            <p style="margin-top: 8px;"><a href="https://search.muninai.org">Search</a> | <a href="https://research.muninai.org">Research</a> | <a href="https://chat.muninai.org">Chat</a> | <a href="https://upload.muninai.org">Upload</a> | <a href="mailto:support@muninai.org">Get Access</a> | <a href="mailto:support@muninai.org">Support</a></p>
+        </div>
+    </footer>
+<script src="/shared/support-widget.js"></script>
+</body>
+</html>

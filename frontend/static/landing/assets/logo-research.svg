@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <rect width="400" height="400" fill="white"/>
+
+  <!-- Handle -->
+  <path d="M 256 256 L 366 366 Q 382 382 370 394 Q 358 406 342 390 L 232 280 Z" fill="black"/>
+
+  <!-- Lens ring outer -->
+  <circle cx="168" cy="168" r="140" fill="black"/>
+  <!-- Lens ring inner (white donut) -->
+  <circle cx="168" cy="168" r="108" fill="white"/>
+  <!-- Lens glass fill -->
+  <circle cx="168" cy="168" r="106" fill="white"/>
+
+  <!-- Glint top-left arc -->
+  <path d="M 100 102 Q 130 76 165 80" stroke="black" stroke-width="14" fill="none" stroke-linecap="round"/>
+</svg>

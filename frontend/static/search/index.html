@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paper Search - Munin</title>
+    <link rel="stylesheet" href="/shared/style.css">
+    <style>
+        /* Search Section */
+        .search-section {
+            padding: 48px 0;
+        }
+
+        .search-section h1 {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .search-section p {
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+
+        .stats-bar {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            font-size: 14px;
+        }
+
+        .stats-bar .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .stats-bar .stat-value {
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .stats-bar .stat-label {
+            color: var(--text-secondary);
+        }
+
+        .search-box {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .search-input {
+            flex: 1;
+            padding: 14px 18px;
+            font-size: 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent);
+        }
+
+        .search-input::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .search-btn {
+            padding: 14px 28px;
+            font-size: 16px;
+            font-weight: 600;
+            background: var(--accent);
+            color: var(--bg-primary);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .search-btn:hover {
+            background: var(--accent-hover);
+        }
+
+        .search-btn:disabled {
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            cursor: not-allowed;
+        }
+
+        /* Filters */
+        .filters {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-bottom: 24px;
+        }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .filter-group label {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .filter-group select,
+        .filter-group input {
+            padding: 8px 12px;
+            font-size: 14px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            outline: none;
+        }
+
+        .filter-group input[type="number"] {
+            width: 80px;
+        }
+
+        /* Results */
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 0;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 16px;
+        }
+
+        .results-count {
+            color: var(--text-secondary);
+        }
+
+        .results-list {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .paper-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            transition: border-color 0.2s;
+        }
+
+        .paper-card:hover {
+            border-color: var(--accent);
+        }
+
+        .paper-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+
+        .paper-title a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .paper-title a:hover {
+            color: var(--accent);
+        }
+
+        .paper-meta {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .paper-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .paper-authors {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+
+        .paper-abstract {
+            color: var(--text-secondary);
+            font-size: 14px;
+            line-height: 1.7;
+        }
+
+        .paper-score {
+            display: inline-block;
+            background: var(--bg-tertiary);
+            color: var(--success);
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .paper-actions {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border);
+        }
+
+        .download-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .download-btn:hover {
+            background: var(--accent);
+            color: var(--bg-primary);
+            border-color: var(--accent);
+        }
+
+        .download-btn.checking {
+            opacity: 0.6;
+            cursor: wait;
+        }
+
+        .download-btn.unavailable {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* Feather Vortex Loading */
+        .vortex-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            padding: 48px;
+        }
+
+        .vortex-loading canvas {
+            width: 40px;
+            height: 40px;
+        }
+
+        .vortex-loading p {
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container header-content">
+            <a href="https://muninai.org" class="logo">
+                <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="logo-img">
+                <span class="logo-text">Munin</span>
+            </a>
+            <nav>
+                <a href="https://muninai.org">Home</a>
+                <a href="https://search.muninai.org" class="active">Search</a>
+                <a href="https://research.muninai.org">Research</a>
+                <a href="https://docs.muninai.org">Docs</a>
+                <a href="https://chat.muninai.org/knowledge">Knowledge</a>
+                <a href="https://chat.muninai.org">Chat</a>
+                <a href="https://upload.muninai.org">Upload</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="search-section">
+            <h1>Paper Search</h1>
+            <p>Search by topic, DOI, author, or year. Paste a DOI for exact lookup, use filters for author/year, or search by topic with semantic embeddings.</p>
+
+            <div class="stats-bar" id="stats-bar">
+                <span id="paper-count">Loading paper count...</span>
+            </div>
+
+            <div class="search-box">
+                <input type="text" id="search-input" class="search-input"
+                       placeholder="Search by topic or paste a DOI (e.g., '10.1016/j.bbalip.2013.12.002')"
+                       autocomplete="off">
+                <button id="search-btn" class="search-btn">Search</button>
+            </div>
+
+            <div class="filters">
+                <div class="filter-group">
+                    <label for="author-input">Author:</label>
+                    <input type="text" id="author-input" placeholder="Filter by author name" style="width: 180px;">
+                </div>
+                <div class="filter-group">
+                    <label for="year-min">Year:</label>
+                    <input type="number" id="year-min" placeholder="From" min="1900" max="2030" style="width: 70px;">
+                    <span style="color: var(--text-secondary);">-</span>
+                    <input type="number" id="year-max" placeholder="To" min="1900" max="2030" style="width: 70px;">
+                </div>
+                <div class="filter-group">
+                    <label for="topk-input">Results:</label>
+                    <input type="number" id="topk-input" value="10" min="1" max="50">
+                </div>
+            </div>
+
+            <div id="error-container"></div>
+
+            <div id="results-container">
+                <div class="empty-state">
+                    <div class="empty-state-icon">&#128269;</div>
+                    <p>Enter a search query to find relevant papers</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/" style="color: var(--accent);">Elgeti Lab</a></p>
+            <p style="margin-top: 8px;"><a href="https://search.muninai.org">Search</a> | <a href="https://research.muninai.org">Research</a> | <a href="https://chat.muninai.org">Chat</a> | <a href="https://upload.muninai.org">Upload</a> | <a href="mailto:support@muninai.org">Get Access</a> | <a href="mailto:support@muninai.org">Support</a></p>
+        </div>
+    </footer>
+
+    <script src="/shared/feather-vortex.js"></script>
+    <script>
+        // API URL - /api prefix, stripped by Caddy before forwarding to backend
+        const RETRIEVAL_API_URL = '/api';
+
+        // DOM elements
+        const searchInput = document.getElementById('search-input');
+        const searchBtn = document.getElementById('search-btn');
+        const authorInput = document.getElementById('author-input');
+        const yearMinInput = document.getElementById('year-min');
+        const yearMaxInput = document.getElementById('year-max');
+        const topkInput = document.getElementById('topk-input');
+        const resultsContainer = document.getElementById('results-container');
+        const errorContainer = document.getElementById('error-container');
+
+        // Check if query looks like a DOI
+        function isDOI(query) {
+            // DOI pattern: starts with 10. or contains doi.org
+            const doiPattern = /^10\.\d{4,}\/|doi\.org\//i;
+            return doiPattern.test(query);
+        }
+
+        // Extract DOI from query (handles full URLs and raw DOIs)
+        function extractDOI(query) {
+            // Remove common prefixes
+            let doi = query.trim();
+            if (doi.includes('doi.org/')) {
+                doi = doi.split('doi.org/')[1];
+            }
+            if (doi.toLowerCase().startsWith('doi:')) {
+                doi = doi.substring(4);
+            }
+            return doi.trim();
+        }
+
+        // Search by DOI (exact lookup)
+        async function searchByDOI(doi) {
+            const encodedDoi = encodeURIComponent(doi);
+            const response = await fetch(`/paper/${encodedDoi}/enriched`);
+
+            if (response.status === 404) {
+                return { type: 'doi', found: false, doi: doi };
+            }
+
+            response.raise_for_status;
+            const paper = await response.json();
+            return { type: 'doi', found: true, paper: paper, doi: doi };
+        }
+
+        // Search by author
+        async function searchByAuthor(authorName, limit) {
+            const response = await fetch(`${RETRIEVAL_API_URL}/author/${encodeURIComponent(authorName)}/papers?limit=${limit}`);
+            if (!response.ok) {
+                throw new Error(`Author search failed: ${response.status}`);
+            }
+            return await response.json();
+        }
+
+        // Hybrid search (with year filters)
+        async function hybridSearch(query, topK, yearMin, yearMax) {
+            const payload = {
+                query: query,
+                top_k: topK,
+                vector_weight: 0.8,
+                citation_weight: 0.2
+            };
+            if (yearMin) payload.year_min = parseInt(yearMin);
+            if (yearMax) payload.year_max = parseInt(yearMax);
+
+            const response = await fetch(`${RETRIEVAL_API_URL}/search/hybrid`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+                throw new Error(`Hybrid search failed: ${response.status}`);
+            }
+            return await response.json();
+        }
+
+        // Semantic search (original)
+        async function semanticSearch(query, topK) {
+            const response = await fetch(`${RETRIEVAL_API_URL}/retrieve`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    query: query,
+                    sources: ['papers'],
+                    top_k: topK
+                })
+            });
+            if (!response.ok) {
+                throw new Error(`Search failed: ${response.status}`);
+            }
+            return await response.json();
+        }
+
+        // Main search function
+        async function search() {
+            const query = searchInput.value.trim();
+            const authorFilter = authorInput.value.trim();
+            const yearMin = yearMinInput.value;
+            const yearMax = yearMaxInput.value;
+            const topK = parseInt(topkInput.value) || 10;
+
+            // Need either a query or an author filter
+            if (!query && !authorFilter) {
+                errorContainer.innerHTML = `
+                    <div class="error">
+                        Please enter a search query or author name.
+                    </div>
+                `;
+                return;
+            }
+
+            // Show loading
+            resultsContainer.innerHTML = `
+                <div class="vortex-loading">
+                    <canvas id="search-vortex" width="128" height="128"></canvas>
+                    <p id="search-loading-msg"></p>
+                </div>
+            `;
+            createVortex(document.getElementById('search-vortex'), 10, 7.0);
+            createRotatingMessage(document.getElementById('search-loading-msg'), 'paper_search');
+            errorContainer.innerHTML = '';
+            searchBtn.disabled = true;
+
+            try {
+                let result;
+                let searchType;
+
+                // Priority 1: DOI lookup (if query looks like a DOI)
+                if (query && isDOI(query)) {
+                    searchType = 'doi';
+                    const doi = extractDOI(query);
+                    result = await searchByDOI(doi);
+                    displayDOIResult(result);
+                }
+                // Priority 2: Author-only search (no topic query)
+                else if (authorFilter && !query) {
+                    searchType = 'author';
+                    result = await searchByAuthor(authorFilter, topK);
+                    displayAuthorResults(result, authorFilter);
+                }
+                // Priority 3: Combined search (topic + optional author/year filters)
+                else if (query) {
+                    searchType = 'hybrid';
+                    // Always use hybrid search when we have a query (supports year filters)
+                    result = await hybridSearch(query, topK * 3, yearMin, yearMax);  // Fetch more for filtering
+
+                    // Client-side author filtering if author filter is set
+                    if (authorFilter && result.papers) {
+                        const authorLower = authorFilter.toLowerCase();
+                        result.papers = result.papers.filter(paper => {
+                            if (!paper.authors) return false;
+                            return paper.authors.some(author =>
+                                author.toLowerCase().includes(authorLower)
+                            );
+                        });
+                        result.papers = result.papers.slice(0, topK);  // Limit after filtering
+                    } else if (result.papers) {
+                        result.papers = result.papers.slice(0, topK);
+                    }
+
+                    displayHybridResults(result, query, yearMin, yearMax, authorFilter);
+                }
+
+            } catch (error) {
+                console.error('Search error:', error);
+                errorContainer.innerHTML = `
+                    <div class="error">
+                        <strong>Search failed:</strong> ${error.message}
+                        <br><small>Make sure the retrieval service is running and accessible.</small>
+                    </div>
+                `;
+                resultsContainer.innerHTML = '';
+            } finally {
+                searchBtn.disabled = false;
+            }
+        }
+
+        // Check PDF availability
+        async function checkPdfAvailable(doi) {
+            try {
+                const response = await fetch(`/paper/${encodeURIComponent(doi)}/pdf/exists`);
+                if (response.ok) {
+                    const data = await response.json();
+                    return data.pdf_available === true;
+                }
+            } catch (e) {
+                console.error('PDF check failed:', e);
+            }
+            return false;
+        }
+
+        // Display results
+        async function displayResults(data) {
+            if (!data.documents || data.documents.length === 0) {
+                resultsContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">&#128533;</div>
+                        <p>No results found for "${data.query}"</p>
+                        <p style="font-size: 14px; margin-top: 8px;">Try different keywords or broader terms</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = `
+                <div class="results-header">
+                    <span class="results-count">${data.documents.length} results for "${data.query}"</span>
+                    <span style="color: var(--text-secondary); font-size: 14px;">
+                        Sources: ${data.sources_queried.join(', ')}
+                    </span>
+                </div>
+                <div class="results-list">
+            `;
+
+            for (const doc of data.documents) {
+                const meta = doc.metadata || {};
+                const title = meta.title || 'Untitled';
+                const authors = meta.authors ? (Array.isArray(meta.authors) ? meta.authors.slice(0, 3).join(', ') : meta.authors) : '';
+                const year = meta.year || '';
+                const doi = meta.doi || '';
+                const score = (doc.score * 100).toFixed(1);
+
+                // Extract abstract from content if available
+                let abstract = '';
+                if (doc.content) {
+                    const lines = doc.content.split('\n');
+                    abstract = lines.slice(1).join(' ').substring(0, 300);
+                    if (abstract.length >= 300) abstract += '...';
+                }
+
+                const downloadBtnId = doi ? `download-${doi.replace(/[^a-zA-Z0-9]/g, '-')}` : '';
+
+                html += `
+                    <div class="paper-card">
+                        <div class="paper-title">
+                            ${doi ? `<a href="https://doi.org/${doi}" target="_blank">${escapeHtml(title)}</a>` : escapeHtml(title)}
+                        </div>
+                        <div class="paper-meta">
+                            <span class="paper-score">${score}% match</span>
+                            ${year ? `<span class="paper-meta-item">&#128197; ${year}</span>` : ''}
+                            <span class="paper-meta-item">&#128218; ${doc.source}</span>
+                            ${doi ? `<span class="paper-meta-item">DOI: ${doi}</span>` : ''}
+                        </div>
+                        ${authors ? `<div class="paper-authors">&#128100; ${escapeHtml(authors)}${meta.authors && meta.authors.length > 3 ? ' et al.' : ''}</div>` : ''}
+                        ${abstract ? `<div class="paper-abstract">${escapeHtml(abstract)}</div>` : ''}
+                        ${doi ? `
+                            <div class="paper-actions">
+                                <a id="${downloadBtnId}" class="download-btn checking" href="#" data-doi="${doi}">
+                                    &#128196; Checking availability...
+                                </a>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+            resultsContainer.innerHTML = html;
+
+            // Check PDF availability for each paper with a DOI
+            for (const doc of data.documents) {
+                const doi = doc.metadata?.doi;
+                if (doi) {
+                    const btnId = `download-${doi.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                    const btn = document.getElementById(btnId);
+                    if (btn) {
+                        const isAvailable = await checkPdfAvailable(doi);
+                        if (isAvailable) {
+                            btn.href = `/paper/${encodeURIComponent(doi)}/pdf`;
+                            btn.innerHTML = '&#128196; Download PDF';
+                            btn.classList.remove('checking');
+                        } else {
+                            btn.innerHTML = '&#128196; PDF not available';
+                            btn.classList.remove('checking');
+                            btn.classList.add('unavailable');
+                            btn.removeAttribute('href');
+                        }
+                    }
+                }
+            }
+        }
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Display DOI lookup result
+        async function displayDOIResult(result) {
+            if (!result.found) {
+                resultsContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">&#128269;</div>
+                        <p>Paper not found in knowledge base for DOI: ${escapeHtml(result.doi)}</p>
+                        <p style="font-size: 14px; margin-top: 8px;">Try searching by topic instead, or check the DOI is correct.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const paper = result.paper;
+            const doi = paper.doi || result.doi;
+            const authors = paper.authors ? paper.authors.join(', ') : '';
+            const downloadBtnId = doi ? `download-${doi.replace(/[^a-zA-Z0-9]/g, '-')}` : '';
+
+            let html = `
+                <div class="results-header">
+                    <span class="results-count">DOI Lookup: ${escapeHtml(doi)}</span>
+                    <span style="color: var(--text-secondary); font-size: 14px;">Exact match</span>
+                </div>
+                <div class="results-list">
+                    <div class="paper-card">
+                        <div class="paper-title">
+                            <a href="https://doi.org/${doi}" target="_blank">${escapeHtml(paper.title || 'Untitled')}</a>
+                        </div>
+                        <div class="paper-meta">
+                            ${paper.year ? `<span class="paper-meta-item">&#128197; ${paper.year}</span>` : ''}
+                            ${paper.journal ? `<span class="paper-meta-item">&#128218; ${escapeHtml(paper.journal)}</span>` : ''}
+                            ${paper.citation_count ? `<span class="paper-meta-item">&#128202; ${paper.citation_count} citations</span>` : ''}
+                        </div>
+                        ${authors ? `<div class="paper-authors">&#128100; ${escapeHtml(authors)}</div>` : ''}
+                        ${paper.abstract ? `<div class="paper-abstract">${escapeHtml(paper.abstract)}</div>` : ''}
+                        <div class="paper-actions">
+                            <a id="${downloadBtnId}" class="download-btn checking" href="#" data-doi="${doi}">
+                                &#128196; Checking availability...
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            resultsContainer.innerHTML = html;
+
+            // Check PDF availability
+            if (doi) {
+                const btn = document.getElementById(downloadBtnId);
+                if (btn) {
+                    const isAvailable = await checkPdfAvailable(doi);
+                    if (isAvailable) {
+                        btn.href = `/paper/${encodeURIComponent(doi)}/pdf`;
+                        btn.innerHTML = '&#128196; Download PDF';
+                        btn.classList.remove('checking');
+                    } else {
+                        btn.innerHTML = '&#128196; PDF not available';
+                        btn.classList.remove('checking');
+                        btn.classList.add('unavailable');
+                        btn.removeAttribute('href');
+                    }
+                }
+            }
+        }
+
+        // Display author search results
+        async function displayAuthorResults(data, authorQuery) {
+            const papers = data.papers || [];
+            const authorsFound = data.authors_found || [];
+
+            if (papers.length === 0) {
+                resultsContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">&#128100;</div>
+                        <p>No papers found for author: "${escapeHtml(authorQuery)}"</p>
+                        <p style="font-size: 14px; margin-top: 8px;">Try a different spelling or partial name.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let authorInfo = '';
+            if (authorsFound.length > 0) {
+                authorInfo = authorsFound.map(a => `${a.name} (${a.paper_count} papers)`).join(', ');
+            }
+
+            let html = `
+                <div class="results-header">
+                    <span class="results-count">${papers.length} papers by "${escapeHtml(authorQuery)}"</span>
+                    <span style="color: var(--text-secondary); font-size: 14px;">
+                        ${authorInfo ? `Matching: ${escapeHtml(authorInfo)}` : ''}
+                    </span>
+                </div>
+                <div class="results-list">
+            `;
+
+            for (const paper of papers) {
+                const doi = paper.doi || '';
+                const downloadBtnId = doi ? `download-${doi.replace(/[^a-zA-Z0-9]/g, '-')}` : '';
+
+                html += `
+                    <div class="paper-card">
+                        <div class="paper-title">
+                            ${doi ? `<a href="https://doi.org/${doi}" target="_blank">${escapeHtml(paper.title || 'Untitled')}</a>` : escapeHtml(paper.title || 'Untitled')}
+                        </div>
+                        <div class="paper-meta">
+                            ${paper.year ? `<span class="paper-meta-item">&#128197; ${paper.year}</span>` : ''}
+                            ${paper.journal ? `<span class="paper-meta-item">&#128218; ${escapeHtml(paper.journal)}</span>` : ''}
+                            ${doi ? `<span class="paper-meta-item">DOI: ${doi}</span>` : ''}
+                        </div>
+                        ${paper.author_name ? `<div class="paper-authors">&#128100; ${escapeHtml(paper.author_name)}</div>` : ''}
+                        ${doi ? `
+                            <div class="paper-actions">
+                                <a id="${downloadBtnId}" class="download-btn checking" href="#" data-doi="${doi}">
+                                    &#128196; Checking availability...
+                                </a>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+            resultsContainer.innerHTML = html;
+
+            // Check PDF availability for each paper
+            for (const paper of papers) {
+                const doi = paper.doi;
+                if (doi) {
+                    const btnId = `download-${doi.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                    const btn = document.getElementById(btnId);
+                    if (btn) {
+                        const isAvailable = await checkPdfAvailable(doi);
+                        if (isAvailable) {
+                            btn.href = `/paper/${encodeURIComponent(doi)}/pdf`;
+                            btn.innerHTML = '&#128196; Download PDF';
+                            btn.classList.remove('checking');
+                        } else {
+                            btn.innerHTML = '&#128196; PDF not available';
+                            btn.classList.remove('checking');
+                            btn.classList.add('unavailable');
+                            btn.removeAttribute('href');
+                        }
+                    }
+                }
+            }
+        }
+
+        // Display hybrid search results
+        async function displayHybridResults(data, query, yearMin, yearMax, authorFilter = '') {
+            const papers = data.papers || [];
+
+            // Build filter description
+            let filters = [];
+            if (yearMin && yearMax) filters.push(`${yearMin}-${yearMax}`);
+            else if (yearMin) filters.push(`${yearMin}+`);
+            else if (yearMax) filters.push(`up to ${yearMax}`);
+            if (authorFilter) filters.push(`author: ${authorFilter}`);
+            const filterDesc = filters.length > 0 ? ` (${filters.join(', ')})` : '';
+
+            if (papers.length === 0) {
+                resultsContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">&#128533;</div>
+                        <p>No papers found for "${escapeHtml(query)}"${filterDesc}</p>
+                        <p style="font-size: 14px; margin-top: 8px;">Try broader terms or adjust the filters.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = `
+                <div class="results-header">
+                    <span class="results-count">${papers.length} results for "${escapeHtml(query)}"${filterDesc}</span>
+                    <span style="color: var(--text-secondary); font-size: 14px;">Hybrid search (semantic + citations)</span>
+                </div>
+                <div class="results-list">
+            `;
+
+            for (const paper of papers) {
+                const doi = paper.doi || '';
+                const authors = paper.authors ? paper.authors.slice(0, 3).join(', ') : '';
+                const score = paper.combined_score ? (paper.combined_score * 100).toFixed(1) : '';
+                const downloadBtnId = doi ? `download-${doi.replace(/[^a-zA-Z0-9]/g, '-')}` : '';
+
+                html += `
+                    <div class="paper-card">
+                        <div class="paper-title">
+                            ${doi ? `<a href="https://doi.org/${doi}" target="_blank">${escapeHtml(paper.title || 'Untitled')}</a>` : escapeHtml(paper.title || 'Untitled')}
+                        </div>
+                        <div class="paper-meta">
+                            ${score ? `<span class="paper-score">${score}% match</span>` : ''}
+                            ${paper.year ? `<span class="paper-meta-item">&#128197; ${paper.year}</span>` : ''}
+                            ${paper.citation_count ? `<span class="paper-meta-item">&#128202; ${paper.citation_count} citations</span>` : ''}
+                            ${doi ? `<span class="paper-meta-item">DOI: ${doi}</span>` : ''}
+                        </div>
+                        ${authors ? `<div class="paper-authors">&#128100; ${escapeHtml(authors)}${paper.authors && paper.authors.length > 3 ? ' et al.' : ''}</div>` : ''}
+                        ${paper.abstract ? `<div class="paper-abstract">${escapeHtml(paper.abstract.substring(0, 300))}${paper.abstract.length > 300 ? '...' : ''}</div>` : ''}
+                        ${doi ? `
+                            <div class="paper-actions">
+                                <a id="${downloadBtnId}" class="download-btn checking" href="#" data-doi="${doi}">
+                                    &#128196; Checking availability...
+                                </a>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+            resultsContainer.innerHTML = html;
+
+            // Check PDF availability for each paper
+            for (const paper of papers) {
+                const doi = paper.doi;
+                if (doi) {
+                    const btnId = `download-${doi.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                    const btn = document.getElementById(btnId);
+                    if (btn) {
+                        const isAvailable = await checkPdfAvailable(doi);
+                        if (isAvailable) {
+                            btn.href = `/paper/${encodeURIComponent(doi)}/pdf`;
+                            btn.innerHTML = '&#128196; Download PDF';
+                            btn.classList.remove('checking');
+                        } else {
+                            btn.innerHTML = '&#128196; PDF not available';
+                            btn.classList.remove('checking');
+                            btn.classList.add('unavailable');
+                            btn.removeAttribute('href');
+                        }
+                    }
+                }
+            }
+        }
+
+        // Event listeners
+        searchBtn.addEventListener('click', search);
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') search();
+        });
+
+        // Fetch and display paper count
+        async function loadStats() {
+            const paperCountEl = document.getElementById('paper-count');
+            try {
+                const response = await fetch(`${RETRIEVAL_API_URL}/sources`);
+                if (response.ok) {
+                    const data = await response.json();
+                    const paperCount = data.papers?.count || 0;
+                    const pdfCount = data.papers?.pdf_count || 0;
+                    const available = data.papers?.available || false;
+
+                    if (available && paperCount > 0) {
+                        document.getElementById('stats-bar').innerHTML = `
+                            <div class="stat-item">
+                                <span>&#128218;</span>
+                                <span class="stat-value">${paperCount.toLocaleString()}</span>
+                                <span class="stat-label">papers in knowledge base</span>
+                            </div>
+                            <div class="stat-item">
+                                <span>&#128196;</span>
+                                <span class="stat-value">${pdfCount.toLocaleString()}</span>
+                                <span class="stat-label">PDFs available for download</span>
+                            </div>
+                        `;
+                    } else {
+                        document.getElementById('stats-bar').innerHTML = `
+                            <div class="stat-item">
+                                <span class="stat-label">Paper database initializing...</span>
+                            </div>
+                        `;
+                    }
+                } else {
+                    paperCountEl.textContent = 'Unable to load stats';
+                }
+            } catch (e) {
+                console.error('Failed to load stats:', e);
+                paperCountEl.textContent = 'Stats unavailable';
+            }
+        }
+
+        // Focus search input on load
+        searchInput.focus();
+
+        // Load stats on page load
+        loadStats();
+    </script>
+<script src="/shared/support-widget.js"></script>
+</body>
+</html>

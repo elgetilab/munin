@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentation - Munin</title>
+    <link rel="stylesheet" href="/shared/style.css">
+    <style>
+        .container {
+            max-width: 800px;
+        }
+
+        main {
+            padding: 64px 0;
+        }
+
+        h1 {
+            font-size: 32px;
+            margin-bottom: 16px;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            margin-bottom: 48px;
+        }
+
+        .doc-list {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .doc-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            text-decoration: none;
+            color: inherit;
+            transition: border-color 0.2s;
+        }
+
+        .doc-card:hover {
+            border-color: var(--accent);
+        }
+
+        .doc-card h2 {
+            font-size: 20px;
+            margin-bottom: 8px;
+            color: var(--accent);
+        }
+
+        .doc-card p {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container header-content">
+            <a href="https://muninai.org" class="logo">
+                <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="logo-img">
+                <span class="logo-text">Munin</span>
+            </a>
+            <nav>
+                <a href="https://muninai.org">Home</a>
+                <a href="https://search.muninai.org">Search</a>
+                <a href="https://research.muninai.org">Research</a>
+                <a href="https://docs.muninai.org" class="active">Docs</a>
+                <a href="https://chat.muninai.org/knowledge">Knowledge</a>
+                <a href="https://chat.muninai.org">Chat</a>
+                <a href="https://upload.muninai.org">Upload</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <h1>Documentation</h1>
+        <p class="subtitle">Technical documentation for the Munin research assistant.</p>
+
+        <div class="doc-list">
+            <a href="guide.html" class="doc-card">
+                <h2>User Guide</h2>
+                <p>How to use Chat, Paper Search, Deep Research, Knowledge Browser, and Upload. Covers the three personas, tag filters, knowledge sources, and how to contribute papers.</p>
+            </a>
+
+            <a href="architecture.html" class="doc-card">
+                <h2>System Architecture</h2>
+                <p>Overview of the Munin system components, data flow, and technology stack. Includes diagrams of the LLM pipeline, knowledge base integration, and infrastructure.</p>
+            </a>
+
+            <a href="guide.html#api-access" class="doc-card">
+                <h2>API Access</h2>
+                <p>REST API at api.muninai.org with SSE streaming responses. Create keys in chat settings. Includes Python, curl, and TypeScript examples.</p>
+            </a>
+
+            <a href="guide.html#opencode" class="doc-card">
+                <h2>opencode Setup</h2>
+                <p>Use Munin as the backend for opencode, the open-source terminal coding agent. Step-by-step config for the OpenAI-compatible provider.</p>
+            </a>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/" style="color: var(--accent);">Elgeti Lab</a></p>
+            <p style="margin-top: 8px;"><a href="https://search.muninai.org">Search</a> | <a href="https://research.muninai.org">Research</a> | <a href="https://chat.muninai.org">Chat</a> | <a href="https://upload.muninai.org">Upload</a> | <a href="mailto:support@muninai.org">Get Access</a> | <a href="mailto:support@muninai.org">Support</a></p>
+        </div>
+    </footer>
+<script src="/shared/support-widget.js"></script>
+</body>
+</html>
