@@ -16,10 +16,12 @@
 # healthy papers (a quick filesystem check instead) and only invoke the full
 # `repair_auto` logic on the actual orphans.
 #
-# Usage:
+# Usage (from anywhere on hugin; no working-directory assumption):
 #   sudo bash -c 'set -a && source /opt/hugin/config/cluster.env && set +a && \
 #       /opt/anaconda/2024.10-1/bin/python3 \
-#       backend/scripts/pipeline/qdrant_repair_sweep.py'
+#       "$(realpath -- "$(dirname "$0")")/qdrant_repair_sweep.py"'
+# Or just give the full path to wherever your monorepo clone lives, e.g.:
+#       backend/scripts/pipeline/qdrant_repair_sweep.py
 #
 # Idempotent: safe to re-run after interruption. Each paper is processed
 # atomically (subprocess call per orphan, filesystem check per healthy).

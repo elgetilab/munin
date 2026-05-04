@@ -1,4 +1,4 @@
-# Future Features — munin-backend
+# Future Features — backend (cluster)
 
 Design notes for features that are planned but not yet implemented. When
 we come back to build one of these, the notes below should give enough

@@ -310,7 +310,7 @@ The model's reasoning (visible in the thinking block) shows its decision: "This 
 ## File Locations
 
 ```
-munin-backend/
+backend/                        # cluster half of the monorepo
 ├── config/
 │   └── agents.yml              # Agent definitions
 ├── retrieval/
