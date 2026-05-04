@@ -50,7 +50,7 @@ This file is the agreed slice of those, with sequencing decisions.
   across 3 non-admin uploaders; admin's 1 test file skipped).
 - **Frontend**: `#tag` composer chip parsing, autocomplete against
   `GET /api/tags`, render `contributors` + `applied_tags` in paper
-  cards. Lives in munin-vps.
+  cards. Lives in `frontend/webui/`.
 
 ## Agreed decisions (2026-04-20)
 
@@ -192,13 +192,14 @@ The piece blocking §28 backfill. Need to establish:
 Investigation plan:
 1. Do a test upload via upload.muninai.org while watching VPS +
    cluster file-system activity and server logs.
-2. Check the `munin-vps` repo for the upload endpoint handler (this
-   repo has no code matching `upload.muninai` or `inbox`, confirming
-   the handler isn't here).
+2. Check `frontend/upload/` for the upload endpoint handler (this
+   directory has the tusd hook service; the cluster side has no
+   code matching `upload.muninai` or `inbox`, confirming the
+   handler isn't there).
 3. Inspect the autossh-tunnel target routes — if upload.muninai.org
    proxies to the cluster via the tunnel, the handler would be in
-   `retrieval/main.py`, which it isn't. So the handler is almost
-   certainly on the VPS side.
+   `backend/retrieval/main.py`, which it isn't. So the handler is
+   on the VPS side (`frontend/upload/hook_service.py`).
 
 ## What's NOT in this sprint
 
@@ -206,6 +207,6 @@ Investigation plan:
   (§28's third tag kind). Ship the `#group` / `#@user` / `#topic`
   mechanism first; fold `#me` into the same code path later.
 - Conversation-level tag inheritance (`conversations.default_tags`).
-- Frontend autocomplete for `#tags` (lives in munin-vps).
+- Frontend autocomplete for `#tags` (lives in `frontend/webui/`).
 - Full §15 interactive map UI (this repo only ships the JSON + the
   endpoint; frontend work is separate).

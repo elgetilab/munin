@@ -19,7 +19,7 @@
 # Usage:
 #   sudo bash -c 'set -a && source /opt/hugin/config/cluster.env && set +a && \
 #       /opt/anaconda/2024.10-1/bin/python3 \
-#       scripts/pipeline/qdrant_repair_sweep.py'
+#       backend/scripts/pipeline/qdrant_repair_sweep.py'
 #
 # Idempotent: safe to re-run after interruption. Each paper is processed
 # atomically (subprocess call per orphan, filesystem check per healthy).

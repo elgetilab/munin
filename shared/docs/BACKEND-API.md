@@ -21,6 +21,14 @@ The service also exposes the legacy `/retrieve`, `/search/hybrid`,
 `/citations/{doi}`, `/mcp/*`, `/deepresearch/*`, etc. routes — those are
 **not** part of the frontend contract. Ignore them for the UI.
 
+Two more routes exist but are out-of-band for the UI:
+
+- `GET /health` — ops/uptime check used by the docker healthcheck.
+  Returns `{"status": "ok"}`. Not user-facing; safe to ignore.
+- `POST /api/admin/ingest` — contributor-ingest endpoint called by the
+  VPS hook service via the SSH tunnel. Token-auth, not session-auth;
+  see `shared/docs/CONTRIBUTOR-INGEST.md` for the full contract.
+
 ## 2. Authentication
 
 Forward-auth pattern: Caddy on the VPS validates the session (or API
@@ -890,6 +898,105 @@ No rate limit beyond idempotency.
 
 **Errors**: 404 if conversation not found or not owned by caller. 400
 if `reason` exceeds 2000 chars.
+
+---
+
+### 4.19 `GET /api/tags`
+
+Tag-autocomplete catalogue for the chat composer (`#topic`, `#group`,
+`#@username` shortcuts) and for tag pills on the knowledge browser.
+
+**Request**: no body, no auth needed (tag names are public; the model
+already sees them in search results).
+
+**Response (200)**:
+
+```json
+{
+  "topics": [
+    {"slug": "machine-learning", "label": "Machine Learning", "paper_count": 412}
+  ],
+  "groups": [
+    {"slug": "varghela-lab", "display_name": "Varghela Lab", "paper_count": 87}
+  ],
+  "contributors": [
+    {"username": "alice", "display_name": "Alice Doe", "group_slug": "varghela-lab", "paper_count": 23}
+  ]
+}
+```
+
+Topics come from the §15 embedding map (`unclustered` is filtered out).
+Groups come from `contributors.yml`. Lists are sorted by `paper_count`
+descending. Empty arrays are returned (not 404) when a family has no
+entries yet.
+
+### 4.20 `GET /api/tags/{kind}/{slug}/papers`
+
+Paginated paper list for a tag. Browse view — no ranking, no SPECTER
+query, ordered by metadata. Used by the knowledge browser page to
+drill down from a tag pill.
+
+**Path params**:
+
+| Param | Values |
+|---|---|
+| `kind` | `topic` \| `group` \| `contributor` |
+| `slug` | the corresponding `topic_slug`, `group_slug`, or `username` |
+
+**Query params**:
+
+| Param | Default | Notes |
+|---|---|---|
+| `offset` | `0` | non-negative |
+| `limit` | `50` | 1–200 |
+| `sort` | `year_desc` | `year_desc` \| `year_asc` \| `upload_desc` |
+
+**Response (200)**:
+
+```json
+{
+  "kind": "topic",
+  "slug": "machine-learning",
+  "total": 412,
+  "offset": 0,
+  "limit": 50,
+  "sort": "year_desc",
+  "papers": [
+    {
+      "title": "...",
+      "doi": "10.xxxx/...",
+      "year": 2025,
+      "authors": ["Doe, A.", "Smith, B."],
+      "journal": "Nature",
+      "contributors": [{"display_name": "Alice", "group_slug": "varghela-lab",
+                        "group_display_name": "Varghela Lab", "upload_time": "2026-04-12T..."}],
+      "topic": {"label": "Machine Learning", "slug": "machine-learning"},
+      "download_url": "https://search.muninai.org/paper/.../pdf"
+    }
+  ]
+}
+```
+
+`download_url` is only present when the PDF is on disk. Sort is applied
+**within the returned page** — for stable cross-page ordering, rely on
+the default `year_desc` and don't re-sort client-side.
+
+**Errors**: 400 if `kind` is unknown or `slug` is empty. 503 if Qdrant
+is unavailable.
+
+### 4.21 `GET /api/embedding_map`
+
+Serves the flat JSON produced by `scripts/knowledge/build_embedding_map.py`
+— a 2D UMAP projection of the paper corpus with cluster labels. Used by
+the knowledge-map visualisation on the frontend.
+
+**Request**: no body, no auth needed.
+
+**Response (200)**: JSON file (raw `application/json`). Shape is defined
+by the build script; treat as opaque from the API contract's POV.
+
+**Errors**: 404 with `{"error": {"message": "Embedding map not yet built"}}`
+when the nightly timer hasn't run yet (first-boot state).
 
 ---
 

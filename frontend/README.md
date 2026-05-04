@@ -1,6 +1,6 @@
-# munin-vps
+# munin / frontend (VPS)
 
-Public gateway for the [Munin](https://muninai.org) AI research platform. Runs on a Hetzner VPS (CAX21, Ubuntu 24.04), reverse-proxying to a SLURM cluster via SSH tunnel.
+VPS-side of the [Munin](https://muninai.org) AI research monorepo. Runs on a Hetzner VPS (CAX21, Ubuntu 24.04), reverse-proxying to a SLURM cluster via SSH tunnel. Cluster-side code lives in `../backend/`; cross-cut artifacts in `../shared/`.
 
 ## Services
 

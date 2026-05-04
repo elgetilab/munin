@@ -40,3 +40,4 @@ Thumbs.db
 # --- Local artifacts ---
 *.local
 *.bak
+/backend/.claude/scheduled_tasks.lock
