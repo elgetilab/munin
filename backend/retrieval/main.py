@@ -3642,9 +3642,20 @@ async def startup():
     except Exception as e:
         print(f"[ERROR] Failed to load agents: {e}")
 
-    # Pre-load embedding models (in background)
+    # Eager-load embedding models so /api/status reflects real
+    # readiness instead of "unavailable" (which used to mean
+    # either failed-to-load or lazy-not-yet-called — confusing
+    # both operators and the dashboard). Each model is wrapped
+    # individually so a single failure doesn't block the other.
     print("\nLoading embedding models (this may take a moment)...")
-    # Note: Models are loaded lazily on first use to speed up startup
+    try:
+        get_specter()
+    except Exception as e:
+        print(f"[ERROR] SPECTER preload failed: {e}")
+    try:
+        get_bge()
+    except Exception as e:
+        print(f"[ERROR] BGE preload failed: {e}")
 
     print("\n" + "=" * 60)
     print("Service ready!")
