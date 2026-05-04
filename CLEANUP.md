@@ -108,27 +108,30 @@ Tier 4 is intentionally deferred — no action unless reopened.
 - [x] **Empty `shared/docs/archive/` directory** removed (Tier 4
   trivial win folded in here).
 
-## Tier 6 — deferred follow-ups surfaced during Tier 5
+## Tier 6 — done
 
-- [ ] **Reconcile duplicated archived specs** — both
-  `backend/docs/archive/` and `frontend/docs/archive/` contain
-  `FRONTEND-KNOWLEDGE-TAB.md`, `FRONTEND-REPORT-CHAT.md`,
-  `FRONTEND-TASKS.md`. The first two are byte-identical across
-  the two locations; `FRONTEND-TASKS.md` differs. Need to pick
-  the canonical version, drop the duplicates, and decide whether
-  the four "frontend specs" archived in `backend/docs/archive/`
-  should move to `frontend/docs/archive/` for consistency
-  (they're already there, so this is just deletion of the
-  backend copies after reconciling FRONTEND-TASKS.md).
+- [x] **Reconcile duplicated archived specs** — turns out
+  `FRONTEND-TASKS.md` is *not* a duplicate: the backend copy is
+  "Frontend Tasks (handoff from munin-backend)" — backend's
+  perspective, referenced from `chat_service.py` and
+  `future_features.md` (load-bearing); the frontend copy is
+  "Frontend Integration Task List" — frontend's reconciliation
+  of the API contract. Kept both. Removed the two
+  byte-identical duplicates (`FRONTEND-KNOWLEDGE-TAB.md`,
+  `FRONTEND-REPORT-CHAT.md`) from `backend/docs/archive/`,
+  cross-linked the README to point at `frontend/docs/archive/`
+  for those.
 
-- [ ] **Decide on dead static-serving infrastructure in
-  retrieval/main.py** — routes that serve `deepresearch.html` and
-  `search.html` from `STATIC_DIR` have inline fallbacks but no
-  workflow ever ships those HTML files. The fallbacks tell users
-  "Place X.html in the static directory" but that's misleading —
-  no operator workflow does. Either:
-  - Document a real way to ship those HTMLs, or
-  - Delete the routes + the file-existence guards entirely.
+- [x] **Dead static-serving infrastructure in
+  retrieval/main.py** — confirmed Caddy on the VPS serves the
+  user-facing UIs from `frontend/static/...` directly; the
+  cluster's `GET /` and `GET /deepresearch` HTML routes were
+  unreachable from anything. Replaced `GET /` with a four-line
+  JSON identifier (handy for `curl` smoke tests); deleted the
+  `GET /deepresearch` handler, the `/assets` mount, the
+  `STATIC_DIR` env var, and the now-unused `HTMLResponse` /
+  `StaticFiles` imports. The other `/deepresearch/{submit,
+  status,output,queue,jobs}` API routes are unaffected.
 
 ## Tier 4 — skip (not actually broken)
 
@@ -148,6 +151,5 @@ Tier 4 is intentionally deferred — no action unless reopened.
 ## Status
 
 - 2026-05-04: audit complete, this file written.
-- 2026-05-04: Tier 1 + Tier 2 + Tier 3 + Tier 5 done.
-- Tier 6 open (archived-specs reconciliation; dead static infra in
-  retrieval/main.py).
+- 2026-05-04: Tier 1 + Tier 2 + Tier 3 + Tier 5 + Tier 6 done.
+- All audit-surfaced cleanup complete.

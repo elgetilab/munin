@@ -60,8 +60,7 @@ from urllib.parse import quote
 import httpx
 import yaml
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, Response
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, Response
 
 # Import from local modules
 from database import (
@@ -93,9 +92,6 @@ import user_profile_store
 import project_store
 import artifact_store
 
-# Static dir (not in database.py since it's app-specific)
-STATIC_DIR = os.getenv("STATIC_DIR", "/app/static")
-
 # ==============================================================================
 # FastAPI App
 # ==============================================================================
@@ -112,62 +108,15 @@ app.include_router(mcp_router)
 # ==============================================================================
 # Search UI (served at root)
 # ==============================================================================
-@app.get("/", response_class=HTMLResponse)
-async def serve_root(request: Request):
-    """
-    Serve the appropriate UI based on the hostname.
+@app.get("/")
+async def serve_root():
+    """Minimal service identifier — handy for `curl` smoke tests.
 
-    - research.muninai.org -> Deep Research UI
-    - search.muninai.org or other -> Paper Search UI
-
-    This allows the same service to power multiple subdomains.
-    """
-    host = request.headers.get("host", "").lower()
-
-    # Serve Deep Research UI for research subdomain
-    if host.startswith("research."):
-        deepresearch_html = os.path.join(STATIC_DIR, "deepresearch.html")
-        if os.path.exists(deepresearch_html):
-            return FileResponse(deepresearch_html, media_type="text/html")
-        return HTMLResponse(
-            content="""
-            <!DOCTYPE html>
-            <html>
-            <head><title>Deep Research - Munin</title></head>
-            <body style="background: #0f1419; color: #e6edf3; font-family: sans-serif; padding: 48px;">
-                <h1>Deep Research</h1>
-                <p>Deep Research UI not configured. Place deepresearch.html in the static directory.</p>
-                <p>API endpoints are available at <a href="/docs" style="color: #58a6ff;">/docs</a></p>
-            </body>
-            </html>
-            """,
-            status_code=200
-        )
-
-    # Default: serve Paper Search UI
-    search_html = os.path.join(STATIC_DIR, "search.html")
-    if os.path.exists(search_html):
-        return FileResponse(search_html, media_type="text/html")
-    return HTMLResponse(
-        content="""
-        <!DOCTYPE html>
-        <html>
-        <head><title>Munin Search</title></head>
-        <body>
-            <h1>Munin Paper Search</h1>
-            <p>Search UI not configured. Place search.html in the static directory.</p>
-            <p>API endpoints are available at <a href="/docs">/docs</a></p>
-        </body>
-        </html>
-        """,
-        status_code=200
-    )
-
-
-# Mount static assets (CSS, JS, images if needed)
-if os.path.exists(STATIC_DIR):
-    # Mount at /static for any additional static files
-    app.mount("/assets", StaticFiles(directory=os.path.join(STATIC_DIR, "assets")), name="assets")
+    The actual user-facing UIs (search, research, chat, etc.) are
+    served by Caddy on the VPS from `frontend/static/...`; this
+    route exists only so the cluster service has something at `/`
+    other than a 404."""
+    return {"service": "munin-retrieval", "docs": "/docs", "health": "/health"}
 
 
 # NOTE: Pydantic models are imported from models.py
@@ -3290,30 +3239,6 @@ async def get_enriched_paper(doi: str):
 # ==============================================================================
 # Deep Research Endpoints
 # ==============================================================================
-@app.get("/deepresearch", response_class=HTMLResponse)
-async def serve_deepresearch_ui():
-    """
-    Serve the deep research UI page.
-    """
-    deepresearch_html = os.path.join(STATIC_DIR, "deepresearch.html")
-    if os.path.exists(deepresearch_html):
-        return FileResponse(deepresearch_html, media_type="text/html")
-    return HTMLResponse(
-        content="""
-        <!DOCTYPE html>
-        <html>
-        <head><title>Deep Research - Munin</title></head>
-        <body style="background: #0f1419; color: #e6edf3; font-family: sans-serif; padding: 48px;">
-            <h1>Deep Research</h1>
-            <p>Deep Research UI not configured. Place deepresearch.html in the static directory.</p>
-            <p>API endpoints are available at <a href="/docs" style="color: #58a6ff;">/docs</a></p>
-        </body>
-        </html>
-        """,
-        status_code=200
-    )
-
-
 @app.post("/deepresearch/submit", response_model=DeepResearchSubmitResponse)
 async def submit_deepresearch(request: DeepResearchRequest):
     """
