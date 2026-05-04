@@ -45,11 +45,21 @@ services:
   # GROBID - Scientific PDF parsing
   # ============================================================================
   grobid:
-    image: lfoppiano/grobid:0.8.0
+    # 0.8.2 ships with improved Crossref throttling (response to
+    # 2026-Q2 abuse reports). Pair it with the mounted grobid.yaml
+    # below so our consolidator hits Crossref's polite pool via
+    # mailto. See docker/grobid/grobid.yaml.
+    image: lfoppiano/grobid:0.8.2
     container_name: munin-grobid
     restart: unless-stopped
     ports:
       - "127.0.0.1:8070:8070"
+    volumes:
+      # Override the in-image grobid.yaml so we can set
+      # consolidation.crossref.mailto = admin@example.org. Without
+      # this, GROBID's internal "Grobi/x.y" Crossref client uses
+      # the anonymous pool and gets rate-limited.
+      - /opt/munin/docker/grobid/grobid.yaml:/opt/grobid/grobid-home/config/grobid.yaml:ro
     environment:
       # GROBID's JVM defaults to ~4 GB heap — too small once the
       # watcher daemon + admin-ingest + cron retry all hammer it
@@ -178,7 +188,7 @@ services:
       # can't fork 37+ paper_pipeline subprocesses in parallel and
       # saturate GROBID's 10-engine pool. Over-cap requests fast-fail
       # with 503 + Retry-After: 60. Keep below GROBID's pool size
-      # (10) minus the watcher's --workers (2) → 4 leaves comfortable
+      # (10) minus the watcher's --workers (1) → 4 leaves comfortable
       # headroom.
       - INGEST_CONCURRENCY=${INGEST_CONCURRENCY:-4}
     depends_on:

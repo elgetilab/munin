@@ -137,13 +137,20 @@ deploy_dirs() {
 }
 
 # ------------------------------------------------------------------------------
-# compose: copy docker-compose.yml (no restart)
+# compose: copy docker-compose.yml + grobid.yaml (no restart)
 # ------------------------------------------------------------------------------
 deploy_compose() {
     echo "[compose] Installing docker-compose.yml..."
     need_file "$REPO_DIR/docker/docker-compose.yml"
     run "install -m 0644 $REPO_DIR/docker/docker-compose.yml $MUNIN_DOCKER/docker-compose.yml"
-    echo "[OK] compose — restart with: docker compose --profile rag up -d"
+
+    # GROBID config override — sets consolidation.crossref.mailto so
+    # the internal Crossref client uses the polite pool.
+    need_file "$REPO_DIR/docker/grobid/grobid.yaml"
+    run "install -d -m 0755 $MUNIN_DOCKER/grobid"
+    run "install -m 0644 $REPO_DIR/docker/grobid/grobid.yaml $MUNIN_DOCKER/grobid/grobid.yaml"
+
+    echo "[OK] compose — restart with: docker compose --profile rag up -d --force-recreate grobid"
 }
 
 # ------------------------------------------------------------------------------

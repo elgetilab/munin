@@ -691,7 +691,7 @@ class PaperPipeline:
                     response = requests.post(
                         f"{self.grobid_url}/api/processFulltextDocument",
                         files={"input": f},
-                        data={"consolidateHeader": "1", "consolidateCitations": "1"},
+                        data={"consolidateHeader": "1", "consolidateCitations": "2"},
                         timeout=180  # Increased timeout for large PDFs
                     )
 
