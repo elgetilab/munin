@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <rect width="400" height="400" fill="white"/>
+
+  <!-- Large bubble -->
+  <path d="M 40 80 Q 40 44 76 44 L 260 44 Q 296 44 296 80 L 296 168 Q 296 204 260 204 L 120 204 L 68 252 L 80 204 L 76 204 Q 40 204 40 168 Z" fill="black"/>
+  <path d="M 62 86 Q 62 66 82 66 L 254 66 Q 274 66 274 86 L 274 162 Q 274 182 254 182 L 82 182 Q 62 182 62 162 Z" fill="white"/>
+
+  <!-- Small bubble -->
+  <path d="M 200 178 Q 200 148 228 148 L 352 148 Q 380 148 380 178 L 380 240 Q 380 270 352 270 L 268 270 L 244 296 L 252 270 L 228 270 Q 200 270 200 240 Z" fill="black"/>
+  <path d="M 218 184 Q 218 166 234 166 L 348 166 Q 364 166 364 184 L 364 236 Q 364 254 348 254 L 234 254 Q 218 254 218 236 Z" fill="white"/>
+</svg>

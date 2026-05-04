@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+</head>
+<body style="margin: 0; padding: 0; background-color: #0f1419; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #0f1419; padding: 40px 0;">
+        <tr>
+            <td align="center">
+                <table width="440" cellpadding="0" cellspacing="0" style="background-color: #1a1f26; border: 1px solid #30363d; border-radius: 12px; padding: 40px;">
+                    <tr>
+                        <td align="center" style="padding-bottom: 24px;">
+                            <img src="https://muninai.org/shared/munin_logo_email.png" alt="Munin" width="64" height="64" style="display: block; margin: 0 auto 12px auto; border: 0;" />
+                            <span style="font-size: 24px; font-weight: 600; color: #e6edf3;">Munin</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td align="center" style="padding-bottom: 8px;">
+                            <span style="font-size: 16px; color: #8b949e;">Hi {{ name }},</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td align="center" style="padding-bottom: 24px;">
+                            <span style="font-size: 16px; color: #8b949e;">Your login code is:</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td align="center" style="padding-bottom: 24px;">
+                            <span style="font-size: 36px; font-weight: 700; letter-spacing: 8px; color: #58a6ff; font-family: 'SFMono-Regular', Consolas, monospace;">{{ code }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td align="center" style="padding-bottom: 8px;">
+                            <span style="font-size: 14px; color: #8b949e;">This code expires in {{ expiry_minutes }} minutes.</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td align="center">
+                            <span style="font-size: 13px; color: #8b949e;">If you didn't request this code, you can safely ignore this email.</span>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

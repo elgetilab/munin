@@ -1,0 +1,113 @@
+# ── Global Options ────────────────────────────────────────────────────────────
+{
+	email info@muninai.org
+}
+
+# ── Shared Snippets ──────────────────────────────────────────────────────────
+(auth) {
+	forward_auth 127.0.0.1:8090 {
+		uri /auth/check
+		copy_headers X-Munin-Email X-Munin-Name X-Munin-Role
+
+		@unauthorized status 401
+		handle_response @unauthorized {
+			redir https://auth.muninai.org/login?redirect=https://{http.request.host}{http.request.uri} 302
+		}
+	}
+}
+
+(shared-assets) {
+	handle_path /shared/* {
+		root * /srv/static/shared
+		file_server
+	}
+}
+
+# ── Landing Page (public, NO auth) ──────────────────────────────────────────
+muninai.org {
+	import shared-assets
+	root * /srv/static/landing
+	file_server
+}
+
+# ── Auth Portal (munin-auth login UI) ───────────────────────────────────────
+auth.muninai.org {
+	import shared-assets
+	reverse_proxy 127.0.0.1:8090
+}
+
+# ── API Endpoint (CLI tools, Bearer token auth, no browser forward-auth) ────
+api.muninai.org {
+	reverse_proxy 127.0.0.1:8070
+}
+
+# ── Documentation ────────────────────────────────────────────────────────────
+docs.muninai.org {
+	import shared-assets
+	import auth
+	root * /srv/static/docs
+	file_server
+}
+
+# ── Chat (custom web UI) ────────────────────────────────────────────────────
+chat.muninai.org {
+	import shared-assets
+	import auth
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8070
+	}
+	handle /paper/* {
+		reverse_proxy 127.0.0.1:18080
+	}
+	handle {
+		root * /srv/static/chat
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# ── Paper Search ─────────────────────────────────────────────────────────────
+search.muninai.org {
+	import shared-assets
+	import auth
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8070
+	}
+	handle /paper/* {
+		reverse_proxy 127.0.0.1:18080
+	}
+	handle {
+		root * /srv/static/search
+		file_server
+	}
+}
+
+# ── Deep Research ────────────────────────────────────────────────────────────
+research.muninai.org {
+	import shared-assets
+	import auth
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8070
+	}
+	handle {
+		root * /srv/static/research
+		file_server
+	}
+}
+
+# ── Paper Upload ─────────────────────────────────────────────────────────────
+upload.muninai.org {
+	import shared-assets
+	import auth
+	handle /whoami {
+		header Content-Type application/json
+		respond `{"email":"{http.request.header.X-Munin-Email}"}` 200
+	}
+	handle /files/* {
+		reverse_proxy 127.0.0.1:11080
+	}
+	handle {
+		root * /srv/static/upload
+		file_server
+	}
+}

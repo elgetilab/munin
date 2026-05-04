@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maintenance - Munin</title>
+    <link rel="stylesheet" href="/shared/style.css">
+    <style>
+        .maintenance {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 70vh;
+            gap: 20px;
+            padding: 48px 24px;
+            text-align: center;
+        }
+
+        .maintenance canvas {
+            width: 96px;
+            height: 96px;
+        }
+
+        .maintenance h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin: 8px 0;
+        }
+
+        .maintenance p {
+            color: var(--text-secondary);
+            font-size: 15px;
+            max-width: 480px;
+            line-height: 1.7;
+            margin: 0;
+        }
+
+        .maintenance .date {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .maintenance-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 100%;
+            max-width: 320px;
+            margin-top: 16px;
+        }
+
+        .maintenance-action {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 18px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .maintenance-action:hover {
+            border-color: var(--accent);
+        }
+
+        .maintenance-action .arrow {
+            color: var(--accent);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container header-content">
+            <a href="https://muninai.org" class="logo">
+                <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="logo-img">
+                <span class="logo-text">Munin</span>
+            </a>
+            <nav>
+                <a href="https://muninai.org">Home</a>
+                <a href="https://search.muninai.org">Search</a>
+                <a href="https://research.muninai.org">Research</a>
+                <a href="https://docs.muninai.org">Docs</a>
+                <a href="https://chat.muninai.org/knowledge">Knowledge</a>
+                <a href="https://chat.muninai.org">Chat</a>
+                <a href="https://upload.muninai.org">Upload</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="maintenance">
+        <canvas id="maintenance-vortex" width="192" height="192"></canvas>
+
+        <h1>Munin is undergoing maintenance</h1>
+        <p>
+            The cluster is being upgraded. All services are temporarily unavailable.
+        </p>
+        <p>
+            We'll be back on <span class="date">April 15, 2026</span>.
+        </p>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/" style="color: var(--accent);">Elgeti Lab</a></p>
+            <p style="margin-top: 8px;"><a href="https://search.muninai.org">Search</a> | <a href="https://research.muninai.org">Research</a> | <a href="https://chat.muninai.org">Chat</a> | <a href="https://upload.muninai.org">Upload</a> | <a href="mailto:support@muninai.org">Get Access</a></p>
+        </div>
+    </footer>
+
+    <script src="/shared/feather-vortex.js"></script>
+    <script>
+        createVortex(document.getElementById('maintenance-vortex'), 10, 5.5, 0.3);
+    </script>
+</body>
+</html>

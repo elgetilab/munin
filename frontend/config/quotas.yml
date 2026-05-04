@@ -1,0 +1,11 @@
+default:
+  tokens_per_month: 10000000
+  requests_per_minute: 60
+  concurrent_requests: 3
+
+overrides:
+  # Admin users bypass all rate limits (unlimited: true)
+  admin@muninai.org:
+    unlimited: true
+  admin@example.org:
+    unlimited: true

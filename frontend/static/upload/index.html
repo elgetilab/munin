@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Papers - Munin</title>
+    <link rel="stylesheet" href="/shared/style.css">
+    <link rel="stylesheet" href="https://releases.transloadit.com/uppy/v4.12.1/uppy.min.css">
+    <style>
+        /* Upload Section */
+        .upload-section {
+            padding: 48px 0;
+        }
+
+        .upload-section h1 {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .upload-section > p {
+            color: var(--text-secondary);
+            margin-bottom: 24px;
+        }
+
+        .info-box {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .info-box strong {
+            color: var(--text-primary);
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+            flex-shrink: 0;
+        }
+
+        /* Uppy dark theme overrides */
+        .uppy-Dashboard-inner {
+            background: var(--bg-secondary) !important;
+            border-color: var(--border) !important;
+            border-radius: 12px !important;
+        }
+        .uppy-Dashboard-AddFiles {
+            background: var(--bg-secondary) !important;
+        }
+        .uppy-Dashboard-AddFiles-title {
+            color: var(--text-primary) !important;
+        }
+        .uppy-Dashboard-dropFilesHereHint {
+            color: var(--text-secondary) !important;
+        }
+        .uppy-DashboardContent-bar {
+            background: var(--bg-secondary) !important;
+            border-color: var(--border) !important;
+        }
+        .uppy-DashboardContent-title {
+            color: var(--text-primary) !important;
+        }
+        .uppy-DashboardItem-name {
+            color: var(--text-primary) !important;
+        }
+        .uppy-DashboardItem-status {
+            color: var(--text-secondary) !important;
+        }
+        .uppy-StatusBar {
+            background: var(--bg-tertiary) !important;
+            border-color: var(--border) !important;
+        }
+        .uppy-StatusBar-content {
+            color: var(--text-secondary) !important;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container header-content">
+            <a href="https://muninai.org" class="logo">
+                <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="logo-img">
+                <span class="logo-text">Munin</span>
+            </a>
+            <nav>
+                <a href="https://muninai.org">Home</a>
+                <a href="https://search.muninai.org">Search</a>
+                <a href="https://research.muninai.org">Research</a>
+                <a href="https://docs.muninai.org">Docs</a>
+                <a href="https://chat.muninai.org/knowledge">Knowledge</a>
+                <a href="https://chat.muninai.org">Chat</a>
+                <a href="https://upload.muninai.org" class="active">Upload</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="upload-section">
+            <h1>Upload Papers</h1>
+            <p>Upload PDFs to be added to the Munin paper database. Large batches are fully supported — uploads pause and resume automatically if your connection drops.</p>
+
+            <div class="info-box">
+                <div class="dot"></div>
+                Uploading as: <strong id="user-email">&nbsp;loading...</strong>
+                &nbsp;&middot;&nbsp; Files are tagged to your account.
+            </div>
+
+            <div id="uppy-dashboard"></div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/" style="color: var(--accent);">Elgeti Lab</a></p>
+            <p style="margin-top: 8px;"><a href="https://search.muninai.org">Search</a> | <a href="https://research.muninai.org">Research</a> | <a href="https://chat.muninai.org">Chat</a> | <a href="https://upload.muninai.org">Upload</a> | <a href="mailto:support@muninai.org">Get Access</a> | <a href="mailto:support@muninai.org">Support</a></p>
+        </div>
+    </footer>
+
+    <script src="https://releases.transloadit.com/uppy/v4.12.1/uppy.min.js"></script>
+    <script>
+        // Fetch the authenticated email from the server-side /whoami endpoint.
+        fetch('/whoami')
+            .then(function(r) { return r.json() })
+            .then(function(data) {
+                document.getElementById('user-email').textContent = data.email || 'unknown'
+            })
+            .catch(function() {
+                document.getElementById('user-email').textContent = 'unknown'
+            })
+
+        var uppy = new Uppy.Uppy({
+            restrictions: {
+                allowedFileTypes: ['.pdf'],
+                maxNumberOfFiles: 1000,
+            },
+            autoProceed: false,
+        })
+
+        uppy.use(Uppy.Dashboard, {
+            target: '#uppy-dashboard',
+            inline: true,
+            height: 420,
+            proudlyDisplayPoweredByUppy: false,
+            note: 'PDF files only \u00b7 Large batches supported \u00b7 Uploads resume if interrupted',
+            theme: 'dark',
+        })
+
+        uppy.use(Uppy.Tus, {
+            endpoint: '/files/',
+            storeFingerprintForResuming: true,
+            retryDelays: [0, 3000, 10000, 30000, 60000],
+            chunkSize: 50 * 1024 * 1024,
+            limit: 3,
+        })
+
+        uppy.on('upload-success', function(file, response) {
+            console.log('Uploaded: ' + file.name)
+        })
+
+        uppy.on('complete', function(result) {
+            if (result.failed.length === 0) {
+                console.log('All ' + result.successful.length + ' files uploaded successfully')
+            } else {
+                console.warn(result.failed.length + ' files failed:', result.failed)
+            }
+        })
+    </script>
+<script src="/shared/support-widget.js"></script>
+</body>
+</html>
