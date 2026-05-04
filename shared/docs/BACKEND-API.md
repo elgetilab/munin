@@ -1,9 +1,9 @@
-# Munin Backend — API Reference
+# Munin Backend: API Reference
 
 Hand-off document for the frontend / gateway repo. Describes what the
 `munin-retrieval` FastAPI service actually delivers today (Streams 1–5 are
 all live as of the first deploy on `hugin`). This is the counterpart to
-`FRONTEND-REFERENCE.md` — the frontend expresses the *intent*, this file
+`FRONTEND-REFERENCE.md`, the frontend expresses the *intent*, this file
 describes the *implementation*. Where they disagree, this file wins.
 
 ## 1. Overview
@@ -18,14 +18,14 @@ describes the *implementation*. Where they disagree, this file wins.
 | Persistence | SQLite at `/data/chats.db` (chat history), Qdrant `user_docs` collection (user files), Qdrant `papers` (papers) |
 
 The service also exposes the legacy `/retrieve`, `/search/hybrid`,
-`/citations/{doi}`, `/mcp/*`, `/deepresearch/*`, etc. routes — those are
+`/citations/{doi}`, `/mcp/*`, `/deepresearch/*`, etc. routes, those are
 **not** part of the frontend contract. Ignore them for the UI.
 
 Two more routes exist but are out-of-band for the UI:
 
-- `GET /health` — ops/uptime check used by the docker healthcheck.
+- `GET /health`, ops/uptime check used by the docker healthcheck.
   Returns `{"status": "ok"}`. Not user-facing; safe to ignore.
-- `POST /api/admin/ingest` — contributor-ingest endpoint called by the
+- `POST /api/admin/ingest`, contributor-ingest endpoint called by the
   VPS hook service via the SSH tunnel. Token-auth, not session-auth;
   see `shared/docs/CONTRIBUTOR-INGEST.md` for the full contract.
 
@@ -45,7 +45,7 @@ requires `X-Munin-Email`; missing → **401** with
 `{"error": {"message": "Missing authentication header"}}`.
 
 The old `X-Authentik-Email` transitional fallback was removed on
-2026-04-21 — the gateway sets `X-Munin-Email` exclusively now.
+2026-04-21, the gateway sets `X-Munin-Email` exclusively now.
 
 All conversations and documents are scoped by the lowercased email. There
 is **no cross-user visibility** at any layer (DB query and Qdrant filter
@@ -102,7 +102,7 @@ Notes:
 - `services.embedding` reports whether SPECTER + BGE have already been
   loaded. On a fresh boot it will be `"unavailable"` until the first call
   that needs them (first RAG call or first document upload). This is not a
-  bug — it means "not loaded yet", not "broken".
+  bug, it means "not loaded yet", not "broken".
 - `services.grobid` may read `unavailable` in the container-DNS form; it's
   probed at `http://grobid:8070/api/isalive`.
 
@@ -150,8 +150,8 @@ Lists the authenticated user's conversations.
 |---|---|---|---|
 | `limit` | int | `20` | clamped `[1, 200]` |
 | `offset` | int | `0` | ≥0 |
-| `persona` | string | — | filter to one persona id |
-| `search` | string | — | SQLite FTS5 over all `messages.content` |
+| `persona` | string |, | filter to one persona id |
+| `search` | string |, | SQLite FTS5 over all `messages.content` |
 | `pinned_only` | bool | `false` | when `true`, return only pinned conversations |
 
 **Response (200)**:
@@ -235,7 +235,7 @@ Loads a full conversation with messages in order.
 
 - **404** if the conversation doesn't exist or belongs to another user.
 - `tool_calls` and `rag_context` are parsed from the stored JSON columns
-  back into Python objects — frontend receives them as structured JSON,
+  back into Python objects, frontend receives them as structured JSON,
   not strings.
 - `thinking` is the accumulated `reasoning_content` from the vLLM stream.
 - Ownership is enforced by `WHERE user_email = ?`; we don't leak 403 vs 404.
@@ -278,7 +278,7 @@ Unpins a conversation. Idempotent.
 
 **404** under the same conditions as `POST .../pin`.
 
-### 4.8 `POST /api/chat/completions` — SSE streaming
+### 4.8 `POST /api/chat/completions`: SSE streaming
 
 **The only SSE endpoint.** Everything else is plain JSON.
 
@@ -387,8 +387,8 @@ Multipart form upload.
 
 **Form fields**:
 
-- `file` (required) — PDF / TXT / MD / DOCX / PNG / JPG / JPEG / WEBP
-- `conversation_id` (optional) — associates the upload with a conversation
+- `file` (required), PDF / TXT / MD / DOCX / PNG / JPG / JPEG / WEBP
+- `conversation_id` (optional), associates the upload with a conversation
   for the `payload.conversation_id` filter
 
 **Server-side limit**: 50 MB, same as the frontend. **413** if exceeded.
@@ -406,9 +406,9 @@ Multipart form upload.
 ```
 
 - `status` is one of:
-  - `"embedded"` — text was extracted, chunked, embedded, and upserted into
+  - `"embedded"`, text was extracted, chunked, embedded, and upserted into
     Qdrant. Ready for RAG.
-  - `"stored"` — file is on disk but not embedded. This is the state for
+  - `"stored"`, file is on disk but not embedded. This is the state for
     images, zero-chunk documents, or uploads that occurred before the BGE
     model / Qdrant was reachable.
 - `chunks` reflects the number of Qdrant points written (0 for `stored`).
@@ -433,7 +433,7 @@ inside the container (`/opt/munin/data/user_docs/...` on the host).
 
 **Query params**:
 
-- `conversation_id` (optional) — filter to docs uploaded in that chat
+- `conversation_id` (optional), filter to docs uploaded in that chat
 
 **Response (200)**:
 
@@ -453,9 +453,9 @@ inside the container (`/opt/munin/data/user_docs/...` on the host).
 
 Sources of truth:
 
-1. Qdrant scroll — authoritative for embedded documents (one row per
+1. Qdrant scroll, authoritative for embedded documents (one row per
    `document_id`, with `total_chunks` and `upload_time` from the payload).
-2. Disk scan — adds any file the user has under their user dir that isn't
+2. Disk scan, adds any file the user has under their user dir that isn't
    in Qdrant (images, zero-chunk docs). Only included when
    `conversation_id` is not specified.
 
@@ -551,7 +551,7 @@ source manually.
 
 Model-written artifacts are versioned and editable; sandbox-generated
 artifacts are always `latest_version: 1` and read-only (`update_artifact`
-returns an error on a sandbox row — regenerate via `run_python` or
+returns an error on a sandbox row, regenerate via `run_python` or
 `compile_latex` instead).
 The full content snapshot chain lives in `artifact_versions`; there is
 no diff chain, just full snapshots per version.
@@ -661,17 +661,17 @@ written or updated:
   `{id, source, title, content_type, version, conversation_id,
   tool_call_id}`. A **`source` discriminator** tells the frontend
   which branch to render:
-  - `source: "model_written"` — additional fields: `language`
+  - `source: "model_written"`, additional fields: `language`
     (only for text/code artifacts). Route to the side panel with
     version picker + editable content.
-  - `source: "sandbox_generated"` — additional fields: `filename`,
+  - `source: "sandbox_generated"`, additional fields: `filename`,
     `size_bytes`, `external_url` (points at
     `/api/artifacts/{cid}/{sandbox_aid}` for download / inline
     image rendering). Read-only; no version picker.
 - `artifact_updated`: `{id, source, title, version, change_summary,
   created_by, conversation_id, tool_call_id, applied_hunks,
   lines_added, lines_removed, base_version}`. Only fires for
-  model-written artifacts — sandbox-generated rows are read-only.
+  model-written artifacts, sandbox-generated rows are read-only.
 
 **§22 Stage C unified the sandbox output path**: the legacy
 standalone `artifact` event is removed. Both `run_python` PNG/CSV
@@ -687,7 +687,7 @@ may live inside a project (filed) or outside it (unfiled / in the
 default bucket); deleting a project leaves its conversations and
 documents in the Unfiled bucket - **no cascading delete**.
 
-**`POST /api/projects`** — create a project.
+**`POST /api/projects`**: create a project.
 
 Body (all strings optional except `name`):
 
@@ -703,7 +703,7 @@ Body (all strings optional except `name`):
 Caps: `name` ≤ 200 chars, `description` ≤ 1000, `instructions` ≤ 2000.
 **400** for cap violations or missing name.
 
-**`GET /api/projects`** — list the user's projects.
+**`GET /api/projects`**: list the user's projects.
 
 Query params: `archived` (bool, default `false` - archived projects
 are hidden unless this is set), `limit`, `offset`.
@@ -732,35 +732,35 @@ Response:
 
 Ordered by `updated_at DESC`.
 
-**`GET /api/projects/{id}`** — single project with inline counts.
+**`GET /api/projects/{id}`**: single project with inline counts.
 Same shape as above plus `document_count` (sourced from Qdrant).
 **404** if the id is unknown or owned by another user.
 
-**`PATCH /api/projects/{id}`** — update any subset of `name`,
+**`PATCH /api/projects/{id}`**: update any subset of `name`,
 `description`, `instructions`, `default_persona`, `archived`. Returns
 the updated project. **400** on cap violation, **404** on unknown id.
 
-**`DELETE /api/projects/{id}`** — hard-delete the project row. Unfiles
+**`DELETE /api/projects/{id}`**: hard-delete the project row. Unfiles
 its conversations (`project_id` → NULL) and its docs (Qdrant
 `project_id` payload cleared). Responds **200** with
 `{"deleted": true}`. **Conversations and docs are preserved** in the
 Unfiled bucket - the user can re-file them later or delete them
 individually.
 
-**`POST /api/projects/{id}/conversations/{conversation_id}`** — file a
+**`POST /api/projects/{id}/conversations/{conversation_id}`**: file a
 conversation into a project. **404** if either id is unknown or owned
 by another user.
 
-**`DELETE /api/projects/{id}/conversations/{conversation_id}`** —
+**`DELETE /api/projects/{id}/conversations/{conversation_id}`**:
 unfile a conversation back to the default bucket. The URL includes the
 project id for symmetry with the file route, but the backend does not
 verify it matches the current filing.
 
-**`GET /api/chats?project_id=<pid>`** — list conversations inside a
+**`GET /api/chats?project_id=<pid>`**: list conversations inside a
 specific project. Pass the literal `__unfiled__` sentinel to list
 only the conversations that have no project.
 
-**`POST /api/documents/upload`** — accepts an optional `project_id`
+**`POST /api/documents/upload`**: accepts an optional `project_id`
 form field to file the document into a project at upload time. The
 project must be owned by the requesting user (**404** otherwise).
 
@@ -825,24 +825,24 @@ sandbox sidecar is unreachable.
 The frontend can drop it straight into an `<img>` `src` for images or
 into a download anchor for non-image artifacts.
 
-### 4.18 `POST /api/chats/{id}/report` — report a chat for review
+### 4.18 `POST /api/chats/{id}/report`: report a chat for review
 
 Flag a conversation for developer review. The backend serialises the
 full conversation (metadata, all messages with content/thinking/
 tool_calls/rag_context, and artifact metadata) to a timestamped JSON
 file under `/opt/munin/data/reported/`. These reports serve as input
-for the test harness — each reported conversation can be turned into
+for the test harness, each reported conversation can be turned into
 a regression test that replays the user's turns and asserts on the
 assistant's behaviour.
 
 **Auth + ownership**: requires `X-Munin-Email`. The caller must own the
-conversation — reporting someone else's chat returns **404**.
+conversation, reporting someone else's chat returns **404**.
 
 **Body** (JSON, all fields optional):
 
 ```json
 {
-  "reason": "Download link didn't work — opened the chat page instead of the PDF"
+  "reason": "Download link didn't work, opened the chat page instead of the PDF"
 }
 ```
 
@@ -932,7 +932,7 @@ entries yet.
 
 ### 4.20 `GET /api/tags/{kind}/{slug}/papers`
 
-Paginated paper list for a tag. Browse view — no ranking, no SPECTER
+Paginated paper list for a tag. Browse view, no ranking, no SPECTER
 query, ordered by metadata. Used by the knowledge browser page to
 drill down from a tag pill.
 
@@ -978,7 +978,7 @@ drill down from a tag pill.
 ```
 
 `download_url` is only present when the PDF is on disk. Sort is applied
-**within the returned page** — for stable cross-page ordering, rely on
+**within the returned page**: for stable cross-page ordering, rely on
 the default `year_desc` and don't re-sort client-side.
 
 **Errors**: 400 if `kind` is unknown or `slug` is empty. 503 if Qdrant
@@ -987,7 +987,7 @@ is unavailable.
 ### 4.21 `GET /api/embedding_map`
 
 Serves the flat JSON produced by `scripts/knowledge/build_embedding_map.py`
-— a 2D UMAP projection of the paper corpus with cluster labels. Used by
+, a 2D UMAP projection of the paper corpus with cluster labels. Used by
 the knowledge-map visualisation on the frontend.
 
 **Request**: no body, no auth needed.
@@ -1048,7 +1048,7 @@ conversation → tool_call(invoke_agent)
 
 The parent `tool_result` for `invoke_agent` still lands after `agent_done`,
 so the `TaskLog` in the frontend can either render it as a nested workflow
-or as a single tool entry — both views are supported by the stream.
+or as a single tool entry, both views are supported by the stream.
 
 ## 6. Persona context injection
 
@@ -1057,7 +1057,7 @@ Every chat completion assembles its system prompt as:
 ```
 {persona.params.system}
 
-{agent summaries — one bullet per registered agent, with invocation hint}
+{agent summaries, one bullet per registered agent, with invocation hint}
 ```
 
 The agent summaries are injected automatically so the main model knows it
@@ -1078,7 +1078,7 @@ restart. Frontend does not need to touch this.
 
 Frontend implication: **the `summary` field on a conversation row will
 start populated after long chats.** Don't render it as part of the message
-list — treat it as background metadata.
+list, treat it as background metadata.
 
 ## 8. Auto-title generation
 
@@ -1108,7 +1108,7 @@ Tools available to the main model and agents (see `retrieval/mcp/schemas.py`):
 | `get_paper_pdf` | Local PDF availability by DOI |
 | `check_papers_availability` | Bulk DOI availability check |
 | `llm_summarize` | vLLM summarisation helper |
-| `search_user_docs` | Semantic search over the current user's uploaded docs (auto-filters by `X-Munin-Email` via contextvar — never pass a user id) |
+| `search_user_docs` | Semantic search over the current user's uploaded docs (auto-filters by `X-Munin-Email` via contextvar, never pass a user id) |
 | `invoke_agent` | Delegate to an agent workflow. Input: `{"agent": "...", "query": "..."}` |
 
 Agents themselves (`research_orchestrator`, `code_checker`, `writing_agent`)
@@ -1119,7 +1119,7 @@ limits, and wall-clock timeouts. Agents cannot invoke each other.
 
 1. **`services.embedding: "unavailable"` is normal on a cold start.** It
    flips to `"ok"` after the first retrieval or upload that loads the model.
-   Don't show a red dot — show "warming up" or hide the field.
+   Don't show a red dot, show "warming up" or hide the field.
 2. **Two `conversation` events per new chat.** The first carries
    `is_new: true` and a null title; the second lands after auto-title.
    Accumulator model: match on `id`, replace the title field, don't clear.
@@ -1133,7 +1133,7 @@ limits, and wall-clock timeouts. Agents cannot invoke each other.
 5. **Thinking text can be huge.** Qwen3 reasoning traces can exceed the
    visible answer. Collapse by default, show a "Reasoning" toggle.
 6. **Document upload returns synchronously.** There's no `"processing"`
-   status from the backend today — either `"embedded"` or `"stored"`.
+   status from the backend today, either `"embedded"` or `"stored"`.
    If you see `"processing"` in the frontend code, that's a leftover from
    the original FRONTEND-REFERENCE draft; the backend never emits it.
 7. **`persona` filter on `/api/chats` is exact-match** on the id. Passing
@@ -1143,7 +1143,7 @@ limits, and wall-clock timeouts. Agents cannot invoke each other.
 9. **Rate limits / quotas are on the VPS gateway**, not this service.
    `/api/chat/completions` will happily stream until vLLM runs out of
    capacity or the tunnel drops.
-10. **The model emits bare URLs sometimes — your renderer must auto-link
+10. **The model emits bare URLs sometimes, your renderer must auto-link
     them.** Tool results from `paper_search` and `semantic_scholar_search`
     contain a `download_url` field for papers in the local corpus, and
     persona prompts instruct the model to render them as `[Download PDF](url)`.
@@ -1152,7 +1152,7 @@ limits, and wall-clock timeouts. Agents cannot invoke each other.
     them clickable is the renderer's job. Enable a markdown auto-linkify
     plugin (e.g. `remark-gfm` for `react-markdown`) so both `[text](url)`
     AND bare URLs become clickable. See `docs/FRONTEND-TASKS.md` for
-    the full handoff. Don't try to fix this on the backend — three rounds
+    the full handoff. Don't try to fix this on the backend, three rounds
     of prompt strengthening did not move the needle.
 
 ## 11. Quick curl recipes
@@ -1183,4 +1183,4 @@ curl -X DELETE -H "X-Munin-Email: you@muninai.org" \
 ```
 
 For a full end-to-end sanity run, see `scripts/smoke-test.sh` at the repo
-root — 16 checks covering every endpoint in this doc.
+root, 16 checks covering every endpoint in this doc.

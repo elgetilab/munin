@@ -1,4 +1,4 @@
-# Contributor-Corpus Ingest — Operator Reference
+# Contributor-Corpus Ingest: Operator Reference
 
 §28 Sprint A, shipped 2026-04-20. Accepts PDFs uploaded via
 `upload.muninai.org` (tusd → `hook_service.py` on the VPS) and routes
@@ -47,7 +47,7 @@ hook_service.py
 hook_service.py: move → /mnt/uploads/processed/<email>/
 ```
 
-Synchronous end-to-end — the 200 OK only comes back after the paper
+Synchronous end-to-end, the 200 OK only comes back after the paper
 is fully indexed in Qdrant + Neo4j. Matches the VPS's
 "200 = move to processed/" semantics.
 
@@ -85,7 +85,7 @@ upload_time: <ISO 8601>    (optional; defaults to server now())
 
 ### Responses
 
-**200 ingested** — paper is in Qdrant + Neo4j, PDF moved to final
+**200 ingested**: paper is in Qdrant + Neo4j, PDF moved to final
 location.
 
 ```json
@@ -108,7 +108,7 @@ location.
 `group_slug="unknown"` and no display name. Add an allowlist entry
 and POST the file again (the pipeline's DOI dedup will merge).
 
-**200 skipped** — pipeline ran but didn't create a Qdrant point.
+**200 skipped**: pipeline ran but didn't create a Qdrant point.
 Usually quality filter (low citation count, non-research content,
 empty title, etc.). PDF and sidecar are left in `inbox/` for
 forensic inspection.
@@ -125,9 +125,9 @@ forensic inspection.
 
 | Code | Meaning | Client action |
 |---|---|---|
-| 400 | File empty or not a PDF (`%PDF` header missing), or `email` missing | Don't retry — fix the request |
-| 401 | Missing or wrong bearer token | Don't retry — fix auth |
-| 500 | Pipeline exited non-zero (traceback in `log_tail`) | Don't retry — file moved to `pdf/failed/` |
+| 400 | File empty or not a PDF (`%PDF` header missing), or `email` missing | Don't retry, fix the request |
+| 401 | Missing or wrong bearer token | Don't retry, fix auth |
+| 500 | Pipeline exited non-zero (traceback in `log_tail`) | Don't retry, file moved to `pdf/failed/` |
 | **503** | **Either `ADMIN_INGEST_TOKEN` not configured (rare), OR the ingest-pipeline concurrency cap has been hit (common under heavy load)** | **Honour the `Retry-After: <seconds>` response header. Sleep that long, then retry the same file.** |
 | 504 | Pipeline exceeded `PIPELINE_TIMEOUT_SECS` (default 600) | File moved to `pdf/failed/`. Manual triage; don't auto-retry. |
 
@@ -260,7 +260,7 @@ RETURN p.doi, p.title, groups
 |---|---|
 | `retrieval/main.py` | `/api/admin/ingest` endpoint (§28 block near `/api/embedding_map`) |
 | `scripts/pipeline/paper_pipeline.py` | Reads sidecars, stamps contributors, DOI-keyed Qdrant point IDs |
-| `shared/config/contributors.yml` | Allowlist (email → slug + display name) — single source of truth, read by backend deploy + VPS backfill cron |
+| `shared/config/contributors.yml` | Allowlist (email → slug + display name), single source of truth, read by backend deploy + VPS backfill cron |
 | `backend/config/munin.env.template` | Documents `ADMIN_INGEST_TOKEN` and related vars |
 | `/opt/munin/data/papers/pdf/inbox/` | Staging dir; cleared after successful ingest |
 | `/opt/munin/data/papers/pdf/doi_{slug}.pdf` | Final home; reachable via `get_paper_pdf` MCP tool |
@@ -318,7 +318,7 @@ The workflow takes ~5 minutes and doesn't require a container restart.
      research_group_display_name: Elgeti Lab (Leipzig)
    ```
 
-2. **Deploy the change** — syncs `contributors.yml` to
+2. **Deploy the change**: syncs `contributors.yml` to
    `/opt/munin/config/`:
 
    ```bash
@@ -334,11 +334,11 @@ The workflow takes ~5 minutes and doesn't require a container restart.
    `group_slug: "unknown"` until you re-attribute them:
 
    ```bash
-   # Dry-run first — see what WOULD change
+   # Dry-run first: see what WOULD change
    sudo /opt/munin/services/pipeline/venv/bin/python3 \
        /opt/cluster/scripts/pipeline/reattribute_unknown.py --dry-run
 
-   # Real run — updates Qdrant payloads + Neo4j Contributor edges
+   # Real run: updates Qdrant payloads + Neo4j Contributor edges
    sudo /opt/munin/services/pipeline/venv/bin/python3 \
        /opt/cluster/scripts/pipeline/reattribute_unknown.py
    ```
@@ -346,7 +346,7 @@ The workflow takes ~5 minutes and doesn't require a container restart.
    The script walks every paper with `contributors[].group_slug
    == "unknown"`, looks up the email against the current
    `contributors.yml`, and rewrites the contributor entry if the
-   uploader is now allowlisted. Idempotent — safe to re-run after
+   uploader is now allowlisted. Idempotent, safe to re-run after
    every allowlist edit.
 
 4. **Verify** the new contributor's papers are visible:
@@ -410,14 +410,14 @@ size increase would let us tune `INGEST_CONCURRENCY` higher.
 The inbox uses UUID filenames, so the pipeline's `doi_X.pdf`
 filename heuristic is bypassed and GROBID's content-based
 extraction is authoritative. GROBID occasionally picks a
-cited paper's DOI instead of the paper's own — especially for
+cited paper's DOI instead of the paper's own, especially for
 short papers with dense reference sections. Example observed
 during smoke test: a file named `doi_10.1001_archinte.158.18.2063.pdf`
 was re-identified by GROBID as `10.1288/00005537-199203000-00005`
 (a paper appearing in the references).
 
 For the real upload surface (`upload.muninai.org`), filenames are
-user-chosen so this heuristic is unavailable regardless — GROBID is
+user-chosen so this heuristic is unavailable regardless, GROBID is
 the sole source. Mitigations, not yet implemented:
 
 - CrossRef title round-trip: fetch CrossRef record for the extracted
@@ -444,7 +444,7 @@ written.
 Each `/api/admin/ingest` POST spawns a fresh `paper_pipeline.py`
 subprocess, which loads SPECTER (~2-3 GB, ~10-20 s) from scratch.
 Fine for steady-state ingestion (5-10 papers/day) but painful for
-the one-time 4,236-paper backfill — budget several hours regardless
+the one-time 4,236-paper backfill, budget several hours regardless
 of VPS-side parallelism, because GROBID + SPECTER are the bottleneck
 on the cluster. Acceptable for a one-time migration. A persistent
 pipeline daemon is the longer-term fix; not in this sprint.
@@ -464,6 +464,6 @@ pipeline daemon is the longer-term fix; not in this sprint.
 
 Sprint B (tag-scoped search) brings the `#zeitler` / `#corzilius` /
 `#deibel` / `#nmr` tag filters into chat. Until it lands, contributor
-attribution is stored but not query-surfaced — papers filter
+attribution is stored but not query-surfaced, papers filter
 identically to any other, and the `contributors[]` field is visible
 only via direct Qdrant / Neo4j queries.

@@ -38,7 +38,7 @@ For the canonical API contract, see
 ```
 
 `status` is one of `open`, `answered`, `decided`, `obsolete`. Mark
-status changes inline; don't delete entries — they're load-bearing
+status changes inline; don't delete entries, they're load-bearing
 context for whoever's catching up.
 
 ---
@@ -49,4 +49,4 @@ context for whoever's catching up.
 
 ## Resolved
 
-(none yet — see archive)
+(none yet, see archive)

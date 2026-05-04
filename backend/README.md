@@ -5,6 +5,10 @@ monorepo. Everything that runs on the SLURM cluster: vLLM,
 retrieval API, MCP tooling, knowledge bases (Qdrant, Neo4j),
 paper pipeline, deep research daemon, agentic orchestration.
 
+For first-time setup on a new cluster, follow the top-level
+[SETUP-CLUSTER.md](../SETUP-CLUSTER.md). This README is the
+operating reference once the deploy is in place.
+
 VPS-side code is in `../frontend/`; cross-cut artifacts in
 `../shared/`. See the top-level `CLAUDE.md` for monorepo rules.
 
@@ -12,15 +16,15 @@ VPS-side code is in `../frontend/`; cross-cut artifacts in
 
 | Service | Port | Purpose |
 |---------|------|---------|
-| **Retrieval API** | 8080 | FastAPI — RAG, chat, agents, MCP, deep research |
+| **Retrieval API** | 8080 | FastAPI: RAG, chat, agents, MCP, deep research |
 | **Qdrant** | 6333 | Vector DB (papers + user_docs collections) |
 | **Neo4j** | 7474/7687 | Citation graph |
 | **GROBID** | 8070 | PDF parsing (Crossref polite-pool configured) |
 | **SearXNG** | 8888 | Web search |
-| **vLLM** | 8000 | LLM inference (GPU 1, SLURM job, scheduled 6am–2am) |
+| **vLLM** | 8000 | LLM inference (GPU 1, SLURM job, scheduled 6am to 2am) |
 | **Sandbox** | internal | Jupyter-kernel sidecar for `run_python` tool |
 
-The retrieval API is the only externally reachable piece — it's
+The retrieval API is the only externally reachable piece. It is
 exposed to the VPS over an autossh reverse tunnel
 (`config/munin-tunnel.service`) on port 18080. Everything else is
 bound to `127.0.0.1`.
@@ -28,16 +32,16 @@ bound to `127.0.0.1`.
 ## Architecture
 
 ```
-VPS (frontend/, on Hetzner)
+VPS (frontend/)
     │ SSH tunnel (port 18080, autossh)
     ▼
 Retrieval Service (FastAPI, :8080) ← CENTRAL API
-    ├── Qdrant (:6333)     — papers + user_docs collections
-    ├── Neo4j (:7474/7687) — citation graph
-    ├── SearXNG (:8888)    — web search
-    ├── GROBID (:8070)     — PDF parsing
-    ├── SQLite             — chat persistence
-    └── vLLM (:8000)       — LLM inference (GPU 1, SLURM job)
+    ├── Qdrant (:6333)       papers + user_docs collections
+    ├── Neo4j (:7474/7687)   citation graph
+    ├── SearXNG (:8888)      web search
+    ├── GROBID (:8070)       PDF parsing
+    ├── SQLite               chat persistence
+    └── vLLM (:8000)         LLM inference (GPU 1, SLURM job)
 
 Deep Research Daemon (systemd) → SLURM jobs on GPU 0
 ```
@@ -66,7 +70,7 @@ backend/
 │   ├── grobid/grobid.yaml    # Crossref polite-pool mailto override
 │   └── searxng/settings.yml
 ├── retrieval/                # THE MAIN API SERVICE
-│   ├── main.py               # FastAPI — all routes
+│   ├── main.py               # FastAPI, all routes
 │   ├── database.py           # DB connections (Qdrant, Neo4j, SQLite)
 │   ├── models.py             # Pydantic models
 │   ├── chat_store.py         # Chat persistence CRUD
@@ -95,21 +99,25 @@ The canonical API contract lives at
 
 After `deploy.sh all`, expect:
 
-- `/opt/munin/config/munin.env` — secrets (symlinked from `/opt/hugin/config/cluster.env`)
-- `/opt/munin/docker/` — installed compose file + grobid override
-- `/opt/munin/services/retrieval/` — deployed retrieval source
-- `/opt/munin/knowledge/qdrant_storage/` — Qdrant data
-- `/opt/munin/knowledge/neo4j_data/` — Neo4j data
-- `/opt/munin/data/chats.db` — chat SQLite database
-- `/opt/munin/data/models/` — LLM + embedding models on disk
-- `/opt/munin/data/papers/pdf/` — paper PDFs
-- `/opt/munin/data/user_docs/` — per-user uploaded documents
-- `/opt/munin/deepresearch/` — deep-research job queue + results
-- `/opt/munin/logs/` — service status files
+- `/opt/munin/config/munin.env`: secrets (symlinked from `/opt/hugin/config/cluster.env`).
+- `/opt/munin/docker/`: installed compose file + grobid override.
+- `/opt/munin/services/retrieval/`: deployed retrieval source.
+- `/opt/munin/knowledge/qdrant_storage/`: Qdrant data.
+- `/opt/munin/knowledge/neo4j_data/`: Neo4j data.
+- `/opt/munin/data/chats.db`: chat SQLite database.
+- `/opt/munin/data/models/`: LLM + embedding models on disk.
+- `/opt/munin/data/papers/pdf/`: paper PDFs.
+- `/opt/munin/data/user_docs/`: per-user uploaded documents.
+- `/opt/munin/deepresearch/`: deep-research job queue + results.
+- `/opt/munin/logs/`: service status files.
+
+The `/opt/hugin/...` path is hardcoded in `deploy.sh` from the
+reference cluster (named `hugin`). If your cluster uses a different
+layout, edit `deploy.sh` to match.
 
 ## Deployment
 
-Runs directly on the cluster head (`hugin`). Targets:
+Runs directly on the cluster head. Targets:
 `/opt/munin/`, `/opt/cluster/scripts/llm/`,
 `/etc/systemd/system/`. Prepend any mode with `--dry-run` to see
 what would change.
@@ -134,7 +142,7 @@ Notes:
 - **vLLM**: `deploy vllm` only stages the scripts. Cut over with
   `sudo vllm-service stop && sudo vllm-service start`.
 - **Env vars**: `/opt/munin/docker/.env` is a symlink to
-  `/opt/hugin/config/cluster.env` — Docker Compose auto-loads it.
+  `/opt/hugin/config/cluster.env`, which Docker Compose auto-loads.
 - **MiroThinker download** is guarded by the target directory, so
   re-running `deploy deepresearch` is a no-op once the model is
   present.
@@ -161,15 +169,15 @@ Notes:
 ### Add persona
 1. Create `../shared/personas/<id>.json`.
 2. Optionally add `../shared/personas/logos/<name>-<id>-inverted.svg`.
-3. `sudo ./deploy.sh personas` — rsyncs into `/opt/munin/personas/`,
-   no container restart needed (retrieval reads the directory at
-   request time).
+3. `sudo ./deploy.sh personas` rsyncs into `/opt/munin/personas/`.
+   No container restart needed; retrieval reads the directory at
+   request time.
 
 ## Related
 
-- [`../frontend/`](../frontend) — VPS-side of the monorepo
+- [`../frontend/`](../frontend): VPS-side of the monorepo
   (gateway, auth, chat UI; calls this service via the SSH tunnel).
-- [`../shared/`](../shared) — cross-cut artifacts (personas,
+- [`../shared/`](../shared): cross-cut artifacts (personas,
   `contributors.yml`, contract docs in `shared/docs/`).
-- HuginSLURM (separate repo) — base cluster setup (SLURM, CUDA,
-  users); not a code dependency.
+- HuginSLURM (separate repo): base cluster setup (SLURM, CUDA,
+  users). Not a code dependency.

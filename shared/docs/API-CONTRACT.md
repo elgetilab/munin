@@ -1,4 +1,4 @@
-# API Contract — retired
+# API Contract: retired
 
 This document was the original VPS-side draft of the cluster API
 contract. It has been retired in favour of the canonical contract
