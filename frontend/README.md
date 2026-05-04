@@ -86,6 +86,47 @@ SLURM Cluster (university, no inbound)
     └─ autossh tunnel → VPS :18080
 ```
 
+## Auth Flow (munin-auth)
+
+Email-OTP authentication, no Authentik / PostgreSQL / Redis — one
+FastAPI container plus SQLite:
+
+1. User visits a protected subdomain → Caddy forward-auth → no
+   session → 401.
+2. Redirect to `auth.muninai.org/login`.
+3. User enters email → checked against `auth/whitelist.csv`.
+4. If whitelisted → 6-digit OTP sent via SMTP (HostEurope).
+5. User enters OTP → verified → signed session cookie set
+   (30 days, `.muninai.org` domain).
+6. Redirect to original destination.
+
+API-key requests bypass forward-auth and go straight to
+`api-gateway`, which validates the bearer token.
+
+## Status
+
+What's running today:
+
+- **munin-auth** — Email-OTP auth.
+- **api-gateway** — Proxy, API keys, rate limiting, usage logging.
+- **Chat UI** — React + TypeScript + Tailwind, SSE streaming, task
+  execution log, feather vortex animation, PWA.
+- **Shared style guide** — Common stylesheet under
+  `static/shared/style.css`, served at `/shared/*` across every
+  subdomain by Caddy's `(shared-assets)` snippet.
+- **Sleeping page** — Off-hours display when vLLM is down (2–6 AM).
+- **Maintenance page** — Temporary page while the cluster is being
+  upgraded.
+- **Caddyfile** — Routing, forward-auth, gateway proxy, SPA
+  fallback.
+- **Docker Compose** — 5-service stack (Caddy, munin-auth,
+  api-gateway, tusd, hook-service).
+- **Bootstrap script** — Idempotent VPS provisioning.
+
+Specs that haven't shipped yet are in
+[`docs/ADDITIONAL-FEATURES.md`](docs/ADDITIONAL-FEATURES.md) and
+[`docs/AGENTIC-ORCHESTRATION.md`](docs/AGENTIC-ORCHESTRATION.md).
+
 ## Repository Structure
 
 ```
@@ -114,17 +155,59 @@ frontend/                    # VPS-side of the monorepo
 The contract docs (`BACKEND-API.md`, `BACKEND-FRONTEND-SYNC.md`)
 live in `../shared/docs/` — see the top-level `CLAUDE.md`.
 
+## Key Paths on VPS
+
+After bootstrap + first deploy, expect:
+
+- `~/munin/` — project directory (rsync target)
+- `~/munin/.env` — secrets (not in git; copy from a trusted
+  source or regenerate)
+- `~/munin/auth/whitelist.csv` — user whitelist (`email,name`
+  per row)
+- `/mnt/uploads/` — upload storage (Hetzner Volume)
+
+## VPS Details
+
+- **IP:** <vps-host>
+- **Admin user:** `varghele` (SSH key: `~/.ssh/munin_admin`)
+- **Tunnel user:** `tunnel` (port-forwarding only, restricted shell)
+- **Domain:** `muninai.org` (registrar + DNS at HostEurope)
+
 ## Common Tasks
 
-**Add a user:** Edit `auth/whitelist.csv`, restart munin-auth: `docker restart munin-auth`
+**Add a user:** Edit `auth/whitelist.csv`, restart munin-auth:
+`docker restart munin-auth`
 
-**Create API key:** `POST /api/keys` with session auth, returns `sk-munin-...` key
+**Create API key:** `POST /api/keys` with session auth, returns
+`sk-munin-...` key.
 
-**Check usage:** `GET /api/usage/me` returns monthly token usage and breakdown
+**Check usage:** `GET /api/usage/me` returns monthly token usage
+and breakdown.
 
-**Update styling:** Edit `static/shared/style.css` — applies to all pages
+**Update styling:** Edit `static/shared/style.css` — applies to all
+pages on next load.
 
-**Rebuild chat UI:** `cd webui && npm run build` — outputs to `static/chat/`
+**Rebuild chat UI:** `cd webui && npm run build` — outputs to
+`static/chat/`. Then rsync to VPS.
+
+**Add a subdomain:**
+1. A record in HostEurope DNS → VPS IP.
+2. Route block in `caddy/Caddyfile` (use the `import auth` snippet
+   for protected routes; landing pages skip it).
+3. Reload Caddy: `docker exec $(docker ps -qf name=caddy) caddy
+   reload --config /etc/caddy/Caddyfile`.
+
+**Revert maintenance mode:** In `caddy/Caddyfile`, find the
+`MAINTENANCE` comments on `chat.muninai.org` and
+`research.muninai.org`. Uncomment the real routes, remove the
+maintenance blocks. Reload Caddy.
+
+**Fresh VPS setup:**
+1. Create VPS in Hetzner with SSH key.
+2. `ssh root@VPS_IP` → run `bootstrap.sh`.
+3. `ssh varghele@VPS_IP` → clone monorepo, copy `.env`, build chat
+   UI, `docker compose up -d --build`.
+4. DNS A records in HostEurope.
 
 ## Design Documents
 
