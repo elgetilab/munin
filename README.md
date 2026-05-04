@@ -10,9 +10,10 @@ Monorepo for the Munin AI platform. Two deploy targets sharing one source tree:
   deploys consume:
   - `shared/personas/` — persona JSON + logos (read by `backend/deploy.sh`)
   - `shared/config/contributors.yml` — allowlist (cluster + VPS backfill)
-  - `shared/docs/` — contracts both sides edit (`BACKEND-API.md`
+  - `shared/docs/` — contracts and shared docs (`BACKEND-API.md`
     is canonical; `BACKEND-FRONTEND-SYNC.md` is the coordination
-    log; `CONTRIBUTOR-INGEST.md` covers the upload→cluster flow.
+    log; `CONTRIBUTOR-INGEST.md` covers the upload→cluster flow;
+    `DECISIONS.md` captures non-obvious design choices.
     `API-CONTRACT.md` is a redirect stub — retired in favour of
     `BACKEND-API.md`.)
 
