@@ -1,8 +1,8 @@
 # VPS-Side Ingest Wiring + Backfill — Hand-off
 
-Closes out §28 from the VPS (`munin-vps` repo, host
-`<vps-host>`). The cluster side is fully live; only the VPS push
-path and the one-time migration remain.
+Closes out §28 from the VPS side of the monorepo (`frontend/`,
+host `<vps-host>`). The cluster side is fully live; only the
+VPS push path and the one-time migration remain.
 
 Related docs:
 - `docs/CONTRIBUTOR-INGEST.md` — cluster endpoint contract

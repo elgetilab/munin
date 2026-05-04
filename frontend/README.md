@@ -89,15 +89,15 @@ SLURM Cluster (university, no inbound)
 ## Repository Structure
 
 ```
-munin-vps/
+frontend/                    # VPS-side of the monorepo
 ├── caddy/Caddyfile          # Reverse proxy config
-├── auth/                    # Email OTP auth (FastAPI)
+├── auth/                    # Email-OTP auth (FastAPI)
 ├── gateway/                 # API gateway (FastAPI)
 ├── upload/                  # Upload hook service (FastAPI)
-├── config/quotas.yml        # Rate limiting config
+├── config/quotas.yml        # Rate-limiting config
 ├── webui/                   # Chat UI (React + TypeScript + Tailwind)
 ├── static/
-│   ├── shared/              # CSS, logo, feather vortex animation
+│   ├── shared/              # Cross-subdomain assets served at /shared/* by Caddy
 │   ├── chat/                # Built chat frontend (from webui/)
 │   ├── landing/             # Public landing page
 │   ├── docs/                # Documentation pages
@@ -105,10 +105,14 @@ munin-vps/
 │   ├── research/            # Deep research
 │   ├── upload/              # Upload UI
 │   └── maintenance/         # Temporary maintenance page
-├── docs/                    # Design specs and architecture docs
+├── docs/                    # Live design notes (+ docs/archive/ for shipped specs)
+├── scripts/                 # backfill_contributed.py, build helpers
 ├── bootstrap.sh             # VPS provisioning script
 └── docker-compose.yml       # All 5 services
 ```
+
+The contract docs (`BACKEND-API.md`, `BACKEND-FRONTEND-SYNC.md`)
+live in `../shared/docs/` — see the top-level `CLAUDE.md`.
 
 ## Common Tasks
 
@@ -124,20 +128,18 @@ munin-vps/
 
 ## Design Documents
 
-Architecture specs and future feature plans are in [`docs/`](docs/):
+Live design notes in [`docs/`](docs/):
 
-- [DESIGN.md](docs/DESIGN.md) — Overall architecture and upgrade plan
-- [API-CONTRACT.md](docs/API-CONTRACT.md) — VPS ↔ cluster API surface
-- [API-GATEWAY.md](docs/API-GATEWAY.md) — Gateway, API keys, usage tracking
-- [CHAT-PERSISTENCE.md](docs/CHAT-PERSISTENCE.md) — Chat storage and context memory
-- [CHAT-UI-TASK-LOG.md](docs/CHAT-UI-TASK-LOG.md) — Loading messages and execution log
-- [FEATHER-VORTEX.md](docs/FEATHER-VORTEX.md) — Animated loading indicator spec
-- [SLEEPING-PAGE.md](docs/SLEEPING-PAGE.md) — Off-hours display
-- [ADDITIONAL-FEATURES.md](docs/ADDITIONAL-FEATURES.md) — PWA, memory, search enhancements
-- [AGENTIC-ORCHESTRATION.md](docs/AGENTIC-ORCHESTRATION.md) — Agent workflows
-- [USER-DOCUMENTS.md](docs/USER-DOCUMENTS.md) — Per-user document store
+- [ADDITIONAL-FEATURES.md](docs/ADDITIONAL-FEATURES.md) — PWA, user memory, BM25, compaction
+- [AGENTIC-ORCHESTRATION.md](docs/AGENTIC-ORCHESTRATION.md) — Agent registry and orchestration
+- [hugin-tunnel-setup.md](docs/hugin-tunnel-setup.md) — Cluster-side tunnel install runbook
 
-## Related Repos
+Frozen historical specs (features already shipped) are in
+[`docs/archive/`](docs/archive/). The canonical API contract lives
+at [`../shared/docs/BACKEND-API.md`](../shared/docs/BACKEND-API.md).
 
-- **munin-backend** — AI backend on the SLURM cluster (vLLM, retrieval API, RAG)
-- **HuginSLURM** — Base cluster setup (CUDA, SLURM, storage)
+## Related
+
+- `../backend/` — cluster-side of the monorepo (vLLM, retrieval API, RAG, paper pipeline)
+- `../shared/` — cross-cut artifacts (personas, contributors.yml, contract docs)
+- HuginSLURM (separate repo) — base cluster setup (CUDA, SLURM, storage)

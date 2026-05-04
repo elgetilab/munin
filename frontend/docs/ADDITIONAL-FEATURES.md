@@ -68,7 +68,7 @@ self.addEventListener('fetch', (event) => {
 ### File Locations
 
 ```
-munin-vps/frontend/public/
+frontend/webui/public/
 ├── manifest.json
 ├── sw.js
 └── icons/

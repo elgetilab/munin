@@ -258,7 +258,7 @@ The agent block is collapsible as a whole, and each step within it is individual
 
 ## SSE Events for Agents
 
-New event types for the streaming protocol (extends API-CONTRACT.md):
+New event types for the streaming protocol (extends `../../shared/docs/BACKEND-API.md` §5):
 
 ```
 event: agent_start

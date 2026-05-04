@@ -1,17 +1,27 @@
 # Munin Backend — Design Document
 
-## Repository: `munin-backend`
+> **Status (2026-05-04):** This is the original pre-merge design
+> document for the cluster side of Munin. Most of the planned work
+> here has shipped. Sections describing future endpoints, future
+> code changes, or "what to discard" describe **already-completed**
+> work — kept here as a record of design intent. For the live API
+> contract, see `../shared/docs/BACKEND-API.md`. For the live
+> repo layout and deploy commands, see `CLAUDE.md`.
 
-**Purpose:** Everything AI/backend that lives on the university cluster. LLM serving (vLLM), RAG retrieval, knowledge bases (Qdrant, Neo4j), MCP tooling, deep research, paper pipeline, chat persistence, document embedding, and agentic orchestration. Assumes HuginSLURM Phase 1 is complete.
+## Scope
 
-**Current state:** Phase 2 services are already running on the cluster — Qdrant, Neo4j, GROBID, SearXNG, retrieval service, vLLM, deep research daemon. This repo extracts and upgrades those services, removing the Open WebUI dependency and adding new endpoints the custom frontend needs.
+Cluster-side of the Munin monorepo (`backend/`). Everything AI on
+the university cluster: LLM serving (vLLM), RAG retrieval,
+knowledge bases (Qdrant, Neo4j), MCP tooling, deep research,
+paper pipeline, chat persistence, document embedding, and agentic
+orchestration. Assumes HuginSLURM Phase 1 is complete.
 
 ---
 
 ## Architecture
 
 ```
-VPS (munin-vps)
+VPS (frontend/, on Hetzner)
     │ SSH tunnel (port 18080, autossh)
     ▼
 Retrieval Service (FastAPI, :8080) ← CENTRAL API
@@ -34,7 +44,7 @@ Deep Research Daemon (systemd) → SLURM jobs on GPU 0
 
 These are already deployed from HuginSLURM Phase 2:
 
-- Docker Compose: Qdrant, Neo4j, GROBID, SearXNG, Retrieval Service, Cloudflared (unused), Status page
+- Docker Compose: Qdrant, Neo4j, GROBID, SearXNG, retrieval service, sandbox sidecar (Cloudflared and the legacy status page were since removed)
 - Retrieval service: `/retrieve`, `/search/hybrid`, `/citations/{doi}`, `/references/{doi}`, MCP endpoints (`/mcp/sse`, `/mcp/call`)
 - MCP tools: `web_search`, `semantic_scholar_search`, `paper_search`, `paper_lookup`, `get_citations`, `get_references`, `get_author_papers`, `get_paper_pdf`, `web_fetch`, `llm_summarize`
 - vLLM serving via SLURM job (6 AM – 2 AM schedule)
@@ -42,107 +52,74 @@ These are already deployed from HuginSLURM Phase 2:
 - Persona definitions (Meitner, Turing, Curie) as JSON files
 - autossh tunnel to VPS (port 18080)
 
-## What Needs Adding/Changing
+## API surface (historical)
 
-Based on the frontend reference (FRONTEND-REFERENCE.md), these endpoints and features are needed:
+This section originally enumerated the new `/api/*` endpoints
+that needed to be added to support the custom frontend. They are
+all live now.
 
-### New Endpoints (retrieval service)
+For the canonical, up-to-date endpoint catalogue (request/response
+shapes, query params, error codes, SSE event types), see
+`../shared/docs/BACKEND-API.md`. The legacy un-prefixed routes
+(`/retrieve`, `/search/hybrid`, `/citations/{doi}`,
+`/references/{doi}`, `/paper/{doi}/...`, `/mcp/*`,
+`/deepresearch/*`) remain in `retrieval/main.py` but are explicitly
+out-of-contract for the frontend.
 
-| Endpoint | Method | Purpose | Status |
-|----------|--------|---------|--------|
-| `/api/personas` | GET | List personas with config, icons, suggestions | New |
-| `/api/status` | GET | System health with `vllm.status`, `next_start`, `services.embedding` | New |
-| `/api/chats` | GET | List user's conversations (paginated, searchable) | New |
-| `/api/chats/{id}` | GET | Load full conversation with messages | New |
-| `/api/chats/{id}` | PATCH | Rename conversation | New |
-| `/api/chats/{id}` | DELETE | Delete conversation | New |
-| `/api/chat/completions` | POST | Chat with persona injection, RAG, SSE streaming, tool execution | **Major upgrade** |
-| `/api/documents/upload` | POST | Upload + embed user document (BGE-base) | New |
-| `/api/documents` | GET | List user's documents | New |
-| `/api/documents/{id}` | DELETE | Delete document + embeddings | New |
+### Changes to existing code (completed)
 
-### Existing Endpoints to Keep
-
-| Endpoint | Purpose |
-|----------|---------|
-| `/retrieve` | Direct RAG retrieval |
-| `/search/hybrid` | Vector + citation hybrid search |
-| `/citations/{doi}` | Citation lookup |
-| `/references/{doi}` | Reference lookup |
-| `/author/{name}/papers` | Author's papers |
-| `/paper/{doi}/enriched` | Full paper metadata |
-| `/paper/{doi}/pdf` | PDF download |
-| `/mcp/sse`, `/mcp/call`, `/mcp/tools` | MCP protocol endpoints |
-| `/deepresearch/submit`, `/status/{id}`, `/result/{id}` | Deep research |
-| `/health` | Health check |
-
-### Changes to Existing Code
-
-1. **Remove Open WebUI** — delete container management from vLLM startup script, remove status page, remove `update-openwebui-models.sh`
-2. **Remove Cloudflared** — from docker-compose (unused, tunnel is autossh)
-3. **Auth headers** — read `X-Munin-Email` (the transitional `X-Authentik-Email` fallback was removed in 2026-04/05; see `backend/CLAUDE.md`)
-4. **Docker compose** — add chat SQLite volume, add user_docs Qdrant collection setup
+1. **Removed Open WebUI** — container management deleted from the
+   vLLM startup script; the legacy status page and
+   `update-openwebui-models.sh` were excised by `deploy.sh
+   cleanup` (which itself has since been retired post-cluster-
+   verification — see `CLEANUP.md` Tier 3).
+2. **Removed Cloudflared** — out of docker-compose; tunnel is
+   autossh (`config/munin-tunnel.service`).
+3. **Auth headers** — read `X-Munin-Email`. The transitional
+   `X-Authentik-Email` fallback was removed in 2026-04
+   (gateway/retrieval) and 2026-05 (upload hook). See
+   `CLAUDE.md` Auth Headers.
+4. **Docker compose** — chat SQLite volume + user_docs Qdrant
+   collection setup live in `docker/docker-compose.yml` and the
+   `startup` hook of `retrieval/main.py`.
 
 ---
 
 ## Repository Structure
 
+For the live, accurate layout see `CLAUDE.md`. The original
+intended structure (preserved here as design history) was:
+
 ```
-munin-backend/
-├── CLAUDE.md                        ← Claude Code context
-├── DESIGN.md                        ← This document
-├── deploy.sh                        ← Deployment script
-├── config/
-│   ├── munin.env.template           ← Secrets template
-│   ├── agents.yml                   ← Agent registry definitions
-│   ├── deepresearch-daemon.service
-│   └── munin-tunnel.service
-├── docker/
-│   ├── docker-compose.yml           ← Qdrant, Neo4j, GROBID, SearXNG, Retrieval
-│   └── searxng/settings.yml
-├── retrieval/                       ← THE MAIN API SERVICE
-│   ├── main.py                      ← FastAPI app — all endpoints
-│   ├── database.py                  ← DB connections (Qdrant, Neo4j, SQLite)
-│   ├── models.py                    ← Pydantic request/response models
-│   ├── chat_store.py                ← Chat persistence (SQLite CRUD)
-│   ├── chat_context.py              ← Context assembly + compaction
-│   ├── document_store.py            ← User document embedding + retrieval
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── mcp/                         ← MCP server implementation
-│   │   ├── schemas.py
-│   │   ├── executor.py
-│   │   ├── endpoints.py
-│   │   └── tools/
-│   │       ├── web.py
-│   │       ├── papers.py
-│   │       ├── llm.py
-│   │       └── agents.py            ← invoke_agent tool
-│   ├── agents/                      ← Agentic orchestration
-│   │   ├── registry.py              ← Load agent configs from YAML
-│   │   ├── executor.py              ← Agent execution loop
-│   │   └── parallel.py              ← asyncio.gather for concurrent tools
-│   └── static/                      ← Search/Research UIs (kept temporarily)
+backend/                              ← cluster half of the monorepo
+├── CLAUDE.md, DESIGN.md, deploy.sh
+├── config/                           ← munin.env.template, agents.yml,
+│                                     ←   *.service / *.timer files
+├── docker/                           ← docker-compose.yml + service configs
+├── retrieval/                        ← THE MAIN API SERVICE
+│   ├── main.py                       ← FastAPI app — all routes
+│   ├── database.py, models.py, chat_store.py, chat_context.py,
+│   │   document_store.py, project_store.py, artifact_store.py
+│   ├── Dockerfile, requirements.txt
+│   ├── mcp/                          ← MCP server (schemas, executor,
+│   │                                 ←   endpoints, tools/*.py)
+│   ├── agents/                       ← Agentic orchestration (registry,
+│   │                                 ←   executor, parallel)
+│   └── tests/
+├── sandbox/                          ← Jupyter-kernel sandbox sidecar
 ├── scripts/
-│   ├── vllm/
-│   │   ├── start-vllm-service.sh    ← SLURM job (Open WebUI removed)
-│   │   └── schedule-vllm.sh
-│   ├── deepresearch/
-│   │   ├── deepresearch-daemon.py
-│   │   └── deepresearch-job.sh
-│   ├── pipeline/
-│   │   └── paper_pipeline.py
-│   └── tunnel/
-│       └── setup-tunnel.sh
-├── personas/
-│   ├── chat.json, code.json, research.json
-│   └── logos/
-├── models/MODEL_REFERENCE.md
-└── docs/
-    ├── SERVICES.md
-    ├── ARCHITECTURE.md
-    └── FRONTEND-REFERENCE.md         ← Copy from VPS repo for reference
+│   ├── vllm/                         ← SLURM job + scheduler
+│   ├── deepresearch/                 ← daemon + SLURM job
+│   ├── knowledge/                    ← build_embedding_map.py
+│   └── pipeline/                     ← paper_pipeline.py + friends
+└── docs/                             ← internal design notes;
+                                      ←   docs/archive/ for shipped specs
 ```
+
+Persona definitions are now in `../shared/personas/` (cross-cut;
+deployed via `deploy.sh personas`). The static UI directory once
+listed here was deleted in `CLEANUP.md` Tier 6 — Caddy on the VPS
+serves the user-facing UIs from `../frontend/static/`.
 
 ---
 
@@ -300,27 +277,31 @@ service in 2026-04 (gateway/retrieval) and 2026-05 (upload hook).
 
 ---
 
-## What to Discard from Current Setup
+## What was discarded (completed)
 
-1. Open WebUI container + persona sync script
-2. Status page (nginx) — frontend handles this
-3. Cloudflared container — autossh tunnel stays
-4. Legacy modelfiles (Chatgeti/Codegeti/Writegeti format)
+All four of the legacy artifacts the design originally called out
+for removal have been excised:
+
+1. Open WebUI container + persona sync script — gone.
+2. Status page (nginx) — gone; the VPS serves status pages.
+3. Cloudflared container — gone; the autossh tunnel handles it.
+4. Legacy modelfiles (Chatgeti/Codegeti/Writegeti format) — gone.
 
 ---
 
-## Connection to Other Repositories
+## Related
 
 ```
-HuginSLURM (Phase 1) — already complete
+HuginSLURM (separate repo, complete)
   └── SLURM, CUDA, users, storage, partitions
 
-munin-backend (this repo)
-  └── vLLM, retrieval API, knowledge bases, chat persistence,
-      document embedding, agents, deep research
-  └── Exposes port 18080 via autossh tunnel
-
-munin-vps (frontend + gateway)
-  └── Caddy, munin-auth, API gateway, chat frontend, static pages
-  └── Calls this repo's API via tunnel
+munin (this monorepo)
+  ├── backend/  ← this directory
+  │     vLLM, retrieval API, knowledge bases, chat persistence,
+  │     document embedding, agents, deep research, paper pipeline
+  │     → exposes port 18080 via autossh tunnel
+  ├── frontend/ ← VPS half (Caddy, munin-auth, API gateway,
+  │              chat frontend, static pages — calls backend API
+  │              via the tunnel)
+  └── shared/   ← personas, contributors.yml, contract docs
 ```
