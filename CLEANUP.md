@@ -81,15 +81,54 @@ Tier 4 is intentionally deferred — no action unless reopened.
   and `shared/docs/API-CONTRACT.md` to drop the prescriptive
   "accept both" language and replace with a removal note.
 
-## Tier 5 — structural follow-up surfaced during cleanup
+## Tier 5 — done (turned out to be orphan-deletion, not centralization)
 
-- [ ] **Centralize shared static assets** — Tier 2 #7 fixed the
-  immediate version drift across the 6 logo copies, but they're
-  still six copies. The structural fix is to make
-  `shared/assets/` the canonical source and have `backend/deploy.sh`
-  + `frontend/bootstrap.sh` (or rsync workflow) propagate to the
-  six runtime locations. Same pattern as `shared/personas/`.
-  Worth doing the next time we touch shared/ for any reason.
+- [x] **Logo "duplication" was actually orphan files** — the
+  Caddyfile's `(shared-assets)` snippet already serves
+  `frontend/static/shared/*` cross-subdomain at `/shared/*`, and
+  every active page (search, research, landing, docs, chat,
+  upload, maintenance) references `/shared/munin_logo...`. The
+  five non-shared copies under
+  `frontend/static/{research,search,landing,docs}/assets/` and
+  `backend/retrieval/static/assets/` were never referenced —
+  they had been dead since the Caddyfile was set up that way.
+  Deleted the orphan logo files and the now-empty `assets/`
+  subdirs. Single canonical at `frontend/static/shared/` is
+  what every active page already uses.
+
+- [x] **Backend retrieval `static/` was entirely empty** — only
+  contained the orphan logo. Removed the dir + the
+  `COPY static /app/static/` line in `backend/retrieval/Dockerfile`.
+  The routes in `main.py` that reference `STATIC_DIR`
+  (`/deepresearch`, `/search`, `/assets` mount) all already
+  guard with `os.path.exists` and degrade to inline-HTML
+  fallbacks — no code changes needed; they self-degrade
+  cleanly when the dir is absent.
+
+- [x] **Empty `shared/docs/archive/` directory** removed (Tier 4
+  trivial win folded in here).
+
+## Tier 6 — deferred follow-ups surfaced during Tier 5
+
+- [ ] **Reconcile duplicated archived specs** — both
+  `backend/docs/archive/` and `frontend/docs/archive/` contain
+  `FRONTEND-KNOWLEDGE-TAB.md`, `FRONTEND-REPORT-CHAT.md`,
+  `FRONTEND-TASKS.md`. The first two are byte-identical across
+  the two locations; `FRONTEND-TASKS.md` differs. Need to pick
+  the canonical version, drop the duplicates, and decide whether
+  the four "frontend specs" archived in `backend/docs/archive/`
+  should move to `frontend/docs/archive/` for consistency
+  (they're already there, so this is just deletion of the
+  backend copies after reconciling FRONTEND-TASKS.md).
+
+- [ ] **Decide on dead static-serving infrastructure in
+  retrieval/main.py** — routes that serve `deepresearch.html` and
+  `search.html` from `STATIC_DIR` have inline fallbacks but no
+  workflow ever ships those HTML files. The fallbacks tell users
+  "Place X.html in the static directory" but that's misleading —
+  no operator workflow does. Either:
+  - Document a real way to ship those HTMLs, or
+  - Delete the routes + the file-existence guards entirely.
 
 ## Tier 4 — skip (not actually broken)
 
@@ -109,5 +148,6 @@ Tier 4 is intentionally deferred — no action unless reopened.
 ## Status
 
 - 2026-05-04: audit complete, this file written.
-- 2026-05-04: Tier 1 + Tier 2 + Tier 3 done.
-- Tier 5 open (structural follow-up — centralize shared static assets).
+- 2026-05-04: Tier 1 + Tier 2 + Tier 3 + Tier 5 done.
+- Tier 6 open (archived-specs reconciliation; dead static infra in
+  retrieval/main.py).

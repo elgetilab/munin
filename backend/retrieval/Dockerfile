@@ -54,9 +54,6 @@ COPY tests /app/tests/
 # Copy agents module
 COPY agents /app/agents/
 
-# Copy static files (search UI)
-COPY static /app/static/
-
 # Persona definitions and agent config are mounted at runtime
 # (see docker-compose.yml): /app/personas and /app/config.
 
