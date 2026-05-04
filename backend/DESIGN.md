@@ -80,7 +80,7 @@ Based on the frontend reference (FRONTEND-REFERENCE.md), these endpoints and fea
 
 1. **Remove Open WebUI** — delete container management from vLLM startup script, remove status page, remove `update-openwebui-models.sh`
 2. **Remove Cloudflared** — from docker-compose (unused, tunnel is autossh)
-3. **Auth headers** — accept `X-Munin-Email` (new) with fallback to `X-Authentik-Email` (transition)
+3. **Auth headers** — read `X-Munin-Email` (the transitional `X-Authentik-Email` fallback was removed in 2026-04/05; see `backend/CLAUDE.md`)
 4. **Docker compose** — add chat SQLite volume, add user_docs Qdrant collection setup
 
 ---
@@ -291,10 +291,12 @@ See AGENTIC-ORCHESTRATION.md for full spec.
 
 ## Auth Headers
 
-Accept both during transition:
 ```python
-email = request.headers.get("X-Munin-Email") or request.headers.get("X-Authentik-Email")
+email = request.headers.get("X-Munin-Email")
 ```
+
+The transitional `X-Authentik-Email` fallback was removed across the
+service in 2026-04 (gateway/retrieval) and 2026-05 (upload hook).
 
 ---
 

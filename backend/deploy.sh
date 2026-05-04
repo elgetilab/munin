@@ -19,7 +19,6 @@
 #   sudo ./deploy.sh pipeline       - paper_pipeline.py → /opt/cluster/scripts/pipeline/ (§28)
 #   sudo ./deploy.sh retrieval      - retrieval/ code, rebuild + restart container
 #   sudo ./deploy.sh searxng        - searxng settings.yml + restart container
-#   sudo ./deploy.sh cleanup        - remove Open WebUI + status-page containers and dirs
 #   sudo ./deploy.sh verify         - smoke-test /api/status and /api/personas
 #   sudo ./deploy.sh --dry-run <mode> - show what would change, do nothing
 #
@@ -38,7 +37,7 @@ fi
 MODE=${1:-}
 if [ -z "$MODE" ]; then
     echo "Usage: sudo $0 [--dry-run] <mode>"
-    echo "Modes: all dirs compose personas agents vllm deepresearch tunnel retrieval searxng cleanup verify"
+    echo "Modes: all dirs compose personas agents vllm deepresearch tunnel retrieval searxng verify"
     exit 1
 fi
 
@@ -555,40 +554,6 @@ deploy_retrieval() {
 }
 
 # ------------------------------------------------------------------------------
-# cleanup: retire Open WebUI and the status page
-# ------------------------------------------------------------------------------
-deploy_cleanup() {
-    echo "[cleanup] Removing legacy Open WebUI, status-page, cloudflared..."
-
-    # Skip docker-touching steps entirely if the socket isn't reachable
-    # (e.g. dry-runs as a non-root user). The real run is always root.
-    if docker info >/dev/null 2>&1; then
-        for name in munin-openwebui munin-status-page munin-cloudflared; do
-            if docker ps -a --format '{{.Names}}' | grep -q "^${name}\$"; then
-                run "docker stop $name 2>/dev/null || true"
-                run "docker rm $name 2>/dev/null || true"
-            fi
-        done
-    else
-        echo "  [skip] docker socket not reachable — container stop/rm skipped"
-    fi
-
-    for dir in $MUNIN_ROOT/services/openwebui $MUNIN_ROOT/services/status-page; do
-        if [ -d "$dir" ]; then
-            echo "  removing $dir"
-            run "rm -rf $dir"
-        fi
-    done
-
-    # update-openwebui-models.sh lives under /opt/cluster/scripts/llm/
-    if [ -f $CLUSTER_SCRIPTS/update-openwebui-models.sh ]; then
-        run "rm -f $CLUSTER_SCRIPTS/update-openwebui-models.sh"
-    fi
-
-    echo "[OK] cleanup"
-}
-
-# ------------------------------------------------------------------------------
 # verify: smoke-test the key frontend endpoints after a deploy
 # ------------------------------------------------------------------------------
 RETRIEVAL_BASE=${RETRIEVAL_BASE:-http://127.0.0.1:8080}
@@ -674,7 +639,6 @@ case "$MODE" in
     searxng)      deploy_searxng ;;
     sandbox)      deploy_sandbox ;;
     retrieval)    deploy_retrieval ;;
-    cleanup)      deploy_cleanup ;;
     verify)       deploy_verify ;;
     all)
         deploy_dirs
@@ -687,14 +651,13 @@ case "$MODE" in
         deploy_knowledge
         deploy_pipeline
         deploy_searxng
-        deploy_cleanup
         deploy_sandbox       # must be up before retrieval starts since
                              # retrieval depends_on sandbox in the compose
         deploy_retrieval     # ends with deploy_verify
         ;;
     *)
         echo "[ERROR] Unknown mode: $MODE"
-        echo "Modes: all dirs compose personas agents vllm deepresearch tunnel knowledge pipeline retrieval sandbox searxng cleanup verify"
+        echo "Modes: all dirs compose personas agents vllm deepresearch tunnel knowledge pipeline retrieval sandbox searxng verify"
         exit 1
         ;;
 esac

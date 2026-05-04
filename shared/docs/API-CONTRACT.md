@@ -283,7 +283,7 @@ The backend reads user identity from headers set by Caddy after forward-auth wit
 | `X-Munin-Email` | Authenticated user's email | `user@example.org` |
 | `X-Munin-Name` | Display name (may be derived from email) | `user` |
 
-During migration, the backend should also accept `X-Authentik-Email` / `X-Authentik-Name` as fallbacks.
+The transitional `X-Authentik-Email` / `X-Authentik-Name` fallbacks were removed in 2026-04 (gateway/retrieval) and 2026-05 (upload hook). Clients must send `X-Munin-Email` only.
 
 These headers are used for:
 - Filtering deep research jobs by user

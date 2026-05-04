@@ -63,25 +63,23 @@ Tier 4 is intentionally deferred — no action unless reopened.
   `shared/assets/munin_logo_without_script.webp`, and have all
   six callsites reference the shared path.
 
-## Tier 3 — verify cluster state before deciding
+## Tier 3 — done after cluster verification
 
-- [ ] **`deploy_cleanup` block in `backend/deploy.sh:558-589`** —
-  removes legacy Open WebUI + status-page containers/dirs.
-  Idempotent, so running it on a clean node is a no-op. Only
-  safe to delete after confirming `docker ps -a` on every
-  cluster node shows none of `munin-openwebui`,
-  `munin-status-page`, `munin-cloudflared`. If confirmed clean,
-  delete the function and its `all`-mode invocation.
+- [x] **`deploy_cleanup` block** — verified on hugin: no
+  `munin-openwebui` / `munin-status-page` / `munin-cloudflared`
+  containers, no `services/openwebui` / `services/status-page`
+  dirs, no `update-openwebui-models.sh`. Removed the function
+  from `backend/deploy.sh`, dropped the `cleanup` mode, removed
+  it from `deploy_all`, removed it from both `Modes:` echo lines.
 
-- [ ] **`X-Authentik-Email` fallback** —
-  `frontend/upload/hook_service.py:122` (and the equivalent
-  comment in `backend/CLAUDE.md` Auth Headers section). Keep
-  while any caller might still send the old header; add a
-  comment `# remove after YYYY-MM-DD` once the cluster is
-  confirmed fully migrated. Note: `shared/docs/BACKEND-API.md`
-  already says the gateway-side fallback was removed
-  2026-04-21, so this hook-service fallback may already be
-  dead code.
+- [x] **`X-Authentik-Email` fallback** — confirmed dead by
+  cross-checking `BACKEND-FRONTEND-SYNC.md` QF5 (gateway sets
+  `X-Munin-Email` exclusively; retrieval/main.py + mcp/endpoints.py
+  already had the fallback dropped 2026-04-21). Removed from
+  `frontend/upload/hook_service.py:122` (the lone surviving live
+  caller). Updated `backend/CLAUDE.md`, `backend/DESIGN.md`,
+  and `shared/docs/API-CONTRACT.md` to drop the prescriptive
+  "accept both" language and replace with a removal note.
 
 ## Tier 5 — structural follow-up surfaced during cleanup
 
@@ -111,5 +109,5 @@ Tier 4 is intentionally deferred — no action unless reopened.
 ## Status
 
 - 2026-05-04: audit complete, this file written.
-- 2026-05-04: Tier 1 + Tier 2 done.
-- Tier 3 + Tier 5 open.
+- 2026-05-04: Tier 1 + Tier 2 + Tier 3 done.
+- Tier 5 open (structural follow-up — centralize shared static assets).

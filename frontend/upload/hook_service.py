@@ -119,7 +119,7 @@ async def tusd_hook(request: Request, background_tasks: BackgroundTasks):
         http_headers = http_request.get("Header", {})
         upload = event.get("Upload", payload.get("Upload", {}))
 
-        email_list = http_headers.get("X-Munin-Email", http_headers.get("X-Authentik-Email", []))
+        email_list = http_headers.get("X-Munin-Email", [])
         email = email_list[0] if email_list else None
 
         if not email:
