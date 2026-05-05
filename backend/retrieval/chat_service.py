@@ -1012,6 +1012,23 @@ def _collect_artifact_urls(obj) -> set:
     return found
 
 
+def apply_stream_error_marker(final_content: str, error_message: str) -> str:
+    """
+    Append a stream-interrupted marker to the assistant content that will be
+    persisted, so the saved transcript explains why the turn cuts off where
+    it does. Extracted as a pure helper so test_stream_error_persistence can
+    verify marker shape without spinning up the full streaming machinery.
+
+    Empty error_message degrades to a generic "vLLM stream error" so the
+    marker is still informative if the upstream payload has no message field.
+    """
+    msg = (error_message or "").strip() or "vLLM stream error"
+    marker = f"_(stream interrupted: {msg})_"
+    if final_content and final_content.strip():
+        return f"{final_content.rstrip()}\n\n{marker}"
+    return marker
+
+
 def audit_artifact_urls_in_content(
     content: str, tool_calls: Optional[list]
 ) -> tuple:
@@ -1482,6 +1499,14 @@ async def stream_chat_completion(
 
     MAX_TURNS = 10
     hit_turn_cap = True  # assume exhaustion unless we break cleanly below
+    # Set by the loop body when a vLLM stream error or empty response forces
+    # us to abandon the current turn. Triggers the partial-state persistence
+    # path below (§6) instead of returning silently. Losing partial state on
+    # error was the cause of the "vanishing agent" symptom in chat 676a3238
+    # on 2026-05-05, where the user saw invoke_agent fire and the agent run,
+    # but a vLLM "Error in input stream" on the follow-up summarisation turn
+    # made the entire assistant message disappear from the saved transcript.
+    had_stream_error: Optional[str] = None
     for turn in range(MAX_TURNS):
         acc: Optional[_StreamAccumulator] = None
         stream_error: Optional[str] = None
@@ -1501,10 +1526,17 @@ async def stream_chat_completion(
             yield _sse(event_name, payload)
 
         if stream_error:
-            return
+            had_stream_error = stream_error
+            if acc is not None:
+                final_thinking += acc.thinking
+                final_content += acc.content
+            hit_turn_cap = False
+            break
         if acc is None:
             yield _error_sse("vLLM produced no output")
-            return
+            had_stream_error = "vLLM produced no output"
+            hit_turn_cap = False
+            break
 
         final_thinking += acc.thinking
         final_content += acc.content
@@ -2143,7 +2175,11 @@ async def stream_chat_completion(
     # (cumulative) would miss it because the preamble already populated
     # final_content on turn N. Mirrors agents/executor.py::execute_agent.
     last_turn_content = (acc.content if acc is not None else "").strip()
-    if hit_turn_cap or not last_turn_content:
+    # Skip the wrap-up synthesis on a stream error: vLLM is broken right
+    # now, so calling it again to rewrite the final answer would almost
+    # certainly fail too, and the second failure would either overwrite or
+    # truncate the partial state we already captured. Persist what we have.
+    if (hit_turn_cap or not last_turn_content) and not had_stream_error:
         wrap_up_messages = list(messages) + [
             {
                 "role": "user",
@@ -2177,6 +2213,13 @@ async def stream_chat_completion(
             finish_reason = wrap_acc.finish_reason or finish_reason
 
     # --- 6. Persist assistant message ---
+    # Stream-error marker. When the loop bailed because vLLM yielded an
+    # `error` event mid-stream, append a small italic note so the saved
+    # transcript explains why the assistant turn cuts off where it does.
+    # The tool calls that fired before the error are already in
+    # `final_tool_calls` and will be persisted alongside this content.
+    if had_stream_error:
+        final_content = apply_stream_error_marker(final_content, had_stream_error)
     # Phantom-artifact-URL audit. If the model wrote a
     # `/api/artifacts/<uuid>/...` URL that wasn't produced by any tool
     # this turn, prepend a warning marker and log loudly. Persona
