@@ -142,7 +142,7 @@ vllm serve "$MODEL_PATH" \
     --kv-cache-dtype fp8 \
     --served-model-name "$MODEL_NAME" \
     --enable-auto-tool-choice \
-    --tool-call-parser qwen3_coder \
+    --tool-call-parser qwen3_xml \
     --reasoning-parser qwen3 &
 
 VLLM_PID=$!
