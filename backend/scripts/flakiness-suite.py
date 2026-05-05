@@ -853,6 +853,56 @@ def _no_phantom_warning_in_response(res: dict, state: dict) -> TurnOutcome:
     return t
 
 
+def _no_fabricated_paper_citation(res: dict, state: dict) -> TurnOutcome:
+    """
+    Regression for conv a42384f0 (2026-05-05): on a vLLM/SLURM infra
+    question, the model fabricated `[HPCS 2005](https://search.muninai
+    .org/paper/10.1109%2Fhpcs.2005.55/pdf)` to support a load-bearing
+    technical claim. No paper_search / paper_lookup / deep_research
+    call ran on that turn, so both the citation and the URL were
+    invented. The phantom-paper-URL audit
+    (`audit_paper_urls_in_content` in chat_service) catches this and
+    prepends a `[backend warning]` marker to the persisted response.
+
+    Pass condition: the response must NOT contain the warning marker
+    AND must not contain a `search.muninai.org/paper/...` URL when no
+    paper-fetching tool fired this turn. The first half catches the
+    audited case; the second half is belt-and-braces in case the
+    audit ever changes shape.
+    """
+    content = res.get("content") or ""
+    tool_calls = _brief_tool_calls(res)
+    t = TurnOutcome(
+        passed=True,
+        tool_calls=tool_calls,
+        clarifications=len(res.get("clarifications") or []),
+        content_preview=_content_preview(res),
+    )
+    if "[backend warning]" in content.lower():
+        t.passed = False
+        t.reason = (
+            "phantom-paper-URL audit fired: response cites a "
+            "search.muninai.org/paper/... URL that no tool call "
+            "produced this turn. Fabricated citation."
+        )
+        return t
+    if "search.muninai.org/paper/" in content.lower():
+        paper_tools = {
+            "paper_search",
+            "paper_lookup",
+            "semantic_scholar_search",
+            "deep_research",
+        }
+        if not any(name in paper_tools for name in tool_calls):
+            t.passed = False
+            t.reason = (
+                "response contains a search.muninai.org/paper/... URL "
+                "but no paper-fetching tool was called this turn; "
+                "audit may have missed it"
+            )
+    return t
+
+
 def _latex_scenario() -> Scenario:
     latex_ok = assert_all_of(
         assert_tool_called("compile_latex"),
@@ -1531,6 +1581,83 @@ def _query_tags_scenario() -> Scenario:
     )
 
 
+def _paper_citation_grounding_scenario() -> Scenario:
+    """Regression for chat a42384f0 (2026-05-05).
+
+    The reported flow: user asks an infra question (vLLM tensor
+    parallelism across two RTX 5090s for KV cache), then a follow-up
+    about queueing partial-GPU SLURM jobs alongside. The model
+    answered the second turn with a confident-but-wrong claim about
+    SLURM exclusivity and fabricated `[HPCS 2005](https://search.
+    muninai.org/paper/10.1109%2Fhpcs.2005.55/pdf)` to support it.
+    No paper_search / paper_lookup / deep_research call ran on the
+    failing turn.
+
+    Both turns must complete without firing the phantom-paper-URL
+    audit. If the model wants to cite something it should call a
+    paper tool first; if it has no source it should answer without
+    a citation. Run on both `chat` and `code` personas because the
+    same infra question can plausibly route to either.
+    """
+    turns = [
+        Turn(
+            message=(
+                "I have a question about vLLM and the KV cache, "
+                "also regarding model hosting: is it possible to "
+                "have a model hosted distributed across two 5090s "
+                "so I can have a larger KV cache than I would "
+                "have without?"
+            ),
+            assertion=_no_fabricated_paper_citation,
+            persona="chat",
+        ),
+        Turn(
+            message=(
+                "I am running this on a SLURM cluster. When the "
+                "job is running, can I queue other jobs that only "
+                "take a partial GPU to run?"
+            ),
+            assertion=_no_fabricated_paper_citation,
+            persona="chat",
+            # The historically-failing turn. Sampling-rare-ish, so
+            # one soft retry to match the latex-scenario regressions.
+            soft_retries=1,
+        ),
+    ]
+
+    code_turns = [
+        Turn(
+            message=t.message,
+            assertion=t.assertion,
+            persona="code",
+            soft_retries=t.soft_retries,
+        )
+        for t in turns
+    ]
+
+    return Scenario(
+        name="paper_citation_grounding",
+        description=(
+            "§N No fabricated paper citations: model must not emit "
+            "search.muninai.org/paper/... URLs without a backing "
+            "paper-tool call (chat a42384f0, 2026-05-05)."
+        ),
+        variants=[
+            Variant(
+                label="vllm_tp_kv_cache_chat_persona",
+                turns=turns,
+            ),
+            Variant(
+                label="vllm_tp_kv_cache_code_persona",
+                turns=code_turns,
+            ),
+        ],
+        # Two turns, model latency dominates. Three reps keeps total
+        # runtime bounded — same budget as latex scenario.
+        reps_override=3,
+    )
+
+
 SCENARIOS = [
     _clarification_scenario(),
     _latex_scenario(),
@@ -1541,6 +1668,7 @@ SCENARIOS = [
     _profile_scenario(),
     _compose_scenario(),
     _query_tags_scenario(),
+    _paper_citation_grounding_scenario(),
 ]
 
 

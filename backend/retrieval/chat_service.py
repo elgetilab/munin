@@ -1067,6 +1067,85 @@ def audit_artifact_urls_in_content(
     return "\n".join(notice_lines) + "\n" + content, phantoms
 
 
+# --- Phantom-paper-URL audit (regression guard for chat a42384f0) ---
+#
+# Reported chat a42384f0 (2026-05-05): on a vLLM/SLURM infra question,
+# the model fabricated `[HPCS 2005](https://search.muninai.org/paper/
+# 10.1109%2Fhpcs.2005.55/pdf)` to support a load-bearing technical
+# claim. No paper_search / paper_lookup / semantic_scholar_search /
+# deep_research call ran on that turn, so the URL was invented from
+# whole cloth and the citation was fabricated. The `search.muninai.org/
+# paper/<encoded_doi>/...` pattern is exclusively constructed by the
+# paper tools (see mcp/tools/papers.py PUBLIC_URL); the model has no
+# legitimate reason to type one without a tool result. Same backstop
+# shape as the artifact audit above.
+
+_PAPER_URL_RE = _re.compile(
+    r"https?://(?:www\.)?search\.muninai\.org/paper/[^\s)>\"\]]+"
+)
+
+
+def _collect_paper_urls(obj) -> set:
+    """Walk a tool result (string / dict / list) and collect every
+    `search.muninai.org/paper/...` URL it contains, anywhere in the
+    structure. Mirrors `_collect_artifact_urls`."""
+    found: set = set()
+    if isinstance(obj, str):
+        for m in _PAPER_URL_RE.findall(obj):
+            found.add(m)
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            found.update(_collect_paper_urls(v))
+    elif isinstance(obj, list):
+        for v in obj:
+            found.update(_collect_paper_urls(v))
+    return found
+
+
+def audit_paper_urls_in_content(
+    content: str, tool_calls: Optional[list]
+) -> tuple:
+    """Return (content, phantom_urls).
+
+    `phantom_urls` lists every `https://search.muninai.org/paper/...`
+    URL that appears in `content` but does NOT appear in any of
+    `tool_calls`' result payloads from this turn. When non-empty, the
+    returned content is prepended with a [backend warning] marker so
+    the saved message carries the audit trail through to chat_store
+    and future replays.
+
+    The paper-URL pattern is only ever produced legitimately by the
+    paper tools (paper_search, paper_lookup, semantic_scholar_search,
+    deep_research) which embed `download_url` fields in their results.
+    A paper URL in assistant prose without a backing tool call this
+    turn is a fabricated citation.
+
+    Pure function — no I/O, safe to unit-test.
+    """
+    if not isinstance(content, str) or not content:
+        return content, []
+    found = set(_PAPER_URL_RE.findall(content))
+    if not found:
+        return content, []
+    legit: set = set()
+    for tc in tool_calls or []:
+        if isinstance(tc, dict):
+            legit.update(_collect_paper_urls(tc.get("result")))
+    phantoms = sorted(found - legit)
+    if not phantoms:
+        return content, []
+    notice_lines = [
+        "**[backend warning]** This response cites "
+        f"{len(phantoms)} paper URL(s) that were NOT returned by any "
+        "tool call in this turn. The citation(s) below may be "
+        "fabricated:"
+    ]
+    for u in phantoms:
+        notice_lines.append(f"- `{u}`")
+    notice_lines.extend(["", "---", ""])
+    return "\n".join(notice_lines) + "\n" + content, phantoms
+
+
 async def _build_full_system_prompt(
     persona: dict,
     user_email: str,
@@ -2232,6 +2311,19 @@ async def stream_chat_completion(
         print(
             f"[WARN] phantom artifact URLs in conversation "
             f"{conversation['id']}: {_phantom_urls}"
+        )
+    # Phantom-paper-URL audit. Same backstop shape but for fabricated
+    # `search.muninai.org/paper/<doi>/...` citations (chat a42384f0,
+    # 2026-05-05: model invented a `[HPCS 2005](https://search.muninai
+    # .org/paper/10.1109%2Fhpcs.2005.55/pdf)` link to support a wrong
+    # technical claim, with no paper-tool call on the turn).
+    final_content, _phantom_paper_urls = audit_paper_urls_in_content(
+        final_content, final_tool_calls
+    )
+    if _phantom_paper_urls:
+        print(
+            f"[WARN] phantom paper URLs in conversation "
+            f"{conversation['id']}: {_phantom_paper_urls}"
         )
 
     if not ephemeral:
