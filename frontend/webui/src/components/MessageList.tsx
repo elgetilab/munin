@@ -58,6 +58,7 @@ export function detectPhase(streaming: StreamingState): string {
       return 'paper_search';
     }
     if (['web_search', 'web_fetch'].includes(last.name)) return 'web_search';
+    if (['run_python', 'sandbox_reset', 'compile_latex'].includes(last.name)) return 'code';
     if (last.name === 'llm_summarize') return 'processing';
   }
   return 'thinking';

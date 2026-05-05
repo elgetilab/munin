@@ -79,6 +79,27 @@ describe('detectPhase', () => {
     expect(detectPhase(streaming)).toBe('processing');
   });
 
+  it('returns "code" for run_python', () => {
+    const streaming = makeStreaming({
+      toolCalls: [{ name: 'run_python', arguments: {} }],
+    });
+    expect(detectPhase(streaming)).toBe('code');
+  });
+
+  it('returns "code" for sandbox_reset', () => {
+    const streaming = makeStreaming({
+      toolCalls: [{ name: 'sandbox_reset', arguments: {} }],
+    });
+    expect(detectPhase(streaming)).toBe('code');
+  });
+
+  it('returns "code" for compile_latex', () => {
+    const streaming = makeStreaming({
+      toolCalls: [{ name: 'compile_latex', arguments: {} }],
+    });
+    expect(detectPhase(streaming)).toBe('code');
+  });
+
   it('returns "thinking" when no tool calls', () => {
     const streaming = makeStreaming({ toolCalls: [] });
     expect(detectPhase(streaming)).toBe('thinking');
