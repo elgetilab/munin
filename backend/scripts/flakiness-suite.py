@@ -1581,6 +1581,180 @@ def _query_tags_scenario() -> Scenario:
     )
 
 
+def _turn0_staging_ok(res: dict, state: dict) -> TurnOutcome:
+    """Permissive check for the agent_delegation_routing variant's
+    first turn ('Can you call your research orchestrator agent?').
+    The model may answer with prose, fire ask_clarification, or even
+    call invoke_agent immediately — any of those is reasonable.
+    Only stream errors or an empty response with no tool calls are
+    failures.
+    """
+    tc = _brief_tool_calls(res)
+    clars = len(res.get("clarifications") or [])
+    t = TurnOutcome(
+        passed=False,
+        tool_calls=tc,
+        clarifications=clars,
+        content_preview=_content_preview(res),
+    )
+    if res.get("errors"):
+        t.reason = f"stream error: {res['errors'][0]}"
+        return t
+    content = (res.get("content") or "").strip()
+    if not content and not tc and clars == 0:
+        t.reason = "empty response with no tools and no clarification"
+        return t
+    t.passed = True
+    return t
+
+
+def _assert_invoke_agent_with(expected_agent: str) -> Assertion:
+    """invoke_agent must have fired AND its tool_result must report
+    `agent == expected_agent`. The invoke_agent tool result includes
+    an `agent` echo field (see agents/executor.py execute_agent
+    return shape) so we can verify the model dispatched to the right
+    one, not just that it called the tool with some arbitrary name.
+    """
+    def _inner(res: dict, state: dict) -> TurnOutcome:
+        tc = _brief_tool_calls(res)
+        t = TurnOutcome(
+            passed=False,
+            tool_calls=tc,
+            clarifications=len(res.get("clarifications") or []),
+            content_preview=_content_preview(res),
+        )
+        if res.get("errors"):
+            t.reason = f"stream error: {res['errors'][0]}"
+            return t
+        if "invoke_agent" not in tc:
+            t.reason = (
+                f"expected invoke_agent to fire, got {tc}; the model "
+                f"chose a direct tool call (or none) instead of "
+                f"delegating to {expected_agent!r}"
+            )
+            return t
+        tool_results = res.get("tool_results") or []
+        ia = next(
+            (tr for tr in tool_results if tr.get("name") == "invoke_agent"),
+            None,
+        )
+        if ia is None:
+            t.reason = (
+                "invoke_agent tool_call event fired but no matching "
+                "tool_result event arrived (stream cut off?); cannot "
+                "verify dispatched agent"
+            )
+            return t
+        result = (ia or {}).get("result") or {}
+        dispatched = result.get("agent")
+        if dispatched != expected_agent:
+            t.reason = (
+                f"invoke_agent fired but dispatched to {dispatched!r}, "
+                f"expected {expected_agent!r}"
+            )
+            return t
+        t.passed = True
+        return t
+
+    return _inner
+
+
+def _agent_delegation_scenario() -> Scenario:
+    """Regression for chat 676a3238 (2026-05-05).
+
+    User staged the research orchestrator over two turns:
+      1. "Can you call your research agent?"
+      2. (model misread as "describe it" -> "yes, what would you
+         like to know about it?")
+      3. "Give me information about luthiers, decide which tool
+         to use and tell me why you did that."
+      4. (model called web_search instead of invoke_agent and
+         never delegated.)
+
+    The chat persona's first instinct on 'tell me about X' is
+    deep_research / web_search; the regression is that an explicit
+    user staging of the research_orchestrator agent must override
+    that default. Both variants assert invoke_agent fires with
+    `agent == research_orchestrator`.
+    """
+    return Scenario(
+        name="agent_delegation_routing",
+        description=(
+            "§N Agent delegation: model honours an explicit user "
+            "request to use the research_orchestrator agent and "
+            "calls invoke_agent rather than routing to web_search "
+            "or deep_research (chat 676a3238, 2026-05-05)."
+        ),
+        variants=[
+            # The reported-chat replay. Two turns: stage the agent,
+            # then ask an open-ended question with 'decide which
+            # tool to use'. The exact phrasing where the original
+            # failure happened.
+            Variant(
+                label="staged_then_open_question",
+                turns=[
+                    Turn(
+                        message=(
+                            "Can you call your research orchestrator "
+                            "agent?"
+                        ),
+                        # First turn is a meta-question; the model
+                        # may answer with prose ('yes, what would
+                        # you like to research?') OR fire
+                        # ask_clarification ('what should I
+                        # research?'). Both are reasonable -- the
+                        # regression we're chasing is on turn 2.
+                        # Just require no stream error and some
+                        # response (prose or clarification card).
+                        assertion=_turn0_staging_ok,
+                        persona="chat",
+                    ),
+                    Turn(
+                        message=(
+                            "Give me information about luthiers, "
+                            "decide which tool to use and tell me "
+                            "why you did that."
+                        ),
+                        assertion=_assert_invoke_agent_with(
+                            "research_orchestrator"
+                        ),
+                        persona="chat",
+                        # Sampling-rare-ish failure; one soft retry
+                        # to match the latex/citation regressions.
+                        soft_retries=1,
+                    ),
+                ],
+            ),
+            # Lower-bar variant: explicit by-name request. If the
+            # model can't even route an explicitly-named agent
+            # request to invoke_agent, the dispatch path is broken
+            # at a more fundamental level.
+            Variant(
+                label="explicit_by_name",
+                turns=[
+                    Turn(
+                        message=(
+                            "Please use the research_orchestrator "
+                            "agent to give me a literature review "
+                            "on luthiers and the history of "
+                            "stringed-instrument making."
+                        ),
+                        assertion=_assert_invoke_agent_with(
+                            "research_orchestrator"
+                        ),
+                        persona="chat",
+                        soft_retries=1,
+                    ),
+                ],
+            ),
+        ],
+        # Each rep can be slow (the orchestrator runs its own
+        # tool-calling loop: paper_search + semantic_scholar_search
+        # + web_search + summaries). Keep reps low.
+        reps_override=2,
+    )
+
+
 def _paper_citation_grounding_scenario() -> Scenario:
     """Regression for chat a42384f0 (2026-05-05).
 
@@ -1669,6 +1843,7 @@ SCENARIOS = [
     _compose_scenario(),
     _query_tags_scenario(),
     _paper_citation_grounding_scenario(),
+    _agent_delegation_scenario(),
 ]
 
 
