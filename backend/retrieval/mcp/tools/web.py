@@ -21,8 +21,22 @@ from .query_expansion import expand_queries
 _SEARXNG_ENGINES = "startpage,duckduckgo,brave"
 
 
-async def _searxng_one(client: httpx.AsyncClient, q: str) -> list[dict]:
-    """Single SearXNG query. Returns a raw list of result dicts (possibly empty)."""
+async def _searxng_one(client: httpx.AsyncClient, q: str) -> dict:
+    """Single SearXNG query.
+
+    Returns a dict with:
+        results: raw list of result dicts (possibly empty)
+        unresponsive: list of (engine_name, reason) pairs for engines
+                      that failed on this query. SearXNG returns this
+                      as `unresponsive_engines` in its JSON envelope
+                      and we propagate it so callers can distinguish
+                      "no hits because the topic is obscure" from
+                      "no hits because every engine was rate-limited."
+        transport_error: str|None, set if the HTTP call itself
+                      raised (timeout, DNS, etc.). Treated as "every
+                      engine on this query is unavailable" by
+                      web_search's degradation logic.
+    """
     try:
         response = await client.get(
             f"{SEARXNG_URL}/search",
@@ -34,10 +48,15 @@ async def _searxng_one(client: httpx.AsyncClient, q: str) -> list[dict]:
             },
         )
         response.raise_for_status()
-        return response.json().get("results", []) or []
+        body = response.json()
     except Exception as e:
         print(f"[WARNING] web_search '{q}' failed: {e}")
-        return []
+        return {"results": [], "unresponsive": [], "transport_error": str(e)}
+    return {
+        "results": body.get("results", []) or [],
+        "unresponsive": body.get("unresponsive_engines", []) or [],
+        "transport_error": None,
+    }
 
 
 async def web_search(
@@ -87,10 +106,16 @@ async def web_search(
         return {"error": f"Web search failed: {str(e)}"}
 
     # Merge + dedupe by URL, counting how many queries surfaced each url.
+    # Also aggregate engine status across all queries so the caller can
+    # tell "no hits because obscure" from "no hits because every engine
+    # was rate-limited / blocked / behind a CAPTCHA" (chat 689f8df3,
+    # 2026-05-06).
     seen: dict[str, dict] = {}
     total_hits = 0
-    for q, hits in zip(query_list, raw_batches):
-        for rank, item in enumerate(hits):
+    unresponsive: dict[str, str] = {}  # engine_name -> reason (last wins)
+    transport_errors = 0
+    for q, batch in zip(query_list, raw_batches):
+        for rank, item in enumerate(batch.get("results", [])):
             total_hits += 1
             url = item.get("url", "")
             if not url:
@@ -109,6 +134,20 @@ async def web_search(
                 entry["matched_by"] += 1
                 if rank < entry["_best_rank"]:
                     entry["_best_rank"] = rank
+        for pair in batch.get("unresponsive", []):
+            # SearXNG returns either ["name", "reason"] or {...} depending
+            # on version; accept both shapes.
+            if isinstance(pair, (list, tuple)) and len(pair) >= 2:
+                name, reason = str(pair[0]), str(pair[1])
+            elif isinstance(pair, dict):
+                name = str(pair.get("name") or pair.get("engine") or "")
+                reason = str(pair.get("reason") or pair.get("error") or "")
+            else:
+                continue
+            if name:
+                unresponsive[name] = reason
+        if batch.get("transport_error"):
+            transport_errors += 1
 
     # Rank: more matches first, then earlier best rank. Drop the internal
     # tracking key before returning.
@@ -119,11 +158,48 @@ async def web_search(
     for r in merged:
         r.pop("_best_rank", None)
 
-    return {
+    out: dict = {
         "queries_executed": query_list,
         "total_hits": total_hits,
         "results": merged[:top_k],
     }
+
+    # Surface engine degradation to the caller.
+    requested_engines = [e for e in _SEARXNG_ENGINES.split(",") if e]
+    if unresponsive:
+        out["engines_unresponsive"] = [
+            [name, reason] for name, reason in sorted(unresponsive.items())
+        ]
+    # Total-degradation warning: if every requested engine was unresponsive
+    # AND we got no results, the tool is effectively broken on this call.
+    # Emit an explicit warning string so the model surfaces "my tool is
+    # degraded" to the user instead of concluding the topic doesn't exist.
+    all_engines_down = (
+        len(unresponsive) >= len(requested_engines) and len(requested_engines) > 0
+    )
+    transport_total = transport_errors == len(query_list) and len(query_list) > 0
+    if total_hits == 0 and (all_engines_down or transport_total):
+        if transport_total:
+            reason = (
+                f"Could not reach the search backend ({SEARXNG_URL}) on "
+                f"any of the {len(query_list)} queries."
+            )
+        else:
+            engine_list = ", ".join(sorted(unresponsive.keys()))
+            reason = (
+                f"All configured search engines ({engine_list}) were "
+                "unresponsive on this call (rate-limited, blocked, or "
+                "behind a CAPTCHA)."
+            )
+        out["warning"] = (
+            f"{reason} Treat this zero-result response as TOOL FAILURE, "
+            "not 'no information found'. Tell the user the search "
+            "backend is degraded and ask them to provide a direct URL "
+            "or DOI if they have one. Do not infer that the topic is "
+            "obscure or non-existent from this result."
+        )
+
+    return out
 
 
 # Map-reduce summarization parameters (tunable)
