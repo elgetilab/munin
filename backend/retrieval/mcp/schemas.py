@@ -10,7 +10,7 @@ Each tool has:
 MCP_TOOLS = {
     "web_search": {
         "name": "web_search",
-        "description": "Search the web using SearXNG meta-search engine with multi-query fan-out. For the best coverage, pass a `queries` array of 3-5 varied phrasings instead of a single `query` — the tool runs them in parallel, dedupes by URL, and returns results ranked by how many queries surfaced each URL. If you pass only `query` (a single string), the backend will expand it into 3-5 variants for you automatically.",
+        "description": "Search the web using SearXNG meta-search engine with multi-query fan-out. For the best coverage, pass a `queries` array of 3-5 varied phrasings instead of a single `query` - the tool runs them in parallel, dedupes by URL, and returns results ranked by how many queries surfaced each URL. If you pass only `query` (a single string), the backend will expand it into 3-5 variants for you automatically.\n\nDEGRADED-BACKEND HANDLING: the result dict may contain an `engines_unresponsive` field listing engines that failed on this call (rate-limited, blocked, or behind a CAPTCHA). When ALL engines fail and `total_hits` is 0, the result also includes a `warning` field. If you see `warning`, do NOT conclude that the topic is obscure or doesn't exist - the tool is broken. Surface the degradation to the user (something like 'my web search backend is currently unable to reach its engines') and ask them for a direct URL, DOI, or arxiv ID if they have one. Do not retry the same call expecting a different outcome; if you must retry, wait or try a paper_search / semantic_scholar_search instead.",
         "inputSchema": {
             "type": "object",
             "properties": {
