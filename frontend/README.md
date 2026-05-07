@@ -172,8 +172,10 @@ After bootstrap and first deploy, expect:
 
 ## Common Tasks
 
-**Add a user:** edit `auth/whitelist.csv`, then restart munin-auth:
-`docker restart munin-auth`.
+**Add a user:** edit `auth/whitelist.csv`, then restart munin-auth.
+From `~/munin/` on the VPS: `docker compose restart munin-auth`.
+(The compose project prefixes container names, so the bare
+`docker restart munin-auth` form will not find the container.)
 
 **Create API key:** `POST /api/keys` with session auth, returns
 an `sk-munin-...` key.
