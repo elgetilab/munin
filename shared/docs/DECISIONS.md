@@ -10,6 +10,71 @@ self-document (renames, refactors, bug fixes).
 
 ---
 
+## 2026-05-08: `stream_chat_completion` save-always invariant
+
+`backend/retrieval/chat_service.py::stream_chat_completion` wraps
+its body in a `try:` / `finally:` so the assistant turn is
+**always** persisted to `chats.db` once the user message has been
+persisted, regardless of how the function exits. Three exit
+paths matter, only one of which the code prior to 2026-05-08
+handled correctly:
+
+1. **Normal completion.** The explicit `chat_store.add_message`
+   call near the end of the function runs, sets
+   `assistant_persisted = True`, and the finally is a no-op.
+2. **Unhandled exception** (any `Exception`). The finally fires,
+   persists a marker-only assistant row, then the exception
+   propagates so uvicorn / sse_starlette mark the response as
+   errored.
+3. **`GeneratorExit`** (client disconnect). When the FastAPI
+   handler in `main.py:1297` `break`s its `async for` over the
+   chat_service generator (because `request.is_disconnected()`
+   returned True), `aclose()` is invoked on the generator, which
+   throws `GeneratorExit` at its current `yield`. The finally
+   fires; `GeneratorExit` propagates after.
+
+`GeneratorExit` derives from `BaseException`, not `Exception`,
+so `except Exception:` never catches it, and uvicorn does not
+log it. That is why the regression in chat 3951063c
+(contributor-d@example.org, 2026-05-08) presented as 200 OK
++ no traceback + missing assistant rows: the user closed the tab
+after seeing the "Error in input stream" banner, the EventSource
+closed, and persistence (which was downstream of the last yield)
+never ran.
+
+**Invariants any future refactor must preserve:**
+
+- The `try:` / `finally:` MUST stay in place, with the explicit
+  `add_message` for the assistant turn inside the `try:` block
+  followed by `assistant_persisted = True`. Adding a new `yield`
+  *between* the existing persist call and the
+  `assistant_persisted = True` assignment would re-introduce the
+  disconnect-loses-data bug.
+- Any new helper that holds `acc.content` partial state must
+  either fold into `final_content` synchronously or be visible
+  to the finally via a known variable. The current mechanism is
+  the `acc_transferred` flag, set False at the top of each turn
+  and True after the existing transfer points (lines ~1628 and
+  ~1638). The finally folds `acc.content` into `final_content`
+  iff `acc_transferred` is False.
+- Do NOT add a top-level `except GeneratorExit:` handler.
+  Catching `GeneratorExit` and not re-raising is illegal in an
+  async generator (Python raises `RuntimeError("async generator
+  ignored GeneratorExit")`).
+- The save-always `add_message` call in the finally is itself
+  wrapped in `try: ... except Exception:` and logs without
+  re-raising. A crash in the finally would mask the original
+  exception (or `GeneratorExit`) and lose the diagnostic signal.
+  Keep the swallow-and-log behavior.
+
+Behavioural coverage lives in
+`backend/retrieval/tests/test_stream_error_persistence.py`. The
+13-test suite covers stream errors, partial content + error,
+client disconnect (after error / after token), and unhandled
+exceptions in tool dispatch / context assembly / post-loop
+audits. New regressions in this area should be reproduced as
+a test there before fixing.
+
 ## 2026-05-04: `shared/docs/API-CONTRACT.md` retired
 
 The file is now a redirect stub pointing at

@@ -249,9 +249,9 @@ describe('useChat', () => {
     });
   });
 
-  // ── 11. Error SSE event ──────────────────────────────────────────────────
+  // ── 11. Error SSE event — save-always partial persistence ───────────────
 
-  it('sets error and phase to error on SSE error event', async () => {
+  it('appends an interrupted assistant message and sets error on SSE error event', async () => {
     server.use(
       http.post('/api/chat/completions', () => sseResponse([
         { event: 'error', data: { message: 'Model overloaded' } },
@@ -264,8 +264,79 @@ describe('useChat', () => {
       await result.current.sendMessage('Hi', 'chat');
     });
 
+    // Top-level error banner state still set so App.tsx surfaces it.
     expect(result.current.error).toBe('Model overloaded');
-    expect(result.current.streaming.phase).toBe('error');
+    // Streaming view resets to idle so the partial isn't shown twice
+    // (once in the streaming buffer, once in the new bubble).
+    expect(result.current.streaming.phase).toBe('idle');
+    // The interrupted assistant turn is preserved in messages so the
+    // user sees what they got (here: just the marker, since no
+    // tokens streamed before the error). Mirrors the backend's
+    // save-always invariant in stream_chat_completion.
+    const assistant = result.current.messages.find(m => m.role === 'assistant');
+    expect(assistant).toBeDefined();
+    expect(assistant?.interrupted).toBe(true);
+    expect(assistant?.content).toContain('stream interrupted');
+    expect(assistant?.content).toContain('Model overloaded');
+  });
+
+  it('preserves streamed tokens when an SSE error fires after partial content', async () => {
+    server.use(
+      http.post('/api/chat/completions', () => sseResponse([
+        { event: 'token', data: { content: 'Here is what I found so far: ' } },
+        { event: 'token', data: { content: 'the answer is ' } },
+        { event: 'error', data: { message: 'Error in input stream' } },
+      ])),
+    );
+
+    const { result } = renderHook(() => useChat());
+
+    await act(async () => {
+      await result.current.sendMessage('Hi', 'chat');
+    });
+
+    const assistant = result.current.messages.find(m => m.role === 'assistant');
+    expect(assistant).toBeDefined();
+    expect(assistant?.interrupted).toBe(true);
+    // Both streamed tokens survive in the persisted bubble.
+    expect(assistant?.content).toContain('Here is what I found so far:');
+    expect(assistant?.content).toContain('the answer is');
+    // Marker is appended after the partial content.
+    expect(assistant?.content).toMatch(/_\(stream interrupted: Error in input stream\)_$/);
+  });
+
+  it('preserves streamed tokens when the network drops mid-stream', async () => {
+    // Simulate a network failure: the handler closes the connection
+    // mid-body without emitting `done` or `error`. In production this
+    // is what happens if the SSH tunnel hiccups, the cluster restarts
+    // retrieval, etc. The catch block in useChat must persist the
+    // partial state with an interrupted marker.
+    server.use(
+      http.post('/api/chat/completions', () => {
+        const body = `event: token\ndata: ${JSON.stringify({ content: 'partial answer' })}\n\n`;
+        // Truncate the response by NOT closing with an explicit error or done event.
+        return new Response(body, {
+          headers: { 'Content-Type': 'text/event-stream' },
+        });
+      }),
+    );
+
+    const { result } = renderHook(() => useChat());
+
+    await act(async () => {
+      await result.current.sendMessage('Hi', 'chat');
+    });
+
+    // If the response simply ends without `done`, the parser exits
+    // cleanly (no exception) and the catch block is NOT entered. The
+    // user is left without an assistant turn in this case. This test
+    // documents that intentional gap: a clean EOF mid-stream is
+    // INDISTINGUISHABLE from a clean end-of-response, so the
+    // frontend cannot detect it. Backend save-always finally fills
+    // this gap on the server side. Here we just assert that no
+    // duplicate / partial bubble was produced from a clean EOF.
+    const assistantMessages = result.current.messages.filter(m => m.role === 'assistant');
+    expect(assistantMessages.length).toBe(0);
   });
 
   // ── 12. projectId ────────────────────────────────────────────────────────

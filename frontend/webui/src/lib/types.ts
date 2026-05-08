@@ -49,6 +49,13 @@ export interface Message {
   rag_context?: RagContext | null;
   clarification?: Clarification | null;
   delegations?: Delegation[] | null;
+  // True when the assistant turn was cut short by a stream error or
+  // client disconnect. The content carries an inline `_(stream
+  // interrupted: <reason>)_` marker matching the backend's
+  // apply_stream_error_marker output. Set by useChat on the SSE
+  // 'error' event so the partial response stays visible in the
+  // message list before page reload (chat 3951063c, 2026-05-08).
+  interrupted?: boolean;
   created_at: string;
 }
 

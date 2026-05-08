@@ -13,7 +13,21 @@ turn and `chat_store.add_message` was never called, so the agent
 invocation that the user just watched scroll by vanished from the
 saved transcript on reload.
 
-Two layers of coverage:
+Save-always extension (chat 3951063c, 2026-05-08): Contributor D
+hit "Error in input stream" twice. Each conversation has the user
+message persisted but ZERO assistant rows in the DB and the
+retrieval service log shows HTTP 200 with no traceback. The only
+path consistent with that combination is GeneratorExit from a
+client disconnect: when the frontend closes the EventSource (e.g.
+the user reloads after seeing the red error banner), main.py
+breaks its async-for over the chat_service generator, which calls
+aclose() and throws GeneratorExit at the current yield. Because
+GeneratorExit derives from BaseException (not Exception) it is
+not caught by any `except Exception:` block, and uvicorn does not
+log it. Persistence is downstream of the last yield, so it never
+runs.
+
+Three layers of coverage:
 
 1. Pure-function tests for `apply_stream_error_marker`. Cover empty
    content, with content (trim trailing whitespace), empty error
@@ -28,9 +42,12 @@ Two layers of coverage:
    content. We capture `chat_store.add_message` calls and assert the
    tool_call survives AND the saved content carries the marker.
 
-   The fixtures stand in for "what the model + vLLM produce" — i.e.
-   model behaviour. The assertion is that the backend reaction is
-   correct: nothing the user saw scroll by vanishes from disk.
+3. Save-always tests that simulate client disconnect (consumer
+   calls aclose() after a target SSE event) AND unhandled
+   exceptions at points downstream of the user-message persist.
+   In all of these the assistant turn must end up persisted — not
+   silently lost — because the save-always finally is the
+   contract.
 
 Runs in-process inside the retrieval container:
 
@@ -547,6 +564,575 @@ def test_partial_content_then_stream_error_keeps_partial_text() -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Save-always tests (chat 3951063c, 2026-05-08): client disconnect mid-stream
+# and unhandled exceptions downstream of user-message persist must still
+# leave an assistant row in the DB.
+# ---------------------------------------------------------------------------
+
+
+def _drive_stream_chat_disconnect_after(
+    fake_stream_fn,
+    fake_run_tools_fn,
+    capture: dict,
+    target_event: str,
+) -> list[dict]:
+    """
+    Drive stream_chat_completion until the consumer receives an SSE event
+    whose event-name equals `target_event`, then explicitly aclose() the
+    generator. This mirrors what main.py does when request.is_disconnected()
+    fires: it `break`s its async-for over the chat_service generator, which
+    causes aclose() to be invoked, which throws GeneratorExit at the
+    generator's current yield. Persistence is downstream of the last yield,
+    so without a save-always finally, the assistant row never lands.
+
+    Reuses `_drive_stream_chat`'s patch stack via a thin async-for
+    replacement.
+    """
+    capture["calls"] = []
+
+    async def _capture_add_message(**kwargs: Any) -> None:
+        capture["calls"].append(kwargs)
+
+    if hasattr(fake_stream_fn, "turn"):
+        fake_stream_fn.turn = 0
+    else:
+        try:
+            fake_stream_fn.turn = 0  # type: ignore[attr-defined]
+        except (AttributeError, TypeError):
+            pass
+
+    events: list[dict] = []
+    persona = _make_stub_persona()
+    conversation = _stub_conversation()
+
+    with (
+        patch.object(chat_service, "_stream_vllm_once", fake_stream_fn),
+        patch.object(chat_service, "_run_tool_calls", fake_run_tools_fn),
+        patch.object(
+            chat_service,
+            "_build_full_system_prompt",
+            AsyncMock(return_value="test system prompt"),
+        ),
+        patch.object(
+            chat_service.persona_module, "get_persona", lambda pid: persona
+        ),
+        patch.object(
+            chat_service.persona_module,
+            "sampling_params",
+            lambda p: {"temperature": 0.7},
+        ),
+        patch.object(
+            chat_service.persona_module, "tool_allowlist", lambda p: None
+        ),
+        patch.object(
+            chat_service.chat_store,
+            "get_conversation",
+            AsyncMock(return_value=conversation),
+        ),
+        patch.object(
+            chat_service.chat_store,
+            "create_conversation",
+            AsyncMock(return_value={"id": conversation["id"]}),
+        ),
+        patch.object(
+            chat_service.chat_store,
+            "update_conversation",
+            AsyncMock(return_value=None),
+        ),
+        patch.object(
+            chat_service.chat_store, "add_message", _capture_add_message
+        ),
+        patch.object(
+            chat_service.chat_context,
+            "assemble_context",
+            AsyncMock(
+                return_value=[
+                    {"role": "system", "content": "test system prompt"},
+                    {"role": "user", "content": "trigger"},
+                ]
+            ),
+        ),
+        patch.object(
+            chat_service.chat_context,
+            "generate_title",
+            AsyncMock(return_value=None),
+        ),
+        patch.object(
+            chat_service.vision,
+            "build_tool_result_followup",
+            AsyncMock(return_value=None),
+        ),
+        patch.object(
+            chat_service.vision,
+            "build_view_attachment_followup",
+            lambda **kw: None,
+        ),
+        patch.object(
+            chat_service,
+            "audit_artifact_urls_in_content",
+            lambda content, tcs: (content, []),
+        ),
+    ):
+        gen = stream_chat_completion(
+            user_email="test@example.com",
+            persona_id="chat",
+            conversation_id=conversation["id"],
+            user_message={"content": "trigger"},
+            rag_config=None,
+            ephemeral=False,
+        )
+
+        async def _run() -> None:
+            try:
+                async for ev in gen:
+                    events.append(ev)
+                    if ev.get("event") == target_event:
+                        # Simulate the consumer (main.py) breaking out of
+                        # its async-for after detecting client disconnect.
+                        # Explicit aclose() makes the GeneratorExit moment
+                        # deterministic for the test; the same effect
+                        # happens via GC + aclose() when main.py's
+                        # event_stream() returns after its `break`.
+                        await gen.aclose()
+                        return
+            except StopAsyncIteration:
+                return
+
+        asyncio.run(_run())
+
+    return events
+
+
+def test_client_disconnect_after_stream_error_persists_marker() -> bool:
+    """
+    Reproduces chat 3951063c (2026-05-08): the model's first vLLM call
+    yielded an `error` event before any content. The frontend banner
+    shows up, the user closes the tab, the EventSource closes, main.py
+    breaks its async-for, GeneratorExit propagates into chat_service.
+    The save-always finally must persist a marker-only assistant row
+    so the failed turn is not silently lost.
+    """
+    capture: dict = {}
+    try:
+        events = _drive_stream_chat_disconnect_after(
+            _fake_stream_error_on_turn_zero,
+            _fake_run_tool_calls_unused,
+            capture,
+            target_event="error",
+        )
+    except Exception as exc:
+        return _check(
+            "client disconnect after error -> persisted with marker",
+            False,
+            f"driver raised: {exc!r}",
+        )
+
+    assistant_calls = [
+        c for c in capture["calls"] if c.get("role") == "assistant"
+    ]
+    if len(assistant_calls) != 1:
+        return _check(
+            "client disconnect after error -> exactly one assistant persisted",
+            False,
+            f"got {len(assistant_calls)} assistant calls; events={events!r}",
+        )
+    saved = assistant_calls[0]
+    content = saved.get("content") or ""
+    if "stream interrupted" not in content:
+        return _check(
+            "client disconnect after error -> marker present",
+            False,
+            f"persisted content={content!r}",
+        )
+    if not any(e.get("event") == "error" for e in events):
+        return _check(
+            "client disconnect after error -> error SSE was forwarded",
+            False,
+            "consumer did not see the error event before disconnect",
+        )
+    return _check(
+        "client disconnect after error -> persisted with marker",
+        True,
+    )
+
+
+def test_client_disconnect_after_partial_content_keeps_partial_text() -> bool:
+    """
+    Variant: model emitted some prose tokens, the consumer disconnects
+    after the first token (e.g. user clicks "stop generating" or the
+    network drops). Partial content must survive in the DB so the user
+    can see what they got on reload.
+    """
+    capture: dict = {}
+    try:
+        events = _drive_stream_chat_disconnect_after(
+            _fake_stream_error_after_partial_content,
+            _fake_run_tool_calls_unused,
+            capture,
+            target_event="token",
+        )
+    except Exception as exc:
+        return _check(
+            "client disconnect after token -> partial preserved",
+            False,
+            f"driver raised: {exc!r}",
+        )
+
+    assistant_calls = [
+        c for c in capture["calls"] if c.get("role") == "assistant"
+    ]
+    if len(assistant_calls) != 1:
+        return _check(
+            "client disconnect after token -> exactly one assistant persisted",
+            False,
+            f"got {len(assistant_calls)} assistant calls; events={events!r}",
+        )
+    content = assistant_calls[0].get("content") or ""
+    if "Here is what I found so far:" not in content:
+        return _check(
+            "partial streamed prose preserved on disconnect",
+            False,
+            f"persisted content={content!r}",
+        )
+    return _check(
+        "client disconnect after token -> partial preserved",
+        True,
+    )
+
+
+def test_unhandled_exception_in_tool_call_persists_marker() -> bool:
+    """
+    Tool dispatch raises (e.g. _run_tool_calls hits an asyncio.gather
+    fan-out exception that is not caught). Today this propagates out
+    of the streaming loop unhandled and skips persistence. After the
+    fix the finally block persists a marker-only assistant row that
+    explains the gap.
+    """
+    capture: dict = {}
+
+    async def _raises_on_tool_dispatch(*args: Any, **kwargs: Any) -> list[dict]:
+        raise RuntimeError("simulated tool execution failure")
+
+    # Use the invoke-agent stream fixture so a tool call IS attempted.
+    try:
+        events = _drive_stream_chat(
+            _fake_stream_after_invoke_agent,
+            _raises_on_tool_dispatch,
+            capture,
+        )
+    except RuntimeError:
+        # The fix re-raises so the request handler can surface it via
+        # SSE and so uvicorn marks the response as errored. That's
+        # acceptable - we just need to verify persistence happened
+        # before the re-raise.
+        pass
+    except Exception as exc:
+        return _check(
+            "tool exception -> persisted with marker",
+            False,
+            f"driver raised unexpected exception: {exc!r}",
+        )
+
+    assistant_calls = [
+        c for c in capture["calls"] if c.get("role") == "assistant"
+    ]
+    if len(assistant_calls) != 1:
+        return _check(
+            "tool exception -> exactly one assistant persisted",
+            False,
+            f"got {len(assistant_calls)} assistant calls",
+        )
+    content = assistant_calls[0].get("content") or ""
+    if "stream interrupted" not in content:
+        return _check(
+            "tool exception -> marker present in saved content",
+            False,
+            f"persisted content={content!r}",
+        )
+    return _check(
+        "tool exception -> persisted with marker",
+        True,
+    )
+
+
+def test_unhandled_exception_in_assemble_context_persists_marker() -> bool:
+    """
+    Context assembly raises after the user message is persisted but
+    before the streaming loop starts. Today this propagates and skips
+    assistant persistence; after the fix the finally block must still
+    leave a marker-only assistant row.
+    """
+    capture: dict = {}
+    capture["calls"] = []
+
+    async def _capture_add_message(**kwargs: Any) -> None:
+        capture["calls"].append(kwargs)
+
+    async def _raises_on_assemble(*args: Any, **kwargs: Any) -> list:
+        raise RuntimeError("simulated assemble_context failure")
+
+    persona = _make_stub_persona()
+    conversation = _stub_conversation()
+
+    with (
+        patch.object(
+            chat_service,
+            "_stream_vllm_once",
+            AsyncMock(side_effect=AssertionError("must not be called")),
+        ),
+        patch.object(
+            chat_service,
+            "_build_full_system_prompt",
+            AsyncMock(return_value="test system prompt"),
+        ),
+        patch.object(
+            chat_service.persona_module, "get_persona", lambda pid: persona
+        ),
+        patch.object(
+            chat_service.persona_module,
+            "sampling_params",
+            lambda p: {"temperature": 0.7},
+        ),
+        patch.object(
+            chat_service.persona_module, "tool_allowlist", lambda p: None
+        ),
+        patch.object(
+            chat_service.chat_store,
+            "get_conversation",
+            AsyncMock(return_value=conversation),
+        ),
+        patch.object(
+            chat_service.chat_store,
+            "create_conversation",
+            AsyncMock(return_value={"id": conversation["id"]}),
+        ),
+        patch.object(
+            chat_service.chat_store,
+            "update_conversation",
+            AsyncMock(return_value=None),
+        ),
+        patch.object(
+            chat_service.chat_store, "add_message", _capture_add_message
+        ),
+        patch.object(
+            chat_service.chat_context,
+            "assemble_context",
+            _raises_on_assemble,
+        ),
+        patch.object(
+            chat_service.chat_context,
+            "generate_title",
+            AsyncMock(return_value=None),
+        ),
+        patch.object(
+            chat_service.vision,
+            "build_tool_result_followup",
+            AsyncMock(return_value=None),
+        ),
+        patch.object(
+            chat_service.vision,
+            "build_view_attachment_followup",
+            lambda **kw: None,
+        ),
+        patch.object(
+            chat_service,
+            "audit_artifact_urls_in_content",
+            lambda content, tcs: (content, []),
+        ),
+    ):
+        gen = stream_chat_completion(
+            user_email="test@example.com",
+            persona_id="chat",
+            conversation_id=conversation["id"],
+            user_message={"content": "trigger"},
+            rag_config=None,
+            ephemeral=False,
+        )
+
+        async def _run() -> None:
+            try:
+                async for _ev in gen:
+                    pass
+            except RuntimeError:
+                # Expected: the fix re-raises after persisting in the
+                # finally block.
+                return
+
+        asyncio.run(_run())
+
+    user_calls = [c for c in capture["calls"] if c.get("role") == "user"]
+    assistant_calls = [
+        c for c in capture["calls"] if c.get("role") == "assistant"
+    ]
+    if not user_calls:
+        return _check(
+            "assemble_context exception -> user message was persisted first",
+            False,
+            "no user-role add_message call seen; the gap doesn't apply",
+        )
+    if len(assistant_calls) != 1:
+        return _check(
+            "assemble_context exception -> exactly one assistant persisted",
+            False,
+            f"got {len(assistant_calls)} assistant calls",
+        )
+    content = assistant_calls[0].get("content") or ""
+    if "stream interrupted" not in content:
+        return _check(
+            "assemble_context exception -> marker present in saved content",
+            False,
+            f"persisted content={content!r}",
+        )
+    return _check(
+        "assemble_context exception -> persisted with marker",
+        True,
+    )
+
+
+def test_audit_exception_after_loop_still_persists() -> bool:
+    """
+    The streaming loop completed cleanly, but a post-loop audit
+    function raises (e.g. a regex bug in audit_paper_urls_in_content).
+    Today this propagates and skips the chat_store.add_message at line
+    2330. After the fix the finally block must still persist what we
+    have — both the streamed content and any tool calls that fired.
+    """
+    capture: dict = {}
+
+    def _raises_on_audit(content, tcs):
+        raise RuntimeError("simulated audit failure")
+
+    async def _fake_one_token_then_done(
+        *args: Any, **kwargs: Any
+    ) -> AsyncIterator[tuple]:
+        acc = _StreamAccumulator()
+        acc.content_parts.append("Here is the answer.")
+        acc.finish_reason = "stop"
+        yield ("token", {"content": "Here is the answer."}, acc)
+
+    capture["calls"] = []
+
+    async def _capture_add_message(**kwargs: Any) -> None:
+        capture["calls"].append(kwargs)
+
+    persona = _make_stub_persona()
+    conversation = _stub_conversation()
+
+    with (
+        patch.object(
+            chat_service, "_stream_vllm_once", _fake_one_token_then_done
+        ),
+        patch.object(
+            chat_service, "_run_tool_calls", _fake_run_tool_calls_unused
+        ),
+        patch.object(
+            chat_service,
+            "_build_full_system_prompt",
+            AsyncMock(return_value="test system prompt"),
+        ),
+        patch.object(
+            chat_service.persona_module, "get_persona", lambda pid: persona
+        ),
+        patch.object(
+            chat_service.persona_module,
+            "sampling_params",
+            lambda p: {"temperature": 0.7},
+        ),
+        patch.object(
+            chat_service.persona_module, "tool_allowlist", lambda p: None
+        ),
+        patch.object(
+            chat_service.chat_store,
+            "get_conversation",
+            AsyncMock(return_value=conversation),
+        ),
+        patch.object(
+            chat_service.chat_store,
+            "create_conversation",
+            AsyncMock(return_value={"id": conversation["id"]}),
+        ),
+        patch.object(
+            chat_service.chat_store,
+            "update_conversation",
+            AsyncMock(return_value=None),
+        ),
+        patch.object(
+            chat_service.chat_store, "add_message", _capture_add_message
+        ),
+        patch.object(
+            chat_service.chat_context,
+            "assemble_context",
+            AsyncMock(
+                return_value=[
+                    {"role": "system", "content": "test system prompt"},
+                    {"role": "user", "content": "trigger"},
+                ]
+            ),
+        ),
+        patch.object(
+            chat_service.chat_context,
+            "generate_title",
+            AsyncMock(return_value=None),
+        ),
+        patch.object(
+            chat_service.vision,
+            "build_tool_result_followup",
+            AsyncMock(return_value=None),
+        ),
+        patch.object(
+            chat_service.vision,
+            "build_view_attachment_followup",
+            lambda **kw: None,
+        ),
+        patch.object(
+            chat_service, "audit_artifact_urls_in_content", _raises_on_audit
+        ),
+    ):
+        gen = stream_chat_completion(
+            user_email="test@example.com",
+            persona_id="chat",
+            conversation_id=conversation["id"],
+            user_message={"content": "trigger"},
+            rag_config=None,
+            ephemeral=False,
+        )
+
+        async def _run() -> None:
+            try:
+                async for _ev in gen:
+                    pass
+            except RuntimeError:
+                return
+
+        asyncio.run(_run())
+
+    assistant_calls = [
+        c for c in capture["calls"] if c.get("role") == "assistant"
+    ]
+    if len(assistant_calls) != 1:
+        return _check(
+            "audit exception -> exactly one assistant persisted",
+            False,
+            f"got {len(assistant_calls)} assistant calls",
+        )
+    content = assistant_calls[0].get("content") or ""
+    # Either the original content (if the audit error did not cause a
+    # marker) or content + marker (if the fix labels it as
+    # interrupted) is acceptable. Critical: the content the user saw
+    # ("Here is the answer.") must survive.
+    if "Here is the answer." not in content:
+        return _check(
+            "audit exception -> streamed content survives",
+            False,
+            f"persisted content={content!r}",
+        )
+    return _check(
+        "audit exception -> persisted with content preserved",
+        True,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -557,10 +1143,16 @@ TESTS = [
     test_marker_appended_with_blank_line,
     test_marker_strips_trailing_whitespace,
     test_marker_with_empty_error_message_degrades_gracefully,
-    # Behavioural
+    # Behavioural (existing)
     test_invoke_agent_then_stream_error_persists_tool_call_and_marker,
     test_stream_error_on_turn_zero_persists_marker,
     test_partial_content_then_stream_error_keeps_partial_text,
+    # Save-always (chat 3951063c, 2026-05-08)
+    test_client_disconnect_after_stream_error_persists_marker,
+    test_client_disconnect_after_partial_content_keeps_partial_text,
+    test_unhandled_exception_in_tool_call_persists_marker,
+    test_unhandled_exception_in_assemble_context_persists_marker,
+    test_audit_exception_after_loop_still_persists,
 ]
 
 

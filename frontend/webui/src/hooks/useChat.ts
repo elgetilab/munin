@@ -217,10 +217,39 @@ export function useChat() {
           // Backend persisted the new persona for this conversation. Sync local state.
           setConversationPersona(event.data.persona);
           break;
-        case 'error':
+        case 'error': {
+          // Save-always parity with the backend (chat 3951063c,
+          // 2026-05-08): append a Message carrying whatever partial
+          // state we accumulated, with the same `_(stream
+          // interrupted: <reason>)_` marker the backend's
+          // apply_stream_error_marker produces. Without this, the
+          // user would see the streamed prose, hit the error, and
+          // watch the entire bubble vanish (MessageList gates the
+          // streaming view on phase !== 'error'). The error banner
+          // still shows for top-level visibility; the bubble
+          // preserves the partial content + marker inline.
+          const reason = (event.data.message || '').trim() || 'vLLM stream error';
+          const marker = `_(stream interrupted: ${reason})_`;
+          const interruptedContent = contentText
+            ? `${contentText.replace(/\s+$/, '')}\n\n${marker}`
+            : marker;
+          const interruptedMessage: Message = {
+            id: `msg-${Date.now()}`,
+            role: 'assistant',
+            content: interruptedContent,
+            thinking: thinkingText || null,
+            tool_calls: toolCalls.length > 0 ? toolCalls : null,
+            rag_context: ragCtx,
+            clarification: clarification,
+            delegations: delegations.length > 0 ? [...delegations] : null,
+            interrupted: true,
+            created_at: new Date().toISOString(),
+          };
+          setMessages(prev => [...prev, interruptedMessage]);
           setError(event.data.message);
-          setStreaming(s => ({ ...s, phase: 'error' }));
+          setStreaming(INITIAL_STREAMING);
           break;
+        }
         case 'done': {
           const assistantMessage: Message = {
             id: `msg-${Date.now()}`,
@@ -272,8 +301,30 @@ export function useChat() {
       );
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
-        setError(e instanceof Error ? e.message : 'Stream failed');
-        setStreaming(s => ({ ...s, phase: 'error' }));
+        // Network-level failure (DNS, connection drop, non-streaming
+        // 5xx). Preserve whatever partial state we accumulated as an
+        // interrupted Message so the user does not lose the prose
+        // they already saw, mirroring the SSE 'error' branch above.
+        const reason = e instanceof Error ? e.message : 'Stream failed';
+        const marker = `_(stream interrupted: ${reason})_`;
+        const interruptedContent = contentText
+          ? `${contentText.replace(/\s+$/, '')}\n\n${marker}`
+          : marker;
+        const interruptedMessage: Message = {
+          id: `msg-${Date.now()}`,
+          role: 'assistant',
+          content: interruptedContent,
+          thinking: thinkingText || null,
+          tool_calls: toolCalls.length > 0 ? toolCalls : null,
+          rag_context: ragCtx,
+          clarification: clarification,
+          delegations: delegations.length > 0 ? [...delegations] : null,
+          interrupted: true,
+          created_at: new Date().toISOString(),
+        };
+        setMessages(prev => [...prev, interruptedMessage]);
+        setError(reason);
+        setStreaming(INITIAL_STREAMING);
       }
     } finally {
       abortRef.current = null;

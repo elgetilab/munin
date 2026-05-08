@@ -1545,830 +1545,909 @@ async def stream_chat_completion(
             "content": resolved_content if resolved_content else persisted_text,
         }
 
-    messages = await chat_context.assemble_context(
-        conversation=conversation,
-        new_message=new_msg,
-        system_prompt=system_prompt,
-        rag_context=rag_context,
-        ephemeral=ephemeral,
-    )
-
-    # --- 5. Streaming loop with tool execution ---
+    # --- Save-always wrapper (chat 3951063c, 2026-05-08) ---
+    # Persist the assistant turn no matter how this function exits:
+    # normal completion, unhandled exception, or GeneratorExit thrown
+    # by the consumer (FastAPI break-on-disconnect at main.py:1297).
+    # GeneratorExit derives from BaseException so it would bypass any
+    # `except Exception:` guard; the only mechanism that catches it
+    # is `try:`/`finally:` -- hence this wrapper. Without it, a user
+    # closing the tab after seeing the "stream interrupted" banner
+    # caused the assistant turn to vanish from the saved transcript.
+    assistant_persisted = False
     final_content = ""
     final_thinking = ""
     final_tool_calls: list[dict] = []
     final_usage: Optional[dict] = None
     finish_reason: Optional[str] = None
-
-    # Snapshot the freshly-assembled messages so the delegation
-    # intercept can rewind to a clean pre-loop state when it swaps
-    # personas mid-flight. The loop body otherwise mutates ``messages``
-    # by appending assistant tool_call turns + tool_result turns.
-    messages_pre_loop = list(messages)
-
-    # Per-request budget for delegate_to_persona. The model is allowed
-    # to hand off ONCE per user turn; a second delegation attempt is
-    # rejected with a synthetic tool_result so the receiving persona
-    # answers directly. Counter is intentionally request-scoped, not
-    # turn-scoped — once the delegated persona starts running, it has
-    # the full remaining MAX_TURNS budget to do its work but cannot
-    # delegate further.
-    delegations_used = 0
-    DELEGATION_BUDGET = 1
-
-    MAX_TURNS = 10
-    hit_turn_cap = True  # assume exhaustion unless we break cleanly below
-    # Set by the loop body when a vLLM stream error or empty response forces
-    # us to abandon the current turn. Triggers the partial-state persistence
-    # path below (§6) instead of returning silently. Losing partial state on
-    # error was the cause of the "vanishing agent" symptom in chat 676a3238
-    # on 2026-05-05, where the user saw invoke_agent fire and the agent run,
-    # but a vLLM "Error in input stream" on the follow-up summarisation turn
-    # made the entire assistant message disappear from the saved transcript.
     had_stream_error: Optional[str] = None
-    for turn in range(MAX_TURNS):
-        acc: Optional[_StreamAccumulator] = None
-        stream_error: Optional[str] = None
-        recovery_used_this_turn = False
-
-        async for event_name, payload, accumulator in _stream_vllm_once(
-            messages=messages,
-            sampling=sampling,
-            enable_tools=True,
-            persona=persona,
-        ):
-            acc = accumulator
-            if event_name == "error":
-                stream_error = payload.get("message")
-                yield _sse("error", payload)
-                continue
-            yield _sse(event_name, payload)
-
-        if stream_error:
-            had_stream_error = stream_error
-            if acc is not None:
-                final_thinking += acc.thinking
-                final_content += acc.content
-            hit_turn_cap = False
-            break
-        if acc is None:
-            yield _error_sse("vLLM produced no output")
-            had_stream_error = "vLLM produced no output"
-            hit_turn_cap = False
-            break
-
-        final_thinking += acc.thinking
-        final_content += acc.content
-        if acc.usage:
-            final_usage = acc.usage
-        finish_reason = acc.finish_reason
-
-        tool_calls = acc.finalized_tool_calls()
-
-        # §14 prose-clarification fallback: qwen3-coder sometimes writes
-        # clarification questions as prose text instead of calling the
-        # ``ask_clarification`` tool, even with the strongest persona-level
-        # instructions - it's a baked-in training bias ("tools are for
-        # actions, prose is for talking to the user"). When that happens on
-        # the FIRST turn of a user message, detect the prose pattern and
-        # retry with tool_choice forced to ask_clarification. The forced
-        # retry always produces a proper structured call because the model
-        # absolutely knows how to use the tool - it just won't pick it on
-        # its own. Restricted to turn==0 so we don't interfere with
-        # follow-up turns where the model is mid-task.
-        if (
-            not tool_calls
-            and turn == 0
-            and _looks_like_prose_clarification(acc.content)
-        ):
-            forced = await _force_clarification_retry(
-                messages, sampling, persona=persona
-            )
-            if forced is not None:
-                tool_calls = [forced]
-                # Wipe the prose content we accumulated during the
-                # streamed first pass so the persisted assistant message
-                # shows the clarification fallback markdown instead of
-                # the rejected prose draft. The tokens have already been
-                # streamed to the client, so the frontend needs to drop
-                # its in-progress buffer when the ``clarification`` SSE
-                # event arrives (see FRONTEND-TASKS entry #10).
-                acc.content_parts.clear()
-                final_content = ""
-
-        # Prose-action recovery: when the streaming pass produced no
-        # tool calls but the model wrote a future-tense action promise
-        # ("I'll compile and recompile it") or fabricated artifact URLs
-        # without a backing tool call, force a non-streaming retry with
-        # tool_choice="required". Catches the cbb006ff (2026-04-27)
-        # failure shape: the model knows it needs to call compile_latex
-        # (the thinking trace says so) but emits prose instead. Unlike
-        # the clarification fallback above, this fires on ANY turn —
-        # the failure can appear on follow-up modify-and-recompile
-        # turns, not just turn 0. Single recovery attempt per turn.
-        if not tool_calls and not recovery_used_this_turn:
-            _, _phantoms_inline = audit_artifact_urls_in_content(
-                acc.content, []
-            )
-            phantom_trigger = bool(_phantoms_inline)
-            prose_trigger = _looks_like_prose_action_promise(acc.content)
-            if phantom_trigger or prose_trigger:
-                trigger_label = (
-                    "phantom_url" if phantom_trigger else "prose_action_promise"
-                )
-                print(
-                    f"[INFO] prose-action recovery firing "
-                    f"(trigger={trigger_label}, conv={conversation['id']}, "
-                    f"turn={turn}, content_len={len(acc.content)})"
-                )
-                nudge = (
-                    "Your previous response described what you were going "
-                    "to do but did not actually call any tool. Call the "
-                    "appropriate tool now to fulfil the user's request. "
-                    "Do not write prose explaining your plan — emit the "
-                    "tool call directly."
-                )
-                if phantom_trigger:
-                    nudge += (
-                        " Note: any /api/artifacts/... URLs in your "
-                        "previous response were not produced by a tool "
-                        "call this turn and must not be referenced again "
-                        "until a tool actually creates them."
-                    )
-                recovered = await _force_required_tool_retry(
-                    messages, sampling, nudge, persona=persona
-                )
-                recovery_used_this_turn = True
-                if recovered:
-                    tool_calls = recovered
-                    # NOTE: We deliberately do NOT clear acc.content /
-                    # final_content here. Unlike the clarification
-                    # fallback above (which replaces the prose entirely
-                    # with a substitute card), the prose-action draft
-                    # is a future-tense announcement that reads
-                    # naturally followed by the recovered tool calls
-                    # + their results. Keeping it preserves the live-
-                    # streamed UX (user sees "I'll update..." then the
-                    # tool card spins up) and keeps the persisted
-                    # transcript coherent on reload.
-                    for tc in tool_calls:
-                        yield _sse(
-                            "tool_call",
-                            {
-                                "id": tc["id"],
-                                "name": tc["name"],
-                                "arguments": tc["arguments"],
-                            },
-                        )
-
-        if not tool_calls:
-            hit_turn_cap = False
-            break
-
-        # --- delegate_to_persona intercept ---
-        # The chat / code / research personas can each call
-        # ``delegate_to_persona`` to hand the current user turn to a
-        # different persona when the user's request fits another
-        # persona's tools/style better (e.g. chat user asks for a
-        # multi-paper literature review → delegate to research).
-        # Detected here, before _run_tool_calls fires, because the
-        # delegate_to_persona MCP tool has no executor counterpart —
-        # the actual handoff is implemented as a re-entry into this
-        # same loop with a swapped persona. Any non-delegation tool
-        # calls from the same response are dropped (matches the
-        # ``ask_clarification`` precedent: a turn that picks a
-        # control-flow tool can't also do regular work).
-        delegate_tc = next(
-            (tc for tc in tool_calls if tc.get("name") == "delegate_to_persona"),
-            None,
+    try:
+        messages = await chat_context.assemble_context(
+            conversation=conversation,
+            new_message=new_msg,
+            system_prompt=system_prompt,
+            rag_context=rag_context,
+            ephemeral=ephemeral,
         )
-        if delegate_tc is not None:
-            args = delegate_tc.get("arguments") or {}
-            target_id = (args.get("persona_id") or "").strip()
-            reason = (args.get("reason") or "").strip()[:200]
-            target_persona = (
-                persona_module.get_persona(target_id) if target_id else None
-            )
 
-            # Validation: bad target / self-delegation / budget.
-            # On any of these we synthesise a tool_result with an
-            # error, append it to messages so the model sees the
-            # rejection on the next iteration, and continue the loop.
-            reject_reason: Optional[str] = None
-            if not target_id:
-                reject_reason = (
-                    "delegate_to_persona requires a non-empty persona_id."
-                )
-            elif target_persona is None:
-                reject_reason = (
-                    f"persona {target_id!r} not found; valid options "
-                    f"are 'chat', 'code', 'research'."
-                )
-            elif target_id == persona_id:
-                reject_reason = (
-                    f"cannot delegate to your own persona "
-                    f"({persona_id!r}); answer directly."
-                )
-            elif delegations_used >= DELEGATION_BUDGET:
-                reject_reason = (
-                    "delegation budget exhausted (one delegation per "
-                    "user turn). Answer directly using your own tools."
-                )
+        # --- 5. Streaming loop with tool execution ---
+        final_content = ""
+        final_thinking = ""
+        final_tool_calls: list[dict] = []
+        final_usage: Optional[dict] = None
+        finish_reason: Optional[str] = None
 
-            if reject_reason is not None:
-                print(
-                    f"[INFO] delegate_to_persona rejected "
-                    f"(from={persona_id!r}, target={target_id!r}, "
-                    f"reason={reject_reason!r})"
-                )
-                synthetic_result = {
-                    "id": delegate_tc["id"],
-                    "name": "delegate_to_persona",
-                    "arguments": args,
-                    "result": {"error": reject_reason},
-                    "duration_ms": 0,
-                }
-                final_tool_calls.append(synthetic_result)
-                yield _sse(
-                    "tool_result",
-                    {
-                        "id": delegate_tc["id"],
-                        "name": "delegate_to_persona",
-                        "result": synthetic_result["result"],
-                        "duration_ms": 0,
-                    },
-                )
-                # Append the rejection into the message list so the
-                # model can see it and write a real reply on the next
-                # iteration. Drop any other tool calls in the same
-                # response (per the schema contract).
-                messages.append({
-                    "role": "assistant",
-                    "content": acc.content or "",
-                    "tool_calls": [
-                        {
-                            "id": delegate_tc["id"],
-                            "type": "function",
-                            "function": {
-                                "name": "delegate_to_persona",
-                                "arguments": json.dumps(args),
-                            },
-                        }
-                    ],
-                })
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": delegate_tc["id"],
-                    "content": json.dumps(synthetic_result["result"])[:2000],
-                })
-                continue
+        # Snapshot the freshly-assembled messages so the delegation
+        # intercept can rewind to a clean pre-loop state when it swaps
+        # personas mid-flight. The loop body otherwise mutates ``messages``
+        # by appending assistant tool_call turns + tool_result turns.
+        messages_pre_loop = list(messages)
 
-            # Real delegation: swap persona, rebuild system_prompt,
-            # rewind messages to the pre-loop snapshot (so the new
-            # persona sees a clean conversation, not the rejected
-            # prose draft + tool calls that the source persona
-            # accumulated this turn), reset accumulators, and let the
-            # loop run another iteration with the new persona.
-            delegations_used += 1
-            print(
-                f"[INFO] delegate_to_persona firing "
-                f"(from={persona_id!r}, to={target_id!r}, "
-                f"reason={reason!r})"
-            )
-            yield _sse(
-                "delegated",
-                {
-                    "from_persona": persona_id,
-                    "to_persona": target_id,
-                    "reason": reason,
-                },
-            )
+        # Per-request budget for delegate_to_persona. The model is allowed
+        # to hand off ONCE per user turn; a second delegation attempt is
+        # rejected with a synthetic tool_result so the receiving persona
+        # answers directly. Counter is intentionally request-scoped, not
+        # turn-scoped — once the delegated persona starts running, it has
+        # the full remaining MAX_TURNS budget to do its work but cannot
+        # delegate further.
+        delegations_used = 0
+        DELEGATION_BUDGET = 1
 
-            # Persist the persona switch on the conversation row so
-            # subsequent user turns resolve to the delegated persona
-            # by default (the user effectively switched personas
-            # mid-conversation; no need to pay the delegation
-            # round-trip again). Skipped for ephemeral chats.
-            if not ephemeral:
-                try:
-                    await chat_store.update_conversation(
-                        conversation_id=conversation["id"],
-                        user_email=user_email,
-                        persona=target_id,
-                    )
-                except Exception as e:
-                    print(f"[WARNING] persona persistence failed: {e}")
-                yield _sse(
-                    "persona_changed",
-                    {
-                        "id": conversation["id"],
-                        "persona": target_id,
-                    },
-                )
+        MAX_TURNS = 10
+        hit_turn_cap = True  # assume exhaustion unless we break cleanly below
+        # Set by the loop body when a vLLM stream error or empty response forces
+        # us to abandon the current turn. Triggers the partial-state persistence
+        # path below (§6) instead of returning silently. Losing partial state on
+        # error was the cause of the "vanishing agent" symptom in chat 676a3238
+        # on 2026-05-05, where the user saw invoke_agent fire and the agent run,
+        # but a vLLM "Error in input stream" on the follow-up summarisation turn
+        # made the entire assistant message disappear from the saved transcript.
+        had_stream_error: Optional[str] = None
+        # `acc_transferred` tracks whether the current turn's accumulator
+        # content has been folded into `final_content` / `final_thinking`
+        # already. If GeneratorExit fires inside the inner async-for
+        # (client disconnect during streaming), the transfer below is
+        # skipped, leaving partial content in `acc.content_parts` only.
+        # The save-always finally checks this flag and folds the
+        # remainder so we never lose tokens the user already saw.
+        acc_transferred = True
+        for turn in range(MAX_TURNS):
+            acc: Optional[_StreamAccumulator] = None
+            stream_error: Optional[str] = None
+            recovery_used_this_turn = False
+            acc_transferred = False  # reset per-turn
 
-            # Swap state.
-            persona_id = target_id
-            persona = target_persona
-            sampling = persona_module.sampling_params(persona)
-            try:
-                system_prompt = await _build_full_system_prompt(
-                    persona=persona,
-                    user_email=user_email,
-                    conversation_id=conversation["id"] if not ephemeral else None,
-                    ephemeral=ephemeral,
-                    project=project,
-                )
-            except Exception as e:
-                print(f"[WARNING] post-delegation system_prompt rebuild failed: {e}")
-            # Re-apply tags block if it was originally injected — same
-            # block sits below the persona prompt; rebuilt above
-            # already includes it via _build_full_system_prompt? No —
-            # the tags block is applied separately further down in
-            # the original flow (after conversation resolution). We
-            # reapply it inline here so the delegated persona sees
-            # the same active-tags context.
-            tags_block = build_active_tags_block(effective_tags)
-            if tags_block:
-                system_prompt = f"{system_prompt}\n\n{tags_block}"
+            async for event_name, payload, accumulator in _stream_vllm_once(
+                messages=messages,
+                sampling=sampling,
+                enable_tools=True,
+                persona=persona,
+            ):
+                acc = accumulator
+                if event_name == "error":
+                    stream_error = payload.get("message")
+                    yield _sse("error", payload)
+                    continue
+                yield _sse(event_name, payload)
 
-            # Rebuild messages from pre-loop snapshot but with the new
-            # system prompt swapped in. The snapshot's first entry is
-            # the system message; replace its content rather than
-            # re-running assemble_context (which would re-fetch
-            # history + summarise — unnecessary work and could hit
-            # vLLM during a delegation hot path).
-            messages = list(messages_pre_loop)
-            if messages and messages[0].get("role") == "system":
-                messages[0] = {"role": "system", "content": system_prompt}
-            else:
-                messages.insert(0, {"role": "system", "content": system_prompt})
-            messages_pre_loop = list(messages)
+            if stream_error:
+                had_stream_error = stream_error
+                if acc is not None:
+                    final_thinking += acc.thinking
+                    final_content += acc.content
+                acc_transferred = True
+                hit_turn_cap = False
+                break
+            if acc is None:
+                yield _error_sse("vLLM produced no output")
+                had_stream_error = "vLLM produced no output"
+                acc_transferred = True
+                hit_turn_cap = False
+                break
 
-            # Reset accumulators so the persisted assistant message
-            # reflects the delegated persona's work, not the source
-            # persona's rejected draft.
-            final_content = ""
-            final_thinking = ""
-            final_tool_calls = []
-            final_usage = None
-            if acc is not None:
-                acc.content_parts.clear()
-                acc.thinking_parts.clear()
-            continue
+            final_thinking += acc.thinking
+            final_content += acc.content
+            acc_transferred = True
+            if acc.usage:
+                final_usage = acc.usage
+            finish_reason = acc.finish_reason
 
-        # --- §14 ask_clarification intercept ---
-        # If the model called ask_clarification, short-circuit the whole
-        # turn: emit a single `clarification` SSE event with the full
-        # card payload, persist an assistant message with a markdown
-        # fallback, emit `done`, and return. We do NOT run any other
-        # tool calls from the same turn (the decision was to honor
-        # clarification and silently drop the rest), and we do NOT
-        # invoke the wrap-up synthesis pass.
-        clar_tc = next(
-            (tc for tc in tool_calls if tc.get("name") == "ask_clarification"),
-            None,
-        )
-        if clar_tc is not None:
-            args = clar_tc.get("arguments") or {}
-            normalised, err = clarification_tool.validate_clarification_payload(
-                args.get("what_i_understood"),
-                args.get("questions"),
-            )
-            if err is not None:
-                # qwen3 sometimes emits ``ask_clarification`` with malformed
-                # arguments under normal tool_choice="auto" sampling (e.g.
-                # ``questions`` as an object instead of a list, or an option
-                # list of size 1 or 7). Rather than bail the whole turn with
-                # an error SSE, fall through to the forced-retry path: it
-                # runs up to 3 attempts with fresh samplings and validates
-                # each, so a schema-valid call almost always drops out.
-                print(
-                    f"[WARNING] organic ask_clarification payload invalid "
-                    f"({err}); trying forced-retry fallback"
-                )
+            tool_calls = acc.finalized_tool_calls()
+
+            # §14 prose-clarification fallback: qwen3-coder sometimes writes
+            # clarification questions as prose text instead of calling the
+            # ``ask_clarification`` tool, even with the strongest persona-level
+            # instructions - it's a baked-in training bias ("tools are for
+            # actions, prose is for talking to the user"). When that happens on
+            # the FIRST turn of a user message, detect the prose pattern and
+            # retry with tool_choice forced to ask_clarification. The forced
+            # retry always produces a proper structured call because the model
+            # absolutely knows how to use the tool - it just won't pick it on
+            # its own. Restricted to turn==0 so we don't interfere with
+            # follow-up turns where the model is mid-task.
+            if (
+                not tool_calls
+                and turn == 0
+                and _looks_like_prose_clarification(acc.content)
+            ):
                 forced = await _force_clarification_retry(
                     messages, sampling, persona=persona
                 )
-                if forced is None:
-                    # Forced retry also failed. Don't break the turn — just
-                    # drop the malformed clarification call so the existing
-                    # prose content (if any) reaches the user as a normal
-                    # response.
-                    print(
-                        "[WARNING] forced clarification retry also failed; "
-                        "dropping malformed clarification and continuing"
+                if forced is not None:
+                    tool_calls = [forced]
+                    # Wipe the prose content we accumulated during the
+                    # streamed first pass so the persisted assistant message
+                    # shows the clarification fallback markdown instead of
+                    # the rejected prose draft. The tokens have already been
+                    # streamed to the client, so the frontend needs to drop
+                    # its in-progress buffer when the ``clarification`` SSE
+                    # event arrives (see FRONTEND-TASKS entry #10).
+                    acc.content_parts.clear()
+                    final_content = ""
+
+            # Prose-action recovery: when the streaming pass produced no
+            # tool calls but the model wrote a future-tense action promise
+            # ("I'll compile and recompile it") or fabricated artifact URLs
+            # without a backing tool call, force a non-streaming retry with
+            # tool_choice="required". Catches the cbb006ff (2026-04-27)
+            # failure shape: the model knows it needs to call compile_latex
+            # (the thinking trace says so) but emits prose instead. Unlike
+            # the clarification fallback above, this fires on ANY turn —
+            # the failure can appear on follow-up modify-and-recompile
+            # turns, not just turn 0. Single recovery attempt per turn.
+            if not tool_calls and not recovery_used_this_turn:
+                _, _phantoms_inline = audit_artifact_urls_in_content(
+                    acc.content, []
+                )
+                phantom_trigger = bool(_phantoms_inline)
+                prose_trigger = _looks_like_prose_action_promise(acc.content)
+                if phantom_trigger or prose_trigger:
+                    trigger_label = (
+                        "phantom_url" if phantom_trigger else "prose_action_promise"
                     )
-                    tool_calls = [
-                        tc for tc in tool_calls
-                        if tc.get("name") != "ask_clarification"
-                    ]
-                    if not tool_calls:
-                        hit_turn_cap = False
-                        break
-                    continue  # re-enter loop to run the remaining tool calls
-                clar_tc = forced
-                args = forced.get("arguments") or {}
+                    print(
+                        f"[INFO] prose-action recovery firing "
+                        f"(trigger={trigger_label}, conv={conversation['id']}, "
+                        f"turn={turn}, content_len={len(acc.content)})"
+                    )
+                    nudge = (
+                        "Your previous response described what you were going "
+                        "to do but did not actually call any tool. Call the "
+                        "appropriate tool now to fulfil the user's request. "
+                        "Do not write prose explaining your plan — emit the "
+                        "tool call directly."
+                    )
+                    if phantom_trigger:
+                        nudge += (
+                            " Note: any /api/artifacts/... URLs in your "
+                            "previous response were not produced by a tool "
+                            "call this turn and must not be referenced again "
+                            "until a tool actually creates them."
+                        )
+                    recovered = await _force_required_tool_retry(
+                        messages, sampling, nudge, persona=persona
+                    )
+                    recovery_used_this_turn = True
+                    if recovered:
+                        tool_calls = recovered
+                        # NOTE: We deliberately do NOT clear acc.content /
+                        # final_content here. Unlike the clarification
+                        # fallback above (which replaces the prose entirely
+                        # with a substitute card), the prose-action draft
+                        # is a future-tense announcement that reads
+                        # naturally followed by the recovered tool calls
+                        # + their results. Keeping it preserves the live-
+                        # streamed UX (user sees "I'll update..." then the
+                        # tool card spins up) and keeps the persisted
+                        # transcript coherent on reload.
+                        for tc in tool_calls:
+                            yield _sse(
+                                "tool_call",
+                                {
+                                    "id": tc["id"],
+                                    "name": tc["name"],
+                                    "arguments": tc["arguments"],
+                                },
+                            )
+
+            if not tool_calls:
+                hit_turn_cap = False
+                break
+
+            # --- delegate_to_persona intercept ---
+            # The chat / code / research personas can each call
+            # ``delegate_to_persona`` to hand the current user turn to a
+            # different persona when the user's request fits another
+            # persona's tools/style better (e.g. chat user asks for a
+            # multi-paper literature review → delegate to research).
+            # Detected here, before _run_tool_calls fires, because the
+            # delegate_to_persona MCP tool has no executor counterpart —
+            # the actual handoff is implemented as a re-entry into this
+            # same loop with a swapped persona. Any non-delegation tool
+            # calls from the same response are dropped (matches the
+            # ``ask_clarification`` precedent: a turn that picks a
+            # control-flow tool can't also do regular work).
+            delegate_tc = next(
+                (tc for tc in tool_calls if tc.get("name") == "delegate_to_persona"),
+                None,
+            )
+            if delegate_tc is not None:
+                args = delegate_tc.get("arguments") or {}
+                target_id = (args.get("persona_id") or "").strip()
+                reason = (args.get("reason") or "").strip()[:200]
+                target_persona = (
+                    persona_module.get_persona(target_id) if target_id else None
+                )
+
+                # Validation: bad target / self-delegation / budget.
+                # On any of these we synthesise a tool_result with an
+                # error, append it to messages so the model sees the
+                # rejection on the next iteration, and continue the loop.
+                reject_reason: Optional[str] = None
+                if not target_id:
+                    reject_reason = (
+                        "delegate_to_persona requires a non-empty persona_id."
+                    )
+                elif target_persona is None:
+                    reject_reason = (
+                        f"persona {target_id!r} not found; valid options "
+                        f"are 'chat', 'code', 'research'."
+                    )
+                elif target_id == persona_id:
+                    reject_reason = (
+                        f"cannot delegate to your own persona "
+                        f"({persona_id!r}); answer directly."
+                    )
+                elif delegations_used >= DELEGATION_BUDGET:
+                    reject_reason = (
+                        "delegation budget exhausted (one delegation per "
+                        "user turn). Answer directly using your own tools."
+                    )
+
+                if reject_reason is not None:
+                    print(
+                        f"[INFO] delegate_to_persona rejected "
+                        f"(from={persona_id!r}, target={target_id!r}, "
+                        f"reason={reject_reason!r})"
+                    )
+                    synthetic_result = {
+                        "id": delegate_tc["id"],
+                        "name": "delegate_to_persona",
+                        "arguments": args,
+                        "result": {"error": reject_reason},
+                        "duration_ms": 0,
+                    }
+                    final_tool_calls.append(synthetic_result)
+                    yield _sse(
+                        "tool_result",
+                        {
+                            "id": delegate_tc["id"],
+                            "name": "delegate_to_persona",
+                            "result": synthetic_result["result"],
+                            "duration_ms": 0,
+                        },
+                    )
+                    # Append the rejection into the message list so the
+                    # model can see it and write a real reply on the next
+                    # iteration. Drop any other tool calls in the same
+                    # response (per the schema contract).
+                    messages.append({
+                        "role": "assistant",
+                        "content": acc.content or "",
+                        "tool_calls": [
+                            {
+                                "id": delegate_tc["id"],
+                                "type": "function",
+                                "function": {
+                                    "name": "delegate_to_persona",
+                                    "arguments": json.dumps(args),
+                                },
+                            }
+                        ],
+                    })
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": delegate_tc["id"],
+                        "content": json.dumps(synthetic_result["result"])[:2000],
+                    })
+                    continue
+
+                # Real delegation: swap persona, rebuild system_prompt,
+                # rewind messages to the pre-loop snapshot (so the new
+                # persona sees a clean conversation, not the rejected
+                # prose draft + tool calls that the source persona
+                # accumulated this turn), reset accumulators, and let the
+                # loop run another iteration with the new persona.
+                delegations_used += 1
+                print(
+                    f"[INFO] delegate_to_persona firing "
+                    f"(from={persona_id!r}, to={target_id!r}, "
+                    f"reason={reason!r})"
+                )
+                yield _sse(
+                    "delegated",
+                    {
+                        "from_persona": persona_id,
+                        "to_persona": target_id,
+                        "reason": reason,
+                    },
+                )
+
+                # Persist the persona switch on the conversation row so
+                # subsequent user turns resolve to the delegated persona
+                # by default (the user effectively switched personas
+                # mid-conversation; no need to pay the delegation
+                # round-trip again). Skipped for ephemeral chats.
+                if not ephemeral:
+                    try:
+                        await chat_store.update_conversation(
+                            conversation_id=conversation["id"],
+                            user_email=user_email,
+                            persona=target_id,
+                        )
+                    except Exception as e:
+                        print(f"[WARNING] persona persistence failed: {e}")
+                    yield _sse(
+                        "persona_changed",
+                        {
+                            "id": conversation["id"],
+                            "persona": target_id,
+                        },
+                    )
+
+                # Swap state.
+                persona_id = target_id
+                persona = target_persona
+                sampling = persona_module.sampling_params(persona)
+                try:
+                    system_prompt = await _build_full_system_prompt(
+                        persona=persona,
+                        user_email=user_email,
+                        conversation_id=conversation["id"] if not ephemeral else None,
+                        ephemeral=ephemeral,
+                        project=project,
+                    )
+                except Exception as e:
+                    print(f"[WARNING] post-delegation system_prompt rebuild failed: {e}")
+                # Re-apply tags block if it was originally injected — same
+                # block sits below the persona prompt; rebuilt above
+                # already includes it via _build_full_system_prompt? No —
+                # the tags block is applied separately further down in
+                # the original flow (after conversation resolution). We
+                # reapply it inline here so the delegated persona sees
+                # the same active-tags context.
+                tags_block = build_active_tags_block(effective_tags)
+                if tags_block:
+                    system_prompt = f"{system_prompt}\n\n{tags_block}"
+
+                # Rebuild messages from pre-loop snapshot but with the new
+                # system prompt swapped in. The snapshot's first entry is
+                # the system message; replace its content rather than
+                # re-running assemble_context (which would re-fetch
+                # history + summarise — unnecessary work and could hit
+                # vLLM during a delegation hot path).
+                messages = list(messages_pre_loop)
+                if messages and messages[0].get("role") == "system":
+                    messages[0] = {"role": "system", "content": system_prompt}
+                else:
+                    messages.insert(0, {"role": "system", "content": system_prompt})
+                messages_pre_loop = list(messages)
+
+                # Reset accumulators so the persisted assistant message
+                # reflects the delegated persona's work, not the source
+                # persona's rejected draft.
+                final_content = ""
+                final_thinking = ""
+                final_tool_calls = []
+                final_usage = None
+                if acc is not None:
+                    acc.content_parts.clear()
+                    acc.thinking_parts.clear()
+                continue
+
+            # --- §14 ask_clarification intercept ---
+            # If the model called ask_clarification, short-circuit the whole
+            # turn: emit a single `clarification` SSE event with the full
+            # card payload, persist an assistant message with a markdown
+            # fallback, emit `done`, and return. We do NOT run any other
+            # tool calls from the same turn (the decision was to honor
+            # clarification and silently drop the rest), and we do NOT
+            # invoke the wrap-up synthesis pass.
+            clar_tc = next(
+                (tc for tc in tool_calls if tc.get("name") == "ask_clarification"),
+                None,
+            )
+            if clar_tc is not None:
+                args = clar_tc.get("arguments") or {}
                 normalised, err = clarification_tool.validate_clarification_payload(
                     args.get("what_i_understood"),
                     args.get("questions"),
                 )
                 if err is not None:
-                    # Should be unreachable - force retry validates already.
+                    # qwen3 sometimes emits ``ask_clarification`` with malformed
+                    # arguments under normal tool_choice="auto" sampling (e.g.
+                    # ``questions`` as an object instead of a list, or an option
+                    # list of size 1 or 7). Rather than bail the whole turn with
+                    # an error SSE, fall through to the forced-retry path: it
+                    # runs up to 3 attempts with fresh samplings and validates
+                    # each, so a schema-valid call almost always drops out.
                     print(
-                        f"[WARNING] forced-retry payload still invalid "
-                        f"after validation: {err}"
+                        f"[WARNING] organic ask_clarification payload invalid "
+                        f"({err}); trying forced-retry fallback"
                     )
-                    hit_turn_cap = False
+                    forced = await _force_clarification_retry(
+                        messages, sampling, persona=persona
+                    )
+                    if forced is None:
+                        # Forced retry also failed. Don't break the turn — just
+                        # drop the malformed clarification call so the existing
+                        # prose content (if any) reaches the user as a normal
+                        # response.
+                        print(
+                            "[WARNING] forced clarification retry also failed; "
+                            "dropping malformed clarification and continuing"
+                        )
+                        tool_calls = [
+                            tc for tc in tool_calls
+                            if tc.get("name") != "ask_clarification"
+                        ]
+                        if not tool_calls:
+                            hit_turn_cap = False
+                            break
+                        continue  # re-enter loop to run the remaining tool calls
+                    clar_tc = forced
+                    args = forced.get("arguments") or {}
+                    normalised, err = clarification_tool.validate_clarification_payload(
+                        args.get("what_i_understood"),
+                        args.get("questions"),
+                    )
+                    if err is not None:
+                        # Should be unreachable - force retry validates already.
+                        print(
+                            f"[WARNING] forced-retry payload still invalid "
+                            f"after validation: {err}"
+                        )
+                        hit_turn_cap = False
+                        break
+                    # Wipe streamed prose so the persisted message is the
+                    # card's markdown fallback, not the rejected draft.
+                    acc.content_parts.clear()
+                    final_content = ""
+
+                fallback_md = clarification_tool.render_markdown_fallback(normalised)
+
+                yield _sse(
+                    "clarification",
+                    {
+                        "tool_call_id": clar_tc["id"],
+                        "conversation_id": conversation["id"],
+                        "what_i_understood": normalised["what_i_understood"],
+                        "questions": normalised["questions"],
+                    },
+                )
+
+                final_content += fallback_md
+                final_tool_calls.append({
+                    "id": clar_tc["id"],
+                    "name": "ask_clarification",
+                    "arguments": normalised,
+                    "result": {"status": "awaiting_user_response"},
+                    "duration_ms": 0,
+                })
+
+                if not ephemeral:
+                    await chat_store.add_message(
+                        conversation_id=conversation["id"],
+                        role="assistant",
+                        content=final_content,
+                        thinking=final_thinking or None,
+                        tool_calls=final_tool_calls or None,
+                        rag_context=rag_context,
+                    )
+
+                    if not conversation.get("title"):
+                        # Feed what_i_understood as the stand-in assistant
+                        # response so clarification-first conversations get
+                        # a title that reflects the user's intent rather
+                        # than the clarification questions themselves.
+                        try:
+                            title = await chat_context.generate_title(
+                                user_message.get("content", ""),
+                                normalised["what_i_understood"],
+                            )
+                            if title:
+                                await chat_store.update_conversation(
+                                    conversation_id=conversation["id"],
+                                    user_email=user_email,
+                                    title=title,
+                                )
+                                yield _sse(
+                                    "conversation",
+                                    {
+                                        "id": conversation["id"],
+                                        "title": title,
+                                        "is_new": False,
+                                    },
+                                )
+                        except Exception as e:
+                            print(f"[WARNING] Auto-title (clarification) failed: {e}")
+
+                yield _sse(
+                    "done",
+                    {
+                        "usage": final_usage or {},
+                        "finish_reason": "clarification",
+                    },
+                )
+                return
+
+            # Execute all tool calls for this turn in parallel, with a side
+            # channel queue so nested agent events can stream to the client
+            # while the tools are still running.
+            event_queue: asyncio.Queue = asyncio.Queue()
+            SENTINEL = object()
+
+            def _push(event_name: str, data: dict) -> None:
+                event_queue.put_nowait(_sse(event_name, data))
+
+            current_sse_emitter.set(_push)
+
+            # Build the persona's effective allowlist so _run_tool_calls
+            # can reject off-allowlist calls with a synthetic error
+            # tool_result. ask_clarification + delegate_to_persona are
+            # always permitted (control-flow tools). Personas without an
+            # explicit allowlist (back-compat path) get None, which means
+            # "all tools allowed" inside _run_tool_calls.
+            _allow_list = persona_module.tool_allowlist(persona)
+            allowed_tools_set: Optional[set[str]] = None
+            if _allow_list is not None:
+                allowed_tools_set = set(_allow_list) | {
+                    "ask_clarification",
+                    "delegate_to_persona",
+                }
+
+            async def _runner() -> list[dict]:
+                try:
+                    return await _run_tool_calls(
+                        tool_calls,
+                        persona_id=persona_id,
+                        allowed_tools=allowed_tools_set,
+                    )
+                finally:
+                    await event_queue.put(SENTINEL)
+
+            run_task = asyncio.create_task(_runner())
+
+            while True:
+                item = await event_queue.get()
+                if item is SENTINEL:
                     break
-                # Wipe streamed prose so the persisted message is the
-                # card's markdown fallback, not the rejected draft.
-                acc.content_parts.clear()
-                final_content = ""
+                yield item
 
-            fallback_md = clarification_tool.render_markdown_fallback(normalised)
+            results = await run_task
+            current_sse_emitter.set(None)
 
-            yield _sse(
-                "clarification",
+            for res in results:
+                final_tool_calls.append({
+                    "id": res["id"],
+                    "name": res["name"],
+                    "arguments": next(
+                        (tc["arguments"] for tc in tool_calls if tc["id"] == res["id"]), {}
+                    ),
+                    "result": res["result"],
+                    "duration_ms": res["duration_ms"],
+                })
+                yield _sse("tool_result", res)
+
+                # §22 Stage C: sandbox-generated files (run_python outputs,
+                # compile_latex outputs) are registered in the unified
+                # artifacts table by the tool itself, so the result dict
+                # already carries a ``registered_artifact_id`` alongside
+                # the legacy sandbox id. We just fan out an
+                # `artifact_created` SSE event per artifact for the side
+                # panel to pick up. The old standalone `artifact` SSE
+                # event is deprecated and no longer fires (§22 Stage C
+                # migration). §18 added compile_latex which reuses the
+                # same payload shape - it returns a `.tex` artifact
+                # always and a `.pdf` artifact on success, both via the
+                # same `artifacts` list.
+                if res.get("name") in ("run_python", "compile_latex"):
+                    tool_result = res.get("result") or {}
+                    for art in (tool_result.get("artifacts") or []):
+                        registered_id = art.get("registered_artifact_id")
+                        if not registered_id:
+                            continue  # registration failed; nothing to emit
+                        yield _sse(
+                            "artifact_created",
+                            {
+                                "id": registered_id,
+                                "source": art.get("source") or "sandbox_generated",
+                                "title": art.get("filename") or "unnamed",
+                                "content_type": art.get("content_type"),
+                                "filename": art.get("filename"),
+                                "size_bytes": art.get("size_bytes"),
+                                "external_url": art.get("external_url"),
+                                "version": 1,
+                                "conversation_id": tool_result.get("conversation_id"),
+                                "tool_call_id": res["id"],
+                            },
+                        )
+
+                # §22: versioned-document artifacts. Shared event type with
+                # the sandbox registrations above - both model-written and
+                # sandbox-generated artifacts use `artifact_created` (Stage
+                # C unification). Only emitted on successful tool results.
+                if res.get("name") == "create_artifact":
+                    tr = res.get("result") or {}
+                    if isinstance(tr, dict) and not tr.get("error"):
+                        yield _sse(
+                            "artifact_created",
+                            {
+                                "id": tr.get("id"),
+                                "source": tr.get("source") or "model_written",
+                                "title": tr.get("title"),
+                                "content_type": tr.get("content_type"),
+                                "language": tr.get("language"),
+                                "version": tr.get("version"),
+                                "conversation_id": tr.get("conversation_id"),
+                                "tool_call_id": res["id"],
+                            },
+                        )
+                elif res.get("name") == "update_artifact":
+                    tr = res.get("result") or {}
+                    if isinstance(tr, dict) and not tr.get("error"):
+                        yield _sse(
+                            "artifact_updated",
+                            {
+                                "id": tr.get("id"),
+                                "source": tr.get("source") or "model_written",
+                                "title": tr.get("title"),
+                                "version": tr.get("version"),
+                                "change_summary": tr.get("change_summary"),
+                                "created_by": tr.get("created_by"),
+                                "conversation_id": tr.get("conversation_id"),
+                                "tool_call_id": res["id"],
+                                "applied_hunks": tr.get("applied_hunks"),
+                                "lines_added": tr.get("lines_added"),
+                                "lines_removed": tr.get("lines_removed"),
+                                "base_version": tr.get("base_version"),
+                            },
+                        )
+
+            # Append the assistant turn (with tool_calls) and each tool result to
+            # the message list so vLLM can continue generating.
+            messages.append({
+                "role": "assistant",
+                "content": acc.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": json.dumps(tc["arguments"]),
+                        },
+                    }
+                    for tc in tool_calls
+                ],
+            })
+            for res in results:
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": res["id"],
+                    "content": json.dumps(res["result"])[:8000],
+                })
+
+            # §3 plot-critique feedback loop: if any of the results were
+            # run_python calls that produced image artifacts, inject a
+            # synthetic user turn carrying the image so the model can look
+            # at its own output and decide whether to iterate. vision.py
+            # fetches the bytes from the sandbox sidecar and returns a
+            # multimodal content block; we append it to the message list so
+            # the next vLLM iteration sees it. No-op if the results had no
+            # image artifacts.
+            try:
+                followup = await vision.build_tool_result_followup(
+                    tool_results=results,
+                    conversation_id=conversation["id"],
+                )
+            except Exception as e:
+                print(f"[WARNING] vision feedback loop failed: {e}")
+                followup = None
+            if followup is not None:
+                messages.append(followup)
+
+            # §5 view_attachment follow-up: if the model called
+            # view_attachment, inject the referenced image(s) as a separate
+            # synthetic user message (parallel to the sandbox feedback loop
+            # above). We run this AFTER the sandbox followup so a turn that
+            # happens to do both ends up with run_python artifacts first
+            # and re-viewed attachments second in the context.
+            try:
+                view_followup = vision.build_view_attachment_followup(
+                    tool_results=results,
+                    user_email=user_email,
+                )
+            except Exception as e:
+                print(f"[WARNING] view_attachment followup failed: {e}")
+                view_followup = None
+            if view_followup is not None:
+                messages.append(view_followup)
+
+        # --- 5b. Wrap-up: force a final synthesis if the loop exhausted its
+        # turn budget, OR the last turn produced no real content. The empty-last-
+        # turn case is important: the model sometimes emits only a "let me look
+        # up X..." preamble on turn N, then stalls with a zero-content turn
+        # N+1 (no tool_calls, no text), which naturally breaks the loop. We
+        # must detect that and force a synthesis — checking `final_content`
+        # (cumulative) would miss it because the preamble already populated
+        # final_content on turn N. Mirrors agents/executor.py::execute_agent.
+        last_turn_content = (acc.content if acc is not None else "").strip()
+        # Skip the wrap-up synthesis on a stream error: vLLM is broken right
+        # now, so calling it again to rewrite the final answer would almost
+        # certainly fail too, and the second failure would either overwrite or
+        # truncate the partial state we already captured. Persist what we have.
+        if (hit_turn_cap or not last_turn_content) and not had_stream_error:
+            wrap_up_messages = list(messages) + [
                 {
-                    "tool_call_id": clar_tc["id"],
-                    "conversation_id": conversation["id"],
-                    "what_i_understood": normalised["what_i_understood"],
-                    "questions": normalised["questions"],
-                },
+                    "role": "user",
+                    "content": (
+                        "You have reached your tool-use budget. Based on the "
+                        "tool results you have gathered so far, write your "
+                        "final answer to the user now. Do not call any more "
+                        "tools. Be specific and cite sources (DOIs, URLs) from "
+                        "the tool results where possible."
+                    ),
+                }
+            ]
+
+            wrap_acc: Optional[_StreamAccumulator] = None
+            async for event_name, payload, accumulator in _stream_vllm_once(
+                messages=wrap_up_messages, sampling=sampling, enable_tools=False
+            ):
+                wrap_acc = accumulator
+                if event_name == "error":
+                    yield _sse("error", payload)
+                    continue
+                # `tool_call` frames can't happen here because enable_tools=False,
+                # but we pass everything else (thinking/token) straight through.
+                yield _sse(event_name, payload)
+
+            if wrap_acc is not None:
+                final_thinking += wrap_acc.thinking
+                final_content += wrap_acc.content
+                if wrap_acc.usage:
+                    final_usage = wrap_acc.usage
+                finish_reason = wrap_acc.finish_reason or finish_reason
+
+        # --- 6. Persist assistant message ---
+        # Stream-error marker. When the loop bailed because vLLM yielded an
+        # `error` event mid-stream, append a small italic note so the saved
+        # transcript explains why the assistant turn cuts off where it does.
+        # The tool calls that fired before the error are already in
+        # `final_tool_calls` and will be persisted alongside this content.
+        if had_stream_error:
+            final_content = apply_stream_error_marker(final_content, had_stream_error)
+        # Phantom-artifact-URL audit. If the model wrote a
+        # `/api/artifacts/<uuid>/...` URL that wasn't produced by any tool
+        # this turn, prepend a warning marker and log loudly. Persona
+        # CORE RULES forbid this; the audit is a backstop so the saved
+        # transcript carries an audit trail when the rule slips.
+        final_content, _phantom_urls = audit_artifact_urls_in_content(
+            final_content, final_tool_calls
+        )
+        if _phantom_urls:
+            print(
+                f"[WARN] phantom artifact URLs in conversation "
+                f"{conversation['id']}: {_phantom_urls}"
+            )
+        # Phantom-paper-URL audit. Same backstop shape but for fabricated
+        # `search.muninai.org/paper/<doi>/...` citations (chat a42384f0,
+        # 2026-05-05: model invented a `[HPCS 2005](https://search.muninai
+        # .org/paper/10.1109%2Fhpcs.2005.55/pdf)` link to support a wrong
+        # technical claim, with no paper-tool call on the turn).
+        final_content, _phantom_paper_urls = audit_paper_urls_in_content(
+            final_content, final_tool_calls
+        )
+        if _phantom_paper_urls:
+            print(
+                f"[WARN] phantom paper URLs in conversation "
+                f"{conversation['id']}: {_phantom_paper_urls}"
             )
 
-            final_content += fallback_md
-            final_tool_calls.append({
-                "id": clar_tc["id"],
-                "name": "ask_clarification",
-                "arguments": normalised,
-                "result": {"status": "awaiting_user_response"},
-                "duration_ms": 0,
-            })
+        if not ephemeral:
+            await chat_store.add_message(
+                conversation_id=conversation["id"],
+                role="assistant",
+                content=final_content,
+                thinking=final_thinking or None,
+                tool_calls=final_tool_calls or None,
+                rag_context=rag_context,
+            )
+            assistant_persisted = True
 
-            if not ephemeral:
+        # --- 7. Auto-title on untitled conversations ---
+        # Relaxed from ``is_new and not title`` to just ``not title`` so
+        # auto-title also fires on the retry turn after a first-request
+        # failure. Scenario: user sends a message → backend creates the
+        # conversation row and persists the user message → vLLM errors
+        # before producing an assistant response → user re-sends → the
+        # retry arrives with the existing conversation_id (is_new=False)
+        # and no assistant response was ever generated, so the title is
+        # still empty. Without this fix, auto-title was permanently
+        # skipped for that conversation.
+        if not ephemeral and not conversation.get("title"):
+            try:
+                title = await chat_context.generate_title(
+                    user_message.get("content", ""), final_content
+                )
+                if title:
+                    await chat_store.update_conversation(
+                        conversation_id=conversation["id"],
+                        user_email=user_email,
+                        title=title,
+                    )
+                    yield _sse(
+                        "conversation",
+                        {"id": conversation["id"], "title": title, "is_new": False},
+                    )
+            except Exception as e:
+                print(f"[WARNING] Auto-title failed: {e}")
+
+        # --- 8. Done ---
+        yield _sse(
+            "done",
+            {
+                "usage": final_usage or {},
+                "finish_reason": finish_reason or "stop",
+            },
+        )
+    finally:
+        # Save-always (chat 3951063c, 2026-05-08): the assistant turn
+        # MUST be persisted even if the consumer disconnected (yielding
+        # GeneratorExit at the current yield) or any helper raised
+        # unhandled. We persist whatever partial state we have, with a
+        # marker that explains the gap. Skipped for ephemeral chats
+        # (no persistence to begin with) and when the explicit persist
+        # call above already succeeded (assistant_persisted == True).
+        if not ephemeral and not assistant_persisted:
+            try:
+                # Fold any in-progress turn's accumulator into the
+                # final_* totals if the inner streaming loop got
+                # interrupted before its own transfer. `acc_transferred`
+                # may not be defined if we never reached the streaming
+                # loop (e.g. assemble_context raised); the locals()
+                # check guards that.
+                if (
+                    "acc" in locals()
+                    and locals().get("acc") is not None
+                    and not locals().get("acc_transferred", True)
+                ):
+                    final_thinking += locals()["acc"].thinking
+                    final_content += locals()["acc"].content
+                marker_content = apply_stream_error_marker(
+                    final_content,
+                    had_stream_error or "stream interrupted",
+                )
+                # `conversation` is guaranteed defined here: the early
+                # returns at lines 1338/1413/1504 are above the user-
+                # message persist (which is in turn above the try block
+                # this finally pairs with). If we are inside this try,
+                # user-persist already ran and conversation is set.
                 await chat_store.add_message(
                     conversation_id=conversation["id"],
                     role="assistant",
-                    content=final_content,
+                    content=marker_content,
                     thinking=final_thinking or None,
                     tool_calls=final_tool_calls or None,
                     rag_context=rag_context,
                 )
-
-                if not conversation.get("title"):
-                    # Feed what_i_understood as the stand-in assistant
-                    # response so clarification-first conversations get
-                    # a title that reflects the user's intent rather
-                    # than the clarification questions themselves.
-                    try:
-                        title = await chat_context.generate_title(
-                            user_message.get("content", ""),
-                            normalised["what_i_understood"],
-                        )
-                        if title:
-                            await chat_store.update_conversation(
-                                conversation_id=conversation["id"],
-                                user_email=user_email,
-                                title=title,
-                            )
-                            yield _sse(
-                                "conversation",
-                                {
-                                    "id": conversation["id"],
-                                    "title": title,
-                                    "is_new": False,
-                                },
-                            )
-                    except Exception as e:
-                        print(f"[WARNING] Auto-title (clarification) failed: {e}")
-
-            yield _sse(
-                "done",
-                {
-                    "usage": final_usage or {},
-                    "finish_reason": "clarification",
-                },
-            )
-            return
-
-        # Execute all tool calls for this turn in parallel, with a side
-        # channel queue so nested agent events can stream to the client
-        # while the tools are still running.
-        event_queue: asyncio.Queue = asyncio.Queue()
-        SENTINEL = object()
-
-        def _push(event_name: str, data: dict) -> None:
-            event_queue.put_nowait(_sse(event_name, data))
-
-        current_sse_emitter.set(_push)
-
-        # Build the persona's effective allowlist so _run_tool_calls
-        # can reject off-allowlist calls with a synthetic error
-        # tool_result. ask_clarification + delegate_to_persona are
-        # always permitted (control-flow tools). Personas without an
-        # explicit allowlist (back-compat path) get None, which means
-        # "all tools allowed" inside _run_tool_calls.
-        _allow_list = persona_module.tool_allowlist(persona)
-        allowed_tools_set: Optional[set[str]] = None
-        if _allow_list is not None:
-            allowed_tools_set = set(_allow_list) | {
-                "ask_clarification",
-                "delegate_to_persona",
-            }
-
-        async def _runner() -> list[dict]:
-            try:
-                return await _run_tool_calls(
-                    tool_calls,
-                    persona_id=persona_id,
-                    allowed_tools=allowed_tools_set,
+            except Exception as _save_always_exc:
+                # Last-ditch: log and swallow. We cannot crash the
+                # finally block -- doing so would mask the original
+                # exception (or GeneratorExit) that triggered us.
+                print(
+                    f"[ERROR] save-always finally persistence failed for "
+                    f"conv {conversation.get('id') if isinstance(conversation, dict) else '?'}: "
+                    f"{type(_save_always_exc).__name__}: {_save_always_exc}"
                 )
-            finally:
-                await event_queue.put(SENTINEL)
-
-        run_task = asyncio.create_task(_runner())
-
-        while True:
-            item = await event_queue.get()
-            if item is SENTINEL:
-                break
-            yield item
-
-        results = await run_task
-        current_sse_emitter.set(None)
-
-        for res in results:
-            final_tool_calls.append({
-                "id": res["id"],
-                "name": res["name"],
-                "arguments": next(
-                    (tc["arguments"] for tc in tool_calls if tc["id"] == res["id"]), {}
-                ),
-                "result": res["result"],
-                "duration_ms": res["duration_ms"],
-            })
-            yield _sse("tool_result", res)
-
-            # §22 Stage C: sandbox-generated files (run_python outputs,
-            # compile_latex outputs) are registered in the unified
-            # artifacts table by the tool itself, so the result dict
-            # already carries a ``registered_artifact_id`` alongside
-            # the legacy sandbox id. We just fan out an
-            # `artifact_created` SSE event per artifact for the side
-            # panel to pick up. The old standalone `artifact` SSE
-            # event is deprecated and no longer fires (§22 Stage C
-            # migration). §18 added compile_latex which reuses the
-            # same payload shape - it returns a `.tex` artifact
-            # always and a `.pdf` artifact on success, both via the
-            # same `artifacts` list.
-            if res.get("name") in ("run_python", "compile_latex"):
-                tool_result = res.get("result") or {}
-                for art in (tool_result.get("artifacts") or []):
-                    registered_id = art.get("registered_artifact_id")
-                    if not registered_id:
-                        continue  # registration failed; nothing to emit
-                    yield _sse(
-                        "artifact_created",
-                        {
-                            "id": registered_id,
-                            "source": art.get("source") or "sandbox_generated",
-                            "title": art.get("filename") or "unnamed",
-                            "content_type": art.get("content_type"),
-                            "filename": art.get("filename"),
-                            "size_bytes": art.get("size_bytes"),
-                            "external_url": art.get("external_url"),
-                            "version": 1,
-                            "conversation_id": tool_result.get("conversation_id"),
-                            "tool_call_id": res["id"],
-                        },
-                    )
-
-            # §22: versioned-document artifacts. Shared event type with
-            # the sandbox registrations above - both model-written and
-            # sandbox-generated artifacts use `artifact_created` (Stage
-            # C unification). Only emitted on successful tool results.
-            if res.get("name") == "create_artifact":
-                tr = res.get("result") or {}
-                if isinstance(tr, dict) and not tr.get("error"):
-                    yield _sse(
-                        "artifact_created",
-                        {
-                            "id": tr.get("id"),
-                            "source": tr.get("source") or "model_written",
-                            "title": tr.get("title"),
-                            "content_type": tr.get("content_type"),
-                            "language": tr.get("language"),
-                            "version": tr.get("version"),
-                            "conversation_id": tr.get("conversation_id"),
-                            "tool_call_id": res["id"],
-                        },
-                    )
-            elif res.get("name") == "update_artifact":
-                tr = res.get("result") or {}
-                if isinstance(tr, dict) and not tr.get("error"):
-                    yield _sse(
-                        "artifact_updated",
-                        {
-                            "id": tr.get("id"),
-                            "source": tr.get("source") or "model_written",
-                            "title": tr.get("title"),
-                            "version": tr.get("version"),
-                            "change_summary": tr.get("change_summary"),
-                            "created_by": tr.get("created_by"),
-                            "conversation_id": tr.get("conversation_id"),
-                            "tool_call_id": res["id"],
-                            "applied_hunks": tr.get("applied_hunks"),
-                            "lines_added": tr.get("lines_added"),
-                            "lines_removed": tr.get("lines_removed"),
-                            "base_version": tr.get("base_version"),
-                        },
-                    )
-
-        # Append the assistant turn (with tool_calls) and each tool result to
-        # the message list so vLLM can continue generating.
-        messages.append({
-            "role": "assistant",
-            "content": acc.content or "",
-            "tool_calls": [
-                {
-                    "id": tc["id"],
-                    "type": "function",
-                    "function": {
-                        "name": tc["name"],
-                        "arguments": json.dumps(tc["arguments"]),
-                    },
-                }
-                for tc in tool_calls
-            ],
-        })
-        for res in results:
-            messages.append({
-                "role": "tool",
-                "tool_call_id": res["id"],
-                "content": json.dumps(res["result"])[:8000],
-            })
-
-        # §3 plot-critique feedback loop: if any of the results were
-        # run_python calls that produced image artifacts, inject a
-        # synthetic user turn carrying the image so the model can look
-        # at its own output and decide whether to iterate. vision.py
-        # fetches the bytes from the sandbox sidecar and returns a
-        # multimodal content block; we append it to the message list so
-        # the next vLLM iteration sees it. No-op if the results had no
-        # image artifacts.
-        try:
-            followup = await vision.build_tool_result_followup(
-                tool_results=results,
-                conversation_id=conversation["id"],
-            )
-        except Exception as e:
-            print(f"[WARNING] vision feedback loop failed: {e}")
-            followup = None
-        if followup is not None:
-            messages.append(followup)
-
-        # §5 view_attachment follow-up: if the model called
-        # view_attachment, inject the referenced image(s) as a separate
-        # synthetic user message (parallel to the sandbox feedback loop
-        # above). We run this AFTER the sandbox followup so a turn that
-        # happens to do both ends up with run_python artifacts first
-        # and re-viewed attachments second in the context.
-        try:
-            view_followup = vision.build_view_attachment_followup(
-                tool_results=results,
-                user_email=user_email,
-            )
-        except Exception as e:
-            print(f"[WARNING] view_attachment followup failed: {e}")
-            view_followup = None
-        if view_followup is not None:
-            messages.append(view_followup)
-
-    # --- 5b. Wrap-up: force a final synthesis if the loop exhausted its
-    # turn budget, OR the last turn produced no real content. The empty-last-
-    # turn case is important: the model sometimes emits only a "let me look
-    # up X..." preamble on turn N, then stalls with a zero-content turn
-    # N+1 (no tool_calls, no text), which naturally breaks the loop. We
-    # must detect that and force a synthesis — checking `final_content`
-    # (cumulative) would miss it because the preamble already populated
-    # final_content on turn N. Mirrors agents/executor.py::execute_agent.
-    last_turn_content = (acc.content if acc is not None else "").strip()
-    # Skip the wrap-up synthesis on a stream error: vLLM is broken right
-    # now, so calling it again to rewrite the final answer would almost
-    # certainly fail too, and the second failure would either overwrite or
-    # truncate the partial state we already captured. Persist what we have.
-    if (hit_turn_cap or not last_turn_content) and not had_stream_error:
-        wrap_up_messages = list(messages) + [
-            {
-                "role": "user",
-                "content": (
-                    "You have reached your tool-use budget. Based on the "
-                    "tool results you have gathered so far, write your "
-                    "final answer to the user now. Do not call any more "
-                    "tools. Be specific and cite sources (DOIs, URLs) from "
-                    "the tool results where possible."
-                ),
-            }
-        ]
-
-        wrap_acc: Optional[_StreamAccumulator] = None
-        async for event_name, payload, accumulator in _stream_vllm_once(
-            messages=wrap_up_messages, sampling=sampling, enable_tools=False
-        ):
-            wrap_acc = accumulator
-            if event_name == "error":
-                yield _sse("error", payload)
-                continue
-            # `tool_call` frames can't happen here because enable_tools=False,
-            # but we pass everything else (thinking/token) straight through.
-            yield _sse(event_name, payload)
-
-        if wrap_acc is not None:
-            final_thinking += wrap_acc.thinking
-            final_content += wrap_acc.content
-            if wrap_acc.usage:
-                final_usage = wrap_acc.usage
-            finish_reason = wrap_acc.finish_reason or finish_reason
-
-    # --- 6. Persist assistant message ---
-    # Stream-error marker. When the loop bailed because vLLM yielded an
-    # `error` event mid-stream, append a small italic note so the saved
-    # transcript explains why the assistant turn cuts off where it does.
-    # The tool calls that fired before the error are already in
-    # `final_tool_calls` and will be persisted alongside this content.
-    if had_stream_error:
-        final_content = apply_stream_error_marker(final_content, had_stream_error)
-    # Phantom-artifact-URL audit. If the model wrote a
-    # `/api/artifacts/<uuid>/...` URL that wasn't produced by any tool
-    # this turn, prepend a warning marker and log loudly. Persona
-    # CORE RULES forbid this; the audit is a backstop so the saved
-    # transcript carries an audit trail when the rule slips.
-    final_content, _phantom_urls = audit_artifact_urls_in_content(
-        final_content, final_tool_calls
-    )
-    if _phantom_urls:
-        print(
-            f"[WARN] phantom artifact URLs in conversation "
-            f"{conversation['id']}: {_phantom_urls}"
-        )
-    # Phantom-paper-URL audit. Same backstop shape but for fabricated
-    # `search.muninai.org/paper/<doi>/...` citations (chat a42384f0,
-    # 2026-05-05: model invented a `[HPCS 2005](https://search.muninai
-    # .org/paper/10.1109%2Fhpcs.2005.55/pdf)` link to support a wrong
-    # technical claim, with no paper-tool call on the turn).
-    final_content, _phantom_paper_urls = audit_paper_urls_in_content(
-        final_content, final_tool_calls
-    )
-    if _phantom_paper_urls:
-        print(
-            f"[WARN] phantom paper URLs in conversation "
-            f"{conversation['id']}: {_phantom_paper_urls}"
-        )
-
-    if not ephemeral:
-        await chat_store.add_message(
-            conversation_id=conversation["id"],
-            role="assistant",
-            content=final_content,
-            thinking=final_thinking or None,
-            tool_calls=final_tool_calls or None,
-            rag_context=rag_context,
-        )
-
-    # --- 7. Auto-title on untitled conversations ---
-    # Relaxed from ``is_new and not title`` to just ``not title`` so
-    # auto-title also fires on the retry turn after a first-request
-    # failure. Scenario: user sends a message → backend creates the
-    # conversation row and persists the user message → vLLM errors
-    # before producing an assistant response → user re-sends → the
-    # retry arrives with the existing conversation_id (is_new=False)
-    # and no assistant response was ever generated, so the title is
-    # still empty. Without this fix, auto-title was permanently
-    # skipped for that conversation.
-    if not ephemeral and not conversation.get("title"):
-        try:
-            title = await chat_context.generate_title(
-                user_message.get("content", ""), final_content
-            )
-            if title:
-                await chat_store.update_conversation(
-                    conversation_id=conversation["id"],
-                    user_email=user_email,
-                    title=title,
-                )
-                yield _sse(
-                    "conversation",
-                    {"id": conversation["id"], "title": title, "is_new": False},
-                )
-        except Exception as e:
-            print(f"[WARNING] Auto-title failed: {e}")
-
-    # --- 8. Done ---
-    yield _sse(
-        "done",
-        {
-            "usage": final_usage or {},
-            "finish_reason": finish_reason or "stop",
-        },
-    )
