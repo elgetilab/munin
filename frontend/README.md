@@ -52,9 +52,16 @@ docker compose up -d --build
 # Build frontend first
 cd webui && npm run build && cd ..
 
-# Sync to VPS (excludes secrets and git)
+# Sync the whole tree (no --delete: do not risk wiping VPS-only state).
 rsync -avz --exclude '.env' --exclude '.git' --exclude 'node_modules' \
   ./ <admin>@<vps-ip>:~/munin/
+
+# Prune stale hashed JS/CSS bundles in static/chat/assets/. Vite emits
+# content-hashed filenames on every build, so old bundles accumulate
+# without this step (~50 MB after a month of deploys). --delete is
+# scoped to this single directory so it cannot affect anything else.
+rsync -avz --delete \
+  static/chat/assets/ <admin>@<vps-ip>:~/munin/static/chat/assets/
 
 # On VPS: rebuild and restart
 cd ~/munin && docker compose up -d --build

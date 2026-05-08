@@ -43,10 +43,16 @@ Wait for DNS to propagate before deploying. Caddy needs the A records to resolve
   cd ..
   ```
   The build outputs to `frontend/static/chat/`.
-- [ ] Rsync the project to the VPS:
+- [ ] Rsync the project to the VPS. Two passes: the first syncs the
+  whole tree without `--delete` (so VPS-only state is preserved); the
+  second prunes stale hashed JS/CSS bundles in `static/chat/assets/`,
+  which Vite re-hashes on every build and would otherwise accumulate.
   ```bash
   rsync -avz --exclude '.env' --exclude '.git' --exclude 'node_modules' \
     frontend/ <admin>@<vps-ip>:~/munin/
+  rsync -avz --delete \
+    frontend/static/chat/assets/ \
+    <admin>@<vps-ip>:~/munin/static/chat/assets/
   ```
 - [ ] On the VPS: `cd ~/munin`.
 
