@@ -15,6 +15,16 @@
 # Model: Qwen3.5-35B-A3B-AWQ-4bit (Gated DeltaNet + MoE Hybrid)
 # Personas: Chat (general), Code (programming), Research (academic)
 # Scheduled daily 6am - 2am via cron (or 24/7 via: vllm-service enable-24x7)
+#
+# GPU allocation (hugin gres.conf):
+#   - We claim the WHOLE GPU 1 via gpu:vllm:1. The 35B-A3B AWQ-4bit model
+#     plus 64k KV cache needs ~30 GB VRAM, which fills the RTX 5090.
+#   - While this job holds gpu:vllm:1, the 8 cooperative shards on GPU 1
+#     (shard:vllm:N) are unavailable. Whole GPU 0 (gpu:batch:1) and its
+#     8 shards (shard:batch:N) remain free for user / deepresearch jobs.
+#   - If we ever shrink vLLM's footprint, the equivalent partial claim
+#     would be `#SBATCH --gres=shard:vllm:N` (N out of 8, ~4 GB each).
+#   - vllm-serving partition is capped at MaxCPUsPerNode=4 by SLURM.
 # ==============================================================================
 
 set -e

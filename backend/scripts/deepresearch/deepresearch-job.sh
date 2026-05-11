@@ -8,6 +8,11 @@
 #   - Tool access: web search (SearXNG), paper search, DOI lookup
 #   - Agentic loop for multi-step research
 #
+# GPU allocation: claims the WHOLE GPU 0 via gpu:batch:1. MiroThinker
+# 30B at 0.88 utilization needs the full RTX 5090 (~28 GB). If the
+# model is ever shrunk, the partial alternative is `--gres=shard:batch:N`
+# (N of 8 on GPU 0, ~4 GB each). See backend/README.md "Cluster GPU layout".
+#
 # Required environment variables:
 #   JOB_DIR     - Directory containing input.txt and for output
 #   REQUEST_ID  - Unique request identifier

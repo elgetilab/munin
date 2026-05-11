@@ -29,6 +29,25 @@ exposed to the VPS over an autossh reverse tunnel
 (`config/munin-tunnel.service`) on port 18080. Everything else is
 bound to `127.0.0.1`.
 
+## Cluster GPU layout
+
+The hugin node has 2x RTX 5090 (32 GB each). Both GPUs are exposed
+two ways via SLURM (config lives in `HuginSLURM/config/gres.conf` (HuginSLURM, not public)):
+
+| Resource         | What it grants                                     | Who uses it (munin) |
+|------------------|----------------------------------------------------|---------------------|
+| `gpu:batch:1`    | Whole GPU 0                                        | deepresearch SLURM job (30B MiroThinker) |
+| `gpu:vllm:1`     | Whole GPU 1                                        | vLLM service (35B-A3B, 6am to 2am) |
+| `shard:N`        | N/8 of any free GPU (~4 GB VRAM per shard)         | (unused, available for future ephemeral jobs) |
+| `shard:batch:N`  | N/8 of GPU 0 specifically                          | (unused) |
+| `shard:vllm:N`   | N/8 of GPU 1 specifically (only when vLLM is down) | (unused) |
+
+SLURM refuses to mix whole-GPU and shard allocations on the same
+physical GPU. While vLLM holds GPU 1 (typical 6am to 2am window), the
+8 `shard:vllm` slots are blocked; shard jobs land on GPU 0 instead.
+Partitions: `vllm-serving` (this service), `llm-batch` (deepresearch),
+`standard` / `quickdirty` / `gputraining` (users).
+
 ## Architecture
 
 ```
