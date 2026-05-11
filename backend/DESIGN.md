@@ -231,7 +231,7 @@ The frontend accumulates `thinking` events into a string, matches `tool_result` 
 {
   "vllm": {
     "status": "running|offline|starting",
-    "model": "qwen3.5-35b-a3b",
+    "model": "qwen3.6-35b-a3b",
     "next_start": "2026-04-14T06:00:00+02:00"
   },
   "services": {

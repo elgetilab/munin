@@ -296,7 +296,7 @@
         <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">{
   "id": "chatcmpl-...",
   "object": "chat.completion",
-  "model": "qwen3.5-35b-a3b",
+  "model": "qwen3.6-35b-a3b",
   "choices": [{
     "index": 0,
     "message": {
@@ -312,7 +312,7 @@
     "total_tokens": 57
   }
 }</pre>
-        <p>The <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">reasoning</code> field contains the model's chain-of-thought (always-on). The model is Qwen3.5-35B-A3B, a Mixture-of-Experts architecture with 3B active parameters per forward pass.</p>
+        <p>The <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">reasoning</code> field contains the model's chain-of-thought (always-on). The model is Qwen3.6-35B-A3B, a Mixture-of-Experts architecture with 3B active parameters per forward pass.</p>
 
         <h3>Persona mode — custom SSE response</h3>
         <p>When using persona mode, the response is a Server-Sent Events stream with these event types:</p>
@@ -342,7 +342,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="qwen3.5-35b-a3b",
+    model="qwen3.6-35b-a3b",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 
@@ -360,7 +360,7 @@ with httpx.stream(
     f"{BASE_URL}/chat/completions",
     headers={"Authorization": f"Bearer {API_KEY}"},
     json={
-        "model": "qwen3.5-35b-a3b",
+        "model": "qwen3.6-35b-a3b",
         "persona": "research",
         "messages": [{"role": "user", "content": "Find papers on lipid rafts"}],
     },
@@ -385,7 +385,7 @@ with httpx.stream(
   -H "Authorization: Bearer sk-munin-..." \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "qwen3.5-35b-a3b",
+    "model": "qwen3.6-35b-a3b",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 
@@ -396,7 +396,7 @@ with httpx.stream(
   -H "Authorization: Bearer sk-munin-..." \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "qwen3.5-35b-a3b",
+    "model": "qwen3.6-35b-a3b",
     "persona": "research",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
@@ -437,7 +437,7 @@ npm install -g opencode-ai</pre>
         "apiKey": "{env:MUNIN_API_KEY}"
       },
       "models": {
-        "qwen3.5-35b-a3b": {
+        "qwen3.6-35b-a3b": {
           "name": "Qwen 3.5 35B"
         }
       }
@@ -456,7 +456,7 @@ npm install -g opencode-ai</pre>
         <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">cd your-project
 opencode</pre>
         <p>
-            On first launch, pick the <strong>Munin</strong> provider and the <strong>qwen3.5-35b-a3b</strong> model. You can switch model/provider any time inside the TUI with <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">/model</code>.
+            On first launch, pick the <strong>Munin</strong> provider and the <strong>qwen3.6-35b-a3b</strong> model. You can switch model/provider any time inside the TUI with <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">/model</code>.
         </p>
 
         <h2>Tips</h2>

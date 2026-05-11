@@ -24,7 +24,7 @@ Environment:
     QDRANT_PORT          default 6333
     QDRANT_COLLECTION    default papers
     VLLM_URL             default http://127.0.0.1:8000
-    VLLM_MODEL_NAME      default qwen3.5-35b-a3b
+    VLLM_MODEL_NAME      default qwen3.6-35b-a3b
     EMBEDDING_MAP_PATH   default /opt/munin/knowledge/embedding_map.json
 
 CLI:
@@ -58,7 +58,7 @@ QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "papers")
 VLLM_URL = os.getenv("VLLM_URL", "http://127.0.0.1:8000")
-VLLM_MODEL_NAME = os.getenv("VLLM_MODEL_NAME", "qwen3.5-35b-a3b")
+VLLM_MODEL_NAME = os.getenv("VLLM_MODEL_NAME", "qwen3.6-35b-a3b")
 EMBEDDING_MAP_PATH = os.getenv(
     "EMBEDDING_MAP_PATH", "/opt/munin/knowledge/embedding_map.json"
 )

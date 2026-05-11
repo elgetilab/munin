@@ -15,7 +15,7 @@ Environment="QDRANT_HOST=127.0.0.1"
 Environment="QDRANT_PORT=6333"
 Environment="QDRANT_COLLECTION=papers"
 Environment="VLLM_URL=http://127.0.0.1:8000"
-Environment="VLLM_MODEL_NAME=qwen3.5-35b-a3b"
+Environment="VLLM_MODEL_NAME=qwen3.6-35b-a3b"
 Environment="EMBEDDING_MAP_PATH=/opt/munin/knowledge/embedding_map.json"
 # Numba (UMAP's JIT) needs a writable cache dir. ProtectSystem=strict +
 # ProtectHome=yes kill the default locations (site-packages, ~/.cache).

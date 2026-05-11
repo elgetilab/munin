@@ -987,7 +987,7 @@ async def _raw_chat_proxy(
     # serving if the client didn't specify one.
     forward: dict = {k: v for k, v in body.items() if k not in _MUNIN_ONLY_FIELDS}
     if not forward.get("model"):
-        forward["model"] = os.getenv("VLLM_MODEL_NAME", "qwen3.5-35b-a3b")
+        forward["model"] = os.getenv("VLLM_MODEL_NAME", "qwen3.6-35b-a3b")
     if not isinstance(forward.get("messages"), list) or not forward["messages"]:
         raise HTTPException(
             status_code=400,

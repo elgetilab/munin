@@ -24,7 +24,7 @@ SLURM_QUEUE_FILE = os.getenv("SLURM_QUEUE_FILE", "/deepresearch/slurm_queue.json
 
 # vLLM configuration (for MCP tools)
 VLLM_URL = os.getenv("VLLM_URL", "http://127.0.0.1:8000")
-VLLM_MODEL_NAME = os.getenv("VLLM_MODEL_NAME", "qwen3.5-35b-a3b")
+VLLM_MODEL_NAME = os.getenv("VLLM_MODEL_NAME", "qwen3.6-35b-a3b")
 
 # Lazy-loaded clients and models
 _qdrant = None

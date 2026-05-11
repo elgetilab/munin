@@ -12,7 +12,7 @@
 # MUNIN VLLM SERVICE - SLURM JOB SCRIPT
 # ==============================================================================
 # Runs vLLM serving on GPU 1 for the Munin backend.
-# Model: Qwen3.5-35B-A3B-AWQ-4bit (Gated DeltaNet + MoE Hybrid)
+# Model: Qwen3.6-35B-A3B-AWQ-4bit (Gated DeltaNet + MoE Hybrid)
 # Personas: Chat (general), Code (programming), Research (academic)
 # Scheduled daily 6am - 2am via cron (or 24/7 via: vllm-service enable-24x7)
 #
@@ -32,9 +32,9 @@ set -e
 # ------------------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------------------
-MODEL_ID="cyankiwi/Qwen3.5-35B-A3B-AWQ-4bit"
-MODEL_PATH="/opt/munin/data/models/qwen3.5-35b-a3b-awq-4bit"
-MODEL_NAME="qwen3.5-35b-a3b"
+MODEL_ID="cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit"
+MODEL_PATH="/opt/munin/data/models/qwen3.6-35b-a3b-awq-4bit"
+MODEL_NAME="qwen3.6-35b-a3b"
 VLLM_PORT=8000
 
 COMPOSE_DIR="/opt/munin"
@@ -53,7 +53,7 @@ echo "Start Time: $(date)"
 echo "GPU:        $CUDA_VISIBLE_DEVICES"
 echo "=============================================="
 echo ""
-echo "Model: Qwen3.5-35B-A3B-AWQ-4bit"
+echo "Model: Qwen3.6-35B-A3B-AWQ-4bit"
 echo "  - Gated DeltaNet + MoE Hybrid"
 echo "  - 35B total parameters, 3B active"
 echo "  - AWQ 4-bit quantization"
@@ -136,10 +136,10 @@ for i in {1..30}; do
 done
 
 # ------------------------------------------------------------------------------
-# Start vLLM server - Qwen3.5-35B-A3B-AWQ-4bit
+# Start vLLM server - Qwen3.6-35B-A3B-AWQ-4bit
 # ------------------------------------------------------------------------------
 echo ""
-echo "Starting vLLM server (Qwen3.5-35B-A3B-AWQ-4bit)..."
+echo "Starting vLLM server (Qwen3.6-35B-A3B-AWQ-4bit)..."
 
 vllm serve "$MODEL_PATH" \
     --host 0.0.0.0 \
@@ -174,7 +174,7 @@ while [ $ELAPSED -lt $TIMEOUT_SECONDS ]; do
 
     # Check health endpoint
     if curl -sf http://127.0.0.1:$VLLM_PORT/health > /dev/null 2>&1; then
-        echo "[OK] Qwen3.5-35B-A3B-AWQ-4bit is ready!"
+        echo "[OK] Qwen3.6-35B-A3B-AWQ-4bit is ready!"
         break
     fi
 
@@ -206,7 +206,7 @@ echo "Endpoints:"
 echo "  vLLM API:    http://127.0.0.1:$VLLM_PORT/v1"
 echo ""
 echo "Model:"
-echo "  - $MODEL_NAME : Qwen3.5-35B-A3B (MoE 35B/3B active, AWQ-4bit, 64k ctx)"
+echo "  - $MODEL_NAME : Qwen3.6-35B-A3B (MoE 35B/3B active, AWQ-4bit, 64k ctx)"
 echo ""
 echo "Personas (synced from persona definitions):"
 echo "  - Meitner  : Chat — general assistant (day-to-day, writing, web + paper search)"

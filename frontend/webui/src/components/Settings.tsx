@@ -558,7 +558,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="qwen3.5-35b-a3b",
+    model="qwen3.6-35b-a3b",
     messages=[{"role": "user", "content": "Hello!"}]
 )
 

@@ -162,7 +162,7 @@ services:
       # vLLM for MCP tools (llm_summarize, web_fetch with summarize)
       # Uses host.docker.internal to reach vLLM running on host
       - VLLM_URL=http://<cluster-lan-ip>:8000
-      - VLLM_MODEL_NAME=qwen3.5-35b-a3b
+      - VLLM_MODEL_NAME=qwen3.6-35b-a3b
       # Semantic Scholar API (for semantic_scholar_search tool)
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
       # Sandbox sidecar (§2). Reached over the internal sandbox-net.

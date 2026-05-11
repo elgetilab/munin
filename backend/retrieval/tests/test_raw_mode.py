@@ -44,7 +44,7 @@ def test_external_v1_openai_style_is_raw() -> bool:
     no persona, no conversation_id, no project_id. Own system message
     as the first message."""
     body = {
-        "model": "qwen3.5-35b-a3b",
+        "model": "qwen3.6-35b-a3b",
         "messages": [
             {"role": "system", "content": "You are a coding assistant."},
             {"role": "user", "content": "Write a bash one-liner."},
