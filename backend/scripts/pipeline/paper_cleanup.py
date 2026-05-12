@@ -44,15 +44,20 @@ Requirements:
 """
 
 import argparse
+import csv
 import json
 import os
+import shutil
 import sqlite3
+import subprocess
 import sys
 import time
+import uuid
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, Iterator, List, Optional, Set, Tuple
 
 import requests
 
@@ -78,6 +83,13 @@ NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "munin-neo4j-password")
 COLLECTION_NAME = "papers"
+
+# Stage 2 remediation: GROBID URL for header-only title re-extraction.
+GROBID_URL = os.getenv("GROBID_URL", "http://127.0.0.1:8070")
+INBOX_DIR = PDF_DIR / "inbox"
+# Keep in sync with paper_pipeline._MERGE_TITLE_SIM_THRESHOLD;
+# calibrated 2026-05-12 (see docs/PAPER-INGEST-AUDIT.md).
+MISMATCH_THRESHOLD = 0.3
 
 # API rate limit delays (seconds)
 OPENALEX_DELAY = 0.1      # 100k/day with key
@@ -1901,6 +1913,578 @@ def bulk_remove(filepath: str, dry_run: bool = False, add_blocklist: bool = True
 # ==============================================================================
 # Main
 # ==============================================================================
+# ==============================================================================
+# Metadata-Mismatch Remediation (Stage 2)
+# ==============================================================================
+# Detects records whose stored title disagrees with the PDF's GROBID
+# header title (the LIGPLOT/JSTOR splice pattern from the 2026-05-12
+# audit). Writes a CSV report, lazy-backfills `_grobid_title` /
+# `_grobid_doi` / `_ingest_source` / `_inspected_at` audit fields onto
+# the existing Qdrant points, and optionally queues high-severity
+# records for reingest under the hardened pipeline (Stage 1).
+#
+# Pacing: GROBID is called at most once per `--grobid-pace` seconds
+# (default 30s). At 1-2 calls/min the 67k corpus needs weeks of
+# intermittent runs; that's intentional ("self-cleaning").
+#
+# See docs/PAPER-INGEST-AUDIT.md for calibration data + the severity
+# ladder behind the 0.3 / 0.5 thresholds.
+
+# Reuse the title-similarity helpers from the sibling pipeline module
+# so the threshold and tokenisation rules have a single source of
+# truth. The leading underscores mark these as internal, but they're
+# safe to import within the same script collection.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from paper_pipeline import (  # noqa: E402
+    _title_similarity,
+    _normalize_title_tokens,
+    _strip_markup,
+)
+
+
+def _container_pdf_to_host(pdf_path: Optional[str]) -> Optional[Path]:
+    """Map container-side `pdf_path` (`/papers/X.pdf`) to host path."""
+    if not pdf_path:
+        return None
+    if pdf_path.startswith("/papers/"):
+        host = PDF_DIR / pdf_path[len("/papers/"):]
+    else:
+        host = Path(pdf_path)
+    return host if host.is_file() else None
+
+
+def _pdftotext_first_page(pdf_path: Path, max_chars: int = 2000) -> Optional[str]:
+    """First-page text extract via pdftotext. None on any error."""
+    try:
+        out = subprocess.run(
+            ["pdftotext", "-l", "1", str(pdf_path), "-"],
+            capture_output=True, text=True, timeout=20,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    text = (out.stdout or "")[:max_chars]
+    return text or None
+
+
+def _grobid_header_title(pdf_path: Path) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Call GROBID `processHeaderDocument` and parse TEI.
+
+    Returns ``(title, doi, error)``. On success ``error`` is None;
+    on any failure the title/doi are None and ``error`` describes
+    what went wrong.
+    """
+    TEI_NS = {"tei": "http://www.tei-c.org/ns/1.0"}
+    try:
+        with open(pdf_path, "rb") as f:
+            r = requests.post(
+                f"{GROBID_URL}/api/processHeaderDocument",
+                files={"input": (pdf_path.name, f, "application/pdf")},
+                headers={"Accept": "application/xml"},
+                timeout=120,
+            )
+    except Exception as e:
+        return None, None, f"request_error: {e}"
+    if r.status_code != 200:
+        return None, None, f"http_{r.status_code}: {r.text[:80]}"
+    try:
+        root = ET.fromstring(r.text)
+    except ET.ParseError as e:
+        return None, None, f"tei_parse_error: {e}"
+    title_el = root.find(".//tei:titleStmt/tei:title", TEI_NS)
+    title = (title_el.text.strip()
+             if (title_el is not None and title_el.text) else None)
+    doi = None
+    for idno in root.findall(".//tei:idno", TEI_NS):
+        if (idno.get("type") or "").lower() == "doi" and idno.text:
+            doi = idno.text.strip()
+            break
+    if not title:
+        return None, doi, "no_title_in_tei"
+    return title, doi, None
+
+
+def _score_severity(
+    jaccard: Optional[float],
+    has_html: bool,
+    grobid_failed: bool,
+    grobid_token_count: int = 0,
+) -> str:
+    """Bucket a record by likely-mismatch severity.
+
+    Boundaries come from the 2026-05-12 calibration: 5 known-bad all
+    scored 0.000, 18 random samples all scored 0.818-1.000. The gap
+    0.05-0.7 was empty.
+
+    Heuristic on top of jaccard: when GROBID returns a very short
+    title (<5 meaningful tokens), it's often a running header or
+    section heading rather than the real article title (seen on
+    Angewandte Chemie Communications and similar layouts). In that
+    case we downgrade `high` to `medium` so the auto-queue at the
+    default threshold doesn't act on this signal alone; the user
+    can still queue them explicitly with --severity-threshold medium.
+    """
+    if grobid_failed or jaccard is None:
+        return "unparseable"
+    if jaccard < MISMATCH_THRESHOLD:    # < 0.3, production guard
+        if grobid_token_count < 5:
+            return "medium"             # likely header-extraction issue
+        return "high"
+    if jaccard < 0.5:
+        return "medium"
+    if has_html:
+        return "low"
+    return "clean"
+
+
+def _qdrant_url(path: str) -> str:
+    return f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{COLLECTION_NAME}{path}"
+
+
+def _scroll_unaudited(source_filter: str = "all", batch: int = 200) -> Iterator[Tuple[int, Dict]]:
+    """Yield `(point_id, payload)` for Qdrant points without an
+    `_inspected_at` marker. Resume semantics: every prior run wrote
+    the marker on inspected points, so subsequent runs naturally pick
+    up where the last one left off.
+
+    Source filter is applied in Python because Qdrant's filter DSL
+    can't express "contributors array is empty / non-empty" without
+    a payload index on the array element key.
+    """
+    offset = None
+    while True:
+        body: Dict = {
+            "filter": {"must": [{"is_empty": {"key": "_inspected_at"}}]},
+            "limit": batch,
+            "with_payload": True,
+            "with_vector": False,
+        }
+        if offset is not None:
+            body["offset"] = offset
+        r = requests.post(_qdrant_url("/points/scroll"), json=body, timeout=30)
+        r.raise_for_status()
+        data = r.json().get("result", {}) or {}
+        for pt in data.get("points", []):
+            payload = pt.get("payload") or {}
+            contribs = payload.get("contributors") or []
+            if source_filter == "upload" and not contribs:
+                continue
+            if source_filter == "crawler" and contribs:
+                continue
+            yield pt.get("id"), payload
+        offset = data.get("next_page_offset")
+        if not offset:
+            return
+
+
+def _set_audit_payload(point_id: int, fields: Dict, dry_run: bool = False) -> None:
+    """Lazy backfill: partial-update the Qdrant point's payload with
+    new audit keys. None-valued fields are skipped so we never store
+    explicit nulls."""
+    fields = {k: v for k, v in fields.items() if v is not None}
+    if not fields:
+        return
+    if dry_run:
+        print(f"        [DRY-RUN] would set_payload {list(fields.keys())} on {point_id}")
+        return
+    r = requests.post(
+        _qdrant_url("/points/payload"),
+        json={"payload": fields, "points": [point_id]},
+        timeout=30,
+    )
+    r.raise_for_status()
+
+
+def _delete_qdrant_point(point_id: int, dry_run: bool = False) -> None:
+    if dry_run:
+        print(f"        [DRY-RUN] would delete Qdrant point {point_id}")
+        return
+    r = requests.post(
+        _qdrant_url("/points/delete"),
+        json={"points": [point_id], "wait": True},
+        timeout=30,
+    )
+    r.raise_for_status()
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _queue_one_for_reingest(
+    point_id: int,
+    payload: Dict,
+    host_pdf: Path,
+    log_writer: csv.DictWriter,
+    dry_run: bool = False,
+) -> bool:
+    """Move PDF to inbox/, write reconstructed sidecar, log the action,
+    delete the Qdrant point. PDF is moved, not copied; the rollback
+    record is the log CSV. Returns True on success.
+    """
+    INBOX_DIR.mkdir(parents=True, exist_ok=True)
+    new_uuid = uuid.uuid4().hex[:16]
+    new_pdf = INBOX_DIR / f"{new_uuid}.pdf"
+    new_sidecar = INBOX_DIR / f"{new_uuid}.contributor.json"
+    doi = payload.get("doi")
+    contribs = payload.get("contributors") or []
+    contrib = (max(contribs, key=lambda c: c.get("upload_time") or "")
+               if contribs else None)
+    sidecar = {
+        "contributor_email": (contrib or {}).get("email"),
+        "contributor_username": (contrib or {}).get("username"),
+        "contributor_display_name": (contrib or {}).get("display_name"),
+        "research_group": (contrib or {}).get("group_slug") or "unknown",
+        "research_group_display_name": (contrib or {}).get("group_display_name"),
+        "uploaded_at": (contrib or {}).get("upload_time") or _utcnow_iso(),
+        "original_filename": host_pdf.name,
+    }
+    # Deliberately NOT setting filename_doi_hint here — the very
+    # reason we queued this record is that the stored DOI looks
+    # suspect. Passing it would short-circuit the hardened pipeline's
+    # GROBID-driven DOI extraction and likely reproduce the same
+    # bad ingest. Operators can manually edit the sidecar to add a
+    # known-good DOI hint before the reingest run.
+    if dry_run:
+        print(f"        [DRY-RUN] would move {host_pdf.name} -> inbox/{new_pdf.name}")
+        print(f"        [DRY-RUN] would write sidecar (no DOI hint)")
+        print(f"        [DRY-RUN] would write reingest log row")
+        print(f"        [DRY-RUN] would delete Qdrant point {point_id}")
+        return True
+
+    try:
+        shutil.move(str(host_pdf), str(new_pdf))
+    except OSError as e:
+        print(f"        [ERROR] failed to move PDF: {e}")
+        return False
+    try:
+        with open(new_sidecar, "w") as f:
+            json.dump(sidecar, f)
+    except OSError as e:
+        print(f"        [ERROR] failed to write sidecar: {e}")
+        # Best-effort: undo the move so the original PDF location
+        # stays canonical.
+        try:
+            shutil.move(str(new_pdf), str(host_pdf))
+        except OSError:
+            pass
+        return False
+
+    # Rollback record gets written BEFORE the Qdrant delete, so if
+    # the delete fails we still know exactly what to restore.
+    log_writer.writerow({
+        "doi": doi or "",
+        "point_id": point_id,
+        "pdf_old_path": str(host_pdf),
+        "pdf_new_path": str(new_pdf),
+        "queued_at": _utcnow_iso(),
+        "stored_title": (payload.get("title") or "")[:500],
+        "stored_authors_json": json.dumps(payload.get("authors") or []),
+        "stored_year": payload.get("year") or "",
+        "stored_journal": payload.get("journal") or "",
+        "contributors_json": json.dumps(contribs),
+    })
+
+    try:
+        _delete_qdrant_point(point_id, dry_run=False)
+    except Exception as e:
+        print(f"        [ERROR] Qdrant delete failed: {e}")
+        # Leave PDF in inbox; operator can retry the delete and/or
+        # restore the Qdrant point from the log.
+        return False
+    return True
+
+
+def find_metadata_mismatch(
+    limit: int = 100,
+    source_filter: str = "all",
+    grobid_pace_secs: int = 30,
+    no_grobid: bool = False,
+    no_backfill: bool = False,
+    report_out: Optional[str] = None,
+    queue_for_reingest: bool = False,
+    severity_threshold: str = "high",
+    reingest_log: Optional[str] = None,
+    dry_run: bool = False,
+) -> None:
+    """Detect title-vs-PDF mismatches, optionally queue suspects for
+    reingest. See docs/PAPER-INGEST-AUDIT.md."""
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_path = Path(report_out or f"metadata-mismatch-{ts}.csv")
+    reingest_log_path = Path(reingest_log or f"reingest-log-{ts}.csv") if queue_for_reingest else None
+
+    severity_rank = {"clean": 0, "low": 1, "medium": 2, "high": 3, "unparseable": 1}
+    threshold_rank = severity_rank.get(severity_threshold, 3)
+
+    print(f"=== find-metadata-mismatch ===")
+    print(f"  limit            : {limit}")
+    print(f"  source           : {source_filter}")
+    print(f"  GROBID pacing    : {grobid_pace_secs}s ({'OFF' if no_grobid else 'ON'})")
+    print(f"  lazy backfill    : {'OFF' if no_backfill else 'ON'}")
+    print(f"  queue for reingest: {'YES' if queue_for_reingest else 'NO'}"
+          f"{' (severity>=' + severity_threshold + ')' if queue_for_reingest else ''}")
+    print(f"  dry run          : {dry_run}")
+    print(f"  report           : {report_path}")
+    if reingest_log_path:
+        print(f"  reingest log     : {reingest_log_path}")
+    print()
+
+    report_fields = [
+        "doi", "point_id", "severity", "jaccard",
+        "ingest_source", "contributors_groups",
+        "stored_title", "grobid_title", "grobid_doi",
+        "has_html", "crossref_doi_rejected", "pdf_path",
+        "inspected_at", "queued_for_reingest",
+    ]
+    reingest_fields = [
+        "doi", "point_id", "pdf_old_path", "pdf_new_path", "queued_at",
+        "stored_title", "stored_authors_json", "stored_year",
+        "stored_journal", "contributors_json",
+    ]
+
+    counts = {"inspected": 0, "skipped_no_pdf": 0, "queued": 0,
+              "high": 0, "medium": 0, "low": 0, "clean": 0, "unparseable": 0}
+    last_grobid_call_at: Optional[float] = None
+
+    report_f = open(report_path, "w", newline="")
+    report_writer = csv.DictWriter(report_f, fieldnames=report_fields)
+    report_writer.writeheader()
+
+    reingest_f = None
+    reingest_writer = None
+    if reingest_log_path is not None:
+        reingest_f = open(reingest_log_path, "w", newline="")
+        reingest_writer = csv.DictWriter(reingest_f, fieldnames=reingest_fields)
+        reingest_writer.writeheader()
+
+    try:
+        for point_id, payload in _scroll_unaudited(source_filter):
+            if counts["inspected"] >= limit:
+                break
+
+            doi = payload.get("doi") or ""
+            stored_title = payload.get("title") or ""
+            contribs = payload.get("contributors") or []
+            contrib_groups = ";".join(
+                sorted({c.get("group_slug") or "" for c in contribs if c.get("group_slug")})
+            )
+            ingest_source = (
+                "upload" if contribs else
+                ("crawler" if doi else "unknown")
+            )
+            has_html = bool(
+                "<b>" in stored_title or "<i>" in stored_title
+                or "<sup>" in stored_title or "<sub>" in stored_title
+                or "<mml:" in stored_title
+            )
+            host_pdf = _container_pdf_to_host(payload.get("pdf_path"))
+
+            print(f"[{counts['inspected']+1}/{limit}] doi={doi or '<none>'} source={ingest_source}")
+
+            if host_pdf is None:
+                counts["skipped_no_pdf"] += 1
+                counts["inspected"] += 1
+                report_writer.writerow({
+                    "doi": doi, "point_id": point_id, "severity": "unparseable",
+                    "jaccard": "", "ingest_source": ingest_source,
+                    "contributors_groups": contrib_groups,
+                    "stored_title": stored_title[:300], "grobid_title": "",
+                    "grobid_doi": "", "has_html": has_html,
+                    "crossref_doi_rejected": payload.get("_crossref_doi_rejected") or "",
+                    "pdf_path": payload.get("pdf_path") or "",
+                    "inspected_at": _utcnow_iso(), "queued_for_reingest": False,
+                })
+                print(f"        [skip] PDF not on disk")
+                continue
+
+            # Re-extract title from the PDF. Two paths:
+            #   --no-grobid:  use pdftotext first-page text as a noisy
+            #                 proxy. Useful for a quick visual sweep,
+            #                 but we never write this back into the
+            #                 `_grobid_title` audit field (it would
+            #                 poison the field with mastheads / DOIs).
+            #   default:      GROBID processHeaderDocument, paced.
+            grobid_title: Optional[str] = None
+            grobid_doi: Optional[str] = None
+            title_for_compare: Optional[str] = None
+            grobid_failed = False
+            if no_grobid:
+                proxy = _pdftotext_first_page(host_pdf)
+                title_for_compare = (proxy or "").strip() or None
+                if title_for_compare is None:
+                    grobid_failed = True
+            else:
+                if last_grobid_call_at is not None:
+                    elapsed = time.time() - last_grobid_call_at
+                    wait = max(0.0, grobid_pace_secs - elapsed)
+                    if wait > 0:
+                        print(f"        [pacing] sleep {wait:.0f}s")
+                        time.sleep(wait)
+                last_grobid_call_at = time.time()
+                grobid_title, grobid_doi, err = _grobid_header_title(host_pdf)
+                title_for_compare = grobid_title
+                if err:
+                    print(f"        [GROBID skip] {err}")
+                    grobid_failed = True
+
+            jaccard: Optional[float] = None
+            grobid_token_count = 0
+            if title_for_compare and stored_title:
+                jaccard = _title_similarity(title_for_compare, stored_title)
+                grobid_token_count = len(_normalize_title_tokens(title_for_compare))
+                print(f"        sim={jaccard:.3f}  grobid_tokens={grobid_token_count}")
+
+            severity = _score_severity(
+                jaccard, has_html, grobid_failed, grobid_token_count
+            )
+            counts[severity] = counts.get(severity, 0) + 1
+
+            # Lazy backfill — write audit fields onto the Qdrant point
+            # so future runs (with the resume filter) skip this record
+            # and the hardened pipeline / remediation tool have ground
+            # truth to work with. Two important constraints:
+            #   - In --no-grobid mode we DON'T mark _inspected_at,
+            #     because the pdftotext proxy isn't authoritative;
+            #     the record still needs a real GROBID inspection.
+            #   - We never write pdftotext output as _grobid_title;
+            #     it would mislead the next run.
+            audit_payload: Dict = {
+                "_ingest_source": ingest_source,
+            }
+            if not no_grobid:
+                audit_payload["_grobid_title"] = grobid_title
+                audit_payload["_grobid_doi"] = grobid_doi
+                audit_payload["_inspected_at"] = _utcnow_iso()
+            if not no_backfill:
+                try:
+                    _set_audit_payload(point_id, audit_payload, dry_run=dry_run)
+                except Exception as e:
+                    print(f"        [WARN] payload backfill failed: {e}")
+
+            queued = False
+            if (queue_for_reingest
+                    and severity_rank.get(severity, 0) >= threshold_rank
+                    and severity in ("high", "medium")  # never queue 'clean'/'low'
+                    and host_pdf is not None):
+                print(f"        [queue] severity={severity}")
+                if _queue_one_for_reingest(
+                    point_id, payload, host_pdf, reingest_writer, dry_run=dry_run
+                ):
+                    counts["queued"] += 1
+                    queued = True
+
+            report_writer.writerow({
+                "doi": doi, "point_id": point_id, "severity": severity,
+                "jaccard": f"{jaccard:.3f}" if jaccard is not None else "",
+                "ingest_source": ingest_source,
+                "contributors_groups": contrib_groups,
+                "stored_title": stored_title[:300],
+                # In --no-grobid mode this is the pdftotext proxy
+                # (clearly labelled by the source column).
+                "grobid_title": (title_for_compare or "")[:300],
+                "grobid_doi": grobid_doi or "",
+                "has_html": has_html,
+                "crossref_doi_rejected": payload.get("_crossref_doi_rejected") or "",
+                "pdf_path": payload.get("pdf_path") or "",
+                "inspected_at": _utcnow_iso(),
+                "queued_for_reingest": queued,
+            })
+            report_f.flush()
+            if reingest_f is not None:
+                reingest_f.flush()
+            counts["inspected"] += 1
+            print(f"        verdict={severity}")
+    finally:
+        report_f.close()
+        if reingest_f is not None:
+            reingest_f.close()
+
+    print()
+    print(f"=== Summary ===")
+    for k in ("inspected", "high", "medium", "low", "clean", "unparseable",
+              "skipped_no_pdf", "queued"):
+        print(f"  {k:<18s}: {counts.get(k, 0)}")
+    print(f"  report          : {report_path}")
+    if reingest_log_path is not None:
+        print(f"  reingest log    : {reingest_log_path}")
+
+
+def reingest_queue(
+    pipeline_script: Optional[str] = None,
+    limit: int = 50,
+    pace_secs: int = 30,
+    dry_run: bool = False,
+) -> None:
+    """Drive reingest of PDFs that find-metadata-mismatch queued.
+
+    Walks `INBOX_DIR` for `*.pdf` files with a sibling
+    `*.contributor.json` sidecar and invokes paper_pipeline.py as a
+    subprocess on each, paced.
+
+    Note: the pipeline stores the new Qdrant record but does NOT
+    relocate the PDF out of inbox/ — that's normally done by the
+    admin/ingest endpoint, which we bypass here. The reingested
+    record will have pdf_path pointing into inbox/, which is fine
+    for record-keeping but means `/api/papers/<doi>/pdf` can't serve
+    the file until an operator (or a future follow-up command)
+    moves it to /papers/pdf/doi_<new_doi>.pdf. This is a deliberate
+    v1 limit: the goal here is to surface the queue, not to fully
+    re-house the PDF.
+    """
+    if pipeline_script is None:
+        pipeline_script = str(Path(__file__).resolve().parent / "paper_pipeline.py")
+    if not Path(pipeline_script).is_file():
+        print(f"[ERROR] paper_pipeline.py not found at {pipeline_script}")
+        sys.exit(1)
+    if not INBOX_DIR.is_dir():
+        print(f"[ERROR] inbox not present: {INBOX_DIR}")
+        sys.exit(1)
+
+    queued = sorted(p for p in INBOX_DIR.glob("*.pdf")
+                    if p.with_suffix(".contributor.json").is_file())
+    if not queued:
+        print(f"No queued PDFs found in {INBOX_DIR}")
+        return
+    queued = queued[:limit]
+    print(f"=== reingest-queue ===")
+    print(f"  pipeline    : {pipeline_script}")
+    print(f"  inbox       : {INBOX_DIR}")
+    print(f"  queued (cap): {len(queued)}")
+    print(f"  pace        : {pace_secs}s between pipeline runs")
+    print(f"  dry run     : {dry_run}")
+    print()
+
+    n_ok = n_fail = 0
+    for i, pdf in enumerate(queued, 1):
+        print(f"[{i}/{len(queued)}] {pdf.name}")
+        if dry_run:
+            print(f"        [DRY-RUN] would invoke paper_pipeline.py --single {pdf}")
+            continue
+        try:
+            proc = subprocess.run(
+                ["python3", pipeline_script, "--single", str(pdf)],
+                capture_output=True, text=True, timeout=600,
+            )
+            if proc.returncode == 0:
+                n_ok += 1
+                print(f"        [ok]")
+            else:
+                n_fail += 1
+                print(f"        [fail rc={proc.returncode}]")
+                print((proc.stdout or "").splitlines()[-3:] if proc.stdout else "")
+        except subprocess.TimeoutExpired:
+            n_fail += 1
+            print(f"        [timeout after 600s]")
+        if i < len(queued) and pace_secs > 0:
+            print(f"        [pacing] sleep {pace_secs}s")
+            time.sleep(pace_secs)
+
+    print()
+    print(f"=== Summary ===")
+    print(f"  ok      : {n_ok}")
+    print(f"  failed  : {n_fail}")
+    print(f"  pending : {max(0, len(queued) - n_ok - n_fail)}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Munin Paper Cleanup - Remove papers from all databases"
@@ -1960,6 +2544,46 @@ def main():
     scan_parser.add_argument("--find-orphaned", action="store_true", help="Find papers in database but missing PDF")
     scan_parser.add_argument("--max-scan", type=int, default=1000, help="Maximum files to scan (default: 1000)")
     scan_parser.add_argument("--output", help="Save results to JSON file")
+
+    # find-metadata-mismatch command (Stage 2 remediation tool)
+    mismatch_parser = subparsers.add_parser(
+        "find-metadata-mismatch",
+        help="Detect title-vs-PDF mismatches; lazy backfill audit fields; optionally queue for reingest",
+    )
+    mismatch_parser.add_argument("--limit", type=int, default=100,
+                                 help="Max records to inspect this run (default: 100)")
+    mismatch_parser.add_argument("--source", choices=["all", "upload", "crawler"],
+                                 default="all", help="Restrict to upload-only or crawler-only (default: all)")
+    mismatch_parser.add_argument("--grobid-pace", type=int, default=30,
+                                 help="Seconds between GROBID calls (default: 30)")
+    mismatch_parser.add_argument("--no-grobid", action="store_true",
+                                 help="Skip GROBID; use pdftotext as title proxy (much noisier)")
+    mismatch_parser.add_argument("--no-backfill", action="store_true",
+                                 help="Don't write audit fields back to Qdrant")
+    mismatch_parser.add_argument("--report-out", help="CSV output path (default: metadata-mismatch-<ts>.csv)")
+    mismatch_parser.add_argument("--queue-for-reingest", action="store_true",
+                                 help="Move high-severity PDFs back to inbox/ for the hardened pipeline to re-process")
+    mismatch_parser.add_argument("--severity-threshold",
+                                 choices=["high", "medium"], default="high",
+                                 help="Minimum severity to queue (default: high)")
+    mismatch_parser.add_argument("--reingest-log",
+                                 help="Reingest rollback log CSV (default: reingest-log-<ts>.csv)")
+    mismatch_parser.add_argument("--dry-run", action="store_true",
+                                 help="Print actions; don't write to Qdrant or move files")
+
+    # reingest-queue command (drives the queue produced above)
+    reingest_parser = subparsers.add_parser(
+        "reingest-queue",
+        help="Run paper_pipeline.py --single on each PDF queued by find-metadata-mismatch",
+    )
+    reingest_parser.add_argument("--pipeline-script",
+                                 help="Path to paper_pipeline.py (default: sibling in same dir)")
+    reingest_parser.add_argument("--limit", type=int, default=50,
+                                 help="Max queued PDFs to process this run (default: 50)")
+    reingest_parser.add_argument("--pace", type=int, default=30,
+                                 help="Seconds between pipeline subprocess invocations (default: 30)")
+    reingest_parser.add_argument("--dry-run", action="store_true",
+                                 help="Print actions; don't invoke pipeline")
 
     # repair-auto command (autonomous mode)
     auto_parser = subparsers.add_parser("repair-auto", help="Autonomous repair - processes papers one at a time with immediate actions")
@@ -2032,6 +2656,26 @@ def main():
             scripts_dir=args.scripts_dir,
             retry_failed=args.retry_failed,
             single_doi=args.doi
+        )
+    elif args.command == "find-metadata-mismatch":
+        find_metadata_mismatch(
+            limit=args.limit,
+            source_filter=args.source,
+            grobid_pace_secs=args.grobid_pace,
+            no_grobid=args.no_grobid,
+            no_backfill=args.no_backfill,
+            report_out=args.report_out,
+            queue_for_reingest=args.queue_for_reingest,
+            severity_threshold=args.severity_threshold,
+            reingest_log=args.reingest_log,
+            dry_run=args.dry_run,
+        )
+    elif args.command == "reingest-queue":
+        reingest_queue(
+            pipeline_script=args.pipeline_script,
+            limit=args.limit,
+            pace_secs=args.pace,
+            dry_run=args.dry_run,
         )
     else:
         parser.print_help()
