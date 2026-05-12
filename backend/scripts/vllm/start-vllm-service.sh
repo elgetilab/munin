@@ -111,7 +111,7 @@ if [ ! -d "$MODEL_PATH" ]; then
     echo ""
     echo "Model not found locally. Downloading from HuggingFace..."
     echo "This may take a while (model is ~19GB)..."
-    huggingface-cli download "$MODEL_ID" --local-dir "$MODEL_PATH"
+    hf download "$MODEL_ID" --local-dir "$MODEL_PATH"
     echo "[OK] Model downloaded to $MODEL_PATH"
 fi
 
