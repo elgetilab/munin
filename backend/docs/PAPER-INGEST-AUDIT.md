@@ -183,17 +183,82 @@ Crawler with real-looking mismatches:
 - `10.1038/47534` — claims NhaA transport protein, PDF is on telomere
   image analysis.
 
+## Operating the remediation tool
+
+```bash
+# Inspect 100 records (default), GROBID paced 30s/call, write CSV.
+# Resume-friendly: subsequent runs skip records that already carry
+# `_inspected_at`.
+sudo /opt/munin/services/vllm/venv/bin/python \
+    /opt/cluster/scripts/pipeline/paper_cleanup.py \
+    find-metadata-mismatch --limit 100 --report-out /var/log/cluster-admin/mm.csv
+
+# Same, but also queue every high-severity record for reingest.
+sudo ... find-metadata-mismatch --limit 100 --queue-for-reingest \
+    --reingest-log /var/log/cluster-admin/reingest.csv
+
+# Drive the queue (paced subprocesses against the hardened pipeline).
+sudo ... reingest-queue --limit 50 --pace 30
+```
+
+`--source upload` / `--source crawler` restrict the pass. `--no-grobid`
+falls back to pdftotext as a fast-and-noisy proxy — does not mark
+`_inspected_at` so a real GROBID pass picks the record up later.
+
+## Monitoring
+
+The ingest-time guard logs a unique marker line on every rejected
+Crossref enrichment:
+
+```
+[WARN] GROBID/Crossref title mismatch (sim=X.XX < 0.3); keeping GROBID metadata, dropping Crossref enrichment
+```
+
+Greppable from per-job logs:
+
+```bash
+grep -c "GROBID/Crossref title mismatch" /opt/munin/logs/vllm-service-*.out
+# Or across the pipeline daemon:
+journalctl -u munin-paper-pipeline.service | grep -c "GROBID/Crossref title mismatch"
+```
+
+A sustained zero count after a week of new ingests would suggest the
+0.3 threshold is too permissive (or every new paper has perfect
+metadata, less likely). A flood would suggest it's too strict —
+recalibrate by re-running `/tmp/calibrate_jaccard_grobid.py` on a
+fresh sample.
+
+## Unit tests
+
+```bash
+/opt/munin/services/vllm/venv/bin/python \
+    backend/scripts/pipeline/tests/test_paper_pipeline_merge.py
+/opt/munin/services/vllm/venv/bin/python \
+    backend/scripts/pipeline/tests/test_paper_cleanup_mismatch.py
+```
+
+Pure-function, no DB / network. Cover the title-similarity guard,
+JATS stripping, the LIGPLOT-style merge rejection, the
+running-header severity downgrade, DOI filename parsing, and the
+threshold-drift detector (cleanup vs pipeline constants must match).
+
 ## Files
 
 - Audit script (read-only): `/tmp/audit_papers.py`. Env vars
   `AUDIT_PDF_LIMIT` (samples per source, default 300) and
   `AUDIT_SKIP` (offset into deterministic stride for different
   draws).
+- Calibration script (read-only, GROBID-paced):
+  `/tmp/calibrate_jaccard_grobid.py`.
 - Audit run output: `/tmp/audit_papers.out`.
+- Unit tests: `backend/scripts/pipeline/tests/`.
 
 ## Status
 
-- Detection scripted, reproducible.
-- Pipeline hardening + remediation tool: planned, not implemented.
-- Affected records identified by sampling; full sweep is the
-  remediation tool's job.
+- Stage 1 (pipeline hardening): SHIPPED. New ingests are guarded;
+  `_grobid_title` / `_grobid_doi` / `_ingest_source` / `_ingest_at`
+  fields land on every new Qdrant point.
+- Stage 2 (remediation tool): SHIPPED.
+  `paper_cleanup.py find-metadata-mismatch` + `reingest-queue`.
+- Stage 3 (tests + monitoring): SHIPPED. 49 unit tests across two
+  files; greppable log marker for production monitoring.

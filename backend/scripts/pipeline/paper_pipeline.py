@@ -146,10 +146,15 @@ def _normalize_title_tokens(s: str) -> set:
     non-alphanumeric characters, splits on whitespace, removes
     short tokens (<3 chars) and a small English-stopword set.
     Pure function, no I/O.
+
+    Markup is replaced with the empty string (not a space) so
+    intra-word notation like `Gd<sup>3+</sup>` collapses to
+    `gd3` rather than splitting into below-cutoff `gd` + `3`.
+    This matches how `_strip_markup` renders for storage.
     """
     if not s:
         return set()
-    s = _TITLE_MARKUP_RE.sub(" ", s)
+    s = _TITLE_MARKUP_RE.sub("", s)
     s = _TITLE_ENTITY_RE.sub(" ", s)
     s = _TITLE_NONALNUM_RE.sub(" ", s.lower())
     return {w for w in s.split()
