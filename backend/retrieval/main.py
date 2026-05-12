@@ -1667,6 +1667,34 @@ def _get_ingest_semaphore() -> asyncio.Semaphore:
     return _ingest_semaphore
 
 
+def _doi_from_upload_filename(name: Optional[str]) -> Optional[str]:
+    """Extract a DOI from the uploader's original filename when it
+    follows the `doi_<doi>.pdf` convention used by the crawler.
+
+    Mirrors paper_pipeline._extract_doi_from_filename so uploaded
+    PDFs whose user named them that way can feed the same
+    filename-DOI-authoritative path that protects crawler downloads
+    against GROBID picking up a citation DOI. Returns None when the
+    filename doesn't match the convention.
+    """
+    if not name:
+        return None
+    base = os.path.basename(name)
+    if not base.startswith("doi_"):
+        return None
+    doi_part = base[4:]
+    if doi_part.endswith(".pdf"):
+        doi_part = doi_part[:-4]
+    if not doi_part.startswith("10."):
+        return None
+    idx = 3
+    while idx < len(doi_part) and doi_part[idx].isdigit():
+        idx += 1
+    if idx < len(doi_part) and doi_part[idx] == "_":
+        return doi_part[:idx] + "/" + doi_part[idx + 1:]
+    return None
+
+
 def _quarantine_inbox_paper(
     inbox_pdf: str,
     sidecar_path: str,
@@ -1863,6 +1891,13 @@ async def _api_admin_ingest_inner(
         "uploaded_at": upload_time or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "original_filename": filename,
     }
+    # Stage 1.5: if the user uploaded a `doi_*.pdf`-named file, hand
+    # the parsed DOI to the pipeline so it can be used as the
+    # authoritative source instead of relying on GROBID extraction
+    # (which is what produces the LIGPLOT/JSTOR-style splices).
+    filename_doi_hint = _doi_from_upload_filename(filename)
+    if filename_doi_hint:
+        sidecar_payload["filename_doi_hint"] = filename_doi_hint
     with open(sidecar_path, "w", encoding="utf-8") as f:
         json.dump(sidecar_payload, f)
 
@@ -2009,6 +2044,49 @@ async def _api_admin_ingest_inner(
 
     payload = point_record.payload or {}
     doi = payload.get("doi")
+
+    # Stage 1.6: null-DOI uploads are quarantined rather than left
+    # in the corpus. Without a DOI the record can't be deduped, can't
+    # be re-found via /api/papers/<doi>, and can't have its PDF moved
+    # out of inbox/. Historically these accumulated as ~180 unreachable
+    # records contributed by various groups. We delete the just-created
+    # Qdrant point and move the PDF + sidecar to skipped/ so a human
+    # can decide what to do.
+    if not doi:
+        reason = (
+            "Pipeline produced a Qdrant point but no DOI was extracted. "
+            "Cannot dedupe or address without a DOI; quarantining for "
+            "manual review."
+        )
+        try:
+            qdrant.delete(
+                collection_name="papers",
+                points_selector=[point_record.id],
+                wait=True,
+            )
+        except Exception as e:
+            print(f"[WARN] Qdrant delete of null-DOI upload failed: {e}")
+        _quarantine_inbox_paper(
+            inbox_pdf,
+            sidecar_path,
+            PAPERS_SKIPPED_DIR,
+            {
+                "outcome": "doi_extraction_failed",
+                "reason": reason,
+                "log_tail": tail,
+                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "email": email,
+                "group_slug": sidecar_payload["research_group"],
+                "original_filename": filename,
+                "qdrant_point_id_deleted": point_record.id,
+            },
+        )
+        return {
+            "status": "skipped",
+            "reason": reason,
+            "log_tail": tail,
+            "quarantined_to": PAPERS_SKIPPED_DIR,
+        }
 
     # Move PDF out of inbox into the main pdf/ directory so
     # get_pdf_path can find it by DOI.

@@ -42,8 +42,10 @@ Requirements:
 
 import argparse
 import hashlib
+import html
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -108,6 +110,85 @@ class Paper:
     # Absent for normal admin-curated ingests, so untouched paths stay
     # byte-for-byte identical.
     contributor: Optional[Dict[str, str]] = None
+    # Audit fields written through to Qdrant as `_grobid_title`,
+    # `_grobid_doi`, `_ingest_source`, `_crossref_doi_rejected`,
+    # `_crossref_title_rejected`. Used by the remediation tool to
+    # detect upstream metadata splices (e.g. LIGPLOT PDF stored under
+    # a JSTOR DOI). See docs/PAPER-INGEST-AUDIT.md.
+    grobid_title: Optional[str] = None
+    grobid_doi: Optional[str] = None
+    ingest_source: str = "unknown"
+    crossref_doi_rejected: Optional[str] = None
+    crossref_title_rejected: Optional[str] = None
+
+
+# Common short English words. Removed from titles before similarity
+# scoring so generic terms don't artificially inflate Jaccard overlap.
+_TITLE_STOPWORDS = frozenset({
+    "the", "and", "for", "with", "from", "into", "via", "using",
+    "this", "that", "were", "was", "are", "but", "not", "new",
+    "one", "two", "three",
+})
+
+# Markup we strip from titles before tokenising. Crossref returns
+# JATS-flavoured HTML in many records (<i>, <b>, <sup>, <sub>,
+# <mml:math>...), which pollutes SPECTER embeddings and looks broken
+# in the UI; for similarity it also distorts the token set.
+_TITLE_MARKUP_RE = re.compile(r"<[^>]+>")
+_TITLE_ENTITY_RE = re.compile(r"&[#a-zA-Z0-9]+;")
+_TITLE_NONALNUM_RE = re.compile(r"[^a-z0-9 ]+")
+
+
+def _normalize_title_tokens(s: str) -> set:
+    """Tokenise a title for similarity scoring.
+
+    Strips HTML/JATS markup and HTML entities, lowercases, drops
+    non-alphanumeric characters, splits on whitespace, removes
+    short tokens (<3 chars) and a small English-stopword set.
+    Pure function, no I/O.
+    """
+    if not s:
+        return set()
+    s = _TITLE_MARKUP_RE.sub(" ", s)
+    s = _TITLE_ENTITY_RE.sub(" ", s)
+    s = _TITLE_NONALNUM_RE.sub(" ", s.lower())
+    return {w for w in s.split()
+            if len(w) >= 3 and w not in _TITLE_STOPWORDS}
+
+
+def _strip_markup(s: str) -> str:
+    """Strip JATS/HTML tags and HTML entities from a string while
+    preserving case, punctuation, and word boundaries.
+
+    Crossref returns JATS-flavoured HTML in many records (`<b>`,
+    `<i>`, `<sup>`, `<sub>`, `<mml:math>...`), which pollutes SPECTER
+    embeddings and looks broken in the UI. Returns the original
+    string when already clean; idempotent on safe input.
+    """
+    if not s:
+        return s
+    out = _TITLE_MARKUP_RE.sub("", s)
+    out = html.unescape(out)
+    # Collapse whitespace introduced by stripped block-level tags.
+    out = re.sub(r"\s+", " ", out).strip()
+    return out
+
+
+def _title_similarity(a: str, b: str) -> float:
+    """Token-set Jaccard similarity between two titles.
+
+    Used by the pipeline to decide whether a Crossref enrichment is
+    describing the same paper as the GROBID-parsed header. Returns
+    0.0 when either side is empty after tokenisation. Threshold for
+    the ingest-time guard is 0.3 (calibrated 2026-05-12 against
+    known-bad records vs random samples; see
+    docs/PAPER-INGEST-AUDIT.md).
+    """
+    ta = _normalize_title_tokens(a)
+    tb = _normalize_title_tokens(b)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
 
 
 def _load_contributor_sidecar(pdf_path: str) -> Optional[Dict[str, str]]:
@@ -132,6 +213,12 @@ def _load_contributor_sidecar(pdf_path: str) -> Optional[Dict[str, str]]:
         "group_slug": data.get("research_group"),
         "group_display_name": data.get("research_group_display_name"),
         "upload_time": data.get("uploaded_at") or data.get("upload_time"),
+        # Stage 1.5: when the uploader's original filename was
+        # `doi_<doi>.pdf`, the admin/ingest endpoint extracts the DOI
+        # and stashes it here so the pipeline can use it as a hint
+        # before falling back to GROBID's DOI extraction (which is
+        # vulnerable to picking up citation DOIs).
+        "filename_doi_hint": data.get("filename_doi_hint"),
     }
 
 
@@ -527,10 +614,20 @@ class PaperPipeline:
                 self._log_skipped_pdf(pdf_path, f"Invalid PDF: {error_msg}")
                 return None
 
-            # Extract DOI from filename first (most reliable source)
+            # Extract DOI from filename first (most reliable source).
+            # Stage 1.5: uploads land as inbox/<uuid>.pdf so this
+            # returns None for them; we fall back to a
+            # `filename_doi_hint` written by the admin/ingest endpoint
+            # when the user's original filename followed the doi_*.pdf
+            # convention. Lifting the sidecar load up-front lets that
+            # hint feed into the filename-DOI override below.
+            contributor_sidecar = _load_contributor_sidecar(pdf_path)
             filename_doi = self._extract_doi_from_filename(filename)
             if filename_doi:
                 print(f"  [INFO] DOI from filename: {filename_doi}")
+            elif contributor_sidecar and contributor_sidecar.get("filename_doi_hint"):
+                filename_doi = contributor_sidecar["filename_doi_hint"]
+                print(f"  [INFO] DOI from uploader filename hint: {filename_doi}")
 
             # Step 1: Parse with GROBID
             print("  [1/4] Parsing with GROBID...")
@@ -560,6 +657,13 @@ class PaperPipeline:
                 print("  [ERROR] GROBID parsing failed")
                 return None
             print(f"        Title: {grobid_data.get('title', 'Unknown')[:50]}...")
+
+            # Snapshot the GROBID-extracted title/DOI before any downstream
+            # mutation (filename override, Crossref merge). These become
+            # audit fields on the Qdrant payload so the remediation tool
+            # can spot upstream metadata splices.
+            grobid_title_raw = (grobid_data.get("title") or "").strip() or None
+            grobid_doi_raw = grobid_data.get("doi")
 
             # Use filename DOI as authoritative source if available
             # GROBID can mistakenly extract DOIs from citations instead of the paper itself
@@ -618,15 +722,26 @@ class PaperPipeline:
                 print(f"  [SKIP] Sparse metadata + short title: '{title}'")
                 return None
 
-            # §28: pick up contributor sidecar if present. Silent no-op
-            # for non-contributor (admin/crawler) pipelines.
-            contributor = _load_contributor_sidecar(pdf_path)
+            # §28: contributor sidecar was loaded up-front (Stage 1.5)
+            # so the filename_doi_hint could feed the override branch.
+            contributor = contributor_sidecar
             if contributor and contributor.get("email"):
                 print(
                     f"  [INFO] Contributor attribution: "
                     f"{contributor.get('display_name') or contributor['email']} "
                     f"({contributor.get('group_slug') or 'unknown group'})"
                 )
+
+            # Classify the ingest path so audit/remediation can split
+            # by source. A contributor sidecar means this came through
+            # the upload endpoint; a `doi_*.pdf` filename means the
+            # crawler (or a manual DOI-named drop) placed it.
+            if contributor and contributor.get("email"):
+                ingest_source = "upload"
+            elif filename_doi:
+                ingest_source = "crawler"
+            else:
+                ingest_source = "unknown"
 
             paper = Paper(
                 id=paper_id,
@@ -640,6 +755,13 @@ class PaperPipeline:
                 pdf_path=pdf_path,
                 processed_at=datetime.now().isoformat(),
                 contributor=contributor,
+                grobid_title=grobid_title_raw,
+                grobid_doi=grobid_doi_raw,
+                ingest_source=ingest_source,
+                # _merge_metadata stashes the rejected Crossref evidence
+                # on the dict when the title-similarity guard fires.
+                crossref_doi_rejected=grobid_data.get("_crossref_doi_rejected"),
+                crossref_title_rejected=grobid_data.get("_crossref_title_rejected"),
             )
 
             # Step 4: Store in databases
@@ -898,16 +1020,55 @@ class PaperPipeline:
 
         return True, ""
 
+    # Token-set Jaccard threshold below which we reject a Crossref
+    # enrichment as describing a different paper than GROBID parsed.
+    # Calibrated 2026-05-12 against 5 known-bad records (all 0.000) vs
+    # 18 random samples (0.818-1.000); see docs/PAPER-INGEST-AUDIT.md.
+    _MERGE_TITLE_SIM_THRESHOLD = 0.3
+
     def _merge_metadata(self, grobid: Dict, crossref: Dict) -> Dict:
-        """Merge CrossRef metadata into GROBID data"""
-        if crossref.get("title"):
-            title = crossref["title"]
-            if isinstance(title, list):
-                title = title[0]
-            grobid["title"] = title
+        """Merge CrossRef metadata into GROBID data, guarded by a
+        title-similarity check.
+
+        If GROBID parsed a real title from the PDF and Crossref came
+        back with a title that doesn't match (e.g. GROBID extracted a
+        citation DOI by mistake, or Sci-Hub returned the wrong PDF),
+        we keep GROBID metadata and drop the Crossref enrichment. The
+        rejected Crossref title is preserved on the payload for the
+        remediation tool to surface.
+        """
+        crossref_title = crossref.get("title")
+        if isinstance(crossref_title, list):
+            crossref_title = crossref_title[0] if crossref_title else ""
+        grobid_title = grobid.get("title") or ""
+
+        if grobid_title and crossref_title:
+            sim = _title_similarity(grobid_title, crossref_title)
+            if sim < self._MERGE_TITLE_SIM_THRESHOLD:
+                print(
+                    f"  [WARN] GROBID/Crossref title mismatch "
+                    f"(sim={sim:.2f} < {self._MERGE_TITLE_SIM_THRESHOLD}); "
+                    f"keeping GROBID metadata, dropping Crossref enrichment"
+                )
+                print(f"           grobid : {grobid_title[:90]}")
+                print(f"           crossref: {crossref_title[:90]}")
+                # Preserve the rejected Crossref evidence so the
+                # remediation tool can flag this paper later. Audit
+                # fields are written through to the Qdrant payload by
+                # _store_vectors (Stage 1.4).
+                grobid["_crossref_doi_rejected"] = grobid.get("doi")
+                grobid["_crossref_title_rejected"] = crossref_title
+                return grobid
+
+        if crossref_title:
+            # Strip JATS/HTML so <b>...</b>, <mml:math>, &amp;, etc.
+            # don't reach Qdrant / the UI. The pre-strip raw value is
+            # already captured in any rejection branch above; here we
+            # only run when the titles match, so stripping is safe.
+            grobid["title"] = _strip_markup(crossref_title)
 
         if crossref.get("container-title"):
-            grobid["journal"] = crossref["container-title"][0]
+            grobid["journal"] = _strip_markup(crossref["container-title"][0])
 
         if crossref.get("published-print", {}).get("date-parts"):
             try:
@@ -964,6 +1125,22 @@ class PaperPipeline:
         }
         if merged_contributors:
             payload["contributors"] = merged_contributors
+        # Audit fields (Stage 1.4) — only write when set, so we don't
+        # litter the payload with explicit nulls. Leading-underscore
+        # convention signals "internal, set by the pipeline, not for
+        # direct user-facing display".
+        if paper.grobid_title:
+            payload["_grobid_title"] = paper.grobid_title
+        if paper.grobid_doi:
+            payload["_grobid_doi"] = paper.grobid_doi
+        if paper.ingest_source:
+            payload["_ingest_source"] = paper.ingest_source
+        if paper.processed_at:
+            payload["_ingest_at"] = paper.processed_at
+        if paper.crossref_doi_rejected:
+            payload["_crossref_doi_rejected"] = paper.crossref_doi_rejected
+        if paper.crossref_title_rejected:
+            payload["_crossref_title_rejected"] = paper.crossref_title_rejected
         # §15 clustering fields — only write back if they were already set
         # by the nightly embedding map; otherwise leave absent so we don't
         # pre-populate nonsense.
