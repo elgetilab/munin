@@ -290,6 +290,13 @@ deploy_pipeline() {
         $PIPELINE_DIR/paper_pipeline.py"
     run "install -m 0755 $REPO_DIR/scripts/pipeline/paper_cleanup.py \
         $PIPELINE_DIR/paper_cleanup.py"
+    # Phase C migration script: one-shot tool that moves entries from
+    # legacy quarantine dirs (skipped/, pdf/skipped/, pdf/failed/)
+    # into the new pdf/quarantine/ layout. Idempotent; defaults to
+    # --dry-run. Run once after deploying Phase B; safe to leave on
+    # disk afterwards (re-runs are no-ops).
+    run "install -m 0755 $REPO_DIR/scripts/pipeline/migrate_quarantine_layout.py \
+        $PIPELINE_DIR/migrate_quarantine_layout.py"
     # seed_processed_markers.py and reattribute_unknown.py were
     # retired in the 2026-05-13 pipeline consolidation (see
     # docs/PIPELINE-CONSOLIDATION-PLAN.md). The first was a one-shot
@@ -300,11 +307,14 @@ deploy_pipeline() {
 
     # PDF drop + inbox + quarantine directories. The watcher daemon
     # scans /opt/munin/data/papers/pdf/*.pdf; /api/admin/ingest writes
-    # to pdf/inbox/ and moves to pdf/{doi_hash}.pdf (same dir the
-    # watcher scans, so we also need the processed-markers dir).
+    # to pdf/inbox/ and the pipeline's _dispose_post_pipeline moves
+    # PDFs to pdf/doi_{hash}.pdf (live) or pdf/quarantine/ (failed).
+    # Phase B+C of the 2026-05-13 consolidation merged the legacy
+    # skipped/+failed/ trees into one quarantine/ — fresh deploys no
+    # longer create the legacy dirs. Existing clusters keep them
+    # until the operator rmdirs them post-migration.
     run "install -d -m 0755 $MUNIN_DATA/papers/pdf/inbox"
-    run "install -d -m 0755 $MUNIN_DATA/papers/pdf/skipped"
-    run "install -d -m 0755 $MUNIN_DATA/papers/pdf/failed"
+    run "install -d -m 0755 $MUNIN_DATA/papers/pdf/quarantine"
     run "install -d -m 0755 $MUNIN_DATA/papers/processed"
     run "install -d -m 0755 $(dirname $PIPELINE_VENV)"
 

@@ -323,16 +323,32 @@ Estimated effort: 3-4 hours.
 Estimated risk: medium. Touches both ingest paths; needs care to
 preserve existing behavior on success.
 
-### Phase C — Migration of `skipped/` + `failed/` → `quarantine/`
+### Phase C — Migrate legacy quarantine directories → `quarantine/`
 
-One-shot script (`scripts/pipeline/migrate_quarantine_layout.py`,
-deleted after the migration runs). Idempotent.
+One-shot script (`scripts/pipeline/migrate_quarantine_layout.py`).
+Idempotent; default mode is `--dry-run`, `--commit` does the move.
 
-- Walk current `skipped/` and `failed/`.
-- For each PDF: parse the existing `skip_info.json` (already there)
-  to reconstruct the equivalent `*.state.json`.
-- Move PDF + sidecar into new `quarantine/`.
-- Remove the empty `skipped/` and `failed/` directories at the end.
+Inventory found **three** legacy sources, not the two originally
+named in this plan:
+
+1. `papers/skipped/` — pipeline-side `_log_skipped_pdf` JSON
+   records (no PDFs here; the referenced PDFs sit in `/papers/pdf/`
+   and the watcher has been re-trying them every poll). 1736 entries
+   on cluster as of 2026-05-13.
+2. `papers/pdf/skipped/` — admin/ingest quality / null-DOI
+   quarantine. PDF + contributor + skip_info triples. ~1912 entries.
+3. `papers/pdf/failed/` — admin/ingest crash/timeout quarantine.
+   Same triple format. ~2661 entries.
+
+Total: ~6309 PDFs migrated to `quarantine/` in one run. The state
+sidecar's `first_seen_at` is set to the legacy quarantine timestamp
+(from `skipped_at` / `timestamp` in the source JSON) so the audit
+trail stays chronologically accurate.
+
+After a successful `--commit` run, the operator manually removes
+the three now-empty source directories (the script prints the
+`rmdir` commands but doesn't run them — defence in depth in case
+anything was missed).
 
 Estimated effort: 2 hours.
 

@@ -41,9 +41,10 @@ upload.muninai.org (tusd) → frontend/upload/hook_service → POST /api/admin/i
 subprocess: paper_pipeline.py --single inbox/<uuid>.pdf
    ↓
 on success: PDF moved to /papers/pdf/doi_<doi>.pdf, processed marker written
-on quality fail: PDF + sidecar moved to /papers/pdf/skipped/
-on pipeline crash: PDF + sidecar moved to /papers/pdf/failed/
-on null-DOI quarantine: PDF + sidecar to /papers/pdf/skipped/ (Stage 1.6 of 2026-05-12 audit)
+on quality fail / pipeline crash / null-DOI:
+       PDF moved to /papers/pdf/quarantine/ + *.state.json sidecar
+       describing what went wrong (Phase B of 2026-05-13 consolidation;
+       legacy skipped/ and failed/ dirs migrated by Phase C)
 ```
 
 ### Path B — Crawler / operator drop (watcher)
@@ -53,16 +54,15 @@ paper_crawler.py crawl  →  /opt/munin/data/papers/pdf/doi_<doi>.pdf
 (or operator manually drops a doi_*.pdf file in the same dir)
    ↓
 munin-paper-pipeline.service polls every 60s, runs process_pdf
-on any file without /papers/processed/<stem>.json
+on any file without /opt/munin/data/papers/processed/<stem>.json
    ↓
-on success: marker written to /papers/processed/
-on failure: no marker; file gets retried each poll  ← asymmetry vs Path A
+on success: marker written to /papers/processed/, *.state.json
+            written next to the PDF
+on failure: PDF moved to /papers/pdf/quarantine/ + *.state.json
+            (Phase B of 2026-05-13 consolidation: previously the
+            watcher would leave failed PDFs in place and retry
+            every poll; both ingest paths now quarantine symmetrically)
 ```
-
-The asymmetry between A and B (Path A quarantines failures, Path B
-just retries) is one of the things the consolidation plan
-([`../../docs/PIPELINE-CONSOLIDATION-PLAN.md`](../../docs/PIPELINE-CONSOLIDATION-PLAN.md))
-is going to fix.
 
 ## Services and timers running automatically
 
@@ -258,16 +258,24 @@ also get filtered out by title-pattern matching in `process_pdf()`.
 /opt/munin/data/papers/
 ├── pdf/                                live corpus, ~67k PDFs
 │   ├── doi_*.pdf
+│   ├── doi_*.state.json                Phase B state sidecar (live)
 │   ├── inbox/                          admin/ingest staging
 │   │   └── <uuid>.pdf + <uuid>.contributor.json
-│   ├── skipped/                        quality-filter rejects + null-DOI quarantine
-│   └── failed/                         pipeline crash/timeout quarantine
-├── processed/                          watcher "already seen" markers (1 JSON per PDF)
-├── logs/                               per-skip JSON logs
+│   └── quarantine/                     Phase B unified quarantine
+│       ├── <doi_*|uuid>.pdf
+│       ├── <doi_*|uuid>.state.json     quarantine reasons + history
+│       └── <doi_*|uuid>.contributor.json   (when from upload path)
+├── processed/                          watcher "already seen" markers
+├── logs/                               per-skip JSON logs (legacy)
 ├── blocklist.txt                       DOIs to refuse on future crawl
 ├── failed_downloads.txt                DOIs Sci-Hub gave up on
 └── crawler_queue.db                    SQLite, the crawler's pending list
 ```
+
+The legacy `skipped/` and `failed/` directories were merged into
+`pdf/quarantine/` by `scripts/pipeline/migrate_quarantine_layout.py`
+on 2026-05-13 (Phase C of the consolidation). New ingests go straight
+into the new layout via `_dispose_post_pipeline`.
 
 `/opt/munin/knowledge/` holds the §15 embedding-map output and the
 notion-sync state.
