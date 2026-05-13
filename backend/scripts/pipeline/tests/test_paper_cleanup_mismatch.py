@@ -44,13 +44,19 @@ def _check(name: str, ok: bool, detail: str = "") -> bool:
 # must downgrade to medium.
 # ---------------------------------------------------------------------------
 
+# _score_severity returns (severity, downgrade_reason). Helper
+# that asserts only severity when the reason isn't part of the test.
+def _sev(*args, **kwargs) -> str:
+    return pc._score_severity(*args, **kwargs)[0]
+
+
 def test_severity_ligplot_real_mismatch_stays_high() -> bool:
     """LIGPLOT had 8 GROBID tokens against Bar-Hillel's 9 stored. The
     8-token side is well above the 5-token threshold so this remains
     high severity — the production guard would auto-queue it."""
     return _check(
         "severity: LIGPLOT-style (jaccard=0, 8 grobid tokens) -> high",
-        pc._score_severity(0.0, False, False, 8) == "high",
+        _sev(0.0, False, False, 8) == "high",
     )
 
 
@@ -60,9 +66,11 @@ def test_severity_running_header_downgrades_to_medium() -> bool:
     of the real article title. The header heuristic must drop this
     from high to medium so it isn't auto-queued at the default
     threshold."""
+    sev, reason = pc._score_severity(0.0, False, False, 4)
     return _check(
-        "severity: running-header (jaccard=0, 4 grobid tokens) -> medium",
-        pc._score_severity(0.0, False, False, 4) == "medium",
+        "severity: running-header (jaccard=0, 4 grobid tokens) -> medium + reason=few_tokens",
+        sev == "medium" and reason == "few_tokens",
+        f"got ({sev}, {reason!r})",
     )
 
 
@@ -70,14 +78,14 @@ def test_severity_exactly_5_tokens_promotes_to_high() -> bool:
     """Boundary at >=5 tokens — fewer downgrades, 5+ promotes."""
     return _check(
         "severity: 5 grobid tokens at threshold -> high",
-        pc._score_severity(0.0, False, False, 5) == "high",
+        _sev(0.0, False, False, 5) == "high",
     )
 
 
 def test_severity_clean_match() -> bool:
     return _check(
         "severity: jaccard=1.0 -> clean",
-        pc._score_severity(1.0, False, False, 10) == "clean",
+        _sev(1.0, False, False, 10) == "clean",
     )
 
 
@@ -86,14 +94,14 @@ def test_severity_ocr_drift_clean() -> bool:
     not flag a false positive for the user to review."""
     return _check(
         "severity: OCR-drift (jaccard=0.818) -> clean",
-        pc._score_severity(0.818, False, False, 10) == "clean",
+        _sev(0.818, False, False, 10) == "clean",
     )
 
 
 def test_severity_medium_band() -> bool:
     return _check(
         "severity: jaccard in [0.3, 0.5) -> medium",
-        pc._score_severity(0.4, False, False, 10) == "medium",
+        _sev(0.4, False, False, 10) == "medium",
     )
 
 
@@ -103,15 +111,15 @@ def test_severity_html_only_low() -> bool:
     backfilled `_strip_markup` to clean up over time."""
     return _check(
         "severity: clean similarity + has_html -> low",
-        pc._score_severity(0.95, True, False, 10) == "low",
+        _sev(0.95, True, False, 10) == "low",
     )
 
 
 def test_severity_grobid_failed_is_unparseable() -> bool:
     return _check(
         "severity: GROBID failed -> unparseable",
-        pc._score_severity(None, False, True, 0) == "unparseable"
-        and pc._score_severity(0.0, False, True, 8) == "unparseable",
+        _sev(None, False, True, 0) == "unparseable"
+        and _sev(0.0, False, True, 8) == "unparseable",
     )
 
 
@@ -120,7 +128,138 @@ def test_severity_none_jaccard_is_unparseable() -> bool:
     text was empty), we bucket as unparseable rather than guessing."""
     return _check(
         "severity: jaccard=None -> unparseable",
-        pc._score_severity(None, False, False, 0) == "unparseable",
+        _sev(None, False, False, 0) == "unparseable",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Heuristic downgrades layered on the high branch (2026-05-13 refinement).
+# ---------------------------------------------------------------------------
+
+def test_severity_doi_match_downgrades() -> bool:
+    """Real-world case (Nature s41560-024-01518-6): GROBID extracted
+    the same DOI that's already stored, but the title looks different
+    because the PDF is the Research Briefing variant. DOI match
+    confirms the record's claimed identity is correct."""
+    sev, reason = pc._score_severity(
+        0.211, False, False, 12, doi_matches_grobid=True
+    )
+    return _check(
+        "severity: doi_matches_grobid -> medium + reason=doi_match",
+        sev == "medium" and reason == "doi_match",
+        f"got ({sev}, {reason!r})",
+    )
+
+
+def test_severity_few_tokens_takes_precedence_over_doi_match() -> bool:
+    """When both heuristics could fire, ``few_tokens`` (the cheapest
+    check) is the reported reason — easier to diagnose."""
+    sev, reason = pc._score_severity(
+        0.0, False, False, 2, doi_matches_grobid=True
+    )
+    return _check(
+        "severity: few_tokens reported when both fire",
+        sev == "medium" and reason == "few_tokens",
+        f"got ({sev}, {reason!r})",
+    )
+
+
+def test_severity_masthead_downgrades() -> bool:
+    """The S0040-4039 case from the first crawler pass: GROBID
+    extracted '0040-4039/88 $3.00 ... Pergamon Press plc 2-MERCAPTO...'
+    — masthead + real title concatenated. Jaccard is diluted by the
+    masthead tokens; without this heuristic the record would auto-
+    queue at the default high threshold."""
+    sev, reason = pc._score_severity(
+        0.263, False, False, 14, grobid_title_has_masthead=True
+    )
+    return _check(
+        "severity: masthead -> medium + reason=masthead",
+        sev == "medium" and reason == "masthead",
+        f"got ({sev}, {reason!r})",
+    )
+
+
+def test_severity_high_still_fires_for_real_mismatch_without_heuristic() -> bool:
+    """Sanity check: a LIGPLOT-style real mismatch (8 GROBID tokens,
+    no DOI match, no masthead markers) still reaches `high` so the
+    queue auto-action remains useful."""
+    sev, reason = pc._score_severity(
+        0.0, False, False, 8,
+        doi_matches_grobid=False,
+        grobid_title_has_masthead=False,
+    )
+    return _check(
+        "severity: real mismatch still scores high with no heuristic fire",
+        sev == "high" and reason == "",
+        f"got ({sev}, {reason!r})",
+    )
+
+
+# ---------------------------------------------------------------------------
+# _looks_like_masthead — pattern detector for GROBID-extracted noise.
+# ---------------------------------------------------------------------------
+
+def test_masthead_issn_year_prefix() -> bool:
+    return _check(
+        "masthead: ISSN-with-year prefix (0040-4039/88)",
+        pc._looks_like_masthead(
+            "0040-4039/88 $3.00 + .OO Printed in Great Britain Pergamon Press plc"
+        ) is True,
+    )
+
+
+def test_masthead_letters_to_nature() -> bool:
+    return _check(
+        "masthead: 'letters to nature' (the s41560 case from audit)",
+        pc._looks_like_masthead("letters to nature 704") is True
+        and pc._looks_like_masthead("Letters to Nature") is True,
+    )
+
+
+def test_masthead_publishers_and_research_article() -> bool:
+    return _check(
+        "masthead: publisher names + 'Research Article'",
+        pc._looks_like_masthead("Wiley-VCH RESEARCH ARTICLE") is True
+        and pc._looks_like_masthead("Royal Society of Chemistry") is True
+        and pc._looks_like_masthead("View Article Online published by RSC") is True,
+    )
+
+
+def test_masthead_volume_page_citation() -> bool:
+    return _check(
+        "masthead: volume/page citation patterns",
+        pc._looks_like_masthead("Biochemistry, Vol. 25, pp. 7470-7476") is True,
+    )
+
+
+def test_masthead_clean_title_passes() -> bool:
+    """Real article titles must NOT trigger the heuristic."""
+    return _check(
+        "masthead: clean titles return False",
+        pc._looks_like_masthead(
+            "LIGPLOT: a program to generate schematic diagrams of protein-ligand interactions"
+        ) is False
+        and pc._looks_like_masthead("How to measure and evaluate binding affinities") is False,
+    )
+
+
+def test_masthead_empty_input() -> bool:
+    return _check(
+        "masthead: empty / None safe",
+        pc._looks_like_masthead("") is False
+        and pc._looks_like_masthead(None) is False,
+    )
+
+
+def test_masthead_only_scans_prefix() -> bool:
+    """Masthead-like text deep inside a long real title (>120 chars in)
+    shouldn't trigger the heuristic — only the leading region is
+    scanned."""
+    long_clean = "x" * 130 + " Printed in Great Britain"
+    return _check(
+        "masthead: deep matches past first ~120 chars are ignored",
+        pc._looks_like_masthead(long_clean) is False,
     )
 
 
@@ -216,6 +355,17 @@ TESTS = [
     test_severity_html_only_low,
     test_severity_grobid_failed_is_unparseable,
     test_severity_none_jaccard_is_unparseable,
+    test_severity_doi_match_downgrades,
+    test_severity_few_tokens_takes_precedence_over_doi_match,
+    test_severity_masthead_downgrades,
+    test_severity_high_still_fires_for_real_mismatch_without_heuristic,
+    test_masthead_issn_year_prefix,
+    test_masthead_letters_to_nature,
+    test_masthead_publishers_and_research_article,
+    test_masthead_volume_page_citation,
+    test_masthead_clean_title_passes,
+    test_masthead_empty_input,
+    test_masthead_only_scans_prefix,
     test_container_path_mapped_to_host_when_file_exists,
     test_container_path_returns_none_when_file_missing,
     test_container_path_empty_input_returns_none,

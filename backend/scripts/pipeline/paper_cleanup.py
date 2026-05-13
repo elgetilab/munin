@@ -47,6 +47,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -2003,37 +2004,97 @@ def _grobid_header_title(pdf_path: Path) -> Tuple[Optional[str], Optional[str], 
     return title, doi, None
 
 
+# Markers that suggest GROBID extracted journal masthead/cover-page text
+# along with (or instead of) the real article title. Seen 2026-05-13
+# in the first upload-source remediation pass: GROBID titles like
+# "0040-4039/88 $3.00 + .OO Printed in Great Britain Peqamon Press plc
+# 2-MERCAPTOBENZOTHlAZOLE..." score high-severity even though the real
+# title IS embedded in there, just diluted by masthead noise.
+_MASTHEAD_PATTERNS = re.compile(
+    r"(?:"
+    r"\b\d{4}\s*-\s*\d{4}\s*/\s*\d{2,4}\b"             # ISSN-like + year (0040-4039/88)
+    r"|\bPergamon\b|\bWiley[ -]VCH\b|\bElsevier\b"
+    r"|\bSpringer\b|\bACS Publications\b"
+    r"|\bRoyal Society of Chemistry\b|\bRSC\b"
+    r"|\bAmerican Chemical Society\b"
+    r"|\bPrinted in\b|\bPublished by\b"
+    r"|\bResearch Article\b|\bResearch Briefing\b"
+    r"|\bLetters? to [Nn]ature\b"
+    r"|\bRESEARCH (?:ARTICLE|BRIEFING|REPORTS?)\b"
+    r"|\bVol\.?\s*\d+\b|\bpp\.?\s*\d+\b"
+    r"|\bdownloaded by\b|\bView Article Online\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_masthead(title: Optional[str]) -> bool:
+    """True when the GROBID title contains journal-masthead markers.
+
+    Used as a severity-downgrade signal: if GROBID extracted masthead
+    along with the real title, the low-jaccard score is misleading and
+    the record shouldn't auto-queue at the default high threshold.
+    Only the first ~120 chars are scanned (mastheads live at the start).
+    """
+    if not title:
+        return False
+    return bool(_MASTHEAD_PATTERNS.search(title[:120]))
+
+
 def _score_severity(
     jaccard: Optional[float],
     has_html: bool,
     grobid_failed: bool,
     grobid_token_count: int = 0,
-) -> str:
+    doi_matches_grobid: bool = False,
+    grobid_title_has_masthead: bool = False,
+) -> Tuple[str, str]:
     """Bucket a record by likely-mismatch severity.
+
+    Returns `(severity, downgrade_reason)`. The reason is the empty
+    string when no heuristic downgrade fired, otherwise one of
+    ``few_tokens`` / ``doi_match`` / ``masthead``.
 
     Boundaries come from the 2026-05-12 calibration: 5 known-bad all
     scored 0.000, 18 random samples all scored 0.818-1.000. The gap
-    0.05-0.7 was empty.
+    0.05-0.7 was empty. Three layered heuristics suppress false
+    positives on `high`:
 
-    Heuristic on top of jaccard: when GROBID returns a very short
-    title (<5 meaningful tokens), it's often a running header or
-    section heading rather than the real article title (seen on
-    Angewandte Chemie Communications and similar layouts). In that
-    case we downgrade `high` to `medium` so the auto-queue at the
-    default threshold doesn't act on this signal alone; the user
-    can still queue them explicitly with --severity-threshold medium.
+    - ``few_tokens``: GROBID returned <5 meaningful tokens. Common with
+      running headers on Angewandte Chemie Communications and similar
+      layouts where GROBID picks up a section heading instead of the
+      real title.
+    - ``doi_match``: GROBID extracted the same DOI that's already
+      stored. If the DOI lines up, the PDF most likely IS what the
+      record claims; the title difference is more likely a GROBID
+      extraction quirk than a true splice (e.g. Nature pairing a
+      Research Briefing PDF with the research paper's DOI).
+    - ``masthead``: GROBID title contains journal-masthead markers
+      (ISSN-like prefix, "Printed in", publisher names, etc.) — the
+      real title is buried inside concatenated masthead text and the
+      Jaccard is diluted by the noise.
+
+    In all three cases a would-be `high` is downgraded to `medium` so
+    the auto-queue at the default high threshold doesn't act on the
+    signal alone. The user can still queue them explicitly with
+    ``--severity-threshold medium``.
     """
     if grobid_failed or jaccard is None:
-        return "unparseable"
+        return "unparseable", ""
     if jaccard < MISMATCH_THRESHOLD:    # < 0.3, production guard
+        # Apply heuristics in order; first match wins as the reason.
         if grobid_token_count < 5:
-            return "medium"             # likely header-extraction issue
-        return "high"
+            return "medium", "few_tokens"
+        if doi_matches_grobid:
+            return "medium", "doi_match"
+        if grobid_title_has_masthead:
+            return "medium", "masthead"
+        return "high", ""
     if jaccard < 0.5:
-        return "medium"
+        return "medium", ""
     if has_html:
-        return "low"
-    return "clean"
+        return "low", ""
+    return "clean", ""
 
 
 def _qdrant_url(path: str) -> str:
@@ -2229,10 +2290,11 @@ def find_metadata_mismatch(
     print()
 
     report_fields = [
-        "doi", "point_id", "severity", "jaccard",
+        "doi", "point_id", "severity", "downgrade_reason", "jaccard",
         "ingest_source", "contributors_groups",
         "stored_title", "grobid_title", "grobid_doi",
-        "has_html", "crossref_doi_rejected", "pdf_path",
+        "doi_matches_grobid", "has_html", "has_masthead",
+        "crossref_doi_rejected", "pdf_path",
         "inspected_at", "queued_for_reingest",
     ]
     reingest_fields = [
@@ -2333,9 +2395,23 @@ def find_metadata_mismatch(
                 grobid_token_count = len(_normalize_title_tokens(title_for_compare))
                 print(f"        sim={jaccard:.3f}  grobid_tokens={grobid_token_count}")
 
-            severity = _score_severity(
-                jaccard, has_html, grobid_failed, grobid_token_count
+            # Heuristic signals: did GROBID extract the same DOI we
+            # already have? Does the GROBID title carry masthead text?
+            # Both downgrade a would-be `high` to `medium` so the auto-
+            # queue at the default high threshold doesn't fire on
+            # what's almost certainly a clean record with noisy title.
+            doi_matches_grobid = bool(
+                doi and grobid_doi
+                and doi.strip().lower() == grobid_doi.strip().lower()
             )
+            grobid_title_has_masthead = _looks_like_masthead(grobid_title)
+            severity, downgrade_reason = _score_severity(
+                jaccard, has_html, grobid_failed, grobid_token_count,
+                doi_matches_grobid=doi_matches_grobid,
+                grobid_title_has_masthead=grobid_title_has_masthead,
+            )
+            if downgrade_reason:
+                print(f"        [downgrade] high -> medium (reason: {downgrade_reason})")
             counts[severity] = counts.get(severity, 0) + 1
 
             # Lazy backfill — write audit fields onto the Qdrant point
@@ -2374,6 +2450,7 @@ def find_metadata_mismatch(
 
             report_writer.writerow({
                 "doi": doi, "point_id": point_id, "severity": severity,
+                "downgrade_reason": downgrade_reason,
                 "jaccard": f"{jaccard:.3f}" if jaccard is not None else "",
                 "ingest_source": ingest_source,
                 "contributors_groups": contrib_groups,
@@ -2382,7 +2459,9 @@ def find_metadata_mismatch(
                 # (clearly labelled by the source column).
                 "grobid_title": (title_for_compare or "")[:300],
                 "grobid_doi": grobid_doi or "",
+                "doi_matches_grobid": doi_matches_grobid,
                 "has_html": has_html,
+                "has_masthead": grobid_title_has_masthead,
                 "crossref_doi_rejected": payload.get("_crossref_doi_rejected") or "",
                 "pdf_path": payload.get("pdf_path") or "",
                 "inspected_at": _utcnow_iso(),
