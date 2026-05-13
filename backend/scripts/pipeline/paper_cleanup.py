@@ -2929,6 +2929,8 @@ def detect(
     min_pages: int = 3,
     max_check: int = 200,
     enrich: bool = True,
+    queue_for_reingest: bool = False,
+    reingest_log: Optional[str] = None,
 ) -> int:
     """Dispatch a detection run over one or more kinds.
 
@@ -2979,9 +2981,9 @@ def detect(
                     no_grobid=no_grobid,
                     no_backfill=no_backfill,
                     report_out=str(kind_report_path),
-                    queue_for_reingest=False,
+                    queue_for_reingest=queue_for_reingest,
                     severity_threshold=severity_threshold,
-                    reingest_log=None,
+                    reingest_log=reingest_log,
                     dry_run=dry_run,
                 )
                 # Auto-quarantine post-pass: read the CSV, quarantine
@@ -3183,6 +3185,248 @@ def _deprecation_notice(old: str, new: str) -> None:
     print(f"             a future commit. See INGEST.md.\n", flush=True)
 
 
+# ==============================================================================
+# Interactive review (Phase E of 2026-05-13 consolidation)
+# ==============================================================================
+# Operator walks records in pdf/quarantine/ and decides per-record
+# what to do. Decisions append a history entry to the state sidecar.
+# The review tool deliberately stays manual (and so does the
+# reingest-queue path); auto-acting on this queue would defeat the
+# point of having a human in the loop.
+
+REVIEW_HELP = """
+  k  keep        Move PDF back to /papers/pdf/ + reset state; the
+                 watcher will re-ingest it. Hardened pipeline guards
+                 may re-quarantine if the underlying issue persists.
+  r  reject      Mark as rejected. PDF stays in quarantine/; state
+                 sidecar updated. Future detect runs skip this record.
+  s  skip        Defer — leave state unchanged, advance to the next.
+  o  open        Open the PDF with xdg-open (best-effort).
+  d  details     Print the full state sidecar for this record.
+  ?  help        Print this menu.
+  q  quit        Stop the review session.
+"""
+
+
+def _read_state_sidecars_in_quarantine() -> List[Tuple[Path, Dict]]:
+    """Walk pdf/quarantine/, return (state_sidecar_path, parsed_dict)
+    for every record whose state is "quarantine". Rejected records are
+    skipped — they've already been triaged. Sorted newest-first by
+    last_modified_at."""
+    quar = PDF_DIR / "quarantine"
+    if not quar.is_dir():
+        return []
+    entries: List[Tuple[Path, Dict]] = []
+    for sc in quar.glob("*.state.json"):
+        try:
+            with open(sc, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if data.get("state") != "quarantine":
+            continue
+        entries.append((sc, data))
+    entries.sort(
+        key=lambda e: e[1].get("last_modified_at") or "",
+        reverse=True,
+    )
+    return entries
+
+
+def _show_record_summary(idx: int, total: int, sc_path: Path, data: Dict) -> None:
+    """Print a compact summary the operator can scan in 2 seconds."""
+    pdf = sc_path.with_suffix("").with_suffix(".pdf")
+    reasons = data.get("quarantine_reasons") or []
+    contributor = data.get("contributor") or {}
+    audit = data.get("audit_findings") or {}
+    print()
+    print(f"[{idx}/{total}] doi={data.get('doi') or '<none>'}  "
+          f"state={data.get('state')}  ingest={data.get('ingest_path')}")
+    print(f"  reasons:  {', '.join(reasons) or '(none)'}")
+    print(f"  first_seen: {data.get('first_seen_at')}")
+    if contributor.get("email") or contributor.get("contributor_email"):
+        email = contributor.get("email") or contributor.get("contributor_email")
+        group = contributor.get("group_slug") or contributor.get("research_group")
+        print(f"  uploader: {email}  group={group}")
+    if audit:
+        if audit.get("jaccard"):
+            print(f"  jaccard: {audit['jaccard']}")
+        if audit.get("grobid_title"):
+            print(f"  grobid:  {(audit['grobid_title'] or '')[:90]}")
+        if audit.get("downgrade_reason"):
+            print(f"  downgrade: {audit['downgrade_reason']}")
+    print(f"  pdf:      {pdf}")
+
+
+def _append_history(data: Dict, state: str, via: str, reason: str) -> Dict:
+    """Return a new sidecar dict with one history entry appended."""
+    history = list(data.get("history") or [])
+    history.append({
+        "at": _utcnow_iso(),
+        "state": state,
+        "via": via,
+        "reason": reason,
+    })
+    return {
+        **data,
+        "state": state,
+        "last_modified_at": _utcnow_iso(),
+        "history": history,
+    }
+
+
+def _act_keep(sc_path: Path, data: Dict, dry_run: bool) -> str:
+    """Move PDF back to /papers/pdf/, drop state sidecar + watcher
+    marker so the next watcher pass re-ingests it through the
+    hardened pipeline.
+
+    If the pipeline re-quarantines (the original problem persists),
+    the operator will see the new record on the next review pass.
+    """
+    pdf = sc_path.with_suffix("").with_suffix(".pdf")
+    if not pdf.is_file():
+        return f"PDF missing at {pdf}; can't keep"
+    dst = PDF_DIR / pdf.name
+    if dst.exists():
+        return f"destination {dst} already exists; aborting keep"
+    if dry_run:
+        return f"[DRY-RUN] would move {pdf} -> {dst} and reset state"
+    try:
+        shutil.move(str(pdf), str(dst))
+    except OSError as e:
+        return f"move failed: {e}"
+    # Move contributor sidecar along if present.
+    contrib_src = sc_path.with_name(f"{sc_path.stem.removesuffix('.state')}.contributor.json")
+    if contrib_src.is_file():
+        try:
+            shutil.move(str(contrib_src), str(dst.with_name(f"{dst.stem}.contributor.json")))
+        except OSError:
+            pass
+    # Drop the state sidecar so the pipeline produces a fresh one on
+    # re-ingest. Also drop the watcher's processed marker so the
+    # watcher actually picks the file up.
+    try:
+        sc_path.unlink()
+    except OSError:
+        pass
+    marker = PROCESSED_DIR / f"{dst.stem}.json"
+    if marker.is_file():
+        try:
+            marker.unlink()
+        except OSError:
+            pass
+    return "kept; watcher will re-ingest on next poll"
+
+
+def _act_reject(sc_path: Path, data: Dict, dry_run: bool) -> str:
+    """Mark the record as rejected. PDF stays in quarantine/."""
+    if dry_run:
+        return "[DRY-RUN] would set state=rejected and append history"
+    new_data = _append_history(data, "rejected", "review", "operator_rejected")
+    try:
+        with open(sc_path, "w", encoding="utf-8") as f:
+            json.dump(new_data, f, indent=2)
+    except OSError as e:
+        return f"sidecar write failed: {e}"
+    return "rejected; future detect runs will skip this record"
+
+
+def _act_open(sc_path: Path) -> str:
+    pdf = sc_path.with_suffix("").with_suffix(".pdf")
+    if not pdf.is_file():
+        return f"PDF missing at {pdf}"
+    try:
+        subprocess.Popen(
+            ["xdg-open", str(pdf)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        return f"opened {pdf}"
+    except FileNotFoundError:
+        return f"xdg-open not available; PDF is at {pdf}"
+
+
+def review(
+    limit: Optional[int] = None,
+    dry_run: bool = False,
+    non_interactive: bool = False,
+    prompt_fn=None,
+) -> int:
+    """Walk records in pdf/quarantine/ with keep/reject/skip
+    decisions per record. Decisions append a history entry to the
+    state sidecar.
+
+    ``prompt_fn`` is the single-char input function; defaults to a
+    wrapper around the builtin ``input``. Tests pass a stub so the
+    loop is driveable without a TTY.
+    """
+    entries = _read_state_sidecars_in_quarantine()
+    if limit is not None:
+        entries = entries[:limit]
+    if not entries:
+        print(f"No records in {PDF_DIR / 'quarantine'} with state='quarantine'.")
+        return 0
+
+    print(f"=== review ===")
+    print(f"  quarantine dir : {PDF_DIR / 'quarantine'}")
+    print(f"  records        : {len(entries)}")
+    print(f"  dry run        : {dry_run}")
+    if non_interactive:
+        print()
+        for i, (sc, data) in enumerate(entries, 1):
+            _show_record_summary(i, len(entries), sc, data)
+        return 0
+
+    if prompt_fn is None:
+        def prompt_fn(prompt: str) -> str:
+            try:
+                return input(prompt).strip().lower()
+            except EOFError:
+                return "q"
+
+    print(REVIEW_HELP)
+
+    summary = {"kept": 0, "rejected": 0, "skipped": 0}
+    for i, (sc, data) in enumerate(entries, 1):
+        _show_record_summary(i, len(entries), sc, data)
+        while True:
+            choice = prompt_fn("  [k]eep [r]eject [s]kip [o]pen [d]etails [?]help [q]uit > ")
+            if choice in ("q", "quit"):
+                print(f"\n[done] kept={summary['kept']} "
+                      f"rejected={summary['rejected']} "
+                      f"skipped={summary['skipped']} "
+                      f"remaining={len(entries) - i + 1}")
+                return 0
+            if choice in ("?", "h", "help"):
+                print(REVIEW_HELP)
+                continue
+            if choice in ("d", "details"):
+                print(json.dumps(data, indent=2))
+                continue
+            if choice in ("o", "open"):
+                print(f"  {_act_open(sc)}")
+                continue
+            if choice in ("s", "skip", ""):
+                summary["skipped"] += 1
+                print(f"  skipped")
+                break
+            if choice in ("k", "keep"):
+                msg = _act_keep(sc, data, dry_run)
+                summary["kept"] += 1
+                print(f"  {msg}")
+                break
+            if choice in ("r", "reject"):
+                msg = _act_reject(sc, data, dry_run)
+                summary["rejected"] += 1
+                print(f"  {msg}")
+                break
+            print(f"  ? unknown choice {choice!r}; press ? for help")
+
+    print(f"\n[done] kept={summary['kept']} "
+          f"rejected={summary['rejected']} "
+          f"skipped={summary['skipped']}")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Munin Paper Cleanup - Remove papers from all databases"
@@ -3195,22 +3439,8 @@ def main():
     remove_parser.add_argument("--dry-run", action="store_true", help="Show what would be removed without actually removing")
     remove_parser.add_argument("--no-blocklist", action="store_true", help="Don't add DOI to blocklist")
 
-    # find-low-quality command
-    low_quality_parser = subparsers.add_parser("find-low-quality", help="[DEPRECATED] Use `detect --kinds low-quality` instead")
-    low_quality_parser.add_argument("--output", help="Write found DOIs to this file")
-    low_quality_parser.add_argument("--auto-remove", action="store_true", help="Automatically remove found papers from all databases")
-    low_quality_parser.add_argument("--limit", type=int, help="Maximum number of papers to auto-remove")
-    low_quality_parser.add_argument("--confirm", action="store_true", help="Required for auto-remove without --limit")
-    low_quality_parser.add_argument("--no-enrich", action="store_true", help="Don't enrich papers from OpenAlex (just detect)")
-    low_quality_parser.add_argument("--max-check", type=int, default=500, help="Maximum papers to check from Neo4j (default: 500)")
-
-    # find-short command
-    short_parser = subparsers.add_parser("find-short", help="[DEPRECATED] Use `detect --kinds short` instead")
-    short_parser.add_argument("--min-pages", type=int, default=3, help="Minimum pages required (default: 3)")
-    short_parser.add_argument("--output", help="Write found DOIs to this file")
-    short_parser.add_argument("--auto-remove", action="store_true", help="Automatically remove found papers from all databases")
-    short_parser.add_argument("--limit", type=int, help="Maximum number of papers to auto-remove")
-    short_parser.add_argument("--confirm", action="store_true", help="Required for auto-remove without --limit")
+    # find-low-quality, find-short: retired in Phase E. The underlying
+    # functions stay (called by `detect`) but the CLI surface is gone.
 
     # bulk-remove command
     bulk_parser = subparsers.add_parser("bulk-remove", help="Remove multiple papers from a file")
@@ -3222,26 +3452,10 @@ def main():
     verify_parser = subparsers.add_parser("verify-doi", help="Verify a single DOI against all metadata sources")
     verify_parser.add_argument("doi", help="DOI to verify (e.g., 10.1016/0021-9991(77)90112-7)")
 
-    # repair-and-clean command
-    repair_parser = subparsers.add_parser("repair-and-clean", help="[DEPRECATED] Use `detect --kinds metadata-unverifiable --auto-quarantine` instead")
-    repair_parser.add_argument("--source", choices=["neo4j", "processed", "both"], default="both",
-                               help="Which papers to scan (default: both)")
-    repair_parser.add_argument("--max-check", type=int, default=500, help="Maximum papers to check (default: 500)")
-    repair_parser.add_argument("--auto-remove", action="store_true", help="Automatically remove flagged papers")
-    repair_parser.add_argument("--limit", type=int, help="Maximum papers to auto-remove")
-    repair_parser.add_argument("--confirm", action="store_true", help="Required for auto-remove without --limit")
-    repair_parser.add_argument("--output", help="Save results to JSON file")
-    repair_parser.add_argument("--dry-run", action="store_true", help="Don't modify databases")
-    repair_parser.add_argument("--no-pdf-check", action="store_true", help="Don't check if PDFs exist")
-    repair_parser.add_argument("--export-orphaned", metavar="FILE", help="Export orphaned DOIs (missing PDF) to file for re-crawling")
-
-    # scan-processed command
-    scan_parser = subparsers.add_parser("scan-processed", help="[DEPRECATED] Use `detect --kinds orphan` instead")
-    scan_parser.add_argument("--check-metadata", action="store_true", help="Check each paper against metadata sources")
-    scan_parser.add_argument("--check-pdf", action="store_true", help="Check if PDFs exist for processed papers")
-    scan_parser.add_argument("--find-orphaned", action="store_true", help="Find papers in database but missing PDF")
-    scan_parser.add_argument("--max-scan", type=int, default=1000, help="Maximum files to scan (default: 1000)")
-    scan_parser.add_argument("--output", help="Save results to JSON file")
+    # repair-and-clean, scan-processed: retired in Phase E. The
+    # underlying functions stay (repair_and_clean is called by
+    # `detect --kinds metadata-unverifiable`; scan_processed has no
+    # callers and may be deleted in a future commit).
 
     # detect command (Phase D of 2026-05-13 consolidation) — the
     # unified successor to find-low-quality / find-short /
@@ -3278,32 +3492,30 @@ def main():
                                help="(low-quality / metadata-unverifiable) max records to scan")
     detect_parser.add_argument("--no-enrich", action="store_true",
                                help="(low-quality) skip OpenAlex enrichment")
+    detect_parser.add_argument("--queue-for-reingest", action="store_true",
+                               help="(metadata-mismatch) move severity>=threshold "
+                                    "PDFs back to inbox/ so reingest-queue can "
+                                    "re-process them under the hardened pipeline")
+    detect_parser.add_argument("--reingest-log",
+                               help="(metadata-mismatch + --queue-for-reingest) "
+                                    "CSV rollback log path")
 
-    # find-metadata-mismatch command (Stage 2 remediation tool)
-    mismatch_parser = subparsers.add_parser(
-        "find-metadata-mismatch",
-        help="[DEPRECATED] Use `detect --kinds metadata-mismatch` instead",
+    # review command (Phase E of 2026-05-13 consolidation) — the
+    # human-in-the-loop step. Walks pdf/quarantine/ and prompts
+    # keep/reject/skip per record.
+    review_parser = subparsers.add_parser(
+        "review",
+        help="Interactive walk through pdf/quarantine/, keep/reject/skip per record",
     )
-    mismatch_parser.add_argument("--limit", type=int, default=100,
-                                 help="Max records to inspect this run (default: 100)")
-    mismatch_parser.add_argument("--source", choices=["all", "upload", "crawler"],
-                                 default="all", help="Restrict to upload-only or crawler-only (default: all)")
-    mismatch_parser.add_argument("--grobid-pace", type=int, default=30,
-                                 help="Seconds between GROBID calls (default: 30)")
-    mismatch_parser.add_argument("--no-grobid", action="store_true",
-                                 help="Skip GROBID; use pdftotext as title proxy (much noisier)")
-    mismatch_parser.add_argument("--no-backfill", action="store_true",
-                                 help="Don't write audit fields back to Qdrant")
-    mismatch_parser.add_argument("--report-out", help="CSV output path (default: metadata-mismatch-<ts>.csv)")
-    mismatch_parser.add_argument("--queue-for-reingest", action="store_true",
-                                 help="Move high-severity PDFs back to inbox/ for the hardened pipeline to re-process")
-    mismatch_parser.add_argument("--severity-threshold",
-                                 choices=["high", "medium"], default="high",
-                                 help="Minimum severity to queue (default: high)")
-    mismatch_parser.add_argument("--reingest-log",
-                                 help="Reingest rollback log CSV (default: reingest-log-<ts>.csv)")
-    mismatch_parser.add_argument("--dry-run", action="store_true",
-                                 help="Print actions; don't write to Qdrant or move files")
+    review_parser.add_argument("--limit", type=int,
+                               help="Max records to review this session")
+    review_parser.add_argument("--non-interactive", action="store_true",
+                               help="Print summaries only; don't prompt for actions")
+    review_parser.add_argument("--dry-run", action="store_true",
+                               help="Print actions; don't write")
+
+    # find-metadata-mismatch: retired in Phase E. `detect --kinds
+    # metadata-mismatch [--queue-for-reingest]` is the new entry.
 
     # reattribute command (formerly the standalone reattribute_unknown.py)
     reattribute_parser = subparsers.add_parser(
@@ -3329,15 +3541,8 @@ def main():
     reingest_parser.add_argument("--dry-run", action="store_true",
                                  help="Print actions; don't invoke pipeline")
 
-    # repair-auto command (autonomous mode)
-    auto_parser = subparsers.add_parser("repair-auto", help="[DEPRECATED] Use `detect --kinds metadata-unverifiable --auto-quarantine` instead")
-    auto_parser.add_argument("--doi", help="Process a single DOI instead of bulk")
-    auto_parser.add_argument("--source", choices=["neo4j", "processed"], default="neo4j",
-                             help="Where to get paper list (default: neo4j)")
-    auto_parser.add_argument("--max-papers", type=int, default=100, help="Maximum papers to process (default: 100)")
-    auto_parser.add_argument("--output", help="Save log to JSON file")
-    auto_parser.add_argument("--scripts-dir", help="Directory containing paper_crawler.py and paper_pipeline.py")
-    auto_parser.add_argument("--retry-failed", action="store_true", help="Retry previously failed downloads")
+    # repair-auto: retired in Phase E. `detect --kinds
+    # metadata-unverifiable --auto-quarantine` covers it.
 
     args = parser.parse_args()
 
@@ -3347,25 +3552,6 @@ def main():
             dry_run=args.dry_run,
             add_blocklist=not args.no_blocklist
         )
-    elif args.command == "find-low-quality":
-        _deprecation_notice("find-low-quality", "detect --kinds low-quality")
-        find_low_quality_papers(
-            output_file=args.output,
-            auto_remove=args.auto_remove,
-            limit=args.limit,
-            confirm=args.confirm,
-            enrich=not args.no_enrich,
-            max_check=args.max_check
-        )
-    elif args.command == "find-short":
-        _deprecation_notice("find-short", "detect --kinds short")
-        find_short_papers(
-            min_pages=args.min_pages,
-            output_file=args.output,
-            auto_remove=args.auto_remove,
-            limit=args.limit,
-            confirm=args.confirm
-        )
     elif args.command == "bulk-remove":
         bulk_remove(
             args.file,
@@ -3374,44 +3560,12 @@ def main():
         )
     elif args.command == "verify-doi":
         verify_doi(args.doi)
-    elif args.command == "repair-and-clean":
-        _deprecation_notice(
-            "repair-and-clean",
-            "detect --kinds metadata-unverifiable --auto-quarantine",
-        )
-        repair_and_clean(
-            source=args.source,
-            max_check=args.max_check,
-            auto_remove=args.auto_remove,
+    elif args.command == "review":
+        sys.exit(review(
             limit=args.limit,
-            confirm=args.confirm,
-            output_file=args.output,
             dry_run=args.dry_run,
-            check_pdf=not args.no_pdf_check,
-            export_orphaned=args.export_orphaned
-        )
-    elif args.command == "scan-processed":
-        _deprecation_notice("scan-processed", "detect --kinds orphan")
-        scan_processed(
-            check_metadata=args.check_metadata,
-            check_pdf=args.check_pdf,
-            find_orphaned=args.find_orphaned,
-            max_scan=args.max_scan,
-            output_file=args.output
-        )
-    elif args.command == "repair-auto":
-        _deprecation_notice(
-            "repair-auto",
-            "detect --kinds metadata-unverifiable --auto-quarantine",
-        )
-        repair_auto(
-            source=args.source,
-            max_papers=args.max_papers,
-            output_file=args.output,
-            scripts_dir=args.scripts_dir,
-            retry_failed=args.retry_failed,
-            single_doi=args.doi
-        )
+            non_interactive=args.non_interactive,
+        ))
     elif args.command == "detect":
         kinds = [k.strip() for k in args.kinds.split(",") if k.strip()]
         sys.exit(detect(
@@ -3428,20 +3582,9 @@ def main():
             min_pages=args.min_pages,
             max_check=args.max_check,
             enrich=not args.no_enrich,
-        ))
-    elif args.command == "find-metadata-mismatch":
-        find_metadata_mismatch(
-            limit=args.limit,
-            source_filter=args.source,
-            grobid_pace_secs=args.grobid_pace,
-            no_grobid=args.no_grobid,
-            no_backfill=args.no_backfill,
-            report_out=args.report_out,
             queue_for_reingest=args.queue_for_reingest,
-            severity_threshold=args.severity_threshold,
             reingest_log=args.reingest_log,
-            dry_run=args.dry_run,
-        )
+        ))
     elif args.command == "reattribute":
         sys.exit(reattribute(dry_run=args.dry_run, no_neo4j=args.no_neo4j))
     elif args.command == "reingest-queue":

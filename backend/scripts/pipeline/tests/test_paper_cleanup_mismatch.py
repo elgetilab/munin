@@ -346,6 +346,231 @@ def test_threshold_constant_matches_pipeline() -> bool:
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
+# Phase E: review subcommand (interactive quarantine triage)
+# ---------------------------------------------------------------------------
+
+def _seed_quarantine_record(quar: "pc.Path", uuid: str, doi: str | None,
+                             reasons: list, audit: dict | None = None) -> "pc.Path":
+    """Drop a fake PDF + state sidecar into `quar` representing a
+    quarantined record. Returns the sidecar path."""
+    import json as _json
+    quar.mkdir(parents=True, exist_ok=True)
+    pdf = quar / f"{uuid}.pdf"
+    pdf.write_text("fake-pdf-bytes")
+    sc = quar / f"{uuid}.state.json"
+    _json.dump({
+        "schema_version": 1,
+        "doi": doi,
+        "state": "quarantine",
+        "ingest_path": "upload",
+        "quarantine_reasons": reasons,
+        "first_seen_at": "2026-05-01T10:00:00Z",
+        "last_modified_at": "2026-05-13T12:00:00Z",
+        "contributor": None,
+        "audit_findings": audit,
+        "history": [{
+            "at": "2026-05-13T12:00:00Z",
+            "state": "quarantine",
+            "via": "test",
+            "reason": reasons[0] if reasons else None,
+        }],
+    }, open(sc, "w"))
+    return sc
+
+
+def test_review_empty_quarantine_returns_zero() -> bool:
+    import tempfile, pathlib
+    with tempfile.TemporaryDirectory() as td:
+        orig = pc.PDF_DIR
+        pc.PDF_DIR = pathlib.Path(td)
+        try:
+            rc = pc.review(prompt_fn=lambda *_: "q")
+        finally:
+            pc.PDF_DIR = orig
+    return _check(
+        "review: empty quarantine returns rc=0 with no prompts",
+        rc == 0,
+    )
+
+
+def test_review_reject_updates_sidecar_state() -> bool:
+    """'r' (reject) flips state to 'rejected' and appends history."""
+    import tempfile, pathlib, json as _json
+    with tempfile.TemporaryDirectory() as td:
+        orig = pc.PDF_DIR
+        pc.PDF_DIR = pathlib.Path(td) / "pdf"
+        try:
+            quar = pc.PDF_DIR / "quarantine"
+            sc = _seed_quarantine_record(quar, "rec1", "10.1/x",
+                                         ["title_mismatch_with_crossref"])
+            responses = iter(["r", "q"])
+            pc.review(prompt_fn=lambda *_: next(responses))
+            updated = _json.load(open(sc))
+        finally:
+            pc.PDF_DIR = orig
+    return _check(
+        "review: 'r' (reject) sets state=rejected and appends history",
+        updated["state"] == "rejected"
+        and len(updated["history"]) == 2
+        and updated["history"][-1]["state"] == "rejected"
+        and updated["history"][-1]["via"] == "review",
+    )
+
+
+def test_review_skip_leaves_sidecar_unchanged() -> bool:
+    """'s' (skip) doesn't write anything to the sidecar."""
+    import tempfile, pathlib, json as _json
+    with tempfile.TemporaryDirectory() as td:
+        orig = pc.PDF_DIR
+        pc.PDF_DIR = pathlib.Path(td) / "pdf"
+        try:
+            quar = pc.PDF_DIR / "quarantine"
+            sc = _seed_quarantine_record(quar, "rec1", "10.1/x",
+                                         ["title_mismatch_with_crossref"])
+            before = _json.load(open(sc))
+            responses = iter(["s", "q"])
+            pc.review(prompt_fn=lambda *_: next(responses))
+            after = _json.load(open(sc))
+        finally:
+            pc.PDF_DIR = orig
+    return _check(
+        "review: 's' (skip) leaves sidecar unchanged",
+        before == after,
+    )
+
+
+def test_review_keep_moves_pdf_back_and_clears_sidecar() -> bool:
+    """'k' (keep) moves PDF back to PDF_DIR and removes the state
+    sidecar so the watcher re-ingests it."""
+    import tempfile, pathlib
+    with tempfile.TemporaryDirectory() as td:
+        orig_pdf = pc.PDF_DIR
+        orig_proc = pc.PROCESSED_DIR
+        pc.PDF_DIR = pathlib.Path(td) / "pdf"
+        pc.PROCESSED_DIR = pathlib.Path(td) / "processed"
+        pc.PROCESSED_DIR.mkdir(parents=True)
+        try:
+            quar = pc.PDF_DIR / "quarantine"
+            sc = _seed_quarantine_record(quar, "doi_10.1_keep", "10.1/keep", ["test"])
+            responses = iter(["k", "q"])
+            pc.review(prompt_fn=lambda *_: next(responses))
+
+            moved_pdf = pc.PDF_DIR / "doi_10.1_keep.pdf"
+            old_pdf = quar / "doi_10.1_keep.pdf"
+            ok = (
+                moved_pdf.is_file()
+                and not old_pdf.is_file()
+                and not sc.is_file()
+            )
+        finally:
+            pc.PDF_DIR = orig_pdf
+            pc.PROCESSED_DIR = orig_proc
+    return _check(
+        "review: 'k' (keep) moves PDF back to PDF_DIR and drops sidecar",
+        ok,
+    )
+
+
+def test_review_dry_run_is_read_only() -> bool:
+    """With --dry-run, 'r' prints what it would do but doesn't modify
+    the sidecar."""
+    import tempfile, pathlib, json as _json
+    with tempfile.TemporaryDirectory() as td:
+        orig = pc.PDF_DIR
+        pc.PDF_DIR = pathlib.Path(td) / "pdf"
+        try:
+            quar = pc.PDF_DIR / "quarantine"
+            sc = _seed_quarantine_record(quar, "rec1", "10.1/x", ["test"])
+            before = _json.load(open(sc))
+            responses = iter(["r", "q"])
+            pc.review(prompt_fn=lambda *_: next(responses), dry_run=True)
+            after = _json.load(open(sc))
+        finally:
+            pc.PDF_DIR = orig
+    return _check(
+        "review: dry-run leaves sidecar unchanged on reject",
+        before == after,
+    )
+
+
+def test_review_quit_short_circuits() -> bool:
+    """Choosing 'q' on the first record stops the loop without
+    visiting the second."""
+    import tempfile, pathlib, json as _json
+    with tempfile.TemporaryDirectory() as td:
+        orig = pc.PDF_DIR
+        pc.PDF_DIR = pathlib.Path(td) / "pdf"
+        try:
+            quar = pc.PDF_DIR / "quarantine"
+            sc1 = _seed_quarantine_record(quar, "rec1", "10.1/a", ["test"])
+            sc2 = _seed_quarantine_record(quar, "rec2", "10.1/b", ["test"])
+            before1 = _json.load(open(sc1))
+            before2 = _json.load(open(sc2))
+            pc.review(prompt_fn=lambda *_: "q")
+            ok = (
+                _json.load(open(sc1)) == before1
+                and _json.load(open(sc2)) == before2
+            )
+        finally:
+            pc.PDF_DIR = orig
+    return _check(
+        "review: 'q' (quit) stops immediately, no records touched",
+        ok,
+    )
+
+
+def test_review_non_interactive_prints_no_prompts() -> bool:
+    """--non-interactive emits per-record summaries but never calls
+    the prompt function."""
+    import tempfile, pathlib
+    with tempfile.TemporaryDirectory() as td:
+        orig = pc.PDF_DIR
+        pc.PDF_DIR = pathlib.Path(td) / "pdf"
+        try:
+            quar = pc.PDF_DIR / "quarantine"
+            _seed_quarantine_record(quar, "rec1", "10.1/x", ["test"])
+            calls = []
+            def fail_if_called(*_):
+                calls.append("called")
+                return "q"
+            rc = pc.review(prompt_fn=fail_if_called, non_interactive=True)
+        finally:
+            pc.PDF_DIR = orig
+    return _check(
+        "review: --non-interactive doesn't prompt",
+        rc == 0 and calls == [],
+    )
+
+
+def test_review_skips_already_rejected() -> bool:
+    """Records whose state is already 'rejected' are not re-shown."""
+    import tempfile, pathlib, json as _json
+    with tempfile.TemporaryDirectory() as td:
+        orig = pc.PDF_DIR
+        pc.PDF_DIR = pathlib.Path(td) / "pdf"
+        try:
+            quar = pc.PDF_DIR / "quarantine"
+            sc = _seed_quarantine_record(quar, "rec1", "10.1/x", ["test"])
+            # Flip it to rejected directly on disk to simulate a
+            # prior review session.
+            doc = _json.load(open(sc))
+            doc["state"] = "rejected"
+            _json.dump(doc, open(sc, "w"))
+            # Build a prompt_fn that records calls.
+            calls = []
+            def stub_prompt(*_):
+                calls.append("prompted")
+                return "q"
+            rc = pc.review(prompt_fn=stub_prompt)
+        finally:
+            pc.PDF_DIR = orig
+    return _check(
+        "review: rejected records are skipped",
+        rc == 0 and calls == [],
+    )
+
+
+# ---------------------------------------------------------------------------
 # Phase D: detect orchestrator + auto-quarantine helpers
 # ---------------------------------------------------------------------------
 
@@ -565,6 +790,15 @@ TESTS = [
     test_auto_quarantine_doi_list_respects_limit,
     test_quarantine_helper_missing_pdf_returns_false,
     test_quarantine_helper_dry_run_returns_true_without_side_effects,
+    # Phase E
+    test_review_empty_quarantine_returns_zero,
+    test_review_reject_updates_sidecar_state,
+    test_review_skip_leaves_sidecar_unchanged,
+    test_review_keep_moves_pdf_back_and_clears_sidecar,
+    test_review_dry_run_is_read_only,
+    test_review_quit_short_circuits,
+    test_review_non_interactive_prints_no_prompts,
+    test_review_skips_already_rejected,
 ]
 
 

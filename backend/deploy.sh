@@ -353,21 +353,24 @@ deploy_pipeline() {
         $SYSTEMD_DIR/munin-paper-reattribute.timer"
     run "systemctl daemon-reload"
 
-    # Start the watcher + enable the cleanup timer. --now on enable
-    # starts the timer immediately; the service itself fires at 04:00
-    # (jitter up to 5 min).
+    # Start the watcher + enable the cleanup + reattribute timers.
+    # --now on enable starts the timer immediately; the services
+    # themselves fire at their OnCalendar times (cleanup 04:00,
+    # reattribute 04:30).
     run "systemctl enable munin-paper-pipeline.service"
     run "systemctl restart munin-paper-pipeline.service"
     run "systemctl enable munin-paper-cleanup.timer"
     run "systemctl restart munin-paper-cleanup.timer"
+    # Phase E (2026-05-13) enables the reattribute timer that was
+    # installed-but-disabled in Phase A. With the consolidation
+    # landed, allowlist additions now auto-backfill nightly.
+    run "systemctl enable --now munin-paper-reattribute.timer"
 
-    echo "[OK] pipeline — daemon running, cleanup timer armed (04:00 local)"
-    echo "      Logs: journalctl -fu munin-paper-pipeline.service"
-    echo "            journalctl -u munin-paper-cleanup.service --since today"
-    echo "      Next cleanup: systemctl list-timers munin-paper-cleanup.timer"
-    echo "      munin-paper-reattribute.timer staged but NOT enabled."
-    echo "      Enable manually after the Phase E consolidation lands:"
-    echo "        systemctl enable --now munin-paper-reattribute.timer"
+    echo "[OK] pipeline — daemon running, cleanup + reattribute timers armed"
+    echo "      Logs:    journalctl -fu munin-paper-pipeline.service"
+    echo "               journalctl -u munin-paper-cleanup.service --since today"
+    echo "               journalctl -u munin-paper-reattribute.service --since today"
+    echo "      Timers:  systemctl list-timers 'munin-paper-*'"
 }
 
 deploy_knowledge() {

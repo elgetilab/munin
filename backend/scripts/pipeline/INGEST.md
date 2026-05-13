@@ -71,7 +71,8 @@ Today, on hugin:
 | Unit | Schedule | What it does |
 |---|---|---|
 | `munin-paper-pipeline.service` | always on | `--watch` loop, polls `/papers/pdf/` every 60s for unprocessed PDFs |
-| `munin-paper-cleanup.timer` | 04:00 daily | Runs `paper_cleanup.py repair-and-clean --max-check 200 --auto-remove --limit 20` — nightly metadata-quality sweep |
+| `munin-paper-cleanup.timer` | 04:00 daily | Runs `paper_cleanup.py detect --kinds metadata-unverifiable --auto-quarantine --limit 20 --max-check 200`. Records no source can confirm are quarantined (soft action, reversible via `review`). |
+| `munin-paper-reattribute.timer` | 04:30 daily | Runs `paper_cleanup.py reattribute`. Backfills group attribution after `contributors.yml` updates. |
 | `munin-embedding-map.timer` | 01:30 daily | Rebuilds the 2D paper-embedding map + HDBSCAN clusters |
 
 `munin-paper-cleanup` is the **only auto-remove path** that runs
@@ -219,12 +220,48 @@ Quarantined records:
 - Get a state sidecar describing the reason + audit findings.
 - Are reviewed manually via `paper_cleanup.py review` (Phase E, planned).
 
-### Legacy detection subcommands (deprecated, still work)
+### Review the quarantine queue (`review`)
 
-The old subcommands still function but print a deprecation notice
-pointing at `detect`:
+Phase E (2026-05-13) introduced the human-in-the-loop step.
+`detect --auto-quarantine` and the nightly timer move flagged
+records into `pdf/quarantine/`; `review` walks them and prompts
+keep / reject / skip per record.
 
-| Old | New |
+```bash
+sudo .../paper_cleanup.py review                       # interactive
+sudo .../paper_cleanup.py review --limit 20            # cap session size
+sudo .../paper_cleanup.py review --non-interactive     # print-only sweep
+sudo .../paper_cleanup.py review --dry-run             # try without writing
+```
+
+Per-record menu:
+
+```
+  k  keep        Move PDF back to /papers/pdf/ + reset state;
+                 watcher re-ingests through the hardened pipeline.
+                 If the underlying issue persists, the record gets
+                 re-quarantined and shows up again next pass.
+  r  reject      Mark state=rejected. PDF stays in quarantine/ for
+                 audit. Future detect runs skip this record.
+  s  skip        Defer; leave state unchanged.
+  o  open        xdg-open the PDF.
+  d  details     Print the full state sidecar.
+  ?  help        Print this menu.
+  q  quit        Stop the session.
+```
+
+Decisions append a history entry to the state sidecar with
+`via: "review"`, so the audit trail captures who triaged what when.
+
+Quarantined records whose state is already `rejected` are NOT shown
+again on subsequent `review` sessions; the operator only sees the
+fresh queue.
+
+### Removed subcommands (Phase E)
+
+Six legacy entries were retired on 2026-05-13:
+
+| Removed | Use instead |
 |---|---|
 | `find-low-quality` | `detect --kinds low-quality` |
 | `find-short` | `detect --kinds short` |
@@ -233,8 +270,8 @@ pointing at `detect`:
 | `repair-auto` | `detect --kinds metadata-unverifiable --auto-quarantine` |
 | `scan-processed` | `detect --kinds orphan` |
 
-They'll be removed in a future commit once the new surface has
-soaked.
+Their underlying functions are still in the module (called by
+`detect`), only the CLI surface is gone.
 
 ### Find PDFs whose stored title doesn't match their content (audit detail)
 
@@ -246,7 +283,7 @@ from `--auto-quarantine`) is for re-running flagged records through
 the hardened pipeline:
 
 ```bash
-sudo .../paper_cleanup.py find-metadata-mismatch \
+sudo .../paper_cleanup.py detect --kinds metadata-mismatch \
     --limit 100 --queue-for-reingest \
     --reingest-log /var/log/cluster-admin/reingest.csv
 sudo .../paper_cleanup.py reingest-queue --limit 50 --pace 30
