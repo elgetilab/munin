@@ -72,7 +72,10 @@ NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "munin-neo4j-password")
 
 PAPERS_DIR = "/opt/munin/data/papers/pdf"
 PROCESSED_DIR = "/opt/munin/data/papers/processed"
-SKIPPED_DIR = "/opt/munin/data/papers/skipped"
+# SKIPPED_DIR removed 2026-05-13 (Phase E follow-up): the legacy
+# disk-log path was replaced by the state sidecar in
+# pdf/quarantine/<stem>.state.json. _log_skipped_pdf now only sets
+# self._last_skip_reason, which the dispose helper reads.
 QUARANTINE_DIR = "/opt/munin/data/papers/pdf/quarantine"
 OCR_CACHE_DIR = "/opt/munin/data/papers/ocr_cache"
 COLLECTION_NAME = "papers"
@@ -876,33 +879,16 @@ class PaperPipeline:
             return None
 
     def _log_skipped_pdf(self, pdf_path: str, reason: str):
-        """Log a skipped PDF to the skipped directory + remember the
-        reason on `self._last_skip_reason` so the post-pipeline
-        disposal (Phase B) can stamp it into the state sidecar.
+        """Record why a PDF was skipped.
 
-        The legacy JSON in `SKIPPED_DIR` is preserved for the Phase C
-        migration; once that runs, the sidecar becomes the source of
-        truth and SKIPPED_DIR can be retired.
+        Sets ``self._last_skip_reason`` so the post-pipeline disposal
+        (Phase B) can stamp the reason into the state sidecar. The
+        legacy JSON dump into ``SKIPPED_DIR`` was retired after Phase C
+        of the 2026-05-13 consolidation — the state sidecar at
+        ``quarantine/<stem>.state.json`` is now the source of truth.
         """
         self._last_skip_reason = reason
-
-        skipped_path = Path(SKIPPED_DIR)
-        skipped_path.mkdir(parents=True, exist_ok=True)
-
-        filename = Path(pdf_path).stem
-        log_file = skipped_path / f"{filename}.json"
-
-        log_entry = {
-            "pdf_path": pdf_path,
-            "reason": reason,
-            "skipped_at": datetime.now().isoformat()
-        }
-
-        with open(log_file, "w") as f:
-            json.dump(log_entry, f, indent=2)
-
         print(f"  [SKIPPED] {reason}")
-        print(f"            Logged to: {log_file}")
 
     def process_pdf(self, pdf_path: str) -> Optional[Paper]:
         """Process a single PDF through the pipeline"""
