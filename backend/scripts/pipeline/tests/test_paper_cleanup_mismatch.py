@@ -345,6 +345,192 @@ def test_threshold_constant_matches_pipeline() -> bool:
 # Runner
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Phase D: detect orchestrator + auto-quarantine helpers
+# ---------------------------------------------------------------------------
+
+def test_detect_rejects_unknown_kind() -> bool:
+    rc = pc.detect(kinds=["totally-not-a-real-kind"])
+    return _check(
+        "detect: unknown --kinds returns rc=2",
+        rc == 2,
+        f"got {rc}",
+    )
+
+
+def test_auto_quarantine_csv_only_acts_on_high_by_default() -> bool:
+    """CSV with mixed severities → only severity=high gets
+    quarantined under the default threshold."""
+    import csv as _csv
+    import tempfile, pathlib
+    calls = []
+    orig = pc._quarantine_by_doi
+    pc._quarantine_by_doi = lambda doi, reason, audit_findings=None, dry_run=False: (
+        calls.append((doi, reason, dry_run)) or True
+    )
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv",
+                                         delete=False, newline="") as tf:
+            writer = _csv.DictWriter(tf, fieldnames=[
+                "doi", "severity", "jaccard", "grobid_title", "downgrade_reason"
+            ])
+            writer.writeheader()
+            writer.writerow({"doi": "10.1/high", "severity": "high",
+                             "jaccard": "0.1", "grobid_title": "X",
+                             "downgrade_reason": ""})
+            writer.writerow({"doi": "10.1/medium", "severity": "medium",
+                             "jaccard": "0.35", "grobid_title": "Y",
+                             "downgrade_reason": ""})
+            writer.writerow({"doi": "10.1/clean", "severity": "clean",
+                             "jaccard": "1.0", "grobid_title": "Z",
+                             "downgrade_reason": ""})
+            tf.flush()
+            path = pathlib.Path(tf.name)
+        try:
+            n = pc._auto_quarantine_from_mismatch_csv(path, dry_run=True)
+        finally:
+            path.unlink()
+    finally:
+        pc._quarantine_by_doi = orig
+
+    quarantined = {c[0] for c in calls}
+    return _check(
+        "detect: auto-quarantine on mismatch CSV defaults to severity=high only",
+        n == 1 and quarantined == {"10.1/high"},
+        f"got n={n} quarantined={quarantined}",
+    )
+
+
+def test_auto_quarantine_csv_medium_threshold_includes_medium() -> bool:
+    """severity-threshold=medium quarantines high+medium."""
+    import csv as _csv
+    import tempfile, pathlib
+    calls = []
+    orig = pc._quarantine_by_doi
+    pc._quarantine_by_doi = lambda doi, reason, audit_findings=None, dry_run=False: (
+        calls.append((doi, reason, dry_run)) or True
+    )
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv",
+                                         delete=False, newline="") as tf:
+            writer = _csv.DictWriter(tf, fieldnames=[
+                "doi", "severity", "jaccard", "grobid_title", "downgrade_reason"
+            ])
+            writer.writeheader()
+            for doi, sev in [("10.1/h", "high"), ("10.1/m", "medium"),
+                             ("10.1/c", "clean")]:
+                writer.writerow({"doi": doi, "severity": sev,
+                                 "jaccard": "0", "grobid_title": "",
+                                 "downgrade_reason": ""})
+            tf.flush()
+            path = pathlib.Path(tf.name)
+        try:
+            n = pc._auto_quarantine_from_mismatch_csv(
+                path, dry_run=True, severity_threshold="medium")
+        finally:
+            path.unlink()
+    finally:
+        pc._quarantine_by_doi = orig
+
+    return _check(
+        "detect: severity-threshold=medium includes both high and medium",
+        n == 2 and {c[0] for c in calls} == {"10.1/h", "10.1/m"},
+    )
+
+
+def test_auto_quarantine_doi_list_skips_comments() -> bool:
+    """find-low-quality / find-short produce simple DOI lists; the
+    consumer must skip comment + blank lines."""
+    import tempfile, pathlib
+    calls = []
+    orig = pc._quarantine_by_doi
+    pc._quarantine_by_doi = lambda doi, reason, audit_findings=None, dry_run=False: (
+        calls.append((doi, reason, dry_run)) or True
+    )
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt",
+                                         delete=False) as tf:
+            tf.write("# header comment\n")
+            tf.write("\n")
+            tf.write("10.1/first\n")
+            tf.write("10.1/second  trailing-junk\n")
+            tf.write("   # leading-whitespace comment\n")
+            tf.write("10.1/third\n")
+            tf.flush()
+            path = pathlib.Path(tf.name)
+        try:
+            n = pc._auto_quarantine_from_doi_list(
+                path, reason="testing", limit=None, dry_run=True)
+        finally:
+            path.unlink()
+    finally:
+        pc._quarantine_by_doi = orig
+
+    quarantined = [c[0] for c in calls]
+    return _check(
+        "auto_quarantine_from_doi_list: skips comments + blanks",
+        n == 3
+        and quarantined == ["10.1/first", "10.1/second", "10.1/third"],
+        f"got n={n} quarantined={quarantined}",
+    )
+
+
+def test_auto_quarantine_doi_list_respects_limit() -> bool:
+    """Stop after `limit` records to mirror the legacy --auto-remove --limit cap."""
+    import tempfile, pathlib
+    calls = []
+    orig = pc._quarantine_by_doi
+    pc._quarantine_by_doi = lambda doi, reason, audit_findings=None, dry_run=False: (
+        calls.append((doi, reason, dry_run)) or True
+    )
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt",
+                                         delete=False) as tf:
+            for i in range(10):
+                tf.write(f"10.1/x{i}\n")
+            tf.flush()
+            path = pathlib.Path(tf.name)
+        try:
+            n = pc._auto_quarantine_from_doi_list(
+                path, reason="testing", limit=3, dry_run=True)
+        finally:
+            path.unlink()
+    finally:
+        pc._quarantine_by_doi = orig
+
+    return _check(
+        "auto_quarantine_from_doi_list: respects --limit",
+        n == 3 and len(calls) == 3,
+    )
+
+
+def test_quarantine_helper_missing_pdf_returns_false() -> bool:
+    """When the PDF can't be located on disk, the quarantine helper
+    must abort cleanly rather than partially-mutating state."""
+    import tempfile, pathlib
+    orig_pdf_dir = pc.PDF_DIR
+    pc.PDF_DIR = pathlib.Path("/tmp/nonexistent-quarantine-helper-test-xyz")
+    try:
+        ok = pc._quarantine_by_doi(
+            "10.1/no-such-paper", reason="testing", dry_run=False,
+        )
+    finally:
+        pc.PDF_DIR = orig_pdf_dir
+    return _check(
+        "quarantine_by_doi: missing PDF -> returns False, no mutation",
+        ok is False,
+    )
+
+
+def test_quarantine_helper_dry_run_returns_true_without_side_effects() -> bool:
+    """Dry-run claims success without touching anything."""
+    ok = pc._quarantine_by_doi("10.1/test", reason="testing", dry_run=True)
+    return _check(
+        "quarantine_by_doi: dry-run returns True with no side effects",
+        ok is True,
+    )
+
+
 TESTS = [
     test_severity_ligplot_real_mismatch_stays_high,
     test_severity_running_header_downgrades_to_medium,
@@ -371,6 +557,14 @@ TESTS = [
     test_container_path_empty_input_returns_none,
     test_container_path_non_container_prefix_unchanged_check,
     test_threshold_constant_matches_pipeline,
+    # Phase D
+    test_detect_rejects_unknown_kind,
+    test_auto_quarantine_csv_only_acts_on_high_by_default,
+    test_auto_quarantine_csv_medium_threshold_includes_medium,
+    test_auto_quarantine_doi_list_skips_comments,
+    test_auto_quarantine_doi_list_respects_limit,
+    test_quarantine_helper_missing_pdf_returns_false,
+    test_quarantine_helper_dry_run_returns_true_without_side_effects,
 ]
 
 

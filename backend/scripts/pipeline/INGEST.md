@@ -172,53 +172,83 @@ doesn't reintroduce it.
 sudo .../paper_cleanup.py bulk-remove --file dois_to_drop.txt           # one DOI per line
 ```
 
-### Find and remove low-quality papers
+### Detect bad / suspicious / orphaned records (`detect`)
+
+Phase D of the 2026-05-13 consolidation merged five legacy
+subcommands into one. The single entry point dispatches to per-kind
+detectors and supports a soft `--auto-quarantine` action that moves
+flagged records to `pdf/quarantine/` instead of deleting them.
 
 ```bash
-sudo .../paper_cleanup.py find-low-quality                              # detect only
-sudo .../paper_cleanup.py find-low-quality --auto-remove --limit 50 --confirm
-sudo .../paper_cleanup.py find-short --min-pages 3 --auto-remove --limit 20 --confirm
-```
-
-`find-low-quality` uses OpenAlex to flag short / retracted / no-abstract
-records. `find-short` is purely page-count based (counts the PDF).
-
-### Multi-source repair sweep
-
-`repair-and-clean` re-fetches metadata from all three sources (OpenAlex,
-Semantic Scholar, CrossRef) and only removes papers when **all three**
-fail. The nightly timer runs this; manual invocation:
-
-```bash
-sudo .../paper_cleanup.py repair-and-clean --max-check 500 --dry-run
-sudo .../paper_cleanup.py repair-and-clean --max-check 500 --auto-remove --limit 50
-sudo .../paper_cleanup.py repair-and-clean --max-check 500 --export-orphaned orphaned.txt
-```
-
-`repair-auto` is the autonomous-mode variant (acts per-paper as it
-walks instead of batching at the end). Same intent, different
-ordering.
-
-### Find PDFs whose stored title doesn't match their content
-
-Added 2026-05-12 by the ingest audit. Paced 30s/GROBID call by
-default; resume-safe via `_inspected_at` payload marker.
-
-```bash
-# Detect only, write CSV report
-sudo .../paper_cleanup.py find-metadata-mismatch \
+# Title-vs-PDF mismatches (the 2026-05-12 audit's territory)
+sudo .../paper_cleanup.py detect --kinds metadata-mismatch \
     --limit 100 --report-out /var/log/cluster-admin/mm.csv
 
-# Same, but auto-move severity>=high to inbox/ for reingest
-sudo .../paper_cleanup.py find-metadata-mismatch \
-    --limit 100 --queue-for-reingest \
-    --reingest-log /var/log/cluster-admin/reingest.csv
+# Same, auto-quarantine severity>=high
+sudo .../paper_cleanup.py detect --kinds metadata-mismatch \
+    --limit 100 --auto-quarantine
+
+# Low-quality (OpenAlex check): short / retracted / no-abstract
+sudo .../paper_cleanup.py detect --kinds low-quality \
+    --max-check 500 --auto-quarantine --limit 50
+
+# Short PDFs (page-count check)
+sudo .../paper_cleanup.py detect --kinds short --min-pages 3 \
+    --auto-quarantine --limit 20
+
+# Metadata-unverifiable (multi-source: OpenAlex + S2 + CrossRef all fail)
+sudo .../paper_cleanup.py detect --kinds metadata-unverifiable \
+    --max-check 500 --auto-quarantine --limit 50
+
+# Orphans (live Qdrant records whose PDF is gone from disk)
+sudo .../paper_cleanup.py detect --kinds orphan --limit 100
 ```
 
-`reingest-queue` drives the actual re-ingest of queued PDFs against
+Multiple kinds in one invocation:
+
+```bash
+sudo .../paper_cleanup.py detect \
+    --kinds short,metadata-mismatch --auto-quarantine --limit 30
+```
+
+`--auto-quarantine` replaces the legacy destructive `--auto-remove`.
+Quarantined records:
+- Stay on disk (moved to `/opt/munin/data/papers/pdf/quarantine/`).
+- Keep their Neo4j citation-graph node (citation links intact).
+- Have their Qdrant point deleted (so paper_search doesn't surface them).
+- Get a state sidecar describing the reason + audit findings.
+- Are reviewed manually via `paper_cleanup.py review` (Phase E, planned).
+
+### Legacy detection subcommands (deprecated, still work)
+
+The old subcommands still function but print a deprecation notice
+pointing at `detect`:
+
+| Old | New |
+|---|---|
+| `find-low-quality` | `detect --kinds low-quality` |
+| `find-short` | `detect --kinds short` |
+| `find-metadata-mismatch` | `detect --kinds metadata-mismatch` |
+| `repair-and-clean` | `detect --kinds metadata-unverifiable --auto-quarantine` |
+| `repair-auto` | `detect --kinds metadata-unverifiable --auto-quarantine` |
+| `scan-processed` | `detect --kinds orphan` |
+
+They'll be removed in a future commit once the new surface has
+soaked.
+
+### Find PDFs whose stored title doesn't match their content (audit detail)
+
+Added 2026-05-12 by the ingest audit. Paced 30s/GROBID call by
+default; resume-safe via `_inspected_at` payload marker. See
+[`../../docs/PAPER-INGEST-AUDIT.md`](../../docs/PAPER-INGEST-AUDIT.md)
+for the full audit story. The `--queue-for-reingest` flag (distinct
+from `--auto-quarantine`) is for re-running flagged records through
 the hardened pipeline:
 
 ```bash
+sudo .../paper_cleanup.py find-metadata-mismatch \
+    --limit 100 --queue-for-reingest \
+    --reingest-log /var/log/cluster-admin/reingest.csv
 sudo .../paper_cleanup.py reingest-queue --limit 50 --pace 30
 ```
 

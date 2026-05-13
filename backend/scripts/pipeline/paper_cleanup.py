@@ -2786,6 +2786,403 @@ def reattribute(dry_run: bool = False, no_neo4j: bool = False) -> int:
     return 0
 
 
+# ==============================================================================
+# Unified detection + quarantine (Phase D of 2026-05-13 consolidation)
+# ==============================================================================
+# `detect` dispatches to the existing per-kind detector functions
+# but exposes a single CLI surface and a single soft-action verb
+# (`--auto-quarantine`) that replaces today's destructive
+# `--auto-remove`. Quarantined records keep their PDF (preserved
+# in /papers/pdf/quarantine/), keep their Neo4j citation graph
+# node, and get their Qdrant point deleted so paper_search doesn't
+# surface them. The state sidecar carries the reason + the audit
+# findings; the operator confirms via `review` (Phase E).
+#
+# Old find-*/repair-* subcommands stay functional for backward
+# compat but print a deprecation notice pointing at `detect`.
+
+DETECT_KINDS = ("metadata-mismatch", "low-quality", "short",
+                "metadata-unverifiable", "orphan")
+
+
+def _quarantine_by_doi(
+    doi: str,
+    reason: str,
+    audit_findings: Optional[Dict] = None,
+    dry_run: bool = False,
+) -> bool:
+    """Soft-action: move a paper out of the searchable corpus into
+    quarantine for operator review.
+
+    Versus `remove_paper_by_doi`:
+      - Keeps the PDF (moved to /papers/pdf/quarantine/, not deleted).
+      - Keeps the Neo4j node (citation graph intact).
+      - Does NOT add to blocklist (operator may decide to keep on review).
+      - Deletes the Qdrant point so paper_search doesn't surface it.
+      - Writes a state sidecar capturing the reason + audit findings
+        so the review tool (Phase E) has full context.
+
+    Returns True on success, False if the PDF couldn't be located
+    or moved.
+    """
+    print(f"\n[quarantine] {doi} (reason: {reason})")
+    if dry_run:
+        print(f"  [DRY-RUN] would move PDF + delete Qdrant point + write sidecar")
+        return True
+
+    # Locate the PDF on disk via existing helper.
+    pdf_path = find_pdf_by_doi(doi)
+    if pdf_path is None:
+        print(f"  [WARN] PDF not found on disk; skipping quarantine for {doi}")
+        return False
+
+    # Move PDF + contributor sidecar (if any) to quarantine/.
+    quar_dir = PDF_DIR / "quarantine"
+    quar_dir.mkdir(parents=True, exist_ok=True)
+    dst_pdf = quar_dir / pdf_path.name
+    try:
+        if dst_pdf.exists():
+            pdf_path.unlink()
+        else:
+            shutil.move(str(pdf_path), str(dst_pdf))
+    except OSError as e:
+        print(f"  [ERROR] PDF move failed: {e}")
+        return False
+    contrib_src = pdf_path.with_name(f"{pdf_path.stem}.contributor.json")
+    contrib_dst = dst_pdf.with_name(f"{dst_pdf.stem}.contributor.json")
+    if contrib_src.is_file() and contrib_src != contrib_dst:
+        try:
+            shutil.move(str(contrib_src), str(contrib_dst))
+        except OSError:
+            pass
+
+    # Build / update the state sidecar.
+    sidecar_path = dst_pdf.with_name(f"{dst_pdf.stem}.state.json")
+    now = _utcnow_iso()
+    existing = None
+    if sidecar_path.is_file():
+        try:
+            with open(sidecar_path, encoding="utf-8") as f:
+                existing = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            existing = None
+    first_seen = (existing or {}).get("first_seen_at") or now
+    history = list((existing or {}).get("history") or [])
+    history.append({
+        "at": now,
+        "state": "quarantine",
+        "via": "detect_auto_quarantine",
+        "reason": reason,
+    })
+    sidecar = {
+        "schema_version": 1,
+        "doi": doi,
+        "state": "quarantine",
+        "ingest_path": (existing or {}).get("ingest_path", "unknown"),
+        "quarantine_reasons": [reason],
+        "first_seen_at": first_seen,
+        "last_modified_at": now,
+        "contributor": (existing or {}).get("contributor"),
+        "audit_findings": audit_findings or (existing or {}).get("audit_findings"),
+        "history": history,
+    }
+    try:
+        with open(sidecar_path, "w", encoding="utf-8") as f:
+            json.dump(sidecar, f, indent=2)
+    except OSError as e:
+        print(f"  [WARN] state sidecar write failed: {e}")
+
+    # Delete the Qdrant point so paper_search doesn't return it.
+    qdrant = get_qdrant_client()
+    if qdrant is not None:
+        try:
+            remove_from_qdrant(qdrant, doi, dry_run=False)
+        except Exception as e:
+            print(f"  [WARN] Qdrant point delete failed: {e}")
+
+    # Drop the watcher's "already seen" marker so the next pass
+    # doesn't re-attempt this file (it's gone from /papers/pdf/
+    # anyway; this is defence in depth).
+    marker = PROCESSED_DIR / f"{pdf_path.stem}.json"
+    if marker.is_file():
+        try:
+            marker.unlink()
+        except OSError:
+            pass
+
+    print(f"  [OK] quarantined to {dst_pdf}")
+    return True
+
+
+def detect(
+    kinds: List[str],
+    limit: Optional[int] = None,
+    source: str = "all",
+    report_out: Optional[str] = None,
+    auto_quarantine: bool = False,
+    dry_run: bool = False,
+    # Pass-through flags per kind:
+    grobid_pace_secs: int = 30,
+    no_grobid: bool = False,
+    no_backfill: bool = False,
+    severity_threshold: str = "high",
+    min_pages: int = 3,
+    max_check: int = 200,
+    enrich: bool = True,
+) -> int:
+    """Dispatch a detection run over one or more kinds.
+
+    Each kind reuses the existing single-purpose detector function
+    underneath (`find_metadata_mismatch`, `find_low_quality_papers`,
+    `find_short_papers`, `repair_and_clean`). The unification is
+    primarily at the CLI surface; the per-kind logic is unchanged
+    so behaviour stays familiar.
+
+    With ``--auto-quarantine`` (the new soft action), flagged records
+    are moved to ``pdf/quarantine/`` with their state sidecar updated.
+    Without it, the run is a detection-only pass that writes a CSV /
+    DOI list (kind-specific format).
+
+    Returns 0 on success, non-zero if any kind reported an error.
+    """
+    bad = [k for k in kinds if k not in DETECT_KINDS]
+    if bad:
+        print(f"[ERROR] unknown detect kind(s): {bad}", file=sys.stderr)
+        print(f"        valid: {', '.join(DETECT_KINDS)}", file=sys.stderr)
+        return 2
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    print(f"=== detect ===")
+    print(f"  kinds            : {','.join(kinds)}")
+    print(f"  limit            : {limit if limit is not None else '(no cap)'}")
+    print(f"  auto-quarantine  : {'YES' if auto_quarantine else 'NO'}")
+    print(f"  dry run          : {dry_run}")
+    print()
+
+    overall_rc = 0
+    for kind in kinds:
+        kind_report = report_out or f"detect-{kind}-{ts}.csv"
+        kind_report_path = Path(kind_report)
+        if len(kinds) > 1 and report_out:
+            # When multiple kinds share a single report path, suffix
+            # with kind so they don't clobber.
+            kind_report_path = kind_report_path.with_name(
+                f"{kind_report_path.stem}.{kind}{kind_report_path.suffix}"
+            )
+
+        if kind == "metadata-mismatch":
+            try:
+                find_metadata_mismatch(
+                    limit=limit or 100,
+                    source_filter=source,
+                    grobid_pace_secs=grobid_pace_secs,
+                    no_grobid=no_grobid,
+                    no_backfill=no_backfill,
+                    report_out=str(kind_report_path),
+                    queue_for_reingest=False,
+                    severity_threshold=severity_threshold,
+                    reingest_log=None,
+                    dry_run=dry_run,
+                )
+                # Auto-quarantine post-pass: read the CSV, quarantine
+                # severity>=high rows.
+                if auto_quarantine and kind_report_path.is_file():
+                    n_quar = _auto_quarantine_from_mismatch_csv(
+                        kind_report_path, dry_run=dry_run,
+                        severity_threshold=severity_threshold,
+                    )
+                    print(f"\n[detect/metadata-mismatch] auto-quarantined {n_quar} record(s)")
+            except Exception as e:
+                print(f"[ERROR] metadata-mismatch run failed: {e}", file=sys.stderr)
+                overall_rc = 1
+
+        elif kind == "low-quality":
+            try:
+                find_low_quality_papers(
+                    output_file=str(kind_report_path),
+                    auto_remove=False,         # never auto-remove here
+                    limit=limit,
+                    confirm=True,              # programmatic call
+                    enrich=enrich,
+                    max_check=max_check,
+                )
+                if auto_quarantine and kind_report_path.is_file():
+                    n_quar = _auto_quarantine_from_doi_list(
+                        kind_report_path, reason="low_quality",
+                        limit=limit, dry_run=dry_run,
+                    )
+                    print(f"\n[detect/low-quality] auto-quarantined {n_quar} record(s)")
+            except Exception as e:
+                print(f"[ERROR] low-quality run failed: {e}", file=sys.stderr)
+                overall_rc = 1
+
+        elif kind == "short":
+            try:
+                find_short_papers(
+                    min_pages=min_pages,
+                    output_file=str(kind_report_path),
+                    auto_remove=False,
+                    limit=limit,
+                    confirm=True,
+                )
+                if auto_quarantine and kind_report_path.is_file():
+                    n_quar = _auto_quarantine_from_doi_list(
+                        kind_report_path, reason=f"short_pdf_lt_{min_pages}pages",
+                        limit=limit, dry_run=dry_run,
+                    )
+                    print(f"\n[detect/short] auto-quarantined {n_quar} record(s)")
+            except Exception as e:
+                print(f"[ERROR] short run failed: {e}", file=sys.stderr)
+                overall_rc = 1
+
+        elif kind == "metadata-unverifiable":
+            # The historic "repair-and-clean --auto-remove" path:
+            # walks Neo4j, re-enriches from OpenAlex / S2 / Crossref,
+            # quarantines records where ALL three sources fail.
+            # We invoke repair_and_clean with auto_remove=False to
+            # get its detection output, then post-process to
+            # quarantine instead of remove.
+            try:
+                # repair_and_clean writes its DOI list via the
+                # --output flag; we'll route through that.
+                repair_and_clean(
+                    source="neo4j",
+                    max_check=max_check,
+                    auto_remove=False,
+                    limit=limit,
+                    confirm=True,
+                    output_file=str(kind_report_path),
+                    dry_run=dry_run,
+                    check_pdf=False,
+                    export_orphaned=None,
+                )
+                if auto_quarantine and kind_report_path.is_file():
+                    n_quar = _auto_quarantine_from_doi_list(
+                        kind_report_path, reason="metadata_unverifiable",
+                        limit=limit, dry_run=dry_run,
+                    )
+                    print(f"\n[detect/metadata-unverifiable] auto-quarantined {n_quar} record(s)")
+            except Exception as e:
+                print(f"[ERROR] metadata-unverifiable run failed: {e}", file=sys.stderr)
+                overall_rc = 1
+
+        elif kind == "orphan":
+            # Find live Qdrant records whose PDF is missing from disk.
+            try:
+                n_orphan = _detect_orphans(
+                    report_path=kind_report_path,
+                    limit=limit, dry_run=dry_run,
+                    auto_quarantine=auto_quarantine,
+                )
+                print(f"\n[detect/orphan] found {n_orphan} orphan record(s)")
+            except Exception as e:
+                print(f"[ERROR] orphan run failed: {e}", file=sys.stderr)
+                overall_rc = 1
+
+    return overall_rc
+
+
+def _auto_quarantine_from_mismatch_csv(
+    csv_path: Path,
+    dry_run: bool,
+    severity_threshold: str = "high",
+) -> int:
+    """Walk a find-metadata-mismatch CSV and quarantine severity-high
+    rows (or severity-medium too if threshold='medium')."""
+    promote_at = {"high": 3, "medium": 2}.get(severity_threshold, 3)
+    rank = {"clean": 0, "low": 1, "medium": 2, "high": 3, "unparseable": 1}
+    n_quar = 0
+    with open(csv_path, encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            severity = row.get("severity") or ""
+            if rank.get(severity, 0) < promote_at:
+                continue
+            doi = row.get("doi") or ""
+            if not doi:
+                continue
+            audit = {
+                "jaccard": row.get("jaccard"),
+                "grobid_title": row.get("grobid_title"),
+                "downgrade_reason": row.get("downgrade_reason"),
+            }
+            if _quarantine_by_doi(doi, f"metadata_mismatch_{severity}",
+                                  audit_findings=audit, dry_run=dry_run):
+                n_quar += 1
+    return n_quar
+
+
+def _auto_quarantine_from_doi_list(
+    list_path: Path, reason: str,
+    limit: Optional[int], dry_run: bool,
+) -> int:
+    """Walk a plain DOI-list file (one per line, optionally
+    whitespace + comment) and quarantine each. Used by `low-quality`,
+    `short`, and `metadata-unverifiable` kinds."""
+    n_quar = 0
+    with open(list_path, encoding="utf-8") as f:
+        for line in f:
+            doi = line.strip().split()[0] if line.strip() else ""
+            if not doi or doi.startswith("#"):
+                continue
+            if limit is not None and n_quar >= limit:
+                break
+            if _quarantine_by_doi(doi, reason, dry_run=dry_run):
+                n_quar += 1
+    return n_quar
+
+
+def _detect_orphans(
+    report_path: Path, limit: Optional[int],
+    dry_run: bool, auto_quarantine: bool,
+) -> int:
+    """Scroll Qdrant for live records whose PDF is missing from disk.
+    Replaces the historic qdrant_repair_sweep.py functionality.
+
+    Currently emits the orphan DOIs to a CSV; auto-quarantine would
+    leave the records in Qdrant (no PDF to move into quarantine/),
+    so for now this kind is detect-only."""
+    qdrant = get_qdrant_client()
+    if qdrant is None:
+        return 0
+    n_orphan = 0
+    with open(report_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["doi", "pdf_path", "title"])
+        offset = None
+        while True:
+            points, offset = qdrant.scroll(
+                collection_name=COLLECTION_NAME,
+                limit=200, offset=offset,
+                with_payload=True, with_vectors=False,
+            )
+            if not points:
+                break
+            for p in points:
+                payload = p.payload or {}
+                doi = payload.get("doi") or ""
+                if not doi:
+                    continue
+                pdf = _container_pdf_to_host(payload.get("pdf_path"))
+                if pdf is not None and pdf.is_file():
+                    continue
+                writer.writerow([doi, payload.get("pdf_path") or "",
+                                 (payload.get("title") or "")[:200]])
+                n_orphan += 1
+                if limit is not None and n_orphan >= limit:
+                    return n_orphan
+            if offset is None:
+                break
+    return n_orphan
+
+
+# Deprecation helper used by the old find-*/repair-* subcommands.
+def _deprecation_notice(old: str, new: str) -> None:
+    print(f"\n[DEPRECATED] `{old}` is deprecated; use `{new}` instead.")
+    print(f"             Old form continues to work but will be removed in")
+    print(f"             a future commit. See INGEST.md.\n", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Munin Paper Cleanup - Remove papers from all databases"
@@ -2799,7 +3196,7 @@ def main():
     remove_parser.add_argument("--no-blocklist", action="store_true", help="Don't add DOI to blocklist")
 
     # find-low-quality command
-    low_quality_parser = subparsers.add_parser("find-low-quality", help="Smart detection: checks OpenAlex, enriches good papers, removes truly bad ones")
+    low_quality_parser = subparsers.add_parser("find-low-quality", help="[DEPRECATED] Use `detect --kinds low-quality` instead")
     low_quality_parser.add_argument("--output", help="Write found DOIs to this file")
     low_quality_parser.add_argument("--auto-remove", action="store_true", help="Automatically remove found papers from all databases")
     low_quality_parser.add_argument("--limit", type=int, help="Maximum number of papers to auto-remove")
@@ -2808,7 +3205,7 @@ def main():
     low_quality_parser.add_argument("--max-check", type=int, default=500, help="Maximum papers to check from Neo4j (default: 500)")
 
     # find-short command
-    short_parser = subparsers.add_parser("find-short", help="Find papers with few pages")
+    short_parser = subparsers.add_parser("find-short", help="[DEPRECATED] Use `detect --kinds short` instead")
     short_parser.add_argument("--min-pages", type=int, default=3, help="Minimum pages required (default: 3)")
     short_parser.add_argument("--output", help="Write found DOIs to this file")
     short_parser.add_argument("--auto-remove", action="store_true", help="Automatically remove found papers from all databases")
@@ -2826,7 +3223,7 @@ def main():
     verify_parser.add_argument("doi", help="DOI to verify (e.g., 10.1016/0021-9991(77)90112-7)")
 
     # repair-and-clean command
-    repair_parser = subparsers.add_parser("repair-and-clean", help="Multi-source metadata enrichment and cleanup")
+    repair_parser = subparsers.add_parser("repair-and-clean", help="[DEPRECATED] Use `detect --kinds metadata-unverifiable --auto-quarantine` instead")
     repair_parser.add_argument("--source", choices=["neo4j", "processed", "both"], default="both",
                                help="Which papers to scan (default: both)")
     repair_parser.add_argument("--max-check", type=int, default=500, help="Maximum papers to check (default: 500)")
@@ -2839,17 +3236,53 @@ def main():
     repair_parser.add_argument("--export-orphaned", metavar="FILE", help="Export orphaned DOIs (missing PDF) to file for re-crawling")
 
     # scan-processed command
-    scan_parser = subparsers.add_parser("scan-processed", help="Scan processed papers directory for issues")
+    scan_parser = subparsers.add_parser("scan-processed", help="[DEPRECATED] Use `detect --kinds orphan` instead")
     scan_parser.add_argument("--check-metadata", action="store_true", help="Check each paper against metadata sources")
     scan_parser.add_argument("--check-pdf", action="store_true", help="Check if PDFs exist for processed papers")
     scan_parser.add_argument("--find-orphaned", action="store_true", help="Find papers in database but missing PDF")
     scan_parser.add_argument("--max-scan", type=int, default=1000, help="Maximum files to scan (default: 1000)")
     scan_parser.add_argument("--output", help="Save results to JSON file")
 
+    # detect command (Phase D of 2026-05-13 consolidation) — the
+    # unified successor to find-low-quality / find-short /
+    # find-metadata-mismatch / repair-and-clean / qdrant-repair-sweep.
+    detect_parser = subparsers.add_parser(
+        "detect",
+        help="Unified detection: --kinds metadata-mismatch[,low-quality,short,metadata-unverifiable,orphan]",
+    )
+    detect_parser.add_argument("--kinds", required=True,
+                               help=f"Comma-separated detection kinds. Valid: {','.join(DETECT_KINDS)}")
+    detect_parser.add_argument("--limit", type=int,
+                               help="Max records to inspect / quarantine this run")
+    detect_parser.add_argument("--source", default="all",
+                               choices=["all", "upload", "crawler"],
+                               help="Restrict to upload-only or crawler-only (metadata-mismatch only)")
+    detect_parser.add_argument("--report-out", help="CSV / DOI-list output path")
+    detect_parser.add_argument("--auto-quarantine", action="store_true",
+                               help="Move flagged records to pdf/quarantine/ (soft action; replaces --auto-remove)")
+    detect_parser.add_argument("--dry-run", action="store_true",
+                               help="Print actions; don't write")
+    # Per-kind pass-through flags:
+    detect_parser.add_argument("--grobid-pace", type=int, default=30,
+                               help="(metadata-mismatch) seconds between GROBID calls")
+    detect_parser.add_argument("--no-grobid", action="store_true",
+                               help="(metadata-mismatch) skip GROBID; pdftotext proxy only")
+    detect_parser.add_argument("--no-backfill", action="store_true",
+                               help="(metadata-mismatch) don't write audit fields to Qdrant")
+    detect_parser.add_argument("--severity-threshold",
+                               choices=["high", "medium"], default="high",
+                               help="(metadata-mismatch) min severity for quarantine")
+    detect_parser.add_argument("--min-pages", type=int, default=3,
+                               help="(short) minimum page count")
+    detect_parser.add_argument("--max-check", type=int, default=200,
+                               help="(low-quality / metadata-unverifiable) max records to scan")
+    detect_parser.add_argument("--no-enrich", action="store_true",
+                               help="(low-quality) skip OpenAlex enrichment")
+
     # find-metadata-mismatch command (Stage 2 remediation tool)
     mismatch_parser = subparsers.add_parser(
         "find-metadata-mismatch",
-        help="Detect title-vs-PDF mismatches; lazy backfill audit fields; optionally queue for reingest",
+        help="[DEPRECATED] Use `detect --kinds metadata-mismatch` instead",
     )
     mismatch_parser.add_argument("--limit", type=int, default=100,
                                  help="Max records to inspect this run (default: 100)")
@@ -2897,7 +3330,7 @@ def main():
                                  help="Print actions; don't invoke pipeline")
 
     # repair-auto command (autonomous mode)
-    auto_parser = subparsers.add_parser("repair-auto", help="Autonomous repair - processes papers one at a time with immediate actions")
+    auto_parser = subparsers.add_parser("repair-auto", help="[DEPRECATED] Use `detect --kinds metadata-unverifiable --auto-quarantine` instead")
     auto_parser.add_argument("--doi", help="Process a single DOI instead of bulk")
     auto_parser.add_argument("--source", choices=["neo4j", "processed"], default="neo4j",
                              help="Where to get paper list (default: neo4j)")
@@ -2915,6 +3348,7 @@ def main():
             add_blocklist=not args.no_blocklist
         )
     elif args.command == "find-low-quality":
+        _deprecation_notice("find-low-quality", "detect --kinds low-quality")
         find_low_quality_papers(
             output_file=args.output,
             auto_remove=args.auto_remove,
@@ -2924,6 +3358,7 @@ def main():
             max_check=args.max_check
         )
     elif args.command == "find-short":
+        _deprecation_notice("find-short", "detect --kinds short")
         find_short_papers(
             min_pages=args.min_pages,
             output_file=args.output,
@@ -2940,6 +3375,10 @@ def main():
     elif args.command == "verify-doi":
         verify_doi(args.doi)
     elif args.command == "repair-and-clean":
+        _deprecation_notice(
+            "repair-and-clean",
+            "detect --kinds metadata-unverifiable --auto-quarantine",
+        )
         repair_and_clean(
             source=args.source,
             max_check=args.max_check,
@@ -2952,6 +3391,7 @@ def main():
             export_orphaned=args.export_orphaned
         )
     elif args.command == "scan-processed":
+        _deprecation_notice("scan-processed", "detect --kinds orphan")
         scan_processed(
             check_metadata=args.check_metadata,
             check_pdf=args.check_pdf,
@@ -2960,6 +3400,10 @@ def main():
             output_file=args.output
         )
     elif args.command == "repair-auto":
+        _deprecation_notice(
+            "repair-auto",
+            "detect --kinds metadata-unverifiable --auto-quarantine",
+        )
         repair_auto(
             source=args.source,
             max_papers=args.max_papers,
@@ -2968,6 +3412,23 @@ def main():
             retry_failed=args.retry_failed,
             single_doi=args.doi
         )
+    elif args.command == "detect":
+        kinds = [k.strip() for k in args.kinds.split(",") if k.strip()]
+        sys.exit(detect(
+            kinds=kinds,
+            limit=args.limit,
+            source=args.source,
+            report_out=args.report_out,
+            auto_quarantine=args.auto_quarantine,
+            dry_run=args.dry_run,
+            grobid_pace_secs=args.grobid_pace,
+            no_grobid=args.no_grobid,
+            no_backfill=args.no_backfill,
+            severity_threshold=args.severity_threshold,
+            min_pages=args.min_pages,
+            max_check=args.max_check,
+            enrich=not args.no_enrich,
+        ))
     elif args.command == "find-metadata-mismatch":
         find_metadata_mismatch(
             limit=args.limit,
