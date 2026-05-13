@@ -185,8 +185,17 @@ watcher leaves bad PDFs in place gets fixed for free.
 
 | File | New home | Why |
 |---|---|---|
-| `knowledge_tools.py` | `backend/retrieval/knowledge_tools.py` | RAG tool definitions consumed by retrieval. |
 | `notion_sync.py` | `backend/scripts/notion_sync.py` (sibling, not under `pipeline/`) | Separate concern. |
+
+### Reclassified during Phase A — delete instead of move
+
+`knowledge_tools.py` was originally listed for relocation to
+`backend/retrieval/`, but it has zero non-self callers anywhere in
+the tree. Its tool functions (`search_papers`, `find_citing_papers`,
+`find_author_papers`, `get_paper_details`, `web_search`) are already
+implemented in `retrieval/mcp/tools/`. It's dead legacy code from an
+earlier function-calling design. Deleted in Phase A together with
+the pipeline `README.md` (which only documents that dead code).
 
 ### Fold (was a script, becomes a subcommand)
 

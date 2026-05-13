@@ -1,0 +1,327 @@
+# Paper ingest and cleanup — operator reference
+
+Single entry point for everything ingest-related: how PDFs flow into
+the corpus, what runs automatically, what the operator runs by hand.
+Replaces six previous quick-reference docs.
+
+For deeper context:
+- [`PAPER_CRAWLER.md`](PAPER_CRAWLER.md) — crawler internals (citation
+  harvesting, Sci-Hub, queue DB).
+- [`../../docs/PAPER-INGEST-AUDIT.md`](../../docs/PAPER-INGEST-AUDIT.md)
+  — the 2026-05-12 audit that introduced the ingest-time
+  title-similarity guard and the `find-metadata-mismatch` tool.
+- [`../../docs/PIPELINE-CONSOLIDATION-PLAN.md`](../../docs/PIPELINE-CONSOLIDATION-PLAN.md)
+  — the in-progress consolidation (state machine, unified CLI). The
+  end-state described there isn't fully shipped yet.
+
+## What this directory is for
+
+`backend/scripts/pipeline/` contains the cluster-side code that
+turns PDFs into searchable corpus entries. The active pieces:
+
+| File | Purpose |
+|---|---|
+| `paper_pipeline.py` | The ingest engine. PDF → GROBID → CrossRef → SPECTER → Qdrant + Neo4j. Run as `--single <pdf>` for one PDF, `--watch` as a long-running systemd service. |
+| `paper_crawler.py` | Citation-based PDF acquisition. arXiv first, Sci-Hub fallback. Maintains a SQLite queue of pending downloads. |
+| `paper_cleanup.py` | All cleanup, repair, detection, and remediation subcommands. |
+
+## Ingest paths
+
+Two ways PDFs enter the system. Both end up calling the same
+`process_pdf()` core in `paper_pipeline.py`, but the wrapper around
+them differs.
+
+### Path A — Upload (`/api/admin/ingest`)
+
+```
+upload.muninai.org (tusd) → frontend/upload/hook_service → POST /api/admin/ingest
+   ↓
+/opt/munin/data/papers/pdf/inbox/<uuid>.pdf  +  <uuid>.contributor.json
+   ↓
+subprocess: paper_pipeline.py --single inbox/<uuid>.pdf
+   ↓
+on success: PDF moved to /papers/pdf/doi_<doi>.pdf, processed marker written
+on quality fail: PDF + sidecar moved to /papers/pdf/skipped/
+on pipeline crash: PDF + sidecar moved to /papers/pdf/failed/
+on null-DOI quarantine: PDF + sidecar to /papers/pdf/skipped/ (Stage 1.6 of 2026-05-12 audit)
+```
+
+### Path B — Crawler / operator drop (watcher)
+
+```
+paper_crawler.py crawl  →  /opt/munin/data/papers/pdf/doi_<doi>.pdf
+(or operator manually drops a doi_*.pdf file in the same dir)
+   ↓
+munin-paper-pipeline.service polls every 60s, runs process_pdf
+on any file without /papers/processed/<stem>.json
+   ↓
+on success: marker written to /papers/processed/
+on failure: no marker; file gets retried each poll  ← asymmetry vs Path A
+```
+
+The asymmetry between A and B (Path A quarantines failures, Path B
+just retries) is one of the things the consolidation plan
+([`../../docs/PIPELINE-CONSOLIDATION-PLAN.md`](../../docs/PIPELINE-CONSOLIDATION-PLAN.md))
+is going to fix.
+
+## Services and timers running automatically
+
+Today, on hugin:
+
+| Unit | Schedule | What it does |
+|---|---|---|
+| `munin-paper-pipeline.service` | always on | `--watch` loop, polls `/papers/pdf/` every 60s for unprocessed PDFs |
+| `munin-paper-cleanup.timer` | 04:00 daily | Runs `paper_cleanup.py repair-and-clean --max-check 200 --auto-remove --limit 20` — nightly metadata-quality sweep |
+| `munin-embedding-map.timer` | 01:30 daily | Rebuilds the 2D paper-embedding map + HDBSCAN clusters |
+
+`munin-paper-cleanup` is the **only auto-remove path** that runs
+without operator action. It caps at 20 removals per night to keep a
+bad metadata-source day from emptying the corpus.
+
+To inspect what's enabled:
+
+```bash
+systemctl list-timers 'munin-*'
+systemctl status munin-paper-pipeline.service
+journalctl -u munin-paper-pipeline.service -f          # tail the watcher
+journalctl -u munin-paper-cleanup.service --since today
+```
+
+## Prerequisites
+
+Both Path A (admin/ingest in retrieval container) and Path B (host
+watcher) need:
+
+- **Qdrant** running on `127.0.0.1:6333` (Docker, in
+  `munin-qdrant` container)
+- **Neo4j** running on `127.0.0.1:7687` (Docker,
+  `munin-neo4j`). Authentication needs `NEO4J_PASSWORD` in the
+  process env; `/opt/hugin/config/cluster.env` carries it.
+- **GROBID** running on `127.0.0.1:8070` (Docker, `munin-grobid`)
+
+Sanity check:
+
+```bash
+docker ps --filter "name=munin-" --format "{{.Names}}: {{.Status}}"
+curl -sf http://127.0.0.1:8070/api/isalive    # GROBID
+curl -sf http://127.0.0.1:6333/readyz         # Qdrant
+```
+
+## Common operator tasks
+
+All commands below run as root (or via `sudo`) because the venv is
+root-owned and the data dir requires elevated writes.
+
+### Drop a PDF into the corpus manually
+
+Name it `doi_<doi>.pdf` (with `/` replaced by `_`), place it in
+`/opt/munin/data/papers/pdf/`, and the watcher picks it up within
+60s. No restart needed.
+
+### Process a single PDF on demand
+
+```bash
+sudo bash -c 'set -a && source /opt/hugin/config/cluster.env && set +a && \
+    /opt/munin/services/pipeline/venv/bin/python3 \
+    /opt/cluster/scripts/pipeline/paper_pipeline.py \
+    --single /opt/munin/data/papers/pdf/doi_10.1234_example.pdf'
+```
+
+The `set -a` is mandatory: the pipeline needs `NEO4J_PASSWORD` (and
+others) exported to the subprocess. Without it Neo4j auth fails
+silently — that gotcha used to live in a separate `quick_fix_neo4j.md`.
+
+### Crawl new citations
+
+See [`PAPER_CRAWLER.md`](PAPER_CRAWLER.md) for the full surface.
+Common ones:
+
+```bash
+sudo bash -c 'source /opt/hugin/config/cluster.env && \
+    /opt/munin/services/pipeline/venv/bin/python3 \
+    /opt/cluster/scripts/pipeline/paper_crawler.py crawl --max 100 --delay 10'
+sudo .../paper_crawler.py add-seed arxiv:1706.03762
+sudo .../paper_crawler.py status
+```
+
+### Inspect a DOI
+
+```bash
+sudo .../paper_cleanup.py verify-doi 10.1016/0021-9991(77)90112-7
+```
+
+Aggregates metadata from OpenAlex / Semantic Scholar / CrossRef and
+prints what each source has. Useful when something looks wrong in
+search results.
+
+### Remove a single paper everywhere
+
+```bash
+sudo .../paper_cleanup.py remove --doi 10.1234/example                  # commits
+sudo .../paper_cleanup.py remove --doi 10.1234/example --dry-run        # previews
+sudo .../paper_cleanup.py remove --doi 10.1234/example --no-blocklist   # don't add to blocklist
+```
+
+Wipes Qdrant point + Neo4j paper node + SQLite queue row + PDF file.
+Default behaviour adds the DOI to `blocklist.txt` so a future crawl
+doesn't reintroduce it.
+
+### Bulk remove
+
+```bash
+sudo .../paper_cleanup.py bulk-remove --file dois_to_drop.txt           # one DOI per line
+```
+
+### Find and remove low-quality papers
+
+```bash
+sudo .../paper_cleanup.py find-low-quality                              # detect only
+sudo .../paper_cleanup.py find-low-quality --auto-remove --limit 50 --confirm
+sudo .../paper_cleanup.py find-short --min-pages 3 --auto-remove --limit 20 --confirm
+```
+
+`find-low-quality` uses OpenAlex to flag short / retracted / no-abstract
+records. `find-short` is purely page-count based (counts the PDF).
+
+### Multi-source repair sweep
+
+`repair-and-clean` re-fetches metadata from all three sources (OpenAlex,
+Semantic Scholar, CrossRef) and only removes papers when **all three**
+fail. The nightly timer runs this; manual invocation:
+
+```bash
+sudo .../paper_cleanup.py repair-and-clean --max-check 500 --dry-run
+sudo .../paper_cleanup.py repair-and-clean --max-check 500 --auto-remove --limit 50
+sudo .../paper_cleanup.py repair-and-clean --max-check 500 --export-orphaned orphaned.txt
+```
+
+`repair-auto` is the autonomous-mode variant (acts per-paper as it
+walks instead of batching at the end). Same intent, different
+ordering.
+
+### Find PDFs whose stored title doesn't match their content
+
+Added 2026-05-12 by the ingest audit. Paced 30s/GROBID call by
+default; resume-safe via `_inspected_at` payload marker.
+
+```bash
+# Detect only, write CSV report
+sudo .../paper_cleanup.py find-metadata-mismatch \
+    --limit 100 --report-out /var/log/cluster-admin/mm.csv
+
+# Same, but auto-move severity>=high to inbox/ for reingest
+sudo .../paper_cleanup.py find-metadata-mismatch \
+    --limit 100 --queue-for-reingest \
+    --reingest-log /var/log/cluster-admin/reingest.csv
+```
+
+`reingest-queue` drives the actual re-ingest of queued PDFs against
+the hardened pipeline:
+
+```bash
+sudo .../paper_cleanup.py reingest-queue --limit 50 --pace 30
+```
+
+### Backfill contributors who got added to the allowlist late
+
+Replaces the previous standalone `reattribute_unknown.py`. Walks
+Qdrant for papers tagged `group_slug: "unknown"` whose uploader email
+IS now in `config/contributors.yml`, and rewrites those entries with
+the proper group + display fields.
+
+```bash
+sudo .../paper_cleanup.py reattribute --dry-run    # preview
+sudo .../paper_cleanup.py reattribute              # commit
+sudo .../paper_cleanup.py reattribute --no-neo4j   # Qdrant only, skip graph
+```
+
+Idempotent. Safe to re-run after every `contributors.yml` change.
+
+## Quality filters at ingest time
+
+The pipeline rejects papers whose metadata is incompatible with the
+"real research paper" definition:
+
+| Variable (env, in `cluster.env`) | Default | Effect |
+|---|---|---|
+| `MIN_PAGE_COUNT` | `3` | Reject PDFs with fewer pages |
+| `REQUIRE_ABSTRACT_OR_REFS` | `true` | Reject if both abstract and reference list are empty |
+| `OPENALEX_API_KEY` | (empty) | Optional; higher OpenAlex rate limit if set |
+| `ADMIN_EMAIL` | `admin@example.com` | User-Agent for API calls (be polite) |
+
+Editorials, retractions, single-page introductions, and book reviews
+also get filtered out by title-pattern matching in `process_pdf()`.
+
+## Where things land on disk
+
+```
+/opt/munin/data/papers/
+├── pdf/                                live corpus, ~67k PDFs
+│   ├── doi_*.pdf
+│   ├── inbox/                          admin/ingest staging
+│   │   └── <uuid>.pdf + <uuid>.contributor.json
+│   ├── skipped/                        quality-filter rejects + null-DOI quarantine
+│   └── failed/                         pipeline crash/timeout quarantine
+├── processed/                          watcher "already seen" markers (1 JSON per PDF)
+├── logs/                               per-skip JSON logs
+├── blocklist.txt                       DOIs to refuse on future crawl
+├── failed_downloads.txt                DOIs Sci-Hub gave up on
+└── crawler_queue.db                    SQLite, the crawler's pending list
+```
+
+`/opt/munin/knowledge/` holds the §15 embedding-map output and the
+notion-sync state.
+
+## Troubleshooting
+
+### Watcher service won't ingest a PDF I just dropped
+
+Check if a stale processed-marker is shadowing it:
+
+```bash
+ls -la /opt/munin/data/papers/processed/doi_<your-doi>.json
+```
+
+If it exists, the watcher will skip the PDF. Either delete the
+marker (the watcher will re-run the pipeline) or re-ingest manually
+with `--single`.
+
+### "Could not authenticate to Neo4j" when running manually
+
+The cluster.env exports aren't reaching the Python process. Use the
+`set -a && source && set +a` pattern shown earlier — without `set -a`,
+the variables stay shell-local.
+
+### GROBID 503 / "Could not get an engine from the pool"
+
+GROBID has a finite engine pool (~10 by default). The watcher uses
+`--workers 1` to leave headroom for the admin/ingest path. If you
+manually run a high-concurrency pipeline (e.g. `--workers 4`) while
+admin/ingest is also active, the pool saturates. Wait for in-flight
+work to drain, then re-run.
+
+If GROBID is sustained-down, see `docker compose logs grobid` in
+`/opt/munin/docker/`.
+
+### Sci-Hub returned the wrong PDF for a DOI
+
+The 2026-05-12 audit identified this as the dominant crawler-side
+metadata-corruption mechanism. The hardened pipeline now rejects the
+Crossref enrichment when the GROBID-parsed title doesn't match the
+Crossref title (`token-Jaccard < 0.3`), but the wrong DOI is still
+stored.
+
+Detect with `find-metadata-mismatch`, queue with `--queue-for-reingest`,
+follow up with `reingest-queue`. See
+[`../../docs/PAPER-INGEST-AUDIT.md`](../../docs/PAPER-INGEST-AUDIT.md).
+
+## What's documented elsewhere
+
+- Crawler internals (arXiv, Sci-Hub, citation harvesting, seed
+  management): [`PAPER_CRAWLER.md`](PAPER_CRAWLER.md).
+- 2026-05-12 ingest audit + the title-similarity guard:
+  [`../../docs/PAPER-INGEST-AUDIT.md`](../../docs/PAPER-INGEST-AUDIT.md).
+- The in-progress pipeline consolidation that will replace
+  `skipped/` + `failed/` with a unified `quarantine/` and rebuild the
+  cleanup CLI around a state-machine model:
+  [`../../docs/PIPELINE-CONSOLIDATION-PLAN.md`](../../docs/PIPELINE-CONSOLIDATION-PLAN.md).

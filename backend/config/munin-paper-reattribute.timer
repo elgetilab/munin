@@ -1,0 +1,13 @@
+[Unit]
+Description=Nightly contributor re-attribution trigger
+Documentation=scripts/pipeline/INGEST.md
+
+[Timer]
+# 04:30 every day, cluster-local time. Comfortably after the
+# 04:00 munin-paper-cleanup run (~5 min wall time) and before any
+# operator-driven crawls that typically start around 09:00.
+OnCalendar=*-*-* 04:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -106,7 +106,8 @@ backend/
 │   ├── deepresearch/         # daemon + SLURM job
 │   ├── knowledge/            # build_embedding_map.py
 │   └── pipeline/             # paper_pipeline.py, paper_cleanup.py,
-│                             #   paper_crawler.py, qdrant_repair_sweep.py
+│                             #   paper_crawler.py. INGEST.md is the
+│                             #   operator entry point for this dir.
 └── docs/                     # Internal design + future-features notes
                               #   (docs/archive/ for frozen historical specs)
 ```

@@ -336,12 +336,18 @@ The workflow takes ~5 minutes and doesn't require a container restart.
    ```bash
    # Dry-run first: see what WOULD change
    sudo /opt/munin/services/pipeline/venv/bin/python3 \
-       /opt/cluster/scripts/pipeline/reattribute_unknown.py --dry-run
+       /opt/cluster/scripts/pipeline/paper_cleanup.py reattribute --dry-run
 
    # Real run: updates Qdrant payloads + Neo4j Contributor edges
    sudo /opt/munin/services/pipeline/venv/bin/python3 \
-       /opt/cluster/scripts/pipeline/reattribute_unknown.py
+       /opt/cluster/scripts/pipeline/paper_cleanup.py reattribute
    ```
+
+   Folded into `paper_cleanup.py` on 2026-05-13; was previously a
+   standalone `reattribute_unknown.py` script. The
+   `munin-paper-reattribute.timer` service (added the same day but
+   not enabled until the consolidation completes) will eventually
+   run this nightly so manual re-attribution becomes optional.
 
    The script walks every paper with `contributors[].group_slug
    == "unknown"`, looks up the email against the current

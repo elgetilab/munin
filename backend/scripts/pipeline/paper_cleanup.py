@@ -55,6 +55,8 @@ import sys
 import time
 import uuid
 import xml.etree.ElementTree as ET
+
+import yaml
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -2564,6 +2566,226 @@ def reingest_queue(
     print(f"  pending : {max(0, len(queued) - n_ok - n_fail)}")
 
 
+# ==============================================================================
+# Contributor Re-attribution (formerly reattribute_unknown.py)
+# ==============================================================================
+# Retroactively assign group attribution to papers that were ingested
+# before their uploader was added to `config/contributors.yml`.
+#
+# When a user uploads via upload.muninai.org and their email isn't on
+# the allowlist yet, /api/admin/ingest still ingests the paper but
+# stamps the contributor as `group_slug: "unknown"`. After the admin
+# adds the uploader to contributors.yml, this command walks the
+# Qdrant `papers` collection, finds points whose contributors[] list
+# contains an `unknown` entry whose email IS now allowlisted, and
+# rewrites that entry with the now-known fields (display_name,
+# username, group_slug, group_display_name). Optionally also updates
+# the matching Neo4j :Contributor node + CONTRIBUTED edge.
+#
+# Idempotent. Safe to re-run on every contributors.yml change. Run
+# nightly by the (Phase E) munin-paper-reattribute.timer service.
+
+CONTRIBUTORS_CONFIG_PATH = os.getenv(
+    "CONTRIBUTORS_CONFIG_PATH", "/opt/munin/config/contributors.yml"
+)
+
+
+def _load_contributors_yaml(path: str = CONTRIBUTORS_CONFIG_PATH) -> Dict[str, Dict]:
+    """Parse contributors.yml into a {email: entry} map.
+
+    Supports both `email:` single and `emails:` list forms. Mirrors
+    retrieval/main.py::_load_contributors so the two stay
+    behaviour-compatible.
+    """
+    try:
+        with open(path, encoding="utf-8") as f:
+            doc = yaml.safe_load(f) or {}
+    except (OSError, yaml.YAMLError) as e:
+        print(f"[ERROR] contributors.yml unreadable: {e}", file=sys.stderr)
+        return {}
+    out: Dict[str, Dict] = {}
+    for entry in doc.get("contributors", []) or []:
+        addrs: List[str] = []
+        single = entry.get("email")
+        if isinstance(single, str) and single.strip():
+            addrs.append(single.strip().lower())
+        listed = entry.get("emails")
+        if isinstance(listed, list):
+            for a in listed:
+                if isinstance(a, str) and a.strip():
+                    addrs.append(a.strip().lower())
+        for addr in addrs:
+            out[addr] = entry
+    return out
+
+
+def _rebuild_unknown_contributor(c: Dict, allowlist: Dict[str, Dict]) -> Optional[Dict]:
+    """If `c` is an `unknown`-tagged entry whose email is now
+    allowlisted, return the rebuilt entry. Otherwise return None."""
+    if not isinstance(c, dict):
+        return None
+    if (c.get("group_slug") or "") != "unknown":
+        return None
+    email = (c.get("email") or "").strip().lower()
+    if not email:
+        return None
+    known = allowlist.get(email)
+    if known is None:
+        return None
+    return {
+        "email": email,
+        "username": known.get("username"),
+        "display_name": known.get("display_name"),
+        "group_slug": known.get("research_group") or "unknown",
+        "group_display_name": known.get("research_group_display_name"),
+        "upload_time": c.get("upload_time"),
+    }
+
+
+def reattribute(dry_run: bool = False, no_neo4j: bool = False) -> int:
+    """Walk Qdrant for unknown-tagged contributors whose email is now
+    allowlisted; rewrite them with the proper group slug + display
+    fields. Optionally mirror the change into Neo4j.
+
+    Returns 0 on success, 2 on missing allowlist.
+    """
+    allowlist = _load_contributors_yaml()
+    if not allowlist:
+        print("[ERROR] No contributors loaded; nothing to do.", file=sys.stderr)
+        return 2
+    print(f"[INFO] Allowlist has {len(allowlist)} email(s).")
+
+    client = get_qdrant_client()
+    if client is None:
+        print("[ERROR] Qdrant unavailable", file=sys.stderr)
+        return 2
+
+    from qdrant_client.http import models as qm
+    flt = qm.Filter(
+        must=[
+            qm.FieldCondition(
+                key="contributors[].group_slug",
+                match=qm.MatchValue(value="unknown"),
+            )
+        ]
+    )
+    print(f"[INFO] Scrolling {COLLECTION_NAME} for unknown contributors...")
+    t0 = time.time()
+    candidates = []
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=COLLECTION_NAME,
+            scroll_filter=flt,
+            limit=256,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+        if not points:
+            break
+        candidates.extend(points)
+        if offset is None:
+            break
+    print(f"[INFO] {len(candidates)} candidate point(s) in {time.time() - t0:.1f}s")
+
+    neo4j_driver = None
+    if not no_neo4j and NEO4J_PASSWORD:
+        try:
+            from neo4j import GraphDatabase
+            neo4j_driver = GraphDatabase.driver(
+                NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD)
+            )
+            with neo4j_driver.session() as s:
+                s.run("RETURN 1")
+        except Exception as e:
+            print(f"[WARN] Neo4j unavailable, skipping graph updates: {e}")
+            neo4j_driver = None
+
+    updated = 0
+    skipped = 0
+    by_group: Dict[str, int] = {}
+
+    for p in candidates:
+        payload = p.payload or {}
+        contribs = payload.get("contributors") or []
+        new_contribs: List[Dict] = []
+        any_change = False
+        for c in contribs:
+            rebuilt = _rebuild_unknown_contributor(c, allowlist)
+            if rebuilt is not None:
+                new_contribs.append(rebuilt)
+                any_change = True
+                by_group[rebuilt["group_slug"]] = by_group.get(rebuilt["group_slug"], 0) + 1
+            else:
+                new_contribs.append(c if isinstance(c, dict) else {})
+        if not any_change:
+            skipped += 1
+            continue
+        if dry_run:
+            updated += 1
+            continue
+        try:
+            client.set_payload(
+                collection_name=COLLECTION_NAME,
+                payload={"contributors": new_contribs},
+                points=[p.id],
+                wait=False,
+            )
+        except Exception as e:
+            print(f"[WARN] Qdrant set_payload failed for {p.id}: {e}")
+            continue
+        # Mirror into Neo4j: MERGE the (now-known) :Contributor node
+        # and CONTRIBUTED edge for each newly-attributed entry.
+        if neo4j_driver is not None:
+            doi = payload.get("doi")
+            for c in new_contribs:
+                if not isinstance(c, dict) or not c.get("email"):
+                    continue
+                if c.get("group_slug") == "unknown":
+                    continue
+                try:
+                    with neo4j_driver.session() as s:
+                        if doi:
+                            s.run(
+                                """
+                                MERGE (co:Contributor {email: $email})
+                                SET co.username = coalesce($username, co.username),
+                                    co.display_name = coalesce($display_name, co.display_name),
+                                    co.group_slug = $group_slug,
+                                    co.group_display_name = coalesce($group_display_name, co.group_display_name)
+                                WITH co
+                                MATCH (p:Paper {doi: $doi})
+                                MERGE (co)-[r:CONTRIBUTED]->(p)
+                                """,
+                                email=c["email"],
+                                username=c.get("username"),
+                                display_name=c.get("display_name"),
+                                group_slug=c["group_slug"],
+                                group_display_name=c.get("group_display_name"),
+                                doi=doi,
+                            )
+                except Exception as e:
+                    print(f"[WARN] Neo4j update failed for {p.id}: {e}")
+        updated += 1
+        if updated % 100 == 0:
+            print(f"[INFO]   updated {updated} so far...", flush=True)
+
+    if neo4j_driver is not None:
+        neo4j_driver.close()
+
+    print(
+        f"\n[DONE]{' DRY RUN' if dry_run else ''}\n"
+        f"  candidates with group_slug=unknown: {len(candidates)}\n"
+        f"  re-attributed: {updated}\n"
+        f"  unchanged (still unknown / not in allowlist): {skipped}\n"
+        f"  by group:"
+    )
+    for slug, n in sorted(by_group.items(), key=lambda x: -x[1]):
+        print(f"    {slug}: {n}")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Munin Paper Cleanup - Remove papers from all databases"
@@ -2649,6 +2871,16 @@ def main():
                                  help="Reingest rollback log CSV (default: reingest-log-<ts>.csv)")
     mismatch_parser.add_argument("--dry-run", action="store_true",
                                  help="Print actions; don't write to Qdrant or move files")
+
+    # reattribute command (formerly the standalone reattribute_unknown.py)
+    reattribute_parser = subparsers.add_parser(
+        "reattribute",
+        help="Backfill contributor attribution on records whose uploader was added to contributors.yml after ingest",
+    )
+    reattribute_parser.add_argument("--dry-run", action="store_true",
+                                    help="Preview re-attributions; write nothing")
+    reattribute_parser.add_argument("--no-neo4j", action="store_true",
+                                    help="Skip Neo4j updates (Qdrant only)")
 
     # reingest-queue command (drives the queue produced above)
     reingest_parser = subparsers.add_parser(
@@ -2749,6 +2981,8 @@ def main():
             reingest_log=args.reingest_log,
             dry_run=args.dry_run,
         )
+    elif args.command == "reattribute":
+        sys.exit(reattribute(dry_run=args.dry_run, no_neo4j=args.no_neo4j))
     elif args.command == "reingest-queue":
         reingest_queue(
             pipeline_script=args.pipeline_script,

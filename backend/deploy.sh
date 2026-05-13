@@ -282,24 +282,19 @@ deploy_pipeline() {
     need_file "$REPO_DIR/config/munin-paper-pipeline.service"
     need_file "$REPO_DIR/config/munin-paper-cleanup.service"
     need_file "$REPO_DIR/config/munin-paper-cleanup.timer"
+    need_file "$REPO_DIR/config/munin-paper-reattribute.service"
+    need_file "$REPO_DIR/config/munin-paper-reattribute.timer"
 
     run "install -d -m 0755 $PIPELINE_DIR"
     run "install -m 0755 $REPO_DIR/scripts/pipeline/paper_pipeline.py \
         $PIPELINE_DIR/paper_pipeline.py"
     run "install -m 0755 $REPO_DIR/scripts/pipeline/paper_cleanup.py \
         $PIPELINE_DIR/paper_cleanup.py"
-    # One-shot stop-gap. Seeds processed-markers for any
-    # `doi_*.pdf` already in Qdrant so the watcher's first pass
-    # doesn't grind through 60k+ duplicates. Run manually after
-    # deploy; idempotent.
-    run "install -m 0755 $REPO_DIR/scripts/pipeline/seed_processed_markers.py \
-        $PIPELINE_DIR/seed_processed_markers.py"
-    # Retroactively attributes papers ingested under
-    # group_slug="unknown" once their uploader is added to
-    # contributors.yml. Run manually after each allowlist edit;
-    # idempotent.
-    run "install -m 0755 $REPO_DIR/scripts/pipeline/reattribute_unknown.py \
-        $PIPELINE_DIR/reattribute_unknown.py"
+    # seed_processed_markers.py and reattribute_unknown.py were
+    # retired in the 2026-05-13 pipeline consolidation (see
+    # docs/PIPELINE-CONSOLIDATION-PLAN.md). The first was a one-shot
+    # backfill whose problem is long solved; the second is now the
+    # `reattribute` subcommand of paper_cleanup.py.
     run "install -m 0644 $REPO_DIR/scripts/pipeline/requirements.txt \
         $PIPELINE_DIR/requirements.txt"
 
@@ -332,13 +327,20 @@ deploy_pipeline() {
         echo "  [dry-run] would create venv at $PIPELINE_VENV and install requirements"
     fi
 
-    # Systemd units: watcher daemon + nightly cleanup timer.
+    # Systemd units: watcher daemon + nightly cleanup timer + the
+    # reattribute timer (installed but NOT enabled here — Phase E of
+    # the 2026-05-13 consolidation enables it once the unified state
+    # model lands. See docs/PIPELINE-CONSOLIDATION-PLAN.md).
     run "install -m 0644 $REPO_DIR/config/munin-paper-pipeline.service \
         $SYSTEMD_DIR/munin-paper-pipeline.service"
     run "install -m 0644 $REPO_DIR/config/munin-paper-cleanup.service \
         $SYSTEMD_DIR/munin-paper-cleanup.service"
     run "install -m 0644 $REPO_DIR/config/munin-paper-cleanup.timer \
         $SYSTEMD_DIR/munin-paper-cleanup.timer"
+    run "install -m 0644 $REPO_DIR/config/munin-paper-reattribute.service \
+        $SYSTEMD_DIR/munin-paper-reattribute.service"
+    run "install -m 0644 $REPO_DIR/config/munin-paper-reattribute.timer \
+        $SYSTEMD_DIR/munin-paper-reattribute.timer"
     run "systemctl daemon-reload"
 
     # Start the watcher + enable the cleanup timer. --now on enable
@@ -353,6 +355,9 @@ deploy_pipeline() {
     echo "      Logs: journalctl -fu munin-paper-pipeline.service"
     echo "            journalctl -u munin-paper-cleanup.service --since today"
     echo "      Next cleanup: systemctl list-timers munin-paper-cleanup.timer"
+    echo "      munin-paper-reattribute.timer staged but NOT enabled."
+    echo "      Enable manually after the Phase E consolidation lands:"
+    echo "        systemctl enable --now munin-paper-reattribute.timer"
 }
 
 deploy_knowledge() {
