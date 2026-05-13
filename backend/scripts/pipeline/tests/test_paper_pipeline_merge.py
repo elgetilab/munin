@@ -459,6 +459,295 @@ def test_sidecar_missing_filename_doi_hint() -> bool:
 
 
 # ---------------------------------------------------------------------------
+# State sidecar + dispose helper (Phase B of 2026-05-13)
+# ---------------------------------------------------------------------------
+
+def test_state_sidecar_path_alongside_pdf() -> bool:
+    """The sidecar lives next to the PDF, with the same stem and a
+    `.state.json` suffix. Critical: both `live` (in /papers/pdf/) and
+    `quarantine` PDFs use this convention."""
+    from pathlib import Path
+    return _check(
+        "state_sidecar_path: <stem>.state.json sibling",
+        pp._state_sidecar_path("/x/doi_10.1_y.pdf") == Path("/x/doi_10.1_y.state.json")
+        and pp._state_sidecar_path(Path("/y/uuid.pdf")) == Path("/y/uuid.state.json"),
+    )
+
+
+def test_build_state_sidecar_fresh_record() -> bool:
+    """First time a record is disposed: no `existing` sidecar; the
+    new doc establishes first_seen_at = last_modified_at and seeds
+    history with one entry."""
+    paper = pp.Paper(
+        id="abc1234", title="X", abstract="", authors=[], doi="10.1/x",
+        year=2020, journal="J", references=[],
+    )
+    doc = pp._build_state_sidecar(
+        paper=paper, ingest_path="upload", state="live",
+        quarantine_reasons=[], contributor=None, existing=None,
+    )
+    return _check(
+        "build_state_sidecar: fresh record initialises history + first_seen_at",
+        doc["state"] == "live"
+        and doc["doi"] == "10.1/x"
+        and doc["ingest_path"] == "upload"
+        and doc["first_seen_at"] == doc["last_modified_at"]
+        and len(doc["history"]) == 1
+        and doc["history"][0]["state"] == "live"
+        and doc["history"][0]["via"] == "upload"
+        and doc["history"][0]["reason"] is None
+        and doc["schema_version"] == pp.STATE_SCHEMA_VERSION,
+    )
+
+
+def test_build_state_sidecar_preserves_first_seen_across_transitions() -> bool:
+    """A live record that later transitions to quarantine: `first_seen_at`
+    stays at the original timestamp; `history` grows by one entry."""
+    paper = pp.Paper(
+        id="abc1234", title="X", abstract="", authors=[], doi="10.1/x",
+        year=2020, journal="J", references=[],
+    )
+    fresh = pp._build_state_sidecar(
+        paper=paper, ingest_path="upload", state="live",
+        quarantine_reasons=[], existing=None,
+    )
+    transitioned = pp._build_state_sidecar(
+        paper=paper, ingest_path="manual", state="quarantine",
+        quarantine_reasons=["title_mismatch_with_crossref"],
+        existing=fresh,
+    )
+    return _check(
+        "build_state_sidecar: live -> quarantine preserves first_seen + appends history",
+        transitioned["first_seen_at"] == fresh["first_seen_at"]
+        and transitioned["state"] == "quarantine"
+        and transitioned["quarantine_reasons"] == ["title_mismatch_with_crossref"]
+        and len(transitioned["history"]) == 2
+        and transitioned["history"][-1]["state"] == "quarantine"
+        and transitioned["history"][-1]["reason"] == "title_mismatch_with_crossref",
+    )
+
+
+def test_write_and_load_state_sidecar_roundtrip() -> bool:
+    """Atomic write + load returns the same content. Edge: idempotent
+    rewrite doesn't corrupt the sidecar."""
+    import tempfile, json
+    from pathlib import Path
+    with tempfile.TemporaryDirectory() as td:
+        pdf = Path(td) / "doi_10.1_x.pdf"
+        pdf.write_text("fake")
+        paper = pp.Paper(
+            id="abc1234", title="X", abstract="", authors=[],
+            doi="10.1/x", year=2020, journal="J", references=[],
+        )
+        doc = pp._build_state_sidecar(
+            paper=paper, ingest_path="upload", state="live",
+            quarantine_reasons=[], existing=None,
+        )
+        pp._write_state_sidecar(pdf, doc)
+        loaded = pp._load_state_sidecar(pdf)
+        # Idempotent re-write
+        pp._write_state_sidecar(pdf, loaded)
+        loaded_again = pp._load_state_sidecar(pdf)
+    return _check(
+        "state_sidecar: write+load roundtrip preserves content",
+        loaded == doc and loaded_again == doc,
+    )
+
+
+def test_load_state_sidecar_missing_returns_none() -> bool:
+    """Legacy records have no sidecar; loader returns None cleanly
+    rather than raising."""
+    return _check(
+        "state_sidecar: missing file -> None",
+        pp._load_state_sidecar("/tmp/definitely-not-here.pdf") is None,
+    )
+
+
+def test_dispose_live_writes_sidecar_and_moves_pdf() -> bool:
+    """End-to-end: success path moves PDF from inbox to /papers/pdf/,
+    writes a live state sidecar, mirrors to Qdrant via set_payload."""
+    import tempfile, shutil
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    with tempfile.TemporaryDirectory() as td:
+        # Stub out PAPERS_DIR + PROCESSED_DIR via monkeypatch to keep
+        # the test hermetic.
+        td_papers = Path(td) / "pdf"; td_papers.mkdir()
+        td_inbox = td_papers / "inbox"; td_inbox.mkdir()
+        td_processed = Path(td) / "processed"; td_processed.mkdir()
+        td_quar = td_papers / "quarantine"
+        orig_papers = pp.PAPERS_DIR
+        orig_processed = pp.PROCESSED_DIR
+        orig_quar = pp.QUARANTINE_DIR
+        pp.PAPERS_DIR = str(td_papers)
+        pp.PROCESSED_DIR = str(td_processed)
+        pp.QUARANTINE_DIR = str(td_quar)
+        try:
+            inbox_pdf = td_inbox / "uuid.pdf"
+            inbox_pdf.write_text("fake-pdf")
+            paper = pp.Paper(
+                id="abcd0123", title="T", abstract="", authors=[],
+                doi="10.1/x", year=2020, journal="J", references=[],
+            )
+            qdrant = MagicMock()
+            result = pp._dispose_post_pipeline(
+                pdf_path=str(inbox_pdf),
+                paper=paper,
+                skip_reason=None,
+                ingest_path="upload",
+                qdrant_client=qdrant,
+            )
+            final_pdf = td_papers / "doi_10.1_x.pdf"
+            sidecar = final_pdf.with_name("doi_10.1_x.state.json")
+            marker = td_processed / "doi_10.1_x.json"
+            ok = (
+                result["state"] == "live"
+                and result["doi"] == "10.1/x"
+                and final_pdf.is_file()
+                and not inbox_pdf.is_file()
+                and sidecar.is_file()
+                and marker.is_file()
+                and qdrant.set_payload.called
+            )
+        finally:
+            pp.PAPERS_DIR = orig_papers
+            pp.PROCESSED_DIR = orig_processed
+            pp.QUARANTINE_DIR = orig_quar
+    return _check(
+        "dispose: live path moves PDF + writes sidecar + marker + Qdrant mirror",
+        ok,
+    )
+
+
+def test_dispose_quarantine_when_paper_is_none() -> bool:
+    """Pipeline returned None (quality filter / GROBID failure):
+    PDF goes to quarantine/, sidecar records the skip reason."""
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory() as td:
+        td_papers = Path(td) / "pdf"; td_papers.mkdir()
+        td_inbox = td_papers / "inbox"; td_inbox.mkdir()
+        td_quar = td_papers / "quarantine"
+        orig_papers = pp.PAPERS_DIR
+        orig_quar = pp.QUARANTINE_DIR
+        pp.PAPERS_DIR = str(td_papers)
+        pp.QUARANTINE_DIR = str(td_quar)
+        try:
+            inbox_pdf = td_inbox / "uuid.pdf"
+            inbox_pdf.write_text("fake-pdf")
+            result = pp._dispose_post_pipeline(
+                pdf_path=str(inbox_pdf),
+                paper=None,
+                skip_reason="grobid_parse_failed",
+                ingest_path="upload",
+                qdrant_client=None,
+            )
+            quar_pdf = td_quar / "uuid.pdf"
+            sidecar = td_quar / "uuid.state.json"
+            ok = (
+                result["state"] == "quarantine"
+                and result["quarantine_reasons"] == ["grobid_parse_failed"]
+                and quar_pdf.is_file()
+                and not inbox_pdf.is_file()
+                and sidecar.is_file()
+            )
+        finally:
+            pp.PAPERS_DIR = orig_papers
+            pp.QUARANTINE_DIR = orig_quar
+    return _check(
+        "dispose: paper=None routes to quarantine with reason",
+        ok,
+    )
+
+
+def test_dispose_quarantine_null_doi_deletes_qdrant_point() -> bool:
+    """Stage 1.6: pipeline succeeded but no DOI was extracted. The
+    just-created Qdrant point gets deleted; PDF moves to quarantine."""
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import MagicMock
+    with tempfile.TemporaryDirectory() as td:
+        td_papers = Path(td) / "pdf"; td_papers.mkdir()
+        td_inbox = td_papers / "inbox"; td_inbox.mkdir()
+        td_quar = td_papers / "quarantine"
+        orig_papers = pp.PAPERS_DIR
+        orig_quar = pp.QUARANTINE_DIR
+        pp.PAPERS_DIR = str(td_papers)
+        pp.QUARANTINE_DIR = str(td_quar)
+        try:
+            inbox_pdf = td_inbox / "uuid.pdf"
+            inbox_pdf.write_text("fake-pdf")
+            paper = pp.Paper(
+                id="abcd0123", title="T", abstract="", authors=[],
+                doi=None,                # null DOI -> quarantine
+                year=2020, journal="J", references=[],
+            )
+            qdrant = MagicMock()
+            result = pp._dispose_post_pipeline(
+                pdf_path=str(inbox_pdf),
+                paper=paper,
+                skip_reason=None,
+                ingest_path="upload",
+                qdrant_client=qdrant,
+            )
+            ok = (
+                result["state"] == "quarantine"
+                and result["quarantine_reasons"] == ["doi_extraction_failed"]
+                and qdrant.delete.called
+                and not qdrant.set_payload.called
+                and (td_quar / "uuid.pdf").is_file()
+            )
+        finally:
+            pp.PAPERS_DIR = orig_papers
+            pp.QUARANTINE_DIR = orig_quar
+    return _check(
+        "dispose: null-DOI papers quarantined + Qdrant point deleted",
+        ok,
+    )
+
+
+def test_dispose_watcher_pdf_already_in_place_no_move() -> bool:
+    """Watcher case: PDF is already at /papers/pdf/doi_X.pdf (no
+    inbox staging). Dispose writes the sidecar in place and doesn't
+    error on the no-op move."""
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import MagicMock
+    with tempfile.TemporaryDirectory() as td:
+        td_papers = Path(td) / "pdf"; td_papers.mkdir()
+        orig_papers = pp.PAPERS_DIR
+        pp.PAPERS_DIR = str(td_papers)
+        try:
+            in_place = td_papers / "doi_10.1_y.pdf"
+            in_place.write_text("fake-pdf")
+            paper = pp.Paper(
+                id="abcd0123", title="T", abstract="", authors=[],
+                doi="10.1/y", year=2020, journal="J", references=[],
+            )
+            qdrant = MagicMock()
+            result = pp._dispose_post_pipeline(
+                pdf_path=str(in_place),
+                paper=paper,
+                skip_reason=None,
+                ingest_path="crawler",
+                qdrant_client=qdrant,
+            )
+            ok = (
+                result["state"] == "live"
+                and result["final_pdf_path"] == str(in_place)
+                and in_place.is_file()
+                and in_place.with_name("doi_10.1_y.state.json").is_file()
+            )
+        finally:
+            pp.PAPERS_DIR = orig_papers
+    return _check(
+        "dispose: watcher path doesn't move PDF that's already in place",
+        ok,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -498,6 +787,16 @@ TESTS = [
     test_extract_doi_returns_none_when_no_underscore_separator,
     test_sidecar_loads_filename_doi_hint,
     test_sidecar_missing_filename_doi_hint,
+    # Phase B state sidecar + dispose helper
+    test_state_sidecar_path_alongside_pdf,
+    test_build_state_sidecar_fresh_record,
+    test_build_state_sidecar_preserves_first_seen_across_transitions,
+    test_write_and_load_state_sidecar_roundtrip,
+    test_load_state_sidecar_missing_returns_none,
+    test_dispose_live_writes_sidecar_and_moves_pdf,
+    test_dispose_quarantine_when_paper_is_none,
+    test_dispose_quarantine_null_doi_deletes_qdrant_point,
+    test_dispose_watcher_pdf_already_in_place_no_move,
 ]
 
 

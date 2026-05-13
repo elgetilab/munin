@@ -54,7 +54,7 @@ import time
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -73,8 +73,15 @@ NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "munin-neo4j-password")
 PAPERS_DIR = "/opt/munin/data/papers/pdf"
 PROCESSED_DIR = "/opt/munin/data/papers/processed"
 SKIPPED_DIR = "/opt/munin/data/papers/skipped"
+QUARANTINE_DIR = "/opt/munin/data/papers/pdf/quarantine"
 OCR_CACHE_DIR = "/opt/munin/data/papers/ocr_cache"
 COLLECTION_NAME = "papers"
+
+# Phase B (2026-05-13): every PDF the pipeline touches gets a sibling
+# `<stem>.state.json` sidecar tracking its lifecycle state. Forward-
+# only: existing records get their sidecar lazy-backfilled by the
+# `detect` command (Phase D). See docs/PIPELINE-CONSOLIDATION-PLAN.md.
+STATE_SCHEMA_VERSION = 1
 
 # User agent email for API requests
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@example.com")
@@ -196,6 +203,286 @@ def _title_similarity(a: str, b: str) -> float:
     return len(ta & tb) / len(ta | tb)
 
 
+# ==============================================================================
+# State sidecar (Phase B of 2026-05-13 consolidation)
+# ==============================================================================
+# Every PDF the hardened pipeline touches gets a sibling
+# `<stem>.state.json` describing its lifecycle position. Same JSON is
+# mirrored to the Qdrant payload (`_state`, `_quarantine_reasons`,
+# `_state_history`, `_first_seen_at`, `_ingest_path`) for fast filtered
+# queries from paper_search / detect runs.
+#
+# State values:
+#   "live"        in the corpus, searchable
+#   "quarantine"  out of the corpus, PDF preserved in quarantine/,
+#                 needs operator review (CLI `review` subcommand)
+#   "rejected"    operator explicitly rejected via `review` (Phase E)
+#
+# The sidecar is the source of truth on disk; the Qdrant payload
+# mirror only exists for `state=live` records (quarantine items have
+# no Qdrant point).
+
+
+def _state_sidecar_path(pdf_path) -> "Path":
+    """Sibling state-sidecar path for a given PDF (live or quarantine)."""
+    p = Path(pdf_path)
+    return p.with_name(f"{p.stem}.state.json")
+
+
+def _utcnow_iso() -> str:
+    return (datetime.now(timezone.utc)
+            .isoformat(timespec="seconds")
+            .replace("+00:00", "Z"))
+
+
+def _load_state_sidecar(pdf_path) -> Optional[Dict]:
+    """Read the state sidecar next to `pdf_path`. Returns None if
+    missing or unparseable (legacy records without a sidecar)."""
+    sc = _state_sidecar_path(pdf_path)
+    if not sc.is_file():
+        return None
+    try:
+        with open(sc, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"  [WARN] state sidecar unreadable ({sc}): {e}")
+        return None
+
+
+def _write_state_sidecar(pdf_path, payload: Dict) -> None:
+    """Atomically write a state sidecar next to `pdf_path`.
+    Uses a tempfile + rename so partial writes never leave a corrupt
+    sidecar visible."""
+    sc = _state_sidecar_path(pdf_path)
+    sc.parent.mkdir(parents=True, exist_ok=True)
+    tmp = sc.with_suffix(sc.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    os.replace(tmp, sc)
+
+
+def _build_state_sidecar(
+    paper: Optional["Paper"],
+    ingest_path: str,
+    state: str,
+    quarantine_reasons: List[str],
+    contributor: Optional[Dict] = None,
+    audit_findings: Optional[Dict] = None,
+    existing: Optional[Dict] = None,
+) -> Dict:
+    """Construct the state-sidecar dict. When `existing` is provided
+    (a previously-written sidecar), the `first_seen_at` is preserved
+    and the new entry is appended to `history` instead of replacing
+    it. New ingests pass `existing=None` and get a fresh record."""
+    now = _utcnow_iso()
+    first_seen = (existing or {}).get("first_seen_at") or now
+    history: List[Dict] = list((existing or {}).get("history") or [])
+    history.append({
+        "at": now,
+        "state": state,
+        "via": ingest_path,
+        "reason": quarantine_reasons[0] if quarantine_reasons else None,
+    })
+    payload = {
+        "schema_version": STATE_SCHEMA_VERSION,
+        "doi": (paper.doi if paper else None),
+        "state": state,
+        "ingest_path": ingest_path,
+        "quarantine_reasons": list(quarantine_reasons or []),
+        "first_seen_at": first_seen,
+        "last_modified_at": now,
+        "contributor": contributor or (existing or {}).get("contributor"),
+        "audit_findings": audit_findings or (existing or {}).get("audit_findings"),
+        "history": history,
+    }
+    return payload
+
+
+def _dispose_post_pipeline(
+    pdf_path: str,
+    paper: "Optional[Paper]",
+    skip_reason: Optional[str],
+    ingest_path: str,
+    qdrant_client=None,
+) -> Dict:
+    """Single source of truth for post-pipeline disposal.
+
+    Moves the PDF to its final on-disk location, writes the state
+    sidecar, mirrors state to the Qdrant payload (live records only),
+    writes the watcher's processed marker (live records only).
+
+    Called from `_process_and_dispose` after every pipeline run on
+    both ingest paths (--watch and admin/ingest --single).
+
+    Returns a dict with keys: `state`, `final_pdf_path`,
+    `quarantine_reasons`, `doi`, `qdrant_point_id`.
+    """
+    pdf = Path(pdf_path)
+
+    # Decide target state.
+    if paper is not None and paper.doi and skip_reason is None:
+        target_state = "live"
+        reasons: List[str] = []
+    elif paper is not None and not paper.doi:
+        # Stage 1.6 of the 2026-05-12 audit: pipeline succeeded but
+        # extracted no DOI. Quarantine to keep these out of the corpus.
+        target_state = "quarantine"
+        reasons = ["doi_extraction_failed"]
+    else:
+        target_state = "quarantine"
+        reasons = [skip_reason or "pipeline_error"]
+
+    # Decide destination path.
+    if target_state == "live":
+        safe_doi = paper.doi.replace("/", "_")
+        final_pdf = Path(PAPERS_DIR) / f"doi_{safe_doi}.pdf"
+    else:
+        Path(QUARANTINE_DIR).mkdir(parents=True, exist_ok=True)
+        if paper and paper.doi:
+            safe_doi = paper.doi.replace("/", "_")
+            final_pdf = Path(QUARANTINE_DIR) / f"doi_{safe_doi}.pdf"
+        else:
+            final_pdf = Path(QUARANTINE_DIR) / pdf.name
+
+    # Move PDF (and contributor sidecar, if present) to the final
+    # destination. If the destination already exists, we drop the
+    # newcomer rather than stomping (e.g. re-ingest of an existing
+    # DOI from a different contributor; their entry is already
+    # merged into the contributors[] list on the Qdrant point).
+    if pdf.resolve() != final_pdf.resolve():
+        try:
+            final_pdf.parent.mkdir(parents=True, exist_ok=True)
+            if final_pdf.exists():
+                if pdf.exists():
+                    pdf.unlink()
+            elif pdf.exists():
+                shutil.move(str(pdf), str(final_pdf))
+        except OSError as e:
+            print(f"  [WARN] PDF move {pdf} -> {final_pdf} failed: {e}")
+            final_pdf = pdf
+        old_contrib = pdf.with_name(f"{pdf.stem}.contributor.json")
+        new_contrib = final_pdf.with_name(f"{final_pdf.stem}.contributor.json")
+        if old_contrib.is_file() and old_contrib != new_contrib:
+            try:
+                shutil.move(str(old_contrib), str(new_contrib))
+            except OSError as e:
+                print(f"  [WARN] contributor sidecar move failed: {e}")
+
+    # Write the state sidecar (preserving any existing first_seen_at +
+    # history). The sidecar is the source of truth on disk.
+    existing = _load_state_sidecar(final_pdf)
+    contributor = _load_contributor_sidecar(str(final_pdf))
+    state_doc = _build_state_sidecar(
+        paper=paper,
+        ingest_path=ingest_path,
+        state=target_state,
+        quarantine_reasons=reasons,
+        contributor=contributor,
+        existing=existing,
+    )
+    _write_state_sidecar(final_pdf, state_doc)
+
+    # Mirror state into the Qdrant payload (live records only). For
+    # quarantined null-DOI records, delete the point that
+    # _store_vectors created — we don't want paper_search to surface
+    # records whose state is `quarantine`.
+    qdrant_point_id: Optional[int] = None
+    if paper and paper.doi:
+        qdrant_point_id = int(
+            hashlib.sha256(paper.doi.lower().encode()).hexdigest()[:16], 16
+        )
+    elif paper and paper.id:
+        try:
+            qdrant_point_id = int(paper.id, 16)
+        except (TypeError, ValueError):
+            qdrant_point_id = None
+
+    if qdrant_client is not None and qdrant_point_id is not None:
+        if target_state == "live":
+            try:
+                qdrant_client.set_payload(
+                    collection_name=COLLECTION_NAME,
+                    payload={
+                        "pdf_path": str(final_pdf),
+                        "_state": "live",
+                        "_quarantine_reasons": [],
+                        "_state_history": state_doc["history"][-5:],
+                        "_first_seen_at": state_doc["first_seen_at"],
+                        "_ingest_path": ingest_path,
+                    },
+                    points=[qdrant_point_id],
+                    wait=False,
+                )
+            except Exception as e:
+                print(f"  [WARN] Qdrant state-mirror set_payload failed: {e}")
+        else:
+            try:
+                qdrant_client.delete(
+                    collection_name=COLLECTION_NAME,
+                    points_selector=[qdrant_point_id],
+                    wait=False,
+                )
+            except Exception:
+                pass  # best-effort; the Qdrant point may not exist
+
+    # Watcher's "already seen" marker. Only for live records: a
+    # quarantined PDF in /papers/pdf/ would otherwise re-attract the
+    # watcher every poll. (Quarantined PDFs live in quarantine/, not
+    # scanned by the watcher, so this only matters for live.)
+    if target_state == "live":
+        try:
+            Path(PROCESSED_DIR).mkdir(parents=True, exist_ok=True)
+            marker = Path(PROCESSED_DIR) / f"{final_pdf.stem}.json"
+            with open(marker, "w") as f:
+                json.dump({
+                    "doi": paper.doi if paper else None,
+                    "paper_id": paper.id if paper else None,
+                    "state": target_state,
+                    "ingested_at": state_doc["last_modified_at"],
+                    "ingest_path": ingest_path,
+                }, f)
+        except OSError as e:
+            print(f"  [WARN] processed-marker write failed: {e}")
+
+    return {
+        "state": target_state,
+        "final_pdf_path": str(final_pdf),
+        "quarantine_reasons": reasons,
+        "doi": paper.doi if paper else None,
+        "qdrant_point_id": qdrant_point_id,
+    }
+
+
+def _process_and_dispose(pipeline, pdf_path: str, ingest_path: str) -> Dict:
+    """Run `pipeline.process_pdf` and call `_dispose_post_pipeline`.
+    The single entry-point both `--watch` and `--single` go through.
+
+    Returns the dispose result. On any uncaught exception inside
+    `process_pdf`, captures it as the skip_reason and routes the
+    record to quarantine instead of letting the watcher crash."""
+    pipeline._last_skip_reason = None
+    try:
+        paper = pipeline.process_pdf(pdf_path)
+    except Exception as e:
+        print(f"  [ERROR] Pipeline crashed on {pdf_path}: {e}")
+        import traceback
+        traceback.print_exc()
+        paper = None
+        pipeline._last_skip_reason = f"pipeline_error: {type(e).__name__}: {e}"
+
+    skip_reason = None
+    if paper is None:
+        skip_reason = getattr(pipeline, "_last_skip_reason", None) or "pipeline_error"
+
+    return _dispose_post_pipeline(
+        pdf_path=pdf_path,
+        paper=paper,
+        skip_reason=skip_reason,
+        ingest_path=ingest_path,
+        qdrant_client=getattr(pipeline, "qdrant", None),
+    )
+
+
 def _load_contributor_sidecar(pdf_path: str) -> Optional[Dict[str, str]]:
     """Look for `{pdf_path_without_ext}.contributor.json` next to the
     PDF and return its parsed contents. Missing or unparseable sidecar
@@ -239,6 +526,11 @@ class PaperPipeline:
         self.fast_mode = fast_mode
         self.workers = workers
         self._grobid_consecutive_failures = 0
+        # Side-channel: each skip point in process_pdf sets this so
+        # _process_and_dispose can stamp the reason into the state
+        # sidecar without needing to refactor process_pdf's return
+        # type. Reset at the start of every _process_and_dispose call.
+        self._last_skip_reason: Optional[str] = None
         self._init_clients()
 
     def _check_grobid_health(self, max_wait: int = 60) -> bool:
@@ -584,7 +876,16 @@ class PaperPipeline:
             return None
 
     def _log_skipped_pdf(self, pdf_path: str, reason: str):
-        """Log a skipped PDF to the skipped directory"""
+        """Log a skipped PDF to the skipped directory + remember the
+        reason on `self._last_skip_reason` so the post-pipeline
+        disposal (Phase B) can stamp it into the state sidecar.
+
+        The legacy JSON in `SKIPPED_DIR` is preserved for the Phase C
+        migration; once that runs, the sidecar becomes the source of
+        truth and SKIPPED_DIR can be retired.
+        """
+        self._last_skip_reason = reason
+
         skipped_path = Path(SKIPPED_DIR)
         skipped_path.mkdir(parents=True, exist_ok=True)
 
@@ -660,6 +961,7 @@ class PaperPipeline:
 
             if not grobid_data:
                 print("  [ERROR] GROBID parsing failed")
+                self._log_skipped_pdf(pdf_path, "grobid_parse_failed")
                 return None
             print(f"        Title: {grobid_data.get('title', 'Unknown')[:50]}...")
 
@@ -705,6 +1007,7 @@ class PaperPipeline:
             title = grobid_data.get("title", "").strip()
             if not title:
                 print("  [ERROR] Empty title - skipping (metadata extraction failed)")
+                self._log_skipped_pdf(pdf_path, "empty_title")
                 return None
 
             # Skip non-research content (news articles, editorials, etc.)
@@ -718,6 +1021,7 @@ class PaperPipeline:
             ]
             if title.lower() in non_research_titles:
                 print(f"  [SKIP] Non-research content: '{title}'")
+                self._log_skipped_pdf(pdf_path, f"non_research_title: {title.lower()[:40]}")
                 return None
 
             # Skip papers with sparse metadata + short title (likely non-research)
@@ -725,6 +1029,7 @@ class PaperPipeline:
             authors = grobid_data.get("authors", [])
             if not abstract and not authors and len(title) < 30:
                 print(f"  [SKIP] Sparse metadata + short title: '{title}'")
+                self._log_skipped_pdf(pdf_path, "sparse_metadata_short_title")
                 return None
 
             # §28: contributor sidecar was loaded up-front (Stage 1.5)
@@ -791,6 +1096,7 @@ class PaperPipeline:
             print(f"  [ERROR] Processing failed: {e}")
             import traceback
             traceback.print_exc()
+            self._last_skip_reason = f"pipeline_error: {type(e).__name__}: {e}"
             return None
 
     def _parse_grobid(self, pdf_path: str, max_retries: int = 5):
@@ -1529,15 +1835,36 @@ def process_directory(pipeline: PaperPipeline, papers_dir: str, reprocess: bool 
 
     print(f"\nPDFs to process: {len(pdfs_to_process)}")
 
-    # Use batch processing in fast mode
+    # Phase B (2026-05-13): every per-PDF processing path now routes
+    # through _process_and_dispose so the state sidecar + Qdrant
+    # mirror are populated. Batch (fast) mode keeps its parallel
+    # GROBID + embedding strategy but the post-batch handling
+    # converges on dispose.
     if pipeline.fast_mode and len(pdfs_to_process) > 1:
         papers = pipeline.process_batch(pdfs_to_process)
-        # Save markers for successfully processed papers
+        # process_batch returns only the successful Paper objects;
+        # disposal still needs to fire so the sidecars get written.
+        successful_paths = {Path(p.pdf_path).resolve() for p in papers}
         for paper in papers:
-            pdf_stem = Path(paper.pdf_path).stem
-            marker = processed_path / f"{pdf_stem}.json"
-            with open(marker, "w") as f:
-                json.dump(asdict(paper), f, indent=2)
+            _dispose_post_pipeline(
+                pdf_path=paper.pdf_path,
+                paper=paper,
+                skip_reason=None,
+                ingest_path="manual",
+                qdrant_client=pipeline.qdrant,
+            )
+        # PDFs the batch didn't return are skips; dispose them as
+        # such so they leave the live directory.
+        for pdf_path in pdfs_to_process:
+            if Path(pdf_path).resolve() in successful_paths:
+                continue
+            _dispose_post_pipeline(
+                pdf_path=pdf_path,
+                paper=None,
+                skip_reason="batch_skipped",
+                ingest_path="manual",
+                qdrant_client=pipeline.qdrant,
+            )
         processed = len(papers)
         failed = len(pdfs_to_process) - processed
     else:
@@ -1545,12 +1872,8 @@ def process_directory(pipeline: PaperPipeline, papers_dir: str, reprocess: bool 
         processed = 0
         failed = 0
         for pdf_path in pdfs_to_process:
-            paper = pipeline.process_pdf(pdf_path)
-            if paper:
-                pdf_stem = Path(pdf_path).stem
-                marker = processed_path / f"{pdf_stem}.json"
-                with open(marker, "w") as f:
-                    json.dump(asdict(paper), f, indent=2)
+            result = _process_and_dispose(pipeline, pdf_path, "manual")
+            if result["state"] == "live":
                 processed += 1
             else:
                 failed += 1
@@ -1566,6 +1889,13 @@ def watch_directory(pipeline: PaperPipeline, papers_dir: str):
     Poll interval is controlled by the ``WATCH_POLL_SECS`` env var
     (default 60 s). Keep it low for operator-drop responsiveness,
     high to avoid churn on a mostly-idle corpus.
+
+    Phase B (2026-05-13): per-PDF processing now goes through
+    `_process_and_dispose`, which calls `process_pdf` then writes
+    the state sidecar + watcher marker + (on failure) moves the PDF
+    to quarantine/. The watcher no longer writes the marker itself —
+    that responsibility is in dispose. Failed PDFs leaving the live
+    directory means the next poll doesn't re-attempt them.
     """
     poll_secs = max(1, int(os.getenv("WATCH_POLL_SECS", "60")))
     print(f"Watching {papers_dir} for new PDFs (poll every {poll_secs}s)...")
@@ -1578,11 +1908,16 @@ def watch_directory(pipeline: PaperPipeline, papers_dir: str):
         try:
             for pdf in Path(papers_dir).glob("*.pdf"):
                 marker = processed_path / f"{pdf.stem}.json"
-                if not marker.exists():
-                    paper = pipeline.process_pdf(str(pdf))
-                    if paper:
-                        with open(marker, "w") as f:
-                            json.dump(asdict(paper), f, indent=2)
+                if marker.exists():
+                    continue
+                # Files in inbox/ are admin/ingest's territory; the
+                # glob above is non-recursive so this guard is
+                # informational only — it's here for defence in
+                # depth if PAPERS_DIR ever ends up containing inbox
+                # entries through some other route.
+                if pdf.parent.name == "inbox":
+                    continue
+                _process_and_dispose(pipeline, str(pdf), ingest_path="crawler")
 
             time.sleep(poll_secs)
         except KeyboardInterrupt:
@@ -1605,16 +1940,26 @@ def main():
                         help="Fast mode: parallel GROBID + batch embeddings")
     parser.add_argument("--workers", type=int, default=4,
                         help="Number of parallel workers for fast mode (default: 4)")
+    parser.add_argument("--ingest-path", default="manual",
+                        choices=["upload", "crawler", "manual"],
+                        help=(
+                            "Ingest classification stamped into the state "
+                            "sidecar. Default 'manual' for ad-hoc operator "
+                            "runs; admin/ingest passes 'upload', the "
+                            "watcher passes 'crawler' automatically."
+                        ))
 
     args = parser.parse_args()
 
     pipeline = PaperPipeline(fast_mode=args.fast, workers=args.workers)
 
     if args.single:
-        paper = pipeline.process_pdf(args.single)
-        if paper:
-            print(f"\nPaper ID: {paper.id}")
-            print(json.dumps(asdict(paper), indent=2))
+        # Phase B: route through _process_and_dispose so the state
+        # sidecar + Qdrant mirror are populated regardless of how
+        # the script was invoked. Print the dispose result as JSON
+        # so /api/admin/ingest can parse it.
+        result = _process_and_dispose(pipeline, args.single, args.ingest_path)
+        print(f"\n[DISPOSE] {json.dumps(result)}")
     elif args.watch:
         watch_directory(pipeline, args.dir)
     else:

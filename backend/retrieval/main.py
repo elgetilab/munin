@@ -1902,6 +1902,12 @@ async def _api_admin_ingest_inner(
         json.dump(sidecar_payload, f)
 
     # Run the pipeline synchronously. Pipeline auto-detects the sidecar.
+    # Phase B (2026-05-13): pass --ingest-path upload so paper_pipeline.py
+    # stamps the state sidecar with the correct provenance. The pipeline
+    # subprocess itself handles the PDF move + Qdrant pdf_path update +
+    # processed-marker write via _process_and_dispose; this endpoint
+    # parses the resulting "[DISPOSE] {...}" line from stdout to build
+    # the HTTP response.
     pipeline_env = {**os.environ}
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -1909,6 +1915,7 @@ async def _api_admin_ingest_inner(
             PAPER_PIPELINE_SCRIPT,
             "--single",
             inbox_pdf,
+            "--ingest-path", "upload",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             env=pipeline_env,
@@ -1965,191 +1972,69 @@ async def _api_admin_ingest_inner(
             detail={"error": {"message": f"Pipeline exited {proc.returncode}", "log_tail": tail}},
         )
 
-    # Pipeline doesn't return structured output — parse its stdout for
-    # the DOI (printed as "[INFO] DOI from filename: <doi>" or embedded
-    # in the CrossRef enrichment line, or in the Paper JSON dump at the
-    # end). We scan the FULL stdout, not just the tail, because the
-    # trailing JSON dump can push the CrossRef line out of a 2 KB window.
-    pipeline_doi: Optional[str] = None
-    for line in full_stdout.splitlines():
+    # Phase B (2026-05-13): the subprocess prints "[DISPOSE] {...}"
+    # as its last meaningful line with the result of
+    # _process_and_dispose. That's the authoritative outcome — PDF
+    # is already at its final location, the state sidecar is
+    # written, Qdrant has the pdf_path + state mirror. We just parse
+    # the line and build the response.
+    dispose: Optional[Dict] = None
+    for line in reversed(full_stdout.splitlines()):
         line = line.strip()
-        if line.startswith("[INFO] DOI from filename:"):
-            pipeline_doi = line.split(":", 1)[1].strip()
+        if line.startswith("[DISPOSE]"):
+            try:
+                dispose = json.loads(line.split(" ", 1)[1])
+            except (IndexError, json.JSONDecodeError):
+                dispose = None
             break
-        if "Enriching via CrossRef (DOI:" in line:
-            pipeline_doi = line.split("DOI:", 1)[1].rstrip(").").strip()
-            break
-    # Last resort: parse the "doi": "..." line from the Paper JSON dump.
-    if pipeline_doi is None:
-        import re as _re
-        m = _re.search(r'"doi":\s*"([^"]+)"', full_stdout)
-        if m:
-            pipeline_doi = m.group(1)
 
-    paper_id_hex = hashlib.sha256(inbox_pdf.encode()).hexdigest()[:16]
-    candidate_ids: list[int] = []
-    if pipeline_doi:
-        candidate_ids.append(
-            int(hashlib.sha256(pipeline_doi.lower().encode()).hexdigest()[:16], 16)
-        )
-    candidate_ids.append(int(paper_id_hex, 16))
-
-    qdrant = get_qdrant()
-    if qdrant is None:
+    if dispose is None:
+        # Subprocess exited 0 but didn't emit a [DISPOSE] line. Could
+        # be an old paper_pipeline.py that predates Phase B, or the
+        # disposal helper threw before printing. Fall back to the
+        # legacy quarantine-to-failed for safety; the inbox PDF still
+        # exists in this branch (dispose would have moved it).
+        if os.path.isfile(inbox_pdf):
+            _quarantine_inbox_paper(
+                inbox_pdf,
+                sidecar_path,
+                PAPERS_FAILED_DIR,
+                {
+                    "outcome": "pipeline_no_dispose_line",
+                    "reason": "Pipeline did not emit a [DISPOSE] result line",
+                    "log_tail": tail,
+                    "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "email": email,
+                    "group_slug": sidecar_payload["research_group"],
+                    "original_filename": filename,
+                },
+            )
         raise HTTPException(
             status_code=500,
-            detail={"error": {"message": "Qdrant unavailable post-pipeline"}},
+            detail={"error": {"message": "Pipeline produced no [DISPOSE] result", "log_tail": tail}},
         )
 
-    point_record = None
+    # Inbox sidecar is moved alongside the PDF by dispose. If it's
+    # still here (e.g. dispose failed to move it), clean up.
     try:
-        records = qdrant.retrieve(
-            collection_name="papers",
-            ids=candidate_ids,
-            with_payload=True,
-            with_vectors=False,
-        )
-        if records:
-            point_record = records[0]
-    except Exception as e:
-        print(f"[WARN] Qdrant retrieve post-pipeline failed: {e}")
-
-    # If still no record, the pipeline probably skipped the PDF.
-    if point_record is None:
-        reason = (
-            "Pipeline completed but no Qdrant point was created "
-            "(likely quality filter, non-research content, or "
-            "duplicate with existing DOI)."
-        )
-        _quarantine_inbox_paper(
-            inbox_pdf,
-            sidecar_path,
-            PAPERS_SKIPPED_DIR,
-            {
-                "outcome": "skipped",
-                "reason": reason,
-                "log_tail": tail,
-                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                "email": email,
-                "group_slug": sidecar_payload["research_group"],
-                "original_filename": filename,
-            },
-        )
-        return {
-            "status": "skipped",
-            "reason": reason,
-            "log_tail": tail,
-            "quarantined_to": PAPERS_SKIPPED_DIR,
-        }
-
-    payload = point_record.payload or {}
-    doi = payload.get("doi")
-
-    # Stage 1.6: null-DOI uploads are quarantined rather than left
-    # in the corpus. Without a DOI the record can't be deduped, can't
-    # be re-found via /api/papers/<doi>, and can't have its PDF moved
-    # out of inbox/. Historically these accumulated as ~180 unreachable
-    # records contributed by various groups. We delete the just-created
-    # Qdrant point and move the PDF + sidecar to skipped/ so a human
-    # can decide what to do.
-    if not doi:
-        reason = (
-            "Pipeline produced a Qdrant point but no DOI was extracted. "
-            "Cannot dedupe or address without a DOI; quarantining for "
-            "manual review."
-        )
-        try:
-            qdrant.delete(
-                collection_name="papers",
-                points_selector=[point_record.id],
-                wait=True,
-            )
-        except Exception as e:
-            print(f"[WARN] Qdrant delete of null-DOI upload failed: {e}")
-        _quarantine_inbox_paper(
-            inbox_pdf,
-            sidecar_path,
-            PAPERS_SKIPPED_DIR,
-            {
-                "outcome": "doi_extraction_failed",
-                "reason": reason,
-                "log_tail": tail,
-                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                "email": email,
-                "group_slug": sidecar_payload["research_group"],
-                "original_filename": filename,
-                "qdrant_point_id_deleted": point_record.id,
-            },
-        )
-        return {
-            "status": "skipped",
-            "reason": reason,
-            "log_tail": tail,
-            "quarantined_to": PAPERS_SKIPPED_DIR,
-        }
-
-    # Move PDF out of inbox into the main pdf/ directory so
-    # get_pdf_path can find it by DOI.
-    final_path: Optional[str] = None
-    if doi:
-        safe_doi = doi.replace("/", "_")
-        final_path = os.path.join(PAPERS_PDF_DIR, f"doi_{safe_doi}.pdf")
-        try:
-            if not os.path.exists(final_path):
-                shutil.move(inbox_pdf, final_path)
-            else:
-                # Same DOI already on disk (uploaded by a different group
-                # earlier). Keep the existing file, discard the new copy.
-                os.remove(inbox_pdf)
-            qdrant.set_payload(
-                collection_name="papers",
-                payload={"pdf_path": final_path},
-                points=[point_record.id],
-                wait=False,
-            )
-        except OSError as e:
-            print(f"[WARN] post-ingest PDF move failed: {e}")
-
-        # Write a processed marker so the new pipeline-daemon watcher
-        # skips this paper. Contents mirror what paper_pipeline.py
-        # writes itself so the file is indistinguishable from a
-        # native-watched ingest. Best-effort — marker absence just
-        # means the watcher will re-evaluate the paper next pass
-        # (and skip it anyway because it's already in Qdrant).
-        try:
-            os.makedirs(PAPERS_PROCESSED_MARKER_DIR, exist_ok=True)
-            marker_path = os.path.join(
-                PAPERS_PROCESSED_MARKER_DIR, f"doi_{safe_doi}.json"
-            )
-            with open(marker_path, "w", encoding="utf-8") as f:
-                json.dump(
-                    {
-                        "paper_id": payload.get("paper_id"),
-                        "doi": doi,
-                        "title": payload.get("title"),
-                        "pdf_path": final_path,
-                        "ingested_via": "admin/ingest",
-                        "processed_at": datetime.now(timezone.utc)
-                        .isoformat()
-                        .replace("+00:00", "Z"),
-                    },
-                    f,
-                )
-        except OSError as e:
-            print(f"[WARN] processed-marker write failed: {e}")
-
-    # Clean up the sidecar regardless — it's served its purpose.
-    try:
-        os.remove(sidecar_path)
+        if os.path.isfile(sidecar_path):
+            os.remove(sidecar_path)
     except OSError:
         pass
 
+    state = dispose.get("state", "quarantine")
+    if state != "live":
+        return {
+            "status": "skipped",
+            "reason": "; ".join(dispose.get("quarantine_reasons") or ["unknown"]),
+            "log_tail": tail,
+            "quarantined_to": os.path.dirname(dispose.get("final_pdf_path", "")) or "quarantine",
+        }
+
     return {
         "status": "ingested",
-        "paper_id": payload.get("paper_id") or paper_id_hex,
-        "doi": doi,
-        "title": payload.get("title"),
-        "final_pdf_path": final_path,
+        "doi": dispose.get("doi"),
+        "final_pdf_path": dispose.get("final_pdf_path"),
         "contributor": {
             "email": email,
             "group_slug": sidecar_payload["research_group"],
