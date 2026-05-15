@@ -1,17 +1,31 @@
 # Paper Pipeline Automation — Operator Reference
 
-Two systemd units keep the paper corpus growing and healthy without
-operator SSH sessions:
+**Note (2026-05-15):** the operator cheatsheet now lives at
+[`../scripts/pipeline/INGEST.md`](../scripts/pipeline/INGEST.md).
+This file remains as deep automation reference for the watcher
+daemon's ingestion flow specifically. For "what runs when, what do
+I run by hand" start with INGEST.md.
+
+Three systemd services + one timer keep the paper corpus growing
+and healthy without operator SSH sessions:
 
 - **`munin-paper-pipeline.service`** — watcher daemon that ingests
   any PDF dropped into `/opt/munin/data/papers/pdf/` through the
-  full GROBID → CrossRef → SPECTER → Qdrant + Neo4j pipeline.
-- **`munin-paper-cleanup.timer`** + `.service` — nightly
-  `repair-and-clean` sweep that re-enriches metadata and removes
-  papers that no source can confirm.
+  full GROBID → CrossRef → SPECTER → Qdrant + Neo4j pipeline. The
+  state sidecar + Qdrant payload mirror are written by
+  `_dispose_post_pipeline` (Phase B of the 2026-05-13 consolidation);
+  failures land in `pdf/quarantine/` instead of being retried every
+  poll.
+- **`munin-paper-detect.service`** — Phase F continuous detection
+  daemon. Runs `paper_cleanup.py sweep` in a paced loop (15-min
+  cycles, 5 records/kind/cycle) over four detection kinds. Replaced
+  the nightly `munin-paper-cleanup.timer` so cleanup runs as a
+  continuous trickle rather than a once-a-day batch.
+- **`munin-paper-reattribute.timer`** + `.service` (04:30 daily) —
+  backfills group attribution after `contributors.yml` updates.
 
-Both run as `root` on the cluster head from a dedicated venv at
-`/opt/munin/services/pipeline/venv`. Neither touches vLLM, so they
+All run as `root` on the cluster head from a dedicated venv at
+`/opt/munin/services/pipeline/venv`. None touch vLLM, so they
 run safely 24/7 including the 02:00-06:00 vLLM-down window.
 
 ## Ingestion flow with the daemon

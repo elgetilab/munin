@@ -346,6 +346,120 @@ def test_threshold_constant_matches_pipeline() -> bool:
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
+# Phase F: continuous sweep daemon
+# ---------------------------------------------------------------------------
+
+def test_sweep_once_runs_a_single_cycle() -> bool:
+    """sweep(once=True) runs detect once and exits cleanly."""
+    calls = []
+    orig_detect = pc.detect
+    pc.detect = lambda **kwargs: calls.append(kwargs) or 0
+    try:
+        rc = pc.sweep(kinds=["short"], per_cycle_limit=3,
+                      cycle_pace_secs=900, grobid_pace_secs=30,
+                      once=True)
+    finally:
+        pc.detect = orig_detect
+    return _check(
+        "sweep: --once runs a single cycle and returns rc=0",
+        rc == 0
+        and len(calls) == 1
+        and calls[0]["kinds"] == ["short"]
+        and calls[0]["limit"] == 3
+        and calls[0]["auto_quarantine"] is True,
+    )
+
+
+def test_sweep_no_quarantine_disables_auto_action() -> bool:
+    """--no-quarantine forwards auto_quarantine=False to detect."""
+    calls = []
+    orig_detect = pc.detect
+    pc.detect = lambda **kwargs: calls.append(kwargs) or 0
+    try:
+        pc.sweep(kinds=["orphan"], per_cycle_limit=1,
+                 cycle_pace_secs=900, grobid_pace_secs=30,
+                 once=True, no_quarantine=True)
+    finally:
+        pc.detect = orig_detect
+    return _check(
+        "sweep: --no-quarantine disables auto-quarantine in detect call",
+        calls[0]["auto_quarantine"] is False,
+    )
+
+
+def test_sweep_default_kinds_match_DEFAULT_SWEEP_KINDS() -> bool:
+    """When no --kinds is passed and no DETECT_KINDS env, the default
+    kinds list is used."""
+    import os as _os
+    orig_env = _os.environ.pop("DETECT_KINDS", None)
+    calls = []
+    orig_detect = pc.detect
+    pc.detect = lambda **kwargs: calls.append(kwargs) or 0
+    try:
+        pc.sweep(per_cycle_limit=1, cycle_pace_secs=900,
+                 grobid_pace_secs=30, once=True)
+    finally:
+        pc.detect = orig_detect
+        if orig_env is not None:
+            _os.environ["DETECT_KINDS"] = orig_env
+    return _check(
+        "sweep: default kinds match DEFAULT_SWEEP_KINDS",
+        tuple(calls[0]["kinds"]) == pc.DEFAULT_SWEEP_KINDS,
+    )
+
+
+def test_sweep_reads_env_vars_when_args_not_given() -> bool:
+    """Environment overrides apply when explicit args are None."""
+    import os as _os
+    saved = {k: _os.environ.get(k) for k in
+             ("DETECT_KINDS", "DETECT_PER_CYCLE_LIMIT",
+              "DETECT_CYCLE_PACE_SECS", "DETECT_GROBID_PACE_SECS")}
+    _os.environ["DETECT_KINDS"] = "short,orphan"
+    _os.environ["DETECT_PER_CYCLE_LIMIT"] = "11"
+    _os.environ["DETECT_CYCLE_PACE_SECS"] = "60"
+    _os.environ["DETECT_GROBID_PACE_SECS"] = "45"
+    calls = []
+    orig_detect = pc.detect
+    pc.detect = lambda **kwargs: calls.append(kwargs) or 0
+    try:
+        pc.sweep(once=True)
+    finally:
+        pc.detect = orig_detect
+        for k, v in saved.items():
+            if v is None:
+                _os.environ.pop(k, None)
+            else:
+                _os.environ[k] = v
+    return _check(
+        "sweep: env vars override defaults when args are None",
+        calls[0]["kinds"] == ["short", "orphan"]
+        and calls[0]["limit"] == 11
+        and calls[0]["grobid_pace_secs"] == 45,
+    )
+
+
+def test_sweep_continues_on_per_cycle_exception() -> bool:
+    """If detect throws inside a cycle, sweep logs and continues
+    rather than crashing the daemon. Hard to test in --once mode, so
+    we patch detect to raise, then verify --once still returns 0
+    (the exception was caught)."""
+    orig_detect = pc.detect
+    def boom(**kwargs):
+        raise RuntimeError("detect blew up in cycle")
+    pc.detect = boom
+    try:
+        rc = pc.sweep(kinds=["short"], per_cycle_limit=1,
+                      cycle_pace_secs=900, grobid_pace_secs=30,
+                      once=True)
+    finally:
+        pc.detect = orig_detect
+    return _check(
+        "sweep: per-cycle exception is caught, daemon doesn't crash",
+        rc == 0,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Phase E: review subcommand (interactive quarantine triage)
 # ---------------------------------------------------------------------------
 
@@ -799,6 +913,12 @@ TESTS = [
     test_review_quit_short_circuits,
     test_review_non_interactive_prints_no_prompts,
     test_review_skips_already_rejected,
+    # Phase F
+    test_sweep_once_runs_a_single_cycle,
+    test_sweep_no_quarantine_disables_auto_action,
+    test_sweep_default_kinds_match_DEFAULT_SWEEP_KINDS,
+    test_sweep_reads_env_vars_when_args_not_given,
+    test_sweep_continues_on_per_cycle_exception,
 ]
 
 

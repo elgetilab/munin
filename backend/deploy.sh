@@ -280,10 +280,9 @@ deploy_pipeline() {
     need_file "$REPO_DIR/scripts/pipeline/paper_cleanup.py"
     need_file "$REPO_DIR/scripts/pipeline/requirements.txt"
     need_file "$REPO_DIR/config/munin-paper-pipeline.service"
-    need_file "$REPO_DIR/config/munin-paper-cleanup.service"
-    need_file "$REPO_DIR/config/munin-paper-cleanup.timer"
     need_file "$REPO_DIR/config/munin-paper-reattribute.service"
     need_file "$REPO_DIR/config/munin-paper-reattribute.timer"
+    need_file "$REPO_DIR/config/munin-paper-detect.service"
 
     run "install -d -m 0755 $PIPELINE_DIR"
     run "install -m 0755 $REPO_DIR/scripts/pipeline/paper_pipeline.py \
@@ -337,40 +336,45 @@ deploy_pipeline() {
         echo "  [dry-run] would create venv at $PIPELINE_VENV and install requirements"
     fi
 
-    # Systemd units: watcher daemon + nightly cleanup timer + the
-    # reattribute timer (installed but NOT enabled here — Phase E of
-    # the 2026-05-13 consolidation enables it once the unified state
-    # model lands. See docs/PIPELINE-CONSOLIDATION-PLAN.md).
+    # Systemd units. Three always-on services + one nightly timer:
+    #   munin-paper-pipeline.service     (Type=simple) watcher loop
+    #   munin-paper-detect.service       (Type=simple) continuous sweep
+    #   munin-paper-reattribute.timer    (04:30 daily) attribution backfill
+    # munin-paper-cleanup.{service,timer} were retired in Phase F
+    # (2026-05-13): the always-on detect daemon now does what the
+    # nightly cleanup batch used to do, in continuous trickle mode.
     run "install -m 0644 $REPO_DIR/config/munin-paper-pipeline.service \
         $SYSTEMD_DIR/munin-paper-pipeline.service"
-    run "install -m 0644 $REPO_DIR/config/munin-paper-cleanup.service \
-        $SYSTEMD_DIR/munin-paper-cleanup.service"
-    run "install -m 0644 $REPO_DIR/config/munin-paper-cleanup.timer \
-        $SYSTEMD_DIR/munin-paper-cleanup.timer"
+    run "install -m 0644 $REPO_DIR/config/munin-paper-detect.service \
+        $SYSTEMD_DIR/munin-paper-detect.service"
     run "install -m 0644 $REPO_DIR/config/munin-paper-reattribute.service \
         $SYSTEMD_DIR/munin-paper-reattribute.service"
     run "install -m 0644 $REPO_DIR/config/munin-paper-reattribute.timer \
         $SYSTEMD_DIR/munin-paper-reattribute.timer"
     run "systemctl daemon-reload"
 
-    # Start the watcher + enable the cleanup + reattribute timers.
-    # --now on enable starts the timer immediately; the services
-    # themselves fire at their OnCalendar times (cleanup 04:00,
-    # reattribute 04:30).
+    # Phase F migration: stop + disable the legacy nightly cleanup
+    # timer. Best-effort (ignores failure if it's already gone or
+    # was never installed).
+    run "systemctl disable --now munin-paper-cleanup.timer 2>/dev/null || true"
+    # Drop the leftover unit files so list-units stays tidy.
+    run "rm -f $SYSTEMD_DIR/munin-paper-cleanup.service $SYSTEMD_DIR/munin-paper-cleanup.timer"
+    run "systemctl daemon-reload"
+
+    # Start everything. --now starts immediately; services run
+    # continuously, the timer fires at its OnCalendar.
     run "systemctl enable munin-paper-pipeline.service"
     run "systemctl restart munin-paper-pipeline.service"
-    run "systemctl enable munin-paper-cleanup.timer"
-    run "systemctl restart munin-paper-cleanup.timer"
-    # Phase E (2026-05-13) enables the reattribute timer that was
-    # installed-but-disabled in Phase A. With the consolidation
-    # landed, allowlist additions now auto-backfill nightly.
+    run "systemctl enable --now munin-paper-detect.service"
     run "systemctl enable --now munin-paper-reattribute.timer"
 
-    echo "[OK] pipeline — daemon running, cleanup + reattribute timers armed"
+    echo "[OK] pipeline — watcher + detect daemons running, reattribute timer armed"
     echo "      Logs:    journalctl -fu munin-paper-pipeline.service"
-    echo "               journalctl -u munin-paper-cleanup.service --since today"
+    echo "               journalctl -fu munin-paper-detect.service"
     echo "               journalctl -u munin-paper-reattribute.service --since today"
     echo "      Timers:  systemctl list-timers 'munin-paper-*'"
+    echo "      Tunables (in /etc/systemd/system/munin-paper-detect.service):"
+    echo "               DETECT_KINDS, DETECT_PER_CYCLE_LIMIT, DETECT_CYCLE_PACE_SECS"
 }
 
 deploy_knowledge() {

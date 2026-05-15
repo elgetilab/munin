@@ -274,11 +274,24 @@ bad records on repeat if the underlying GROBID extraction is
 deterministic on the same PDF — better to gate behind explicit
 operator action.
 
-## Phase-by-phase implementation
+## Phase-by-phase implementation — STATUS
 
-Five commits, each independently revertable.
+All phases shipped 2026-05-13 to 2026-05-15. The plan ran six
+phases instead of the originally-scoped five: Phase F was added
+after deploy to replace the nightly cleanup batch with a continuous
+detection daemon (the user's preference, surfaced during the
+post-Phase-E "what's running automatically?" walkthrough).
 
-### Phase A — File tidy (this commit)
+| Phase | Subject | Shipped |
+|---|---|---|
+| A | File tidy + retire stale scripts | 2026-05-13 |
+| B | State sidecar + dispose helper | 2026-05-13 |
+| C | Migrate legacy quarantine layout | 2026-05-13 (one-shot run on cluster) |
+| D | Unified `detect` subcommand | 2026-05-13 |
+| E | Interactive `review` + retired CLI | 2026-05-13 |
+| F | Continuous sweep daemon | 2026-05-15 |
+
+### Phase A — File tidy
 
 Mechanical, no behavior change. Lays the groundwork by making
 `pipeline/` contain only pipeline code.
@@ -408,6 +421,34 @@ beyond the deprecations.
 5 commits, ~14-17 hours of focused work, 2-3 working days. Each
 phase can ship independently. Reversal is straightforward: revert
 the commit; the prior phase still works.
+
+### Phase F — Continuous detection sweep (added 2026-05-15)
+
+Not in the original plan. Added after Phase E shipped, when the
+operator surfaced that only one detection kind
+(`metadata-unverifiable`) was running automatically (via the nightly
+timer) and the other kinds — including the GROBID-bottlenecked
+`metadata-mismatch` — required manual sweeps. The vision was "self
+cleaning... manual runs should only ever be an exception."
+
+- New `paper_cleanup.py sweep` subcommand. Continuous loop wrapper
+  around `detect` with paced cycles. Reads cadence + batch size
+  from env vars (`DETECT_KINDS`, `DETECT_PER_CYCLE_LIMIT`,
+  `DETECT_CYCLE_PACE_SECS`, `DETECT_GROBID_PACE_SECS`) so the
+  systemd unit can configure without code changes.
+- New `munin-paper-detect.service` (Type=simple, always-on). Runs
+  the sweep loop with the four cheap-enough kinds
+  (`metadata-mismatch,short,orphan,metadata-unverifiable`) at
+  15-minute cycles, 5 records per kind per cycle.
+- Retired `munin-paper-cleanup.{service,timer}`. The nightly batch
+  is gone; the always-on daemon produces ~480 detections per kind
+  per day in continuous trickle mode.
+- 5 new unit tests; deploy.sh updated to install + enable the new
+  service, disable + remove the legacy cleanup unit.
+
+End-state: the existing 67k corpus walks itself, gets state
+sidecars lazy-backfilled into Qdrant, and bad records land in
+quarantine for the operator to triage via `review`.
 
 ## Out of scope (deliberately deferred)
 

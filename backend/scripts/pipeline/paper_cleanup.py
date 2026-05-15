@@ -3186,6 +3186,123 @@ def _deprecation_notice(old: str, new: str) -> None:
 
 
 # ==============================================================================
+# Continuous detection sweep (Phase F of 2026-05-13 consolidation)
+# ==============================================================================
+# The always-on daemon that runs detect on small batches at a paced
+# cadence, slowly walking the corpus and auto-quarantining bad
+# records without ever needing operator action. Replaces the
+# nightly munin-paper-cleanup.timer; manual `detect` runs become
+# the exception rather than the rule.
+#
+# Tunables (via systemd Environment= or env vars):
+#   DETECT_PER_CYCLE_LIMIT  records per kind per cycle (default 5)
+#   DETECT_CYCLE_PACE_SECS  seconds between cycles    (default 900 = 15 min)
+#   DETECT_GROBID_PACE_SECS GROBID call spacing       (default 30)
+#   DETECT_KINDS            comma-separated kinds     (default:
+#                           metadata-mismatch,short,orphan,metadata-unverifiable)
+#
+# At defaults (5 records / 15 min / 4 kinds) the sweep produces
+# ~480 detections per kind per day. The corpus (~67k records) is
+# walked per-kind in ~140 days for the GROBID-bottlenecked
+# metadata-mismatch; faster kinds finish much sooner. Auto-quarantine
+# caps at 5 records/kind/cycle so a runaway false-positive day
+# can't empty the corpus faster than `review` can rescue.
+
+DEFAULT_SWEEP_KINDS = (
+    "metadata-mismatch", "short", "orphan", "metadata-unverifiable",
+)
+
+
+def sweep(
+    kinds: Optional[List[str]] = None,
+    per_cycle_limit: Optional[int] = None,
+    cycle_pace_secs: Optional[int] = None,
+    grobid_pace_secs: Optional[int] = None,
+    no_quarantine: bool = False,
+    once: bool = False,
+    dry_run: bool = False,
+) -> int:
+    """Continuous detection loop. Runs `detect` indefinitely with
+    small batches and paced cycles, slowly walking the corpus and
+    auto-quarantining bad records.
+
+    ``once=True`` runs a single cycle and exits (used by tests +
+    operators who want to verify the pipeline without committing to
+    a long-running session).
+
+    Tunables fall back to env vars when the parameter is None, so
+    the service file can drive configuration without code changes.
+    """
+    if kinds is None:
+        env_kinds = os.getenv("DETECT_KINDS", "").strip()
+        kinds = ([k.strip() for k in env_kinds.split(",") if k.strip()]
+                 if env_kinds else list(DEFAULT_SWEEP_KINDS))
+    if per_cycle_limit is None:
+        per_cycle_limit = int(os.getenv("DETECT_PER_CYCLE_LIMIT", "5"))
+    if cycle_pace_secs is None:
+        cycle_pace_secs = int(os.getenv("DETECT_CYCLE_PACE_SECS", "900"))
+    if grobid_pace_secs is None:
+        grobid_pace_secs = int(os.getenv("DETECT_GROBID_PACE_SECS", "30"))
+
+    print("=" * 60)
+    print("paper_cleanup.py sweep (continuous detection daemon)")
+    print("=" * 60)
+    print(f"  kinds              : {','.join(kinds)}")
+    print(f"  per cycle limit    : {per_cycle_limit}")
+    print(f"  cycle pace         : {cycle_pace_secs}s ({cycle_pace_secs // 60} min)")
+    print(f"  GROBID pace        : {grobid_pace_secs}s")
+    print(f"  auto-quarantine    : {'OFF (detection only)' if no_quarantine else 'ON'}")
+    print(f"  mode               : {'single cycle' if once else 'continuous loop'}")
+    if dry_run:
+        print(f"  DRY-RUN            : ON (no writes)")
+    print("=" * 60, flush=True)
+
+    cycle = 0
+    while True:
+        cycle += 1
+        cycle_started = time.time()
+        print(f"\n[cycle {cycle}] start {_utcnow_iso()}")
+        try:
+            detect(
+                kinds=kinds,
+                limit=per_cycle_limit,
+                source="all",
+                report_out=None,
+                auto_quarantine=not no_quarantine,
+                dry_run=dry_run,
+                grobid_pace_secs=grobid_pace_secs,
+                no_grobid=False,
+                no_backfill=False,
+                severity_threshold="high",
+                min_pages=3,
+                max_check=per_cycle_limit * 4,  # generous scan budget
+                enrich=True,
+                queue_for_reingest=False,
+                reingest_log=None,
+            )
+        except Exception as e:
+            # Don't crash the daemon on a per-cycle failure — the next
+            # cycle will retry. The error is journaled for the operator.
+            print(f"[cycle {cycle}] [ERROR] {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+        elapsed = time.time() - cycle_started
+        print(f"[cycle {cycle}] done in {elapsed:.1f}s")
+
+        if once:
+            return 0
+
+        # Pace to the next cycle, accounting for time already spent.
+        sleep_for = max(0, cycle_pace_secs - int(elapsed))
+        print(f"[cycle {cycle}] sleeping {sleep_for}s until next cycle", flush=True)
+        try:
+            time.sleep(sleep_for)
+        except KeyboardInterrupt:
+            print("\n[sweep] received SIGINT; exiting cleanly")
+            return 0
+
+
+# ==============================================================================
 # Interactive review (Phase E of 2026-05-13 consolidation)
 # ==============================================================================
 # Operator walks records in pdf/quarantine/ and decides per-record
@@ -3500,6 +3617,32 @@ def main():
                                help="(metadata-mismatch + --queue-for-reingest) "
                                     "CSV rollback log path")
 
+    # sweep command (Phase F of 2026-05-13 consolidation) — the
+    # always-on continuous detection daemon. Tunables fall back to
+    # env vars so the systemd unit can configure without code.
+    sweep_parser = subparsers.add_parser(
+        "sweep",
+        help="Continuous detection daemon: paced loop over `detect` with auto-quarantine",
+    )
+    sweep_parser.add_argument("--kinds",
+                              help=f"Comma-separated kinds (default env DETECT_KINDS or "
+                                   f"{','.join(DEFAULT_SWEEP_KINDS)})")
+    sweep_parser.add_argument("--per-cycle-limit", type=int,
+                              help="Records per kind per cycle "
+                                   "(default env DETECT_PER_CYCLE_LIMIT or 5)")
+    sweep_parser.add_argument("--cycle-pace", type=int,
+                              help="Seconds between cycles "
+                                   "(default env DETECT_CYCLE_PACE_SECS or 900)")
+    sweep_parser.add_argument("--grobid-pace", type=int,
+                              help="GROBID call spacing "
+                                   "(default env DETECT_GROBID_PACE_SECS or 30)")
+    sweep_parser.add_argument("--no-quarantine", action="store_true",
+                              help="Detection only; don't auto-quarantine")
+    sweep_parser.add_argument("--once", action="store_true",
+                              help="Run a single cycle and exit (testing / dry-runs)")
+    sweep_parser.add_argument("--dry-run", action="store_true",
+                              help="Print actions; don't write")
+
     # review command (Phase E of 2026-05-13 consolidation) — the
     # human-in-the-loop step. Walks pdf/quarantine/ and prompts
     # keep/reject/skip per record.
@@ -3560,6 +3703,18 @@ def main():
         )
     elif args.command == "verify-doi":
         verify_doi(args.doi)
+    elif args.command == "sweep":
+        kinds = ([k.strip() for k in args.kinds.split(",") if k.strip()]
+                 if args.kinds else None)
+        sys.exit(sweep(
+            kinds=kinds,
+            per_cycle_limit=args.per_cycle_limit,
+            cycle_pace_secs=args.cycle_pace,
+            grobid_pace_secs=args.grobid_pace,
+            no_quarantine=args.no_quarantine,
+            once=args.once,
+            dry_run=args.dry_run,
+        ))
     elif args.command == "review":
         sys.exit(review(
             limit=args.limit,

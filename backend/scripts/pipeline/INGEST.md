@@ -2,17 +2,59 @@
 
 Single entry point for everything ingest-related: how PDFs flow into
 the corpus, what runs automatically, what the operator runs by hand.
-Replaces six previous quick-reference docs.
+
+## Cheatsheet — what runs when, what you run by hand
+
+The cluster handles ingest, detection, quarantine, and metadata
+backfill **without operator action**. Three always-on systemd
+services + one nightly timer cooperate; you only step in for the
+exceptions.
+
+### Runs automatically (you don't touch these)
+
+| Unit | Type | Purpose |
+|---|---|---|
+| `munin-paper-pipeline.service` | always-on | Watches `/papers/pdf/` every 60s for new PDFs, ingests them through the hardened pipeline. |
+| `munin-paper-detect.service` | always-on | Continuous detection sweep. Every 15 min runs `paper_cleanup.py sweep` (a paced `detect --auto-quarantine` over all kinds). Slowly walks the existing corpus, auto-quarantining bad records. |
+| `munin-paper-reattribute.timer` | 04:30 daily | Runs `paper_cleanup.py reattribute`. Backfills group attribution for records whose uploader was added to `contributors.yml` after ingest. |
+| `munin-embedding-map.timer` | 01:30 daily | Rebuilds the 2D paper-embedding map + clusters. (Unrelated to cleanup; lives in `scripts/knowledge/`.) |
+
+Health check the lot:
+
+```bash
+systemctl list-timers 'munin-*'
+systemctl status munin-paper-{pipeline,detect}.service
+journalctl -fu munin-paper-detect.service           # tail the sweep
+```
+
+### The two manual things you run regularly
+
+| Command | When | Why |
+|---|---|---|
+| `paper_cleanup.py review` | Whenever you want; weekly is plenty | Triage what `sweep` auto-quarantined. Keep / reject / skip per record. |
+| `paper_crawler.py crawl --max N` | When you want fresh papers from the citation queue | Pulls new PDFs into `/papers/pdf/`; the watcher takes it from there. |
+
+### Less common (operator escape hatches)
+
+| Command | Use case |
+|---|---|
+| `paper_cleanup.py detect --kinds X --limit N` | Ad-hoc detection sweep when you want results NOW instead of waiting for the daemon to walk to them. |
+| `paper_cleanup.py remove --doi X` | Kill one paper everywhere (Qdrant + Neo4j + SQLite + PDF). |
+| `paper_cleanup.py reingest-queue` | Drive a reingest queue produced by `detect --queue-for-reingest`. |
+| `paper_cleanup.py verify-doi X` | Multi-source metadata diagnostic for one DOI. |
+| `paper_cleanup.py reattribute --dry-run` | Preview what tonight's reattribute timer would change. |
+
+That's the entire surface. Everything else is internal.
 
 For deeper context:
 - [`PAPER_CRAWLER.md`](PAPER_CRAWLER.md) — crawler internals (citation
   harvesting, Sci-Hub, queue DB).
 - [`../../docs/PAPER-INGEST-AUDIT.md`](../../docs/PAPER-INGEST-AUDIT.md)
   — the 2026-05-12 audit that introduced the ingest-time
-  title-similarity guard and the `find-metadata-mismatch` tool.
+  title-similarity guard.
 - [`../../docs/PIPELINE-CONSOLIDATION-PLAN.md`](../../docs/PIPELINE-CONSOLIDATION-PLAN.md)
-  — the in-progress consolidation (state machine, unified CLI). The
-  end-state described there isn't fully shipped yet.
+  — the consolidation that produced this directory's current shape.
+  All six phases (A-F) shipped 2026-05-13 to 2026-05-15.
 
 ## What this directory is for
 
@@ -71,7 +113,7 @@ Today, on hugin:
 | Unit | Schedule | What it does |
 |---|---|---|
 | `munin-paper-pipeline.service` | always on | `--watch` loop, polls `/papers/pdf/` every 60s for unprocessed PDFs |
-| `munin-paper-cleanup.timer` | 04:00 daily | Runs `paper_cleanup.py detect --kinds metadata-unverifiable --auto-quarantine --limit 20 --max-check 200`. Records no source can confirm are quarantined (soft action, reversible via `review`). |
+| `munin-paper-detect.service` | always on | `paper_cleanup.py sweep` continuous loop. 15-min cycles, 5 records/kind/cycle, all 4 detection kinds. Auto-quarantines bad records as it walks. Tunable via `Environment=` in the unit file. |
 | `munin-paper-reattribute.timer` | 04:30 daily | Runs `paper_cleanup.py reattribute`. Backfills group attribution after `contributors.yml` updates. |
 | `munin-embedding-map.timer` | 01:30 daily | Rebuilds the 2D paper-embedding map + HDBSCAN clusters |
 
@@ -219,6 +261,38 @@ Quarantined records:
 - Have their Qdrant point deleted (so paper_search doesn't surface them).
 - Get a state sidecar describing the reason + audit findings.
 - Are reviewed manually via `paper_cleanup.py review` (Phase E, planned).
+
+### The continuous sweep daemon (`munin-paper-detect.service`)
+
+Phase F (2026-05-15) introduced the always-on detection daemon
+that replaces the old nightly burst. `paper_cleanup.py sweep` is
+the underlying loop:
+
+```bash
+# Verify it's running
+systemctl status munin-paper-detect.service
+journalctl -fu munin-paper-detect.service           # live tail
+
+# Tune the cadence (edit /etc/systemd/system/munin-paper-detect.service)
+#   Environment="DETECT_KINDS=metadata-mismatch,short,orphan,metadata-unverifiable"
+#   Environment="DETECT_PER_CYCLE_LIMIT=5"
+#   Environment="DETECT_CYCLE_PACE_SECS=900"    # 15 min
+#   Environment="DETECT_GROBID_PACE_SECS=30"
+sudo systemctl edit --full munin-paper-detect.service
+sudo systemctl restart munin-paper-detect.service
+
+# Run a single sweep cycle by hand (no daemon needed):
+sudo .../paper_cleanup.py sweep --once
+sudo .../paper_cleanup.py sweep --once --no-quarantine     # detection only
+```
+
+At default settings (4 kinds × 5 records / 15 min):
+- ~480 records per kind per day
+- Whole 67k corpus walked per-kind in ~140 days for the
+  GROBID-bottlenecked metadata-mismatch; faster kinds finish much
+  sooner
+- Up to 20 quarantines per kind per hour — a runaway false-positive
+  day still produces less than `review` can keep up with
 
 ### Review the quarantine queue (`review`)
 
