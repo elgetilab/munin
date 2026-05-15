@@ -1749,7 +1749,8 @@ def find_short_papers(
     output_file: Optional[str] = None,
     auto_remove: bool = False,
     limit: Optional[int] = None,
-    confirm: bool = False
+    confirm: bool = False,
+    max_scan: Optional[int] = None,
 ) -> List[str]:
     """
     Find papers with fewer than min_pages pages using OpenAlex.
@@ -1760,6 +1761,10 @@ def find_short_papers(
         auto_remove: Automatically remove found papers from all knowledge bases
         limit: Maximum number of papers to auto-remove
         confirm: Required for auto-remove without limit
+        max_scan: Cap the number of SQLite rows scanned this run. Default
+            None scans every downloaded paper (the legacy behaviour).
+            The Phase F continuous sweep passes a small cap (typically
+            5-20) so a single cycle stays bounded.
 
     Returns:
         List of DOIs found
@@ -1773,10 +1778,16 @@ def find_short_papers(
     print(f"Finding papers with fewer than {min_pages} pages")
     print("=" * 60)
 
-    # Get all DOIs from database
-    results = conn.execute(
-        "SELECT doi FROM papers WHERE doi IS NOT NULL AND status = 'downloaded'"
-    ).fetchall()
+    # Get all DOIs from database — capped by max_scan when the caller
+    # provided one. Without the cap the function walked all 66k+
+    # downloaded papers per invocation, which made continuous-sweep
+    # cadences impossible.
+    query = "SELECT doi FROM papers WHERE doi IS NOT NULL AND status = 'downloaded'"
+    params: tuple = ()
+    if max_scan is not None and max_scan > 0:
+        query += " LIMIT ?"
+        params = (max_scan,)
+    results = conn.execute(query, params).fetchall()
     conn.close()
 
     if not results:
@@ -3026,6 +3037,10 @@ def detect(
                     auto_remove=False,
                     limit=limit,
                     confirm=True,
+                    # Phase F: cap the SQLite scan so a continuous
+                    # sweep cycle stays bounded. Falls back to legacy
+                    # full-scan when limit is None.
+                    max_scan=limit,
                 )
                 if auto_quarantine and kind_report_path.is_file():
                     n_quar = _auto_quarantine_from_doi_list(
