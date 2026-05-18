@@ -69,7 +69,7 @@ echo "=============================================="
 
 # Load CUDA 13.0.2 module (required for Blackwell SM 120a)
 source /etc/profile.d/modules.sh
-module load 13.0.2
+module load cuda/13.0.2
 
 # Explicitly set CUDA paths to ensure JIT compilation uses CUDA 13, not /usr/bin/nvcc
 export CUDA_HOME=/opt/cuda/13.0.2
