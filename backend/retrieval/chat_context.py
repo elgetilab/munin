@@ -20,6 +20,7 @@ from typing import Any, Optional
 from database import VLLM_MODEL_NAME
 from chat_store import get_messages_after_index, update_summary
 from vllm_client import vllm_post_json, VLLMRequestError
+from usage_tracker import record_usage
 
 MAX_CONTEXT = int(os.getenv("VLLM_MAX_CONTEXT", "60000"))
 GENERATION_RESERVE = int(os.getenv("VLLM_GENERATION_RESERVE", "8000"))
@@ -139,7 +140,9 @@ def _rag_context_to_text(rag_context: Optional[dict]) -> str:
     return "\n".join(lines)
 
 
-async def _call_vllm(messages: list[dict], max_tokens: int) -> Optional[str]:
+async def _call_vllm(
+    messages: list[dict], max_tokens: int, *, purpose: str
+) -> Optional[str]:
     """
     Call vLLM /v1/chat/completions non-streaming. Returns text or None.
 
@@ -148,6 +151,9 @@ async def _call_vllm(messages: list[dict], max_tokens: int) -> Optional[str]:
     returning empty content and silently breaking compaction. We disable
     thinking via chat_template_kwargs — same fix applied to
     query_expansion.py and mcp/tools/llm.py.
+
+    ``purpose`` tags the usage with the call site ("summary" / "title")
+    so it shows up under the right bucket in the per-request aggregator.
     """
     try:
         data = await vllm_post_json(
@@ -164,6 +170,7 @@ async def _call_vllm(messages: list[dict], max_tokens: int) -> Optional[str]:
         )
     except VLLMRequestError:
         return None
+    record_usage(purpose, data.get("usage"))
     choices = data.get("choices") or []
     if not choices:
         return None
@@ -203,7 +210,7 @@ async def summarize_messages(
         {"role": "system", "content": SUMMARIZE_PROMPT},
         {"role": "user", "content": "\n\n".join(user_blocks)},
     ]
-    return await _call_vllm(messages, max_tokens=SUMMARY_TOKEN_BUDGET)
+    return await _call_vllm(messages, max_tokens=SUMMARY_TOKEN_BUDGET, purpose="summary")
 
 
 async def assemble_context(
@@ -342,7 +349,7 @@ async def generate_title(first_user_message: str, first_assistant_response: str)
         {"role": "system", "content": TITLE_PROMPT},
         {"role": "user", "content": prompt},
     ]
-    title = await _call_vllm(messages, max_tokens=40)
+    title = await _call_vllm(messages, max_tokens=40, purpose="title")
     if not title:
         return trimmed[:60] if trimmed else "New conversation"
     return title.strip().strip('"').strip("'")[:80]

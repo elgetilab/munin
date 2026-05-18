@@ -41,6 +41,11 @@ import capabilities as capabilities_module
 import vision
 from database import VLLM_MODEL_NAME
 from vllm_client import vllm_post_json, vllm_post_stream, VLLMRequestError
+from usage_tracker import (
+    current_usage_aggregator,
+    record_usage,
+    aggregate_totals,
+)
 from mcp.schemas import MCP_TOOLS
 from mcp.executor import execute_mcp_tool
 from mcp.tools import clarification as clarification_tool
@@ -558,6 +563,7 @@ async def _force_clarification_retry(
                 f"(attempt {attempt + 1}/{max_attempts}): {e}"
             )
             continue
+        record_usage("forced_clarification", d.get("usage"))
         msg = (d.get("choices") or [{}])[0].get("message") or {}
         tcs = msg.get("tool_calls") or []
         if not tcs:
@@ -651,6 +657,7 @@ async def _force_required_tool_retry(
                 f"(attempt {attempt + 1}/{max_attempts}): {e}"
             )
             continue
+        record_usage("forced_required", d.get("usage"))
         msg = (d.get("choices") or [{}])[0].get("message") or {}
         tcs = msg.get("tool_calls") or []
         if not tcs:
@@ -1518,9 +1525,15 @@ async def stream_chat_completion(
     final_content = ""
     final_thinking = ""
     final_tool_calls: list[dict] = []
-    final_usage: Optional[dict] = None
     finish_reason: Optional[str] = None
     had_stream_error: Optional[str] = None
+    # Per-request token usage aggregator. Every vLLM call site folds its
+    # usage into this dict via record_usage(purpose, ...). The done event
+    # emits the aggregated totals (gateway-shaped) plus the per-purpose
+    # map. Bound here so it covers everything including the helpers
+    # invoked from assemble_context (history summarisation).
+    usage_agg: dict[str, dict] = {}
+    usage_token = current_usage_aggregator.set(usage_agg)
     try:
         messages = await chat_context.assemble_context(
             conversation=conversation,
@@ -1534,7 +1547,6 @@ async def stream_chat_completion(
         final_content = ""
         final_thinking = ""
         final_tool_calls: list[dict] = []
-        final_usage: Optional[dict] = None
         finish_reason: Optional[str] = None
 
         # Snapshot the freshly-assembled messages so the delegation
@@ -1615,8 +1627,7 @@ async def stream_chat_completion(
             final_thinking += acc.thinking
             final_content += acc.content
             acc_transferred = True
-            if acc.usage:
-                final_usage = acc.usage
+            record_usage("main_turn", acc.usage)
             finish_reason = acc.finish_reason
 
             tool_calls = acc.finalized_tool_calls()
@@ -1902,11 +1913,12 @@ async def stream_chat_completion(
 
                 # Reset accumulators so the persisted assistant message
                 # reflects the delegated persona's work, not the source
-                # persona's rejected draft.
+                # persona's rejected draft. Note: we deliberately do NOT
+                # clear usage_agg — the source persona's tokens were
+                # really consumed by vLLM and must still be billed.
                 final_content = ""
                 final_thinking = ""
                 final_tool_calls = []
-                final_usage = None
                 if acc is not None:
                     acc.content_parts.clear()
                     acc.thinking_parts.clear()
@@ -2042,7 +2054,8 @@ async def stream_chat_completion(
                 yield _sse(
                     "done",
                     {
-                        "usage": final_usage or {},
+                        "usage": aggregate_totals(usage_agg),
+                        "usage_by_purpose": usage_agg,
                         "finish_reason": "clarification",
                     },
                 )
@@ -2320,8 +2333,7 @@ async def stream_chat_completion(
             if wrap_acc is not None:
                 final_thinking += wrap_acc.thinking
                 final_content += wrap_acc.content
-                if wrap_acc.usage:
-                    final_usage = wrap_acc.usage
+                record_usage("wrap_up", wrap_acc.usage)
                 finish_reason = wrap_acc.finish_reason or finish_reason
 
         # --- 6. Persist assistant message ---
@@ -2402,7 +2414,8 @@ async def stream_chat_completion(
         yield _sse(
             "done",
             {
-                "usage": final_usage or {},
+                "usage": aggregate_totals(usage_agg),
+                "usage_by_purpose": usage_agg,
                 "finish_reason": finish_reason or "stop",
             },
         )
@@ -2462,3 +2475,8 @@ async def stream_chat_completion(
                     f"conv {conversation.get('id') if isinstance(conversation, dict) else '?'}: "
                     f"{type(_save_always_exc).__name__}: {_save_always_exc}"
                 )
+        # Unbind the usage aggregator regardless of how we exited. Suppress
+        # ValueError in the (impossible-in-practice) case where the token
+        # was already reset by an outer scope.
+        with contextlib.suppress(ValueError, LookupError):
+            current_usage_aggregator.reset(usage_token)

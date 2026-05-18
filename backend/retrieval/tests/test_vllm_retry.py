@@ -34,6 +34,7 @@ from vllm_client import (  # noqa: E402
     MAX_RETRY_AFTER_S,
 )
 from mcp.context import current_sse_emitter  # noqa: E402
+from usage_tracker import current_usage_aggregator, record_usage  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -286,6 +287,55 @@ def test_post_json_emits_retrying_event() -> bool:
     )
 
 
+def test_post_json_retry_does_not_double_count_usage() -> bool:
+    """Regression for P0 #3: when an attempt is retried after a 503, only
+    the *successful* response's usage should count. The 503 produced no
+    tokens (it never reached the model) and must not pollute the per-
+    request aggregator."""
+    sleep_calls.clear()
+    attempts: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(1)
+        if len(attempts) == 1:
+            return httpx.Response(503)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 20,
+                    "total_tokens": 120,
+                },
+            },
+        )
+
+    agg: dict = {}
+    token = current_usage_aggregator.set(agg)
+    _install_mock(handler)
+    try:
+        data = asyncio.run(vllm_client.vllm_post_json({"model": "x"}))
+        # Caller pattern: fold once with the returned usage. This is what
+        # all five real call sites do.
+        record_usage("test_purpose", data.get("usage"))
+    finally:
+        current_usage_aggregator.reset(token)
+        _uninstall_mock()
+    return _check(
+        "post_json: retry does not double-count usage",
+        len(attempts) == 2
+        and agg == {
+            "test_purpose": {
+                "prompt_tokens": 100,
+                "completion_tokens": 20,
+                "total_tokens": 120,
+            }
+        },
+        f"attempts={len(attempts)}, agg={agg}",
+    )
+
+
 # ---------------------------------------------------------------------------
 # vllm_post_stream tests
 # ---------------------------------------------------------------------------
@@ -451,6 +501,7 @@ TESTS = [
     test_post_json_retry_after_honored,
     test_post_json_retry_after_clamped,
     test_post_json_emits_retrying_event,
+    test_post_json_retry_does_not_double_count_usage,
     test_post_stream_success_first_try,
     test_post_stream_retries_on_5xx_before_first_byte,
     test_post_stream_400_no_retry,
