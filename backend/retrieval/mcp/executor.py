@@ -2,8 +2,26 @@
 MCP Tool Executor.
 
 Maps tool names to their implementations and handles execution.
+
+Argument validation: before dispatch, ``execute_mcp_tool`` validates the
+caller's ``arguments`` against the per-tool ``inputSchema`` declared in
+``mcp/schemas.py``. Schema mismatches (wrong type, wrong shape, missing
+required key, out-of-range integer) short-circuit with an ``{"error":
+...}`` result so the model can self-correct on its next turn instead of
+running a tool with garbage inputs. The gate is permissive on extra
+unknown keys (the dispatcher already ignores them via
+``arguments.get(...)``) so an over-eager model can't dead-end the turn
+on a harmless extra field.
+
+Validators compile once at module import; a malformed schema in
+``MCP_TOOLS`` raises ``SchemaError`` at startup with a useful pointer
+rather than failing the first user request that exercises it.
 """
 
+from jsonschema import Draft202012Validator, ValidationError
+from jsonschema.exceptions import SchemaError
+
+from .schemas import MCP_TOOLS
 from .tools import (
     web_search,
     web_fetch_content,
@@ -46,6 +64,43 @@ from .tools import (
 )
 
 
+def _build_validators() -> dict[str, Draft202012Validator]:
+    """Compile a Draft 2020-12 validator per tool. Runs check_schema first
+    so a typo in MCP_TOOLS (e.g. ``"type": "intgeer"``) blows up at import
+    with a clear message instead of silently passing every payload."""
+    out: dict[str, Draft202012Validator] = {}
+    for name, meta in MCP_TOOLS.items():
+        schema = meta.get("inputSchema")
+        if not isinstance(schema, dict):
+            continue
+        try:
+            Draft202012Validator.check_schema(schema)
+        except SchemaError as e:
+            raise RuntimeError(
+                f"MCP_TOOLS[{name!r}].inputSchema is not a valid "
+                f"Draft 2020-12 schema: {e.message}"
+            ) from e
+        out[name] = Draft202012Validator(schema)
+    return out
+
+
+_VALIDATORS: dict[str, Draft202012Validator] = _build_validators()
+
+
+def _format_validation_error(
+    tool_name: str, errs: list[ValidationError]
+) -> str:
+    """Produce a single human + model-readable line summarising the worst
+    schema error. Leads with the tool name so the model knows which call
+    needs fixing; appends a count if more errors are pending."""
+    first = errs[0]
+    pointer = "/".join(str(p) for p in first.absolute_path) or "(root)"
+    msg = f"invalid arguments for {tool_name!r} at {pointer}: {first.message}"
+    if len(errs) > 1:
+        msg += f" ({len(errs) - 1} more issue(s) suppressed)"
+    return msg
+
+
 async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
     """
     Execute an MCP tool and return the result.
@@ -57,6 +112,14 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
     Returns:
         Tool result as a dictionary
     """
+    validator = _VALIDATORS.get(tool_name)
+    if validator is not None:
+        errs = sorted(
+            validator.iter_errors(arguments or {}),
+            key=lambda e: tuple(str(p) for p in e.absolute_path),
+        )
+        if errs:
+            return {"error": _format_validation_error(tool_name, errs)}
     try:
         if tool_name == "web_search":
             return await web_search(

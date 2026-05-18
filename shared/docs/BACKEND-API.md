@@ -1116,6 +1116,14 @@ Agents themselves (`research_orchestrator`, `code_checker`, `writing_agent`)
 are defined in `config/agents.yml` with their own tool allowlists, iteration
 limits, and wall-clock timeouts. Agents cannot invoke each other.
 
+The executor validates every tool call's `arguments` against the tool's
+`inputSchema` before dispatch (`mcp/executor.py`). Schema mismatches
+(wrong type, missing required field, value out of enum) short-circuit
+with a `tool_result` whose `result` is `{"error": "invalid arguments for
+<tool> at <pointer>: <message>"}`. The frontend doesn't need to render
+these differently — they appear as normal tool_result events and the
+model self-corrects on its next turn. Permissive on extra unknown keys.
+
 ## 10. Known gotchas for frontend devs
 
 1. **`services.embedding: "unavailable"` is normal on a cold start.** It
