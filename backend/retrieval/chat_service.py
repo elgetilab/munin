@@ -21,6 +21,7 @@ with `sse_starlette.EventSourceResponse`.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import time
@@ -1270,6 +1271,7 @@ async def stream_chat_completion(
     project: Optional[dict] = None,
     file_into_project_id: Optional[str] = None,
     query_tags: Optional[list[dict]] = None,
+    cancel_event: Optional[asyncio.Event] = None,
 ) -> AsyncIterator[dict]:
     """
     Orchestrate a single /api/chat/completions request. Yields SSE events.
@@ -1280,7 +1282,17 @@ async def stream_chat_completion(
     turn), and persistence/title/summary side effects are all skipped. The
     model still has full access to tools — "ephemeral" means not stored by
     Munin, not untrackable by the world.
+
+    ``cancel_event`` is set by main.py's disconnect watchdog when the client
+    drops. We poll it at safe seams (turn boundaries, before wrap-up, before
+    auto-title) to skip work no one's waiting for, and use it to proactively
+    cancel the in-flight tool runner task so a long ``run_python`` doesn't
+    keep a vLLM slot held after disconnect.
     """
+
+    def _cancelled() -> bool:
+        return cancel_event is not None and cancel_event.is_set()
+
     persona = persona_module.get_persona(persona_id)
     if persona is None:
         yield _error_sse(f"Unknown persona: {persona_id}")
@@ -1560,6 +1572,13 @@ async def stream_chat_completion(
         # remainder so we never lose tokens the user already saw.
         acc_transferred = True
         for turn in range(MAX_TURNS):
+            if _cancelled():
+                print(
+                    f"[INFO] client disconnected during turn {turn} "
+                    f"conv={conversation['id']}; stopping early"
+                )
+                hit_turn_cap = False
+                break
             acc: Optional[_StreamAccumulator] = None
             stream_error: Optional[str] = None
             recovery_used_this_turn = False
@@ -2062,18 +2081,48 @@ async def stream_chat_completion(
                         allowed_tools=allowed_tools_set,
                     )
                 finally:
-                    await event_queue.put(SENTINEL)
+                    # put_nowait is sync — safe to call after CancelledError
+                    # in the inner await. The queue is unbounded so it never
+                    # raises QueueFull.
+                    event_queue.put_nowait(SENTINEL)
 
             run_task = asyncio.create_task(_runner())
 
-            while True:
-                item = await event_queue.get()
-                if item is SENTINEL:
-                    break
-                yield item
+            # When the client disconnects mid-tool, the watchdog in main.py
+            # sets cancel_event. We translate that into an explicit
+            # run_task.cancel() so a single long-running tool (run_python,
+            # deep_research) doesn't hold a vLLM slot for its remaining
+            # budget after the user is gone.
+            cancel_listener: Optional[asyncio.Task] = None
+            if cancel_event is not None:
+                async def _cancel_on_event() -> None:
+                    await cancel_event.wait()
+                    if not run_task.done():
+                        run_task.cancel()
+                cancel_listener = asyncio.create_task(_cancel_on_event())
 
-            results = await run_task
-            current_sse_emitter.set(None)
+            try:
+                while True:
+                    item = await event_queue.get()
+                    if item is SENTINEL:
+                        break
+                    yield item
+                results = await run_task
+            finally:
+                # Always tear down both helpers. Reached on:
+                #   - normal completion (run_task done → no-op)
+                #   - GeneratorExit at the yield above (consumer closed us)
+                #   - cancel_event firing mid-tool (CancelledError from
+                #     await run_task)
+                if cancel_listener is not None and not cancel_listener.done():
+                    cancel_listener.cancel()
+                    with contextlib.suppress(BaseException):
+                        await cancel_listener
+                if not run_task.done():
+                    run_task.cancel()
+                    with contextlib.suppress(BaseException):
+                        await run_task
+                current_sse_emitter.set(None)
 
             for res in results:
                 final_tool_calls.append({
@@ -2235,7 +2284,14 @@ async def stream_chat_completion(
         # now, so calling it again to rewrite the final answer would almost
         # certainly fail too, and the second failure would either overwrite or
         # truncate the partial state we already captured. Persist what we have.
-        if (hit_turn_cap or not last_turn_content) and not had_stream_error:
+        if _cancelled():
+            # Client is gone — don't burn another vLLM slot on a synthesis
+            # the user will never see. Save-always finally still runs.
+            print(
+                f"[INFO] client disconnected before wrap-up "
+                f"conv={conversation['id']}; skipping synthesis"
+            )
+        elif (hit_turn_cap or not last_turn_content) and not had_stream_error:
             wrap_up_messages = list(messages) + [
                 {
                     "role": "user",
@@ -2324,7 +2380,7 @@ async def stream_chat_completion(
         # and no assistant response was ever generated, so the title is
         # still empty. Without this fix, auto-title was permanently
         # skipped for that conversation.
-        if not ephemeral and not conversation.get("title"):
+        if not ephemeral and not conversation.get("title") and not _cancelled():
             try:
                 title = await chat_context.generate_title(
                     user_message.get("content", ""), final_content
@@ -2382,13 +2438,20 @@ async def stream_chat_completion(
                 # message persist (which is in turn above the try block
                 # this finally pairs with). If we are inside this try,
                 # user-persist already ran and conversation is set.
-                await chat_store.add_message(
-                    conversation_id=conversation["id"],
-                    role="assistant",
-                    content=marker_content,
-                    thinking=final_thinking or None,
-                    tool_calls=final_tool_calls or None,
-                    rag_context=rag_context,
+                # asyncio.shield: a second cancellation arriving during
+                # save-always (e.g. process shutdown right after a client
+                # disconnect) would otherwise truncate the write mid-row.
+                # The shield lets add_message run to completion in the
+                # background even if our await is cancelled.
+                await asyncio.shield(
+                    chat_store.add_message(
+                        conversation_id=conversation["id"],
+                        role="assistant",
+                        content=marker_content,
+                        thinking=final_thinking or None,
+                        tool_calls=final_tool_calls or None,
+                        rag_context=rag_context,
+                    )
                 )
             except Exception as _save_always_exc:
                 # Last-ditch: log and swallow. We cannot crash the
