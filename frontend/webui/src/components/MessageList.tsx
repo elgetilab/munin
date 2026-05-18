@@ -5,6 +5,12 @@ import { FeatherVortex } from './FeatherVortex';
 import { Markdown } from './Markdown';
 import { ClarificationCard } from './ClarificationCard';
 
+interface RetryingState {
+  attempt: number;
+  maxAttempts: number;
+  reason: string;
+}
+
 interface StreamingState {
   content: string;
   thinking: string;
@@ -13,6 +19,7 @@ interface StreamingState {
   clarification: Clarification | null;
   delegations: Delegation[];
   phase: 'idle' | 'thinking' | 'tool_call' | 'generating' | 'done' | 'error';
+  retrying: RetryingState | null;
 }
 
 interface MessageListProps {
@@ -84,6 +91,19 @@ export function MessageList({ messages, streaming, personas, onSendClarification
         {/* Streaming state */}
         {isActive && (
           <div className="space-y-3">
+            {/* Transient retry indicator when vLLM is hiccuping */}
+            {streaming.retrying && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-300 text-xs text-amber-800">
+                <span className="inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                <span>
+                  Reconnecting to vLLM
+                  {` (attempt ${streaming.retrying.attempt}/${streaming.retrying.maxAttempts}`}
+                  {streaming.retrying.reason ? `, ${streaming.retrying.reason}` : ''}
+                  )…
+                </span>
+              </div>
+            )}
+
             {/* Task log for current stream */}
             {(streaming.thinking || streaming.toolCalls.length > 0 || streaming.ragContext) && (
               <TaskLog

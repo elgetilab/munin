@@ -28,8 +28,6 @@ import uuid
 from datetime import datetime
 from typing import Any, AsyncIterator, Optional
 
-import httpx
-
 import chat_store
 import chat_context
 import personas as persona_module
@@ -40,7 +38,8 @@ import memory_store
 import artifact_store
 import capabilities as capabilities_module
 import vision
-from database import VLLM_URL, VLLM_MODEL_NAME
+from database import VLLM_MODEL_NAME
+from vllm_client import vllm_post_json, vllm_post_stream, VLLMRequestError
 from mcp.schemas import MCP_TOOLS
 from mcp.executor import execute_mcp_tool
 from mcp.tools import clarification as clarification_tool
@@ -551,29 +550,10 @@ async def _force_clarification_retry(
         }
         body.update(sampling)
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                r = await client.post(
-                    f"{VLLM_URL}/v1/chat/completions",
-                    json=body,
-                )
-        except httpx.RequestError as e:
+            d = await vllm_post_json(body, timeout=60.0)
+        except VLLMRequestError as e:
             print(
-                f"[WARNING] forced clarification retry HTTP error "
-                f"(attempt {attempt + 1}/{max_attempts}): {e}"
-            )
-            continue
-        if r.status_code != 200:
-            print(
-                f"[WARNING] forced clarification retry returned "
-                f"{r.status_code} (attempt {attempt + 1}/{max_attempts}): "
-                f"{r.text[:200]}"
-            )
-            continue
-        try:
-            d = r.json()
-        except Exception as e:
-            print(
-                f"[WARNING] forced clarification retry parse error "
+                f"[WARNING] forced clarification retry failed "
                 f"(attempt {attempt + 1}/{max_attempts}): {e}"
             )
             continue
@@ -663,29 +643,10 @@ async def _force_required_tool_retry(
         }
         body.update(sampling)
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                r = await client.post(
-                    f"{VLLM_URL}/v1/chat/completions",
-                    json=body,
-                )
-        except httpx.RequestError as e:
+            d = await vllm_post_json(body, timeout=60.0)
+        except VLLMRequestError as e:
             print(
-                f"[WARNING] forced-required retry HTTP error "
-                f"(attempt {attempt + 1}/{max_attempts}): {e}"
-            )
-            continue
-        if r.status_code != 200:
-            print(
-                f"[WARNING] forced-required retry returned "
-                f"{r.status_code} (attempt {attempt + 1}/{max_attempts}): "
-                f"{r.text[:200]}"
-            )
-            continue
-        try:
-            d = r.json()
-        except Exception as e:
-            print(
-                f"[WARNING] forced-required retry parse error "
+                f"[WARNING] forced-required retry failed "
                 f"(attempt {attempt + 1}/{max_attempts}): {e}"
             )
             continue
@@ -789,87 +750,74 @@ async def _stream_vllm_once(
         body["tool_choice"] = "auto"
 
     try:
-        async with httpx.AsyncClient(timeout=None) as client:
-            async with client.stream(
-                "POST",
-                f"{VLLM_URL}/v1/chat/completions",
-                json=body,
-                headers={"Accept": "text/event-stream"},
-            ) as response:
-                if response.status_code != 200:
-                    text = await response.aread()
-                    yield (
-                        "error",
-                        {"message": f"vLLM returned {response.status_code}: {text.decode(errors='ignore')[:300]}"},
-                        acc,
-                    )
-                    return
+        async with vllm_post_stream(body) as line_iter:
+            emitted_tool_ids: set[int] = set()
 
-                emitted_tool_ids: set[int] = set()
+            async for line in line_iter:
+                if not line or not line.startswith("data:"):
+                    continue
+                payload = line[5:].strip()
+                if payload == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(payload)
+                except json.JSONDecodeError:
+                    continue
 
-                async for line in response.aiter_lines():
-                    if not line or not line.startswith("data:"):
-                        continue
-                    payload = line[5:].strip()
-                    if payload == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(payload)
-                    except json.JSONDecodeError:
-                        continue
+                if chunk.get("usage"):
+                    acc.usage = chunk["usage"]
 
-                    if chunk.get("usage"):
-                        acc.usage = chunk["usage"]
+                choices = chunk.get("choices") or []
+                if not choices:
+                    continue
+                choice = choices[0]
+                delta = choice.get("delta") or {}
 
-                    choices = chunk.get("choices") or []
-                    if not choices:
-                        continue
-                    choice = choices[0]
-                    delta = choice.get("delta") or {}
+                # vLLM's qwen3 reasoning parser emits reasoning on
+                # `delta.reasoning` (NOT `delta.reasoning_content`).
+                # Accept both names so we survive a future vLLM rename.
+                reasoning = delta.get("reasoning") or delta.get("reasoning_content")
+                if reasoning:
+                    acc.thinking_parts.append(reasoning)
+                    yield ("thinking", {"content": reasoning}, acc)
 
-                    # vLLM's qwen3 reasoning parser emits reasoning on
-                    # `delta.reasoning` (NOT `delta.reasoning_content`).
-                    # Accept both names so we survive a future vLLM rename.
-                    reasoning = delta.get("reasoning") or delta.get("reasoning_content")
-                    if reasoning:
-                        acc.thinking_parts.append(reasoning)
-                        yield ("thinking", {"content": reasoning}, acc)
+                content = delta.get("content")
+                if content:
+                    acc.content_parts.append(content)
+                    yield ("token", {"content": content}, acc)
 
-                    content = delta.get("content")
-                    if content:
-                        acc.content_parts.append(content)
-                        yield ("token", {"content": content}, acc)
+                for delta_tc in (delta.get("tool_calls") or []):
+                    idx = delta_tc.get("index", 0)
+                    slot = acc.tool_calls.setdefault(idx, {})
+                    if delta_tc.get("id"):
+                        slot["id"] = delta_tc["id"]
+                    fn = delta_tc.get("function") or {}
+                    if fn.get("name"):
+                        slot["name"] = fn["name"]
+                    if "arguments" in fn:
+                        slot["arguments_raw"] = (
+                            slot.get("arguments_raw", "") + (fn.get("arguments") or "")
+                        )
 
-                    for delta_tc in (delta.get("tool_calls") or []):
-                        idx = delta_tc.get("index", 0)
-                        slot = acc.tool_calls.setdefault(idx, {})
-                        if delta_tc.get("id"):
-                            slot["id"] = delta_tc["id"]
-                        fn = delta_tc.get("function") or {}
-                        if fn.get("name"):
-                            slot["name"] = fn["name"]
-                        if "arguments" in fn:
-                            slot["arguments_raw"] = (
-                                slot.get("arguments_raw", "") + (fn.get("arguments") or "")
-                            )
+                finish = choice.get("finish_reason")
+                if finish:
+                    acc.finish_reason = finish
 
-                    finish = choice.get("finish_reason")
-                    if finish:
-                        acc.finish_reason = finish
+            # Emit a tool_call SSE for each finalized tool call — we
+            # delay this until the stream ends so arguments are complete.
+            for tc in acc.finalized_tool_calls():
+                tc_id = id(tc)
+                if tc_id in emitted_tool_ids:
+                    continue
+                emitted_tool_ids.add(tc_id)
+                yield (
+                    "tool_call",
+                    {"id": tc["id"], "name": tc["name"], "arguments": tc["arguments"]},
+                    acc,
+                )
 
-                # Emit a tool_call SSE for each finalized tool call — we
-                # delay this until the stream ends so arguments are complete.
-                for tc in acc.finalized_tool_calls():
-                    tc_id = id(tc)
-                    if tc_id in emitted_tool_ids:
-                        continue
-                    emitted_tool_ids.add(tc_id)
-                    yield (
-                        "tool_call",
-                        {"id": tc["id"], "name": tc["name"], "arguments": tc["arguments"]},
-                        acc,
-                    )
-
+    except VLLMRequestError as e:
+        yield ("error", {"message": str(e)}, acc)
     except Exception as e:
         yield ("error", {"message": f"vLLM streaming failed: {e}"}, acc)
 

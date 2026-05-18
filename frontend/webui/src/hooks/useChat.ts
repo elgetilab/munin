@@ -2,6 +2,12 @@ import { useState, useCallback, useRef } from 'react';
 import { streamChat, fetchChat } from '../lib/api';
 import type { Message, MessageContent, SSEEvent, ToolCall, RagContext, AgentState, Clarification, ArtifactSummary, ArtifactCreatedEvent, ArtifactUpdatedEvent, TagChip, Delegation } from '../lib/types';
 
+interface RetryingState {
+  attempt: number;
+  maxAttempts: number;
+  reason: string;
+}
+
 interface StreamingState {
   content: string;
   thinking: string;
@@ -10,6 +16,10 @@ interface StreamingState {
   clarification: Clarification | null;
   delegations: Delegation[];
   phase: 'idle' | 'thinking' | 'tool_call' | 'generating' | 'done' | 'error';
+  // Set when the backend emits a `retrying` SSE because a vLLM call hit a
+  // transient error (5xx / 429 / pre-first-byte drop). Cleared as soon as
+  // any other event arrives (the call succeeded) or the stream finishes.
+  retrying: RetryingState | null;
 }
 
 const INITIAL_STREAMING: StreamingState = {
@@ -20,6 +30,7 @@ const INITIAL_STREAMING: StreamingState = {
   clarification: null,
   delegations: [],
   phase: 'idle',
+  retrying: null,
 };
 
 export function useChat() {
@@ -82,6 +93,11 @@ export function useChat() {
     let clarification: Clarification | null = null;
 
     const handleEvent = (event: SSEEvent) => {
+      // Any event other than `retrying` itself means the backend has
+      // resumed forward progress — clear the "reconnecting" indicator.
+      if (event.type !== 'retrying') {
+        setStreaming(s => (s.retrying ? { ...s, retrying: null } : s));
+      }
       switch (event.type) {
         case 'conversation':
           // May fire twice: first with null title, second with generated title
@@ -216,6 +232,18 @@ export function useChat() {
         case 'persona_changed':
           // Backend persisted the new persona for this conversation. Sync local state.
           setConversationPersona(event.data.persona);
+          break;
+        case 'retrying':
+          // A vLLM call hit a transient error and is about to retry. Show a
+          // "reconnecting" indicator until any other event arrives.
+          setStreaming(s => ({
+            ...s,
+            retrying: {
+              attempt: event.data.attempt,
+              maxAttempts: event.data.max_attempts,
+              reason: event.data.reason,
+            },
+          }));
           break;
         case 'error': {
           // Save-always parity with the backend (chat 3951063c,

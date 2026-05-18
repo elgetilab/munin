@@ -22,11 +22,10 @@ import json
 import time
 from typing import Any, Optional
 
-import httpx
-
-from database import VLLM_URL, VLLM_MODEL_NAME
+from database import VLLM_MODEL_NAME
 from mcp.schemas import MCP_TOOLS
 from mcp.context import current_sse_emitter
+from vllm_client import vllm_post_json, VLLMRequestError
 
 from .parallel import run_tools_parallel
 
@@ -88,29 +87,24 @@ async def _call_vllm(messages: list[dict], tools: list[dict]) -> Optional[dict]:
     choice, or None on failure.
     """
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            r = await client.post(
-                f"{VLLM_URL}/v1/chat/completions",
-                json={
-                    "model": VLLM_MODEL_NAME,
-                    "messages": messages,
-                    "tools": tools,
-                    "tool_choice": "auto" if tools else "none",
-                    "temperature": 0.7,
-                    "stream": False,
-                },
-            )
-            if r.status_code != 200:
-                print(f"[ERROR] Agent vLLM call failed: {r.status_code} {r.text[:200]}")
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not choices:
-                return None
-            return choices[0].get("message") or {}
-    except Exception as e:
-        print(f"[ERROR] Agent vLLM request raised: {e}")
+        data = await vllm_post_json(
+            {
+                "model": VLLM_MODEL_NAME,
+                "messages": messages,
+                "tools": tools,
+                "tool_choice": "auto" if tools else "none",
+                "temperature": 0.7,
+                "stream": False,
+            },
+            timeout=120.0,
+        )
+    except VLLMRequestError as e:
+        print(f"[ERROR] Agent vLLM call failed: {e}")
         return None
+    choices = data.get("choices") or []
+    if not choices:
+        return None
+    return choices[0].get("message") or {}
 
 
 async def execute_agent(agent_config: dict, query: str) -> dict:

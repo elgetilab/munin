@@ -17,10 +17,9 @@ from __future__ import annotations
 import os
 from typing import Any, Optional
 
-import httpx
-
-from database import VLLM_URL, VLLM_MODEL_NAME
+from database import VLLM_MODEL_NAME
 from chat_store import get_messages_after_index, update_summary
+from vllm_client import vllm_post_json, VLLMRequestError
 
 MAX_CONTEXT = int(os.getenv("VLLM_MAX_CONTEXT", "60000"))
 GENERATION_RESERVE = int(os.getenv("VLLM_GENERATION_RESERVE", "8000"))
@@ -151,28 +150,25 @@ async def _call_vllm(messages: list[dict], max_tokens: int) -> Optional[str]:
     query_expansion.py and mcp/tools/llm.py.
     """
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            r = await client.post(
-                f"{VLLM_URL}/v1/chat/completions",
-                json={
-                    "model": VLLM_MODEL_NAME,
-                    "messages": messages,
-                    "max_tokens": max_tokens,
-                    "temperature": 0.3,
-                    "stream": False,
-                    "chat_template_kwargs": {"enable_thinking": False},
-                },
-            )
-            if r.status_code != 200:
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not choices:
-                return None
-            content = (choices[0].get("message") or {}).get("content")
-            return content if content else None
-    except Exception:
+        data = await vllm_post_json(
+            {
+                "model": VLLM_MODEL_NAME,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": 0.3,
+                "stream": False,
+                "chat_template_kwargs": {"enable_thinking": False},
+            },
+            timeout=60.0,
+            foreground=False,
+        )
+    except VLLMRequestError:
         return None
+    choices = data.get("choices") or []
+    if not choices:
+        return None
+    content = (choices[0].get("message") or {}).get("content")
+    return content if content else None
 
 
 async def summarize_messages(

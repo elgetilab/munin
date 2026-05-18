@@ -187,6 +187,7 @@ export type SSEEvent =
   | { type: 'agent_done'; data: { agent: string; tool_calls: number; duration_seconds: number; stopped_reason: string } }
   | { type: 'delegated'; data: Delegation }
   | { type: 'persona_changed'; data: { id: string; persona: string } }
+  | { type: 'retrying'; data: { attempt: number; max_attempts: number; delay_s: number; reason: string } }
   | { type: 'error'; data: { message: string } }
   | { type: 'done'; data: { usage?: { prompt_tokens: number; completion_tokens: number }; finish_reason: string } };
 
