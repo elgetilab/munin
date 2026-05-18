@@ -1,18 +1,23 @@
 """
 Parallel MCP tool execution for agents.
 
-Tool calls emitted by an agent's vLLM loop are fanned out via asyncio.gather
-so multiple independent lookups don't run serially. Each result is timed
-individually so we can report a realistic duration back to the frontend.
+Tool calls emitted by an agent's vLLM loop are dispatched concurrently
+where the framework knows it's safe, and serialised otherwise. Tools
+declaring ``is_concurrency_safe: False`` in MCP_TOOLS (the artifact /
+memory / sandbox mutators) run one-at-a-time in declared order so they
+can't race against each other. Everything else (paper_search,
+web_search, calculate, ...) fans out via asyncio.gather. The two groups
+run concurrently with each other — they don't share state by definition
+of "safe".
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any
+from typing import Any, Optional
 
-from mcp.executor import execute_mcp_tool
+from mcp.executor import execute_mcp_tool, partition_by_concurrency_safety
 
 
 async def run_tools_parallel(
@@ -20,8 +25,9 @@ async def run_tools_parallel(
     allowed_tools: list[str],
 ) -> list[dict]:
     """
-    Execute a batch of tool calls concurrently. Tools not in `allowed_tools`
-    are returned with a permission error instead of being executed.
+    Execute a batch of tool calls with concurrency-safety partitioning.
+    Tools not in `allowed_tools` are returned with a permission error
+    instead of being executed. Output preserves declared order.
 
     Each input dict should have: id, name, arguments.
     Each output dict has: id, name, result, duration_ms.
@@ -53,4 +59,19 @@ async def run_tools_parallel(
 
     if not tool_calls:
         return []
-    return await asyncio.gather(*(one(tc) for tc in tool_calls))
+
+    safe, unsafe = partition_by_concurrency_safety(tool_calls)
+    results: list[Optional[dict]] = [None] * len(tool_calls)
+
+    async def run_one(idx: int, tc: dict) -> None:
+        results[idx] = await one(tc)
+
+    async def run_unsafe_serial() -> None:
+        for idx, tc in unsafe:
+            await run_one(idx, tc)
+
+    await asyncio.gather(
+        *(run_one(idx, tc) for idx, tc in safe),
+        run_unsafe_serial(),
+    )
+    return [r for r in results if r is not None]

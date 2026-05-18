@@ -87,6 +87,33 @@ def _build_validators() -> dict[str, Draft202012Validator]:
 _VALIDATORS: dict[str, Draft202012Validator] = _build_validators()
 
 
+def partition_by_concurrency_safety(
+    tool_calls: list[dict],
+) -> tuple[list[tuple[int, dict]], list[tuple[int, dict]]]:
+    """Split ``tool_calls`` into (safe, unsafe), each tagged with its
+    original index so callers can reassemble output in declared order.
+
+    A tool is unsafe iff its MCP_TOOLS entry declares
+    ``is_concurrency_safe: False``. Default is safe — most tools are
+    read-only (paper_search, web_search, etc.) and gather happily.
+    Mutators (``create_artifact``, ``update_artifact``, ``run_python``,
+    ``compile_latex``, ``remember``, ``forget``, ``sandbox_reset``,
+    ``save_artifact_to_documents``) flip the flag so the dispatcher
+    serialises them.
+
+    The model can emit unsafe tools in any order; we run them in
+    declared order so the resulting state matches what the model would
+    expect from reading its own tool-call list.
+    """
+    safe: list[tuple[int, dict]] = []
+    unsafe: list[tuple[int, dict]] = []
+    for idx, tc in enumerate(tool_calls):
+        meta = MCP_TOOLS.get(tc.get("name") or "", {})
+        bucket = safe if meta.get("is_concurrency_safe", True) else unsafe
+        bucket.append((idx, tc))
+    return safe, unsafe
+
+
 def _format_validation_error(
     tool_name: str, errs: list[ValidationError]
 ) -> str:

@@ -47,7 +47,7 @@ from usage_tracker import (
     aggregate_totals,
 )
 from mcp.schemas import MCP_TOOLS
-from mcp.executor import execute_mcp_tool
+from mcp.executor import execute_mcp_tool, partition_by_concurrency_safety
 from mcp.tools import clarification as clarification_tool
 from mcp.context import (
     current_user_email,
@@ -837,7 +837,16 @@ async def _run_tool_calls(
     persona_id: Optional[str] = None,
     allowed_tools: Optional[set[str]] = None,
 ) -> list[dict]:
-    """Execute all tool calls in parallel, preserving order.
+    """Execute all tool calls for a turn, preserving declared order.
+
+    Concurrency-safe tools (paper_search, web_search, calculate, ...)
+    fan out via asyncio.gather. Unsafe tools (``is_concurrency_safe:
+    False`` in MCP_TOOLS — the artifact/memory/sandbox mutators) run
+    serially in declared order so two ``update_artifact`` calls on
+    the same id, or ``run_python`` + ``compile_latex`` writing the
+    same sandbox /scratch, can't race. The two groups run
+    concurrently with each other — they don't share state by
+    definition of "safe".
 
     When ``allowed_tools`` is supplied, any tool call whose name is
     not in the set is short-circuited with a synthetic error result
@@ -891,7 +900,26 @@ async def _run_tool_calls(
             "duration_ms": duration_ms,
         }
 
-    return await asyncio.gather(*(one(tc) for tc in tool_calls))
+    if not tool_calls:
+        return []
+
+    safe, unsafe = partition_by_concurrency_safety(tool_calls)
+    results: list[Optional[dict]] = [None] * len(tool_calls)
+
+    async def run_one(idx: int, tc: dict) -> None:
+        results[idx] = await one(tc)
+
+    async def run_unsafe_serial() -> None:
+        for idx, tc in unsafe:
+            await run_one(idx, tc)
+
+    await asyncio.gather(
+        *(run_one(idx, tc) for idx, tc in safe),
+        run_unsafe_serial(),
+    )
+    # results slots are filled by the time gather returns; the cast
+    # placates the type checker without runtime overhead.
+    return [r for r in results if r is not None]
 
 
 _ALLOWED_TAG_KINDS = {"topic", "group", "contributor"}

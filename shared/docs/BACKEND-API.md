@@ -1124,6 +1124,18 @@ with a `tool_result` whose `result` is `{"error": "invalid arguments for
 these differently — they appear as normal tool_result events and the
 model self-corrects on its next turn. Permissive on extra unknown keys.
 
+Concurrency policy: tools that declare `is_concurrency_safe: False` in
+`mcp/schemas.py` (the artifact / memory / sandbox mutators —
+`create_artifact`, `update_artifact`, `save_artifact_to_documents`,
+`remember`, `forget`, `run_python`, `sandbox_reset`, `compile_latex`)
+run **serially in declared order** when the model emits multiple of
+them in one turn. Every other tool fans out via `asyncio.gather`. The
+two groups run concurrently with each other since safe tools by
+definition don't share mutable state with anything. Frontend
+implication: `tool_result` events for unsafe tools arrive in the same
+order they appeared in the matching `tool_call` events; the existing
+match-by-id rendering keeps working unchanged.
+
 ## 10. Known gotchas for frontend devs
 
 1. **`services.embedding: "unavailable"` is normal on a cold start.** It
