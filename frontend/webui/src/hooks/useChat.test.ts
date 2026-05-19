@@ -400,4 +400,30 @@ describe('useChat', () => {
     expect(lastMsg.clarification!.questions).toHaveLength(1);
     expect(lastMsg.clarification!.questions[0].text).toBe('Which EPR?');
   });
+
+  // ── retrying event ───────────────────────────────────────────────────────
+
+  it('handles retrying SSE event without losing surrounding tokens', async () => {
+    server.use(
+      http.post('/api/chat/completions', () => sseResponse([
+        { event: 'token', data: { content: 'before ' } },
+        { event: 'retrying', data: { attempt: 1, max_attempts: 5, delay_s: 0.5, reason: 'vllm 503' } },
+        { event: 'token', data: { content: 'after' } },
+        { event: 'done', data: { finish_reason: 'stop' } },
+      ])),
+    );
+
+    const { result } = renderHook(() => useChat());
+
+    await act(async () => {
+      await result.current.sendMessage('Hi', 'chat');
+    });
+
+    const assistant = result.current.messages.find(m => m.role === 'assistant');
+    expect(assistant).toBeDefined();
+    expect(assistant!.content).toBe('before after');
+    // Subsequent events clear the indicator; after `done` it must be null.
+    expect(result.current.streaming.retrying).toBeNull();
+    expect(result.current.streaming.phase).toBe('idle');
+  });
 });

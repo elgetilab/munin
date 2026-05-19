@@ -47,6 +47,7 @@ Environment Variables:
 """
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import os
@@ -1281,22 +1282,50 @@ async def api_chat_completions(request: Request):
     # §28: #tag chips from the composer, normalised by chat_service.
     query_tags = body.get("tags")
 
+    # Disconnect propagation (P0 #2). A background watchdog polls
+    # request.is_disconnected() every 500ms; when the client drops, it sets
+    # cancel_event, which chat_service uses to (a) cancel any in-flight
+    # tool runner so a long run_python / deep_research stops holding a
+    # vLLM slot, and (b) skip unstarted work (next turn, wrap-up,
+    # auto-title). The save-always finally still runs.
+    cancel_event = asyncio.Event()
+
+    async def _watch_disconnect() -> None:
+        while not cancel_event.is_set():
+            try:
+                if await request.is_disconnected():
+                    cancel_event.set()
+                    return
+            except Exception:
+                # If the disconnect check itself raises (e.g. ASGI message
+                # queue closed) treat it as a disconnect.
+                cancel_event.set()
+                return
+            await asyncio.sleep(0.5)
+
     async def event_stream():
-        async for event in chat_service.stream_chat_completion(
-            user_email=user_email,
-            persona_id=persona_id,
-            conversation_id=conversation_id,
-            user_message=user_message,
-            rag_config=rag_config,
-            ephemeral=ephemeral,
-            prior_messages=prior_messages,
-            project=project_for_request,
-            file_into_project_id=body_project_id if not conversation_id else None,
-            query_tags=query_tags,
-        ):
-            if await request.is_disconnected():
-                break
-            yield event
+        watch_task = asyncio.create_task(_watch_disconnect())
+        try:
+            async for event in chat_service.stream_chat_completion(
+                user_email=user_email,
+                persona_id=persona_id,
+                conversation_id=conversation_id,
+                user_message=user_message,
+                rag_config=rag_config,
+                ephemeral=ephemeral,
+                prior_messages=prior_messages,
+                project=project_for_request,
+                file_into_project_id=body_project_id if not conversation_id else None,
+                query_tags=query_tags,
+                cancel_event=cancel_event,
+            ):
+                if cancel_event.is_set():
+                    break
+                yield event
+        finally:
+            watch_task.cancel()
+            with contextlib.suppress(BaseException):
+                await watch_task
 
     return EventSourceResponse(event_stream())
 

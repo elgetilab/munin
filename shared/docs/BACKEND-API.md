@@ -1027,7 +1027,8 @@ data: <minified json>
 | `agent_tool_result` | `{"id": "atc-1", "name": "paper_search", "result": {...}, "duration_ms": 42}` | Paired with `agent_tool_call` by id |
 | `agent_done` | `{"agent": "...", "tool_calls": 8, "duration_seconds": 34, "stopped_reason": "done"}` | When the agent returns. `stopped_reason` ∈ `done`/`max_iterations`/`max_tool_calls`/`timeout`/`error` |
 | `token` | `{"content": "partial response text"}` | Many. Accumulate into the visible answer. Sourced from vLLM `delta.content` |
-| `done` | `{"usage": {"prompt_tokens": N, "completion_tokens": N}, "finish_reason": "stop"}` | Always the last event on success |
+| `done` | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}, "usage_by_purpose": {"main_turn": {...}, "wrap_up": {...}, ...}, "finish_reason": "stop"}` | Always the last event on success. `usage` is the **aggregate across every vLLM call this turn**, not just the last one — the gateway records `total_tokens` from here for quota. `usage_by_purpose` is the same numbers broken down by call site for debugging: `main_turn`, `wrap_up`, `forced_clarification`, `forced_required`, `agent_turn`, `agent_wrap_up`, `summary`, `title`. Purposes with zero calls are omitted |
+| `retrying` | `{"attempt": N, "max_attempts": M, "delay_s": 1.0, "reason": "vllm 503"}` | A vLLM call hit a transient error (5xx / 429 / connection drop / pre-first-byte stream drop) and is about to retry. Fires before the backoff sleep. `attempt` is 1-indexed. `reason` is a short tag (e.g. `vllm 503`, `vllm ConnectError`). Multiple may fire per turn. Frontend should render a transient "reconnecting" indicator and reset it once any other event resumes |
 | `error` | `{"message": "Human-readable error"}` | On failure. Stream terminates after this |
 
 Ordering for a normal RAG-enabled chat with one tool call:
@@ -1114,6 +1115,26 @@ Tools available to the main model and agents (see `retrieval/mcp/schemas.py`):
 Agents themselves (`research_orchestrator`, `code_checker`, `writing_agent`)
 are defined in `config/agents.yml` with their own tool allowlists, iteration
 limits, and wall-clock timeouts. Agents cannot invoke each other.
+
+The executor validates every tool call's `arguments` against the tool's
+`inputSchema` before dispatch (`mcp/executor.py`). Schema mismatches
+(wrong type, missing required field, value out of enum) short-circuit
+with a `tool_result` whose `result` is `{"error": "invalid arguments for
+<tool> at <pointer>: <message>"}`. The frontend doesn't need to render
+these differently — they appear as normal tool_result events and the
+model self-corrects on its next turn. Permissive on extra unknown keys.
+
+Concurrency policy: tools that declare `is_concurrency_safe: False` in
+`mcp/schemas.py` (the artifact / memory / sandbox mutators —
+`create_artifact`, `update_artifact`, `save_artifact_to_documents`,
+`remember`, `forget`, `run_python`, `sandbox_reset`, `compile_latex`)
+run **serially in declared order** when the model emits multiple of
+them in one turn. Every other tool fans out via `asyncio.gather`. The
+two groups run concurrently with each other since safe tools by
+definition don't share mutable state with anything. Frontend
+implication: `tool_result` events for unsafe tools arrive in the same
+order they appeared in the matching `tool_call` events; the existing
+match-by-id rendering keeps working unchanged.
 
 ## 10. Known gotchas for frontend devs
 

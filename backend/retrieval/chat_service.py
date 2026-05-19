@@ -21,14 +21,13 @@ with `sse_starlette.EventSourceResponse`.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import time
 import uuid
 from datetime import datetime
 from typing import Any, AsyncIterator, Optional
-
-import httpx
 
 import chat_store
 import chat_context
@@ -40,9 +39,15 @@ import memory_store
 import artifact_store
 import capabilities as capabilities_module
 import vision
-from database import VLLM_URL, VLLM_MODEL_NAME
+from database import VLLM_MODEL_NAME
+from vllm_client import vllm_post_json, vllm_post_stream, VLLMRequestError
+from usage_tracker import (
+    current_usage_aggregator,
+    record_usage,
+    aggregate_totals,
+)
 from mcp.schemas import MCP_TOOLS
-from mcp.executor import execute_mcp_tool
+from mcp.executor import execute_mcp_tool, partition_by_concurrency_safety
 from mcp.tools import clarification as clarification_tool
 from mcp.context import (
     current_user_email,
@@ -551,32 +556,14 @@ async def _force_clarification_retry(
         }
         body.update(sampling)
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                r = await client.post(
-                    f"{VLLM_URL}/v1/chat/completions",
-                    json=body,
-                )
-        except httpx.RequestError as e:
+            d = await vllm_post_json(body, timeout=60.0)
+        except VLLMRequestError as e:
             print(
-                f"[WARNING] forced clarification retry HTTP error "
+                f"[WARNING] forced clarification retry failed "
                 f"(attempt {attempt + 1}/{max_attempts}): {e}"
             )
             continue
-        if r.status_code != 200:
-            print(
-                f"[WARNING] forced clarification retry returned "
-                f"{r.status_code} (attempt {attempt + 1}/{max_attempts}): "
-                f"{r.text[:200]}"
-            )
-            continue
-        try:
-            d = r.json()
-        except Exception as e:
-            print(
-                f"[WARNING] forced clarification retry parse error "
-                f"(attempt {attempt + 1}/{max_attempts}): {e}"
-            )
-            continue
+        record_usage("forced_clarification", d.get("usage"))
         msg = (d.get("choices") or [{}])[0].get("message") or {}
         tcs = msg.get("tool_calls") or []
         if not tcs:
@@ -663,32 +650,14 @@ async def _force_required_tool_retry(
         }
         body.update(sampling)
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                r = await client.post(
-                    f"{VLLM_URL}/v1/chat/completions",
-                    json=body,
-                )
-        except httpx.RequestError as e:
+            d = await vllm_post_json(body, timeout=60.0)
+        except VLLMRequestError as e:
             print(
-                f"[WARNING] forced-required retry HTTP error "
+                f"[WARNING] forced-required retry failed "
                 f"(attempt {attempt + 1}/{max_attempts}): {e}"
             )
             continue
-        if r.status_code != 200:
-            print(
-                f"[WARNING] forced-required retry returned "
-                f"{r.status_code} (attempt {attempt + 1}/{max_attempts}): "
-                f"{r.text[:200]}"
-            )
-            continue
-        try:
-            d = r.json()
-        except Exception as e:
-            print(
-                f"[WARNING] forced-required retry parse error "
-                f"(attempt {attempt + 1}/{max_attempts}): {e}"
-            )
-            continue
+        record_usage("forced_required", d.get("usage"))
         msg = (d.get("choices") or [{}])[0].get("message") or {}
         tcs = msg.get("tool_calls") or []
         if not tcs:
@@ -789,87 +758,74 @@ async def _stream_vllm_once(
         body["tool_choice"] = "auto"
 
     try:
-        async with httpx.AsyncClient(timeout=None) as client:
-            async with client.stream(
-                "POST",
-                f"{VLLM_URL}/v1/chat/completions",
-                json=body,
-                headers={"Accept": "text/event-stream"},
-            ) as response:
-                if response.status_code != 200:
-                    text = await response.aread()
-                    yield (
-                        "error",
-                        {"message": f"vLLM returned {response.status_code}: {text.decode(errors='ignore')[:300]}"},
-                        acc,
-                    )
-                    return
+        async with vllm_post_stream(body) as line_iter:
+            emitted_tool_ids: set[int] = set()
 
-                emitted_tool_ids: set[int] = set()
+            async for line in line_iter:
+                if not line or not line.startswith("data:"):
+                    continue
+                payload = line[5:].strip()
+                if payload == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(payload)
+                except json.JSONDecodeError:
+                    continue
 
-                async for line in response.aiter_lines():
-                    if not line or not line.startswith("data:"):
-                        continue
-                    payload = line[5:].strip()
-                    if payload == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(payload)
-                    except json.JSONDecodeError:
-                        continue
+                if chunk.get("usage"):
+                    acc.usage = chunk["usage"]
 
-                    if chunk.get("usage"):
-                        acc.usage = chunk["usage"]
+                choices = chunk.get("choices") or []
+                if not choices:
+                    continue
+                choice = choices[0]
+                delta = choice.get("delta") or {}
 
-                    choices = chunk.get("choices") or []
-                    if not choices:
-                        continue
-                    choice = choices[0]
-                    delta = choice.get("delta") or {}
+                # vLLM's qwen3 reasoning parser emits reasoning on
+                # `delta.reasoning` (NOT `delta.reasoning_content`).
+                # Accept both names so we survive a future vLLM rename.
+                reasoning = delta.get("reasoning") or delta.get("reasoning_content")
+                if reasoning:
+                    acc.thinking_parts.append(reasoning)
+                    yield ("thinking", {"content": reasoning}, acc)
 
-                    # vLLM's qwen3 reasoning parser emits reasoning on
-                    # `delta.reasoning` (NOT `delta.reasoning_content`).
-                    # Accept both names so we survive a future vLLM rename.
-                    reasoning = delta.get("reasoning") or delta.get("reasoning_content")
-                    if reasoning:
-                        acc.thinking_parts.append(reasoning)
-                        yield ("thinking", {"content": reasoning}, acc)
+                content = delta.get("content")
+                if content:
+                    acc.content_parts.append(content)
+                    yield ("token", {"content": content}, acc)
 
-                    content = delta.get("content")
-                    if content:
-                        acc.content_parts.append(content)
-                        yield ("token", {"content": content}, acc)
+                for delta_tc in (delta.get("tool_calls") or []):
+                    idx = delta_tc.get("index", 0)
+                    slot = acc.tool_calls.setdefault(idx, {})
+                    if delta_tc.get("id"):
+                        slot["id"] = delta_tc["id"]
+                    fn = delta_tc.get("function") or {}
+                    if fn.get("name"):
+                        slot["name"] = fn["name"]
+                    if "arguments" in fn:
+                        slot["arguments_raw"] = (
+                            slot.get("arguments_raw", "") + (fn.get("arguments") or "")
+                        )
 
-                    for delta_tc in (delta.get("tool_calls") or []):
-                        idx = delta_tc.get("index", 0)
-                        slot = acc.tool_calls.setdefault(idx, {})
-                        if delta_tc.get("id"):
-                            slot["id"] = delta_tc["id"]
-                        fn = delta_tc.get("function") or {}
-                        if fn.get("name"):
-                            slot["name"] = fn["name"]
-                        if "arguments" in fn:
-                            slot["arguments_raw"] = (
-                                slot.get("arguments_raw", "") + (fn.get("arguments") or "")
-                            )
+                finish = choice.get("finish_reason")
+                if finish:
+                    acc.finish_reason = finish
 
-                    finish = choice.get("finish_reason")
-                    if finish:
-                        acc.finish_reason = finish
+            # Emit a tool_call SSE for each finalized tool call — we
+            # delay this until the stream ends so arguments are complete.
+            for tc in acc.finalized_tool_calls():
+                tc_id = id(tc)
+                if tc_id in emitted_tool_ids:
+                    continue
+                emitted_tool_ids.add(tc_id)
+                yield (
+                    "tool_call",
+                    {"id": tc["id"], "name": tc["name"], "arguments": tc["arguments"]},
+                    acc,
+                )
 
-                # Emit a tool_call SSE for each finalized tool call — we
-                # delay this until the stream ends so arguments are complete.
-                for tc in acc.finalized_tool_calls():
-                    tc_id = id(tc)
-                    if tc_id in emitted_tool_ids:
-                        continue
-                    emitted_tool_ids.add(tc_id)
-                    yield (
-                        "tool_call",
-                        {"id": tc["id"], "name": tc["name"], "arguments": tc["arguments"]},
-                        acc,
-                    )
-
+    except VLLMRequestError as e:
+        yield ("error", {"message": str(e)}, acc)
     except Exception as e:
         yield ("error", {"message": f"vLLM streaming failed: {e}"}, acc)
 
@@ -881,7 +837,16 @@ async def _run_tool_calls(
     persona_id: Optional[str] = None,
     allowed_tools: Optional[set[str]] = None,
 ) -> list[dict]:
-    """Execute all tool calls in parallel, preserving order.
+    """Execute all tool calls for a turn, preserving declared order.
+
+    Concurrency-safe tools (paper_search, web_search, calculate, ...)
+    fan out via asyncio.gather. Unsafe tools (``is_concurrency_safe:
+    False`` in MCP_TOOLS — the artifact/memory/sandbox mutators) run
+    serially in declared order so two ``update_artifact`` calls on
+    the same id, or ``run_python`` + ``compile_latex`` writing the
+    same sandbox /scratch, can't race. The two groups run
+    concurrently with each other — they don't share state by
+    definition of "safe".
 
     When ``allowed_tools`` is supplied, any tool call whose name is
     not in the set is short-circuited with a synthetic error result
@@ -935,7 +900,26 @@ async def _run_tool_calls(
             "duration_ms": duration_ms,
         }
 
-    return await asyncio.gather(*(one(tc) for tc in tool_calls))
+    if not tool_calls:
+        return []
+
+    safe, unsafe = partition_by_concurrency_safety(tool_calls)
+    results: list[Optional[dict]] = [None] * len(tool_calls)
+
+    async def run_one(idx: int, tc: dict) -> None:
+        results[idx] = await one(tc)
+
+    async def run_unsafe_serial() -> None:
+        for idx, tc in unsafe:
+            await run_one(idx, tc)
+
+    await asyncio.gather(
+        *(run_one(idx, tc) for idx, tc in safe),
+        run_unsafe_serial(),
+    )
+    # results slots are filled by the time gather returns; the cast
+    # placates the type checker without runtime overhead.
+    return [r for r in results if r is not None]
 
 
 _ALLOWED_TAG_KINDS = {"topic", "group", "contributor"}
@@ -1322,6 +1306,7 @@ async def stream_chat_completion(
     project: Optional[dict] = None,
     file_into_project_id: Optional[str] = None,
     query_tags: Optional[list[dict]] = None,
+    cancel_event: Optional[asyncio.Event] = None,
 ) -> AsyncIterator[dict]:
     """
     Orchestrate a single /api/chat/completions request. Yields SSE events.
@@ -1332,7 +1317,17 @@ async def stream_chat_completion(
     turn), and persistence/title/summary side effects are all skipped. The
     model still has full access to tools — "ephemeral" means not stored by
     Munin, not untrackable by the world.
+
+    ``cancel_event`` is set by main.py's disconnect watchdog when the client
+    drops. We poll it at safe seams (turn boundaries, before wrap-up, before
+    auto-title) to skip work no one's waiting for, and use it to proactively
+    cancel the in-flight tool runner task so a long ``run_python`` doesn't
+    keep a vLLM slot held after disconnect.
     """
+
+    def _cancelled() -> bool:
+        return cancel_event is not None and cancel_event.is_set()
+
     persona = persona_module.get_persona(persona_id)
     if persona is None:
         yield _error_sse(f"Unknown persona: {persona_id}")
@@ -1558,9 +1553,15 @@ async def stream_chat_completion(
     final_content = ""
     final_thinking = ""
     final_tool_calls: list[dict] = []
-    final_usage: Optional[dict] = None
     finish_reason: Optional[str] = None
     had_stream_error: Optional[str] = None
+    # Per-request token usage aggregator. Every vLLM call site folds its
+    # usage into this dict via record_usage(purpose, ...). The done event
+    # emits the aggregated totals (gateway-shaped) plus the per-purpose
+    # map. Bound here so it covers everything including the helpers
+    # invoked from assemble_context (history summarisation).
+    usage_agg: dict[str, dict] = {}
+    usage_token = current_usage_aggregator.set(usage_agg)
     try:
         messages = await chat_context.assemble_context(
             conversation=conversation,
@@ -1574,7 +1575,6 @@ async def stream_chat_completion(
         final_content = ""
         final_thinking = ""
         final_tool_calls: list[dict] = []
-        final_usage: Optional[dict] = None
         finish_reason: Optional[str] = None
 
         # Snapshot the freshly-assembled messages so the delegation
@@ -1612,6 +1612,13 @@ async def stream_chat_completion(
         # remainder so we never lose tokens the user already saw.
         acc_transferred = True
         for turn in range(MAX_TURNS):
+            if _cancelled():
+                print(
+                    f"[INFO] client disconnected during turn {turn} "
+                    f"conv={conversation['id']}; stopping early"
+                )
+                hit_turn_cap = False
+                break
             acc: Optional[_StreamAccumulator] = None
             stream_error: Optional[str] = None
             recovery_used_this_turn = False
@@ -1648,8 +1655,7 @@ async def stream_chat_completion(
             final_thinking += acc.thinking
             final_content += acc.content
             acc_transferred = True
-            if acc.usage:
-                final_usage = acc.usage
+            record_usage("main_turn", acc.usage)
             finish_reason = acc.finish_reason
 
             tool_calls = acc.finalized_tool_calls()
@@ -1935,11 +1941,12 @@ async def stream_chat_completion(
 
                 # Reset accumulators so the persisted assistant message
                 # reflects the delegated persona's work, not the source
-                # persona's rejected draft.
+                # persona's rejected draft. Note: we deliberately do NOT
+                # clear usage_agg — the source persona's tokens were
+                # really consumed by vLLM and must still be billed.
                 final_content = ""
                 final_thinking = ""
                 final_tool_calls = []
-                final_usage = None
                 if acc is not None:
                     acc.content_parts.clear()
                     acc.thinking_parts.clear()
@@ -2075,7 +2082,8 @@ async def stream_chat_completion(
                 yield _sse(
                     "done",
                     {
-                        "usage": final_usage or {},
+                        "usage": aggregate_totals(usage_agg),
+                        "usage_by_purpose": usage_agg,
                         "finish_reason": "clarification",
                     },
                 )
@@ -2114,18 +2122,48 @@ async def stream_chat_completion(
                         allowed_tools=allowed_tools_set,
                     )
                 finally:
-                    await event_queue.put(SENTINEL)
+                    # put_nowait is sync — safe to call after CancelledError
+                    # in the inner await. The queue is unbounded so it never
+                    # raises QueueFull.
+                    event_queue.put_nowait(SENTINEL)
 
             run_task = asyncio.create_task(_runner())
 
-            while True:
-                item = await event_queue.get()
-                if item is SENTINEL:
-                    break
-                yield item
+            # When the client disconnects mid-tool, the watchdog in main.py
+            # sets cancel_event. We translate that into an explicit
+            # run_task.cancel() so a single long-running tool (run_python,
+            # deep_research) doesn't hold a vLLM slot for its remaining
+            # budget after the user is gone.
+            cancel_listener: Optional[asyncio.Task] = None
+            if cancel_event is not None:
+                async def _cancel_on_event() -> None:
+                    await cancel_event.wait()
+                    if not run_task.done():
+                        run_task.cancel()
+                cancel_listener = asyncio.create_task(_cancel_on_event())
 
-            results = await run_task
-            current_sse_emitter.set(None)
+            try:
+                while True:
+                    item = await event_queue.get()
+                    if item is SENTINEL:
+                        break
+                    yield item
+                results = await run_task
+            finally:
+                # Always tear down both helpers. Reached on:
+                #   - normal completion (run_task done → no-op)
+                #   - GeneratorExit at the yield above (consumer closed us)
+                #   - cancel_event firing mid-tool (CancelledError from
+                #     await run_task)
+                if cancel_listener is not None and not cancel_listener.done():
+                    cancel_listener.cancel()
+                    with contextlib.suppress(BaseException):
+                        await cancel_listener
+                if not run_task.done():
+                    run_task.cancel()
+                    with contextlib.suppress(BaseException):
+                        await run_task
+                current_sse_emitter.set(None)
 
             for res in results:
                 final_tool_calls.append({
@@ -2287,7 +2325,14 @@ async def stream_chat_completion(
         # now, so calling it again to rewrite the final answer would almost
         # certainly fail too, and the second failure would either overwrite or
         # truncate the partial state we already captured. Persist what we have.
-        if (hit_turn_cap or not last_turn_content) and not had_stream_error:
+        if _cancelled():
+            # Client is gone — don't burn another vLLM slot on a synthesis
+            # the user will never see. Save-always finally still runs.
+            print(
+                f"[INFO] client disconnected before wrap-up "
+                f"conv={conversation['id']}; skipping synthesis"
+            )
+        elif (hit_turn_cap or not last_turn_content) and not had_stream_error:
             wrap_up_messages = list(messages) + [
                 {
                     "role": "user",
@@ -2316,8 +2361,7 @@ async def stream_chat_completion(
             if wrap_acc is not None:
                 final_thinking += wrap_acc.thinking
                 final_content += wrap_acc.content
-                if wrap_acc.usage:
-                    final_usage = wrap_acc.usage
+                record_usage("wrap_up", wrap_acc.usage)
                 finish_reason = wrap_acc.finish_reason or finish_reason
 
         # --- 6. Persist assistant message ---
@@ -2376,7 +2420,7 @@ async def stream_chat_completion(
         # and no assistant response was ever generated, so the title is
         # still empty. Without this fix, auto-title was permanently
         # skipped for that conversation.
-        if not ephemeral and not conversation.get("title"):
+        if not ephemeral and not conversation.get("title") and not _cancelled():
             try:
                 title = await chat_context.generate_title(
                     user_message.get("content", ""), final_content
@@ -2398,7 +2442,8 @@ async def stream_chat_completion(
         yield _sse(
             "done",
             {
-                "usage": final_usage or {},
+                "usage": aggregate_totals(usage_agg),
+                "usage_by_purpose": usage_agg,
                 "finish_reason": finish_reason or "stop",
             },
         )
@@ -2434,13 +2479,20 @@ async def stream_chat_completion(
                 # message persist (which is in turn above the try block
                 # this finally pairs with). If we are inside this try,
                 # user-persist already ran and conversation is set.
-                await chat_store.add_message(
-                    conversation_id=conversation["id"],
-                    role="assistant",
-                    content=marker_content,
-                    thinking=final_thinking or None,
-                    tool_calls=final_tool_calls or None,
-                    rag_context=rag_context,
+                # asyncio.shield: a second cancellation arriving during
+                # save-always (e.g. process shutdown right after a client
+                # disconnect) would otherwise truncate the write mid-row.
+                # The shield lets add_message run to completion in the
+                # background even if our await is cancelled.
+                await asyncio.shield(
+                    chat_store.add_message(
+                        conversation_id=conversation["id"],
+                        role="assistant",
+                        content=marker_content,
+                        thinking=final_thinking or None,
+                        tool_calls=final_tool_calls or None,
+                        rag_context=rag_context,
+                    )
                 )
             except Exception as _save_always_exc:
                 # Last-ditch: log and swallow. We cannot crash the
@@ -2451,3 +2503,8 @@ async def stream_chat_completion(
                     f"conv {conversation.get('id') if isinstance(conversation, dict) else '?'}: "
                     f"{type(_save_always_exc).__name__}: {_save_always_exc}"
                 )
+        # Unbind the usage aggregator regardless of how we exited. Suppress
+        # ValueError in the (impossible-in-practice) case where the token
+        # was already reset by an outer scope.
+        with contextlib.suppress(ValueError, LookupError):
+            current_usage_aggregator.reset(usage_token)

@@ -22,11 +22,11 @@ import json
 import time
 from typing import Any, Optional
 
-import httpx
-
-from database import VLLM_URL, VLLM_MODEL_NAME
+from database import VLLM_MODEL_NAME
 from mcp.schemas import MCP_TOOLS
 from mcp.context import current_sse_emitter
+from vllm_client import vllm_post_json, VLLMRequestError
+from usage_tracker import record_usage
 
 from .parallel import run_tools_parallel
 
@@ -82,35 +82,36 @@ async def _emit(event: str, data: dict) -> None:
             pass
 
 
-async def _call_vllm(messages: list[dict], tools: list[dict]) -> Optional[dict]:
+async def _call_vllm(
+    messages: list[dict], tools: list[dict], *, purpose: str
+) -> Optional[dict]:
     """
     Non-streaming vLLM call. Returns the raw `message` dict from the first
     choice, or None on failure.
+
+    ``purpose`` tags usage with "agent_turn" or "agent_wrap_up" so the
+    per-request aggregator credits agent tokens to the right bucket.
     """
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            r = await client.post(
-                f"{VLLM_URL}/v1/chat/completions",
-                json={
-                    "model": VLLM_MODEL_NAME,
-                    "messages": messages,
-                    "tools": tools,
-                    "tool_choice": "auto" if tools else "none",
-                    "temperature": 0.7,
-                    "stream": False,
-                },
-            )
-            if r.status_code != 200:
-                print(f"[ERROR] Agent vLLM call failed: {r.status_code} {r.text[:200]}")
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not choices:
-                return None
-            return choices[0].get("message") or {}
-    except Exception as e:
-        print(f"[ERROR] Agent vLLM request raised: {e}")
+        data = await vllm_post_json(
+            {
+                "model": VLLM_MODEL_NAME,
+                "messages": messages,
+                "tools": tools,
+                "tool_choice": "auto" if tools else "none",
+                "temperature": 0.7,
+                "stream": False,
+            },
+            timeout=120.0,
+        )
+    except VLLMRequestError as e:
+        print(f"[ERROR] Agent vLLM call failed: {e}")
         return None
+    record_usage(purpose, data.get("usage"))
+    choices = data.get("choices") or []
+    if not choices:
+        return None
+    return choices[0].get("message") or {}
 
 
 async def execute_agent(agent_config: dict, query: str) -> dict:
@@ -147,7 +148,7 @@ async def execute_agent(agent_config: dict, query: str) -> dict:
             stopped_reason = "timeout"
             break
 
-        message = await _call_vllm(messages, tool_schema)
+        message = await _call_vllm(messages, tool_schema, purpose="agent_turn")
         if message is None:
             stopped_reason = "error"
             final_text = "Agent failed: vLLM unreachable."
@@ -240,6 +241,7 @@ async def execute_agent(agent_config: dict, query: str) -> dict:
                 }
             ],
             tools=[],
+            purpose="agent_wrap_up",
         )
         if wrap_up is not None:
             final_text = wrap_up.get("content") or final_text

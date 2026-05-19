@@ -10,6 +10,65 @@ self-document (renames, refactors, bug fixes).
 
 ---
 
+## 2026-05-19: P0 reliability batch (audit closeout)
+
+Five fixes from `munin-audit.md` landed in one batch. The mechanics
+are in the commits; this section captures the choices that aren't
+obvious from the diff.
+
+- **ContextVar for usage aggregation, not threaded return tuples**
+  (`retrieval/usage_tracker.py`). Five vLLM call sites across three
+  files (`chat_service`, `chat_context`, `agents/executor`) plus the
+  forced-retry helpers all need to fold their `usage` into a single
+  per-request aggregator. Threading a tuple return through
+  `assemble_context` → `summarize_messages` → `_call_vllm` (and
+  similarly through the agent dispatcher) is three layers of
+  signature churn. The `current_sse_emitter` ContextVar already
+  proved this pattern works across the same call tree; using
+  `current_usage_aggregator` matches that and keeps signatures clean.
+  Cost: implicit dataflow, mitigated by the fact that every fold
+  goes through the same `record_usage(purpose, usage)` helper.
+
+- **Retry tunables hardcoded, not env-driven**
+  (`retrieval/vllm_client.py`). `MAX_ATTEMPTS_FOREGROUND=5`,
+  `MAX_ATTEMPTS_BACKGROUND=2`, `BASE_DELAY_S=0.5`,
+  `MAX_RETRY_AFTER_S=30` are constants at the top of the module,
+  with a comment block documenting the worst-case wall-time math and
+  pointing operators at the edit site. Env knobs are tempting but
+  every additional env var is one more thing to forget on a fresh
+  cluster; the breadcrumb in `backend/CLAUDE.md` makes the constants
+  findable. Change them by editing + redeploying retrieval.
+
+- **`is_concurrency_safe` defaults True**, with eight explicit
+  `False` opt-outs in `mcp/schemas.py` (the artifact / memory /
+  sandbox mutators). Default-False would force every new tool to
+  declare the flag and would under-parallelise anything anyone
+  forgot to mark. Default-True means a new mutating tool that
+  forgets to set the flag *over*-parallelises until someone notices
+  the race. The 31 read-only tools today (paper_search, web_search,
+  calculate, ...) genuinely don't need the flag; explicit-only for
+  the mutators is the smaller surface area.
+
+- **`asyncio.shield` on save-always persistence**
+  (`chat_service.py` save-always finally). The 2026-05-08 invariant
+  above already runs the assistant-row persist in a `try/finally`.
+  With the new disconnect watchdog, a second cancellation can arrive
+  *during* the finally (process shutdown right after a client
+  disconnect). Without `shield`, that cancellation can truncate the
+  `chat_store.add_message` mid-row. Shielding lets the inner
+  coroutine complete in the background even when our await is
+  cancelled — the request is already lost, but the row lands.
+
+- **500ms disconnect watchdog, not per-event polling**
+  (`main.py::_watch_disconnect`). The audit's "minutes" symptom was a
+  single long-running tool (`run_python` 30s, `deep_research`
+  multi-min) blocking every event boundary. Per-event polling never
+  saw the disconnect because no event flowed. A background watchdog
+  sets `cancel_event`; a `cancel_listener` inside the tool runner
+  cancels the in-flight task the moment the flag is set. 500ms is
+  the right cadence: small enough to feel responsive within one
+  user-visible turn, big enough to be cheap.
+
 ## 2026-05-08: `stream_chat_completion` save-always invariant
 
 `backend/retrieval/chat_service.py::stream_chat_completion` wraps

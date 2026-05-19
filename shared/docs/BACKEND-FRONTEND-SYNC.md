@@ -49,4 +49,29 @@ context for whoever's catching up.
 
 ## Resolved
 
-(none yet, see archive)
+### Q1. Empty `usage` object in SSE `done` event  (decided)
+
+**From:** frontend
+**Date:** 2026-05-19 (retroactive; the gap was documented earlier
+in `backend/docs/archive/CLUSTER-USAGE-TRACKING.md`)
+**Question / decision / context:**
+
+  The gateway logs `tokens_total` per request by scanning the SSE
+  stream for `"usage"`. The cluster previously sent an empty
+  `usage: {}` on `done`, so every request was recorded as 0
+  tokens — breaking per-user quota enforcement and the admin
+  usage dashboard.
+
+**Answer / outcome:**
+
+  Closed by the P0 audit batch on 2026-05-19. `chat_service`
+  binds a per-request `usage_aggregator` ContextVar; every vLLM
+  call site (main turn, wrap-up, forced retries, agent loops,
+  history summary, auto-title) folds its `usage` into a
+  per-purpose slot via `record_usage(purpose, usage)`. On `done`
+  the aggregate ships as `usage` (gateway-shaped, drop-in
+  compatible) **plus** `usage_by_purpose` for per-call-site
+  breakdown. No gateway changes were required; the existing
+  scanner picks up the cumulative total automatically. Module:
+  `retrieval/usage_tracker.py`. Contract: `BACKEND-API.md` §5
+  `done` event row.

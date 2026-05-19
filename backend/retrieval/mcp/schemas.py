@@ -371,6 +371,7 @@ MCP_TOOLS = {
     },
     "create_artifact": {
         "name": "create_artifact",
+        "is_concurrency_safe": False,
         "description": "Start a new versioned document in the current conversation (§22 artifacts). Use this when the user asks you to write something longer than a short reply that they'll want to ITERATE on: a paper abstract, a grant proposal section, a LaTeX manuscript, a python script, an SVG diagram, a reviewer-response letter, a bibliography entry. The artifact appears in the side panel on the right of the chat and the user can edit it directly. Subsequent edits from you go through update_artifact; subsequent user edits come back to you via the next turn's === ACTIVE ARTIFACTS === block (which is already in your system prompt). Do NOT use create_artifact for quick inline answers, short code snippets that the user just wants to copy once, or anything the user did not ask you to PRODUCE as a document. **Do NOT call create_artifact speculatively or as a \"general-purpose template\" when a critical parameter of what the user wants is missing or unclear.** If you don't know the programming language, the input format, which variant of an ambiguous acronym the user means (EPR? HMM? MD?), or what specific analysis/section/structure they want, call `ask_clarification` FIRST on its own turn and wait for the user's answer; only THEN create the artifact with the clarified scope. Writing a speculative template artifact AND then asking clarifying questions at the end is a failure mode: the user did not want a template, they wanted the right thing. content_type should be one of: text/markdown, text/latex, text/plain, text/html, application/python, application/json, image/svg+xml (SVG source as XML, not a binary image). language is optional syntax-highlighting hint (e.g. 'python', 'latex'). Returns {id, version: 1, title, content_type, ...}. 500 KB byte cap per version. Not available in ephemeral chats.",
         "inputSchema": {
             "type": "object",
@@ -419,6 +420,7 @@ MCP_TOOLS = {
     },
     "update_artifact": {
         "name": "update_artifact",
+        "is_concurrency_safe": False,
         "description": "Append a new version to an existing artifact. Two modes: (1) default full-content mode sends the COMPLETE new document in `content` - use this for new drafts, heavy restructures, or small documents where the whole thing is cheap to re-send; (2) `is_diff=True` mode sends a unified diff in `content` that the backend applies to `base_version` - use this for small edits to long documents to save tokens (e.g. a one-paragraph tweak to a 50 KB paper draft becomes a ~1 KB diff). In diff mode, the diff must be a standard unified diff (`@@ -old,len +new,len @@` hunks with space/minus/plus-prefixed lines), line numbers must be correct, and context/removal lines must match the source exactly - strict matching only, no fuzz. Always pass `base_version` to whichever version you just read via read_artifact; if someone else has updated the artifact since then, you'll get a clear stale-base error and should re-read and retry instead of clobbering. change_summary is a short description of WHAT changed in this version. Returns {id, version, base_version, applied_hunks, lines_added, lines_removed, ...}. Not available in ephemeral chats.",
         "inputSchema": {
             "type": "object",
@@ -459,6 +461,7 @@ MCP_TOOLS = {
     },
     "save_artifact_to_documents": {
         "name": "save_artifact_to_documents",
+        "is_concurrency_safe": False,
         "description": "Promote an artifact (model-written OR sandbox-generated) into the user's persistent documents store so it can be RAG-searched in future conversations and referenced later via `document:<doc_id>` image attachments. Use this when the user says things like 'save this as a note', 'keep this for later', 'add this to my documents', or when you've produced a figure/spreadsheet they're likely to reference in another chat. Does NOT copy artifacts between conversations on its own - it puts them in the global user_docs store where the user can then reference them anywhere. `filename` is optional and will be derived from the artifact title + content_type if omitted (e.g. 'Kinase abstract v1' with text/markdown becomes 'Kinase abstract v1.md'). Returns {saved, artifact_id, source, document_id, filename, status}. Not available in ephemeral chats.",
         "inputSchema": {
             "type": "object",
@@ -477,6 +480,7 @@ MCP_TOOLS = {
     },
     "remember": {
         "name": "remember",
+        "is_concurrency_safe": False,
         "description": "Store a persistent fact about the user across conversations. Use this sparingly and only for facts that will matter in FUTURE chats: who the user is (field, role, affiliation), their long-term preferences (citation style, language, tone, units), ongoing projects they'll want you to recall next session, and anything they explicitly ask you to 'remember'. Do NOT use it for ephemeral conversation context, one-off questions, or things that belong in the current chat only. Keys should be short snake_case labels (e.g. 'research_area', 'citation_style', 'preferred_plot_style'). Values are capped at 200 characters. The store is bounded at 20 entries per user - if full, the oldest entry is auto-evicted and its key is returned in the 'evicted' field. Complementary to the user profile (user-curated via settings); memory is model-curated via this tool. Not available in ephemeral chats.",
         "inputSchema": {
             "type": "object",
@@ -495,6 +499,7 @@ MCP_TOOLS = {
     },
     "forget": {
         "name": "forget",
+        "is_concurrency_safe": False,
         "description": "Delete a specific remembered fact about the user. Use this when the user says something that contradicts an existing memory, when they explicitly ask you to forget something, or when a fact has become stale (e.g. they changed jobs). Returns {forgotten: bool, key: ..., total_memories: N}. No-op if the key doesn't exist. Not available in ephemeral chats.",
         "inputSchema": {
             "type": "object",
@@ -651,6 +656,7 @@ MCP_TOOLS = {
     },
     "run_python": {
         "name": "run_python",
+        "is_concurrency_safe": False,
         "description": "Execute Python code in a sandboxed Jupyter kernel scoped to the current conversation. Use this whenever the user asks you to compute, plot, analyse data, generate a spreadsheet, or otherwise do something a Python script could do better than prose. State persists between calls in the same chat (variables, imports, dataframes), and files written to the current working directory become artifacts the user can download. The sandbox has no internet, no GPU, no host filesystem; pre-installed packages: numpy, scipy, pandas, matplotlib, seaborn, scikit-learn, sympy, networkx, openpyxl, Pillow, pyyaml, requests. Resource caps: 30 s default wall clock, 2 GB memory, 100 MB max file size. matplotlib figures created with `plt.show()` or display() are auto-captured as PNG artifacts. Do NOT call this tool for trivial arithmetic - use `calculate` instead. IMPORTANT - artifact download links: the tool result includes `display_url` and `external_url` fields on each artifact. When mentioning a produced file in your prose response, ALWAYS link to it using the `external_url` from the result. Do NOT construct URLs yourself.",
         "inputSchema": {
             "type": "object",
@@ -670,6 +676,7 @@ MCP_TOOLS = {
     },
     "sandbox_reset": {
         "name": "sandbox_reset",
+        "is_concurrency_safe": False,
         "description": "Restart the current conversation's Jupyter kernel, wiping all in-memory state (variables, imports, open files). Files in the conversation's scratch directory survive the reset. Use this when previous code left the kernel in a bad state, when you want a clean namespace, or when the user explicitly asks you to start over.",
         "inputSchema": {
             "type": "object",
@@ -679,6 +686,7 @@ MCP_TOOLS = {
     },
     "compile_latex": {
         "name": "compile_latex",
+        "is_concurrency_safe": False,
         "description": (
             "Compile a LaTeX document with pdflatex inside the sandbox "
             "and return both the source .tex file and the compiled .pdf "

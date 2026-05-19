@@ -206,7 +206,7 @@ When an agent is invoked:
 
 ### Parallel Tool Execution
 
-When the model plans multiple independent tool calls in one step, the backend executes them in parallel:
+When the model plans multiple independent tool calls in one step, the backend partitions them by concurrency safety and runs the two groups concurrently. Read-only tools (paper_search, web_search, get_author_papers, ...) fan out via `asyncio.gather`. Mutating tools (create_artifact, update_artifact, run_python, compile_latex, remember, forget, sandbox_reset, save_artifact_to_documents) run serially in their declared order so two writes to the same artifact / sandbox / memory key can't race. Output preserves declared order regardless of which bucket each call went into.
 
 ```python
 # Model outputs: "I need to search papers AND web simultaneously"
@@ -216,13 +216,15 @@ tool_calls = [
     {"name": "get_author_papers", "arguments": {"name": "Yifan Cheng"}}
 ]
 
-# Execute all three concurrently
+# All three are concurrency-safe → fan out via gather.
+# If one were e.g. update_artifact, it would run in the serial slot
+# alongside the gather of the other two.
 results = await asyncio.gather(*[
     execute_tool(tc) for tc in tool_calls
 ])
 ```
 
-The task log shows them appearing nearly simultaneously rather than sequentially.
+The task log shows safe calls appearing nearly simultaneously rather than sequentially; mutating calls appear in strict declared order. The `is_concurrency_safe` flag per tool lives in `backend/retrieval/mcp/schemas.py`; the partitioner in `mcp/executor.py::partition_by_concurrency_safety`.
 
 ### Guardrails
 
@@ -302,7 +304,7 @@ The model's reasoning (visible in the thinking block) shows its decision: "This 
 
 1. **Agent registry loader** — Parse `config/agents.yml`, make available to the retrieval service
 2. **invoke_agent tool** — Register as an MCP tool, implement the execution loop
-3. **Parallel tool execution** — `asyncio.gather` for concurrent tool calls
+3. **Concurrency-safe tool execution** — `asyncio.gather` for safe tools, serial for declared-unsafe mutators
 4. **Slash command parsing** — Frontend sends `/research ...` as an agent invocation
 5. **Code checker** — Automatic triggering on code output (needs sandboxed execution — can start with syntax check only)
 6. **Writing agent** — Most complex, implement after the research orchestrator works

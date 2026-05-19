@@ -92,12 +92,17 @@ backend/
 │   ├── main.py               # FastAPI, all routes
 │   ├── database.py           # DB connections (Qdrant, Neo4j, SQLite)
 │   ├── models.py             # Pydantic models
+│   ├── chat_service.py       # /api/chat/completions orchestration
+│   │                         #   (streaming loop, tool dispatch, save-always)
 │   ├── chat_store.py         # Chat persistence CRUD
 │   ├── chat_context.py       # Context assembly + compaction
 │   ├── document_store.py     # User doc embedding + retrieval
+│   ├── vllm_client.py        # Transport-retry wrapper for vLLM calls
+│   │                         #   (vllm_post_json / vllm_post_stream)
+│   ├── usage_tracker.py      # Per-purpose token aggregation (ContextVar)
 │   ├── Dockerfile, requirements.txt
-│   ├── mcp/                  # MCP server (schemas, executor,
-│   │                         #   endpoints, tools/{web,papers,llm,agents}.py)
+│   ├── mcp/                  # MCP server (schemas, executor with input
+│   │                         #   validation, tools/{web,papers,llm,agents}.py)
 │   ├── agents/               # Agentic orchestration (registry, executor, parallel)
 │   └── tests/
 ├── sandbox/                  # Jupyter-kernel sandbox sidecar (run_python tool)

@@ -19,6 +19,9 @@ torch>=2.0.0
 
 # Data validation
 pydantic>=2.0.0
+# MCP tool argument validation against the per-tool inputSchema in
+# mcp/schemas.py — needs Draft 2020-12 support (added in 4.18).
+jsonschema>=4.20.0
 
 # MCP SSE transport
 sse-starlette>=1.6.0
