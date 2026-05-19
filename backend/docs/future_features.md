@@ -3964,8 +3964,6 @@ require operator attention. **Reliability beats new surface area.**
    (tracked separately below; all small, half-day each):
    - CrossRef title round-trip for DOI validation
      (`CONTRIBUTOR-INGEST.md` Known Issues)
-   - Fix empty `usage: {}` in SSE `done` event
-     (`CLUSTER-USAGE-TRACKING.md`)
    - Conversation-level `default_tags` — tags persist across
      follow-up turns (§28 open questions)
    - Migrate pre-§28 Qdrant point IDs to DOI-keyed
