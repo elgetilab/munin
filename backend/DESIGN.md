@@ -215,9 +215,16 @@ event: agent_tool_call  — {"id": "tc-2", "name": "...", "arguments": {...}}
 event: agent_tool_result — {"id": "tc-2", "result": {...}, "duration_ms": ...}
 event: agent_done       — {"agent": "...", "tool_calls": 8, "duration_seconds": 34}
 event: token            — {"content": "partial response text"}  (many)
-event: done             — {"usage": {"prompt_tokens": N, "completion_tokens": N}, "finish_reason": "stop"}
+event: retrying         — {"attempt": N, "max_attempts": M, "delay_s": 1.0, "reason": "vllm 503"}  (transient vLLM error before retry)
+event: done             — {"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}, "usage_by_purpose": {...}, "finish_reason": "stop"}
 event: error            — {"message": "Human-readable error"}
 ```
+
+`done.usage` is the **sum across every vLLM call this turn** (main
+turn + wrap-up + forced retries + agent loops + history summary +
+auto-title), not just the last call's tokens. `done.usage_by_purpose`
+breaks the same numbers down per call site for debugging.
+Canonical contract: `shared/docs/BACKEND-API.md` §5.
 
 The frontend accumulates `thinking` events into a string, matches `tool_result` to `tool_call` by `id`, and accumulates `token` events into the response.
 
