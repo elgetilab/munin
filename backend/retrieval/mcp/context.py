@@ -19,6 +19,13 @@ current_conversation_id: ContextVar[Optional[str]] = ContextVar(
 current_project_id: ContextVar[Optional[str]] = ContextVar(
     "current_project_id", default=None
 )
+# Active persona id (e.g. "chat", "code", "research"). Set by
+# chat_service.stream_chat_completion alongside the other request-scoped
+# vars; read by logging_config so every log line in the request carries
+# the persona without per-call-site plumbing.
+current_persona: ContextVar[Optional[str]] = ContextVar(
+    "current_persona", default=None
+)
 
 # §28 Sprint B: tag-scoped search. chat_service.stream_chat_completion
 # reads the `tags` field from the request body and sets this ContextVar

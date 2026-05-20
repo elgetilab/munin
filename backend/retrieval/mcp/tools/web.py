@@ -7,6 +7,7 @@ Provides:
 """
 
 import asyncio
+import logging
 from typing import Optional
 
 import httpx
@@ -14,6 +15,8 @@ import httpx
 from database import SEARXNG_URL
 from .llm import llm_summarize
 from .query_expansion import expand_queries
+
+logger = logging.getLogger(__name__)
 
 
 # Engines passed to SearXNG on every web_search. Google is intentionally
@@ -50,7 +53,7 @@ async def _searxng_one(client: httpx.AsyncClient, q: str) -> dict:
         response.raise_for_status()
         body = response.json()
     except Exception as e:
-        print(f"[WARNING] web_search '{q}' failed: {e}")
+        logger.warning("web_search %r failed: %s", q, e)
         return {"results": [], "unresponsive": [], "transport_error": str(e)}
     return {
         "results": body.get("results", []) or [],
@@ -376,12 +379,12 @@ async def web_fetch_content(
     chunk_summaries: list[str] = []
     for i, r in enumerate(chunk_results):
         if isinstance(r, Exception):
-            print(f"[WARNING] web_fetch chunk {i} raised: {r}")
+            logger.warning("web_fetch chunk %d raised: %s", i, r)
             continue
         if not isinstance(r, dict):
             continue
         if "error" in r:
-            print(f"[WARNING] web_fetch chunk {i} error: {r['error']}")
+            logger.warning("web_fetch chunk %d error: %s", i, r["error"])
             continue
         text = (r.get("summary") or "").strip()
         if text:
@@ -419,7 +422,7 @@ async def web_fetch_content(
             re.sub(r"^\[Section \d+\]\n?", "", s).strip()
             for s in chunk_summaries
         )
-        print("[WARNING] web_fetch meta-summary failed, returning concatenated chunks")
+        logger.warning("web_fetch meta-summary failed, returning concatenated chunks")
 
     return {
         "url": url,

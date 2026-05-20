@@ -31,12 +31,15 @@ from __future__ import annotations
 
 import asyncio
 import email.utils
+import logging
 import random
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import AsyncIterator, Optional
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 from database import VLLM_URL
 from mcp.context import current_sse_emitter
@@ -121,9 +124,9 @@ async def _sleep_with_event(
 ) -> None:
     delay = _compute_delay(attempt, retry_after)
     _emit_retrying(attempt, max_attempts, delay, reason)
-    print(
-        f"[WARNING] vLLM retrying ({reason}) in {delay:.2f}s "
-        f"(attempt {attempt + 1}/{max_attempts})"
+    logger.warning(
+        "vLLM retrying (%s) in %.2fs (attempt %d/%d)",
+        reason, delay, attempt + 1, max_attempts,
     )
     await asyncio.sleep(delay)
 

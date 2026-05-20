@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import logging
 import os
 import re
 import shutil
@@ -26,6 +27,8 @@ from typing import Any, Optional
 import httpx
 
 from database import get_qdrant, get_bge, is_bge_loaded
+
+logger = logging.getLogger(__name__)
 
 USER_DOCS_DIR = os.getenv("USER_DOCS_DIR", "/data/user_docs")
 USER_DOCS_COLLECTION = "user_docs"
@@ -71,7 +74,7 @@ def ensure_collection() -> bool:
     """
     qdrant = get_qdrant()
     if qdrant is None:
-        print("[WARNING] Qdrant not available, skipping user_docs collection setup")
+        logger.warning("Qdrant not available, skipping user_docs collection setup")
         return False
 
     try:
@@ -85,7 +88,7 @@ def ensure_collection() -> bool:
                     size=BGE_DIM, distance=qm.Distance.COSINE
                 ),
             )
-            print(f"[OK] Created Qdrant collection: {USER_DOCS_COLLECTION}")
+            logger.info("Created Qdrant collection: %s", USER_DOCS_COLLECTION)
 
         for field_name, schema in (
             ("user_email", qm.PayloadSchemaType.KEYWORD),
@@ -104,7 +107,7 @@ def ensure_collection() -> bool:
 
         return True
     except Exception as e:
-        print(f"[ERROR] Failed to set up user_docs collection: {e}")
+        logger.exception("Failed to set up user_docs collection")
         return False
 
 
@@ -130,7 +133,7 @@ async def _extract_pdf(file_bytes: bytes) -> str:
                 if len(text) > 100:
                     return text
     except Exception as e:
-        print(f"[INFO] GROBID extraction failed, falling back to pypdf: {e}")
+        logger.info("GROBID extraction failed, falling back to pypdf: %s", e)
 
     try:
         import pypdf
@@ -143,7 +146,7 @@ async def _extract_pdf(file_bytes: bytes) -> str:
                 continue
         return "\n\n".join(parts).strip()
     except Exception as e:
-        print(f"[ERROR] pypdf extraction failed: {e}")
+        logger.exception("pypdf extraction failed")
         return ""
 
 
@@ -154,7 +157,7 @@ def _extract_docx(file_bytes: bytes) -> str:
         parts = [p.text for p in document.paragraphs if p.text]
         return "\n\n".join(parts).strip()
     except Exception as e:
-        print(f"[ERROR] docx extraction failed: {e}")
+        logger.exception("docx extraction failed")
         return ""
 
 
@@ -271,7 +274,7 @@ def unfile_project_documents(user_email: str, project_id: str) -> int:
         )
         return 1
     except Exception as e:
-        print(f"[WARNING] unfile_project_documents failed: {e}")
+        logger.warning("unfile_project_documents failed: %s", e)
         return 0
 
 
@@ -313,7 +316,7 @@ def count_project_documents(user_email: str, project_id: str) -> int:
                 break
         return len(seen)
     except Exception as e:
-        print(f"[WARNING] count_project_documents failed: {e}")
+        logger.warning("count_project_documents failed: %s", e)
         return 0
 
 
@@ -513,7 +516,7 @@ async def list_documents(
                 if offset is None:
                     break
         except Exception as e:
-            print(f"[WARNING] Failed to scroll user_docs: {e}")
+            logger.warning("Failed to scroll user_docs: %s", e)
 
     documents: list[dict] = []
     seen_ids: set[str] = set()
@@ -550,7 +553,7 @@ async def delete_document(document_id: str, user_email: str) -> bool:
         try:
             shutil.rmtree(doc_dir)
         except OSError as e:
-            print(f"[WARNING] Failed to delete {doc_dir}: {e}")
+            logger.warning("Failed to delete %s: %s", doc_dir, e)
 
     qdrant = get_qdrant()
     had_points = False
@@ -577,7 +580,7 @@ async def delete_document(document_id: str, user_email: str) -> bool:
             )
             had_points = bool(result)
         except Exception as e:
-            print(f"[WARNING] Failed to delete points for {document_id}: {e}")
+            logger.warning("Failed to delete points for %s: %s", document_id, e)
 
     return had_files or had_points
 
@@ -690,5 +693,5 @@ async def search_user_docs(
         # No project context - straight user-global search.
         return {"results": _run(None), "sources_used": ["global"]}
     except Exception as e:
-        print(f"[ERROR] search_user_docs failed: {e}")
+        logger.exception("search_user_docs failed")
         return {"results": [], "sources_used": [], "error": str(e)}

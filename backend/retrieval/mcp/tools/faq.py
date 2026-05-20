@@ -35,11 +35,13 @@ Design notes:
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Optional
 
 import yaml
 
+logger = logging.getLogger(__name__)
 
 FAQ_PATH = os.environ.get("FAQ_PATH", "/app/config/faq.yml")
 
@@ -74,9 +76,9 @@ def _load_topics() -> dict[str, dict]:
                     "answer": answer,
                 }
     except FileNotFoundError:
-        print(f"[INFO] faq.yml not found at {FAQ_PATH} - faq tool disabled")
+        logger.info("faq.yml not found at %s, faq tool disabled", FAQ_PATH)
     except Exception as exc:
-        print(f"[WARNING] faq.yml load failed: {exc}")
+        logger.warning("faq.yml load failed: %s", exc)
     _cached_topics = topics
     return topics
 

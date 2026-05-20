@@ -10,8 +10,11 @@ vLLM sampling params and system prompt.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 PERSONAS_DIR = os.getenv("PERSONAS_DIR", "/app/personas")
 DEFAULT_PERSONA_ID = os.getenv("DEFAULT_PERSONA", "chat")
@@ -66,7 +69,7 @@ def load_personas() -> dict[str, dict]:
     _personas = {}
 
     if not os.path.isdir(PERSONAS_DIR):
-        print(f"[WARNING] Personas dir not found: {PERSONAS_DIR}")
+        logger.warning("Personas dir not found: %s", PERSONAS_DIR)
         return _personas
 
     for entry in sorted(os.listdir(PERSONAS_DIR)):
@@ -77,12 +80,12 @@ def load_personas() -> dict[str, dict]:
             with open(path, "r") as f:
                 data = json.load(f)
         except Exception as e:
-            print(f"[WARNING] Failed to load persona {entry}: {e}")
+            logger.warning("Failed to load persona %s: %s", entry, e)
             continue
         persona_id = data.get("id") or entry.removesuffix(".json")
         data["id"] = persona_id
         _personas[persona_id] = data
-        print(f"[OK] Loaded persona: {persona_id}")
+        logger.info("Loaded persona: %s", persona_id)
 
     return _personas
 

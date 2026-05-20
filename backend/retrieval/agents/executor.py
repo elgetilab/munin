@@ -19,6 +19,7 @@ frontend having to know this is a nested call.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any, Optional
 
@@ -29,6 +30,8 @@ from vllm_client import vllm_post_json, VLLMRequestError
 from usage_tracker import record_usage
 
 from .parallel import run_tools_parallel
+
+logger = logging.getLogger(__name__)
 
 
 def _tools_openai_schema(allowlist: list[str]) -> list[dict]:
@@ -105,7 +108,7 @@ async def _call_vllm(
             timeout=120.0,
         )
     except VLLMRequestError as e:
-        print(f"[ERROR] Agent vLLM call failed: {e}")
+        logger.error("Agent vLLM call failed: %s", e)
         return None
     record_usage(purpose, data.get("usage"))
     choices = data.get("choices") or []

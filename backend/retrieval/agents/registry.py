@@ -9,12 +9,15 @@ unknown tools are loaded with the bad tools stripped and a warning.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Optional
 
 import yaml
 
 from mcp.schemas import MCP_TOOLS
+
+logger = logging.getLogger(__name__)
 
 AGENTS_CONFIG = os.getenv("AGENTS_CONFIG", "/app/config/agents.yml")
 
@@ -24,18 +27,18 @@ _agents: dict[str, dict] = {}
 def _normalize(entry: dict) -> Optional[dict]:
     name = entry.get("name")
     if not isinstance(name, str) or not name:
-        print("[WARNING] Agent entry missing 'name' — skipping")
+        logger.warning("Agent entry missing 'name', skipping")
         return None
 
     description = (entry.get("description") or "").strip()
     system = (entry.get("system") or "").strip()
     if not system:
-        print(f"[WARNING] Agent '{name}' has no system prompt — skipping")
+        logger.warning("Agent %r has no system prompt, skipping", name)
         return None
 
     raw_tools = entry.get("tools") or []
     if not isinstance(raw_tools, list):
-        print(f"[WARNING] Agent '{name}' tools must be a list — skipping")
+        logger.warning("Agent %r tools must be a list, skipping", name)
         return None
 
     allowlist: list[str] = []
@@ -43,11 +46,13 @@ def _normalize(entry: dict) -> Optional[dict]:
         if not isinstance(tool, str):
             continue
         if tool not in MCP_TOOLS:
-            print(f"[WARNING] Agent '{name}' references unknown tool '{tool}' — ignored")
+            logger.warning(
+                "Agent %r references unknown tool %r, ignored", name, tool
+            )
             continue
         # An agent calling itself would recurse infinitely; explicitly reject.
         if tool == "invoke_agent":
-            print(f"[WARNING] Agent '{name}' cannot call invoke_agent — ignored")
+            logger.warning("Agent %r cannot call invoke_agent, ignored", name)
             continue
         allowlist.append(tool)
 
@@ -68,19 +73,19 @@ def load_agents() -> dict[str, dict]:
     _agents = {}
 
     if not os.path.isfile(AGENTS_CONFIG):
-        print(f"[WARNING] Agents config not found: {AGENTS_CONFIG}")
+        logger.warning("Agents config not found: %s", AGENTS_CONFIG)
         return _agents
 
     try:
         with open(AGENTS_CONFIG, "r") as f:
             data = yaml.safe_load(f) or {}
     except Exception as e:
-        print(f"[ERROR] Failed to parse {AGENTS_CONFIG}: {e}")
+        logger.exception("Failed to parse %s", AGENTS_CONFIG)
         return _agents
 
     entries = data.get("agents") or []
     if not isinstance(entries, list):
-        print(f"[ERROR] {AGENTS_CONFIG} 'agents' must be a list")
+        logger.error("%s 'agents' must be a list", AGENTS_CONFIG)
         return _agents
 
     for entry in entries:
@@ -90,7 +95,10 @@ def load_agents() -> dict[str, dict]:
         if normalized is None:
             continue
         _agents[normalized["name"]] = normalized
-        print(f"[OK] Loaded agent: {normalized['name']} ({len(normalized['tools'])} tools)")
+        logger.info(
+            "Loaded agent: %s (%d tools)",
+            normalized["name"], len(normalized["tools"]),
+        )
 
     return _agents
 

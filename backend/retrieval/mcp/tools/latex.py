@@ -18,6 +18,7 @@ endpoint. Mirrors the shape of ``run_python`` in ``sandbox.py``:
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Optional
 
@@ -25,6 +26,8 @@ import httpx
 
 from ..context import current_user_email, current_conversation_id
 from .sandbox import SANDBOX_URL, SANDBOX_TIMEOUT_S
+
+logger = logging.getLogger(__name__)
 
 
 _MAX_SOURCE_CHARS = 500_000
@@ -90,7 +93,7 @@ async def _register_artifact(
         art["source"] = registered.get("source")
         art["external_url"] = registered.get("external_url")
     except Exception as e:
-        print(f"[WARNING] register_sandbox_artifact (latex) failed: {e}")
+        logger.warning("register_sandbox_artifact (latex) failed: %s", e)
     return art
 
 

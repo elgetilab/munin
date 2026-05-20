@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import time
 import uuid
@@ -55,7 +56,10 @@ from mcp.context import (
     current_project_id,
     current_query_tags,
     current_sse_emitter,
+    current_persona,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # --- SSE helpers --------------------------------------------------------------
@@ -146,7 +150,7 @@ async def _resolve_user_content_images(
                     # Funnel failure should not block the turn. The
                     # image still reaches the model via data URL; it
                     # just won't be persistently referenceable.
-                    print(f"[WARNING] inline image funnel failed: {exc}")
+                    logger.warning("inline image funnel failed: %s", exc)
             data_url = url  # already a valid data URL
 
         elif url.startswith("document:"):
@@ -208,11 +212,12 @@ def _openai_tools_schema(persona: Optional[dict] = None) -> list[dict]:
             # the larger schema.
             global _UNSCOPED_PERSONA_WARNED
             if pid not in _UNSCOPED_PERSONA_WARNED:
-                print(
-                    f"[WARNING] persona {pid!r} has no params.tool_allowlist; "
-                    f"falling back to full {len(MCP_TOOLS)}-tool schema. "
-                    f"Add an allowlist to keep prompt size below the prefill "
-                    f"cliff."
+                logger.warning(
+                    "persona %r has no params.tool_allowlist; falling back to "
+                    "full %d-tool schema. Add an allowlist to keep prompt size "
+                    "below the prefill cliff.",
+                    pid,
+                    len(MCP_TOOLS),
                 )
                 _UNSCOPED_PERSONA_WARNED.add(pid)
 
@@ -558,25 +563,27 @@ async def _force_clarification_retry(
         try:
             d = await vllm_post_json(body, timeout=60.0)
         except VLLMRequestError as e:
-            print(
-                f"[WARNING] forced clarification retry failed "
-                f"(attempt {attempt + 1}/{max_attempts}): {e}"
+            logger.warning(
+                "forced clarification retry failed (attempt %d/%d): %s",
+                attempt + 1, max_attempts, e,
             )
             continue
         record_usage("forced_clarification", d.get("usage"))
         msg = (d.get("choices") or [{}])[0].get("message") or {}
         tcs = msg.get("tool_calls") or []
         if not tcs:
-            print(
-                f"[WARNING] forced clarification retry produced no tool "
-                f"call (attempt {attempt + 1}/{max_attempts})"
+            logger.warning(
+                "forced clarification retry produced no tool call "
+                "(attempt %d/%d)",
+                attempt + 1, max_attempts,
             )
             continue
         fn = tcs[0].get("function") or {}
         if fn.get("name") != "ask_clarification":
-            print(
-                f"[WARNING] forced clarification retry picked wrong tool "
-                f"{fn.get('name')!r} (attempt {attempt + 1}/{max_attempts})"
+            logger.warning(
+                "forced clarification retry picked wrong tool %r "
+                "(attempt %d/%d)",
+                fn.get("name"), attempt + 1, max_attempts,
             )
             continue
         args = _parse_arguments(fn.get("arguments"))
@@ -589,9 +596,10 @@ async def _force_clarification_retry(
             args.get("questions"),
         )
         if err is not None:
-            print(
-                f"[WARNING] forced clarification retry payload invalid "
-                f"(attempt {attempt + 1}/{max_attempts}): {err}"
+            logger.warning(
+                "forced clarification retry payload invalid "
+                "(attempt %d/%d): %s",
+                attempt + 1, max_attempts, err,
             )
             continue
         return {
@@ -652,18 +660,19 @@ async def _force_required_tool_retry(
         try:
             d = await vllm_post_json(body, timeout=60.0)
         except VLLMRequestError as e:
-            print(
-                f"[WARNING] forced-required retry failed "
-                f"(attempt {attempt + 1}/{max_attempts}): {e}"
+            logger.warning(
+                "forced-required retry failed (attempt %d/%d): %s",
+                attempt + 1, max_attempts, e,
             )
             continue
         record_usage("forced_required", d.get("usage"))
         msg = (d.get("choices") or [{}])[0].get("message") or {}
         tcs = msg.get("tool_calls") or []
         if not tcs:
-            print(
-                f"[WARNING] forced-required retry produced no tool calls "
-                f"(attempt {attempt + 1}/{max_attempts})"
+            logger.warning(
+                "forced-required retry produced no tool calls "
+                "(attempt %d/%d)",
+                attempt + 1, max_attempts,
             )
             continue
         out: list[dict] = []
@@ -865,9 +874,9 @@ async def _run_tool_calls(
     async def one(tc: dict) -> dict:
         name = tc.get("name") or ""
         if allowed_tools is not None and name not in allowed_tools:
-            print(
-                f"[INFO] persona-allowlist reject "
-                f"(persona={persona_id!r}, tool={name!r})"
+            logger.info(
+                "persona-allowlist reject (persona=%r, tool=%r)",
+                persona_id, name,
             )
             return {
                 "id": tc["id"],
@@ -1171,7 +1180,7 @@ async def _build_full_system_prompt(
             profile = await user_profile_store.get_profile(user_email)
             profile_block = user_profile_store.build_profile_block(profile)
         except Exception as e:
-            print(f"[WARNING] profile load failed: {e}")
+            logger.warning("profile load failed: %s", e)
             profile_block = None
         if profile_block:
             system_prompt = (
@@ -1185,7 +1194,7 @@ async def _build_full_system_prompt(
             memories = await memory_store.recall_all(user_email)
             memory_block = memory_store.build_memory_block(memories)
         except Exception as e:
-            print(f"[WARNING] memory load failed: {e}")
+            logger.warning("memory load failed: %s", e)
             memory_block = None
         if memory_block:
             system_prompt = (
@@ -1204,7 +1213,7 @@ async def _build_full_system_prompt(
                 artifact_rows
             )
         except Exception as e:
-            print(f"[WARNING] artifact summary load failed: {e}")
+            logger.warning("artifact summary load failed: %s", e)
             artifact_block = None
         if artifact_block:
             system_prompt = (
@@ -1217,7 +1226,7 @@ async def _build_full_system_prompt(
         try:
             project_block = project_store.build_project_prompt_block(project)
         except Exception as e:
-            print(f"[WARNING] project block render failed: {e}")
+            logger.warning("project block render failed: %s", e)
             project_block = None
         if project_block:
             system_prompt = (
@@ -1244,7 +1253,7 @@ async def _build_full_system_prompt(
         try:
             capabilities_block = capabilities_module.build_capabilities_block()
         except Exception as e:
-            print(f"[WARNING] capabilities block build failed: {e}")
+            logger.warning("capabilities block build failed: %s", e)
             capabilities_block = None
         if capabilities_block:
             system_prompt = f"{system_prompt}\n\n{capabilities_block}"
@@ -1336,6 +1345,9 @@ async def stream_chat_completion(
     # Bind per-request context for MCP tool dispatch (e.g. search_user_docs).
     current_user_email.set(user_email)
     current_conversation_id.set(conversation_id)
+    # Logging picks up persona via this ContextVar so every log line in
+    # the request is automatically tagged with the active persona.
+    current_persona.set(persona_id)
     # Project context (§21): bind the project_id so search_user_docs
     # auto-scopes via contextvar. Ephemeral chats never have a project,
     # so the contextvar stays None in that branch.
@@ -1436,7 +1448,7 @@ async def stream_chat_completion(
                 if filed is not None:
                     conversation["project_id"] = file_into_project_id
             except Exception as e:
-                print(f"[WARNING] auto-file new conversation failed: {e}")
+                logger.warning("auto-file new conversation failed: %s", e)
 
     assert conversation is not None
     # Now that we know the concrete id, re-bind the MCP context var.
@@ -1613,9 +1625,9 @@ async def stream_chat_completion(
         acc_transferred = True
         for turn in range(MAX_TURNS):
             if _cancelled():
-                print(
-                    f"[INFO] client disconnected during turn {turn} "
-                    f"conv={conversation['id']}; stopping early"
+                logger.info(
+                    "client disconnected during turn %d; stopping early",
+                    turn,
                 )
                 hit_turn_cap = False
                 break
@@ -1711,10 +1723,10 @@ async def stream_chat_completion(
                     trigger_label = (
                         "phantom_url" if phantom_trigger else "prose_action_promise"
                     )
-                    print(
-                        f"[INFO] prose-action recovery firing "
-                        f"(trigger={trigger_label}, conv={conversation['id']}, "
-                        f"turn={turn}, content_len={len(acc.content)})"
+                    logger.info(
+                        "prose-action recovery firing "
+                        "(trigger=%s, turn=%d, content_len=%d)",
+                        trigger_label, turn, len(acc.content),
                     )
                     nudge = (
                         "Your previous response described what you were going "
@@ -1811,10 +1823,10 @@ async def stream_chat_completion(
                     )
 
                 if reject_reason is not None:
-                    print(
-                        f"[INFO] delegate_to_persona rejected "
-                        f"(from={persona_id!r}, target={target_id!r}, "
-                        f"reason={reject_reason!r})"
+                    logger.info(
+                        "delegate_to_persona rejected "
+                        "(from=%r, target=%r, reason=%r)",
+                        persona_id, target_id, reject_reason,
                     )
                     synthetic_result = {
                         "id": delegate_tc["id"],
@@ -1865,10 +1877,10 @@ async def stream_chat_completion(
                 # accumulated this turn), reset accumulators, and let the
                 # loop run another iteration with the new persona.
                 delegations_used += 1
-                print(
-                    f"[INFO] delegate_to_persona firing "
-                    f"(from={persona_id!r}, to={target_id!r}, "
-                    f"reason={reason!r})"
+                logger.info(
+                    "delegate_to_persona firing "
+                    "(from=%r, to=%r, reason=%r)",
+                    persona_id, target_id, reason,
                 )
                 yield _sse(
                     "delegated",
@@ -1892,7 +1904,7 @@ async def stream_chat_completion(
                             persona=target_id,
                         )
                     except Exception as e:
-                        print(f"[WARNING] persona persistence failed: {e}")
+                        logger.warning("persona persistence failed: %s", e)
                     yield _sse(
                         "persona_changed",
                         {
@@ -1914,7 +1926,7 @@ async def stream_chat_completion(
                         project=project,
                     )
                 except Exception as e:
-                    print(f"[WARNING] post-delegation system_prompt rebuild failed: {e}")
+                    logger.warning("post-delegation system_prompt rebuild failed: %s", e)
                 # Re-apply tags block if it was originally injected — same
                 # block sits below the persona prompt; rebuilt above
                 # already includes it via _build_full_system_prompt? No —
@@ -1978,9 +1990,10 @@ async def stream_chat_completion(
                     # an error SSE, fall through to the forced-retry path: it
                     # runs up to 3 attempts with fresh samplings and validates
                     # each, so a schema-valid call almost always drops out.
-                    print(
-                        f"[WARNING] organic ask_clarification payload invalid "
-                        f"({err}); trying forced-retry fallback"
+                    logger.warning(
+                        "organic ask_clarification payload invalid "
+                        "(%s); trying forced-retry fallback",
+                        err,
                     )
                     forced = await _force_clarification_retry(
                         messages, sampling, persona=persona
@@ -1990,8 +2003,8 @@ async def stream_chat_completion(
                         # drop the malformed clarification call so the existing
                         # prose content (if any) reaches the user as a normal
                         # response.
-                        print(
-                            "[WARNING] forced clarification retry also failed; "
+                        logger.warning(
+                            "forced clarification retry also failed; "
                             "dropping malformed clarification and continuing"
                         )
                         tool_calls = [
@@ -2010,9 +2023,10 @@ async def stream_chat_completion(
                     )
                     if err is not None:
                         # Should be unreachable - force retry validates already.
-                        print(
-                            f"[WARNING] forced-retry payload still invalid "
-                            f"after validation: {err}"
+                        logger.warning(
+                            "forced-retry payload still invalid after "
+                            "validation: %s",
+                            err,
                         )
                         hit_turn_cap = False
                         break
@@ -2077,7 +2091,7 @@ async def stream_chat_completion(
                                     },
                                 )
                         except Exception as e:
-                            print(f"[WARNING] Auto-title (clarification) failed: {e}")
+                            logger.warning("Auto-title (clarification) failed: %s", e)
 
                 yield _sse(
                     "done",
@@ -2290,7 +2304,7 @@ async def stream_chat_completion(
                     conversation_id=conversation["id"],
                 )
             except Exception as e:
-                print(f"[WARNING] vision feedback loop failed: {e}")
+                logger.warning("vision feedback loop failed: %s", e)
                 followup = None
             if followup is not None:
                 messages.append(followup)
@@ -2307,7 +2321,7 @@ async def stream_chat_completion(
                     user_email=user_email,
                 )
             except Exception as e:
-                print(f"[WARNING] view_attachment followup failed: {e}")
+                logger.warning("view_attachment followup failed: %s", e)
                 view_followup = None
             if view_followup is not None:
                 messages.append(view_followup)
@@ -2328,9 +2342,8 @@ async def stream_chat_completion(
         if _cancelled():
             # Client is gone — don't burn another vLLM slot on a synthesis
             # the user will never see. Save-always finally still runs.
-            print(
-                f"[INFO] client disconnected before wrap-up "
-                f"conv={conversation['id']}; skipping synthesis"
+            logger.info(
+                "client disconnected before wrap-up; skipping synthesis",
             )
         elif (hit_turn_cap or not last_turn_content) and not had_stream_error:
             wrap_up_messages = list(messages) + [
@@ -2381,9 +2394,9 @@ async def stream_chat_completion(
             final_content, final_tool_calls
         )
         if _phantom_urls:
-            print(
-                f"[WARN] phantom artifact URLs in conversation "
-                f"{conversation['id']}: {_phantom_urls}"
+            logger.warning(
+                "phantom artifact URLs in conversation: %s",
+                _phantom_urls,
             )
         # Phantom-paper-URL audit. Same backstop shape but for fabricated
         # `search.muninai.org/paper/<doi>/...` citations (chat a42384f0,
@@ -2394,9 +2407,9 @@ async def stream_chat_completion(
             final_content, final_tool_calls
         )
         if _phantom_paper_urls:
-            print(
-                f"[WARN] phantom paper URLs in conversation "
-                f"{conversation['id']}: {_phantom_paper_urls}"
+            logger.warning(
+                "phantom paper URLs in conversation: %s",
+                _phantom_paper_urls,
             )
 
         if not ephemeral:
@@ -2436,7 +2449,7 @@ async def stream_chat_completion(
                         {"id": conversation["id"], "title": title, "is_new": False},
                     )
             except Exception as e:
-                print(f"[WARNING] Auto-title failed: {e}")
+                logger.warning("Auto-title failed: %s", e)
 
         # --- 8. Done ---
         yield _sse(
@@ -2498,10 +2511,11 @@ async def stream_chat_completion(
                 # Last-ditch: log and swallow. We cannot crash the
                 # finally block -- doing so would mask the original
                 # exception (or GeneratorExit) that triggered us.
-                print(
-                    f"[ERROR] save-always finally persistence failed for "
-                    f"conv {conversation.get('id') if isinstance(conversation, dict) else '?'}: "
-                    f"{type(_save_always_exc).__name__}: {_save_always_exc}"
+                logger.error(
+                    "save-always finally persistence failed for conv %s: %s: %s",
+                    conversation.get("id") if isinstance(conversation, dict) else "?",
+                    type(_save_always_exc).__name__,
+                    _save_always_exc,
                 )
         # Unbind the usage aggregator regardless of how we exited. Suppress
         # ValueError in the (impossible-in-practice) case where the token
