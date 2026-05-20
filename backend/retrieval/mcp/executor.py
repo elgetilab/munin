@@ -61,6 +61,7 @@ from .tools import (
     compile_latex,
     faq,
     ask_clarification,
+    tool_search,
 )
 
 
@@ -373,6 +374,9 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
                 what_i_understood=arguments.get("what_i_understood", ""),
                 questions=arguments.get("questions", []),
             )
+
+        elif tool_name == "tool_search":
+            return await tool_search(query=arguments.get("query", ""))
 
         else:
             return {"error": f"Unknown tool: {tool_name}"}

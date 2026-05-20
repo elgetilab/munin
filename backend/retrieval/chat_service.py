@@ -47,7 +47,7 @@ from usage_tracker import (
     record_usage,
     aggregate_totals,
 )
-from mcp.schemas import MCP_TOOLS
+from mcp.schemas import MCP_TOOLS, CORE_TOOLS
 from mcp.executor import execute_mcp_tool, partition_by_concurrency_safety
 from mcp.tools import clarification as clarification_tool
 from mcp.context import (
@@ -57,6 +57,7 @@ from mcp.context import (
     current_query_tags,
     current_sse_emitter,
     current_persona,
+    current_unlocked_tools,
 )
 
 logger = logging.getLogger(__name__)
@@ -192,40 +193,46 @@ def _openai_tools_schema(persona: Optional[dict] = None) -> list[dict]:
     """
     Translate MCP_TOOLS into the OpenAI ``tools`` array vLLM expects.
 
-    Filters by the persona's ``params.tool_allowlist`` when present.
-    Personas without an allowlist (legacy / unset) get the full
-    schema with a one-time warning printed at load time.
+    Deferred-tool model (P1 #7). Only ``CORE_TOOLS`` — plus whatever
+    ``tool_search`` has unlocked this request via
+    ``current_unlocked_tools`` — are emitted, intersected with the
+    persona's allowlist. The allowlist stays the *authorization*
+    boundary (enforced in ``_run_tool_calls``); this function only
+    decides what is *visible in the schema*.
 
-    Filtering matters because the full 38-tool schema tokenizes to
-    ~19K tokens and pushes prefill past a hang cliff at ~40K total
-    tokens (see scripts/repro_vllm_hang.py, 2026-04-28). Per-persona
-    subsets keep the schema in the safe zone for typical multi-turn
-    contexts.
+    Keeping the schema at ~9 tools instead of 39 keeps prefill well
+    clear of the ~40K-token hang cliff (see scripts/repro_vllm_hang.py,
+    2026-04-28) and trims ~15K tokens off every turn's prompt.
     """
     allow: Optional[list[str]] = None
     if persona is not None:
         allow = persona_module.tool_allowlist(persona)
         if allow is None:
             pid = persona.get("id") if isinstance(persona, dict) else "?"
-            # One-shot warning per process. Legacy personas without
-            # an explicit allowlist still work — just at the cost of
-            # the larger schema.
             global _UNSCOPED_PERSONA_WARNED
             if pid not in _UNSCOPED_PERSONA_WARNED:
                 logger.warning(
-                    "persona %r has no params.tool_allowlist; falling back to "
-                    "full %d-tool schema. Add an allowlist to keep prompt size "
-                    "below the prefill cliff.",
+                    "persona %r has no params.tool_allowlist; tool_search "
+                    "will surface the full %d-tool registry rather than a "
+                    "scoped subset.",
                     pid,
                     len(MCP_TOOLS),
                 )
                 _UNSCOPED_PERSONA_WARNED.add(pid)
 
-    allow_set: Optional[set[str]] = set(allow) if allow is not None else None
+    # The persona allowlist is the tool universe; None = the full
+    # registry (legacy personas). What ships in the schema is the core
+    # set plus tool_search-unlocked tools, clamped to that universe.
+    universe: set[str] = (
+        set(allow) if allow is not None else set(MCP_TOOLS.keys())
+    )
+    unlocked = current_unlocked_tools.get() or set()
+    visible = (CORE_TOOLS | unlocked) & universe
+
     src_persona_id = (persona or {}).get("id") if isinstance(persona, dict) else None
     tools: list[dict] = []
-    for name, spec in MCP_TOOLS.items():
-        if allow_set is not None and name not in allow_set:
+    for name, spec in MCP_TOOLS.items():  # registry order for stable output
+        if name not in visible:
             continue
         params = spec.get("inputSchema", {"type": "object"})
         # delegate_to_persona's persona_id enum lists every persona;
@@ -1348,6 +1355,10 @@ async def stream_chat_completion(
     # Logging picks up persona via this ContextVar so every log line in
     # the request is automatically tagged with the active persona.
     current_persona.set(persona_id)
+    # Deferred-tool unlock set (P1 #7). Fresh per request: tool_search
+    # adds discovered tools here and _openai_tools_schema unions them
+    # into the schema for the rest of the request.
+    current_unlocked_tools.set(set())
     # Project context (§21): bind the project_id so search_user_docs
     # auto-scopes via contextvar. Ephemeral chats never have a project,
     # so the contextvar stays None in that branch.

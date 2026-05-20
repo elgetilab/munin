@@ -47,6 +47,7 @@ from .clarification import (
     validate_clarification_payload,
     render_markdown_fallback,
 )
+from .tool_search import tool_search
 
 __all__ = [
     "web_search",
@@ -90,4 +91,5 @@ __all__ = [
     "ask_clarification",
     "validate_clarification_payload",
     "render_markdown_fallback",
+    "tool_search",
 ]

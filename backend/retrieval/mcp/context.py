@@ -27,6 +27,17 @@ current_persona: ContextVar[Optional[str]] = ContextVar(
     "current_persona", default=None
 )
 
+# Deferred-tool unlock set (P1 #7 / tool_search). The vLLM `tools` schema
+# only carries a small core set; `tool_search` discovers other tools and
+# adds their names here. `_openai_tools_schema` unions core + this set so
+# a discovered tool stays in the schema for the rest of the request.
+# chat_service binds a fresh set() per request; the tool_search handler
+# mutates it in place. None means "no deferral wired" (the schema builder
+# then falls back to core-only, which is still safe).
+current_unlocked_tools: ContextVar[Optional[set]] = ContextVar(
+    "current_unlocked_tools", default=None
+)
+
 # §28 Sprint B: tag-scoped search. chat_service.stream_chat_completion
 # reads the `tags` field from the request body and sets this ContextVar
 # before dispatching tool calls. Search tools (paper_search,

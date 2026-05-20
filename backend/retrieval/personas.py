@@ -167,12 +167,14 @@ def tool_allowlist(persona: Optional[dict]) -> Optional[list[str]]:
     Callers that filter the MCP schema must accept None and emit the
     full tool list in that case.
 
-    Side effect: ``delegate_to_persona`` is auto-injected into every
-    explicit allowlist (deduped). This means every persona can hand
-    a turn off to another persona via the delegation tool without
-    each persona JSON having to spell it out. Personas that opt out
-    by passing ``"-delegate_to_persona"`` in their list are NOT
-    supported yet — keep the auto-inject simple.
+    Side effect: ``delegate_to_persona`` and ``tool_search`` are
+    auto-injected into every explicit allowlist (deduped). Both are
+    infrastructure tools every persona needs — delegation hands a turn
+    to another persona, and tool_search (P1 #7) is how the model
+    discovers the deferred tools that aren't in its core schema. Neither
+    has to be spelled out in each persona JSON. Opt-out via a
+    ``"-tool_name"`` entry is NOT supported yet — keep the auto-inject
+    simple.
 
     The list is normalised to a list of strings (drops any non-string
     entries silently).
@@ -191,6 +193,8 @@ def tool_allowlist(persona: Optional[dict]) -> Optional[list[str]]:
         if isinstance(entry, str) and entry and entry not in seen:
             out.append(entry)
             seen.add(entry)
-    if "delegate_to_persona" not in seen:
-        out.append("delegate_to_persona")
+    for infra_tool in ("delegate_to_persona", "tool_search"):
+        if infra_tool not in seen:
+            out.append(infra_tool)
+            seen.add(infra_tool)
     return out

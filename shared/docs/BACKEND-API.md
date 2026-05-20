@@ -1111,10 +1111,26 @@ Tools available to the main model and agents (see `retrieval/mcp/schemas.py`):
 | `llm_summarize` | vLLM summarisation helper |
 | `search_user_docs` | Semantic search over the current user's uploaded docs (auto-filters by `X-Munin-Email` via contextvar, never pass a user id) |
 | `invoke_agent` | Delegate to an agent workflow. Input: `{"agent": "...", "query": "..."}` |
+| `tool_search` | Discover deferred tools. Input: `{"query": "..."}`. See "Deferred tool schema" below |
 
 Agents themselves (`research_orchestrator`, `code_checker`, `writing_agent`)
 are defined in `config/agents.yml` with their own tool allowlists, iteration
 limits, and wall-clock timeouts. Agents cannot invoke each other.
+
+**Deferred tool schema (P1 #7).** The `tools` array sent to vLLM does
+**not** carry all 39 tools. It carries only a ~9-tool core set
+(`paper_search`, `web_search`, `read_paper`, `run_python`,
+`create_artifact`, `calculate`, `ask_clarification`,
+`delegate_to_persona`, `tool_search`), intersected with the persona's
+allowlist. Every other tool is hidden until the model calls
+`tool_search` with a natural-language query; the executor returns the
+matching tools' schemas (top 8 by relevance, scoped to the persona's
+allowlist) and unlocks them into the schema for the rest of that
+request. This keeps prefill ~15K tokens lighter and well clear of the
+hang cliff. Authorization is unchanged — the persona allowlist is still
+the gate; deferral only governs schema *visibility*. Unlocked tools
+reset per request. Frontend implication: none — `tool_search` appears
+as an ordinary `tool_call` / `tool_result` pair.
 
 The executor validates every tool call's `arguments` against the tool's
 `inputSchema` before dispatch (`mcp/executor.py`). Schema mismatches
