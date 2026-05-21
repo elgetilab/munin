@@ -64,6 +64,14 @@ MIROTHINKER_MODEL_ID="cyankiwi/MiroThinker-v1.5-30B-AWQ-4bit"
 MIROTHINKER_MODEL_DIR=$MUNIN_ROOT/data/models/mirothinker-v1.5-30b
 VLLM_VENV=/opt/munin/services/vllm/venv
 
+# P1 #8 — the retrieval container counts context tokens with the real
+# Qwen3 tokenizer. Rather than mount the 19 GB vLLM model dir, deploy
+# copies just the tokenizer files into a small dedicated dir that
+# docker-compose mounts read-only. Keep VLLM_MODEL_DIR in sync with
+# MODEL_PATH in scripts/vllm/start-vllm-service.sh.
+VLLM_MODEL_DIR=$MUNIN_ROOT/data/models/qwen3.6-35b-a3b-awq-4bit
+QWEN_TOKENIZER_DIR=$MUNIN_ROOT/data/models/qwen-tokenizer
+
 echo "=============================================="
 echo "MUNIN BACKEND - Deployment"
 echo "=============================================="
@@ -533,10 +541,38 @@ deploy_sandbox() {
 # ------------------------------------------------------------------------------
 # retrieval: sync code, rebuild container, restart
 # ------------------------------------------------------------------------------
+stage_qwen_tokenizer() {
+    # Copy the Qwen3 tokenizer files out of the vLLM model dir into a
+    # small dedicated dir the retrieval container mounts read-only
+    # (P1 #8). The container budgets context tokens with the real
+    # tokenizer instead of a char heuristic. If the model has not been
+    # downloaded yet (first deploy, before vLLM's first run) this is a
+    # graceful no-op — chat_context falls back to the heuristic and
+    # picks the tokenizer up on a later deploy.
+    echo "[tokenizer] Staging Qwen tokenizer for retrieval..."
+    run "install -d -m 0755 $QWEN_TOKENIZER_DIR"
+    if [ -f "$VLLM_MODEL_DIR/tokenizer.json" ]; then
+        run "install -m 0644 $VLLM_MODEL_DIR/tokenizer.json \
+            $QWEN_TOKENIZER_DIR/tokenizer.json"
+        if [ -f "$VLLM_MODEL_DIR/tokenizer_config.json" ]; then
+            run "install -m 0644 $VLLM_MODEL_DIR/tokenizer_config.json \
+                $QWEN_TOKENIZER_DIR/tokenizer_config.json"
+        fi
+        echo "[OK] tokenizer staged to $QWEN_TOKENIZER_DIR"
+    else
+        echo "[WARN] $VLLM_MODEL_DIR/tokenizer.json not found"
+        echo "       (vLLM model not downloaded yet) — retrieval will use"
+        echo "       the char-heuristic fallback until a later deploy."
+    fi
+}
+
 deploy_retrieval() {
     echo "[retrieval] Syncing code to $MUNIN_RETRIEVAL..."
     need_file "$REPO_DIR/retrieval"
     run "install -d -m 0755 $MUNIN_RETRIEVAL"
+
+    # Stage the Qwen tokenizer the container mounts for token budgeting.
+    stage_qwen_tokenizer
 
     # Remove stale mirror left from earlier deploys (see audit)
     if [ -d $MUNIN_DOCKER/retrieval ]; then

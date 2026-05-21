@@ -10,6 +10,39 @@ self-document (renames, refactors, bug fixes).
 
 ---
 
+## 2026-05-21: Qwen tokenizer staged, not mounted from the model dir
+
+The retrieval container budgets context tokens with the real Qwen3
+tokenizer (P1 #8). The tokenizer ships inside the vLLM model dir
+(`/opt/munin/data/models/qwen3.6-35b-a3b-awq-4bit/`), but that dir is
+~19 GB of quantized weights the retrieval service has no business
+reading.
+
+Decision: `deploy.sh::stage_qwen_tokenizer` copies just
+`tokenizer.json` (+ `tokenizer_config.json`, ~7 MB total) into a
+dedicated `/opt/munin/data/models/qwen-tokenizer/` dir, and
+docker-compose bind-mounts *that* read-only into the container as
+`/models/qwen`. The container sees exactly the files it needs and none
+of the weights ("correct blast radius" — rejected the simpler
+whole-model-dir mount for this reason).
+
+**Invariants:**
+
+- `VLLM_MODEL_DIR` in `deploy.sh` must track `MODEL_PATH` in
+  `scripts/vllm/start-vllm-service.sh`. A model upgrade changes the
+  versioned dir name in both places; `stage_qwen_tokenizer` then
+  re-copies on the next `deploy.sh retrieval`.
+- The copy is deliberately best-effort. On a first-ever deploy the
+  vLLM model has not been downloaded yet, so there's nothing to copy;
+  `deploy.sh` warns and continues. `chat_context.approx_tokens` falls
+  back to a ~4-chars-per-token heuristic when the tokenizer file is
+  absent, and `_get_tokenizer` logs one warning. A later deploy (after
+  vLLM's first run) stages the file and a container restart picks it up.
+- The heuristic fallback undercounts code / LaTeX / JSON by 1.5-2x.
+  That is the *old* behaviour, so a missing tokenizer is a graceful
+  degradation, not a regression — but it does mean oversized prompts
+  can still slip past the budget until the tokenizer is in place.
+
 ## 2026-05-19: P0 reliability batch (audit closeout)
 
 Five fixes from `munin-audit.md` landed in one batch. The mechanics

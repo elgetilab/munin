@@ -1069,7 +1069,10 @@ restart. Frontend does not need to touch this.
 ## 7. Context budgeting & summarization
 
 - Budget: `MAX_CONTEXT = 60000`, `GENERATION_RESERVE = 8000` (overridable
-  via env). Tokens are estimated heuristically at ~4 chars/token.
+  via env). Tokens are counted with the real Qwen3 tokenizer (its
+  `tokenizer.json` is mounted into the retrieval container); if that
+  file is unreachable the count falls back to a ~4-chars/token
+  heuristic, which undercounts code / LaTeX / JSON.
 - If `system_prompt + summary + history + new_message` fits, sent as-is.
 - If not: keep the newest messages that fit in half the history budget,
   summarize everything older via a non-streaming vLLM call, persist the
