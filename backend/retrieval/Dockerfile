@@ -28,21 +28,12 @@ WORKDIR /app
 COPY --from=builder /root/.local /root/.local
 ENV PATH=/root/.local/bin:$PATH
 
-# Copy application
-COPY main.py .
-COPY database.py .
-COPY models.py .
-COPY chat_store.py .
-COPY chat_context.py .
-COPY chat_service.py .
-COPY personas.py .
-COPY document_store.py .
-COPY user_profile_store.py .
-COPY project_store.py .
-COPY memory_store.py .
-COPY artifact_store.py .
-COPY capabilities.py .
-COPY vision.py .
+# Copy application — every top-level module. A glob, not a per-file
+# list: a per-file list silently drops any new module (vllm_client,
+# usage_tracker, logging_config, tool_result, maintenance, ... were all
+# missed this way), and the build still succeeds, so the breakage only
+# surfaces as an ImportError at container startup.
+COPY *.py ./
 
 # Copy MCP module
 COPY mcp /app/mcp/
