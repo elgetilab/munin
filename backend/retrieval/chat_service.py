@@ -47,6 +47,7 @@ from usage_tracker import (
     record_usage,
     aggregate_totals,
 )
+from tool_result import truncate_tool_result
 from mcp.schemas import MCP_TOOLS, CORE_TOOLS
 from mcp.executor import execute_mcp_tool, partition_by_concurrency_safety
 from mcp.tools import clarification as clarification_tool
@@ -1578,6 +1579,13 @@ async def stream_chat_completion(
     final_tool_calls: list[dict] = []
     finish_reason: Optional[str] = None
     had_stream_error: Optional[str] = None
+    # The current turn's stream accumulator + a flag for whether its
+    # content has been folded into final_content/final_thinking.
+    # Hoisted here (not loop-local) so the save-always finally can read
+    # them directly without locals() introspection, even when the
+    # function raises before the streaming loop runs.
+    acc: Optional[_StreamAccumulator] = None
+    acc_transferred = True
     # Per-request token usage aggregator. Every vLLM call site folds its
     # usage into this dict via record_usage(purpose, ...). The done event
     # emits the aggregated totals (gateway-shaped) plus the per-purpose
@@ -1616,7 +1624,10 @@ async def stream_chat_completion(
         delegations_used = 0
         DELEGATION_BUDGET = 1
 
-        MAX_TURNS = 10
+        # Per-persona tool-use turn budget (P1 #16): research personas
+        # doing deep multi-call exploration want more than a chat
+        # persona. personas.max_turns clamps to [1, 30].
+        MAX_TURNS = persona_module.max_turns(persona)
         hit_turn_cap = True  # assume exhaustion unless we break cleanly below
         # Set by the loop body when a vLLM stream error or empty response forces
         # us to abandon the current turn. Triggers the partial-state persistence
@@ -1626,14 +1637,11 @@ async def stream_chat_completion(
         # but a vLLM "Error in input stream" on the follow-up summarisation turn
         # made the entire assistant message disappear from the saved transcript.
         had_stream_error: Optional[str] = None
-        # `acc_transferred` tracks whether the current turn's accumulator
-        # content has been folded into `final_content` / `final_thinking`
-        # already. If GeneratorExit fires inside the inner async-for
-        # (client disconnect during streaming), the transfer below is
-        # skipped, leaving partial content in `acc.content_parts` only.
-        # The save-always finally checks this flag and folds the
-        # remainder so we never lose tokens the user already saw.
-        acc_transferred = True
+        # `acc` / `acc_transferred` are hoisted above the try: block.
+        # If GeneratorExit fires inside the inner async-for (client
+        # disconnect during streaming), the per-turn transfer is skipped,
+        # leaving partial content in `acc` only; the save-always finally
+        # folds the remainder so we never lose tokens the user already saw.
         for turn in range(MAX_TURNS):
             if _cancelled():
                 logger.info(
@@ -1642,7 +1650,7 @@ async def stream_chat_completion(
                 )
                 hit_turn_cap = False
                 break
-            acc: Optional[_StreamAccumulator] = None
+            acc = None
             stream_error: Optional[str] = None
             recovery_used_this_turn = False
             acc_transferred = False  # reset per-turn
@@ -2298,7 +2306,7 @@ async def stream_chat_completion(
                 messages.append({
                     "role": "tool",
                     "tool_call_id": res["id"],
-                    "content": json.dumps(res["result"])[:8000],
+                    "content": truncate_tool_result(res["result"]),
                 })
 
             # §3 plot-critique feedback loop: if any of the results were
@@ -2483,17 +2491,13 @@ async def stream_chat_completion(
             try:
                 # Fold any in-progress turn's accumulator into the
                 # final_* totals if the inner streaming loop got
-                # interrupted before its own transfer. `acc_transferred`
-                # may not be defined if we never reached the streaming
-                # loop (e.g. assemble_context raised); the locals()
-                # check guards that.
-                if (
-                    "acc" in locals()
-                    and locals().get("acc") is not None
-                    and not locals().get("acc_transferred", True)
-                ):
-                    final_thinking += locals()["acc"].thinking
-                    final_content += locals()["acc"].content
+                # interrupted before its own transfer. `acc` and
+                # `acc_transferred` are hoisted to the top of the
+                # function, so they are always defined here even if we
+                # never reached the streaming loop (acc stays None).
+                if acc is not None and not acc_transferred:
+                    final_thinking += acc.thinking
+                    final_content += acc.content
                 marker_content = apply_stream_error_marker(
                     final_content,
                     had_stream_error or "stream interrupted",

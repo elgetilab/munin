@@ -198,3 +198,27 @@ def tool_allowlist(persona: Optional[dict]) -> Optional[list[str]]:
             out.append(infra_tool)
             seen.add(infra_tool)
     return out
+
+
+# Tool-use loop bounds (P1 #16). The default applies to any persona
+# without an explicit ``params.max_turns``; the clamp guards a JSON
+# typo from creating a runaway loop or a zero-turn deadlock.
+_DEFAULT_MAX_TURNS = 10
+_MIN_MAX_TURNS = 1
+_MAX_MAX_TURNS = 30
+
+
+def max_turns(persona: Optional[dict]) -> int:
+    """Return the persona's tool-use turn budget.
+
+    Reads ``params.max_turns``, defaulting to 10. A research persona
+    doing deep multi-call exploration may want 15-20; a chat persona
+    rarely needs more than a handful. The value is clamped to
+    [1, 30] so a malformed persona JSON cannot uncap the loop.
+    """
+    if not isinstance(persona, dict):
+        return _DEFAULT_MAX_TURNS
+    raw = (persona.get("params") or {}).get("max_turns")
+    if not isinstance(raw, int) or isinstance(raw, bool):
+        return _DEFAULT_MAX_TURNS
+    return max(_MIN_MAX_TURNS, min(_MAX_MAX_TURNS, raw))

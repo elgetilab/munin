@@ -28,6 +28,7 @@ from mcp.schemas import MCP_TOOLS
 from mcp.context import current_sse_emitter
 from vllm_client import vllm_post_json, VLLMRequestError
 from usage_tracker import record_usage
+from tool_result import truncate_tool_result
 
 from .parallel import run_tools_parallel
 
@@ -221,7 +222,7 @@ async def execute_agent(agent_config: dict, query: str) -> dict:
             messages.append({
                 "role": "tool",
                 "tool_call_id": res["id"],
-                "content": json.dumps(res["result"])[:8000],
+                "content": truncate_tool_result(res["result"]),
             })
 
         if total_tool_calls >= agent_config["max_tool_calls"]:
