@@ -199,6 +199,14 @@ export interface SystemStatus {
     model: string;
     next_start?: string;
   };
+  // Set by the `munin-maintenance` cluster toggle. When active, the UI
+  // shows the maintenance page instead of the sleeping page regardless
+  // of vLLM status.
+  maintenance?: {
+    active: boolean;
+    message?: string;
+    since?: string;
+  };
   services: Record<string, 'ok' | 'error' | 'unavailable'>;
   timestamp: string;
 }

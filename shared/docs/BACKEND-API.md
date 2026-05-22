@@ -76,6 +76,9 @@ Polled by the frontend's `useStatus` hook every 60 s.
 
 ```json
 {
+  "maintenance": {
+    "active": false
+  },
   "vllm": {
     "status": "running",
     "model": "qwen3.6-35b-a3b",
@@ -93,8 +96,16 @@ Polled by the frontend's `useStatus` hook every 60 s.
 }
 ```
 
+When maintenance mode is on, the `maintenance` block instead reads
+`{"active": true, "message": "...", "since": "<ISO8601>"}` — `message`
+is operator-set (may be empty), `since` is when it was switched on.
+
 Notes:
 
+- `maintenance.active` reflects the cluster-side flag set by the
+  `munin-maintenance` toggle. When `true` the frontend renders the
+  maintenance page **with precedence over** the sleeping page,
+  regardless of `vllm.status`.
 - `vllm.status` is one of `running` / `offline` / `starting`. When `offline`
   the frontend should render `SleepingPage`.
 - `vllm.next_start` is **only present** when `status === "offline"`. It's

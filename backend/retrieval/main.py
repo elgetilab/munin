@@ -92,6 +92,7 @@ import agents as agents_pkg
 import user_profile_store
 import project_store
 import artifact_store
+from maintenance import read_maintenance
 from logging_config import configure_logging
 import logging
 
@@ -570,6 +571,7 @@ async def api_status():
         vllm_block["next_start"] = next_start
 
     return {
+        "maintenance": read_maintenance(),
         "vllm": vllm_block,
         "services": services,
         "timestamp": datetime.utcnow().isoformat() + "Z",

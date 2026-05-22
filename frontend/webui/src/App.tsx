@@ -10,6 +10,7 @@ import { MessageList } from './components/MessageList';
 import { ChatInput } from './components/ChatInput';
 import { FeatherVortex } from './components/FeatherVortex';
 import { SleepingPage } from './components/SleepingPage';
+import { MaintenancePage } from './components/MaintenancePage';
 import { Settings } from './components/Settings';
 import { ArtifactPanel } from './components/ArtifactPanel';
 import { ProjectSettings } from './components/ProjectSettings';
@@ -343,6 +344,8 @@ export default function App() {
   const currentPersona = personas.find(p => p.id === selectedPersona) || null;
   const isStreaming = streaming.phase !== 'idle' && streaming.phase !== 'done' && streaming.phase !== 'error';
   const isEmpty = messages.length === 0 && !isStreaming;
+  // Maintenance takes precedence over the nightly sleeping page.
+  const isMaintenance = status?.maintenance?.active === true;
   const isOffline = status?.vllm?.status === 'offline';
 
   // ── Knowledge full-page view ──────────────────────────────────────────────
@@ -608,6 +611,11 @@ export default function App() {
                 onClose={() => setShowSettings(false)}
                 isAdmin={isAdmin}
                 personas={personas}
+              />
+            ) : isMaintenance ? (
+              <MaintenancePage
+                message={status?.maintenance?.message}
+                since={status?.maintenance?.since}
               />
             ) : isOffline ? (
               <SleepingPage nextStart={status?.vllm?.next_start} />

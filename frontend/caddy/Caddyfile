@@ -59,6 +59,15 @@ chat.muninai.org {
 	handle /paper/* {
 		reverse_proxy 127.0.0.1:18080
 	}
+	# Static maintenance page. Reachable at chat.muninai.org/maintenance;
+	# it fetches /api/status (same origin) and renders the operator's
+	# maintenance message — the same flag the React app reads. Kept as a
+	# plain static page so it works even if the chat SPA build is stale.
+	handle /maintenance* {
+		root * /srv/static/maintenance
+		try_files {path} /index.html
+		file_server
+	}
 	handle {
 		root * /srv/static/chat
 		try_files {path} /index.html

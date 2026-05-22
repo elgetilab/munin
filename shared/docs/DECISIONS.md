@@ -10,6 +10,34 @@ self-document (renames, refactors, bug fixes).
 
 ---
 
+## 2026-05-22: maintenance mode is a single cluster-side flag
+
+Operator-triggered maintenance (distinct from the nightly 2-6 AM GPU
+sleep) is one flag file on the cluster: `/opt/munin/data/maintenance.json`,
+written by `munin-maintenance on`. `/opt/munin/data` is already
+bind-mounted into the retrieval container, so `/api/status` reads the
+flag with no new mount and reports a `maintenance` block.
+
+Both UIs are pure consumers of `/api/status`: the React chat app shows
+`MaintenancePage` (precedence over the `SleepingPage`), and the static
+page at `chat.muninai.org/maintenance` fetches the same endpoint. One
+flag, one signal, no second source of truth.
+
+**Boundary caveat.** The flag is cluster-side; Caddy is VPS-side and
+cannot read it. So there is no *automatic* proxy-level cutover (Caddy
+serving a maintenance page for every route based on the flag). The
+static maintenance page is the API-driven fallback for the normal case
+(retrieval up, vLLM/Miro down). A full Caddy-level cutover would need a
+separate VPS-side flag — deliberately left out of scope.
+
+**Why a file, not an env var or DB row:** a file is trivially
+toggled by a root shell script, needs no service restart (an env var
+would), and needs no schema. `munin-maintenance` is the single owner
+of the vLLM cron toggle while maintenance is on; `off` returns vLLM to
+the normal 6am/2am schedule (24/7 mode, if it was on, must be
+re-enabled by hand). Operator usage is documented in
+backend/README.md under "Maintenance mode".
+
 ## 2026-05-21: Qwen tokenizer staged, not mounted from the model dir
 
 The retrieval container budgets context tokens with the real Qwen3

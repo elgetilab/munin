@@ -13,6 +13,7 @@
 #   sudo ./deploy.sh personas       - persona JSON + logos
 #   sudo ./deploy.sh agents         - config/agents.yml + munin.env.template
 #   sudo ./deploy.sh vllm           - scripts/vllm/*.sh → /opt/cluster/scripts/llm/
+#   sudo ./deploy.sh maintenance    - maintenance-mode toggle → munin-maintenance
 #   sudo ./deploy.sh deepresearch   - scripts/deepresearch/* + systemd unit + MiroThinker model
 #   sudo ./deploy.sh tunnel         - munin-tunnel.service (+ daemon-reload + restart)
 #   sudo ./deploy.sh knowledge      - §15 embedding-map script + nightly timer
@@ -37,7 +38,7 @@ fi
 MODE=${1:-}
 if [ -z "$MODE" ]; then
     echo "Usage: sudo $0 [--dry-run] <mode>"
-    echo "Modes: all dirs compose personas agents vllm deepresearch tunnel retrieval searxng verify"
+    echo "Modes: all dirs compose personas agents vllm maintenance deepresearch tunnel retrieval searxng verify"
     exit 1
 fi
 
@@ -223,6 +224,22 @@ deploy_vllm() {
     run "ln -sf $CLUSTER_SCRIPTS/schedule-vllm.sh /usr/local/bin/vllm-service"
     echo "[OK] vllm — changes take effect on next job submission"
     echo "     to cut over now: sudo vllm-service stop && sudo vllm-service start"
+}
+
+# ------------------------------------------------------------------------------
+# maintenance: install the maintenance-mode toggle into /opt/cluster/scripts/
+# ------------------------------------------------------------------------------
+MAINTENANCE_SCRIPTS=/opt/cluster/scripts/maintenance
+
+deploy_maintenance() {
+    echo "[maintenance] Installing maintenance-mode toggle..."
+    need_file "$REPO_DIR/scripts/maintenance/maintenance.sh"
+    run "install -d -m 0755 $MAINTENANCE_SCRIPTS"
+    run "install -m 0755 $REPO_DIR/scripts/maintenance/maintenance.sh \
+        $MAINTENANCE_SCRIPTS/maintenance.sh"
+    run "ln -sf $MAINTENANCE_SCRIPTS/maintenance.sh /usr/local/bin/munin-maintenance"
+    echo "[OK] maintenance — toggle with:"
+    echo "     sudo munin-maintenance on [\"message\"] | off | status"
 }
 
 # ------------------------------------------------------------------------------
@@ -690,6 +707,7 @@ case "$MODE" in
     personas)     deploy_personas ;;
     agents)       deploy_agents ;;
     vllm)         deploy_vllm ;;
+    maintenance)  deploy_maintenance ;;
     deepresearch) deploy_deepresearch ;;
     tunnel)       deploy_tunnel ;;
     knowledge)    deploy_knowledge ;;
@@ -704,6 +722,7 @@ case "$MODE" in
         deploy_personas
         deploy_agents
         deploy_vllm
+        deploy_maintenance
         deploy_deepresearch
         deploy_tunnel
         deploy_knowledge
@@ -715,7 +734,7 @@ case "$MODE" in
         ;;
     *)
         echo "[ERROR] Unknown mode: $MODE"
-        echo "Modes: all dirs compose personas agents vllm deepresearch tunnel knowledge pipeline retrieval sandbox searxng verify"
+        echo "Modes: all dirs compose personas agents vllm maintenance deepresearch tunnel knowledge pipeline retrieval sandbox searxng verify"
         exit 1
         ;;
 esac
