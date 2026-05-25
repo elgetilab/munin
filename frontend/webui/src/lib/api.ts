@@ -662,6 +662,20 @@ export async function streamChat(
       });
       return;
     }
+    if (outcome === 'error') {
+      // The resume GET came back as a non-2xx, non-410 status (e.g.
+      // 500 from a wedged retrieval, 502 through the tunnel). Without
+      // this branch the while-loop's `outcome !== 'error'` guard
+      // would exit the function silently and the user would see the
+      // partial bubble freeze with no banner. Surface a terminal
+      // error so the hook can flip into its interrupted-message path.
+      clearActiveStream();
+      onEvent({
+        type: 'error',
+        data: { message: 'Stream resume failed; please retry.' },
+      });
+      return;
+    }
   }
 }
 
@@ -685,6 +699,17 @@ export async function resumeChat(
     onEvent({
       type: 'error',
       data: { message: 'Stream is no longer available on the server.' },
+    });
+    return;
+  }
+  if (outcome === 'error') {
+    // First-shot resume on mount hit a non-2xx, non-410 status.
+    // Mirror the streamChat fix so the user sees a banner instead of
+    // a frozen partial bubble.
+    clearActiveStream();
+    onEvent({
+      type: 'error',
+      data: { message: 'Stream resume failed; please retry.' },
     });
     return;
   }
@@ -712,6 +737,14 @@ export async function resumeChat(
       onEvent({
         type: 'error',
         data: { message: 'Stream is no longer available on the server.' },
+      });
+      return;
+    }
+    if (outcome === 'error') {
+      clearActiveStream();
+      onEvent({
+        type: 'error',
+        data: { message: 'Stream resume failed; please retry.' },
       });
       return;
     }
