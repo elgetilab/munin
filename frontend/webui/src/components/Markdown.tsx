@@ -1,3 +1,36 @@
+/**
+ * Markdown renderer for model-written assistant content (and artifacts).
+ *
+ * THREAT MODEL (P1 #18, audit 2026-05-25)
+ * ----------------------------------------
+ * The model writes arbitrary markdown that we render verbatim. Treat
+ * `content` as hostile input. We rely on three guarantees, all
+ * enforced below:
+ *
+ *  1. No raw HTML execution. We do NOT pass `rehype-raw`; with
+ *     react-markdown 10+ this means `<script>`, `<iframe>`,
+ *     `onerror=` etc. in the source are rendered as literal text,
+ *     not as DOM elements. Do not add `rehype-raw` without a
+ *     sanitiser (e.g. `rehype-sanitize`) in front of it.
+ *
+ *  2. No dangerous URL schemes. The `urlTransform` below is an
+ *     explicit copy of react-markdown's `defaultUrlTransform`
+ *     allowlist (http, https, ircs?, mailto, xmpp). Anything else
+ *     — `javascript:`, `data:`, `vbscript:`, `file:`, custom
+ *     schemes — is replaced with `''`. We re-declare it here so a
+ *     future react-markdown default change cannot silently widen
+ *     the allowlist.
+ *
+ *  3. No inline event handlers. The components map below never
+ *     uses `dangerouslySetInnerHTML`. The `{...props}` spreads only
+ *     forward attributes that react-markdown's HAST→JSX pipeline
+ *     has already filtered (className, title, id, etc. — no
+ *     `onClick`, no `style` strings from source).
+ *
+ * Regression coverage in `Markdown.test.tsx` — adding `rehype-raw`,
+ * removing `urlTransform`, or relaxing the protocol allowlist will
+ * turn that suite red.
+ */
 import { useState, type ComponentPropsWithoutRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -127,11 +160,37 @@ function InlineCode({ children, ...props }: ComponentPropsWithoutRef<'code'>) {
   );
 }
 
+/**
+ * URL allowlist for `href` / `src` attributes. Mirror of
+ * react-markdown's defaultUrlTransform so a future upstream default
+ * change cannot widen what we accept. Anything not matching
+ * `safeProtocol` returns '' which renders as a no-op anchor.
+ */
+const safeProtocol = /^(https?|ircs?|mailto|xmpp)$/i;
+function safeUrlTransform(value: string): string {
+  // Adapted from react-markdown's defaultUrlTransform.
+  const colon = value.indexOf(':');
+  const questionMark = value.indexOf('?');
+  const numberSign = value.indexOf('#');
+  const slash = value.indexOf('/');
+  if (
+    colon === -1 ||
+    (slash !== -1 && colon > slash) ||
+    (questionMark !== -1 && colon > questionMark) ||
+    (numberSign !== -1 && colon > numberSign) ||
+    safeProtocol.test(value.slice(0, colon))
+  ) {
+    return value;
+  }
+  return '';
+}
+
 export function Markdown({ content }: { content: string }) {
   return (
     <div className="prose-munin">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        urlTransform={safeUrlTransform}
         components={{
           code({ className, children, ...props }) {
             const isBlock = /language-/.test(className || '') ||
