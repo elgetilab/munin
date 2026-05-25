@@ -107,6 +107,7 @@ async def _call_vllm(
                 "stream": False,
             },
             timeout=120.0,
+            purpose=purpose,
         )
     except VLLMRequestError as e:
         logger.error("Agent vLLM call failed: %s", e)

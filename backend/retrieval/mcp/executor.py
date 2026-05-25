@@ -18,9 +18,12 @@ Validators compile once at module import; a malformed schema in
 rather than failing the first user request that exercises it.
 """
 
+import time
+
 from jsonschema import Draft202012Validator, ValidationError
 from jsonschema.exceptions import SchemaError
 
+from metrics import observe_tool
 from .schemas import MCP_TOOLS
 from .tools import (
     web_search,
@@ -140,6 +143,30 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
     Returns:
         Tool result as a dictionary
     """
+    # P1 #12: time + outcome counter for every dispatch.
+    # Outcomes: validation_error | unknown_tool | error | success.
+    t0 = time.monotonic()
+    outcome = "error"
+    try:
+        result = await _dispatch_mcp_tool(tool_name, arguments)
+        if isinstance(result, dict) and "error" in result:
+            msg = result.get("error", "")
+            if isinstance(msg, str) and msg.startswith("invalid arguments"):
+                outcome = "validation_error"
+            elif isinstance(msg, str) and msg.startswith("Unknown tool"):
+                outcome = "unknown_tool"
+            else:
+                outcome = "error"
+        else:
+            outcome = "success"
+        return result
+    finally:
+        observe_tool(tool_name, outcome, time.monotonic() - t0)
+
+
+async def _dispatch_mcp_tool(tool_name: str, arguments: dict) -> dict:
+    """Validation + dispatch. Wrapped by ``execute_mcp_tool`` so the
+    instrumentation lives in one place."""
     validator = _VALIDATORS.get(tool_name)
     if validator is not None:
         errs = sorted(

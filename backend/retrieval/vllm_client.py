@@ -33,11 +33,14 @@ import asyncio
 import email.utils
 import logging
 import random
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import AsyncIterator, Optional
 
 import httpx
+
+from metrics import observe_vllm_request
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +139,7 @@ async def vllm_post_json(
     *,
     timeout: float = 60.0,
     foreground: bool = True,
+    purpose: Optional[str] = None,
 ) -> dict:
     """Non-streaming POST to ``/v1/chat/completions``. Returns parsed JSON
     on success. Raises ``VLLMRequestError`` on permanent failure or after
@@ -143,8 +147,13 @@ async def vllm_post_json(
 
     ``foreground=False`` shortens the retry budget for callers where the
     user isn't waiting (title generation, history summarisation) so we
-    don't cascade load when vLLM is already wedged."""
+    don't cascade load when vLLM is already wedged.
+
+    ``purpose`` (P1 #12) tags the call for ``munin_vllm_request_total`` /
+    ``munin_vllm_request_duration_seconds``. None silently skips the
+    metric so non-instrumented callers don't emit unlabelled data."""
     max_attempts = MAX_ATTEMPTS_FOREGROUND if foreground else MAX_ATTEMPTS_BACKGROUND
+    t0 = time.monotonic()
     async with httpx.AsyncClient(timeout=timeout) as client:
         for attempt in range(max_attempts):
             try:
@@ -154,6 +163,7 @@ async def vllm_post_json(
                 )
             except httpx.RequestError as e:
                 if attempt + 1 < max_attempts:
+                    observe_vllm_request(purpose, "transient_retry")
                     await _sleep_with_event(
                         attempt,
                         max_attempts,
@@ -161,11 +171,13 @@ async def vllm_post_json(
                         reason=f"vllm {type(e).__name__}",
                     )
                     continue
+                observe_vllm_request(purpose, "transport_error")
                 raise VLLMRequestError(
                     f"vLLM unreachable after {max_attempts} attempts: {e}"
                 )
             if r.status_code in RETRYABLE_STATUS:
                 if attempt + 1 < max_attempts:
+                    observe_vllm_request(purpose, "transient_retry")
                     await _sleep_with_event(
                         attempt,
                         max_attempts,
@@ -173,25 +185,32 @@ async def vllm_post_json(
                         reason=f"vllm {r.status_code}",
                     )
                     continue
+                observe_vllm_request(purpose, "transport_error")
                 raise VLLMRequestError(
                     f"vLLM returned {r.status_code} after {max_attempts} "
                     f"attempts: {r.text[:300]}"
                 )
             if r.status_code != 200:
+                observe_vllm_request(purpose, "permanent")
                 raise VLLMRequestError(
                     f"vLLM returned {r.status_code}: {r.text[:300]}"
                 )
             try:
-                return r.json()
+                data = r.json()
             except Exception as e:
+                observe_vllm_request(purpose, "permanent")
                 raise VLLMRequestError(f"vLLM returned non-JSON: {e}")
+            observe_vllm_request(purpose, "success", time.monotonic() - t0)
+            return data
         # Loop body always either returns, raises, or continues; guard
         # against future refactors that break that invariant.
         raise VLLMRequestError("vllm_post_json: retries exhausted (unreachable)")
 
 
 @asynccontextmanager
-async def vllm_post_stream(body: dict) -> AsyncIterator[AsyncIterator[str]]:
+async def vllm_post_stream(
+    body: dict, *, purpose: Optional[str] = None
+) -> AsyncIterator[AsyncIterator[str]]:
     """Streaming POST to ``/v1/chat/completions``. Yields an async iterator
     of raw SSE lines; the caller parses the ``data:`` prefix, JSON, and
     ``[DONE]`` sentinel.
@@ -201,8 +220,14 @@ async def vllm_post_stream(body: dict) -> AsyncIterator[AsyncIterator[str]]:
     is committed and subsequent failures propagate to the caller, which
     must emit its own ``error`` SSE event using whatever it has already
     accumulated. Retrying after partial state would double-emit on the
-    wire."""
+    wire.
+
+    ``purpose`` (P1 #12) tags the call for Prometheus. The duration we
+    observe is *time to first byte* — the post-commit body can take
+    minutes to drain on a long generation, which is not really
+    "request duration" in the histogram sense."""
     max_attempts = MAX_ATTEMPTS_FOREGROUND
+    t0 = time.monotonic()
     # Client lifetime spans the entire context so the response iterator
     # stays valid while the caller consumes it.
     async with httpx.AsyncClient(timeout=None) as client:
@@ -220,6 +245,7 @@ async def vllm_post_stream(body: dict) -> AsyncIterator[AsyncIterator[str]]:
                             errors="ignore"
                         )[:300]
                         if attempt + 1 < max_attempts:
+                            observe_vllm_request(purpose, "transient_retry")
                             await _sleep_with_event(
                                 attempt,
                                 max_attempts,
@@ -227,12 +253,14 @@ async def vllm_post_stream(body: dict) -> AsyncIterator[AsyncIterator[str]]:
                                 reason=f"vllm {response.status_code}",
                             )
                             continue
+                        observe_vllm_request(purpose, "transport_error")
                         raise VLLMRequestError(
                             f"vLLM returned {response.status_code} after "
                             f"{max_attempts} attempts: {body_text}"
                         )
                     if response.status_code != 200:
                         text = (await response.aread()).decode(errors="ignore")[:300]
+                        observe_vllm_request(purpose, "permanent")
                         raise VLLMRequestError(
                             f"vLLM returned {response.status_code}: {text}"
                         )
@@ -247,6 +275,7 @@ async def vllm_post_stream(body: dict) -> AsyncIterator[AsyncIterator[str]]:
                         first_line = None
                     except httpx.RequestError as e:
                         if attempt + 1 < max_attempts:
+                            observe_vllm_request(purpose, "transient_retry")
                             await _sleep_with_event(
                                 attempt,
                                 max_attempts,
@@ -254,6 +283,7 @@ async def vllm_post_stream(body: dict) -> AsyncIterator[AsyncIterator[str]]:
                                 reason=f"vllm {type(e).__name__}",
                             )
                             continue
+                        observe_vllm_request(purpose, "transport_error")
                         raise VLLMRequestError(
                             f"vLLM stream dropped before first byte: {e}"
                         )
@@ -264,11 +294,15 @@ async def vllm_post_stream(body: dict) -> AsyncIterator[AsyncIterator[str]]:
                         async for line in line_iter:
                             yield line
 
+                    observe_vllm_request(
+                        purpose, "success", time.monotonic() - t0
+                    )
                     yield _replay()
                     return
             except httpx.RequestError as e:
                 # Connection-level failure before a status code arrived.
                 if attempt + 1 < max_attempts:
+                    observe_vllm_request(purpose, "transient_retry")
                     await _sleep_with_event(
                         attempt,
                         max_attempts,
@@ -276,6 +310,7 @@ async def vllm_post_stream(body: dict) -> AsyncIterator[AsyncIterator[str]]:
                         reason=f"vllm {type(e).__name__}",
                     )
                     continue
+                observe_vllm_request(purpose, "transport_error")
                 raise VLLMRequestError(
                     f"vLLM unreachable after {max_attempts} attempts: {e}"
                 )

@@ -52,9 +52,20 @@ def record_usage(purpose: str, usage: Optional[dict]) -> None:
     Tolerates missing keys (some vLLM builds omit ``total_tokens``); the
     fallback recomputes it from ``prompt_tokens + completion_tokens`` so
     downstream consumers always see a populated ``total_tokens``.
+
+    Also mirrors the per-call totals into the Prometheus
+    ``munin_vllm_tokens_total`` counter (P1 #12). The Prometheus side
+    fires even without an aggregator bound — it's process-wide, not
+    request-scoped.
     """
     if not usage:
         return
+    prompt = int(usage.get("prompt_tokens", 0) or 0)
+    completion = int(usage.get("completion_tokens", 0) or 0)
+    # Prometheus first — fires regardless of aggregator state.
+    if prompt or completion:
+        from metrics import observe_vllm_tokens
+        observe_vllm_tokens(purpose, prompt, completion)
     agg = current_usage_aggregator.get()
     if agg is None:
         return

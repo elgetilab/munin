@@ -221,6 +221,7 @@ async def _call_vllm(
             },
             timeout=60.0,
             foreground=False,
+            purpose=purpose,
         )
     except VLLMRequestError:
         return None

@@ -47,6 +47,7 @@ from usage_tracker import (
     record_usage,
     aggregate_totals,
 )
+from metrics import observe_phantom_urls, observe_turn
 from tool_result import truncate_tool_result
 from mcp.schemas import MCP_TOOLS, CORE_TOOLS
 from mcp.executor import execute_mcp_tool, partition_by_concurrency_safety
@@ -569,7 +570,9 @@ async def _force_clarification_retry(
         }
         body.update(sampling)
         try:
-            d = await vllm_post_json(body, timeout=60.0)
+            d = await vllm_post_json(
+                body, timeout=60.0, purpose="forced_clarification"
+            )
         except VLLMRequestError as e:
             logger.warning(
                 "forced clarification retry failed (attempt %d/%d): %s",
@@ -666,7 +669,9 @@ async def _force_required_tool_retry(
         }
         body.update(sampling)
         try:
-            d = await vllm_post_json(body, timeout=60.0)
+            d = await vllm_post_json(
+                body, timeout=60.0, purpose="forced_required"
+            )
         except VLLMRequestError as e:
             logger.warning(
                 "forced-required retry failed (attempt %d/%d): %s",
@@ -738,6 +743,8 @@ async def _stream_vllm_once(
     sampling: dict,
     enable_tools: bool,
     persona: Optional[dict] = None,
+    *,
+    purpose: str = "chat_turn",
 ) -> AsyncIterator[tuple[str, dict, _StreamAccumulator]]:
     """
     Make one streaming call to vLLM and yield (event_name, payload, acc)
@@ -775,7 +782,7 @@ async def _stream_vllm_once(
         body["tool_choice"] = "auto"
 
     try:
-        async with vllm_post_stream(body) as line_iter:
+        async with vllm_post_stream(body, purpose=purpose) as line_iter:
             emitted_tool_ids: set[int] = set()
 
             async for line in line_iter:
@@ -1583,6 +1590,10 @@ async def stream_chat_completion(
     final_tool_calls: list[dict] = []
     finish_reason: Optional[str] = None
     had_stream_error: Optional[str] = None
+    # P1 #12 chat-turn outcome label. Default to "error" so that an
+    # unhandled exception path (we crash before classifying) is visible
+    # in the metric instead of silently counted as a success.
+    terminal_reason: str = "error"
     # The current turn's stream accumulator + a flag for whether its
     # content has been folded into final_content/final_thinking.
     # Hoisted here (not loop-local) so the save-always finally can read
@@ -2385,7 +2396,10 @@ async def stream_chat_completion(
 
             wrap_acc: Optional[_StreamAccumulator] = None
             async for event_name, payload, accumulator in _stream_vllm_once(
-                messages=wrap_up_messages, sampling=sampling, enable_tools=False
+                messages=wrap_up_messages,
+                sampling=sampling,
+                enable_tools=False,
+                purpose="chat_wrap_up",
             ):
                 wrap_acc = accumulator
                 if event_name == "error":
@@ -2422,6 +2436,7 @@ async def stream_chat_completion(
                 "phantom artifact URLs in conversation: %s",
                 _phantom_urls,
             )
+            observe_phantom_urls("artifact", len(_phantom_urls))
         # Phantom-paper-URL audit. Same backstop shape but for fabricated
         # `search.muninai.org/paper/<doi>/...` citations (chat a42384f0,
         # 2026-05-05: model invented a `[HPCS 2005](https://search.muninai
@@ -2435,6 +2450,7 @@ async def stream_chat_completion(
                 "phantom paper URLs in conversation: %s",
                 _phantom_paper_urls,
             )
+            observe_phantom_urls("paper", len(_phantom_paper_urls))
 
         if not ephemeral:
             await chat_store.add_message(
@@ -2481,6 +2497,17 @@ async def stream_chat_completion(
                 logger.warning("Auto-title failed: %s", e)
 
         # --- 8. Done ---
+        # P1 #12: classify terminal reason. Precedence matters because
+        # multiple flags can be true at once — cancellation trumps
+        # stream errors trumps turn-cap trumps the clean done path.
+        if _cancelled():
+            terminal_reason = "cancelled"
+        elif had_stream_error:
+            terminal_reason = "stream_error"
+        elif hit_turn_cap:
+            terminal_reason = "max_turns"
+        else:
+            terminal_reason = "done"
         yield _sse(
             "done",
             {
@@ -2547,3 +2574,11 @@ async def stream_chat_completion(
         # was already reset by an outer scope.
         with contextlib.suppress(ValueError, LookupError):
             current_usage_aggregator.reset(usage_token)
+        # P1 #12 turn-counter. Always emit, including the "error" default
+        # when an unhandled exception punched out of the try without
+        # classification. Persona name is best-effort.
+        try:
+            _persona_label = (persona or {}).get("id") if isinstance(persona, dict) else None
+        except Exception:
+            _persona_label = None
+        observe_turn(_persona_label, terminal_reason)

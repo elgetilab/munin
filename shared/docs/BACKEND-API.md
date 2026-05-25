@@ -1271,3 +1271,30 @@ curl -X DELETE -H "X-Munin-Email: you@muninai.org" \
 
 For a full end-to-end sanity run, see `scripts/smoke-test.sh` at the repo
 root, 16 checks covering every endpoint in this doc.
+
+## 12. Prometheus `/metrics`
+
+The retrieval service exposes a Prometheus scrape endpoint at
+`/metrics` on the same port as the rest of the API (8080). Caddy only
+proxies `/api/*` and `/paper/*` externally, so this endpoint is
+naturally cluster-internal. Add a scrape job pointing directly at the
+hugin-side service if you want to ingest it.
+
+Metric names follow the `munin_<subsystem>_<noun>` convention; counters
+end in `_total`, histograms end in `_seconds`. The default
+`prometheus_client` process / GC / FD metrics are also exported.
+
+| Metric | Type | Labels | What it counts |
+|---|---|---|---|
+| `munin_vllm_request_total` | Counter | `purpose`, `outcome` | Every vLLM HTTP call. `outcome` is one of `success` / `transient_retry` (per retry attempt) / `transport_error` (exhausted) / `permanent` (non-retryable status). `purpose` is the call site: `chat_turn`, `chat_wrap_up`, `forced_clarification`, `forced_required`, `summary`, `title`, `agent_turn`, `agent_wrap_up`. |
+| `munin_vllm_request_duration_seconds` | Histogram | `purpose` | Wall time of a successful call only (retries excluded). Streaming purposes record time-to-first-byte. |
+| `munin_vllm_tokens_total` | Counter | `purpose`, `kind` | Token counts mirrored from `record_usage`. `kind` is `prompt` or `completion`. |
+| `munin_mcp_tool_total` | Counter | `name`, `outcome` | Every `execute_mcp_tool` dispatch. `outcome` is `success` / `error` / `validation_error` / `unknown_tool`. |
+| `munin_mcp_tool_duration_seconds` | Histogram | `name` | Wall time of a single tool dispatch (success and failure both observed). |
+| `munin_chat_turns_total` | Counter | `persona`, `terminal_reason` | One increment per call to `stream_chat_completion`, regardless of success. `terminal_reason` is one of `done` / `max_turns` / `stream_error` / `cancelled` / `error`. |
+| `munin_phantom_url_total` | Counter | `kind` | Phantom-URL audit hits in assistant content. `kind` is `artifact` or `paper`. |
+
+The helpers in `retrieval/metrics.py` are the single import surface for
+call sites; if you add a new vLLM call site, pass a fresh `purpose` tag
+through `vllm_post_json` / `vllm_post_stream` so the metric labels stay
+useful.

@@ -94,6 +94,7 @@ import project_store
 import artifact_store
 from maintenance import read_maintenance
 import stream_registry as stream_registry_module
+import metrics as metrics_module
 from logging_config import configure_logging
 import logging
 
@@ -114,6 +115,12 @@ app = FastAPI(
 
 # Include MCP router
 app.include_router(mcp_router)
+
+# Expose Prometheus /metrics on the same FastAPI app (P1 #12). Caddy
+# only proxies /api/* and /paper/* externally, so /metrics is naturally
+# cluster-internal — no auth, scraped by a Prometheus running inside
+# the cluster network.
+metrics_module.mount_metrics(app)
 
 
 # ==============================================================================

@@ -27,6 +27,8 @@ jsonschema>=4.20.0
 # sentence-transformers; pinned explicitly so the dependency is a
 # contract, not an accident.
 tokenizers>=0.15.0
+# Prometheus metrics exposed at /metrics (P1 #12).
+prometheus-client>=0.19
 
 # MCP SSE transport
 sse-starlette>=1.6.0
