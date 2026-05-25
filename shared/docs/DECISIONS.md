@@ -10,6 +10,46 @@ self-document (renames, refactors, bug fixes).
 
 ---
 
+## 2026-05-25: SSE reconnect decouples listener from work, reshapes P0 #2
+
+P1 #10 makes a mid-stream WiFi blip or full browser refresh resume the
+in-flight chat turn instead of losing it. The realisation that made
+this feasible was decoupling the HTTP listener from the work:
+
+- A per-request `Stream` (in `retrieval/stream_registry.py`) holds the
+  monotonic event log, a `cancel_event`, and listener attach/detach
+  state. The `stream_chat_completion` coroutine runs as a task that
+  pushes events into the log, not into any specific HTTP response.
+- The `POST /api/chat/completions` SSE response is just a *listener*
+  on that log. A `GET /api/chat/completions/resume?stream_id=...` is
+  another listener that, given `Last-Event-ID`, replays unseen entries
+  then continues live. Either response can detach and reattach without
+  restarting the work.
+
+**Reshape of P0 #2 (disconnect = immediate cancel).** P0 #2 wired a
+500 ms watchdog that fired `cancel_event` the moment the client
+dropped. P1 #10 replaces that with a **grace timer**: on detach,
+start a 60 s window; reattach during the window keeps the work
+running; only if grace expires does the cascade fire. So a brief
+disconnect no longer kills the turn — but a truly abandoned stream
+still frees its vLLM slot, which was P0 #2's whole point.
+
+Choices worth recording:
+
+- **Per-event id format `<stream_id>-<seq>`.** `stream_id` is a hex
+  UUID with no `-`, so `rfind('-')` is unambiguous. Encoding both
+  into one `Last-Event-ID` value means the client only needs one
+  header on resume.
+- **In-memory buffer, bounded at 1000 events.** Overflow flips a
+  `truncated` flag; subsequent resumes return 410 rather than
+  silently skipping events. No disk persistence — a retrieval
+  restart legitimately loses in-flight streams.
+- **`done` retention 60 s.** A late reconnect (slow refresh, slow
+  network) can still pick up the final tail; janitor evicts after.
+- **Cross-tab sessionStorage on the frontend.** Per-tab semantics;
+  closing the tab loses the resume, which matches user intent.
+  Ephemeral chats deliberately don't persist (nothing to restore).
+
 ## 2026-05-22: maintenance mode is a single cluster-side flag
 
 Operator-triggered maintenance (distinct from the nightly 2-6 AM GPU

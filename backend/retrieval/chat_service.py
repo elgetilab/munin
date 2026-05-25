@@ -1324,6 +1324,7 @@ async def stream_chat_completion(
     file_into_project_id: Optional[str] = None,
     query_tags: Optional[list[dict]] = None,
     cancel_event: Optional[asyncio.Event] = None,
+    stream_id: Optional[str] = None,
 ) -> AsyncIterator[dict]:
     """
     Orchestrate a single /api/chat/completions request. Yields SSE events.
@@ -1491,6 +1492,9 @@ async def stream_chat_completion(
             "title": conversation.get("title"),
             "is_new": is_new,
             "ephemeral": ephemeral,
+            # P1 #10: lets the frontend persist + resume via Last-Event-ID
+            # on disconnect or browser refresh. None on legacy callers.
+            "stream_id": stream_id,
         },
     )
 
@@ -2107,6 +2111,7 @@ async def stream_chat_completion(
                                         "id": conversation["id"],
                                         "title": title,
                                         "is_new": False,
+                                        "stream_id": stream_id,
                                     },
                                 )
                         except Exception as e:
@@ -2465,7 +2470,12 @@ async def stream_chat_completion(
                     )
                     yield _sse(
                         "conversation",
-                        {"id": conversation["id"], "title": title, "is_new": False},
+                        {
+                            "id": conversation["id"],
+                            "title": title,
+                            "is_new": False,
+                            "stream_id": stream_id,
+                        },
                     )
             except Exception as e:
                 logger.warning("Auto-title failed: %s", e)

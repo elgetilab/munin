@@ -392,6 +392,41 @@ update the title in the UI).
 status is already `200 OK` once the stream is open). The stream is
 terminated after any `error` event.
 
+**`id:` framing and reconnect (P1 #10).** Every SSE event carries an
+`id: <stream_id>-<seq>` line where `seq` is a monotonic per-stream
+integer starting at 1. The first `conversation` event's payload also
+carries `stream_id` so the client can persist it (e.g. sessionStorage)
+and resume across a browser refresh. SSE comments (`: keepalive`) fire
+every ~15 s of silence so reverse proxies don't drop idle connections.
+
+### 4.8a `GET /api/chat/completions/resume?stream_id=<id>`
+
+Resume an in-flight (or just-completed) stream after a disconnect or
+browser refresh. The client carries `Last-Event-ID: <stream_id>-<seq>`
+indicating the last event it applied; the server replays everything
+with `seq > last_seq` from its in-memory log, then continues live
+until `done`. Same authorization as the POST (`X-Munin-Email` must
+match the stream's owner).
+
+The server keeps the underlying chat-completion task alive for a
+**60 s grace window** after the listener disconnects, so a brief WiFi
+blip or full page reload recovers without losing the turn. If grace
+expires with no reconnect, the work is cancelled (the P0 #2
+cancellation cascade runs and the save-always finally persists
+partial state).
+
+**Responses**:
+
+- `200` with an SSE body — same wire format as the POST. Replayed
+  events arrive in `seq` order, then live events follow.
+- `410 Gone` — the stream is unknown, evicted (kept ~60 s after
+  completion), or its log overflowed (>1000 events) past the
+  client's checkpoint. The frontend treats this as terminal and
+  shows the partial state it already had.
+- `403 Forbidden` — `X-Munin-Email` does not match the stream's
+  owner. Stream ids are UUIDs so this shouldn't happen organically;
+  it's a belt-and-braces check.
+
 ### 4.9 `POST /api/documents/upload`
 
 Multipart form upload.
@@ -1023,7 +1058,7 @@ data: <minified json>
 
 | Event | Payload | Emitted when |
 |---|---|---|
-| `conversation` | `{"id": "...", "title": "..." \| null, "is_new": true \| false, "ephemeral": true \| false}` | At stream start; again after auto-title for new conversations. `ephemeral: true` means the id has the `ephemeral-` prefix and was never persisted; the auto-title follow-up event is skipped |
+| `conversation` | `{"id": "...", "title": "..." \| null, "is_new": true \| false, "ephemeral": true \| false, "stream_id": "..."}` | At stream start; again after auto-title for new conversations. `ephemeral: true` means the id has the `ephemeral-` prefix and was never persisted; the auto-title follow-up event is skipped. `stream_id` (P1 #10) is the server-assigned id for this SSE stream — the frontend persists it (sessionStorage) along with the latest `Last-Event-ID` so a browser refresh or WiFi blip can resume via the `/resume` endpoint |
 | `rag_context` | `{"sources_used": ["papers","web"], "documents": [{"title":"...", "source":"...", "score":0.0, "doi":"...", "content":"..."}, ...]}` | After RAG retrieval, before any generation, only if `rag.enabled: true` and at least one source returned hits |
 | `thinking` | `{"content": "partial reasoning text"}` | Multiple. Accumulate client-side. Sourced from vLLM `delta.reasoning_content` (qwen3 reasoning parser) |
 | `tool_call` | `{"id": "tc-1", "name": "paper_search", "arguments": {...}}` | Once per finalized tool call the main model asks for. Emitted after the vLLM delta for that turn finishes, not mid-arguments |
@@ -1040,6 +1075,7 @@ data: <minified json>
 | `token` | `{"content": "partial response text"}` | Many. Accumulate into the visible answer. Sourced from vLLM `delta.content` |
 | `done` | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}, "usage_by_purpose": {"main_turn": {...}, "wrap_up": {...}, ...}, "finish_reason": "stop"}` | Always the last event on success. `usage` is the **aggregate across every vLLM call this turn**, not just the last one — the gateway records `total_tokens` from here for quota. `usage_by_purpose` is the same numbers broken down by call site for debugging: `main_turn`, `wrap_up`, `forced_clarification`, `forced_required`, `agent_turn`, `agent_wrap_up`, `summary`, `title`. Purposes with zero calls are omitted |
 | `retrying` | `{"attempt": N, "max_attempts": M, "delay_s": 1.0, "reason": "vllm 503"}` | A vLLM call hit a transient error (5xx / 429 / connection drop / pre-first-byte stream drop) and is about to retry. Fires before the backoff sleep. `attempt` is 1-indexed. `reason` is a short tag (e.g. `vllm 503`, `vllm ConnectError`). Multiple may fire per turn. Frontend should render a transient "reconnecting" indicator and reset it once any other event resumes |
+| `reconnecting` | `{"attempt": N, "max_attempts": M, "delay_s": 1.0}` | **Synthetic, client-side only** (P1 #10). Not emitted by the server — the frontend's SSE consumer dispatches it when an SSE connection drops and a `GET /api/chat/completions/resume` is being attempted with `Last-Event-ID`. Renders the same "reconnecting" indicator as `retrying`; cleared on the first real event from the resumed connection |
 | `error` | `{"message": "Human-readable error"}` | On failure. Stream terminates after this |
 
 Ordering for a normal RAG-enabled chat with one tool call:

@@ -93,6 +93,7 @@ import user_profile_store
 import project_store
 import artifact_store
 from maintenance import read_maintenance
+import stream_registry as stream_registry_module
 from logging_config import configure_logging
 import logging
 
@@ -1292,31 +1293,23 @@ async def api_chat_completions(request: Request):
     # §28: #tag chips from the composer, normalised by chat_service.
     query_tags = body.get("tags")
 
-    # Disconnect propagation (P0 #2). A background watchdog polls
-    # request.is_disconnected() every 500ms; when the client drops, it sets
-    # cancel_event, which chat_service uses to (a) cancel any in-flight
-    # tool runner so a long run_python / deep_research stops holding a
-    # vLLM slot, and (b) skip unstarted work (next turn, wrap-up,
-    # auto-title). The save-always finally still runs.
-    cancel_event = asyncio.Event()
+    # P1 #10: the listener and the work are decoupled via a Stream in
+    # the registry. The chat_service generator runs as its own task,
+    # appending events to the stream's log. A grace timer (default 60s)
+    # absorbs brief disconnects — only after the listener has been
+    # absent for that window does it fire ``cancel_event`` and let
+    # P0 #2's cancellation cascade run. This lets a WiFi blip or
+    # browser refresh resume the in-flight turn via
+    # GET /api/chat/completions/resume.
+    stream = stream_registry_module.Stream(
+        user_email=user_email,
+        conversation_id=conversation_id,
+    )
+    stream_registry_module.registry.register(stream)
 
-    async def _watch_disconnect() -> None:
-        while not cancel_event.is_set():
-            try:
-                if await request.is_disconnected():
-                    cancel_event.set()
-                    return
-            except Exception:
-                # If the disconnect check itself raises (e.g. ASGI message
-                # queue closed) treat it as a disconnect.
-                cancel_event.set()
-                return
-            await asyncio.sleep(0.5)
-
-    async def event_stream():
-        watch_task = asyncio.create_task(_watch_disconnect())
+    async def _run_chat_into_log() -> None:
         try:
-            async for event in chat_service.stream_chat_completion(
+            async for event_dict in chat_service.stream_chat_completion(
                 user_email=user_email,
                 persona_id=persona_id,
                 conversation_id=conversation_id,
@@ -1327,17 +1320,72 @@ async def api_chat_completions(request: Request):
                 project=project_for_request,
                 file_into_project_id=body_project_id if not conversation_id else None,
                 query_tags=query_tags,
-                cancel_event=cancel_event,
+                cancel_event=stream.cancel_event,
+                stream_id=stream.stream_id,
             ):
-                if cancel_event.is_set():
-                    break
-                yield event
+                stream.record(event_dict["event"], event_dict["data"])
+        except Exception:
+            logger.exception(
+                "stream %s runner crashed", stream.stream_id
+            )
         finally:
-            watch_task.cancel()
-            with contextlib.suppress(BaseException):
-                await watch_task
+            stream.mark_done()
 
-    return EventSourceResponse(event_stream())
+    stream.runner_task = asyncio.create_task(_run_chat_into_log())
+    stream.grace_task = asyncio.create_task(
+        stream_registry_module._grace_timer(stream)
+    )
+
+    return EventSourceResponse(
+        stream_registry_module.serve_stream(stream),
+        ping=int(stream_registry_module.KEEPALIVE_S),
+    )
+
+
+@app.get("/api/chat/completions/resume")
+async def api_chat_completions_resume(stream_id: str, request: Request):
+    """Resume an in-flight (or just-completed) chat completion stream.
+
+    The client carries ``Last-Event-ID: <stream_id>-<seq>`` to indicate
+    the last event it applied; the server replays everything strictly
+    newer and continues live. Used by the frontend for mid-stream
+    reconnects (WiFi blip) and on-page-load resume after a browser
+    refresh (sessionStorage carries stream_id + last_event_id across
+    the reload). P1 #10."""
+    user_email = _require_user_email(request)
+    stream = stream_registry_module.registry.get(stream_id)
+    if stream is None or stream.truncated:
+        # Unknown id, expired (evicted by the janitor), or buffer
+        # overflowed past the client's checkpoint. 410 is the right
+        # signal — the resource is gone, don't retry blindly.
+        raise HTTPException(
+            status_code=410,
+            detail={"error": {"message": "stream is gone or has been truncated"}},
+        )
+    if stream.user_email and stream.user_email != user_email:
+        # Belt-and-braces: stream_id is a UUID so guessing is infeasible,
+        # but never let user A resume user B's stream.
+        raise HTTPException(
+            status_code=403,
+            detail={"error": {"message": "stream does not belong to this user"}},
+        )
+
+    parsed = stream_registry_module.parse_last_event_id(
+        request.headers.get("Last-Event-ID")
+    )
+    after_seq = 0
+    if parsed is not None:
+        parsed_sid, parsed_seq = parsed
+        # If the header's stream_id disagrees with the path, trust the
+        # path (the client may have stale Last-Event-ID state) and
+        # replay from 0.
+        if parsed_sid == stream_id:
+            after_seq = parsed_seq
+
+    return EventSourceResponse(
+        stream_registry_module.serve_stream(stream, after_seq=after_seq),
+        ping=int(stream_registry_module.KEEPALIVE_S),
+    )
 
 
 # ==============================================================================
@@ -3516,6 +3564,11 @@ async def startup():
     logger.info("Initializing database connections...")
     qdrant = get_qdrant()
     neo4j = get_neo4j()
+
+    # Spawn the SSE stream-registry janitor (P1 #10). Drops streams
+    # that have been done > 60s so the in-memory log doesn't grow
+    # unbounded.
+    stream_registry_module.registry.start_janitor()
 
     # Initialize chat persistence (SQLite)
     try:

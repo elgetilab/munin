@@ -1,11 +1,16 @@
-import { useState, useCallback, useRef } from 'react';
-import { streamChat, fetchChat } from '../lib/api';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { streamChat, resumeChat, fetchChat } from '../lib/api';
 import type { Message, MessageContent, SSEEvent, ToolCall, RagContext, AgentState, Clarification, ArtifactSummary, ArtifactCreatedEvent, ArtifactUpdatedEvent, TagChip, Delegation } from '../lib/types';
 
 interface RetryingState {
   attempt: number;
   maxAttempts: number;
   reason: string;
+}
+
+interface ReconnectingState {
+  attempt: number;
+  maxAttempts: number;
 }
 
 interface StreamingState {
@@ -20,6 +25,10 @@ interface StreamingState {
   // transient error (5xx / 429 / pre-first-byte drop). Cleared as soon as
   // any other event arrives (the call succeeded) or the stream finishes.
   retrying: RetryingState | null;
+  // Set by the SSE consumer when the connection drops and a Last-Event-ID
+  // resume is being attempted (P1 #10). Cleared once any event lands on
+  // the resumed connection.
+  reconnecting: ReconnectingState | null;
 }
 
 const INITIAL_STREAMING: StreamingState = {
@@ -31,7 +40,10 @@ const INITIAL_STREAMING: StreamingState = {
   delegations: [],
   phase: 'idle',
   retrying: null,
+  reconnecting: null,
 };
+
+import { readActiveStream } from '../lib/api';
 
 export function useChat() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -69,16 +81,30 @@ export function useChat() {
     setLastArtifactEvent(null);
   }, []);
 
-  const sendMessage = useCallback(async (content: string, persona: string, ephemeral?: boolean, multimodalContent?: MessageContent, projectId?: string, tags?: TagChip[]) => {
+  const sendMessage = useCallback(async (
+    content: string,
+    persona: string,
+    ephemeral?: boolean,
+    multimodalContent?: MessageContent,
+    projectId?: string,
+    tags?: TagChip[],
+    // P1 #10 Phase 3: when set, skip the optimistic user message + POST
+    // and resume an existing stream via Last-Event-ID instead. The
+    // content/persona/etc args are ignored on the resume path; the
+    // entire event handler downstream is identical.
+    resumeOpts?: { streamId: string; lastEventId?: string },
+  ) => {
     setError(null);
 
-    const userMessage: Message = {
-      id: `temp-${Date.now()}`,
-      role: 'user',
-      content,
-      created_at: new Date().toISOString(),
-    };
-    setMessages(prev => [...prev, userMessage]);
+    if (!resumeOpts) {
+      const userMessage: Message = {
+        id: `temp-${Date.now()}`,
+        role: 'user',
+        content,
+        created_at: new Date().toISOString(),
+      };
+      setMessages(prev => [...prev, userMessage]);
+    }
     setStreaming({ ...INITIAL_STREAMING, phase: 'thinking' });
 
     const abort = new AbortController();
@@ -97,6 +123,11 @@ export function useChat() {
       // resumed forward progress — clear the "reconnecting" indicator.
       if (event.type !== 'retrying') {
         setStreaming(s => (s.retrying ? { ...s, retrying: null } : s));
+      }
+      // Same pattern for the SSE-level reconnect indicator (P1 #10):
+      // any other event means a fresh connection is delivering data.
+      if (event.type !== 'reconnecting') {
+        setStreaming(s => (s.reconnecting ? { ...s, reconnecting: null } : s));
       }
       switch (event.type) {
         case 'conversation':
@@ -245,6 +276,18 @@ export function useChat() {
             },
           }));
           break;
+        case 'reconnecting':
+          // SSE connection to the server dropped; the client is
+          // resuming via Last-Event-ID. The in-flight turn keeps
+          // running server-side during the grace window (P1 #10).
+          setStreaming(s => ({
+            ...s,
+            reconnecting: {
+              attempt: event.data.attempt,
+              maxAttempts: event.data.max_attempts,
+            },
+          }));
+          break;
         case 'error': {
           // Save-always parity with the backend (chat 3951063c,
           // 2026-05-08): append a Message carrying whatever partial
@@ -313,20 +356,29 @@ export function useChat() {
     }
 
     try {
-      await streamChat(
-        {
-          persona,
-          conversation_id: ephemeral ? undefined : conversationId,
-          project_id: projectId,
-          messages: chatMessages,
-          rag: { enabled: true },
-          tags: tags && tags.length > 0 ? tags : undefined,
-          ephemeral: ephemeral || undefined,
-          stream: true,
-        },
-        handleEvent,
-        abort.signal,
-      );
+      if (resumeOpts) {
+        await resumeChat(
+          resumeOpts.streamId,
+          resumeOpts.lastEventId,
+          handleEvent,
+          abort.signal,
+        );
+      } else {
+        await streamChat(
+          {
+            persona,
+            conversation_id: ephemeral ? undefined : conversationId,
+            project_id: projectId,
+            messages: chatMessages,
+            rag: { enabled: true },
+            tags: tags && tags.length > 0 ? tags : undefined,
+            ephemeral: ephemeral || undefined,
+            stream: true,
+          },
+          handleEvent,
+          abort.signal,
+        );
+      }
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
         // Network-level failure (DNS, connection drop, non-streaming
@@ -358,6 +410,33 @@ export function useChat() {
       abortRef.current = null;
     }
   }, [conversationId]);
+
+  // P1 #10 Phase 3 — on mount, check sessionStorage for an active SSE
+  // stream and resume it. This is the cross-browser-refresh case:
+  // refreshing the chat tab mid-stream re-attaches to the in-flight
+  // turn (provided the server hasn't yet evicted it past the grace
+  // window). Runs once per mount; if there's no active stream the
+  // effect is a no-op.
+  useEffect(() => {
+    const active = readActiveStream();
+    if (!active) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await loadConversation(active.conversation_id);
+      } catch {
+        // The conversation may not exist yet (very fresh stream); the
+        // resume will surface a 410 if the server has also lost it.
+      }
+      if (cancelled) return;
+      await sendMessage(
+        '', '', false, undefined, undefined, undefined,
+        { streamId: active.stream_id, lastEventId: active.last_event_id },
+      );
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // mount-only
 
   const stopGenerating = useCallback(() => {
     abortRef.current?.abort();

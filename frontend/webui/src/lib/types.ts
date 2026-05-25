@@ -171,7 +171,7 @@ export interface Clarification {
 
 export type SSEEvent =
   | { type: 'metadata'; data: { persona: string; model: string; rag_sources?: string[] } }
-  | { type: 'conversation'; data: { id: string; title: string; is_new: boolean } }
+  | { type: 'conversation'; data: { id: string; title: string; is_new: boolean; stream_id?: string | null; ephemeral?: boolean } }
   | { type: 'rag_context'; data: RagContext }
   | { type: 'thinking'; data: { content: string } }
   | { type: 'token'; data: { content: string } }
@@ -188,6 +188,7 @@ export type SSEEvent =
   | { type: 'delegated'; data: Delegation }
   | { type: 'persona_changed'; data: { id: string; persona: string } }
   | { type: 'retrying'; data: { attempt: number; max_attempts: number; delay_s: number; reason: string } }
+  | { type: 'reconnecting'; data: { attempt: number; max_attempts: number; delay_s: number } }
   | { type: 'error'; data: { message: string } }
   | { type: 'done'; data: { usage?: { prompt_tokens: number; completion_tokens: number }; finish_reason: string } };
 
