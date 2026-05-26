@@ -115,11 +115,17 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
     outcome = "error"
     try:
         result = await _dispatch_mcp_tool(tool_name, arguments)
-        if isinstance(result, dict) and "error" in result:
-            msg = result.get("error", "")
-            if isinstance(msg, str) and msg.startswith("invalid arguments"):
+        # Truthy check, not key-presence: tools like `run_python` return
+        # an envelope with an `"error": null` field on success (the null
+        # is meaningful — "no exception was raised"). Treating the key's
+        # mere presence as failure misclassifies every successful
+        # run_python / compile_latex / sandbox call as outcome="error",
+        # which we saw in the live metrics on 2026-05-26.
+        err = result.get("error") if isinstance(result, dict) else None
+        if err:
+            if isinstance(err, str) and err.startswith("invalid arguments"):
                 outcome = "validation_error"
-            elif isinstance(msg, str) and msg.startswith("Unknown tool"):
+            elif isinstance(err, str) and err.startswith("Unknown tool"):
                 outcome = "unknown_tool"
             else:
                 outcome = "error"

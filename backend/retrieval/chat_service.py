@@ -2565,6 +2565,31 @@ async def stream_chat_completion(
             terminal_reason = "max_turns"
         else:
             terminal_reason = "done"
+
+        # P2 #23/#25: fire stop hooks BEFORE yielding `done`. The
+        # per-iteration tool emitter (lines ~2200) has already been
+        # torn down, so we install a turn-final emitter that buffers
+        # into a local list. We then yield each buffered event on
+        # the still-open stream, immediately before `done`. Without
+        # this, hooks that emit_sse (today: memory_extract) would
+        # write into a None emitter because dispatch_stop used to
+        # run in the outer finally — past the last yield.
+        _stop_events: list[tuple[str, dict]] = []
+
+        def _stop_push(event_name: str, data: dict) -> None:
+            _stop_events.append((event_name, data))
+
+        _stop_emitter_token = current_sse_emitter.set(_stop_push)
+        try:
+            await hooks_module.dispatch_stop(terminal_reason)
+        except Exception as e:
+            logger.exception("stop hook dispatch failed: %s", e)
+        finally:
+            with contextlib.suppress(ValueError, LookupError):
+                current_sse_emitter.reset(_stop_emitter_token)
+        for _ev_name, _ev_data in _stop_events:
+            yield _sse(_ev_name, _ev_data)
+
         yield _sse(
             "done",
             {
@@ -2639,11 +2664,6 @@ async def stream_chat_completion(
         except Exception:
             _persona_label = None
         observe_turn(_persona_label, terminal_reason)
-        # P2 #23 stop: fire end-of-turn hooks. Run after observe_turn
-        # so the metric still increments even if a hook misbehaves
-        # (the dispatcher catches per-hook exceptions, but defence
-        # in depth). Side-effect only; no return.
-        try:
-            await hooks_module.dispatch_stop(terminal_reason)
-        except Exception as e:
-            logger.exception("stop hook dispatch failed: %s", e)
+        # P2 #23 stop hooks now fire BEFORE the `done` yield (see the
+        # try-block block above) so their emit_sse calls actually
+        # reach the client. Nothing to do here.
