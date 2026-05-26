@@ -3643,6 +3643,16 @@ async def startup():
     except Exception:
         logger.exception("Failed to load hooks")
 
+    # MCP dispatch registry consistency check (P2 #19). Catches the
+    # three drift modes the old if/elif chain allowed: schema entry
+    # with no executor branch, executor branch with no schema entry,
+    # duplicate registration. Failure raises — internal developer
+    # invariant, container restarts until fixed.
+    from mcp._dispatch import verify_dispatch_registry
+
+    verify_dispatch_registry()
+    logger.info("MCP dispatch registry verified")
+
     # Eager-load embedding models so /api/status reflects real
     # readiness instead of "unavailable" (which used to mean
     # either failed-to-load or lazy-not-yet-called — confusing
