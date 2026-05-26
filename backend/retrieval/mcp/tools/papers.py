@@ -13,6 +13,7 @@ Provides:
 """
 
 import asyncio
+import logging
 import os
 from typing import Optional
 from urllib.parse import quote
@@ -22,6 +23,8 @@ import httpx
 from database import get_qdrant, get_neo4j, get_specter, PAPERS_PDF_DIR
 from .query_expansion import expand_queries
 from ..context import current_query_tags
+
+logger = logging.getLogger(__name__)
 
 
 def _build_tag_filter(tags: Optional[list[dict]]):
@@ -113,7 +116,7 @@ def get_citation_counts(dois: list[str]) -> dict:
                 for r in result if r["doi"]
             }
     except Exception as e:
-        print(f"[WARNING] Failed to get citation counts: {e}")
+        logger.warning("Failed to get citation counts: %s", e)
         return {}
 
 
@@ -245,7 +248,7 @@ def _qdrant_search_one(
             out.append(row)
         return out
     except Exception as e:
-        print(f"[WARNING] paper_search '{q}' failed: {e}")
+        logger.warning("paper_search %r failed: %s", q, e)
         return []
 
 
@@ -383,12 +386,15 @@ async def _semantic_scholar_one(
         data = response.json()
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 429:
-            print(f"[WARNING] semantic_scholar_search '{q}' rate limited")
+            logger.warning("semantic_scholar_search %r rate limited", q)
         else:
-            print(f"[WARNING] semantic_scholar_search '{q}' HTTP {e.response.status_code}")
+            logger.warning(
+                "semantic_scholar_search %r HTTP %d",
+                q, e.response.status_code,
+            )
         return []
     except Exception as e:
-        print(f"[WARNING] semantic_scholar_search '{q}' failed: {e}")
+        logger.warning("semantic_scholar_search %r failed: %s", q, e)
         return []
 
     out: list[dict] = []
@@ -548,7 +554,7 @@ def _paper_lookup_local(doi: str) -> Optional[dict]:
             "source": "local",
         }
     except Exception as e:
-        print(f"[WARNING] local paper_lookup failed for {doi}: {e}")
+        logger.warning("local paper_lookup failed for %s: %s", doi, e)
         return None
 
 
@@ -579,12 +585,15 @@ async def _paper_lookup_semantic_scholar(doi: str) -> Optional[dict]:
             paper = response.json()
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 429:
-            print(f"[WARNING] semantic_scholar paper_lookup rate limited for {doi}")
+            logger.warning("semantic_scholar paper_lookup rate limited for %s", doi)
         else:
-            print(f"[WARNING] semantic_scholar paper_lookup HTTP {e.response.status_code} for {doi}")
+            logger.warning(
+                "semantic_scholar paper_lookup HTTP %d for %s",
+                e.response.status_code, doi,
+            )
         return None
     except Exception as e:
-        print(f"[WARNING] semantic_scholar paper_lookup failed for {doi}: {e}")
+        logger.warning("semantic_scholar paper_lookup failed for %s: %s", doi, e)
         return None
 
     if not paper or not paper.get("title"):
@@ -645,7 +654,7 @@ async def _paper_lookup_crossref(doi: str) -> Optional[dict]:
             response.raise_for_status()
             data = response.json()
     except Exception as e:
-        print(f"[WARNING] crossref paper_lookup failed for {doi}: {e}")
+        logger.warning("crossref paper_lookup failed for %s: %s", doi, e)
         return None
 
     msg = data.get("message") or {}

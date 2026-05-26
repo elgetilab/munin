@@ -19,6 +19,7 @@ frontend having to know this is a nested call.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any, Optional
 
@@ -27,8 +28,11 @@ from mcp.schemas import MCP_TOOLS
 from mcp.context import current_sse_emitter
 from vllm_client import vllm_post_json, VLLMRequestError
 from usage_tracker import record_usage
+from tool_result import truncate_tool_result
 
 from .parallel import run_tools_parallel
+
+logger = logging.getLogger(__name__)
 
 
 def _tools_openai_schema(allowlist: list[str]) -> list[dict]:
@@ -103,9 +107,10 @@ async def _call_vllm(
                 "stream": False,
             },
             timeout=120.0,
+            purpose=purpose,
         )
     except VLLMRequestError as e:
-        print(f"[ERROR] Agent vLLM call failed: {e}")
+        logger.error("Agent vLLM call failed: %s", e)
         return None
     record_usage(purpose, data.get("usage"))
     choices = data.get("choices") or []
@@ -218,7 +223,7 @@ async def execute_agent(agent_config: dict, query: str) -> dict:
             messages.append({
                 "role": "tool",
                 "tool_call_id": res["id"],
-                "content": json.dumps(res["result"])[:8000],
+                "content": truncate_tool_result(res["result"]),
             })
 
         if total_tool_calls >= agent_config["max_tool_calls"]:

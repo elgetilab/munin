@@ -76,6 +76,9 @@ Polled by the frontend's `useStatus` hook every 60 s.
 
 ```json
 {
+  "maintenance": {
+    "active": false
+  },
   "vllm": {
     "status": "running",
     "model": "qwen3.6-35b-a3b",
@@ -93,8 +96,16 @@ Polled by the frontend's `useStatus` hook every 60 s.
 }
 ```
 
+When maintenance mode is on, the `maintenance` block instead reads
+`{"active": true, "message": "...", "since": "<ISO8601>"}` — `message`
+is operator-set (may be empty), `since` is when it was switched on.
+
 Notes:
 
+- `maintenance.active` reflects the cluster-side flag set by the
+  `munin-maintenance` toggle. When `true` the frontend renders the
+  maintenance page **with precedence over** the sleeping page,
+  regardless of `vllm.status`.
 - `vllm.status` is one of `running` / `offline` / `starting`. When `offline`
   the frontend should render `SleepingPage`.
 - `vllm.next_start` is **only present** when `status === "offline"`. It's
@@ -380,6 +391,41 @@ update the title in the UI).
 **Errors**: surfaced as `event: error` frames, not HTTP error codes (the
 status is already `200 OK` once the stream is open). The stream is
 terminated after any `error` event.
+
+**`id:` framing and reconnect (P1 #10).** Every SSE event carries an
+`id: <stream_id>-<seq>` line where `seq` is a monotonic per-stream
+integer starting at 1. The first `conversation` event's payload also
+carries `stream_id` so the client can persist it (e.g. sessionStorage)
+and resume across a browser refresh. SSE comments (`: keepalive`) fire
+every ~15 s of silence so reverse proxies don't drop idle connections.
+
+### 4.8a `GET /api/chat/completions/resume?stream_id=<id>`
+
+Resume an in-flight (or just-completed) stream after a disconnect or
+browser refresh. The client carries `Last-Event-ID: <stream_id>-<seq>`
+indicating the last event it applied; the server replays everything
+with `seq > last_seq` from its in-memory log, then continues live
+until `done`. Same authorization as the POST (`X-Munin-Email` must
+match the stream's owner).
+
+The server keeps the underlying chat-completion task alive for a
+**60 s grace window** after the listener disconnects, so a brief WiFi
+blip or full page reload recovers without losing the turn. If grace
+expires with no reconnect, the work is cancelled (the P0 #2
+cancellation cascade runs and the save-always finally persists
+partial state).
+
+**Responses**:
+
+- `200` with an SSE body — same wire format as the POST. Replayed
+  events arrive in `seq` order, then live events follow.
+- `410 Gone` — the stream is unknown, evicted (kept ~60 s after
+  completion), or its log overflowed (>1000 events) past the
+  client's checkpoint. The frontend treats this as terminal and
+  shows the partial state it already had.
+- `403 Forbidden` — `X-Munin-Email` does not match the stream's
+  owner. Stream ids are UUIDs so this shouldn't happen organically;
+  it's a belt-and-braces check.
 
 ### 4.9 `POST /api/documents/upload`
 
@@ -1012,7 +1058,7 @@ data: <minified json>
 
 | Event | Payload | Emitted when |
 |---|---|---|
-| `conversation` | `{"id": "...", "title": "..." \| null, "is_new": true \| false, "ephemeral": true \| false}` | At stream start; again after auto-title for new conversations. `ephemeral: true` means the id has the `ephemeral-` prefix and was never persisted; the auto-title follow-up event is skipped |
+| `conversation` | `{"id": "...", "title": "..." \| null, "is_new": true \| false, "ephemeral": true \| false, "stream_id": "..."}` | At stream start; again after auto-title for new conversations. `ephemeral: true` means the id has the `ephemeral-` prefix and was never persisted; the auto-title follow-up event is skipped. `stream_id` (P1 #10) is the server-assigned id for this SSE stream — the frontend persists it (sessionStorage) along with the latest `Last-Event-ID` so a browser refresh or WiFi blip can resume via the `/resume` endpoint |
 | `rag_context` | `{"sources_used": ["papers","web"], "documents": [{"title":"...", "source":"...", "score":0.0, "doi":"...", "content":"..."}, ...]}` | After RAG retrieval, before any generation, only if `rag.enabled: true` and at least one source returned hits |
 | `thinking` | `{"content": "partial reasoning text"}` | Multiple. Accumulate client-side. Sourced from vLLM `delta.reasoning_content` (qwen3 reasoning parser) |
 | `tool_call` | `{"id": "tc-1", "name": "paper_search", "arguments": {...}}` | Once per finalized tool call the main model asks for. Emitted after the vLLM delta for that turn finishes, not mid-arguments |
@@ -1029,6 +1075,7 @@ data: <minified json>
 | `token` | `{"content": "partial response text"}` | Many. Accumulate into the visible answer. Sourced from vLLM `delta.content` |
 | `done` | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}, "usage_by_purpose": {"main_turn": {...}, "wrap_up": {...}, ...}, "finish_reason": "stop"}` | Always the last event on success. `usage` is the **aggregate across every vLLM call this turn**, not just the last one — the gateway records `total_tokens` from here for quota. `usage_by_purpose` is the same numbers broken down by call site for debugging: `main_turn`, `wrap_up`, `forced_clarification`, `forced_required`, `agent_turn`, `agent_wrap_up`, `summary`, `title`. Purposes with zero calls are omitted |
 | `retrying` | `{"attempt": N, "max_attempts": M, "delay_s": 1.0, "reason": "vllm 503"}` | A vLLM call hit a transient error (5xx / 429 / connection drop / pre-first-byte stream drop) and is about to retry. Fires before the backoff sleep. `attempt` is 1-indexed. `reason` is a short tag (e.g. `vllm 503`, `vllm ConnectError`). Multiple may fire per turn. Frontend should render a transient "reconnecting" indicator and reset it once any other event resumes |
+| `reconnecting` | `{"attempt": N, "max_attempts": M, "delay_s": 1.0}` | **Synthetic, client-side only** (P1 #10). Not emitted by the server — the frontend's SSE consumer dispatches it when an SSE connection drops and a `GET /api/chat/completions/resume` is being attempted with `Last-Event-ID`. Renders the same "reconnecting" indicator as `retrying`; cleared on the first real event from the resumed connection |
 | `error` | `{"message": "Human-readable error"}` | On failure. Stream terminates after this |
 
 Ordering for a normal RAG-enabled chat with one tool call:
@@ -1069,7 +1116,10 @@ restart. Frontend does not need to touch this.
 ## 7. Context budgeting & summarization
 
 - Budget: `MAX_CONTEXT = 60000`, `GENERATION_RESERVE = 8000` (overridable
-  via env). Tokens are estimated heuristically at ~4 chars/token.
+  via env). Tokens are counted with the real Qwen3 tokenizer (its
+  `tokenizer.json` is mounted into the retrieval container); if that
+  file is unreachable the count falls back to a ~4-chars/token
+  heuristic, which undercounts code / LaTeX / JSON.
 - If `system_prompt + summary + history + new_message` fits, sent as-is.
 - If not: keep the newest messages that fit in half the history budget,
   summarize everything older via a non-streaming vLLM call, persist the
@@ -1111,10 +1161,26 @@ Tools available to the main model and agents (see `retrieval/mcp/schemas.py`):
 | `llm_summarize` | vLLM summarisation helper |
 | `search_user_docs` | Semantic search over the current user's uploaded docs (auto-filters by `X-Munin-Email` via contextvar, never pass a user id) |
 | `invoke_agent` | Delegate to an agent workflow. Input: `{"agent": "...", "query": "..."}` |
+| `tool_search` | Discover deferred tools. Input: `{"query": "..."}`. See "Deferred tool schema" below |
 
 Agents themselves (`research_orchestrator`, `code_checker`, `writing_agent`)
 are defined in `config/agents.yml` with their own tool allowlists, iteration
 limits, and wall-clock timeouts. Agents cannot invoke each other.
+
+**Deferred tool schema (P1 #7).** The `tools` array sent to vLLM does
+**not** carry all 39 tools. It carries only a ~9-tool core set
+(`paper_search`, `web_search`, `read_paper`, `run_python`,
+`create_artifact`, `calculate`, `ask_clarification`,
+`delegate_to_persona`, `tool_search`), intersected with the persona's
+allowlist. Every other tool is hidden until the model calls
+`tool_search` with a natural-language query; the executor returns the
+matching tools' schemas (top 8 by relevance, scoped to the persona's
+allowlist) and unlocks them into the schema for the rest of that
+request. This keeps prefill ~15K tokens lighter and well clear of the
+hang cliff. Authorization is unchanged — the persona allowlist is still
+the gate; deferral only governs schema *visibility*. Unlocked tools
+reset per request. Frontend implication: none — `tool_search` appears
+as an ordinary `tool_call` / `tool_result` pair.
 
 The executor validates every tool call's `arguments` against the tool's
 `inputSchema` before dispatch (`mcp/executor.py`). Schema mismatches
@@ -1205,3 +1271,30 @@ curl -X DELETE -H "X-Munin-Email: you@muninai.org" \
 
 For a full end-to-end sanity run, see `scripts/smoke-test.sh` at the repo
 root, 16 checks covering every endpoint in this doc.
+
+## 12. Prometheus `/metrics`
+
+The retrieval service exposes a Prometheus scrape endpoint at
+`/metrics` on the same port as the rest of the API (8080). Caddy only
+proxies `/api/*` and `/paper/*` externally, so this endpoint is
+naturally cluster-internal. Add a scrape job pointing directly at the
+hugin-side service if you want to ingest it.
+
+Metric names follow the `munin_<subsystem>_<noun>` convention; counters
+end in `_total`, histograms end in `_seconds`. The default
+`prometheus_client` process / GC / FD metrics are also exported.
+
+| Metric | Type | Labels | What it counts |
+|---|---|---|---|
+| `munin_vllm_request_total` | Counter | `purpose`, `outcome` | Every vLLM HTTP call. `outcome` is one of `success` / `transient_retry` (per retry attempt) / `transport_error` (exhausted) / `permanent` (non-retryable status). `purpose` is the call site: `chat_turn`, `chat_wrap_up`, `forced_clarification`, `forced_required`, `summary`, `title`, `agent_turn`, `agent_wrap_up`. |
+| `munin_vllm_request_duration_seconds` | Histogram | `purpose` | Wall time of a successful call only (retries excluded). Streaming purposes record time-to-first-byte. |
+| `munin_vllm_tokens_total` | Counter | `purpose`, `kind` | Token counts mirrored from `record_usage`. `kind` is `prompt` or `completion`. |
+| `munin_mcp_tool_total` | Counter | `name`, `outcome` | Every `execute_mcp_tool` dispatch. `outcome` is `success` / `error` / `validation_error` / `unknown_tool`. |
+| `munin_mcp_tool_duration_seconds` | Histogram | `name` | Wall time of a single tool dispatch (success and failure both observed). |
+| `munin_chat_turns_total` | Counter | `persona`, `terminal_reason` | One increment per call to `stream_chat_completion`, regardless of success. `terminal_reason` is one of `done` / `max_turns` / `stream_error` / `cancelled` / `error`. |
+| `munin_phantom_url_total` | Counter | `kind` | Phantom-URL audit hits in assistant content. `kind` is `artifact` or `paper`. |
+
+The helpers in `retrieval/metrics.py` are the single import surface for
+call sites; if you add a new vLLM call site, pass a fresh `purpose` tag
+through `vllm_post_json` / `vllm_post_stream` so the metric labels stay
+useful.

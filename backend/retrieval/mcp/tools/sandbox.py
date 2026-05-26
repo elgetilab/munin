@@ -15,12 +15,15 @@ Per-conversation kernel binding:
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Optional
 
 import httpx
 
 from ..context import current_user_email, current_conversation_id
+
+logger = logging.getLogger(__name__)
 
 
 def _require_persistent_user_and_conv() -> tuple[Optional[str], Optional[str], Optional[dict]]:
@@ -128,7 +131,7 @@ async def run_python(code: str, timeout_s: int = 30) -> dict:
             art["source"] = registered.get("source")
             art["external_url"] = registered.get("external_url")
         except Exception as e:
-            print(f"[WARNING] register_sandbox_artifact failed: {e}")
+            logger.warning("register_sandbox_artifact failed: %s", e)
     payload["conversation_id"] = conv_id
     return payload
 

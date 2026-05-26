@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import time
 import uuid
@@ -46,7 +47,9 @@ from usage_tracker import (
     record_usage,
     aggregate_totals,
 )
-from mcp.schemas import MCP_TOOLS
+from metrics import observe_phantom_urls, observe_turn
+from tool_result import truncate_tool_result
+from mcp.schemas import MCP_TOOLS, CORE_TOOLS
 from mcp.executor import execute_mcp_tool, partition_by_concurrency_safety
 from mcp.tools import clarification as clarification_tool
 from mcp.context import (
@@ -55,7 +58,11 @@ from mcp.context import (
     current_project_id,
     current_query_tags,
     current_sse_emitter,
+    current_persona,
+    current_unlocked_tools,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # --- SSE helpers --------------------------------------------------------------
@@ -146,7 +153,7 @@ async def _resolve_user_content_images(
                     # Funnel failure should not block the turn. The
                     # image still reaches the model via data URL; it
                     # just won't be persistently referenceable.
-                    print(f"[WARNING] inline image funnel failed: {exc}")
+                    logger.warning("inline image funnel failed: %s", exc)
             data_url = url  # already a valid data URL
 
         elif url.startswith("document:"):
@@ -188,39 +195,46 @@ def _openai_tools_schema(persona: Optional[dict] = None) -> list[dict]:
     """
     Translate MCP_TOOLS into the OpenAI ``tools`` array vLLM expects.
 
-    Filters by the persona's ``params.tool_allowlist`` when present.
-    Personas without an allowlist (legacy / unset) get the full
-    schema with a one-time warning printed at load time.
+    Deferred-tool model (P1 #7). Only ``CORE_TOOLS`` — plus whatever
+    ``tool_search`` has unlocked this request via
+    ``current_unlocked_tools`` — are emitted, intersected with the
+    persona's allowlist. The allowlist stays the *authorization*
+    boundary (enforced in ``_run_tool_calls``); this function only
+    decides what is *visible in the schema*.
 
-    Filtering matters because the full 38-tool schema tokenizes to
-    ~19K tokens and pushes prefill past a hang cliff at ~40K total
-    tokens (see scripts/repro_vllm_hang.py, 2026-04-28). Per-persona
-    subsets keep the schema in the safe zone for typical multi-turn
-    contexts.
+    Keeping the schema at ~9 tools instead of 39 keeps prefill well
+    clear of the ~40K-token hang cliff (see scripts/repro_vllm_hang.py,
+    2026-04-28) and trims ~15K tokens off every turn's prompt.
     """
     allow: Optional[list[str]] = None
     if persona is not None:
         allow = persona_module.tool_allowlist(persona)
         if allow is None:
             pid = persona.get("id") if isinstance(persona, dict) else "?"
-            # One-shot warning per process. Legacy personas without
-            # an explicit allowlist still work — just at the cost of
-            # the larger schema.
             global _UNSCOPED_PERSONA_WARNED
             if pid not in _UNSCOPED_PERSONA_WARNED:
-                print(
-                    f"[WARNING] persona {pid!r} has no params.tool_allowlist; "
-                    f"falling back to full {len(MCP_TOOLS)}-tool schema. "
-                    f"Add an allowlist to keep prompt size below the prefill "
-                    f"cliff."
+                logger.warning(
+                    "persona %r has no params.tool_allowlist; tool_search "
+                    "will surface the full %d-tool registry rather than a "
+                    "scoped subset.",
+                    pid,
+                    len(MCP_TOOLS),
                 )
                 _UNSCOPED_PERSONA_WARNED.add(pid)
 
-    allow_set: Optional[set[str]] = set(allow) if allow is not None else None
+    # The persona allowlist is the tool universe; None = the full
+    # registry (legacy personas). What ships in the schema is the core
+    # set plus tool_search-unlocked tools, clamped to that universe.
+    universe: set[str] = (
+        set(allow) if allow is not None else set(MCP_TOOLS.keys())
+    )
+    unlocked = current_unlocked_tools.get() or set()
+    visible = (CORE_TOOLS | unlocked) & universe
+
     src_persona_id = (persona or {}).get("id") if isinstance(persona, dict) else None
     tools: list[dict] = []
-    for name, spec in MCP_TOOLS.items():
-        if allow_set is not None and name not in allow_set:
+    for name, spec in MCP_TOOLS.items():  # registry order for stable output
+        if name not in visible:
             continue
         params = spec.get("inputSchema", {"type": "object"})
         # delegate_to_persona's persona_id enum lists every persona;
@@ -556,27 +570,31 @@ async def _force_clarification_retry(
         }
         body.update(sampling)
         try:
-            d = await vllm_post_json(body, timeout=60.0)
+            d = await vllm_post_json(
+                body, timeout=60.0, purpose="forced_clarification"
+            )
         except VLLMRequestError as e:
-            print(
-                f"[WARNING] forced clarification retry failed "
-                f"(attempt {attempt + 1}/{max_attempts}): {e}"
+            logger.warning(
+                "forced clarification retry failed (attempt %d/%d): %s",
+                attempt + 1, max_attempts, e,
             )
             continue
         record_usage("forced_clarification", d.get("usage"))
         msg = (d.get("choices") or [{}])[0].get("message") or {}
         tcs = msg.get("tool_calls") or []
         if not tcs:
-            print(
-                f"[WARNING] forced clarification retry produced no tool "
-                f"call (attempt {attempt + 1}/{max_attempts})"
+            logger.warning(
+                "forced clarification retry produced no tool call "
+                "(attempt %d/%d)",
+                attempt + 1, max_attempts,
             )
             continue
         fn = tcs[0].get("function") or {}
         if fn.get("name") != "ask_clarification":
-            print(
-                f"[WARNING] forced clarification retry picked wrong tool "
-                f"{fn.get('name')!r} (attempt {attempt + 1}/{max_attempts})"
+            logger.warning(
+                "forced clarification retry picked wrong tool %r "
+                "(attempt %d/%d)",
+                fn.get("name"), attempt + 1, max_attempts,
             )
             continue
         args = _parse_arguments(fn.get("arguments"))
@@ -589,9 +607,10 @@ async def _force_clarification_retry(
             args.get("questions"),
         )
         if err is not None:
-            print(
-                f"[WARNING] forced clarification retry payload invalid "
-                f"(attempt {attempt + 1}/{max_attempts}): {err}"
+            logger.warning(
+                "forced clarification retry payload invalid "
+                "(attempt %d/%d): %s",
+                attempt + 1, max_attempts, err,
             )
             continue
         return {
@@ -650,20 +669,23 @@ async def _force_required_tool_retry(
         }
         body.update(sampling)
         try:
-            d = await vllm_post_json(body, timeout=60.0)
+            d = await vllm_post_json(
+                body, timeout=60.0, purpose="forced_required"
+            )
         except VLLMRequestError as e:
-            print(
-                f"[WARNING] forced-required retry failed "
-                f"(attempt {attempt + 1}/{max_attempts}): {e}"
+            logger.warning(
+                "forced-required retry failed (attempt %d/%d): %s",
+                attempt + 1, max_attempts, e,
             )
             continue
         record_usage("forced_required", d.get("usage"))
         msg = (d.get("choices") or [{}])[0].get("message") or {}
         tcs = msg.get("tool_calls") or []
         if not tcs:
-            print(
-                f"[WARNING] forced-required retry produced no tool calls "
-                f"(attempt {attempt + 1}/{max_attempts})"
+            logger.warning(
+                "forced-required retry produced no tool calls "
+                "(attempt %d/%d)",
+                attempt + 1, max_attempts,
             )
             continue
         out: list[dict] = []
@@ -721,6 +743,8 @@ async def _stream_vllm_once(
     sampling: dict,
     enable_tools: bool,
     persona: Optional[dict] = None,
+    *,
+    purpose: str = "chat_turn",
 ) -> AsyncIterator[tuple[str, dict, _StreamAccumulator]]:
     """
     Make one streaming call to vLLM and yield (event_name, payload, acc)
@@ -758,7 +782,7 @@ async def _stream_vllm_once(
         body["tool_choice"] = "auto"
 
     try:
-        async with vllm_post_stream(body) as line_iter:
+        async with vllm_post_stream(body, purpose=purpose) as line_iter:
             emitted_tool_ids: set[int] = set()
 
             async for line in line_iter:
@@ -865,9 +889,9 @@ async def _run_tool_calls(
     async def one(tc: dict) -> dict:
         name = tc.get("name") or ""
         if allowed_tools is not None and name not in allowed_tools:
-            print(
-                f"[INFO] persona-allowlist reject "
-                f"(persona={persona_id!r}, tool={name!r})"
+            logger.info(
+                "persona-allowlist reject (persona=%r, tool=%r)",
+                persona_id, name,
             )
             return {
                 "id": tc["id"],
@@ -1171,7 +1195,7 @@ async def _build_full_system_prompt(
             profile = await user_profile_store.get_profile(user_email)
             profile_block = user_profile_store.build_profile_block(profile)
         except Exception as e:
-            print(f"[WARNING] profile load failed: {e}")
+            logger.warning("profile load failed: %s", e)
             profile_block = None
         if profile_block:
             system_prompt = (
@@ -1185,7 +1209,7 @@ async def _build_full_system_prompt(
             memories = await memory_store.recall_all(user_email)
             memory_block = memory_store.build_memory_block(memories)
         except Exception as e:
-            print(f"[WARNING] memory load failed: {e}")
+            logger.warning("memory load failed: %s", e)
             memory_block = None
         if memory_block:
             system_prompt = (
@@ -1204,7 +1228,7 @@ async def _build_full_system_prompt(
                 artifact_rows
             )
         except Exception as e:
-            print(f"[WARNING] artifact summary load failed: {e}")
+            logger.warning("artifact summary load failed: %s", e)
             artifact_block = None
         if artifact_block:
             system_prompt = (
@@ -1217,7 +1241,7 @@ async def _build_full_system_prompt(
         try:
             project_block = project_store.build_project_prompt_block(project)
         except Exception as e:
-            print(f"[WARNING] project block render failed: {e}")
+            logger.warning("project block render failed: %s", e)
             project_block = None
         if project_block:
             system_prompt = (
@@ -1244,7 +1268,7 @@ async def _build_full_system_prompt(
         try:
             capabilities_block = capabilities_module.build_capabilities_block()
         except Exception as e:
-            print(f"[WARNING] capabilities block build failed: {e}")
+            logger.warning("capabilities block build failed: %s", e)
             capabilities_block = None
         if capabilities_block:
             system_prompt = f"{system_prompt}\n\n{capabilities_block}"
@@ -1307,6 +1331,7 @@ async def stream_chat_completion(
     file_into_project_id: Optional[str] = None,
     query_tags: Optional[list[dict]] = None,
     cancel_event: Optional[asyncio.Event] = None,
+    stream_id: Optional[str] = None,
 ) -> AsyncIterator[dict]:
     """
     Orchestrate a single /api/chat/completions request. Yields SSE events.
@@ -1336,6 +1361,13 @@ async def stream_chat_completion(
     # Bind per-request context for MCP tool dispatch (e.g. search_user_docs).
     current_user_email.set(user_email)
     current_conversation_id.set(conversation_id)
+    # Logging picks up persona via this ContextVar so every log line in
+    # the request is automatically tagged with the active persona.
+    current_persona.set(persona_id)
+    # Deferred-tool unlock set (P1 #7). Fresh per request: tool_search
+    # adds discovered tools here and _openai_tools_schema unions them
+    # into the schema for the rest of the request.
+    current_unlocked_tools.set(set())
     # Project context (§21): bind the project_id so search_user_docs
     # auto-scopes via contextvar. Ephemeral chats never have a project,
     # so the contextvar stays None in that branch.
@@ -1436,7 +1468,7 @@ async def stream_chat_completion(
                 if filed is not None:
                     conversation["project_id"] = file_into_project_id
             except Exception as e:
-                print(f"[WARNING] auto-file new conversation failed: {e}")
+                logger.warning("auto-file new conversation failed: %s", e)
 
     assert conversation is not None
     # Now that we know the concrete id, re-bind the MCP context var.
@@ -1467,6 +1499,9 @@ async def stream_chat_completion(
             "title": conversation.get("title"),
             "is_new": is_new,
             "ephemeral": ephemeral,
+            # P1 #10: lets the frontend persist + resume via Last-Event-ID
+            # on disconnect or browser refresh. None on legacy callers.
+            "stream_id": stream_id,
         },
     )
 
@@ -1555,6 +1590,17 @@ async def stream_chat_completion(
     final_tool_calls: list[dict] = []
     finish_reason: Optional[str] = None
     had_stream_error: Optional[str] = None
+    # P1 #12 chat-turn outcome label. Default to "error" so that an
+    # unhandled exception path (we crash before classifying) is visible
+    # in the metric instead of silently counted as a success.
+    terminal_reason: str = "error"
+    # The current turn's stream accumulator + a flag for whether its
+    # content has been folded into final_content/final_thinking.
+    # Hoisted here (not loop-local) so the save-always finally can read
+    # them directly without locals() introspection, even when the
+    # function raises before the streaming loop runs.
+    acc: Optional[_StreamAccumulator] = None
+    acc_transferred = True
     # Per-request token usage aggregator. Every vLLM call site folds its
     # usage into this dict via record_usage(purpose, ...). The done event
     # emits the aggregated totals (gateway-shaped) plus the per-purpose
@@ -1593,7 +1639,10 @@ async def stream_chat_completion(
         delegations_used = 0
         DELEGATION_BUDGET = 1
 
-        MAX_TURNS = 10
+        # Per-persona tool-use turn budget (P1 #16): research personas
+        # doing deep multi-call exploration want more than a chat
+        # persona. personas.max_turns clamps to [1, 30].
+        MAX_TURNS = persona_module.max_turns(persona)
         hit_turn_cap = True  # assume exhaustion unless we break cleanly below
         # Set by the loop body when a vLLM stream error or empty response forces
         # us to abandon the current turn. Triggers the partial-state persistence
@@ -1603,23 +1652,20 @@ async def stream_chat_completion(
         # but a vLLM "Error in input stream" on the follow-up summarisation turn
         # made the entire assistant message disappear from the saved transcript.
         had_stream_error: Optional[str] = None
-        # `acc_transferred` tracks whether the current turn's accumulator
-        # content has been folded into `final_content` / `final_thinking`
-        # already. If GeneratorExit fires inside the inner async-for
-        # (client disconnect during streaming), the transfer below is
-        # skipped, leaving partial content in `acc.content_parts` only.
-        # The save-always finally checks this flag and folds the
-        # remainder so we never lose tokens the user already saw.
-        acc_transferred = True
+        # `acc` / `acc_transferred` are hoisted above the try: block.
+        # If GeneratorExit fires inside the inner async-for (client
+        # disconnect during streaming), the per-turn transfer is skipped,
+        # leaving partial content in `acc` only; the save-always finally
+        # folds the remainder so we never lose tokens the user already saw.
         for turn in range(MAX_TURNS):
             if _cancelled():
-                print(
-                    f"[INFO] client disconnected during turn {turn} "
-                    f"conv={conversation['id']}; stopping early"
+                logger.info(
+                    "client disconnected during turn %d; stopping early",
+                    turn,
                 )
                 hit_turn_cap = False
                 break
-            acc: Optional[_StreamAccumulator] = None
+            acc = None
             stream_error: Optional[str] = None
             recovery_used_this_turn = False
             acc_transferred = False  # reset per-turn
@@ -1711,10 +1757,10 @@ async def stream_chat_completion(
                     trigger_label = (
                         "phantom_url" if phantom_trigger else "prose_action_promise"
                     )
-                    print(
-                        f"[INFO] prose-action recovery firing "
-                        f"(trigger={trigger_label}, conv={conversation['id']}, "
-                        f"turn={turn}, content_len={len(acc.content)})"
+                    logger.info(
+                        "prose-action recovery firing "
+                        "(trigger=%s, turn=%d, content_len=%d)",
+                        trigger_label, turn, len(acc.content),
                     )
                     nudge = (
                         "Your previous response described what you were going "
@@ -1811,10 +1857,10 @@ async def stream_chat_completion(
                     )
 
                 if reject_reason is not None:
-                    print(
-                        f"[INFO] delegate_to_persona rejected "
-                        f"(from={persona_id!r}, target={target_id!r}, "
-                        f"reason={reject_reason!r})"
+                    logger.info(
+                        "delegate_to_persona rejected "
+                        "(from=%r, target=%r, reason=%r)",
+                        persona_id, target_id, reject_reason,
                     )
                     synthetic_result = {
                         "id": delegate_tc["id"],
@@ -1865,10 +1911,10 @@ async def stream_chat_completion(
                 # accumulated this turn), reset accumulators, and let the
                 # loop run another iteration with the new persona.
                 delegations_used += 1
-                print(
-                    f"[INFO] delegate_to_persona firing "
-                    f"(from={persona_id!r}, to={target_id!r}, "
-                    f"reason={reason!r})"
+                logger.info(
+                    "delegate_to_persona firing "
+                    "(from=%r, to=%r, reason=%r)",
+                    persona_id, target_id, reason,
                 )
                 yield _sse(
                     "delegated",
@@ -1892,7 +1938,7 @@ async def stream_chat_completion(
                             persona=target_id,
                         )
                     except Exception as e:
-                        print(f"[WARNING] persona persistence failed: {e}")
+                        logger.warning("persona persistence failed: %s", e)
                     yield _sse(
                         "persona_changed",
                         {
@@ -1914,7 +1960,7 @@ async def stream_chat_completion(
                         project=project,
                     )
                 except Exception as e:
-                    print(f"[WARNING] post-delegation system_prompt rebuild failed: {e}")
+                    logger.warning("post-delegation system_prompt rebuild failed: %s", e)
                 # Re-apply tags block if it was originally injected — same
                 # block sits below the persona prompt; rebuilt above
                 # already includes it via _build_full_system_prompt? No —
@@ -1978,9 +2024,10 @@ async def stream_chat_completion(
                     # an error SSE, fall through to the forced-retry path: it
                     # runs up to 3 attempts with fresh samplings and validates
                     # each, so a schema-valid call almost always drops out.
-                    print(
-                        f"[WARNING] organic ask_clarification payload invalid "
-                        f"({err}); trying forced-retry fallback"
+                    logger.warning(
+                        "organic ask_clarification payload invalid "
+                        "(%s); trying forced-retry fallback",
+                        err,
                     )
                     forced = await _force_clarification_retry(
                         messages, sampling, persona=persona
@@ -1990,8 +2037,8 @@ async def stream_chat_completion(
                         # drop the malformed clarification call so the existing
                         # prose content (if any) reaches the user as a normal
                         # response.
-                        print(
-                            "[WARNING] forced clarification retry also failed; "
+                        logger.warning(
+                            "forced clarification retry also failed; "
                             "dropping malformed clarification and continuing"
                         )
                         tool_calls = [
@@ -2010,9 +2057,10 @@ async def stream_chat_completion(
                     )
                     if err is not None:
                         # Should be unreachable - force retry validates already.
-                        print(
-                            f"[WARNING] forced-retry payload still invalid "
-                            f"after validation: {err}"
+                        logger.warning(
+                            "forced-retry payload still invalid after "
+                            "validation: %s",
+                            err,
                         )
                         hit_turn_cap = False
                         break
@@ -2074,10 +2122,11 @@ async def stream_chat_completion(
                                         "id": conversation["id"],
                                         "title": title,
                                         "is_new": False,
+                                        "stream_id": stream_id,
                                     },
                                 )
                         except Exception as e:
-                            print(f"[WARNING] Auto-title (clarification) failed: {e}")
+                            logger.warning("Auto-title (clarification) failed: %s", e)
 
                 yield _sse(
                     "done",
@@ -2273,7 +2322,7 @@ async def stream_chat_completion(
                 messages.append({
                     "role": "tool",
                     "tool_call_id": res["id"],
-                    "content": json.dumps(res["result"])[:8000],
+                    "content": truncate_tool_result(res["result"]),
                 })
 
             # §3 plot-critique feedback loop: if any of the results were
@@ -2290,7 +2339,7 @@ async def stream_chat_completion(
                     conversation_id=conversation["id"],
                 )
             except Exception as e:
-                print(f"[WARNING] vision feedback loop failed: {e}")
+                logger.warning("vision feedback loop failed: %s", e)
                 followup = None
             if followup is not None:
                 messages.append(followup)
@@ -2307,7 +2356,7 @@ async def stream_chat_completion(
                     user_email=user_email,
                 )
             except Exception as e:
-                print(f"[WARNING] view_attachment followup failed: {e}")
+                logger.warning("view_attachment followup failed: %s", e)
                 view_followup = None
             if view_followup is not None:
                 messages.append(view_followup)
@@ -2328,9 +2377,8 @@ async def stream_chat_completion(
         if _cancelled():
             # Client is gone — don't burn another vLLM slot on a synthesis
             # the user will never see. Save-always finally still runs.
-            print(
-                f"[INFO] client disconnected before wrap-up "
-                f"conv={conversation['id']}; skipping synthesis"
+            logger.info(
+                "client disconnected before wrap-up; skipping synthesis",
             )
         elif (hit_turn_cap or not last_turn_content) and not had_stream_error:
             wrap_up_messages = list(messages) + [
@@ -2348,7 +2396,10 @@ async def stream_chat_completion(
 
             wrap_acc: Optional[_StreamAccumulator] = None
             async for event_name, payload, accumulator in _stream_vllm_once(
-                messages=wrap_up_messages, sampling=sampling, enable_tools=False
+                messages=wrap_up_messages,
+                sampling=sampling,
+                enable_tools=False,
+                purpose="chat_wrap_up",
             ):
                 wrap_acc = accumulator
                 if event_name == "error":
@@ -2381,10 +2432,11 @@ async def stream_chat_completion(
             final_content, final_tool_calls
         )
         if _phantom_urls:
-            print(
-                f"[WARN] phantom artifact URLs in conversation "
-                f"{conversation['id']}: {_phantom_urls}"
+            logger.warning(
+                "phantom artifact URLs in conversation: %s",
+                _phantom_urls,
             )
+            observe_phantom_urls("artifact", len(_phantom_urls))
         # Phantom-paper-URL audit. Same backstop shape but for fabricated
         # `search.muninai.org/paper/<doi>/...` citations (chat a42384f0,
         # 2026-05-05: model invented a `[HPCS 2005](https://search.muninai
@@ -2394,10 +2446,11 @@ async def stream_chat_completion(
             final_content, final_tool_calls
         )
         if _phantom_paper_urls:
-            print(
-                f"[WARN] phantom paper URLs in conversation "
-                f"{conversation['id']}: {_phantom_paper_urls}"
+            logger.warning(
+                "phantom paper URLs in conversation: %s",
+                _phantom_paper_urls,
             )
+            observe_phantom_urls("paper", len(_phantom_paper_urls))
 
         if not ephemeral:
             await chat_store.add_message(
@@ -2433,12 +2486,28 @@ async def stream_chat_completion(
                     )
                     yield _sse(
                         "conversation",
-                        {"id": conversation["id"], "title": title, "is_new": False},
+                        {
+                            "id": conversation["id"],
+                            "title": title,
+                            "is_new": False,
+                            "stream_id": stream_id,
+                        },
                     )
             except Exception as e:
-                print(f"[WARNING] Auto-title failed: {e}")
+                logger.warning("Auto-title failed: %s", e)
 
         # --- 8. Done ---
+        # P1 #12: classify terminal reason. Precedence matters because
+        # multiple flags can be true at once — cancellation trumps
+        # stream errors trumps turn-cap trumps the clean done path.
+        if _cancelled():
+            terminal_reason = "cancelled"
+        elif had_stream_error:
+            terminal_reason = "stream_error"
+        elif hit_turn_cap:
+            terminal_reason = "max_turns"
+        else:
+            terminal_reason = "done"
         yield _sse(
             "done",
             {
@@ -2459,17 +2528,13 @@ async def stream_chat_completion(
             try:
                 # Fold any in-progress turn's accumulator into the
                 # final_* totals if the inner streaming loop got
-                # interrupted before its own transfer. `acc_transferred`
-                # may not be defined if we never reached the streaming
-                # loop (e.g. assemble_context raised); the locals()
-                # check guards that.
-                if (
-                    "acc" in locals()
-                    and locals().get("acc") is not None
-                    and not locals().get("acc_transferred", True)
-                ):
-                    final_thinking += locals()["acc"].thinking
-                    final_content += locals()["acc"].content
+                # interrupted before its own transfer. `acc` and
+                # `acc_transferred` are hoisted to the top of the
+                # function, so they are always defined here even if we
+                # never reached the streaming loop (acc stays None).
+                if acc is not None and not acc_transferred:
+                    final_thinking += acc.thinking
+                    final_content += acc.content
                 marker_content = apply_stream_error_marker(
                     final_content,
                     had_stream_error or "stream interrupted",
@@ -2498,13 +2563,22 @@ async def stream_chat_completion(
                 # Last-ditch: log and swallow. We cannot crash the
                 # finally block -- doing so would mask the original
                 # exception (or GeneratorExit) that triggered us.
-                print(
-                    f"[ERROR] save-always finally persistence failed for "
-                    f"conv {conversation.get('id') if isinstance(conversation, dict) else '?'}: "
-                    f"{type(_save_always_exc).__name__}: {_save_always_exc}"
+                logger.error(
+                    "save-always finally persistence failed for conv %s: %s: %s",
+                    conversation.get("id") if isinstance(conversation, dict) else "?",
+                    type(_save_always_exc).__name__,
+                    _save_always_exc,
                 )
         # Unbind the usage aggregator regardless of how we exited. Suppress
         # ValueError in the (impossible-in-practice) case where the token
         # was already reset by an outer scope.
         with contextlib.suppress(ValueError, LookupError):
             current_usage_aggregator.reset(usage_token)
+        # P1 #12 turn-counter. Always emit, including the "error" default
+        # when an unhandled exception punched out of the try without
+        # classification. Persona name is best-effort.
+        try:
+            _persona_label = (persona or {}).get("id") if isinstance(persona, dict) else None
+        except Exception:
+            _persona_label = None
+        observe_turn(_persona_label, terminal_reason)

@@ -35,10 +35,13 @@ Cache policy (§7 Stage A decisions 2026-04-14):
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from typing import Optional
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 # Lazy imports for paper_lookup / document_store / llm_summarize are done
 # at call time to avoid circular-init headaches.
@@ -92,10 +95,10 @@ def _warn_if_cache_bloated() -> float:
     size_mb = size_bytes / (1024 * 1024)
     threshold_bytes = PAPERS_CACHE_WARN_GB * 1024 * 1024 * 1024
     if size_bytes > threshold_bytes:
-        print(
-            f"[WARN] papers_cached exceeded {PAPERS_CACHE_WARN_GB} GB "
-            f"(current: {size_mb:.1f} MB). No eviction runs automatically; "
-            f"manually clean {CACHE_DIR} if needed."
+        logger.warning(
+            "papers_cached exceeded %d GB (current: %.1f MB). No eviction "
+            "runs automatically; manually clean %s if needed.",
+            PAPERS_CACHE_WARN_GB, size_mb, CACHE_DIR,
         )
     return size_mb
 
@@ -109,7 +112,7 @@ def _write_cache(doi: str, pdf_bytes: bytes) -> None:
             f.write(pdf_bytes)
         os.replace(tmp, path)
     except OSError as exc:
-        print(f"[WARNING] papers_cached write failed for {doi}: {exc}")
+        logger.warning("papers_cached write failed for %s: %s", doi, exc)
 
 
 def _read_cache(doi: str) -> Optional[bytes]:
@@ -303,7 +306,7 @@ async def read_paper(doi: str, focus: Optional[str] = None) -> dict:
         extracted_text = await document_store._extract_pdf(pdf_bytes)
     except Exception as exc:
         extracted_text = ""
-        print(f"[WARNING] read_paper PDF extraction failed for {doi}: {exc}")
+        logger.warning("read_paper PDF extraction failed for %s: %s", doi, exc)
 
     if not extracted_text or len(extracted_text) < 200:
         # GROBID + pypdf both failed; treat as abstract-only.

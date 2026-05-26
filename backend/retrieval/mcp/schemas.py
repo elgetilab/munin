@@ -7,6 +7,27 @@ Each tool has:
 - inputSchema: JSON Schema for parameters
 """
 
+# P1 #7 — deferred tool schema. Only CORE_TOOLS ship in the vLLM `tools`
+# array by default; everything else is discoverable at runtime via
+# `tool_search`, which unlocks matches into the per-request schema. This
+# keeps the schema small (~9 tools vs 39) so prefill stays well clear of
+# the hang cliff. CORE is intersected with the persona allowlist in
+# `_openai_tools_schema`, so a persona that lacks a core tool simply
+# doesn't get it. Membership rationale: control-flow tools
+# (ask_clarification, delegate_to_persona, tool_search) must always be
+# present; the rest are the high-frequency workhorses.
+CORE_TOOLS = frozenset({
+    "paper_search",
+    "web_search",
+    "read_paper",
+    "run_python",
+    "create_artifact",
+    "calculate",
+    "ask_clarification",
+    "delegate_to_persona",
+    "tool_search",
+})
+
 MCP_TOOLS = {
     "web_search": {
         "name": "web_search",
@@ -925,6 +946,36 @@ MCP_TOOLS = {
                 }
             },
             "required": ["persona_id", "reason"]
+        }
+    },
+    "tool_search": {
+        "name": "tool_search",
+        "description": (
+            "Discover tools that are NOT in your current tool list. Your "
+            "schema only carries a small core set (paper/web search, "
+            "read_paper, run_python, create_artifact, calculate, "
+            "ask_clarification, delegate_to_persona). Many other "
+            "capabilities exist but are hidden until you search for them: "
+            "citation-graph traversal, Semantic Scholar lookups, LaTeX "
+            "compilation, artifact editing, conversation memory, project "
+            "tools, equation transcription, citation export, and more. "
+            "Call tool_search with a short description of the capability "
+            "you need (e.g. 'find papers that cite a DOI', 'compile LaTeX "
+            "to PDF', 'remember a fact about the user', 'list the user's "
+            "uploaded documents'). It returns the matching tools' full "
+            "schemas and makes them callable on your following turns. "
+            "Use this whenever the obvious tool for a task isn't in your "
+            "list rather than assuming the capability is missing."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Short natural-language description of the capability or tool you are looking for."
+                }
+            },
+            "required": ["query"]
         }
     }
 }

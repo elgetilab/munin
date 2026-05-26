@@ -198,6 +198,39 @@ Notes:
    No container restart needed; retrieval reads the directory at
    request time.
 
+### Maintenance mode
+
+Use this when Munin needs to go down deliberately (e.g. freeing the
+GPU for other experiments) — as opposed to the nightly 2-6 AM sleep.
+Installed by `sudo ./deploy.sh maintenance` (or `deploy.sh all`),
+which puts the toggle on `PATH` as `munin-maintenance`.
+
+```
+sudo munin-maintenance on "Running NTL9 experiments, back Wednesday"
+sudo munin-maintenance status
+sudo munin-maintenance off
+```
+
+`on` (the message argument is optional):
+- writes the flag file `/opt/munin/data/maintenance.json`, which
+  `/api/status` reports — the chat UI then shows a maintenance screen
+  with your message instead of the "resting" sleeping page, and the
+  static page at `chat.muninai.org/maintenance` shows the same;
+- disables the vLLM start/stop cron so vLLM does not auto-boot, and
+  stops a running vLLM job;
+- stops the Deep Research (MiroThinker) daemon so no new jobs launch
+  — jobs already on SLURM are left to finish.
+
+`off` removes the flag, restores the normal 6am/2am vLLM schedule
+(run `sudo vllm-service start` if you want it up immediately, or
+`sudo vllm-service enable-24x7` if you were running 24/7), and
+restarts the Deep Research daemon.
+
+The flag file is the single source of truth; both the React chat app
+and the static page read it via `/api/status`. No deploy or container
+restart is needed to toggle — the flag takes effect on the next
+`/api/status` poll (~60s in the UI).
+
 ## Related
 
 - [`../frontend/`](../frontend): VPS-side of the monorepo

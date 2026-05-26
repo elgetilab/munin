@@ -95,13 +95,25 @@
     <main class="maintenance">
         <canvas id="maintenance-vortex" width="192" height="192"></canvas>
 
-        <h1>Munin is undergoing maintenance</h1>
-        <p>
-            The cluster is being upgraded. All services are temporarily unavailable.
+        <h1>Munin is under maintenance</h1>
+        <!-- Default copy; replaced at runtime by the operator's message
+             from /api/status when the maintenance flag carries one. -->
+        <p id="maintenance-message">
+            Chat and Deep Research are temporarily unavailable while the
+            cluster is being worked on.
         </p>
-        <p>
-            We'll be back on <span class="date">April 15, 2026</span>.
-        </p>
+        <p id="maintenance-since" style="display: none;"></p>
+
+        <div class="maintenance-actions">
+            <a class="maintenance-action" href="https://search.muninai.org">
+                <span>Paper Search is still available</span>
+                <span class="arrow">&#8594;</span>
+            </a>
+            <a class="maintenance-action" href="https://upload.muninai.org">
+                <span>Upload papers</span>
+                <span class="arrow">&#8594;</span>
+            </a>
+        </div>
     </main>
 
     <footer>
@@ -114,6 +126,31 @@
     <script src="/shared/feather-vortex.js"></script>
     <script>
         createVortex(document.getElementById('maintenance-vortex'), 10, 5.5, 0.3);
+
+        // Single source of truth: the maintenance flag exposed by
+        // /api/status. When the operator set a message via
+        // `munin-maintenance on "..."`, show it here so this static
+        // page and the in-app chat maintenance screen stay consistent.
+        // If the fetch fails, the default copy above stands.
+        fetch('/api/status')
+            .then(function (r) { return r.json(); })
+            .then(function (s) {
+                var m = s && s.maintenance;
+                if (!m || !m.active) { return; }
+                if (m.message) {
+                    document.getElementById('maintenance-message').textContent = m.message;
+                }
+                if (m.since) {
+                    var d = new Date(m.since);
+                    if (!isNaN(d.getTime())) {
+                        var el = document.getElementById('maintenance-since');
+                        el.innerHTML = 'Maintenance started <span class="date">'
+                            + d.toLocaleString() + '</span>.';
+                        el.style.display = '';
+                    }
+                }
+            })
+            .catch(function () { /* keep the default copy */ });
     </script>
 </body>
 </html>

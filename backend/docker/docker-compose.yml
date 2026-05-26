@@ -119,6 +119,12 @@ services:
     volumes:
       - /opt/munin/data/models/bge-base:/models/bge-base:ro
       - /opt/munin/data/models/specter:/models/specter:ro
+      # Qwen3 tokenizer for exact context-budget token counting (P1 #8).
+      # Only the ~7 MB tokenizer files, copied out of the vLLM model dir
+      # by deploy.sh — the container never needs the full weights.
+      # Empty/missing dir is fine: chat_context falls back to a char
+      # heuristic. See DECISIONS.md 2026-05-21.
+      - /opt/munin/data/models/qwen-tokenizer:/models/qwen:ro
       # :rw because /api/admin/ingest writes PDFs into pdf/inbox/ and
       # moves them to pdf/{doi_hash}.pdf after the pipeline succeeds (§28).
       - /opt/munin/data/papers/pdf:/papers:rw
@@ -151,6 +157,7 @@ services:
       - SEARXNG_URL=http://searxng:8080
       - SPECTER_MODEL_PATH=/models/specter
       - BGE_MODEL_PATH=/models/bge-base
+      - QWEN_TOKENIZER_PATH=/models/qwen/tokenizer.json
       - PAPERS_PDF_DIR=/papers
       # Chat persistence + user docs
       - CHATS_DB_PATH=/data/chats.db

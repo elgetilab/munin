@@ -13,6 +13,7 @@
 #   sudo ./deploy.sh personas       - persona JSON + logos
 #   sudo ./deploy.sh agents         - config/agents.yml + munin.env.template
 #   sudo ./deploy.sh vllm           - scripts/vllm/*.sh → /opt/cluster/scripts/llm/
+#   sudo ./deploy.sh maintenance    - maintenance-mode toggle → munin-maintenance
 #   sudo ./deploy.sh deepresearch   - scripts/deepresearch/* + systemd unit + MiroThinker model
 #   sudo ./deploy.sh tunnel         - munin-tunnel.service (+ daemon-reload + restart)
 #   sudo ./deploy.sh knowledge      - §15 embedding-map script + nightly timer
@@ -37,7 +38,7 @@ fi
 MODE=${1:-}
 if [ -z "$MODE" ]; then
     echo "Usage: sudo $0 [--dry-run] <mode>"
-    echo "Modes: all dirs compose personas agents vllm deepresearch tunnel retrieval searxng verify"
+    echo "Modes: all dirs compose personas agents vllm maintenance deepresearch tunnel retrieval searxng verify"
     exit 1
 fi
 
@@ -63,6 +64,14 @@ HUGIN_ENV=/opt/hugin/config/cluster.env
 MIROTHINKER_MODEL_ID="cyankiwi/MiroThinker-v1.5-30B-AWQ-4bit"
 MIROTHINKER_MODEL_DIR=$MUNIN_ROOT/data/models/mirothinker-v1.5-30b
 VLLM_VENV=/opt/munin/services/vllm/venv
+
+# P1 #8 — the retrieval container counts context tokens with the real
+# Qwen3 tokenizer. Rather than mount the 19 GB vLLM model dir, deploy
+# copies just the tokenizer files into a small dedicated dir that
+# docker-compose mounts read-only. Keep VLLM_MODEL_DIR in sync with
+# MODEL_PATH in scripts/vllm/start-vllm-service.sh.
+VLLM_MODEL_DIR=$MUNIN_ROOT/data/models/qwen3.6-35b-a3b-awq-4bit
+QWEN_TOKENIZER_DIR=$MUNIN_ROOT/data/models/qwen-tokenizer
 
 echo "=============================================="
 echo "MUNIN BACKEND - Deployment"
@@ -215,6 +224,22 @@ deploy_vllm() {
     run "ln -sf $CLUSTER_SCRIPTS/schedule-vllm.sh /usr/local/bin/vllm-service"
     echo "[OK] vllm — changes take effect on next job submission"
     echo "     to cut over now: sudo vllm-service stop && sudo vllm-service start"
+}
+
+# ------------------------------------------------------------------------------
+# maintenance: install the maintenance-mode toggle into /opt/cluster/scripts/
+# ------------------------------------------------------------------------------
+MAINTENANCE_SCRIPTS=/opt/cluster/scripts/maintenance
+
+deploy_maintenance() {
+    echo "[maintenance] Installing maintenance-mode toggle..."
+    need_file "$REPO_DIR/scripts/maintenance/maintenance.sh"
+    run "install -d -m 0755 $MAINTENANCE_SCRIPTS"
+    run "install -m 0755 $REPO_DIR/scripts/maintenance/maintenance.sh \
+        $MAINTENANCE_SCRIPTS/maintenance.sh"
+    run "ln -sf $MAINTENANCE_SCRIPTS/maintenance.sh /usr/local/bin/munin-maintenance"
+    echo "[OK] maintenance — toggle with:"
+    echo "     sudo munin-maintenance on [\"message\"] | off | status"
 }
 
 # ------------------------------------------------------------------------------
@@ -533,10 +558,38 @@ deploy_sandbox() {
 # ------------------------------------------------------------------------------
 # retrieval: sync code, rebuild container, restart
 # ------------------------------------------------------------------------------
+stage_qwen_tokenizer() {
+    # Copy the Qwen3 tokenizer files out of the vLLM model dir into a
+    # small dedicated dir the retrieval container mounts read-only
+    # (P1 #8). The container budgets context tokens with the real
+    # tokenizer instead of a char heuristic. If the model has not been
+    # downloaded yet (first deploy, before vLLM's first run) this is a
+    # graceful no-op — chat_context falls back to the heuristic and
+    # picks the tokenizer up on a later deploy.
+    echo "[tokenizer] Staging Qwen tokenizer for retrieval..."
+    run "install -d -m 0755 $QWEN_TOKENIZER_DIR"
+    if [ -f "$VLLM_MODEL_DIR/tokenizer.json" ]; then
+        run "install -m 0644 $VLLM_MODEL_DIR/tokenizer.json \
+            $QWEN_TOKENIZER_DIR/tokenizer.json"
+        if [ -f "$VLLM_MODEL_DIR/tokenizer_config.json" ]; then
+            run "install -m 0644 $VLLM_MODEL_DIR/tokenizer_config.json \
+                $QWEN_TOKENIZER_DIR/tokenizer_config.json"
+        fi
+        echo "[OK] tokenizer staged to $QWEN_TOKENIZER_DIR"
+    else
+        echo "[WARN] $VLLM_MODEL_DIR/tokenizer.json not found"
+        echo "       (vLLM model not downloaded yet) — retrieval will use"
+        echo "       the char-heuristic fallback until a later deploy."
+    fi
+}
+
 deploy_retrieval() {
     echo "[retrieval] Syncing code to $MUNIN_RETRIEVAL..."
     need_file "$REPO_DIR/retrieval"
     run "install -d -m 0755 $MUNIN_RETRIEVAL"
+
+    # Stage the Qwen tokenizer the container mounts for token budgeting.
+    stage_qwen_tokenizer
 
     # Remove stale mirror left from earlier deploys (see audit)
     if [ -d $MUNIN_DOCKER/retrieval ]; then
@@ -654,6 +707,7 @@ case "$MODE" in
     personas)     deploy_personas ;;
     agents)       deploy_agents ;;
     vllm)         deploy_vllm ;;
+    maintenance)  deploy_maintenance ;;
     deepresearch) deploy_deepresearch ;;
     tunnel)       deploy_tunnel ;;
     knowledge)    deploy_knowledge ;;
@@ -668,6 +722,7 @@ case "$MODE" in
         deploy_personas
         deploy_agents
         deploy_vllm
+        deploy_maintenance
         deploy_deepresearch
         deploy_tunnel
         deploy_knowledge
@@ -679,7 +734,7 @@ case "$MODE" in
         ;;
     *)
         echo "[ERROR] Unknown mode: $MODE"
-        echo "Modes: all dirs compose personas agents vllm deepresearch tunnel knowledge pipeline retrieval sandbox searxng verify"
+        echo "Modes: all dirs compose personas agents vllm maintenance deepresearch tunnel knowledge pipeline retrieval sandbox searxng verify"
         exit 1
         ;;
 esac

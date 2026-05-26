@@ -10,8 +10,11 @@ vLLM sampling params and system prompt.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 PERSONAS_DIR = os.getenv("PERSONAS_DIR", "/app/personas")
 DEFAULT_PERSONA_ID = os.getenv("DEFAULT_PERSONA", "chat")
@@ -66,7 +69,7 @@ def load_personas() -> dict[str, dict]:
     _personas = {}
 
     if not os.path.isdir(PERSONAS_DIR):
-        print(f"[WARNING] Personas dir not found: {PERSONAS_DIR}")
+        logger.warning("Personas dir not found: %s", PERSONAS_DIR)
         return _personas
 
     for entry in sorted(os.listdir(PERSONAS_DIR)):
@@ -77,12 +80,12 @@ def load_personas() -> dict[str, dict]:
             with open(path, "r") as f:
                 data = json.load(f)
         except Exception as e:
-            print(f"[WARNING] Failed to load persona {entry}: {e}")
+            logger.warning("Failed to load persona %s: %s", entry, e)
             continue
         persona_id = data.get("id") or entry.removesuffix(".json")
         data["id"] = persona_id
         _personas[persona_id] = data
-        print(f"[OK] Loaded persona: {persona_id}")
+        logger.info("Loaded persona: %s", persona_id)
 
     return _personas
 
@@ -164,12 +167,14 @@ def tool_allowlist(persona: Optional[dict]) -> Optional[list[str]]:
     Callers that filter the MCP schema must accept None and emit the
     full tool list in that case.
 
-    Side effect: ``delegate_to_persona`` is auto-injected into every
-    explicit allowlist (deduped). This means every persona can hand
-    a turn off to another persona via the delegation tool without
-    each persona JSON having to spell it out. Personas that opt out
-    by passing ``"-delegate_to_persona"`` in their list are NOT
-    supported yet — keep the auto-inject simple.
+    Side effect: ``delegate_to_persona`` and ``tool_search`` are
+    auto-injected into every explicit allowlist (deduped). Both are
+    infrastructure tools every persona needs — delegation hands a turn
+    to another persona, and tool_search (P1 #7) is how the model
+    discovers the deferred tools that aren't in its core schema. Neither
+    has to be spelled out in each persona JSON. Opt-out via a
+    ``"-tool_name"`` entry is NOT supported yet — keep the auto-inject
+    simple.
 
     The list is normalised to a list of strings (drops any non-string
     entries silently).
@@ -188,6 +193,32 @@ def tool_allowlist(persona: Optional[dict]) -> Optional[list[str]]:
         if isinstance(entry, str) and entry and entry not in seen:
             out.append(entry)
             seen.add(entry)
-    if "delegate_to_persona" not in seen:
-        out.append("delegate_to_persona")
+    for infra_tool in ("delegate_to_persona", "tool_search"):
+        if infra_tool not in seen:
+            out.append(infra_tool)
+            seen.add(infra_tool)
     return out
+
+
+# Tool-use loop bounds (P1 #16). The default applies to any persona
+# without an explicit ``params.max_turns``; the clamp guards a JSON
+# typo from creating a runaway loop or a zero-turn deadlock.
+_DEFAULT_MAX_TURNS = 10
+_MIN_MAX_TURNS = 1
+_MAX_MAX_TURNS = 30
+
+
+def max_turns(persona: Optional[dict]) -> int:
+    """Return the persona's tool-use turn budget.
+
+    Reads ``params.max_turns``, defaulting to 10. A research persona
+    doing deep multi-call exploration may want 15-20; a chat persona
+    rarely needs more than a handful. The value is clamped to
+    [1, 30] so a malformed persona JSON cannot uncap the loop.
+    """
+    if not isinstance(persona, dict):
+        return _DEFAULT_MAX_TURNS
+    raw = (persona.get("params") or {}).get("max_turns")
+    if not isinstance(raw, int) or isinstance(raw, bool):
+        return _DEFAULT_MAX_TURNS
+    return max(_MIN_MAX_TURNS, min(_MAX_MAX_TURNS, raw))

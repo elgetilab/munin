@@ -447,6 +447,168 @@ export async function fetchStatus(): Promise<SystemStatus> {
 
 // ── Streaming Chat ───────────────────────────────────────────────────────────
 
+// Backoff schedule for SSE reconnects (P1 #10). Each entry is the delay
+// before the corresponding attempt. After the last entry, give up and
+// surface an error.
+const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 16000, 30000];
+
+// sessionStorage key for the active SSE stream (P1 #10 Phase 3, survives
+// browser refresh, dies with the tab). Holds {stream_id, conversation_id,
+// last_event_id}. Ephemeral chats are deliberately not persisted: a
+// refresh of an ephemeral chat has nothing to restore from chat_store so
+// the resume target would be meaningless.
+const ACTIVE_STREAM_KEY = 'munin.active_stream';
+
+export interface ActiveStreamPersist {
+  stream_id: string;
+  conversation_id: string;
+  last_event_id?: string;
+}
+
+export function readActiveStream(): ActiveStreamPersist | null {
+  try {
+    const raw = sessionStorage.getItem(ACTIVE_STREAM_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.stream_id && parsed.conversation_id) return parsed;
+  } catch { /* fall through */ }
+  return null;
+}
+
+function writeActiveStream(value: ActiveStreamPersist): void {
+  try { sessionStorage.setItem(ACTIVE_STREAM_KEY, JSON.stringify(value)); } catch { /* ignore */ }
+}
+
+export function clearActiveStream(): void {
+  try { sessionStorage.removeItem(ACTIVE_STREAM_KEY); } catch { /* ignore */ }
+}
+
+/**
+ * Consume a single SSE response body, dispatching events via onEvent.
+ * Updates `state.lastEventId` and `state.streamId` from `id:` lines and
+ * from the first `conversation` event respectively.
+ *
+ * Returns:
+ *  - "done"  the server emitted a `done` SSE event (stream completed).
+ *  - "drop"  the reader ended without a `done` event (connection lost).
+ *  - "error" the server returned a body-level error event; treat as terminal.
+ */
+async function _consumeSSE(
+  res: Response,
+  state: { streamId?: string; lastEventId?: string; sawDone: boolean },
+  onEvent: (event: SSEEvent) => void,
+): Promise<'done' | 'drop' | 'error'> {
+  const reader = res.body?.getReader();
+  if (!reader) return 'drop';
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let currentEvent = '';
+  let currentId = '';
+
+  const flush = (line: string) => {
+    if (line.startsWith('event: ')) {
+      currentEvent = line.slice(7).trim();
+    } else if (line.startsWith('id: ')) {
+      currentId = line.slice(4).trim();
+    } else if (line.startsWith('data: ') && currentEvent) {
+      try {
+        const data = JSON.parse(line.slice(6));
+        // P1 #10: capture stream_id off the first conversation event;
+        // capture lastEventId off every event with an id: line. Persist
+        // to sessionStorage so a browser refresh can resume.
+        if (currentEvent === 'conversation' && data?.stream_id && !state.streamId) {
+          state.streamId = data.stream_id;
+          // Skip persistence for ephemeral chats (nothing to restore on F5).
+          if (!data.ephemeral && data?.id) {
+            writeActiveStream({
+              stream_id: data.stream_id,
+              conversation_id: data.id,
+              last_event_id: state.lastEventId,
+            });
+          }
+        }
+        if (currentId) {
+          state.lastEventId = currentId;
+          // Update the persisted last_event_id (best-effort; if the
+          // chat was ephemeral, no entry exists and this is a no-op).
+          const persisted = readActiveStream();
+          if (persisted && persisted.stream_id === state.streamId) {
+            writeActiveStream({ ...persisted, last_event_id: currentId });
+          }
+        }
+        if (currentEvent === 'done') {
+          state.sawDone = true;
+          clearActiveStream();
+        }
+        if (currentEvent === 'error') {
+          // A server-emitted error is terminal — don't try to resume
+          // through a logical failure. Flip sawDone so the consumer
+          // returns 'done' (not 'drop') and the caller's reconnect
+          // loop exits.
+          state.sawDone = true;
+          clearActiveStream();
+        }
+        onEvent({ type: currentEvent, data } as SSEEvent);
+      } catch {
+        // skip malformed JSON
+      }
+      currentEvent = '';
+      currentId = '';
+    } else if (line.trim() === '') {
+      currentEvent = '';
+      currentId = '';
+    }
+  };
+
+  while (true) {
+    let chunk: ReadableStreamReadResult<Uint8Array>;
+    try {
+      chunk = await reader.read();
+    } catch {
+      return 'drop';
+    }
+    if (chunk.done) {
+      return state.sawDone ? 'done' : 'drop';
+    }
+    buffer += decoder.decode(chunk.value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) flush(line);
+  }
+}
+
+async function _attemptResume(
+  state: { streamId?: string; lastEventId?: string; sawDone: boolean },
+  onEvent: (event: SSEEvent) => void,
+  signal?: AbortSignal,
+): Promise<'done' | 'drop' | 'gone' | 'error'> {
+  if (!state.streamId) return 'error';
+  const headers: HeadersInit = { 'Accept': 'text/event-stream' };
+  if (state.lastEventId) headers['Last-Event-ID'] = state.lastEventId;
+  const url = `${API}/chat/completions/resume?stream_id=${encodeURIComponent(state.streamId)}`;
+  let res: Response;
+  try {
+    res = await fetch(url, { method: 'GET', headers, signal });
+  } catch {
+    return 'drop';
+  }
+  if (res.status === 410) return 'gone';
+  if (!res.ok) return 'error';
+  return _consumeSSE(res, state, onEvent);
+}
+
+function _sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    if (signal) {
+      const onAbort = () => { clearTimeout(t); reject(new DOMException('Aborted', 'AbortError')); };
+      if (signal.aborted) onAbort();
+      else signal.addEventListener('abort', onAbort, { once: true });
+    }
+  });
+}
+
 export async function streamChat(
   request: ChatRequest,
   onEvent: (event: SSEEvent) => void,
@@ -465,35 +627,126 @@ export async function streamChat(
     return;
   }
 
-  const reader = res.body?.getReader();
-  if (!reader) return;
+  const state = { sawDone: false } as { streamId?: string; lastEventId?: string; sawDone: boolean };
+  let outcome = await _consumeSSE(res, state, onEvent);
 
-  const decoder = new TextDecoder();
-  let buffer = '';
+  // Reconnect loop (P1 #10). A clean `done` ends the loop. Anything
+  // else with a known stream_id retries with backoff until the server
+  // says 410 (stream gone) or we exhaust the schedule.
+  let attempt = 0;
+  while (outcome !== 'done' && outcome !== 'error' && state.streamId) {
+    if (attempt >= RECONNECT_BACKOFF_MS.length) {
+      clearActiveStream();
+      onEvent({
+        type: 'error',
+        data: { message: 'Lost connection and could not resume after several attempts.' },
+      });
+      return;
+    }
+    const delay = RECONNECT_BACKOFF_MS[attempt++];
+    onEvent({
+      type: 'reconnecting',
+      data: { attempt, max_attempts: RECONNECT_BACKOFF_MS.length, delay_s: delay / 1000 },
+    });
+    try {
+      await _sleep(delay, signal);
+    } catch {
+      return;
+    }
+    outcome = await _attemptResume(state, onEvent, signal);
+    if (outcome === 'gone') {
+      clearActiveStream();
+      onEvent({
+        type: 'error',
+        data: { message: 'Stream is no longer available on the server.' },
+      });
+      return;
+    }
+    if (outcome === 'error') {
+      // The resume GET came back as a non-2xx, non-410 status (e.g.
+      // 500 from a wedged retrieval, 502 through the tunnel). Without
+      // this branch the while-loop's `outcome !== 'error'` guard
+      // would exit the function silently and the user would see the
+      // partial bubble freeze with no banner. Surface a terminal
+      // error so the hook can flip into its interrupted-message path.
+      clearActiveStream();
+      onEvent({
+        type: 'error',
+        data: { message: 'Stream resume failed; please retry.' },
+      });
+      return;
+    }
+  }
+}
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-
-    let currentEvent = '';
-    for (const line of lines) {
-      if (line.startsWith('event: ')) {
-        currentEvent = line.slice(7).trim();
-      } else if (line.startsWith('data: ') && currentEvent) {
-        try {
-          const data = JSON.parse(line.slice(6));
-          onEvent({ type: currentEvent, data } as SSEEvent);
-        } catch {
-          // skip malformed JSON
-        }
-        currentEvent = '';
-      } else if (line.trim() === '') {
-        currentEvent = '';
-      }
+// Resume an existing stream after a page reload. Returns the same
+// resolution states as streamChat. Used by useChat on mount when
+// sessionStorage carries an active stream.
+export async function resumeChat(
+  streamId: string,
+  lastEventId: string | undefined,
+  onEvent: (event: SSEEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const state = {
+    streamId,
+    lastEventId,
+    sawDone: false,
+  } as { streamId?: string; lastEventId?: string; sawDone: boolean };
+  let outcome = await _attemptResume(state, onEvent, signal);
+  if (outcome === 'gone') {
+    clearActiveStream();
+    onEvent({
+      type: 'error',
+      data: { message: 'Stream is no longer available on the server.' },
+    });
+    return;
+  }
+  if (outcome === 'error') {
+    // First-shot resume on mount hit a non-2xx, non-410 status.
+    // Mirror the streamChat fix so the user sees a banner instead of
+    // a frozen partial bubble.
+    clearActiveStream();
+    onEvent({
+      type: 'error',
+      data: { message: 'Stream resume failed; please retry.' },
+    });
+    return;
+  }
+  // Same backoff schedule as streamChat — a refresh that lands while
+  // the server is mid-shutdown can still recover.
+  let attempt = 0;
+  while (outcome !== 'done' && outcome !== 'error' && state.streamId) {
+    if (attempt >= RECONNECT_BACKOFF_MS.length) {
+      clearActiveStream();
+      onEvent({
+        type: 'error',
+        data: { message: 'Lost connection and could not resume after several attempts.' },
+      });
+      return;
+    }
+    const delay = RECONNECT_BACKOFF_MS[attempt++];
+    onEvent({
+      type: 'reconnecting',
+      data: { attempt, max_attempts: RECONNECT_BACKOFF_MS.length, delay_s: delay / 1000 },
+    });
+    try { await _sleep(delay, signal); } catch { return; }
+    outcome = await _attemptResume(state, onEvent, signal);
+    if (outcome === 'gone') {
+      clearActiveStream();
+      onEvent({
+        type: 'error',
+        data: { message: 'Stream is no longer available on the server.' },
+      });
+      return;
+    }
+    if (outcome === 'error') {
+      clearActiveStream();
+      onEvent({
+        type: 'error',
+        data: { message: 'Stream resume failed; please retry.' },
+      });
+      return;
     }
   }
 }

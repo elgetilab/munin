@@ -2,7 +2,10 @@
 Database connections and embedder initialization for the Munin Retrieval Service.
 """
 
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 # ==============================================================================
 # Configuration
@@ -53,15 +56,15 @@ def get_specter():
             if model_path == SPECTER_MODEL_PATH and not os.path.exists(model_path):
                 continue  # Skip if local path doesn't exist
             try:
-                print(f"[INFO] Trying to load SPECTER from {description}...")
+                logger.info("Trying to load SPECTER from %s...", description)
                 _specter = SentenceTransformer(model_path)
-                print(f"[OK] SPECTER model loaded from {description}")
+                logger.info("SPECTER model loaded from %s", description)
                 return _specter
             except Exception as e:
-                print(f"[WARNING] Failed to load from {description}: {e}")
+                logger.warning("Failed to load from %s: %s", description, e)
                 continue
 
-        print("[ERROR] Could not load SPECTER model")
+        logger.error("Could not load SPECTER model")
     return _specter
 
 
@@ -75,9 +78,9 @@ def get_bge():
                 _bge = SentenceTransformer(BGE_MODEL_PATH)
             else:
                 _bge = SentenceTransformer("BAAI/bge-base-en-v1.5")
-            print("[OK] BGE model loaded")
-        except Exception as e:
-            print(f"[ERROR] Failed to load BGE: {e}")
+            logger.info("BGE model loaded")
+        except Exception:
+            logger.exception("Failed to load BGE")
     return _bge
 
 
@@ -98,9 +101,9 @@ def get_qdrant():
         try:
             from qdrant_client import QdrantClient
             _qdrant = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
-            print(f"[OK] Connected to Qdrant at {QDRANT_HOST}:{QDRANT_PORT}")
-        except Exception as e:
-            print(f"[ERROR] Failed to connect to Qdrant: {e}")
+            logger.info("Connected to Qdrant at %s:%d", QDRANT_HOST, QDRANT_PORT)
+        except Exception:
+            logger.exception("Failed to connect to Qdrant")
     return _qdrant
 
 
@@ -109,7 +112,7 @@ def get_neo4j():
     global _neo4j
     if _neo4j is None:
         if not NEO4J_PASSWORD:
-            print("[WARNING] NEO4J_PASSWORD not set, Neo4j features disabled")
+            logger.warning("NEO4J_PASSWORD not set, Neo4j features disabled")
             return None
         try:
             from neo4j import GraphDatabase
@@ -119,8 +122,8 @@ def get_neo4j():
             # Test connection
             with _neo4j.session() as session:
                 session.run("RETURN 1")
-            print(f"[OK] Connected to Neo4j at {NEO4J_URI}")
-        except Exception as e:
-            print(f"[ERROR] Failed to connect to Neo4j: {e}")
+            logger.info("Connected to Neo4j at %s", NEO4J_URI)
+        except Exception:
+            logger.exception("Failed to connect to Neo4j")
             _neo4j = None
     return _neo4j

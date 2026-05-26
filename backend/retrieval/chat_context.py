@@ -8,12 +8,16 @@ Responsibilities:
       older messages via vLLM when the budget is exceeded.
     * Generate conversation titles from the first exchange.
 
-Token accounting is approximate (~4 characters per token). This is good enough
-for budgeting without pulling in a heavy tokenizer dependency.
+Token accounting uses the real Qwen3 tokenizer when its `tokenizer.json`
+is mounted (see `approx_tokens`); it falls back to a ~4-chars-per-token
+heuristic when the file isn't reachable. The heuristic alone undercounts
+code / LaTeX / JSON by 1.5-2x, which used to let oversized prompts slip
+past the budget and hit vLLM as a hard error (P1 #8).
 """
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Optional
 
@@ -21,6 +25,8 @@ from database import VLLM_MODEL_NAME
 from chat_store import get_messages_after_index, update_summary
 from vllm_client import vllm_post_json, VLLMRequestError
 from usage_tracker import record_usage
+
+logger = logging.getLogger(__name__)
 
 MAX_CONTEXT = int(os.getenv("VLLM_MAX_CONTEXT", "60000"))
 GENERATION_RESERVE = int(os.getenv("VLLM_GENERATION_RESERVE", "8000"))
@@ -40,9 +46,57 @@ TITLE_PROMPT = (
 )
 
 
+# Path to the Qwen3 tokenizer.json. Option B (see DECISIONS.md
+# 2026-05-21): deploy.sh copies just the tokenizer files out of the
+# vLLM model dir into a small dedicated dir, mounted read-only into the
+# retrieval container — the container never needs the 19 GB of weights.
+QWEN_TOKENIZER_PATH = os.getenv(
+    "QWEN_TOKENIZER_PATH", "/models/qwen/tokenizer.json"
+)
+
+# Lazily-loaded HuggingFace tokenizer. `_tokenizer_tried` ensures one
+# load attempt per process: a missing file (e.g. the vLLM model hasn't
+# downloaded yet, or a misconfigured deploy) degrades to the char
+# heuristic without re-attempting the load on every call.
+_tokenizer = None
+_tokenizer_tried = False
+
+
+def _get_tokenizer():
+    """Return the loaded Qwen tokenizer, or None if it isn't available.
+    First call attempts the load; subsequent calls are cached."""
+    global _tokenizer, _tokenizer_tried
+    if _tokenizer_tried:
+        return _tokenizer
+    _tokenizer_tried = True
+    try:
+        from tokenizers import Tokenizer
+
+        _tokenizer = Tokenizer.from_file(QWEN_TOKENIZER_PATH)
+        logger.info("Qwen tokenizer loaded from %s", QWEN_TOKENIZER_PATH)
+    except Exception as e:
+        logger.warning(
+            "Qwen tokenizer unavailable (%s); token budgeting falls back "
+            "to the ~4-chars-per-token heuristic, which undercounts code.",
+            e,
+        )
+        _tokenizer = None
+    return _tokenizer
+
+
 def approx_tokens(text: str) -> int:
+    """Token count for ``text``.
+
+    Exact when the Qwen3 tokenizer is mounted; otherwise a ~4-chars-per-
+    token heuristic. The name stays "approx" because callers add their
+    own message-framing overhead (see ``_message_tokens``), so the total
+    budget figure is still an estimate either way.
+    """
     if not text:
         return 0
+    tok = _get_tokenizer()
+    if tok is not None:
+        return max(1, len(tok.encode(text).ids))
     return max(1, len(text) // 4)
 
 
@@ -167,6 +221,7 @@ async def _call_vllm(
             },
             timeout=60.0,
             foreground=False,
+            purpose=purpose,
         )
     except VLLMRequestError:
         return None

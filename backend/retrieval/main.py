@@ -92,6 +92,17 @@ import agents as agents_pkg
 import user_profile_store
 import project_store
 import artifact_store
+from maintenance import read_maintenance
+import stream_registry as stream_registry_module
+import metrics as metrics_module
+from logging_config import configure_logging
+import logging
+
+# Wire JSON-formatted logging with request-context ContextVar enrichment.
+# Must run at import time so anything below this line (and any module that
+# imported `logging` before us) writes through the configured handler.
+configure_logging()
+logger = logging.getLogger(__name__)
 
 # ==============================================================================
 # FastAPI App
@@ -104,6 +115,12 @@ app = FastAPI(
 
 # Include MCP router
 app.include_router(mcp_router)
+
+# Expose Prometheus /metrics on the same FastAPI app (P1 #12). Caddy
+# only proxies /api/* and /paper/* externally, so /metrics is naturally
+# cluster-internal — no auth, scraped by a Prometheus running inside
+# the cluster network.
+metrics_module.mount_metrics(app)
 
 
 # ==============================================================================
@@ -166,7 +183,7 @@ def get_citation_counts(dois: list[str]) -> dict[str, dict]:
                 if r["doi"]
             }
     except Exception as e:
-        print(f"[ERROR] Citation count lookup failed: {e}")
+        logger.exception("Citation count lookup failed")
         return {}
 
 
@@ -203,7 +220,7 @@ def get_paper_ids_citation_counts(paper_ids: list[str]) -> dict[str, dict]:
                 if r["paper_id"]
             }
     except Exception as e:
-        print(f"[ERROR] Paper ID citation count lookup failed: {e}")
+        logger.exception("Paper ID citation count lookup failed")
         return {}
 
 
@@ -260,7 +277,7 @@ def get_authors_other_papers(doi: str, limit: int = 20) -> list[dict]:
 
             return [dict(r) for r in result]
     except Exception as e:
-        print(f"[ERROR] Authors other papers lookup failed: {e}")
+        logger.exception("Authors other papers lookup failed")
         return []
 
 
@@ -349,7 +366,7 @@ async def search_papers(query: str, top_k: int = 5) -> list[RetrievedDocument]:
         return documents
 
     except Exception as e:
-        print(f"[ERROR] Papers search failed: {e}")
+        logger.exception("Papers search failed")
         return []
 
 
@@ -398,7 +415,7 @@ async def search_notion(query: str, top_k: int = 5) -> list[RetrievedDocument]:
         return documents
 
     except Exception as e:
-        print(f"[ERROR] Notion search failed: {e}")
+        logger.exception("Notion search failed")
         return []
 
 
@@ -442,7 +459,7 @@ async def search_web(query: str, top_k: int = 5) -> list[RetrievedDocument]:
         return documents
 
     except Exception as e:
-        print(f"[ERROR] Web search failed: {e}")
+        logger.exception("Web search failed")
         return []
 
 
@@ -562,6 +579,7 @@ async def api_status():
         vllm_block["next_start"] = next_start
 
     return {
+        "maintenance": read_maintenance(),
         "vllm": vllm_block,
         "services": services,
         "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -675,7 +693,7 @@ async def api_delete_chat(conversation_id: str, request: Request):
         from mcp.tools.sandbox import sandbox_shutdown
         await sandbox_shutdown(conversation_id)
     except Exception as e:
-        print(f"[WARNING] sandbox_shutdown for {conversation_id} failed: {e}")
+        logger.warning("sandbox_shutdown for %s failed: %s", conversation_id, e)
     return {"deleted": True}
 
 
@@ -753,7 +771,7 @@ async def api_report_chat(conversation_id: str, request: Request):
             conversation_id=conversation_id,
         )
     except Exception as e:
-        print(f"[WARNING] report: artifact listing failed: {e}")
+        logger.warning("report: artifact listing failed: %s", e)
 
     now = datetime.utcnow()
     short_id = conversation_id.split("-")[0] if "-" in conversation_id else conversation_id[:8]
@@ -1282,31 +1300,23 @@ async def api_chat_completions(request: Request):
     # §28: #tag chips from the composer, normalised by chat_service.
     query_tags = body.get("tags")
 
-    # Disconnect propagation (P0 #2). A background watchdog polls
-    # request.is_disconnected() every 500ms; when the client drops, it sets
-    # cancel_event, which chat_service uses to (a) cancel any in-flight
-    # tool runner so a long run_python / deep_research stops holding a
-    # vLLM slot, and (b) skip unstarted work (next turn, wrap-up,
-    # auto-title). The save-always finally still runs.
-    cancel_event = asyncio.Event()
+    # P1 #10: the listener and the work are decoupled via a Stream in
+    # the registry. The chat_service generator runs as its own task,
+    # appending events to the stream's log. A grace timer (default 60s)
+    # absorbs brief disconnects — only after the listener has been
+    # absent for that window does it fire ``cancel_event`` and let
+    # P0 #2's cancellation cascade run. This lets a WiFi blip or
+    # browser refresh resume the in-flight turn via
+    # GET /api/chat/completions/resume.
+    stream = stream_registry_module.Stream(
+        user_email=user_email,
+        conversation_id=conversation_id,
+    )
+    stream_registry_module.registry.register(stream)
 
-    async def _watch_disconnect() -> None:
-        while not cancel_event.is_set():
-            try:
-                if await request.is_disconnected():
-                    cancel_event.set()
-                    return
-            except Exception:
-                # If the disconnect check itself raises (e.g. ASGI message
-                # queue closed) treat it as a disconnect.
-                cancel_event.set()
-                return
-            await asyncio.sleep(0.5)
-
-    async def event_stream():
-        watch_task = asyncio.create_task(_watch_disconnect())
+    async def _run_chat_into_log() -> None:
         try:
-            async for event in chat_service.stream_chat_completion(
+            async for event_dict in chat_service.stream_chat_completion(
                 user_email=user_email,
                 persona_id=persona_id,
                 conversation_id=conversation_id,
@@ -1317,17 +1327,72 @@ async def api_chat_completions(request: Request):
                 project=project_for_request,
                 file_into_project_id=body_project_id if not conversation_id else None,
                 query_tags=query_tags,
-                cancel_event=cancel_event,
+                cancel_event=stream.cancel_event,
+                stream_id=stream.stream_id,
             ):
-                if cancel_event.is_set():
-                    break
-                yield event
+                stream.record(event_dict["event"], event_dict["data"])
+        except Exception:
+            logger.exception(
+                "stream %s runner crashed", stream.stream_id
+            )
         finally:
-            watch_task.cancel()
-            with contextlib.suppress(BaseException):
-                await watch_task
+            stream.mark_done()
 
-    return EventSourceResponse(event_stream())
+    stream.runner_task = asyncio.create_task(_run_chat_into_log())
+    stream.grace_task = asyncio.create_task(
+        stream_registry_module._grace_timer(stream)
+    )
+
+    return EventSourceResponse(
+        stream_registry_module.serve_stream(stream),
+        ping=int(stream_registry_module.KEEPALIVE_S),
+    )
+
+
+@app.get("/api/chat/completions/resume")
+async def api_chat_completions_resume(stream_id: str, request: Request):
+    """Resume an in-flight (or just-completed) chat completion stream.
+
+    The client carries ``Last-Event-ID: <stream_id>-<seq>`` to indicate
+    the last event it applied; the server replays everything strictly
+    newer and continues live. Used by the frontend for mid-stream
+    reconnects (WiFi blip) and on-page-load resume after a browser
+    refresh (sessionStorage carries stream_id + last_event_id across
+    the reload). P1 #10."""
+    user_email = _require_user_email(request)
+    stream = stream_registry_module.registry.get(stream_id)
+    if stream is None or stream.truncated:
+        # Unknown id, expired (evicted by the janitor), or buffer
+        # overflowed past the client's checkpoint. 410 is the right
+        # signal — the resource is gone, don't retry blindly.
+        raise HTTPException(
+            status_code=410,
+            detail={"error": {"message": "stream is gone or has been truncated"}},
+        )
+    if stream.user_email and stream.user_email != user_email:
+        # Belt-and-braces: stream_id is a UUID so guessing is infeasible,
+        # but never let user A resume user B's stream.
+        raise HTTPException(
+            status_code=403,
+            detail={"error": {"message": "stream does not belong to this user"}},
+        )
+
+    parsed = stream_registry_module.parse_last_event_id(
+        request.headers.get("Last-Event-ID")
+    )
+    after_seq = 0
+    if parsed is not None:
+        parsed_sid, parsed_seq = parsed
+        # If the header's stream_id disagrees with the path, trust the
+        # path (the client may have stale Last-Event-ID state) and
+        # replay from 0.
+        if parsed_sid == stream_id:
+            after_seq = parsed_seq
+
+    return EventSourceResponse(
+        stream_registry_module.serve_stream(stream, after_seq=after_seq),
+        ping=int(stream_registry_module.KEEPALIVE_S),
+    )
 
 
 # ==============================================================================
@@ -1604,7 +1669,7 @@ async def api_tags():
                     except Exception:
                         contributor_counts[username] = 0
         except Exception as e:
-            print(f"[WARN] tag catalog Qdrant counts failed: {e}")
+            logger.warning("tag catalog Qdrant counts failed: %s", e)
 
     # Dedup groups by slug (two allowlist rows could share a group).
     seen_groups: set[str] = set()
@@ -1748,7 +1813,7 @@ def _quarantine_inbox_paper(
         with open(dest_info, "w", encoding="utf-8") as f:
             json.dump(skip_info, f, indent=2)
     except OSError as e:
-        print(f"[WARN] quarantine move failed ({dest_dir}): {e}")
+        logger.warning("quarantine move failed (%s): %s", dest_dir, e)
 
 _contributors_cache: Optional[dict[str, dict]] = None
 _contributors_cache_mtime: float = 0.0
@@ -1782,7 +1847,7 @@ def _load_contributors() -> dict[str, dict]:
         with open(CONTRIBUTORS_CONFIG_PATH, encoding="utf-8") as f:
             doc = yaml.safe_load(f) or {}
     except (OSError, yaml.YAMLError) as e:
-        print(f"[WARN] contributors.yml unreadable: {e}")
+        logger.warning("contributors.yml unreadable: %s", e)
         return {}
     out: dict[str, dict] = {}
     for entry in doc.get("contributors", []) or []:
@@ -1798,9 +1863,10 @@ def _load_contributors() -> dict[str, dict]:
                     addrs.append(a.strip().lower())
         for addr in addrs:
             if addr in out:
-                print(
-                    f"[WARN] contributors.yml: duplicate email {addr!r} — "
-                    f"later entry wins ({entry.get('display_name')!r})"
+                logger.warning(
+                    "contributors.yml: duplicate email %r, later entry wins (%r)",
+                    addr,
+                    entry.get("display_name"),
                 )
             out[addr] = entry
     _contributors_cache = out
@@ -2212,7 +2278,7 @@ async def api_delete_project(project_id: str, request: Request):
     try:
         document_store.unfile_project_documents(user_email, project_id)
     except Exception as e:
-        print(f"[WARNING] unfile_project_documents {project_id}: {e}")
+        logger.warning("unfile_project_documents %s: %s", project_id, e)
     return {"deleted": True}
 
 
@@ -2369,7 +2435,7 @@ async def api_upload_document(
             status_code=400, detail={"error": {"message": str(e)}}
         )
     except Exception as e:
-        print(f"[ERROR] Upload failed: {e}")
+        logger.exception("Upload failed")
         raise HTTPException(
             status_code=500,
             detail={"error": {"message": "Upload processing failed"}},
@@ -2409,7 +2475,7 @@ async def list_sources():
         if os.path.exists(PAPERS_PDF_DIR):
             pdf_count = len([f for f in os.listdir(PAPERS_PDF_DIR) if f.endswith('.pdf')])
     except Exception as e:
-        print(f"[WARNING] Failed to count PDFs: {e}")
+        logger.warning("Failed to count PDFs: %s", e)
 
     sources = {
         "papers": {
@@ -2446,7 +2512,7 @@ async def list_sources():
                     sources["notion"]["available"] = True
                     sources["notion"]["count"] = info.points_count
         except Exception as e:
-            print(f"[ERROR] Failed to get collection info: {e}")
+            logger.exception("Failed to get collection info")
 
     return sources
 
@@ -2491,7 +2557,7 @@ async def retrieve(request: RetrieveRequest):
     all_documents = []
     for i, (source_name, _) in enumerate(tasks):
         if isinstance(results[i], Exception):
-            print(f"[ERROR] {source_name} search failed: {results[i]}")
+            logger.error("%s search failed: %s", source_name, results[i])
             continue
         all_documents.extend(results[i])
 
@@ -2571,7 +2637,7 @@ async def get_citations(doi: str, limit: int = 20):
         )
 
     except Exception as e:
-        print(f"[ERROR] Citations query failed: {e}")
+        logger.exception("Citations query failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2635,7 +2701,7 @@ async def get_references(doi: str, limit: int = 50):
         )
 
     except Exception as e:
-        print(f"[ERROR] References query failed: {e}")
+        logger.exception("References query failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2731,7 +2797,7 @@ async def get_author_papers(author_name: str, limit: int = 50):
         )
 
     except Exception as e:
-        print(f"[ERROR] Author papers query failed: {e}")
+        logger.exception("Author papers query failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2801,7 +2867,7 @@ async def get_co_authors(author_id: str, limit: int = 50):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Co-authors query failed: {e}")
+        logger.exception("Co-authors query failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2848,7 +2914,7 @@ async def get_graph_stats():
                 )
 
     except Exception as e:
-        print(f"[ERROR] Graph stats query failed: {e}")
+        logger.exception("Graph stats query failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -3068,7 +3134,7 @@ async def hybrid_search(request: HybridSearchRequest):
         )
 
     except Exception as e:
-        print(f"[ERROR] Hybrid search failed: {e}")
+        logger.exception("Hybrid search failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -3152,7 +3218,7 @@ async def similar_by_authors(request: SimilarByAuthorsRequest):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Similar by authors search failed: {e}")
+        logger.exception("Similar by authors search failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -3224,7 +3290,7 @@ async def get_enriched_paper(doi: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Get enriched paper failed: {e}")
+        logger.exception("Get enriched paper failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -3393,7 +3459,7 @@ async def get_slurm_queue():
             try:
                 queue_entries.append(SlurmQueueEntry(**entry))
             except Exception as e:
-                print(f"[WARNING] Failed to parse queue entry: {e}")
+                logger.warning("Failed to parse queue entry: %s", e)
 
         # Parse GPU info
         gpu_entries = []
@@ -3420,7 +3486,7 @@ async def get_slurm_queue():
                         processes=processes
                     ))
             except Exception as e:
-                print(f"[WARNING] Failed to parse GPU data: {e}")
+                logger.warning("Failed to parse GPU data: %s", e)
 
         return SlurmQueueResponse(
             total_jobs=data.get("total_jobs", 0),
@@ -3430,7 +3496,7 @@ async def get_slurm_queue():
             updated_at=data.get("updated_at")
         )
     except Exception as e:
-        print(f"[ERROR] Failed to read SLURM queue file: {e}")
+        logger.exception("Failed to read SLURM queue file")
         return SlurmQueueResponse(
             total_jobs=0,
             deepresearch_jobs=0,
@@ -3502,29 +3568,36 @@ async def startup():
     print("=" * 60)
 
     # Initialize database connections
-    print("\nInitializing database connections...")
+    logger.info("Initializing database connections...")
     qdrant = get_qdrant()
     neo4j = get_neo4j()
+
+    # Spawn the SSE stream-registry janitor (P1 #10). Drops streams
+    # that have been done > 60s so the in-memory log doesn't grow
+    # unbounded.
+    stream_registry_module.registry.start_janitor()
 
     # Initialize chat persistence (SQLite)
     try:
         await chat_store.init_db()
-        print(f"[OK] Chat store initialized at {chat_store.CHATS_DB_PATH}")
-    except Exception as e:
-        print(f"[ERROR] Failed to initialize chat store: {e}")
+        logger.info("Chat store initialized at %s", chat_store.CHATS_DB_PATH)
+    except Exception:
+        logger.exception("Failed to initialize chat store")
 
     # Load persona definitions from disk
     try:
         loaded = persona_module.load_personas()
-        print(f"[OK] Loaded {len(loaded)} personas from {persona_module.PERSONAS_DIR}")
-    except Exception as e:
-        print(f"[ERROR] Failed to load personas: {e}")
+        logger.info(
+            "Loaded %d personas from %s", len(loaded), persona_module.PERSONAS_DIR
+        )
+    except Exception:
+        logger.exception("Failed to load personas")
 
     # Ensure the Qdrant user_docs collection exists (best-effort)
     try:
         document_store.ensure_collection()
     except Exception as e:
-        print(f"[WARNING] Failed to ensure user_docs collection: {e}")
+        logger.warning("Failed to ensure user_docs collection: %s", e)
 
     # §28 Sprint B: payload indexes on the `papers` collection so
     # contributor/topic filters on paper_search don't do full scans.
@@ -3550,30 +3623,37 @@ async def startup():
                 except Exception:
                     pass  # already exists or collection not present yet
     except Exception as e:
-        print(f"[WARNING] Failed to ensure papers payload indexes: {e}")
+        logger.warning("Failed to ensure papers payload indexes: %s", e)
 
     # Load agent registry
     try:
         loaded_agents = agents_pkg.load_agents()
-        print(f"[OK] Loaded {len(loaded_agents)} agents")
-    except Exception as e:
-        print(f"[ERROR] Failed to load agents: {e}")
+        logger.info("Loaded %d agents", len(loaded_agents))
+    except Exception:
+        logger.exception("Failed to load agents")
 
     # Eager-load embedding models so /api/status reflects real
     # readiness instead of "unavailable" (which used to mean
     # either failed-to-load or lazy-not-yet-called — confusing
     # both operators and the dashboard). Each model is wrapped
     # individually so a single failure doesn't block the other.
-    print("\nLoading embedding models (this may take a moment)...")
+    logger.info("Loading embedding models (this may take a moment)...")
     try:
         get_specter()
-    except Exception as e:
-        print(f"[ERROR] SPECTER preload failed: {e}")
+    except Exception:
+        logger.exception("SPECTER preload failed")
     try:
         get_bge()
-    except Exception as e:
-        print(f"[ERROR] BGE preload failed: {e}")
+    except Exception:
+        logger.exception("BGE preload failed")
 
+    logger.info(
+        "Service ready (qdrant=%s neo4j=%s searxng=%s vllm=%s)",
+        f"{QDRANT_HOST}:{QDRANT_PORT}" + (" [OK]" if qdrant else " [UNAVAILABLE]"),
+        NEO4J_URI + (" [OK]" if neo4j else " [UNAVAILABLE]"),
+        SEARXNG_URL,
+        VLLM_URL,
+    )
     print("\n" + "=" * 60)
     print("Service ready!")
     print("=" * 60)

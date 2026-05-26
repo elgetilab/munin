@@ -10,6 +10,107 @@ self-document (renames, refactors, bug fixes).
 
 ---
 
+## 2026-05-25: SSE reconnect decouples listener from work, reshapes P0 #2
+
+P1 #10 makes a mid-stream WiFi blip or full browser refresh resume the
+in-flight chat turn instead of losing it. The realisation that made
+this feasible was decoupling the HTTP listener from the work:
+
+- A per-request `Stream` (in `retrieval/stream_registry.py`) holds the
+  monotonic event log, a `cancel_event`, and listener attach/detach
+  state. The `stream_chat_completion` coroutine runs as a task that
+  pushes events into the log, not into any specific HTTP response.
+- The `POST /api/chat/completions` SSE response is just a *listener*
+  on that log. A `GET /api/chat/completions/resume?stream_id=...` is
+  another listener that, given `Last-Event-ID`, replays unseen entries
+  then continues live. Either response can detach and reattach without
+  restarting the work.
+
+**Reshape of P0 #2 (disconnect = immediate cancel).** P0 #2 wired a
+500 ms watchdog that fired `cancel_event` the moment the client
+dropped. P1 #10 replaces that with a **grace timer**: on detach,
+start a 60 s window; reattach during the window keeps the work
+running; only if grace expires does the cascade fire. So a brief
+disconnect no longer kills the turn — but a truly abandoned stream
+still frees its vLLM slot, which was P0 #2's whole point.
+
+Choices worth recording:
+
+- **Per-event id format `<stream_id>-<seq>`.** `stream_id` is a hex
+  UUID with no `-`, so `rfind('-')` is unambiguous. Encoding both
+  into one `Last-Event-ID` value means the client only needs one
+  header on resume.
+- **In-memory buffer, bounded at 1000 events.** Overflow flips a
+  `truncated` flag; subsequent resumes return 410 rather than
+  silently skipping events. No disk persistence — a retrieval
+  restart legitimately loses in-flight streams.
+- **`done` retention 60 s.** A late reconnect (slow refresh, slow
+  network) can still pick up the final tail; janitor evicts after.
+- **Cross-tab sessionStorage on the frontend.** Per-tab semantics;
+  closing the tab loses the resume, which matches user intent.
+  Ephemeral chats deliberately don't persist (nothing to restore).
+
+## 2026-05-22: maintenance mode is a single cluster-side flag
+
+Operator-triggered maintenance (distinct from the nightly 2-6 AM GPU
+sleep) is one flag file on the cluster: `/opt/munin/data/maintenance.json`,
+written by `munin-maintenance on`. `/opt/munin/data` is already
+bind-mounted into the retrieval container, so `/api/status` reads the
+flag with no new mount and reports a `maintenance` block.
+
+Both UIs are pure consumers of `/api/status`: the React chat app shows
+`MaintenancePage` (precedence over the `SleepingPage`), and the static
+page at `chat.muninai.org/maintenance` fetches the same endpoint. One
+flag, one signal, no second source of truth.
+
+**Boundary caveat.** The flag is cluster-side; Caddy is VPS-side and
+cannot read it. So there is no *automatic* proxy-level cutover (Caddy
+serving a maintenance page for every route based on the flag). The
+static maintenance page is the API-driven fallback for the normal case
+(retrieval up, vLLM/Miro down). A full Caddy-level cutover would need a
+separate VPS-side flag — deliberately left out of scope.
+
+**Why a file, not an env var or DB row:** a file is trivially
+toggled by a root shell script, needs no service restart (an env var
+would), and needs no schema. `munin-maintenance` is the single owner
+of the vLLM cron toggle while maintenance is on; `off` returns vLLM to
+the normal 6am/2am schedule (24/7 mode, if it was on, must be
+re-enabled by hand). Operator usage is documented in
+backend/README.md under "Maintenance mode".
+
+## 2026-05-21: Qwen tokenizer staged, not mounted from the model dir
+
+The retrieval container budgets context tokens with the real Qwen3
+tokenizer (P1 #8). The tokenizer ships inside the vLLM model dir
+(`/opt/munin/data/models/qwen3.6-35b-a3b-awq-4bit/`), but that dir is
+~19 GB of quantized weights the retrieval service has no business
+reading.
+
+Decision: `deploy.sh::stage_qwen_tokenizer` copies just
+`tokenizer.json` (+ `tokenizer_config.json`, ~7 MB total) into a
+dedicated `/opt/munin/data/models/qwen-tokenizer/` dir, and
+docker-compose bind-mounts *that* read-only into the container as
+`/models/qwen`. The container sees exactly the files it needs and none
+of the weights ("correct blast radius" — rejected the simpler
+whole-model-dir mount for this reason).
+
+**Invariants:**
+
+- `VLLM_MODEL_DIR` in `deploy.sh` must track `MODEL_PATH` in
+  `scripts/vllm/start-vllm-service.sh`. A model upgrade changes the
+  versioned dir name in both places; `stage_qwen_tokenizer` then
+  re-copies on the next `deploy.sh retrieval`.
+- The copy is deliberately best-effort. On a first-ever deploy the
+  vLLM model has not been downloaded yet, so there's nothing to copy;
+  `deploy.sh` warns and continues. `chat_context.approx_tokens` falls
+  back to a ~4-chars-per-token heuristic when the tokenizer file is
+  absent, and `_get_tokenizer` logs one warning. A later deploy (after
+  vLLM's first run) stages the file and a container restart picks it up.
+- The heuristic fallback undercounts code / LaTeX / JSON by 1.5-2x.
+  That is the *old* behaviour, so a missing tokenizer is a graceful
+  degradation, not a regression — but it does mean oversized prompts
+  can still slip past the budget until the tokenizer is in place.
+
 ## 2026-05-19: P0 reliability batch (audit closeout)
 
 Five fixes from `munin-audit.md` landed in one batch. The mechanics
