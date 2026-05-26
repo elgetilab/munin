@@ -1190,52 +1190,77 @@ async def _build_full_system_prompt(
     """
     system_prompt = persona_module.build_system_prompt(persona)
 
-    if not ephemeral:
-        try:
-            profile = await user_profile_store.get_profile(user_email)
-            profile_block = user_profile_store.build_profile_block(profile)
-        except Exception as e:
-            logger.warning("profile load failed: %s", e)
-            profile_block = None
-        if profile_block:
-            system_prompt = (
-                f"{profile_block}\n\n{system_prompt}"
-                if system_prompt
-                else profile_block
-            )
+    # P2 #21: schedule the three SQLite fetches in parallel. Saves
+    # ~2× SQLite-roundtrips per turn vs sequential awaits (~3-9ms in
+    # practice). Block-render helpers are sync and run after the
+    # gather; exception isolation matches the prior per-block
+    # try/except pattern via ``return_exceptions=True``.
+    want_profile = not ephemeral
+    want_memory = not ephemeral
+    want_artifact = not ephemeral and bool(conversation_id)
 
-    if not ephemeral:
-        try:
-            memories = await memory_store.recall_all(user_email)
-            memory_block = memory_store.build_memory_block(memories)
-        except Exception as e:
-            logger.warning("memory load failed: %s", e)
-            memory_block = None
-        if memory_block:
-            system_prompt = (
-                f"{memory_block}\n\n{system_prompt}"
-                if system_prompt
-                else memory_block
-            )
+    fetches: list[tuple[str, Any]] = []
+    if want_profile:
+        fetches.append(("profile", user_profile_store.get_profile(user_email)))
+    if want_memory:
+        fetches.append(("memory", memory_store.recall_all(user_email)))
+    if want_artifact:
+        fetches.append(("artifact", artifact_store.list_artifacts(
+            user_email=user_email,
+            conversation_id=conversation_id,
+        )))
 
-    if not ephemeral and conversation_id:
+    if fetches:
+        results = await asyncio.gather(
+            *(coro for _, coro in fetches), return_exceptions=True,
+        )
+        by_name: dict[str, Any] = {
+            name: result for (name, _), result in zip(fetches, results)
+        }
+    else:
+        by_name = {}
+
+    def _render_block(name: str, builder) -> Optional[str]:
+        """Apply the sync block builder to the fetched value, mirroring
+        the original try/except shape. A fetch-time exception (from
+        gather) and a render-time exception are both logged + skipped."""
+        if name not in by_name:
+            return None
+        value = by_name[name]
+        if isinstance(value, Exception):
+            logger.warning("%s load failed: %s", name, value)
+            return None
         try:
-            artifact_rows = await artifact_store.list_artifacts(
-                user_email=user_email,
-                conversation_id=conversation_id,
-            )
-            artifact_block = artifact_store.build_artifact_summary_block(
-                artifact_rows
-            )
+            return builder(value)
         except Exception as e:
-            logger.warning("artifact summary load failed: %s", e)
-            artifact_block = None
-        if artifact_block:
-            system_prompt = (
-                f"{artifact_block}\n\n{system_prompt}"
-                if system_prompt
-                else artifact_block
-            )
+            logger.warning("%s block render failed: %s", name, e)
+            return None
+
+    profile_block = _render_block("profile", user_profile_store.build_profile_block)
+    if profile_block:
+        system_prompt = (
+            f"{profile_block}\n\n{system_prompt}"
+            if system_prompt
+            else profile_block
+        )
+
+    memory_block = _render_block("memory", memory_store.build_memory_block)
+    if memory_block:
+        system_prompt = (
+            f"{memory_block}\n\n{system_prompt}"
+            if system_prompt
+            else memory_block
+        )
+
+    artifact_block = _render_block(
+        "artifact", artifact_store.build_artifact_summary_block,
+    )
+    if artifact_block:
+        system_prompt = (
+            f"{artifact_block}\n\n{system_prompt}"
+            if system_prompt
+            else artifact_block
+        )
 
     if not ephemeral and project:
         try:
