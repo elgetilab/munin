@@ -3632,6 +3632,17 @@ async def startup():
     except Exception:
         logger.exception("Failed to load agents")
 
+    # Load hooks (P2 #23). Auto-imports every hooks/*.py so module-
+    # level @register decorators populate the registry. Hook
+    # exceptions during import are logged but don't block startup.
+    try:
+        import hooks as hooks_pkg
+
+        n_hooks = hooks_pkg.load_all()
+        logger.info("Loaded %d hooks", n_hooks)
+    except Exception:
+        logger.exception("Failed to load hooks")
+
     # Eager-load embedding models so /api/status reflects real
     # readiness instead of "unavailable" (which used to mean
     # either failed-to-load or lazy-not-yet-called — confusing

@@ -45,6 +45,10 @@ COPY tests /app/tests/
 # Copy agents module
 COPY agents /app/agents/
 
+# Copy hooks module (P2 #23). The auto-loader walks this directory
+# at startup; missing it would silently disable every hook.
+COPY hooks /app/hooks/
+
 # Persona definitions and agent config are mounted at runtime
 # (see docker-compose.yml): /app/personas and /app/config.
 

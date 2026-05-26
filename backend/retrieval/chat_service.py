@@ -51,6 +51,7 @@ from metrics import observe_phantom_urls, observe_turn
 from tool_result import truncate_tool_result
 from mcp.schemas import MCP_TOOLS, CORE_TOOLS
 from mcp.executor import execute_mcp_tool, partition_by_concurrency_safety
+import hooks as hooks_module
 from mcp.tools import clarification as clarification_tool
 from mcp.context import (
     current_user_email,
@@ -911,12 +912,43 @@ async def _run_tool_calls(
                 },
                 "duration_ms": 0,
             }
+        # P2 #23 preToolUse: a hook can short-circuit dispatch by
+        # returning a synthetic result (e.g. per-user gating, test
+        # fakes, redaction-on-input). Runs after the persona-allowlist
+        # check above because persona enforcement is non-negotiable.
         started = time.monotonic()
+        try:
+            pre_result = await hooks_module.dispatch_pre_tool_use(
+                name, tc["arguments"],
+            )
+        except Exception as e:
+            # Dispatcher catches per-hook exceptions; this guards
+            # against a bug in the dispatcher itself.
+            logger.exception("preToolUse dispatch failed for %r: %s", name, e)
+            pre_result = None
+        if pre_result is not None:
+            duration_ms = int((time.monotonic() - started) * 1000)
+            return {
+                "id": tc["id"],
+                "name": name,
+                "result": pre_result,
+                "duration_ms": duration_ms,
+            }
         try:
             result = await execute_mcp_tool(name, tc["arguments"])
         except Exception as e:
             result = {"error": f"tool execution failed: {e}"}
         duration_ms = int((time.monotonic() - started) * 1000)
+        # P2 #23 postToolUse: hooks chain; each non-None return
+        # replaces the result for the next hook in the chain. Useful
+        # for audit logs (return None, observe only) and output
+        # redaction (return a sanitised dict).
+        try:
+            result = await hooks_module.dispatch_post_tool_use(
+                name, tc["arguments"], result, duration_ms,
+            )
+        except Exception as e:
+            logger.exception("postToolUse dispatch failed for %r: %s", name, e)
         return {
             "id": tc["id"],
             "name": name,
@@ -2607,3 +2639,11 @@ async def stream_chat_completion(
         except Exception:
             _persona_label = None
         observe_turn(_persona_label, terminal_reason)
+        # P2 #23 stop: fire end-of-turn hooks. Run after observe_turn
+        # so the metric still increments even if a hook misbehaves
+        # (the dispatcher catches per-hook exceptions, but defence
+        # in depth). Side-effect only; no return.
+        try:
+            await hooks_module.dispatch_stop(terminal_reason)
+        except Exception as e:
+            logger.exception("stop hook dispatch failed: %s", e)
