@@ -750,3 +750,21 @@ export async function resumeChat(
     }
   }
 }
+
+// ── Memory proposals (P2 #25) ────────────────────────────────────────────────
+
+export async function acceptMemoryProposal(proposalId: string): Promise<void> {
+  const res = await fetch(
+    `${API}/memories/proposed/${encodeURIComponent(proposalId)}/accept`,
+    { method: 'POST' },
+  );
+  if (!res.ok) throw new Error('Failed to accept memory proposal');
+}
+
+export async function rejectMemoryProposal(proposalId: string): Promise<void> {
+  const res = await fetch(
+    `${API}/memories/proposed/${encodeURIComponent(proposalId)}/reject`,
+    { method: 'POST' },
+  );
+  if (!res.ok) throw new Error('Failed to reject memory proposal');
+}

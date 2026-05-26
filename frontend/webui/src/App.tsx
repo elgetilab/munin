@@ -50,6 +50,7 @@ export default function App() {
     loadConversation,
     clearConversation,
     stopGenerating,
+    dismissMemoryProposal,
   } = useChat();
   const [artifactPanelOpen, setArtifactPanelOpen] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
@@ -647,7 +648,7 @@ export default function App() {
               </div>
             ) : (
               <>
-                <MessageList messages={messages} streaming={streaming} personas={personas} onSendClarification={handleSend} />
+                <MessageList messages={messages} streaming={streaming} personas={personas} onSendClarification={handleSend} onDismissMemoryProposal={dismissMemoryProposal} />
                 <ChatInput
                   onSend={handleSend}
                   onSendMultimodal={handleSendMultimodal}

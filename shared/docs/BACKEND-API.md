@@ -513,6 +513,54 @@ matches `{user_email, document_id}`.
 **Response (200)**: `{"deleted": true}`. **404** only if neither a
 directory nor any Qdrant points existed.
 
+### 4.11a `GET /api/memories` (P2 #25)
+
+Returns the authenticated user's accepted memories AND any pending
+auto-proposed candidates from the post-turn extraction hook.
+
+**Response (200)**:
+```json
+{
+  "accepted": [
+    {"key": "user_role", "value": "postdoc in Smith Lab",
+     "created_at": "...", "updated_at": "..."}
+  ],
+  "pending": [
+    {"id": "uuid", "key": "research_focus",
+     "value": "cryo-EM of membrane proteins",
+     "reason": "ongoing project context",
+     "conversation_id": "...", "proposed_at": "..."}
+  ]
+}
+```
+
+Accepted entries come from `user_memory` (20-entry LRU cap, model-
+curated via `remember`/`forget` tools or via the accept endpoint
+below). Pending entries come from `proposed_memories` (10-entry
+FIFO cap per user; populated by the `stop` hook).
+
+### 4.11b `POST /api/memories/proposed/{id}/accept`
+
+Upserts the proposed (key, value) into `user_memory` and deletes
+the proposal row. Triggers the same 20-entry LRU eviction as a
+`remember` tool call.
+
+**Response (200)**: `{"accepted": {"remembered": true, "key": "...",
+"value": "...", "evicted": [...], "total_memories": N, "max_memories": 20}}`
+
+**404** if the proposal id does not exist or is not owned by this user.
+**400** with the standard error envelope if `memory_store.MemoryError`
+fires (cap violations on the underlying upsert).
+
+### 4.11c `POST /api/memories/proposed/{id}/reject`
+
+Deletes the proposal and remembers the key in `rejected_memory_keys`
+so the classifier doesn't re-propose it next turn (50-entry FIFO
+cap per user; idempotent on re-reject).
+
+**Response (200)**: `{"rejected": true, "key": "..."}`. **404** if
+the proposal id does not exist or is not owned by this user.
+
 ### 4.12 `GET /api/profile`
 
 Loads the authenticated user's profile. Always returns 200; users who
@@ -1076,6 +1124,7 @@ data: <minified json>
 | `done` | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}, "usage_by_purpose": {"main_turn": {...}, "wrap_up": {...}, ...}, "finish_reason": "stop"}` | Always the last event on success. `usage` is the **aggregate across every vLLM call this turn**, not just the last one — the gateway records `total_tokens` from here for quota. `usage_by_purpose` is the same numbers broken down by call site for debugging: `main_turn`, `wrap_up`, `forced_clarification`, `forced_required`, `agent_turn`, `agent_wrap_up`, `summary`, `title`. Purposes with zero calls are omitted |
 | `retrying` | `{"attempt": N, "max_attempts": M, "delay_s": 1.0, "reason": "vllm 503"}` | A vLLM call hit a transient error (5xx / 429 / connection drop / pre-first-byte stream drop) and is about to retry. Fires before the backoff sleep. `attempt` is 1-indexed. `reason` is a short tag (e.g. `vllm 503`, `vllm ConnectError`). Multiple may fire per turn. Frontend should render a transient "reconnecting" indicator and reset it once any other event resumes |
 | `reconnecting` | `{"attempt": N, "max_attempts": M, "delay_s": 1.0}` | **Synthetic, client-side only** (P1 #10). Not emitted by the server — the frontend's SSE consumer dispatches it when an SSE connection drops and a `GET /api/chat/completions/resume` is being attempted with `Last-Event-ID`. Renders the same "reconnecting" indicator as `retrying`; cleared on the first real event from the resumed connection |
+| `memory_proposed` | `{"id": "uuid", "key": "user_role", "value": "postdoc in Smith Lab", "reason": "stable identity fact"}` | **P2 #25**. Auto-extracted memory candidate from a post-turn classifier hook. Fires zero or more times per turn, typically AFTER `done` (the `stop` hook runs in the finally block). Only fires when `terminal_reason ∈ {done, max_turns}` — never on cancelled/error paths. Capped at 3 per turn and 10 pending per user (FIFO). Frontend renders an inline accept/reject pill below the assistant bubble; user action posts to `/api/memories/proposed/{id}/{accept,reject}`. Skips the persistent store ContextVar lookup is unavailable (ephemeral chats are silently skipped) |
 | `error` | `{"message": "Human-readable error"}` | On failure. Stream terminates after this |
 
 Ordering for a normal RAG-enabled chat with one tool call:

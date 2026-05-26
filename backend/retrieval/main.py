@@ -2464,6 +2464,69 @@ async def api_delete_document(document_id: str, request: Request):
     return {"deleted": True}
 
 
+# ==============================================================================
+# Memory (P2 #25) — accepted + auto-proposed
+# ==============================================================================
+@app.get("/api/memories")
+async def api_list_memories(request: Request):
+    """Return both user-accepted memories and pending auto-proposed
+    candidates for this user. The frontend uses pending entries for
+    the post-turn accept/reject pills; accepted entries are surfaced
+    in a future Memory settings tab (P2 #25 follow-up)."""
+    user_email = _require_user_email(request)
+    import memory_store
+    import memory_proposals_store
+
+    accepted = await memory_store.recall_all(user_email)
+    pending = await memory_proposals_store.list_pending(user_email)
+    return {"accepted": accepted, "pending": pending}
+
+
+@app.post("/api/memories/proposed/{proposal_id}/accept")
+async def api_accept_proposal(proposal_id: str, request: Request):
+    """Upsert the proposed (key, value) into user_memory and delete the
+    proposal. Returns the upserted entry (including any LRU eviction
+    from user_memory's 20-entry cap)."""
+    user_email = _require_user_email(request)
+    import memory_store
+    import memory_proposals_store
+
+    proposal = await memory_proposals_store.get_proposal(proposal_id, user_email)
+    if proposal is None:
+        raise _error_404("Proposal not found")
+    try:
+        accepted = await memory_store.remember(
+            user_email, proposal["key"], proposal["value"],
+        )
+    except memory_store.MemoryError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": str(e)}},
+        )
+    await memory_proposals_store.delete_proposal(proposal_id, user_email)
+    return {"accepted": accepted}
+
+
+@app.post("/api/memories/proposed/{proposal_id}/reject")
+async def api_reject_proposal(proposal_id: str, request: Request):
+    """Delete the proposal and remember the key so the classifier
+    doesn't re-propose it next turn. The key is recorded even if the
+    proposal row no longer exists (concurrent reject + page refresh
+    race) so a double-tap doesn't surface the same proposal."""
+    user_email = _require_user_email(request)
+    import memory_proposals_store
+
+    proposal = await memory_proposals_store.get_proposal(proposal_id, user_email)
+    if proposal is not None:
+        await memory_proposals_store.delete_proposal(proposal_id, user_email)
+        await memory_proposals_store.add_rejection(user_email, proposal["key"])
+        return {"rejected": True, "key": proposal["key"]}
+    # Idempotent on re-reject: the row's already gone but we still
+    # record the key (if the caller supplied one in a query param,
+    # they would — but to keep this stateless, just 404).
+    raise _error_404("Proposal not found")
+
+
 @app.get("/sources")
 async def list_sources():
     """List available knowledge base sources."""

@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { streamChat, resumeChat, fetchChat } from '../lib/api';
-import type { Message, MessageContent, SSEEvent, ToolCall, RagContext, AgentState, Clarification, ArtifactSummary, ArtifactCreatedEvent, ArtifactUpdatedEvent, TagChip, Delegation } from '../lib/types';
+import type { Message, MessageContent, SSEEvent, ToolCall, RagContext, AgentState, Clarification, ArtifactSummary, ArtifactCreatedEvent, ArtifactUpdatedEvent, TagChip, Delegation, MemoryProposal } from '../lib/types';
 
 interface RetryingState {
   attempt: number;
@@ -112,6 +112,11 @@ export function useChat() {
 
     const toolCalls: ToolCall[] = [];
     const delegations: Delegation[] = [];
+    // P2 #25: memory proposals fire from a `stop` hook AFTER the
+    // `done` event in most paths, so we collect them in a turn-scoped
+    // ref accumulator and attach to the most recent assistant message
+    // when each one lands.
+    const memoryProposals: MemoryProposal[] = [];
     let thinkingText = '';
     let contentText = '';
     let ragCtx: RagContext | null = null;
@@ -288,6 +293,38 @@ export function useChat() {
             },
           }));
           break;
+        case 'memory_proposed': {
+          // P2 #25: stop-hook produced an auto-extracted memory
+          // candidate. The hook fires AFTER 'done' in the typical
+          // path, so the assistant message is already persisted —
+          // we attach the proposal retroactively to the last
+          // assistant message we just appended. If 'done' hasn't
+          // happened yet (e.g. error path interleaving) we keep the
+          // proposal in the turn-scoped buffer and the 'done' /
+          // 'error' branches below will pick it up.
+          memoryProposals.push(event.data);
+          setMessages(prev => {
+            // Walk from the end looking for the most recent
+            // assistant message. If none exists (proposal arrived
+            // before done — shouldn't happen in practice), no-op
+            // and let the done branch attach it.
+            for (let i = prev.length - 1; i >= 0; i--) {
+              if (prev[i].role === 'assistant') {
+                const next = prev.slice();
+                next[i] = {
+                  ...next[i],
+                  memory_proposals: [
+                    ...(next[i].memory_proposals || []),
+                    event.data,
+                  ],
+                };
+                return next;
+              }
+            }
+            return prev;
+          });
+          break;
+        }
         case 'error': {
           // Save-always parity with the backend (chat 3951063c,
           // 2026-05-08): append a Message carrying whatever partial
@@ -331,6 +368,10 @@ export function useChat() {
             rag_context: ragCtx,
             clarification: clarification,
             delegations: delegations.length > 0 ? [...delegations] : null,
+            // If memory_proposed fired before done (out-of-order on
+            // some transports), the accumulator holds the candidates;
+            // attach them on initial creation.
+            memory_proposals: memoryProposals.length > 0 ? [...memoryProposals] : null,
             created_at: new Date().toISOString(),
           };
           setMessages(prev => [...prev, assistantMessage]);
@@ -443,6 +484,21 @@ export function useChat() {
     setStreaming(s => ({ ...s, phase: 'done' }));
   }, []);
 
+  // P2 #25: remove a memory proposal from whichever assistant
+  // message carries it. Called by MemoryProposalPill after the
+  // accept/reject REST call resolves (optimistic — no rollback on
+  // API failure, the proposal will simply re-appear on next reload
+  // if the server reject failed, which is the right UX for a tiny
+  // best-effort feature).
+  const dismissMemoryProposal = useCallback((proposalId: string) => {
+    setMessages(prev => prev.map(m => {
+      if (!m.memory_proposals) return m;
+      const next = m.memory_proposals.filter(p => p.id !== proposalId);
+      if (next.length === m.memory_proposals.length) return m;
+      return { ...m, memory_proposals: next.length > 0 ? next : null };
+    }));
+  }, []);
+
   return {
     messages,
     conversationId,
@@ -456,5 +512,6 @@ export function useChat() {
     loadConversation,
     clearConversation,
     stopGenerating,
+    dismissMemoryProposal,
   };
 }

@@ -4,6 +4,7 @@ import { TaskLog } from './TaskLog';
 import { FeatherVortex } from './FeatherVortex';
 import { Markdown } from './Markdown';
 import { ClarificationCard } from './ClarificationCard';
+import { MemoryProposalPill } from './MemoryProposalPill';
 
 interface RetryingState {
   attempt: number;
@@ -27,6 +28,10 @@ interface MessageListProps {
   streaming: StreamingState;
   personas?: Persona[];
   onSendClarification?: (answer: string) => void;
+  // P2 #25: invoked when the user accepts or dismisses a memory
+  // proposal pill. Should remove the proposal from the message
+  // so the pill disappears optimistically.
+  onDismissMemoryProposal?: (proposalId: string) => void;
 }
 
 function personaName(personas: Persona[] | undefined, id: string): string {
@@ -71,7 +76,7 @@ export function detectPhase(streaming: StreamingState): string {
   return 'thinking';
 }
 
-export function MessageList({ messages, streaming, personas, onSendClarification }: MessageListProps) {
+export function MessageList({ messages, streaming, personas, onSendClarification, onDismissMemoryProposal }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -85,7 +90,7 @@ export function MessageList({ messages, streaming, personas, onSendClarification
     <div className="flex-1 overflow-y-auto px-4 py-6">
       <div className="max-w-2xl mx-auto space-y-6">
         {messages.map(msg => (
-          <MessageBubble key={msg.id} message={msg} personas={personas} onSendClarification={onSendClarification} />
+          <MessageBubble key={msg.id} message={msg} personas={personas} onSendClarification={onSendClarification} onDismissMemoryProposal={onDismissMemoryProposal} />
         ))}
 
         {/* Streaming state */}
@@ -167,7 +172,7 @@ export function MessageList({ messages, streaming, personas, onSendClarification
   );
 }
 
-function MessageBubble({ message, personas, onSendClarification }: { message: Message; personas?: Persona[]; onSendClarification?: (answer: string) => void }) {
+function MessageBubble({ message, personas, onSendClarification, onDismissMemoryProposal }: { message: Message; personas?: Persona[]; onSendClarification?: (answer: string) => void; onDismissMemoryProposal?: (proposalId: string) => void }) {
   if (message.role === 'user') {
     return (
       <div className="flex gap-3 justify-end">
@@ -210,6 +215,20 @@ function MessageBubble({ message, personas, onSendClarification }: { message: Me
           clarification={message.clarification}
           onSubmit={onSendClarification}
         />
+      )}
+
+      {/* P2 #25: auto-extracted memory candidates. Rendered below the
+          bubble; user can accept or dismiss each one. */}
+      {message.memory_proposals && message.memory_proposals.length > 0 && onDismissMemoryProposal && (
+        <div className="mt-1">
+          {message.memory_proposals.map(p => (
+            <MemoryProposalPill
+              key={p.id}
+              proposal={p}
+              onDismiss={onDismissMemoryProposal}
+            />
+          ))}
+        </div>
       )}
     </div>
   );

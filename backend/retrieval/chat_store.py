@@ -170,6 +170,35 @@ async def init_db() -> aiosqlite.Connection:
         CREATE INDEX IF NOT EXISTS idx_user_memory_updated
             ON user_memory(user_email, updated_at DESC);
 
+        -- P2 #25: auto-extracted memory proposals awaiting user
+        -- accept/reject. Separate from user_memory so the LRU cap
+        -- on accepted memories isn't competed against by pending
+        -- ones, and so build_memory_block doesn't have to filter.
+        CREATE TABLE IF NOT EXISTS proposed_memories (
+            id TEXT PRIMARY KEY,
+            user_email TEXT NOT NULL,
+            conversation_id TEXT,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            reason TEXT,
+            proposed_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_proposed_memories_user
+            ON proposed_memories(user_email, proposed_at DESC);
+
+        -- P2 #25: keys the user explicitly rejected so the classifier
+        -- doesn't re-propose them. Cap'd at 50/user with FIFO eviction.
+        CREATE TABLE IF NOT EXISTS rejected_memory_keys (
+            user_email TEXT NOT NULL,
+            key TEXT NOT NULL,
+            rejected_at TEXT NOT NULL,
+            PRIMARY KEY (user_email, key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_rejected_memory_keys_user
+            ON rejected_memory_keys(user_email, rejected_at DESC);
+
         CREATE TABLE IF NOT EXISTS artifacts (
             id TEXT PRIMARY KEY,
             conversation_id TEXT NOT NULL,

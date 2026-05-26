@@ -56,6 +56,10 @@ export interface Message {
   // 'error' event so the partial response stays visible in the
   // message list before page reload (chat 3951063c, 2026-05-08).
   interrupted?: boolean;
+  // P2 #25: auto-extracted memory candidates from this turn. Rendered
+  // as accept/reject pills below the assistant bubble. Cleared once
+  // the user acts on each one.
+  memory_proposals?: MemoryProposal[] | null;
   created_at: string;
 }
 
@@ -189,8 +193,18 @@ export type SSEEvent =
   | { type: 'persona_changed'; data: { id: string; persona: string } }
   | { type: 'retrying'; data: { attempt: number; max_attempts: number; delay_s: number; reason: string } }
   | { type: 'reconnecting'; data: { attempt: number; max_attempts: number; delay_s: number } }
+  | { type: 'memory_proposed'; data: MemoryProposal }
   | { type: 'error'; data: { message: string } }
   | { type: 'done'; data: { usage?: { prompt_tokens: number; completion_tokens: number }; finish_reason: string } };
+
+// ── Memory (P2 #25) ──────────────────────────────────────────────────────────
+
+export interface MemoryProposal {
+  id: string;
+  key: string;
+  value: string;
+  reason?: string | null;
+}
 
 // ── Status ───────────────────────────────────────────────────────────────────
 
