@@ -12,7 +12,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Optional
+from typing import Any, Optional, Union
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,70 @@ PERSONAS_DIR = os.getenv("PERSONAS_DIR", "/app/personas")
 DEFAULT_PERSONA_ID = os.getenv("DEFAULT_PERSONA", "chat")
 
 _personas: dict[str, dict] = {}
+
+
+# ---------------------------------------------------------------------------
+# Schema (P2 #20). The loaded `_personas` dict still stores raw dicts so
+# accessors like `params.get("temperature")` keep working; the Pydantic
+# model below is a validation gate only — `model_validate()` rejects
+# typos and out-of-bounds values at load time, before any consumer sees
+# the entry.
+#
+# `extra="forbid"` at every level is the whole point: it makes
+# `params.temprature: 1.0` or `meta.profile_imag_url: ...` an error
+# instead of a silent default.
+# ---------------------------------------------------------------------------
+
+
+class _PromptSuggestion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str
+    subtitle: str
+    content: str
+
+
+class _TagDict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str
+
+
+class _Params(BaseModel):
+    """Sampling + tool-use parameters. Every field is optional — defaults
+    are applied by the consumer (vLLM, personas.max_turns, ...) so a
+    persona that doesn't set `top_k` still works."""
+    model_config = ConfigDict(extra="forbid")
+
+    system: Optional[str] = None
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
+    top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    top_k: Optional[int] = Field(default=None, ge=0)
+    min_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    presence_penalty: Optional[float] = Field(default=None, ge=-2.0, le=2.0)
+    max_tokens: Optional[int] = Field(default=None, gt=0)
+    # Bounds match personas.max_turns clamp range below; reject out-of-bounds
+    # rather than silently clamping so the operator sees the typo at boot.
+    max_turns: Optional[int] = Field(default=None, ge=1, le=30)
+    tool_allowlist: Optional[list[str]] = None
+
+
+class _Meta(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    description: Optional[str] = None
+    profile_image_url: Optional[str] = None
+    tags: Optional[list[Union[str, _TagDict]]] = None
+    capabilities: Optional[dict[str, bool]] = None
+    toolIds: Optional[list[str]] = None
+
+
+class _Persona(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(..., min_length=1)
+    version: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    params: Optional[_Params] = None
+    meta: Optional[_Meta] = None
+    prompt_suggestions: Optional[list[_PromptSuggestion]] = None
 
 
 def _tag_list(raw: Any) -> list[str]:
@@ -82,8 +148,15 @@ def load_personas() -> dict[str, dict]:
         except Exception as e:
             logger.warning("Failed to load persona %s: %s", entry, e)
             continue
-        persona_id = data.get("id") or entry.removesuffix(".json")
-        data["id"] = persona_id
+        # Fill in id from filename if the JSON omitted it, then validate.
+        if isinstance(data, dict) and not data.get("id"):
+            data["id"] = entry.removesuffix(".json")
+        try:
+            _Persona.model_validate(data)
+        except ValidationError as e:
+            logger.error("Persona %s failed validation, skipping: %s", entry, e)
+            continue
+        persona_id = data["id"]
         _personas[persona_id] = data
         logger.info("Loaded persona: %s", persona_id)
 
