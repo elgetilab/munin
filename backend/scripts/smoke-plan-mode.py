@@ -205,11 +205,51 @@ def _count_tool_calls(res: dict, name: str) -> int:
     return sum(1 for tc in res["tool_calls"] if tc.get("name") == name)
 
 
+def _count_successful_tool_results(res: dict, name: str) -> int:
+    """Tool RESULTS for ``name`` whose payload is a dict without a
+    truthy ``error`` field. Counting calls is not enough: the
+    persona-allowlist short-circuit returns a synthetic
+    ``{"error": "The 'X' tool is not available..."}`` BEFORE the
+    dispatcher runs — the model attempted the call but the
+    backend rejected it. The 2026-05-29 bug (set_plan rejected
+    because the infra-tool auto-inject was missing in personas.py)
+    slipped through the smoke gate precisely because the test
+    only checked tool_call presence, not tool_result success."""
+    out = 0
+    for tr in res["tool_results"]:
+        if tr.get("name") != name:
+            continue
+        r = tr.get("result")
+        if not isinstance(r, dict):
+            continue
+        if r.get("error"):
+            continue
+        out += 1
+    return out
+
+
+def _failing_tool_result_messages(res: dict, name: str) -> list[str]:
+    """Surface the error messages from any failed tool_results for
+    ``name`` so the test output explains WHY the call didn't land."""
+    msgs: list[str] = []
+    for tr in res["tool_results"]:
+        if tr.get("name") != name:
+            continue
+        r = tr.get("result")
+        if isinstance(r, dict) and r.get("error"):
+            msg = r["error"]
+            if isinstance(msg, str):
+                msgs.append(msg[:160])
+    return msgs
+
+
 def _collect_metrics(res: dict) -> dict:
     return {
         "tool_calls": [tc.get("name") for tc in res["tool_calls"]],
         "set_plan_count": _count_tool_calls(res, "set_plan"),
+        "set_plan_ok": _count_successful_tool_results(res, "set_plan"),
         "update_plan_item_count": _count_tool_calls(res, "update_plan_item"),
+        "update_plan_item_ok": _count_successful_tool_results(res, "update_plan_item"),
         "plan_updated_events": len(res["plan_events"]),
         "approval_events": len(res["approval_events"]),
         "content_chars": len(res["content"]),
@@ -248,11 +288,21 @@ async def scenario_multistep_research(client: httpx.AsyncClient) -> SmokeOutcome
             f"{out.metrics['tool_calls']!r}"
         )
         return out
+    if out.metrics["set_plan_ok"] == 0:
+        out.reason = (
+            "model called set_plan but every tool_result was an error — "
+            "the executor rejected the call. Most likely: the persona's "
+            "tool_allowlist doesn't include set_plan (auto-inject in "
+            "personas.tool_allowlist), or the dispatcher errored "
+            "(check tool_result payload). Errors observed: "
+            f"{_failing_tool_result_messages(res, 'set_plan')!r}"
+        )
+        return out
     if out.metrics["plan_updated_events"] == 0:
         out.reason = (
-            "set_plan was called but plan_updated SSE event did not fire — "
-            "dispatcher may have failed to emit; check current_sse_emitter "
-            "is bound in the per-tool scope"
+            "set_plan executed successfully but plan_updated SSE event did "
+            "not fire — dispatcher may have failed to emit; check "
+            "current_sse_emitter is bound in the per-tool scope"
         )
         return out
     first_plan = res["plan_events"][0]
@@ -299,12 +349,30 @@ async def scenario_multistep_code_progress(client: httpx.AsyncClient) -> SmokeOu
     if out.metrics["set_plan_count"] == 0:
         out.reason = "model did not call set_plan on a clear multi-step task"
         return out
+    if out.metrics["set_plan_ok"] == 0:
+        out.reason = (
+            "model called set_plan but executor rejected every call. "
+            f"errors: {_failing_tool_result_messages(res, 'set_plan')!r}"
+        )
+        return out
     if out.metrics["update_plan_item_count"] == 0:
         out.reason = (
             "model called set_plan but never update_plan_item — progress "
             "tracking is broken or the persona prompt isn't strong enough on "
             "the 'flip status as you work' instruction. tool_calls: "
             f"{out.metrics['tool_calls']!r}"
+        )
+        return out
+    if out.metrics["update_plan_item_ok"] == 0:
+        out.reason = (
+            "update_plan_item called but every result was an error. "
+            f"errors: {_failing_tool_result_messages(res, 'update_plan_item')!r}"
+        )
+        return out
+    if out.metrics["plan_updated_events"] == 0:
+        out.reason = (
+            "tools ran but plan_updated SSE never fired — dispatcher emit "
+            "broken or current_sse_emitter not bound in the per-tool scope"
         )
         return out
     out.passed = True
@@ -372,10 +440,16 @@ async def scenario_singlestep_lookup(client: httpx.AsyncClient) -> SmokeOutcome:
 # ----------------------------------------------------------------------
 
 PHASE2_GATE_PROMPT = (
-    "Please do a deep lit review on the kinetics of polymer "
-    "crystallisation from melt — call deep_research, follow up with "
-    "delegate_to_persona to writing if needed, and produce a structured "
-    "summary."
+    "I need a polished short brief on the kinetics of polymer "
+    "crystallisation from melt. WORKFLOW (must follow exactly): "
+    "(1) call set_plan with the steps; "
+    "(2) optionally call deep_research to gather material; "
+    "(3) you MUST then call delegate_to_persona with persona_id='chat' "
+    "and reason='write the polished brief' so the writing-capable "
+    "persona produces the final prose. Do NOT write the final brief "
+    "yourself — the whole point is that you delegate the writing. "
+    "This is the rule even if you think you could write it; we are "
+    "testing the delegation flow."
 )
 
 
@@ -401,6 +475,14 @@ async def scenario_phase2_gate(client: httpx.AsyncClient) -> SmokeOutcome:
             "research persona didn't call set_plan despite expensive work — "
             "if research.json's TASK PLANNING block instructs 'always set_plan "
             "before delegate_to_persona', this is a model-side failure"
+        )
+        return out
+    if out.metrics["set_plan_ok"] == 0:
+        out.reason = (
+            "research persona called set_plan but every result was an error "
+            "— executor rejection (check persona allowlist auto-inject in "
+            "personas.tool_allowlist). errors: "
+            f"{_failing_tool_result_messages(res, 'set_plan')!r}"
         )
         return out
     if out.metrics["approval_events"] == 0:

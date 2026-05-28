@@ -301,7 +301,27 @@ def tool_allowlist(persona: Optional[dict]) -> Optional[list[str]]:
         if isinstance(entry, str) and entry and entry not in seen:
             out.append(entry)
             seen.add(entry)
-    for infra_tool in ("delegate_to_persona", "tool_search"):
+    # Infrastructure tools auto-injected into every persona's
+    # allowlist. These are control-flow tools every persona needs
+    # regardless of its content-tool set:
+    #   - delegate_to_persona: hand the turn to another persona
+    #   - tool_search:         discover deferred (non-core) tools (P1 #7)
+    #   - set_plan,
+    #     update_plan_item:    structural plan mode (P2 #24 Phase 1).
+    #                          Without auto-inject, every persona's
+    #                          JSON would have to list them or the
+    #                          persona-allowlist reject path in
+    #                          _run_tool_calls would short-circuit
+    #                          every set_plan call with a synthetic
+    #                          "not available" error before the
+    #                          dispatcher ran. Discovered via the
+    #                          2026-05-29 smoke test on hugin.
+    for infra_tool in (
+        "delegate_to_persona",
+        "tool_search",
+        "set_plan",
+        "update_plan_item",
+    ):
         if infra_tool not in seen:
             out.append(infra_tool)
             seen.add(infra_tool)

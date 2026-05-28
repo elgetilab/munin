@@ -1987,6 +1987,116 @@ async def stream_chat_completion(
                     })
                     continue
 
+                # P2 #24 Phase 2 — plan-approval gate for delegate_to_persona.
+                # The preToolUse hook in hooks/plan_approval.py can't fire
+                # here because delegate_to_persona is intercepted BEFORE
+                # _run_tool_calls (it's a control-flow tool, not an
+                # executor tool). So we inline the same gate check the
+                # hook would have run. Discovered via the 2026-05-29
+                # smoke test where the model called delegate_to_persona
+                # successfully despite research persona's
+                # plan_approval: ["delegate_to_persona"].
+                gated_tools = persona_module.plan_approval_tools(persona)
+                if (
+                    "delegate_to_persona" in gated_tools
+                    and not ephemeral
+                    and conversation.get("id")
+                ):
+                    plan = await plan_store.get_plan(conversation["id"])
+                    gate_result: Optional[dict] = None
+                    if plan is None:
+                        gate_result = {
+                            "error": "plan_approval_required",
+                            "message": (
+                                "This persona requires an approved plan "
+                                "before calling delegate_to_persona. Call "
+                                "set_plan first with the steps you intend "
+                                "to take, then wait for the user to "
+                                "approve it via the UI."
+                            ),
+                        }
+                    elif not plan.get("approved_at"):
+                        # Short-circuit + surface the gate to the UI.
+                        yield _sse(
+                            "plan_approval_required",
+                            {
+                                "tool": "delegate_to_persona",
+                                "arguments": args,
+                                "plan": plan,
+                            },
+                        )
+                        gate_result = {
+                            "status": "awaiting_user_approval",
+                            "tool": "delegate_to_persona",
+                            "message": (
+                                "User approval is required before this "
+                                "call can run. The UI is asking the user "
+                                "to Approve / Approve-all / Edit / "
+                                "Reject. Wait for the user — do NOT "
+                                "retry this tool in the current turn; "
+                                "you will get a new turn once they decide."
+                            ),
+                            "plan_summary": [
+                                it.get("title") for it in (plan.get("items") or [])
+                            ],
+                        }
+                    else:
+                        # Approved. Consume 'each'-mode approval so
+                        # subsequent gated calls re-trigger the gate.
+                        if plan.get("approval_mode") == "each":
+                            try:
+                                await plan_store.clear_approval(conversation["id"])
+                            except Exception as e:
+                                logger.warning(
+                                    "plan_approval: failed to clear approved_at "
+                                    "after delegate_to_persona: %s",
+                                    e,
+                                )
+
+                    if gate_result is not None:
+                        logger.info(
+                            "delegate_to_persona gated (from=%r, target=%r): %s",
+                            persona_id, target_id,
+                            "no plan" if plan is None else "awaiting approval",
+                        )
+                        synthetic_result = {
+                            "id": delegate_tc["id"],
+                            "name": "delegate_to_persona",
+                            "arguments": args,
+                            "result": gate_result,
+                            "duration_ms": 0,
+                        }
+                        final_tool_calls.append(synthetic_result)
+                        yield _sse(
+                            "tool_result",
+                            {
+                                "id": delegate_tc["id"],
+                                "name": "delegate_to_persona",
+                                "result": gate_result,
+                                "duration_ms": 0,
+                            },
+                        )
+                        messages.append({
+                            "role": "assistant",
+                            "content": acc.content or "",
+                            "tool_calls": [
+                                {
+                                    "id": delegate_tc["id"],
+                                    "type": "function",
+                                    "function": {
+                                        "name": "delegate_to_persona",
+                                        "arguments": json.dumps(args),
+                                    },
+                                }
+                            ],
+                        })
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": delegate_tc["id"],
+                            "content": json.dumps(gate_result)[:2000],
+                        })
+                        continue
+
                 # Real delegation: swap persona, rebuild system_prompt,
                 # rewind messages to the pre-loop snapshot (so the new
                 # persona sees a clean conversation, not the rejected

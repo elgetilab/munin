@@ -63,53 +63,92 @@ def test_allowlist_none_for_non_dict() -> bool:
     )
 
 
+# Infrastructure tools the helper must always auto-inject. Asserted
+# as a set rather than positional list so the test doesn't have to
+# move every time we add another control-flow tool (set_plan,
+# update_plan_item joined in P2 #24 Phase 1).
+_INFRA_TOOLS = {
+    "delegate_to_persona",
+    "tool_search",
+    "set_plan",
+    "update_plan_item",
+}
+
+
 def test_allowlist_returns_string_list() -> bool:
-    """Valid allowlist passes through; ``delegate_to_persona`` is
-    auto-injected so all-to-all routing works without each persona
-    spelling it out."""
+    """Valid allowlist passes through; every infra tool is
+    auto-injected so all-to-all routing + tool discovery + plan
+    mode work without each persona spelling them out."""
     p = {
         "id": "x",
         "params": {"tool_allowlist": ["web_search", "calculate", "compile_latex"]},
     }
-    out = persona_module.tool_allowlist(p)
+    out = persona_module.tool_allowlist(p) or []
+    out_set = set(out)
+    user_tools = {"web_search", "calculate", "compile_latex"}
     return _check(
-        "valid allowlist → list of strings + delegate auto-inject",
-        out == ["web_search", "calculate", "compile_latex", "delegate_to_persona"],
+        "valid allowlist → user tools preserved + every infra tool auto-injected",
+        user_tools.issubset(out_set) and _INFRA_TOOLS.issubset(out_set),
         f"got {out!r}",
     )
 
 
 def test_allowlist_drops_non_strings() -> bool:
     """Defensive: malformed entries (numbers, dicts, empty strings)
-    are silently dropped rather than raising. delegate_to_persona is
-    still auto-injected at the end."""
+    are silently dropped rather than raising. Infra tools are still
+    auto-injected at the end."""
     p = {
         "id": "x",
         "params": {
             "tool_allowlist": ["web_search", 42, "", None, {"x": 1}, "calculate"],
         },
     }
-    out = persona_module.tool_allowlist(p)
+    out = persona_module.tool_allowlist(p) or []
+    out_set = set(out)
     return _check(
-        "allowlist drops non-string entries (delegate auto-injected)",
-        out == ["web_search", "calculate", "delegate_to_persona"],
+        "allowlist drops non-string entries; infra tools still injected",
+        out_set == {"web_search", "calculate"} | _INFRA_TOOLS,
         f"got {out!r}",
+    )
+
+
+def test_allowlist_does_not_duplicate_explicit_infra() -> bool:
+    """If a persona JSON already lists an infra tool explicitly, the
+    auto-inject must NOT duplicate it. P2 #24 regression: chat.json
+    has ask_clarification in its allowlist (not auto-injected, but
+    same pattern); the helper's `seen` set guard ensures uniqueness."""
+    p = {
+        "id": "x",
+        "params": {"tool_allowlist": ["web_search", "set_plan", "tool_search"]},
+    }
+    out = persona_module.tool_allowlist(p) or []
+    # Count each name exactly once
+    counts = {name: out.count(name) for name in out}
+    duplicates = [n for n, c in counts.items() if c > 1]
+    return _check(
+        "explicit infra entries are de-duplicated against auto-inject",
+        not duplicates,
+        f"duplicates: {duplicates!r}",
     )
 
 
 def test_allowlist_explicit_delegate_not_duplicated() -> bool:
     """If the persona JSON explicitly lists delegate_to_persona, the
-    auto-injection must dedupe rather than emit it twice."""
+    auto-injection must dedupe rather than emit it twice. (The
+    other infra tools — tool_search, set_plan, update_plan_item —
+    are still auto-injected at the tail.)"""
     p = {
         "id": "x",
         "params": {
             "tool_allowlist": ["web_search", "delegate_to_persona", "calculate"],
         },
     }
-    out = persona_module.tool_allowlist(p)
+    out = persona_module.tool_allowlist(p) or []
+    explicit_part = out[:3]  # the three the persona listed
     return _check(
-        "explicit delegate not duplicated",
-        out == ["web_search", "delegate_to_persona", "calculate"],
+        "explicit delegate not duplicated; original order preserved",
+        explicit_part == ["web_search", "delegate_to_persona", "calculate"]
+        and out.count("delegate_to_persona") == 1,
         f"got {out!r}",
     )
 
@@ -185,18 +224,21 @@ def test_schema_unknown_tool_in_allowlist_is_dropped() -> bool:
     )
 
 
-def test_schema_empty_allowlist_returns_only_delegate() -> bool:
-    """An explicit empty list still gets delegate_to_persona injected
-    — every persona must be able to escape to another. Personas that
-    truly want zero tools can either omit the allowlist (back-compat
-    full schema) or accept the single delegate entry."""
+def test_schema_empty_allowlist_returns_only_infra_tools() -> bool:
+    """An explicit empty list still gets every infra tool auto-
+    injected — every persona must be able to escape (delegate_to_
+    persona), discover (tool_search), and plan (set_plan,
+    update_plan_item). Personas that truly want zero tools can
+    either omit the allowlist (back-compat full schema) or accept
+    these four entries."""
     p = {"id": "empty-test", "params": {"tool_allowlist": []}}
     out = _openai_tools_schema(p)
-    names = [t["function"]["name"] for t in out]
+    names = set(t["function"]["name"] for t in out)
+    expected = {"delegate_to_persona", "tool_search", "set_plan", "update_plan_item"}
     return _check(
-        "empty allowlist → only delegate_to_persona",
-        names == ["delegate_to_persona"],
-        f"got {names!r}",
+        "empty allowlist → exactly the infra-tool set",
+        names == expected,
+        f"got {sorted(names)!r}, expected {sorted(expected)!r}",
     )
 
 
@@ -392,13 +434,14 @@ TESTS = [
     test_allowlist_none_for_non_dict,
     test_allowlist_returns_string_list,
     test_allowlist_drops_non_strings,
+    test_allowlist_does_not_duplicate_explicit_infra,
     test_allowlist_explicit_delegate_not_duplicated,
     test_allowlist_non_list_returns_none,
     test_schema_no_persona_returns_all_tools,
     test_schema_persona_without_allowlist_returns_all_tools,
     test_schema_filters_to_allowlist,
     test_schema_unknown_tool_in_allowlist_is_dropped,
-    test_schema_empty_allowlist_returns_only_delegate,
+    test_schema_empty_allowlist_returns_only_infra_tools,
     test_chat_persona_has_essentials,
     test_code_persona_excludes_research_tools,
     test_research_persona_includes_paper_tools,
