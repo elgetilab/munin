@@ -2571,6 +2571,105 @@ async def api_delete_plan(conversation_id: str, request: Request):
     return {"deleted": deleted}
 
 
+# ==============================================================================
+# Plan-mode approval gate (P2 #24 Phase 2)
+# ==============================================================================
+@app.post("/api/chats/{conversation_id}/plan/approve")
+async def api_approve_plan(conversation_id: str, request: Request):
+    """Mark the plan approved with the supplied ``mode`` ('each' or
+    'auto'). Body: ``{"mode": "each" | "auto"}`` (default 'each').
+
+    Frontend's Approve button posts ``mode='each'``; Approve-all
+    posts ``mode='auto'``; the "revoke auto" affordance posts
+    ``mode='each'`` again to flip back to per-call gating without
+    losing the existing approval state for the next call."""
+    user_email = _require_user_email(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    mode = (body.get("mode") if isinstance(body, dict) else None) or "each"
+    import plan_store
+
+    conversation = await chat_store.get_conversation(conversation_id, user_email)
+    if conversation is None:
+        raise _error_404("Conversation not found")
+    try:
+        plan = await plan_store.mark_approved(
+            conversation_id=conversation_id, approval_mode=mode,
+        )
+    except plan_store.PlanError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": str(e)}},
+        )
+    return {"approved": True, "plan": plan}
+
+
+@app.post("/api/chats/{conversation_id}/plan/reject")
+async def api_reject_plan(conversation_id: str, request: Request):
+    """Drop the plan and surface the rejection. Frontend's Reject
+    button posts here; on success the user is expected to type a
+    follow-up message describing the new direction (the model sees
+    no plan block in its next system prompt + the user's prose, and
+    recovers naturally — no synthetic system message needed)."""
+    user_email = _require_user_email(request)
+    import plan_store
+
+    conversation = await chat_store.get_conversation(conversation_id, user_email)
+    if conversation is None:
+        raise _error_404("Conversation not found")
+    deleted = await plan_store.clear_plan(conversation_id=conversation_id)
+    return {"rejected": True, "deleted": deleted}
+
+
+@app.patch("/api/chats/{conversation_id}/plan")
+async def api_edit_plan(conversation_id: str, request: Request):
+    """Replace the plan items with the user's edited list AND mark
+    the plan approved with the supplied mode (implicit approve-on-
+    save). Body: ``{"items": [...], "mode"?: "each" | "auto"}``.
+
+    Distinct from `set_plan` (the MCP tool) in that this preserves
+    `requires_approval=True` — the model still wanted approval; the
+    user has edited + reviewed, so this revision is implicitly OK
+    to proceed."""
+    user_email = _require_user_email(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": "Body must be a JSON object"}},
+        )
+    items = body.get("items")
+    if not isinstance(items, list):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": "items must be a list"}},
+        )
+    mode = body.get("mode") or "each"
+    import plan_store
+
+    conversation = await chat_store.get_conversation(conversation_id, user_email)
+    if conversation is None:
+        raise _error_404("Conversation not found")
+    try:
+        plan = await plan_store.replace_items(
+            user_email=user_email,
+            conversation_id=conversation_id,
+            items=items,
+            approval_mode=mode,
+        )
+    except plan_store.PlanError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": str(e)}},
+        )
+    return {"plan": plan}
+
+
 @app.get("/sources")
 async def list_sources():
     """List available knowledge base sources."""

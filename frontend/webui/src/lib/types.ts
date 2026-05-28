@@ -206,6 +206,7 @@ export type SSEEvent =
   | { type: 'memory_proposed'; data: MemoryProposal }
   | { type: 'compact_boundary'; data: CompactBoundary }
   | { type: 'plan_updated'; data: Plan }
+  | { type: 'plan_approval_required'; data: PlanApprovalRequired }
   | { type: 'error'; data: { message: string } }
   | { type: 'done'; data: { usage?: { prompt_tokens: number; completion_tokens: number }; finish_reason: string } };
 
@@ -239,6 +240,14 @@ export interface Plan {
   approval_mode: 'each' | 'auto';
   created_at: string;
   updated_at: string;
+}
+
+// P2 #24 Phase 2: payload of the plan_approval_required SSE event.
+// Fired by the preToolUse gate when a gated tool short-circuits.
+export interface PlanApprovalRequired {
+  tool: string;
+  arguments: Record<string, unknown>;
+  plan: Plan;
 }
 
 // ── Memory (P2 #25) ──────────────────────────────────────────────────────────

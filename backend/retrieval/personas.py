@@ -66,6 +66,15 @@ class _Params(BaseModel):
     # rather than silently clamping so the operator sees the typo at boot.
     max_turns: Optional[int] = Field(default=None, ge=1, le=30)
     tool_allowlist: Optional[list[str]] = None
+    # P2 #24 Phase 2: list of MCP tool names that REQUIRE an approved
+    # plan before they run. The preToolUse hook in
+    # ``hooks/plan_approval.py`` checks this list per dispatch; when a
+    # listed tool is called without an approval, the call short-circuits
+    # and the UI shows Approve / Approve-all / Edit / Reject buttons.
+    # Entries are cross-checked against MCP_TOOLS at startup via
+    # ``load_personas`` so a typo (`delegate_to_persoona`) is caught
+    # at boot rather than at first user gating attempt.
+    plan_approval: Optional[list[str]] = None
 
 
 class _Meta(BaseModel):
@@ -156,6 +165,32 @@ def load_personas() -> dict[str, dict]:
         except ValidationError as e:
             logger.error("Persona %s failed validation, skipping: %s", entry, e)
             continue
+        # P2 #24 Phase 2: cross-check plan_approval entries against
+        # the live MCP tool registry so a typo
+        # ('delegate_to_persoona') surfaces at boot rather than at
+        # first gating attempt. We do this AFTER schema validation
+        # so the field shape is already known-good. Lazy import to
+        # avoid a startup-time circular dep (mcp.schemas <- many
+        # things during init).
+        approval_list = ((data.get("params") or {})
+                         .get("plan_approval") or [])
+        if approval_list:
+            try:
+                from mcp.schemas import MCP_TOOLS
+                unknown = [t for t in approval_list if t not in MCP_TOOLS]
+                if unknown:
+                    logger.error(
+                        "Persona %s: plan_approval references unknown "
+                        "tool(s) %r; skipping",
+                        entry, unknown,
+                    )
+                    continue
+            except Exception as e:
+                logger.warning(
+                    "Persona %s: could not cross-check plan_approval "
+                    "(MCP registry unavailable): %s",
+                    entry, e,
+                )
         persona_id = data["id"]
         _personas[persona_id] = data
         logger.info("Loaded persona: %s", persona_id)
@@ -295,3 +330,19 @@ def max_turns(persona: Optional[dict]) -> int:
     if not isinstance(raw, int) or isinstance(raw, bool):
         return _DEFAULT_MAX_TURNS
     return max(_MIN_MAX_TURNS, min(_MAX_MAX_TURNS, raw))
+
+
+def plan_approval_tools(persona: Optional[dict]) -> frozenset[str]:
+    """Return the set of MCP tool names that require an approved
+    plan for this persona (P2 #24 Phase 2). Empty frozenset when
+    ``params.plan_approval`` is absent or empty — meaning no gating.
+
+    Entries are cross-checked against ``MCP_TOOLS`` at load time
+    (``load_personas``), so any value returned here is guaranteed
+    to name a real tool."""
+    if not isinstance(persona, dict):
+        return frozenset()
+    raw = (persona.get("params") or {}).get("plan_approval")
+    if not isinstance(raw, list):
+        return frozenset()
+    return frozenset(t for t in raw if isinstance(t, str) and t)

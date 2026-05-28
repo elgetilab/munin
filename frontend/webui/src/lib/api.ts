@@ -768,3 +768,44 @@ export async function rejectMemoryProposal(proposalId: string): Promise<void> {
   );
   if (!res.ok) throw new Error('Failed to reject memory proposal');
 }
+
+// ── Plan-mode approval (P2 #24 Phase 2) ──────────────────────────────────────
+
+export async function approvePlan(
+  conversationId: string,
+  mode: 'each' | 'auto' = 'each',
+): Promise<void> {
+  const res = await fetch(
+    `${API}/chats/${encodeURIComponent(conversationId)}/plan/approve`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    },
+  );
+  if (!res.ok) throw new Error(`Failed to approve plan (${res.status})`);
+}
+
+export async function rejectPlan(conversationId: string): Promise<void> {
+  const res = await fetch(
+    `${API}/chats/${encodeURIComponent(conversationId)}/plan/reject`,
+    { method: 'POST' },
+  );
+  if (!res.ok) throw new Error(`Failed to reject plan (${res.status})`);
+}
+
+export async function editPlan(
+  conversationId: string,
+  items: Array<{ id?: string; title: string; status?: string; notes?: string | null }>,
+  mode: 'each' | 'auto' = 'each',
+): Promise<void> {
+  const res = await fetch(
+    `${API}/chats/${encodeURIComponent(conversationId)}/plan`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items, mode }),
+    },
+  );
+  if (!res.ok) throw new Error(`Failed to edit plan (${res.status})`);
+}

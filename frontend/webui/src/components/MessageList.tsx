@@ -34,6 +34,16 @@ interface MessageListProps {
   // proposal pill. Should remove the proposal from the message
   // so the pill disappears optimistically.
   onDismissMemoryProposal?: (proposalId: string) => void;
+  // P2 #24 Phase 2: id of the conversation currently in view, so
+  // the PlanCard can POST to /api/chats/{cid}/plan/* endpoints.
+  conversationId?: string | null;
+  // Triggered after the user approves a plan via the PlanCard.
+  // The parent (App) sends a synthetic "approved, continue" user
+  // message so the model resumes. Phase 2 MVP: no optional context
+  // input box; the synthetic message body is fixed.
+  onPlanApproved?: () => void;
+  onPlanRejected?: () => void;
+  onPlanEdited?: () => void;
 }
 
 function personaName(personas: Persona[] | undefined, id: string): string {
@@ -78,7 +88,7 @@ export function detectPhase(streaming: StreamingState): string {
   return 'thinking';
 }
 
-export function MessageList({ messages, streaming, personas, onSendClarification, onDismissMemoryProposal }: MessageListProps) {
+export function MessageList({ messages, streaming, personas, onSendClarification, onDismissMemoryProposal, conversationId, onPlanApproved, onPlanRejected, onPlanEdited }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -104,7 +114,13 @@ export function MessageList({ messages, streaming, personas, onSendClarification
                 this turn. Read-only in Phase 1; Phase 2 adds the
                 Approve / Edit / Reject controls. */}
             {msg.plan_snapshot ? (
-              <PlanCard plan={msg.plan_snapshot} />
+              <PlanCard
+                plan={msg.plan_snapshot}
+                conversationId={conversationId}
+                onAfterApprove={onPlanApproved}
+                onAfterReject={onPlanRejected}
+                onAfterEdit={onPlanEdited}
+              />
             ) : null}
             <MessageBubble message={msg} personas={personas} onSendClarification={onSendClarification} onDismissMemoryProposal={onDismissMemoryProposal} />
           </div>

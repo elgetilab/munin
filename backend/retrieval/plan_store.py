@@ -288,6 +288,97 @@ async def clear_plan(*, conversation_id: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Phase 2 — approval state transitions
+# ---------------------------------------------------------------------------
+
+
+_ALLOWED_APPROVAL_MODES = frozenset({"each", "auto"})
+
+
+async def mark_approved(
+    *, conversation_id: str, approval_mode: str = "each",
+) -> dict:
+    """Mark the conversation's plan approved. ``approval_mode='each'``
+    consumes the approval on the next gated tool call (the
+    postToolUse hook in ``hooks/plan_approval.py`` clears
+    ``approved_at`` after one run). ``'auto'`` persists the
+    approval across all subsequent gated calls until either the
+    plan is replaced (``set_plan``) or the user revokes via a
+    fresh approve with mode='each'."""
+    if approval_mode not in _ALLOWED_APPROVAL_MODES:
+        raise PlanError(
+            f"approval_mode must be one of {sorted(_ALLOWED_APPROVAL_MODES)}, "
+            f"got {approval_mode!r}"
+        )
+    plan = await get_plan(conversation_id)
+    if plan is None:
+        raise PlanError("no plan exists for this conversation to approve")
+    now = _iso_now()
+    db = await get_db()
+    await db.execute(
+        "UPDATE conversation_plans SET approved_at = ?, approval_mode = ?, "
+        "updated_at = ? WHERE conversation_id = ?",
+        (now, approval_mode, now, conversation_id),
+    )
+    await db.commit()
+    return (await get_plan(conversation_id)) or plan
+
+
+async def clear_approval(conversation_id: str) -> None:
+    """Set ``approved_at`` back to NULL without touching the plan
+    itself. Called by the postToolUse hook after one gated tool
+    runs on ``approval_mode='each'`` so the next gated call
+    re-triggers the gate."""
+    db = await get_db()
+    await db.execute(
+        "UPDATE conversation_plans SET approved_at = NULL "
+        "WHERE conversation_id = ?",
+        (conversation_id,),
+    )
+    await db.commit()
+
+
+async def replace_items(
+    *,
+    user_email: str,
+    conversation_id: str,
+    items: list[dict],
+    approval_mode: str = "each",
+) -> dict:
+    """Edit-with-implicit-approve (P2 #24 Phase 2 PATCH endpoint).
+    Replaces the items list, validates the new items, and marks
+    the plan approved with the supplied mode. The user-edit flow
+    in the UI submits the full list (mirrors set_plan's shape)
+    plus a mode field; Approve-all clicks set mode='auto', plain
+    Edit-save uses the default 'each'.
+
+    Distinct from set_plan only in that this preserves the
+    ``requires_approval`` flag (the model still wants approval on
+    future gated calls) and immediately approves the current
+    revision."""
+    if approval_mode not in _ALLOWED_APPROVAL_MODES:
+        raise PlanError(
+            f"approval_mode must be one of {sorted(_ALLOWED_APPROVAL_MODES)}, "
+            f"got {approval_mode!r}"
+        )
+    existing = await get_plan(conversation_id)
+    if existing is None:
+        raise PlanError("no plan exists for this conversation to edit")
+    normalised = _normalise_items(items)
+    now = _iso_now()
+    items_json = json.dumps(normalised)
+    db = await get_db()
+    await db.execute(
+        "UPDATE conversation_plans SET items = ?, updated_at = ?, "
+        "approved_at = ?, approval_mode = ?, user_email = ? "
+        "WHERE conversation_id = ?",
+        (items_json, now, now, approval_mode, user_email, conversation_id),
+    )
+    await db.commit()
+    return (await get_plan(conversation_id)) or existing
+
+
+# ---------------------------------------------------------------------------
 # System prompt rendering
 # ---------------------------------------------------------------------------
 
@@ -300,7 +391,14 @@ def build_plan_block(plan: Optional[dict]) -> Optional[str]:
 
     Status icons mirror the frontend's `PlanCard` rendering so a
     grep for `[in_progress] p-2: ...` in the server logs lines up
-    with what the user sees in the UI."""
+    with what the user sees in the UI.
+
+    P2 #24 Phase 2: when ``requires_approval`` is set, an APPROVAL
+    STATUS line is included so the model can see what the gate sees
+    (awaiting approval vs approved-each vs approved-auto). This is
+    load-bearing for the prompt nudge that tells the model to wait
+    rather than retry endlessly when a gated tool returns
+    ``awaiting_user_approval``."""
     if plan is None:
         return None
     items = plan.get("items") or []
@@ -314,6 +412,31 @@ def build_plan_block(plan: Optional[dict]) -> Optional[str]:
         "and call set_plan with a fresh list if you need to revise the "
         "structure."
     )
+    # P2 #24 Phase 2: surface the approval state inline so the model
+    # knows whether to proceed, wait, or expect another gate check.
+    if plan.get("requires_approval"):
+        approved_at = plan.get("approved_at")
+        mode = plan.get("approval_mode", "each")
+        if not approved_at:
+            lines.append(
+                "APPROVAL STATUS: AWAITING APPROVAL — the user must approve "
+                "this plan before gated tool calls (e.g. delegate_to_persona, "
+                "deep_research) run. If a gated tool returns "
+                "'awaiting_user_approval', WAIT for the user; do NOT retry "
+                "the tool in this turn — the UI is asking them for approval "
+                "and you'll get a new turn once they decide."
+            )
+        elif mode == "auto":
+            lines.append(
+                "APPROVAL STATUS: APPROVED (auto-mode) — the user pre-approved "
+                "every gated tool call for this plan. Proceed normally."
+            )
+        else:  # mode == 'each', approved_at set
+            lines.append(
+                "APPROVAL STATUS: APPROVED (single use) — the user approved "
+                "the next gated tool call. After it runs, future gated calls "
+                "will require fresh approval."
+            )
     for it in items:
         title = (it.get("title") or "").strip()
         status = it.get("status") or "pending"

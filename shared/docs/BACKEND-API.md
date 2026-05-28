@@ -561,6 +561,73 @@ cap per user; idempotent on re-reject).
 **Response (200)**: `{"rejected": true, "key": "..."}`. **404** if
 the proposal id does not exist or is not owned by this user.
 
+### 4.11d `GET /api/chats/{cid}/plan` (P2 #24 Phase 1)
+
+Returns the current plan dict for this conversation, or **404** if no
+plan has been set. The plan is one-per-conversation, mutable; replace
+via the `set_plan` MCP tool or `PATCH /api/chats/{cid}/plan`
+(Phase 2). The same dict is also embedded under `plan` on
+`GET /api/chats/{cid}` so transcript reload doesn't need a second
+HTTP call.
+
+**Response (200)**:
+```json
+{
+  "conversation_id": "...",
+  "items": [{"id": "p-1", "title": "...", "status": "pending|in_progress|done|cancelled", "notes": "..." | null, "updated_at": "..."}],
+  "requires_approval": false,
+  "approved_at": null,
+  "approval_mode": "each",
+  "created_at": "...",
+  "updated_at": "..."
+}
+```
+
+### 4.11e `DELETE /api/chats/{cid}/plan` (P2 #24 Phase 1)
+
+Drops the plan row entirely. Returns `{"deleted": true|false}` —
+idempotent: `false` simply means there was nothing to delete.
+
+### 4.11f `POST /api/chats/{cid}/plan/approve` (P2 #24 Phase 2)
+
+Marks the plan approved with the supplied mode. Body:
+`{"mode": "each" | "auto"}` (default `"each"`).
+
+- `mode="each"` — one approval = one gated tool call. The
+  `postToolUse` hook clears `approved_at` after the next gated
+  dispatch so subsequent calls re-trigger the gate.
+- `mode="auto"` — the approval persists across all subsequent
+  gated calls until the plan is replaced (`set_plan` resets the
+  approval state to `(False, NULL, 'each')`) or the user revokes
+  (POST `/approve` again with `mode="each"`).
+
+**Response (200)**: `{"approved": true, "plan": {...}}` with the
+freshly-approved plan. **400** with the standard error envelope on
+`PlanError` (no plan exists, invalid mode).
+
+### 4.11g `POST /api/chats/{cid}/plan/reject` (P2 #24 Phase 2)
+
+Deletes the plan row. The user is expected to type a follow-up
+message describing the new direction; the model's next turn will
+see no plan block and recover naturally. **No** synthetic system
+message is injected — the user-driven follow-up is the recovery
+signal.
+
+**Response (200)**: `{"rejected": true, "deleted": true|false}`.
+
+### 4.11h `PATCH /api/chats/{cid}/plan` (P2 #24 Phase 2)
+
+User-edits-the-plan with **implicit approve-on-save**. Body:
+`{"items": [...], "mode"?: "each" | "auto"}` (mode defaults to
+`"each"`). The new items list replaces the old verbatim (same
+shape as `set_plan`'s `items`); the plan is marked approved with
+the supplied mode in the same transaction. Preserves
+`requires_approval=True` so the gate continues to fire on future
+gated tool calls after this approval is consumed.
+
+**Response (200)**: `{"plan": {...}}` with the post-edit plan.
+**400** on validation failure (empty items, cap violation, etc.).
+
 ### 4.12 `GET /api/profile`
 
 Loads the authenticated user's profile. Always returns 200; users who
@@ -1125,6 +1192,8 @@ data: <minified json>
 | `retrying` | `{"attempt": N, "max_attempts": M, "delay_s": 1.0, "reason": "vllm 503"}` | A vLLM call hit a transient error (5xx / 429 / connection drop / pre-first-byte stream drop) and is about to retry. Fires before the backoff sleep. `attempt` is 1-indexed. `reason` is a short tag (e.g. `vllm 503`, `vllm ConnectError`). Multiple may fire per turn. Frontend should render a transient "reconnecting" indicator and reset it once any other event resumes |
 | `reconnecting` | `{"attempt": N, "max_attempts": M, "delay_s": 1.0}` | **Synthetic, client-side only** (P1 #10). Not emitted by the server — the frontend's SSE consumer dispatches it when an SSE connection drops and a `GET /api/chat/completions/resume` is being attempted with `Last-Event-ID`. Renders the same "reconnecting" indicator as `retrying`; cleared on the first real event from the resumed connection |
 | `memory_proposed` | `{"id": "uuid", "key": "user_role", "value": "postdoc in Smith Lab", "reason": "stable identity fact"}` | **P2 #25**. Auto-extracted memory candidate from a post-turn classifier hook. Fires zero or more times per turn, typically AFTER `done` (the `stop` hook runs in the finally block). Only fires when `terminal_reason ∈ {done, max_turns}` — never on cancelled/error paths. Capped at 3 per turn and 10 pending per user (FIFO). Frontend renders an inline accept/reject pill below the assistant bubble; user action posts to `/api/memories/proposed/{id}/{accept,reject}`. Skips the persistent store ContextVar lookup is unavailable (ephemeral chats are silently skipped) |
+| `plan_updated` | `{"conversation_id": "...", "items": [...], "requires_approval": bool, "approved_at": str\|null, "approval_mode": "each"\|"auto", "created_at": "...", "updated_at": "..."}` | **P2 #24 Phase 1**. Fires after every successful `set_plan` or `update_plan_item` MCP tool dispatch. Frontend renders an inline `PlanCard` checkbox list above the assistant bubble whose turn last touched the plan. State persists across reloads via `Message.plan_snapshot` (also returned in `GET /api/chats/{id}` under the `plan` key). |
+| `plan_approval_required` | `{"tool": "...", "arguments": {...}, "plan": {...}}` | **P2 #24 Phase 2**. Fires from the `preToolUse` gate hook when a gated tool dispatch short-circuits because the in-flight plan is unapproved. The dispatch returns a synthetic `{"status": "awaiting_user_approval", ...}` result; the model sees this, generates a "waiting for approval" message, and the turn ends with `done`. Frontend renders Approve / Approve-all / Edit / Reject buttons on the inline `PlanCard`; the user's choice posts to `/api/chats/{cid}/plan/{approve\|reject}` or `PATCH /api/chats/{cid}/plan`, then the frontend sends a synthetic `"I've approved the plan, please continue."` user message so the model resumes. |
 | `compact_boundary` | `{"summary_through_index": N, "dropped_messages": K, "summary": "...", "is_fresh": true \| false}` | **P2 #22**. Fires at most once per turn, immediately after the initial assembly step in `assemble_context` (before any `thinking`/`token` event), when the model's view of the conversation has been compressed to fit the context budget. `is_fresh: true` means the summary was generated this turn (blocking vLLM call ~1-3s); `is_fresh: false` means a prior turn's opportunistic prefetch had already populated it (no cost this turn). Frontend renders a thin "earlier N messages summarised" divider above the assistant bubble with the full summary text revealed on click. The backend schedules a fire-and-forget background task at end-of-turn that pre-summarises whenever history exceeds 70% of the budget, so subsequent turns generally land in the `is_fresh: false` path |
 | `error` | `{"message": "Human-readable error"}` | On failure. Stream terminates after this |
 

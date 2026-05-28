@@ -267,6 +267,30 @@ export default function App() {
     sendMessage(content, selectedPersona, isEphemeral, undefined, projectIdForNewChat, activeTags.length > 0 ? activeTags : undefined);
   }, [sendMessage, selectedPersona, isEphemeral, projectIdForNewChat, activeTags]);
 
+  // P2 #24 Phase 2: after the user clicks Approve / Approve-all on
+  // the PlanCard, the REST call has already landed (approved_at is
+  // set in the DB). To get the model out of "waiting" and back into
+  // a turn, send a synthetic short user message. The model sees
+  // APPROVAL STATUS: APPROVED in its next system-prompt plan block
+  // and retries the gated tool call naturally.
+  const handlePlanApproved = useCallback(() => {
+    sendMessage(
+      "I've approved the plan, please continue.",
+      selectedPersona, isEphemeral, undefined,
+      projectIdForNewChat, activeTags.length > 0 ? activeTags : undefined,
+    );
+  }, [sendMessage, selectedPersona, isEphemeral, projectIdForNewChat, activeTags]);
+
+  const handlePlanEdited = useCallback(() => {
+    // Edit-with-implicit-approve uses the same resume shape as
+    // Approve. The model sees the edited items + APPROVED status.
+    sendMessage(
+      "I've edited and approved the plan, please continue.",
+      selectedPersona, isEphemeral, undefined,
+      projectIdForNewChat, activeTags.length > 0 ? activeTags : undefined,
+    );
+  }, [sendMessage, selectedPersona, isEphemeral, projectIdForNewChat, activeTags]);
+
   const handleSendMultimodal = useCallback((content: Array<{ type: string; text?: string; image_url?: { url: string } }>) => {
     const textPart = content.find(c => c.type === 'text')?.text || '[Image]';
     sendMessage(textPart, selectedPersona, isEphemeral, content, projectIdForNewChat, activeTags.length > 0 ? activeTags : undefined);
@@ -648,7 +672,7 @@ export default function App() {
               </div>
             ) : (
               <>
-                <MessageList messages={messages} streaming={streaming} personas={personas} onSendClarification={handleSend} onDismissMemoryProposal={dismissMemoryProposal} />
+                <MessageList messages={messages} streaming={streaming} personas={personas} onSendClarification={handleSend} onDismissMemoryProposal={dismissMemoryProposal} conversationId={conversationId} onPlanApproved={handlePlanApproved} onPlanRejected={() => { /* user types follow-up themselves */ }} onPlanEdited={handlePlanEdited} />
                 <ChatInput
                   onSend={handleSend}
                   onSendMultimodal={handleSendMultimodal}
