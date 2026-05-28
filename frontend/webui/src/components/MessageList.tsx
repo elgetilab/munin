@@ -6,6 +6,7 @@ import { Markdown } from './Markdown';
 import { ClarificationCard } from './ClarificationCard';
 import { MemoryProposalPill } from './MemoryProposalPill';
 import { CompactBoundaryDivider } from './CompactBoundaryDivider';
+import { PlanCard } from './PlanCard';
 
 interface RetryingState {
   attempt: number;
@@ -97,6 +98,13 @@ export function MessageList({ messages, streaming, personas, onSendClarification
                 visible order matches the conversation flow. */}
             {msg.compact_boundary ? (
               <CompactBoundaryDivider boundary={msg.compact_boundary} />
+            ) : null}
+            {/* P2 #24 Phase 1: plan card above the assistant
+                bubble that last invoked set_plan / update_plan_item
+                this turn. Read-only in Phase 1; Phase 2 adds the
+                Approve / Edit / Reject controls. */}
+            {msg.plan_snapshot ? (
+              <PlanCard plan={msg.plan_snapshot} />
             ) : null}
             <MessageBubble message={msg} personas={personas} onSendClarification={onSendClarification} onDismissMemoryProposal={onDismissMemoryProposal} />
           </div>

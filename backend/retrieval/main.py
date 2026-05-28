@@ -642,13 +642,20 @@ async def api_list_chats(
 
 @app.get("/api/chats/{conversation_id}")
 async def api_get_chat(conversation_id: str, request: Request):
-    """Load a full conversation with all messages."""
+    """Load a full conversation with all messages. P2 #24 Phase 1:
+    embeds the current plan (if any) under a `plan` key so the
+    frontend can re-render the inline PlanCard on transcript reload
+    without a second HTTP call."""
     user_email = _require_user_email(request)
     conversation = await chat_store.get_conversation(
         conversation_id, user_email
     )
     if conversation is None:
         raise _error_404("Conversation not found")
+    import plan_store
+
+    plan = await plan_store.get_plan(conversation_id)
+    conversation["plan"] = plan  # None if no plan; same shape as /plan
     return conversation
 
 
@@ -2525,6 +2532,43 @@ async def api_reject_proposal(proposal_id: str, request: Request):
     # record the key (if the caller supplied one in a query param,
     # they would — but to keep this stateless, just 404).
     raise _error_404("Proposal not found")
+
+
+# ==============================================================================
+# Plan mode (P2 #24 Phase 1) — structural plan per conversation
+# ==============================================================================
+@app.get("/api/chats/{conversation_id}/plan")
+async def api_get_plan(conversation_id: str, request: Request):
+    """Return the current plan for this conversation, or 404 if no
+    plan has been set. Frontend uses this on transcript reload to
+    re-attach the plan snapshot to the assistant message that last
+    touched it. Ownership is enforced via the conversation row."""
+    user_email = _require_user_email(request)
+    import plan_store
+
+    conversation = await chat_store.get_conversation(conversation_id, user_email)
+    if conversation is None:
+        raise _error_404("Conversation not found")
+    plan = await plan_store.get_plan(conversation_id)
+    if plan is None:
+        raise _error_404("No plan for this conversation")
+    return plan
+
+
+@app.delete("/api/chats/{conversation_id}/plan")
+async def api_delete_plan(conversation_id: str, request: Request):
+    """Drop the conversation's plan. Used by the frontend's 'clear
+    plan' affordance (Phase 1 has no UI for this yet) and as the
+    cleanup path after a Phase 2 rejection. Returns 204 even if no
+    plan existed (idempotent)."""
+    user_email = _require_user_email(request)
+    import plan_store
+
+    conversation = await chat_store.get_conversation(conversation_id, user_email)
+    if conversation is None:
+        raise _error_404("Conversation not found")
+    deleted = await plan_store.clear_plan(conversation_id=conversation_id)
+    return {"deleted": deleted}
 
 
 @app.get("/sources")

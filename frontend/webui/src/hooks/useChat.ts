@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { streamChat, resumeChat, fetchChat } from '../lib/api';
-import type { Message, MessageContent, SSEEvent, ToolCall, RagContext, AgentState, Clarification, ArtifactSummary, ArtifactCreatedEvent, ArtifactUpdatedEvent, TagChip, Delegation, MemoryProposal, CompactBoundary } from '../lib/types';
+import type { Message, MessageContent, SSEEvent, ToolCall, RagContext, AgentState, Clarification, ArtifactSummary, ArtifactCreatedEvent, ArtifactUpdatedEvent, TagChip, Delegation, MemoryProposal, CompactBoundary, Plan } from '../lib/types';
 
 interface RetryingState {
   attempt: number;
@@ -61,7 +61,39 @@ export function useChat() {
     setError(null);
     try {
       const chat = await fetchChat(id);
-      setMessages(chat.messages);
+      // P2 #24 Phase 1: backend embeds the current plan under
+      // `chat.plan` (null if no plan). Attach the snapshot to the
+      // most recent assistant message whose tool_calls touched the
+      // plan, so the inline PlanCard re-renders above the right
+      // bubble. Fallback to the last assistant message if no
+      // tool_calls match (defensive: shouldn't happen if a plan
+      // row exists, but keeps the UX robust).
+      const messagesIn = chat.messages as Message[];
+      const planRow = (chat as { plan?: Plan | null }).plan ?? null;
+      if (planRow) {
+        const PLAN_TOOL_NAMES = new Set(['set_plan', 'update_plan_item']);
+        let attachedAt = -1;
+        for (let i = messagesIn.length - 1; i >= 0; i--) {
+          const m = messagesIn[i];
+          if (m.role !== 'assistant' || !m.tool_calls) continue;
+          if (m.tool_calls.some(tc => PLAN_TOOL_NAMES.has(tc.name))) {
+            messagesIn[i] = { ...m, plan_snapshot: planRow };
+            attachedAt = i;
+            break;
+          }
+        }
+        if (attachedAt === -1) {
+          // No assistant message touches the plan; attach to the
+          // newest assistant anyway so the UI surfaces the plan.
+          for (let i = messagesIn.length - 1; i >= 0; i--) {
+            if (messagesIn[i].role === 'assistant') {
+              messagesIn[i] = { ...messagesIn[i], plan_snapshot: planRow };
+              break;
+            }
+          }
+        }
+      }
+      setMessages(messagesIn);
       setConversationId(chat.id);
       setConversationPersona(chat.persona || null);
       return chat;
@@ -121,6 +153,12 @@ export function useChat() {
     // when the backend used a summary. Latched on the assistant
     // bubble so a transcript reload still shows the divider.
     let compactBoundary: CompactBoundary | null = null;
+    // P2 #24 Phase 1: plan_updated fires zero or more times per
+    // turn (once per set_plan or update_plan_item call). We latch
+    // the LATEST plan and attach it to the assistant message that
+    // closes the turn — that's the bubble the PlanCard renders
+    // above.
+    let planSnapshot: Plan | null = null;
     let thinkingText = '';
     let contentText = '';
     let ragCtx: RagContext | null = null;
@@ -297,6 +335,15 @@ export function useChat() {
             },
           }));
           break;
+        case 'plan_updated': {
+          // P2 #24 Phase 1: backend confirmed a set_plan or
+          // update_plan_item call landed. Latch the freshest plan;
+          // the closing `done` (or interrupted `error`) branch
+          // attaches the snapshot to the assistant message.
+          planSnapshot = event.data;
+          setStreaming(s => ({ ...s }));
+          break;
+        }
         case 'compact_boundary': {
           // P2 #22: backend used (or just generated) a summary for
           // the earlier conversation. The divider is rendered above
@@ -365,6 +412,7 @@ export function useChat() {
             clarification: clarification,
             delegations: delegations.length > 0 ? [...delegations] : null,
             compact_boundary: compactBoundary,
+            plan_snapshot: planSnapshot,
             interrupted: true,
             created_at: new Date().toISOString(),
           };
@@ -388,6 +436,7 @@ export function useChat() {
             // attach them on initial creation.
             memory_proposals: memoryProposals.length > 0 ? [...memoryProposals] : null,
             compact_boundary: compactBoundary,
+            plan_snapshot: planSnapshot,
             created_at: new Date().toISOString(),
           };
           setMessages(prev => [...prev, assistantMessage]);

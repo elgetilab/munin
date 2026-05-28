@@ -26,6 +26,12 @@ CORE_TOOLS = frozenset({
     "ask_clarification",
     "delegate_to_persona",
     "tool_search",
+    # P2 #24 Phase 1: plan-mode tools. Always visible to every
+    # persona so the model can call set_plan at turn start without
+    # first discovering the tool via tool_search. Cost: ~600 extra
+    # prefill tokens; worth it for a high-frequency scaffolding tool.
+    "set_plan",
+    "update_plan_item",
 })
 
 MCP_TOOLS = {
@@ -977,5 +983,114 @@ MCP_TOOLS = {
             },
             "required": ["query"]
         }
+    },
+    "set_plan": {
+        "name": "set_plan",
+        "description": (
+            "REPLACE the current task list for this conversation with `items`. "
+            "Use this at the START of any multi-step request to break the work "
+            "into 2-20 short action-oriented checkboxed steps the user can see. "
+            "Always set the FIRST item's status to 'in_progress' when you "
+            "immediately start working on it; subsequent items stay 'pending' "
+            "until you start them.\n\n"
+            "CALLING RULES:\n"
+            "1. Call this BEFORE any other tool on a multi-step task. The user "
+            "sees the list and uses it to follow your progress.\n"
+            "2. To FLIP a single item's status (pending -> in_progress -> "
+            "done), use `update_plan_item` instead — it's cheaper than "
+            "retyping the whole list.\n"
+            "3. Keep titles SHORT and action-oriented ('Search arxiv for X' "
+            "not 'I will search arxiv for X and then read the abstracts').\n"
+            "4. At most 20 items, 200 chars per title, 500 chars per notes.\n\n"
+            "DO NOT USE for one-step requests (a single web_search, a single "
+            "calculate, a single paper_lookup, 'what's the weather'). The list "
+            "is scaffolding for multi-step work, not a ceremony for every turn.\n\n"
+            "Item ids are auto-assigned 'p-1', 'p-2', ... if you omit them; "
+            "you can also pass your own stable ids (snake_case recommended). "
+            "Status values: 'pending' | 'in_progress' | 'done' | 'cancelled'."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "string",
+                                "description": "Stable id (e.g. 'p-1' or 'search_arxiv'). Auto-assigned 'p-1'/'p-2'/... if omitted."
+                            },
+                            "title": {
+                                "type": "string",
+                                "maxLength": 200,
+                                "description": "One-line action ('Search arxiv for X'). Max 200 chars."
+                            },
+                            "status": {
+                                "type": "string",
+                                "enum": ["pending", "in_progress", "done", "cancelled"],
+                                "default": "pending"
+                            },
+                            "notes": {
+                                "type": "string",
+                                "maxLength": 500,
+                                "description": "Optional context block, max 500 chars."
+                            }
+                        },
+                        "required": ["title"]
+                    }
+                },
+                "requires_approval": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Phase 2 (audit row #24): when true AND the persona declares plan_approval tools, the next gated tool call blocks until the user approves. Leave false on routine multi-step work."
+                }
+            },
+            "required": ["items"]
+        },
+        "is_concurrency_safe": False
+    },
+    "update_plan_item": {
+        "name": "update_plan_item",
+        "description": (
+            "Flip ONE plan item's status by id, or update its notes. Use this "
+            "between tool calls so the user sees progress as you go. Cheaper "
+            "than re-sending the whole list via `set_plan`.\n\n"
+            "TYPICAL PATTERN:\n"
+            "1. set_plan with full list at turn start (first item "
+            "'in_progress')\n"
+            "2. ...do the first step...\n"
+            "3. update_plan_item('p-1', status='done')\n"
+            "4. update_plan_item('p-2', status='in_progress')\n"
+            "5. ...do the second step...\n"
+            "6. update_plan_item('p-2', status='done')\n"
+            "...and so on.\n\n"
+            "If you change the structure of the plan (add/remove/reorder "
+            "items), use set_plan instead; this tool only flips a single "
+            "item's status or notes. Returns an error if the id doesn't exist."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "The item id to update (matches an id from a prior set_plan call)."
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["pending", "in_progress", "done", "cancelled"],
+                    "description": "New status. Omit to keep current."
+                },
+                "notes": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "description": "Replace notes (max 500 chars). Pass empty string to clear; omit to keep current."
+                }
+            },
+            "required": ["id"]
+        },
+        "is_concurrency_safe": False
     }
 }

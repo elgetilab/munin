@@ -410,3 +410,111 @@ async def _ask_clarification(arguments: dict) -> dict:
 @register_tool("tool_search")
 async def _tool_search(arguments: dict) -> dict:
     return await tool_search(query=arguments.get("query", ""))
+
+
+# ---------------------------------------------------------------------------
+# Plan mode (P2 #24 Phase 1)
+# ---------------------------------------------------------------------------
+#
+# Both dispatchers read user_email + conversation_id from the active
+# ContextVars (same pattern as artifacts, memory, etc.) and emit a
+# `plan_updated` SSE event so the inline PlanCard UI updates in real
+# time. Tool results are deliberately compact (an `ok` boolean + ids
+# + counts) so the model's next-turn prefill isn't bloated by the
+# full plan payload — the model already has the canonical version in
+# the system prompt block.
+
+
+@register_tool("set_plan")
+async def _set_plan(arguments: dict) -> dict:
+    # Lazy imports: dispatchers.py is imported by executor.py at
+    # module top, before any FastAPI startup; pulling chat_service
+    # internals here would create an import cycle.
+    from mcp.context import (
+        current_conversation_id,
+        current_sse_emitter,
+        current_user_email,
+    )
+    import plan_store
+
+    user_email = current_user_email.get()
+    conversation_id = current_conversation_id.get()
+    if not user_email or not conversation_id:
+        return {
+            "error": (
+                "set_plan requires a persistent authenticated chat "
+                "(no plan on ephemeral / unauthenticated turns)"
+            )
+        }
+    try:
+        plan = await plan_store.set_plan(
+            user_email=user_email,
+            conversation_id=conversation_id,
+            items=arguments.get("items") or [],
+            requires_approval=bool(arguments.get("requires_approval", False)),
+        )
+    except plan_store.PlanError as e:
+        return {"error": str(e)}
+
+    emit = current_sse_emitter.get()
+    if emit is not None:
+        try:
+            emit("plan_updated", plan)
+        except Exception:
+            # Per-tool emitter is best-effort; the canonical state is
+            # in the DB and the system-prompt block on the next turn.
+            pass
+
+    return {
+        "ok": True,
+        "item_count": len(plan["items"]),
+        "ids": [it["id"] for it in plan["items"]],
+    }
+
+
+@register_tool("update_plan_item")
+async def _update_plan_item(arguments: dict) -> dict:
+    from mcp.context import (
+        current_conversation_id,
+        current_sse_emitter,
+        current_user_email,
+    )
+    import plan_store
+
+    user_email = current_user_email.get()
+    conversation_id = current_conversation_id.get()
+    if not user_email or not conversation_id:
+        return {
+            "error": (
+                "update_plan_item requires a persistent authenticated chat"
+            )
+        }
+    try:
+        plan = await plan_store.update_item(
+            user_email=user_email,
+            conversation_id=conversation_id,
+            item_id=arguments.get("id") or "",
+            status=arguments.get("status"),
+            notes=arguments.get("notes"),
+        )
+    except plan_store.PlanError as e:
+        return {"error": str(e)}
+
+    emit = current_sse_emitter.get()
+    if emit is not None:
+        try:
+            emit("plan_updated", plan)
+        except Exception:
+            pass
+
+    # Return the single touched item plus a compact summary of the
+    # other ids — saves prefill tokens vs returning the full plan.
+    touched = next(
+        (it for it in plan["items"] if it["id"] == arguments.get("id")),
+        None,
+    )
+    return {
+        "ok": True,
+        "item": touched,
+        "ids": [it["id"] for it in plan["items"]],
+    }

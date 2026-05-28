@@ -38,6 +38,7 @@ import user_profile_store
 import project_store
 import memory_store
 import artifact_store
+import plan_store
 import capabilities as capabilities_module
 import vision
 from database import VLLM_MODEL_NAME
@@ -1209,6 +1210,7 @@ async def _build_full_system_prompt(
 
         project_block                  -- §21
         artifact_block                 -- §22
+        plan_block                     -- P2 #24 Phase 1
         memory_block                   -- §9
         profile_block                  -- §25
         <persona system prompt>
@@ -1230,6 +1232,7 @@ async def _build_full_system_prompt(
     want_profile = not ephemeral
     want_memory = not ephemeral
     want_artifact = not ephemeral and bool(conversation_id)
+    want_plan = not ephemeral and bool(conversation_id)
 
     fetches: list[tuple[str, Any]] = []
     if want_profile:
@@ -1241,6 +1244,8 @@ async def _build_full_system_prompt(
             user_email=user_email,
             conversation_id=conversation_id,
         )))
+    if want_plan:
+        fetches.append(("plan", plan_store.get_plan(conversation_id)))
 
     if fetches:
         results = await asyncio.gather(
@@ -1292,6 +1297,19 @@ async def _build_full_system_prompt(
             f"{artifact_block}\n\n{system_prompt}"
             if system_prompt
             else artifact_block
+        )
+
+    # P2 #24 Phase 1: plan block sits between artifact (workspace
+    # state) and the persona prompt because it describes "what we're
+    # actively doing now" — sequence-of-action context rather than
+    # long-lived workspace state. plan_store.get_plan returned the
+    # raw dict; build_plan_block is sync, so _render_block applies.
+    plan_block = _render_block("plan", plan_store.build_plan_block)
+    if plan_block:
+        system_prompt = (
+            f"{plan_block}\n\n{system_prompt}"
+            if system_prompt
+            else plan_block
         )
 
     if not ephemeral and project:

@@ -64,6 +64,12 @@ export interface Message {
   // summary boundary is attached so a transcript reload still shows
   // the "earlier N messages summarised" divider above the bubble.
   compact_boundary?: CompactBoundary | null;
+  // P2 #24 Phase 1: when this assistant turn invoked set_plan or
+  // update_plan_item, the resulting plan snapshot is latched here
+  // so the PlanCard divider renders above the bubble even after
+  // transcript reload. Only the assistant message that LAST touched
+  // the plan within a turn carries the snapshot.
+  plan_snapshot?: Plan | null;
   created_at: string;
 }
 
@@ -199,6 +205,7 @@ export type SSEEvent =
   | { type: 'reconnecting'; data: { attempt: number; max_attempts: number; delay_s: number } }
   | { type: 'memory_proposed'; data: MemoryProposal }
   | { type: 'compact_boundary'; data: CompactBoundary }
+  | { type: 'plan_updated'; data: Plan }
   | { type: 'error'; data: { message: string } }
   | { type: 'done'; data: { usage?: { prompt_tokens: number; completion_tokens: number }; finish_reason: string } };
 
@@ -209,6 +216,29 @@ export interface CompactBoundary {
   dropped_messages: number;
   summary: string;
   is_fresh: boolean;
+}
+
+// ── Plan mode (P2 #24 Phase 1) ──────────────────────────────────────────────
+
+export type PlanItemStatus = 'pending' | 'in_progress' | 'done' | 'cancelled';
+
+export interface PlanItem {
+  id: string;
+  title: string;
+  status: PlanItemStatus;
+  notes?: string | null;
+  updated_at?: string;
+}
+
+export interface Plan {
+  conversation_id: string;
+  items: PlanItem[];
+  // Phase 2 fields, always present on the wire (defaults below):
+  requires_approval: boolean;
+  approved_at: string | null;
+  approval_mode: 'each' | 'auto';
+  created_at: string;
+  updated_at: string;
 }
 
 // ── Memory (P2 #25) ──────────────────────────────────────────────────────────
