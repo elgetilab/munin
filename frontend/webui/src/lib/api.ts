@@ -628,13 +628,22 @@ export async function streamChat(
   }
 
   const state = { sawDone: false } as { streamId?: string; lastEventId?: string; sawDone: boolean };
-  let outcome = await _consumeSSE(res, state, onEvent);
+  // Union widened so the loop body can reassign from _attemptResume
+  // (which adds 'gone' to the possible outcomes). Without the
+  // annotation TS narrows to _consumeSSE's return type and the
+  // 'gone' / 'error' branches below become unreachable from its POV.
+  let outcome: 'done' | 'drop' | 'error' | 'gone' =
+    await _consumeSSE(res, state, onEvent);
 
   // Reconnect loop (P1 #10). A clean `done` ends the loop. Anything
   // else with a known stream_id retries with backoff until the server
   // says 410 (stream gone) or we exhaust the schedule.
   let attempt = 0;
-  while (outcome !== 'done' && outcome !== 'error' && state.streamId) {
+  // The 'error' branch returns inside the loop body, so by the
+  // time we re-check the condition outcome can only be 'done' or
+  // 'drop'. TS sees this and rejects the redundant `!== 'error'`
+  // guard that used to live here.
+  while (outcome !== 'done' && state.streamId) {
     if (attempt >= RECONNECT_BACKOFF_MS.length) {
       clearActiveStream();
       onEvent({
@@ -693,7 +702,10 @@ export async function resumeChat(
     lastEventId,
     sawDone: false,
   } as { streamId?: string; lastEventId?: string; sawDone: boolean };
-  let outcome = await _attemptResume(state, onEvent, signal);
+  // Same widening as streamChat: subsequent reassignments narrow
+  // to the loop body's reachable cases otherwise.
+  let outcome: 'done' | 'drop' | 'error' | 'gone' =
+    await _attemptResume(state, onEvent, signal);
   if (outcome === 'gone') {
     clearActiveStream();
     onEvent({
@@ -716,7 +728,11 @@ export async function resumeChat(
   // Same backoff schedule as streamChat — a refresh that lands while
   // the server is mid-shutdown can still recover.
   let attempt = 0;
-  while (outcome !== 'done' && outcome !== 'error' && state.streamId) {
+  // The 'error' branch returns inside the loop body, so by the
+  // time we re-check the condition outcome can only be 'done' or
+  // 'drop'. TS sees this and rejects the redundant `!== 'error'`
+  // guard that used to live here.
+  while (outcome !== 'done' && state.streamId) {
     if (attempt >= RECONNECT_BACKOFF_MS.length) {
       clearActiveStream();
       onEvent({
