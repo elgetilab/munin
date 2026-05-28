@@ -268,6 +268,16 @@ def main() -> int:
         passed += int(ok)
         failed += int(not ok)
     print(f"\n{passed} passed, {failed} failed")
+    # Close the aiosqlite connection so the process exits cleanly.
+    # Without this the module-level _db connection's writer thread
+    # keeps the asyncio loop alive after main() returns; the
+    # interpreter hangs at shutdown and zombies pile up on dev
+    # machines (observed 2026-05-28: 33 stale procs after a
+    # day of testing).
+    try:
+        asyncio.run(chat_store.close_db())
+    except Exception:
+        pass
     return 0 if failed == 0 else 1
 
 
