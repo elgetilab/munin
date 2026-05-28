@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { streamChat, resumeChat, fetchChat } from '../lib/api';
-import type { Message, MessageContent, SSEEvent, ToolCall, RagContext, AgentState, Clarification, ArtifactSummary, ArtifactCreatedEvent, ArtifactUpdatedEvent, TagChip, Delegation, MemoryProposal } from '../lib/types';
+import type { Message, MessageContent, SSEEvent, ToolCall, RagContext, AgentState, Clarification, ArtifactSummary, ArtifactCreatedEvent, ArtifactUpdatedEvent, TagChip, Delegation, MemoryProposal, CompactBoundary } from '../lib/types';
 
 interface RetryingState {
   attempt: number;
@@ -117,6 +117,10 @@ export function useChat() {
     // ref accumulator and attach to the most recent assistant message
     // when each one lands.
     const memoryProposals: MemoryProposal[] = [];
+    // P2 #22: compact_boundary fires once per turn (or not at all)
+    // when the backend used a summary. Latched on the assistant
+    // bubble so a transcript reload still shows the divider.
+    let compactBoundary: CompactBoundary | null = null;
     let thinkingText = '';
     let contentText = '';
     let ragCtx: RagContext | null = null;
@@ -293,6 +297,16 @@ export function useChat() {
             },
           }));
           break;
+        case 'compact_boundary': {
+          // P2 #22: backend used (or just generated) a summary for
+          // the earlier conversation. The divider is rendered above
+          // the assistant message that this turn produces, so we
+          // latch the boundary into a turn-scoped variable and
+          // attach it on `done`.
+          compactBoundary = event.data;
+          setStreaming(s => ({ ...s }));  // ensure render
+          break;
+        }
         case 'memory_proposed': {
           // P2 #25: stop-hook produced an auto-extracted memory
           // candidate. The hook fires AFTER 'done' in the typical
@@ -350,6 +364,7 @@ export function useChat() {
             rag_context: ragCtx,
             clarification: clarification,
             delegations: delegations.length > 0 ? [...delegations] : null,
+            compact_boundary: compactBoundary,
             interrupted: true,
             created_at: new Date().toISOString(),
           };
@@ -372,6 +387,7 @@ export function useChat() {
             // some transports), the accumulator holds the candidates;
             // attach them on initial creation.
             memory_proposals: memoryProposals.length > 0 ? [...memoryProposals] : null,
+            compact_boundary: compactBoundary,
             created_at: new Date().toISOString(),
           };
           setMessages(prev => [...prev, assistantMessage]);

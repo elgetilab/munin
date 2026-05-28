@@ -1666,13 +1666,21 @@ async def stream_chat_completion(
     usage_agg: dict[str, dict] = {}
     usage_token = current_usage_aggregator.set(usage_agg)
     try:
-        messages = await chat_context.assemble_context(
+        messages, compact_info = await chat_context.assemble_context(
             conversation=conversation,
             new_message=new_msg,
             system_prompt=system_prompt,
             rag_context=rag_context,
             ephemeral=ephemeral,
         )
+        # P2 #22: emit a compact_boundary SSE so the UI can render a
+        # visible "earlier N messages summarised" divider in the chat
+        # log. Fires whether the summary was generated this turn
+        # (is_fresh=True) or reused from a prior background prefetch
+        # (is_fresh=False) — either way the user should see the
+        # boundary in their transcript.
+        if compact_info is not None:
+            yield _sse("compact_boundary", compact_info)
 
         # --- 5. Streaming loop with tool execution ---
         final_content = ""
@@ -2598,6 +2606,25 @@ async def stream_chat_completion(
                 "finish_reason": finish_reason or "stop",
             },
         )
+
+        # P2 #22: schedule opportunistic compaction for the NEXT turn.
+        # Fires only on a clean exit (terminal_reason == "done") and
+        # for persistent conversations; ephemeral chats have no row
+        # to persist a summary against. The task runs detached — we
+        # don't await it. Failures are logged inside the helper and
+        # never affect this turn's response. The user's perceived
+        # turn duration is unaffected because by this point all SSE
+        # events the client cares about have already been yielded.
+        if (
+            terminal_reason == "done"
+            and not ephemeral
+            and conversation_id
+            and user_email
+        ):
+            asyncio.create_task(
+                chat_context._maybe_precompact(conversation_id, user_email),
+                name=f"precompact-{conversation_id[:8]}",
+            )
     finally:
         # Save-always (chat 3951063c, 2026-05-08): the assistant turn
         # MUST be persisted even if the consumer disconnected (yielding

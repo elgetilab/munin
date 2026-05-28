@@ -60,6 +60,10 @@ export interface Message {
   // as accept/reject pills below the assistant bubble. Cleared once
   // the user acts on each one.
   memory_proposals?: MemoryProposal[] | null;
+  // P2 #22: when this assistant turn triggered compaction, the
+  // summary boundary is attached so a transcript reload still shows
+  // the "earlier N messages summarised" divider above the bubble.
+  compact_boundary?: CompactBoundary | null;
   created_at: string;
 }
 
@@ -194,8 +198,18 @@ export type SSEEvent =
   | { type: 'retrying'; data: { attempt: number; max_attempts: number; delay_s: number; reason: string } }
   | { type: 'reconnecting'; data: { attempt: number; max_attempts: number; delay_s: number } }
   | { type: 'memory_proposed'; data: MemoryProposal }
+  | { type: 'compact_boundary'; data: CompactBoundary }
   | { type: 'error'; data: { message: string } }
   | { type: 'done'; data: { usage?: { prompt_tokens: number; completion_tokens: number }; finish_reason: string } };
+
+// ── Compaction (P2 #22) ──────────────────────────────────────────────────────
+
+export interface CompactBoundary {
+  summary_through_index: number;
+  dropped_messages: number;
+  summary: string;
+  is_fresh: boolean;
+}
 
 // ── Memory (P2 #25) ──────────────────────────────────────────────────────────
 

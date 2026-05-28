@@ -5,6 +5,7 @@ import { FeatherVortex } from './FeatherVortex';
 import { Markdown } from './Markdown';
 import { ClarificationCard } from './ClarificationCard';
 import { MemoryProposalPill } from './MemoryProposalPill';
+import { CompactBoundaryDivider } from './CompactBoundaryDivider';
 
 interface RetryingState {
   attempt: number;
@@ -90,7 +91,15 @@ export function MessageList({ messages, streaming, personas, onSendClarification
     <div className="flex-1 overflow-y-auto px-4 py-6">
       <div className="max-w-2xl mx-auto space-y-6">
         {messages.map(msg => (
-          <MessageBubble key={msg.id} message={msg} personas={personas} onSendClarification={onSendClarification} onDismissMemoryProposal={onDismissMemoryProposal} />
+          <div key={msg.id}>
+            {/* P2 #22: render the boundary divider ABOVE the
+                assistant message that triggered compaction so the
+                visible order matches the conversation flow. */}
+            {msg.compact_boundary ? (
+              <CompactBoundaryDivider boundary={msg.compact_boundary} />
+            ) : null}
+            <MessageBubble message={msg} personas={personas} onSendClarification={onSendClarification} onDismissMemoryProposal={onDismissMemoryProposal} />
+          </div>
         ))}
 
         {/* Streaming state */}
