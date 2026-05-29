@@ -13,11 +13,13 @@ sys.path.insert(0, str(AUTH_DIR))
 
 @pytest.fixture
 def auth_env(tmp_path, monkeypatch):
-    """Isolate DB_PATH and WHITELIST_PATH for a single test."""
+    """Isolate DB_PATH / WHITELIST_PATH / CONTRIBUTORS_PATH per test."""
     db_path = tmp_path / "sessions.db"
     csv_path = tmp_path / "whitelist.csv"
+    yaml_path = tmp_path / "contributors.yml"
     monkeypatch.setenv("DB_PATH", str(db_path))
     monkeypatch.setenv("WHITELIST_PATH", str(csv_path))
+    monkeypatch.setenv("CONTRIBUTORS_PATH", str(yaml_path))
     monkeypatch.setenv("SECRET_KEY", "test-only")
 
     # Force a fresh import of main so it picks up the patched env.
@@ -29,6 +31,7 @@ def auth_env(tmp_path, monkeypatch):
     # Override the module-level Path constants too (env is read at import).
     main.DB_PATH = db_path
     main.WHITELIST_PATH = csv_path
+    main.CONTRIBUTORS_PATH = yaml_path
     yield main
 
 

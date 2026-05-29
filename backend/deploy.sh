@@ -196,12 +196,14 @@ deploy_agents() {
         run "install -m 0644 $REPO_DIR/config/faq.yml $MUNIN_CONFIG/faq.yml"
     fi
 
-    # §28: contributor allowlist. Read by the retrieval service
-    # (`/api/admin/ingest`, `/api/tags`) and by backfill scripts.
-    # Lives in monorepo `shared/` because both backend and frontend
-    # backfill scripts treat it as the single source of truth.
-    if [ -f "$SHARED_DIR/config/contributors.yml" ]; then
-        run "install -m 0644 $SHARED_DIR/config/contributors.yml $MUNIN_CONFIG/contributors.yml"
+    # §28 / P1 #11: contributor allowlist. Bootstrap copy goes into
+    # /opt/munin/data/contributors.yml (= /data inside the retrieval
+    # container) only when it doesn't already exist. After the first
+    # successful pull from auth.muninai.org/admin/contributors.yaml,
+    # retrieval keeps the file fresh on a 5-minute timer; this
+    # bootstrap is just so ingest works before the first sync lands.
+    if [ -f "$SHARED_DIR/config/contributors.yml" ] && [ ! -f "$MUNIN_DATA/contributors.yml" ]; then
+        run "install -m 0644 $SHARED_DIR/config/contributors.yml $MUNIN_DATA/contributors.yml"
     fi
 
     # Note: we do NOT touch $MUNIN_CONFIG/munin.env if it already exists.

@@ -54,6 +54,8 @@ SESSION_MAX_AGE = int(os.environ.get("SESSION_MAX_AGE", "2592000"))  # 30 days
 OTP_EXPIRY = int(os.environ.get("OTP_EXPIRY", "600"))  # 10 minutes
 COOKIE_DOMAIN = os.environ.get("COOKIE_DOMAIN", ".muninai.org")
 WHITELIST_PATH = Path(os.environ.get("WHITELIST_PATH", "/data/whitelist.csv"))
+CONTRIBUTORS_PATH = Path(os.environ.get("CONTRIBUTORS_PATH", "/data/contributors.yml"))
+CONTRIBUTORS_SYNC_TOKEN = os.environ.get("CONTRIBUTORS_SYNC_TOKEN", "")
 DB_PATH = Path(os.environ.get("DB_PATH", "/data/db/sessions.db"))
 
 # ── App Setup ────────────────────────────────────────────────────────────────
@@ -159,8 +161,27 @@ def init_db():
             updated_at TEXT NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            name TEXT PRIMARY KEY,
+            applied_at TEXT NOT NULL
+        )
+    """)
     conn.commit()
     conn.close()
+
+
+def _migration_applied(conn: sqlite3.Connection, name: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM schema_migrations WHERE name = ?", (name,)
+    ).fetchone() is not None
+
+
+def _mark_migration(conn: sqlite3.Connection, name: str):
+    conn.execute(
+        "INSERT OR IGNORE INTO schema_migrations (name, applied_at) VALUES (?, ?)",
+        (name, datetime.now(timezone.utc).isoformat()),
+    )
 
 
 # ── User lookup + mutation helpers ────────────────────────────────────────
@@ -266,6 +287,217 @@ def count_users() -> int:
     row = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()
     conn.close()
     return row["n"] if row else 0
+
+
+def _upsert_group(conn: sqlite3.Connection, slug: str, display_name: str):
+    now = datetime.now(timezone.utc).isoformat()
+    existing = conn.execute(
+        "SELECT slug FROM groups WHERE slug = ?", (slug,)
+    ).fetchone()
+    if existing:
+        return
+    conn.execute(
+        "INSERT INTO groups (slug, display_name, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?)",
+        (slug, display_name, now, now),
+    )
+
+
+def seed_contributors_from_yaml() -> dict:
+    """One-shot import of contributors.yml into users + groups.
+
+    Runs only once (gated by schema_migrations). For each YAML entry:
+      - Ensure the research_group exists in `groups`.
+      - For every email in the entry, look it up in user_emails.
+        * If found, upgrade that user: role -> 'group_leader' (if
+          currently 'user'), set research_group + username if unset.
+          Attach any additional emails from the same entry to the
+          same user.
+        * If no email matches, create a new group_leader user.
+      - Attribution metadata (research_group, username) is set only
+        when currently empty, so admin edits made before this
+        migration are never overwritten.
+    """
+    import yaml  # local import keeps cold-start cheap
+
+    summary = {"created": 0, "promoted": 0, "groups": 0,
+               "skipped_existing": 0, "missing_yaml": False, "already_run": False}
+
+    conn = get_db()
+    try:
+        if _migration_applied(conn, "seed_contributors_v1"):
+            summary["already_run"] = True
+            return summary
+        if not CONTRIBUTORS_PATH.exists():
+            # Don't mark the migration applied — a later boot with the
+            # YAML present should still be able to run the seed.
+            summary["missing_yaml"] = True
+            return summary
+
+        try:
+            with open(CONTRIBUTORS_PATH, encoding="utf-8") as f:
+                doc = yaml.safe_load(f) or {}
+        except (OSError, yaml.YAMLError):
+            summary["missing_yaml"] = True
+            return summary
+
+        for entry in doc.get("contributors", []) or []:
+            emails: list[str] = []
+            single = entry.get("email")
+            if isinstance(single, str) and single.strip():
+                emails.append(single.strip().lower())
+            listed = entry.get("emails")
+            if isinstance(listed, list):
+                for a in listed:
+                    if isinstance(a, str) and a.strip():
+                        emails.append(a.strip().lower())
+            if not emails:
+                continue
+
+            group_slug = (entry.get("research_group") or "").strip() or None
+            group_display = (entry.get("research_group_display_name") or "").strip()
+            username = (entry.get("username") or "").strip() or None
+            display_name = (entry.get("display_name") or "").strip()
+
+            if group_slug and group_display:
+                pre = conn.execute(
+                    "SELECT slug FROM groups WHERE slug = ?", (group_slug,)
+                ).fetchone()
+                _upsert_group(conn, group_slug, group_display)
+                if not pre:
+                    summary["groups"] += 1
+
+            # Find an existing user via any of the entry's emails.
+            existing_user_id: int | None = None
+            for em in emails:
+                row = conn.execute(
+                    "SELECT user_id FROM user_emails WHERE email = ?", (em,)
+                ).fetchone()
+                if row:
+                    existing_user_id = row["user_id"]
+                    break
+
+            if existing_user_id is not None:
+                # Promote + fill missing fields. Never overwrite existing
+                # role-other-than-user or pre-set username/group.
+                cur = conn.execute(
+                    "SELECT role, research_group, username FROM users WHERE id = ?",
+                    (existing_user_id,),
+                ).fetchone()
+                updates: list[tuple[str, object]] = []
+                if cur["role"] == "user":
+                    updates.append(("role", "group_leader"))
+                if cur["research_group"] is None and group_slug:
+                    updates.append(("research_group", group_slug))
+                if cur["username"] is None and username:
+                    updates.append(("username", username))
+                if updates:
+                    set_clause = ", ".join(f"{c} = ?" for c, _ in updates) + ", updated_at = ?"
+                    params = [v for _, v in updates] + [
+                        datetime.now(timezone.utc).isoformat(), existing_user_id,
+                    ]
+                    conn.execute(f"UPDATE users SET {set_clause} WHERE id = ?", params)
+                    summary["promoted"] += 1
+                else:
+                    summary["skipped_existing"] += 1
+
+                # Attach any of the entry's emails that aren't already on this user.
+                for em in emails:
+                    er = conn.execute(
+                        "SELECT user_id FROM user_emails WHERE email = ?", (em,)
+                    ).fetchone()
+                    if not er:
+                        _attach_email(conn, existing_user_id, em, is_primary=False)
+            else:
+                # Brand new user from this YAML entry.
+                name = display_name or emails[0]
+                new_id = _insert_user(
+                    conn,
+                    name=name,
+                    role="group_leader",
+                    research_group=group_slug,
+                    username=username,
+                )
+                _attach_email(conn, new_id, emails[0], is_primary=True)
+                for em in emails[1:]:
+                    _attach_email(conn, new_id, em, is_primary=False)
+                summary["created"] += 1
+
+        _mark_migration(conn, "seed_contributors_v1")
+        conn.commit()
+    finally:
+        conn.close()
+    return summary
+
+
+def emit_contributors_yaml() -> str:
+    """Regenerate cluster-compatible contributors.yml from the DB.
+
+    Emits one entry per user that has a research_group set and is
+    eligible to contribute (role in group_leader / admin). Users
+    with one email use the `email:` form; users with multiple emails
+    use the `emails:` form (preserving the original schema).
+    """
+    conn = get_db()
+    rows = conn.execute(
+        """
+        SELECT u.id, u.name, u.username, u.research_group AS slug, g.display_name AS group_display
+          FROM users u
+          JOIN groups g ON g.slug = u.research_group
+         WHERE u.role IN ('group_leader', 'admin')
+           AND u.research_group IS NOT NULL
+         ORDER BY g.display_name, u.name
+        """
+    ).fetchall()
+
+    lines: list[str] = []
+    lines.append("# Auto-generated by munin-auth /admin/contributors.yaml.")
+    lines.append("# DO NOT edit by hand: the auth DB is the source of truth and")
+    lines.append("# the cluster overwrites this file on the next sync.")
+    lines.append(f"# Generated at {datetime.now(timezone.utc).isoformat()}")
+    lines.append("")
+    lines.append("contributors:")
+
+    if not rows:
+        lines.append("  []")
+        conn.close()
+        return "\n".join(lines) + "\n"
+
+    for row in rows:
+        emails = [
+            r["email"]
+            for r in conn.execute(
+                "SELECT email FROM user_emails WHERE user_id = ? "
+                "ORDER BY is_primary DESC, email ASC",
+                (row["id"],),
+            ).fetchall()
+        ]
+        if not emails:
+            continue
+        if len(emails) == 1:
+            lines.append(f"  - email: {emails[0]}")
+        else:
+            lines.append("  - emails:")
+            for em in emails:
+                lines.append(f"      - {em}")
+        if row["username"]:
+            lines.append(f"    username: {row['username']}")
+        lines.append(f"    display_name: {_yaml_str(row['name'])}")
+        lines.append(f"    research_group: {row['slug']}")
+        lines.append(f"    research_group_display_name: {_yaml_str(row['group_display'])}")
+    conn.close()
+    return "\n".join(lines) + "\n"
+
+
+def _yaml_str(s: str) -> str:
+    """Minimal YAML scalar quoting: quote if it contains a colon or starts with
+    a character that would otherwise be parsed as something special."""
+    if not s:
+        return '""'
+    if any(ch in s for ch in (":", "#", "{", "}", "[", "]", "&", "*", "!", "|", ">", "'", '"', "%", "@", "`")):
+        escaped = s.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return s
 
 
 def get_display_name(email: str) -> str | None:
@@ -447,6 +679,7 @@ async def send_otp_email(email: str, code: str, name: str):
 async def startup():
     init_db()
     seed_users_from_whitelist()
+    seed_contributors_from_yaml()
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -1205,6 +1438,30 @@ async def admin_delete_group(slug: str, request: Request):
 
 
 # ── Admin: exports ───────────────────────────────────────────────────────────
+
+@app.get("/admin/contributors.yaml")
+async def admin_export_contributors_yaml(request: Request):
+    """Cluster-compatible YAML emission.
+
+    Accepts either an admin session cookie (for browser inspection) OR
+    a bearer token matching CONTRIBUTORS_SYNC_TOKEN (used by the cluster
+    poll-sync). Returns text/yaml.
+    """
+    # Bearer token path takes precedence so the cluster doesn't need a session.
+    auth_header = request.headers.get("Authorization", "")
+    token_ok = (
+        CONTRIBUTORS_SYNC_TOKEN
+        and auth_header.startswith("Bearer ")
+        and secrets.compare_digest(auth_header[7:], CONTRIBUTORS_SYNC_TOKEN)
+    )
+    if not token_ok:
+        _, err = _require_admin(request)
+        if err:
+            return err
+
+    body = emit_contributors_yaml()
+    return Response(content=body, media_type="text/yaml; charset=utf-8")
+
 
 @app.get("/admin/users.csv")
 async def admin_export_users_csv(request: Request):

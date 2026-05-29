@@ -18,6 +18,10 @@ services:
       - "127.0.0.1:8090:8090"
     volumes:
       - ./auth/whitelist.csv:/data/whitelist.csv:ro
+      # P1 #11 one-shot seed: contributors.yml is imported into the
+      # users table on first boot, then served from the DB. The file
+      # itself is no longer consulted at request time.
+      - ../shared/config/contributors.yml:/data/contributors.yml:ro
       - auth_data:/data/db
     environment:
       SECRET_KEY: ${AUTH_SECRET_KEY}
@@ -28,6 +32,9 @@ services:
       SMTP_SENDER: ${SMTP_SENDER:-noreply@muninai.org}
       SESSION_MAX_AGE: 2592000
       OTP_EXPIRY: 600
+      # P1 #11: bearer token the cluster uses to fetch
+      # /admin/contributors.yaml without needing an admin session.
+      CONTRIBUTORS_SYNC_TOKEN: ${CONTRIBUTORS_SYNC_TOKEN:-}
 
   # ── tusd — chunked file upload server ──────────────────────────────────────
   tusd:

@@ -176,7 +176,15 @@ services:
       - SANDBOX_URL=http://sandbox:8090
       # §28 contributor ingest (VPS hook → POST /api/admin/ingest)
       - ADMIN_INGEST_TOKEN=${ADMIN_INGEST_TOKEN:-}
-      - CONTRIBUTORS_CONFIG=/app/config/contributors.yml
+      # P1 #11: contributors.yml is now pulled from auth.muninai.org
+      # on a 5-minute timer. CONTRIBUTORS_CONFIG points at the writable
+      # /data mount because /app/config is read-only. The deploy script
+      # seeds /opt/munin/data/contributors.yml (= /data inside) the
+      # first time so ingest works before the first sync completes.
+      - CONTRIBUTORS_CONFIG=/data/contributors.yml
+      - CONTRIBUTORS_SYNC_URL=${CONTRIBUTORS_SYNC_URL:-https://auth.muninai.org/admin/contributors.yaml}
+      - CONTRIBUTORS_SYNC_TOKEN=${CONTRIBUTORS_SYNC_TOKEN:-}
+      - CONTRIBUTORS_SYNC_INTERVAL_SECS=${CONTRIBUTORS_SYNC_INTERVAL_SECS:-300}
       - PAPER_PIPELINE_SCRIPT=/app/pipeline/paper_pipeline.py
       # paper_pipeline.py subprocess reads this for GROBID connectivity
       # (QDRANT_HOST / NEO4J_PASSWORD are already set above and inherited).

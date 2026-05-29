@@ -3849,6 +3849,18 @@ async def startup():
     except Exception:
         logger.exception("Failed to load hooks")
 
+    # P1 #11: pull contributors.yml from the VPS auth service. The
+    # auth DB is the source of truth; we mirror its YAML projection
+    # to CONTRIBUTORS_CONFIG every CONTRIBUTORS_SYNC_INTERVAL_SECS
+    # so the existing mtime-watch in _load_contributors() picks up
+    # changes without a restart.
+    try:
+        import contributors_sync
+
+        contributors_sync.start_sync_task()
+    except Exception:
+        logger.exception("Failed to start contributors_sync")
+
     # MCP dispatch registry consistency check (P2 #19). Catches the
     # three drift modes the old if/elif chain allowed: schema entry
     # with no executor branch, executor branch with no schema entry,
