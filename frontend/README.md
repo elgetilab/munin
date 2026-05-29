@@ -31,13 +31,17 @@ The reference deploy uses `muninai.org`. Replace with your own domain throughout
 
 ## Quick Start (local development)
 
+All commands are run from inside `frontend/`.
+
 ```bash
 # 1. Configure secrets
 cp .env.template .env
-# Fill in: AUTH_SECRET_KEY (openssl rand -hex 32), SMTP credentials, ADMIN_EMAILS
+# Fill in: AUTH_SECRET_KEY (openssl rand -hex 32), SMTP credentials,
+# ADMIN_EMAILS, ADMIN_INGEST_TOKEN, KB_GATE_TOKEN, CONTRIBUTORS_SYNC_TOKEN.
+# The last two pair with the cluster's cluster.env (same values both sides).
 
-# 2. Add users
-vi auth/whitelist.csv   # email,name per row
+# 2. Seed the user list (first boot only)
+vi auth/whitelist.csv   # email,name,role per row
 
 # 3. Build the chat frontend
 cd webui && npm install && npm run build && cd ..
@@ -46,28 +50,37 @@ cd webui && npm install && npm run build && cd ..
 docker compose up -d --build
 ```
 
+After first boot the auth DB inside the `auth_data` volume is the
+source of truth: add / edit / remove users via the Admin panel
+"Users" tab in the chat UI rather than the CSV.
+
 ## Deploy to VPS
+
+Run from the monorepo root (so `shared/` ships alongside `frontend/`;
+the auth compose mount references `../shared/config/contributors.yml`).
 
 ```bash
 # Build frontend first
-cd webui && npm run build && cd ..
+cd frontend/webui && npm run build && cd ../..
 
 # Sync the whole tree (no --delete: do not risk wiping VPS-only state).
 rsync -avz --exclude '.env' --exclude '.git' --exclude 'node_modules' \
   ./ <admin>@<vps-ip>:~/munin/
 
-# Prune stale hashed JS/CSS bundles in static/chat/assets/. Vite emits
-# content-hashed filenames on every build, so old bundles accumulate
-# without this step (~50 MB after a month of deploys). --delete is
-# scoped to this single directory so it cannot affect anything else.
+# Prune stale hashed JS/CSS bundles in frontend/static/chat/assets/.
+# Vite emits content-hashed filenames on every build, so old bundles
+# accumulate without this step (~50 MB after a month of deploys).
+# --delete is scoped to this single directory so it cannot affect
+# anything else.
 rsync -avz --delete \
-  static/chat/assets/ <admin>@<vps-ip>:~/munin/static/chat/assets/
+  frontend/static/chat/assets/ \
+  <admin>@<vps-ip>:~/munin/frontend/static/chat/assets/
 
-# On VPS: rebuild and restart
-cd ~/munin && docker compose up -d --build
+# On VPS: rebuild and restart from the frontend/ project dir.
+ssh <admin>@<vps-ip> 'cd ~/munin/frontend && docker compose up -d --build'
 
 # Reload Caddy config (no restart needed)
-docker exec $(docker ps -qf name=caddy) caddy reload --config /etc/caddy/Caddyfile
+ssh <admin>@<vps-ip> 'docker exec $(docker ps -qf name=caddy) caddy reload --config /etc/caddy/Caddyfile'
 ```
 
 ## Architecture
@@ -170,23 +183,31 @@ live in `../shared/docs/`. See the top-level `CLAUDE.md`.
 
 After bootstrap and first deploy, expect:
 
-- `~/munin/`: project directory (rsync target).
-- `~/munin/.env`: secrets (not in git; copy from a trusted
-  source or regenerate).
-- `~/munin/auth/whitelist.csv`: legacy user seed file. The DB
-  inside the `auth_data` volume is now the source of truth; the
-  CSV is imported additively on startup and is kept as a backup
-  / manual-add path.
+- `~/munin/`: monorepo rsync target. Both `frontend/` and `shared/`
+  ship here.
+- `~/munin/frontend/.env`: secrets (not in git; copy from
+  `.env.template` and fill in). Docker compose reads it from this
+  path because compose lives at `~/munin/frontend/docker-compose.yml`.
+- `~/munin/frontend/auth/whitelist.csv`: first-boot user seed
+  file. After first start the DB inside the `auth_data` volume is
+  the source of truth; the CSV is imported additively on every
+  start (new emails only, existing rows never overwritten) and is
+  kept as a backup / break-glass path.
 - `/mnt/uploads/`: upload storage (external volume).
 
 ## Common Tasks
 
-**Add a user (CSV path, additive only):** edit `auth/whitelist.csv`
-and then restart munin-auth. From `~/munin/` on the VPS:
-`docker compose restart munin-auth`. The CSV is now an additive
-seed: new emails are imported on every startup, but existing DB
-rows are never overwritten. To rename / re-role / delete a user,
-use the admin UI (see Admin Panel) or edit the database directly.
+**Add / edit / remove a user (preferred):** sign in as an admin and
+use the Admin panel "Users" tab in the chat UI. Supports multi-email
+per user, role transitions (`user` / `group_leader` / `admin`), and
+group assignment. Changes take effect immediately for the next request.
+
+**Add a user via the CSV seed (break-glass only):** edit
+`frontend/auth/whitelist.csv` and restart munin-auth from
+`~/munin/frontend/` on the VPS:
+`docker compose restart munin-auth`. The CSV is additive-only on
+restart, so existing DB rows are never overwritten. Use this only
+when the admin UI is unreachable; otherwise prefer the UI.
 
 **Create API key:** `POST /api/keys` with session auth, returns
 an `sk-munin-...` key.

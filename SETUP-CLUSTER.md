@@ -14,7 +14,14 @@ When this is done, proceed to [SETUP-VPS.md](SETUP-VPS.md). The cluster and VPS 
 
 ## 2. Cluster environment file
 
-The deploy script expects a populated env file at `/opt/hugin/config/cluster.env`. The path comes from the reference cluster (named `hugin`) and is hardcoded as a symlink target in `backend/deploy.sh`. You can keep it or change the path; if you change it, edit `deploy.sh` to match.
+The deploy script expects a populated env file at
+`/opt/hugin/config/cluster.env`. The path comes from the reference
+cluster (named `hugin`) and is hardcoded in `backend/deploy.sh`
+(`HUGIN_ENV`). To use a different path, edit `deploy.sh` to match.
+
+`deploy.sh compose` symlinks `$HUGIN_ENV` into `/opt/munin/docker/.env`
+so `docker compose` picks it up automatically; nothing to wire by hand
+once the file exists.
 
 - [ ] Create the directory:
   ```bash
@@ -27,10 +34,18 @@ The deploy script expects a populated env file at `/opt/hugin/config/cluster.env
   chmod 600 /opt/hugin/config/cluster.env
   ```
 - [ ] Fill in the values. The template has comments explaining each var. Required at minimum:
-  - `VLLM_API_KEY`: any random string. Used between the retrieval API and vLLM.
-  - `NEO4J_AUTH=neo4j/<your-password>`: pick any password.
-  - `QDRANT_API_KEY`: optional, leave blank for local-only.
-  - `OPENAI_API_KEY`: optional, only set if you want OpenAI as a fallback.
+  - `NEO4J_PASSWORD`: pick any password (must match what Neo4j is
+    initialised with on first boot — once persistent data exists,
+    changing this without rotating in `cypher-shell` will lock you
+    out of the graph).
+  - `ADMIN_INGEST_TOKEN`: `openssl rand -hex 32`. Must match the
+    same key on the VPS so the upload hook can authenticate against
+    `/api/admin/ingest`.
+  - `CONTRIBUTORS_SYNC_TOKEN`: `openssl rand -hex 32`. Must match
+    the same key on the VPS so the cluster can pull
+    `auth.<your-domain>/admin/contributors.yaml` every 5 minutes.
+  - `SEMANTIC_SCHOLAR_API_KEY`: optional, only set if you have one
+    (the citation graph builder uses it when present).
 
 ## 3. Personas and contributors
 
