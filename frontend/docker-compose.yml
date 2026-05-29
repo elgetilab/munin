@@ -35,6 +35,11 @@ services:
       # P1 #11: bearer token the cluster uses to fetch
       # /admin/contributors.yaml without needing an admin session.
       CONTRIBUTORS_SYNC_TOKEN: ${CONTRIBUTORS_SYNC_TOKEN:-}
+      # P1 #11 commit 4: bearer token the tusd hook-service presents
+      # to /admin/check-role on every pre-create. Separate from
+      # CONTRIBUTORS_SYNC_TOKEN so the two callers can rotate
+      # independently.
+      KB_GATE_TOKEN: ${KB_GATE_TOKEN:-}
 
   # ── tusd — chunked file upload server ──────────────────────────────────────
   tusd:
@@ -64,6 +69,14 @@ services:
     environment:
       ADMIN_INGEST_TOKEN: ${ADMIN_INGEST_TOKEN:-}
       CLUSTER_INGEST_URL: http://127.0.0.1:18080/api/admin/ingest
+      # P1 #11 commit 4: KB-contribution gate. On every tusd
+      # pre-create the hook calls auth.muninai.org/admin/check-role
+      # over loopback to confirm the uploader is a group_leader/admin.
+      # Default fails closed (no token = reject) so misconfiguration
+      # is loud, not silent.
+      AUTH_CHECK_URL: http://127.0.0.1:8090/admin/check-role
+      KB_GATE_TOKEN: ${KB_GATE_TOKEN:-}
+      KB_GATE_FAIL_OPEN: ${KB_GATE_FAIL_OPEN:-false}
 
   # ── API Gateway — proxy, API keys, rate limiting, usage tracking ──────────
   api-gateway:

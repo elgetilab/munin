@@ -56,6 +56,10 @@ COOKIE_DOMAIN = os.environ.get("COOKIE_DOMAIN", ".muninai.org")
 WHITELIST_PATH = Path(os.environ.get("WHITELIST_PATH", "/data/whitelist.csv"))
 CONTRIBUTORS_PATH = Path(os.environ.get("CONTRIBUTORS_PATH", "/data/contributors.yml"))
 CONTRIBUTORS_SYNC_TOKEN = os.environ.get("CONTRIBUTORS_SYNC_TOKEN", "")
+# P1 #11 commit 4: token the tusd hook-service uses to check a user's
+# KB-contribution eligibility on every pre-create. Same shape as
+# CONTRIBUTORS_SYNC_TOKEN but scoped to a different caller.
+KB_GATE_TOKEN = os.environ.get("KB_GATE_TOKEN", "")
 DB_PATH = Path(os.environ.get("DB_PATH", "/data/db/sessions.db"))
 
 # ── App Setup ────────────────────────────────────────────────────────────────
@@ -1438,6 +1442,47 @@ async def admin_delete_group(slug: str, request: Request):
 
 
 # ── Admin: exports ───────────────────────────────────────────────────────────
+
+@app.get("/admin/check-role")
+async def admin_check_role(request: Request, email: str = ""):
+    """Internal role lookup used by the tusd hook-service KB gate.
+
+    Auth: bearer token matching KB_GATE_TOKEN OR an admin session
+    cookie. Returns role + allowed_kb_contribution boolean.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    token_ok = (
+        KB_GATE_TOKEN
+        and auth_header.startswith("Bearer ")
+        and secrets.compare_digest(auth_header[7:], KB_GATE_TOKEN)
+    )
+    if not token_ok:
+        _, err = _require_admin(request)
+        if err:
+            return err
+
+    email = (email or "").strip().lower()
+    if not email:
+        return JSONResponse({"error": "email query param required"}, status_code=400)
+
+    user = lookup_user(email)
+    if not user:
+        return JSONResponse(
+            {
+                "email": email,
+                "role": None,
+                "group": None,
+                "allowed_kb_contribution": False,
+            },
+            status_code=404,
+        )
+    return JSONResponse({
+        "email": user["primary_email"],
+        "role": user["role"],
+        "group": user["group"],
+        "allowed_kb_contribution": user["role"] in ("group_leader", "admin"),
+    })
+
 
 @app.get("/admin/contributors.yaml")
 async def admin_export_contributors_yaml(request: Request):
