@@ -2,8 +2,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
 import { MOCK_CONVERSATION } from '../test/msw-handlers';
-import { useChat } from './useChat';
-import { _resetChatStoreForTests } from '../stores/chatStore';
+import { useChatStore, _resetChatStoreForTests } from '../stores/chatStore';
 
 function sseResponse(events: Array<{ event: string; data: unknown }>): Response {
   const body = events.map(e => `event: ${e.event}\ndata: ${JSON.stringify(e.data)}\n\n`).join('');
@@ -24,7 +23,7 @@ describe('useChat', () => {
   // ── 1. Initial state ──────────────────────────────────────────────────────
 
   it('has correct initial state', () => {
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
 
     expect(result.current.messages).toEqual([]);
     expect(result.current.conversationId).toBeNull();
@@ -36,7 +35,7 @@ describe('useChat', () => {
   // ── 2. loadConversation ───────────────────────────────────────────────────
 
   it('loads a conversation and sets messages and conversationId', async () => {
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
 
     await act(async () => {
       await result.current.loadConversation('c1');
@@ -50,7 +49,7 @@ describe('useChat', () => {
   // ── 3. loadConversation error ─────────────────────────────────────────────
 
   it('sets error state when loadConversation fails', async () => {
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
 
     await act(async () => {
       await result.current.loadConversation('nonexistent');
@@ -63,7 +62,7 @@ describe('useChat', () => {
   // ── 4. clearConversation ──────────────────────────────────────────────────
 
   it('resets all state on clearConversation', async () => {
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
 
     await act(async () => {
       await result.current.loadConversation('c1');
@@ -89,7 +88,7 @@ describe('useChat', () => {
       ])),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
 
     await act(async () => {
       await result.current.sendMessage('Hello', 'chat');
@@ -114,7 +113,7 @@ describe('useChat', () => {
       ])),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
 
     await act(async () => {
       await result.current.sendMessage('Hi', 'chat');
@@ -144,7 +143,7 @@ describe('useChat', () => {
       ])),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
 
     await act(async () => {
       await result.current.sendMessage('Search for test', 'chat');
@@ -173,7 +172,7 @@ describe('useChat', () => {
       }),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
 
     // Pre-load a conversation so there's history
     await act(async () => {
@@ -209,7 +208,7 @@ describe('useChat', () => {
       ])),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
 
     await act(async () => {
       await result.current.sendMessage('Create artifact', 'chat');
@@ -233,7 +232,7 @@ describe('useChat', () => {
       }),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
 
     // Start sending but don't await — it will hang on the stream
     let sendPromise: Promise<void>;
@@ -267,7 +266,7 @@ describe('useChat', () => {
       ])),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
 
     await act(async () => {
       await result.current.sendMessage('Hi', 'chat');
@@ -298,7 +297,7 @@ describe('useChat', () => {
       ])),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
 
     await act(async () => {
       await result.current.sendMessage('Hi', 'chat');
@@ -330,7 +329,7 @@ describe('useChat', () => {
       }),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
 
     await act(async () => {
       await result.current.sendMessage('Hi', 'chat');
@@ -362,7 +361,7 @@ describe('useChat', () => {
       }),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
 
     await act(async () => {
       await result.current.sendMessage('Hello', 'chat', false, undefined, 'proj-42');
@@ -395,7 +394,7 @@ describe('useChat', () => {
       }),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
 
     await act(async () => {
       await result.current.sendMessage('Help with EPR', 'chat');
@@ -422,7 +421,7 @@ describe('useChat', () => {
       ])),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
 
     await act(async () => {
       await result.current.sendMessage('Hi', 'chat');

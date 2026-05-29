@@ -7,13 +7,18 @@
  * useState calls + two useRef cells previously held in
  * `hooks/useChat.ts`.
  *
- * The store EXPORT is `useChatStore`. The legacy `useChat()`
- * function in `hooks/useChat.ts` is now a thin wrapper that
- * subscribes to this store and returns the destructured tuple the
- * existing ~30 tests + every consumer component expects. The
- * wrapper is intentionally preserved through commits 2-3 so the
- * migration can land in safe passes; commit 4 retires the wrapper
- * once every consumer has moved to direct `useChatStore` access.
+ * The store EXPORT is `useChatStore`. Consumers (App.tsx, the
+ * useChat.test.ts + useChat.error.test.ts suites) subscribe to
+ * individual slices via the selector form
+ * `useChatStore(s => s.X)`. Per-field selectors mean a token-
+ * stream update (state.streaming.content += chunk) only re-renders
+ * components subscribed to that exact slice, not every component
+ * that destructured the whole tuple.
+ *
+ * The transitional `useChat()` wrapper that existed through
+ * commits 1-3 of this migration is gone. Mount-time lifecycle
+ * effects (the P1 #10 SSE resume) live in `hooks/useChatLifecycle.ts`
+ * because Zustand stores can't host React effects.
  *
  * Why module-scoped over per-instance: components in distant
  * subtrees (PlanCard inside MessageBubble; ChatInput at the

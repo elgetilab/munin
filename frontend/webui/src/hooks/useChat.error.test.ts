@@ -1,9 +1,8 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
-import { useChat } from './useChat';
+import { useChatStore, _resetChatStoreForTests } from '../stores/chatStore';
 import { clearActiveStream } from '../lib/api';
-import { _resetChatStoreForTests } from '../stores/chatStore';
 
 /**
  * P1 #13: hook-level error coverage for useChat.
@@ -49,7 +48,7 @@ describe('useChat — initial HTTP failure', () => {
       ),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
     await act(async () => {
       await result.current.sendMessage('Hi', 'chat');
     });
@@ -73,7 +72,7 @@ describe('useChat — initial HTTP failure', () => {
       ),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
     await act(async () => {
       await result.current.sendMessage('Hi', 'chat');
     });
@@ -93,7 +92,7 @@ describe('useChat — initial HTTP failure', () => {
       ),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
     await act(async () => {
       await result.current.sendMessage('Hi', 'chat');
     });
@@ -109,7 +108,7 @@ describe('useChat — initial HTTP failure', () => {
       http.post('/api/chat/completions', () => HttpResponse.error()),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
     await act(async () => {
       await result.current.sendMessage('Hi', 'chat');
     });
@@ -143,7 +142,7 @@ describe('useChat — mid-stream drop + reconnect', () => {
       ),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
     await act(async () => {
       await result.current.sendMessage('Hi', 'chat');
     });
@@ -172,7 +171,7 @@ describe('useChat — mid-stream drop + reconnect', () => {
       ),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
     let promise!: Promise<void>;
     act(() => { promise = result.current.sendMessage('Hi', 'chat'); });
 
@@ -202,7 +201,7 @@ describe('useChat — mid-stream drop + reconnect', () => {
       ),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
     let promise!: Promise<void>;
     act(() => { promise = result.current.sendMessage('Hi', 'chat'); });
     await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
@@ -233,7 +232,7 @@ describe('useChat — malformed events', () => {
       ),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
     await act(async () => {
       await result.current.sendMessage('Hi', 'chat');
     });
@@ -259,7 +258,7 @@ describe('useChat — malformed events', () => {
       ),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
     await act(async () => {
       await result.current.sendMessage('Hi', 'chat');
     });
@@ -277,7 +276,7 @@ describe('useChat — malformed events', () => {
       ])),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
     await act(async () => {
       await result.current.sendMessage('Hi', 'chat');
     });
@@ -313,7 +312,7 @@ describe('useChat — resume 5xx (P1 #13 fix)', () => {
       ),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
     let promise!: Promise<void>;
     act(() => { promise = result.current.sendMessage('Hi', 'chat'); });
     await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
@@ -344,7 +343,7 @@ describe('useChat — AbortError mid-resume', () => {
       }),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
     let promise!: Promise<void>;
     act(() => { promise = result.current.sendMessage('Hi', 'chat'); });
 
@@ -376,7 +375,7 @@ describe('useChat — sessionStorage on terminal SSE error', () => {
       ])),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
     await act(async () => {
       await result.current.sendMessage('Hi', 'chat');
     });
@@ -415,7 +414,7 @@ describe('useChat — retrying + reconnecting interleave', () => {
       ),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
     let promise!: Promise<void>;
     act(() => { promise = result.current.sendMessage('Hi', 'chat'); });
     await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
@@ -439,7 +438,7 @@ describe('useChat — error reset on next sendMessage', () => {
       ),
     );
 
-    const { result } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChatStore());
     await act(async () => {
       await result.current.sendMessage('Hi', 'chat');
     });

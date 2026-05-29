@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef } from 'react';
-import { useChat } from './hooks/useChat';
+import { useChatLifecycle } from './hooks/useChatLifecycle';
+import { useChatStore } from './stores/chatStore';
 import { useUiStore } from './stores/uiStore';
 import { useUserStore } from './stores/userStore';
 import { useWorkspaceStore } from './stores/workspaceStore';
@@ -65,21 +66,28 @@ export default function App() {
   const setIsEphemeral = useWorkspaceStore(s => s.setIsEphemeral);
   const toggleEphemeral = useWorkspaceStore(s => s.toggleEphemeral);
   const deferredPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
-  const {
-    messages,
-    conversationId,
-    conversationPersona,
-    streaming,
-    error,
-    artifacts,
-    setArtifacts,
-    lastArtifactEvent,
-    sendMessage,
-    loadConversation,
-    clearConversation,
-    stopGenerating,
-    dismissMemoryProposal,
-  } = useChat();
+  // P2 #26 commit 4: chat slices now consumed via per-field
+  // selectors directly from useChatStore — the transitional
+  // useChat() wrapper has been retired. Selector form means a
+  // token-stream update (state.streaming.content += chunk) only
+  // re-renders the components that subscribe to streaming, not
+  // every component that destructured the whole tuple. The
+  // mount-time SSE resume effect lives in useChatLifecycle()
+  // because Zustand stores can't host React effects.
+  useChatLifecycle();
+  const messages = useChatStore(s => s.messages);
+  const conversationId = useChatStore(s => s.conversationId);
+  const conversationPersona = useChatStore(s => s.conversationPersona);
+  const streaming = useChatStore(s => s.streaming);
+  const error = useChatStore(s => s.error);
+  const artifacts = useChatStore(s => s.artifacts);
+  const setArtifacts = useChatStore(s => s.setArtifacts);
+  const lastArtifactEvent = useChatStore(s => s.lastArtifactEvent);
+  const sendMessage = useChatStore(s => s.sendMessage);
+  const loadConversation = useChatStore(s => s.loadConversation);
+  const clearConversation = useChatStore(s => s.clearConversation);
+  const stopGenerating = useChatStore(s => s.stopGenerating);
+  const dismissMemoryProposal = useChatStore(s => s.dismissMemoryProposal);
   const artifactPanelOpen = useUiStore(s => s.artifactPanelOpen);
   const setArtifactPanelOpen = useUiStore(s => s.setArtifactPanelOpen);
   // Only the setter — ArtifactPanel itself subscribes to the
