@@ -218,6 +218,152 @@ export async function fetchAdminUsage(): Promise<AdminUsage> {
   return res.json();
 }
 
+// ── Admin: Users + Groups (P1 #11) ──────────────────────────────────────────
+//
+// CRUD against the auth service. All endpoints require an admin session
+// cookie. Failure surfaces a server-supplied error string when present so
+// the UI can show "email already in use" instead of a generic "Failed".
+
+const AUTH_ADMIN = 'https://auth.muninai.org/admin';
+
+export type AdminRole = 'user' | 'group_leader' | 'admin';
+
+export interface AdminUser {
+  id: number;
+  name: string;
+  role: AdminRole;
+  group: string | null;
+  username: string | null;
+  primary_email: string;
+  emails: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminGroup {
+  slug: string;
+  display_name: string;
+  member_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+async function adminRequest(path: string, init: RequestInit = {}): Promise<Response> {
+  const res = await fetch(`${AUTH_ADMIN}${path}`, {
+    credentials: 'include',
+    ...init,
+    headers: {
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(init.headers || {}),
+    },
+  });
+  return res;
+}
+
+async function adminJSON<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await adminRequest(path, init);
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const body = await res.json();
+      detail = body?.error || '';
+    } catch {
+      // not JSON
+    }
+    throw new Error(detail || `Request failed (${res.status})`);
+  }
+  return res.json() as Promise<T>;
+}
+
+export async function fetchAdminUsers(): Promise<AdminUser[]> {
+  const data = await adminJSON<{ users: AdminUser[] }>('/users');
+  return data.users;
+}
+
+export async function createAdminUser(input: {
+  name: string;
+  email: string;
+  role?: AdminRole;
+  group?: string | null;
+  username?: string | null;
+}): Promise<AdminUser> {
+  return adminJSON<AdminUser>('/users', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateAdminUser(id: number, patch: {
+  name?: string;
+  role?: AdminRole;
+  group?: string | null;
+  username?: string | null;
+}): Promise<AdminUser> {
+  return adminJSON<AdminUser>(`/users/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function deleteAdminUser(id: number): Promise<void> {
+  const res = await adminRequest(`/users/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.error || ''; } catch { /* */ }
+    throw new Error(detail || `Delete failed (${res.status})`);
+  }
+}
+
+export async function addAdminUserEmail(id: number, email: string): Promise<AdminUser> {
+  return adminJSON<AdminUser>(`/users/${id}/emails`, {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function removeAdminUserEmail(id: number, email: string): Promise<AdminUser> {
+  return adminJSON<AdminUser>(`/users/${id}/emails/${encodeURIComponent(email)}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function setAdminUserPrimaryEmail(id: number, email: string): Promise<AdminUser> {
+  return adminJSON<AdminUser>(`/users/${id}/emails/${encodeURIComponent(email)}/primary`, {
+    method: 'PUT',
+  });
+}
+
+export async function fetchAdminGroups(): Promise<AdminGroup[]> {
+  const data = await adminJSON<{ groups: AdminGroup[] }>('/groups');
+  return data.groups;
+}
+
+export async function createAdminGroup(input: {
+  slug: string;
+  display_name: string;
+}): Promise<AdminGroup> {
+  return adminJSON<AdminGroup>('/groups', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateAdminGroup(slug: string, display_name: string): Promise<AdminGroup> {
+  return adminJSON<AdminGroup>(`/groups/${encodeURIComponent(slug)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ display_name }),
+  });
+}
+
+export async function deleteAdminGroup(slug: string): Promise<void> {
+  const res = await adminRequest(`/groups/${encodeURIComponent(slug)}`, { method: 'DELETE' });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.error || ''; } catch { /* */ }
+    throw new Error(detail || `Delete failed (${res.status})`);
+  }
+}
+
 // ── Announcements ───────────────────────────────────────────────────────────
 
 export interface Announcement {

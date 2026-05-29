@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { fetchAdminActivity, fetchAdminUsage } from '../lib/api';
 import type { AdminActivity, AdminUsage } from '../lib/api';
 import { useUiStore } from '../stores/uiStore';
+import { UsersTab } from './admin/UsersTab';
+import { GroupsTab } from './admin/GroupsTab';
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -30,11 +32,15 @@ function shortEmail(email: string): string {
 export function AdminPanel() {
   const setShowAdmin = useUiStore(s => s.setShowAdmin);
   const onClose = () => setShowAdmin(false);
-  const [tab, setTab] = useState<'activity' | 'usage'>('activity');
+  const [tab, setTab] = useState<'activity' | 'usage' | 'users' | 'groups'>('activity');
   const [activity, setActivity] = useState<AdminActivity | null>(null);
   const [usage, setUsage] = useState<AdminUsage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Activity/usage data is on a 30s timer; users + groups load on their
+  // own tab mount because they're rarely-changing CRUD lists.
+  const needsLiveData = tab === 'activity' || tab === 'usage';
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -49,13 +55,17 @@ export function AdminPanel() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
-
-  // Auto-refresh every 30 seconds
   useEffect(() => {
+    if (needsLiveData) loadData();
+  }, [loadData, needsLiveData]);
+
+  // Auto-refresh every 30 seconds (only while the user is looking at
+  // a tab that consumes the live data).
+  useEffect(() => {
+    if (!needsLiveData) return;
     const timer = setInterval(loadData, 30_000);
     return () => clearInterval(timer);
-  }, [loadData]);
+  }, [loadData, needsLiveData]);
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -95,30 +105,18 @@ export function AdminPanel() {
 
         {/* Tabs */}
         <div className="flex gap-1 mb-4 border-b border-border">
-          <button
-            onClick={() => setTab('activity')}
-            className={`px-4 py-2 text-sm transition-colors cursor-pointer border-b-2 -mb-px ${
-              tab === 'activity'
-                ? 'border-accent text-accent'
-                : 'border-transparent text-text-secondary hover:text-text-primary'
-            }`}
-          >
-            Activity
-          </button>
-          <button
-            onClick={() => setTab('usage')}
-            className={`px-4 py-2 text-sm transition-colors cursor-pointer border-b-2 -mb-px ${
-              tab === 'usage'
-                ? 'border-accent text-accent'
-                : 'border-transparent text-text-secondary hover:text-text-primary'
-            }`}
-          >
-            Usage
-          </button>
+          <TabButton current={tab} value="activity" onClick={setTab}>Activity</TabButton>
+          <TabButton current={tab} value="usage" onClick={setTab}>Usage</TabButton>
+          <TabButton current={tab} value="users" onClick={setTab}>Users</TabButton>
+          <TabButton current={tab} value="groups" onClick={setTab}>Groups</TabButton>
         </div>
 
         {/* Content */}
-        {loading ? (
+        {tab === 'users' ? (
+          <UsersTab />
+        ) : tab === 'groups' ? (
+          <GroupsTab />
+        ) : loading ? (
           <div className="text-center text-text-secondary text-sm py-12">Loading...</div>
         ) : error ? (
           <div className="text-center text-error text-sm py-12">{error}</div>
@@ -131,6 +129,30 @@ export function AdminPanel() {
     </div>
   );
 }
+
+type AdminTab = 'activity' | 'usage' | 'users' | 'groups';
+
+function TabButton({ current, value, onClick, children }: {
+  current: AdminTab;
+  value: AdminTab;
+  onClick: (t: AdminTab) => void;
+  children: React.ReactNode;
+}) {
+  const active = current === value;
+  return (
+    <button
+      onClick={() => onClick(value)}
+      className={`px-4 py-2 text-sm transition-colors cursor-pointer border-b-2 -mb-px ${
+        active
+          ? 'border-accent text-accent'
+          : 'border-transparent text-text-secondary hover:text-text-primary'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 
 function ActivityTab({ activity }: { activity: AdminActivity }) {
   return (
