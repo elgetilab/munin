@@ -1,10 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchAdminActivity, fetchAdminUsage } from '../lib/api';
 import type { AdminActivity, AdminUsage } from '../lib/api';
-
-interface AdminPanelProps {
-  onClose: () => void;
-}
+import { useUiStore } from '../stores/uiStore';
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -26,7 +23,13 @@ function shortEmail(email: string): string {
   return email.split('@')[0];
 }
 
-export function AdminPanel({ onClose }: AdminPanelProps) {
+// P2 #26 commit 2: onClose used to be a prop; App.tsx passed
+// `() => setShowAdmin(false)` purely to invert its own flag. With
+// uiStore the panel can close itself, so the prop is gone and
+// AdminPanel becomes a zero-prop component.
+export function AdminPanel() {
+  const setShowAdmin = useUiStore(s => s.setShowAdmin);
+  const onClose = () => setShowAdmin(false);
   const [tab, setTab] = useState<'activity' | 'usage'>('activity');
   const [activity, setActivity] = useState<AdminActivity | null>(null);
   const [usage, setUsage] = useState<AdminUsage | null>(null);

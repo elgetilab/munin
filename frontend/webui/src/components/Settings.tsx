@@ -2,11 +2,12 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { updateProfile, fetchApiKeys, createApiKey, revokeApiKey, fetchUsageStats, fetchAnnouncement, setAnnouncement, clearAnnouncement, fetchMuninProfile, updateMuninProfile, deleteMuninProfile } from '../lib/api';
 import type { UserProfile, ApiKeyInfo, UsageStats } from '../lib/api';
 import type { MuninProfile, Persona } from '../lib/types';
+import { useUiStore } from '../stores/uiStore';
 
 interface SettingsProps {
   profile: UserProfile;
   onUpdate: (profile: UserProfile) => void;
-  onClose: () => void;
+  // P2 #26 commit 2: onClose dropped; pulled from uiStore directly.
   isAdmin?: boolean;
   personas?: Persona[];
 }
@@ -33,7 +34,9 @@ const COMMON_TIMEZONES = [
   'Australia/Sydney', 'Pacific/Auckland',
 ];
 
-export function Settings({ profile, onUpdate, onClose, isAdmin, personas = [] }: SettingsProps) {
+export function Settings({ profile, onUpdate, isAdmin, personas = [] }: SettingsProps) {
+  const setShowSettings = useUiStore(s => s.setShowSettings);
+  const onClose = () => setShowSettings(false);
   const [fullName, setFullName] = useState(profile.full_name);
   const [nickname, setNickname] = useState(profile.nickname);
   const [avatar, setAvatar] = useState(profile.avatar);

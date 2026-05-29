@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useChat } from './hooks/useChat';
+import { useUiStore } from './stores/uiStore';
 import { useStatus } from './hooks/useStatus';
 import { fetchPersonas, fetchMe, fetchAnnouncement, fetchUsageStats, fetchArtifacts, fetchTags } from './lib/api';
-import type { UserProfile, Announcement } from './lib/api';
+import type { UserProfile } from './lib/api';
 import { getGreeting } from './lib/greetings';
 import type { Persona, TagCatalog, TagChip } from './lib/types';
 import { Sidebar } from './components/Sidebar';
@@ -28,13 +29,24 @@ export default function App() {
   const hadPersonaParam = useRef(!!personaFromUrl);
   const [greeting, setGreeting] = useState('');
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
-  const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
-  const [announcement, setAnnouncement] = useState<Announcement | null>(null);
-  const [announcementDismissed, setAnnouncementDismissed] = useState(false);
+  // P2 #26 commit 2: UI shell state lives in uiStore. Names match
+  // the previous useState destructures so the 55 use-sites in this
+  // file don't churn — only the declarations change. Functional
+  // setter pattern (setSidebarRefreshKey(k => k + 1)) is replaced
+  // by the explicit bumpSidebarRefresh action.
+  const showSettings = useUiStore(s => s.showSettings);
+  const setShowSettings = useUiStore(s => s.setShowSettings);
+  const sidebarOpen = useUiStore(s => s.sidebarOpen);
+  const setSidebarOpen = useUiStore(s => s.setSidebarOpen);
+  const sidebarRefreshKey = useUiStore(s => s.sidebarRefreshKey);
+  const bumpSidebarRefresh = useUiStore(s => s.bumpSidebarRefresh);
+  const announcement = useUiStore(s => s.announcement);
+  const setAnnouncement = useUiStore(s => s.setAnnouncement);
+  const announcementDismissed = useUiStore(s => s.announcementDismissed);
+  const setAnnouncementDismissed = useUiStore(s => s.setAnnouncementDismissed);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const showInstallBanner = useUiStore(s => s.showInstallBanner);
+  const setShowInstallBanner = useUiStore(s => s.setShowInstallBanner);
   const [isEphemeral, setIsEphemeral] = useState(false);
   const deferredPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
   const {
@@ -52,17 +64,25 @@ export default function App() {
     stopGenerating,
     dismissMemoryProposal,
   } = useChat();
-  const [artifactPanelOpen, setArtifactPanelOpen] = useState(false);
-  const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
+  const artifactPanelOpen = useUiStore(s => s.artifactPanelOpen);
+  const setArtifactPanelOpen = useUiStore(s => s.setArtifactPanelOpen);
+  // Only the setter — ArtifactPanel itself subscribes to the
+  // selected-id slice directly, so App.tsx doesn't need the read.
+  const setSelectedArtifactId = useUiStore(s => s.setSelectedArtifactId);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
-  const [showAdmin, setShowAdmin] = useState(false);
-  const [showReportDialog, setShowReportDialog] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const showAdmin = useUiStore(s => s.showAdmin);
+  const setShowAdmin = useUiStore(s => s.setShowAdmin);
+  const showReportDialog = useUiStore(s => s.showReportDialog);
+  const setShowReportDialog = useUiStore(s => s.setShowReportDialog);
+  const toast = useUiStore(s => s.toast);
+  const setToast = useUiStore(s => s.setToast);
   const [tagCatalog, setTagCatalog] = useState<TagCatalog | null>(null);
   const [activeTags, setActiveTags] = useState<TagChip[]>([]);
-  const [knowledgePanelOpen, setKnowledgePanelOpen] = useState(false);
-  const [showKnowledgePage, setShowKnowledgePage] = useState<string | true | false>(false);
+  const knowledgePanelOpen = useUiStore(s => s.knowledgePanelOpen);
+  const setKnowledgePanelOpen = useUiStore(s => s.setKnowledgePanelOpen);
+  const showKnowledgePage = useUiStore(s => s.showKnowledgePage);
+  const setShowKnowledgePage = useUiStore(s => s.setShowKnowledgePage);
   const [reportedChats, setReportedChats] = useState<Set<string>>(() => {
     try {
       const stored = localStorage.getItem('munin_reported_chats');
@@ -202,7 +222,7 @@ export default function App() {
   // Also clear activeProjectId once the conversation is created (filed by backend)
   useEffect(() => {
     if (streaming.phase === 'idle' && messages.length > 0 && !isEphemeral) {
-      setSidebarRefreshKey(k => k + 1);
+      bumpSidebarRefresh();
       if (activeProjectId && conversationId) {
         setActiveProjectId(null);
       }
@@ -241,7 +261,7 @@ export default function App() {
 
   const handleProjectUpdated = useCallback((updated: Project) => {
     setEditingProject(updated);
-    setSidebarRefreshKey(k => k + 1);
+    bumpSidebarRefresh();
   }, []);
 
   const handleToggleEphemeral = useCallback(() => {
@@ -621,7 +641,7 @@ export default function App() {
           <div className="flex-1 flex flex-col min-w-0">
             {/* Admin / Settings / ProjectSettings / Sleeping / Empty / Messages */}
             {showAdmin && isAdmin ? (
-              <AdminPanel onClose={() => setShowAdmin(false)} />
+              <AdminPanel />
             ) : editingProject ? (
               <ProjectSettings
                 project={editingProject}
@@ -633,7 +653,6 @@ export default function App() {
               <Settings
                 profile={userProfile}
                 onUpdate={handleProfileUpdate}
-                onClose={() => setShowSettings(false)}
                 isAdmin={isAdmin}
                 personas={personas}
               />
@@ -700,7 +719,6 @@ export default function App() {
               catalog={tagCatalog}
               activeTags={activeTags}
               onTagsChange={setActiveTags}
-              onClose={() => setKnowledgePanelOpen(false)}
             />
           )}
 
@@ -709,9 +727,6 @@ export default function App() {
             <ArtifactPanel
               artifacts={artifacts}
               conversationId={conversationId}
-              onClose={() => setArtifactPanelOpen(false)}
-              selectedArtifactId={selectedArtifactId}
-              onSelectArtifact={setSelectedArtifactId}
             />
           )}
         </div>
@@ -721,7 +736,6 @@ export default function App() {
       {showReportDialog && conversationId && (
         <ReportDialog
           conversationId={conversationId}
-          onClose={() => setShowReportDialog(false)}
           onReported={() => {
             setShowReportDialog(false);
             setReportedChats(prev => {

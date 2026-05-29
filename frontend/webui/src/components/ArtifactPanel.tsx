@@ -4,13 +4,16 @@ import { fetchArtifact, updateArtifact } from '../lib/api';
 import { Markdown } from './Markdown';
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { useUiStore } from '../stores/uiStore';
 
+// P2 #26 commit 2: onClose / selectedArtifactId / onSelectArtifact
+// dropped from props — all three are pulled directly from uiStore.
+// `artifacts` + `conversationId` stay on props because they're
+// chat-domain state (the parent already has them in hand from the
+// useChat hook, no benefit to re-subscribing inside this component).
 interface ArtifactPanelProps {
   artifacts: ArtifactSummary[];
   conversationId: string;
-  onClose: () => void;
-  selectedArtifactId?: string | null;
-  onSelectArtifact: (id: string | null) => void;
 }
 
 const CONTENT_TYPE_ICONS: Record<string, string> = {
@@ -45,7 +48,11 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function ArtifactPanel({ artifacts, conversationId, onClose, selectedArtifactId, onSelectArtifact }: ArtifactPanelProps) {
+export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps) {
+  const selectedArtifactId = useUiStore(s => s.selectedArtifactId);
+  const onSelectArtifact = useUiStore(s => s.setSelectedArtifactId);
+  const setArtifactPanelOpen = useUiStore(s => s.setArtifactPanelOpen);
+  const onClose = () => setArtifactPanelOpen(false);
   const [loadedArtifact, setLoadedArtifact] = useState<ArtifactFull | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
