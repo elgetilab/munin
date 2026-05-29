@@ -2,15 +2,26 @@
 munin-auth: Email OTP authentication service for the Munin platform.
 
 Endpoints:
-    GET   /login       — Login page (enter email)
-    POST  /login       — Submit email → check whitelist → send OTP
-    GET   /verify      — OTP entry page
-    POST  /verify      — Verify OTP → set session cookie → redirect
-    GET   /auth/check  — Caddy forward-auth: 200 + headers or 401
-    GET   /auth/me     — Current user info (JSON: email, name)
-    PATCH /auth/me     — Update display name (JSON body: {name})
-    POST  /logout      — Clear session cookie
-    GET   /health      — Health check
+    GET   /login       Login page (enter email)
+    POST  /login       Submit email, look up user in DB, send OTP
+    GET   /verify      OTP entry page
+    POST  /verify      Verify OTP, set session cookie, redirect
+    GET   /auth/check  Caddy forward-auth: 200 + headers or 401
+    GET   /auth/me     Current user info (JSON: email, name)
+    PATCH /auth/me     Update display name (JSON body: {name})
+    POST  /logout      Clear session cookie
+    GET   /health      Health check
+
+User identity model:
+    users           one row per person (name, role, research_group, username)
+    user_emails     one row per email; many emails can point at the same user
+                    (is_primary flags the canonical email for display)
+    groups          first-class research groups (slug + display_name)
+
+The legacy whitelist.csv is treated as a *seed*. On startup, any rows
+in the CSV whose email is not yet present in user_emails are imported
+(additive only, never deletes). After first boot the database is the
+authoritative source; the CSV remains as a backup / manual-edit path.
 """
 
 import csv
@@ -68,33 +79,17 @@ app.add_middleware(
 signer = TimestampSigner(SECRET_KEY)
 templates = Environment(loader=FileSystemLoader("templates"), autoescape=True)
 
-# In-memory stores
-whitelist: dict[str, dict[str, str]] = {}  # email -> {name, role}
+# In-memory stores (transient state only — user data lives in SQLite)
 otp_store: dict[str, dict] = {}  # email -> {code, expires, attempts}
 rate_send: dict[str, list[float]] = {}  # email -> [timestamps]
 rate_verify: dict[str, list[float]] = {}  # email -> [timestamps]
 rate_support: dict[str, list[float]] = {}  # email -> [timestamps]
 
 
-# ── Whitelist ────────────────────────────────────────────────────────────────
-
-def load_whitelist():
-    """Load email whitelist from CSV file."""
-    global whitelist
-    new_wl: dict[str, dict[str, str]] = {}
-    if WHITELIST_PATH.exists():
-        with open(WHITELIST_PATH, newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                email = row["email"].strip().lower()
-                name = row.get("name", "").strip() or email
-                role = row.get("role", "").strip() or "user"
-                new_wl[email] = {"name": name, "role": role}
-    whitelist = new_wl
-
-
 def _handle_sighup(*_):
-    load_whitelist()
+    # Re-run the additive CSV seed. Existing DB rows are not touched;
+    # only rows whose email is absent from user_emails are imported.
+    seed_users_from_whitelist()
 
 
 signal.signal(signal.SIGHUP, _handle_sighup)
@@ -134,8 +129,141 @@ def init_db():
             avatar TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            role TEXT NOT NULL CHECK(role IN ('user', 'group_leader', 'admin')),
+            research_group TEXT REFERENCES groups(slug) ON DELETE SET NULL,
+            username TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_emails (
+            email TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            is_primary INTEGER NOT NULL DEFAULT 0,
+            added_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_user_emails_user ON user_emails(user_id)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS groups (
+            slug TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
     conn.commit()
     conn.close()
+
+
+# ── User lookup + mutation helpers ────────────────────────────────────────
+
+def lookup_user(email: str) -> dict | None:
+    """Resolve an email (any alias) to its user. Returns None if not found."""
+    email = email.strip().lower()
+    conn = get_db()
+    row = conn.execute(
+        """
+        SELECT u.id, u.name, u.role, u.research_group, u.username
+          FROM users u
+          JOIN user_emails ue ON ue.user_id = u.id
+         WHERE ue.email = ?
+        """,
+        (email,),
+    ).fetchone()
+    if not row:
+        conn.close()
+        return None
+    emails = [
+        r["email"]
+        for r in conn.execute(
+            "SELECT email FROM user_emails WHERE user_id = ? ORDER BY is_primary DESC, email ASC",
+            (row["id"],),
+        ).fetchall()
+    ]
+    primary_row = conn.execute(
+        "SELECT email FROM user_emails WHERE user_id = ? AND is_primary = 1",
+        (row["id"],),
+    ).fetchone()
+    conn.close()
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "role": row["role"],
+        "group": row["research_group"],
+        "username": row["username"],
+        "emails": emails,
+        "primary_email": primary_row["email"] if primary_row else (emails[0] if emails else email),
+    }
+
+
+def _insert_user(conn: sqlite3.Connection, name: str, role: str,
+                 research_group: str | None = None, username: str | None = None) -> int:
+    now = datetime.now(timezone.utc).isoformat()
+    cur = conn.execute(
+        "INSERT INTO users (name, role, research_group, username, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (name, role, research_group, username, now, now),
+    )
+    return cur.lastrowid
+
+
+def _attach_email(conn: sqlite3.Connection, user_id: int, email: str, is_primary: bool):
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT INTO user_emails (email, user_id, is_primary, added_at) VALUES (?, ?, ?, ?)",
+        (email.strip().lower(), user_id, 1 if is_primary else 0, now),
+    )
+
+
+def seed_users_from_whitelist() -> dict:
+    """Additively import whitelist.csv rows whose email is absent from user_emails.
+
+    Returns a small summary dict for logging. Never deletes; never modifies
+    existing rows. Intended to run on startup and on SIGHUP.
+    """
+    if not WHITELIST_PATH.exists():
+        return {"imported": 0, "skipped": 0, "missing_csv": True}
+
+    imported = 0
+    skipped = 0
+    conn = get_db()
+    try:
+        with open(WHITELIST_PATH, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                email = (row.get("email") or "").strip().lower()
+                if not email:
+                    continue
+                exists = conn.execute(
+                    "SELECT 1 FROM user_emails WHERE email = ?", (email,)
+                ).fetchone()
+                if exists:
+                    skipped += 1
+                    continue
+                name = (row.get("name") or "").strip() or email
+                role = (row.get("role") or "").strip() or "user"
+                if role not in ("user", "group_leader", "admin"):
+                    role = "user"
+                user_id = _insert_user(conn, name=name, role=role)
+                _attach_email(conn, user_id, email, is_primary=True)
+                imported += 1
+        conn.commit()
+    finally:
+        conn.close()
+    return {"imported": imported, "skipped": skipped, "missing_csv": False}
+
+
+def count_users() -> int:
+    conn = get_db()
+    row = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()
+    conn.close()
+    return row["n"] if row else 0
 
 
 def get_display_name(email: str) -> str | None:
@@ -315,8 +443,8 @@ async def send_otp_email(email: str, code: str, name: str):
 
 @app.on_event("startup")
 async def startup():
-    load_whitelist()
     init_db()
+    seed_users_from_whitelist()
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -332,7 +460,8 @@ async def login_submit(request: Request, email: str = Form(...), redirect: str =
     email = email.strip().lower()
     tmpl = templates.get_template("login.html")
 
-    if email not in whitelist:
+    user = lookup_user(email)
+    if not user:
         return tmpl.render(error="This email is not authorized.", redirect=redirect)
 
     if not check_rate(rate_send, email, limit=3):
@@ -342,7 +471,7 @@ async def login_submit(request: Request, email: str = Form(...), redirect: str =
     record_rate(rate_send, email)
 
     try:
-        await send_otp_email(email, code, whitelist[email]["name"])
+        await send_otp_email(email, code, user["name"])
     except Exception:
         return tmpl.render(error="Failed to send email. Please try again.", redirect=redirect)
 
@@ -380,8 +509,8 @@ async def verify_submit(
         record_rate(rate_verify, email)
         return HTMLResponse(tmpl.render(email=email, error=error_msg, redirect=redirect))
 
-    entry = whitelist.get(email)
-    name = entry["name"] if entry else email
+    user = lookup_user(email)
+    name = user["name"] if user else email
     signed_token = create_session(email, name)
 
     dest = redirect if redirect and redirect.startswith("http") else "https://muninai.org"
@@ -415,16 +544,16 @@ async def auth_check(request: Request):
         or get_display_name(session["email"])
         or session["name"]
     )
-    entry = whitelist.get(session["email"])
-    role = entry["role"] if entry else "user"
-    return Response(
-        status_code=200,
-        headers={
-            "X-Munin-Email": session["email"],
-            "X-Munin-Name": name,
-            "X-Munin-Role": role,
-        },
-    )
+    user = lookup_user(session["email"])
+    role = user["role"] if user else "user"
+    headers = {
+        "X-Munin-Email": session["email"],
+        "X-Munin-Name": name,
+        "X-Munin-Role": role,
+    }
+    if user and user["group"]:
+        headers["X-Munin-Group"] = user["group"]
+    return Response(status_code=200, headers=headers)
 
 
 @app.get("/auth/me")
@@ -583,4 +712,4 @@ async def support_contact(request: Request):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "whitelist_count": len(whitelist)}
+    return {"status": "ok", "user_count": count_users()}

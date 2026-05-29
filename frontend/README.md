@@ -173,16 +173,20 @@ After bootstrap and first deploy, expect:
 - `~/munin/`: project directory (rsync target).
 - `~/munin/.env`: secrets (not in git; copy from a trusted
   source or regenerate).
-- `~/munin/auth/whitelist.csv`: user whitelist (`email,name`
-  per row).
+- `~/munin/auth/whitelist.csv`: legacy user seed file. The DB
+  inside the `auth_data` volume is now the source of truth; the
+  CSV is imported additively on startup and is kept as a backup
+  / manual-add path.
 - `/mnt/uploads/`: upload storage (external volume).
 
 ## Common Tasks
 
-**Add a user:** edit `auth/whitelist.csv`, then restart munin-auth.
-From `~/munin/` on the VPS: `docker compose restart munin-auth`.
-(The compose project prefixes container names, so the bare
-`docker restart munin-auth` form will not find the container.)
+**Add a user (CSV path, additive only):** edit `auth/whitelist.csv`
+and then restart munin-auth. From `~/munin/` on the VPS:
+`docker compose restart munin-auth`. The CSV is now an additive
+seed: new emails are imported on every startup, but existing DB
+rows are never overwritten. To rename / re-role / delete a user,
+use the admin UI (see Admin Panel) or edit the database directly.
 
 **Create API key:** `POST /api/keys` with session auth, returns
 an `sk-munin-...` key.
