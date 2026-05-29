@@ -3,6 +3,7 @@ import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
 import { MOCK_CONVERSATION } from '../test/msw-handlers';
 import { useChat } from './useChat';
+import { _resetChatStoreForTests } from '../stores/chatStore';
 
 function sseResponse(events: Array<{ event: string; data: unknown }>): Response {
   const body = events.map(e => `event: ${e.event}\ndata: ${JSON.stringify(e.data)}\n\n`).join('');
@@ -12,6 +13,14 @@ function sseResponse(events: Array<{ event: string; data: unknown }>): Response 
 }
 
 describe('useChat', () => {
+  // P2 #26: the chat store is module-scoped (Zustand), so state
+  // would leak across tests without an explicit reset. The previous
+  // useState-based hook got fresh state per renderHook; the store
+  // doesn't — each test must start from a clean slice.
+  beforeEach(() => {
+    _resetChatStoreForTests();
+  });
+
   // ── 1. Initial state ──────────────────────────────────────────────────────
 
   it('has correct initial state', () => {

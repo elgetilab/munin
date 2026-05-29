@@ -3,6 +3,7 @@ import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
 import { useChat } from './useChat';
 import { clearActiveStream } from '../lib/api';
+import { _resetChatStoreForTests } from '../stores/chatStore';
 
 /**
  * P1 #13: hook-level error coverage for useChat.
@@ -30,6 +31,8 @@ function sseResponse(events: Array<{ event: string; data: unknown; id?: string }
 }
 
 beforeEach(() => {
+  // P2 #26: chat store is module-scoped; reset before each test.
+  _resetChatStoreForTests();
   try { sessionStorage.clear(); } catch { /* ignore */ }
   clearActiveStream();
 });
