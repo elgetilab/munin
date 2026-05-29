@@ -1,7 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchChats, deleteChat, renameChat, pinChat, unpinChat, fetchProjects, createProject, deleteProject, fileConversation, unfileConversation } from '../lib/api';
 import type { ConversationSummary, Project } from '../lib/types';
+import { useUserStore } from '../stores/userStore';
+import { useWorkspaceStore } from '../stores/workspaceStore';
 
+// P2 #26 commit 3: user identity slots (userEmail / userName /
+// userAvatar / isAdmin) and activeProjectId pulled from stores
+// directly instead of forwarded through props. onOpenSettings +
+// onOpenAdmin stay as props because their App.tsx implementations
+// do composite multi-store work (close sidebar on mobile, clear
+// editingProject, etc.) — wrapping that as a store action is more
+// surgery than this commit's scope.
 interface SidebarProps {
   currentId: string | null;
   onSelect: (id: string) => void;
@@ -9,13 +18,8 @@ interface SidebarProps {
   onNewChatInProject?: (projectId: string) => void;
   onOpenProjectSettings?: (project: Project) => void;
   refreshKey: number;
-  userEmail: string;
-  userName: string;
-  userAvatar: string;
   onOpenSettings: () => void;
   onOpenAdmin?: () => void;
-  isAdmin?: boolean;
-  activeProjectId?: string | null;
 }
 
 // ── One-time migration from localStorage starring to backend pinning ────────
@@ -69,7 +73,13 @@ export function groupByTime(chats: ConversationSummary[]) {
   return groups.filter(g => g.chats.length > 0);
 }
 
-export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, onOpenProjectSettings, refreshKey, userEmail, userName, userAvatar, onOpenSettings, onOpenAdmin, isAdmin, activeProjectId }: SidebarProps) {
+export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, onOpenProjectSettings, refreshKey, onOpenSettings, onOpenAdmin }: SidebarProps) {
+  const userProfile = useUserStore(s => s.userProfile);
+  const userEmail = userProfile?.email || '';
+  const userName = userProfile?.name || '';
+  const userAvatar = userProfile?.avatar || '';
+  const isAdmin = useUserStore(s => s.isAdmin);
+  const activeProjectId = useWorkspaceStore(s => s.activeProjectId);
   const [chats, setChats] = useState<ConversationSummary[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');

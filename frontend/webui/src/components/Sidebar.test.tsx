@@ -70,14 +70,16 @@ describe('groupByTime', () => {
 // ── Sidebar component tests ─────────────────────────────────────────────────
 
 function renderSidebar(overrides: Partial<Parameters<typeof Sidebar>[0]> = {}) {
+  // P2 #26 commit 3: userEmail / userName / userAvatar dropped
+  // from props (Sidebar pulls userProfile from userStore now).
+  // Empty userStore -> userProfile=null -> Sidebar falls back to ''
+  // for each field, same effective rendering as the previous
+  // hard-coded test props.
   const props = {
     currentId: null,
     onSelect: vi.fn(),
     onNewChat: vi.fn(),
     refreshKey: 0,
-    userEmail: 'test@test.com',
-    userName: 'Test User',
-    userAvatar: '',
     onOpenSettings: vi.fn(),
     ...overrides,
   };

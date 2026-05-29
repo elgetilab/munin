@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { useChat } from './hooks/useChat';
 import { useUiStore } from './stores/uiStore';
+import { useUserStore } from './stores/userStore';
+import { useWorkspaceStore } from './stores/workspaceStore';
 import { useStatus } from './hooks/useStatus';
 import { fetchPersonas, fetchMe, fetchAnnouncement, fetchUsageStats, fetchArtifacts, fetchTags } from './lib/api';
 import type { UserProfile } from './lib/api';
 import { getGreeting } from './lib/greetings';
-import type { Persona, TagCatalog, TagChip } from './lib/types';
 import { Sidebar } from './components/Sidebar';
 import { MessageList } from './components/MessageList';
 import { ChatInput } from './components/ChatInput';
@@ -23,12 +24,20 @@ import type { Project } from './lib/types';
 
 export default function App() {
   const status = useStatus();
-  const [personas, setPersonas] = useState<Persona[]>([]);
+  // P2 #26 commit 3: user identity slice lives in userStore. The
+  // persona-from-URL initialiser moved into the store's _initialPersona
+  // helper; `hadPersonaParam` stays here as a ref because it's a
+  // mount-time signal, not reactive state.
+  const personas = useUserStore(s => s.personas);
+  const setPersonas = useUserStore(s => s.setPersonas);
   const personaFromUrl = new URLSearchParams(window.location.search).get('persona');
-  const [selectedPersona, setSelectedPersona] = useState(personaFromUrl || 'chat');
+  const selectedPersona = useUserStore(s => s.selectedPersona);
+  const setSelectedPersona = useUserStore(s => s.setSelectedPersona);
   const hadPersonaParam = useRef(!!personaFromUrl);
-  const [greeting, setGreeting] = useState('');
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const greeting = useUserStore(s => s.greeting);
+  const setGreeting = useUserStore(s => s.setGreeting);
+  const userProfile = useUserStore(s => s.userProfile);
+  const setUserProfile = useUserStore(s => s.setUserProfile);
   // P2 #26 commit 2: UI shell state lives in uiStore. Names match
   // the previous useState destructures so the 55 use-sites in this
   // file don't churn — only the declarations change. Functional
@@ -44,10 +53,17 @@ export default function App() {
   const setAnnouncement = useUiStore(s => s.setAnnouncement);
   const announcementDismissed = useUiStore(s => s.announcementDismissed);
   const setAnnouncementDismissed = useUiStore(s => s.setAnnouncementDismissed);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const isAdmin = useUserStore(s => s.isAdmin);
+  const setIsAdmin = useUserStore(s => s.setIsAdmin);
   const showInstallBanner = useUiStore(s => s.showInstallBanner);
   const setShowInstallBanner = useUiStore(s => s.setShowInstallBanner);
-  const [isEphemeral, setIsEphemeral] = useState(false);
+  // P2 #26 commit 3: isEphemeral lives in workspaceStore — persisted
+  // across reloads so a user who switched to incognito stays in
+  // incognito after F5. The previous useState always defaulted to
+  // false on reload.
+  const isEphemeral = useWorkspaceStore(s => s.isEphemeral);
+  const setIsEphemeral = useWorkspaceStore(s => s.setIsEphemeral);
+  const toggleEphemeral = useWorkspaceStore(s => s.toggleEphemeral);
   const deferredPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
   const {
     messages,
@@ -69,26 +85,29 @@ export default function App() {
   // Only the setter — ArtifactPanel itself subscribes to the
   // selected-id slice directly, so App.tsx doesn't need the read.
   const setSelectedArtifactId = useUiStore(s => s.setSelectedArtifactId);
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
-  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const activeProjectId = useWorkspaceStore(s => s.activeProjectId);
+  const setActiveProjectId = useWorkspaceStore(s => s.setActiveProjectId);
+  const editingProject = useWorkspaceStore(s => s.editingProject);
+  const setEditingProject = useWorkspaceStore(s => s.setEditingProject);
   const showAdmin = useUiStore(s => s.showAdmin);
   const setShowAdmin = useUiStore(s => s.setShowAdmin);
   const showReportDialog = useUiStore(s => s.showReportDialog);
   const setShowReportDialog = useUiStore(s => s.setShowReportDialog);
   const toast = useUiStore(s => s.toast);
   const setToast = useUiStore(s => s.setToast);
-  const [tagCatalog, setTagCatalog] = useState<TagCatalog | null>(null);
-  const [activeTags, setActiveTags] = useState<TagChip[]>([]);
+  const tagCatalog = useWorkspaceStore(s => s.tagCatalog);
+  const setTagCatalog = useWorkspaceStore(s => s.setTagCatalog);
+  const activeTags = useWorkspaceStore(s => s.activeTags);
+  const setActiveTags = useWorkspaceStore(s => s.setActiveTags);
   const knowledgePanelOpen = useUiStore(s => s.knowledgePanelOpen);
   const setKnowledgePanelOpen = useUiStore(s => s.setKnowledgePanelOpen);
   const showKnowledgePage = useUiStore(s => s.showKnowledgePage);
   const setShowKnowledgePage = useUiStore(s => s.setShowKnowledgePage);
-  const [reportedChats, setReportedChats] = useState<Set<string>>(() => {
-    try {
-      const stored = localStorage.getItem('munin_reported_chats');
-      return stored ? new Set(JSON.parse(stored)) : new Set();
-    } catch { return new Set(); }
-  });
+  // P2 #26 commit 3: reportedChats now persists via workspaceStore's
+  // persist middleware. The old `munin_reported_chats` localStorage
+  // entry is migrated in via onRehydrateStorage on first load.
+  const reportedChats = useWorkspaceStore(s => s.reportedChats);
+  const addReportedChat = useWorkspaceStore(s => s.addReportedChat);
 
   // Load user info on mount
   useEffect(() => {
@@ -265,15 +284,13 @@ export default function App() {
   }, []);
 
   const handleToggleEphemeral = useCallback(() => {
-    setIsEphemeral(prev => {
-      if (!prev) {
-        // Entering ephemeral: clear current conversation
-        clearConversation();
-        window.history.pushState(null, '', '/');
-      }
-      return !prev;
-    });
-  }, [clearConversation]);
+    const nowEphemeral = toggleEphemeral();
+    if (nowEphemeral) {
+      // Entering ephemeral: clear current conversation
+      clearConversation();
+      window.history.pushState(null, '', '/');
+    }
+  }, [clearConversation, toggleEphemeral]);
 
   const handleProfileUpdate = useCallback((updated: UserProfile) => {
     setUserProfile(updated);
@@ -453,13 +470,8 @@ export default function App() {
               onNewChatInProject={(pid) => { handleNewChatInProject(pid); setShowSettings(false); if (window.innerWidth < 768) setSidebarOpen(false); }}
               onOpenProjectSettings={handleOpenProjectSettings}
               refreshKey={sidebarRefreshKey}
-              userEmail={userProfile?.email || ''}
-              userName={userProfile?.name || ''}
-              userAvatar={userProfile?.avatar || ''}
               onOpenSettings={() => { setShowSettings(true); setEditingProject(null); setShowAdmin(false); if (window.innerWidth < 768) setSidebarOpen(false); }}
               onOpenAdmin={() => { setShowAdmin(true); setShowSettings(false); setEditingProject(null); if (window.innerWidth < 768) setSidebarOpen(false); }}
-              isAdmin={isAdmin}
-              activeProjectId={activeProjectId}
             />
           </div>
         </>
@@ -653,8 +665,6 @@ export default function App() {
               <Settings
                 profile={userProfile}
                 onUpdate={handleProfileUpdate}
-                isAdmin={isAdmin}
-                personas={personas}
               />
             ) : isMaintenance ? (
               <MaintenancePage
@@ -677,16 +687,9 @@ export default function App() {
                   onStop={stopGenerating}
                   isStreaming={isStreaming}
                   persona={currentPersona}
-                  personas={personas}
-                  selectedPersona={selectedPersona}
-                  onSelectPersona={setSelectedPersona}
                   suggestions={currentPersona?.prompt_suggestions}
                   showSuggestions={isEmpty}
                   conversationId={conversationId}
-                  isEphemeral={isEphemeral}
-                  tagCatalog={tagCatalog}
-                  activeTags={activeTags}
-                  onTagsChange={setActiveTags}
                 />
               </div>
             ) : (
@@ -698,16 +701,9 @@ export default function App() {
                   onStop={stopGenerating}
                   isStreaming={isStreaming}
                   persona={currentPersona}
-                  personas={personas}
-                  selectedPersona={selectedPersona}
-                  onSelectPersona={setSelectedPersona}
                   suggestions={currentPersona?.prompt_suggestions}
                   showSuggestions={false}
                   conversationId={conversationId}
-                  isEphemeral={isEphemeral}
-                  tagCatalog={tagCatalog}
-                  activeTags={activeTags}
-                  onTagsChange={setActiveTags}
                 />
               </>
             )}
@@ -737,13 +733,14 @@ export default function App() {
         <ReportDialog
           conversationId={conversationId}
           onReported={() => {
+            // workspaceStore's persist middleware writes the
+            // updated set to localStorage (key: munin-workspace)
+            // automatically. The old hand-written
+            // setItem('munin_reported_chats', ...) is gone;
+            // existing entries are migrated by the store's
+            // onRehydrateStorage callback.
             setShowReportDialog(false);
-            setReportedChats(prev => {
-              const next = new Set(prev);
-              next.add(conversationId);
-              localStorage.setItem('munin_reported_chats', JSON.stringify([...next]));
-              return next;
-            });
+            addReportedChat(conversationId);
             setToast('Chat reported — thank you for helping us improve.');
             setTimeout(() => setToast(null), 4000);
           }}
