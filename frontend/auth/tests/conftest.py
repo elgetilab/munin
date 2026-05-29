@@ -30,3 +30,31 @@ def auth_env(tmp_path, monkeypatch):
     main.DB_PATH = db_path
     main.WHITELIST_PATH = csv_path
     yield main
+
+
+@pytest.fixture
+def client(auth_env):
+    """TestClient with the schema initialised but no users seeded."""
+    from fastapi.testclient import TestClient
+
+    auth_env.init_db()
+    with TestClient(auth_env.app) as c:
+        # Strip cookies the test client adds (we set them per-call).
+        c.cookies.clear()
+        yield c
+
+
+def make_user(auth_env, email: str, name: str, role: str = "user",
+              group: str | None = None, username: str | None = None) -> int:
+    conn = auth_env.get_db()
+    user_id = auth_env._insert_user(conn, name=name, role=role,
+                                    research_group=group, username=username)
+    auth_env._attach_email(conn, user_id, email, is_primary=True)
+    conn.commit()
+    conn.close()
+    return user_id
+
+
+def session_cookie(auth_env, email: str, name: str = "Test") -> str:
+    """Create a session row + return its signed cookie value."""
+    return auth_env.create_session(email, name)

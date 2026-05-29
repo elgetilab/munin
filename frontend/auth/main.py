@@ -72,7 +72,7 @@ app.add_middleware(
         "https://upload.muninai.org",
     ],
     allow_credentials=True,
-    allow_methods=["GET", "PATCH", "POST"],
+    allow_methods=["GET", "PATCH", "POST", "PUT", "DELETE"],
     allow_headers=["Content-Type"],
 )
 
@@ -101,6 +101,8 @@ def get_db() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
+    # Enable FK enforcement so user_emails rows cascade-delete with users.
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
@@ -713,3 +715,520 @@ async def support_contact(request: Request):
 @app.get("/health")
 async def health():
     return {"status": "ok", "user_count": count_users()}
+
+
+# ── Admin helpers ────────────────────────────────────────────────────────────
+
+def _require_admin(request: Request) -> tuple[dict | None, Response | None]:
+    """Resolve the current session to an admin user, or return an error response."""
+    cookie = request.cookies.get("munin_session")
+    if not cookie:
+        return None, JSONResponse({"error": "not authenticated"}, status_code=401)
+    session = validate_session(cookie)
+    if not session:
+        return None, JSONResponse({"error": "invalid session"}, status_code=401)
+    user = lookup_user(session["email"])
+    if not user or user["role"] != "admin":
+        return None, JSONResponse({"error": "forbidden"}, status_code=403)
+    return user, None
+
+
+def _user_row_to_dict(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
+    emails = [
+        r["email"]
+        for r in conn.execute(
+            "SELECT email FROM user_emails WHERE user_id = ? ORDER BY is_primary DESC, email ASC",
+            (row["id"],),
+        ).fetchall()
+    ]
+    primary_row = conn.execute(
+        "SELECT email FROM user_emails WHERE user_id = ? AND is_primary = 1",
+        (row["id"],),
+    ).fetchone()
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "role": row["role"],
+        "group": row["research_group"],
+        "username": row["username"],
+        "emails": emails,
+        "primary_email": primary_row["email"] if primary_row else (emails[0] if emails else None),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def _count_admins(conn: sqlite3.Connection) -> int:
+    return conn.execute("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'").fetchone()["n"]
+
+
+def _touch_user(conn: sqlite3.Connection, user_id: int):
+    conn.execute(
+        "UPDATE users SET updated_at = ? WHERE id = ?",
+        (datetime.now(timezone.utc).isoformat(), user_id),
+    )
+
+
+# ── Admin: users ─────────────────────────────────────────────────────────────
+
+@app.get("/admin/users")
+async def admin_list_users(request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, name, role, research_group, username, created_at, updated_at "
+        "FROM users ORDER BY LOWER(name) ASC"
+    ).fetchall()
+    users = [_user_row_to_dict(conn, r) for r in rows]
+    conn.close()
+    return JSONResponse({"users": users})
+
+
+@app.post("/admin/users")
+async def admin_create_user(request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    email = (body.get("email") or "").strip().lower()
+    role = (body.get("role") or "user").strip()
+    group = body.get("group")
+    if group is not None:
+        group = group.strip() or None
+    username = body.get("username")
+    if username is not None:
+        username = username.strip() or None
+
+    if not name:
+        return JSONResponse({"error": "name is required"}, status_code=400)
+    if not email or "@" not in email:
+        return JSONResponse({"error": "valid email is required"}, status_code=400)
+    if role not in ("user", "group_leader", "admin"):
+        return JSONResponse({"error": "role must be user, group_leader, or admin"}, status_code=400)
+
+    conn = get_db()
+    try:
+        existing = conn.execute(
+            "SELECT user_id FROM user_emails WHERE email = ?", (email,)
+        ).fetchone()
+        if existing:
+            return JSONResponse({"error": "email already in use"}, status_code=409)
+
+        if group is not None:
+            grp = conn.execute(
+                "SELECT slug FROM groups WHERE slug = ?", (group,)
+            ).fetchone()
+            if not grp:
+                return JSONResponse({"error": f"group '{group}' does not exist"}, status_code=400)
+
+        user_id = _insert_user(conn, name=name, role=role,
+                               research_group=group, username=username)
+        _attach_email(conn, user_id, email, is_primary=True)
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT id, name, role, research_group, username, created_at, updated_at "
+            "FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        result = _user_row_to_dict(conn, row)
+    finally:
+        conn.close()
+    return JSONResponse(result, status_code=201)
+
+
+@app.patch("/admin/users/{user_id}")
+async def admin_update_user(user_id: int, request: Request):
+    admin, err = _require_admin(request)
+    if err:
+        return err
+
+    body = await request.json()
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT id, role FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if not row:
+            return JSONResponse({"error": "user not found"}, status_code=404)
+
+        updates: list[tuple[str, object]] = []
+        if "name" in body:
+            name = (body.get("name") or "").strip()
+            if not name:
+                return JSONResponse({"error": "name cannot be empty"}, status_code=400)
+            updates.append(("name", name))
+        if "role" in body:
+            role = (body.get("role") or "").strip()
+            if role not in ("user", "group_leader", "admin"):
+                return JSONResponse({"error": "invalid role"}, status_code=400)
+            # Demoting the last admin is forbidden.
+            if row["role"] == "admin" and role != "admin" and _count_admins(conn) <= 1:
+                return JSONResponse(
+                    {"error": "cannot demote the last admin"}, status_code=409
+                )
+            updates.append(("role", role))
+        if "group" in body:
+            grp = body.get("group")
+            if grp is not None:
+                grp = grp.strip() or None
+                if grp is not None:
+                    exists = conn.execute(
+                        "SELECT slug FROM groups WHERE slug = ?", (grp,)
+                    ).fetchone()
+                    if not exists:
+                        return JSONResponse(
+                            {"error": f"group '{grp}' does not exist"}, status_code=400
+                        )
+            updates.append(("research_group", grp))
+        if "username" in body:
+            uname = body.get("username")
+            if uname is not None:
+                uname = uname.strip() or None
+            updates.append(("username", uname))
+
+        if not updates:
+            return JSONResponse({"error": "no fields to update"}, status_code=400)
+
+        set_clause = ", ".join(f"{col} = ?" for col, _ in updates) + ", updated_at = ?"
+        params = [v for _, v in updates] + [datetime.now(timezone.utc).isoformat(), user_id]
+        conn.execute(f"UPDATE users SET {set_clause} WHERE id = ?", params)
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT id, name, role, research_group, username, created_at, updated_at "
+            "FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        result = _user_row_to_dict(conn, row)
+    finally:
+        conn.close()
+    return JSONResponse(result)
+
+
+@app.delete("/admin/users/{user_id}")
+async def admin_delete_user(user_id: int, request: Request):
+    admin, err = _require_admin(request)
+    if err:
+        return err
+
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT id, role FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if not row:
+            return JSONResponse({"error": "user not found"}, status_code=404)
+        if row["id"] == admin["id"]:
+            return JSONResponse({"error": "cannot delete yourself"}, status_code=409)
+        if row["role"] == "admin" and _count_admins(conn) <= 1:
+            return JSONResponse({"error": "cannot delete the last admin"}, status_code=409)
+
+        # Capture emails first so we can invalidate sessions.
+        email_rows = conn.execute(
+            "SELECT email FROM user_emails WHERE user_id = ?", (user_id,)
+        ).fetchall()
+        emails = [r["email"] for r in email_rows]
+
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        # user_emails rows cascade via FK.
+        for em in emails:
+            conn.execute("DELETE FROM sessions WHERE email = ?", (em,))
+        conn.commit()
+    finally:
+        conn.close()
+    return Response(status_code=204)
+
+
+# ── Admin: user emails ───────────────────────────────────────────────────────
+
+@app.post("/admin/users/{user_id}/emails")
+async def admin_add_email(user_id: int, request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        return JSONResponse({"error": "valid email is required"}, status_code=400)
+
+    conn = get_db()
+    try:
+        user_row = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not user_row:
+            return JSONResponse({"error": "user not found"}, status_code=404)
+        existing = conn.execute(
+            "SELECT user_id FROM user_emails WHERE email = ?", (email,)
+        ).fetchone()
+        if existing:
+            return JSONResponse({"error": "email already in use"}, status_code=409)
+
+        _attach_email(conn, user_id, email, is_primary=False)
+        _touch_user(conn, user_id)
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT id, name, role, research_group, username, created_at, updated_at "
+            "FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        result = _user_row_to_dict(conn, row)
+    finally:
+        conn.close()
+    return JSONResponse(result, status_code=201)
+
+
+@app.delete("/admin/users/{user_id}/emails/{email}")
+async def admin_remove_email(user_id: int, email: str, request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+
+    email = email.strip().lower()
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT email, is_primary FROM user_emails WHERE user_id = ? AND email = ?",
+            (user_id, email),
+        ).fetchone()
+        if not row:
+            return JSONResponse({"error": "email not found for user"}, status_code=404)
+
+        all_emails = conn.execute(
+            "SELECT email FROM user_emails WHERE user_id = ? ORDER BY email ASC",
+            (user_id,),
+        ).fetchall()
+        if len(all_emails) <= 1:
+            return JSONResponse(
+                {"error": "cannot remove the last email of a user"}, status_code=409
+            )
+
+        was_primary = bool(row["is_primary"])
+        conn.execute("DELETE FROM user_emails WHERE email = ?", (email,))
+        conn.execute("DELETE FROM sessions WHERE email = ?", (email,))
+
+        if was_primary:
+            # Promote next remaining email (alphabetical) to primary.
+            next_email = conn.execute(
+                "SELECT email FROM user_emails WHERE user_id = ? ORDER BY email ASC LIMIT 1",
+                (user_id,),
+            ).fetchone()
+            if next_email:
+                conn.execute(
+                    "UPDATE user_emails SET is_primary = 1 WHERE email = ?",
+                    (next_email["email"],),
+                )
+        _touch_user(conn, user_id)
+        conn.commit()
+
+        urow = conn.execute(
+            "SELECT id, name, role, research_group, username, created_at, updated_at "
+            "FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        result = _user_row_to_dict(conn, urow)
+    finally:
+        conn.close()
+    return JSONResponse(result)
+
+
+@app.put("/admin/users/{user_id}/emails/{email}/primary")
+async def admin_set_primary_email(user_id: int, email: str, request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+
+    email = email.strip().lower()
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT email FROM user_emails WHERE user_id = ? AND email = ?",
+            (user_id, email),
+        ).fetchone()
+        if not row:
+            return JSONResponse({"error": "email not found for user"}, status_code=404)
+
+        conn.execute(
+            "UPDATE user_emails SET is_primary = 0 WHERE user_id = ?", (user_id,)
+        )
+        conn.execute(
+            "UPDATE user_emails SET is_primary = 1 WHERE email = ?", (email,)
+        )
+        _touch_user(conn, user_id)
+        conn.commit()
+
+        urow = conn.execute(
+            "SELECT id, name, role, research_group, username, created_at, updated_at "
+            "FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        result = _user_row_to_dict(conn, urow)
+    finally:
+        conn.close()
+    return JSONResponse(result)
+
+
+# ── Admin: groups ────────────────────────────────────────────────────────────
+
+@app.get("/admin/groups")
+async def admin_list_groups(request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+    conn = get_db()
+    rows = conn.execute(
+        """
+        SELECT g.slug, g.display_name, g.created_at, g.updated_at,
+               (SELECT COUNT(*) FROM users u WHERE u.research_group = g.slug) AS member_count
+          FROM groups g
+         ORDER BY LOWER(g.display_name) ASC
+        """
+    ).fetchall()
+    conn.close()
+    return JSONResponse({
+        "groups": [
+            {
+                "slug": r["slug"],
+                "display_name": r["display_name"],
+                "member_count": r["member_count"],
+                "created_at": r["created_at"],
+                "updated_at": r["updated_at"],
+            }
+            for r in rows
+        ]
+    })
+
+
+@app.post("/admin/groups")
+async def admin_create_group(request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+    body = await request.json()
+    slug = (body.get("slug") or "").strip().lower()
+    display_name = (body.get("display_name") or "").strip()
+    if not slug or " " in slug or not slug.replace("-", "").replace("_", "").isalnum():
+        return JSONResponse(
+            {"error": "slug must be lowercase alphanumeric (hyphens/underscores allowed)"},
+            status_code=400,
+        )
+    if not display_name:
+        return JSONResponse({"error": "display_name is required"}, status_code=400)
+    conn = get_db()
+    try:
+        existing = conn.execute("SELECT slug FROM groups WHERE slug = ?", (slug,)).fetchone()
+        if existing:
+            return JSONResponse({"error": "group already exists"}, status_code=409)
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO groups (slug, display_name, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            (slug, display_name, now, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return JSONResponse(
+        {"slug": slug, "display_name": display_name, "member_count": 0,
+         "created_at": now, "updated_at": now},
+        status_code=201,
+    )
+
+
+@app.patch("/admin/groups/{slug}")
+async def admin_update_group(slug: str, request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+    body = await request.json()
+    display_name = body.get("display_name")
+    if display_name is None or not display_name.strip():
+        return JSONResponse({"error": "display_name is required"}, status_code=400)
+    display_name = display_name.strip()
+
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT slug FROM groups WHERE slug = ?", (slug,)).fetchone()
+        if not row:
+            return JSONResponse({"error": "group not found"}, status_code=404)
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "UPDATE groups SET display_name = ?, updated_at = ? WHERE slug = ?",
+            (display_name, now, slug),
+        )
+        conn.commit()
+        member_count = conn.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE research_group = ?", (slug,)
+        ).fetchone()["n"]
+        created_at = conn.execute(
+            "SELECT created_at FROM groups WHERE slug = ?", (slug,)
+        ).fetchone()["created_at"]
+    finally:
+        conn.close()
+    return JSONResponse({
+        "slug": slug,
+        "display_name": display_name,
+        "member_count": member_count,
+        "created_at": created_at,
+        "updated_at": now,
+    })
+
+
+@app.delete("/admin/groups/{slug}")
+async def admin_delete_group(slug: str, request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT slug FROM groups WHERE slug = ?", (slug,)).fetchone()
+        if not row:
+            return JSONResponse({"error": "group not found"}, status_code=404)
+        member_count = conn.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE research_group = ?", (slug,)
+        ).fetchone()["n"]
+        if member_count > 0:
+            return JSONResponse(
+                {"error": f"group has {member_count} member(s); reassign before deleting"},
+                status_code=409,
+            )
+        conn.execute("DELETE FROM groups WHERE slug = ?", (slug,))
+        conn.commit()
+    finally:
+        conn.close()
+    return Response(status_code=204)
+
+
+# ── Admin: exports ───────────────────────────────────────────────────────────
+
+@app.get("/admin/users.csv")
+async def admin_export_users_csv(request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+    conn = get_db()
+    rows = conn.execute(
+        """
+        SELECT u.name, u.role, ue.email
+          FROM users u
+          JOIN user_emails ue ON ue.user_id = u.id AND ue.is_primary = 1
+         ORDER BY LOWER(u.name) ASC
+        """
+    ).fetchall()
+    conn.close()
+    lines = ["email,name,role"]
+    for r in rows:
+        # Same field order and quoting style as the legacy whitelist.csv.
+        name = r["name"].replace(",", " ")
+        lines.append(f"{r['email']},{name},{r['role']}")
+    body = "\n".join(lines) + "\n"
+    return Response(
+        content=body,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="munin-users.csv"'},
+    )
