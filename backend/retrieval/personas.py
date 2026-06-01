@@ -12,7 +12,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Optional
+from typing import Any, Optional, Union
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,79 @@ PERSONAS_DIR = os.getenv("PERSONAS_DIR", "/app/personas")
 DEFAULT_PERSONA_ID = os.getenv("DEFAULT_PERSONA", "chat")
 
 _personas: dict[str, dict] = {}
+
+
+# ---------------------------------------------------------------------------
+# Schema (P2 #20). The loaded `_personas` dict still stores raw dicts so
+# accessors like `params.get("temperature")` keep working; the Pydantic
+# model below is a validation gate only — `model_validate()` rejects
+# typos and out-of-bounds values at load time, before any consumer sees
+# the entry.
+#
+# `extra="forbid"` at every level is the whole point: it makes
+# `params.temprature: 1.0` or `meta.profile_imag_url: ...` an error
+# instead of a silent default.
+# ---------------------------------------------------------------------------
+
+
+class _PromptSuggestion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str
+    subtitle: str
+    content: str
+
+
+class _TagDict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str
+
+
+class _Params(BaseModel):
+    """Sampling + tool-use parameters. Every field is optional — defaults
+    are applied by the consumer (vLLM, personas.max_turns, ...) so a
+    persona that doesn't set `top_k` still works."""
+    model_config = ConfigDict(extra="forbid")
+
+    system: Optional[str] = None
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
+    top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    top_k: Optional[int] = Field(default=None, ge=0)
+    min_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    presence_penalty: Optional[float] = Field(default=None, ge=-2.0, le=2.0)
+    max_tokens: Optional[int] = Field(default=None, gt=0)
+    # Bounds match personas.max_turns clamp range below; reject out-of-bounds
+    # rather than silently clamping so the operator sees the typo at boot.
+    max_turns: Optional[int] = Field(default=None, ge=1, le=30)
+    tool_allowlist: Optional[list[str]] = None
+    # P2 #24 Phase 2: list of MCP tool names that REQUIRE an approved
+    # plan before they run. The preToolUse hook in
+    # ``hooks/plan_approval.py`` checks this list per dispatch; when a
+    # listed tool is called without an approval, the call short-circuits
+    # and the UI shows Approve / Approve-all / Edit / Reject buttons.
+    # Entries are cross-checked against MCP_TOOLS at startup via
+    # ``load_personas`` so a typo (`delegate_to_persoona`) is caught
+    # at boot rather than at first user gating attempt.
+    plan_approval: Optional[list[str]] = None
+
+
+class _Meta(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    description: Optional[str] = None
+    profile_image_url: Optional[str] = None
+    tags: Optional[list[Union[str, _TagDict]]] = None
+    capabilities: Optional[dict[str, bool]] = None
+    toolIds: Optional[list[str]] = None
+
+
+class _Persona(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(..., min_length=1)
+    version: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    params: Optional[_Params] = None
+    meta: Optional[_Meta] = None
+    prompt_suggestions: Optional[list[_PromptSuggestion]] = None
 
 
 def _tag_list(raw: Any) -> list[str]:
@@ -82,8 +157,41 @@ def load_personas() -> dict[str, dict]:
         except Exception as e:
             logger.warning("Failed to load persona %s: %s", entry, e)
             continue
-        persona_id = data.get("id") or entry.removesuffix(".json")
-        data["id"] = persona_id
+        # Fill in id from filename if the JSON omitted it, then validate.
+        if isinstance(data, dict) and not data.get("id"):
+            data["id"] = entry.removesuffix(".json")
+        try:
+            _Persona.model_validate(data)
+        except ValidationError as e:
+            logger.error("Persona %s failed validation, skipping: %s", entry, e)
+            continue
+        # P2 #24 Phase 2: cross-check plan_approval entries against
+        # the live MCP tool registry so a typo
+        # ('delegate_to_persoona') surfaces at boot rather than at
+        # first gating attempt. We do this AFTER schema validation
+        # so the field shape is already known-good. Lazy import to
+        # avoid a startup-time circular dep (mcp.schemas <- many
+        # things during init).
+        approval_list = ((data.get("params") or {})
+                         .get("plan_approval") or [])
+        if approval_list:
+            try:
+                from mcp.schemas import MCP_TOOLS
+                unknown = [t for t in approval_list if t not in MCP_TOOLS]
+                if unknown:
+                    logger.error(
+                        "Persona %s: plan_approval references unknown "
+                        "tool(s) %r; skipping",
+                        entry, unknown,
+                    )
+                    continue
+            except Exception as e:
+                logger.warning(
+                    "Persona %s: could not cross-check plan_approval "
+                    "(MCP registry unavailable): %s",
+                    entry, e,
+                )
+        persona_id = data["id"]
         _personas[persona_id] = data
         logger.info("Loaded persona: %s", persona_id)
 
@@ -193,7 +301,27 @@ def tool_allowlist(persona: Optional[dict]) -> Optional[list[str]]:
         if isinstance(entry, str) and entry and entry not in seen:
             out.append(entry)
             seen.add(entry)
-    for infra_tool in ("delegate_to_persona", "tool_search"):
+    # Infrastructure tools auto-injected into every persona's
+    # allowlist. These are control-flow tools every persona needs
+    # regardless of its content-tool set:
+    #   - delegate_to_persona: hand the turn to another persona
+    #   - tool_search:         discover deferred (non-core) tools (P1 #7)
+    #   - set_plan,
+    #     update_plan_item:    structural plan mode (P2 #24 Phase 1).
+    #                          Without auto-inject, every persona's
+    #                          JSON would have to list them or the
+    #                          persona-allowlist reject path in
+    #                          _run_tool_calls would short-circuit
+    #                          every set_plan call with a synthetic
+    #                          "not available" error before the
+    #                          dispatcher ran. Discovered via the
+    #                          2026-05-29 smoke test on hugin.
+    for infra_tool in (
+        "delegate_to_persona",
+        "tool_search",
+        "set_plan",
+        "update_plan_item",
+    ):
         if infra_tool not in seen:
             out.append(infra_tool)
             seen.add(infra_tool)
@@ -222,3 +350,19 @@ def max_turns(persona: Optional[dict]) -> int:
     if not isinstance(raw, int) or isinstance(raw, bool):
         return _DEFAULT_MAX_TURNS
     return max(_MIN_MAX_TURNS, min(_MAX_MAX_TURNS, raw))
+
+
+def plan_approval_tools(persona: Optional[dict]) -> frozenset[str]:
+    """Return the set of MCP tool names that require an approved
+    plan for this persona (P2 #24 Phase 2). Empty frozenset when
+    ``params.plan_approval`` is absent or empty — meaning no gating.
+
+    Entries are cross-checked against ``MCP_TOOLS`` at load time
+    (``load_personas``), so any value returned here is guaranteed
+    to name a real tool."""
+    if not isinstance(persona, dict):
+        return frozenset()
+    raw = (persona.get("params") or {}).get("plan_approval")
+    if not isinstance(raw, list):
+        return frozenset()
+    return frozenset(t for t in raw if isinstance(t, str) and t)

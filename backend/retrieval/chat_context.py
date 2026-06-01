@@ -22,7 +22,9 @@ import os
 from typing import Any, Optional
 
 from database import VLLM_MODEL_NAME
-from chat_store import get_messages_after_index, update_summary
+import asyncio
+
+from chat_store import get_conversation, get_messages_after_index, update_summary
 from vllm_client import vllm_post_json, VLLMRequestError
 from usage_tracker import record_usage
 
@@ -274,21 +276,45 @@ async def assemble_context(
     system_prompt: str,
     rag_context: Optional[dict] = None,
     ephemeral: bool = False,
-) -> list[dict]:
+) -> tuple[list[dict], Optional[dict]]:
     """
     Build a list of vLLM chat messages for the next completion.
+
+    Returns a tuple ``(messages, compact_info)``. ``compact_info`` is
+    ``None`` when no compaction was needed; otherwise a dict shaped::
+
+        {
+          "summary_through_index": int,   # index of last folded-in message
+          "dropped_messages": int,        # how many turns the model no longer sees
+          "summary": str,                 # the actual summary text
+          "is_fresh": bool                # True if a new vLLM call ran this turn
+        }
+
+    Callers (chat_service today) yield a ``compact_boundary`` SSE event
+    from this dict so the frontend can render a visible "earlier N
+    messages summarised" divider in the message list.
 
     Flow:
         1. Compute the overall budget.
         2. Start from system prompt + existing summary + recent messages.
         3. If the total fits, return it.
         4. Otherwise, keep only the tail that fits in half the budget,
-           summarize the dropped prefix via vLLM, persist the summary, and
-           rebuild.
+           summarize the dropped prefix via vLLM, persist the summary,
+           and rebuild.
 
-    When ``ephemeral`` is True, compaction still runs (long ephemeral threads
-    must fit in the context window) but the resulting summary is NOT written
-    back to the database, since no row exists for the conversation.
+    The vLLM call in step 4 used to be on the critical path of every
+    overflowing turn (~1-3s). P2 #22 mitigates this with an
+    opportunistic prefetch (``_maybe_precompact``) that chat_service
+    schedules as a background task at end-of-turn — by the time the
+    user types the next message, ``conversation["summary"]`` is
+    already populated, ``summary_through_index`` already covers the
+    dropped range, and step 4 short-circuits via the
+    "already covered" filter at ``already_through``.
+
+    When ``ephemeral`` is True, compaction still runs (long ephemeral
+    threads must fit in the context window) but the resulting summary
+    is NOT written back to the database, since no row exists for the
+    conversation.
     """
     conversation_id = conversation["id"]
 
@@ -324,7 +350,7 @@ async def assemble_context(
 
     history_tokens = sum(_message_tokens(m) for m in stored_messages)
     if history_tokens <= history_budget:
-        return build(stored_messages)
+        return build(stored_messages), None
 
     # Need compaction: keep newest messages that fit in half the history
     # budget; summarize everything older.
@@ -341,7 +367,7 @@ async def assemble_context(
 
     drop_count = len(stored_messages) - len(kept)
     if drop_count <= 0:
-        return build(stored_messages)
+        return build(stored_messages), None
 
     dropped = stored_messages[:drop_count]
     last_dropped_index = dropped[-1].get(
@@ -352,17 +378,24 @@ async def assemble_context(
     already_through = conversation.get("summary_through_index")
     # Only summarize messages not already covered by the previous summary.
     if already_through is not None:
-        dropped = [
+        dropped_for_summary = [
             m for m in dropped
             if m.get("index_in_conversation", -1) > already_through
         ]
+    else:
+        dropped_for_summary = list(dropped)
 
+    # If the prefetched summary already covers everything we'd drop,
+    # summarize_messages short-circuits and returns existing_summary
+    # without a vLLM call. The is_fresh flag tracks whether THIS turn
+    # actually paid the latency cost.
+    is_fresh_summary = bool(dropped_for_summary)
     new_summary = await summarize_messages(
-        conversation_id, existing_summary, dropped
+        conversation_id, existing_summary, dropped_for_summary
     )
 
     if new_summary:
-        if not ephemeral:
+        if not ephemeral and is_fresh_summary:
             await update_summary(conversation_id, new_summary, last_dropped_index)
         conversation["summary"] = new_summary
         conversation["summary_through_index"] = last_dropped_index
@@ -374,7 +407,7 @@ async def assemble_context(
             "Summary of earlier conversation:\n" + new_summary
         )
         combined_system = "\n\n".join(rebuilt_system_parts)
-        return [
+        messages = [
             {"role": "system", "content": combined_system},
             *[
                 {"role": m["role"], "content": _augment_with_attachments(m)}
@@ -382,9 +415,17 @@ async def assemble_context(
             ],
             new_msg,
         ]
+        compact_info = {
+            "summary_through_index": last_dropped_index,
+            "dropped_messages": drop_count,
+            "summary": new_summary,
+            "is_fresh": is_fresh_summary,
+        }
+        return messages, compact_info
 
-    # vLLM unreachable — fall back to hard truncation.
-    return build(kept)
+    # vLLM unreachable — fall back to hard truncation. No summary to
+    # show the user, so no compact_boundary event either.
+    return build(kept), None
 
 
 async def generate_title(first_user_message: str, first_assistant_response: str) -> str:
@@ -408,3 +449,116 @@ async def generate_title(first_user_message: str, first_assistant_response: str)
     if not title:
         return trimmed[:60] if trimmed else "New conversation"
     return title.strip().strip('"').strip("'")[:80]
+
+
+# ---------------------------------------------------------------------------
+# Opportunistic compaction (P2 #22)
+# ---------------------------------------------------------------------------
+
+# Fire summarization in the background at the end of a turn IF the
+# conversation's history is at or above this fraction of the history
+# budget. 70% leaves enough headroom that the next turn's user message
+# + RAG context can usually fit without forcing an extra compaction.
+# Tune-once constant; below the threshold we save vLLM tokens that
+# would be overwritten next turn anyway.
+PRECOMPACT_THRESHOLD = 0.70
+
+# Per-conversation lock so two consecutive turns don't both fire the
+# prefetch. Module-level set; the retrieval container is single-
+# process and asyncio is single-threaded, so a plain set is safe
+# without a lock primitive.
+_precompact_inflight: set[str] = set()
+
+
+async def _maybe_precompact(conversation_id: str, user_email: str) -> None:
+    """Background task: pre-generate the summary for a conversation
+    that's near the budget, so the user's next turn doesn't pay the
+    sync vLLM cost.
+
+    Failures (vLLM unreachable, DB error, race) are logged and
+    swallowed. The next user turn's sync path will simply do the
+    summarization itself if this background pass didn't complete.
+
+    Called from ``chat_service.stream_chat_completion`` as
+    ``asyncio.create_task(_maybe_precompact(...))`` after the
+    ``done`` event has been yielded — out of the user's perceived
+    latency."""
+    if conversation_id in _precompact_inflight:
+        # A previous turn already kicked one off; let it finish.
+        return
+    _precompact_inflight.add(conversation_id)
+    try:
+        conversation = await get_conversation(conversation_id, user_email)
+        if conversation is None:
+            return
+        stored_messages: list[dict] = conversation.get("messages") or []
+        if not stored_messages:
+            return
+        # Approximate budget using the same MAX_CONTEXT / GENERATION_RESERVE
+        # math as assemble_context. We don't have the next user message
+        # in hand here, so use a placeholder reserve of ~500 tokens for
+        # the next turn's user input on top of GENERATION_RESERVE.
+        budget = MAX_CONTEXT - GENERATION_RESERVE - 500
+        history_tokens = sum(_message_tokens(m) for m in stored_messages)
+        if history_tokens < int(budget * PRECOMPACT_THRESHOLD):
+            return
+        # Same tail-keep logic as assemble_context. Recompute here
+        # rather than refactor because the chat_service-side path
+        # uses RAG context + system prompt that vary per request.
+        tail_budget = max(1000, budget // 2)
+        kept_running = 0
+        kept_count = 0
+        for m in reversed(stored_messages):
+            t = _message_tokens(m)
+            if kept_running + t > tail_budget:
+                break
+            kept_running += t
+            kept_count += 1
+        drop_count = len(stored_messages) - kept_count
+        if drop_count <= 0:
+            return
+        dropped = stored_messages[:drop_count]
+        last_dropped_index = dropped[-1].get(
+            "index_in_conversation", drop_count - 1
+        )
+        existing_summary = conversation.get("summary")
+        already_through = conversation.get("summary_through_index")
+        if already_through is not None:
+            dropped = [
+                m for m in dropped
+                if m.get("index_in_conversation", -1) > already_through
+            ]
+        if not dropped:
+            return  # already covered; nothing to do
+        new_summary = await summarize_messages(
+            conversation_id, existing_summary, dropped
+        )
+        if not new_summary:
+            return
+        # asyncio.shield: a process shutdown landing mid-write would
+        # otherwise truncate the summary row. The shield lets the
+        # update complete in the background even if our wrapping task
+        # gets cancelled.
+        await asyncio.shield(
+            update_summary(conversation_id, new_summary, last_dropped_index)
+        )
+        logger.info(
+            "precompact: persisted summary for conv %s (through index %d)",
+            conversation_id, last_dropped_index,
+        )
+    except Exception:
+        logger.exception(
+            "precompact: background summarization failed for conv %s",
+            conversation_id,
+        )
+    finally:
+        _precompact_inflight.discard(conversation_id)
+
+
+# ---------------------------------------------------------------------------
+# Test helpers — not part of the public surface.
+# ---------------------------------------------------------------------------
+
+
+def _precompact_inflight_for_tests() -> set[str]:
+    return _precompact_inflight

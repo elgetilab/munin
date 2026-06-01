@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import type { Persona, PromptSuggestion, TagChip, TagCatalog } from '../lib/types';
+import type { Persona, PromptSuggestion } from '../lib/types';
 import { uploadDocument } from '../lib/api';
 import type { UploadedDocument } from '../lib/api';
 import { PersonaSelector } from './PersonaSelector';
+import { useUserStore } from '../stores/userStore';
+import { useWorkspaceStore } from '../stores/workspaceStore';
 
 const SLASH_COMMANDS = [
   { command: '/research', description: 'Deep research on a topic', icon: '\uD83D\uDD2C' },
@@ -23,23 +25,26 @@ interface TagAutocompleteItem {
   paperCount: number;
 }
 
+// P2 #26 commit 3: store-backed props dropped. The 7 fields below
+// used to be passed in by App.tsx purely to forward state ownership
+// downstream; they're now sourced directly from userStore /
+// workspaceStore inside the component. Removed:
+//   personas, selectedPersona, onSelectPersona (userStore)
+//   isEphemeral, tagCatalog, activeTags, onTagsChange (workspaceStore)
+// `persona: Persona | null` kept because it's a derived value
+// (the persona object matching selectedPersona) computed in App.tsx
+// from personas + conversationPersona resolution — moving that
+// derivation here would duplicate logic.
 interface ChatInputProps {
   onSend: (content: string) => void;
   onSendMultimodal?: (content: Array<{ type: string; text?: string; image_url?: { url: string } }>) => void;
   onStop: () => void;
   isStreaming: boolean;
   persona: Persona | null;
-  personas: Persona[];
-  selectedPersona: string;
-  onSelectPersona: (id: string) => void;
   suggestions?: PromptSuggestion[];
   showSuggestions?: boolean;
   conversationId?: string | null;
   onFileUploaded?: (doc: UploadedDocument) => void;
-  isEphemeral?: boolean;
-  tagCatalog?: TagCatalog | null;
-  activeTags: TagChip[];
-  onTagsChange: (tags: TagChip[]) => void;
 }
 
 const ACCEPTED_TYPES = '.pdf,.txt,.md,.docx';
@@ -71,18 +76,18 @@ export function ChatInput({
   onSendMultimodal,
   onStop,
   isStreaming,
-  personas,
-  selectedPersona,
-  onSelectPersona,
   suggestions: _suggestions,
   showSuggestions: _showSuggestions,
   conversationId,
   onFileUploaded,
-  isEphemeral,
-  tagCatalog,
-  activeTags,
-  onTagsChange,
 }: ChatInputProps) {
+  const personas = useUserStore(s => s.personas);
+  const selectedPersona = useUserStore(s => s.selectedPersona);
+  const onSelectPersona = useUserStore(s => s.setSelectedPersona);
+  const isEphemeral = useWorkspaceStore(s => s.isEphemeral);
+  const tagCatalog = useWorkspaceStore(s => s.tagCatalog);
+  const activeTags = useWorkspaceStore(s => s.activeTags);
+  const onTagsChange = useWorkspaceStore(s => s.setActiveTags);
   const [input, setInput] = useState('');
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [knowledgePickerOpen, setKnowledgePickerOpen] = useState(false);

@@ -150,6 +150,7 @@ deploy_dirs() {
 deploy_compose() {
     echo "[compose] Installing docker-compose.yml..."
     need_file "$REPO_DIR/docker/docker-compose.yml"
+    run "install -d -m 0755 $MUNIN_DOCKER"
     run "install -m 0644 $REPO_DIR/docker/docker-compose.yml $MUNIN_DOCKER/docker-compose.yml"
 
     # GROBID config override — sets consolidation.crossref.mailto so
@@ -157,6 +158,19 @@ deploy_compose() {
     need_file "$REPO_DIR/docker/grobid/grobid.yaml"
     run "install -d -m 0755 $MUNIN_DOCKER/grobid"
     run "install -m 0644 $REPO_DIR/docker/grobid/grobid.yaml $MUNIN_DOCKER/grobid/grobid.yaml"
+
+    # Symlink cluster.env into the compose dir as .env so
+    # `docker compose ...` from $MUNIN_DOCKER picks up all the
+    # ${VAR} interpolations the compose file expects. Without this
+    # every `${VAR:-default}` evaluates to its default — recently
+    # caused CONTRIBUTORS_SYNC_TOKEN to be empty on the cluster
+    # (P1 #11 deploy 2026-05-29). Idempotent: -f forces replacement
+    # only if the symlink target changed or it isn't a symlink yet.
+    if [ -f "$HUGIN_ENV" ]; then
+        run "ln -snf $HUGIN_ENV $MUNIN_DOCKER/.env"
+    else
+        echo "  [warn] $HUGIN_ENV not found; skipping .env symlink — compose will use defaults"
+    fi
 
     echo "[OK] compose — restart with: docker compose --profile rag up -d --force-recreate grobid"
 }
@@ -196,12 +210,14 @@ deploy_agents() {
         run "install -m 0644 $REPO_DIR/config/faq.yml $MUNIN_CONFIG/faq.yml"
     fi
 
-    # §28: contributor allowlist. Read by the retrieval service
-    # (`/api/admin/ingest`, `/api/tags`) and by backfill scripts.
-    # Lives in monorepo `shared/` because both backend and frontend
-    # backfill scripts treat it as the single source of truth.
-    if [ -f "$SHARED_DIR/config/contributors.yml" ]; then
-        run "install -m 0644 $SHARED_DIR/config/contributors.yml $MUNIN_CONFIG/contributors.yml"
+    # §28 / P1 #11: contributor allowlist. Bootstrap copy goes into
+    # /opt/munin/data/contributors.yml (= /data inside the retrieval
+    # container) only when it doesn't already exist. After the first
+    # successful pull from auth.muninai.org/admin/contributors.yaml,
+    # retrieval keeps the file fresh on a 5-minute timer; this
+    # bootstrap is just so ingest works before the first sync lands.
+    if [ -f "$SHARED_DIR/config/contributors.yml" ] && [ ! -f "$MUNIN_DATA/contributors.yml" ]; then
+        run "install -m 0644 $SHARED_DIR/config/contributors.yml $MUNIN_DATA/contributors.yml"
     fi
 
     # Note: we do NOT touch $MUNIN_CONFIG/munin.env if it already exists.

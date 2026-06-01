@@ -11,7 +11,7 @@ Group=root
 
 # Walks the Qdrant papers collection for points whose contributors[]
 # carry a group_slug: "unknown" entry whose email IS now allowlisted
-# in /opt/munin/config/contributors.yml, and rewrites that entry
+# in /opt/munin/data/contributors.yml, and rewrites that entry
 # with the proper display_name + group_slug. Idempotent; runs
 # nightly so admin allowlist additions don't require manual
 # follow-up.
@@ -19,6 +19,9 @@ Group=root
 # Folded from the standalone reattribute_unknown.py script
 # (2026-05-13 consolidation). No vLLM dependency, no Neo4j password
 # requirement (skipped if NEO4J_PASSWORD absent).
+#
+# Reads the same contributors.yml the retrieval container reads
+# (kept fresh by contributors_sync polling the VPS auth service).
 ExecStart=/opt/munin/services/pipeline/venv/bin/python3 \
     /opt/cluster/scripts/pipeline/paper_cleanup.py reattribute
 
@@ -26,7 +29,7 @@ Environment="QDRANT_HOST=127.0.0.1"
 Environment="QDRANT_PORT=6333"
 Environment="NEO4J_URI=bolt://127.0.0.1:7687"
 Environment="NEO4J_USER=neo4j"
-Environment="CONTRIBUTORS_CONFIG_PATH=/opt/munin/config/contributors.yml"
+Environment="CONTRIBUTORS_CONFIG_PATH=/opt/munin/data/contributors.yml"
 # NEO4J_PASSWORD lives in cluster.env; without it the script skips
 # Neo4j updates rather than failing.
 EnvironmentFile=-/opt/hugin/config/cluster.env

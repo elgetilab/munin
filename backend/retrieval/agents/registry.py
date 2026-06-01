@@ -14,6 +14,7 @@ import os
 from typing import Optional
 
 import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from mcp.schemas import MCP_TOOLS
 
@@ -24,47 +25,62 @@ AGENTS_CONFIG = os.getenv("AGENTS_CONFIG", "/app/config/agents.yml")
 _agents: dict[str, dict] = {}
 
 
+# ---------------------------------------------------------------------------
+# Schema (P2 #20). `extra="forbid"` is the whole point — a typo like
+# `max_iteratons: 8` raises a ValidationError at startup instead of
+# silently inheriting the default. Numeric bounds reject obviously
+# broken values; runtime tool-name resolution + invoke_agent stripping
+# still happens below because they cross the schema/runtime boundary.
+# ---------------------------------------------------------------------------
+
+
+class AgentEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=False)
+
+    name: str = Field(..., min_length=1)
+    description: str = ""
+    system: str = Field(..., min_length=1)
+    tools: list[str] = Field(default_factory=list)
+    max_iterations: int = Field(default=8, ge=1, le=30)
+    max_tool_calls: int = Field(default=20, ge=1, le=100)
+    timeout_seconds: int = Field(default=300, ge=10, le=1800)
+
+    @field_validator("description", "system", mode="before")
+    @classmethod
+    def _strip(cls, v):
+        if v is None:
+            return v
+        if isinstance(v, str):
+            return v.strip()
+        return v
+
+
 def _normalize(entry: dict) -> Optional[dict]:
-    name = entry.get("name")
-    if not isinstance(name, str) or not name:
-        logger.warning("Agent entry missing 'name', skipping")
+    try:
+        validated = AgentEntry.model_validate(entry).model_dump()
+    except ValidationError as e:
+        name_hint = entry.get("name") if isinstance(entry, dict) else "?"
+        logger.error("Agent %r failed validation, skipping: %s", name_hint, e)
         return None
 
-    description = (entry.get("description") or "").strip()
-    system = (entry.get("system") or "").strip()
-    if not system:
-        logger.warning("Agent %r has no system prompt, skipping", name)
-        return None
-
-    raw_tools = entry.get("tools") or []
-    if not isinstance(raw_tools, list):
-        logger.warning("Agent %r tools must be a list, skipping", name)
-        return None
-
+    # Runtime concerns the schema deliberately doesn't enforce: tool
+    # names are not cross-checked against MCP_TOOLS at parse time (the
+    # schema layer shouldn't know about the tool registry), and
+    # invoke_agent self-recursion is a behaviour rule, not a shape rule.
+    name = validated["name"]
     allowlist: list[str] = []
-    for tool in raw_tools:
-        if not isinstance(tool, str):
-            continue
+    for tool in validated["tools"]:
         if tool not in MCP_TOOLS:
             logger.warning(
                 "Agent %r references unknown tool %r, ignored", name, tool
             )
             continue
-        # An agent calling itself would recurse infinitely; explicitly reject.
         if tool == "invoke_agent":
             logger.warning("Agent %r cannot call invoke_agent, ignored", name)
             continue
         allowlist.append(tool)
-
-    return {
-        "name": name,
-        "description": description,
-        "system": system,
-        "tools": allowlist,
-        "max_iterations": int(entry.get("max_iterations", 8)),
-        "max_tool_calls": int(entry.get("max_tool_calls", 20)),
-        "timeout_seconds": int(entry.get("timeout_seconds", 300)),
-    }
+    validated["tools"] = allowlist
+    return validated
 
 
 def load_agents() -> dict[str, dict]:

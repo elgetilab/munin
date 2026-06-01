@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import type { TagCatalog, TagChip } from '../lib/types';
+import { useUiStore } from '../stores/uiStore';
 
 interface KnowledgePanelProps {
   catalog: TagCatalog;
   activeTags: TagChip[];
   onTagsChange: (tags: TagChip[]) => void;
-  onClose: () => void;
+  // P2 #26 commit 2: onClose dropped; pulled from uiStore directly.
   onBrowse?: (kind: string, slug: string) => void;
 }
 
@@ -30,7 +31,9 @@ function Section({ title, defaultOpen, children }: { title: string; defaultOpen?
   );
 }
 
-export function KnowledgePanel({ catalog, activeTags, onTagsChange, onClose }: KnowledgePanelProps) {
+export function KnowledgePanel({ catalog, activeTags, onTagsChange }: KnowledgePanelProps) {
+  const setKnowledgePanelOpen = useUiStore(s => s.setKnowledgePanelOpen);
+  const onClose = () => setKnowledgePanelOpen(false);
   const [topicLimit, setTopicLimit] = useState(10);
   const activeKeys = new Set(activeTags.map(t => `${t.kind}:${t.value}`));
 

@@ -1,15 +1,18 @@
 import { useState, useRef, useEffect } from 'react';
 import { reportChat } from '../lib/api';
+import { useUiStore } from '../stores/uiStore';
 
 interface ReportDialogProps {
   conversationId: string;
-  onClose: () => void;
+  // P2 #26 commit 2: onClose dropped; pulled from uiStore directly.
   onReported: () => void;
 }
 
 const MAX_REASON = 2000;
 
-export function ReportDialog({ conversationId, onClose, onReported }: ReportDialogProps) {
+export function ReportDialog({ conversationId, onReported }: ReportDialogProps) {
+  const setShowReportDialog = useUiStore(s => s.setShowReportDialog);
+  const onClose = () => setShowReportDialog(false);
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);

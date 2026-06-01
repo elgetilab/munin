@@ -642,13 +642,20 @@ async def api_list_chats(
 
 @app.get("/api/chats/{conversation_id}")
 async def api_get_chat(conversation_id: str, request: Request):
-    """Load a full conversation with all messages."""
+    """Load a full conversation with all messages. P2 #24 Phase 1:
+    embeds the current plan (if any) under a `plan` key so the
+    frontend can re-render the inline PlanCard on transcript reload
+    without a second HTTP call."""
     user_email = _require_user_email(request)
     conversation = await chat_store.get_conversation(
         conversation_id, user_email
     )
     if conversation is None:
         raise _error_404("Conversation not found")
+    import plan_store
+
+    plan = await plan_store.get_plan(conversation_id)
+    conversation["plan"] = plan  # None if no plan; same shape as /plan
     return conversation
 
 
@@ -2464,6 +2471,205 @@ async def api_delete_document(document_id: str, request: Request):
     return {"deleted": True}
 
 
+# ==============================================================================
+# Memory (P2 #25) — accepted + auto-proposed
+# ==============================================================================
+@app.get("/api/memories")
+async def api_list_memories(request: Request):
+    """Return both user-accepted memories and pending auto-proposed
+    candidates for this user. The frontend uses pending entries for
+    the post-turn accept/reject pills; accepted entries are surfaced
+    in a future Memory settings tab (P2 #25 follow-up)."""
+    user_email = _require_user_email(request)
+    import memory_store
+    import memory_proposals_store
+
+    accepted = await memory_store.recall_all(user_email)
+    pending = await memory_proposals_store.list_pending(user_email)
+    return {"accepted": accepted, "pending": pending}
+
+
+@app.post("/api/memories/proposed/{proposal_id}/accept")
+async def api_accept_proposal(proposal_id: str, request: Request):
+    """Upsert the proposed (key, value) into user_memory and delete the
+    proposal. Returns the upserted entry (including any LRU eviction
+    from user_memory's 20-entry cap)."""
+    user_email = _require_user_email(request)
+    import memory_store
+    import memory_proposals_store
+
+    proposal = await memory_proposals_store.get_proposal(proposal_id, user_email)
+    if proposal is None:
+        raise _error_404("Proposal not found")
+    try:
+        accepted = await memory_store.remember(
+            user_email, proposal["key"], proposal["value"],
+        )
+    except memory_store.MemoryError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": str(e)}},
+        )
+    await memory_proposals_store.delete_proposal(proposal_id, user_email)
+    return {"accepted": accepted}
+
+
+@app.post("/api/memories/proposed/{proposal_id}/reject")
+async def api_reject_proposal(proposal_id: str, request: Request):
+    """Delete the proposal and remember the key so the classifier
+    doesn't re-propose it next turn. The key is recorded even if the
+    proposal row no longer exists (concurrent reject + page refresh
+    race) so a double-tap doesn't surface the same proposal."""
+    user_email = _require_user_email(request)
+    import memory_proposals_store
+
+    proposal = await memory_proposals_store.get_proposal(proposal_id, user_email)
+    if proposal is not None:
+        await memory_proposals_store.delete_proposal(proposal_id, user_email)
+        await memory_proposals_store.add_rejection(user_email, proposal["key"])
+        return {"rejected": True, "key": proposal["key"]}
+    # Idempotent on re-reject: the row's already gone but we still
+    # record the key (if the caller supplied one in a query param,
+    # they would — but to keep this stateless, just 404).
+    raise _error_404("Proposal not found")
+
+
+# ==============================================================================
+# Plan mode (P2 #24 Phase 1) — structural plan per conversation
+# ==============================================================================
+@app.get("/api/chats/{conversation_id}/plan")
+async def api_get_plan(conversation_id: str, request: Request):
+    """Return the current plan for this conversation, or 404 if no
+    plan has been set. Frontend uses this on transcript reload to
+    re-attach the plan snapshot to the assistant message that last
+    touched it. Ownership is enforced via the conversation row."""
+    user_email = _require_user_email(request)
+    import plan_store
+
+    conversation = await chat_store.get_conversation(conversation_id, user_email)
+    if conversation is None:
+        raise _error_404("Conversation not found")
+    plan = await plan_store.get_plan(conversation_id)
+    if plan is None:
+        raise _error_404("No plan for this conversation")
+    return plan
+
+
+@app.delete("/api/chats/{conversation_id}/plan")
+async def api_delete_plan(conversation_id: str, request: Request):
+    """Drop the conversation's plan. Used by the frontend's 'clear
+    plan' affordance (Phase 1 has no UI for this yet) and as the
+    cleanup path after a Phase 2 rejection. Returns 204 even if no
+    plan existed (idempotent)."""
+    user_email = _require_user_email(request)
+    import plan_store
+
+    conversation = await chat_store.get_conversation(conversation_id, user_email)
+    if conversation is None:
+        raise _error_404("Conversation not found")
+    deleted = await plan_store.clear_plan(conversation_id=conversation_id)
+    return {"deleted": deleted}
+
+
+# ==============================================================================
+# Plan-mode approval gate (P2 #24 Phase 2)
+# ==============================================================================
+@app.post("/api/chats/{conversation_id}/plan/approve")
+async def api_approve_plan(conversation_id: str, request: Request):
+    """Mark the plan approved with the supplied ``mode`` ('each' or
+    'auto'). Body: ``{"mode": "each" | "auto"}`` (default 'each').
+
+    Frontend's Approve button posts ``mode='each'``; Approve-all
+    posts ``mode='auto'``; the "revoke auto" affordance posts
+    ``mode='each'`` again to flip back to per-call gating without
+    losing the existing approval state for the next call."""
+    user_email = _require_user_email(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    mode = (body.get("mode") if isinstance(body, dict) else None) or "each"
+    import plan_store
+
+    conversation = await chat_store.get_conversation(conversation_id, user_email)
+    if conversation is None:
+        raise _error_404("Conversation not found")
+    try:
+        plan = await plan_store.mark_approved(
+            conversation_id=conversation_id, approval_mode=mode,
+        )
+    except plan_store.PlanError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": str(e)}},
+        )
+    return {"approved": True, "plan": plan}
+
+
+@app.post("/api/chats/{conversation_id}/plan/reject")
+async def api_reject_plan(conversation_id: str, request: Request):
+    """Drop the plan and surface the rejection. Frontend's Reject
+    button posts here; on success the user is expected to type a
+    follow-up message describing the new direction (the model sees
+    no plan block in its next system prompt + the user's prose, and
+    recovers naturally — no synthetic system message needed)."""
+    user_email = _require_user_email(request)
+    import plan_store
+
+    conversation = await chat_store.get_conversation(conversation_id, user_email)
+    if conversation is None:
+        raise _error_404("Conversation not found")
+    deleted = await plan_store.clear_plan(conversation_id=conversation_id)
+    return {"rejected": True, "deleted": deleted}
+
+
+@app.patch("/api/chats/{conversation_id}/plan")
+async def api_edit_plan(conversation_id: str, request: Request):
+    """Replace the plan items with the user's edited list AND mark
+    the plan approved with the supplied mode (implicit approve-on-
+    save). Body: ``{"items": [...], "mode"?: "each" | "auto"}``.
+
+    Distinct from `set_plan` (the MCP tool) in that this preserves
+    `requires_approval=True` — the model still wanted approval; the
+    user has edited + reviewed, so this revision is implicitly OK
+    to proceed."""
+    user_email = _require_user_email(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": "Body must be a JSON object"}},
+        )
+    items = body.get("items")
+    if not isinstance(items, list):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": "items must be a list"}},
+        )
+    mode = body.get("mode") or "each"
+    import plan_store
+
+    conversation = await chat_store.get_conversation(conversation_id, user_email)
+    if conversation is None:
+        raise _error_404("Conversation not found")
+    try:
+        plan = await plan_store.replace_items(
+            user_email=user_email,
+            conversation_id=conversation_id,
+            items=items,
+            approval_mode=mode,
+        )
+    except plan_store.PlanError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": str(e)}},
+        )
+    return {"plan": plan}
+
+
 @app.get("/sources")
 async def list_sources():
     """List available knowledge base sources."""
@@ -3631,6 +3837,39 @@ async def startup():
         logger.info("Loaded %d agents", len(loaded_agents))
     except Exception:
         logger.exception("Failed to load agents")
+
+    # Load hooks (P2 #23). Auto-imports every hooks/*.py so module-
+    # level @register decorators populate the registry. Hook
+    # exceptions during import are logged but don't block startup.
+    try:
+        import hooks as hooks_pkg
+
+        n_hooks = hooks_pkg.load_all()
+        logger.info("Loaded %d hooks", n_hooks)
+    except Exception:
+        logger.exception("Failed to load hooks")
+
+    # P1 #11: pull contributors.yml from the VPS auth service. The
+    # auth DB is the source of truth; we mirror its YAML projection
+    # to CONTRIBUTORS_CONFIG every CONTRIBUTORS_SYNC_INTERVAL_SECS
+    # so the existing mtime-watch in _load_contributors() picks up
+    # changes without a restart.
+    try:
+        import contributors_sync
+
+        contributors_sync.start_sync_task()
+    except Exception:
+        logger.exception("Failed to start contributors_sync")
+
+    # MCP dispatch registry consistency check (P2 #19). Catches the
+    # three drift modes the old if/elif chain allowed: schema entry
+    # with no executor branch, executor branch with no schema entry,
+    # duplicate registration. Failure raises — internal developer
+    # invariant, container restarts until fixed.
+    from mcp._dispatch import verify_dispatch_registry
+
+    verify_dispatch_registry()
+    logger.info("MCP dispatch registry verified")
 
     # Eager-load embedding models so /api/status reflects real
     # readiness instead of "unavailable" (which used to mean

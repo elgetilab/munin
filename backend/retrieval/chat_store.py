@@ -170,6 +170,56 @@ async def init_db() -> aiosqlite.Connection:
         CREATE INDEX IF NOT EXISTS idx_user_memory_updated
             ON user_memory(user_email, updated_at DESC);
 
+        -- P2 #25: auto-extracted memory proposals awaiting user
+        -- accept/reject. Separate from user_memory so the LRU cap
+        -- on accepted memories isn't competed against by pending
+        -- ones, and so build_memory_block doesn't have to filter.
+        CREATE TABLE IF NOT EXISTS proposed_memories (
+            id TEXT PRIMARY KEY,
+            user_email TEXT NOT NULL,
+            conversation_id TEXT,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            reason TEXT,
+            proposed_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_proposed_memories_user
+            ON proposed_memories(user_email, proposed_at DESC);
+
+        -- P2 #25: keys the user explicitly rejected so the classifier
+        -- doesn't re-propose them. Cap'd at 50/user with FIFO eviction.
+        CREATE TABLE IF NOT EXISTS rejected_memory_keys (
+            user_email TEXT NOT NULL,
+            key TEXT NOT NULL,
+            rejected_at TEXT NOT NULL,
+            PRIMARY KEY (user_email, key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_rejected_memory_keys_user
+            ON rejected_memory_keys(user_email, rejected_at DESC);
+
+        -- P2 #24 Phase 1: one plan per conversation. Items live as a
+        -- JSON list in the `items` column (cap 20 items, 200 chars
+        -- per title, 500 chars per notes — enforced at the store
+        -- layer). Phase 2 columns (requires_approval, approved_at,
+        -- approval_mode) are declared upfront with safe defaults so
+        -- the gate can be added without a second migration.
+        CREATE TABLE IF NOT EXISTS conversation_plans (
+            conversation_id   TEXT PRIMARY KEY,
+            user_email        TEXT NOT NULL,
+            items             TEXT NOT NULL,
+            created_at        TEXT NOT NULL,
+            updated_at        TEXT NOT NULL,
+            requires_approval INTEGER NOT NULL DEFAULT 0,
+            approved_at       TEXT,
+            approval_mode     TEXT NOT NULL DEFAULT 'each',
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_conversation_plans_user
+            ON conversation_plans(user_email, updated_at DESC);
+
         CREATE TABLE IF NOT EXISTS artifacts (
             id TEXT PRIMARY KEY,
             conversation_id TEXT NOT NULL,

@@ -38,6 +38,7 @@ import user_profile_store
 import project_store
 import memory_store
 import artifact_store
+import plan_store
 import capabilities as capabilities_module
 import vision
 from database import VLLM_MODEL_NAME
@@ -51,6 +52,7 @@ from metrics import observe_phantom_urls, observe_turn
 from tool_result import truncate_tool_result
 from mcp.schemas import MCP_TOOLS, CORE_TOOLS
 from mcp.executor import execute_mcp_tool, partition_by_concurrency_safety
+import hooks as hooks_module
 from mcp.tools import clarification as clarification_tool
 from mcp.context import (
     current_user_email,
@@ -911,12 +913,43 @@ async def _run_tool_calls(
                 },
                 "duration_ms": 0,
             }
+        # P2 #23 preToolUse: a hook can short-circuit dispatch by
+        # returning a synthetic result (e.g. per-user gating, test
+        # fakes, redaction-on-input). Runs after the persona-allowlist
+        # check above because persona enforcement is non-negotiable.
         started = time.monotonic()
+        try:
+            pre_result = await hooks_module.dispatch_pre_tool_use(
+                name, tc["arguments"],
+            )
+        except Exception as e:
+            # Dispatcher catches per-hook exceptions; this guards
+            # against a bug in the dispatcher itself.
+            logger.exception("preToolUse dispatch failed for %r: %s", name, e)
+            pre_result = None
+        if pre_result is not None:
+            duration_ms = int((time.monotonic() - started) * 1000)
+            return {
+                "id": tc["id"],
+                "name": name,
+                "result": pre_result,
+                "duration_ms": duration_ms,
+            }
         try:
             result = await execute_mcp_tool(name, tc["arguments"])
         except Exception as e:
             result = {"error": f"tool execution failed: {e}"}
         duration_ms = int((time.monotonic() - started) * 1000)
+        # P2 #23 postToolUse: hooks chain; each non-None return
+        # replaces the result for the next hook in the chain. Useful
+        # for audit logs (return None, observe only) and output
+        # redaction (return a sanitised dict).
+        try:
+            result = await hooks_module.dispatch_post_tool_use(
+                name, tc["arguments"], result, duration_ms,
+            )
+        except Exception as e:
+            logger.exception("postToolUse dispatch failed for %r: %s", name, e)
         return {
             "id": tc["id"],
             "name": name,
@@ -1177,6 +1210,7 @@ async def _build_full_system_prompt(
 
         project_block                  -- §21
         artifact_block                 -- §22
+        plan_block                     -- P2 #24 Phase 1
         memory_block                   -- §9
         profile_block                  -- §25
         <persona system prompt>
@@ -1190,52 +1224,93 @@ async def _build_full_system_prompt(
     """
     system_prompt = persona_module.build_system_prompt(persona)
 
-    if not ephemeral:
-        try:
-            profile = await user_profile_store.get_profile(user_email)
-            profile_block = user_profile_store.build_profile_block(profile)
-        except Exception as e:
-            logger.warning("profile load failed: %s", e)
-            profile_block = None
-        if profile_block:
-            system_prompt = (
-                f"{profile_block}\n\n{system_prompt}"
-                if system_prompt
-                else profile_block
-            )
+    # P2 #21: schedule the three SQLite fetches in parallel. Saves
+    # ~2× SQLite-roundtrips per turn vs sequential awaits (~3-9ms in
+    # practice). Block-render helpers are sync and run after the
+    # gather; exception isolation matches the prior per-block
+    # try/except pattern via ``return_exceptions=True``.
+    want_profile = not ephemeral
+    want_memory = not ephemeral
+    want_artifact = not ephemeral and bool(conversation_id)
+    want_plan = not ephemeral and bool(conversation_id)
 
-    if not ephemeral:
-        try:
-            memories = await memory_store.recall_all(user_email)
-            memory_block = memory_store.build_memory_block(memories)
-        except Exception as e:
-            logger.warning("memory load failed: %s", e)
-            memory_block = None
-        if memory_block:
-            system_prompt = (
-                f"{memory_block}\n\n{system_prompt}"
-                if system_prompt
-                else memory_block
-            )
+    fetches: list[tuple[str, Any]] = []
+    if want_profile:
+        fetches.append(("profile", user_profile_store.get_profile(user_email)))
+    if want_memory:
+        fetches.append(("memory", memory_store.recall_all(user_email)))
+    if want_artifact:
+        fetches.append(("artifact", artifact_store.list_artifacts(
+            user_email=user_email,
+            conversation_id=conversation_id,
+        )))
+    if want_plan:
+        fetches.append(("plan", plan_store.get_plan(conversation_id)))
 
-    if not ephemeral and conversation_id:
+    if fetches:
+        results = await asyncio.gather(
+            *(coro for _, coro in fetches), return_exceptions=True,
+        )
+        by_name: dict[str, Any] = {
+            name: result for (name, _), result in zip(fetches, results)
+        }
+    else:
+        by_name = {}
+
+    def _render_block(name: str, builder) -> Optional[str]:
+        """Apply the sync block builder to the fetched value, mirroring
+        the original try/except shape. A fetch-time exception (from
+        gather) and a render-time exception are both logged + skipped."""
+        if name not in by_name:
+            return None
+        value = by_name[name]
+        if isinstance(value, Exception):
+            logger.warning("%s load failed: %s", name, value)
+            return None
         try:
-            artifact_rows = await artifact_store.list_artifacts(
-                user_email=user_email,
-                conversation_id=conversation_id,
-            )
-            artifact_block = artifact_store.build_artifact_summary_block(
-                artifact_rows
-            )
+            return builder(value)
         except Exception as e:
-            logger.warning("artifact summary load failed: %s", e)
-            artifact_block = None
-        if artifact_block:
-            system_prompt = (
-                f"{artifact_block}\n\n{system_prompt}"
-                if system_prompt
-                else artifact_block
-            )
+            logger.warning("%s block render failed: %s", name, e)
+            return None
+
+    profile_block = _render_block("profile", user_profile_store.build_profile_block)
+    if profile_block:
+        system_prompt = (
+            f"{profile_block}\n\n{system_prompt}"
+            if system_prompt
+            else profile_block
+        )
+
+    memory_block = _render_block("memory", memory_store.build_memory_block)
+    if memory_block:
+        system_prompt = (
+            f"{memory_block}\n\n{system_prompt}"
+            if system_prompt
+            else memory_block
+        )
+
+    artifact_block = _render_block(
+        "artifact", artifact_store.build_artifact_summary_block,
+    )
+    if artifact_block:
+        system_prompt = (
+            f"{artifact_block}\n\n{system_prompt}"
+            if system_prompt
+            else artifact_block
+        )
+
+    # P2 #24 Phase 1: plan block sits between artifact (workspace
+    # state) and the persona prompt because it describes "what we're
+    # actively doing now" — sequence-of-action context rather than
+    # long-lived workspace state. plan_store.get_plan returned the
+    # raw dict; build_plan_block is sync, so _render_block applies.
+    plan_block = _render_block("plan", plan_store.build_plan_block)
+    if plan_block:
+        system_prompt = (
+            f"{plan_block}\n\n{system_prompt}"
+            if system_prompt
+            else plan_block
+        )
 
     if not ephemeral and project:
         try:
@@ -1609,13 +1684,21 @@ async def stream_chat_completion(
     usage_agg: dict[str, dict] = {}
     usage_token = current_usage_aggregator.set(usage_agg)
     try:
-        messages = await chat_context.assemble_context(
+        messages, compact_info = await chat_context.assemble_context(
             conversation=conversation,
             new_message=new_msg,
             system_prompt=system_prompt,
             rag_context=rag_context,
             ephemeral=ephemeral,
         )
+        # P2 #22: emit a compact_boundary SSE so the UI can render a
+        # visible "earlier N messages summarised" divider in the chat
+        # log. Fires whether the summary was generated this turn
+        # (is_fresh=True) or reused from a prior background prefetch
+        # (is_fresh=False) — either way the user should see the
+        # boundary in their transcript.
+        if compact_info is not None:
+            yield _sse("compact_boundary", compact_info)
 
         # --- 5. Streaming loop with tool execution ---
         final_content = ""
@@ -1903,6 +1986,116 @@ async def stream_chat_completion(
                         "content": json.dumps(synthetic_result["result"])[:2000],
                     })
                     continue
+
+                # P2 #24 Phase 2 — plan-approval gate for delegate_to_persona.
+                # The preToolUse hook in hooks/plan_approval.py can't fire
+                # here because delegate_to_persona is intercepted BEFORE
+                # _run_tool_calls (it's a control-flow tool, not an
+                # executor tool). So we inline the same gate check the
+                # hook would have run. Discovered via the 2026-05-29
+                # smoke test where the model called delegate_to_persona
+                # successfully despite research persona's
+                # plan_approval: ["delegate_to_persona"].
+                gated_tools = persona_module.plan_approval_tools(persona)
+                if (
+                    "delegate_to_persona" in gated_tools
+                    and not ephemeral
+                    and conversation.get("id")
+                ):
+                    plan = await plan_store.get_plan(conversation["id"])
+                    gate_result: Optional[dict] = None
+                    if plan is None:
+                        gate_result = {
+                            "error": "plan_approval_required",
+                            "message": (
+                                "This persona requires an approved plan "
+                                "before calling delegate_to_persona. Call "
+                                "set_plan first with the steps you intend "
+                                "to take, then wait for the user to "
+                                "approve it via the UI."
+                            ),
+                        }
+                    elif not plan.get("approved_at"):
+                        # Short-circuit + surface the gate to the UI.
+                        yield _sse(
+                            "plan_approval_required",
+                            {
+                                "tool": "delegate_to_persona",
+                                "arguments": args,
+                                "plan": plan,
+                            },
+                        )
+                        gate_result = {
+                            "status": "awaiting_user_approval",
+                            "tool": "delegate_to_persona",
+                            "message": (
+                                "User approval is required before this "
+                                "call can run. The UI is asking the user "
+                                "to Approve / Approve-all / Edit / "
+                                "Reject. Wait for the user — do NOT "
+                                "retry this tool in the current turn; "
+                                "you will get a new turn once they decide."
+                            ),
+                            "plan_summary": [
+                                it.get("title") for it in (plan.get("items") or [])
+                            ],
+                        }
+                    else:
+                        # Approved. Consume 'each'-mode approval so
+                        # subsequent gated calls re-trigger the gate.
+                        if plan.get("approval_mode") == "each":
+                            try:
+                                await plan_store.clear_approval(conversation["id"])
+                            except Exception as e:
+                                logger.warning(
+                                    "plan_approval: failed to clear approved_at "
+                                    "after delegate_to_persona: %s",
+                                    e,
+                                )
+
+                    if gate_result is not None:
+                        logger.info(
+                            "delegate_to_persona gated (from=%r, target=%r): %s",
+                            persona_id, target_id,
+                            "no plan" if plan is None else "awaiting approval",
+                        )
+                        synthetic_result = {
+                            "id": delegate_tc["id"],
+                            "name": "delegate_to_persona",
+                            "arguments": args,
+                            "result": gate_result,
+                            "duration_ms": 0,
+                        }
+                        final_tool_calls.append(synthetic_result)
+                        yield _sse(
+                            "tool_result",
+                            {
+                                "id": delegate_tc["id"],
+                                "name": "delegate_to_persona",
+                                "result": gate_result,
+                                "duration_ms": 0,
+                            },
+                        )
+                        messages.append({
+                            "role": "assistant",
+                            "content": acc.content or "",
+                            "tool_calls": [
+                                {
+                                    "id": delegate_tc["id"],
+                                    "type": "function",
+                                    "function": {
+                                        "name": "delegate_to_persona",
+                                        "arguments": json.dumps(args),
+                                    },
+                                }
+                            ],
+                        })
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": delegate_tc["id"],
+                            "content": json.dumps(gate_result)[:2000],
+                        })
+                        continue
 
                 # Real delegation: swap persona, rebuild system_prompt,
                 # rewind messages to the pre-loop snapshot (so the new
@@ -2508,6 +2701,31 @@ async def stream_chat_completion(
             terminal_reason = "max_turns"
         else:
             terminal_reason = "done"
+
+        # P2 #23/#25: fire stop hooks BEFORE yielding `done`. The
+        # per-iteration tool emitter (lines ~2200) has already been
+        # torn down, so we install a turn-final emitter that buffers
+        # into a local list. We then yield each buffered event on
+        # the still-open stream, immediately before `done`. Without
+        # this, hooks that emit_sse (today: memory_extract) would
+        # write into a None emitter because dispatch_stop used to
+        # run in the outer finally — past the last yield.
+        _stop_events: list[tuple[str, dict]] = []
+
+        def _stop_push(event_name: str, data: dict) -> None:
+            _stop_events.append((event_name, data))
+
+        _stop_emitter_token = current_sse_emitter.set(_stop_push)
+        try:
+            await hooks_module.dispatch_stop(terminal_reason)
+        except Exception as e:
+            logger.exception("stop hook dispatch failed: %s", e)
+        finally:
+            with contextlib.suppress(ValueError, LookupError):
+                current_sse_emitter.reset(_stop_emitter_token)
+        for _ev_name, _ev_data in _stop_events:
+            yield _sse(_ev_name, _ev_data)
+
         yield _sse(
             "done",
             {
@@ -2516,6 +2734,25 @@ async def stream_chat_completion(
                 "finish_reason": finish_reason or "stop",
             },
         )
+
+        # P2 #22: schedule opportunistic compaction for the NEXT turn.
+        # Fires only on a clean exit (terminal_reason == "done") and
+        # for persistent conversations; ephemeral chats have no row
+        # to persist a summary against. The task runs detached — we
+        # don't await it. Failures are logged inside the helper and
+        # never affect this turn's response. The user's perceived
+        # turn duration is unaffected because by this point all SSE
+        # events the client cares about have already been yielded.
+        if (
+            terminal_reason == "done"
+            and not ephemeral
+            and conversation_id
+            and user_email
+        ):
+            asyncio.create_task(
+                chat_context._maybe_precompact(conversation_id, user_email),
+                name=f"precompact-{conversation_id[:8]}",
+            )
     finally:
         # Save-always (chat 3951063c, 2026-05-08): the assistant turn
         # MUST be persisted even if the consumer disconnected (yielding
@@ -2582,3 +2819,6 @@ async def stream_chat_completion(
         except Exception:
             _persona_label = None
         observe_turn(_persona_label, terminal_reason)
+        # P2 #23 stop hooks now fire BEFORE the `done` yield (see the
+        # try-block block above) so their emit_sse calls actually
+        # reach the client. Nothing to do here.

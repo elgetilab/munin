@@ -24,7 +24,19 @@ import {
   fetchArtifact,
   updateArtifact,
   streamChat,
+  fetchAdminUsers,
+  createAdminUser,
+  updateAdminUser,
+  deleteAdminUser,
+  addAdminUserEmail,
+  removeAdminUserEmail,
+  setAdminUserPrimaryEmail,
+  fetchAdminGroups,
+  createAdminGroup,
+  updateAdminGroup,
+  deleteAdminGroup,
 } from './api';
+import type { AdminUser, AdminGroup } from './api';
 import type { SSEEvent, ChatRequest } from './types';
 
 // ── Personas ────────────────────────────────────────────────────────────────
@@ -343,5 +355,165 @@ describe('streamChat', () => {
     expect(events).toHaveLength(2);
     expect(events[0]).toEqual({ type: 'token', data: { content: 'ok' } });
     expect(events[1]).toEqual({ type: 'done', data: { finish_reason: 'stop' } });
+  });
+});
+
+
+// ── Admin: Users + Groups (P1 #11) ──────────────────────────────────────────
+
+const AUTH_ADMIN = 'https://auth.muninai.org/admin';
+
+const MOCK_ADMIN_USER: AdminUser = {
+  id: 1,
+  name: 'Alice',
+  role: 'group_leader',
+  group: 'elgeti',
+  username: 'alice',
+  primary_email: 'alice@example.org',
+  emails: ['alice@example.org', 'alice@alias.org'],
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+};
+
+const MOCK_ADMIN_GROUP: AdminGroup = {
+  slug: 'elgeti',
+  display_name: 'Elgeti Lab',
+  member_count: 2,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+};
+
+describe('fetchAdminUsers', () => {
+  it('returns the users array', async () => {
+    server.use(http.get(`${AUTH_ADMIN}/users`, () =>
+      HttpResponse.json({ users: [MOCK_ADMIN_USER] })));
+    const result = await fetchAdminUsers();
+    expect(result).toEqual([MOCK_ADMIN_USER]);
+  });
+
+  it('throws with server error message', async () => {
+    server.use(http.get(`${AUTH_ADMIN}/users`, () =>
+      HttpResponse.json({ error: 'forbidden' }, { status: 403 })));
+    await expect(fetchAdminUsers()).rejects.toThrow('forbidden');
+  });
+});
+
+describe('createAdminUser', () => {
+  it('POSTs JSON and parses the response', async () => {
+    let body: unknown = null;
+    server.use(http.post(`${AUTH_ADMIN}/users`, async ({ request }) => {
+      body = await request.json();
+      return HttpResponse.json(MOCK_ADMIN_USER, { status: 201 });
+    }));
+    const result = await createAdminUser({
+      name: 'Alice', email: 'alice@example.org', role: 'group_leader',
+    });
+    expect(result).toEqual(MOCK_ADMIN_USER);
+    expect(body).toEqual({ name: 'Alice', email: 'alice@example.org', role: 'group_leader' });
+  });
+
+  it('surfaces duplicate-email 409', async () => {
+    server.use(http.post(`${AUTH_ADMIN}/users`, () =>
+      HttpResponse.json({ error: 'email already in use' }, { status: 409 })));
+    await expect(createAdminUser({
+      name: 'X', email: 'x@e.org',
+    })).rejects.toThrow('email already in use');
+  });
+});
+
+describe('updateAdminUser', () => {
+  it('PATCHes the right path', async () => {
+    let method = '';
+    server.use(http.patch(`${AUTH_ADMIN}/users/42`, ({ request }) => {
+      method = request.method;
+      return HttpResponse.json(MOCK_ADMIN_USER);
+    }));
+    await updateAdminUser(42, { role: 'admin' });
+    expect(method).toBe('PATCH');
+  });
+});
+
+describe('deleteAdminUser', () => {
+  it('DELETEs the user', async () => {
+    let saw = false;
+    server.use(http.delete(`${AUTH_ADMIN}/users/7`, () => {
+      saw = true;
+      return new HttpResponse(null, { status: 204 });
+    }));
+    await deleteAdminUser(7);
+    expect(saw).toBe(true);
+  });
+
+  it('throws on 409 conflict', async () => {
+    server.use(http.delete(`${AUTH_ADMIN}/users/1`, () =>
+      HttpResponse.json({ error: 'cannot delete the last admin' }, { status: 409 })));
+    await expect(deleteAdminUser(1)).rejects.toThrow('cannot delete the last admin');
+  });
+});
+
+describe('email aliases', () => {
+  it('add encodes the email path parameter', async () => {
+    server.use(http.post(`${AUTH_ADMIN}/users/1/emails`, () =>
+      HttpResponse.json(MOCK_ADMIN_USER, { status: 201 })));
+    const result = await addAdminUserEmail(1, 'a@b.org');
+    expect(result.emails).toContain('alice@alias.org');
+  });
+
+  it('remove URL-encodes plus-signs and other unsafe chars', async () => {
+    let capturedUrl = '';
+    server.use(http.delete(`${AUTH_ADMIN}/users/1/emails/:email`, ({ request }) => {
+      capturedUrl = request.url;
+      return HttpResponse.json(MOCK_ADMIN_USER);
+    }));
+    await removeAdminUserEmail(1, 'a+b@example.org');
+    // URL should contain the encoded '+'.
+    expect(capturedUrl).toContain('a%2Bb%40example.org');
+  });
+
+  it('set-primary uses PUT', async () => {
+    let method = '';
+    server.use(http.put(`${AUTH_ADMIN}/users/1/emails/:email/primary`, ({ request }) => {
+      method = request.method;
+      return HttpResponse.json(MOCK_ADMIN_USER);
+    }));
+    await setAdminUserPrimaryEmail(1, 'alice@alias.org');
+    expect(method).toBe('PUT');
+  });
+});
+
+describe('fetchAdminGroups', () => {
+  it('returns the groups array', async () => {
+    server.use(http.get(`${AUTH_ADMIN}/groups`, () =>
+      HttpResponse.json({ groups: [MOCK_ADMIN_GROUP] })));
+    const result = await fetchAdminGroups();
+    expect(result).toEqual([MOCK_ADMIN_GROUP]);
+  });
+});
+
+describe('group CRUD', () => {
+  it('createAdminGroup POSTs JSON', async () => {
+    let body: unknown = null;
+    server.use(http.post(`${AUTH_ADMIN}/groups`, async ({ request }) => {
+      body = await request.json();
+      return HttpResponse.json(MOCK_ADMIN_GROUP, { status: 201 });
+    }));
+    await createAdminGroup({ slug: 'elgeti', display_name: 'Elgeti Lab' });
+    expect(body).toEqual({ slug: 'elgeti', display_name: 'Elgeti Lab' });
+  });
+
+  it('updateAdminGroup encodes slug in path', async () => {
+    let path = '';
+    server.use(http.patch(`${AUTH_ADMIN}/groups/:slug`, ({ request }) => {
+      path = new URL(request.url).pathname;
+      return HttpResponse.json(MOCK_ADMIN_GROUP);
+    }));
+    await updateAdminGroup('slug with space', 'New name');
+    expect(path).toContain('slug%20with%20space');
+  });
+
+  it('deleteAdminGroup propagates 409 (group has members)', async () => {
+    server.use(http.delete(`${AUTH_ADMIN}/groups/elgeti`, () =>
+      HttpResponse.json({ error: 'group has 2 member(s); reassign before deleting' }, { status: 409 })));
+    await expect(deleteAdminGroup('elgeti')).rejects.toThrow('group has 2 member');
   });
 });

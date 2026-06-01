@@ -41,3 +41,5 @@ Thumbs.db
 *.local
 *.bak
 /backend/.claude/scheduled_tasks.lock
+/backend/.claude/
+/backend/.claude/

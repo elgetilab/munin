@@ -56,6 +56,20 @@ export interface Message {
   // 'error' event so the partial response stays visible in the
   // message list before page reload (chat 3951063c, 2026-05-08).
   interrupted?: boolean;
+  // P2 #25: auto-extracted memory candidates from this turn. Rendered
+  // as accept/reject pills below the assistant bubble. Cleared once
+  // the user acts on each one.
+  memory_proposals?: MemoryProposal[] | null;
+  // P2 #22: when this assistant turn triggered compaction, the
+  // summary boundary is attached so a transcript reload still shows
+  // the "earlier N messages summarised" divider above the bubble.
+  compact_boundary?: CompactBoundary | null;
+  // P2 #24 Phase 1: when this assistant turn invoked set_plan or
+  // update_plan_item, the resulting plan snapshot is latched here
+  // so the PlanCard divider renders above the bubble even after
+  // transcript reload. Only the assistant message that LAST touched
+  // the plan within a turn carries the snapshot.
+  plan_snapshot?: Plan | null;
   created_at: string;
 }
 
@@ -189,8 +203,61 @@ export type SSEEvent =
   | { type: 'persona_changed'; data: { id: string; persona: string } }
   | { type: 'retrying'; data: { attempt: number; max_attempts: number; delay_s: number; reason: string } }
   | { type: 'reconnecting'; data: { attempt: number; max_attempts: number; delay_s: number } }
+  | { type: 'memory_proposed'; data: MemoryProposal }
+  | { type: 'compact_boundary'; data: CompactBoundary }
+  | { type: 'plan_updated'; data: Plan }
+  | { type: 'plan_approval_required'; data: PlanApprovalRequired }
   | { type: 'error'; data: { message: string } }
   | { type: 'done'; data: { usage?: { prompt_tokens: number; completion_tokens: number }; finish_reason: string } };
+
+// ── Compaction (P2 #22) ──────────────────────────────────────────────────────
+
+export interface CompactBoundary {
+  summary_through_index: number;
+  dropped_messages: number;
+  summary: string;
+  is_fresh: boolean;
+}
+
+// ── Plan mode (P2 #24 Phase 1) ──────────────────────────────────────────────
+
+export type PlanItemStatus = 'pending' | 'in_progress' | 'done' | 'cancelled';
+
+export interface PlanItem {
+  id: string;
+  title: string;
+  status: PlanItemStatus;
+  notes?: string | null;
+  updated_at?: string;
+}
+
+export interface Plan {
+  conversation_id: string;
+  items: PlanItem[];
+  // Phase 2 fields, always present on the wire (defaults below):
+  requires_approval: boolean;
+  approved_at: string | null;
+  approval_mode: 'each' | 'auto';
+  created_at: string;
+  updated_at: string;
+}
+
+// P2 #24 Phase 2: payload of the plan_approval_required SSE event.
+// Fired by the preToolUse gate when a gated tool short-circuits.
+export interface PlanApprovalRequired {
+  tool: string;
+  arguments: Record<string, unknown>;
+  plan: Plan;
+}
+
+// ── Memory (P2 #25) ──────────────────────────────────────────────────────────
+
+export interface MemoryProposal {
+  id: string;
+  key: string;
+  value: string;
+  reason?: string | null;
+}
 
 // ── Status ───────────────────────────────────────────────────────────────────
 

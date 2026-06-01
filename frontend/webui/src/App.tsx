@@ -1,10 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useChat } from './hooks/useChat';
+import { useEffect, useCallback, useRef } from 'react';
+import { useChatLifecycle } from './hooks/useChatLifecycle';
+import { useChatStore } from './stores/chatStore';
+import { useUiStore } from './stores/uiStore';
+import { useUserStore } from './stores/userStore';
+import { useWorkspaceStore } from './stores/workspaceStore';
 import { useStatus } from './hooks/useStatus';
 import { fetchPersonas, fetchMe, fetchAnnouncement, fetchUsageStats, fetchArtifacts, fetchTags } from './lib/api';
-import type { UserProfile, Announcement } from './lib/api';
+import type { UserProfile } from './lib/api';
 import { getGreeting } from './lib/greetings';
-import type { Persona, TagCatalog, TagChip } from './lib/types';
 import { Sidebar } from './components/Sidebar';
 import { MessageList } from './components/MessageList';
 import { ChatInput } from './components/ChatInput';
@@ -22,52 +25,97 @@ import type { Project } from './lib/types';
 
 export default function App() {
   const status = useStatus();
-  const [personas, setPersonas] = useState<Persona[]>([]);
+  // P2 #26 commit 3: user identity slice lives in userStore. The
+  // persona-from-URL initialiser moved into the store's _initialPersona
+  // helper; `hadPersonaParam` stays here as a ref because it's a
+  // mount-time signal, not reactive state.
+  const personas = useUserStore(s => s.personas);
+  const setPersonas = useUserStore(s => s.setPersonas);
   const personaFromUrl = new URLSearchParams(window.location.search).get('persona');
-  const [selectedPersona, setSelectedPersona] = useState(personaFromUrl || 'chat');
+  const selectedPersona = useUserStore(s => s.selectedPersona);
+  const setSelectedPersona = useUserStore(s => s.setSelectedPersona);
   const hadPersonaParam = useRef(!!personaFromUrl);
-  const [greeting, setGreeting] = useState('');
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
-  const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
-  const [announcement, setAnnouncement] = useState<Announcement | null>(null);
-  const [announcementDismissed, setAnnouncementDismissed] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [showInstallBanner, setShowInstallBanner] = useState(false);
-  const [isEphemeral, setIsEphemeral] = useState(false);
+  const greeting = useUserStore(s => s.greeting);
+  const setGreeting = useUserStore(s => s.setGreeting);
+  const userProfile = useUserStore(s => s.userProfile);
+  const setUserProfile = useUserStore(s => s.setUserProfile);
+  // P2 #26 commit 2: UI shell state lives in uiStore. Names match
+  // the previous useState destructures so the 55 use-sites in this
+  // file don't churn — only the declarations change. Functional
+  // setter pattern (setSidebarRefreshKey(k => k + 1)) is replaced
+  // by the explicit bumpSidebarRefresh action.
+  const showSettings = useUiStore(s => s.showSettings);
+  const setShowSettings = useUiStore(s => s.setShowSettings);
+  const sidebarOpen = useUiStore(s => s.sidebarOpen);
+  const setSidebarOpen = useUiStore(s => s.setSidebarOpen);
+  const sidebarRefreshKey = useUiStore(s => s.sidebarRefreshKey);
+  const bumpSidebarRefresh = useUiStore(s => s.bumpSidebarRefresh);
+  const announcement = useUiStore(s => s.announcement);
+  const setAnnouncement = useUiStore(s => s.setAnnouncement);
+  const announcementDismissed = useUiStore(s => s.announcementDismissed);
+  const setAnnouncementDismissed = useUiStore(s => s.setAnnouncementDismissed);
+  const isAdmin = useUserStore(s => s.isAdmin);
+  const setIsAdmin = useUserStore(s => s.setIsAdmin);
+  const showInstallBanner = useUiStore(s => s.showInstallBanner);
+  const setShowInstallBanner = useUiStore(s => s.setShowInstallBanner);
+  // P2 #26 commit 3: isEphemeral lives in workspaceStore — persisted
+  // across reloads so a user who switched to incognito stays in
+  // incognito after F5. The previous useState always defaulted to
+  // false on reload.
+  const isEphemeral = useWorkspaceStore(s => s.isEphemeral);
+  const setIsEphemeral = useWorkspaceStore(s => s.setIsEphemeral);
+  const toggleEphemeral = useWorkspaceStore(s => s.toggleEphemeral);
   const deferredPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
-  const {
-    messages,
-    conversationId,
-    conversationPersona,
-    streaming,
-    error,
-    artifacts,
-    setArtifacts,
-    lastArtifactEvent,
-    sendMessage,
-    loadConversation,
-    clearConversation,
-    stopGenerating,
-  } = useChat();
-  const [artifactPanelOpen, setArtifactPanelOpen] = useState(false);
-  const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
-  const [editingProject, setEditingProject] = useState<Project | null>(null);
-  const [showAdmin, setShowAdmin] = useState(false);
-  const [showReportDialog, setShowReportDialog] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
-  const [tagCatalog, setTagCatalog] = useState<TagCatalog | null>(null);
-  const [activeTags, setActiveTags] = useState<TagChip[]>([]);
-  const [knowledgePanelOpen, setKnowledgePanelOpen] = useState(false);
-  const [showKnowledgePage, setShowKnowledgePage] = useState<string | true | false>(false);
-  const [reportedChats, setReportedChats] = useState<Set<string>>(() => {
-    try {
-      const stored = localStorage.getItem('munin_reported_chats');
-      return stored ? new Set(JSON.parse(stored)) : new Set();
-    } catch { return new Set(); }
-  });
+  // P2 #26 commit 4: chat slices now consumed via per-field
+  // selectors directly from useChatStore — the transitional
+  // useChat() wrapper has been retired. Selector form means a
+  // token-stream update (state.streaming.content += chunk) only
+  // re-renders the components that subscribe to streaming, not
+  // every component that destructured the whole tuple. The
+  // mount-time SSE resume effect lives in useChatLifecycle()
+  // because Zustand stores can't host React effects.
+  useChatLifecycle();
+  const messages = useChatStore(s => s.messages);
+  const conversationId = useChatStore(s => s.conversationId);
+  const conversationPersona = useChatStore(s => s.conversationPersona);
+  const streaming = useChatStore(s => s.streaming);
+  const error = useChatStore(s => s.error);
+  const artifacts = useChatStore(s => s.artifacts);
+  const setArtifacts = useChatStore(s => s.setArtifacts);
+  const lastArtifactEvent = useChatStore(s => s.lastArtifactEvent);
+  const sendMessage = useChatStore(s => s.sendMessage);
+  const loadConversation = useChatStore(s => s.loadConversation);
+  const clearConversation = useChatStore(s => s.clearConversation);
+  const stopGenerating = useChatStore(s => s.stopGenerating);
+  const dismissMemoryProposal = useChatStore(s => s.dismissMemoryProposal);
+  const artifactPanelOpen = useUiStore(s => s.artifactPanelOpen);
+  const setArtifactPanelOpen = useUiStore(s => s.setArtifactPanelOpen);
+  // Only the setter — ArtifactPanel itself subscribes to the
+  // selected-id slice directly, so App.tsx doesn't need the read.
+  const setSelectedArtifactId = useUiStore(s => s.setSelectedArtifactId);
+  const activeProjectId = useWorkspaceStore(s => s.activeProjectId);
+  const setActiveProjectId = useWorkspaceStore(s => s.setActiveProjectId);
+  const editingProject = useWorkspaceStore(s => s.editingProject);
+  const setEditingProject = useWorkspaceStore(s => s.setEditingProject);
+  const showAdmin = useUiStore(s => s.showAdmin);
+  const setShowAdmin = useUiStore(s => s.setShowAdmin);
+  const showReportDialog = useUiStore(s => s.showReportDialog);
+  const setShowReportDialog = useUiStore(s => s.setShowReportDialog);
+  const toast = useUiStore(s => s.toast);
+  const setToast = useUiStore(s => s.setToast);
+  const tagCatalog = useWorkspaceStore(s => s.tagCatalog);
+  const setTagCatalog = useWorkspaceStore(s => s.setTagCatalog);
+  const activeTags = useWorkspaceStore(s => s.activeTags);
+  const setActiveTags = useWorkspaceStore(s => s.setActiveTags);
+  const knowledgePanelOpen = useUiStore(s => s.knowledgePanelOpen);
+  const setKnowledgePanelOpen = useUiStore(s => s.setKnowledgePanelOpen);
+  const showKnowledgePage = useUiStore(s => s.showKnowledgePage);
+  const setShowKnowledgePage = useUiStore(s => s.setShowKnowledgePage);
+  // P2 #26 commit 3: reportedChats now persists via workspaceStore's
+  // persist middleware. The old `munin_reported_chats` localStorage
+  // entry is migrated in via onRehydrateStorage on first load.
+  const reportedChats = useWorkspaceStore(s => s.reportedChats);
+  const addReportedChat = useWorkspaceStore(s => s.addReportedChat);
 
   // Load user info on mount
   useEffect(() => {
@@ -201,7 +249,7 @@ export default function App() {
   // Also clear activeProjectId once the conversation is created (filed by backend)
   useEffect(() => {
     if (streaming.phase === 'idle' && messages.length > 0 && !isEphemeral) {
-      setSidebarRefreshKey(k => k + 1);
+      bumpSidebarRefresh();
       if (activeProjectId && conversationId) {
         setActiveProjectId(null);
       }
@@ -240,19 +288,17 @@ export default function App() {
 
   const handleProjectUpdated = useCallback((updated: Project) => {
     setEditingProject(updated);
-    setSidebarRefreshKey(k => k + 1);
+    bumpSidebarRefresh();
   }, []);
 
   const handleToggleEphemeral = useCallback(() => {
-    setIsEphemeral(prev => {
-      if (!prev) {
-        // Entering ephemeral: clear current conversation
-        clearConversation();
-        window.history.pushState(null, '', '/');
-      }
-      return !prev;
-    });
-  }, [clearConversation]);
+    const nowEphemeral = toggleEphemeral();
+    if (nowEphemeral) {
+      // Entering ephemeral: clear current conversation
+      clearConversation();
+      window.history.pushState(null, '', '/');
+    }
+  }, [clearConversation, toggleEphemeral]);
 
   const handleProfileUpdate = useCallback((updated: UserProfile) => {
     setUserProfile(updated);
@@ -264,6 +310,30 @@ export default function App() {
 
   const handleSend = useCallback((content: string) => {
     sendMessage(content, selectedPersona, isEphemeral, undefined, projectIdForNewChat, activeTags.length > 0 ? activeTags : undefined);
+  }, [sendMessage, selectedPersona, isEphemeral, projectIdForNewChat, activeTags]);
+
+  // P2 #24 Phase 2: after the user clicks Approve / Approve-all on
+  // the PlanCard, the REST call has already landed (approved_at is
+  // set in the DB). To get the model out of "waiting" and back into
+  // a turn, send a synthetic short user message. The model sees
+  // APPROVAL STATUS: APPROVED in its next system-prompt plan block
+  // and retries the gated tool call naturally.
+  const handlePlanApproved = useCallback(() => {
+    sendMessage(
+      "I've approved the plan, please continue.",
+      selectedPersona, isEphemeral, undefined,
+      projectIdForNewChat, activeTags.length > 0 ? activeTags : undefined,
+    );
+  }, [sendMessage, selectedPersona, isEphemeral, projectIdForNewChat, activeTags]);
+
+  const handlePlanEdited = useCallback(() => {
+    // Edit-with-implicit-approve uses the same resume shape as
+    // Approve. The model sees the edited items + APPROVED status.
+    sendMessage(
+      "I've edited and approved the plan, please continue.",
+      selectedPersona, isEphemeral, undefined,
+      projectIdForNewChat, activeTags.length > 0 ? activeTags : undefined,
+    );
   }, [sendMessage, selectedPersona, isEphemeral, projectIdForNewChat, activeTags]);
 
   const handleSendMultimodal = useCallback((content: Array<{ type: string; text?: string; image_url?: { url: string } }>) => {
@@ -408,13 +478,8 @@ export default function App() {
               onNewChatInProject={(pid) => { handleNewChatInProject(pid); setShowSettings(false); if (window.innerWidth < 768) setSidebarOpen(false); }}
               onOpenProjectSettings={handleOpenProjectSettings}
               refreshKey={sidebarRefreshKey}
-              userEmail={userProfile?.email || ''}
-              userName={userProfile?.name || ''}
-              userAvatar={userProfile?.avatar || ''}
               onOpenSettings={() => { setShowSettings(true); setEditingProject(null); setShowAdmin(false); if (window.innerWidth < 768) setSidebarOpen(false); }}
               onOpenAdmin={() => { setShowAdmin(true); setShowSettings(false); setEditingProject(null); if (window.innerWidth < 768) setSidebarOpen(false); }}
-              isAdmin={isAdmin}
-              activeProjectId={activeProjectId}
             />
           </div>
         </>
@@ -596,7 +661,7 @@ export default function App() {
           <div className="flex-1 flex flex-col min-w-0">
             {/* Admin / Settings / ProjectSettings / Sleeping / Empty / Messages */}
             {showAdmin && isAdmin ? (
-              <AdminPanel onClose={() => setShowAdmin(false)} />
+              <AdminPanel />
             ) : editingProject ? (
               <ProjectSettings
                 project={editingProject}
@@ -608,9 +673,6 @@ export default function App() {
               <Settings
                 profile={userProfile}
                 onUpdate={handleProfileUpdate}
-                onClose={() => setShowSettings(false)}
-                isAdmin={isAdmin}
-                personas={personas}
               />
             ) : isMaintenance ? (
               <MaintenancePage
@@ -633,37 +695,23 @@ export default function App() {
                   onStop={stopGenerating}
                   isStreaming={isStreaming}
                   persona={currentPersona}
-                  personas={personas}
-                  selectedPersona={selectedPersona}
-                  onSelectPersona={setSelectedPersona}
                   suggestions={currentPersona?.prompt_suggestions}
                   showSuggestions={isEmpty}
                   conversationId={conversationId}
-                  isEphemeral={isEphemeral}
-                  tagCatalog={tagCatalog}
-                  activeTags={activeTags}
-                  onTagsChange={setActiveTags}
                 />
               </div>
             ) : (
               <>
-                <MessageList messages={messages} streaming={streaming} personas={personas} onSendClarification={handleSend} />
+                <MessageList messages={messages} streaming={streaming} personas={personas} onSendClarification={handleSend} onDismissMemoryProposal={dismissMemoryProposal} conversationId={conversationId} onPlanApproved={handlePlanApproved} onPlanRejected={() => { /* user types follow-up themselves */ }} onPlanEdited={handlePlanEdited} />
                 <ChatInput
                   onSend={handleSend}
                   onSendMultimodal={handleSendMultimodal}
                   onStop={stopGenerating}
                   isStreaming={isStreaming}
                   persona={currentPersona}
-                  personas={personas}
-                  selectedPersona={selectedPersona}
-                  onSelectPersona={setSelectedPersona}
                   suggestions={currentPersona?.prompt_suggestions}
                   showSuggestions={false}
                   conversationId={conversationId}
-                  isEphemeral={isEphemeral}
-                  tagCatalog={tagCatalog}
-                  activeTags={activeTags}
-                  onTagsChange={setActiveTags}
                 />
               </>
             )}
@@ -675,7 +723,6 @@ export default function App() {
               catalog={tagCatalog}
               activeTags={activeTags}
               onTagsChange={setActiveTags}
-              onClose={() => setKnowledgePanelOpen(false)}
             />
           )}
 
@@ -684,9 +731,6 @@ export default function App() {
             <ArtifactPanel
               artifacts={artifacts}
               conversationId={conversationId}
-              onClose={() => setArtifactPanelOpen(false)}
-              selectedArtifactId={selectedArtifactId}
-              onSelectArtifact={setSelectedArtifactId}
             />
           )}
         </div>
@@ -696,15 +740,15 @@ export default function App() {
       {showReportDialog && conversationId && (
         <ReportDialog
           conversationId={conversationId}
-          onClose={() => setShowReportDialog(false)}
           onReported={() => {
+            // workspaceStore's persist middleware writes the
+            // updated set to localStorage (key: munin-workspace)
+            // automatically. The old hand-written
+            // setItem('munin_reported_chats', ...) is gone;
+            // existing entries are migrated by the store's
+            // onRehydrateStorage callback.
             setShowReportDialog(false);
-            setReportedChats(prev => {
-              const next = new Set(prev);
-              next.add(conversationId);
-              localStorage.setItem('munin_reported_chats', JSON.stringify([...next]));
-              return next;
-            });
+            addReportedChat(conversationId);
             setToast('Chat reported — thank you for helping us improve.');
             setTimeout(() => setToast(null), 4000);
           }}

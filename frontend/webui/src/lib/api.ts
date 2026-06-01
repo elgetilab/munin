@@ -218,6 +218,152 @@ export async function fetchAdminUsage(): Promise<AdminUsage> {
   return res.json();
 }
 
+// ── Admin: Users + Groups (P1 #11) ──────────────────────────────────────────
+//
+// CRUD against the auth service. All endpoints require an admin session
+// cookie. Failure surfaces a server-supplied error string when present so
+// the UI can show "email already in use" instead of a generic "Failed".
+
+const AUTH_ADMIN = 'https://auth.muninai.org/admin';
+
+export type AdminRole = 'user' | 'group_leader' | 'admin';
+
+export interface AdminUser {
+  id: number;
+  name: string;
+  role: AdminRole;
+  group: string | null;
+  username: string | null;
+  primary_email: string;
+  emails: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminGroup {
+  slug: string;
+  display_name: string;
+  member_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+async function adminRequest(path: string, init: RequestInit = {}): Promise<Response> {
+  const res = await fetch(`${AUTH_ADMIN}${path}`, {
+    credentials: 'include',
+    ...init,
+    headers: {
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(init.headers || {}),
+    },
+  });
+  return res;
+}
+
+async function adminJSON<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await adminRequest(path, init);
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const body = await res.json();
+      detail = body?.error || '';
+    } catch {
+      // not JSON
+    }
+    throw new Error(detail || `Request failed (${res.status})`);
+  }
+  return res.json() as Promise<T>;
+}
+
+export async function fetchAdminUsers(): Promise<AdminUser[]> {
+  const data = await adminJSON<{ users: AdminUser[] }>('/users');
+  return data.users;
+}
+
+export async function createAdminUser(input: {
+  name: string;
+  email: string;
+  role?: AdminRole;
+  group?: string | null;
+  username?: string | null;
+}): Promise<AdminUser> {
+  return adminJSON<AdminUser>('/users', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateAdminUser(id: number, patch: {
+  name?: string;
+  role?: AdminRole;
+  group?: string | null;
+  username?: string | null;
+}): Promise<AdminUser> {
+  return adminJSON<AdminUser>(`/users/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function deleteAdminUser(id: number): Promise<void> {
+  const res = await adminRequest(`/users/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.error || ''; } catch { /* */ }
+    throw new Error(detail || `Delete failed (${res.status})`);
+  }
+}
+
+export async function addAdminUserEmail(id: number, email: string): Promise<AdminUser> {
+  return adminJSON<AdminUser>(`/users/${id}/emails`, {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function removeAdminUserEmail(id: number, email: string): Promise<AdminUser> {
+  return adminJSON<AdminUser>(`/users/${id}/emails/${encodeURIComponent(email)}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function setAdminUserPrimaryEmail(id: number, email: string): Promise<AdminUser> {
+  return adminJSON<AdminUser>(`/users/${id}/emails/${encodeURIComponent(email)}/primary`, {
+    method: 'PUT',
+  });
+}
+
+export async function fetchAdminGroups(): Promise<AdminGroup[]> {
+  const data = await adminJSON<{ groups: AdminGroup[] }>('/groups');
+  return data.groups;
+}
+
+export async function createAdminGroup(input: {
+  slug: string;
+  display_name: string;
+}): Promise<AdminGroup> {
+  return adminJSON<AdminGroup>('/groups', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateAdminGroup(slug: string, display_name: string): Promise<AdminGroup> {
+  return adminJSON<AdminGroup>(`/groups/${encodeURIComponent(slug)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ display_name }),
+  });
+}
+
+export async function deleteAdminGroup(slug: string): Promise<void> {
+  const res = await adminRequest(`/groups/${encodeURIComponent(slug)}`, { method: 'DELETE' });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.error || ''; } catch { /* */ }
+    throw new Error(detail || `Delete failed (${res.status})`);
+  }
+}
+
 // ── Announcements ───────────────────────────────────────────────────────────
 
 export interface Announcement {
@@ -628,13 +774,22 @@ export async function streamChat(
   }
 
   const state = { sawDone: false } as { streamId?: string; lastEventId?: string; sawDone: boolean };
-  let outcome = await _consumeSSE(res, state, onEvent);
+  // Union widened so the loop body can reassign from _attemptResume
+  // (which adds 'gone' to the possible outcomes). Without the
+  // annotation TS narrows to _consumeSSE's return type and the
+  // 'gone' / 'error' branches below become unreachable from its POV.
+  let outcome: 'done' | 'drop' | 'error' | 'gone' =
+    await _consumeSSE(res, state, onEvent);
 
   // Reconnect loop (P1 #10). A clean `done` ends the loop. Anything
   // else with a known stream_id retries with backoff until the server
   // says 410 (stream gone) or we exhaust the schedule.
   let attempt = 0;
-  while (outcome !== 'done' && outcome !== 'error' && state.streamId) {
+  // The 'error' branch returns inside the loop body, so by the
+  // time we re-check the condition outcome can only be 'done' or
+  // 'drop'. TS sees this and rejects the redundant `!== 'error'`
+  // guard that used to live here.
+  while (outcome !== 'done' && state.streamId) {
     if (attempt >= RECONNECT_BACKOFF_MS.length) {
       clearActiveStream();
       onEvent({
@@ -693,7 +848,10 @@ export async function resumeChat(
     lastEventId,
     sawDone: false,
   } as { streamId?: string; lastEventId?: string; sawDone: boolean };
-  let outcome = await _attemptResume(state, onEvent, signal);
+  // Same widening as streamChat: subsequent reassignments narrow
+  // to the loop body's reachable cases otherwise.
+  let outcome: 'done' | 'drop' | 'error' | 'gone' =
+    await _attemptResume(state, onEvent, signal);
   if (outcome === 'gone') {
     clearActiveStream();
     onEvent({
@@ -716,7 +874,11 @@ export async function resumeChat(
   // Same backoff schedule as streamChat — a refresh that lands while
   // the server is mid-shutdown can still recover.
   let attempt = 0;
-  while (outcome !== 'done' && outcome !== 'error' && state.streamId) {
+  // The 'error' branch returns inside the loop body, so by the
+  // time we re-check the condition outcome can only be 'done' or
+  // 'drop'. TS sees this and rejects the redundant `!== 'error'`
+  // guard that used to live here.
+  while (outcome !== 'done' && state.streamId) {
     if (attempt >= RECONNECT_BACKOFF_MS.length) {
       clearActiveStream();
       onEvent({
@@ -749,4 +911,63 @@ export async function resumeChat(
       return;
     }
   }
+}
+
+// ── Memory proposals (P2 #25) ────────────────────────────────────────────────
+
+export async function acceptMemoryProposal(proposalId: string): Promise<void> {
+  const res = await fetch(
+    `${API}/memories/proposed/${encodeURIComponent(proposalId)}/accept`,
+    { method: 'POST' },
+  );
+  if (!res.ok) throw new Error('Failed to accept memory proposal');
+}
+
+export async function rejectMemoryProposal(proposalId: string): Promise<void> {
+  const res = await fetch(
+    `${API}/memories/proposed/${encodeURIComponent(proposalId)}/reject`,
+    { method: 'POST' },
+  );
+  if (!res.ok) throw new Error('Failed to reject memory proposal');
+}
+
+// ── Plan-mode approval (P2 #24 Phase 2) ──────────────────────────────────────
+
+export async function approvePlan(
+  conversationId: string,
+  mode: 'each' | 'auto' = 'each',
+): Promise<void> {
+  const res = await fetch(
+    `${API}/chats/${encodeURIComponent(conversationId)}/plan/approve`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    },
+  );
+  if (!res.ok) throw new Error(`Failed to approve plan (${res.status})`);
+}
+
+export async function rejectPlan(conversationId: string): Promise<void> {
+  const res = await fetch(
+    `${API}/chats/${encodeURIComponent(conversationId)}/plan/reject`,
+    { method: 'POST' },
+  );
+  if (!res.ok) throw new Error(`Failed to reject plan (${res.status})`);
+}
+
+export async function editPlan(
+  conversationId: string,
+  items: Array<{ id?: string; title: string; status?: string; notes?: string | null }>,
+  mode: 'each' | 'auto' = 'each',
+): Promise<void> {
+  const res = await fetch(
+    `${API}/chats/${encodeURIComponent(conversationId)}/plan`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items, mode }),
+    },
+  );
+  if (!res.ok) throw new Error(`Failed to edit plan (${res.status})`);
 }

@@ -40,45 +40,64 @@ Wait for DNS to propagate before deploying. Caddy needs the A records to resolve
   cd frontend/webui
   npm install
   npm run build
-  cd ..
+  cd ../..
   ```
   The build outputs to `frontend/static/chat/`.
-- [ ] Rsync the project to the VPS. Two passes: the first syncs the
-  whole tree without `--delete` (so VPS-only state is preserved); the
-  second prunes stale hashed JS/CSS bundles in `static/chat/assets/`,
-  which Vite re-hashes on every build and would otherwise accumulate.
+- [ ] Rsync the monorepo to the VPS from the repo root. Two passes:
+  the first syncs the whole tree without `--delete` (so VPS-only state
+  is preserved); the second prunes stale hashed JS/CSS bundles in
+  `frontend/static/chat/assets/`, which Vite re-hashes on every build
+  and would otherwise accumulate. Run from the repo root so `shared/`
+  ships alongside `frontend/`; `backend/docker-compose.yml` references
+  `../shared/config/contributors.yml`.
   ```bash
   rsync -avz --exclude '.env' --exclude '.git' --exclude 'node_modules' \
-    frontend/ <admin>@<vps-ip>:~/munin/
+    ./ <admin>@<vps-ip>:~/munin/
   rsync -avz --delete \
     frontend/static/chat/assets/ \
-    <admin>@<vps-ip>:~/munin/static/chat/assets/
+    <admin>@<vps-ip>:~/munin/frontend/static/chat/assets/
   ```
-- [ ] On the VPS: `cd ~/munin`.
+- [ ] On the VPS: `cd ~/munin/frontend` (post-monorepo,
+  `docker-compose.yml` lives under `frontend/`, not the repo root).
 
-## 5. Secrets and whitelist
+## 5. Secrets and seed lists
 
 - [ ] On the VPS, copy the env template:
   ```bash
+  cd ~/munin/frontend
   cp .env.template .env
   chmod 600 .env
   ```
-- [ ] Edit `.env`. Required:
-  - `AUTH_SECRET_KEY`: paste the value you generated in SETUP-PREREQUISITES.
-  - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`: from your SMTP provider.
+- [ ] Edit `frontend/.env`. Required:
+  - `AUTH_SECRET_KEY`: paste the value you generated in
+    SETUP-PREREQUISITES (or `openssl rand -hex 32` if you skipped it).
+  - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`,
+    `SMTP_SENDER`: from your SMTP provider.
   - `ADMIN_EMAILS`: comma-separated list of admin email addresses.
-  - `DOMAIN`: your bare domain, e.g. `muninai.org`.
-- [ ] Edit `auth/whitelist.csv`: one row per allowed user, format `email,name`.
+  - `ADMIN_INGEST_TOKEN`: `openssl rand -hex 32`. Must match the
+    value in the cluster's `cluster.env`.
+  - `KB_GATE_TOKEN`: `openssl rand -hex 32`. VPS-local; gates KB
+    uploads via the tusd pre-create hook.
+  - `CONTRIBUTORS_SYNC_TOKEN`: `openssl rand -hex 32`. Must match
+    the value in the cluster's `cluster.env`; lets the cluster pull
+    the regenerated `contributors.yaml` from `/admin/contributors.yaml`.
+- [ ] Edit `auth/whitelist.csv` — one row per seed user, format
+  `email,name,role`. This file is now a **first-boot seed only**: the
+  auth DB inside the `auth_data` volume is the source of truth after
+  first start. To add / edit / remove users after deploy, sign in as
+  an admin and use the Admin panel "Users" tab in the chat UI. The
+  CSV is re-read on container restart in an additive-only mode (new
+  emails imported, existing rows never overwritten).
 
 ## 6. Caddy domain
 
-- [ ] Edit `caddy/Caddyfile`: replace every occurrence of `muninai.org` with your domain. Be thorough; the file has many references.
+- [ ] Edit `frontend/caddy/Caddyfile`: replace every occurrence of `muninai.org` with your domain. Be thorough; the file has many references.
 
 ## 7. Start the stack
 
 - [ ] On the VPS:
   ```bash
-  cd ~/munin
+  cd ~/munin/frontend
   docker compose up -d --build
   ```
 - [ ] Watch logs while Caddy issues certificates:
@@ -86,7 +105,11 @@ Wait for DNS to propagate before deploying. Caddy needs the A records to resolve
   docker compose logs -f caddy
   ```
   Issuance can take 1 to 2 minutes per subdomain on first start.
-- [ ] When all certificates are issued, `docker compose ps` should show `caddy`, `munin-auth`, `api-gateway`, `tusd`, and `hook-service` all running.
+- [ ] When all certificates are issued, `docker compose ps` should
+  show `caddy`, `munin-auth`, `api-gateway`, `tusd`, and `hook-service`
+  all running (compose abbreviates the per-service container names;
+  the full names include the compose project prefix, e.g.
+  `frontend-munin-auth-1`).
 
 ## 8. Tunnel handshake
 
