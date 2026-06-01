@@ -2292,6 +2292,11 @@ async def stream_chat_completion(
                         tool_calls=final_tool_calls or None,
                         rag_context=rag_context,
                     )
+                    # Without this, the finally block's save-always re-persists
+                    # the same turn (chat 9dd753e5, 2026-05-29: two assistant
+                    # rows 12ms apart, second one carrying a spurious
+                    # "stream interrupted" marker).
+                    assistant_persisted = True
 
                     if not conversation.get("title"):
                         # Feed what_i_understood as the stand-in assistant
