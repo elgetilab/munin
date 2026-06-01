@@ -97,6 +97,10 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   // moveMenuId: opening one closes the other so we never stack popovers
   // on the same anchor.
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
+  // Same shape as actionMenuId but for the project rows. Distinct
+  // state so chat-id and project-id namespaces don't accidentally
+  // collide on the rare same-string-id edge case.
+  const [projectActionMenuId, setProjectActionMenuId] = useState<string | null>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchOverlayRef = useRef<HTMLDivElement>(null);
@@ -157,7 +161,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   // same parent .relative wrapper, so mousedown handlers on the
   // buttons themselves still fire first and toggle correctly.
   useEffect(() => {
-    if (!actionMenuId && !moveMenuId) return;
+    if (!actionMenuId && !moveMenuId && !projectActionMenuId) return;
     const onMouseDown = (e: MouseEvent) => {
       const target = e.target as Element | null;
       if (target && target.closest && target.closest('.sidebar-row-menu')) {
@@ -165,10 +169,11 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       }
       setActionMenuId(null);
       setMoveMenuId(null);
+      setProjectActionMenuId(null);
     };
     document.addEventListener('mousedown', onMouseDown);
     return () => document.removeEventListener('mousedown', onMouseDown);
-  }, [actionMenuId, moveMenuId]);
+  }, [actionMenuId, moveMenuId, projectActionMenuId]);
 
   // Search when query changes — server-side with FTS5 prefix matching
   useEffect(() => {
@@ -399,50 +404,92 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
 
             {projects.map(proj => (
               <div key={proj.id}>
-                {/* Project row */}
-                <div
-                  onClick={() => setExpandedProject(expandedProject === proj.id ? null : proj.id)}
-                  className={`group flex items-center gap-2 px-2 py-2 rounded-md cursor-pointer text-sm transition-colors ${
-                    activeProjectId === proj.id
-                      ? 'bg-bg-tertiary text-text-primary'
-                      : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary'
-                  }`}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
-                    <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-                  </svg>
-                  <span className="flex-1 truncate font-medium">{proj.name}</span>
-                  <span className="text-xs text-text-secondary">{proj.conversation_count}</span>
-                  <span className="text-[10px] text-text-secondary">{expandedProject === proj.id ? '\u25BE' : '\u25B8'}</span>
+                {/* Project row + its action-menu dropdown live inside
+                    the same `relative` wrapper so the absolute popover
+                    is positioned against the row, not the expanded
+                    children below. */}
+                <div className="relative">
+                  <div
+                    onClick={() => setExpandedProject(expandedProject === proj.id ? null : proj.id)}
+                    className={`group flex items-center gap-2 px-2 py-2 rounded-md cursor-pointer text-sm transition-colors ${
+                      activeProjectId === proj.id
+                        ? 'bg-bg-tertiary text-text-primary'
+                        : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary'
+                    }`}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                    </svg>
+                    <span className="flex-1 truncate font-medium">{proj.name}</span>
+                    <span className="text-xs text-text-secondary">{proj.conversation_count}</span>
+                    <span className="text-[10px] text-text-secondary">{expandedProject === proj.id ? '\u25BE' : '\u25B8'}</span>
 
-                  {/* Project actions */}
-                  <div className="hidden group-hover:flex items-center gap-0.5 flex-shrink-0">
-                    {onNewChatInProject && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onNewChatInProject(proj.id); }}
-                        className="p-1 rounded text-text-secondary hover:text-accent hover:bg-bg-primary cursor-pointer"
-                        title="New chat in project"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                      </button>
-                    )}
-                    {onOpenProjectSettings && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onOpenProjectSettings(proj); }}
-                        className="p-1 rounded text-text-secondary hover:text-accent hover:bg-bg-primary cursor-pointer"
-                        title="Project settings"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-                      </button>
-                    )}
+                    {/* Three-dots project action menu trigger. Fades
+                        in on row hover; same opacity-only transition
+                        as the chat-row kebab so the layout doesn't
+                        shift. */}
                     <button
-                      onClick={(e) => handleDeleteProject(proj.id, e)}
-                      className="p-1 rounded text-text-secondary hover:text-error hover:bg-bg-primary cursor-pointer"
-                      title="Delete project"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActionMenuId(null);
+                        setMoveMenuId(null);
+                        setProjectActionMenuId(projectActionMenuId === proj.id ? null : proj.id);
+                      }}
+                      className={`sidebar-row-menu flex-shrink-0 p-1 rounded cursor-pointer transition-opacity hover:bg-bg-primary hover:text-text-primary ${
+                        projectActionMenuId === proj.id
+                          ? 'opacity-100 text-text-primary'
+                          : 'opacity-0 group-hover:opacity-100 text-text-secondary'
+                      }`}
+                      title="More"
                     >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <circle cx="12" cy="5" r="1.6" />
+                        <circle cx="12" cy="12" r="1.6" />
+                        <circle cx="12" cy="19" r="1.6" />
+                      </svg>
                     </button>
                   </div>
+
+                  {/* Project action dropdown. Same shape as the chat
+                      kebab menu so they read as one consistent
+                      affordance. */}
+                  {projectActionMenuId === proj.id && (
+                    <div className="sidebar-row-menu absolute right-0 top-full z-50 w-48 bg-bg-secondary border border-border rounded-lg shadow-lg overflow-hidden mt-1">
+                      {onNewChatInProject && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setProjectActionMenuId(null);
+                            onNewChatInProject(proj.id);
+                          }}
+                          className="w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary cursor-pointer"
+                        >
+                          New chat in project
+                        </button>
+                      )}
+                      {onOpenProjectSettings && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setProjectActionMenuId(null);
+                            onOpenProjectSettings(proj);
+                          }}
+                          className="w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary cursor-pointer"
+                        >
+                          Project settings
+                        </button>
+                      )}
+                      <button
+                        onClick={(e) => {
+                          setProjectActionMenuId(null);
+                          handleDeleteProject(proj.id, e);
+                        }}
+                        className="w-full text-left px-3 py-2 text-xs text-error hover:bg-bg-tertiary cursor-pointer"
+                      >
+                        Delete project
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Expanded project chats */}
