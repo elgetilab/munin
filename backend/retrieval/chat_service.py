@@ -59,6 +59,7 @@ from mcp.context import (
     current_conversation_id,
     current_project_id,
     current_query_tags,
+    current_search_urls,
     current_sse_emitter,
     current_persona,
     current_unlocked_tools,
@@ -1053,6 +1054,66 @@ def _collect_artifact_urls(obj) -> set:
     return found
 
 
+# Bug 4b (2026-06-01): web_fetch URL allowlist. The web_fetch_content
+# tool rejects URLs not in `current_search_urls`; this regex extracts
+# URLs from arbitrary strings (user messages, tool result payloads,
+# assistant prose) so a URL the user pasted or that surfaced in a
+# prior search result can be fetched. Greedy-ish but stops at quote /
+# bracket / whitespace, which is enough for the chat transcripts we
+# see in practice.
+_HTTP_URL_RE = _re.compile(r"https?://[^\s)<>\"'\]]+")
+
+
+def _extract_urls(obj) -> set[str]:
+    """Walk a string / dict / list and collect every `http(s)://...`
+    URL. Used to seed the per-request URL allowlist from the
+    conversation's persisted tool_calls AND from the current user
+    message text. Trailing punctuation that the regex picked up is
+    stripped via a small denylist (periods, commas, semicolons) so the
+    set keys match exactly what tools will pass back."""
+    found: set[str] = set()
+    if isinstance(obj, str):
+        for m in _HTTP_URL_RE.findall(obj):
+            url = m.rstrip(".,;:!?")
+            if url:
+                found.add(url)
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            found.update(_extract_urls(v))
+    elif isinstance(obj, list):
+        for v in obj:
+            found.update(_extract_urls(v))
+    return found
+
+
+def _seed_search_urls(
+    prior_messages: list,
+    user_text: str,
+    bucket: Optional[set],
+) -> None:
+    """Populate the per-request URL allowlist from the conversation's
+    prior tool results + the current user message text. Silently
+    no-op when the bucket is not bound (standalone tool unit tests,
+    legacy callers). Mutates `bucket` in place."""
+    if bucket is None:
+        return
+    if isinstance(user_text, str) and user_text:
+        bucket.update(_extract_urls(user_text))
+    for msg in prior_messages:
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
+        if isinstance(content, str) and content:
+            bucket.update(_extract_urls(content))
+        for tc in (msg.get("tool_calls") or []):
+            if not isinstance(tc, dict):
+                continue
+            bucket.update(_extract_urls(tc.get("result")))
+            args = tc.get("arguments")
+            if isinstance(args, dict):
+                bucket.update(_extract_urls(args.get("url")))
+
+
 def apply_stream_error_marker(final_content: str, error_message: str) -> str:
     """
     Append a stream-interrupted marker to the assistant content that will be
@@ -1443,6 +1504,11 @@ async def stream_chat_completion(
     # adds discovered tools here and _openai_tools_schema unions them
     # into the schema for the rest of the request.
     current_unlocked_tools.set(set())
+    # Bug 4b (2026-06-01): URL allowlist for web_fetch. Seeded later
+    # from the conversation's prior tool_calls + the current user
+    # message's text. web_search adds new URLs in place as it runs;
+    # web_fetch consults the set before any HTTP call.
+    current_search_urls.set(set())
     # Project context (§21): bind the project_id so search_user_docs
     # auto-scopes via contextvar. Ephemeral chats never have a project,
     # so the contextvar stays None in that branch.
@@ -1649,6 +1715,17 @@ async def stream_chat_completion(
             "role": "user",
             "content": resolved_content if resolved_content else persisted_text,
         }
+
+    # Bug 4b (2026-06-01): seed the web_fetch URL allowlist from the
+    # conversation's prior tool results AND from the current user
+    # message's text. The set lives in `current_search_urls` and is
+    # also updated in place by web_search as it runs. Scope is whole-
+    # conversation so URLs surfaced in earlier turns remain fetchable.
+    _seed_search_urls(
+        conversation.get("messages") or [],
+        persisted_text,
+        current_search_urls.get(),
+    )
 
     # --- Save-always wrapper (chat 3951063c, 2026-05-08) ---
     # Persist the assistant turn no matter how this function exits:

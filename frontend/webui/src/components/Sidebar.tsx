@@ -380,7 +380,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                 {/* Project row */}
                 <div
                   onClick={() => setExpandedProject(expandedProject === proj.id ? null : proj.id)}
-                  className={`group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer text-sm transition-colors ${
+                  className={`group flex items-center gap-2 px-2 py-2 rounded-md cursor-pointer text-sm transition-colors ${
                     activeProjectId === proj.id
                       ? 'bg-bg-tertiary text-text-primary'
                       : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary'
@@ -697,7 +697,7 @@ function ChatRow({
     <div className="relative">
       <div
         onClick={() => onSelect(chat.id)}
-        className={`group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer text-sm transition-colors ${
+        className={`group flex items-center gap-2 px-2 py-2 rounded-md cursor-pointer text-sm transition-colors ${
           isCurrent
             ? 'bg-bg-tertiary text-text-primary'
             : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary'

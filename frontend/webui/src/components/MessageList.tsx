@@ -170,7 +170,7 @@ export function MessageList({ messages, streaming, personas, onSendClarification
 
             {/* Streaming content */}
             {cleanContent(streaming.content) && (
-              <div className="text-sm text-text-primary leading-relaxed">
+              <div className="text-base text-text-primary leading-relaxed">
                 <Markdown content={cleanContent(streaming.content)} />
               </div>
             )}
@@ -209,7 +209,7 @@ function MessageBubble({ message, personas, onSendClarification, onDismissMemory
   if (message.role === 'user') {
     return (
       <div className="flex gap-3 justify-end">
-        <div className="max-w-[80%] bg-bg-tertiary border border-border rounded-2xl rounded-br-sm px-4 py-3 text-sm text-text-primary leading-relaxed whitespace-pre-wrap">
+        <div className="max-w-[80%] bg-bg-tertiary border border-border rounded-2xl rounded-br-sm px-4 py-3 text-base text-text-primary leading-relaxed whitespace-pre-wrap">
           {message.content}
         </div>
       </div>
@@ -237,7 +237,7 @@ function MessageBubble({ message, personas, onSendClarification, onDismissMemory
       )}
 
       {cleanContent(message.content) && (
-        <div className="text-sm text-text-primary leading-relaxed">
+        <div className="text-base text-text-primary leading-relaxed">
           <Markdown content={cleanContent(message.content)} />
         </div>
       )}
