@@ -172,13 +172,6 @@ services:
       - VLLM_MODEL_NAME=qwen3.6-35b-a3b
       # Semantic Scholar API (for semantic_scholar_search tool)
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
-      # Brave Search API key (Bug 4a, 2026-06-01). Unset is the
-      # supported default — `web_search` runs on SearXNG alone.
-      # When set, every web_search query also hits Brave's official
-      # API (free tier: 2k/month, 1 qps; the tool serializes Brave
-      # calls process-wide to respect the limit). Get a token at
-      # https://api.search.brave.com.
-      - BRAVE_API_KEY=${BRAVE_API_KEY:-}
       # Sandbox sidecar (§2). Reached over the internal sandbox-net.
       - SANDBOX_URL=http://sandbox:8090
       # §28 contributor ingest (VPS hook → POST /api/admin/ingest)

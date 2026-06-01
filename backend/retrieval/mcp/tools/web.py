@@ -8,8 +8,6 @@ Provides:
 
 import asyncio
 import logging
-import os
-import time
 from typing import Optional
 
 import httpx
@@ -25,98 +23,11 @@ logger = logging.getLogger(__name__)
 # Engines passed to SearXNG on every web_search. Google is intentionally
 # excluded (see docker/searxng/settings.yml for the rationale) and brave
 # was dropped on 2026-06-01 after months of "Suspended: too many
-# requests" (rate-limited by Brave on our IP). Brave is re-introduced
-# via the official API path in `_brave_api_one` when `BRAVE_API_KEY` is
-# set, since the API path is not subject to the scraper rate limit.
-_SEARXNG_ENGINES = "startpage,duckduckgo"
-
-
-# Brave Search API. Free tier is 2000 queries/month at 1 query/second
-# (https://api.search.brave.com). Unset env var means the API path is
-# skipped and `web_search` runs on SearXNG alone. The rate-limit guard
-# below is module-level so concurrent users of the same retrieval
-# process share the budget.
-_BRAVE_API_URL = "https://api.search.brave.com/res/v1/web/search"
-_BRAVE_MIN_INTERVAL_S = 1.05  # 1 qps + small safety margin
-_brave_lock = asyncio.Lock()
-_brave_last_call_ts: float = 0.0
-
-
-def _brave_api_key() -> Optional[str]:
-    """Read the API key at call time so a restart-free env update
-    flips the path on/off. Empty string is treated as unset."""
-    key = (os.getenv("BRAVE_API_KEY") or "").strip()
-    return key or None
-
-
-async def _brave_api_one(client: httpx.AsyncClient, q: str, api_key: str) -> dict:
-    """Single Brave Search API call, shaped to match `_searxng_one`'s
-    return contract so the same merge logic handles both engines.
-
-    Rate-limited to 1 qps process-wide via `_brave_lock` + a sleep
-    based on `_brave_last_call_ts`. Tighter than necessary for paid
-    tiers, but the free tier rejects bursts.
-    """
-    global _brave_last_call_ts
-    async with _brave_lock:
-        now = time.monotonic()
-        wait = max(0.0, _brave_last_call_ts + _BRAVE_MIN_INTERVAL_S - now)
-        if wait > 0:
-            await asyncio.sleep(wait)
-        _brave_last_call_ts = time.monotonic()
-        try:
-            response = await client.get(
-                _BRAVE_API_URL,
-                params={"q": q, "count": 10},
-                headers={
-                    "X-Subscription-Token": api_key,
-                    "Accept": "application/json",
-                },
-            )
-            response.raise_for_status()
-            body = response.json()
-        except Exception as e:
-            logger.warning("brave_api %r failed: %s", q, e)
-            return {
-                "results": [],
-                "unresponsive": [["brave-api", str(e)]],
-                "transport_error": str(e),
-            }
-
-    results = []
-    for hit in ((body.get("web") or {}).get("results") or []):
-        url = hit.get("url") or ""
-        if not url:
-            continue
-        results.append({
-            "url": url,
-            "title": hit.get("title") or "",
-            "content": hit.get("description") or "",
-            "engine": "brave-api",
-        })
-    return {
-        "results": results,
-        "unresponsive": [],
-        "transport_error": None,
-    }
-
-
-async def _engines_for_query(client: httpx.AsyncClient, q: str) -> dict:
-    """Run SearXNG and (if configured) Brave API in parallel for a
-    single query, returning a merged batch in `_searxng_one`'s shape.
-    """
-    api_key = _brave_api_key()
-    if not api_key:
-        return await _searxng_one(client, q)
-    sx, br = await asyncio.gather(
-        _searxng_one(client, q),
-        _brave_api_one(client, q, api_key),
-    )
-    return {
-        "results": (sx.get("results") or []) + (br.get("results") or []),
-        "unresponsive": (sx.get("unresponsive") or []) + (br.get("unresponsive") or []),
-        "transport_error": sx.get("transport_error") or br.get("transport_error"),
-    }
+# requests" (rate-limited by Brave on our IP). We do NOT use Brave's
+# official API as the 1k/month free quota was too thin for multi-user
+# load; instead qwant and mojeek were added to settings.yml as
+# independent keyless engines to compensate.
+_SEARXNG_ENGINES = "startpage,duckduckgo,qwant,mojeek"
 
 
 def _record_url(url: str) -> None:
@@ -208,7 +119,7 @@ async def web_search(
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             raw_batches = await asyncio.gather(
-                *(_engines_for_query(client, q) for q in query_list)
+                *(_searxng_one(client, q) for q in query_list)
             )
     except Exception as e:
         return {"error": f"Web search failed: {str(e)}"}
@@ -278,12 +189,8 @@ async def web_search(
         "results": merged[:top_k],
     }
 
-    # Surface engine degradation to the caller. When Brave API is
-    # configured, count it toward the "all engines down" threshold so
-    # the warning fires only when SearXNG engines AND Brave both fail.
+    # Surface engine degradation to the caller.
     requested_engines = [e for e in _SEARXNG_ENGINES.split(",") if e]
-    if _brave_api_key():
-        requested_engines.append("brave-api")
     if unresponsive:
         out["engines_unresponsive"] = [
             [name, reason] for name, reason in sorted(unresponsive.items())
