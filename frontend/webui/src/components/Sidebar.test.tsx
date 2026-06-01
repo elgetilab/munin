@@ -148,4 +148,88 @@ describe('Sidebar', () => {
     });
     expect(screen.getByText('Code Review')).toBeInTheDocument();
   });
+
+  // Claude-style three-dots menu (2026-06-01).
+  //
+  // The kebab button replaces the previous inline rename/move/delete
+  // row. The old design used `hidden group-hover:flex` which caused
+  // the chat title to truncate harder on hover -- the user-visible
+  // "pop out" symptom. The new design: a single button that fades in
+  // on hover, clicking it opens a dropdown with the three actions.
+  //
+  // We can't realistically test the visual fade-in (no layout shift)
+  // in vitest+jsdom. What we CAN test is the menu shape: clicking
+  // the kebab opens a dropdown whose items map to the right
+  // callbacks, and the dropdown disappears after an action.
+  it('three-dots menu opens with Rename / Move to project / Delete items', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    await waitFor(() => {
+      expect(screen.getByText('Test Chat 1')).toBeInTheDocument();
+    });
+
+    // Find the kebab button on the first chat row by its title attribute.
+    // There's one per row; use the first.
+    const moreButtons = screen.getAllByTitle('More');
+    expect(moreButtons.length).toBeGreaterThan(0);
+
+    // No menu items visible before opening.
+    expect(screen.queryByText('Rename')).not.toBeInTheDocument();
+
+    await user.click(moreButtons[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Rename')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Move to project')).toBeInTheDocument();
+    expect(screen.getByText('Delete')).toBeInTheDocument();
+  });
+
+  it('three-dots menu: clicking Rename opens the inline editor and closes the menu', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    await waitFor(() => {
+      expect(screen.getByText('Test Chat 1')).toBeInTheDocument();
+    });
+
+    const moreButtons = screen.getAllByTitle('More');
+    await user.click(moreButtons[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Rename')).toBeInTheDocument();
+    });
+    await user.click(screen.getByText('Rename'));
+
+    // Menu dismissed; inline editor visible with the chat's title.
+    await waitFor(() => {
+      expect(screen.queryByText('Rename')).not.toBeInTheDocument();
+    });
+    // The inline editor is an <input> with the chat's current title.
+    expect(screen.getByDisplayValue('Test Chat 1')).toBeInTheDocument();
+  });
+
+  it('three-dots menu closes on outside click', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    await waitFor(() => {
+      expect(screen.getByText('Test Chat 1')).toBeInTheDocument();
+    });
+
+    const moreButtons = screen.getAllByTitle('More');
+    await user.click(moreButtons[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Rename')).toBeInTheDocument();
+    });
+
+    // Click on something outside the menu (the "New chat" button).
+    await user.click(screen.getByText('New chat'));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Rename')).not.toBeInTheDocument();
+    });
+  });
 });

@@ -93,6 +93,10 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   const [showNewProject, setShowNewProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [moveMenuId, setMoveMenuId] = useState<string | null>(null);
+  // Claude-style three-dots menu on chat rows. Mutually exclusive with
+  // moveMenuId: opening one closes the other so we never stack popovers
+  // on the same anchor.
+  const [actionMenuId, setActionMenuId] = useState<string | null>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchOverlayRef = useRef<HTMLDivElement>(null);
@@ -147,6 +151,24 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       setExpandedProject(activeProjectId);
     }
   }, [activeProjectId, expandedProject]);
+
+  // Close the row-action menu + move-to menu on any click outside a
+  // `.sidebar-row-menu` element. The toggle buttons live inside the
+  // same parent .relative wrapper, so mousedown handlers on the
+  // buttons themselves still fire first and toggle correctly.
+  useEffect(() => {
+    if (!actionMenuId && !moveMenuId) return;
+    const onMouseDown = (e: MouseEvent) => {
+      const target = e.target as Element | null;
+      if (target && target.closest && target.closest('.sidebar-row-menu')) {
+        return;
+      }
+      setActionMenuId(null);
+      setMoveMenuId(null);
+    };
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, [actionMenuId, moveMenuId]);
 
   // Search when query changes — server-side with FTS5 prefix matching
   useEffect(() => {
@@ -389,7 +411,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
                     <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
                   </svg>
-                  <span className="flex-1 truncate text-xs font-medium">{proj.name}</span>
+                  <span className="flex-1 truncate font-medium">{proj.name}</span>
                   <span className="text-xs text-text-secondary">{proj.conversation_count}</span>
                   <span className="text-[10px] text-text-secondary">{expandedProject === proj.id ? '\u25BE' : '\u25B8'}</span>
 
@@ -439,8 +461,17 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                         editTitle={editTitle}
                         onEditTitleChange={setEditTitle}
                         onEditComplete={handleRename}
-                        onMoveMenu={() => setMoveMenuId(chat.id === moveMenuId ? null : chat.id)}
+                        onMoveMenu={() => {
+                          setActionMenuId(null);
+                          setMoveMenuId(chat.id === moveMenuId ? null : chat.id);
+                        }}
                         showMoveMenu={moveMenuId === chat.id}
+                        onActionMenu={() => {
+                          setMoveMenuId(null);
+                          setActionMenuId(chat.id === actionMenuId ? null : chat.id);
+                        }}
+                        showActionMenu={actionMenuId === chat.id}
+                        onCloseMenus={() => { setActionMenuId(null); setMoveMenuId(null); }}
                         projects={projects}
                         onMoveToProject={(pid) => handleMoveToProject(chat.id, pid)}
                         onUnfile={() => handleUnfile(chat.id, proj.id)}
@@ -504,8 +535,17 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                 editTitle={editTitle}
                 onEditTitleChange={setEditTitle}
                 onEditComplete={handleRename}
-                onMoveMenu={() => setMoveMenuId(chat.id === moveMenuId ? null : chat.id)}
+                onMoveMenu={() => {
+                  setActionMenuId(null);
+                  setMoveMenuId(chat.id === moveMenuId ? null : chat.id);
+                }}
                 showMoveMenu={moveMenuId === chat.id}
+                onActionMenu={() => {
+                  setMoveMenuId(null);
+                  setActionMenuId(chat.id === actionMenuId ? null : chat.id);
+                }}
+                showActionMenu={actionMenuId === chat.id}
+                onCloseMenus={() => { setActionMenuId(null); setMoveMenuId(null); }}
                 projects={projects}
                 onMoveToProject={(pid) => handleMoveToProject(chat.id, pid)}
                 isInProject={false}
@@ -682,6 +722,11 @@ interface ChatRowProps {
   onEditComplete: (id: string) => void;
   onMoveMenu: () => void;
   showMoveMenu: boolean;
+  // Claude-style three-dots action menu. Mutually exclusive with the
+  // move menu (only one popover open at a time per row).
+  onActionMenu: () => void;
+  showActionMenu: boolean;
+  onCloseMenus: () => void;
   projects: Project[];
   onMoveToProject: (projectId: string) => void;
   onUnfile?: () => void;
@@ -691,7 +736,9 @@ interface ChatRowProps {
 function ChatRow({
   chat, isCurrent, onSelect, onDelete, onRename, onPin,
   editingId, editTitle, onEditTitleChange, onEditComplete,
-  onMoveMenu, showMoveMenu, projects, onMoveToProject, onUnfile, isInProject,
+  onMoveMenu, showMoveMenu,
+  onActionMenu, showActionMenu, onCloseMenus,
+  projects, onMoveToProject, onUnfile, isInProject,
 }: ChatRowProps) {
   return (
     <div className="relative">
@@ -714,7 +761,7 @@ function ChatRow({
             className="flex-1 bg-bg-primary border border-accent rounded px-1 py-0.5 text-xs text-text-primary outline-none"
           />
         ) : (
-          <span className="flex-1 truncate text-xs">{chat.title || 'Untitled'}</span>
+          <span className="flex-1 truncate">{chat.title || 'Untitled'}</span>
         )}
 
         {/* Pin */}
@@ -732,40 +779,70 @@ function ChatRow({
           </svg>
         </button>
 
-        {/* Actions */}
-        <div className="hidden group-hover:flex items-center gap-0.5 flex-shrink-0">
+        {/* Three-dots action menu trigger. Fades in on row hover.
+            Stays visible when the menu is open so the user can click
+            the toggle a second time to dismiss. */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onActionMenu(); }}
+          className={`sidebar-row-menu flex-shrink-0 p-1 rounded cursor-pointer transition-opacity hover:bg-bg-primary hover:text-text-primary ${
+            showActionMenu
+              ? 'opacity-100 text-text-primary'
+              : 'opacity-0 group-hover:opacity-100 text-text-secondary'
+          }`}
+          title="More"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <circle cx="12" cy="5" r="1.6" />
+            <circle cx="12" cy="12" r="1.6" />
+            <circle cx="12" cy="19" r="1.6" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Three-dots action menu (Rename / Move / Delete). Right-
+          anchored under the row, same dropdown shape as the move
+          menu. `.sidebar-row-menu` keeps the click-outside listener
+          in Sidebar from closing it when the user clicks inside. */}
+      {showActionMenu && (
+        <div className="sidebar-row-menu absolute right-0 top-full z-50 w-44 bg-bg-secondary border border-border rounded-lg shadow-lg overflow-hidden mt-1">
           <button
-            onClick={(e) => { e.stopPropagation(); onRename(chat.id); }}
-            className="p-1 rounded text-text-secondary hover:text-accent hover:bg-bg-primary cursor-pointer"
-            title="Rename"
+            onClick={(e) => { e.stopPropagation(); onCloseMenus(); onRename(chat.id); }}
+            className="w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary cursor-pointer"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+            Rename
           </button>
           {projects.length > 0 && (
             <button
               onClick={(e) => { e.stopPropagation(); onMoveMenu(); }}
-              className="p-1 rounded text-text-secondary hover:text-accent hover:bg-bg-primary cursor-pointer"
-              title="Move to project"
+              className="w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary cursor-pointer flex items-center justify-between"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+              <span>Move to project</span>
+              <span className="text-text-secondary text-[10px]">&#9656;</span>
+            </button>
+          )}
+          {isInProject && onUnfile && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onCloseMenus(); onUnfile(); }}
+              className="w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary cursor-pointer"
+            >
+              Remove from project
             </button>
           )}
           <button
-            onClick={(e) => onDelete(chat.id, e)}
-            className="p-1 rounded text-text-secondary hover:text-error hover:bg-bg-primary cursor-pointer"
-            title="Delete"
+            onClick={(e) => { e.stopPropagation(); onCloseMenus(); onDelete(chat.id, e); }}
+            className="w-full text-left px-3 py-2 text-xs text-error hover:bg-bg-tertiary cursor-pointer"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+            Delete
           </button>
         </div>
-      </div>
+      )}
 
       {/* Move to project dropdown */}
       {showMoveMenu && (
-        <div className="absolute right-0 top-full z-50 w-44 bg-bg-secondary border border-border rounded-lg shadow-lg overflow-hidden mt-1">
+        <div className="sidebar-row-menu absolute right-0 top-full z-50 w-44 bg-bg-secondary border border-border rounded-lg shadow-lg overflow-hidden mt-1">
           {isInProject && onUnfile && (
             <button
-              onClick={(e) => { e.stopPropagation(); onUnfile(); }}
+              onClick={(e) => { e.stopPropagation(); onCloseMenus(); onUnfile(); }}
               className="w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary cursor-pointer"
             >
               Remove from project
@@ -774,7 +851,7 @@ function ChatRow({
           {projects.map(p => (
             <button
               key={p.id}
-              onClick={(e) => { e.stopPropagation(); onMoveToProject(p.id); }}
+              onClick={(e) => { e.stopPropagation(); onCloseMenus(); onMoveToProject(p.id); }}
               className="w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary cursor-pointer truncate"
             >
               {p.name}
