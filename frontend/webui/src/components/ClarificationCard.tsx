@@ -21,13 +21,18 @@ export function ClarificationCard({ clarification, onSubmit, disabled }: Clarifi
   };
 
   const handleSubmit = () => {
-    const lines = clarification.questions.map((q, i) => {
+    // Format each answered question as a Q/A pair so the user's
+    // reply bubble (and the model's next-turn context) carries the
+    // question text alongside the user's chosen answer. Pairs are
+    // separated by blank lines so Markdown renders them as distinct
+    // paragraphs.
+    const pairs = clarification.questions.map((q, i) => {
       const val = answers[q.id];
       const display = val === '__custom__' ? customInputs[q.id] || '' : val || '';
-      return `Q${i + 1}: ${display}`;
+      return `Q${i + 1}: ${q.text}\nA${i + 1}: ${display}`;
     });
     setSubmitted(true);
-    onSubmit(lines.join('\n'));
+    onSubmit(pairs.join('\n\n'));
   };
 
   const allAnswered = clarification.questions.every(q => {
