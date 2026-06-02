@@ -230,6 +230,12 @@ export type AdminRole = 'user' | 'group_leader' | 'admin';
 
 export interface AdminUser {
   id: number;
+  first_name: string;
+  last_name: string;
+  // `name` is a back-compat alias the auth service computes as
+  // f"{first_name} {last_name}".strip(). Kept on the type so legacy
+  // consumers (retrieval's X-Munin-Name header, /auth/me) don't need
+  // to change all at once.
   name: string;
   role: AdminRole;
   group: string | null;
@@ -281,7 +287,8 @@ export async function fetchAdminUsers(): Promise<AdminUser[]> {
 }
 
 export async function createAdminUser(input: {
-  name: string;
+  first_name: string;
+  last_name?: string;
   email: string;
   role?: AdminRole;
   group?: string | null;
@@ -294,7 +301,8 @@ export async function createAdminUser(input: {
 }
 
 export async function updateAdminUser(id: number, patch: {
-  name?: string;
+  first_name?: string;
+  last_name?: string;
   role?: AdminRole;
   group?: string | null;
   username?: string | null;

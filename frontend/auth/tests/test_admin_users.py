@@ -43,34 +43,58 @@ def test_list_users_returns_all(client, auth_env):
 def test_create_user_succeeds(client, auth_env):
     cookies = _admin_cookies(auth_env)
     r = client.post("/admin/users", cookies=cookies,
-                    json={"name": "Charlie", "email": "charlie@example.org",
-                          "role": "user"})
+                    json={"first_name": "Charlie", "last_name": "Brown",
+                          "email": "charlie@example.org", "role": "user"})
     assert r.status_code == 201
     body = r.json()
-    assert body["name"] == "Charlie"
+    assert body["first_name"] == "Charlie"
+    assert body["last_name"] == "Brown"
+    # `name` is derived for back-compat (retrieval's X-Munin-Name header,
+    # /auth/me, contributors.yml). Must stay populated.
+    assert body["name"] == "Charlie Brown"
     assert body["role"] == "user"
     assert body["primary_email"] == "charlie@example.org"
+
+
+def test_create_user_without_last_name_succeeds(client, auth_env):
+    # The whitelist seed leaves ~30 rows with blank last_name; the
+    # create endpoint must accept the same shape.
+    cookies = _admin_cookies(auth_env)
+    r = client.post("/admin/users", cookies=cookies,
+                    json={"first_name": "Charlie", "email": "charlie@example.org"})
+    assert r.status_code == 201
+    body = r.json()
+    assert body["first_name"] == "Charlie"
+    assert body["last_name"] == ""
+    assert body["name"] == "Charlie"
+
+
+def test_create_user_missing_first_name_400(client, auth_env):
+    cookies = _admin_cookies(auth_env)
+    r = client.post("/admin/users", cookies=cookies,
+                    json={"email": "x@e.org", "role": "user"})
+    assert r.status_code == 400
 
 
 def test_create_user_duplicate_email_409(client, auth_env):
     cookies = _admin_cookies(auth_env)
     make_user(auth_env, "alice@example.org", "Alice")
     r = client.post("/admin/users", cookies=cookies,
-                    json={"name": "Alice2", "email": "alice@example.org"})
+                    json={"first_name": "Alice2", "email": "alice@example.org"})
     assert r.status_code == 409
 
 
 def test_create_user_invalid_role_400(client, auth_env):
     cookies = _admin_cookies(auth_env)
     r = client.post("/admin/users", cookies=cookies,
-                    json={"name": "X", "email": "x@e.org", "role": "wizard"})
+                    json={"first_name": "X", "email": "x@e.org", "role": "wizard"})
     assert r.status_code == 400
 
 
 def test_create_user_with_unknown_group_400(client, auth_env):
     cookies = _admin_cookies(auth_env)
     r = client.post("/admin/users", cookies=cookies,
-                    json={"name": "X", "email": "x@e.org", "group": "nope"})
+                    json={"first_name": "X", "email": "x@e.org", "group": "nope"})
     assert r.status_code == 400
 
 
@@ -78,12 +102,35 @@ def test_patch_user_updates_fields(client, auth_env):
     cookies = _admin_cookies(auth_env)
     uid = make_user(auth_env, "alice@example.org", "Alice")
     r = client.patch(f"/admin/users/{uid}", cookies=cookies,
-                     json={"name": "Alice X", "role": "group_leader",
-                           "username": "alicex"})
+                     json={"first_name": "Alice", "last_name": "Xavier",
+                           "role": "group_leader", "username": "alicex"})
     assert r.status_code == 200
-    assert r.json()["name"] == "Alice X"
-    assert r.json()["role"] == "group_leader"
-    assert r.json()["username"] == "alicex"
+    body = r.json()
+    assert body["first_name"] == "Alice"
+    assert body["last_name"] == "Xavier"
+    assert body["name"] == "Alice Xavier"
+    assert body["role"] == "group_leader"
+    assert body["username"] == "alicex"
+
+
+def test_patch_user_can_clear_last_name(client, auth_env):
+    cookies = _admin_cookies(auth_env)
+    uid = make_user(auth_env, "alice@example.org", "Alice", last_name="Smith")
+    r = client.patch(f"/admin/users/{uid}", cookies=cookies,
+                     json={"last_name": ""})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["last_name"] == ""
+    assert body["first_name"] == "Alice"
+    assert body["name"] == "Alice"
+
+
+def test_patch_user_rejects_blank_first_name(client, auth_env):
+    cookies = _admin_cookies(auth_env)
+    uid = make_user(auth_env, "alice@example.org", "Alice")
+    r = client.patch(f"/admin/users/{uid}", cookies=cookies,
+                     json={"first_name": ""})
+    assert r.status_code == 400
 
 
 def test_patch_cannot_demote_last_admin(client, auth_env):
@@ -213,11 +260,15 @@ def test_set_primary_email(client, auth_env):
 
 def test_export_users_csv(client, auth_env):
     cookies = _admin_cookies(auth_env)
-    make_user(auth_env, "alice@example.org", "Alice")
+    make_user(auth_env, "alice@example.org", "Alice", last_name="Anderson")
+    make_user(auth_env, "bob@example.org", "Bob")  # no last_name
     r = client.get("/admin/users.csv", cookies=cookies)
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/csv")
     body = r.text
-    assert body.startswith("email,name,role")
-    assert "alice@example.org,Alice,user" in body
-    assert "admin@example.org,Admin,admin" in body
+    assert body.startswith("email,first_name,last_name,role")
+    # Row shape: email,first_name,last_name,role with an empty cell
+    # when last_name is None.
+    assert "alice@example.org,Alice,Anderson,user" in body
+    assert "bob@example.org,Bob,,user" in body
+    assert "admin@example.org,Admin,,admin" in body
