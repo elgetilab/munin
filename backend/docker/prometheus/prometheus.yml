@@ -1,0 +1,35 @@
+# Prometheus scrape configuration for Munin.
+#
+# Mounted read-only into the prometheus container at
+# /etc/prometheus/prometheus.yml. Lives in the same docker network as
+# the retrieval container so it can reach it by service name.
+#
+# The only series we currently care about live on the retrieval
+# service at /metrics/. The endpoint is unauthenticated and
+# cluster-internal (Caddy proxies only /api/* + /paper/*), so no
+# auth/bearer config is needed.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: munin
+    site: hugin
+
+scrape_configs:
+  # Retrieval service: vLLM call counters, MCP tool latency, chat
+  # turn counters, phantom-URL counters, plus Python process metrics.
+  - job_name: munin-retrieval
+    metrics_path: /metrics/
+    static_configs:
+      - targets: ['munin-retrieval:8080']
+        labels:
+          service: retrieval
+
+  # Self: keep Prometheus's own internal metrics around so we can spot
+  # ingestion stalls before they hide upstream outages.
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: prometheus

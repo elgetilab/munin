@@ -20,6 +20,7 @@
 #   sudo ./deploy.sh pipeline       - paper_pipeline.py → /opt/cluster/scripts/pipeline/ (§28)
 #   sudo ./deploy.sh retrieval      - retrieval/ code, rebuild + restart container
 #   sudo ./deploy.sh searxng        - searxng settings.yml + restart container
+#   sudo ./deploy.sh monitoring     - prometheus + grafana on the metrics endpoint
 #   sudo ./deploy.sh verify         - smoke-test /api/status and /api/personas
 #   sudo ./deploy.sh --dry-run <mode> - show what would change, do nothing
 #
@@ -484,6 +485,58 @@ deploy_tunnel() {
 }
 
 # ------------------------------------------------------------------------------
+# monitoring: install Prometheus + Grafana configs, bring services up
+# ------------------------------------------------------------------------------
+# Idempotent: re-running it copies the latest scrape config + dashboards
+# into /opt/munin/docker/{prometheus,grafana}/ and recreates the two
+# containers under the `monitoring` profile. Bound to 127.0.0.1 on
+# 9090 (Prometheus) and 3000 (Grafana). Reach Grafana via SSH tunnel:
+#   ssh -L 3000:127.0.0.1:3000 hugin
+# Default Grafana login: admin / ${GRAFANA_ADMIN_PASSWORD:-munin}.
+deploy_monitoring() {
+    echo "[monitoring] Installing Prometheus + Grafana configs..."
+    need_file "$REPO_DIR/docker/prometheus/prometheus.yml"
+    need_file "$REPO_DIR/docker/grafana/provisioning/datasources/prometheus.yml"
+    need_file "$REPO_DIR/docker/grafana/provisioning/dashboards/dashboard.yml"
+
+    local MUNIN_PROM=$MUNIN_DOCKER/prometheus
+    local MUNIN_GRAFANA=$MUNIN_DOCKER/grafana
+    run "install -d -m 0755 $MUNIN_PROM"
+    run "install -d -m 0755 $MUNIN_GRAFANA/provisioning/datasources"
+    run "install -d -m 0755 $MUNIN_GRAFANA/provisioning/dashboards"
+    run "install -d -m 0755 $MUNIN_GRAFANA/dashboards"
+
+    run "install -m 0644 $REPO_DIR/docker/prometheus/prometheus.yml \
+        $MUNIN_PROM/prometheus.yml"
+    run "install -m 0644 \
+        $REPO_DIR/docker/grafana/provisioning/datasources/prometheus.yml \
+        $MUNIN_GRAFANA/provisioning/datasources/prometheus.yml"
+    run "install -m 0644 \
+        $REPO_DIR/docker/grafana/provisioning/dashboards/dashboard.yml \
+        $MUNIN_GRAFANA/provisioning/dashboards/dashboard.yml"
+    # Sync the dashboards dir wholesale so adding / renaming a *.json
+    # picks up the change on the next deploy.
+    run "rsync -a --delete \
+        $REPO_DIR/docker/grafana/dashboards/ \
+        $MUNIN_GRAFANA/dashboards/"
+
+    if [ "$DRY_RUN" = "0" ]; then
+        if docker info >/dev/null 2>&1; then
+            run "cd $MUNIN_DOCKER && docker compose --profile monitoring up -d prometheus grafana"
+            echo "[OK] monitoring — prometheus + grafana up on 127.0.0.1:{9090,3000}"
+            echo "      Grafana: ssh -L 3000:127.0.0.1:3000 hugin  -> http://localhost:3000"
+            echo "      Default login: admin / \${GRAFANA_ADMIN_PASSWORD:-munin}"
+        else
+            echo "[WARN] docker unreachable; bring up later with:"
+            echo "       docker compose --profile monitoring up -d prometheus grafana"
+        fi
+    else
+        echo "  [dry-run] would docker compose up -d prometheus grafana"
+    fi
+}
+
+
+# ------------------------------------------------------------------------------
 # searxng: install settings.yml and restart the container
 # ------------------------------------------------------------------------------
 deploy_searxng() {
@@ -730,6 +783,7 @@ case "$MODE" in
     pipeline)     deploy_pipeline ;;
     searxng)      deploy_searxng ;;
     sandbox)      deploy_sandbox ;;
+    monitoring)   deploy_monitoring ;;
     retrieval)    deploy_retrieval ;;
     verify)       deploy_verify ;;
     all)
