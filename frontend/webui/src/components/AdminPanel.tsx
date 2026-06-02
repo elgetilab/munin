@@ -4,6 +4,7 @@ import type { AdminActivity, AdminUsage } from '../lib/api';
 import { useUiStore } from '../stores/uiStore';
 import { UsersTab } from './admin/UsersTab';
 import { GroupsTab } from './admin/GroupsTab';
+import { MetricsTab } from './admin/MetricsTab';
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -32,7 +33,7 @@ function shortEmail(email: string): string {
 export function AdminPanel() {
   const setShowAdmin = useUiStore(s => s.setShowAdmin);
   const onClose = () => setShowAdmin(false);
-  const [tab, setTab] = useState<'activity' | 'usage' | 'users' | 'groups'>('activity');
+  const [tab, setTab] = useState<AdminTab>('activity');
   const [activity, setActivity] = useState<AdminActivity | null>(null);
   const [usage, setUsage] = useState<AdminUsage | null>(null);
   const [loading, setLoading] = useState(true);
@@ -107,6 +108,7 @@ export function AdminPanel() {
         <div className="flex gap-1 mb-4 border-b border-border">
           <TabButton current={tab} value="activity" onClick={setTab}>Activity</TabButton>
           <TabButton current={tab} value="usage" onClick={setTab}>Usage</TabButton>
+          <TabButton current={tab} value="metrics" onClick={setTab}>Metrics</TabButton>
           <TabButton current={tab} value="users" onClick={setTab}>Users</TabButton>
           <TabButton current={tab} value="groups" onClick={setTab}>Groups</TabButton>
         </div>
@@ -116,6 +118,8 @@ export function AdminPanel() {
           <UsersTab />
         ) : tab === 'groups' ? (
           <GroupsTab />
+        ) : tab === 'metrics' ? (
+          <MetricsTab />
         ) : loading ? (
           <div className="text-center text-text-secondary text-sm py-12">Loading...</div>
         ) : error ? (
@@ -130,7 +134,7 @@ export function AdminPanel() {
   );
 }
 
-type AdminTab = 'activity' | 'usage' | 'users' | 'groups';
+type AdminTab = 'activity' | 'usage' | 'metrics' | 'users' | 'groups';
 
 function TabButton({ current, value, onClick, children }: {
   current: AdminTab;

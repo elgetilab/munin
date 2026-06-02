@@ -485,53 +485,52 @@ deploy_tunnel() {
 }
 
 # ------------------------------------------------------------------------------
-# monitoring: install Prometheus + Grafana configs, bring services up
+# monitoring: install Prometheus config, bring it up. Dashboards live
+# in webui (AdminPanel -> Metrics tab) and query Prometheus via a
+# retrieval-side proxy. There is no Grafana service.
 # ------------------------------------------------------------------------------
-# Idempotent: re-running it copies the latest scrape config + dashboards
-# into /opt/munin/docker/{prometheus,grafana}/ and recreates the two
-# containers under the `monitoring` profile. Bound to 127.0.0.1 on
-# 9090 (Prometheus) and 3000 (Grafana). Reach Grafana via SSH tunnel:
-#   ssh -L 3000:127.0.0.1:3000 hugin
-# Default Grafana login: admin / ${GRAFANA_ADMIN_PASSWORD:-munin}.
+# Idempotent: re-running it copies the latest scrape config to
+# /opt/munin/docker/prometheus/ and recreates the container under the
+# `monitoring` profile. Bound to 127.0.0.1:9090 only.
 deploy_monitoring() {
-    echo "[monitoring] Installing Prometheus + Grafana configs..."
+    echo "[monitoring] Installing Prometheus config..."
     need_file "$REPO_DIR/docker/prometheus/prometheus.yml"
-    need_file "$REPO_DIR/docker/grafana/provisioning/datasources/prometheus.yml"
-    need_file "$REPO_DIR/docker/grafana/provisioning/dashboards/dashboard.yml"
+    need_file "$REPO_DIR/docker/docker-compose.yml"
+
+    # Refresh the compose file too. The prometheus service lives under
+    # the `monitoring` profile; if /opt/munin/docker/docker-compose.yml
+    # predates it, `docker compose up` will reject `prometheus` as an
+    # unknown service.
+    run "install -d -m 0755 $MUNIN_DOCKER"
+    run "install -m 0644 $REPO_DIR/docker/docker-compose.yml \
+        $MUNIN_DOCKER/docker-compose.yml"
 
     local MUNIN_PROM=$MUNIN_DOCKER/prometheus
-    local MUNIN_GRAFANA=$MUNIN_DOCKER/grafana
     run "install -d -m 0755 $MUNIN_PROM"
-    run "install -d -m 0755 $MUNIN_GRAFANA/provisioning/datasources"
-    run "install -d -m 0755 $MUNIN_GRAFANA/provisioning/dashboards"
-    run "install -d -m 0755 $MUNIN_GRAFANA/dashboards"
-
     run "install -m 0644 $REPO_DIR/docker/prometheus/prometheus.yml \
         $MUNIN_PROM/prometheus.yml"
-    run "install -m 0644 \
-        $REPO_DIR/docker/grafana/provisioning/datasources/prometheus.yml \
-        $MUNIN_GRAFANA/provisioning/datasources/prometheus.yml"
-    run "install -m 0644 \
-        $REPO_DIR/docker/grafana/provisioning/dashboards/dashboard.yml \
-        $MUNIN_GRAFANA/provisioning/dashboards/dashboard.yml"
-    # Sync the dashboards dir wholesale so adding / renaming a *.json
-    # picks up the change on the next deploy.
-    run "rsync -a --delete \
-        $REPO_DIR/docker/grafana/dashboards/ \
-        $MUNIN_GRAFANA/dashboards/"
 
     if [ "$DRY_RUN" = "0" ]; then
         if docker info >/dev/null 2>&1; then
-            run "cd $MUNIN_DOCKER && docker compose --profile monitoring up -d prometheus grafana"
-            echo "[OK] monitoring — prometheus + grafana up on 127.0.0.1:{9090,3000}"
-            echo "      Grafana: ssh -L 3000:127.0.0.1:3000 hugin  -> http://localhost:3000"
-            echo "      Default login: admin / \${GRAFANA_ADMIN_PASSWORD:-munin}"
+            # Tear down the legacy Grafana container if it's still
+            # running from a pre-2026-06-02 deploy. Volume `grafana_data`
+            # is preserved so a future re-introduction of Grafana could
+            # reuse it; remove it manually if you want a clean wipe:
+            #   docker volume rm frontend_grafana_data
+            if docker ps --format '{{.Names}}' | grep -q '^munin-grafana$'; then
+                echo "[monitoring] tearing down legacy munin-grafana container..."
+                run "docker stop munin-grafana"
+                run "docker rm munin-grafana"
+            fi
+            run "cd $MUNIN_DOCKER && docker compose --profile monitoring up -d prometheus"
+            echo "[OK] monitoring — prometheus up on 127.0.0.1:9090"
+            echo "      Dashboards: webui AdminPanel -> Metrics tab"
         else
             echo "[WARN] docker unreachable; bring up later with:"
-            echo "       docker compose --profile monitoring up -d prometheus grafana"
+            echo "       docker compose --profile monitoring up -d prometheus"
         fi
     else
-        echo "  [dry-run] would docker compose up -d prometheus grafana"
+        echo "  [dry-run] would docker compose up -d prometheus"
     fi
 }
 

@@ -184,6 +184,17 @@ services:
       - CONTRIBUTORS_CONFIG=/data/contributors.yml
       - CONTRIBUTORS_SYNC_URL=${CONTRIBUTORS_SYNC_URL:-https://auth.muninai.org/admin/contributors.yaml}
       - CONTRIBUTORS_SYNC_TOKEN=${CONTRIBUTORS_SYNC_TOKEN:-}
+      # Admin metrics proxy (in-house dashboards under webui Admin
+      # panel -> Metrics tab). URL points at the auth service's
+      # /admin/check-role endpoint; the token is the same KB_GATE_TOKEN
+      # the tusd hook-service uses, since the lookup is identical
+      # (read-only role check). When the token is unset, the metrics
+      # proxy returns 503 so the panel surfaces "not configured".
+      - AUTH_CHECK_ROLE_URL=${AUTH_CHECK_ROLE_URL:-https://auth.muninai.org/admin/check-role}
+      - KB_GATE_TOKEN=${KB_GATE_TOKEN:-}
+      # Prometheus URL for the metrics proxy. Inside the docker network
+      # the prometheus container is reachable by service name.
+      - PROMETHEUS_URL=${PROMETHEUS_URL:-http://prometheus:9090}
       - CONTRIBUTORS_SYNC_INTERVAL_SECS=${CONTRIBUTORS_SYNC_INTERVAL_SECS:-300}
       - PAPER_PIPELINE_SCRIPT=/app/pipeline/paper_pipeline.py
       # paper_pipeline.py subprocess reads this for GROBID connectivity
@@ -266,7 +277,10 @@ services:
   # ============================================================================
   # Bound to 127.0.0.1:9090 only. Same network as retrieval so it can
   # reach it by service name. Lives under the `monitoring` profile so a
-  # cluster boot that doesn't want metrics can skip both services.
+  # cluster boot that doesn't want metrics can skip it. There is no
+  # Grafana service: the dashboards live in-tree under the webui
+  # admin panel and query Prometheus via a retrieval-side proxy at
+  # /api/admin/metrics/{query,query_range} -- see docs/MONITORING.md.
   prometheus:
     image: prom/prometheus:v3.0.1
     container_name: munin-prometheus
@@ -287,41 +301,8 @@ services:
     profiles:
       - monitoring
 
-  # ============================================================================
-  # GRAFANA - dashboards on top of prometheus
-  # ============================================================================
-  # Bound to 127.0.0.1:3000 only. Reach it via SSH tunnel:
-  #   ssh -L 3000:127.0.0.1:3000 hugin
-  # First login: admin / ${GRAFANA_ADMIN_PASSWORD:-munin}. Change on
-  # first login (UI prompts). Prometheus datasource + the
-  # munin-overview dashboard are provisioned automatically.
-  grafana:
-    image: grafana/grafana:11.4.0
-    container_name: munin-grafana
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:3000:3000"
-    volumes:
-      - /opt/munin/docker/grafana/provisioning:/etc/grafana/provisioning:ro
-      - /opt/munin/docker/grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - grafana_data:/var/lib/grafana
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-munin}
-      - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_USERS_DEFAULT_THEME=dark
-      - GF_INSTALL_PLUGINS=
-      # Localhost-only deploy: no need for invite emails / SMTP.
-      - GF_AUTH_ANONYMOUS_ENABLED=false
-    depends_on:
-      - prometheus
-    networks:
-      - default
-    profiles:
-      - monitoring
-
 volumes:
   prometheus_data:
-  grafana_data:
 
 networks:
   default:

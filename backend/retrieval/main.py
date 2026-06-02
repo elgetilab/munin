@@ -95,6 +95,7 @@ import artifact_store
 from maintenance import read_maintenance
 import stream_registry as stream_registry_module
 import metrics as metrics_module
+import metrics_proxy
 from logging_config import configure_logging
 import logging
 
@@ -3925,6 +3926,120 @@ async def startup():
     print("    POST /search/similar-by-authors - Papers by same authors")
     print("    GET  /paper/{doi}/enriched      - Paper with citation metadata")
     print("=" * 60)
+
+
+# ============================================================================
+# ADMIN METRICS PROXY (2026-06-02)
+# ============================================================================
+# Forwards PromQL queries from the webui Admin panel -> Metrics tab to
+# the Prometheus container next door. Gated by checking that the
+# caller's X-Munin-Email (set by Caddy forward-auth) has role=admin
+# via auth.muninai.org/admin/check-role. See metrics_proxy.py for the
+# wire details.
+
+
+async def _require_admin_email(request: Request) -> str:
+    """Resolve X-Munin-Email and verify admin role. Returns the email
+    on success; raises HTTPException on missing header / unknown user /
+    non-admin role / proxy not configured."""
+    if not metrics_proxy.is_configured():
+        raise HTTPException(
+            status_code=503,
+            detail={"error": {"message": "Metrics proxy not configured (KB_GATE_TOKEN unset)"}},
+        )
+    email = (request.headers.get("X-Munin-Email") or "").strip().lower()
+    if not email:
+        raise HTTPException(
+            status_code=401,
+            detail={"error": {"message": "Missing X-Munin-Email header"}},
+        )
+    try:
+        async with httpx.AsyncClient() as client:
+            role = await metrics_proxy.lookup_role(client, email)
+    except httpx.HTTPError as e:
+        raise HTTPException(
+            status_code=502,
+            detail={"error": {"message": f"auth role lookup failed: {e}"}},
+        )
+    if role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail={"error": {"message": "Admin role required"}},
+        )
+    return email
+
+
+@app.post("/api/admin/metrics/query")
+async def api_admin_metrics_query(request: Request):
+    """Proxy a Prometheus instant query.
+
+    Body (JSON):
+        {"query": "<promql>", "time": "<rfc3339>"?}
+
+    Returns Prometheus's raw response body. Errors are forwarded as
+    JSONResponse with the upstream status code so the frontend can
+    distinguish auth failures from query syntax errors."""
+    await _require_admin_email(request)
+    body = await request.json()
+    query = (body.get("query") or "").strip()
+    if not query:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": "`query` is required"}},
+        )
+    time_param = body.get("time") or None
+    try:
+        async with httpx.AsyncClient() as client:
+            return JSONResponse(
+                await metrics_proxy.query_instant(client, query, time_param)
+            )
+    except httpx.HTTPStatusError as e:
+        return JSONResponse(
+            {"error": {"message": e.response.text[:500]}},
+            status_code=e.response.status_code,
+        )
+    except httpx.HTTPError as e:
+        raise HTTPException(
+            status_code=502,
+            detail={"error": {"message": f"prometheus unreachable: {e}"}},
+        )
+
+
+@app.post("/api/admin/metrics/query_range")
+async def api_admin_metrics_query_range(request: Request):
+    """Proxy a Prometheus range query.
+
+    Body (JSON):
+        {"query": "<promql>", "start": "<rfc3339>", "end": "<rfc3339>", "step": "15s"}
+    """
+    await _require_admin_email(request)
+    body = await request.json()
+    query = (body.get("query") or "").strip()
+    start = (body.get("start") or "").strip()
+    end = (body.get("end") or "").strip()
+    step = (body.get("step") or "").strip()
+    missing = [k for k, v in (("query", query), ("start", start),
+                              ("end", end), ("step", step)) if not v]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": f"missing fields: {', '.join(missing)}"}},
+        )
+    try:
+        async with httpx.AsyncClient() as client:
+            return JSONResponse(
+                await metrics_proxy.query_range(client, query, start, end, step)
+            )
+    except httpx.HTTPStatusError as e:
+        return JSONResponse(
+            {"error": {"message": e.response.text[:500]}},
+            status_code=e.response.status_code,
+        )
+    except httpx.HTTPError as e:
+        raise HTTPException(
+            status_code=502,
+            detail={"error": {"message": f"prometheus unreachable: {e}"}},
+        )
 
 
 if __name__ == "__main__":
