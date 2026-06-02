@@ -44,6 +44,13 @@ once the file exists.
   - `CONTRIBUTORS_SYNC_TOKEN`: `openssl rand -hex 32`. Must match
     the same key on the VPS so the cluster can pull
     `auth.<your-domain>/admin/contributors.yaml` every 5 minutes.
+  - `KB_GATE_TOKEN`: `openssl rand -hex 32`. Must match the same
+    key on the VPS. Originally the bearer for the tusd KB-upload
+    pre-create hook (VPS-only); since 2026-06-02 also used by the
+    cluster's metrics proxy to call `/admin/check-role` for the
+    in-house Metrics dashboard. If you already set it on the VPS
+    side, copy that exact value here -- they MUST match. See
+    `shared/docs/MONITORING.md` for the monitoring setup.
   - `SEMANTIC_SCHOLAR_API_KEY`: optional, only set if you have one
     (the citation graph builder uses it when present).
 

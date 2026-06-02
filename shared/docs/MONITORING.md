@@ -53,20 +53,63 @@ admin opens https://chat.muninai.org → Admin → Metrics
 
 ## Reproducibility (other sites)
 
-What another admin needs to do for a clean clone:
+The dashboard works on a fresh clone if both sides of the VPS↔cluster
+pair share the same `KB_GATE_TOKEN`. That's the only piece of cross-
+site coordination the Metrics tab needs; everything else lives in the
+repo and is picked up by `deploy.sh`.
 
-1. `git clone` the repo onto their cluster.
-2. Add to `/opt/munin/docker/.env`:
-   - `KB_GATE_TOKEN=<random-32-byte-hex>` — the shared bearer between
-     retrieval and auth. Must match the one set on the auth side.
-   - `AUTH_CHECK_ROLE_URL=https://auth.<their-domain>/admin/check-role`
-     (optional; the default points at `auth.muninai.org`).
-3. `sudo ./backend/deploy.sh monitoring` — installs the prometheus
-   config and brings the container up.
-4. `sudo ./backend/deploy.sh retrieval` — rebuilds retrieval with the
-   metrics-proxy env vars wired in.
-5. Open the chat UI, sign in as an admin, navigate to Admin →
-   Metrics. The 8 default panels should populate within ~30 s.
+### One-time setup (fresh deploy)
+
+The standard cluster + VPS bootstrap (`SETUP-CLUSTER.md`,
+`SETUP-VPS.md`) already covers generating `KB_GATE_TOKEN` and
+declaring it on both sides. If you followed those, you're done --
+`sudo ./backend/deploy.sh monitoring && sudo ./backend/deploy.sh retrieval`
+on hugin brings up Prometheus + the metrics proxy.
+
+### Existing deploys: adding KB_GATE_TOKEN on the cluster side
+
+If you already have a working VPS that issued a `KB_GATE_TOKEN` for
+the tusd KB-upload gate, the cluster needs the SAME value (the
+metrics proxy reuses the auth service's `/admin/check-role` endpoint,
+which gates on this bearer).
+
+Copy the VPS-side value into the cluster's docker `.env` from a shell
+that has SSH to the VPS:
+
+```
+TOKEN=$(ssh <admin>@<vps> 'docker exec frontend-munin-auth-1 sh -c "printf %s \"\$KB_GATE_TOKEN\""')
+sudo sh -c "grep -v '^KB_GATE_TOKEN=' /opt/munin/docker/.env > /tmp/.env.new && \
+            echo 'KB_GATE_TOKEN=$TOKEN' >> /tmp/.env.new && \
+            mv /tmp/.env.new /opt/munin/docker/.env"
+sudo sh -c 'cd /opt/munin/docker && docker compose --profile rag up -d --force-recreate retrieval'
+```
+
+To verify both sides match without exposing the token, run this on
+the cluster:
+
+```
+sudo grep '^KB_GATE_TOKEN=' /opt/munin/docker/.env | \
+  sed -E 's|^KB_GATE_TOKEN=(.{6}).*(.{4})$|first6=\1 last4=\2|'
+```
+
+And on the VPS:
+
+```
+ssh <admin>@<vps> 'docker exec frontend-munin-auth-1 sh -c \
+  "echo first6=\$(printf %s \"\$KB_GATE_TOKEN\" | head -c 6); \
+   echo last4=\$(printf %s \"\$KB_GATE_TOKEN\" | tail -c 4)"'
+```
+
+The `first6=/last4=` outputs should match exactly. If they differ,
+copy one side's value to the other.
+
+### Optional overrides
+
+- `AUTH_CHECK_ROLE_URL` — only set if your auth service hostname
+  isn't `auth.muninai.org`. Default (`docker-compose.yml`) is
+  `https://auth.muninai.org/admin/check-role`.
+- `PROMETHEUS_URL` — only set if you've moved Prometheus off its
+  default docker service name. Default is `http://prometheus:9090`.
 
 No site-specific values are hardcoded in checked-in files. The
 defaults in `metrics_proxy.py` are valid for this site; everything

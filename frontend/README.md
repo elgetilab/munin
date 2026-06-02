@@ -38,7 +38,9 @@ All commands are run from inside `frontend/`.
 cp .env.template .env
 # Fill in: AUTH_SECRET_KEY (openssl rand -hex 32), SMTP credentials,
 # ADMIN_EMAILS, ADMIN_INGEST_TOKEN, KB_GATE_TOKEN, CONTRIBUTORS_SYNC_TOKEN.
-# The last two pair with the cluster's cluster.env (same values both sides).
+# The last THREE all pair with the cluster's cluster.env (same values both sides).
+# KB_GATE_TOKEN was originally VPS-only; since 2026-06-02 the cluster's metrics
+# proxy also reads it -- see shared/docs/MONITORING.md.
 
 # 2. Seed the user list (first boot only)
 vi auth/whitelist.csv   # email,name,role per row

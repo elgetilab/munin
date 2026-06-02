@@ -61,7 +61,7 @@ from urllib.parse import quote
 import httpx
 import yaml
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 # Import from local modules
 from database import (
