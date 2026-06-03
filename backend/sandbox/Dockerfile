@@ -62,10 +62,25 @@ RUN mkdir -p /scratch && chmod 1777 /scratch
 
 # Configure matplotlib to never need a display. The kernel still emits PNGs
 # via display_data; this just stops it from trying to spin up Tk.
+#
+# Cap numerical-library thread pools at 1 (chat 56b39f33, 2026-06-03).
+# OpenBLAS, OpenMP, MKL, and numexpr all detect the host's core count and
+# eagerly spin up that many worker threads on first numpy/scipy use. The
+# firejail kernel runs under RLIMIT_NPROC; on a multi-core host this means
+# `pthread_create failed for thread 11 of 24: Resource temporarily
+# unavailable` cascades during numpy's BLAS init, which also breaks any
+# downstream import that touches numpy (e.g. matplotlib, sklearn). The
+# sandbox is for interactive correctness experiments, not number crunching;
+# single-thread BLAS is the right tradeoff and removes a major failure mode
+# the model previously misdiagnosed as "the sandbox is struggling".
 ENV MPLBACKEND=Agg \
     PYTHONUNBUFFERED=1 \
     SANDBOX_SCRATCH_DIR=/scratch \
-    SANDBOX_PORT=8090
+    SANDBOX_PORT=8090 \
+    OPENBLAS_NUM_THREADS=1 \
+    OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1
 
 EXPOSE 8090
 

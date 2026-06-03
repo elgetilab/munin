@@ -193,3 +193,61 @@ describe('Markdown — legitimate content still renders', () => {
     expect(a.getAttribute('href')).toBe('mailto:hi@example.com');
   });
 });
+
+// ────────────────────────────────────────────────────────────────────
+// F. KaTeX math rendering
+// ────────────────────────────────────────────────────────────────────
+//
+// Chat 2ab70e98 (2026-06-03): the model emitted `$\delta_1$` inline and
+// `$$\delta_n \approx 1 - (1 - \delta_1)^{nN}$$` display math, both of
+// which previously rendered as literal dollar-sign text because
+// Markdown.tsx had no math plugin. After wiring `remark-math` +
+// `rehype-katex` both forms render as KaTeX-styled DOM.
+
+describe('Markdown — KaTeX math', () => {
+  it('inline `$a^2$` renders as a .katex span', () => {
+    const { container } = renderMd('The formula $a^2 + b^2 = c^2$ holds.');
+    const katex = container.querySelector('.katex');
+    expect(katex).not.toBeNull();
+    // KaTeX rewrites `^2` as a sup; presence of a `.msupsub` or sup-styled
+    // element confirms the math was actually parsed (and not just dropped
+    // through as raw text).
+    expect(container.textContent).not.toContain('$a^2');
+  });
+
+  it('`$$E = mc^2$$` on one line still renders as KaTeX (not raw text)', () => {
+    // This is the shape the chat persona actually emits (chat
+    // 2ab70e98 had `$$\delta_{n} \approx 1 - (1 - \delta_1)^{nN}$$`
+    // on its own paragraph). remark-math renders single-line `$$`
+    // as INLINE katex rather than a centred display block; that's
+    // still a huge improvement over raw text and matches the user's
+    // requested behaviour ("render latex equations inline").
+    const { container } = renderMd('Einstein: $$E = mc^2$$ holds.');
+    expect(container.querySelector('.katex')).not.toBeNull();
+    expect(container.textContent).not.toContain('$$E');
+  });
+
+  it('multi-line `$$\\n...\\n$$` renders as a .katex-display block', () => {
+    // The strictly-correct display syntax (delimiters on their own
+    // lines) DOES trigger the .katex-display block. Worth pinning
+    // so we know when remark-math behaviour drifts.
+    const { container } = renderMd('Einstein:\n\n$$\nE = mc^2\n$$\n\nQ.E.D.');
+    expect(container.querySelector('.katex-display')).not.toBeNull();
+    expect(container.textContent).not.toContain('$$');
+  });
+
+  it('non-math `$` (with letters touching) does NOT trigger KaTeX', () => {
+    // `$5` in prose is currency, not math. remark-math is conservative
+    // about single-`$` triggers — confirm prose stays prose.
+    const { container } = renderMd('The price is $5 today.');
+    expect(container.querySelector('.katex')).toBeNull();
+    expect(container.textContent).toContain('$5');
+  });
+
+  it('math next to prose does not break following text', () => {
+    const { container } = renderMd('Compute $x^2$ then continue.');
+    // Both the rendered KaTeX and the trailing prose should be there.
+    expect(container.querySelector('.katex')).not.toBeNull();
+    expect(container.textContent).toContain('then continue');
+  });
+});

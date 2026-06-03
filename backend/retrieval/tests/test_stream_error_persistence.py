@@ -800,6 +800,124 @@ def test_client_disconnect_after_partial_content_keeps_partial_text() -> bool:
     )
 
 
+def test_client_disconnect_marker_says_disconnected_not_stream_interrupted() -> bool:
+    """
+    Chat 56b39f33 (2026-06-03): user reported the literal
+    `_(stream interrupted: stream interrupted)_` marker and had no
+    way to tell whether the server crashed or whether they themselves
+    closed the tab. The save-always finally previously fell back to
+    the literal string "stream interrupted" whenever `had_stream_error`
+    was falsy. The fix differentiates: cancellation (client disconnect)
+    gets "client disconnected before completion", any other path gets
+    "server error during stream".
+
+    This test exercises the disconnect path and asserts the new text.
+    """
+    capture: dict = {}
+    try:
+        _drive_stream_chat_disconnect_after(
+            _fake_stream_error_after_partial_content,
+            _fake_run_tool_calls_unused,
+            capture,
+            target_event="token",
+        )
+    except Exception as exc:
+        return _check(
+            "disconnect marker says 'client disconnected'",
+            False,
+            f"driver raised: {exc!r}",
+        )
+
+    assistant_calls = [
+        c for c in capture["calls"] if c.get("role") == "assistant"
+    ]
+    if not assistant_calls:
+        return _check(
+            "disconnect marker says 'client disconnected'",
+            False,
+            "no assistant row persisted",
+        )
+    content = assistant_calls[0].get("content") or ""
+    # The previous bug was the literal double-phrase below appearing
+    # because the fallback string `"stream interrupted"` was passed as
+    # the error_message argument to apply_stream_error_marker.
+    if "stream interrupted: stream interrupted" in content:
+        return _check(
+            "disconnect marker says 'client disconnected'",
+            False,
+            f"literal pre-fix placeholder still present: {content!r}",
+        )
+    # Even though the fixture would have emitted an error SSE
+    # eventually, the consumer disconnected after the first token
+    # event, BEFORE the error event made it through. So
+    # `had_stream_error` stays None and the disconnect branch wins.
+    if "client disconnected before completion" not in content:
+        return _check(
+            "disconnect marker says 'client disconnected'",
+            False,
+            f"expected 'client disconnected before completion' in saved "
+            f"content; got: {content!r}",
+        )
+    return _check("disconnect marker says 'client disconnected'", True)
+
+
+def test_pure_client_disconnect_uses_disconnected_default() -> bool:
+    """Direct test of the new `_cancelled()` branch in save-always:
+    no upstream error, no stream completion, the consumer just
+    disconnects mid-stream. The marker must say "client disconnected
+    before completion" -- not the old "stream interrupted: stream
+    interrupted" placeholder."""
+
+    async def _slow_stream(*args: Any, **kwargs: Any) -> AsyncIterator[tuple]:
+        # Stream three tokens and stop -- no error event, no done.
+        # The consumer disconnects after the second token before the
+        # turn finishes, so save-always runs with had_stream_error=None.
+        acc = _StreamAccumulator()
+        for chunk in ("hello ", "there ", "friend"):
+            acc.content_parts.append(chunk)
+            yield ("token", {"content": chunk}, acc)
+
+    capture: dict = {}
+    try:
+        _drive_stream_chat_disconnect_after(
+            _slow_stream,
+            _fake_run_tool_calls_unused,
+            capture,
+            target_event="token",
+        )
+    except Exception as exc:
+        return _check(
+            "pure-disconnect marker uses new default",
+            False,
+            f"driver raised: {exc!r}",
+        )
+
+    assistant_calls = [
+        c for c in capture["calls"] if c.get("role") == "assistant"
+    ]
+    if not assistant_calls:
+        return _check(
+            "pure-disconnect marker uses new default",
+            False,
+            "no assistant row persisted",
+        )
+    content = assistant_calls[0].get("content") or ""
+    if "stream interrupted: stream interrupted" in content:
+        return _check(
+            "pure-disconnect marker uses new default",
+            False,
+            f"literal pre-fix placeholder still present: {content!r}",
+        )
+    if "client disconnected before completion" not in content:
+        return _check(
+            "pure-disconnect marker uses new default",
+            False,
+            f"expected 'client disconnected before completion' in saved "
+            f"content; got: {content!r}",
+        )
+    return _check("pure-disconnect marker uses new default", True)
+
+
 def test_unhandled_exception_in_tool_call_persists_marker() -> bool:
     """
     Tool dispatch raises (e.g. _run_tool_calls hits an asyncio.gather
@@ -1150,6 +1268,8 @@ TESTS = [
     # Save-always (chat 3951063c, 2026-05-08)
     test_client_disconnect_after_stream_error_persists_marker,
     test_client_disconnect_after_partial_content_keeps_partial_text,
+    test_client_disconnect_marker_says_disconnected_not_stream_interrupted,
+    test_pure_client_disconnect_uses_disconnected_default,
     test_unhandled_exception_in_tool_call_persists_marker,
     test_unhandled_exception_in_assemble_context_persists_marker,
     test_audit_exception_after_loop_still_persists,

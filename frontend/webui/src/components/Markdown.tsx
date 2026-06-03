@@ -34,6 +34,14 @@
 import { useState, type ComponentPropsWithoutRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+// KaTeX CSS for the rendered math nodes. Side-effect import (no
+// named exports). Adds ~25 KB gzipped + a font file lazy-loaded on
+// first equation render. Chat persona 56b39f33 (2026-06-03) was the
+// trigger: the model emits `$...$` inline and `$$...$$` display math
+// which previously rendered as raw dollar-sign text.
+import 'katex/dist/katex.min.css';
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import python from 'react-syntax-highlighter/dist/esm/languages/prism/python';
@@ -189,7 +197,8 @@ export function Markdown({ content }: { content: string }) {
   return (
     <div className="prose-munin">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
         urlTransform={safeUrlTransform}
         components={{
           code({ className, children, ...props }) {

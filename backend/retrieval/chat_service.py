@@ -21,6 +21,7 @@ with `sse_starlette.EventSourceResponse`.
 from __future__ import annotations
 
 import asyncio
+import sys
 import contextlib
 import json
 import logging
@@ -2854,9 +2855,32 @@ async def stream_chat_completion(
                 if acc is not None and not acc_transferred:
                     final_thinking += acc.thinking
                     final_content += acc.content
+                # Pick a marker text that actually explains what
+                # happened on transcript reload (chat 56b39f33,
+                # 2026-06-03 — users were seeing the literal
+                # "_(stream interrupted: stream interrupted)_" and
+                # had no idea whether it meant a server crash or
+                # they themselves closed the tab).
+                #
+                # We treat the turn as a disconnect when EITHER
+                # cancel_event was explicitly set by main.py's
+                # disconnect watchdog OR the in-flight exception is
+                # GeneratorExit / CancelledError (the consumer
+                # aclose()'d this generator without the watchdog
+                # participating; happens in tests + during shutdown).
+                _exc_type = sys.exc_info()[0]
+                _disconnect_seen = _cancelled() or _exc_type in (
+                    GeneratorExit, asyncio.CancelledError
+                )
+                if had_stream_error:
+                    _marker_reason = had_stream_error
+                elif _disconnect_seen:
+                    _marker_reason = "client disconnected before completion"
+                else:
+                    _marker_reason = "server error during stream"
                 marker_content = apply_stream_error_marker(
                     final_content,
-                    had_stream_error or "stream interrupted",
+                    _marker_reason,
                 )
                 # `conversation` is guaranteed defined here: the early
                 # returns at lines 1338/1413/1504 are above the user-
