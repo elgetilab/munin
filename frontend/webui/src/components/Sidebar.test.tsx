@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
@@ -147,5 +147,127 @@ describe('Sidebar', () => {
       expect(screen.getByText('ML Research')).toBeInTheDocument();
     });
     expect(screen.getByText('Code Review')).toBeInTheDocument();
+  });
+
+  // Claude-style three-dots menu (2026-06-01).
+  //
+  // The kebab button replaces the previous inline rename/move/delete
+  // row. The old design used `hidden group-hover:flex` which caused
+  // the chat title to truncate harder on hover -- the user-visible
+  // "pop out" symptom. The new design: a single button that fades in
+  // on hover, clicking it opens a dropdown with the three actions.
+  //
+  // We can't realistically test the visual fade-in (no layout shift)
+  // in vitest+jsdom. What we CAN test is the menu shape: clicking
+  // the kebab opens a dropdown whose items map to the right
+  // callbacks, and the dropdown disappears after an action.
+  //
+  // Both chat rows AND project rows now use the same kebab button
+  // with title="More", so scope-by-row queries (find the title text,
+  // walk up to the .relative wrapper) are required to avoid hitting
+  // a project's kebab when we meant a chat's.
+
+  // Walk from a row's title text to the `.relative` wrapper that
+  // anchors both the click target and its dropdown.
+  const rowWrapperOf = (title: string): HTMLElement => {
+    const titleEl = screen.getByText(title);
+    const wrapper = titleEl.closest('.relative');
+    if (!wrapper) throw new Error(`No .relative ancestor for ${title}`);
+    return wrapper as HTMLElement;
+  };
+
+  it('three-dots menu opens with Rename / Move to project / Delete items', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    await waitFor(() => {
+      expect(screen.getByText('Test Chat 1')).toBeInTheDocument();
+    });
+
+    const chatRow = rowWrapperOf('Test Chat 1');
+    const kebab = within(chatRow).getByTitle('More');
+
+    // No menu items visible before opening.
+    expect(screen.queryByText('Rename')).not.toBeInTheDocument();
+
+    await user.click(kebab);
+
+    await waitFor(() => {
+      expect(within(chatRow).getByText('Rename')).toBeInTheDocument();
+    });
+    expect(within(chatRow).getByText('Move to project')).toBeInTheDocument();
+    expect(within(chatRow).getByText('Delete')).toBeInTheDocument();
+  });
+
+  it('three-dots menu: clicking Rename opens the inline editor and closes the menu', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    await waitFor(() => {
+      expect(screen.getByText('Test Chat 1')).toBeInTheDocument();
+    });
+
+    const chatRow = rowWrapperOf('Test Chat 1');
+    await user.click(within(chatRow).getByTitle('More'));
+
+    await waitFor(() => {
+      expect(within(chatRow).getByText('Rename')).toBeInTheDocument();
+    });
+    await user.click(within(chatRow).getByText('Rename'));
+
+    // Menu dismissed; inline editor visible with the chat's title.
+    await waitFor(() => {
+      expect(screen.queryByText('Rename')).not.toBeInTheDocument();
+    });
+    // The inline editor is an <input> with the chat's current title.
+    expect(screen.getByDisplayValue('Test Chat 1')).toBeInTheDocument();
+  });
+
+  it('three-dots menu closes on outside click', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    await waitFor(() => {
+      expect(screen.getByText('Test Chat 1')).toBeInTheDocument();
+    });
+
+    const chatRow = rowWrapperOf('Test Chat 1');
+    await user.click(within(chatRow).getByTitle('More'));
+
+    await waitFor(() => {
+      expect(within(chatRow).getByText('Rename')).toBeInTheDocument();
+    });
+
+    // Click on something outside the menu (the "New chat" button).
+    await user.click(screen.getByText('New chat'));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Rename')).not.toBeInTheDocument();
+    });
+  });
+
+  it('project rows have the same kebab + dropdown shape (New chat / Settings / Delete)', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    await waitFor(() => {
+      expect(screen.getByText('ML Research')).toBeInTheDocument();
+    });
+
+    const projectRow = rowWrapperOf('ML Research');
+    const kebab = within(projectRow).getByTitle('More');
+
+    expect(screen.queryByText('New chat in project')).not.toBeInTheDocument();
+
+    await user.click(kebab);
+
+    await waitFor(() => {
+      expect(within(projectRow).getByText('Delete project')).toBeInTheDocument();
+    });
+    // onNewChatInProject / onOpenProjectSettings are not wired in
+    // renderSidebar(), so those rows shouldn't render. Only Delete
+    // is unconditional.
+    expect(within(projectRow).queryByText('New chat in project')).not.toBeInTheDocument();
+    expect(within(projectRow).queryByText('Project settings')).not.toBeInTheDocument();
   });
 });

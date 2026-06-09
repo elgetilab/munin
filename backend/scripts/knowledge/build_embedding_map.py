@@ -398,7 +398,19 @@ def emit_map_json(
 
 def is_fresh(path: str, paper_count: int, records: list[PaperPoint]) -> bool:
     """Skip rebuild when the existing JSON matches current state and
-    every point already has a cluster_id."""
+    every point already has a cluster_id AND most cluster labels are
+    real (not 'cluster-N' fallbacks).
+
+    The label-quality gate is here because of the 2026-05-12 incident:
+    the labelling pass ran while vLLM was returning 404s (stale model
+    name in the systemd unit env after a model upgrade), so all 411
+    clusters got 'cluster-N' fallbacks. Subsequent nightly runs hit
+    the original `is_fresh` (cluster_id present → fresh → skip) and
+    the busted labels persisted indefinitely. With the gate, a file
+    where the bulk of labels are fallbacks is treated as not fresh
+    and forces a rebuild, so the next nightly run with a healthy
+    vLLM auto-heals.
+    """
     try:
         with open(path, encoding="utf-8") as f:
             existing = json.load(f)
@@ -407,7 +419,32 @@ def is_fresh(path: str, paper_count: int, records: list[PaperPoint]) -> bool:
     if existing.get("paper_count") != paper_count:
         return False
     missing = sum(1 for r in records if r.existing_cluster_id is None)
-    return missing == 0
+    if missing != 0:
+        return False
+    # Label-quality gate. Mirrors the FALLBACK_FAIL_THRESHOLD used by
+    # the post-labelling sanity check (50% of real clusters). Skip the
+    # noise cluster (id == NOISE_CLUSTER_ID) since it's labelled
+    # 'Unclustered' as a static convention, not a fallback.
+    real_clusters = [
+        c for c in (existing.get("clusters") or [])
+        if c.get("id") != NOISE_CLUSTER_ID
+    ]
+    if not real_clusters:
+        return True
+    fallback_count = sum(
+        1
+        for c in real_clusters
+        if (c.get("label") or "").startswith("cluster-")
+    )
+    if fallback_count / len(real_clusters) > FALLBACK_FAIL_THRESHOLD:
+        print(
+            f"[INFO] Existing map has {fallback_count}/{len(real_clusters)} "
+            f"fallback cluster-N labels (>{int(FALLBACK_FAIL_THRESHOLD * 100)}%); "
+            f"forcing rebuild so a healthy vLLM can re-label.",
+            flush=True,
+        )
+        return False
+    return True
 
 
 def main() -> int:

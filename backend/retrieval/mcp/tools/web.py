@@ -13,6 +13,7 @@ from typing import Optional
 import httpx
 
 from database import SEARXNG_URL
+from mcp.context import current_search_urls
 from .llm import llm_summarize
 from .query_expansion import expand_queries
 
@@ -20,8 +21,23 @@ logger = logging.getLogger(__name__)
 
 
 # Engines passed to SearXNG on every web_search. Google is intentionally
-# excluded — see docker/searxng/settings.yml for the rationale.
-_SEARXNG_ENGINES = "startpage,duckduckgo,brave"
+# excluded (see docker/searxng/settings.yml for the rationale) and brave
+# was dropped on 2026-06-01 after months of "Suspended: too many
+# requests" (rate-limited by Brave on our IP). We do NOT use Brave's
+# official API as the 1k/month free quota was too thin for multi-user
+# load; instead qwant and mojeek were added to settings.yml as
+# independent keyless engines to compensate.
+_SEARXNG_ENGINES = "startpage,duckduckgo,qwant,mojeek"
+
+
+def _record_url(url: str) -> None:
+    """Add a result URL to the per-request allowlist consulted by
+    `web_fetch_content`. Silently no-op when the ContextVar is unbound
+    (which is the case in standalone tool unit tests; the gate is
+    closed only when chat_service binds the set per request)."""
+    bucket = current_search_urls.get()
+    if bucket is not None and isinstance(url, str) and url:
+        bucket.add(url)
 
 
 async def _searxng_one(client: httpx.AsyncClient, q: str) -> dict:
@@ -161,6 +177,12 @@ async def web_search(
     for r in merged:
         r.pop("_best_rank", None)
 
+    # Bug 4b: register every result URL with the per-request allowlist so
+    # web_fetch_content can distinguish "URL the model saw" from
+    # hallucinated URLs (chat d3b4c98b, 2026-06-01).
+    for r in merged[:top_k]:
+        _record_url(r.get("url", ""))
+
     out: dict = {
         "queries_executed": query_list,
         "total_hits": total_hits,
@@ -290,6 +312,24 @@ async def web_fetch_content(
             truncated: bool (true when page exceeded ~40k chars)
         Or {"error": "...", "url": ...} on failure.
     """
+    # Bug 4b: gate against hallucinated URLs. The set is seeded by
+    # `chat_service.stream_chat_completion` from prior tool_call results
+    # AND from URLs in user-message content, then updated in place by
+    # `web_search` and `web_fetch_content` (so a follow-up fetch on a
+    # page that linked to another URL succeeds after that page is
+    # fetched). `None` means the gate is unwired (standalone tests,
+    # back-compat) and gating is skipped.
+    allow = current_search_urls.get()
+    if allow is not None and isinstance(url, str) and url not in allow:
+        return {
+            "error": (
+                "URL not from any recent search result. Call web_search "
+                "first, then fetch a URL from the results. Do not invent "
+                "URLs from prior knowledge."
+            ),
+            "url": url,
+        }
+
     try:
         import trafilatura
 

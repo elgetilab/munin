@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Message, ToolCall, RagContext, Clarification, Delegation, Persona } from '../lib/types';
 import { TaskLog } from './TaskLog';
 import { FeatherVortex } from './FeatherVortex';
@@ -88,18 +88,76 @@ export function detectPhase(streaming: StreamingState): string {
   return 'thinking';
 }
 
+// Distance (in CSS pixels) from the scroll-container bottom within which
+// the floating "jump to bottom" button stays hidden. The user is close
+// enough that they don't need the affordance.
+const JUMP_BUTTON_HIDE_THRESHOLD_PX = 96;
+
 export function MessageList({ messages, streaming, personas, onSendClarification, onDismissMemoryProposal, conversationId, onPlanApproved, onPlanRejected, onPlanEdited }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Drives the floating "jump to bottom" button. True when the user
+  // has scrolled up far enough from the bottom that the button is
+  // worth showing.
+  const [showJumpButton, setShowJumpButton] = useState(false);
 
+  // Bug 2026-06-02: the original implementation auto-scrolled on every
+  // streaming-token update via scrollIntoView({ behavior: 'smooth' }).
+  // The smooth-scroll animation runs ~300ms and is NOT interruptible
+  // by user wheel events in most browsers, so a fresh token arriving
+  // every ~16ms (60 tok/s) means the animation never finishes; the
+  // user can't escape the bottom even with a "near-bottom" gate. The
+  // current behaviour drops streaming-token auto-scroll entirely:
+  //
+  //   1. Conversation switch (conversationId change) -> jump to bottom
+  //      instantly so the user lands at the latest message.
+  //   2. New user message added -> smooth-scroll so the user sees
+  //      their own bubble land at the bottom after pressing Enter.
+  //   3. Streaming tokens, thinking, tool calls -> NO scroll. The
+  //      user reads at their own pace.
+  //   4. Floating jump-to-bottom button when they want to catch up.
+
+  // (1) Conversation switch.
   useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [conversationId]);
+
+  // (2) New user message. We track the previous count with a ref so
+  // we only fire on the increment-with-user-tail edge.
+  const prevLengthRef = useRef(messages.length);
+  useEffect(() => {
+    const prev = prevLengthRef.current;
+    prevLengthRef.current = messages.length;
+    if (messages.length <= prev) return;
+    const last = messages[messages.length - 1];
+    if (last?.role === 'user') {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages]);
+
+  // (4) Update jump-button visibility on scroll. Coalesced naturally
+  // by the browser; no rAF/throttle needed at typical scroll
+  // cadences.
+  const handleScroll = () => {
+    const el = containerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const farFromBottom = distanceFromBottom > JUMP_BUTTON_HIDE_THRESHOLD_PX;
+    setShowJumpButton(prev => (prev === farFromBottom ? prev : farFromBottom));
+  };
+
+  const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length, streaming.content, streaming.thinking, streaming.toolCalls.length]);
+  };
 
   const isActive = streaming.phase !== 'idle' && streaming.phase !== 'done' && streaming.phase !== 'error';
   const isIdle = streaming.phase === 'idle' || streaming.phase === 'done';
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-6">
+    <div className="flex-1 relative min-h-0 flex flex-col">
+    <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-6">
       <div className="max-w-2xl mx-auto space-y-6">
         {messages.map(msg => (
           <div key={msg.id}>
@@ -170,7 +228,7 @@ export function MessageList({ messages, streaming, personas, onSendClarification
 
             {/* Streaming content */}
             {cleanContent(streaming.content) && (
-              <div className="text-sm text-text-primary leading-relaxed">
+              <div className="text-base text-text-primary leading-relaxed">
                 <Markdown content={cleanContent(streaming.content)} />
               </div>
             )}
@@ -202,6 +260,24 @@ export function MessageList({ messages, streaming, personas, onSendClarification
         <div ref={bottomRef} />
       </div>
     </div>
+      {/* Floating jump-to-bottom button. Appears once the user has
+          scrolled more than JUMP_BUTTON_HIDE_THRESHOLD_PX above the
+          bottom. Click to smooth-scroll back. Positioned absolute
+          inside the relative wrapper so it floats over the scroll
+          area without participating in flow. */}
+      {showJumpButton && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-6 right-6 w-10 h-10 rounded-full bg-bg-tertiary border border-border shadow-lg flex items-center justify-center text-text-secondary hover:text-accent hover:border-accent transition-colors cursor-pointer"
+          title="Scroll to bottom"
+          aria-label="Scroll to bottom"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -209,7 +285,7 @@ function MessageBubble({ message, personas, onSendClarification, onDismissMemory
   if (message.role === 'user') {
     return (
       <div className="flex gap-3 justify-end">
-        <div className="max-w-[80%] bg-bg-tertiary border border-border rounded-2xl rounded-br-sm px-4 py-3 text-sm text-text-primary leading-relaxed whitespace-pre-wrap">
+        <div className="max-w-[80%] bg-bg-tertiary border border-border rounded-2xl rounded-br-sm px-4 py-3 text-base text-text-primary leading-relaxed whitespace-pre-wrap">
           {message.content}
         </div>
       </div>
@@ -237,7 +313,7 @@ function MessageBubble({ message, personas, onSendClarification, onDismissMemory
       )}
 
       {cleanContent(message.content) && (
-        <div className="text-sm text-text-primary leading-relaxed">
+        <div className="text-base text-text-primary leading-relaxed">
           <Markdown content={cleanContent(message.content)} />
         </div>
       )}

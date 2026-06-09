@@ -184,6 +184,17 @@ services:
       - CONTRIBUTORS_CONFIG=/data/contributors.yml
       - CONTRIBUTORS_SYNC_URL=${CONTRIBUTORS_SYNC_URL:-https://auth.muninai.org/admin/contributors.yaml}
       - CONTRIBUTORS_SYNC_TOKEN=${CONTRIBUTORS_SYNC_TOKEN:-}
+      # Admin metrics proxy (in-house dashboards under webui Admin
+      # panel -> Metrics tab). URL points at the auth service's
+      # /admin/check-role endpoint; the token is the same KB_GATE_TOKEN
+      # the tusd hook-service uses, since the lookup is identical
+      # (read-only role check). When the token is unset, the metrics
+      # proxy returns 503 so the panel surfaces "not configured".
+      - AUTH_CHECK_ROLE_URL=${AUTH_CHECK_ROLE_URL:-https://auth.muninai.org/admin/check-role}
+      - KB_GATE_TOKEN=${KB_GATE_TOKEN:-}
+      # Prometheus URL for the metrics proxy. Inside the docker network
+      # the prometheus container is reachable by service name.
+      - PROMETHEUS_URL=${PROMETHEUS_URL:-http://prometheus:9090}
       - CONTRIBUTORS_SYNC_INTERVAL_SECS=${CONTRIBUTORS_SYNC_INTERVAL_SECS:-300}
       - PAPER_PIPELINE_SCRIPT=/app/pipeline/paper_pipeline.py
       # paper_pipeline.py subprocess reads this for GROBID connectivity
@@ -260,6 +271,38 @@ services:
           memory: 4G
     profiles:
       - rag
+
+  # ============================================================================
+  # PROMETHEUS - scrape /metrics from retrieval (P1 #12)
+  # ============================================================================
+  # Bound to 127.0.0.1:9090 only. Same network as retrieval so it can
+  # reach it by service name. Lives under the `monitoring` profile so a
+  # cluster boot that doesn't want metrics can skip it. There is no
+  # Grafana service: the dashboards live in-tree under the webui
+  # admin panel and query Prometheus via a retrieval-side proxy at
+  # /api/admin/metrics/{query,query_range} -- see docs/MONITORING.md.
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    container_name: munin-prometheus
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - /opt/munin/docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    networks:
+      - default
+    profiles:
+      - monitoring
+
+volumes:
+  prometheus_data:
 
 networks:
   default:

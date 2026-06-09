@@ -230,6 +230,12 @@ export type AdminRole = 'user' | 'group_leader' | 'admin';
 
 export interface AdminUser {
   id: number;
+  first_name: string;
+  last_name: string;
+  // `name` is a back-compat alias the auth service computes as
+  // f"{first_name} {last_name}".strip(). Kept on the type so legacy
+  // consumers (retrieval's X-Munin-Name header, /auth/me) don't need
+  // to change all at once.
   name: string;
   role: AdminRole;
   group: string | null;
@@ -281,7 +287,8 @@ export async function fetchAdminUsers(): Promise<AdminUser[]> {
 }
 
 export async function createAdminUser(input: {
-  name: string;
+  first_name: string;
+  last_name?: string;
   email: string;
   role?: AdminRole;
   group?: string | null;
@@ -294,7 +301,8 @@ export async function createAdminUser(input: {
 }
 
 export async function updateAdminUser(id: number, patch: {
-  name?: string;
+  first_name?: string;
+  last_name?: string;
   role?: AdminRole;
   group?: string | null;
   username?: string | null;
@@ -363,6 +371,84 @@ export async function deleteAdminGroup(slug: string): Promise<void> {
     throw new Error(detail || `Delete failed (${res.status})`);
   }
 }
+
+// ── Admin metrics (Prometheus proxy) ───────────────────────────────────────
+
+/**
+ * Prometheus range-query response, narrowed to the fields the
+ * dashboard actually reads. The proxy on retrieval forwards the
+ * upstream body verbatim; nothing else is added.
+ */
+export interface PromSeries {
+  metric: Record<string, string>;
+  values: Array<[number, string]>; // [unix_seconds, value_as_string]
+}
+
+export interface PromRangeResponse {
+  status: 'success' | 'error';
+  data: {
+    resultType: 'matrix';
+    result: PromSeries[];
+  };
+  errorType?: string;
+  error?: string;
+}
+
+export interface PromInstantResponse {
+  status: 'success' | 'error';
+  data: {
+    resultType: 'vector' | 'scalar' | 'string';
+    result: Array<{ metric: Record<string, string>; value: [number, string] }>;
+  };
+  errorType?: string;
+  error?: string;
+}
+
+/** Throws a generic Error with the upstream message on non-2xx. */
+async function metricsRequest(path: string, body: object): Promise<unknown> {
+  const res = await fetch(`${API}/admin/metrics/${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const err = await res.json();
+      detail = err?.error?.message || err?.error || '';
+    } catch {
+      /* not JSON */
+    }
+    throw new Error(detail || `Metrics request failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function metricsQueryRange(
+  query: string,
+  start: Date,
+  end: Date,
+  stepSeconds: number,
+): Promise<PromRangeResponse> {
+  return (await metricsRequest('query_range', {
+    query,
+    start: start.toISOString(),
+    end: end.toISOString(),
+    step: `${stepSeconds}s`,
+  })) as PromRangeResponse;
+}
+
+export async function metricsQuery(
+  query: string,
+  at?: Date,
+): Promise<PromInstantResponse> {
+  return (await metricsRequest('query', {
+    query,
+    ...(at ? { time: at.toISOString() } : {}),
+  })) as PromInstantResponse;
+}
+
 
 // ── Announcements ───────────────────────────────────────────────────────────
 

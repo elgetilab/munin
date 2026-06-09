@@ -72,7 +72,11 @@ describe('ClarificationCard', () => {
     expect(screen.getByPlaceholderText('Type your answer...')).toBeInTheDocument();
   });
 
-  it('onSubmit fires with "Q1: answer\\nQ2: answer" format', async () => {
+  it('onSubmit fires with Q/A pair format separated by blank lines', async () => {
+    // 2026-06-02: extended from "Q1: <answer>" to "Q1: <question>\nA1:
+    // <answer>" so the user-reply bubble carries the question text
+    // alongside the chosen answer. Pairs are joined with a blank line
+    // so Markdown renders them as separate paragraphs.
     const user = userEvent.setup();
     const onSubmit = vi.fn();
     render(<ClarificationCard clarification={baseClarification} onSubmit={onSubmit} />);
@@ -81,7 +85,9 @@ describe('ClarificationCard', () => {
     await user.click(screen.getByRole('button', { name: 'Accuracy' }));
     await user.click(screen.getByRole('button', { name: 'Submit' }));
 
-    expect(onSubmit).toHaveBeenCalledWith('Q1: CIFAR-10\nQ2: Accuracy');
+    expect(onSubmit).toHaveBeenCalledWith(
+      'Q1: Which dataset?\nA1: CIFAR-10\n\nQ2: Which metric?\nA2: Accuracy'
+    );
   });
 
   it('after submit, controls are disabled and "Answered" shows', async () => {
@@ -118,6 +124,6 @@ describe('ClarificationCard', () => {
     await user.type(input, 'ImageNet');
 
     await user.click(screen.getByRole('button', { name: 'Submit' }));
-    expect(onSubmit).toHaveBeenCalledWith('Q1: ImageNet');
+    expect(onSubmit).toHaveBeenCalledWith('Q1: Which dataset?\nA1: ImageNet');
   });
 });

@@ -140,7 +140,8 @@ def init_db():
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL,
+            first_name TEXT NOT NULL,
+            last_name TEXT,
             role TEXT NOT NULL CHECK(role IN ('user', 'group_leader', 'admin')),
             research_group TEXT REFERENCES groups(slug) ON DELETE SET NULL,
             username TEXT,
@@ -188,6 +189,120 @@ def _mark_migration(conn: sqlite3.Connection, name: str):
     )
 
 
+def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(r["name"] == column for r in rows)
+
+
+def migrate_split_name_v1() -> dict:
+    """One-shot split of users.name into users.first_name + users.last_name.
+
+    Reason: the original schema stored a single `name` field per user.
+    The admin panel and the chat header both needed two fields once
+    multiple institutes joined; one field reads ambiguously across
+    cultures and surname collisions. This migration:
+
+      1. Adds first_name + last_name columns (NULLable so the ALTER
+         doesn't reject existing rows; tightened to NOT NULL on
+         first_name by app-level validation).
+      2. Backfills first_name + last_name from the existing single
+         `name` by splitting on the first whitespace token.
+      3. Overlays the new whitelist.csv (email, first_name,
+         last_name, role) on top -- whitelist wins for any user whose
+         primary email is present, since the user judged the
+         whitelist a more reliable source than the post-merge DB
+         (only one row was created via the admin panel; everything
+         else came from the same seed). The overwrite is logged so
+         the one admin-panel entry can be spot-checked afterward.
+      4. Drops the old `name` column (SQLite >= 3.35).
+
+    Gated by schema_migrations.name = 'split_name_v1'.
+
+    Returns a small summary dict for logging on startup.
+    """
+    summary = {
+        "already_run": False,
+        "rows_backfilled": 0,
+        "rows_overwritten_from_whitelist": 0,
+        "rows_missing_from_whitelist": 0,
+        "name_column_dropped": False,
+    }
+    conn = get_db()
+    try:
+        if _migration_applied(conn, "split_name_v1"):
+            summary["already_run"] = True
+            return summary
+
+        # ── Step 1: add the two new columns if absent.
+        if not _column_exists(conn, "users", "first_name"):
+            conn.execute("ALTER TABLE users ADD COLUMN first_name TEXT")
+        if not _column_exists(conn, "users", "last_name"):
+            conn.execute("ALTER TABLE users ADD COLUMN last_name TEXT")
+
+        # ── Step 2: split existing `name` on first whitespace.
+        if _column_exists(conn, "users", "name"):
+            rows = conn.execute(
+                "SELECT id, name FROM users WHERE first_name IS NULL OR first_name = ''"
+            ).fetchall()
+            for r in rows:
+                raw = (r["name"] or "").strip()
+                if not raw:
+                    continue
+                first, _, last = raw.partition(" ")
+                conn.execute(
+                    "UPDATE users SET first_name = ?, last_name = ? WHERE id = ?",
+                    (first.strip(), last.strip() or None, r["id"]),
+                )
+                summary["rows_backfilled"] += 1
+
+        # ── Step 3: overlay new-shape whitelist (whitelist wins).
+        if WHITELIST_PATH.exists():
+            with open(WHITELIST_PATH, newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    email = (row.get("email") or "").strip().lower()
+                    first = (row.get("first_name") or "").strip()
+                    last = (row.get("last_name") or "").strip() or None
+                    if not email or not first:
+                        continue
+                    user_row = conn.execute(
+                        "SELECT u.id FROM users u "
+                        "JOIN user_emails ue ON ue.user_id = u.id "
+                        "WHERE ue.email = ?",
+                        (email,),
+                    ).fetchone()
+                    if user_row:
+                        conn.execute(
+                            "UPDATE users SET first_name = ?, last_name = ?, "
+                            "updated_at = ? WHERE id = ?",
+                            (first, last, datetime.now(timezone.utc).isoformat(),
+                             user_row["id"]),
+                        )
+                        summary["rows_overwritten_from_whitelist"] += 1
+                    else:
+                        summary["rows_missing_from_whitelist"] += 1
+
+        # ── Step 4: drop the old name column. SQLite added DROP COLUMN
+        # support in 3.35 (2021-03). The retrieval container's Python
+        # ships 3.40+, but we guard with a try so a corrupted index
+        # error (some rows still have NULL first_name) doesn't kill
+        # startup; the column can stay around harmlessly if drop fails.
+        if _column_exists(conn, "users", "name"):
+            try:
+                conn.execute("ALTER TABLE users DROP COLUMN name")
+                summary["name_column_dropped"] = True
+            except sqlite3.OperationalError:
+                # Index or trigger references it; leave the column in
+                # place. Reads will continue to use first_name.
+                pass
+
+        _mark_migration(conn, "split_name_v1")
+        conn.commit()
+    finally:
+        conn.close()
+    return summary
+
+
 # ── User lookup + mutation helpers ────────────────────────────────────────
 
 def lookup_user(email: str) -> dict | None:
@@ -196,7 +311,7 @@ def lookup_user(email: str) -> dict | None:
     conn = get_db()
     row = conn.execute(
         """
-        SELECT u.id, u.name, u.role, u.research_group, u.username
+        SELECT u.id, u.first_name, u.last_name, u.role, u.research_group, u.username
           FROM users u
           JOIN user_emails ue ON ue.user_id = u.id
          WHERE ue.email = ?
@@ -220,7 +335,9 @@ def lookup_user(email: str) -> dict | None:
     conn.close()
     return {
         "id": row["id"],
-        "name": row["name"],
+        "first_name": row["first_name"] or "",
+        "last_name": row["last_name"] or "",
+        "name": _compose_name(row["first_name"], row["last_name"]),
         "role": row["role"],
         "group": row["research_group"],
         "username": row["username"],
@@ -229,13 +346,30 @@ def lookup_user(email: str) -> dict | None:
     }
 
 
-def _insert_user(conn: sqlite3.Connection, name: str, role: str,
-                 research_group: str | None = None, username: str | None = None) -> int:
+def _compose_name(first: str | None, last: str | None) -> str:
+    """Render a single display name from the first/last pair. Used in
+    API response payloads so downstream services (retrieval's
+    X-Munin-Name header, session greetings, the chat UI's left-rail
+    user pill) keep working unchanged. Trims internal whitespace so a
+    missing last_name doesn't render as "Bernd " with a trailing
+    space."""
+    f = (first or "").strip()
+    l = (last or "").strip()
+    if f and l:
+        return f"{f} {l}"
+    return f or l or ""
+
+
+def _insert_user(conn: sqlite3.Connection, first_name: str,
+                 last_name: str | None, role: str,
+                 research_group: str | None = None,
+                 username: str | None = None) -> int:
     now = datetime.now(timezone.utc).isoformat()
     cur = conn.execute(
-        "INSERT INTO users (name, role, research_group, username, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (name, role, research_group, username, now, now),
+        "INSERT INTO users (first_name, last_name, role, research_group, "
+        "username, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (first_name, last_name, role, research_group, username, now, now),
     )
     return cur.lastrowid
 
@@ -273,11 +407,26 @@ def seed_users_from_whitelist() -> dict:
                 if exists:
                     skipped += 1
                     continue
-                name = (row.get("name") or "").strip() or email
+                first = (row.get("first_name") or "").strip()
+                last = (row.get("last_name") or "").strip() or None
+                # Legacy single-`name` fallback in case the CSV
+                # hasn't been migrated to the two-field shape yet.
+                if not first:
+                    legacy = (row.get("name") or "").strip()
+                    if legacy:
+                        first, _, rest = legacy.partition(" ")
+                        last = rest.strip() or last
+                if not first:
+                    first = email
                 role = (row.get("role") or "").strip() or "user"
                 if role not in ("user", "group_leader", "admin"):
                     role = "user"
-                user_id = _insert_user(conn, name=name, role=role)
+                user_id = _insert_user(
+                    conn,
+                    first_name=first,
+                    last_name=last,
+                    role=role,
+                )
                 _attach_email(conn, user_id, email, is_primary=True)
                 imported += 1
         conn.commit()
@@ -413,11 +562,16 @@ def seed_contributors_from_yaml() -> dict:
                     if not er:
                         _attach_email(conn, existing_user_id, em, is_primary=False)
             else:
-                # Brand new user from this YAML entry.
-                name = display_name or emails[0]
+                # Brand new user from this YAML entry. The contributors
+                # YAML carries a single `display_name`; we split on
+                # whitespace to populate first/last, falling back to
+                # the primary email when the display name is empty.
+                raw_name = (display_name or emails[0]).strip()
+                first, _, last = raw_name.partition(" ")
                 new_id = _insert_user(
                     conn,
-                    name=name,
+                    first_name=first.strip() or emails[0],
+                    last_name=last.strip() or None,
                     role="group_leader",
                     research_group=group_slug,
                     username=username,
@@ -445,12 +599,13 @@ def emit_contributors_yaml() -> str:
     conn = get_db()
     rows = conn.execute(
         """
-        SELECT u.id, u.name, u.username, u.research_group AS slug, g.display_name AS group_display
+        SELECT u.id, u.first_name, u.last_name, u.username,
+               u.research_group AS slug, g.display_name AS group_display
           FROM users u
           JOIN groups g ON g.slug = u.research_group
          WHERE u.role IN ('group_leader', 'admin')
            AND u.research_group IS NOT NULL
-         ORDER BY g.display_name, u.name
+         ORDER BY g.display_name, LOWER(u.last_name), LOWER(u.first_name)
         """
     ).fetchall()
 
@@ -486,7 +641,9 @@ def emit_contributors_yaml() -> str:
                 lines.append(f"      - {em}")
         if row["username"]:
             lines.append(f"    username: {row['username']}")
-        lines.append(f"    display_name: {_yaml_str(row['name'])}")
+        lines.append(
+            f"    display_name: {_yaml_str(_compose_name(row['first_name'], row['last_name']))}"
+        )
         lines.append(f"    research_group: {row['slug']}")
         lines.append(f"    research_group_display_name: {_yaml_str(row['group_display'])}")
     conn.close()
@@ -682,6 +839,7 @@ async def send_otp_email(email: str, code: str, name: str):
 @app.on_event("startup")
 async def startup():
     init_db()
+    migrate_split_name_v1()
     seed_users_from_whitelist()
     seed_contributors_from_yaml()
 
@@ -984,7 +1142,9 @@ def _user_row_to_dict(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
     ).fetchone()
     return {
         "id": row["id"],
-        "name": row["name"],
+        "first_name": row["first_name"] or "",
+        "last_name": row["last_name"] or "",
+        "name": _compose_name(row["first_name"], row["last_name"]),
         "role": row["role"],
         "group": row["research_group"],
         "username": row["username"],
@@ -1008,6 +1168,12 @@ def _touch_user(conn: sqlite3.Connection, user_id: int):
 
 # ── Admin: users ─────────────────────────────────────────────────────────────
 
+_USERS_SELECT_COLUMNS = (
+    "id, first_name, last_name, role, research_group, username, "
+    "created_at, updated_at"
+)
+
+
 @app.get("/admin/users")
 async def admin_list_users(request: Request):
     _, err = _require_admin(request)
@@ -1015,8 +1181,9 @@ async def admin_list_users(request: Request):
         return err
     conn = get_db()
     rows = conn.execute(
-        "SELECT id, name, role, research_group, username, created_at, updated_at "
-        "FROM users ORDER BY LOWER(name) ASC"
+        f"SELECT {_USERS_SELECT_COLUMNS} "
+        "FROM users "
+        "ORDER BY LOWER(last_name), LOWER(first_name)"
     ).fetchall()
     users = [_user_row_to_dict(conn, r) for r in rows]
     conn.close()
@@ -1030,7 +1197,9 @@ async def admin_create_user(request: Request):
         return err
 
     body = await request.json()
-    name = (body.get("name") or "").strip()
+    first_name = (body.get("first_name") or "").strip()
+    last_name_raw = (body.get("last_name") or "").strip()
+    last_name = last_name_raw or None
     email = (body.get("email") or "").strip().lower()
     role = (body.get("role") or "user").strip()
     group = body.get("group")
@@ -1040,8 +1209,8 @@ async def admin_create_user(request: Request):
     if username is not None:
         username = username.strip() or None
 
-    if not name:
-        return JSONResponse({"error": "name is required"}, status_code=400)
+    if not first_name:
+        return JSONResponse({"error": "first_name is required"}, status_code=400)
     if not email or "@" not in email:
         return JSONResponse({"error": "valid email is required"}, status_code=400)
     if role not in ("user", "group_leader", "admin"):
@@ -1062,14 +1231,19 @@ async def admin_create_user(request: Request):
             if not grp:
                 return JSONResponse({"error": f"group '{group}' does not exist"}, status_code=400)
 
-        user_id = _insert_user(conn, name=name, role=role,
-                               research_group=group, username=username)
+        user_id = _insert_user(
+            conn,
+            first_name=first_name,
+            last_name=last_name,
+            role=role,
+            research_group=group,
+            username=username,
+        )
         _attach_email(conn, user_id, email, is_primary=True)
         conn.commit()
 
         row = conn.execute(
-            "SELECT id, name, role, research_group, username, created_at, updated_at "
-            "FROM users WHERE id = ?",
+            f"SELECT {_USERS_SELECT_COLUMNS} FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
         result = _user_row_to_dict(conn, row)
@@ -1094,11 +1268,19 @@ async def admin_update_user(user_id: int, request: Request):
             return JSONResponse({"error": "user not found"}, status_code=404)
 
         updates: list[tuple[str, object]] = []
-        if "name" in body:
-            name = (body.get("name") or "").strip()
-            if not name:
-                return JSONResponse({"error": "name cannot be empty"}, status_code=400)
-            updates.append(("name", name))
+        if "first_name" in body:
+            first = (body.get("first_name") or "").strip()
+            if not first:
+                return JSONResponse(
+                    {"error": "first_name cannot be empty"}, status_code=400
+                )
+            updates.append(("first_name", first))
+        if "last_name" in body:
+            last_raw = (body.get("last_name") or "").strip()
+            # Empty string clears the column to NULL; we never block on
+            # last_name being missing because the whitelist seed leaves
+            # ~30 rows blank by design.
+            updates.append(("last_name", last_raw or None))
         if "role" in body:
             role = (body.get("role") or "").strip()
             if role not in ("user", "group_leader", "admin"):
@@ -1137,8 +1319,7 @@ async def admin_update_user(user_id: int, request: Request):
         conn.commit()
 
         row = conn.execute(
-            "SELECT id, name, role, research_group, username, created_at, updated_at "
-            "FROM users WHERE id = ?",
+            f"SELECT {_USERS_SELECT_COLUMNS} FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
         result = _user_row_to_dict(conn, row)
@@ -1210,8 +1391,7 @@ async def admin_add_email(user_id: int, request: Request):
         conn.commit()
 
         row = conn.execute(
-            "SELECT id, name, role, research_group, username, created_at, updated_at "
-            "FROM users WHERE id = ?",
+            f"SELECT {_USERS_SELECT_COLUMNS} FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
         result = _user_row_to_dict(conn, row)
@@ -1264,8 +1444,7 @@ async def admin_remove_email(user_id: int, email: str, request: Request):
         conn.commit()
 
         urow = conn.execute(
-            "SELECT id, name, role, research_group, username, created_at, updated_at "
-            "FROM users WHERE id = ?",
+            f"SELECT {_USERS_SELECT_COLUMNS} FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
         result = _user_row_to_dict(conn, urow)
@@ -1300,8 +1479,7 @@ async def admin_set_primary_email(user_id: int, email: str, request: Request):
         conn.commit()
 
         urow = conn.execute(
-            "SELECT id, name, role, research_group, username, created_at, updated_at "
-            "FROM users WHERE id = ?",
+            f"SELECT {_USERS_SELECT_COLUMNS} FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
         result = _user_row_to_dict(conn, urow)
@@ -1516,18 +1694,21 @@ async def admin_export_users_csv(request: Request):
     conn = get_db()
     rows = conn.execute(
         """
-        SELECT u.name, u.role, ue.email
+        SELECT u.first_name, u.last_name, u.role, ue.email
           FROM users u
           JOIN user_emails ue ON ue.user_id = u.id AND ue.is_primary = 1
-         ORDER BY LOWER(u.name) ASC
+         ORDER BY LOWER(u.last_name), LOWER(u.first_name)
         """
     ).fetchall()
     conn.close()
-    lines = ["email,name,role"]
+    # Same field order and quoting style as whitelist.csv. Commas
+    # inside a name are replaced with spaces so the line stays a
+    # 4-column CSV without a quoting layer.
+    lines = ["email,first_name,last_name,role"]
     for r in rows:
-        # Same field order and quoting style as the legacy whitelist.csv.
-        name = r["name"].replace(",", " ")
-        lines.append(f"{r['email']},{name},{r['role']}")
+        first = (r["first_name"] or "").replace(",", " ")
+        last = (r["last_name"] or "").replace(",", " ")
+        lines.append(f"{r['email']},{first},{last},{r['role']}")
     body = "\n".join(lines) + "\n"
     return Response(
         content=body,

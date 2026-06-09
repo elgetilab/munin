@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { detectPhase, MessageList } from './MessageList';
 import type { Message, ToolCall } from '../lib/types';
 
@@ -186,5 +187,163 @@ describe('MessageList', () => {
     const vortexes = screen.getAllByTestId('feather-vortex');
     // The idle vortex is shown after messages
     expect(vortexes).toHaveLength(1);
+  });
+
+  // Free-scroll + jump-to-bottom button (2026-06-02 second pass).
+  //
+  // The previous attempt at gating auto-scroll didn't work in
+  // practice: the browser's smooth-scroll animation isn't
+  // interruptible by user wheel events, and tokens at 60 tok/s mean a
+  // new scrollIntoView fires every ~16ms, so the animation never
+  // completes and the user can't escape the bottom. The current
+  // behaviour:
+  //
+  //   - Streaming tokens DO NOT auto-scroll. User reads freely.
+  //   - Conversation switch jumps to the bottom (instant; no animation).
+  //   - New user message smooth-scrolls to the bottom so the user sees
+  //     their own bubble land.
+  //   - A floating "Scroll to bottom" button appears when the user is
+  //     more than JUMP_BUTTON_HIDE_THRESHOLD_PX (96) from the bottom.
+  //
+  // jsdom doesn't lay elements out (scrollHeight/scrollTop default to
+  // 0), so we patch container geometry to drive the scroll handler.
+  describe('scroll behaviour', () => {
+    let scrollSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      scrollSpy.mockRestore();
+    });
+
+    const findScrollContainer = (container: HTMLElement): HTMLElement => {
+      const el = container.querySelector('.overflow-y-auto') as HTMLElement | null;
+      if (!el) throw new Error('scroll container not found');
+      return el;
+    };
+
+    const setScrollGeometry = (
+      el: HTMLElement,
+      { scrollTop, clientHeight, scrollHeight }: { scrollTop: number; clientHeight: number; scrollHeight: number }
+    ) => {
+      Object.defineProperty(el, 'scrollTop', { configurable: true, value: scrollTop, writable: true });
+      Object.defineProperty(el, 'clientHeight', { configurable: true, value: clientHeight });
+      Object.defineProperty(el, 'scrollHeight', { configurable: true, value: scrollHeight });
+    };
+
+    it('does NOT call scrollIntoView on streaming token updates', () => {
+      const { rerender } = render(
+        <MessageList
+          messages={[assistantMsg]}
+          streaming={makeStreaming({ phase: 'generating', content: 'a' })}
+        />,
+      );
+      scrollSpy.mockClear();
+
+      rerender(
+        <MessageList
+          messages={[assistantMsg]}
+          streaming={makeStreaming({ phase: 'generating', content: 'ab' })}
+        />,
+      );
+      rerender(
+        <MessageList
+          messages={[assistantMsg]}
+          streaming={makeStreaming({ phase: 'generating', content: 'abc' })}
+        />,
+      );
+      // Three token updates, zero scrollIntoView calls.
+      expect(scrollSpy).not.toHaveBeenCalled();
+    });
+
+    it('smooth-scrolls to bottom when a new user message is added', () => {
+      const { rerender } = render(
+        <MessageList messages={[assistantMsg]} streaming={makeStreaming()} />,
+      );
+      scrollSpy.mockClear();
+
+      rerender(
+        <MessageList messages={[assistantMsg, userMsg]} streaming={makeStreaming()} />,
+      );
+      expect(scrollSpy).toHaveBeenCalledWith({ behavior: 'smooth' });
+    });
+
+    it('does NOT smooth-scroll when a new assistant message lands (only user messages trigger it)', () => {
+      const { rerender } = render(
+        <MessageList messages={[userMsg]} streaming={makeStreaming()} />,
+      );
+      scrollSpy.mockClear();
+
+      rerender(
+        <MessageList messages={[userMsg, assistantMsg]} streaming={makeStreaming()} />,
+      );
+      // The model's final bubble landing shouldn't yank the user back
+      // to the bottom; they may still be reading earlier prose.
+      expect(scrollSpy).not.toHaveBeenCalled();
+    });
+
+    it('jumps to bottom (instant scrollTop) on conversation switch', () => {
+      const { container, rerender } = render(
+        <MessageList messages={[assistantMsg]} streaming={makeStreaming()} conversationId="conv-a" />,
+      );
+      const scrollEl = findScrollContainer(container);
+      setScrollGeometry(scrollEl, { scrollTop: 0, clientHeight: 200, scrollHeight: 1000 });
+
+      rerender(
+        <MessageList messages={[assistantMsg]} streaming={makeStreaming()} conversationId="conv-b" />,
+      );
+      // The effect sets scrollTop = scrollHeight directly (no
+      // animation), so the geometry should reflect that.
+      expect(scrollEl.scrollTop).toBe(1000);
+    });
+
+    it('jump-to-bottom button appears once the user is more than 96px from the bottom', () => {
+      const { container } = render(
+        <MessageList messages={[assistantMsg]} streaming={makeStreaming()} />,
+      );
+      // Not visible initially (geometry is all 0 -> distance is 0).
+      expect(screen.queryByLabelText('Scroll to bottom')).not.toBeInTheDocument();
+
+      const scrollEl = findScrollContainer(container);
+      // 1000 - 100 - 200 = 700px from bottom, well over 96.
+      setScrollGeometry(scrollEl, { scrollTop: 100, clientHeight: 200, scrollHeight: 1000 });
+      fireEvent.scroll(scrollEl);
+
+      expect(screen.getByLabelText('Scroll to bottom')).toBeInTheDocument();
+    });
+
+    it('jump-to-bottom button hides when the user is within 96px of the bottom', () => {
+      const { container } = render(
+        <MessageList messages={[assistantMsg]} streaming={makeStreaming()} />,
+      );
+      const scrollEl = findScrollContainer(container);
+
+      // Far from bottom -> button visible.
+      setScrollGeometry(scrollEl, { scrollTop: 0, clientHeight: 200, scrollHeight: 1000 });
+      fireEvent.scroll(scrollEl);
+      expect(screen.getByLabelText('Scroll to bottom')).toBeInTheDocument();
+
+      // Close to bottom (50px) -> button hides.
+      setScrollGeometry(scrollEl, { scrollTop: 750, clientHeight: 200, scrollHeight: 1000 });
+      fireEvent.scroll(scrollEl);
+      expect(screen.queryByLabelText('Scroll to bottom')).not.toBeInTheDocument();
+    });
+
+    it('clicking the jump button smooth-scrolls to bottom', async () => {
+      const user = userEvent.setup();
+      const { container } = render(
+        <MessageList messages={[assistantMsg]} streaming={makeStreaming()} />,
+      );
+      const scrollEl = findScrollContainer(container);
+
+      setScrollGeometry(scrollEl, { scrollTop: 0, clientHeight: 200, scrollHeight: 1000 });
+      fireEvent.scroll(scrollEl);
+
+      scrollSpy.mockClear();
+      await user.click(screen.getByLabelText('Scroll to bottom'));
+      expect(scrollSpy).toHaveBeenCalledWith({ behavior: 'smooth' });
+    });
   });
 });

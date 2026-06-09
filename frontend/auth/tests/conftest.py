@@ -48,10 +48,16 @@ def client(auth_env):
 
 
 def make_user(auth_env, email: str, name: str, role: str = "user",
-              group: str | None = None, username: str | None = None) -> int:
+              group: str | None = None, username: str | None = None,
+              last_name: str | None = None) -> int:
+    """Create a user from a single `name` argument (treated as the
+    first name) plus an optional `last_name`. Mirrors what callers
+    used to pass before the 2026-06-02 split of users.name into
+    first_name + last_name -- existing tests stay readable."""
     conn = auth_env.get_db()
-    user_id = auth_env._insert_user(conn, name=name, role=role,
-                                    research_group=group, username=username)
+    user_id = auth_env._insert_user(conn, first_name=name, last_name=last_name,
+                                    role=role, research_group=group,
+                                    username=username)
     auth_env._attach_email(conn, user_id, email, is_primary=True)
     conn.commit()
     conn.close()

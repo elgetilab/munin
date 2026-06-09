@@ -193,3 +193,158 @@ describe('Markdown — legitimate content still renders', () => {
     expect(a.getAttribute('href')).toBe('mailto:hi@example.com');
   });
 });
+
+// ────────────────────────────────────────────────────────────────────
+// F. KaTeX math rendering
+// ────────────────────────────────────────────────────────────────────
+//
+// Chat 2ab70e98 (2026-06-03): the model emitted `$\delta_1$` inline and
+// `$$\delta_n \approx 1 - (1 - \delta_1)^{nN}$$` display math, both of
+// which previously rendered as literal dollar-sign text because
+// Markdown.tsx had no math plugin. After wiring `remark-math` +
+// `rehype-katex` both forms render as KaTeX-styled DOM.
+
+describe('Markdown — KaTeX math', () => {
+  it('inline `$a^2$` renders as a .katex span', () => {
+    const { container } = renderMd('The formula $a^2 + b^2 = c^2$ holds.');
+    const katex = container.querySelector('.katex');
+    expect(katex).not.toBeNull();
+    // KaTeX rewrites `^2` as a sup; presence of a `.msupsub` or sup-styled
+    // element confirms the math was actually parsed (and not just dropped
+    // through as raw text).
+    expect(container.textContent).not.toContain('$a^2');
+  });
+
+  it('`$$E = mc^2$$` on one line still renders as KaTeX (not raw text)', () => {
+    // This is the shape the chat persona actually emits (chat
+    // 2ab70e98 had `$$\delta_{n} \approx 1 - (1 - \delta_1)^{nN}$$`
+    // on its own paragraph). remark-math renders single-line `$$`
+    // as INLINE katex rather than a centred display block; that's
+    // still a huge improvement over raw text and matches the user's
+    // requested behaviour ("render latex equations inline").
+    const { container } = renderMd('Einstein: $$E = mc^2$$ holds.');
+    expect(container.querySelector('.katex')).not.toBeNull();
+    expect(container.textContent).not.toContain('$$E');
+  });
+
+  it('multi-line `$$\\n...\\n$$` renders as a .katex-display block', () => {
+    // The strictly-correct display syntax (delimiters on their own
+    // lines) DOES trigger the .katex-display block. Worth pinning
+    // so we know when remark-math behaviour drifts.
+    const { container } = renderMd('Einstein:\n\n$$\nE = mc^2\n$$\n\nQ.E.D.');
+    expect(container.querySelector('.katex-display')).not.toBeNull();
+    expect(container.textContent).not.toContain('$$');
+  });
+
+  it('non-math `$` (with letters touching) does NOT trigger KaTeX', () => {
+    // `$5` in prose is currency, not math. remark-math is conservative
+    // about single-`$` triggers — confirm prose stays prose.
+    const { container } = renderMd('The price is $5 today.');
+    expect(container.querySelector('.katex')).toBeNull();
+    expect(container.textContent).toContain('$5');
+  });
+
+  it('math next to prose does not break following text', () => {
+    const { container } = renderMd('Compute $x^2$ then continue.');
+    // Both the rendered KaTeX and the trailing prose should be there.
+    expect(container.querySelector('.katex')).not.toBeNull();
+    expect(container.textContent).toContain('then continue');
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────
+// G. LaTeX-style delimiters \( \) and \[ \]
+// ────────────────────────────────────────────────────────────────────
+//
+// Chat b4813f40 (2026-06-03, Schrödinger Gleichung): the model emits
+// display math as `$$...$$` (works) but inline math as `\(...\)`
+// (doesn't work — remark-math only recognises `$...$`). The
+// `normalizeMathDelimiters` preprocessor rewrites the LaTeX forms to
+// dollar-sign forms BEFORE remark-math sees them, except inside code
+// blocks where we want the literal characters preserved.
+
+import { normalizeMathDelimiters } from './Markdown';
+
+describe('normalizeMathDelimiters', () => {
+  it('rewrites `\\(x\\)` to `$x$`', () => {
+    expect(normalizeMathDelimiters('Let \\(x\\) be small.'))
+      .toBe('Let $x$ be small.');
+  });
+
+  it('rewrites `\\[E=mc^2\\]` to `$$E=mc^2$$`', () => {
+    expect(normalizeMathDelimiters('Einstein: \\[E=mc^2\\] holds.'))
+      .toBe('Einstein: $$E=mc^2$$ holds.');
+  });
+
+  it('handles multiple inline math spans on one line', () => {
+    expect(normalizeMathDelimiters('\\(a\\) and \\(b\\) and \\(c\\).'))
+      .toBe('$a$ and $b$ and $c$.');
+  });
+
+  it('handles nested parens inside \\(...\\) via lazy matching', () => {
+    // From chat b4813f40: `(\(i\) is the imaginary unit (\(i^2 = -1\)))`
+    const input = '(\\(i\\) is the imaginary unit (\\(i^2 = -1\\)))';
+    const out = normalizeMathDelimiters(input);
+    expect(out).toBe('($i$ is the imaginary unit ($i^2 = -1$))');
+  });
+
+  it('handles multi-line display \\[...\\]', () => {
+    const input = 'Before\n\n\\[\n\\sum_{i=1}^n a_i\n\\]\n\nAfter';
+    const out = normalizeMathDelimiters(input);
+    expect(out).toBe('Before\n\n$$\n\\sum_{i=1}^n a_i\n$$\n\nAfter');
+  });
+
+  it('leaves literal `\\(foo\\)` inside fenced code blocks untouched', () => {
+    const input = 'In LaTeX you write\n```\n\\(x^2\\)\n```\nfor inline math.';
+    expect(normalizeMathDelimiters(input)).toBe(input);
+  });
+
+  it('leaves literal `\\(foo\\)` inside inline `code` spans untouched', () => {
+    const input = 'Type `\\(x\\)` to get inline math.';
+    expect(normalizeMathDelimiters(input)).toBe(input);
+  });
+
+  it('rewrites math OUTSIDE a code block while leaving the code intact', () => {
+    const input = 'Outside: \\(x\\)\n```\n\\(y\\)\n```\nAnd more \\(z\\).';
+    expect(normalizeMathDelimiters(input))
+      .toBe('Outside: $x$\n```\n\\(y\\)\n```\nAnd more $z$.');
+  });
+
+  it('is a no-op when no LaTeX delimiters appear', () => {
+    const input = 'Plain prose with $a^2$ and `code` only.';
+    expect(normalizeMathDelimiters(input)).toBe(input);
+  });
+});
+
+describe('Markdown — LaTeX-style delimiters render via KaTeX', () => {
+  it('inline `\\(i\\)` renders as a .katex span', () => {
+    const { container } = renderMd('Let \\(i\\) be the imaginary unit.');
+    expect(container.querySelector('.katex')).not.toBeNull();
+    expect(container.textContent).not.toContain('\\(i\\)');
+    expect(container.textContent).not.toContain('$i$');
+  });
+
+  it('display `\\[E=mc^2\\]` on its own paragraph renders as KaTeX', () => {
+    // Single-line `$$...$$` (the form `\[...\]` rewrites to) renders
+    // as inline katex, not as .katex-display -- but it IS rendered
+    // and the literal delimiters disappear, which is the user-visible
+    // fix that matters.
+    const { container } = renderMd('Eq:\n\n\\[E=mc^2\\]\n\nDone.');
+    expect(container.querySelector('.katex')).not.toBeNull();
+    expect(container.textContent).not.toContain('\\[');
+    expect(container.textContent).not.toContain('\\]');
+  });
+
+  it('the chat b4813f40 fragment renders without raw \\( escaping through', () => {
+    // Direct excerpt from the broken chat.
+    const fragment =
+      '- **\\(i\\)** is the imaginary unit (\\(i^2 = -1\\))\n' +
+      '- **\\(\\hbar\\)** is the reduced Planck constant';
+    const { container } = renderMd(fragment);
+    // At least one .katex span should appear, and no raw `\(` should
+    // remain in the rendered text.
+    expect(container.querySelector('.katex')).not.toBeNull();
+    expect(container.textContent).not.toContain('\\(');
+    expect(container.textContent).not.toContain('\\)');
+  });
+});

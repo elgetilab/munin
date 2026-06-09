@@ -365,7 +365,9 @@ const AUTH_ADMIN = 'https://auth.muninai.org/admin';
 
 const MOCK_ADMIN_USER: AdminUser = {
   id: 1,
-  name: 'Alice',
+  first_name: 'Alice',
+  last_name: 'Anderson',
+  name: 'Alice Anderson',
   role: 'group_leader',
   group: 'elgeti',
   username: 'alice',
@@ -406,17 +408,21 @@ describe('createAdminUser', () => {
       return HttpResponse.json(MOCK_ADMIN_USER, { status: 201 });
     }));
     const result = await createAdminUser({
-      name: 'Alice', email: 'alice@example.org', role: 'group_leader',
+      first_name: 'Alice', last_name: 'Anderson',
+      email: 'alice@example.org', role: 'group_leader',
     });
     expect(result).toEqual(MOCK_ADMIN_USER);
-    expect(body).toEqual({ name: 'Alice', email: 'alice@example.org', role: 'group_leader' });
+    expect(body).toEqual({
+      first_name: 'Alice', last_name: 'Anderson',
+      email: 'alice@example.org', role: 'group_leader',
+    });
   });
 
   it('surfaces duplicate-email 409', async () => {
     server.use(http.post(`${AUTH_ADMIN}/users`, () =>
       HttpResponse.json({ error: 'email already in use' }, { status: 409 })));
     await expect(createAdminUser({
-      name: 'X', email: 'x@e.org',
+      first_name: 'X', email: 'x@e.org',
     })).rejects.toThrow('email already in use');
   });
 });

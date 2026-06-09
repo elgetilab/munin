@@ -106,6 +106,25 @@ export const INITIAL_STREAMING: StreamingState = {
 };
 
 
+/**
+ * Target rate at which 'token' SSE events are flushed to the UI.
+ *
+ * The local vLLM emits at 100+ tokens/sec, which dumps the entire
+ * assistant reply in a burst that's hard to read. The pacer in
+ * `sendMessage` queues incoming chunks and drains them at this rate
+ * so the user sees a typewriter effect while the network stream
+ * continues at full speed (the GPU slot is released as soon as
+ * vLLM finishes, regardless of what the user has seen).
+ *
+ * Set to `Infinity` in tests via `_resetChatStoreForTests` so
+ * synchronous assertions on `streaming.content` see the full text
+ * immediately. Only affects the 'token' event (final user-facing
+ * content); 'thinking', tool events, and nested-agent streams are
+ * unaffected because they have their own event types.
+ */
+export const DEFAULT_TOKEN_RATE_HZ = 60;
+
+
 // ── Store shape ────────────────────────────────────────────────────
 
 interface ChatState {
@@ -117,6 +136,12 @@ interface ChatState {
   error: string | null;
   artifacts: ArtifactSummary[];
   lastArtifactEvent: ArtifactCreatedEvent | ArtifactUpdatedEvent | null;
+  /**
+   * Per-store throttle target for user-facing token rendering. See
+   * `DEFAULT_TOKEN_RATE_HZ`. Tests set this to `Infinity` to bypass
+   * the pacer and keep synchronous assertions working.
+   */
+  tokenRateHz: number;
 
   // Actions
   setArtifacts: (next: ArtifactSummary[]) => void;
@@ -193,6 +218,7 @@ export const useChatStore = create<ChatState>()(
     error: null,
     artifacts: [],
     lastArtifactEvent: null,
+    tokenRateHz: DEFAULT_TOKEN_RATE_HZ,
 
     setArtifacts: (next) =>
       set(state => {
@@ -318,6 +344,117 @@ export const useChatStore = create<ChatState>()(
       let activeAgent: AgentState | null = null;
       let clarification: Clarification | null = null;
 
+      // Token pacer (DEFAULT_TOKEN_RATE_HZ). Queues 'token' fragments
+      // and drains them at the per-store rate so the typewriter effect
+      // is visible. The network read and `contentText` accumulator are
+      // NOT paced — vLLM finishes at full speed and the GPU slot is
+      // released as soon as `done` arrives, even if the user is still
+      // watching characters land. When the pacer is still draining at
+      // the time `done` arrives, the assistant Message push is
+      // deferred until the queue is empty so the bubble doesn't snap
+      // to the full text mid-typewriter.
+      //
+      // `sendMessage` awaits `pacerDrained` before returning so the
+      // post-drain processDoneInline (or an explicit stop) is the last
+      // action — without this the finally block would clearTimeout
+      // before the deferred 'done' got a chance to run.
+      const tokenRateHz = get().tokenRateHz;
+      const pacerEnabled = Number.isFinite(tokenRateHz) && tokenRateHz > 0;
+      const pacerTickMs = pacerEnabled ? 1000 / tokenRateHz : 0;
+      const tokenQueue: string[] = [];
+      let displayedContent = '';
+      let pacerTimer: ReturnType<typeof setTimeout> | null = null;
+      let nextEmitAt = 0;
+      let pendingDoneEvent: SSEEvent | null = null;
+      let pacerStopped = false;
+      let pacerDrainedResolve: (() => void) | null = null;
+      const pacerDrained: Promise<void> = pacerEnabled
+        ? new Promise(resolve => {
+            pacerDrainedResolve = resolve;
+          })
+        : Promise.resolve();
+      const resolvePacerDrained = (): void => {
+        if (pacerDrainedResolve !== null) {
+          const r = pacerDrainedResolve;
+          pacerDrainedResolve = null;
+          r();
+        }
+      };
+
+      const stopPacer = (): void => {
+        pacerStopped = true;
+        if (pacerTimer !== null) {
+          clearTimeout(pacerTimer);
+          pacerTimer = null;
+        }
+        resolvePacerDrained();
+      };
+
+      const processDoneInline = (event: SSEEvent): void => {
+        if (event.type !== 'done') return;
+        const assistantMessage: Message = {
+          id: `msg-${Date.now()}`,
+          role: 'assistant',
+          content: contentText,
+          thinking: thinkingText || null,
+          tool_calls:
+            toolCalls.length > 0 ? _snapshotToolCalls(toolCalls) : null,
+          rag_context: ragCtx,
+          clarification: clarification,
+          delegations: delegations.length > 0 ? [...delegations] : null,
+          memory_proposals:
+            memoryProposals.length > 0 ? [...memoryProposals] : null,
+          compact_boundary: compactBoundary,
+          plan_snapshot: planSnapshot,
+          created_at: new Date().toISOString(),
+        };
+        set(state => {
+          state.messages.push(assistantMessage);
+          state.streaming = INITIAL_STREAMING;
+        });
+      };
+
+      const drainPacer = (): void => {
+        pacerTimer = null;
+        if (pacerStopped) {
+          resolvePacerDrained();
+          return;
+        }
+        if (tokenQueue.length > 0) {
+          const chunk = tokenQueue.shift()!;
+          displayedContent += chunk;
+          set(state => {
+            state.streaming.content = displayedContent;
+            state.streaming.phase = 'generating';
+          });
+        }
+        if (tokenQueue.length > 0) {
+          schedulePacer();
+          return;
+        }
+        if (pendingDoneEvent !== null) {
+          const evt = pendingDoneEvent;
+          pendingDoneEvent = null;
+          processDoneInline(evt);
+          resolvePacerDrained();
+          return;
+        }
+        // Queue empty, no done pending. The pacer naturally pauses
+        // and the 'token' case will re-schedule when more arrive.
+        // We do NOT resolve pacerDrained here — sendMessage's finally
+        // is the gatekeeper and resolves it via stopPacer if nothing
+        // more arrives.
+      };
+
+      const schedulePacer = (): void => {
+        if (pacerTimer !== null || pacerStopped) return;
+        const now =
+          typeof performance !== 'undefined' ? performance.now() : Date.now();
+        const delay = Math.max(0, nextEmitAt - now);
+        nextEmitAt = now + delay + pacerTickMs;
+        pacerTimer = setTimeout(drainPacer, delay);
+      };
+
       const handleEvent = (event: SSEEvent) => {
         // Any event other than `retrying` itself means the backend
         // has resumed forward progress — clear the indicator.
@@ -360,10 +497,16 @@ export const useChatStore = create<ChatState>()(
             break;
           case 'token':
             contentText += event.data.content;
-            set(state => {
-              state.streaming.content = contentText;
-              state.streaming.phase = 'generating';
-            });
+            if (pacerEnabled) {
+              tokenQueue.push(event.data.content);
+              schedulePacer();
+            } else {
+              displayedContent = contentText;
+              set(state => {
+                state.streaming.content = contentText;
+                state.streaming.phase = 'generating';
+              });
+            }
             break;
           case 'tool_call':
             toolCalls.push({
@@ -391,7 +534,12 @@ export const useChatStore = create<ChatState>()(
             // Discard any in-progress prose — the backend retried
             // with forced tool_choice after detecting a prose
             // clarification, so the streamed tokens are stale.
+            // Same logic applies to anything sitting in the pacer
+            // queue: drop it, since it's stale prose the user
+            // shouldn't see.
             contentText = '';
+            displayedContent = '';
+            tokenQueue.length = 0;
             clarification = event.data;
             set(state => {
               state.streaming.content = '';
@@ -582,6 +730,10 @@ export const useChatStore = create<ChatState>()(
             break;
           }
           case 'error': {
+            // Stop the pacer up front so its queued ticks can't write
+            // into `streaming` after we replace it with the
+            // interrupted bubble below.
+            stopPacer();
             // Save-always parity with the backend (chat 3951063c,
             // 2026-05-08): append a Message carrying whatever
             // partial state we accumulated, with the same
@@ -620,27 +772,16 @@ export const useChatStore = create<ChatState>()(
             break;
           }
           case 'done': {
-            const assistantMessage: Message = {
-              id: `msg-${Date.now()}`,
-              role: 'assistant',
-              content: contentText,
-              thinking: thinkingText || null,
-              tool_calls: toolCalls.length > 0 ? _snapshotToolCalls(toolCalls) : null,
-              rag_context: ragCtx,
-              clarification: clarification,
-              delegations: delegations.length > 0 ? [...delegations] : null,
-              // If memory_proposed fired before done (out-of-
-              // order on some transports), the accumulator holds
-              // the candidates; attach them on initial creation.
-              memory_proposals: memoryProposals.length > 0 ? [...memoryProposals] : null,
-              compact_boundary: compactBoundary,
-              plan_snapshot: planSnapshot,
-              created_at: new Date().toISOString(),
-            };
-            set(state => {
-              state.messages.push(assistantMessage);
-              state.streaming = INITIAL_STREAMING;
-            });
+            // If the pacer still has tokens queued, defer the bubble
+            // push until the queue drains so the user sees the
+            // typewriter complete instead of the bubble snapping to
+            // the full text mid-animation. `drainPacer` will call
+            // `processDoneInline` when the queue empties.
+            if (pacerEnabled && (tokenQueue.length > 0 || pacerTimer !== null)) {
+              pendingDoneEvent = event;
+            } else {
+              processDoneInline(event);
+            }
             break;
           }
         }
@@ -717,6 +858,16 @@ export const useChatStore = create<ChatState>()(
           });
         }
       } finally {
+        // If the SSE stream completed cleanly but the pacer still has
+        // queued tokens + a pendingDoneEvent, wait for drainPacer to
+        // process them and push the assistant Message. If the stream
+        // aborted or errored, the corresponding handler already
+        // stopped the pacer (resolving pacerDrained immediately).
+        // Either way, await is safe.
+        if (pacerEnabled && (tokenQueue.length > 0 || pendingDoneEvent !== null)) {
+          await pacerDrained;
+        }
+        stopPacer();
         _abortController = null;
       }
     },
@@ -767,6 +918,10 @@ export function _resetChatStoreForTests(): void {
     error: null,
     artifacts: [],
     lastArtifactEvent: null,
+    // Tests assert on streaming.content synchronously after dispatching
+    // 'token' events, so disable the pacer by default. Individual tests
+    // that exercise the pacer can override to 60 (or any finite rate).
+    tokenRateHz: Infinity,
   });
   _abortController?.abort();
   _abortController = null;

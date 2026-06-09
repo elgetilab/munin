@@ -76,8 +76,12 @@ Wait for DNS to propagate before deploying. Caddy needs the A records to resolve
   - `ADMIN_EMAILS`: comma-separated list of admin email addresses.
   - `ADMIN_INGEST_TOKEN`: `openssl rand -hex 32`. Must match the
     value in the cluster's `cluster.env`.
-  - `KB_GATE_TOKEN`: `openssl rand -hex 32`. VPS-local; gates KB
-    uploads via the tusd pre-create hook.
+  - `KB_GATE_TOKEN`: `openssl rand -hex 32`. **Must match the same
+    key in the cluster's `cluster.env`.** Originally VPS-only (gates
+    KB uploads via the tusd pre-create hook); since 2026-06-02 the
+    cluster also uses it to call `/admin/check-role` for the in-house
+    Metrics dashboard. Generate once on either side, copy the exact
+    value to the other.
   - `CONTRIBUTORS_SYNC_TOKEN`: `openssl rand -hex 32`. Must match
     the value in the cluster's `cluster.env`; lets the cluster pull
     the regenerated `contributors.yaml` from `/admin/contributors.yaml`.

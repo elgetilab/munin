@@ -75,6 +75,22 @@ engines:
     shortcut: ddg
     disabled: false
 
+  # Independent keyless engines added 2026-06-01 to compensate for
+  # brave's "Suspended: too many requests" and duckduckgo's CAPTCHA
+  # (chat d3b4c98b). With only Startpage actually responding, every
+  # web_search degraded to a single-engine query. Qwant runs its own
+  # European index; Mojeek runs its own independent crawler. Neither
+  # needs an API key.
+  - name: qwant
+    engine: qwant
+    shortcut: qw
+    disabled: false
+
+  - name: mojeek
+    engine: mojeek
+    shortcut: mj
+    disabled: false
+
   # Academic/Scientific - Preprint Servers
   - name: arxiv
     engine: arxiv

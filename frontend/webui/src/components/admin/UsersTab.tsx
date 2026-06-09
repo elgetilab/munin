@@ -47,6 +47,8 @@ export function UsersTab() {
     ? users.filter(u => {
         const f = filter.toLowerCase();
         return (
+          u.first_name.toLowerCase().includes(f) ||
+          u.last_name.toLowerCase().includes(f) ||
           u.name.toLowerCase().includes(f) ||
           u.emails.some(e => e.toLowerCase().includes(f)) ||
           (u.group ?? '').toLowerCase().includes(f)
@@ -62,7 +64,7 @@ export function UsersTab() {
       <div className="flex items-center gap-2">
         <input
           type="text"
-          placeholder="Filter by name, email, or group..."
+          placeholder="Filter by first/last name, email, or group..."
           value={filter}
           onChange={e => setFilter(e.target.value)}
           className="flex-1 bg-bg-secondary border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent"
@@ -80,7 +82,8 @@ export function UsersTab() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-text-secondary text-xs">
-              <th className="px-3 py-2 font-medium">Name</th>
+              <th className="px-3 py-2 font-medium">First name</th>
+              <th className="px-3 py-2 font-medium">Last name</th>
               <th className="px-3 py-2 font-medium">Primary email</th>
               <th className="px-3 py-2 font-medium">Role</th>
               <th className="px-3 py-2 font-medium">Group</th>
@@ -91,7 +94,10 @@ export function UsersTab() {
           <tbody className="divide-y divide-border">
             {filtered.map(u => (
               <tr key={u.id} className="hover:bg-bg-primary/30">
-                <td className="px-3 py-2 text-text-primary">{u.name}</td>
+                <td className="px-3 py-2 text-text-primary">{u.first_name}</td>
+                <td className="px-3 py-2 text-text-primary">
+                  {u.last_name || <span className="text-text-secondary/50">–</span>}
+                </td>
                 <td className="px-3 py-2 text-text-secondary font-mono text-xs">{u.primary_email}</td>
                 <td className="px-3 py-2"><RoleBadge role={u.role} /></td>
                 <td className="px-3 py-2 text-text-secondary">{u.group ?? <span className="text-text-secondary/50">–</span>}</td>
@@ -105,7 +111,7 @@ export function UsersTab() {
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan={6} className="px-3 py-6 text-center text-text-secondary text-sm">
+              <tr><td colSpan={7} className="px-3 py-6 text-center text-text-secondary text-sm">
                 {users.length === 0 ? 'No users yet.' : 'No users match the filter.'}
               </td></tr>
             )}
@@ -152,7 +158,8 @@ function UserCreateModal({ groups, onClose, onSaved }: {
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [name, setName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<AdminRole>('user');
   const [group, setGroup] = useState<string>('');
@@ -165,7 +172,8 @@ function UserCreateModal({ groups, onClose, onSaved }: {
     setErr(null);
     try {
       await createAdminUser({
-        name: name.trim(),
+        first_name: firstName.trim(),
+        last_name: lastName.trim() || undefined,
         email: email.trim(),
         role,
         group: group || null,
@@ -180,11 +188,14 @@ function UserCreateModal({ groups, onClose, onSaved }: {
 
   return (
     <Modal title="Add user" onClose={onClose}>
-      <Field label="Name">
-        <Input value={name} onChange={setName} placeholder="Display name" />
+      <Field label="First name">
+        <Input value={firstName} onChange={setFirstName} placeholder="Jane" />
+      </Field>
+      <Field label="Last name">
+        <Input value={lastName} onChange={setLastName} placeholder="Doe (optional)" />
       </Field>
       <Field label="Primary email">
-        <Input value={email} onChange={setEmail} placeholder="alice@example.org" />
+        <Input value={email} onChange={setEmail} placeholder="jane.doe@example.org" />
       </Field>
       <Field label="Role">
         <Select value={role} onChange={v => setRole(v as AdminRole)} options={ROLES.map(r => ({ value: r, label: roleLabel(r) }))} />
@@ -204,7 +215,7 @@ function UserCreateModal({ groups, onClose, onSaved }: {
         onSubmit={submit}
         submitLabel="Create"
         submitting={saving}
-        disabled={!name.trim() || !email.trim() || !email.includes('@')}
+        disabled={!firstName.trim() || !email.trim() || !email.includes('@')}
       />
     </Modal>
   );
@@ -218,7 +229,8 @@ function UserEditModal({ user, groups, onClose, onSaved }: {
   onSaved: () => void;
 }) {
   const [current, setCurrent] = useState<AdminUser>(user);
-  const [name, setName] = useState(user.name);
+  const [firstName, setFirstName] = useState(user.first_name);
+  const [lastName, setLastName] = useState(user.last_name);
   const [role, setRole] = useState<AdminRole>(user.role);
   const [group, setGroup] = useState<string>(user.group ?? '');
   const [username, setUsername] = useState(user.username ?? '');
@@ -228,7 +240,8 @@ function UserEditModal({ user, groups, onClose, onSaved }: {
   const [err, setErr] = useState<string | null>(null);
 
   const dirty =
-    name.trim() !== current.name ||
+    firstName.trim() !== current.first_name ||
+    lastName.trim() !== current.last_name ||
     role !== current.role ||
     (group || null) !== current.group ||
     (username.trim() || null) !== current.username;
@@ -238,7 +251,8 @@ function UserEditModal({ user, groups, onClose, onSaved }: {
     setErr(null);
     try {
       const updated = await updateAdminUser(current.id, {
-        name: name.trim(),
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
         role,
         group: group || null,
         username: username.trim() || null,
@@ -288,8 +302,11 @@ function UserEditModal({ user, groups, onClose, onSaved }: {
 
   return (
     <Modal title={`Edit ${user.name}`} onClose={onClose}>
-      <Field label="Name">
-        <Input value={name} onChange={setName} />
+      <Field label="First name">
+        <Input value={firstName} onChange={setFirstName} />
+      </Field>
+      <Field label="Last name">
+        <Input value={lastName} onChange={setLastName} placeholder="(optional)" />
       </Field>
       <Field label="Role">
         <Select value={role} onChange={v => setRole(v as AdminRole)} options={ROLES.map(r => ({ value: r, label: roleLabel(r) }))} />

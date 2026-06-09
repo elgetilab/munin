@@ -56,3 +56,14 @@ EmitterFn = Callable[[str, dict], None]
 current_sse_emitter: ContextVar[Optional[EmitterFn]] = ContextVar(
     "current_sse_emitter", default=None
 )
+
+# URL allowlist for web_fetch (Bug 4b, 2026-06-01). web_search and
+# paper_search add every result URL here as they fan out; web_fetch
+# rejects URLs not in the set with a synthetic error nudging the model
+# to search first. Seeded per request from the conversation's persisted
+# tool_calls so URLs surfaced in earlier turns remain fetchable.
+# `None` means "no gate wired" (open mode, no rejection); chat_service
+# always binds a fresh set per request.
+current_search_urls: ContextVar[Optional[set]] = ContextVar(
+    "current_search_urls", default=None
+)

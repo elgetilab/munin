@@ -20,6 +20,7 @@
 #   sudo ./deploy.sh pipeline       - paper_pipeline.py → /opt/cluster/scripts/pipeline/ (§28)
 #   sudo ./deploy.sh retrieval      - retrieval/ code, rebuild + restart container
 #   sudo ./deploy.sh searxng        - searxng settings.yml + restart container
+#   sudo ./deploy.sh monitoring     - prometheus + grafana on the metrics endpoint
 #   sudo ./deploy.sh verify         - smoke-test /api/status and /api/personas
 #   sudo ./deploy.sh --dry-run <mode> - show what would change, do nothing
 #
@@ -484,6 +485,57 @@ deploy_tunnel() {
 }
 
 # ------------------------------------------------------------------------------
+# monitoring: install Prometheus config, bring it up. Dashboards live
+# in webui (AdminPanel -> Metrics tab) and query Prometheus via a
+# retrieval-side proxy. There is no Grafana service.
+# ------------------------------------------------------------------------------
+# Idempotent: re-running it copies the latest scrape config to
+# /opt/munin/docker/prometheus/ and recreates the container under the
+# `monitoring` profile. Bound to 127.0.0.1:9090 only.
+deploy_monitoring() {
+    echo "[monitoring] Installing Prometheus config..."
+    need_file "$REPO_DIR/docker/prometheus/prometheus.yml"
+    need_file "$REPO_DIR/docker/docker-compose.yml"
+
+    # Refresh the compose file too. The prometheus service lives under
+    # the `monitoring` profile; if /opt/munin/docker/docker-compose.yml
+    # predates it, `docker compose up` will reject `prometheus` as an
+    # unknown service.
+    run "install -d -m 0755 $MUNIN_DOCKER"
+    run "install -m 0644 $REPO_DIR/docker/docker-compose.yml \
+        $MUNIN_DOCKER/docker-compose.yml"
+
+    local MUNIN_PROM=$MUNIN_DOCKER/prometheus
+    run "install -d -m 0755 $MUNIN_PROM"
+    run "install -m 0644 $REPO_DIR/docker/prometheus/prometheus.yml \
+        $MUNIN_PROM/prometheus.yml"
+
+    if [ "$DRY_RUN" = "0" ]; then
+        if docker info >/dev/null 2>&1; then
+            # Tear down the legacy Grafana container if it's still
+            # running from a pre-2026-06-02 deploy. Volume `grafana_data`
+            # is preserved so a future re-introduction of Grafana could
+            # reuse it; remove it manually if you want a clean wipe:
+            #   docker volume rm frontend_grafana_data
+            if docker ps --format '{{.Names}}' | grep -q '^munin-grafana$'; then
+                echo "[monitoring] tearing down legacy munin-grafana container..."
+                run "docker stop munin-grafana"
+                run "docker rm munin-grafana"
+            fi
+            run "cd $MUNIN_DOCKER && docker compose --profile monitoring up -d prometheus"
+            echo "[OK] monitoring — prometheus up on 127.0.0.1:9090"
+            echo "      Dashboards: webui AdminPanel -> Metrics tab"
+        else
+            echo "[WARN] docker unreachable; bring up later with:"
+            echo "       docker compose --profile monitoring up -d prometheus"
+        fi
+    else
+        echo "  [dry-run] would docker compose up -d prometheus"
+    fi
+}
+
+
+# ------------------------------------------------------------------------------
 # searxng: install settings.yml and restart the container
 # ------------------------------------------------------------------------------
 deploy_searxng() {
@@ -730,6 +782,7 @@ case "$MODE" in
     pipeline)     deploy_pipeline ;;
     searxng)      deploy_searxng ;;
     sandbox)      deploy_sandbox ;;
+    monitoring)   deploy_monitoring ;;
     retrieval)    deploy_retrieval ;;
     verify)       deploy_verify ;;
     all)
