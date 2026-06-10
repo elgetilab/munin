@@ -107,22 +107,33 @@ export const INITIAL_STREAMING: StreamingState = {
 
 
 /**
- * Target rate at which 'token' SSE events are flushed to the UI.
+ * Target rate (characters per second) at which the final assistant
+ * answer is revealed in the UI.
  *
- * The local vLLM emits at 100+ tokens/sec, which dumps the entire
- * assistant reply in a burst that's hard to read. The pacer in
- * `sendMessage` queues incoming chunks and drains them at this rate
- * so the user sees a typewriter effect while the network stream
- * continues at full speed (the GPU slot is released as soon as
- * vLLM finishes, regardless of what the user has seen).
+ * The local vLLM emits at 100+ tokens/sec, and it often packs several
+ * tokens into one stream chunk, so flushing whole chunks dumps the
+ * reply in a burst that's hard to read. The pacer in `sendMessage`
+ * buffers incoming text and reveals it at a steady CHARACTER rate
+ * (independent of vLLM's chunk sizes) so the user sees an even
+ * typewriter while the network stream continues at full speed (the GPU
+ * slot is released as soon as vLLM finishes, regardless of what the
+ * user has seen). When the model generates slower than this rate the
+ * pacer never throttles — it is a ceiling, not a forced speed.
  *
- * Set to `Infinity` in tests via `_resetChatStoreForTests` so
+ * ~260 cps (~65 tok/s) reads as slightly-but-noticeably faster than
+ * Claude. Set to `Infinity` in tests via `_resetChatStoreForTests` so
  * synchronous assertions on `streaming.content` see the full text
  * immediately. Only affects the 'token' event (final user-facing
  * content); 'thinking', tool events, and nested-agent streams are
- * unaffected because they have their own event types.
+ * unaffected because they have their own event types and are never
+ * rate-limited.
  */
-export const DEFAULT_TOKEN_RATE_HZ = 60;
+export const DEFAULT_CHARS_PER_SEC = 260;
+
+// Repaint cadence of the pacer. Fixed at 60 Hz for smoothness; each
+// tick reveals DEFAULT_CHARS_PER_SEC / PACER_REPAINT_HZ characters
+// (with a fractional carry so the exact rate is hit).
+const PACER_REPAINT_HZ = 60;
 
 
 // ── Store shape ────────────────────────────────────────────────────
@@ -137,11 +148,12 @@ interface ChatState {
   artifacts: ArtifactSummary[];
   lastArtifactEvent: ArtifactCreatedEvent | ArtifactUpdatedEvent | null;
   /**
-   * Per-store throttle target for user-facing token rendering. See
-   * `DEFAULT_TOKEN_RATE_HZ`. Tests set this to `Infinity` to bypass
-   * the pacer and keep synchronous assertions working.
+   * Per-store throttle target (characters/sec) for revealing the
+   * final answer. See `DEFAULT_CHARS_PER_SEC`. Tests set this to
+   * `Infinity` to bypass the pacer and keep synchronous assertions
+   * working.
    */
-  tokenRateHz: number;
+  charsPerSec: number;
 
   // Actions
   setArtifacts: (next: ArtifactSummary[]) => void;
@@ -218,7 +230,7 @@ export const useChatStore = create<ChatState>()(
     error: null,
     artifacts: [],
     lastArtifactEvent: null,
-    tokenRateHz: DEFAULT_TOKEN_RATE_HZ,
+    charsPerSec: DEFAULT_CHARS_PER_SEC,
 
     setArtifacts: (next) =>
       set(state => {
@@ -348,24 +360,29 @@ export const useChatStore = create<ChatState>()(
       let activeAgent: AgentState | null = null;
       let clarification: Clarification | null = null;
 
-      // Token pacer (DEFAULT_TOKEN_RATE_HZ). Queues 'token' fragments
-      // and drains them at the per-store rate so the typewriter effect
-      // is visible. The network read and `contentText` accumulator are
-      // NOT paced — vLLM finishes at full speed and the GPU slot is
-      // released as soon as `done` arrives, even if the user is still
-      // watching characters land. When the pacer is still draining at
-      // the time `done` arrives, the assistant Message push is
-      // deferred until the queue is empty so the bubble doesn't snap
-      // to the full text mid-typewriter.
+      // Answer pacer (DEFAULT_CHARS_PER_SEC). Buffers 'token' text and
+      // reveals it at a steady CHARACTER rate so the typewriter is even
+      // regardless of how many tokens vLLM packs per stream chunk. The
+      // network read and `contentText` accumulator are NOT paced — vLLM
+      // finishes at full speed and the GPU slot is released as soon as
+      // `done` arrives, even if the user is still watching characters
+      // land. When the pacer is still draining at the time `done`
+      // arrives, the assistant Message push is deferred until the
+      // buffer is empty so the bubble doesn't snap to the full text
+      // mid-typewriter.
       //
       // `sendMessage` awaits `pacerDrained` before returning so the
       // post-drain processDoneInline (or an explicit stop) is the last
       // action — without this the finally block would clearTimeout
       // before the deferred 'done' got a chance to run.
-      const tokenRateHz = get().tokenRateHz;
-      const pacerEnabled = Number.isFinite(tokenRateHz) && tokenRateHz > 0;
-      const pacerTickMs = pacerEnabled ? 1000 / tokenRateHz : 0;
-      const tokenQueue: string[] = [];
+      const charsPerSec = get().charsPerSec;
+      const pacerEnabled = Number.isFinite(charsPerSec) && charsPerSec > 0;
+      const pacerTickMs = pacerEnabled ? 1000 / PACER_REPAINT_HZ : 0;
+      // Characters revealed per repaint tick; fractional, with a carry.
+      const charsPerTick = pacerEnabled ? charsPerSec / PACER_REPAINT_HZ : 0;
+      // Unrevealed buffered text + fractional-character carry.
+      let pendingText = '';
+      let charCarry = 0;
       let displayedContent = '';
       let pacerTimer: ReturnType<typeof setTimeout> | null = null;
       let nextEmitAt = 0;
@@ -432,18 +449,26 @@ export const useChatStore = create<ChatState>()(
           resolvePacerDrained();
           return;
         }
-        if (tokenQueue.length > 0) {
-          const chunk = tokenQueue.shift()!;
-          displayedContent += chunk;
-          set(state => {
-            state.streaming.content = displayedContent;
-            state.streaming.phase = 'generating';
-          });
+        if (pendingText.length > 0) {
+          charCarry += charsPerTick;
+          const n = Math.min(Math.floor(charCarry), pendingText.length);
+          if (n > 0) {
+            displayedContent += pendingText.slice(0, n);
+            pendingText = pendingText.slice(n);
+            charCarry -= n;
+            set(state => {
+              state.streaming.content = displayedContent;
+              state.streaming.phase = 'generating';
+            });
+          }
         }
-        if (tokenQueue.length > 0) {
+        if (pendingText.length > 0) {
           schedulePacer();
           return;
         }
+        // Buffer drained: drop the fractional carry so a later pause
+        // can't bank a burst of characters when text resumes.
+        charCarry = 0;
         if (pendingDoneEvent !== null) {
           const evt = pendingDoneEvent;
           pendingDoneEvent = null;
@@ -510,7 +535,7 @@ export const useChatStore = create<ChatState>()(
           case 'token':
             contentText += event.data.content;
             if (pacerEnabled) {
-              tokenQueue.push(event.data.content);
+              pendingText += event.data.content;
               schedulePacer();
             } else {
               displayedContent = contentText;
@@ -551,7 +576,8 @@ export const useChatStore = create<ChatState>()(
             // shouldn't see.
             contentText = '';
             displayedContent = '';
-            tokenQueue.length = 0;
+            pendingText = '';
+            charCarry = 0;
             clarification = event.data;
             set(state => {
               state.streaming.content = '';
@@ -789,7 +815,7 @@ export const useChatStore = create<ChatState>()(
             // typewriter complete instead of the bubble snapping to
             // the full text mid-animation. `drainPacer` will call
             // `processDoneInline` when the queue empties.
-            if (pacerEnabled && (tokenQueue.length > 0 || pacerTimer !== null)) {
+            if (pacerEnabled && (pendingText.length > 0 || pacerTimer !== null)) {
               pendingDoneEvent = event;
             } else {
               processDoneInline(event);
@@ -876,7 +902,7 @@ export const useChatStore = create<ChatState>()(
         // aborted or errored, the corresponding handler already
         // stopped the pacer (resolving pacerDrained immediately).
         // Either way, await is safe.
-        if (pacerEnabled && (tokenQueue.length > 0 || pendingDoneEvent !== null)) {
+        if (pacerEnabled && (pendingText.length > 0 || pendingDoneEvent !== null)) {
           await pacerDrained;
         }
         stopPacer();
@@ -933,7 +959,7 @@ export function _resetChatStoreForTests(): void {
     // Tests assert on streaming.content synchronously after dispatching
     // 'token' events, so disable the pacer by default. Individual tests
     // that exercise the pacer can override to 60 (or any finite rate).
-    tokenRateHz: Infinity,
+    charsPerSec: Infinity,
   });
   _abortController?.abort();
   _abortController = null;

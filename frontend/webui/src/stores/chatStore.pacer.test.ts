@@ -1,10 +1,10 @@
 import { renderHook, act } from '@testing-library/react';
-import { http, HttpResponse } from 'msw';
+import { http } from 'msw';
 import { server } from '../test/msw-server';
 import {
   useChatStore,
   _resetChatStoreForTests,
-  DEFAULT_TOKEN_RATE_HZ,
+  DEFAULT_CHARS_PER_SEC,
 } from './chatStore';
 
 /**
@@ -42,12 +42,12 @@ describe('chatStore token pacer', () => {
     _resetChatStoreForTests();
   });
 
-  it('exposes DEFAULT_TOKEN_RATE_HZ = 60', () => {
-    expect(DEFAULT_TOKEN_RATE_HZ).toBe(60);
+  it('exposes DEFAULT_CHARS_PER_SEC = 260', () => {
+    expect(DEFAULT_CHARS_PER_SEC).toBe(260);
   });
 
   it('reset helper disables the pacer (rate = Infinity) so sync tests work', () => {
-    expect(useChatStore.getState().tokenRateHz).toBe(Infinity);
+    expect(useChatStore.getState().charsPerSec).toBe(Infinity);
   });
 
   it('with rate = Infinity, all tokens render synchronously before done', async () => {
@@ -90,8 +90,9 @@ describe('chatStore token pacer', () => {
           )
         );
 
-        // Enable pacing at the production default.
-        useChatStore.setState({ tokenRateHz: 60 });
+        // Enable pacing at a deterministic 60 cps (= exactly 1 char per
+        // 60 Hz tick), so the per-tick assertions below are exact.
+        useChatStore.setState({ charsPerSec: 60 });
 
         const { result } = renderHook(() => useChatStore());
 
@@ -103,14 +104,14 @@ describe('chatStore token pacer', () => {
         });
 
         // Let the SSE consumer run microtasks so all events land in
-        // handleEvent and tokens are queued. The pacer's first tick
+        // handleEvent and text is buffered. The pacer's first tick
         // also gets scheduled at delay=0 here.
         await act(async () => {
           await vi.advanceTimersByTimeAsync(0);
         });
 
-        // At this point the pacer has fired its first 0-delay tick,
-        // so one chunk is visible but not yet all four.
+        // At this point the pacer has fired its first 0-delay tick, so
+        // one character is visible (60 cps = 1 char/tick) but not all four.
         expect(
           result.current.streaming.content.length
         ).toBeLessThan(4);
@@ -120,8 +121,8 @@ describe('chatStore token pacer', () => {
           result.current.messages.some(m => m.role === 'assistant')
         ).toBe(false);
 
-        // Advance well past the drain duration (4 tokens * 16.67ms
-        // = ~67ms). 500ms is comfortable.
+        // Advance well past the drain duration (4 chars at 60 cps =
+        // ~67ms). 500ms is comfortable.
         await act(async () => {
           await vi.advanceTimersByTimeAsync(500);
         });
@@ -166,7 +167,7 @@ describe('chatStore token pacer', () => {
           )
         );
 
-        useChatStore.setState({ tokenRateHz: 60 });
+        useChatStore.setState({ charsPerSec: 60 });
         const { result } = renderHook(() => useChatStore());
 
         let sendPromise: Promise<void> | null = null;
