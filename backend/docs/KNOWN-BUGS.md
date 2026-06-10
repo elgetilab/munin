@@ -146,20 +146,49 @@ not "resume works for users." Confirmed via git history: as of writing,
 i.e. no later fix has landed, so the production failures run against the
 current code.
 
+### Frontend: no fix needed (verified contract-correct 2026-06-10)
+
+The webui resume client was checked end-to-end and needs **no change**
+for the 500 fix; it was only ever blocked by the server. For a future
+reader, so this does not get re-investigated:
+
+- The SSE contract matches on both sides. Backend emits the `conversation`
+  event carrying `stream_id` / `id` / `ephemeral`
+  (`chat_service.py` ~1638) and tags every event `id: <stream_id>-<seq>`.
+  The client captures `stream_id` and tracks `lastEventId` from those
+  `id:` lines (`frontend/webui/src/lib/api.ts` ~752, ~763), then resumes
+  via `GET /chat/completions/resume?stream_id=...` with the
+  `Last-Event-ID` header (~820). It already has a backoff reconnect loop
+  (`RECONNECT_BACKOFF_MS`) and a 410 -> "no longer available" path.
+- The client already degraded gracefully on the production 500
+  (`if (!res.ok) return 'error'` -> "Stream resume failed; please retry"
+  banner), which is the failure users were seeing. With the server fixed
+  it now falls through to consume the resumed stream. **No webui rebuild
+  / redeploy is required** for this fix.
+- Caveat (genuine UX limitation, NOT caused by this bug): on a browser
+  *refresh*, in-memory partial text is lost and the server replays only
+  events newer than the persisted `lastEventId`, so the bubble repaints
+  only the tail of the message, not the whole thing. Mid-stream blips
+  (no refresh) are seamless because the rendered text stays in memory.
+  Folded into the client-UX follow-up below.
+
 ### Suggested fix / next steps
 
-- Re-investigate the **500** first: get a real traceback (retrieval
-  logs around a failing resume timestamp). That likely points at a
-  concrete unhandled case in `serve_stream()` / the endpoint.
-- Add an **integration test** for the end-to-end success path (and one
-  asserting a clean 410 vs a 500 for the gone-stream case).
-- Reconsider the retention/grace **windows** — `DONE_RETENTION_S` and
-  `GRACE_S` at 60s are plausibly too short for real refresh/return
+- [DONE] Re-investigate the **500**, get a real traceback -> it was a
+  `NameError` (see failure mode 2 above), now fixed.
+- [DONE] Add an **integration test** for the end-to-end success path
+  plus the 410/403/401 branches: `tests/test_resume_endpoint.py`.
+- [OPEN] Reconsider the retention/grace **windows** — `DONE_RETENTION_S`
+  and `GRACE_S` at 60s are plausibly too short for real refresh/return
   patterns; weigh longer windows against registry memory growth.
-- Consider raising or removing the `MAX_LOG_EVENTS = 1000` cap for
+- [OPEN] Consider raising or removing the `MAX_LOG_EVENTS = 1000` cap for
   long tool-heavy turns, or make truncation degrade gracefully (replay
   from the oldest retained event) instead of hard-410.
-- **Client-side UX:** on a 410/500 from resume, surface a graceful
-  "the answer was interrupted, retry" affordance rather than a raw
-  stream error, and ensure any partial assistant text already received
-  is preserved rather than discarded.
+- [OPEN] **Client-side UX:** on a browser refresh, repaint/preserve the
+  partial assistant text rather than showing only the replayed tail
+  (the caveat above). The raw-error vs graceful-retry handling is already
+  in place; this is specifically about the cross-refresh repaint.
+- [TODO] **Manual verification:** resume has never succeeded in prod, so
+  the client success branch has never run against a live server. Do one
+  manual round-trip (start a long answer, drop WiFi a few seconds, and
+  separately refresh the tab) to confirm the full loop now works.
