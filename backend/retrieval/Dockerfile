@@ -49,6 +49,10 @@ COPY agents /app/agents/
 # at startup; missing it would silently disable every hook.
 COPY hooks /app/hooks/
 
+# Copy the behaviour-eval harness (on-demand, run via docker exec).
+# Not imported by the service; ships so it's available in the container.
+COPY evals /app/evals/
+
 # Persona definitions and agent config are mounted at runtime
 # (see docker-compose.yml): /app/personas and /app/config.
 

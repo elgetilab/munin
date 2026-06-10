@@ -36,8 +36,8 @@ language=html), 3× "Pong Game" (text/html, **language empty**). All
 | 1 | HTML artifact downloads as `.txt` | deterministic (frontend) | ✅ FIXED + tested + deployed |
 | 2 | No "working" spinner during artifact creation | deterministic (frontend) | ✅ FIXED + tested + deployed |
 | 3 | Artifacts created "before" ask_clarification | ~~deterministic~~ → model behaviour | ❌ NOT A BUG — intercept already correct; folded into eval (#4) |
-| 3b | Multiple `create_artifact` with same title in ONE response → redundant artifacts | deterministic (backend) | ⬜ TODO (Option C) |
-| 4 | Eval harness for model-behaviour failures | new tooling | ⬜ TODO |
+| 3b | Multiple `create_artifact` with same title in ONE response → redundant artifacts | deterministic (backend) | ✅ FIXED + tested + deployed (6/6) |
+| 4 | Eval harness for model-behaviour failures | new tooling | ✅ BUILT + run (baseline recorded) |
 | 5 | No persona switch to `code` | model behaviour | → eval (#4) |
 | 6 | Answer generated twice in one message | model behaviour | → eval (#4) |
 | 7 | 5 redundant artifacts for one game | model behaviour | → eval (#4) |
@@ -135,6 +135,12 @@ to dedupe as a pre-pass on the list or inside the executor.
 `create_artifact`s yields ONE created artifact + 2 synthetic
 "duplicate" results; a batch with 2 DIFFERENT titles creates both.
 
+**DONE 2026-06-10:** `_duplicate_create_artifact_ids` + skip branch in
+`_run_tool_calls` (keep last per normalised title; synthetic
+"duplicate" result for the rest). `tests/test_artifact_dedup.py` 6/6,
+deployed (regression suites green). Same-response only; cross-iteration
+dupes are model refining → eval (#4).
+
 ---
 
 ## ⬜ Item 4 — Pong eval harness (model-behaviour guard)
@@ -153,11 +159,40 @@ of run-to-run variation (e.g. pass if K of N runs satisfy each).
 - The produced artifact is `content_type=text/html` and downloads as
   `.html` (ties back to item 1).
 
-**Open design questions:**
-- Where it runs (manual script vs CI; needs the live vLLM on the
-  cluster, so not in frontend CI).
-- N runs + pass threshold per property.
-- Corpus: this chat + other pong conversations as seed prompts.
+**Decisions:** on-demand manual · metrics report (advisory, no hard
+gate) · N=8 (flag-tunable).
+
+**Built (pending first run):** `backend/retrieval/evals/run_eval.py`
++ `COPY evals /app/evals/` in the Dockerfile. Runs INSIDE the container
+and POSTs to the live local service (so it reuses the initialised
+embedders/singletons; the script itself imports only httpx + stdlib).
+Per run: POST the pong prompt as `eval-pong@munin.local`, parse SSE,
+answer one clarification if asked, GET the persisted conversation (for
+phantom-warning + duplicate-answer checks, which read the SAVED content
+since the warning is prepended at persist), evaluate checks, DELETE the
+conversation. Scenarios are data (`SCENARIOS` dict) — pong is #1.
+
+Checks: artifacts<=1 · every artifact text/html · no `[backend warning]`
+phantom marker · clarify-before-work · delegated->code OR html game ·
+no duplicated answer block (fuzzy). Output = per-check pass-rate over
+the completed runs.
+
+Run: `docker exec munin-retrieval python /app/evals/run_eval.py
+--scenario pong --runs 8` (smoke-test with `--runs 1` first).
+
+**Baseline (2026-06-10, 8/8 runs completed):**
+```
+artifacts <= 1 ............................... 3/8   ← model still over-produces
+every artifact is text/html .................. 5/8
+no phantom-URL warning ....................... 4/8   ← half hallucinate download URLs
+clarify-before-work .......................... 8/8   ✓
+delegated->code OR produced an html game ..... 5/8
+no duplicated answer block (fuzzy) ........... 8/8   ✓ (heuristic may under-detect)
+```
+Reads as: the deterministic fixes hold, but the remaining model-behaviour
+problems are real and frequent — over-producing artifacts (5/8 of runs
+make >1) and hallucinated download URLs (4/8). These are prompt-tuning
+targets; re-run the eval to measure any change.
 
 ---
 
