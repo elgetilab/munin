@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { detectPhase, MessageList } from './MessageList';
-import type { Message, ToolCall } from '../lib/types';
+import type { Message, Persona } from '../lib/types';
 
 // Mock heavy child components to keep tests focused on MessageList logic
 vi.mock('./FeatherVortex', () => ({
@@ -344,6 +344,59 @@ describe('MessageList', () => {
       scrollSpy.mockClear();
       await user.click(screen.getByLabelText('Scroll to bottom'));
       expect(scrollSpy).toHaveBeenCalledWith({ behavior: 'smooth' });
+    });
+  });
+
+  // ── Persona divider (persona-switch tracking) ─────────────────────────────
+  describe('persona divider', () => {
+    const personas: Persona[] = [
+      { id: 'chat', name: 'Meitner - Chat', description: '', icon_url: '', tags: [], capabilities: {}, prompt_suggestions: [] },
+      { id: 'code', name: 'Turing - Code', description: '', icon_url: '', tags: [], capabilities: {}, prompt_suggestions: [] },
+    ];
+    const mk = (id: string, role: Message['role'], content: string, persona?: string | null, extra: Partial<Message> = {}): Message =>
+      ({ id, role, content, persona, created_at: new Date().toISOString(), ...extra });
+
+    it('draws a divider when the persona changes between turns', () => {
+      const messages = [
+        mk('1', 'user', 'how would you code?', 'chat'),
+        mk('2', 'assistant', 'here is how', 'chat'),
+        mk('3', 'assistant', 'now coding', 'code'),
+      ];
+      render(<MessageList messages={messages} streaming={makeStreaming()} personas={personas} />);
+      expect(screen.getByLabelText('Switched to Turing')).toBeInTheDocument();
+      // exactly one boundary (chat -> code), not one per message
+      expect(screen.getAllByRole('separator')).toHaveLength(1);
+    });
+
+    it('draws no divider when every turn shares one persona', () => {
+      const messages = [
+        mk('1', 'user', 'hi', 'chat'),
+        mk('2', 'assistant', 'hello', 'chat'),
+      ];
+      render(<MessageList messages={messages} streaming={makeStreaming()} personas={personas} />);
+      expect(screen.queryByRole('separator')).not.toBeInTheDocument();
+    });
+
+    it('draws no divider for legacy NULL-persona history', () => {
+      const messages = [
+        mk('1', 'user', 'hi', null),
+        mk('2', 'assistant', 'hello', null),
+        mk('3', 'assistant', 'more', null),
+      ];
+      render(<MessageList messages={messages} streaming={makeStreaming()} personas={personas} />);
+      expect(screen.queryByRole('separator')).not.toBeInTheDocument();
+    });
+
+    it('shows the delegation reason on the divider when present', () => {
+      const messages = [
+        mk('1', 'user', 'debug this', 'chat'),
+        mk('2', 'assistant', 'on it', 'code', {
+          delegations: [{ from_persona: 'chat', to_persona: 'code', reason: 'long debugging session' }],
+        }),
+      ];
+      render(<MessageList messages={messages} streaming={makeStreaming()} personas={personas} />);
+      expect(screen.getByLabelText('Switched to Turing')).toBeInTheDocument();
+      expect(screen.getByText('long debugging session')).toBeInTheDocument();
     });
   });
 });

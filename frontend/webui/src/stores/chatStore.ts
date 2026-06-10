@@ -304,6 +304,10 @@ export const useChatStore = create<ChatState>()(
           id: `temp-${Date.now()}`,
           role: 'user',
           content,
+          // Persona this turn is addressed to (the source persona if a
+          // delegation happens later this turn). Matches what the backend
+          // persists, so the PersonaDivider lines up after reload.
+          persona,
           created_at: new Date().toISOString(),
         };
         set(state => {
@@ -406,6 +410,14 @@ export const useChatStore = create<ChatState>()(
             memoryProposals.length > 0 ? [...memoryProposals] : null,
           compact_boundary: compactBoundary,
           plan_snapshot: planSnapshot,
+          // Authoring persona: the delegation target if a handoff
+          // happened this turn, otherwise the persona it was sent under.
+          // Mirrors the backend's per-message persona so the divider is
+          // identical live and after reload.
+          persona:
+            delegations.length > 0
+              ? delegations[delegations.length - 1].to_persona
+              : persona,
           created_at: new Date().toISOString(),
         };
         set(state => {

@@ -70,6 +70,11 @@ export interface Message {
   // transcript reload. Only the assistant message that LAST touched
   // the plan within a turn carries the snapshot.
   plan_snapshot?: Plan | null;
+  // Authoring persona for this turn (persona-switch tracking). Set by
+  // the backend per message; drives the PersonaDivider in the message
+  // list. Null/undefined on legacy rows predating the column — treated
+  // as "unattributed" so no spurious divider is drawn.
+  persona?: string | null;
   created_at: string;
 }
 

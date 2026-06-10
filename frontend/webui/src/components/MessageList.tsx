@@ -6,6 +6,7 @@ import { Markdown } from './Markdown';
 import { ClarificationCard } from './ClarificationCard';
 import { MemoryProposalPill } from './MemoryProposalPill';
 import { CompactBoundaryDivider } from './CompactBoundaryDivider';
+import { PersonaDivider } from './PersonaDivider';
 import { PlanCard } from './PlanCard';
 
 interface RetryingState {
@@ -155,12 +156,42 @@ export function MessageList({ messages, streaming, personas, onSendClarification
   const isActive = streaming.phase !== 'idle' && streaming.phase !== 'done' && streaming.phase !== 'error';
   const isIdle = streaming.phase === 'idle' || streaming.phase === 'done';
 
+  // Effective authoring persona per message, carrying the last known
+  // persona forward across legacy NULL rows so a divider is drawn only
+  // on a real change (and never for an all-legacy transcript).
+  const effectivePersonas: (string | undefined)[] = [];
+  {
+    let last: string | undefined = undefined;
+    for (const m of messages) {
+      if (m.persona) last = m.persona;
+      effectivePersonas.push(last);
+    }
+  }
+
   return (
     <div className="flex-1 relative min-h-0 flex flex-col">
     <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-6">
       <div className="max-w-2xl mx-auto space-y-6">
-        {messages.map(msg => (
+        {messages.map((msg, idx) => {
+          // Persona-switch divider: drawn above the first message whose
+          // effective persona differs from the previous one. Covers both
+          // delegate_to_persona and manual switches, and survives reload.
+          const showPersonaDivider =
+            idx > 0 &&
+            !!effectivePersonas[idx] &&
+            effectivePersonas[idx] !== effectivePersonas[idx - 1];
+          const delegationReason = showPersonaDivider
+            ? msg.delegations?.find(d => d.to_persona === effectivePersonas[idx])?.reason
+            : undefined;
+          return (
           <div key={msg.id}>
+            {showPersonaDivider ? (
+              <PersonaDivider
+                personaId={effectivePersonas[idx]!}
+                personas={personas}
+                reason={delegationReason}
+              />
+            ) : null}
             {/* P2 #22: render the boundary divider ABOVE the
                 assistant message that triggered compaction so the
                 visible order matches the conversation flow. */}
@@ -180,9 +211,10 @@ export function MessageList({ messages, streaming, personas, onSendClarification
                 onAfterEdit={onPlanEdited}
               />
             ) : null}
-            <MessageBubble message={msg} personas={personas} onSendClarification={onSendClarification} onDismissMemoryProposal={onDismissMemoryProposal} />
+            <MessageBubble message={msg} onSendClarification={onSendClarification} onDismissMemoryProposal={onDismissMemoryProposal} />
           </div>
-        ))}
+          );
+        })}
 
         {/* Streaming state */}
         {isActive && (
@@ -281,7 +313,7 @@ export function MessageList({ messages, streaming, personas, onSendClarification
   );
 }
 
-function MessageBubble({ message, personas, onSendClarification, onDismissMemoryProposal }: { message: Message; personas?: Persona[]; onSendClarification?: (answer: string) => void; onDismissMemoryProposal?: (proposalId: string) => void }) {
+function MessageBubble({ message, onSendClarification, onDismissMemoryProposal }: { message: Message; onSendClarification?: (answer: string) => void; onDismissMemoryProposal?: (proposalId: string) => void }) {
   if (message.role === 'user') {
     return (
       <div className="flex gap-3 justify-end">
@@ -303,14 +335,9 @@ function MessageBubble({ message, personas, onSendClarification, onDismissMemory
         />
       )}
 
-      {/* Persona delegation notes */}
-      {message.delegations && message.delegations.length > 0 && (
-        <div className="space-y-2">
-          {message.delegations.map((d, i) => (
-            <DelegationNote key={i} delegation={d} personas={personas} />
-          ))}
-        </div>
-      )}
+      {/* Persona handoff is shown as a PersonaDivider above the bubble
+          (driven by the per-message persona field, reload-safe). The
+          inline DelegationNote is kept only for the live stream. */}
 
       {cleanContent(message.content) && (
         <div className="text-base text-text-primary leading-relaxed">
