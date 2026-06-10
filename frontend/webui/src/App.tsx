@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import { useChatLifecycle } from './hooks/useChatLifecycle';
 import { useChatStore } from './stores/chatStore';
 import { useUiStore } from './stores/uiStore';
@@ -10,7 +10,7 @@ import type { UserProfile } from './lib/api';
 import { getGreeting } from './lib/greetings';
 import { Sidebar } from './components/Sidebar';
 import { MessageList } from './components/MessageList';
-import { ChatInput } from './components/ChatInput';
+import { ChatInput, type ChatInputHandle } from './components/ChatInput';
 import { FeatherVortex } from './components/FeatherVortex';
 import { SleepingPage } from './components/SleepingPage';
 import { MaintenancePage } from './components/MaintenancePage';
@@ -418,6 +418,59 @@ export default function App() {
   const isMaintenance = status?.maintenance?.active === true;
   const isOffline = status?.vllm?.status === 'offline';
 
+  // ── Whole-window drag-and-drop file attach ────────────────────────────────
+  // Files dropped anywhere over the chat view are routed into the
+  // composer's existing upload/attach pipeline via chatInputRef. Gated to
+  // chat states (not admin/settings/maintenance/offline). A drag-depth
+  // counter keeps the overlay steady as the cursor moves over children.
+  const chatInputRef = useRef<ChatInputHandle>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const dragDepth = useRef(0);
+  const chatActive =
+    !showAdmin && !editingProject && !showSettings && !isMaintenance && !isOffline;
+
+  // Stop the browser from navigating to a file dropped outside the zone.
+  useEffect(() => {
+    const prevent = (e: DragEvent) => {
+      if (Array.from(e.dataTransfer?.types ?? []).includes('Files')) e.preventDefault();
+    };
+    window.addEventListener('dragover', prevent);
+    window.addEventListener('drop', prevent);
+    return () => {
+      window.removeEventListener('dragover', prevent);
+      window.removeEventListener('drop', prevent);
+    };
+  }, []);
+
+  const dragHasFiles = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer?.types ?? []).includes('Files');
+  const onChatDragEnter = (e: React.DragEvent) => {
+    if (!chatActive || !dragHasFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDragActive(true);
+  };
+  const onChatDragOver = (e: React.DragEvent) => {
+    if (!chatActive || !dragHasFiles(e)) return;
+    e.preventDefault();  // required for the drop event to fire
+  };
+  const onChatDragLeave = () => {
+    if (!chatActive) return;
+    dragDepth.current -= 1;
+    if (dragDepth.current <= 0) {
+      dragDepth.current = 0;
+      setDragActive(false);
+    }
+  };
+  const onChatDrop = (e: React.DragEvent) => {
+    if (!chatActive) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragActive(false);
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) chatInputRef.current?.handleDroppedFiles(files);
+  };
+
   // ── Knowledge full-page view ──────────────────────────────────────────────
   if (showKnowledgePage) {
     return (
@@ -658,7 +711,27 @@ export default function App() {
         {/* Content + Artifact Panel wrapper */}
         <div className="flex-1 flex min-h-0">
           {/* Main content area */}
-          <div className="flex-1 flex flex-col min-w-0">
+          <div
+            className="flex-1 flex flex-col min-w-0 relative"
+            onDragEnter={onChatDragEnter}
+            onDragOver={onChatDragOver}
+            onDragLeave={onChatDragLeave}
+            onDrop={onChatDrop}
+          >
+            {/* Whole-window drop overlay (file drag only, chat states only) */}
+            {dragActive && chatActive && (
+              <div className="absolute inset-0 z-50 m-2 flex items-center justify-center rounded-2xl border-2 border-dashed border-accent bg-bg-primary/85 backdrop-blur-sm pointer-events-none">
+                <div className="flex flex-col items-center gap-2 text-accent">
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                  <span className="text-sm font-medium">Drop files to attach</span>
+                  <span className="text-xs text-text-secondary">PDF, TXT, MD, DOCX, or images</span>
+                </div>
+              </div>
+            )}
             {/* Admin / Settings / ProjectSettings / Sleeping / Empty / Messages */}
             {showAdmin && isAdmin ? (
               <AdminPanel />
@@ -690,6 +763,7 @@ export default function App() {
                   </h1>
                 </div>
                 <ChatInput
+                  ref={chatInputRef}
                   onSend={handleSend}
                   onSendMultimodal={handleSendMultimodal}
                   onStop={stopGenerating}
@@ -704,6 +778,7 @@ export default function App() {
               <>
                 <MessageList messages={messages} streaming={streaming} personas={personas} onSendClarification={handleSend} onDismissMemoryProposal={dismissMemoryProposal} conversationId={conversationId} onPlanApproved={handlePlanApproved} onPlanRejected={() => { /* user types follow-up themselves */ }} onPlanEdited={handlePlanEdited} />
                 <ChatInput
+                  ref={chatInputRef}
                   onSend={handleSend}
                   onSendMultimodal={handleSendMultimodal}
                   onStop={stopGenerating}

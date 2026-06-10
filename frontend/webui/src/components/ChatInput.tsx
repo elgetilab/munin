@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
 import type { Persona, PromptSuggestion } from '../lib/types';
 import { uploadDocument } from '../lib/api';
 import type { UploadedDocument } from '../lib/api';
@@ -47,6 +47,13 @@ interface ChatInputProps {
   onFileUploaded?: (doc: UploadedDocument) => void;
 }
 
+// Imperative handle so a parent-level drop zone (App's whole-chat-window
+// drag-and-drop) can route dropped files into the same upload/attach
+// pipeline the composer uses, without lifting that state out of here.
+export interface ChatInputHandle {
+  handleDroppedFiles: (files: FileList | File[]) => void;
+}
+
 const ACCEPTED_TYPES = '.pdf,.txt,.md,.docx';
 const ACCEPTED_IMAGE_TYPES = '.png,.jpg,.jpeg,.webp';
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
@@ -71,7 +78,7 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-export function ChatInput({
+export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput({
   onSend,
   onSendMultimodal,
   onStop,
@@ -80,7 +87,7 @@ export function ChatInput({
   showSuggestions: _showSuggestions,
   conversationId,
   onFileUploaded,
-}: ChatInputProps) {
+}: ChatInputProps, ref) {
   const personas = useUserStore(s => s.personas);
   const selectedPersona = useUserStore(s => s.selectedPersona);
   const onSelectPersona = useUserStore(s => s.setSelectedPersona);
@@ -387,6 +394,43 @@ export function ChatInput({
     if (file) addImage(file);
     e.target.value = '';
   };
+
+  // Route dropped (or otherwise externally supplied) files into the same
+  // image/document pipelines the attach menu uses. Reused by App's
+  // whole-window drag-and-drop via the imperative handle below.
+  const handleDroppedFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    const ext = (f: File) => f.name.split('.').pop()?.toLowerCase() ?? '';
+    const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'webp'];
+    const DOC_EXTS = ['pdf', 'txt', 'md', 'docx'];
+
+    const docs: File[] = [];
+    let skipped = 0;
+    for (const f of list) {
+      if (f.type.startsWith('image/') || IMAGE_EXTS.includes(ext(f))) {
+        await addImage(f);  // enforces type/size/count, sets imageError on reject
+      } else if (DOC_EXTS.includes(ext(f))) {
+        docs.push(f);
+      } else {
+        skipped++;
+      }
+    }
+    // Documents upload one at a time (the banner tracks a single upload).
+    // Document upload is disabled in ephemeral chats, mirroring the menu.
+    for (const f of docs) {
+      if (isEphemeral) {
+        setUploadState({ file: f, progress: 0, status: 'error', error: 'File upload is disabled in ephemeral chats' });
+        break;
+      }
+      await handleFileSelect(f);
+    }
+    if (skipped > 0) {
+      setImageError('Some files were skipped. Supported: PDF, TXT, MD, DOCX, PNG, JPG, WEBP');
+    }
+  };
+
+  useImperativeHandle(ref, () => ({ handleDroppedFiles }));
 
   return (
     <div className="px-4 py-4 bg-bg-primary w-full">
@@ -773,4 +817,4 @@ export function ChatInput({
       </p>
     </div>
   );
-}
+});
