@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { ArtifactSummary, ArtifactFull } from '../lib/types';
 import { fetchArtifact, updateArtifact } from '../lib/api';
+import { getExtension } from '../lib/artifactDownload';
 import { Markdown } from './Markdown';
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -407,13 +408,3 @@ function ArtifactContent({ artifact }: { artifact: ArtifactFull }) {
   );
 }
 
-function getExtension(contentType: string, language?: string): string {
-  if (language === 'python' || contentType === 'application/python') return '.py';
-  if (contentType === 'text/markdown') return '.md';
-  if (contentType === 'text/latex') return '.tex';
-  if (contentType === 'application/json') return '.json';
-  if (contentType === 'image/svg+xml') return '.svg';
-  if (contentType === 'text/plain') return '.txt';
-  if (contentType === 'application/pdf') return '.pdf';
-  return '.txt';
-}
