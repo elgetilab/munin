@@ -860,6 +860,33 @@ async def _stream_vllm_once(
 
 # --- Tool execution -----------------------------------------------------------
 
+def _duplicate_create_artifact_ids(tool_calls: list[dict]) -> set[str]:
+    """IDs of redundant ``create_artifact`` calls within ONE response.
+
+    The model sometimes emits several ``create_artifact`` calls with the
+    same title in a single response (chat d28ef78e: 3x "Pong Game"),
+    minting duplicate artifacts. Keep only the LAST call per normalised
+    title (the most refined draft); return the earlier ones so the
+    executor can skip the actual creation and synthesise a "duplicate"
+    result. Untitled calls are never deduped (no reliable key); distinct
+    titles are untouched, so a response that legitimately creates several
+    different artifacts is unaffected.
+    """
+    ids_by_title: dict[str, list[str]] = {}
+    for tc in tool_calls:
+        if tc.get("name") != "create_artifact":
+            continue
+        title = ((tc.get("arguments") or {}).get("title") or "").strip().lower()
+        tid = tc.get("id")
+        if title and tid:
+            ids_by_title.setdefault(title, []).append(tid)
+    skip: set[str] = set()
+    for ids in ids_by_title.values():
+        if len(ids) > 1:
+            skip.update(ids[:-1])  # keep the last occurrence
+    return skip
+
+
 async def _run_tool_calls(
     tool_calls: list[dict],
     persona_id: Optional[str] = None,
@@ -890,6 +917,11 @@ async def _run_tool_calls(
     ``persona_id`` is folded into the error message so the model
     knows whose budget it tripped.
     """
+    # Within this response, collapse same-title create_artifact calls to
+    # one real creation (chat d28ef78e). The skipped ones get a synthetic
+    # result below so every tool_call_id still has a result.
+    dup_skip_ids = _duplicate_create_artifact_ids(tool_calls)
+
     async def one(tc: dict) -> dict:
         name = tc.get("name") or ""
         if allowed_tools is not None and name not in allowed_tools:
@@ -911,6 +943,29 @@ async def _run_tool_calls(
                         f"run_python / sandbox_reset, or 'research' "
                         f"for deep paper-search tools. Otherwise "
                         f"answer using only the tools you do have."
+                    ),
+                },
+                "duration_ms": 0,
+            }
+        # Duplicate create_artifact (same title, same response): skip the
+        # actual creation but still return a result so the model gets
+        # feedback and the tool_call_id is satisfied.
+        if tc.get("id") in dup_skip_ids:
+            title = ((tc.get("arguments") or {}).get("title") or "").strip()
+            logger.info(
+                "deduped duplicate create_artifact in one response (title=%r)",
+                title,
+            )
+            return {
+                "id": tc["id"],
+                "name": name,
+                "result": {
+                    "skipped": True,
+                    "reason": (
+                        f"Duplicate create_artifact: an artifact titled "
+                        f"{title!r} was created more than once in this "
+                        f"response; only one was kept. Use update_artifact "
+                        f"to revise it instead of creating duplicates."
                     ),
                 },
                 "duration_ms": 0,

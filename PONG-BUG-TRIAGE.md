@@ -35,7 +35,8 @@ language=html), 3× "Pong Game" (text/html, **language empty**). All
 |---|---------|------|--------|
 | 1 | HTML artifact downloads as `.txt` | deterministic (frontend) | ✅ FIXED + tested + deployed |
 | 2 | No "working" spinner during artifact creation | deterministic (frontend) | ✅ FIXED + tested + deployed |
-| 3 | Artifacts created alongside ask_clarification / set_plan (not dropped) | deterministic (backend) | ⬜ TODO |
+| 3 | Artifacts created "before" ask_clarification | ~~deterministic~~ → model behaviour | ❌ NOT A BUG — intercept already correct; folded into eval (#4) |
+| 3b | Multiple `create_artifact` with same title in ONE response → redundant artifacts | deterministic (backend) | ⬜ TODO (Option C) |
 | 4 | Eval harness for model-behaviour failures | new tooling | ⬜ TODO |
 | 5 | No persona switch to `code` | model behaviour | → eval (#4) |
 | 6 | Answer generated twice in one message | model behaviour | → eval (#4) |
@@ -86,32 +87,53 @@ progress event, but it's not needed for the spinner.
 
 ---
 
-## ⬜ Item 3 — ask_clarification / set_plan should drop sibling tool calls
+## ❌ Item 3 — ask_clarification drops siblings — NOT A BUG (investigated)
 
-**Symptom:** model emitted `create_artifact ×3` + `set_plan` +
-`ask_clarification` in ONE response; the artifacts were executed even
-though the turn was really "ask the user a question first". Result:
-premature/garbage artifacts before the user has answered.
+**Finding:** the `ask_clarification` intercept ALREADY drops same-response
+siblings correctly. `chat_service.py:2293` finds the clarification call
+regardless of siblings and, on the valid path, emits `done` and
+**`return`s at line 2437 — before the single `_run_tool_calls` site
+(2466)**. Nothing executes tools between the delegate and clarification
+intercepts. So `[create_artifact, ask_clarification]` in one response
+short-circuits and the artifact never runs.
 
-**Precedent:** the `delegate_to_persona` intercept in `chat_service.py`
-already drops any non-delegation tool calls in the same response (a
-control-flow tool can't also do regular work). `ask_clarification`
-(and arguably `set_plan` when it gates the turn) should follow the same
-rule.
+**Proof from the chat:** the 3 `create_artifact`s in msg 1 carry
+execution RESULTS (real artifact IDs), which is only possible if they
+ran in an EARLIER loop iteration where no clarification was present. The
+6 tool calls in the persisted message are accumulated across iterations.
+Real sequence: iter 1 = `[create_artifact, update_plan_item, set_plan,
+create_artifact, create_artifact]` (all executed; note update_plan_item
+ran before set_plan and errored); iter 2 = `[ask_clarification]`
+(short-circuited correctly).
 
-**Code to inspect:**
-- `chat_service.py` — the §14 `ask_clarification` intercept (does it
-  currently run before/after `_run_tool_calls`? does it drop siblings?).
-- Compare with the `delegate_to_persona` intercept (~line 1970) which
-  does drop siblings.
+**Conclusion:** the pong "artifacts before clarification" is model
+SEQUENCING across iterations — non-deterministic behaviour, folded into
+the eval (#4) as: "if the model asks for clarification, no
+`create_artifact` ran earlier in the same turn."
 
-**Fix sketch:** when `ask_clarification` is present in a response's
-tool_calls, intercept BEFORE executing the others and drop them (only
-the clarification runs), matching the delegate precedent.
+## ⬜ Item 3b — dedupe same-title `create_artifact` within one response (Option C)
 
-**Test plan:** backend test (style of `test_clarification_persistence.py`)
-— a response with `[create_artifact, ask_clarification]` executes ONLY
-the clarification; no artifact is created/persisted.
+**Symptom (deterministic, the real same-response bug):** in iter 1 the
+model emitted THREE `create_artifact` calls with the same title ("Pong
+Game") in ONE response, producing 3 redundant artifacts (and iter 3 did
+the same with 2× "Pong - Single Player vs Computer"). One model response
+should not mint multiple artifacts with the same title.
+
+**Fix sketch:** pre-pass over a response's tool_calls before/inside
+`_run_tool_calls` — for `create_artifact` calls sharing a normalised
+title, actually create only ONE (keep the last = most refined); the
+others get a synthetic tool_result `{skipped: duplicate, title}` so every
+tool_call_id still has a result (history stays consistent) and the model
+gets feedback. Does NOT touch legitimately-different artifacts (distinct
+titles) in the same response.
+
+**Code to inspect:** `chat_service.py` `_run_tool_calls` (def ~863, call
+~2466) — dispatch + parallel execution + result assembly; decide whether
+to dedupe as a pre-pass on the list or inside the executor.
+
+**Test plan:** backend test — a tool_calls batch with 3 same-title
+`create_artifact`s yields ONE created artifact + 2 synthetic
+"duplicate" results; a batch with 2 DIFFERENT titles creates both.
 
 ---
 
