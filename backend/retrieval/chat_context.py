@@ -276,6 +276,7 @@ async def assemble_context(
     system_prompt: str,
     rag_context: Optional[dict] = None,
     ephemeral: bool = False,
+    active_persona_id: Optional[str] = None,
 ) -> tuple[list[dict], Optional[dict]]:
     """
     Build a list of vLLM chat messages for the next completion.
@@ -329,6 +330,25 @@ async def assemble_context(
     combined_system = "\n\n".join(p for p in system_parts if p)
 
     stored_messages: list[dict] = conversation.get("messages") or []
+
+    # Persona-switch awareness: if any earlier turn was authored by a
+    # different persona than the one answering now, tell the model so it
+    # does not deny the switch or claim it has no memory of the thread.
+    # The active persona for this turn is the request's persona (passed
+    # explicitly so a manual UI switch is handled too); fall back to the
+    # conversation's stored persona. Lazy import avoids a
+    # chat_context <-> personas import cycle.
+    from personas import persona_handoff_note
+    active_persona = (
+        active_persona_id if active_persona_id is not None
+        else conversation.get("persona")
+    )
+    handoff_note = persona_handoff_note(
+        active_persona_id=active_persona,
+        prior_persona_ids=[m.get("persona") for m in stored_messages],
+    )
+    if handoff_note:
+        combined_system = f"{combined_system}\n\n{handoff_note}"
 
     new_content = new_message.get("content", "")
     new_msg = {"role": new_message.get("role", "user"), "content": new_content}

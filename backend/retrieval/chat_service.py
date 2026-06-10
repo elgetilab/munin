@@ -1391,7 +1391,11 @@ async def _build_full_system_prompt(
     ambient = (
         f"Current date: {now_local.strftime('%A, %B %d, %Y')} "
         f"({now_local.strftime('%Y-%m-%d %H:%M %Z')}). "
-        "Use this directly — do not search the web for the date."
+        "Use this directly — do not search the web for the date. "
+        "The full history of THIS conversation is provided above; you can "
+        "read every earlier turn in it. Do not tell the user you have no "
+        "memory of the current conversation (you may lack access to other, "
+        "separate chats, but not this one)."
     )
     system_prompt = (
         f"{system_prompt}\n\n{ambient}" if system_prompt else ambient
@@ -1694,6 +1698,7 @@ async def stream_chat_completion(
             role="user",
             content=persisted_text,
             attachments=user_attachments or None,
+            persona=persona_id,
         )
         # Reload so the new message is part of the context assembly.
         conversation = await chat_store.get_conversation(conversation["id"], user_email)
@@ -1768,6 +1773,7 @@ async def stream_chat_completion(
             system_prompt=system_prompt,
             rag_context=rag_context,
             ephemeral=ephemeral,
+            active_persona_id=persona_id,
         )
         # P2 #22: emit a compact_boundary SSE so the UI can render a
         # visible "earlier N messages summarised" divider in the chat
@@ -2182,6 +2188,7 @@ async def stream_chat_completion(
                 # accumulated this turn), reset accumulators, and let the
                 # loop run another iteration with the new persona.
                 delegations_used += 1
+                source_persona_id = persona_id  # capture before the swap
                 logger.info(
                     "delegate_to_persona firing "
                     "(from=%r, to=%r, reason=%r)",
@@ -2242,6 +2249,20 @@ async def stream_chat_completion(
                 tags_block = build_active_tags_block(effective_tags)
                 if tags_block:
                     system_prompt = f"{system_prompt}\n\n{tags_block}"
+
+                # Persona-switch awareness: ground the receiving persona so
+                # it acknowledges the handoff instead of denying the switch
+                # or claiming it authored the source persona's earlier turns
+                # (chat 14ded1f1, 2026-06-09). Subsequent user turns get the
+                # equivalent note rebuilt from per-message persona in
+                # assemble_context.
+                handoff_note = persona_module.persona_handoff_note(
+                    active_persona_id=target_id,
+                    prior_persona_ids=[source_persona_id],
+                    reason=reason,
+                )
+                if handoff_note:
+                    system_prompt = f"{system_prompt}\n\n{handoff_note}"
 
                 # Rebuild messages from pre-loop snapshot but with the new
                 # system prompt swapped in. The snapshot's first entry is
@@ -2369,6 +2390,7 @@ async def stream_chat_completion(
                         thinking=final_thinking or None,
                         tool_calls=final_tool_calls or None,
                         rag_context=rag_context,
+                        persona=persona_id,
                     )
                     # Without this, the finally block's save-always re-persists
                     # the same turn (chat 9dd753e5, 2026-05-29: two assistant
@@ -2736,6 +2758,7 @@ async def stream_chat_completion(
                 thinking=final_thinking or None,
                 tool_calls=final_tool_calls or None,
                 rag_context=rag_context,
+                persona=persona_id,
             )
             assistant_persisted = True
 
@@ -2900,6 +2923,7 @@ async def stream_chat_completion(
                         thinking=final_thinking or None,
                         tool_calls=final_tool_calls or None,
                         rag_context=rag_context,
+                        persona=persona_id,
                     )
                 )
             except Exception as _save_always_exc:

@@ -202,6 +202,64 @@ def get_persona(persona_id: str) -> Optional[dict]:
     return _personas.get(persona_id)
 
 
+def persona_display_name(persona_id: Optional[str]) -> str:
+    """Short, human display name for a persona id (e.g. 'Turing').
+
+    Mirrors the icon-path convention: the configured name is like
+    'Turing - Code', so we take the part before the first dash. Falls
+    back to the id when the persona is unknown.
+    """
+    if not persona_id:
+        return "another persona"
+    persona = get_persona(persona_id)
+    raw_name = (persona.get("name") if persona else "") or ""
+    short = raw_name.split("-")[0].strip()
+    return short or persona_id
+
+
+def persona_handoff_note(
+    active_persona_id: Optional[str],
+    prior_persona_ids,
+    reason: Optional[str] = None,
+) -> Optional[str]:
+    """Build a system note telling the active persona that earlier turns
+    in this same conversation were authored by a different persona.
+
+    Returns ``None`` when there is no cross-persona history (so legacy
+    chats with NULL persona, or single-persona chats, get no marker).
+
+    ``reason`` is set on the live delegation hop (phrased as a deliberate
+    just-now handoff); left ``None`` for replayed history on later turns.
+    """
+    prior: list[str] = []
+    for pid in prior_persona_ids or []:
+        if pid and pid != active_persona_id and pid not in prior:
+            prior.append(pid)
+    if not prior:
+        return None
+
+    active_name = persona_display_name(active_persona_id)
+    prior_names = ", ".join(persona_display_name(p) for p in prior)
+    if reason:
+        lead = (
+            f"[persona handoff] You ({active_name}) have just taken over this "
+            f"conversation from {prior_names} at the user's request "
+            f"(reason: {reason})."
+        )
+    else:
+        lead = (
+            f"[persona handoff] Earlier turns in this conversation were authored "
+            f"by {prior_names}; you are now {active_name}."
+        )
+    return (
+        lead + " Those earlier turns appear above as ordinary history and are "
+        "part of this same ongoing conversation, which you can read in full. "
+        "Do not claim you authored them, and do not tell the user there was no "
+        "switch or that you have no memory of this conversation. If the user "
+        "asks, acknowledge the handoff plainly."
+    )
+
+
 def public_personas() -> dict:
     """Return the /api/personas payload."""
     default_id = DEFAULT_PERSONA_ID if DEFAULT_PERSONA_ID in _personas else (

@@ -192,3 +192,68 @@ reader, so this does not get re-investigated:
   the client success branch has never run against a live server. Do one
   manual round-trip (start a long answer, drop WiFi a few seconds, and
   separately refresh the tab) to confirm the full loop now works.
+
+---
+
+## 3. Persona switch dropped identity + faked memory loss (FIXED 2026-06-10)
+
+**Severity:** medium (core UX / trust)
+
+### Symptom
+
+Switching persona mid-conversation (via `delegate_to_persona`, or a
+manual UI persona switch) made the receiving persona deny the switch and
+claim it had lost the conversation. Reported chat `14ded1f1`
+(2026-06-09): user starts with Meitner (chat), asks to switch to code;
+Turing takes over but then insists *"I've been Turing the whole time"*
+and *"I don't have access to previous conversations... fresh session."*
+
+### Root cause
+
+The conversation history was in context the whole time, so this was not
+literal memory loss. Three gaps combined:
+
+1. No handoff signal reached the model. The `delegated` / `persona_changed`
+   SSE events went to the UI only; nothing in the model's context said a
+   switch had occurred.
+2. No per-message persona attribution. The `messages` table had no
+   `persona` column and `conversation.persona` was overwritten to the
+   new persona, erasing the switch boundary. The receiving persona read
+   the source persona's earlier turns as its own.
+3. The "no memory of previous conversations" line was a pure
+   confabulation (it exists nowhere in the prompts) the system prompt
+   did nothing to prevent.
+
+### Fix
+
+- `messages` gains a nullable `persona` column (additive migration;
+  legacy rows stay NULL). Every message records its authoring persona,
+  so a delegating turn stores the user turn under the source persona and
+  the assistant turn under the target.
+- `personas.persona_handoff_note()` builds a marker, injected two ways:
+  `assemble_context()` prepends it when stored history spans personas
+  (active persona passed explicitly, covering manual switches too), and
+  the `delegate_to_persona` hot-path appends a "you just took over from
+  {source}" note to the receiving persona's system prompt. It returns
+  None for single-persona / legacy-NULL history, so old chats are
+  unaffected.
+- Base ambient prompt line clarifies the model can read the full current
+  conversation (kills the "no memory" confabulation).
+- `delegate_to_persona` guidance made more eager: hand off sustained /
+  non-trivial work to its specialist and hand back when the conversation
+  returns to the original persona's strength, rather than delegating only
+  as a last resort. 1-hop-per-turn budget unchanged.
+- Tests: `tests/test_persona_handoff.py` (9 cases) — note logic,
+  assemble_context injection (positive + same-persona + legacy-NULL
+  negatives), persona save/load round-trip.
+
+### Open follow-up
+
+- [OPEN] **Frontend persona divider.** The per-message `persona` field is
+  now returned by the conversation API; the webui should render a visible
+  "switched to {persona}" boundary in the message list. Deliberately
+  deferred from the backend change.
+- [TODO] **Manual verification.** Redo the Meitner -> Turing switch in the
+  live UI and confirm the receiving persona acknowledges the handoff
+  instead of denying it (unit tests prove the marker is built/injected,
+  not that the model obeys it).

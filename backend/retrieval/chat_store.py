@@ -45,6 +45,12 @@ def _message_row_to_dict(row: aiosqlite.Row) -> dict:
         attachments = _parse_json(row["attachments"])
     except (IndexError, KeyError):
         attachments = None
+    # persona column was added after the initial schema (persona-switch
+    # tracking). Older rows lack the key; surface None.
+    try:
+        persona = row["persona"]
+    except (IndexError, KeyError):
+        persona = None
     return {
         "id": row["id"],
         "role": row["role"],
@@ -56,6 +62,7 @@ def _message_row_to_dict(row: aiosqlite.Row) -> dict:
         "created_at": row["created_at"],
         "token_count": row["token_count"],
         "index_in_conversation": row["index_in_conversation"],
+        "persona": persona,
     }
 
 
@@ -101,6 +108,7 @@ async def init_db() -> aiosqlite.Connection:
             attachments TEXT,
             created_at TEXT NOT NULL,
             token_count INTEGER,
+            persona TEXT,
             FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
         );
 
@@ -312,6 +320,13 @@ async def init_db() -> aiosqlite.Connection:
     if "attachments" not in message_cols:
         await _db.execute(
             "ALTER TABLE messages ADD COLUMN attachments TEXT"
+        )
+    # Per-message authoring persona (persona-switch tracking). Nullable;
+    # pre-migration rows stay NULL and are treated as "unattributed" so
+    # context assembly injects no handoff marker for legacy history.
+    if "persona" not in message_cols:
+        await _db.execute(
+            "ALTER TABLE messages ADD COLUMN persona TEXT"
         )
 
     await _db.commit()
@@ -592,7 +607,8 @@ async def get_conversation(conversation_id: str, user_email: str) -> Optional[di
     cursor = await db.execute(
         """
         SELECT id, role, content, thinking, tool_calls, rag_context,
-               attachments, created_at, token_count, index_in_conversation
+               attachments, created_at, token_count, index_in_conversation,
+               persona
         FROM messages
         WHERE conversation_id = ?
         ORDER BY index_in_conversation ASC
@@ -704,6 +720,7 @@ async def add_message(
     rag_context: Optional[dict] = None,
     attachments: Optional[list] = None,
     token_count: Optional[int] = None,
+    persona: Optional[str] = None,
 ) -> dict:
     db = await get_db()
     msg_id = str(uuid.uuid4())
@@ -722,8 +739,8 @@ async def add_message(
         INSERT INTO messages
             (id, conversation_id, index_in_conversation, role, content,
              thinking, tool_calls, rag_context, attachments, created_at,
-             token_count)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             token_count, persona)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             msg_id,
@@ -737,6 +754,7 @@ async def add_message(
             json.dumps(attachments) if attachments is not None else None,
             now,
             token_count,
+            persona,
         ),
     )
     await db.execute(
@@ -757,6 +775,7 @@ async def add_message(
         "attachments": attachments,
         "created_at": now,
         "token_count": token_count,
+        "persona": persona,
     }
 
 
@@ -765,7 +784,8 @@ async def get_messages_after_index(conversation_id: str, index: int) -> list[dic
     cursor = await db.execute(
         """
         SELECT id, role, content, thinking, tool_calls, rag_context,
-               attachments, created_at, token_count, index_in_conversation
+               attachments, created_at, token_count, index_in_conversation,
+               persona
         FROM messages
         WHERE conversation_id = ? AND index_in_conversation > ?
         ORDER BY index_in_conversation ASC
