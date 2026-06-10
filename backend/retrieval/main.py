@@ -62,6 +62,7 @@ import httpx
 import yaml
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
+from sse_starlette.sse import EventSourceResponse
 
 # Import from local modules
 from database import (
@@ -1114,8 +1115,6 @@ async def api_chat_completions(request: Request):
     Streaming chat completion with persona injection, optional RAG, and
     mid-stream tool execution. Emits SSE events consumed by the Munin frontend.
     """
-    from sse_starlette.sse import EventSourceResponse
-
     user_email = _require_user_email(request)
     try:
         body = await request.json()
