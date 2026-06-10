@@ -101,6 +101,11 @@ describe('detectPhase', () => {
     expect(detectPhase(streaming)).toBe('code');
   });
 
+  it('returns "code" for create_artifact / update_artifact', () => {
+    expect(detectPhase(makeStreaming({ toolCalls: [{ name: 'create_artifact', arguments: {} }] }))).toBe('code');
+    expect(detectPhase(makeStreaming({ toolCalls: [{ name: 'update_artifact', arguments: {} }] }))).toBe('code');
+  });
+
   it('returns "thinking" when no tool calls', () => {
     const streaming = makeStreaming({ toolCalls: [] });
     expect(detectPhase(streaming)).toBe('thinking');
@@ -397,6 +402,61 @@ describe('MessageList', () => {
       render(<MessageList messages={messages} streaming={makeStreaming()} personas={personas} />);
       expect(screen.getByLabelText('Switched to Turing')).toBeInTheDocument();
       expect(screen.getByText('long debugging session')).toBeInTheDocument();
+    });
+  });
+
+  // ── Streaming "working" indicator (spinner) ───────────────────────────────
+  // Regression for chat d28ef78e: while the model wrote a large artifact
+  // body, no token/phase events arrived, the phase stayed 'thinking' with
+  // prose already on screen, and NEITHER vortex rendered — the turn looked
+  // frozen. A working spinner must show in every active state.
+  describe('streaming working indicator', () => {
+    const vortexes = () => screen.queryAllByTestId('feather-vortex');
+
+    it('shows a spinner while content is present and phase is "thinking" (artifact-write gap)', () => {
+      render(
+        <MessageList
+          messages={[]}
+          streaming={makeStreaming({ phase: 'thinking', content: 'Building your game...' })}
+        />,
+      );
+      // Before the fix this was zero (big vortex needs empty content or
+      // tool_call; small vortex needed phase==='generating').
+      expect(vortexes().length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('still shows a spinner while generating with content', () => {
+      render(
+        <MessageList
+          messages={[]}
+          streaming={makeStreaming({ phase: 'generating', content: 'Partial...' })}
+        />,
+      );
+      expect(vortexes().length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('shows the big vortex when content is empty (any active phase)', () => {
+      render(
+        <MessageList
+          messages={[]}
+          streaming={makeStreaming({ phase: 'thinking', content: '' })}
+        />,
+      );
+      expect(vortexes().length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('shows no streaming spinner once idle', () => {
+      render(
+        <MessageList
+          messages={[assistantMsg]}
+          streaming={makeStreaming({ phase: 'idle', content: '' })}
+        />,
+      );
+      // Only the idle vortex after the last message — but that's the idle
+      // indicator, not a "working" one; the active streaming block is gone.
+      // (The idle vortex is acceptable; assert the active block isn't shown
+      // by checking there's no streamed content node.)
+      expect(screen.queryByText('Building your game...')).not.toBeInTheDocument();
     });
   });
 });

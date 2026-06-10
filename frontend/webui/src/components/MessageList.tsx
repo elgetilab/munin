@@ -84,6 +84,7 @@ export function detectPhase(streaming: StreamingState): string {
     }
     if (['web_search', 'web_fetch'].includes(last.name)) return 'web_search';
     if (['run_python', 'sandbox_reset', 'compile_latex'].includes(last.name)) return 'code';
+    if (['create_artifact', 'update_artifact'].includes(last.name)) return 'code';
     if (last.name === 'llm_summarize') return 'processing';
   }
   return 'thinking';
@@ -265,8 +266,14 @@ export function MessageList({ messages, streaming, personas, onSendClarification
               </div>
             )}
 
-            {/* Fast spinner below content while generating */}
-            {cleanContent(streaming.content) && streaming.phase === 'generating' && (
+            {/* Working spinner below already-streamed content. Shown for
+                ANY active non-tool_call phase (not just 'generating'), so
+                the user still sees activity while the model is quietly
+                producing a large tool argument — e.g. writing an artifact
+                body, where no token/phase events arrive and the phase
+                stays 'thinking' (chat d28ef78e). When phase is 'tool_call'
+                the big vortex above already covers it. */}
+            {cleanContent(streaming.content) && streaming.phase !== 'tool_call' && (
               <div className="pt-1">
                 <FeatherVortex size="generating" />
               </div>
