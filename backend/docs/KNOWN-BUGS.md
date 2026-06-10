@@ -247,13 +247,18 @@ literal memory loss. Three gaps combined:
   assemble_context injection (positive + same-persona + legacy-NULL
   negatives), persona save/load round-trip.
 
-### Open follow-up
+### Follow-up
 
-- [OPEN] **Frontend persona divider.** The per-message `persona` field is
-  now returned by the conversation API; the webui should render a visible
-  "switched to {persona}" boundary in the message list. Deliberately
-  deferred from the backend change.
+- [DONE 2026-06-10] **Frontend persona divider.** `webui` now renders a
+  reload-safe `PersonaDivider` ("now {persona}", with the delegation
+  reason when present) wherever the per-message `persona` changes, in
+  `components/MessageList.tsx` + `components/PersonaDivider.tsx`. Covers
+  delegate_to_persona and manual switches; draws nothing for
+  single-persona or legacy-NULL history. Tests in `MessageList.test.tsx`
+  (4 cases). Built and deployed to the VPS (chat.muninai.org serves
+  bundle `index-WcM4rAhf.js`).
 - [TODO] **Manual verification.** Redo the Meitner -> Turing switch in the
-  live UI and confirm the receiving persona acknowledges the handoff
-  instead of denying it (unit tests prove the marker is built/injected,
-  not that the model obeys it).
+  live UI and confirm (a) the receiving persona acknowledges the handoff
+  instead of denying it, and (b) the divider renders at the switch point.
+  Unit tests prove the marker is built/injected and the divider logic is
+  correct, not that the model obeys the marker in a live turn.
