@@ -24,7 +24,38 @@ def test_check_role_bearer_token_user(auth_env, monkeypatch):
         assert body["allowed_kb_contribution"] is False
 
 
-def test_check_role_bearer_token_group_leader(auth_env, monkeypatch):
+def _make_group(auth_env, slug="lab", display_name="Lab"):
+    conn = auth_env.get_db()
+    now = "2026-01-01T00:00:00+00:00"
+    conn.execute(
+        "INSERT OR IGNORE INTO groups (slug, display_name, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?)",
+        (slug, display_name, now, now),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_check_role_bearer_token_group_leader_with_group(auth_env, monkeypatch):
+    monkeypatch.setattr(auth_env, "KB_GATE_TOKEN", "k-tok")
+    auth_env.init_db()
+    _make_group(auth_env, "lab")
+    make_user(auth_env, "leader@e.org", "Leader", role="group_leader", group="lab")
+    with TestClient(auth_env.app) as c:
+        c.cookies.clear()
+        r = c.get("/admin/check-role",
+                  params={"email": "leader@e.org"},
+                  headers={"Authorization": "Bearer k-tok"})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["role"] == "group_leader"
+        assert body["group"] == "lab"
+        assert body["allowed_kb_contribution"] is True
+
+
+def test_check_role_group_leader_without_group_denied(auth_env, monkeypatch):
+    """A group leader with no research group cannot contribute: uploads are
+    attributed to a group, so the group is mandatory."""
     monkeypatch.setattr(auth_env, "KB_GATE_TOKEN", "k-tok")
     auth_env.init_db()
     make_user(auth_env, "leader@e.org", "Leader", role="group_leader")
@@ -36,7 +67,8 @@ def test_check_role_bearer_token_group_leader(auth_env, monkeypatch):
         assert r.status_code == 200
         body = r.json()
         assert body["role"] == "group_leader"
-        assert body["allowed_kb_contribution"] is True
+        assert body["group"] is None
+        assert body["allowed_kb_contribution"] is False
 
 
 def test_check_role_admin_allowed(auth_env, monkeypatch):
@@ -95,7 +127,8 @@ def test_check_role_wrong_token_falls_back_to_cookie(auth_env, monkeypatch):
 
 def test_check_role_admin_session_works(client, auth_env):
     make_user(auth_env, "admin@e.org", "Admin", role="admin")
-    make_user(auth_env, "x@e.org", "X", role="group_leader")
+    _make_group(auth_env, "lab")
+    make_user(auth_env, "x@e.org", "X", role="group_leader", group="lab")
     cookies = {"munin_session": session_cookie(auth_env, "admin@e.org", "Admin")}
     r = client.get("/admin/check-role",
                    params={"email": "x@e.org"},

@@ -1845,11 +1845,16 @@ async def admin_check_role(request: Request, email: str = ""):
             },
             status_code=404,
         )
+    # Admins may always contribute; group leaders must be assigned to a
+    # research group (their uploads are attributed to that group).
+    allowed = user["role"] == "admin" or (
+        user["role"] == "group_leader" and bool(user["group"])
+    )
     return JSONResponse({
         "email": user["primary_email"],
         "role": user["role"],
         "group": user["group"],
-        "allowed_kb_contribution": user["role"] in ("group_leader", "admin"),
+        "allowed_kb_contribution": allowed,
     })
 
 

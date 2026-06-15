@@ -131,8 +131,8 @@ async def handle_pre_create(payload: dict):
         log.info("pre-create REJECT %s reason=%s", email, reason)
         return _reject_upload(
             403,
-            "Only research group leaders may contribute to the knowledge base. "
-            "Contact your admin if this is wrong.",
+            "Only research group leaders assigned to a research group may "
+            "contribute to the knowledge base. Contact your admin if this is wrong.",
         )
     log.info("pre-create ALLOW %s role=%s", email, reason)
     return {"ok": True}

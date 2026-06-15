@@ -7,7 +7,7 @@
 (auth) {
 	forward_auth 127.0.0.1:8090 {
 		uri /auth/check
-		copy_headers X-Munin-Email X-Munin-Name X-Munin-Role
+		copy_headers X-Munin-Email X-Munin-Name X-Munin-Role X-Munin-Group
 
 		@unauthorized status 401
 		handle_response @unauthorized {
@@ -110,7 +110,7 @@ upload.muninai.org {
 	import auth
 	handle /whoami {
 		header Content-Type application/json
-		respond `{"email":"{http.request.header.X-Munin-Email}","role":"{http.request.header.X-Munin-Role}"}` 200
+		respond `{"email":"{http.request.header.X-Munin-Email}","role":"{http.request.header.X-Munin-Role}","group":"{http.request.header.X-Munin-Group}"}` 200
 	}
 	handle /files/* {
 		reverse_proxy 127.0.0.1:11080

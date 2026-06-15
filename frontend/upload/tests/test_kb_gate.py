@@ -74,6 +74,23 @@ def test_pre_create_rejects_user_role(hook_env, monkeypatch):
     assert body["HTTPResponse"]["StatusCode"] == 403
 
 
+def test_pre_create_rejects_group_leader_without_group(hook_env, monkeypatch):
+    """Auth now denies a group leader with no research group; the hook must
+    reject and explain the group requirement."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "email": request.url.params.get("email"),
+            "role": "group_leader",
+            "group": None,
+            "allowed_kb_contribution": False,
+        })
+    _patch_http(monkeypatch, hook_env, httpx.MockTransport(handler))
+    result = asyncio.run(hook_env.handle_pre_create(_payload("leader@e.org")))
+    assert result.status_code == 403
+    body = json.loads(result.body.decode("utf-8"))
+    assert "assigned to a research group" in body["HTTPResponse"]["Body"]
+
+
 def test_pre_create_rejects_unknown_email(hook_env, monkeypatch):
     _patch_http(monkeypatch, hook_env, _mock_transport(None, status=404))
     result = asyncio.run(hook_env.handle_pre_create(_payload("nobody@e.org")))

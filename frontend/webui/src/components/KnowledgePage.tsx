@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import type { TagCatalog, TagChip, TagPaper, TopicTag } from '../lib/types';
+import type { TagCatalog, TagChip, TagPaper, TopicTag, GroupTag } from '../lib/types';
 import { fetchTags, fetchTagPapers, fetchEmbeddingMap } from '../lib/api';
 import { EmbeddingMapView } from './EmbeddingMapView';
 
@@ -134,17 +134,11 @@ function OverviewView({ catalog, totalPapers, onBrowse, onChatWithTag }: {
       <EmbeddingMapView onNavigateToTopic={(slug) => onBrowse('topic', slug)} />
 
       {/* Research Groups */}
-      <h3 className="text-sm font-semibold text-text-primary mb-3">Research Groups</h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-8">
-        {catalog.groups.map(g => (
-          <GroupCard
-            key={g.slug}
-            group={g}
-            onBrowse={() => onBrowse('group', g.slug)}
-            onChat={() => onChatWithTag([{ kind: 'group', value: g.slug }])}
-          />
-        ))}
-      </div>
+      <ResearchGroupsSection
+        groups={catalog.groups}
+        onBrowse={onBrowse}
+        onChatWithTag={onChatWithTag}
+      />
 
       {/* Topics */}
       <TopicSearch topics={catalog.topics} onBrowse={onBrowse} />
@@ -158,6 +152,53 @@ function StatCard({ label, value }: { label: string; value: string }) {
       <div className="text-xl font-semibold text-text-primary tabular-nums">{value}</div>
       <div className="text-xs text-text-secondary mt-1">{label}</div>
     </div>
+  );
+}
+
+// Empty research groups (0 papers) are hidden by default so a long tail of
+// labs that have not uploaded yet does not crowd the overview. A toggle
+// reveals them; visible groups are ordered by paper count, most first.
+function ResearchGroupsSection({ groups, onBrowse, onChatWithTag }: {
+  groups: GroupTag[];
+  onBrowse: (kind: string, slug: string) => void;
+  onChatWithTag: (tags: TagChip[]) => void;
+}) {
+  const [showAll, setShowAll] = useState(false);
+
+  const nonEmpty = useMemo(
+    () => groups.filter(g => g.paper_count > 0).sort((a, b) => b.paper_count - a.paper_count),
+    [groups],
+  );
+  const empties = useMemo(
+    () => groups.filter(g => g.paper_count === 0).sort((a, b) => a.display_name.localeCompare(b.display_name)),
+    [groups],
+  );
+  const visible = showAll ? [...nonEmpty, ...empties] : nonEmpty;
+
+  return (
+    <>
+      <h3 className="text-sm font-semibold text-text-primary mb-3">Research Groups</h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-3">
+        {visible.map(g => (
+          <GroupCard
+            key={g.slug}
+            group={g}
+            onBrowse={() => onBrowse('group', g.slug)}
+            onChat={() => onChatWithTag([{ kind: 'group', value: g.slug }])}
+          />
+        ))}
+      </div>
+      {empties.length > 0 && (
+        <div className="mb-8">
+          <button
+            onClick={() => setShowAll(s => !s)}
+            className="text-xs text-accent hover:underline cursor-pointer"
+          >
+            {showAll ? 'Show fewer' : `Show all ${groups.length} research groups`}
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 

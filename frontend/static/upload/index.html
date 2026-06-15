@@ -199,35 +199,44 @@
             })
         }
 
-        // Replace the uploader with a "no access" message for non-leaders, and
-        // flip the identity box into a warning state. The server enforces the
-        // same gate (tusd pre-create hook); this is the up-front signal.
-        function denyUpload() {
+        // Replace the uploader with a "no access" message and flip the identity
+        // box into a warning state. The server enforces the same gate (tusd
+        // pre-create hook); this is the up-front signal. `reason` tailors the
+        // message: 'role' (not a leader) or 'group' (leader without a group).
+        function denyUpload(reason) {
             var box = document.getElementById('user-box')
             box.classList.add('warn')
+            var msg = reason === 'group'
+                ? 'Your account is not assigned to a research group yet, so you cannot ' +
+                  'contribute to the knowledge base. Ask your admin to assign your group.'
+                : 'Your account is not a research group leader, so you cannot ' +
+                  'contribute to the knowledge base.'
             document.getElementById('uppy-dashboard').innerHTML =
-                '<div class="no-access">Your account is not a research group leader, so you cannot ' +
-                'contribute to the knowledge base.<br>Contact ' +
+                '<div class="no-access">' + msg + '<br>Contact ' +
                 '<a href="mailto:support@muninai.org" style="color:var(--accent)">support@muninai.org</a> ' +
                 'if you need upload access.</div>'
         }
 
-        // Fetch the authenticated identity + role from the server-side /whoami
-        // endpoint, then enable or deny the uploader accordingly.
+        // Fetch the authenticated identity + role + group from /whoami, then
+        // enable or deny the uploader. Mirrors the server gate: admins always
+        // allowed; group leaders need a group; everyone else denied.
         fetch('/whoami')
             .then(function(r) { return r.json() })
             .then(function(data) {
                 document.getElementById('user-email').textContent = data.email || 'unknown'
                 var role = (data.role || '').toLowerCase()
-                if (role === 'group_leader' || role === 'admin') {
+                var group = (data.group || '').trim()
+                if (role === 'admin') {
                     initUploader()
+                } else if (role === 'group_leader') {
+                    if (group) { initUploader() } else { denyUpload('group') }
                 } else {
-                    denyUpload()
+                    denyUpload('role')
                 }
             })
             .catch(function() {
                 // On a /whoami failure, fall back to showing the uploader; the
-                // server still rejects non-leaders at pre-create.
+                // server still rejects ineligible uploads at pre-create.
                 document.getElementById('user-email').textContent = 'unknown'
                 initUploader()
             })
