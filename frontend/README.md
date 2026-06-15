@@ -81,7 +81,12 @@ rsync -avz --delete \
 # On VPS: rebuild and restart from the frontend/ project dir.
 ssh <admin>@<vps-ip> 'cd ~/munin/frontend && docker compose up -d --build'
 
-# Reload Caddy config (no restart needed)
+# Reload Caddy config (no restart needed).
+# This works because caddy/ is bind-mounted as a directory, so the
+# rsync'd Caddyfile is visible to the container. If you ever switch
+# back to a single-file mount, rsync's inode swap makes this reload a
+# silent no-op and you must `docker compose up -d --force-recreate caddy`
+# instead.
 ssh <admin>@<vps-ip> 'docker exec $(docker ps -qf name=caddy) caddy reload --config /etc/caddy/Caddyfile'
 ```
 

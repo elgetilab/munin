@@ -5,7 +5,13 @@ services:
     restart: unless-stopped
     network_mode: host
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Mount the caddy/ directory, NOT caddy/Caddyfile directly. A
+      # single-file bind mount pins the original inode, so rsync (which
+      # replaces the file with a new inode) silently fails to update the
+      # running container — `caddy reload` then re-reads stale config.
+      # Mounting the directory resolves the file by path on each read, so
+      # rsync + reload applies changes without recreating the container.
+      - ./caddy:/etc/caddy:ro
       - ./static:/srv/static:ro
       - caddy_data:/data
       - caddy_config:/config
