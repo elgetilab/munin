@@ -39,6 +39,34 @@
             color: var(--text-primary);
         }
 
+        /* Warning state shown when the signed-in account is not a group leader. */
+        .info-box.warn {
+            border-color: var(--warning);
+            color: var(--text-primary);
+        }
+        .info-box.warn .dot {
+            background: var(--warning);
+        }
+
+        .notice {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 24px;
+        }
+        .notice a {
+            color: var(--accent);
+        }
+
+        .no-access {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 32px 24px;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
         .dot {
             width: 8px;
             height: 8px;
@@ -108,11 +136,16 @@
             <h1>Upload Papers</h1>
             <p>Upload PDFs to be added to the Munin paper database. Large batches are fully supported — uploads pause and resume automatically if your connection drops.</p>
 
-            <div class="info-box">
+            <div class="info-box" id="user-box">
                 <div class="dot"></div>
-                Uploading as: <strong id="user-email">&nbsp;loading...</strong>
-                &nbsp;&middot;&nbsp; Files are tagged to your account.
+                <span id="user-box-text">Uploading as: <strong id="user-email">&nbsp;loading...</strong>
+                &nbsp;&middot;&nbsp; Files are tagged to your account.</span>
             </div>
+
+            <p class="notice">
+                Only research group leaders can contribute to the knowledge base.
+                If you need upload access, contact <a href="mailto:support@muninai.org">support@muninai.org</a>.
+            </p>
 
             <div id="uppy-dashboard"></div>
         </section>
@@ -127,52 +160,77 @@
 
     <script src="https://releases.transloadit.com/uppy/v4.12.1/uppy.min.js"></script>
     <script>
-        // Fetch the authenticated email from the server-side /whoami endpoint.
+        function initUploader() {
+            var uppy = new Uppy.Uppy({
+                restrictions: {
+                    allowedFileTypes: ['.pdf'],
+                    maxNumberOfFiles: 1000,
+                },
+                autoProceed: false,
+            })
+
+            uppy.use(Uppy.Dashboard, {
+                target: '#uppy-dashboard',
+                inline: true,
+                height: 420,
+                proudlyDisplayPoweredByUppy: false,
+                note: 'PDF files only \u00b7 Large batches supported \u00b7 Uploads resume if interrupted',
+                theme: 'dark',
+            })
+
+            uppy.use(Uppy.Tus, {
+                endpoint: '/files/',
+                storeFingerprintForResuming: true,
+                retryDelays: [0, 3000, 10000, 30000, 60000],
+                chunkSize: 50 * 1024 * 1024,
+                limit: 3,
+            })
+
+            uppy.on('upload-success', function(file, response) {
+                console.log('Uploaded: ' + file.name)
+            })
+
+            uppy.on('complete', function(result) {
+                if (result.failed.length === 0) {
+                    console.log('All ' + result.successful.length + ' files uploaded successfully')
+                } else {
+                    console.warn(result.failed.length + ' files failed:', result.failed)
+                }
+            })
+        }
+
+        // Replace the uploader with a "no access" message for non-leaders, and
+        // flip the identity box into a warning state. The server enforces the
+        // same gate (tusd pre-create hook); this is the up-front signal.
+        function denyUpload() {
+            var box = document.getElementById('user-box')
+            box.classList.add('warn')
+            document.getElementById('uppy-dashboard').innerHTML =
+                '<div class="no-access">Your account is not a research group leader, so you cannot ' +
+                'contribute to the knowledge base.<br>Contact ' +
+                '<a href="mailto:support@muninai.org" style="color:var(--accent)">support@muninai.org</a> ' +
+                'if you need upload access.</div>'
+        }
+
+        // Fetch the authenticated identity + role from the server-side /whoami
+        // endpoint, then enable or deny the uploader accordingly.
         fetch('/whoami')
             .then(function(r) { return r.json() })
             .then(function(data) {
                 document.getElementById('user-email').textContent = data.email || 'unknown'
+                var role = (data.role || '').toLowerCase()
+                if (role === 'group_leader' || role === 'admin') {
+                    initUploader()
+                } else {
+                    denyUpload()
+                }
             })
             .catch(function() {
+                // On a /whoami failure, fall back to showing the uploader; the
+                // server still rejects non-leaders at pre-create.
                 document.getElementById('user-email').textContent = 'unknown'
+                initUploader()
             })
-
-        var uppy = new Uppy.Uppy({
-            restrictions: {
-                allowedFileTypes: ['.pdf'],
-                maxNumberOfFiles: 1000,
-            },
-            autoProceed: false,
-        })
-
-        uppy.use(Uppy.Dashboard, {
-            target: '#uppy-dashboard',
-            inline: true,
-            height: 420,
-            proudlyDisplayPoweredByUppy: false,
-            note: 'PDF files only \u00b7 Large batches supported \u00b7 Uploads resume if interrupted',
-            theme: 'dark',
-        })
-
-        uppy.use(Uppy.Tus, {
-            endpoint: '/files/',
-            storeFingerprintForResuming: true,
-            retryDelays: [0, 3000, 10000, 30000, 60000],
-            chunkSize: 50 * 1024 * 1024,
-            limit: 3,
-        })
-
-        uppy.on('upload-success', function(file, response) {
-            console.log('Uploaded: ' + file.name)
-        })
-
-        uppy.on('complete', function(result) {
-            if (result.failed.length === 0) {
-                console.log('All ' + result.successful.length + ' files uploaded successfully')
-            } else {
-                console.warn(result.failed.length + ' files failed:', result.failed)
-            }
-        })
     </script>
 <script src="/shared/support-widget.js"></script>
 </body>

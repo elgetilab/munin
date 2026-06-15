@@ -4,8 +4,13 @@ import {
   createAdminGroup,
   updateAdminGroup,
   deleteAdminGroup,
+  fetchAdminUsers,
+  updateAdminUser,
+  fetchGroupMembers,
+  addGroupMember,
+  removeGroupMember,
 } from '../../lib/api';
-import type { AdminGroup } from '../../lib/api';
+import type { AdminGroup, AdminUser, AdminRole } from '../../lib/api';
 
 
 export function GroupsTab() {
@@ -79,6 +84,7 @@ export function GroupsTab() {
         <GroupEditModal
           group={editing}
           onClose={() => setEditing(null)}
+          onReload={load}
           onSaved={() => { setEditing(null); load(); }}
         />
       )}
@@ -137,10 +143,62 @@ function GroupCreateModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
 }
 
 
-function GroupEditModal({ group, onClose, onSaved }: { group: AdminGroup; onClose: () => void; onSaved: () => void }) {
+function GroupEditModal({ group, onClose, onReload, onSaved }: {
+  group: AdminGroup;
+  onClose: () => void;
+  onReload: () => void;
+  onSaved: () => void;
+}) {
   const [displayName, setDisplayName] = useState(group.display_name);
+  const [members, setMembers] = useState<AdminUser[]>([]);
+  const [allUsers, setAllUsers] = useState<AdminUser[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(true);
+  const [addFilter, setAddFilter] = useState('');
+  const [memberBusy, setMemberBusy] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const loadMembers = useCallback(async () => {
+    setLoadingMembers(true);
+    try {
+      const [m, all] = await Promise.all([fetchGroupMembers(group.slug), fetchAdminUsers()]);
+      setMembers(m);
+      setAllUsers(all);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to load members');
+    }
+    setLoadingMembers(false);
+  }, [group.slug]);
+
+  useEffect(() => { loadMembers(); }, [loadMembers]);
+
+  async function withMember<T>(id: number, fn: () => Promise<T>): Promise<T | undefined> {
+    setMemberBusy(id);
+    setErr(null);
+    try { return await fn(); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Failed'); }
+    finally { setMemberBusy(null); }
+  }
+
+  async function setMemberRole(m: AdminUser, role: AdminRole) {
+    if (role === m.role) return;
+    const updated = await withMember(m.id, () => updateAdminUser(m.id, { role }));
+    if (updated) {
+      setMembers(prev => prev.map(x => (x.id === m.id ? updated : x)));
+      onReload();
+    }
+  }
+
+  async function removeMember(m: AdminUser) {
+    if (!confirm(`Remove ${m.name || m.primary_email} from ${group.display_name}?`)) return;
+    const list = await withMember(m.id, () => removeGroupMember(group.slug, m.id));
+    if (list) { setMembers(list); onReload(); }
+  }
+
+  async function addMember(u: AdminUser) {
+    const list = await withMember(u.id, () => addGroupMember(group.slug, u.id));
+    if (list) { setMembers(list); setAddFilter(''); onReload(); }
+  }
 
   async function save() {
     setSaving(true);
@@ -155,7 +213,7 @@ function GroupEditModal({ group, onClose, onSaved }: { group: AdminGroup; onClos
   }
 
   async function remove() {
-    if (group.member_count > 0) return;
+    if (members.length > 0) return;
     if (!confirm(`Delete group "${group.display_name}"?`)) return;
     setSaving(true);
     setErr(null);
@@ -168,6 +226,15 @@ function GroupEditModal({ group, onClose, onSaved }: { group: AdminGroup; onClos
     }
   }
 
+  const available = allUsers
+    .filter(u => !members.some(m => m.id === u.id))
+    .filter(u => {
+      const f = addFilter.trim().toLowerCase();
+      if (!f) return true;
+      return u.name.toLowerCase().includes(f) || u.emails.some(e => e.toLowerCase().includes(f));
+    })
+    .slice(0, 8);
+
   return (
     <ModalShell title={`Edit ${group.display_name}`} onClose={onClose}>
       <Field label="Slug (read-only)">
@@ -176,19 +243,78 @@ function GroupEditModal({ group, onClose, onSaved }: { group: AdminGroup; onClos
       <Field label="Display name">
         <Input value={displayName} onChange={setDisplayName} />
       </Field>
-      <div className="text-xs text-text-secondary">
-        Members: <span className="text-text-primary font-medium">{group.member_count}</span>
-        {group.member_count > 0 && (
-          <span className="text-text-secondary/70"> &middot; reassign members before deleting.</span>
+
+      <Field label={`Members (${members.length})`}>
+        {loadingMembers ? (
+          <div className="text-xs text-text-secondary py-2">Loading members...</div>
+        ) : (
+          <div className="space-y-1">
+            {members.map(m => (
+              <div key={m.id} className="flex items-center gap-2 text-sm">
+                <div className="flex-1 min-w-0">
+                  <div className="text-text-primary truncate">{m.name || m.primary_email}</div>
+                  <div className="text-[11px] text-text-secondary truncate font-mono">{m.primary_email}</div>
+                </div>
+                {m.role === 'admin' ? (
+                  <span className="text-[10px] uppercase tracking-wide text-accent px-1.5 py-0.5 bg-accent/15 rounded">Admin</span>
+                ) : (
+                  <select
+                    value={m.role}
+                    onChange={e => setMemberRole(m, e.target.value as AdminRole)}
+                    disabled={memberBusy === m.id}
+                    className="bg-bg-secondary border border-border rounded px-2 py-1 text-xs text-text-primary cursor-pointer focus:outline-none focus:border-accent disabled:opacity-50"
+                  >
+                    <option value="user">Member</option>
+                    <option value="group_leader">Leader</option>
+                  </select>
+                )}
+                <button
+                  onClick={() => removeMember(m)}
+                  disabled={memberBusy === m.id}
+                  className="text-[11px] text-text-secondary hover:text-error cursor-pointer disabled:opacity-50"
+                >Remove</button>
+              </div>
+            ))}
+            {members.length === 0 && (
+              <div className="text-xs text-text-secondary py-1">No members yet.</div>
+            )}
+          </div>
         )}
+      </Field>
+
+      <Field label="Add member">
+        <Input value={addFilter} onChange={setAddFilter} placeholder="search users by name or email..." />
+        {addFilter.trim() && (
+          <div className="mt-1 border border-border rounded divide-y divide-border max-h-40 overflow-y-auto">
+            {available.length === 0 && (
+              <div className="px-3 py-2 text-xs text-text-secondary">No matching users.</div>
+            )}
+            {available.map(u => (
+              <button
+                key={u.id}
+                onClick={() => addMember(u)}
+                disabled={memberBusy === u.id}
+                className="w-full text-left px-3 py-1.5 hover:bg-bg-secondary flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <span className="flex-1 truncate text-text-primary text-sm">{u.name || u.primary_email}</span>
+                <span className="text-[11px] text-text-secondary truncate font-mono">{u.primary_email}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </Field>
+
+      <div className="text-[11px] text-text-secondary">
+        The <span className="text-text-primary">Leader</span> role lets a member upload to the knowledge base; it applies account-wide, not just to this group.
       </div>
+
       {err && <div className="text-xs text-error">{err}</div>}
       <div className="flex items-center justify-between pt-2 border-t border-border mt-3">
         <button
           onClick={remove}
-          disabled={group.member_count > 0 || saving}
+          disabled={members.length > 0 || saving}
           className="text-xs text-error hover:underline cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
-          title={group.member_count > 0 ? 'Group has members; reassign first' : 'Delete this group'}
+          title={members.length > 0 ? 'Group has members; remove them first' : 'Delete this group'}
         >Delete group</button>
         <div className="flex items-center gap-2">
           <button

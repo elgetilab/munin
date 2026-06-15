@@ -372,6 +372,31 @@ export async function deleteAdminGroup(slug: string): Promise<void> {
   }
 }
 
+// ── Group membership ───────────────────────────────────────────────────────
+// A user can belong to several groups. These manage the membership join
+// table; the user's primary group (AdminUser.group) is maintained server-side.
+
+export async function fetchGroupMembers(slug: string): Promise<AdminUser[]> {
+  const data = await adminJSON<{ members: AdminUser[] }>(`/groups/${encodeURIComponent(slug)}/members`);
+  return data.members;
+}
+
+export async function addGroupMember(slug: string, userId: number): Promise<AdminUser[]> {
+  const data = await adminJSON<{ members: AdminUser[] }>(`/groups/${encodeURIComponent(slug)}/members`, {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId }),
+  });
+  return data.members;
+}
+
+export async function removeGroupMember(slug: string, userId: number): Promise<AdminUser[]> {
+  const data = await adminJSON<{ members: AdminUser[] }>(
+    `/groups/${encodeURIComponent(slug)}/members/${userId}`,
+    { method: 'DELETE' },
+  );
+  return data.members;
+}
+
 // ── Admin metrics (Prometheus proxy) ───────────────────────────────────────
 
 /**

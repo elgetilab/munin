@@ -166,6 +166,19 @@ def init_db():
             updated_at TEXT NOT NULL
         )
     """)
+    # Many-to-many membership. A user can belong to several groups;
+    # users.research_group remains the *primary* group (single-valued
+    # attribution: X-Munin-Group, contributors.yaml). This table is the
+    # source of truth for the full membership list.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS group_members (
+            group_slug TEXT NOT NULL REFERENCES groups(slug) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            added_at TEXT NOT NULL,
+            PRIMARY KEY (group_slug, user_id)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_id)")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS schema_migrations (
             name TEXT PRIMARY KEY,
@@ -303,6 +316,41 @@ def migrate_split_name_v1() -> dict:
     return summary
 
 
+def migrate_group_members_v1() -> dict:
+    """Backfill the group_members join table from users.research_group.
+
+    Reason: membership became many-to-many (a user can belong to
+    several labs). research_group stays as the user's *primary* group
+    (single-valued attribution: X-Munin-Group, contributors.yaml);
+    group_members is the source of truth for the full membership list.
+    This one-shot copies every existing (research_group, user) pair into
+    the join table. Gated by schema_migrations.name = 'group_members_v1'.
+    """
+    summary = {"already_run": False, "rows_backfilled": 0}
+    conn = get_db()
+    try:
+        if _migration_applied(conn, "group_members_v1"):
+            summary["already_run"] = True
+            return summary
+        rows = conn.execute(
+            "SELECT id, research_group FROM users "
+            "WHERE research_group IS NOT NULL AND research_group != ''"
+        ).fetchall()
+        now = datetime.now(timezone.utc).isoformat()
+        for r in rows:
+            conn.execute(
+                "INSERT OR IGNORE INTO group_members (group_slug, user_id, added_at) "
+                "VALUES (?, ?, ?)",
+                (r["research_group"], r["id"], now),
+            )
+            summary["rows_backfilled"] += 1
+        _mark_migration(conn, "group_members_v1")
+        conn.commit()
+    finally:
+        conn.close()
+    return summary
+
+
 # ── User lookup + mutation helpers ────────────────────────────────────────
 
 def lookup_user(email: str) -> dict | None:
@@ -371,7 +419,16 @@ def _insert_user(conn: sqlite3.Connection, first_name: str,
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
         (first_name, last_name, role, research_group, username, now, now),
     )
-    return cur.lastrowid
+    user_id = cur.lastrowid
+    # The primary group is always also a membership; keep the join table
+    # consistent so member counts and the Groups page see this user.
+    if research_group:
+        conn.execute(
+            "INSERT OR IGNORE INTO group_members (group_slug, user_id, added_at) "
+            "VALUES (?, ?, ?)",
+            (research_group, user_id, now),
+        )
+    return user_id
 
 
 def _attach_email(conn: sqlite3.Connection, user_id: int, email: str, is_primary: bool):
@@ -840,6 +897,7 @@ async def send_otp_email(email: str, code: str, name: str):
 async def startup():
     init_db()
     migrate_split_name_v1()
+    migrate_group_members_v1()
     seed_users_from_whitelist()
     seed_contributors_from_yaml()
 
@@ -1166,6 +1224,21 @@ def _touch_user(conn: sqlite3.Connection, user_id: int):
     )
 
 
+def _group_members(conn: sqlite3.Connection, slug: str) -> list[dict]:
+    """Return the member list for a group (full user dicts), ordered by name."""
+    rows = conn.execute(
+        f"""
+        SELECT {_USERS_SELECT_COLUMNS}
+          FROM users u
+          JOIN group_members gm ON gm.user_id = u.id
+         WHERE gm.group_slug = ?
+         ORDER BY LOWER(u.last_name), LOWER(u.first_name)
+        """,
+        (slug,),
+    ).fetchall()
+    return [_user_row_to_dict(conn, r) for r in rows]
+
+
 # ── Admin: users ─────────────────────────────────────────────────────────────
 
 _USERS_SELECT_COLUMNS = (
@@ -1313,9 +1386,19 @@ async def admin_update_user(user_id: int, request: Request):
         if not updates:
             return JSONResponse({"error": "no fields to update"}, status_code=400)
 
+        now = datetime.now(timezone.utc).isoformat()
         set_clause = ", ".join(f"{col} = ?" for col, _ in updates) + ", updated_at = ?"
-        params = [v for _, v in updates] + [datetime.now(timezone.utc).isoformat(), user_id]
+        params = [v for _, v in updates] + [now, user_id]
         conn.execute(f"UPDATE users SET {set_clause} WHERE id = ?", params)
+        # Setting a primary group also enrolls the user in it (the Groups
+        # page manages full membership; the Users tab sets the primary).
+        # Multi-group: we never strip existing memberships here.
+        if "group" in body and grp:
+            conn.execute(
+                "INSERT OR IGNORE INTO group_members (group_slug, user_id, added_at) "
+                "VALUES (?, ?, ?)",
+                (grp, user_id, now),
+            )
         conn.commit()
 
         row = conn.execute(
@@ -1499,7 +1582,7 @@ async def admin_list_groups(request: Request):
     rows = conn.execute(
         """
         SELECT g.slug, g.display_name, g.created_at, g.updated_at,
-               (SELECT COUNT(*) FROM users u WHERE u.research_group = g.slug) AS member_count
+               (SELECT COUNT(*) FROM group_members gm WHERE gm.group_slug = g.slug) AS member_count
           FROM groups g
          ORDER BY LOWER(g.display_name) ASC
         """
@@ -1578,7 +1661,7 @@ async def admin_update_group(slug: str, request: Request):
         )
         conn.commit()
         member_count = conn.execute(
-            "SELECT COUNT(*) AS n FROM users WHERE research_group = ?", (slug,)
+            "SELECT COUNT(*) AS n FROM group_members WHERE group_slug = ?", (slug,)
         ).fetchone()["n"]
         created_at = conn.execute(
             "SELECT created_at FROM groups WHERE slug = ?", (slug,)
@@ -1605,7 +1688,7 @@ async def admin_delete_group(slug: str, request: Request):
         if not row:
             return JSONResponse({"error": "group not found"}, status_code=404)
         member_count = conn.execute(
-            "SELECT COUNT(*) AS n FROM users WHERE research_group = ?", (slug,)
+            "SELECT COUNT(*) AS n FROM group_members WHERE group_slug = ?", (slug,)
         ).fetchone()["n"]
         if member_count > 0:
             return JSONResponse(
@@ -1617,6 +1700,114 @@ async def admin_delete_group(slug: str, request: Request):
     finally:
         conn.close()
     return Response(status_code=204)
+
+
+# ── Admin: group membership ──────────────────────────────────────────────────
+
+@app.get("/admin/groups/{slug}/members")
+async def admin_list_group_members(slug: str, request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+    conn = get_db()
+    try:
+        grp = conn.execute("SELECT slug FROM groups WHERE slug = ?", (slug,)).fetchone()
+        if not grp:
+            return JSONResponse({"error": "group not found"}, status_code=404)
+        members = _group_members(conn, slug)
+    finally:
+        conn.close()
+    return JSONResponse({"members": members})
+
+
+@app.post("/admin/groups/{slug}/members")
+async def admin_add_group_member(slug: str, request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+    body = await request.json()
+    user_id = body.get("user_id")
+    if user_id is None:
+        return JSONResponse({"error": "user_id is required"}, status_code=400)
+    conn = get_db()
+    try:
+        grp = conn.execute("SELECT slug FROM groups WHERE slug = ?", (slug,)).fetchone()
+        if not grp:
+            return JSONResponse({"error": "group not found"}, status_code=404)
+        urow = conn.execute(
+            "SELECT id, research_group FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if not urow:
+            return JSONResponse({"error": "user not found"}, status_code=404)
+
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT OR IGNORE INTO group_members (group_slug, user_id, added_at) "
+            "VALUES (?, ?, ?)",
+            (slug, user_id, now),
+        )
+        # A user's first group becomes their primary group (the single
+        # value used for upload attribution and the X-Munin-Group header).
+        if not urow["research_group"]:
+            conn.execute(
+                "UPDATE users SET research_group = ?, updated_at = ? WHERE id = ?",
+                (slug, now, user_id),
+            )
+        else:
+            _touch_user(conn, user_id)
+        conn.commit()
+        members = _group_members(conn, slug)
+    finally:
+        conn.close()
+    return JSONResponse({"members": members}, status_code=201)
+
+
+@app.delete("/admin/groups/{slug}/members/{user_id}")
+async def admin_remove_group_member(slug: str, user_id: int, request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+    conn = get_db()
+    try:
+        grp = conn.execute("SELECT slug FROM groups WHERE slug = ?", (slug,)).fetchone()
+        if not grp:
+            return JSONResponse({"error": "group not found"}, status_code=404)
+        membership = conn.execute(
+            "SELECT user_id FROM group_members WHERE group_slug = ? AND user_id = ?",
+            (slug, user_id),
+        ).fetchone()
+        if not membership:
+            return JSONResponse(
+                {"error": "user is not a member of this group"}, status_code=404
+            )
+
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "DELETE FROM group_members WHERE group_slug = ? AND user_id = ?",
+            (slug, user_id),
+        )
+        # If we just removed the user's primary group, repoint it to
+        # another remaining membership (oldest first), or NULL.
+        urow = conn.execute(
+            "SELECT research_group FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if urow and urow["research_group"] == slug:
+            nxt = conn.execute(
+                "SELECT group_slug FROM group_members WHERE user_id = ? "
+                "ORDER BY added_at ASC, group_slug ASC LIMIT 1",
+                (user_id,),
+            ).fetchone()
+            conn.execute(
+                "UPDATE users SET research_group = ?, updated_at = ? WHERE id = ?",
+                (nxt["group_slug"] if nxt else None, now, user_id),
+            )
+        else:
+            _touch_user(conn, user_id)
+        conn.commit()
+        members = _group_members(conn, slug)
+    finally:
+        conn.close()
+    return JSONResponse({"members": members})
 
 
 # ── Admin: exports ───────────────────────────────────────────────────────────
