@@ -110,6 +110,9 @@ upload.muninai.org {
 	import auth
 	handle /whoami {
 		header Content-Type application/json
+		# Identity must never be served stale from the browser cache, or a
+		# role/group change (and older role-less responses) would persist.
+		header Cache-Control "no-store"
 		respond `{"email":"{http.request.header.X-Munin-Email}","role":"{http.request.header.X-Munin-Role}","group":"{http.request.header.X-Munin-Group}"}` 200
 	}
 	handle /files/* {
