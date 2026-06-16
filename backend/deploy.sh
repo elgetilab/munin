@@ -39,7 +39,7 @@ fi
 MODE=${1:-}
 if [ -z "$MODE" ]; then
     echo "Usage: sudo $0 [--dry-run] <mode>"
-    echo "Modes: all dirs compose personas agents vllm maintenance deepresearch tunnel retrieval searxng verify"
+    echo "Modes: all dirs compose personas agents vllm maintenance deepresearch tunnel knowledge pipeline retrieval sandbox searxng verify"
     exit 1
 fi
 

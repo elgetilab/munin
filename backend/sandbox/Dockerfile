@@ -20,7 +20,12 @@ WORKDIR /app
 # and package set; science adds math-heavy packages (amsmath extras,
 # physics, siunitx); bibtex-extra pulls in the bibtex binary + common
 # .bst styles; fonts-recommended gets the usual CM+Latin Modern fonts
-# plus a handful of widely-used PS fonts. ~1 GB in the final image.
+# plus a handful of widely-used PS fonts. lang-german + lang-european
+# ship the babel .ldf language definitions (ngerman.ldf, frenchb.ldf, ...)
+# that base TeX Live no longer carries; without them
+# \usepackage[ngerman]{babel} fails with "Unknown option 'ngerman'", which
+# stranded a German user's compile on 2026-06-16 (chat 5e27dfa4).
+# ~1 GB in the final image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         texlive-latex-base \
         texlive-latex-extra \
@@ -28,6 +33,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         texlive-science \
         texlive-bibtex-extra \
         texlive-fonts-recommended \
+        texlive-lang-german \
+        texlive-lang-european \
         biber \
     && rm -rf /var/lib/apt/lists/*
 

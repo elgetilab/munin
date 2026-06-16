@@ -1892,18 +1892,48 @@ async def stream_chat_completion(
             recovery_used_this_turn = False
             acc_transferred = False  # reset per-turn
 
-            async for event_name, payload, accumulator in _stream_vllm_once(
-                messages=messages,
-                sampling=sampling,
-                enable_tools=True,
-                persona=persona,
-            ):
-                acc = accumulator
-                if event_name == "error":
-                    stream_error = payload.get("message")
-                    yield _sse("error", payload)
-                    continue
-                yield _sse(event_name, payload)
+            # Consume one streaming pass. An *empty* completion (the
+            # iterator yields nothing, so `acc` stays None, yet no error
+            # fired) is usually transient: the model emitted an immediate
+            # stop with no content/thinking/tool-call, a shape we saw right
+            # after a tool-validation error knocked the model off its plan
+            # (chat 5e27dfa4, 2026-06-16). Retry the turn once before giving
+            # up; bounded by range(2) so it can never loop. A *hard* stream
+            # error is NOT retried here; vllm_client already ran its own
+            # transient-error backoff before surfacing it.
+            for empty_attempt in range(2):
+                acc = None
+                stream_error = None
+                if empty_attempt > 0:
+                    logger.info(
+                        "empty completion on turn %d; retrying once", turn
+                    )
+                    yield _sse(
+                        "retrying",
+                        {
+                            "attempt": 1,
+                            "max_attempts": 1,
+                            "delay_s": 0,
+                            "reason": "empty_response",
+                        },
+                    )
+                async for event_name, payload, accumulator in _stream_vllm_once(
+                    messages=messages,
+                    sampling=sampling,
+                    enable_tools=True,
+                    persona=persona,
+                ):
+                    acc = accumulator
+                    if event_name == "error":
+                        stream_error = payload.get("message")
+                        yield _sse("error", payload)
+                        continue
+                    yield _sse(event_name, payload)
+                # Got output, or a hard error that owns its own handling
+                # below; either way stop retrying. Only a clean-but-empty
+                # pass falls through to attempt 1.
+                if stream_error or acc is not None:
+                    break
 
             if stream_error:
                 had_stream_error = stream_error

@@ -250,6 +250,39 @@ async def _fake_stream_error_after_partial_content(
     yield ("error", {"message": "Error in input stream"}, acc)
 
 
+async def _fake_stream_empty_then_content(
+    *args: Any, **kwargs: Any
+) -> AsyncIterator[tuple]:
+    """Fix #3 shape: the first streaming pass is empty (model emitted an
+    immediate stop, so the iterator yields nothing and `acc` stays None);
+    the in-place retry then produces real content. The turn should recover
+    silently with NO stream-interrupted marker."""
+    turn = _fake_stream_empty_then_content.turn  # type: ignore[attr-defined]
+    _fake_stream_empty_then_content.turn = turn + 1  # type: ignore[attr-defined]
+    if turn == 0:
+        return
+        yield  # unreachable; makes this an (empty) async generator
+    if turn == 1:
+        acc = _StreamAccumulator()
+        acc.content_parts.append("Here is the answer.")
+        acc.finish_reason = "stop"
+        yield ("token", {"content": "Here is the answer."}, acc)
+        return
+    raise AssertionError(
+        f"_stream_vllm_once called too many times; got turn {turn}"
+    )
+
+
+async def _fake_stream_always_empty(
+    *args: Any, **kwargs: Any
+) -> AsyncIterator[tuple]:
+    """Both the initial pass and the single retry come back empty. The turn
+    must give up with the 'vLLM produced no output' marker: worst case is
+    unchanged from before Fix #3, and the retry can't loop forever."""
+    return
+    yield  # unreachable; makes this an (empty) async generator
+
+
 async def _fake_run_tool_calls_invoke_agent(
     tool_calls: list[dict], **kwargs: Any
 ) -> list[dict]:
@@ -516,6 +549,106 @@ def test_stream_error_on_turn_zero_persists_marker() -> bool:
         )
 
     return _check("turn-0 stream error -> persisted with marker", True)
+
+
+def test_empty_completion_retries_and_recovers() -> bool:
+    """Fix #3: an empty first pass triggers a single in-place retry. When
+    the retry yields content, the turn completes normally: persisted
+    content carries the recovered text, NO stream-interrupted marker, and a
+    `retrying` SSE surfaced so the frontend showed a reconnecting blip."""
+    capture: dict = {}
+    try:
+        events = _drive_stream_chat(
+            _fake_stream_empty_then_content,
+            _fake_run_tool_calls_unused,
+            capture,
+        )
+    except Exception as exc:
+        return _check(
+            "empty completion -> retried and recovered",
+            False,
+            f"driver raised: {exc!r}",
+        )
+
+    assistant_calls = [
+        c for c in capture["calls"] if c.get("role") == "assistant"
+    ]
+    if len(assistant_calls) != 1:
+        return _check(
+            "empty-completion retry -> exactly one assistant persisted",
+            False,
+            f"got {len(assistant_calls)} assistant calls",
+        )
+    saved = assistant_calls[0]
+    content = saved.get("content") or ""
+
+    if "Here is the answer." not in content:
+        return _check(
+            "recovered content persisted", False, f"content={content!r}"
+        )
+    if "stream interrupted" in content:
+        return _check(
+            "no interruption marker on a recovered turn",
+            False,
+            f"content={content!r}",
+        )
+    retrying = [e for e in events if e.get("event") == "retrying"]
+    if not retrying:
+        return _check(
+            "retrying SSE emitted before the retry",
+            False,
+            "no retrying event; frontend would show no reconnecting blip",
+        )
+    if any(e.get("event") == "error" for e in events):
+        return _check(
+            "no error SSE on a recovered turn",
+            False,
+            "an error event leaked to the frontend",
+        )
+    return _check("empty completion -> retried and recovered", True)
+
+
+def test_empty_completion_twice_gives_up_with_marker() -> bool:
+    """Fix #3 worst case: if the retry is ALSO empty, the turn gives up with
+    the unchanged 'vLLM produced no output' marker, proving the retry is
+    bounded (no infinite loop) and the fallback path is preserved."""
+    capture: dict = {}
+    try:
+        events = _drive_stream_chat(
+            _fake_stream_always_empty,
+            _fake_run_tool_calls_unused,
+            capture,
+        )
+    except Exception as exc:
+        return _check(
+            "empty completion x2 -> gives up with marker",
+            False,
+            f"driver raised: {exc!r}",
+        )
+
+    assistant_calls = [
+        c for c in capture["calls"] if c.get("role") == "assistant"
+    ]
+    if len(assistant_calls) != 1:
+        return _check(
+            "empty x2 -> exactly one assistant persisted",
+            False,
+            f"got {len(assistant_calls)} assistant calls",
+        )
+    content = assistant_calls[0].get("content") or ""
+    if "stream interrupted" not in content or "vLLM produced no output" not in content:
+        return _check(
+            "no-output marker present after exhausted retry",
+            False,
+            f"content={content!r}",
+        )
+    if not any(e.get("event") == "error" for e in events):
+        return _check(
+            "error SSE forwarded after exhausted retry",
+            False,
+            "no error event in stream",
+        )
+    return _check("empty completion x2 -> gives up with marker", True)
 
 
 def test_partial_content_then_stream_error_keeps_partial_text() -> bool:
@@ -1264,6 +1397,8 @@ TESTS = [
     # Behavioural (existing)
     test_invoke_agent_then_stream_error_persists_tool_call_and_marker,
     test_stream_error_on_turn_zero_persists_marker,
+    test_empty_completion_retries_and_recovers,
+    test_empty_completion_twice_gives_up_with_marker,
     test_partial_content_then_stream_error_keeps_partial_text,
     # Save-always (chat 3951063c, 2026-05-08)
     test_client_disconnect_after_stream_error_persists_marker,

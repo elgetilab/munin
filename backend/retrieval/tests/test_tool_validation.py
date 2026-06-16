@@ -27,6 +27,7 @@ from jsonschema import Draft202012Validator, ValidationError  # noqa: E402
 from mcp.executor import (  # noqa: E402
     _VALIDATORS,
     _format_validation_error,
+    _normalize_aliases,
     execute_mcp_tool,
 )
 from mcp.schemas import MCP_TOOLS  # noqa: E402
@@ -87,18 +88,62 @@ def test_format_validation_error_includes_pointer_and_tool() -> bool:
     )
 
 
-def test_format_validation_error_trailing_count() -> bool:
-    """When multiple validation errors fire, the formatter reports the
-    first and trails with a count of suppressed issues so the model
-    knows there's more to fix."""
+def test_format_validation_error_lists_all_issues() -> bool:
+    """When multiple validation errors fire, the formatter lists EVERY one
+    so the model can fix them all in a single retry instead of discovering
+    them one at a time (the failure shape behind chat 5e27dfa4)."""
     # Two violations: missing required `expression` AND mode out of enum.
     v = _VALIDATORS["calculate"]
     errs = sorted(v.iter_errors({"mode": "magic"}), key=lambda e: tuple(str(p) for p in e.absolute_path))
     msg = _format_validation_error("calculate", errs)
     return _check(
-        "format_validation_error reports count of suppressed issues",
-        len(errs) >= 2 and "more issue" in msg,
+        "format_validation_error lists all issues (no suppressed count)",
+        len(errs) >= 2
+        and "more issue" not in msg
+        and "expression" in msg
+        and "magic" in msg,
         f"n_errs={len(errs)}, msg={msg!r}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Argument aliases (id -> artifact_id, narrow)
+# ---------------------------------------------------------------------------
+
+def test_alias_id_maps_to_artifact_id_and_validates() -> bool:
+    """A model echoing create_artifact's `id` back into update_artifact
+    must validate, because the alias copies it onto `artifact_id` before
+    the gate runs (chat 5e27dfa4, 2026-06-16)."""
+    args = _normalize_aliases("update_artifact", {"id": "art_x", "content": "c"})
+    errs = list(_VALIDATORS["update_artifact"].iter_errors(args))
+    return _check(
+        "id alias resolves artifact_id and passes validation",
+        args.get("artifact_id") == "art_x" and not errs,
+        f"args={args}, errs={[e.message for e in errs]}",
+    )
+
+
+def test_alias_explicit_artifact_id_wins() -> bool:
+    """If the model passes BOTH keys, the canonical one is authoritative;
+    the alias must not clobber it."""
+    args = _normalize_aliases(
+        "read_artifact", {"id": "wrong", "artifact_id": "right"}
+    )
+    return _check(
+        "explicit artifact_id is not overwritten by the id alias",
+        args.get("artifact_id") == "right",
+        f"args={args}",
+    )
+
+
+def test_alias_untouched_for_non_artifact_tools() -> bool:
+    """The alias map is artifact-tools-only: a bare `id` on an unrelated
+    tool must pass through unchanged, no synthetic artifact_id."""
+    args = _normalize_aliases("paper_search", {"id": "x", "query": "q"})
+    return _check(
+        "non-artifact tools are not alias-normalised",
+        "artifact_id" not in args and args.get("id") == "x",
+        f"args={args}",
     )
 
 
@@ -231,7 +276,10 @@ TESTS = [
     test_every_tool_has_a_compiled_validator,
     test_validators_are_singletons,
     test_format_validation_error_includes_pointer_and_tool,
-    test_format_validation_error_trailing_count,
+    test_format_validation_error_lists_all_issues,
+    test_alias_id_maps_to_artifact_id_and_validates,
+    test_alias_explicit_artifact_id_wins,
+    test_alias_untouched_for_non_artifact_tools,
     test_gate_rejects_wrong_type,
     test_gate_rejects_array_passed_as_string,
     test_gate_rejects_missing_required,

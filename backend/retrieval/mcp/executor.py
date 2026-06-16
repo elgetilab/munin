@@ -84,18 +84,52 @@ def partition_by_concurrency_safety(
     return safe, unsafe
 
 
+# Narrow, per-tool argument aliases applied BEFORE schema validation.
+# The model occasionally calls an artifact tool with `id` (the key our
+# create_artifact result returns) instead of the schema's `artifact_id`,
+# and a rejected-but-otherwise-correct call can knock it off its plan
+# (chat 5e27dfa4, 2026-06-16). Remap that one known slip rather than
+# reject. Kept deliberately minimal (one alias, artifact tools only):
+# broad synonym normalisation would silently mask real arg-naming bugs we
+# would rather see surface in the validation_error metric. Add an entry
+# only with a logged slip to justify it.
+_ARG_ALIASES: dict[str, dict[str, str]] = {
+    "update_artifact": {"id": "artifact_id"},
+    "read_artifact": {"id": "artifact_id"},
+    "save_artifact_to_documents": {"id": "artifact_id"},
+}
+
+
+def _normalize_aliases(tool_name: str, arguments: dict) -> dict:
+    """Copy known alias keys onto their canonical names when the canonical
+    key is absent. Non-destructive: an explicit canonical key always wins,
+    and the alias key is left in place (the artifact schemas don't set
+    ``additionalProperties: false``, so a leftover ``id`` is harmless)."""
+    aliases = _ARG_ALIASES.get(tool_name)
+    if not aliases or not isinstance(arguments, dict):
+        return arguments
+    patched = dict(arguments)
+    for alias, canonical in aliases.items():
+        if canonical not in patched and alias in patched:
+            patched[canonical] = patched[alias]
+    return patched
+
+
 def _format_validation_error(
     tool_name: str, errs: list[ValidationError]
 ) -> str:
-    """Produce a single human + model-readable line summarising the worst
-    schema error. Leads with the tool name so the model knows which call
-    needs fixing; appends a count if more errors are pending."""
-    first = errs[0]
-    pointer = "/".join(str(p) for p in first.absolute_path) or "(root)"
-    msg = f"invalid arguments for {tool_name!r} at {pointer}: {first.message}"
-    if len(errs) > 1:
-        msg += f" ({len(errs) - 1} more issue(s) suppressed)"
-    return msg
+    """Produce a single human + model-readable line listing EVERY schema
+    error. Leads with the tool name so the model knows which call needs
+    fixing, then lists each problem as ``pointer: message`` so the model
+    can fix all of them in one retry. We used to report only the first
+    error with a "(N more suppressed)" count, but hiding co-equal failures
+    is what let a call missing BOTH `artifact_id` and `content` strand the
+    model one fix at a time (chat 5e27dfa4, 2026-06-16)."""
+    parts = []
+    for e in errs:
+        pointer = "/".join(str(p) for p in e.absolute_path) or "(root)"
+        parts.append(f"{pointer}: {e.message}")
+    return f"invalid arguments for {tool_name!r}: " + "; ".join(parts)
 
 
 async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
@@ -144,6 +178,7 @@ async def _dispatch_mcp_tool(tool_name: str, arguments: dict) -> dict:
     (P2 #19); this function is just the validator + a registry
     lookup. ``verify_dispatch_registry`` runs at startup so a
     schema/executor mismatch can't reach a real request."""
+    arguments = _normalize_aliases(tool_name, arguments or {})
     validator = _VALIDATORS.get(tool_name)
     if validator is not None:
         errs = sorted(

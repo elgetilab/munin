@@ -458,6 +458,10 @@ async def create_artifact(
     await db.commit()
     return {
         "id": aid,
+        # Echo the same value under the key update_artifact/read_artifact
+        # actually require, so the model isn't tempted to call them back
+        # with `id=` (the slip that stranded chat 5e27dfa4, 2026-06-16).
+        "artifact_id": aid,
         "conversation_id": conversation_id,
         "title": title,
         "content_type": content_type,
@@ -609,6 +613,7 @@ async def get_artifact_version(
     source = meta.get("source") or SOURCE_MODEL_WRITTEN
     return {
         "id": artifact_id,
+        "artifact_id": artifact_id,
         "conversation_id": conversation_id,
         "title": meta["title"],
         "content_type": meta["content_type"],
@@ -829,6 +834,7 @@ async def update_artifact(
     await db.commit()
     return {
         "id": artifact_id,
+        "artifact_id": artifact_id,
         "conversation_id": conversation_id,
         "title": meta["title"],
         "content_type": meta["content_type"],
