@@ -127,7 +127,7 @@ function OverviewView({ catalog, totalPapers, onBrowse, onChatWithTag }: {
         <StatCard label="Papers" value={totalPapers.toLocaleString()} />
         <StatCard label="Topics" value={String(catalog.topics.length)} />
         <StatCard label="Research Groups" value={String(catalog.groups.length)} />
-        <StatCard label="Contributors" value={String(catalog.contributors.length)} />
+        <StatCard label="Contributors" value={String(catalog.contributor_count ?? catalog.contributors.length)} />
       </div>
 
       {/* Embedding Map */}

@@ -1590,6 +1590,62 @@ def _paper_stub(payload: dict) -> dict:
     return stub
 
 
+def _dedup_contributor_people(known: dict[str, dict]) -> list[dict]:
+    """Collapse the email-keyed contributors map into distinct people.
+
+    `_load_contributors` keys by email, so a multi-email person appears
+    once per address. Returns one record per person:
+    ``{"emails": set[str], "entry": dict}``.
+    """
+    people: dict[int, dict] = {}
+    for addr, entry in known.items():
+        p = people.setdefault(id(entry), {"emails": set(), "entry": entry})
+        if addr:
+            p["emails"].add(addr)
+    return list(people.values())
+
+
+def _build_group_contributor_lists(
+    people: list[dict],
+    group_counts: dict[str, int],
+    contributor_counts: dict[str, int],
+) -> tuple[list[dict], list[dict]]:
+    """Assemble the /api/tags ``groups`` and ``contributors`` lists.
+
+    Groups dedup by slug; the contributor mention list dedups by username.
+    The two are INDEPENDENT — contributor collection used to be nested
+    under the group dedup, which silently dropped any contributor sharing
+    a research group with another. Both lists are sorted by paper_count
+    descending.
+    """
+    groups: list[dict] = []
+    contributors: list[dict] = []
+    seen_groups: set[str] = set()
+    seen_contributors: set[str] = set()
+    for p in people:
+        entry = p["entry"]
+        slug = (entry.get("research_group") or "").strip()
+        if slug and slug not in seen_groups:
+            seen_groups.add(slug)
+            groups.append({
+                "slug": slug,
+                "display_name": entry.get("research_group_display_name") or slug,
+                "paper_count": group_counts.get(slug, 0),
+            })
+        username = entry.get("username")
+        if username and username not in seen_contributors:
+            seen_contributors.add(username)
+            contributors.append({
+                "username": username,
+                "display_name": entry.get("display_name") or username,
+                "group_slug": slug,
+                "paper_count": contributor_counts.get(username, 0),
+            })
+    groups.sort(key=lambda g: -g["paper_count"])
+    contributors.sort(key=lambda c: -c["paper_count"])
+    return groups, contributors
+
+
 @app.get("/api/tags")
 async def api_tags():
     """Tag autocomplete catalog for the chat composer (§28 Sprint B).
@@ -1601,8 +1657,12 @@ async def api_tags():
     - `groups`: one entry per research group in `contributors.yml`,
       `paper_count` counted from Qdrant via distinct paper IDs whose
       payload `contributors[].group_slug` matches.
-    - `contributors`: individual uploaders (for the `#@username`
-      shortcut).
+    - `contributors`: individual uploaders that have a `username`, for
+      the `#@username` mention shortcut. This is intentionally a subset
+      (only mentionable people), so it is NOT a contributor headcount.
+    - `contributor_count`: distinct contributors (by email) with at
+      least one paper in the KB. This is the "Contributors" stat the
+      knowledge overview shows.
 
     No auth — tag names are public (the model already sees them in
     search results).
@@ -1625,87 +1685,94 @@ async def api_tags():
         except (OSError, json.JSONDecodeError):
             pass
 
-    groups: list[dict] = []
-    contributors: list[dict] = []
     known = _load_contributors()
-    # Count papers per group via Qdrant. Uses the payload filter; a
-    # missing payload index on `contributors[].group_slug` just makes
-    # this scan slower, not wrong (we lazy-create the index at startup;
-    # see `_ensure_contributor_indexes`).
+    people = _dedup_contributor_people(known)
+
+    # Count papers per group/username via Qdrant. Uses payload filters; a
+    # missing payload index just makes the scan slower, not wrong (we
+    # lazy-create the indexes at startup; see `_ensure_contributor_indexes`).
     qdrant = get_qdrant()
     group_counts: dict[str, int] = {}
     contributor_counts: dict[str, int] = {}
+    # Distinct contributors with >= 1 paper in the KB, matched by their
+    # indexed `contributors[].email`. This is the "Contributors" stat the
+    # knowledge overview shows (people who actually contributed), as opposed
+    # to the username-keyed mention list below.
+    contributor_count = 0
     if qdrant is not None:
         try:
             from qdrant_client.http import models as qm
-            for entry in known.values():
-                slug = entry.get("research_group")
-                if slug:
-                    try:
-                        res = qdrant.count(
-                            collection_name="papers",
-                            count_filter=qm.Filter(
-                                must=[
-                                    qm.FieldCondition(
-                                        key="contributors[].group_slug",
-                                        match=qm.MatchValue(value=slug),
-                                    )
-                                ]
-                            ),
-                            exact=True,
-                        )
-                        group_counts[slug] = getattr(res, "count", 0)
-                    except Exception:
-                        group_counts[slug] = 0
+
+            for slug in {
+                (p["entry"].get("research_group") or "").strip()
+                for p in people
+            }:
+                if not slug:
+                    continue
+                try:
+                    res = qdrant.count(
+                        collection_name="papers",
+                        count_filter=qm.Filter(must=[
+                            qm.FieldCondition(
+                                key="contributors[].group_slug",
+                                match=qm.MatchValue(value=slug),
+                            )
+                        ]),
+                        exact=True,
+                    )
+                    group_counts[slug] = getattr(res, "count", 0)
+                except Exception:
+                    group_counts[slug] = 0
+
+            for p in people:
+                entry = p["entry"]
                 username = entry.get("username")
                 if username:
                     try:
                         res = qdrant.count(
                             collection_name="papers",
-                            count_filter=qm.Filter(
-                                must=[
-                                    qm.FieldCondition(
-                                        key="contributors[].username",
-                                        match=qm.MatchValue(value=username),
-                                    )
-                                ]
-                            ),
+                            count_filter=qm.Filter(must=[
+                                qm.FieldCondition(
+                                    key="contributors[].username",
+                                    match=qm.MatchValue(value=username),
+                                )
+                            ]),
                             exact=True,
                         )
                         contributor_counts[username] = getattr(res, "count", 0)
                     except Exception:
                         contributor_counts[username] = 0
+
+                emails = [e for e in p["emails"] if e]
+                if emails:
+                    try:
+                        res = qdrant.count(
+                            collection_name="papers",
+                            count_filter=qm.Filter(should=[
+                                qm.FieldCondition(
+                                    key="contributors[].email",
+                                    match=qm.MatchValue(value=e),
+                                )
+                                for e in emails
+                            ]),
+                            exact=True,
+                        )
+                        if getattr(res, "count", 0) > 0:
+                            contributor_count += 1
+                    except Exception:
+                        pass
         except Exception as e:
             logger.warning("tag catalog Qdrant counts failed: %s", e)
 
-    # Dedup groups by slug (two allowlist rows could share a group).
-    seen_groups: set[str] = set()
-    for entry in known.values():
-        slug = entry.get("research_group")
-        if not slug or slug in seen_groups:
-            continue
-        seen_groups.add(slug)
-        groups.append({
-            "slug": slug,
-            "display_name": entry.get("research_group_display_name") or slug,
-            "paper_count": group_counts.get(slug, 0),
-        })
-        username = entry.get("username")
-        if username:
-            contributors.append({
-                "username": username,
-                "display_name": entry.get("display_name") or username,
-                "group_slug": slug,
-                "paper_count": contributor_counts.get(username, 0),
-            })
-
-    groups.sort(key=lambda g: -g["paper_count"])
-    contributors.sort(key=lambda c: -c["paper_count"])
+    groups, contributors = _build_group_contributor_lists(
+        people, group_counts, contributor_counts
+    )
 
     return {
         "topics": topics,
         "groups": groups,
         "contributors": contributors,
+        "contributor_count": contributor_count,
     }
 
 

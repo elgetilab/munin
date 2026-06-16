@@ -1082,7 +1082,8 @@ already sees them in search results).
   ],
   "contributors": [
     {"username": "alice", "display_name": "Alice Doe", "group_slug": "varghela-lab", "paper_count": 23}
-  ]
+  ],
+  "contributor_count": 18
 }
 ```
 
@@ -1090,6 +1091,12 @@ Topics come from the §15 embedding map (`unclustered` is filtered out).
 Groups come from `contributors.yml`. Lists are sorted by `paper_count`
 descending. Empty arrays are returned (not 404) when a family has no
 entries yet.
+
+`contributors` is the `#@username` mention list, so it contains **only**
+contributors that have a `username` set — it is deliberately a subset and
+not a contributor headcount. `contributor_count` is the distinct number of
+contributors (by `contributors[].email`) with at least one paper in the
+KB; this is what the knowledge overview's "Contributors" stat shows.
 
 ### 4.20 `GET /api/tags/{kind}/{slug}/papers`
 

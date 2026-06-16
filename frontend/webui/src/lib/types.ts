@@ -341,7 +341,11 @@ export interface ContributorTag {
 export interface TagCatalog {
   topics: TopicTag[];
   groups: GroupTag[];
+  // Username-keyed mention list for `#@handle` (only contributors that
+  // have a username) — NOT a headcount. Use contributor_count for that.
   contributors: ContributorTag[];
+  // Distinct contributors with >= 1 paper in the KB (counted by email).
+  contributor_count?: number;
 }
 
 export interface TagPaper {
