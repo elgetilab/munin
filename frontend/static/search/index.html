@@ -406,9 +406,12 @@
         async function hybridSearch(query, topK, yearMin, yearMax) {
             const payload = {
                 query: query,
-                top_k: topK,
-                vector_weight: 0.8,
-                citation_weight: 0.2
+                top_k: topK
+                // vector_weight / citation_weight intentionally omitted so the
+                // request inherits the API default (0.7/0.3, HybridSearchRequest
+                // in backend/retrieval/models.py). Converged 2026-06 so the
+                // deployed search ranking matches the paper claim and the eval
+                // baseline; see todo_v2/KICKOFF-QUESTIONS.md Q1.
             };
             if (yearMin) payload.year_min = parseInt(yearMin);
             if (yearMax) payload.year_max = parseInt(yearMax);
