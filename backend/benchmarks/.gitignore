@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Benchmark data + raw outputs are NOT committed (size + licenses); every
+# dataset gets a download_<name>.py + checksum so a fresh clone rebuilds
+# data/ deterministically. EXCEPTIONS that ARE committed: scorecards/ (small
+# JSONs), the abstention ground-truth JSON, and the AgentRetriever frozen
+# variant set (see RETRIEVAL-EVAL-SPEC Phase 2 / KICKOFF-QUESTIONS Q3).
+data/
+results/
