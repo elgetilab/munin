@@ -69,6 +69,19 @@ from mcp.context import (
 logger = logging.getLogger(__name__)
 
 
+# A1 (persona -> router migration): pin personas by disabling the
+# delegate_to_persona hand-off. When false (the default from 2026-06), the
+# model never switches persona mid-conversation; the user's Research/Chat/
+# Code selector sets the pin (request `persona`) and it holds for the whole
+# turn. Every attempted hand-off is rejected and logged (greppable prefix
+# "delegation-disabled attempt") so the ~1-week soak can measure whether any
+# request genuinely wanted a handoff before A4 deletes the machinery. Flip
+# DELEGATION_ENABLED=true + restart to fully revert. Removed wholesale at A4.
+DELEGATION_ENABLED = os.getenv("DELEGATION_ENABLED", "false").strip().lower() in (
+    "1", "true", "yes",
+)
+
+
 # --- SSE helpers --------------------------------------------------------------
 
 def _sse(event: str, payload: dict) -> dict:
@@ -929,22 +942,32 @@ async def _run_tool_calls(
                 "persona-allowlist reject (persona=%r, tool=%r)",
                 persona_id, name,
             )
+            # A1: when delegation is disabled, drop the "call
+            # delegate_to_persona" advice — it points at a disabled
+            # mechanism and would loop. Advise answering with the available
+            # tools instead. (The fuller allowlist retirement is A4.)
+            if DELEGATION_ENABLED:
+                err = (
+                    f"The {name!r} tool is not available in the "
+                    f"{persona_id!r} persona's tool set. "
+                    f"To use it, call delegate_to_persona "
+                    f"({{'persona_id': '<target>', 'reason': "
+                    f"'<one-line>'}}) where target is the persona "
+                    f"that has this tool — typically 'code' for "
+                    f"run_python / sandbox_reset, or 'research' "
+                    f"for deep paper-search tools. Otherwise "
+                    f"answer using only the tools you do have."
+                )
+            else:
+                err = (
+                    f"The {name!r} tool is not available in the "
+                    f"{persona_id!r} persona's tool set. Answer the "
+                    f"request using only the tools you do have."
+                )
             return {
                 "id": tc["id"],
                 "name": name,
-                "result": {
-                    "error": (
-                        f"The {name!r} tool is not available in the "
-                        f"{persona_id!r} persona's tool set. "
-                        f"To use it, call delegate_to_persona "
-                        f"({{'persona_id': '<target>', 'reason': "
-                        f"'<one-line>'}}) where target is the persona "
-                        f"that has this tool — typically 'code' for "
-                        f"run_python / sandbox_reset, or 'research' "
-                        f"for deep paper-search tools. Otherwise "
-                        f"answer using only the tools you do have."
-                    ),
-                },
+                "result": {"error": err},
                 "duration_ms": 0,
             }
         # Duplicate create_artifact (same title, same response): skip the
@@ -2088,7 +2111,20 @@ async def stream_chat_completion(
                 # error, append it to messages so the model sees the
                 # rejection on the next iteration, and continue the loop.
                 reject_reason: Optional[str] = None
-                if not target_id:
+                if not DELEGATION_ENABLED:
+                    # A1: pinning is the default. Reject every hand-off and
+                    # log the attempt so the soak can count what wanted to
+                    # delegate. Logged BEFORE the generic reject below so the
+                    # target/reason are captured even when they're empty.
+                    logger.info(
+                        "delegation-disabled attempt (from=%r, target=%r, reason=%r)",
+                        persona_id, target_id or "<none>", reason or "<none>",
+                    )
+                    reject_reason = (
+                        "persona handoff is disabled; answer the request "
+                        "directly with your own tools."
+                    )
+                elif not target_id:
                     reject_reason = (
                         "delegate_to_persona requires a non-empty persona_id."
                     )

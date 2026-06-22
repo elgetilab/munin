@@ -170,6 +170,8 @@ services:
       # Uses host.docker.internal to reach vLLM running on host
       - VLLM_URL=http://<cluster-lan-ip>:8000
       - VLLM_MODEL_NAME=qwen3.6-35b-a3b
+      # A1: pin personas (disable delegate_to_persona). See munin.env.
+      - DELEGATION_ENABLED=${DELEGATION_ENABLED:-false}
       # Semantic Scholar API (for semantic_scholar_search tool)
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
       # Sandbox sidecar (§2). Reached over the internal sandbox-net.
