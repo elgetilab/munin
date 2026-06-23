@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import personas as persona_module  # noqa: E402
 from mcp.context import current_persona, current_unlocked_tools  # noqa: E402
 from mcp.schemas import CORE_TOOLS, MCP_TOOLS  # noqa: E402
-from mcp.tools.tool_search import tool_search  # noqa: E402
+from mcp.tools.tool_search import tool_search, _MAX_RESULTS  # noqa: E402
 from chat_service import _openai_tools_schema  # noqa: E402
 
 
@@ -153,9 +153,9 @@ def test_tool_search_respects_allowlist() -> bool:
     )
 
 
-def test_tool_search_caps_at_8() -> bool:
+def test_tool_search_caps_at_max() -> bool:
     """A deliberately broad query that matches many tools returns at most
-    8 results with a truncation note."""
+    _MAX_RESULTS results with a truncation note."""
     _install_persona(_BROAD)
     tok_p = current_persona.set("test")
     tok_u = current_unlocked_tools.set(set())
@@ -168,9 +168,41 @@ def test_tool_search_caps_at_8() -> bool:
         _uninstall_persona()
     matches = res.get("matches", [])
     return _check(
-        "tool_search caps results at 8",
-        len(matches) <= 8,
+        f"tool_search caps results at {_MAX_RESULTS}",
+        len(matches) <= _MAX_RESULTS,
         f"len(matches)={len(matches)}",
+    )
+
+
+def _surfaces(query: str, target: str) -> bool:
+    """Helper: does tool_search(query) put `target` in its matches?"""
+    _install_persona(_BROAD)
+    tok_p = current_persona.set("test")
+    tok_u = current_unlocked_tools.set(set())
+    try:
+        res = asyncio.run(tool_search(query))
+    finally:
+        current_persona.reset(tok_p)
+        current_unlocked_tools.reset(tok_u)
+        _uninstall_persona()
+    return target in {m["name"] for m in res.get("matches", [])}
+
+
+def test_tool_search_surfaces_gate_tools_natural_phrasing() -> bool:
+    """A2 regression: the IDF-weighted matcher must surface the genuinely-
+    relevant deferred tool for NATURAL queries, where the old substring
+    scorer crowded it out with generic-term matches. These are the routing-
+    eval gate tools (export_citations, get_citations) + remember."""
+    cases = [
+        ("give me BibTeX for these DOIs", "export_citations"),
+        ("find papers that cite a given DOI", "get_citations"),
+        ("remember that I work on dissolution-DNP going forward", "remember"),
+    ]
+    missing = [(q, t) for q, t in cases if not _surfaces(q, t)]
+    return _check(
+        "tool_search surfaces gate tools for natural phrasing",
+        not missing,
+        f"missing={missing}",
     )
 
 
@@ -271,10 +303,14 @@ def test_schema_materially_smaller_than_universe() -> bool:
     finally:
         current_unlocked_tools.reset(tok)
     universe_size = len(persona_module.tool_allowlist(persona))
+    # Core-only schema == CORE_TOOLS clamped to the allowlist. Track the
+    # actual CORE size (it grew to 11 when plan-mode tools were added) rather
+    # than a stale hardcoded bound; the real assertion is "materially smaller
+    # than the universe".
     return _check(
         "deferred schema is materially smaller than the tool universe",
-        schema_size <= 10 and schema_size < universe_size // 2,
-        f"schema={schema_size}, universe={universe_size}",
+        schema_size <= len(CORE_TOOLS) and schema_size < universe_size // 2,
+        f"schema={schema_size}, universe={universe_size}, core={len(CORE_TOOLS)}",
     )
 
 
@@ -287,7 +323,8 @@ TESTS = [
     test_tool_search_unlocks_into_contextvar,
     test_tool_search_excludes_core_tools,
     test_tool_search_respects_allowlist,
-    test_tool_search_caps_at_8,
+    test_tool_search_caps_at_max,
+    test_tool_search_surfaces_gate_tools_natural_phrasing,
     test_tool_search_no_match,
     test_tool_search_empty_query,
     test_schema_core_only_when_nothing_unlocked,

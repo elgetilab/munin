@@ -209,6 +209,13 @@ class ItemResult(BaseModel):
     passed: bool
     failures: list[str] = Field(default_factory=list)
     checks: dict[str, bool] = Field(default_factory=dict)
+    # Non-gating observations: reported in the scorecard but NEVER folded
+    # into `passed` (A2 Q4). Keeps the gate definition fixed and the A0
+    # baseline comparable. Currently: `completed_in_turn` for
+    # via_tool_search_ok requirements — did the actual deferred tool fire
+    # in-turn, vs the permissive gate that only checks the model reached
+    # for tool_search.
+    diagnostics: dict[str, bool] = Field(default_factory=dict)
 
 
 def _gated(expected: Expected, check: str) -> bool:
@@ -223,6 +230,7 @@ def score_item(item: RoutingEvalItem, trajectory: list[ToolCall]) -> ItemResult:
     """
     exp = item.expected
     checks: dict[str, bool] = {}
+    diagnostics: dict[str, bool] = {}  # non-gating (A2 Q4)
     failures: list[str] = []
     names = [tc.name for tc in trajectory]
 
@@ -264,6 +272,17 @@ def score_item(item: RoutingEvalItem, trajectory: list[ToolCall]) -> ItemResult:
                 for tc in matches
             ) if req.arg_predicates else (n > 0)
             via_ok = count_ok and pred_ok
+            # A2 Q4 non-gating diagnostic: for deferred tools the gate below
+            # is permissive (passes the moment tool_search appears). Record
+            # whether the ACTUAL tool fired in-turn (the pre-override via_ok)
+            # so the scorecard can show reached-vs-completed without changing
+            # `passed`. Only meaningful for via_tool_search_ok requirements;
+            # for core tools completed_in_turn == the gate result anyway.
+            if req.via_tool_search_ok:
+                checks_completed = via_ok  # count_ok and pred_ok, pre-override
+                # last writer wins if an item has multiple deferred reqs;
+                # key by tool name to keep them distinct.
+                diagnostics[f"completed_in_turn:{req.name}"] = checks_completed
             if not via_ok and req.via_tool_search_ok and "tool_search" in names:
                 # Accept the discovery path: tool_search present and the tool
                 # was attempted at all (it may surface on a later turn that
@@ -301,7 +320,10 @@ def score_item(item: RoutingEvalItem, trajectory: list[ToolCall]) -> ItemResult:
             failures.append("abstain item manufactured output via run_python/create_artifact")
 
     passed = all(checks.values()) if checks else True
-    return ItemResult(item_id=item.id, passed=passed, failures=failures, checks=checks)
+    return ItemResult(
+        item_id=item.id, passed=passed, failures=failures,
+        checks=checks, diagnostics=diagnostics,
+    )
 
 
 # ===========================================================================

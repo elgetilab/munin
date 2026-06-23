@@ -120,6 +120,15 @@ def aggregate(per_item_reps: dict[str, list[ItemResult]], reps: int) -> dict:
             for i, r in enumerate(results)
             if not r.passed and r.failures
         ][:3]
+        # Non-gating diagnostics (A2 Q4), reported separately so they're
+        # never mistaken for the gate. Per-key pass rate across reps.
+        diag_keys = sorted({k for r in results for k in r.diagnostics})
+        diagnostics_rate = {
+            k: round(
+                sum(1 for r in results if r.diagnostics.get(k)) / len(results), 3
+            )
+            for k in diag_keys
+        }
         category = next(
             (it.category for it in SEED_ITEMS if it.id == item_id), "?"
         )
@@ -129,6 +138,7 @@ def aggregate(per_item_reps: dict[str, list[ItemResult]], reps: int) -> dict:
             "pass_fraction": round(pass_rate, 3),
             "flip_rate": round(_flip_rate(passes), 3),
             "checks_pass_rate": checks_pass_rate,
+            "diagnostics_rate": diagnostics_rate,
             "sample_failures": sample_failures,
         }
     ci_low, ci_high = _ci95(item_mean_pass)
@@ -176,6 +186,23 @@ def to_markdown(scorecard: dict) -> str:
             f"| `{item_id}` | {d['category']} | {d['pass_rate']} | "
             f"{d['flip_rate']:.2f} | {top_fail} |"
         )
+    # Non-gating diagnostics (A2 Q4): reached-vs-completed for deferred
+    # tools. Shown separately so they're never read as the gate.
+    diag_rows = [
+        (item_id, k, rate)
+        for item_id, d in sorted(scorecard["per_item"].items())
+        for k, rate in sorted(d.get("diagnostics_rate", {}).items())
+    ]
+    if diag_rows:
+        lines += [
+            "",
+            "### Diagnostics (non-gating — completed-in-turn vs the permissive gate)",
+            "",
+            "| item | diagnostic | rate |",
+            "|---|---|---|",
+        ]
+        for item_id, k, rate in diag_rows:
+            lines.append(f"| `{item_id}` | {k} | {rate:.2f} |")
     if scorecard.get("skipped"):
         lines += ["", "### Skipped at A0", ""]
         for s in scorecard["skipped"]:
