@@ -192,6 +192,20 @@ def load_personas() -> dict[str, dict]:
                     entry, e,
                 )
         persona_id = data["id"]
+        # A3: the per-turn router composes base[pin] + fragment[routed] using
+        # the OUTPUT-STYLE/TASK-PLANNING markers. Warn (don't reject) if a
+        # persona lacks them: it still loads, but the router falls back to
+        # using it whole rather than as a layerable base/fragment.
+        sys_prompt = ((data.get("params") or {}).get("system") or "")
+        if sys_prompt and (
+            _FRAGMENT_START_AFTER not in sys_prompt
+            or _FRAGMENT_END_BEFORE not in sys_prompt
+        ):
+            logger.warning(
+                "Persona %s lacks the A3 prompt-split markers "
+                "(%r / %r); router layering will fall back to whole-prompt.",
+                persona_id, _FRAGMENT_START_AFTER, _FRAGMENT_END_BEFORE,
+            )
         _personas[persona_id] = data
         logger.info("Loaded persona: %s", persona_id)
 
@@ -313,6 +327,58 @@ def build_system_prompt(persona: dict) -> str:
     """Return the system prompt text from a raw persona dict."""
     params = persona.get("params") or {}
     return params.get("system") or persona.get("description") or ""
+
+
+# --- A3 layered prompt: base[pin] + fragment[routed] ------------------------
+#
+# The per-turn router (A3) composes a system prompt from the PINNED persona's
+# voice/rules and the ROUTED profile's task guidance, so a (e.g.) research-
+# pinned "plot those values" turn gets research voice + code task guidance
+# (decision Q2 = option d). Every persona prompt factors at two markers into:
+#   prefix   = CORE RULES + OUTPUT STYLE (voice/rules)  -> from the PIN
+#   fragment = the task-guidance middle section         -> from the ROUTED profile
+#   suffix   = TASK PLANNING + DISCOVERING TOOLS         -> from the PIN
+# Composition = prefix(pin) + fragment(routed) + suffix(pin). When pin==routed
+# this reconstructs the original prompt exactly (behavior-preserving on
+# ordinary turns; see todo_v2/A3-PLAN.md §2a).
+_FRAGMENT_START_AFTER = "=== END OUTPUT STYLE ==="
+_FRAGMENT_END_BEFORE = "=== TASK PLANNING ==="
+
+
+def split_system_prompt(persona: dict) -> tuple[str, str, str]:
+    """Split a persona's system prompt into (prefix, fragment, suffix).
+
+    `fragment` is the task-guidance middle (the part the router swaps per
+    turn); `prefix`/`suffix` are the pin's voice/rules around it. The split is
+    LOSSLESS: prefix + fragment + suffix == the original system prompt.
+
+    If a persona lacks the boundary markers (malformed or non-standard), the
+    whole prompt is returned as `fragment` with empty prefix/suffix, and
+    `compose_system_prompt` falls back to the routed persona as-is.
+    """
+    s = build_system_prompt(persona)
+    i = s.find(_FRAGMENT_START_AFTER)
+    j = s.find(_FRAGMENT_END_BEFORE)
+    if i < 0 or j < 0 or j < i:
+        return "", s, ""
+    frag_start = i + len(_FRAGMENT_START_AFTER)
+    return s[:frag_start], s[frag_start:j], s[j:]
+
+
+def compose_system_prompt(pin_persona: dict, routed_persona: dict) -> str:
+    """Compose the layered system prompt: pin's frame + routed task fragment.
+
+    `prefix(pin) + fragment(routed) + suffix(pin)`. When `pin is routed` (no
+    re-route this turn) this equals the pin's original prompt. Degrades
+    gracefully: if the PIN can't be split (no markers), returns the routed
+    persona's full prompt unchanged."""
+    prefix, _pin_fragment, suffix = split_system_prompt(pin_persona)
+    _routed_prefix, routed_fragment, _routed_suffix = split_system_prompt(routed_persona)
+    if not prefix and not suffix:
+        # Pin wasn't splittable -> no clean frame to layer onto; use the
+        # routed persona's full prompt rather than emit a fragment alone.
+        return build_system_prompt(routed_persona)
+    return prefix + routed_fragment + suffix
 
 
 def sampling_params(persona: dict) -> dict:
