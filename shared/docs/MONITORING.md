@@ -73,14 +73,31 @@ the tusd KB-upload gate, the cluster needs the SAME value (the
 metrics proxy reuses the auth service's `/admin/check-role` endpoint,
 which gates on this bearer).
 
-Copy the VPS-side value into the cluster's docker `.env` from a shell
+> **The shared secret has two independent copies and nothing syncs
+> them.** The VPS holds it in `~/munin/frontend/.env`; the cluster
+> holds it in `/opt/hugin/config/cluster.env`. They drift silently:
+> a value added to one side is never propagated to the other, and a
+> mismatch surfaces only as a broken Metrics tab (proxy returns 502,
+> `check-role` 401). `cluster.env` is the cluster's source of truth —
+> `deploy.sh` symlinks `/opt/munin/docker/.env -> cluster.env` on
+> every run (`ln -snf`). **Always edit `cluster.env` directly; never
+> `mv`/write a file over the `/opt/munin/docker/.env` symlink.**
+> Replacing the symlink with a regular copy freezes a stale token
+> that "works" until the next deploy restores the symlink to the
+> divergent `cluster.env` and recreates retrieval — which is exactly
+> how this broke once (2026-06-23: a deploy relinked `.env` to a
+> `cluster.env` whose token never matched the VPS).
+
+Copy the VPS-side value into the cluster's `cluster.env` from a shell
 that has SSH to the VPS:
 
 ```
 TOKEN=$(ssh <admin>@<vps> 'docker exec frontend-munin-auth-1 sh -c "printf %s \"\$KB_GATE_TOKEN\""')
-sudo sh -c "grep -v '^KB_GATE_TOKEN=' /opt/munin/docker/.env > /tmp/.env.new && \
-            echo 'KB_GATE_TOKEN=$TOKEN' >> /tmp/.env.new && \
-            mv /tmp/.env.new /opt/munin/docker/.env"
+# Edit cluster.env IN PLACE — do not replace the /opt/munin/docker/.env symlink.
+sudo sh -c "grep -v '^KB_GATE_TOKEN=' /opt/hugin/config/cluster.env > /opt/hugin/config/cluster.env.new && \
+            echo 'KB_GATE_TOKEN=$TOKEN' >> /opt/hugin/config/cluster.env.new && \
+            chmod 600 /opt/hugin/config/cluster.env.new && \
+            mv /opt/hugin/config/cluster.env.new /opt/hugin/config/cluster.env"
 sudo sh -c 'cd /opt/munin/docker && docker compose --profile rag up -d --force-recreate retrieval'
 ```
 
