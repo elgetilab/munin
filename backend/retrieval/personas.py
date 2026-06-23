@@ -261,12 +261,21 @@ def persona_handoff_note(
 
 
 def public_personas() -> dict:
-    """Return the /api/personas payload."""
+    """Return the /api/personas payload.
+
+    Persona ids beginning with ``_`` are INTERNAL (eval/test fixtures, e.g.
+    the full-universe ``_eval_full`` used to preview the post-allowlist
+    deferred-tool behaviour) and are hidden from the user-facing selector.
+    They still load and are usable by id on the chat endpoint."""
     default_id = DEFAULT_PERSONA_ID if DEFAULT_PERSONA_ID in _personas else (
-        next(iter(_personas), "chat")
+        next((pid for pid in _personas if not pid.startswith("_")), "chat")
     )
     return {
-        "personas": [_public_view(p) for p in _personas.values()],
+        "personas": [
+            _public_view(p)
+            for pid, p in _personas.items()
+            if not pid.startswith("_")
+        ],
         "default_persona": default_id,
     }
 

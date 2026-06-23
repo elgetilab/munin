@@ -701,11 +701,16 @@ async def run_item(
     base_url: str,
     email: str,
     item: RoutingEvalItem,
+    persona: str = A0_PERSONA,
 ) -> ItemResult:
     """POST the (multi-turn) messages, capture the SSE trajectory, score it.
 
-    A0 specifics:
-      - persona = A0_PERSONA ("chat"), NOT expected.profile (hard rule #3).
+    Specifics:
+      - persona defaults to A0_PERSONA ("chat"), NOT expected.profile (hard
+        rule #3). Override via `persona=` for the A2 gate preview, which runs
+        under the internal `_eval_full` persona (no allowlist -> full tool
+        universe) to measure post-allowlist tool_search behaviour. This is a
+        deliberate test-config choice, NOT sending expected.profile.
       - ephemeral=True for a minimal, reproducible stack.
       - items whose context sets inject_tool_result are NOT supported here
         (injection is deferred to A2); the caller must skip them.
@@ -720,7 +725,7 @@ async def run_item(
         )
 
     body = {
-        "persona": A0_PERSONA,
+        "persona": persona,
         "conversation_id": None,
         "messages": _build_messages(item),
         "ephemeral": True,

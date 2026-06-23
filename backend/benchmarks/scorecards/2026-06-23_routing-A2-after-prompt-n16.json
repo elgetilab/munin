@@ -1,0 +1,122 @@
+{
+  "header": {
+    "tag": "routing-A2-after-prompt-n16",
+    "timestamp": "2026-06-23T11:56:44.731867+00:00",
+    "git_sha": "bc00638",
+    "model": "qwen3.6-35b-a3b",
+    "persona_policy": "_eval_full (test-config override; e.g. _eval_full = full tool universe for the A2 post-allowlist gate preview)",
+    "base_url": "http://127.0.0.1:8080",
+    "reps": 16,
+    "seed": 42,
+    "python_version": "3.12.7",
+    "package_versions": {
+      "httpx": "0.27.0",
+      "pydantic": "2.13.4"
+    },
+    "note": "PRE-MIGRATION regression baseline. Not a paper result."
+  },
+  "aggregate": {
+    "n_items": 4,
+    "mean_pass_rate": 0.719,
+    "ci95_low": 0.405,
+    "ci95_high": 1.0,
+    "mean_flip_rate": 0.2
+  },
+  "per_item": {
+    "citing_papers": {
+      "category": "citation_graph",
+      "pass_rate": "15/16",
+      "pass_fraction": 0.938,
+      "flip_rate": 0.133,
+      "checks_pass_rate": {
+        "forbidden": 0.938,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 0.312
+      },
+      "sample_failures": []
+    },
+    "known_doi_read": {
+      "category": "direct_ref",
+      "pass_rate": "16/16",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:read_paper": 1.0
+      },
+      "sample_failures": []
+    },
+    "remember_research_area": {
+      "category": "memory",
+      "pass_rate": "3/16",
+      "pass_fraction": 0.188,
+      "flip_rate": 0.267,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 0.188
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 0.188
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'remember': calls=0 (want 1-99), preds_ok=False"
+          ]
+        },
+        {
+          "rep": 1,
+          "failures": [
+            "required 'remember': calls=0 (want 1-99), preds_ok=False"
+          ]
+        },
+        {
+          "rep": 2,
+          "failures": [
+            "required 'remember': calls=0 (want 1-99), preds_ok=False"
+          ]
+        }
+      ]
+    },
+    "export_bibtex": {
+      "category": "citation_export",
+      "pass_rate": "12/16",
+      "pass_fraction": 0.75,
+      "flip_rate": 0.4,
+      "checks_pass_rate": {
+        "forbidden": 0.875,
+        "required": 0.812
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 0.625
+      },
+      "sample_failures": [
+        {
+          "rep": 9,
+          "failures": [
+            "required 'export_citations': calls=0 (want 1-99), preds_ok=False"
+          ]
+        },
+        {
+          "rep": 12,
+          "failures": [
+            "required 'export_citations': calls=0 (want 1-99), preds_ok=False"
+          ]
+        },
+        {
+          "rep": 13,
+          "failures": [
+            "required 'export_citations': calls=0 (want 1-99), preds_ok=False"
+          ]
+        }
+      ]
+    }
+  },
+  "skipped": []
+}

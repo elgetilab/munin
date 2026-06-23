@@ -1,5 +1,12 @@
 # A2 implementation plan — harden CORE_TOOLS + tool_search
 
+**STATUS: CLOSED 2026-06-23.** Prefill verified (no hang cliff; 64K context
+limit). Gate met on the permissive bar under the post-allowlist preview
+(`_eval_full`): citing_papers 15/16, export_bibtex 12/16 via tool_search.
+Matcher fix + prompt cue shipped; moderate completion (~0.3-0.6) documented
+as an A3/A5 residual. Deploy-applied. See "A2 CLOSED" findings section. A4 is
+unblocked (after A3 in build order).
+
 **Goal (IMPLEMENTATION-HANDOFF §A2).** Make the deferred-tool mechanism
 (`CORE_TOOLS` + `tool_search`) robust enough to REPLACE the persona
 allowlists. Two parts: (1) verify with `repro_vllm_hang.py` that the
@@ -393,6 +400,119 @@ the prompt edit may be unnecessary.
 **Adjacent fix made (noted):** `test_schema_materially_smaller_than_universe`
 asserted a stale `schema_size <= 10`; CORE grew to 11 (plan-mode tools), so
 it now tracks `len(CORE_TOOLS)`. Pre-existing staleness, not caused by A2.
+
+### Post-allowlist gate preview (2026-06-23) — root cause was allowlist scoping, not just the matcher
+
+Deploying the matcher fix and re-probing live exposed the REAL blocker, which
+the flawed offline validation had hidden:
+
+- **The chat persona's deployed allowlist (27 tools) contains NO citation
+  tools** (get_citations, export_citations, s2_* all absent). `tool_search`
+  only surfaces tools within the persona allowlist, so under chat these tools
+  are unreachable BY CONSTRUCTION — `completed_in_turn = 0.00` was the
+  allowlist blocking them, not matcher ranking. (research allowlist = 35
+  tools, HAS them; code = 17, none.)
+- **The offline matcher validation was flawed:** with `PERSONAS_DIR` unset
+  locally, `get_persona('chat')` returned None → tool_allowlist None → it
+  tested the FULL 42-tool registry, not chat's real 27. Corrected: the
+  matcher fix re-validated against the real research universe (get_citations
+  #6, export_citations #1) AND confirmed live under research
+  (`tool_search → get_citations` actually fires).
+- **This reframes the A2 gate:** the handoff calls these items "allowlist-
+  retirement acceptance tests" — their point is the POST-A4 world (no
+  allowlist). Under the current chat persona they cannot pass until A4
+  retires the allowlist.
+
+**Decision (varghele, AskUserQuestion): preview the post-allowlist end-state.**
+Measure the gate over the FULL tool universe (no allowlist), the hardest
+matcher case, using the chat prompt (the entry persona).
+
+**Built (offline-validated, deploy-gated):**
+- `shared/personas/_eval_full.json` — INTERNAL fixture: chat system prompt +
+  sampling, NO `tool_allowlist` (→ full 42-tool universe everywhere). Loads +
+  validates; `_`-prefix marks it internal.
+- `personas.py::public_personas()` hides `_`-prefixed personas from the
+  user-facing `/api/personas` selector (clean lasting convention). Verified
+  the selector stays [chat, code, research].
+- `routing/run.py` + `run_item`: `--persona` override (default chat;
+  `_eval_full` for the preview) and `--items` subset flag. NOT sending
+  expected.profile (hard rule #3 intact); a deliberate test-config persona.
+  Header records the override. Benchmark tests green (15/15).
+
+**Deploy-gated next step:** deploy the fixture + filter, then run the gate
+items under `_eval_full` and confirm `completed_in_turn` rises from 0.00 over
+the full universe. See deploy steps in the session notes.
+
+### Gate preview RESULT (2026-06-23) — matcher fix works; follow-through is the remaining gap
+
+`routing-A2-after-preview` (N=8, `_eval_full` full universe) vs A2-before
+(chat). completed_in_turn:
+
+| item (tool) | before (chat) | after (_eval_full) | permissive gate |
+|---|---|---|---|
+| citing_papers (get_citations) | 0.00 | 0.25 | 8/8 |
+| export_bibtex (export_citations) | 0.00 | 0.38 | 5/8 |
+| known_doi_read (read_paper) | 0.00 | 1.00 | 7/8 (forbidden s2 fired) |
+| remember (remember) | 0.00 | 0.12 | 1/8 |
+
+**Proven:** the matcher fix works end-to-end — every deferred tool went from
+unreachable (0.00, allowlist-blocked) to reachable+sometimes-completed over
+the full universe. Post-allowlist discovery is viable (de-risks A4).
+
+**Remaining gap:** follow-through. The model reaches tool_search and the tool
+unlocks, but often does NOT call it in-turn (improvises/stops). Permissive
+gate green only for citing_papers (8/8); export_bibtex 5/8, completion rates
+low (0.12-0.38). Caveats: N=8, wide CIs; known_doi_read's miss is a separate
+forbidden-tool issue (read_paper itself completes 1.00).
+
+**=> The held SECONDARY lever (prompt edit, Q1/Q2) is now data-justified.**
+Apply a bounded persona-prompt edit: relocate the buried tool_search cue into
+the main TOOL USAGE STRATEGY section AND add a follow-through cue ("after
+tool_search unlocks a tool, call it directly rather than improvising"). Then
+re-measure under _eval_full; keep only if completion improves without
+regressing the green items.
+
+### A2 CLOSED (2026-06-23) — permissive gate met; prompt edit kept
+
+Prompt-cue re-measure under `_eval_full` (full universe). N=8 was optimistic;
+N=16 (clean, after a vLLM job cutover invalidated the first N=16) is the
+firm number:
+
+| item | permissive gate (N=16) | completed_in_turn (N=16) |
+|---|---|---|
+| citing_papers (get_citations) | 15/16 (0.94) | 0.31 |
+| export_bibtex (export_citations) | 12/16 (0.75) | 0.62 |
+| known_doi_read (read_paper) | 16/16 | 1.00 |
+| remember (remember) | 3/16 (0.19) | 0.19 |
+
+**Decision (varghele): close A2 on the permissive gate.** The handoff's bar
+("citing_papers and export_bibtex green via tool_search, via_tool_search_ok")
+is MET: the model reliably REACHES tool_search for the deferred tools over
+the full universe — the allowlist-retirement acceptance test passes, so
+tool_search can replace allowlists for discovery (de-risks A4).
+
+**Honest residual (documented, not hidden):** actual in-turn COMPLETION of
+the deferred tool is moderate (get_citations ~0.31, export_citations ~0.62) —
+the model reaches tool_search reliably but fires the unlocked tool only
+~1/3-2/3 of the time. The `completed_in_turn` diagnostic (built for exactly
+this) keeps the claim honest. This follow-through reliability is a residual
+for A3 (router) / A5 (paraphrase density), not a blocker for the A2 gate.
+
+**Levers, final:**
+- Matcher fix (IDF + stopwords + name-weight + cap 10): made the tools
+  REACHABLE (0.00 -> reachable). Essential, validated, committed.
+- Prompt cue (follow-through instruction in all 3 personas): modest real
+  gain (export_bibtex completion 0.38 -> 0.62; gate 5/8 -> 12/16), NO
+  regression of green items (citing_papers held 0.94). KEEP.
+- `remember` is a routing-RECOGNITION gap (model doesn't see "going forward
+  I work on X" as memory-worthy, so never tool_searches) — different from
+  follow-through; flag for A3/A5.
+
+**Harness robustness follow-up (non-blocking):** vLLM runs as a SLURM job
+that can cut over (job 666 -> 677) mid-eval, which wiped the first N=16 run
+(all "peer closed connection"). Consider a pre-flight job-stability check or
+per-item retry on dropped SSE before long eval runs. Logged for the eval
+harness, not fixed in A2.
 
 ## 8. Risks / notes
 

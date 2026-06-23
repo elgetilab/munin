@@ -28,7 +28,13 @@ from datetime import datetime, timezone
 
 import httpx
 
-from .routing_eval import SEED_ITEMS, ItemResult, RoutingEvalItem, run_item
+from .routing_eval import (
+    A0_PERSONA,
+    SEED_ITEMS,
+    ItemResult,
+    RoutingEvalItem,
+    run_item,
+)
 
 DEFAULT_BASE = os.environ.get("RETRIEVAL_BASE", "http://127.0.0.1:8080")
 HTTP_TIMEOUT = 600.0
@@ -60,13 +66,20 @@ def _package_versions() -> dict:
     return out
 
 
-def make_header(tag: str, reps: int, seed: int, base: str) -> dict:
+def make_header(tag: str, reps: int, seed: int, base: str, persona: str) -> dict:
+    if persona == A0_PERSONA:
+        policy = f"{persona} (A0 decision A; not expected.profile)"
+    else:
+        policy = (
+            f"{persona} (test-config override; e.g. _eval_full = full tool "
+            f"universe for the A2 post-allowlist gate preview)"
+        )
     return {
         "tag": tag,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "git_sha": _git_sha(),
         "model": os.getenv("VLLM_MODEL_NAME", "unknown"),
-        "persona_policy": "chat (A0 decision A; not expected.profile)",
+        "persona_policy": policy,
         "base_url": base,
         "reps": reps,
         "seed": seed,
@@ -212,13 +225,13 @@ def to_markdown(scorecard: dict) -> str:
 
 # --- driver --------------------------------------------------------------
 
-async def run_all(items, base, email, reps) -> dict[str, list[ItemResult]]:
+async def run_all(items, base, email, reps, persona) -> dict[str, list[ItemResult]]:
     per_item_reps: dict[str, list[ItemResult]] = {it.id: [] for it in items}
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         for rep in range(reps):
             for it in items:
                 try:
-                    res = await run_item(client, base, email, it)
+                    res = await run_item(client, base, email, it, persona=persona)
                 except Exception as e:  # network/parse failure for this rep
                     res = ItemResult(
                         item_id=it.id, passed=False,
@@ -237,15 +250,23 @@ async def main() -> int:
     ap.add_argument("--base", default=DEFAULT_BASE)
     ap.add_argument("--email", default="routing-eval@munin.local")
     ap.add_argument("--only", default=None, help="run a single item id (smoke)")
+    ap.add_argument("--items", default=None,
+                    help="comma-separated item ids to run (subset; e.g. the A2 gate items)")
+    ap.add_argument("--persona", default=A0_PERSONA,
+                    help="request persona (default chat; use _eval_full for the "
+                         "A2 post-allowlist gate preview)")
     ap.add_argument("--out-dir", default=SCORECARD_DIR)
     args = ap.parse_args()
 
     random.seed(args.seed)
+    subset = set(args.items.split(",")) if args.items else None
 
     # Decision B: items needing inject_tool_result are skipped at A0.
     runnable, skipped = [], []
     for it in SEED_ITEMS:
         if args.only and it.id != args.only:
+            continue
+        if subset and it.id not in subset:
             continue
         if it.context.inject_tool_result is not None:
             skipped.append({"id": it.id, "reason": "needs inject_tool_result (deferred to A2)"})
@@ -258,11 +279,15 @@ async def main() -> int:
 
     print(
         f"Running {len(runnable)} items x {args.reps} reps against {args.base} "
-        f"(skipping {len(skipped)})", file=sys.stderr,
+        f"as persona={args.persona!r} (skipping {len(skipped)})", file=sys.stderr,
     )
-    per_item_reps = await run_all(runnable, args.base, args.email, args.reps)
+    per_item_reps = await run_all(
+        runnable, args.base, args.email, args.reps, args.persona
+    )
 
-    scorecard = {"header": make_header(args.tag, args.reps, args.seed, args.base)}
+    scorecard = {
+        "header": make_header(args.tag, args.reps, args.seed, args.base, args.persona)
+    }
     scorecard.update(aggregate(per_item_reps, args.reps))
     scorecard["skipped"] = skipped
 
