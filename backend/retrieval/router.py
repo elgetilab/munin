@@ -50,6 +50,9 @@ class RoutingDecision:
     method: str           # "rule" | "knn" | "fallback"
     confidence: float     # margin for knn; 1.0 for a rule; the (rejected) margin for fallback
     pin: Optional[str] = None
+    # When a slash command fired, the query with the leading `/<profile>`
+    # token removed (the integration sends THIS to the model). None otherwise.
+    stripped_query: Optional[str] = None
 
 
 # --- tier 1: slash commands -------------------------------------------------
@@ -113,7 +116,7 @@ def route(
     # Tier 1: slash command is absolute.
     slash = parse_slash(query)
     if slash is not None:
-        return RoutingDecision(slash[0], "rule", 1.0, pin=pin)
+        return RoutingDecision(slash[0], "rule", 1.0, pin=pin, stripped_query=slash[1])
 
     # Tier 2: distance-weighted KNN with pin prior + OOD guard.
     q = _l2_normalise(np.asarray(embed_fn([query]), dtype=np.float32))[0]

@@ -245,11 +245,23 @@ TASK PLANNING start):
      routing quality (does reroute route to code? etc.) is validated at the
      post-integration GATE MEASUREMENT (step 7), not now. The fake-embedder
      unit tests cover the logic.
-4. Emit the `routing` SSE event; document in BACKEND-API.md.
-5. Integrate into `run_chat_completion`: route -> `effective_profile`; build
-   the system prompt as `base[pin] + fragment[effective_profile]`; set
-   sampling from the routed profile; tool bias from the routed profile.
-   Preserve sampling presets (no temperature-floor regression).
+4. **`routing` SSE event: DONE (2026-06-24).** Emitted once at stream start
+   (before the first model call): `{profile, pin, method, confidence}`.
+   Documented in BACKEND-API.md §5; noted as the replacement for the retired
+   `persona_changed`/`delegated` events.
+5. **Integration: DONE (2026-06-24), behind `ROUTER_ENABLED` (default false).**
+   In `run_chat_completion`, after the pin is resolved: `route()` the turn ->
+   `routed` profile drives `current_persona` (tool scoping, Q5), sampling, and
+   `_openai_tools_schema`; the system prompt is `compose_system_prompt(pin,
+   routed)` via the new `routed_persona` arg on `_build_full_system_prompt`;
+   slash commands strip the leading token from the user message. Router
+   failures fall back to the pin (logged). `ROUTER_ENABLED` env flag +
+   docker-compose passthrough + munin.env (mirrors the A1 DELEGATION_ENABLED
+   pattern). When false, `routed == pin` -> `compose(pin,pin)` == original ->
+   zero behaviour change; flip true + restart to activate. Lazy
+   `_get_router_index()` embeds the labelled set once via `get_bge`. Syntax +
+   router/split unit tests green; real-embedding behaviour validated at the
+   gate measurement (step 7).
 6. Wire `profile` assertion into the routing eval (`trajectory.py` +
    `score_item`).
 7. Measure the gate (reroute / clarify / no_tool) + the full routing eval vs

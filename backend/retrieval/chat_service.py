@@ -34,6 +34,7 @@ from typing import Any, AsyncIterator, Optional
 import chat_store
 import chat_context
 import personas as persona_module
+import router as router_module
 import agents as agents_pkg
 import user_profile_store
 import project_store
@@ -80,6 +81,36 @@ logger = logging.getLogger(__name__)
 DELEGATION_ENABLED = os.getenv("DELEGATION_ENABLED", "false").strip().lower() in (
     "1", "true", "yes",
 )
+
+# A3 (persona -> router migration): up-front per-turn router. When true, each
+# turn's PROFILE (chat|research|code) is chosen from the query (router.py),
+# biased by the pinned persona; the system prompt is composed as
+# base[pin] + fragment[routed], with sampling + tools from the routed profile.
+# When false (default until soaked), routed == pin, so compose(pin,pin) ==
+# the original prompt and behaviour is unchanged. Flip ROUTER_ENABLED=true +
+# restart to activate.
+ROUTER_ENABLED = os.getenv("ROUTER_ENABLED", "false").strip().lower() in (
+    "1", "true", "yes",
+)
+
+_router_index_cache = None
+
+
+def _bge_embed(queries: list):
+    """Embed query strings with the BGE general-text encoder (L2-normalised),
+    the same model the router's labelled set is embedded with."""
+    from database import get_bge
+    import numpy as np
+    return np.asarray(get_bge().encode(queries, normalize_embeddings=True))
+
+
+def _get_router_index():
+    """Lazy singleton: embed the committed labelled example set once."""
+    global _router_index_cache
+    if _router_index_cache is None:
+        import router as router_module
+        _router_index_cache = router_module.RouterIndex.from_file(_bge_embed)
+    return _router_index_cache
 
 
 # --- SSE helpers --------------------------------------------------------------
@@ -1333,6 +1364,7 @@ async def _build_full_system_prompt(
     conversation_id: Optional[str],
     ephemeral: bool,
     project: Optional[dict],
+    routed_persona: Optional[dict] = None,
 ) -> str:
     """
     Assemble the full system prompt for a persona by stacking the
@@ -1362,7 +1394,13 @@ async def _build_full_system_prompt(
     presence the same way the original inline code was — so an
     ephemeral chat gets the same minimal stack as before.
     """
-    system_prompt = persona_module.build_system_prompt(persona)
+    # A3 layered prompt: when the router picked a different profile than the
+    # pin, compose base[pin] + fragment[routed]. compose(pin, pin) reconstructs
+    # the original prompt, so the pin==routed case is unchanged.
+    if routed_persona is not None and routed_persona is not persona:
+        system_prompt = persona_module.compose_system_prompt(persona, routed_persona)
+    else:
+        system_prompt = persona_module.build_system_prompt(persona)
 
     # P2 #21: schedule the three SQLite fetches in parallel. Saves
     # ~2× SQLite-roundtrips per turn vs sequential awaits (~3-9ms in
@@ -1577,12 +1615,50 @@ async def stream_chat_completion(
         yield _error_sse(f"Unknown persona: {persona_id}")
         return
 
+    # --- A3: up-front per-turn router ---
+    # `persona`/`persona_id` resolved above is the PIN (the user's selector).
+    # Route THIS turn from the query, biased by the pin. The routed profile
+    # drives sampling + tools + tool scoping (Q5); the pin supplies only the
+    # base voice via compose_system_prompt below. When ROUTER_ENABLED is
+    # false, routed == pin so nothing changes (compose(pin,pin) == original).
+    pin_persona = persona
+    pin_id = persona_id
+    routing_method = "pin"
+    routing_confidence = 1.0
+    if ROUTER_ENABLED:
+        try:
+            _q = (user_message or {}).get("content") or ""
+            _d = router_module.route(_q, pin_id, _get_router_index(), _bge_embed)
+            _routed = persona_module.get_persona(_d.profile)
+            if _routed is not None:
+                persona, persona_id = _routed, _d.profile
+                routing_method, routing_confidence = _d.method, _d.confidence
+                # Slash commands strip the leading `/<profile>` token so the
+                # model never sees the command. New dict, don't mutate caller's.
+                if _d.stripped_query is not None:
+                    user_message = {**user_message, "content": _d.stripped_query}
+            else:
+                logger.warning("router picked unknown profile %r; staying on pin %r",
+                               _d.profile, pin_id)
+        except Exception as e:
+            logger.warning("router failed, staying on pin %r: %s", pin_id, e)
+            persona, persona_id = pin_persona, pin_id
+
     # Bind per-request context for MCP tool dispatch (e.g. search_user_docs).
     current_user_email.set(user_email)
     current_conversation_id.set(conversation_id)
-    # Logging picks up persona via this ContextVar so every log line in
-    # the request is automatically tagged with the active persona.
+    # Logging + tool scoping pick up the ROUTED profile via this ContextVar
+    # (Q5: the routed profile's allowlist applies, not the pin's).
     current_persona.set(persona_id)
+    # Routing decision SSE — emitted before the first model call so the
+    # frontend + routing eval can read the active profile. Replaces the
+    # retired persona_changed/delegated events (A4).
+    yield _sse("routing", {
+        "profile": persona_id,
+        "pin": pin_id,
+        "method": routing_method,
+        "confidence": round(routing_confidence, 3),
+    })
     # Deferred-tool unlock set (P1 #7). Fresh per request: tool_search
     # adds discovered tools here and _openai_tools_schema unions them
     # into the schema for the rest of the request.
@@ -1614,8 +1690,11 @@ async def stream_chat_completion(
     # function is called again later if the model triggers
     # ``delegate_to_persona`` so the new persona ends up sitting in
     # the same block stack.
+    # A3: base voice from the PIN, task fragment from the ROUTED profile.
+    # When routed == pin, compose() reconstructs the pin's original prompt.
     system_prompt = await _build_full_system_prompt(
-        persona=persona,
+        persona=pin_persona,
+        routed_persona=persona,
         user_email=user_email,
         conversation_id=conversation_id,
         ephemeral=ephemeral,
