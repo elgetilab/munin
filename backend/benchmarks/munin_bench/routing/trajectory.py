@@ -47,6 +47,12 @@ class CapturedTrajectory:
     persona_changed: list[dict] = field(default_factory=list)
     conversation_id: Optional[str] = None
     raw_events: list[RawEvent] = field(default_factory=list)
+    # A3 routing decision (from the `routing` SSE event). `routed_profile` is
+    # what the eval asserts against `expected.profile`; None if no routing
+    # event fired (e.g. router build predating the event).
+    routed_profile: Optional[str] = None
+    routing_method: Optional[str] = None
+    pin: Optional[str] = None
 
 
 def parse_sse(raw: str) -> list[RawEvent]:
@@ -129,6 +135,10 @@ def capture(raw: str) -> CapturedTrajectory:
             traj.delegated.append(ev.data)
         elif ev.event == "persona_changed":
             traj.persona_changed.append(ev.data)
+        elif ev.event == "routing":
+            traj.routed_profile = ev.data.get("profile")
+            traj.routing_method = ev.data.get("method")
+            traj.pin = ev.data.get("pin")
         elif ev.event == "conversation":
             traj.conversation_id = ev.data.get("id") or traj.conversation_id
     traj.final_text = "".join(text_parts).strip()

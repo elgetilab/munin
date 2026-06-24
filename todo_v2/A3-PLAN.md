@@ -262,8 +262,15 @@ TASK PLANNING start):
    `_get_router_index()` embeds the labelled set once via `get_bge`. Syntax +
    router/split unit tests green; real-embedding behaviour validated at the
    gate measurement (step 7).
-6. Wire `profile` assertion into the routing eval (`trajectory.py` +
-   `score_item`).
+6. **Wire `profile` assertion into the routing eval: DONE (2026-06-24).**
+   `trajectory.py` captures the `routing` SSE event (`routed_profile`,
+   `routing_method`, `pin`); `score_item(item, trajectory, emitted_profile=)`
+   adds a first-class `profile` check comparing emitted vs `expected.profile`
+   (always messages a mismatch; skipped when `emitted_profile is None` so
+   A0/A2 baselines stay comparable, hard rule #3 intact). `run_item` threads
+   `traj.routed_profile`. Tests (`tests/test_profile_assertion.py`, 5/5):
+   capture, match-passes, mismatch-fails-and-messages, None-skips, no-expected
+   skips. Full benchmark suite 20/20.
 7. Measure the gate (reroute / clarify / no_tool) + the full routing eval vs
    the A0 baseline. Tier-3 classifier ONLY if 1+2 underperform (sign-off).
 8. Deploy + measure live (per the A2 cadence).

@@ -222,17 +222,41 @@ def _gated(expected: Expected, check: str) -> bool:
     return (not expected.reward_basis) or (check in expected.reward_basis)
 
 
-def score_item(item: RoutingEvalItem, trajectory: list[ToolCall]) -> ItemResult:
+def score_item(
+    item: RoutingEvalItem,
+    trajectory: list[ToolCall],
+    emitted_profile: Optional[str] = None,
+) -> ItemResult:
     """Score one captured trajectory against an item's expectations.
 
     `trajectory` is the ordered list of tool calls the harness emitted for
     the (final) user turn. Order is significant for first_tool/solo.
+
+    `emitted_profile` is the profile the backend's `routing` SSE event
+    reported (A3). When provided and `expected.profile` is set, it is asserted
+    (hard rule #3: assert against the emitted event, never send the expected
+    profile as the request persona). None (e.g. pre-router runs) skips the
+    profile check, keeping the A0/A2 baselines comparable.
     """
     exp = item.expected
     checks: dict[str, bool] = {}
     diagnostics: dict[str, bool] = {}  # non-gating (A2 Q4)
     failures: list[str] = []
     names = [tc.name for tc in trajectory]
+
+    # profile (A3): assert the router's up-front pick against the emitted
+    # routing event. Only when both expected.profile and emitted_profile are
+    # present (pre-router runs pass emitted_profile=None and skip this).
+    if exp.profile and emitted_profile is not None:
+        ok = emitted_profile == exp.profile
+        checks["profile"] = ok
+        # Always message a profile mismatch: profile is a first-class A3
+        # assertion (unlike the older checks, it isn't gated on reward_basis,
+        # which predates the router and never lists "profile").
+        if not ok:
+            failures.append(
+                f"routed profile {emitted_profile!r}, expected {exp.profile!r}"
+            )
 
     # no_tool -------------------------------------------------------------
     if exp.no_tool:
@@ -749,7 +773,7 @@ async def run_item(
 
     traj: CapturedTrajectory = capture("".join(text_buf))
     trajectory = [ToolCall(**tc) for tc in traj.tool_calls]
-    result = score_item(item, trajectory)
+    result = score_item(item, trajectory, emitted_profile=traj.routed_profile)
 
     # A hard `error` SSE frame invalidates the turn regardless of routing.
     if traj.errors:
