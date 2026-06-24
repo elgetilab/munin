@@ -1,0 +1,138 @@
+{
+  "meta": {
+    "purpose": "A3 router KNN labelled example set (profile = chat|research|code)",
+    "sources": [
+      "persona prompt_suggestions",
+      "routing-eval seed items with expected.profile"
+    ],
+    "note": "Committed queries only; the router embeds with BGE at load. A5 expands this.",
+    "counts": {
+      "total": 24,
+      "chat": 7,
+      "research": 10,
+      "code": 7
+    }
+  },
+  "examples": [
+    {
+      "query": "Write a scientific abstract for a paper about using molecular dynamics simulations to study beta-arrestin conformational changes upon receptor binding.",
+      "profile": "chat",
+      "source": "prompt_suggestion:chat"
+    },
+    {
+      "query": "Help me write a response to a peer reviewer who criticized our methodology. I need to defend our approach while remaining professional.",
+      "profile": "chat",
+      "source": "prompt_suggestion:chat"
+    },
+    {
+      "query": "Please edit the following text for clarity and conciseness:",
+      "profile": "chat",
+      "source": "prompt_suggestion:chat"
+    },
+    {
+      "query": "Write the opening paragraph of a grant proposal about studying lipid-protein interactions using advanced microscopy techniques.",
+      "profile": "chat",
+      "source": "prompt_suggestion:chat"
+    },
+    {
+      "query": "Search for papers about cholesterol-lipid interactions in cell membranes. What are the key findings about membrane organization?",
+      "profile": "research",
+      "source": "prompt_suggestion:research"
+    },
+    {
+      "query": "Conduct a literature review on molecular dynamics simulations of membrane proteins. Cover foundational work, recent advances, and identify gaps in the current research.",
+      "profile": "research",
+      "source": "prompt_suggestion:research"
+    },
+    {
+      "query": "Look up the paper with DOI 10.1111/j.1745-7254.2008.00726.x and explore its citation network. What papers cite it and what does it build on?",
+      "profile": "research",
+      "source": "prompt_suggestion:research"
+    },
+    {
+      "query": "Compare AlphaFold predictions with traditional experimental methods like X-ray crystallography and cryo-EM. When should I trust each?",
+      "profile": "research",
+      "source": "prompt_suggestion:research"
+    },
+    {
+      "query": "What are the most recent advances in cryo-electron microscopy for determining protein structures? Find relevant papers from the last 2 years.",
+      "profile": "research",
+      "source": "prompt_suggestion:research"
+    },
+    {
+      "query": "Explain the current scientific understanding of lipid rafts in cell membranes. What does recent research say about their existence and function?",
+      "profile": "research",
+      "source": "prompt_suggestion:research"
+    },
+    {
+      "query": "Write Python code to create a publication-quality figure with matplotlib: two subplots, proper axis labels, legend, and export to PDF at 300 DPI.",
+      "profile": "code",
+      "source": "prompt_suggestion:code"
+    },
+    {
+      "query": "Write Python code using MDAnalysis and matplotlib to load an MD trajectory and plot the RMSD over time.",
+      "profile": "code",
+      "source": "prompt_suggestion:code"
+    },
+    {
+      "query": "Write a Python script that loads a CSV file with experimental data, calculates statistics, and creates a publication-ready plot.",
+      "profile": "code",
+      "source": "prompt_suggestion:code"
+    },
+    {
+      "query": "Write a simple Pong game in Python using Pygame. Include paddle movement, ball physics, and scoring.",
+      "profile": "code",
+      "source": "prompt_suggestion:code"
+    },
+    {
+      "query": "Build a simple REST API in Python using FastAPI with CRUD endpoints for a blog post resource.",
+      "profile": "code",
+      "source": "prompt_suggestion:code"
+    },
+    {
+      "query": "Create a LaTeX Beamer presentation template with a title slide, outline, content slides with figures, and a references slide.",
+      "profile": "code",
+      "source": "prompt_suggestion:code"
+    },
+    {
+      "query": "What's the weather in Leipzig today?",
+      "profile": "chat",
+      "source": "seed_item:weather_with_location"
+    },
+    {
+      "query": "What's the weather today?",
+      "profile": "chat",
+      "source": "seed_item:weather_no_location"
+    },
+    {
+      "query": "In one paragraph, what is nuclear magnetic resonance?",
+      "profile": "chat",
+      "source": "seed_item:define_nmr"
+    },
+    {
+      "query": "What's the current state of the art in parahydrogen-induced polarization for in-vivo imaging?",
+      "profile": "research",
+      "source": "seed_item:sota_phip"
+    },
+    {
+      "query": "What did our group report about SABRE catalyst lifetime?",
+      "profile": "research",
+      "source": "seed_item:group_corpus_qa"
+    },
+    {
+      "query": "Which papers cite the Zeitler 2021 review, doi 10.1038/s41586-021-03456-2?",
+      "profile": "research",
+      "source": "seed_item:citing_papers"
+    },
+    {
+      "query": "Read doi:10.1021/jacs.0c01234 and tell me what hyperpolarization method they used.",
+      "profile": "research",
+      "source": "seed_item:known_doi_read"
+    },
+    {
+      "query": "Now plot those polarization values vs field strength and show me.",
+      "profile": "code",
+      "source": "seed_item:reroute_research_to_compute"
+    }
+  ]
+}
