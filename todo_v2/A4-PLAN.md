@@ -301,9 +301,25 @@ After A4a the backend never emits these, so the handlers are dead but HARMLESS
 (never fire; no error). Clean them up (remove, or wire PersonaDivider to the
 `routing` event) in a frontend-side change. Not bundled into the backend A4a.
 
-**Still pending for A4a completion:** router-era pong test (§3a), retire
-`test_delegate_persona.py` + DECISIONS.md entry (§3b), scorecard header rename
-(§3c), routing-eval regression vs A0, deploy.
+Also done (A4a follow-ups):
+- **Router-era pong test (§3a):** updated the working harness
+  `backend/retrieval/evals/run_eval.py` (the todo/ Phase-1 seed) — replaced
+  `delegated_to_code` with (a') `routed_profile == "code"` (reads the
+  `routing` SSE event) OR an html game, and added (b') hallucinated-tool
+  detector (every tool_call ∈ MCP_TOOLS), (d') no `error` SSE, (e') non-empty
+  content. The master-plan §8 `backend/eval/` formalization (registry +
+  scenarios/, wrapping the scripts/ QA tools) is a Track E item, NOT A4a.
+- **§3b:** `test_delegate_persona.py` retired to a stub (points to the routing
+  eval); `DECISIONS.md` dated entry added (delegation retirement + the
+  allowlist trade-off).
+- **§3c scorecard header rename: N/A now** — there is no literal "persona
+  versions" field. The routing scorecard already uses `persona_policy`
+  (routing-aware). The rename targets the future `make_run_header()` (Track A
+  eval suite, not built); note it there when built.
+
+**Still pending for A4a completion:** routing-eval regression vs A0 (needs
+deploy), deploy + smoke. Frontend dead-handler cleanup is a separate
+frontend-deploy follow-up.
 
 ## 7. Risks / notes
 

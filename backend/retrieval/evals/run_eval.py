@@ -33,6 +33,15 @@ import httpx
 EVAL_USER = "eval-pong@munin.local"
 HTTP_TIMEOUT = httpx.Timeout(600.0)
 
+# Registered tool names, for the hallucinated-tool detector (router-era pong
+# check b'). Available when run in-container (the documented way); if the
+# import fails (run outside /app), the check degrades to "skip" (passes).
+try:
+    from mcp.schemas import MCP_TOOLS as _REGISTERED_TOOLS
+    _REGISTERED_NAMES = set(_REGISTERED_TOOLS.keys())
+except Exception:  # pragma: no cover - only outside the container
+    _REGISTERED_NAMES = None
+
 
 # ---------------------------------------------------------------------------
 # Run result + SSE driver
@@ -52,11 +61,21 @@ class RunResult:
         return [d for (_t, n, d) in self.events if n == "artifact_created"]
 
     @property
-    def delegated_to_code(self) -> bool:
-        return any(
-            n == "delegated" and d.get("to_persona") == "code"
-            for (_t, n, d) in self.events
-        )
+    def routed_profile(self) -> Optional[str]:
+        """The router's up-front pick for the FIRST turn (A3 `routing` SSE).
+        Replaces the retired `delegated` event."""
+        for (_t, n, d) in self.events:
+            if n == "routing":
+                return d.get("profile")
+        return None
+
+    @property
+    def tool_calls_emitted(self) -> list[str]:
+        return [d.get("name") for (_t, n, d) in self.events if n == "tool_call"]
+
+    @property
+    def has_error_sse(self) -> bool:
+        return any(n == "error" for (_t, n, _d) in self.events)
 
     def artifact_before_clarification(self) -> bool:
         """True if any artifact_created precedes a clarification in the SAME turn."""
@@ -130,7 +149,20 @@ def _has_duplicated_block(content: str) -> bool:
     return False
 
 
+def _all_tools_registered(r: "RunResult") -> bool:
+    """b' (router-era): every emitted tool_call names a real registered tool
+    (hallucinated-tool detector). Replaces the old allowlist-membership check.
+    Degrades to pass if the registry isn't importable (run outside container)."""
+    if _REGISTERED_NAMES is None:
+        return True
+    return all(name in _REGISTERED_NAMES for name in r.tool_calls_emitted)
+
+
 def _pong_checks() -> list[tuple[str, Callable[[RunResult], bool]]]:
+    # Router-era checks (A4). Was: assert delegate_to_persona -> Turing fires
+    # and every tool_call is in the persona's allowlist. Both mechanisms were
+    # deleted; (a') the router picks the code profile (or the turn routes to
+    # code via an html game), (b') every tool_call is a real registered tool.
     return [
         ("artifacts <= 1",
          lambda r: len(r.artifacts) <= 1),
@@ -140,9 +172,15 @@ def _pong_checks() -> list[tuple[str, Callable[[RunResult], bool]]]:
          lambda r: not any("[backend warning]" in c for c in r.assistant_contents)),
         ("clarify-before-work (no artifact before a clarification)",
          lambda r: not r.artifact_before_clarification()),
-        ("delegated->code OR produced an html game",
-         lambda r: r.delegated_to_code
+        ("routed to code OR produced an html game",   # a'
+         lambda r: r.routed_profile == "code"
          or any(a.get("content_type") == "text/html" for a in r.artifacts)),
+        ("every tool_call is a real registered tool",  # b' (hallucinated-tool)
+         _all_tools_registered),
+        ("no error SSE",                               # d'
+         lambda r: not r.has_error_sse),
+        ("non-empty final assistant content",          # e'
+         lambda r: any(c.strip() for c in r.assistant_contents)),
         ("no duplicated answer block  (fuzzy)",
          lambda r: not any(_has_duplicated_block(c) for c in r.assistant_contents)),
     ]
