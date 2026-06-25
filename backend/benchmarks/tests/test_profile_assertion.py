@@ -38,28 +38,33 @@ def test_routing_event_captured():
     assert t.pin == "research"
 
 
-def test_profile_match_passes():
+def test_profile_match_recorded_as_diagnostic():
+    # Profile is REPORTED, not gated: it lands in diagnostics, never in checks,
+    # and does not affect `passed`.
     res = score_item(_item("code"), [], emitted_profile="code")
-    assert res.checks["profile"] is True
+    assert res.diagnostics["profile_match"] is True
+    assert "profile" not in res.checks
     assert res.passed is True
 
 
-def test_profile_mismatch_fails_and_messages():
+def test_profile_mismatch_does_not_fail_the_item():
+    # A profile miss is reported (diagnostic False) but must NOT fail the item
+    # or add a gating failure (decision 2026-06-25: tool outcomes gate).
     res = score_item(_item("code"), [], emitted_profile="research")
-    assert res.checks["profile"] is False
-    assert res.passed is False
-    assert any("routed profile" in f for f in res.failures)
+    assert res.diagnostics["profile_match"] is False
+    assert "profile" not in res.checks
+    assert res.passed is True
 
 
-def test_no_emitted_profile_skips_check_backward_compat():
-    # Pre-router runs (A0/A2) pass emitted_profile=None -> no profile check,
+def test_no_emitted_profile_skips_diagnostic_backward_compat():
+    # Pre-router runs (A0/A2) pass emitted_profile=None -> no profile metric,
     # so those baselines stay comparable.
     res = score_item(_item("code"), [], emitted_profile=None)
-    assert "profile" not in res.checks
+    assert "profile_match" not in res.diagnostics
 
 
-def test_no_expected_profile_skips_check():
+def test_no_expected_profile_skips_diagnostic():
     item = RoutingEvalItem(id="t", category="no_tool", query="x",
                            expected=Expected(no_tool=True), rationale="x")
     res = score_item(item, [], emitted_profile="chat")
-    assert "profile" not in res.checks
+    assert "profile_match" not in res.diagnostics

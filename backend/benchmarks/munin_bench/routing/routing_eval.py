@@ -244,19 +244,17 @@ def score_item(
     failures: list[str] = []
     names = [tc.name for tc in trajectory]
 
-    # profile (A3): assert the router's up-front pick against the emitted
-    # routing event. Only when both expected.profile and emitted_profile are
-    # present (pre-router runs pass emitted_profile=None and skip this).
+    # profile (A3): the router's up-front pick vs expected.profile. REPORTED,
+    # not gated (decision 2026-06-25). The handoff defines item pass/fail by
+    # tool OUTCOMES (reroute -> run_python, no_tool -> zero tools); genuinely-
+    # ambiguous queries (define_nmr "what is NMR" -> research; reroute
+    # "plot those polarization values..." -> chat) meet the tool gate but sit
+    # on a profile boundary, so a profile mismatch must not fail the item.
+    # Tracked as a diagnostic so routing accuracy is still measured. Only when
+    # both expected.profile and emitted_profile are present (pre-router runs
+    # pass emitted_profile=None and skip this).
     if exp.profile and emitted_profile is not None:
-        ok = emitted_profile == exp.profile
-        checks["profile"] = ok
-        # Always message a profile mismatch: profile is a first-class A3
-        # assertion (unlike the older checks, it isn't gated on reward_basis,
-        # which predates the router and never lists "profile").
-        if not ok:
-            failures.append(
-                f"routed profile {emitted_profile!r}, expected {exp.profile!r}"
-            )
+        diagnostics["profile_match"] = emitted_profile == exp.profile
 
     # no_tool -------------------------------------------------------------
     if exp.no_tool:

@@ -219,8 +219,9 @@ _CURATED: dict[str, list[str]] = {
     ],
     # -------------------------------------------------------------------
     "chat": [
-        # weather / live facts / news
-        "what's the weather in Leipzig today",
+        # weather / live facts / news. NB: keep clear of the test queries
+        # (weather_with_location / weather_no_location use Leipzig / "today").
+        "what's the weather in Munich this weekend",
         "is it going to rain this afternoon",
         "what's the weather like right now",
         "do I need an umbrella today",
@@ -256,8 +257,9 @@ _CURATED: dict[str, list[str]] = {
         "shorten this to fit a 150-word limit",
         "improve the wording of this title",
         "check this passage for awkward phrasing",
-        # definitions / quick knowledge (parametric, no tool)
-        "in one paragraph, what is nuclear magnetic resonance",
+        # definitions / quick knowledge (parametric, no tool). NB: keep these
+        # clear of the routing-eval test queries (define_nmr asks "what is
+        # nuclear magnetic resonance"); use different concepts here.
         "what does the term enantiomer mean",
         "briefly, what is a Fourier transform",
         "explain what a p-value is in simple terms",
@@ -319,6 +321,32 @@ def _from_prompt_suggestions() -> list[dict]:
     return out
 
 
+def _normalise(q: str) -> str:
+    """Lowercase, strip surrounding/most punctuation + collapse whitespace, so
+    near-duplicates ('what is X?' vs 'what is X') compare equal."""
+    import re
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", q.lower())).strip()
+
+
+def _assert_no_test_leakage(examples: list[dict]) -> None:
+    """Fail the build if any labelled example (normalised) matches a routing-
+    eval test query. Train/test MUST stay disjoint, including near-dups."""
+    import sys
+    sys.path.insert(0, str(_REPO / "backend" / "benchmarks" / "munin_bench"))
+    try:
+        from routing.routing_eval import SEED_ITEMS  # noqa: E402
+    except Exception as e:  # pragma: no cover - validation best-effort
+        print(f"  (leakage check skipped: cannot import seed items: {e})")
+        return
+    test = {_normalise(it.query) for it in SEED_ITEMS}
+    leaks = sorted({e["query"] for e in examples if _normalise(e["query"]) in test})
+    if leaks:
+        raise SystemExit(
+            "TEST/TRAIN LEAKAGE: labelled examples match routing-eval test "
+            "queries (normalised):\n  " + "\n  ".join(leaks)
+        )
+
+
 def main() -> int:
     examples = _from_curated() + _from_prompt_suggestions()
     # de-dup on (query, profile)
@@ -328,6 +356,8 @@ def main() -> int:
         if k not in seen:
             seen.add(k)
             deduped.append(e)
+
+    _assert_no_test_leakage(deduped)
 
     by_profile: dict[str, int] = {}
     for e in deduped:
