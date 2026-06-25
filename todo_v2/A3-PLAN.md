@@ -271,9 +271,50 @@ TASK PLANNING start):
    `traj.routed_profile`. Tests (`tests/test_profile_assertion.py`, 5/5):
    capture, match-passes, mismatch-fails-and-messages, None-skips, no-expected
    skips. Full benchmark suite 20/20.
-7. Measure the gate (reroute / clarify / no_tool) + the full routing eval vs
-   the A0 baseline. Tier-3 classifier ONLY if 1+2 underperform (sign-off).
-8. Deploy + measure live (per the A2 cadence).
+7. **Gate measured live (2026-06-25), DONE.** Router deployed
+   (ROUTER_ENABLED=true) and measured across v1->v3. Result + decision below.
+8. **Deployed + live-measured, DONE.** ROUTER_ENABLED=true in prod; routing
+   validated end-to-end with real BGE.
+
+### Gate result (v3, 2026-06-25) — router works; reroute deferred to A5
+
+Trajectory of the labelled-set + scoring work:
+- **Deploy bug found + fixed:** `COPY *.py` skipped router_examples.json ->
+  router silently fell back to pin. Dockerfile now COPYs the JSON; the
+  failure path reports method "error" (not "pin").
+- **Test/train LEAKAGE found + removed:** seed items had leaked the verbatim
+  test queries into the labelled set. Now disjoint, with a build-time guard.
+- **Labelled set expanded** 24 -> 229 (~80/class), adding the implicit-code
+  plotting sub-pattern.
+- **profile became a REPORTED METRIC, not a gate** (the handoff gates item
+  pass/fail on tool OUTCOMES; ambiguous queries meet the tool gate but sit on
+  a profile boundary).
+
+**v3 numbers (chat pin, ROUTER on, N=8):** mean pass 0.696 (v1 0.643 -> v2
+0.679 -> v3 0.696). **Profile routing accuracy: 6/8 profiled items correct**
+(citing_papers, group_corpus_qa, known_doi_read, sota_phip, weather x2 = 1.00;
+define_nmr, reroute = 0.00). Research queries reliably route to research and
+reach their tools (the Q5 thesis, validated). `define_nmr` gate green.
+
+**reroute (the one routing-caused failure):** "plot those polarization values
+vs field strength" is genuinely code+research ambiguous (verb=code,
+nouns=research domain); margin 0.034 (near-tie) -> falls back to chat ->
+the chat fragment lacks "just plot, don't re-search" guidance -> the model
+re-searches (paper_search, forbidden). Routing it to CODE would fix it. A
+near-tie won't yield to margin-lowering alone; it needs the code signal to
+win.
+
+**Decision (varghele, 2026-06-25): ACCEPT, revisit at A5.** The router works
+well (75% routing accuracy, research routing solid, define_nmr green).
+reroute is a known hard case to revisit when A5's larger paraphrase
+expansion densifies the code cluster near domain-plotting queries.
+
+**Deferred (A5 / separate, NOT router bugs):**
+- reroute -> code (hard ambiguous routing; densify code cluster at A5).
+- weather_no_location: the model doesn't reliably call ask_clarification
+  (model behavior; routes to chat correctly).
+- known_url_fetch: web_search vs web_fetch on a URL (tool routing).
+- remember / export_bibtex: deferred-tool follow-through (carried from A2).
 
 ---
 
