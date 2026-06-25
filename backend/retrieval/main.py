@@ -51,6 +51,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 import uuid
@@ -1003,6 +1004,45 @@ def _is_raw_mode_request(body: dict) -> bool:
     return False
 
 
+# vLLM's context-length rejection reads like:
+#   "This model's maximum context length is 65536 tokens. However, you
+#    requested 16384 output tokens and your prompt contains at least
+#    49153 input tokens, for a total of at least 65537 tokens..."
+# Pull the window size and the prompt's input-token count back out so we
+# can refit max_tokens to the room the prompt actually leaves.
+_CTX_MAX_LEN_RE = re.compile(r"maximum context length is\s+(\d+)\s+tokens", re.I)
+_CTX_INPUT_RE = re.compile(r"(\d+)\s+input tokens", re.I)
+# Don't bother clamping if the refit would leave less than this for output —
+# at that point the prompt itself effectively fills the window.
+_RAW_MIN_OUTPUT_TOKENS = 256
+# Slack so an off-by-a-few token estimate doesn't immediately re-trip.
+_RAW_CTX_MARGIN = 16
+
+
+def _refit_max_tokens(err_text: str, forward: dict) -> bool:
+    """If `err_text` is vLLM's context-length overflow, shrink
+    forward['max_tokens'] in place to fit the room the prompt leaves and
+    return True (caller should retry). Return False if clamping can't
+    salvage the request — the prompt alone (near-)fills the window, or the
+    error isn't a context overflow at all."""
+    max_len_m = _CTX_MAX_LEN_RE.search(err_text or "")
+    input_m = _CTX_INPUT_RE.search(err_text or "")
+    if not max_len_m or not input_m:
+        return False
+    max_len = int(max_len_m.group(1))
+    input_tokens = int(input_m.group(1))
+    room = max_len - input_tokens - _RAW_CTX_MARGIN
+    if room < _RAW_MIN_OUTPUT_TOKENS:
+        return False
+    current = forward.get("max_tokens")
+    if isinstance(current, int) and current <= room:
+        # Already within budget; the 400 wasn't about our max_tokens.
+        # Clamping would change nothing, so don't retry into the same wall.
+        return False
+    forward["max_tokens"] = room
+    return True
+
+
 async def _raw_chat_proxy(
     request: Request, body: dict, user_email: str
 ) -> Response:
@@ -1047,6 +1087,12 @@ async def _raw_chat_proxy(
         # Simple JSON round-trip; external client didn't ask to stream.
         try:
             r = await client.post(endpoint, json=forward)
+            # On a context-length overflow, refit max_tokens to the room
+            # the prompt leaves and retry once. If it still fails (prompt
+            # too big on its own), the upstream 400 passes straight
+            # through with vLLM's message intact.
+            if r.status_code != 200 and _refit_max_tokens(r.text, forward):
+                r = await client.post(endpoint, json=forward)
         finally:
             await client.aclose()
         return Response(
@@ -1059,30 +1105,50 @@ async def _raw_chat_proxy(
     # (`data: {...}\n\n`, terminated by `data: [DONE]`) — we relay bytes
     # without interpretation so any future OpenAI streaming field (tool
     # calls, logprobs, etc.) keeps working.
+    #
+    # We open the upstream stream and check its status BEFORE committing
+    # to a 200 SSE response. A pre-stream error (most commonly a
+    # context-length overflow) is returned as a real HTTP error carrying
+    # vLLM's message, not as a 200 stream wrapping an error event — the
+    # latter is unparseable to OpenAI clients (Positron, Cursor), which
+    # report it as an opaque "error making request". On a context-length
+    # overflow we first refit max_tokens to the prompt's remaining room
+    # and retry once.
+    async def _open_upstream():
+        return await client.send(
+            client.build_request("POST", endpoint, json=forward), stream=True
+        )
+
+    async def _error_passthrough(resp) -> Response:
+        err_bytes = await resp.aread()
+        await resp.aclose()
+        await client.aclose()
+        return Response(
+            content=err_bytes,
+            status_code=resp.status_code,
+            media_type=resp.headers.get("content-type", "application/json"),
+        )
+
+    upstream = await _open_upstream()
+    if upstream.status_code != 200:
+        err_text = (await upstream.aread()).decode("utf-8", errors="replace")
+        await upstream.aclose()
+        if not _refit_max_tokens(err_text, forward):
+            await client.aclose()
+            return Response(
+                content=err_text.encode("utf-8"),
+                status_code=upstream.status_code,
+                media_type="application/json",
+            )
+        upstream = await _open_upstream()
+        if upstream.status_code != 200:
+            return await _error_passthrough(upstream)
+
     async def _relay():
         try:
-            async with client.stream("POST", endpoint, json=forward) as r:
-                if r.status_code != 200:
-                    # vLLM returned an error BEFORE the stream started.
-                    body_bytes = await r.aread()
-                    yield (
-                        b"data: "
-                        + json.dumps({
-                            "error": {
-                                "message": (
-                                    body_bytes.decode("utf-8", errors="replace")
-                                    or f"vLLM returned HTTP {r.status_code}"
-                                ),
-                                "type": "upstream_error",
-                                "code": r.status_code,
-                            }
-                        }).encode("utf-8")
-                        + b"\n\n"
-                    )
-                    return
-                async for chunk in r.aiter_raw():
-                    if chunk:
-                        yield chunk
+            async for chunk in upstream.aiter_raw():
+                if chunk:
+                    yield chunk
         except Exception as e:
             yield (
                 b"data: "
@@ -1095,6 +1161,7 @@ async def _raw_chat_proxy(
                 + b"\n\n"
             )
         finally:
+            await upstream.aclose()
             await client.aclose()
 
     from fastapi.responses import StreamingResponse
