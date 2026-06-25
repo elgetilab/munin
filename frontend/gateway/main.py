@@ -793,6 +793,25 @@ async def proxy_v1(request: Request, path: str):
 
     track_activity(email, source)
 
+    # GET /v1/models — OpenAI-compatible model list. Clients (Positron,
+    # Cursor, the OpenAI SDK) probe this on connect to validate the
+    # provider and populate the model picker. The cluster has no
+    # /api/models route, so the generic /v1/{path}→/api/{path} mapping
+    # below would 404. Synthesize the list from the served model name
+    # (kept in sync with backend start-vllm-service.sh / VLLM_MODEL_NAME).
+    # Does not count against rate/quota — it's a metadata probe.
+    if request.method == "GET" and path == "models":
+        model_id = os.environ.get("VLLM_MODEL_NAME", "qwen3.6-35b-a3b")
+        return JSONResponse(content={
+            "object": "list",
+            "data": [{
+                "id": model_id,
+                "object": "model",
+                "created": 0,
+                "owned_by": "munin",
+            }],
+        })
+
     rate_error = check_rate_limits(email)
     if rate_error:
         retry_after = rate_error.pop("retry_after", 30)
