@@ -276,6 +276,11 @@
             <p>Send a chat message. Accepts the same JSON body as the OpenAI API (model + messages array). Response format depends on the mode — see below.</p>
         </div>
 
+        <div class="card">
+            <h4>GET /v1/models</h4>
+            <p style="margin-bottom: 0;">List available models in OpenAI format. Clients that probe this on connect (Positron, Cursor, the OpenAI SDK) use it to validate the provider and populate the model picker. Returns a single model, <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">qwen3.6-35b-a3b</code>.</p>
+        </div>
+
         <h3>Two modes</h3>
         <p>The response format depends on whether you include a <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">persona</code> field in your request:</p>
 
@@ -332,6 +337,10 @@
             <li><strong>100,000,000</strong> tokens per month (API usage only — browser chat does not count)</li>
         </ul>
         <p>When a limit is hit you'll receive a <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">429</code> response. Check your current usage in chat Settings.</p>
+
+        <h3>Context window</h3>
+        <p>The model has a <strong>64k token</strong> context window (65,536 tokens, shared between your prompt and the generated response). If a request's prompt plus its <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">max_tokens</code> would exceed that, Munin automatically reduces <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">max_tokens</code> to fit and retries, so long sessions keep working. If the prompt <em>alone</em> exceeds the window you'll get a clear <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">400</code> error ("maximum context length is 65536 tokens..."). Trim the conversation or start a new chat.</p>
+        <p><strong>Tip:</strong> some clients (e.g. Positron) default <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">max_tokens</code> to a large value like 16384, which reserves a quarter of the window for output and makes long sessions fail sooner. Lowering <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">max_tokens</code> (e.g. 2048–4096) leaves much more room for conversation history.</p>
 
         <h3>Python example — raw mode (OpenAI SDK)</h3>
         <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">from openai import OpenAI

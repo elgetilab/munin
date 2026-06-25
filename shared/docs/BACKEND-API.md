@@ -392,6 +392,29 @@ update the title in the UI).
 status is already `200 OK` once the stream is open). The stream is
 terminated after any `error` event.
 
+**Raw-mode passthrough (OpenAI-compatible).** When the request carries no
+`persona`, no `conversation_id`, and no `project_id` (or `persona` is the
+literal `"raw"`/`"none"`), the endpoint skips the persona/RAG/tool/
+chat-store machinery and proxies straight to vLLM. This is the shape of
+every external `api.muninai.org/v1/*` call (Cursor, aider, Positron, the
+OpenAI SDK). The response is vLLM's own OpenAI payload: SSE
+`chat.completion.chunk`s terminated by `data: [DONE]` when `stream: true`,
+or a single `chat.completion` JSON object otherwise.
+
+Error semantics here differ from persona mode: raw mode returns a **real
+HTTP status** (e.g. `400`) with vLLM's error body for failures detected
+before the stream opens, instead of a `200` carrying an `event: error`
+frame. OpenAI clients expect HTTP-level errors, so the old 200-wrapped
+form surfaced to them as an opaque "error making request".
+
+Context-length handling: the served model's window is **65536 tokens**
+(prompt + `max_tokens` combined). On an overflow, the proxy refits
+`max_tokens` down to the room the prompt leaves and retries once, so a
+growing session keeps working rather than hard-failing once it crosses
+the line. If the prompt **alone** exceeds the window, the `400` ("This
+model's maximum context length is 65536 tokens...") passes through
+unchanged so the client can trim and retry.
+
 **`id:` framing and reconnect (P1 #10).** Every SSE event carries an
 `id: <stream_id>-<seq>` line where `seq` is a monotonic per-stream
 integer starting at 1. The first `conversation` event's payload also
