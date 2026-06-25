@@ -1,5 +1,5 @@
 default:
-  tokens_per_month: 10000000
+  tokens_per_month: 100000000   # 100M tokens/month per user (api_key usage; browser chat is free)
   requests_per_minute: 60
   concurrent_requests: 3
 

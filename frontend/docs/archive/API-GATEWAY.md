@@ -207,9 +207,13 @@ This lets power users skip the retrieval layer when they just want raw model acc
 
 | Limit | Default | Purpose |
 |-------|---------|---------|
-| Tokens per month | 2,000,000 | Prevent one user from consuming all resources |
-| Requests per minute | 10 | Prevent accidental loops |
+| Tokens per month | 100,000,000 | Prevent one user from consuming all resources |
+| Requests per minute | 60 | Prevent accidental loops |
 | Concurrent requests | 3 | vLLM has limited capacity |
+
+(Defaults above are the configured values in `config/quotas.yml`. If that
+file is absent, the gateway falls back to the `DEFAULT_QUOTAS` constant in
+`main.py`: 2,000,000 tokens/month, 10 rpm, 1 concurrent.)
 
 Quotas are per user (by email), not per API key. A user with 3 keys shares one quota.
 
@@ -219,14 +223,13 @@ Quotas are configured in a file (`config/quotas.yml`) or env vars:
 
 ```yaml
 default:
-  tokens_per_month: 2000000
-  requests_per_minute: 10
+  tokens_per_month: 100000000
+  requests_per_minute: 60
   concurrent_requests: 3
 
 overrides:
   admin@muninai.org:
-    tokens_per_month: 10000000
-    requests_per_minute: 30
+    unlimited: true
 ```
 
 ### Rate Limit Response
@@ -312,8 +315,8 @@ Current user's stats. Requires auth.
 {
   "current_month": {
     "tokens_used": 345000,
-    "tokens_limit": 2000000,
-    "tokens_remaining": 1655000,
+    "tokens_limit": 100000000,
+    "tokens_remaining": 99655000,
     "requests": 127,
     "tools_used": {
       "paper_search": 34,

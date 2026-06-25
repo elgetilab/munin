@@ -327,9 +327,9 @@
 
         <h3>Rate limits</h3>
         <ul>
-            <li><strong>1</strong> concurrent request</li>
-            <li><strong>10</strong> requests per minute</li>
-            <li><strong>2,000,000</strong> tokens per month (API usage only — browser chat does not count)</li>
+            <li><strong>3</strong> concurrent requests</li>
+            <li><strong>60</strong> requests per minute</li>
+            <li><strong>100,000,000</strong> tokens per month (API usage only — browser chat does not count)</li>
         </ul>
         <p>When a limit is hit you'll receive a <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">429</code> response. Check your current usage in chat Settings.</p>
 
@@ -449,7 +449,7 @@ npm install -g opencode-ai</pre>
         </p>
         <ul>
             <li>opencode uses standard OpenAI chat completions, so requests automatically hit Munin's <strong>raw mode</strong> &mdash; the underlying model with no Munin persona, no system prompt, and no Munin tools. Opencode injects its own coding agent prompt.</li>
-            <li>Munin's API rate limits apply: <strong>1 concurrent request</strong>, <strong>10 requests/minute</strong>, <strong>2M tokens/month</strong>. Opencode can burn tokens fast on large repos &mdash; keep an eye on usage in chat Settings.</li>
+            <li>Munin's API rate limits apply: <strong>3 concurrent requests</strong>, <strong>60 requests/minute</strong>, <strong>100M tokens/month</strong>. Opencode can burn tokens fast on large repos &mdash; keep an eye on usage in chat Settings.</li>
         </ul>
 
         <h3>5. Run it</h3>
