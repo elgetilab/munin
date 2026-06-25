@@ -24,7 +24,9 @@ in the CSV whose email is not yet present in user_emails are imported
 authoritative source; the CSV remains as a backup / manual-edit path.
 """
 
+import asyncio
 import csv
+import logging
 import os
 import secrets
 import signal
@@ -50,8 +52,17 @@ SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USERNAME = os.environ.get("SMTP_USERNAME", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 SMTP_SENDER = os.environ.get("SMTP_SENDER", "noreply@muninai.org")
+# The relay (GoDaddy's smtpout.secureserver.net:587) intermittently drops the
+# connection on connect; a retry lands on a healthy node. Failures are fast,
+# so a few attempts with short backoff cost little.
+SMTP_MAX_ATTEMPTS = int(os.environ.get("SMTP_MAX_ATTEMPTS", "4"))
+SMTP_RETRY_BASE_DELAY = float(os.environ.get("SMTP_RETRY_BASE_DELAY", "0.5"))
+SMTP_TIMEOUT = float(os.environ.get("SMTP_TIMEOUT", "20"))
 SESSION_MAX_AGE = int(os.environ.get("SESSION_MAX_AGE", "2592000"))  # 30 days
 OTP_EXPIRY = int(os.environ.get("OTP_EXPIRY", "600"))  # 10 minutes
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger("munin-auth")
 COOKIE_DOMAIN = os.environ.get("COOKIE_DOMAIN", ".muninai.org")
 WHITELIST_PATH = Path(os.environ.get("WHITELIST_PATH", "/data/whitelist.csv"))
 CONTRIBUTORS_PATH = Path(os.environ.get("CONTRIBUTORS_PATH", "/data/contributors.yml"))
@@ -881,14 +892,34 @@ async def send_otp_email(email: str, code: str, name: str):
     msg.attach(MIMEText(f"Your Munin login code is: {code}\nIt expires in {OTP_EXPIRY // 60} minutes.", "plain"))
     msg.attach(MIMEText(html_body, "html"))
 
-    await aiosmtplib.send(
-        msg,
-        hostname=SMTP_HOST,
-        port=SMTP_PORT,
-        username=SMTP_USERNAME,
-        password=SMTP_PASSWORD,
-        start_tls=True,
-    )
+    # Retry transient SMTP failures. The relay drops ~40% of connects (fast,
+    # ~0.02s), so without this a single attempt fails roughly that often and
+    # the user sees "Failed to send email" until they happen to retry. Four
+    # independent attempts take that to a fraction of a percent.
+    last_exc: Exception | None = None
+    for attempt in range(1, SMTP_MAX_ATTEMPTS + 1):
+        try:
+            await aiosmtplib.send(
+                msg,
+                hostname=SMTP_HOST,
+                port=SMTP_PORT,
+                username=SMTP_USERNAME,
+                password=SMTP_PASSWORD,
+                start_tls=True,
+                timeout=SMTP_TIMEOUT,
+            )
+            if attempt > 1:
+                log.info("OTP email to %s sent on attempt %d/%d",
+                         email, attempt, SMTP_MAX_ATTEMPTS)
+            return
+        except (aiosmtplib.SMTPException, OSError, asyncio.TimeoutError) as e:
+            last_exc = e
+            log.warning("OTP email to %s failed (attempt %d/%d): %s: %s",
+                        email, attempt, SMTP_MAX_ATTEMPTS, type(e).__name__, e)
+            if attempt < SMTP_MAX_ATTEMPTS:
+                await asyncio.sleep(SMTP_RETRY_BASE_DELAY * attempt)
+    assert last_exc is not None
+    raise last_exc
 
 
 # ── Startup ──────────────────────────────────────────────────────────────────
@@ -927,7 +958,9 @@ async def login_submit(request: Request, email: str = Form(...), redirect: str =
 
     try:
         await send_otp_email(email, code, user["name"])
-    except Exception:
+    except Exception as e:
+        log.error("OTP send ultimately failed for %s after %d attempts: %s: %s",
+                  email, SMTP_MAX_ATTEMPTS, type(e).__name__, e)
         return tmpl.render(error="Failed to send email. Please try again.", redirect=redirect)
 
     query = {"email": email}
