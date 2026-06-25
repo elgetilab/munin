@@ -2,18 +2,1088 @@
   "meta": {
     "purpose": "A3 router KNN labelled example set (profile = chat|research|code)",
     "sources": [
-      "persona prompt_suggestions",
-      "routing-eval seed items with expected.profile"
+      "hand-authored curated set",
+      "persona prompt_suggestions (curated)"
     ],
-    "note": "Committed queries only; the router embeds with BGE at load. A5 expands this.",
+    "note": "Committed queries only; router embeds with BGE at load. DISJOINT from the routing-eval test items (no train/test leak); seed items are NOT a source.",
     "counts": {
-      "total": 24,
-      "chat": 7,
-      "research": 10,
-      "code": 7
+      "total": 230,
+      "code": 83,
+      "research": 76,
+      "chat": 71
     }
   },
   "examples": [
+    {
+      "query": "plot these values against field strength",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "graph the polarization versus temperature",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "chart the results from that titration",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "now plot those numbers for me",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "make a figure showing intensity versus time",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "visualize this dataset as a scatter plot",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "draw a bar chart of the measured rates",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "plot the time series of the NMR signal",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "show me a histogram of those values",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "make a line plot of signal decay over time",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "plot the data points and fit a curve through them",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "create a heatmap of the correlation matrix",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "graph these two columns against each other",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "plot the spectrum with the peaks labelled",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "overlay the two curves on one plot",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "make a publication-quality figure of these results",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "write Python code to create a matplotlib figure with two subplots",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "write a Python script to read a CSV and plot the columns",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "use matplotlib to plot the MD trajectory RMSD",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "write code using MDAnalysis to compute the radius of gyration",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "Python script to load experimental data and compute statistics",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "write a function that fits a Gaussian to the spectral peak",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "code to numerically integrate this rate equation",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "implement a Savitzky-Golay smoothing filter in Python",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "write a Python class to hold the experiment metadata",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "script to batch-rename these data files by timestamp",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "analyze this CSV file and summarise the statistics",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "compute the mean and standard deviation of these measurements",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "load the dataset and find the outliers",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "calculate the correlation between these two variables",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "run a linear regression on these points and report the slope",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "do a Fourier transform of this signal",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "fit an exponential decay to the relaxation data",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "integrate the area under each peak in this spectrum",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "normalise these intensities and tabulate them",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "bin this data and compute a per-bin average",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "simulate the MD trajectory and extract the RMSD over time",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "compute the radial distribution function from this trajectory",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "solve this system of differential equations numerically",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "estimate the diffusion coefficient from the mean squared displacement",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "build a kinetic model of the SABRE polarization buildup",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "estimate the activation energy from these rate constants",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "propagate the spin density matrix over the pulse sequence",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "Monte Carlo sample the conformational ensemble",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "build a REST API with FastAPI for the sample database",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "automate downloading these datasets from the server",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "create a command-line tool that parses the log files",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "set up a SLURM submission script for this job array",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "write a Snakemake workflow for the analysis pipeline",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "containerise this analysis script with Docker",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "train a neural network to classify these spectra",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "build a graph neural network for molecular property prediction",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "set up a PyTorch training loop for this regression model",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "implement a random forest on this feature table",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "cluster these samples with k-means and plot the result",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "create a LaTeX Beamer presentation template with a title slide",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "write the LaTeX for a three-panel figure with subcaptions",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "generate a LaTeX table from this CSV",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "compile this LaTeX document and fix the errors",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "code me a simple Pong game in Python with Pygame",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "write a Tetris clone in Python",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "make a matplotlib animation of the simulation",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "build a small Streamlit dashboard for these results",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "fix this Python error: IndexError list index out of range",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "why does my matplotlib plot come out blank",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "debug this NumPy broadcasting mismatch",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "my script crashes on the second iteration, help me find why",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "this pandas groupby returns NaN, what is wrong",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "optimise this slow loop with vectorised NumPy",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "plot field strength on the x axis and enhancement on the y axis",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "make a scatter plot coloured by sample group",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "render a contour plot of the energy surface",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "plot residuals from the fit",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "generate a box plot comparing the conditions",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "draw the calibration curve and report R squared",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "compute and plot the autocorrelation of the signal",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "tabulate and plot the buildup rates per catalyst",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "find papers on parahydrogen-induced polarization for in-vivo imaging",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "search for studies about SABRE catalyst lifetime",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "look for recent work on dissolution DNP of pyruvate",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "find literature on lipid raft organisation in membranes",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "search the corpus for papers on hyperpolarized xenon MRI",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what papers discuss singlet order lifetimes",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "find studies measuring T1 relaxation of hyperpolarized substrates",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "look up papers on iridium SABRE catalysts",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "search for work on cryo-EM of membrane proteins",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "find papers about cholesterol-lipid interactions in cell membranes",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "which studies report polarization transfer efficiencies",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "search for reviews on quantum sensing with NV centres",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "review the literature on molecular dynamics of membrane proteins",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "summarise the research on PHIP polarization mechanisms",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "give me an overview of the field of hyperpolarized MRI",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "synthesise what is known about SABRE-SHEATH",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "write a literature review on AlphaFold and structure prediction",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "summarise recent progress in dissolution DNP",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what does the literature say about catalyst poisoning in SABRE",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "pull together the evidence on lipid-protein coupling",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "which papers cite the Zeitler 2021 review",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "explore the citation network of this hyperpolarization paper",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "find papers that reference this DOI on SABRE",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what are the most cited works on parahydrogen chemistry",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "trace the references of this molecular dynamics study",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "who has built on this dissolution DNP method",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "show the papers citing the original PHIP discovery",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "compare AlphaFold predictions with experimental crystallography",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "compare SABRE and dissolution DNP for metabolic imaging",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "contrast PHIP and DNP polarization mechanisms",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "how do different SABRE catalysts compare in efficiency",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "weigh the trade-offs between cryo-EM and X-ray crystallography",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "compare relaxation behaviour across these hyperpolarized agents",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what is the current state of the art in hyperpolarized imaging",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what are the latest advances in cryo-electron microscopy",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "where does the field stand on in-vivo PHIP",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what is new in singlet-state NMR over the past few years",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "summarise recent breakthroughs in DNP polariser hardware",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what is the frontier in quantum-enhanced MRI",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "explain the current understanding of lipid rafts",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "explain how SABRE transfers polarization to a substrate",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what is the mechanism of dissolution DNP",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "explain the physics behind singlet order protection",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what is parahydrogen and why does it matter for NMR",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "explain the spin dynamics of the SABRE-SHEATH experiment",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "describe the theory of nuclear Overhauser enhancement",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "read this DOI and tell me what polarization method they used",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "summarise the methods section of this paper",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what catalyst did this SABRE study use",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "extract the reported enhancement factors from this paper",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what were the main findings of this dissolution DNP study",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "pull the experimental conditions out of this paper",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what did our group report about catalyst lifetime",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "summarise our lab's work on hyperpolarized pyruvate",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what have we published on SABRE-SHEATH",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "find our group's papers on singlet lifetimes",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what enhancement factors are typical for SABRE at low field",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what substrates work best with dissolution DNP",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "which nuclei are commonly hyperpolarized for imaging",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what limits the lifetime of hyperpolarization in vivo",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "how does field strength affect SABRE polarization",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what are the reported T1 values for hyperpolarized 13C pyruvate",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "find the seminal papers on parahydrogen-induced polarization",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "search for methods papers on building a DNP polariser",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what reviews cover quantum sensing for biomedicine",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "find recent preprints on hyperpolarized metabolic imaging",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "look for papers benchmarking SABRE catalysts",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "survey the literature on membrane protein dynamics simulations",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "find studies on the biodistribution of hyperpolarized agents",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what is published on photo-CIDNP hyperpolarization",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what's the weather in Leipzig today",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "is it going to rain this afternoon",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "what's the weather like right now",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "do I need an umbrella today",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "what's the forecast for the weekend",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "what time is sunset today",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "what's in the news about science funding",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "any recent headlines on the EU research budget",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "what's the current exchange rate for dollars to euros",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "what's today's date",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "write a scientific abstract for a paper on molecular dynamics",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "draft the opening paragraph of a grant proposal",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "write a cover letter for this manuscript submission",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "help me write a short bio for a conference",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "draft an email to a collaborator about scheduling a meeting",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "write a clear summary of this project for a general audience",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "compose a thank-you note to a reviewer",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "write a tweet announcing our new paper",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "draft a paragraph describing the significance of this work",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "help me write the acknowledgements section",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "write a one-sentence summary of this result",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "draft a response to a peer reviewer's comments",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "write a short blurb for the lab website",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "compose an out-of-office reply",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "edit this text for clarity and conciseness",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "make this paragraph more concise",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "proofread this sentence for grammar",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "tighten up this abstract, it's too long",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "rephrase this so it sounds less formal",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "fix the flow of this paragraph",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "make this more readable for a broad audience",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "shorten this to fit a 150-word limit",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "improve the wording of this title",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "check this passage for awkward phrasing",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "in one paragraph, what is nuclear magnetic resonance",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "what does the term enantiomer mean",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "briefly, what is a Fourier transform",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "explain what a p-value is in simple terms",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "what is the difference between accuracy and precision",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "define entropy in one sentence",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "what is Avogadro's number",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "what does pH measure",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "give me a quick definition of a catalyst",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "what is the boiling point of water in Fahrenheit",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "can you help me brainstorm a title for this talk",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "give me a few ideas for a project name",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "summarise this text I'm pasting in",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "help me outline the structure of this presentation",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "what's a good analogy to explain spin to a child",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "rephrase this in plain language",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "translate this sentence into German",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "what's a polite way to decline this invitation",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "suggest a subject line for this email",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "help me phrase this feedback constructively",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "convert 25 degrees Celsius to Fahrenheit",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "how many millilitres are in a cup",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "what's 15 percent of 240",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "how many days until the end of the month",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "convert 5 micromolar to nanomolar",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "set a reminder tone for the meeting",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "what's a good greeting for a formal email",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "recommend a structure for a cover letter",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "help me make a packing list for a conference trip",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "suggest a few icebreaker questions for a lab social",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "what should I say to introduce a seminar speaker",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "give me a short motivational message for the team",
+      "profile": "chat",
+      "source": "curated"
+    },
+    {
+      "query": "draft a friendly reminder about the group meeting",
+      "profile": "chat",
+      "source": "curated"
+    },
     {
       "query": "Write a scientific abstract for a paper about using molecular dynamics simulations to study beta-arrestin conformational changes upon receptor binding.",
       "profile": "chat",
@@ -93,46 +1163,6 @@
       "query": "Create a LaTeX Beamer presentation template with a title slide, outline, content slides with figures, and a references slide.",
       "profile": "code",
       "source": "prompt_suggestion:code"
-    },
-    {
-      "query": "What's the weather in Leipzig today?",
-      "profile": "chat",
-      "source": "seed_item:weather_with_location"
-    },
-    {
-      "query": "What's the weather today?",
-      "profile": "chat",
-      "source": "seed_item:weather_no_location"
-    },
-    {
-      "query": "In one paragraph, what is nuclear magnetic resonance?",
-      "profile": "chat",
-      "source": "seed_item:define_nmr"
-    },
-    {
-      "query": "What's the current state of the art in parahydrogen-induced polarization for in-vivo imaging?",
-      "profile": "research",
-      "source": "seed_item:sota_phip"
-    },
-    {
-      "query": "What did our group report about SABRE catalyst lifetime?",
-      "profile": "research",
-      "source": "seed_item:group_corpus_qa"
-    },
-    {
-      "query": "Which papers cite the Zeitler 2021 review, doi 10.1038/s41586-021-03456-2?",
-      "profile": "research",
-      "source": "seed_item:citing_papers"
-    },
-    {
-      "query": "Read doi:10.1021/jacs.0c01234 and tell me what hyperpolarization method they used.",
-      "profile": "research",
-      "source": "seed_item:known_doi_read"
-    },
-    {
-      "query": "Now plot those polarization values vs field strength and show me.",
-      "profile": "code",
-      "source": "seed_item:reroute_research_to_compute"
     }
   ]
 }

@@ -1641,8 +1641,12 @@ async def stream_chat_completion(
                 logger.warning("router picked unknown profile %r; staying on pin %r",
                                _d.profile, pin_id)
         except Exception as e:
+            # Surface failure in the routing event ("error" != "pin") so a
+            # broken router under ROUTER_ENABLED=true is diagnosable, not
+            # silently mistaken for the router being off.
             logger.warning("router failed, staying on pin %r: %s", pin_id, e)
             persona, persona_id = pin_persona, pin_id
+            routing_method = "error"
 
     # Bind per-request context for MCP tool dispatch (e.g. search_user_docs).
     current_user_email.set(user_email)

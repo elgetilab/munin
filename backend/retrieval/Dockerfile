@@ -35,6 +35,11 @@ ENV PATH=/root/.local/bin:$PATH
 # surfaces as an ImportError at container startup.
 COPY *.py ./
 
+# A3 router: the labelled example set is a data file (JSON), so `COPY *.py`
+# above does NOT pick it up. Without it the router index fails to build and
+# routing silently falls back to the pin. Ship it explicitly.
+COPY router_examples.json ./
+
 # Copy MCP module
 COPY mcp /app/mcp/
 
