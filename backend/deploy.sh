@@ -702,11 +702,83 @@ deploy_retrieval() {
 RETRIEVAL_BASE=${RETRIEVAL_BASE:-http://127.0.0.1:8080}
 VERIFY_EMAIL=${VERIFY_EMAIL:-deploy-check@munin.local}
 
+# Read a single KEY=value from cluster.env without sourcing the whole
+# secret file. Empty if the key is absent or the file isn't readable
+# (e.g. standalone `verify` run without sudo — cluster.env is 0600 root).
+clusterenv_get() {
+    local key="$1"
+    [ -r "$HUGIN_ENV" ] || return 0
+    grep -E "^${key}=" "$HUGIN_ENV" 2>/dev/null | tail -n1 | cut -d= -f2-
+}
+
+# first6/last4 fingerprint of a secret — matches the format the manual
+# MONITORING.md cross-check prints, so a mismatch here can be diffed
+# against that doc's commands. Never prints the full token.
+kb_fingerprint() {
+    local t="$1"
+    [ -n "$t" ] || { printf 'unset'; return; }
+    printf 'first6=%s last4=%s' \
+        "$(printf %s "$t" | head -c 6)" "$(printf %s "$t" | tail -c 4)"
+}
+
+# KB_GATE_TOKEN is a shared secret with no auto-sync: the cluster holds
+# it in cluster.env, the VPS in frontend/.env. If they drift, the admin
+# Metrics tab silently breaks (proxy 502 / check-role 401 — exactly the
+# 2026-06-23 incident). This compares fingerprints and WARNS on mismatch.
+# Always returns 0 — a token drift must never fail a retrieval deploy.
+#
+# Cross-host comparison is opt-in: set METRICS_VPS_SSH (and optionally
+# METRICS_VPS_SSH_KEY) in cluster.env to the VPS ssh target. Unset, or an
+# unreachable VPS, downgrades to a skip note rather than a failure.
+check_kb_token_sync() {
+    local cluster_token cluster_fp
+    cluster_token=$(clusterenv_get KB_GATE_TOKEN)
+    cluster_fp=$(kb_fingerprint "$cluster_token")
+
+    if [ ! -r "$HUGIN_ENV" ]; then
+        echo "  [skip] KB_GATE_TOKEN sync — $HUGIN_ENV not readable (run via sudo to check)"
+        return 0
+    fi
+
+    local vps_ssh vps_key
+    vps_ssh=$(clusterenv_get METRICS_VPS_SSH)
+    vps_key=$(clusterenv_get METRICS_VPS_SSH_KEY)
+    if [ -z "$vps_ssh" ]; then
+        echo "  [skip] KB_GATE_TOKEN VPS sync — set METRICS_VPS_SSH in cluster.env to enable (cluster fp: $cluster_fp)"
+        return 0
+    fi
+
+    local ssh_opts="-o ConnectTimeout=8 -o BatchMode=yes"
+    [ -n "$vps_key" ] && ssh_opts="$ssh_opts -i $vps_key"
+    local vps_token vps_fp
+    vps_token=$(ssh $ssh_opts "$vps_ssh" \
+        'docker exec frontend-munin-auth-1 sh -c "printf %s \"\$KB_GATE_TOKEN\""' \
+        2>/dev/null || true)
+    if [ -z "$vps_token" ]; then
+        echo "  [warn] KB_GATE_TOKEN sync — couldn't read the VPS token over ssh ($vps_ssh); skipped (cluster fp: $cluster_fp)"
+        return 0
+    fi
+    vps_fp=$(kb_fingerprint "$vps_token")
+
+    if [ "$cluster_token" = "$vps_token" ]; then
+        echo "  [OK] KB_GATE_TOKEN matches VPS ($cluster_fp)"
+    else
+        echo "[WARN] KB_GATE_TOKEN MISMATCH — admin Metrics tab will be broken"
+        echo "       cluster: $cluster_fp"
+        echo "       vps:     $vps_fp"
+        echo "       Fix: copy the VPS value into $HUGIN_ENV in place (do NOT"
+        echo "       overwrite the /opt/munin/docker/.env symlink). See"
+        echo "       shared/docs/MONITORING.md → 'Existing deploys: adding KB_GATE_TOKEN'."
+    fi
+    return 0
+}
+
 deploy_verify() {
     echo "[verify] Smoke-testing retrieval endpoints..."
 
     if [ "$DRY_RUN" = "1" ]; then
         echo "  [dry-run] would poll $RETRIEVAL_BASE/health until 200, then curl /api/status + /api/personas"
+        echo "  [dry-run] would compare KB_GATE_TOKEN fingerprint against the VPS (METRICS_VPS_SSH)"
         return 0
     fi
 
@@ -760,6 +832,10 @@ deploy_verify() {
     local persona_ids
     persona_ids=$(python3 -c "import json,sys; print(','.join(p['id'] for p in json.loads(sys.argv[1])['personas']))" "$personas_body")
     echo "  [OK] /api/personas — $persona_count loaded ($persona_ids)"
+
+    # 4. KB_GATE_TOKEN must match the VPS or the admin Metrics tab breaks.
+    #    Warning-only: never fails the deploy.
+    check_kb_token_sync
 
     echo "[OK] verify — all smoke tests passed"
 }

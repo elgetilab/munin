@@ -46,7 +46,10 @@ Run from your workstation against your domain.
   `Metrics proxy not configured (KB_GATE_TOKEN unset)` or
   `auth role lookup failed: 401`, the cluster's `KB_GATE_TOKEN`
   doesn't match the VPS's. See `shared/docs/MONITORING.md`
-  § Reproducibility for the sync procedure.
+  § Reproducibility for the sync procedure. Tip: set
+  `METRICS_VPS_SSH` in `cluster.env` and `sudo ./backend/deploy.sh
+  verify` will fingerprint-check the cluster and VPS tokens for you
+  and warn on drift.
 
 ## If something fails
 
@@ -60,6 +63,6 @@ Common causes, in roughly the order they tend to happen.
 - **`run_python` tool never returns.** Sandbox container not running. `docker ps | grep sandbox` on the cluster, `docker logs sandbox` if missing.
 - **Deep research never starts a SLURM job.** `journalctl -u deepresearch-daemon -n 50`. Common causes: SLURM partition name in the daemon config does not match your cluster's partition, GPU resource request does not fit your nodes.
 - **API key returns 401 even though it looks valid.** Check that you are hitting `https://api.<your-domain>` (the API subdomain bypasses session auth), not `https://chat.<your-domain>` (which expects a session cookie).
-- **Admin → Metrics tab shows `auth role lookup failed: 401`.** The cluster's `KB_GATE_TOKEN` doesn't match the VPS's. Run the diff one-liner from `shared/docs/MONITORING.md` § Reproducibility to confirm both `first6=/last4=` outputs match. If they don't, copy the VPS-side value to `/opt/munin/docker/.env` on the cluster, then `docker compose --profile rag up -d --force-recreate retrieval`.
+- **Admin → Metrics tab shows `auth role lookup failed: 401`.** The cluster's `KB_GATE_TOKEN` doesn't match the VPS's. Run the diff one-liner from `shared/docs/MONITORING.md` § Reproducibility to confirm both `first6=/last4=` outputs match. If they don't, copy the VPS-side value into the cluster's `/opt/hugin/config/cluster.env` **in place** (do NOT write over the `/opt/munin/docker/.env` symlink, or the next deploy reverts it), then `cd /opt/munin/docker && docker compose --profile rag up -d --force-recreate retrieval`. Full procedure: `shared/docs/MONITORING.md` § "Existing deploys: adding KB_GATE_TOKEN". To catch this drift automatically on future deploys, set `METRICS_VPS_SSH` in `cluster.env` (documented in `backend/config/munin.env.template`) so `deploy.sh verify` fingerprint-checks both sides.
 
 When all end-to-end checks pass, you have a working Munin instance. Tell your users.

@@ -50,7 +50,12 @@ once the file exists.
     cluster's metrics proxy to call `/admin/check-role` for the
     in-house Metrics dashboard. If you already set it on the VPS
     side, copy that exact value here -- they MUST match. See
-    `shared/docs/MONITORING.md` for the monitoring setup.
+    `shared/docs/MONITORING.md` for the monitoring setup. There is
+    no auto-sync between the two copies, so they can drift on a
+    later token rotation; optionally set `METRICS_VPS_SSH` (and
+    `METRICS_VPS_SSH_KEY`) in this same file so `deploy.sh verify`
+    fingerprint-checks the cluster value against the VPS on every
+    deploy and warns on mismatch.
   - `SEMANTIC_SCHOLAR_API_KEY`: optional, only set if you have one
     (the citation graph builder uses it when present).
 
