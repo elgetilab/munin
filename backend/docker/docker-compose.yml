@@ -170,8 +170,6 @@ services:
       # Uses host.docker.internal to reach vLLM running on host
       - VLLM_URL=http://<cluster-lan-ip>:8000
       - VLLM_MODEL_NAME=qwen3.6-35b-a3b
-      # A1: pin personas (disable delegate_to_persona). See munin.env.
-      - DELEGATION_ENABLED=${DELEGATION_ENABLED:-false}
       # A3: up-front per-turn router. See munin.env.
       - ROUTER_ENABLED=${ROUTER_ENABLED:-false}
       # Semantic Scholar API (for semantic_scholar_search tool)

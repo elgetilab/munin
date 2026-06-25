@@ -408,13 +408,11 @@ def tool_allowlist(persona: Optional[dict]) -> Optional[list[str]]:
     Callers that filter the MCP schema must accept None and emit the
     full tool list in that case.
 
-    Side effect: ``delegate_to_persona`` and ``tool_search`` are
-    auto-injected into every explicit allowlist (deduped). Both are
-    infrastructure tools every persona needs — delegation hands a turn
-    to another persona, and tool_search (P1 #7) is how the model
-    discovers the deferred tools that aren't in its core schema. Neither
-    has to be spelled out in each persona JSON. Opt-out via a
-    ``"-tool_name"`` entry is NOT supported yet — keep the auto-inject
+    Side effect: ``tool_search`` (+ plan-mode tools) are auto-injected into
+    every explicit allowlist (deduped). They are infrastructure tools every
+    persona needs (tool_search, P1 #7, is how the model discovers deferred
+    tools), so they need not be spelled out in each persona JSON. Opt-out via
+    a ``"-tool_name"`` entry is NOT supported yet — keep the auto-inject
     simple.
 
     The list is normalised to a list of strings (drops any non-string
@@ -437,7 +435,6 @@ def tool_allowlist(persona: Optional[dict]) -> Optional[list[str]]:
     # Infrastructure tools auto-injected into every persona's
     # allowlist. These are control-flow tools every persona needs
     # regardless of its content-tool set:
-    #   - delegate_to_persona: hand the turn to another persona
     #   - tool_search:         discover deferred (non-core) tools (P1 #7)
     #   - set_plan,
     #     update_plan_item:    structural plan mode (P2 #24 Phase 1).
@@ -450,7 +447,6 @@ def tool_allowlist(persona: Optional[dict]) -> Optional[list[str]]:
     #                          dispatcher ran. Discovered via the
     #                          2026-05-29 smoke test on hugin.
     for infra_tool in (
-        "delegate_to_persona",
         "tool_search",
         "set_plan",
         "update_plan_item",

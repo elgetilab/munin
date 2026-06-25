@@ -70,17 +70,6 @@ from mcp.context import (
 logger = logging.getLogger(__name__)
 
 
-# A1 (persona -> router migration): pin personas by disabling the
-# delegate_to_persona hand-off. When false (the default from 2026-06), the
-# model never switches persona mid-conversation; the user's Research/Chat/
-# Code selector sets the pin (request `persona`) and it holds for the whole
-# turn. Every attempted hand-off is rejected and logged (greppable prefix
-# "delegation-disabled attempt") so the ~1-week soak can measure whether any
-# request genuinely wanted a handoff before A4 deletes the machinery. Flip
-# DELEGATION_ENABLED=true + restart to fully revert. Removed wholesale at A4.
-DELEGATION_ENABLED = os.getenv("DELEGATION_ENABLED", "false").strip().lower() in (
-    "1", "true", "yes",
-)
 
 # A3 (persona -> router migration): up-front per-turn router. When true, each
 # turn's PROFILE (chat|research|code) is chosen from the query (router.py),
@@ -279,18 +268,11 @@ def _openai_tools_schema(persona: Optional[dict] = None) -> list[dict]:
     unlocked = current_unlocked_tools.get() or set()
     visible = (CORE_TOOLS | unlocked) & universe
 
-    src_persona_id = (persona or {}).get("id") if isinstance(persona, dict) else None
     tools: list[dict] = []
     for name, spec in MCP_TOOLS.items():  # registry order for stable output
         if name not in visible:
             continue
         params = spec.get("inputSchema", {"type": "object"})
-        # delegate_to_persona's persona_id enum lists every persona;
-        # at runtime we narrow it to "every persona EXCEPT the source"
-        # so the model can't accidentally delegate to itself (no-op
-        # that wastes a turn). All other tools pass through unchanged.
-        if name == "delegate_to_persona" and src_persona_id:
-            params = _narrow_delegate_enum(params, src_persona_id)
         tools.append({
             "type": "function",
             "function": {
@@ -300,33 +282,6 @@ def _openai_tools_schema(persona: Optional[dict] = None) -> list[dict]:
             },
         })
     return tools
-
-
-def _narrow_delegate_enum(params: dict, src_persona_id: str) -> dict:
-    """Return a deep-ish copy of the delegate_to_persona inputSchema
-    with ``persona_id`` enum narrowed to exclude ``src_persona_id``.
-    Falls back to the original schema if the structure isn't shaped
-    as expected (defensive against schema drift)."""
-    try:
-        props = params.get("properties") or {}
-        target = props.get("persona_id") or {}
-        full_enum = target.get("enum") or []
-        if not full_enum:
-            return params
-        narrowed = [pid for pid in full_enum if pid != src_persona_id]
-        if not narrowed or narrowed == list(full_enum):
-            return params
-        # Shallow copy is enough — only the enum list changes; nothing
-        # else aliases that level.
-        new_target = dict(target)
-        new_target["enum"] = narrowed
-        new_props = dict(props)
-        new_props["persona_id"] = new_target
-        new_params = dict(params)
-        new_params["properties"] = new_props
-        return new_params
-    except Exception:
-        return params
 
 
 # Tracks personas we've already warned about in this process. Reset
@@ -954,12 +909,9 @@ async def _run_tool_calls(
     schema is guidance, not enforcement), so a research-persona user
     asking for "run this Python script" still produces a run_python
     call even though the persona's allowlist excludes it. The
-    synthetic error nudges the model toward delegate_to_persona on
-    the next iteration without actually executing the off-allowlist
-    tool.
-
-    ``persona_id`` is folded into the error message so the model
-    knows whose budget it tripped.
+    synthetic error tells the model to answer with the tools it has,
+    without executing the off-allowlist tool. (A4b retires the
+    allowlist entirely, at which point this reject path goes away.)
     """
     # Within this response, collapse same-title create_artifact calls to
     # one real creation (chat d28ef78e). The skipped ones get a synthetic
@@ -973,28 +925,11 @@ async def _run_tool_calls(
                 "persona-allowlist reject (persona=%r, tool=%r)",
                 persona_id, name,
             )
-            # A1: when delegation is disabled, drop the "call
-            # delegate_to_persona" advice — it points at a disabled
-            # mechanism and would loop. Advise answering with the available
-            # tools instead. (The fuller allowlist retirement is A4.)
-            if DELEGATION_ENABLED:
-                err = (
-                    f"The {name!r} tool is not available in the "
-                    f"{persona_id!r} persona's tool set. "
-                    f"To use it, call delegate_to_persona "
-                    f"({{'persona_id': '<target>', 'reason': "
-                    f"'<one-line>'}}) where target is the persona "
-                    f"that has this tool — typically 'code' for "
-                    f"run_python / sandbox_reset, or 'research' "
-                    f"for deep paper-search tools. Otherwise "
-                    f"answer using only the tools you do have."
-                )
-            else:
-                err = (
-                    f"The {name!r} tool is not available in the "
-                    f"{persona_id!r} persona's tool set. Answer the "
-                    f"request using only the tools you do have."
-                )
+            err = (
+                f"The {name!r} tool is not available in the "
+                f"{persona_id!r} persona's tool set. Answer the "
+                f"request using only the tools you do have."
+            )
             return {
                 "id": tc["id"],
                 "name": name,
@@ -1372,11 +1307,9 @@ async def _build_full_system_prompt(
     ambient blocks: user profile, user memory, active artifacts,
     project context, current-date, agent summaries, capabilities.
 
-    Factored out of ``stream_chat_completion`` so the same build can
-    run twice in one request when a delegation swaps personas
-    mid-flight (the new persona's text replaces the old; everything
-    else stays the same — the user, the conversation, the workspace
-    don't change).
+    Factored out of ``stream_chat_completion``. The A3 router composes the
+    persona text as base[pin] + fragment[routed] via ``routed_persona`` (see
+    ``compose_system_prompt``); the ambient blocks stack underneath unchanged.
 
     Block stacking order (top to bottom):
 
@@ -1690,10 +1623,7 @@ async def stream_chat_completion(
     effective_tags: Optional[list[dict]] = normalized_tags
 
     # Persona system prompt + all ambient blocks (profile, memory,
-    # artifacts, project, current date, agents, capabilities). Same
-    # function is called again later if the model triggers
-    # ``delegate_to_persona`` so the new persona ends up sitting in
-    # the same block stack.
+    # artifacts, project, current date, agents, capabilities).
     # A3: base voice from the PIN, task fragment from the ROUTED profile.
     # When routed == pin, compose() reconstructs the pin's original prompt.
     system_prompt = await _build_full_system_prompt(
@@ -1951,22 +1881,6 @@ async def stream_chat_completion(
         final_tool_calls: list[dict] = []
         finish_reason: Optional[str] = None
 
-        # Snapshot the freshly-assembled messages so the delegation
-        # intercept can rewind to a clean pre-loop state when it swaps
-        # personas mid-flight. The loop body otherwise mutates ``messages``
-        # by appending assistant tool_call turns + tool_result turns.
-        messages_pre_loop = list(messages)
-
-        # Per-request budget for delegate_to_persona. The model is allowed
-        # to hand off ONCE per user turn; a second delegation attempt is
-        # rejected with a synthetic tool_result so the receiving persona
-        # answers directly. Counter is intentionally request-scoped, not
-        # turn-scoped — once the delegated persona starts running, it has
-        # the full remaining MAX_TURNS budget to do its work but cannot
-        # delegate further.
-        delegations_used = 0
-        DELEGATION_BUDGET = 1
-
         # Per-persona tool-use turn budget (P1 #16): research personas
         # doing deep multi-call exploration want more than a chat
         # persona. personas.max_turns clamps to [1, 30].
@@ -2164,336 +2078,6 @@ async def stream_chat_completion(
                 hit_turn_cap = False
                 break
 
-            # --- delegate_to_persona intercept ---
-            # The chat / code / research personas can each call
-            # ``delegate_to_persona`` to hand the current user turn to a
-            # different persona when the user's request fits another
-            # persona's tools/style better (e.g. chat user asks for a
-            # multi-paper literature review → delegate to research).
-            # Detected here, before _run_tool_calls fires, because the
-            # delegate_to_persona MCP tool has no executor counterpart —
-            # the actual handoff is implemented as a re-entry into this
-            # same loop with a swapped persona. Any non-delegation tool
-            # calls from the same response are dropped (matches the
-            # ``ask_clarification`` precedent: a turn that picks a
-            # control-flow tool can't also do regular work).
-            delegate_tc = next(
-                (tc for tc in tool_calls if tc.get("name") == "delegate_to_persona"),
-                None,
-            )
-            if delegate_tc is not None:
-                args = delegate_tc.get("arguments") or {}
-                target_id = (args.get("persona_id") or "").strip()
-                reason = (args.get("reason") or "").strip()[:200]
-                target_persona = (
-                    persona_module.get_persona(target_id) if target_id else None
-                )
-
-                # Validation: bad target / self-delegation / budget.
-                # On any of these we synthesise a tool_result with an
-                # error, append it to messages so the model sees the
-                # rejection on the next iteration, and continue the loop.
-                reject_reason: Optional[str] = None
-                if not DELEGATION_ENABLED:
-                    # A1: pinning is the default. Reject every hand-off and
-                    # log the attempt so the soak can count what wanted to
-                    # delegate. Logged BEFORE the generic reject below so the
-                    # target/reason are captured even when they're empty.
-                    logger.info(
-                        "delegation-disabled attempt (from=%r, target=%r, reason=%r)",
-                        persona_id, target_id or "<none>", reason or "<none>",
-                    )
-                    reject_reason = (
-                        "persona handoff is disabled; answer the request "
-                        "directly with your own tools."
-                    )
-                elif not target_id:
-                    reject_reason = (
-                        "delegate_to_persona requires a non-empty persona_id."
-                    )
-                elif target_persona is None:
-                    reject_reason = (
-                        f"persona {target_id!r} not found; valid options "
-                        f"are 'chat', 'code', 'research'."
-                    )
-                elif target_id == persona_id:
-                    reject_reason = (
-                        f"cannot delegate to your own persona "
-                        f"({persona_id!r}); answer directly."
-                    )
-                elif delegations_used >= DELEGATION_BUDGET:
-                    reject_reason = (
-                        "delegation budget exhausted (one delegation per "
-                        "user turn). Answer directly using your own tools."
-                    )
-
-                if reject_reason is not None:
-                    logger.info(
-                        "delegate_to_persona rejected "
-                        "(from=%r, target=%r, reason=%r)",
-                        persona_id, target_id, reject_reason,
-                    )
-                    synthetic_result = {
-                        "id": delegate_tc["id"],
-                        "name": "delegate_to_persona",
-                        "arguments": args,
-                        "result": {"error": reject_reason},
-                        "duration_ms": 0,
-                    }
-                    final_tool_calls.append(synthetic_result)
-                    yield _sse(
-                        "tool_result",
-                        {
-                            "id": delegate_tc["id"],
-                            "name": "delegate_to_persona",
-                            "result": synthetic_result["result"],
-                            "duration_ms": 0,
-                        },
-                    )
-                    # Append the rejection into the message list so the
-                    # model can see it and write a real reply on the next
-                    # iteration. Drop any other tool calls in the same
-                    # response (per the schema contract).
-                    messages.append({
-                        "role": "assistant",
-                        "content": acc.content or "",
-                        "tool_calls": [
-                            {
-                                "id": delegate_tc["id"],
-                                "type": "function",
-                                "function": {
-                                    "name": "delegate_to_persona",
-                                    "arguments": json.dumps(args),
-                                },
-                            }
-                        ],
-                    })
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": delegate_tc["id"],
-                        "content": json.dumps(synthetic_result["result"])[:2000],
-                    })
-                    continue
-
-                # P2 #24 Phase 2 — plan-approval gate for delegate_to_persona.
-                # The preToolUse hook in hooks/plan_approval.py can't fire
-                # here because delegate_to_persona is intercepted BEFORE
-                # _run_tool_calls (it's a control-flow tool, not an
-                # executor tool). So we inline the same gate check the
-                # hook would have run. Discovered via the 2026-05-29
-                # smoke test where the model called delegate_to_persona
-                # successfully despite research persona's
-                # plan_approval: ["delegate_to_persona"].
-                gated_tools = persona_module.plan_approval_tools(persona)
-                if (
-                    "delegate_to_persona" in gated_tools
-                    and not ephemeral
-                    and conversation.get("id")
-                ):
-                    plan = await plan_store.get_plan(conversation["id"])
-                    gate_result: Optional[dict] = None
-                    if plan is None:
-                        gate_result = {
-                            "error": "plan_approval_required",
-                            "message": (
-                                "This persona requires an approved plan "
-                                "before calling delegate_to_persona. Call "
-                                "set_plan first with the steps you intend "
-                                "to take, then wait for the user to "
-                                "approve it via the UI."
-                            ),
-                        }
-                    elif not plan.get("approved_at"):
-                        # Short-circuit + surface the gate to the UI.
-                        yield _sse(
-                            "plan_approval_required",
-                            {
-                                "tool": "delegate_to_persona",
-                                "arguments": args,
-                                "plan": plan,
-                            },
-                        )
-                        gate_result = {
-                            "status": "awaiting_user_approval",
-                            "tool": "delegate_to_persona",
-                            "message": (
-                                "User approval is required before this "
-                                "call can run. The UI is asking the user "
-                                "to Approve / Approve-all / Edit / "
-                                "Reject. Wait for the user — do NOT "
-                                "retry this tool in the current turn; "
-                                "you will get a new turn once they decide."
-                            ),
-                            "plan_summary": [
-                                it.get("title") for it in (plan.get("items") or [])
-                            ],
-                        }
-                    else:
-                        # Approved. Consume 'each'-mode approval so
-                        # subsequent gated calls re-trigger the gate.
-                        if plan.get("approval_mode") == "each":
-                            try:
-                                await plan_store.clear_approval(conversation["id"])
-                            except Exception as e:
-                                logger.warning(
-                                    "plan_approval: failed to clear approved_at "
-                                    "after delegate_to_persona: %s",
-                                    e,
-                                )
-
-                    if gate_result is not None:
-                        logger.info(
-                            "delegate_to_persona gated (from=%r, target=%r): %s",
-                            persona_id, target_id,
-                            "no plan" if plan is None else "awaiting approval",
-                        )
-                        synthetic_result = {
-                            "id": delegate_tc["id"],
-                            "name": "delegate_to_persona",
-                            "arguments": args,
-                            "result": gate_result,
-                            "duration_ms": 0,
-                        }
-                        final_tool_calls.append(synthetic_result)
-                        yield _sse(
-                            "tool_result",
-                            {
-                                "id": delegate_tc["id"],
-                                "name": "delegate_to_persona",
-                                "result": gate_result,
-                                "duration_ms": 0,
-                            },
-                        )
-                        messages.append({
-                            "role": "assistant",
-                            "content": acc.content or "",
-                            "tool_calls": [
-                                {
-                                    "id": delegate_tc["id"],
-                                    "type": "function",
-                                    "function": {
-                                        "name": "delegate_to_persona",
-                                        "arguments": json.dumps(args),
-                                    },
-                                }
-                            ],
-                        })
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": delegate_tc["id"],
-                            "content": json.dumps(gate_result)[:2000],
-                        })
-                        continue
-
-                # Real delegation: swap persona, rebuild system_prompt,
-                # rewind messages to the pre-loop snapshot (so the new
-                # persona sees a clean conversation, not the rejected
-                # prose draft + tool calls that the source persona
-                # accumulated this turn), reset accumulators, and let the
-                # loop run another iteration with the new persona.
-                delegations_used += 1
-                source_persona_id = persona_id  # capture before the swap
-                logger.info(
-                    "delegate_to_persona firing "
-                    "(from=%r, to=%r, reason=%r)",
-                    persona_id, target_id, reason,
-                )
-                yield _sse(
-                    "delegated",
-                    {
-                        "from_persona": persona_id,
-                        "to_persona": target_id,
-                        "reason": reason,
-                    },
-                )
-
-                # Persist the persona switch on the conversation row so
-                # subsequent user turns resolve to the delegated persona
-                # by default (the user effectively switched personas
-                # mid-conversation; no need to pay the delegation
-                # round-trip again). Skipped for ephemeral chats.
-                if not ephemeral:
-                    try:
-                        await chat_store.update_conversation(
-                            conversation_id=conversation["id"],
-                            user_email=user_email,
-                            persona=target_id,
-                        )
-                    except Exception as e:
-                        logger.warning("persona persistence failed: %s", e)
-                    yield _sse(
-                        "persona_changed",
-                        {
-                            "id": conversation["id"],
-                            "persona": target_id,
-                        },
-                    )
-
-                # Swap state.
-                persona_id = target_id
-                persona = target_persona
-                sampling = persona_module.sampling_params(persona)
-                try:
-                    system_prompt = await _build_full_system_prompt(
-                        persona=persona,
-                        user_email=user_email,
-                        conversation_id=conversation["id"] if not ephemeral else None,
-                        ephemeral=ephemeral,
-                        project=project,
-                    )
-                except Exception as e:
-                    logger.warning("post-delegation system_prompt rebuild failed: %s", e)
-                # Re-apply tags block if it was originally injected — same
-                # block sits below the persona prompt; rebuilt above
-                # already includes it via _build_full_system_prompt? No —
-                # the tags block is applied separately further down in
-                # the original flow (after conversation resolution). We
-                # reapply it inline here so the delegated persona sees
-                # the same active-tags context.
-                tags_block = build_active_tags_block(effective_tags)
-                if tags_block:
-                    system_prompt = f"{system_prompt}\n\n{tags_block}"
-
-                # Persona-switch awareness: ground the receiving persona so
-                # it acknowledges the handoff instead of denying the switch
-                # or claiming it authored the source persona's earlier turns
-                # (chat 14ded1f1, 2026-06-09). Subsequent user turns get the
-                # equivalent note rebuilt from per-message persona in
-                # assemble_context.
-                handoff_note = persona_module.persona_handoff_note(
-                    active_persona_id=target_id,
-                    prior_persona_ids=[source_persona_id],
-                    reason=reason,
-                )
-                if handoff_note:
-                    system_prompt = f"{system_prompt}\n\n{handoff_note}"
-
-                # Rebuild messages from pre-loop snapshot but with the new
-                # system prompt swapped in. The snapshot's first entry is
-                # the system message; replace its content rather than
-                # re-running assemble_context (which would re-fetch
-                # history + summarise — unnecessary work and could hit
-                # vLLM during a delegation hot path).
-                messages = list(messages_pre_loop)
-                if messages and messages[0].get("role") == "system":
-                    messages[0] = {"role": "system", "content": system_prompt}
-                else:
-                    messages.insert(0, {"role": "system", "content": system_prompt})
-                messages_pre_loop = list(messages)
-
-                # Reset accumulators so the persisted assistant message
-                # reflects the delegated persona's work, not the source
-                # persona's rejected draft. Note: we deliberately do NOT
-                # clear usage_agg — the source persona's tokens were
-                # really consumed by vLLM and must still be billed.
-                final_content = ""
-                final_thinking = ""
-                final_tool_calls = []
-                if acc is not None:
-                    acc.content_parts.clear()
-                    acc.thinking_parts.clear()
-                continue
-
             # --- §14 ask_clarification intercept ---
             # If the model called ask_clarification, short-circuit the whole
             # turn: emit a single `clarification` SSE event with the full
@@ -2653,17 +2237,14 @@ async def stream_chat_completion(
 
             # Build the persona's effective allowlist so _run_tool_calls
             # can reject off-allowlist calls with a synthetic error
-            # tool_result. ask_clarification + delegate_to_persona are
-            # always permitted (control-flow tools). Personas without an
-            # explicit allowlist (back-compat path) get None, which means
-            # "all tools allowed" inside _run_tool_calls.
+            # tool_result. ask_clarification is always permitted (control-flow
+            # tool). Personas without an explicit allowlist (back-compat path)
+            # get None, which means "all tools allowed" inside _run_tool_calls.
+            # (A4b retires the allowlist entirely; this whole path goes away.)
             _allow_list = persona_module.tool_allowlist(persona)
             allowed_tools_set: Optional[set[str]] = None
             if _allow_list is not None:
-                allowed_tools_set = set(_allow_list) | {
-                    "ask_clarification",
-                    "delegate_to_persona",
-                }
+                allowed_tools_set = set(_allow_list) | {"ask_clarification"}
 
             async def _runner() -> list[dict]:
                 try:

@@ -28,12 +28,11 @@ from typing import Awaitable, Callable, Optional
 Dispatcher = Callable[[dict], Awaitable[dict]]
 
 
-# Tools that appear in MCP_TOOLS for schema/discovery purposes but
-# are NOT dispatched through the executor. ``delegate_to_persona``
-# is intercepted by ``chat_service`` before the tool loop runs (it
-# swaps the active persona mid-turn); it has no executor counterpart
-# by design. Anything added here must have a written rationale.
-_SCHEMA_ONLY: frozenset[str] = frozenset({"delegate_to_persona"})
+# Tools that appear in MCP_TOOLS for schema/discovery purposes but are NOT
+# dispatched through the executor. Currently empty: delegate_to_persona (the
+# former sole member, intercepted by chat_service) was removed at A4. Anything
+# added here must have a written rationale.
+_SCHEMA_ONLY: frozenset[str] = frozenset()
 
 
 _REGISTRY: dict[str, Dispatcher] = {}

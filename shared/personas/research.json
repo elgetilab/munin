@@ -47,9 +47,6 @@
       "recall",
       "invoke_agent",
       "faq"
-    ],
-    "plan_approval": [
-      "delegate_to_persona"
     ]
   },
   "meta": {

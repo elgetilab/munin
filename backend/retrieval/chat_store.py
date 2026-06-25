@@ -630,11 +630,10 @@ async def update_conversation(
     ``title`` / ``persona``. Empty-set call is a no-op fast path
     that just returns the current row.
 
-    ``persona`` is used by the §X delegation flow so a chat that the
-    model hands off to ``code`` mid-conversation persists as belonging
-    to the new persona; future turns then resolve to the delegated
-    persona's prompt + tool subset without paying the delegation
-    round-trip again."""
+    ``persona`` is the conversation's pinned persona (set by the
+    Chat/Code/Research selector). Patching it here persists the user's
+    selection; the A3 per-turn router then composes each turn from that
+    pin plus the routed profile."""
     db = await get_db()
     updates: list[str] = []
     params: list[Any] = []

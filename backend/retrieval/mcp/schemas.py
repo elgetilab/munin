@@ -14,8 +14,8 @@ Each tool has:
 # the hang cliff. CORE is intersected with the persona allowlist in
 # `_openai_tools_schema`, so a persona that lacks a core tool simply
 # doesn't get it. Membership rationale: control-flow tools
-# (ask_clarification, delegate_to_persona, tool_search) must always be
-# present; the rest are the high-frequency workhorses.
+# (ask_clarification, tool_search) must always be present; the rest are
+# the high-frequency workhorses.
 CORE_TOOLS = frozenset({
     "paper_search",
     "web_search",
@@ -24,7 +24,6 @@ CORE_TOOLS = frozenset({
     "create_artifact",
     "calculate",
     "ask_clarification",
-    "delegate_to_persona",
     "tool_search",
     # P2 #24 Phase 1: plan-mode tools. Always visible to every
     # persona so the model can call set_plan at turn start without
@@ -908,67 +907,13 @@ MCP_TOOLS = {
             "required": []
         }
     },
-    "delegate_to_persona": {
-        "name": "delegate_to_persona",
-        "description": (
-            "Hand this turn to a different persona when their tools and "
-            "style fit the user's request better than yours. Each "
-            "persona has a curated tool set: 'chat' is the general "
-            "assistant, 'code' is the programmer (deep run_python + "
-            "compile_latex iteration, no paper search), 'research' is "
-            "the literature-review specialist (deep_research, semantic "
-            "scholar, citation graphs). The conversation history carries "
-            "across the switch, so the receiving persona sees everything "
-            "said so far — delegating loses no context. The user keeps the "
-            "conversation; the new persona just takes over from this turn "
-            "forward, and can hand back later when the work shifts.\n\n"
-            "Delegate whenever another persona is clearly better suited for "
-            "the work at hand, not only as a last resort. In particular, "
-            "hand off sustained or non-trivial work to its specialist and "
-            "hand back when the conversation returns to your strength:\n"
-            "- User in 'chat' asks for a multi-paper literature review "
-            "with citation tracing: delegate to 'research'.\n"
-            "- User in 'chat' starts a real coding or debugging session "
-            "(beyond a quick one-off snippet): delegate to 'code'.\n"
-            "- User in 'research' asks for a quick general fact: "
-            "delegate to 'chat'.\n"
-            "- User in 'code' finishes the code and turns to general "
-            "discussion: delegate back to 'chat'.\n"
-            "- User in 'code' asks for a paper review: delegate to "
-            "'research'.\n\n"
-            "Still answer in-persona for trivial things you handle well "
-            "(e.g. 'chat' can run a quick Python snippet itself without "
-            "switching). Do NOT delegate to your own persona id (no-op). "
-            "Each user turn permits at most ONE delegation hop — the "
-            "receiving persona must answer directly; if more switching is "
-            "warranted it happens on a later turn. If you call this tool "
-            "alongside others in the same response, only the delegation "
-            "runs; the other tool calls are dropped."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "persona_id": {
-                    "type": "string",
-                    "enum": ["chat", "code", "research"],
-                    "description": "Target persona id. Cannot equal your own id."
-                },
-                "reason": {
-                    "type": "string",
-                    "description": "One-line explanation shown to the user (max 200 chars). Be concrete: 'this needs deep_research for citation graph traversal' beats 'this fits research better'.",
-                    "maxLength": 200
-                }
-            },
-            "required": ["persona_id", "reason"]
-        }
-    },
     "tool_search": {
         "name": "tool_search",
         "description": (
             "Discover tools that are NOT in your current tool list. Your "
             "schema only carries a small core set (paper/web search, "
             "read_paper, run_python, create_artifact, calculate, "
-            "ask_clarification, delegate_to_persona). Many other "
+            "ask_clarification). Many other "
             "capabilities exist but are hidden until you search for them: "
             "citation-graph traversal, Semantic Scholar lookups, LaTeX "
             "compilation, artifact editing, conversation memory, project "

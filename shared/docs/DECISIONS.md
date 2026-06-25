@@ -10,6 +10,37 @@ self-document (renames, refactors, bug fixes).
 
 ---
 
+## 2026-06: persona delegation retired in favour of the per-turn router (A1-A4)
+
+The persona system used to do three entangled jobs: tool-allowlist scoping,
+prompt/sampling shaping, and mid-conversation **delegation** (`delegate_to_persona`
+handed a turn to another persona, with message rewind, persona persistence,
+and `delegated`/`persona_changed` SSE). The migration (`todo_v2/`, steps A1-A4)
+replaced delegation with an up-front **per-turn router** (`router.py`): each
+turn's profile (chat/research/code) is chosen from the query, biased by the
+pinned persona, and the system prompt is composed `base[pin] + fragment[routed]`.
+
+Why delegation went, not just got disabled:
+- The A1 soak (delegation off, attempts logged) plus chats.db showed it was
+  rarely used (~15 attempts in 6 weeks) and the cases were all cross-profile
+  needs the router now handles up-front (a chat user asking a research
+  question routes to research directly).
+- Once the allowlists are retired (A4b), every tool is reachable via CORE +
+  tool_search regardless of profile, so delegation's real job (tool access)
+  vanishes. It became vestigial.
+
+A4a deleted the machinery (intercept, rewind, budget, `delegated`/
+`persona_changed` SSE, the `DELEGATION_ENABLED` flag, `delegate_to_persona`
+from CORE/registry). `backend/scripts/test_delegate_persona.py` is retired
+(stub) — its replacement is the routing eval
+(`backend/benchmarks/munin_bench/routing/`).
+
+**Deliberate trade-off (A4b):** the per-persona `tool_allowlist` was a HARD
+boundary (research literally could not run_python). The router relaxes it:
+profiles bias tool *usage* via the prompt fragment + a soft `resident_tools`
+surfacing set, but any tool is reachable. If a specific tool ever needs a hard
+wall, add an explicit per-tool guard — do NOT resurrect allowlists.
+
 ## 2026-05-25: SSE reconnect decouples listener from work, reshapes P0 #2
 
 P1 #10 makes a mid-stream WiFi blip or full browser refresh resume the

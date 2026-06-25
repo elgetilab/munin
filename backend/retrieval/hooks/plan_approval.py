@@ -70,10 +70,9 @@ def _is_gated_call(
          approves. Fallback for unconfigured personas where the
          model itself judges the work as heavy.
 
-    Picking persona-over-model preserves operator policy: if
-    research persona says only `delegate_to_persona` needs
-    approval, a model-flagged plan doesn't ALSO start gating
-    `web_search` on that persona.
+    Picking persona-over-model preserves operator policy: if a
+    persona says only `compile_latex` needs approval, a model-flagged
+    plan doesn't ALSO start gating `web_search` on that persona.
     """
     if tool_name in {"set_plan", "update_plan_item"}:
         return False
