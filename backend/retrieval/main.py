@@ -51,7 +51,6 @@ import contextlib
 import hashlib
 import json
 import os
-import re
 import secrets
 import shutil
 import uuid
@@ -1004,42 +1003,56 @@ def _is_raw_mode_request(body: dict) -> bool:
     return False
 
 
-# vLLM's context-length rejection reads like:
-#   "This model's maximum context length is 65536 tokens. However, you
-#    requested 16384 output tokens and your prompt contains at least
-#    49153 input tokens, for a total of at least 65537 tokens..."
-# Pull the window size and the prompt's input-token count back out so we
-# can refit max_tokens to the room the prompt actually leaves.
-_CTX_MAX_LEN_RE = re.compile(r"maximum context length is\s+(\d+)\s+tokens", re.I)
-_CTX_INPUT_RE = re.compile(r"(\d+)\s+input tokens", re.I)
-# Don't bother clamping if the refit would leave less than this for output —
-# at that point the prompt itself effectively fills the window.
+# The served model's context window (prompt + max_tokens combined). Mirror
+# backend start-vllm-service.sh (--max-model-len). We fit max_tokens to the
+# prompt BEFORE calling vLLM rather than reacting to its rejection: vLLM's
+# error reports the prompt size as a max_tokens-derived LOWER BOUND ("at least
+# N input tokens", where N == window+1-max_tokens), so refitting from that
+# number never converges. We count the prompt ourselves instead.
+_RAW_MAX_MODEL_LEN = int(os.getenv("VLLM_MAX_MODEL_LEN", "65536"))
+# A request whose prompt leaves less than this for output isn't worth running;
+# the prompt itself effectively fills the window.
 _RAW_MIN_OUTPUT_TOKENS = 256
-# Slack so an off-by-a-few token estimate doesn't immediately re-trip.
-_RAW_CTX_MARGIN = 16
+# Cushion between our prompt-token count and vLLM's. We tokenize with the same
+# Qwen tokenizer vLLM uses, but its chat-template framing adds a few dozen
+# tokens we don't model exactly. 512 absorbs that comfortably.
+_RAW_CTX_MARGIN = 512
+# Safety net only: if vLLM rejects for context length despite the preemptive
+# clamp (local count under-estimated, e.g. tokenizer not mounted), halve
+# max_tokens and retry up to this many times. Halving converges fast.
+_RAW_MAX_REFIT_RETRIES = 3
 
 
-def _refit_max_tokens(err_text: str, forward: dict) -> bool:
-    """If `err_text` is vLLM's context-length overflow, shrink
-    forward['max_tokens'] in place to fit the room the prompt leaves and
-    return True (caller should retry). Return False if clamping can't
-    salvage the request — the prompt alone (near-)fills the window, or the
-    error isn't a context overflow at all."""
-    max_len_m = _CTX_MAX_LEN_RE.search(err_text or "")
-    input_m = _CTX_INPUT_RE.search(err_text or "")
-    if not max_len_m or not input_m:
-        return False
-    max_len = int(max_len_m.group(1))
-    input_tokens = int(input_m.group(1))
-    room = max_len - input_tokens - _RAW_CTX_MARGIN
-    if room < _RAW_MIN_OUTPUT_TOKENS:
-        return False
+def _raw_prompt_tokens(messages: list) -> int:
+    """Prompt token count for a raw-mode messages list, via the real Qwen
+    tokenizer when mounted (chat_context), plus a small allowance for the
+    assistant generation prompt / trailing special tokens."""
+    from chat_context import _message_tokens
+    total = 0
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        try:
+            total += _message_tokens(m)
+        except Exception:
+            total += max(1, len(str(m.get("content", ""))) // 4)
+    return total + 8
+
+
+def _is_ctx_overflow(text: str) -> bool:
+    """True if `text` is vLLM's context-length rejection."""
+    return "maximum context length" in (text or "").lower()
+
+
+def _halve_for_retry(forward: dict) -> bool:
+    """Halve forward['max_tokens'] for a retry after vLLM rejected the request
+    despite the preemptive clamp. Returns False when there's no output budget
+    left to give. Deliberately ignores vLLM's reported token counts — they're
+    a max_tokens-derived lower bound, so feeding them back would not converge."""
     current = forward.get("max_tokens")
-    if isinstance(current, int) and current <= room:
-        # Already within budget; the 400 wasn't about our max_tokens.
-        # Clamping would change nothing, so don't retry into the same wall.
+    if not isinstance(current, int) or current <= _RAW_MIN_OUTPUT_TOKENS:
         return False
-    forward["max_tokens"] = room
+    forward["max_tokens"] = max(_RAW_MIN_OUTPUT_TOKENS, current // 2)
     return True
 
 
@@ -1061,6 +1074,37 @@ async def _raw_chat_proxy(
             status_code=400,
             detail={"error": {"message": "messages must be a non-empty list"}},
         )
+
+    # Fit max_tokens to the context window before calling vLLM. The window is
+    # shared between prompt and output, so a client max_tokens (Positron
+    # defaults to 16384) that plus the prompt would overflow makes a growing
+    # session fail partway through. Count the prompt with the real tokenizer
+    # and clamp an explicit, too-large max_tokens to the room left. This also
+    # covers clients that set max_tokens above the window outright. An unset
+    # max_tokens is left alone: vLLM caps it to the remaining window itself and
+    # never overflows.
+    prompt_tokens = _raw_prompt_tokens(forward["messages"])
+    room = _RAW_MAX_MODEL_LEN - prompt_tokens - _RAW_CTX_MARGIN
+    requested_max = forward.get("max_tokens")
+    if isinstance(requested_max, int) and requested_max > room:
+        if room < _RAW_MIN_OUTPUT_TOKENS:
+            # Prompt alone (near-)fills the window — no usable output budget.
+            # Fail fast with a clear message instead of a partial generation.
+            return JSONResponse(
+                status_code=400,
+                content={"error": {
+                    "message": (
+                        f"Prompt is too long: ~{prompt_tokens} tokens, but the "
+                        f"model's context window is {_RAW_MAX_MODEL_LEN} tokens "
+                        f"(shared between prompt and response). Shorten the "
+                        f"conversation or start a new chat."
+                    ),
+                    "type": "context_length_exceeded",
+                    "param": "messages",
+                    "code": "context_length_exceeded",
+                }},
+            )
+        forward["max_tokens"] = room
 
     vllm_url = os.getenv("VLLM_URL", "http://127.0.0.1:8000").rstrip("/")
     endpoint = f"{vllm_url}/v1/chat/completions"
@@ -1087,11 +1131,14 @@ async def _raw_chat_proxy(
         # Simple JSON round-trip; external client didn't ask to stream.
         try:
             r = await client.post(endpoint, json=forward)
-            # On a context-length overflow, refit max_tokens to the room
-            # the prompt leaves and retry once. If it still fails (prompt
-            # too big on its own), the upstream 400 passes straight
-            # through with vLLM's message intact.
-            if r.status_code != 200 and _refit_max_tokens(r.text, forward):
+            # Safety net: if vLLM still rejects for context length despite the
+            # preemptive clamp, halve max_tokens and retry. Any other error
+            # passes straight through with vLLM's message and status intact.
+            retries = 0
+            while (r.status_code == 400 and _is_ctx_overflow(r.text)
+                   and retries < _RAW_MAX_REFIT_RETRIES
+                   and _halve_for_retry(forward)):
+                retries += 1
                 r = await client.post(endpoint, json=forward)
         finally:
             await client.aclose()
@@ -1106,43 +1153,36 @@ async def _raw_chat_proxy(
     # without interpretation so any future OpenAI streaming field (tool
     # calls, logprobs, etc.) keeps working.
     #
-    # We open the upstream stream and check its status BEFORE committing
-    # to a 200 SSE response. A pre-stream error (most commonly a
-    # context-length overflow) is returned as a real HTTP error carrying
-    # vLLM's message, not as a 200 stream wrapping an error event — the
-    # latter is unparseable to OpenAI clients (Positron, Cursor), which
-    # report it as an opaque "error making request". On a context-length
-    # overflow we first refit max_tokens to the prompt's remaining room
-    # and retry once.
+    # We open the upstream stream and check its status BEFORE committing to a
+    # 200 SSE response. A pre-stream error is returned as a real HTTP error
+    # carrying vLLM's message, never a 200 stream wrapping an error event —
+    # the latter is unparseable to OpenAI clients (Positron, Cursor), which
+    # report it as an opaque "error making request". Context-length
+    # rejections that slip past the preemptive clamp are retried by halving
+    # max_tokens (safety net); any other error surfaces immediately.
     async def _open_upstream():
         return await client.send(
             client.build_request("POST", endpoint, json=forward), stream=True
         )
 
-    async def _error_passthrough(resp) -> Response:
-        err_bytes = await resp.aread()
-        await resp.aclose()
+    upstream = await _open_upstream()
+    retries = 0
+    while upstream.status_code != 200:
+        err_text = (await upstream.aread()).decode("utf-8", errors="replace")
+        status = upstream.status_code
+        await upstream.aclose()
+        if (status == 400 and _is_ctx_overflow(err_text)
+                and retries < _RAW_MAX_REFIT_RETRIES
+                and _halve_for_retry(forward)):
+            retries += 1
+            upstream = await _open_upstream()
+            continue
         await client.aclose()
         return Response(
-            content=err_bytes,
-            status_code=resp.status_code,
-            media_type=resp.headers.get("content-type", "application/json"),
+            content=err_text.encode("utf-8"),
+            status_code=status,
+            media_type="application/json",
         )
-
-    upstream = await _open_upstream()
-    if upstream.status_code != 200:
-        err_text = (await upstream.aread()).decode("utf-8", errors="replace")
-        await upstream.aclose()
-        if not _refit_max_tokens(err_text, forward):
-            await client.aclose()
-            return Response(
-                content=err_text.encode("utf-8"),
-                status_code=upstream.status_code,
-                media_type="application/json",
-            )
-        upstream = await _open_upstream()
-        if upstream.status_code != 200:
-            return await _error_passthrough(upstream)
 
     async def _relay():
         try:
