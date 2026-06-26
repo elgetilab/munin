@@ -317,9 +317,24 @@ Also done (A4a follow-ups):
   (routing-aware). The rename targets the future `make_run_header()` (Track A
   eval suite, not built); note it there when built.
 
-**Still pending for A4a completion:** routing-eval regression vs A0 (needs
-deploy), deploy + smoke. Frontend dead-handler cleanup is a separate
-frontend-deploy follow-up.
+**A4a COMPLETE + validated live (2026-06-26).** Deployed (personas-first so
+research.json's removed plan_approval landed before the restart; verified all
+3 personas load, delegate_to_persona gone from the 41-tool registry, router
+still live).
+- **No-op confirmed:** A4a-regression vs A3-gate-v3 — no item moved >=3 reps
+  (mostly 0); the deletion changed routing behaviour not at all.
+- **Agentic loop works:** pong smoke (router-era checks) — all reps route to
+  CODE, produce the artifact, no hallucinated tools, no error SSE.
+- **Mean pass 0.732** (A0 0.714 -> A3-v3 0.696 -> A4a 0.732), highest yet.
+- vs A0, items down (known_url_fetch 5->2, remember 3->0, weather_with_location
+  8->7) are A3-ROUTER effects, NOT A4a (which is a no-op): weather noise;
+  remember = the deferred-tool follow-through holdout (A5); known_url_fetch =
+  router mis-serves "summarize this URL" (routes to a paper_search path
+  instead of web_fetch) -> A5 routing-tuning item.
+
+**Frontend dead-handler cleanup** remains a separate frontend-deploy follow-up.
+**A4b (retire allowlists + soft bias) is the next step** — gated on a short A3
+confidence window + its own 1-week soak.
 
 ## 7. Risks / notes
 
