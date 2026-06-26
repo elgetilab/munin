@@ -336,6 +336,37 @@ still live).
 **A4b (retire allowlists + soft bias) is the next step** — gated on a short A3
 confidence window + its own 1-week soak.
 
+## A4b BUILD STATUS (2026-06-26): allowlists retired + soft bias
+
+Done (backend + personas, working tree):
+- **Soft-bias mechanism:** `personas.resident_tools()` accessor +
+  `_Params.resident_tools` field; `_openai_tools_schema` visible = `CORE ∪
+  resident_tools(routed) ∪ unlocked` over the FULL registry (additive; nothing
+  rejected). Removed the now-misleading `_UNSCOPED_PERSONA_WARNED` warning.
+- **Persona JSONs:** removed `tool_allowlist` (-> None-path -> full universe +
+  no enforcement, the retirement mechanism), added `resident_tools`:
+  - research (7): get_citations, get_references, export_citations,
+    deep_research, compare_papers, semantic_scholar_search, paper_lookup
+  - code (3): compile_latex, sandbox_reset, save_artifact_to_documents
+  - chat (3): web_fetch, remember, recall
+- **`_eval_full` retired:** source removed; `run.py` `--persona` help/header
+  scrubbed. NB: `deploy.sh personas` uses `install` (no `--delete`), so the
+  stale `/opt/munin/personas/_eval_full.json` must be `rm`'d server-side.
+
+Validated offline: all 3 personas load (research survived, allowlist=None, no
+enforcement); schema surfaces CORE + resident (chat 13 / code 13 / research 17
+tools); prefill ~5-6K tokens (far under 64K); persona-split/router/benchmark
+tests green (33).
+
+**Post-soak cleanup (NOT yet):** remove the inert allowlist code —
+`tool_allowlist()`, the `allowed_tools` enforcement branch in `_run_tool_calls`,
+the universe-intersection, the `_Params.tool_allowlist` field.
+
+**Pending:** deploy (personas-first; NEW code + OLD personas would keep
+allowlists active, so the personas must land), A0 regression gate, a soft-bias
+confirmation run (does deferred-tool completed_in_turn rise?), and the 1-week
+soak watching for inappropriate cross-profile tool use.
+
 ## 7. Risks / notes
 
 - **Biggest blast radius of the migration.** Deleting the intercept touches

@@ -65,6 +65,11 @@ class _Params(BaseModel):
     # Bounds match personas.max_turns clamp range below; reject out-of-bounds
     # rather than silently clamping so the operator sees the typo at boot.
     max_turns: Optional[int] = Field(default=None, ge=1, le=30)
+    # A4b SOFT bias (replaces the retired hard `tool_allowlist`): the profile's
+    # high-value deferred tools to SURFACE in the resident schema beyond CORE,
+    # so the model calls them without a tool_search hop. Additive only — every
+    # tool stays reachable via tool_search; nothing is rejected.
+    resident_tools: Optional[list[str]] = None
     tool_allowlist: Optional[list[str]] = None
     # P2 #24 Phase 2: list of MCP tool names that REQUIRE an approved
     # plan before they run. The preToolUse hook in
@@ -454,6 +459,26 @@ def tool_allowlist(persona: Optional[dict]) -> Optional[list[str]]:
         if infra_tool not in seen:
             out.append(infra_tool)
             seen.add(infra_tool)
+    return out
+
+
+def resident_tools(persona: Optional[dict]) -> list[str]:
+    """A4b SOFT bias: the profile's high-value deferred tools to surface in
+    the resident schema beyond CORE (from ``params.resident_tools``). Returns
+    a deduped list of strings, or [] if absent. Additive only — these tools
+    are SHOWN by default so the model skips the tool_search hop; every other
+    tool is still reachable via tool_search and nothing is rejected."""
+    if not isinstance(persona, dict):
+        return []
+    raw = (persona.get("params") or {}).get("resident_tools")
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set = set()
+    for entry in raw:
+        if isinstance(entry, str) and entry and entry not in seen:
+            out.append(entry)
+            seen.add(entry)
     return out
 
 

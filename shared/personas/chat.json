@@ -10,34 +10,10 @@
     "top_k": 20,
     "min_p": 0.0,
     "presence_penalty": 1.5,
-    "tool_allowlist": [
-      "web_search",
+    "resident_tools": [
       "web_fetch",
-      "paper_search",
-      "paper_lookup",
-      "deep_research",
-      "semantic_scholar_search",
-      "compile_latex",
-      "run_python",
-      "calculate",
-      "sandbox_reset",
-      "ask_clarification",
-      "view_attachment",
-      "transcribe_equation",
-      "create_artifact",
-      "read_artifact",
-      "update_artifact",
-      "list_artifacts",
-      "save_artifact_to_documents",
-      "search_user_docs",
-      "search_past_conversations",
-      "list_projects",
-      "get_current_project",
       "remember",
-      "forget",
-      "recall",
-      "invoke_agent",
-      "faq"
+      "recall"
     ]
   },
   "meta": {

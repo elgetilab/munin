@@ -70,10 +70,7 @@ def make_header(tag: str, reps: int, seed: int, base: str, persona: str) -> dict
     if persona == A0_PERSONA:
         policy = f"{persona} (A0 decision A; not expected.profile)"
     else:
-        policy = (
-            f"{persona} (test-config override; e.g. _eval_full = full tool "
-            f"universe for the A2 post-allowlist gate preview)"
-        )
+        policy = f"{persona} (test-config persona override)"
     return {
         "tag": tag,
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -253,8 +250,7 @@ async def main() -> int:
     ap.add_argument("--items", default=None,
                     help="comma-separated item ids to run (subset; e.g. the A2 gate items)")
     ap.add_argument("--persona", default=A0_PERSONA,
-                    help="request persona (default chat; use _eval_full for the "
-                         "A2 post-allowlist gate preview)")
+                    help="request persona pin (default chat)")
     ap.add_argument("--out-dir", default=SCORECARD_DIR)
     args = ap.parse_args()
 
