@@ -465,17 +465,22 @@ SEED_ITEMS: list[RoutingEvalItem] = [
         context=EvalContext(tags=["group"], project="HypMol"),
         expected=Expected(
             profile="research",
+            first_tool="paper_search",   # LOCAL corpus FIRST (the private-corpus point)
             required_tools=[ToolExpectation(
                 name="paper_search",
                 arg_predicates=[],   # tag scoping is applied via ContextVar, not args
-                max_calls=4,
             )],
-            forbidden_tools=["semantic_scholar_search"],
-            reward_basis=["required"],
+            # semantic_scholar_search is NOT forbidden (A4b): the local corpus is
+            # curated + incomplete, so branching out to S2 AFTER a local search is
+            # the intended "local-first, then branch" behaviour. The assertion is
+            # "local corpus used FIRST", not "never branch".
+            reward_basis=["first_tool", "required"],
         ),
-        rationale="'Our group' + #group tag -> local paper_search (tag-scoped via "
-                  "current_query_tags). Routing to the 200M-paper S2 index would miss "
-                  "the private-corpus point entirely.",
+        rationale="'Our group' + #group tag -> LOCAL paper_search FIRST (tag-scoped "
+                  "via current_query_tags); the local corpus is the private-corpus "
+                  "point. Branching to S2 after a thin local search is fine (A4b "
+                  "local-first-then-branch), so S2 is not forbidden; first_tool asserts "
+                  "local-first.",
     ),
 
     # --- citation_graph: non-core tool reached via tool_search -----------
