@@ -171,6 +171,11 @@ class Expected(BaseModel):
     solo: bool = False                     # first tool must be emitted ALONE (clarification rule)
     no_tool: bool = False                  # answer from parametric knowledge; zero tool calls
     abstain: bool = False                  # must not fabricate; needs judge hook for wording
+    # A5 over-tooling guard: when set, record (NON-GATING) whether the whole
+    # turn emitted <= soft_max_calls tool calls. Catches the research-persona
+    # regression into 20+ calls (vLLM 400 max-context) without changing the
+    # gate, so the A0 baseline stays comparable. Reported as a diagnostic.
+    soft_max_calls: Optional[int] = None
     # Which checks gate the reward. Subset of:
     # {"first_tool","required","forbidden","solo","no_tool","profile","abstain"}.
     # Empty -> all populated checks gate.
@@ -255,6 +260,14 @@ def score_item(
     # pass emitted_profile=None and skip this).
     if exp.profile and emitted_profile is not None:
         diagnostics["profile_match"] = emitted_profile == exp.profile
+
+    # soft_max_calls (A5): over-tooling guard. NON-GATING (like profile_match
+    # and completed_in_turn) so it never perturbs the A0-comparable gate; it
+    # surfaces a research turn that fans out into too many calls.
+    if exp.soft_max_calls is not None:
+        diagnostics[f"calls_within_{exp.soft_max_calls}"] = (
+            len(trajectory) <= exp.soft_max_calls
+        )
 
     # no_tool -------------------------------------------------------------
     if exp.no_tool:
@@ -450,6 +463,8 @@ SEED_ITEMS: list[RoutingEvalItem] = [
             profile="research",
             first_tool="deep_research",
             forbidden_tools=[],  # firing paper_search/web_search separately is the wrong PRIMARY path
+            soft_max_calls=8,    # A5: deep_research fans out internally; a turn with many
+                                 # separate searches is the over-tooling anti-pattern (diagnostic)
             reward_basis=["first_tool"],
         ),
         rationale="Substantive 'state of the art' research -> deep_research first "
@@ -474,6 +489,8 @@ SEED_ITEMS: list[RoutingEvalItem] = [
             # curated + incomplete, so branching out to S2 AFTER a local search is
             # the intended "local-first, then branch" behaviour. The assertion is
             # "local corpus used FIRST", not "never branch".
+            soft_max_calls=6,    # A5 over-tooling diagnostic (local-first-then-branch is
+                                 # a couple of searches, not a dozen)
             reward_basis=["first_tool", "required"],
         ),
         rationale="'Our group' + #group tag -> LOCAL paper_search FIRST (tag-scoped "
@@ -636,7 +653,106 @@ SEED_ITEMS: list[RoutingEvalItem] = [
         rationale="BFCL-style paraphrase/codeswitch robustness: a German, colloquial "
                   "weather question must route identically to the clean English one.",
     ),
+
+    # --- artifact: build a self-contained deliverable -> create_artifact -----
+    RoutingEvalItem(
+        id="html_poster_artifact",
+        category="artifact",
+        query="Make a single-page HTML poster summarising these three findings, "
+              "ready to print.",
+        context=EvalContext(prior_turns=[
+            Turn(role="user", content="We measured SABRE enhancement at 6.5 mT, a "
+                                      "13C T1 of 42 s, and 18% polarization."),
+            Turn(role="assistant", content="(prior turn restating the three numbers)"),
+        ]),
+        expected=Expected(
+            profile="code",
+            required_tools=[ToolExpectation(name="create_artifact")],
+            forbidden_tools=["deep_research", "paper_search", "web_search"],
+            reward_basis=["required", "forbidden"],
+        ),
+        rationale="A self-contained deliverable ('HTML poster', 'slide', 'handout') "
+                  "with the content already in hand -> create_artifact (CORE). Searching "
+                  "is the wrong route: the task is to BUILD, not to find. create_artifact "
+                  "owns rich HTML/document output.",
+    ),
+
+    # --- abstain: out-of-corpus ask -> route to retrieval, do NOT fabricate --
+    RoutingEvalItem(
+        id="corpus_absent_abstain",
+        category="abstain",
+        query="What does our group's published work say about lattice quantum "
+              "chromodynamics confinement?",
+        context=EvalContext(tags=["group"], project="HypMol"),
+        expected=Expected(
+            profile="research",
+            first_tool="paper_search",
+            forbidden_tools=["run_python", "create_artifact", "deep_research"],
+            abstain=True,
+            # reward_basis EXCLUDES "abstain" so the (nondeterministic) wording
+            # judge stays OFF; the routing-level proxy (no run_python/
+            # create_artifact fabrication, via forbidden_tools + abstain_routing)
+            # plus first_tool=paper_search gate deterministically.
+            reward_basis=["first_tool", "forbidden"],
+        ),
+        rationale="'Our group' about a topic far outside a hyperpolarization/NMR/"
+                  "biophysics corpus -> route to LOCAL paper_search first (the private-"
+                  "corpus point), then do NOT fabricate via code/artifact. Routing-level "
+                  "abstain proxy only; wording-level corpus-grounded abstention "
+                  "(withhold-list, shadow corpus, confabulated-citation rate) is Track C "
+                  "/ T3 and is deliberately NOT duplicated here.",
+    ),
 ]
+
+
+# ===========================================================================
+# Paraphrase set (A5) — frozen, loaded + cloned onto anchor Expectations.
+# ===========================================================================
+_ANCHORS_BY_ID = {it.id: it for it in SEED_ITEMS}
+
+
+def load_paraphrase_items(path: Optional[str] = None) -> list[RoutingEvalItem]:
+    """Build paraphrase items from the frozen routing_paraphrases.json. Each
+    paraphrase INHERITS its anchor's category/context/Expected (predicates and
+    gate); only id (`{anchor}__{pid}`) and query differ. Returns [] if the file
+    is absent (e.g. before routing_paraphrases_build.py has run).
+
+    The TEST set is anchors + these; it stays DISJOINT from the router TRAIN
+    set by construction (routing_paraphrases_build.py enforces it).
+    """
+    import json
+    from pathlib import Path
+
+    p = Path(path) if path else Path(__file__).resolve().parent / "routing_paraphrases.json"
+    if not p.exists():
+        return []
+    doc = json.loads(p.read_text())
+    items: list[RoutingEvalItem] = []
+    for entry in doc.get("paraphrases", []):
+        anchor = _ANCHORS_BY_ID.get(entry["anchor_id"])
+        if anchor is None:
+            raise ValueError(f"paraphrase references unknown anchor {entry['anchor_id']!r}")
+        items.append(RoutingEvalItem(
+            id=f"{anchor.id}__{entry['pid']}",
+            category=anchor.category,
+            query=entry["query"],
+            context=anchor.context.model_copy(deep=True),
+            expected=anchor.expected.model_copy(deep=True),
+            rationale=f"paraphrase of {anchor.id}",
+        ))
+    return items
+
+
+def items_for_tier(tier: str) -> list[RoutingEvalItem]:
+    """Select the eval item set by tier: 'anchor' (the hand-authored seeds,
+    fast tuning loop), 'paraphrase' (the frozen robustness set), or 'all'."""
+    if tier == "anchor":
+        return list(SEED_ITEMS)
+    if tier == "paraphrase":
+        return load_paraphrase_items()
+    if tier == "all":
+        return list(SEED_ITEMS) + load_paraphrase_items()
+    raise ValueError(f"unknown tier {tier!r} (want anchor|paraphrase|all)")
 
 
 # ===========================================================================

@@ -33,6 +33,7 @@ from .routing_eval import (
     SEED_ITEMS,
     ItemResult,
     RoutingEvalItem,
+    items_for_tier,
     run_item,
 )
 
@@ -110,7 +111,12 @@ def _ci95(values: list[float]) -> tuple[float, float]:
     return (max(0.0, mean - half), min(1.0, mean + half))
 
 
-def aggregate(per_item_reps: dict[str, list[ItemResult]], reps: int) -> dict:
+def aggregate(
+    per_item_reps: dict[str, list[ItemResult]],
+    reps: int,
+    category_by_id: dict[str, str] | None = None,
+) -> dict:
+    category_by_id = category_by_id or {}
     per_item = {}
     item_mean_pass = []
     for item_id, results in per_item_reps.items():
@@ -139,8 +145,9 @@ def aggregate(per_item_reps: dict[str, list[ItemResult]], reps: int) -> dict:
             )
             for k in diag_keys
         }
-        category = next(
-            (it.category for it in SEED_ITEMS if it.id == item_id), "?"
+        category = category_by_id.get(
+            item_id,
+            next((it.category for it in SEED_ITEMS if it.id == item_id), "?"),
         )
         per_item[item_id] = {
             "category": category,
@@ -164,7 +171,26 @@ def aggregate(per_item_reps: dict[str, list[ItemResult]], reps: int) -> dict:
             if per_item else 0.0, 3
         ),
     }
-    return {"aggregate": aggregate_block, "per_item": per_item}
+    # Per-category roll-up (A5): mean + spread of per-item pass fractions in
+    # each category. The phrasing-robustness signal — a category whose mean
+    # sits well below 1.0 with high spread has brittle wordings to tune.
+    by_cat: dict[str, list[float]] = {}
+    for item_id, d in per_item.items():
+        by_cat.setdefault(d["category"], []).append(d["pass_fraction"])
+    by_category = {
+        cat: {
+            "n_items": len(fracs),
+            "mean_pass": round(statistics.mean(fracs), 3),
+            "min_pass": round(min(fracs), 3),
+            "stdev": round(statistics.pstdev(fracs), 3) if len(fracs) > 1 else 0.0,
+        }
+        for cat, fracs in sorted(by_cat.items())
+    }
+    return {
+        "aggregate": aggregate_block,
+        "by_category": by_category,
+        "per_item": per_item,
+    }
 
 
 # --- markdown twin -------------------------------------------------------
@@ -177,6 +203,7 @@ def to_markdown(scorecard: dict) -> str:
         "",
         f"- **{h['note']}**",
         f"- model: `{h['model']}`  git: `{h['git_sha']}`  reps: {h['reps']}  seed: {h['seed']}",
+        f"- tier: `{h.get('tier', 'anchor')}`",
         f"- persona policy: {h['persona_policy']}",
         f"- timestamp: {h['timestamp']}",
         "",
@@ -184,6 +211,22 @@ def to_markdown(scorecard: dict) -> str:
         f"(95% CI {agg['ci95_low']:.3f}–{agg['ci95_high']:.3f}) "
         f"over {agg['n_items']} items; mean flip-rate {agg['mean_flip_rate']:.3f}",
         "",
+    ]
+    by_cat = scorecard.get("by_category") or {}
+    if by_cat:
+        lines += [
+            "### By category (phrasing-robustness — paraphrase mean + spread)",
+            "",
+            "| category | n | mean | min | stdev |",
+            "|---|---|---|---|---|",
+        ]
+        for cat, d in by_cat.items():
+            lines.append(
+                f"| {cat} | {d['n_items']} | {d['mean_pass']:.3f} | "
+                f"{d['min_pass']:.3f} | {d['stdev']:.3f} |"
+            )
+        lines.append("")
+    lines += [
         "| item | category | pass | flip | top failure |",
         "|---|---|---|---|---|",
     ]
@@ -251,6 +294,9 @@ async def main() -> int:
                     help="comma-separated item ids to run (subset; e.g. the A2 gate items)")
     ap.add_argument("--persona", default=A0_PERSONA,
                     help="request persona pin (default chat)")
+    ap.add_argument("--tier", default="anchor", choices=["anchor", "paraphrase", "all"],
+                    help="anchor=hand-authored seeds (fast tuning loop); "
+                         "paraphrase=frozen robustness set; all=both (A5)")
     ap.add_argument("--out-dir", default=SCORECARD_DIR)
     args = ap.parse_args()
 
@@ -259,7 +305,7 @@ async def main() -> int:
 
     # Decision B: items needing inject_tool_result are skipped at A0.
     runnable, skipped = [], []
-    for it in SEED_ITEMS:
+    for it in items_for_tier(args.tier):
         if args.only and it.id != args.only:
             continue
         if subset and it.id not in subset:
@@ -268,6 +314,7 @@ async def main() -> int:
             skipped.append({"id": it.id, "reason": "needs inject_tool_result (deferred to A2)"})
         else:
             runnable.append(it)
+    category_by_id = {it.id: it.category for it in runnable}
 
     if not runnable:
         print("no runnable items selected", file=sys.stderr)
@@ -284,7 +331,8 @@ async def main() -> int:
     scorecard = {
         "header": make_header(args.tag, args.reps, args.seed, args.base, args.persona)
     }
-    scorecard.update(aggregate(per_item_reps, args.reps))
+    scorecard["header"]["tier"] = args.tier
+    scorecard.update(aggregate(per_item_reps, args.reps, category_by_id))
     scorecard["skipped"] = skipped
 
     os.makedirs(args.out_dir, exist_ok=True)

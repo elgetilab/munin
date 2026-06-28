@@ -1,0 +1,1150 @@
+{
+  "meta": {
+    "purpose": "A5 frozen routing-eval paraphrase set. Each entry inherits its anchor's Expected (same predicates/gate/category); only the query varies.",
+    "method": "hand-authored, literals preserved, leakage-guarded",
+    "disjoint_from": "backend/retrieval/router_examples.json (router TRAIN set)",
+    "counts": {
+      "total": 224,
+      "by_anchor": {
+        "weather_with_location": 16,
+        "weather_no_location": 16,
+        "define_nmr": 16,
+        "percent_calc": 8,
+        "unit_convert_physical": 8,
+        "sota_phip": 16,
+        "group_corpus_qa": 16,
+        "citing_papers": 16,
+        "known_url_fetch": 8,
+        "known_doi_read": 8,
+        "remember_research_area": 16,
+        "export_bibtex": 16,
+        "html_poster_artifact": 16,
+        "reroute_research_to_compute": 16,
+        "corpus_absent_abstain": 16,
+        "weather_paraphrase": 16
+      }
+    }
+  },
+  "paraphrases": [
+    {
+      "anchor_id": "weather_with_location",
+      "pid": "p01",
+      "query": "What's the weather in Leipzig right now?"
+    },
+    {
+      "anchor_id": "weather_with_location",
+      "pid": "p02",
+      "query": "Is it raining in Leipzig at the moment?"
+    },
+    {
+      "anchor_id": "weather_with_location",
+      "pid": "p03",
+      "query": "How warm is it in Leipzig today?"
+    },
+    {
+      "anchor_id": "weather_with_location",
+      "pid": "p04",
+      "query": "Give me today's forecast for Leipzig."
+    },
+    {
+      "anchor_id": "weather_with_location",
+      "pid": "p05",
+      "query": "Will I need a jacket in Leipzig today?"
+    },
+    {
+      "anchor_id": "weather_with_location",
+      "pid": "p06",
+      "query": "What's the temperature in Leipzig this afternoon?"
+    },
+    {
+      "anchor_id": "weather_with_location",
+      "pid": "p07",
+      "query": "Current conditions in Leipzig, please."
+    },
+    {
+      "anchor_id": "weather_with_location",
+      "pid": "p08",
+      "query": "Is it sunny in Leipzig right now?"
+    },
+    {
+      "anchor_id": "weather_with_location",
+      "pid": "p09",
+      "query": "What's it like outside in Leipzig today?"
+    },
+    {
+      "anchor_id": "weather_with_location",
+      "pid": "p10",
+      "query": "Tell me the weather for Leipzig today."
+    },
+    {
+      "anchor_id": "weather_with_location",
+      "pid": "p11",
+      "query": "How's the weather looking in Leipzig this evening?"
+    },
+    {
+      "anchor_id": "weather_with_location",
+      "pid": "p12",
+      "query": "Any rain expected in Leipzig today?"
+    },
+    {
+      "anchor_id": "weather_with_location",
+      "pid": "p13",
+      "query": "What's the wind like in Leipzig right now?"
+    },
+    {
+      "anchor_id": "weather_with_location",
+      "pid": "p14",
+      "query": "Is it cold in Leipzig today?"
+    },
+    {
+      "anchor_id": "weather_with_location",
+      "pid": "p15",
+      "query": "Weather in Leipzig today?"
+    },
+    {
+      "anchor_id": "weather_with_location",
+      "pid": "p16",
+      "query": "What should I wear for the weather in Leipzig today?"
+    },
+    {
+      "anchor_id": "weather_no_location",
+      "pid": "p01",
+      "query": "What's the weather right now?"
+    },
+    {
+      "anchor_id": "weather_no_location",
+      "pid": "p02",
+      "query": "Is it going to rain later?"
+    },
+    {
+      "anchor_id": "weather_no_location",
+      "pid": "p03",
+      "query": "How warm is it outside today?"
+    },
+    {
+      "anchor_id": "weather_no_location",
+      "pid": "p04",
+      "query": "Do I need an umbrella?"
+    },
+    {
+      "anchor_id": "weather_no_location",
+      "pid": "p05",
+      "query": "What's the forecast looking like?"
+    },
+    {
+      "anchor_id": "weather_no_location",
+      "pid": "p06",
+      "query": "Is it cold out at the moment?"
+    },
+    {
+      "anchor_id": "weather_no_location",
+      "pid": "p07",
+      "query": "Will it be sunny this afternoon?"
+    },
+    {
+      "anchor_id": "weather_no_location",
+      "pid": "p08",
+      "query": "What's the temperature outside?"
+    },
+    {
+      "anchor_id": "weather_no_location",
+      "pid": "p09",
+      "query": "Should I bring a coat today?"
+    },
+    {
+      "anchor_id": "weather_no_location",
+      "pid": "p10",
+      "query": "Is it windy right now?"
+    },
+    {
+      "anchor_id": "weather_no_location",
+      "pid": "p11",
+      "query": "What's it like outside?"
+    },
+    {
+      "anchor_id": "weather_no_location",
+      "pid": "p12",
+      "query": "Give me the weather, please."
+    },
+    {
+      "anchor_id": "weather_no_location",
+      "pid": "p13",
+      "query": "Tell me today's forecast."
+    },
+    {
+      "anchor_id": "weather_no_location",
+      "pid": "p14",
+      "query": "Is it snowing at the moment?"
+    },
+    {
+      "anchor_id": "weather_no_location",
+      "pid": "p15",
+      "query": "What are the conditions like today?"
+    },
+    {
+      "anchor_id": "weather_no_location",
+      "pid": "p16",
+      "query": "How's the weather?"
+    },
+    {
+      "anchor_id": "define_nmr",
+      "pid": "p01",
+      "query": "In a paragraph, explain what a chemical bond is."
+    },
+    {
+      "anchor_id": "define_nmr",
+      "pid": "p02",
+      "query": "Briefly, what is an atom?"
+    },
+    {
+      "anchor_id": "define_nmr",
+      "pid": "p03",
+      "query": "What is diffusion? One paragraph."
+    },
+    {
+      "anchor_id": "define_nmr",
+      "pid": "p04",
+      "query": "In simple terms, what does temperature measure?"
+    },
+    {
+      "anchor_id": "define_nmr",
+      "pid": "p05",
+      "query": "In a few sentences, what is electromagnetic radiation?"
+    },
+    {
+      "anchor_id": "define_nmr",
+      "pid": "p06",
+      "query": "What does the term isotope mean?"
+    },
+    {
+      "anchor_id": "define_nmr",
+      "pid": "p07",
+      "query": "Explain what a protein is, briefly."
+    },
+    {
+      "anchor_id": "define_nmr",
+      "pid": "p08",
+      "query": "What is the difference between a solid and a liquid?"
+    },
+    {
+      "anchor_id": "define_nmr",
+      "pid": "p09",
+      "query": "In one paragraph, what is gravity?"
+    },
+    {
+      "anchor_id": "define_nmr",
+      "pid": "p10",
+      "query": "Describe what an electron is."
+    },
+    {
+      "anchor_id": "define_nmr",
+      "pid": "p11",
+      "query": "What is a wavelength? Keep it short."
+    },
+    {
+      "anchor_id": "define_nmr",
+      "pid": "p12",
+      "query": "Explain photosynthesis in a paragraph."
+    },
+    {
+      "anchor_id": "define_nmr",
+      "pid": "p13",
+      "query": "What is osmosis, briefly?"
+    },
+    {
+      "anchor_id": "define_nmr",
+      "pid": "p14",
+      "query": "In simple terms, what is a magnetic field?"
+    },
+    {
+      "anchor_id": "define_nmr",
+      "pid": "p15",
+      "query": "Explain what density is, in one paragraph."
+    },
+    {
+      "anchor_id": "define_nmr",
+      "pid": "p16",
+      "query": "What does the word viscosity mean?"
+    },
+    {
+      "anchor_id": "percent_calc",
+      "pid": "p01",
+      "query": "What's 23% of 1,840?"
+    },
+    {
+      "anchor_id": "percent_calc",
+      "pid": "p02",
+      "query": "Compute 7.5% of 3,200."
+    },
+    {
+      "anchor_id": "percent_calc",
+      "pid": "p03",
+      "query": "What is 12 percent of 950?"
+    },
+    {
+      "anchor_id": "percent_calc",
+      "pid": "p04",
+      "query": "How much is 35% of 60?"
+    },
+    {
+      "anchor_id": "percent_calc",
+      "pid": "p05",
+      "query": "What's 8% of 12,500?"
+    },
+    {
+      "anchor_id": "percent_calc",
+      "pid": "p06",
+      "query": "Calculate 64 times 39."
+    },
+    {
+      "anchor_id": "percent_calc",
+      "pid": "p07",
+      "query": "What's 1,728 divided by 12?"
+    },
+    {
+      "anchor_id": "percent_calc",
+      "pid": "p08",
+      "query": "What is 18% of 2,750?"
+    },
+    {
+      "anchor_id": "unit_convert_physical",
+      "pid": "p01",
+      "query": "How many joules is 2.5 eV?"
+    },
+    {
+      "anchor_id": "unit_convert_physical",
+      "pid": "p02",
+      "query": "Convert 300 K to degrees Celsius."
+    },
+    {
+      "anchor_id": "unit_convert_physical",
+      "pid": "p03",
+      "query": "What is 1 tesla in gauss?"
+    },
+    {
+      "anchor_id": "unit_convert_physical",
+      "pid": "p04",
+      "query": "Express 5 angstroms in nanometres."
+    },
+    {
+      "anchor_id": "unit_convert_physical",
+      "pid": "p05",
+      "query": "How many electronvolts is k_B times 298 K?"
+    },
+    {
+      "anchor_id": "unit_convert_physical",
+      "pid": "p06",
+      "query": "Convert 13.6 eV to kilojoules per mole."
+    },
+    {
+      "anchor_id": "unit_convert_physical",
+      "pid": "p07",
+      "query": "What's 500 MHz expressed in inverse centimetres?"
+    },
+    {
+      "anchor_id": "unit_convert_physical",
+      "pid": "p08",
+      "query": "How many nanoseconds is 2 microseconds?"
+    },
+    {
+      "anchor_id": "sota_phip",
+      "pid": "p01",
+      "query": "Give me a comprehensive overview of the state of the art in dissolution DNP for clinical imaging."
+    },
+    {
+      "anchor_id": "sota_phip",
+      "pid": "p02",
+      "query": "Do a thorough survey of recent advances in SABRE catalyst design."
+    },
+    {
+      "anchor_id": "sota_phip",
+      "pid": "p03",
+      "query": "I need a deep dive into the current state of hyperpolarized 13C metabolic MRI."
+    },
+    {
+      "anchor_id": "sota_phip",
+      "pid": "p04",
+      "query": "Pull together a thorough state-of-the-art on singlet-order lifetimes in biomolecules."
+    },
+    {
+      "anchor_id": "sota_phip",
+      "pid": "p05",
+      "query": "Comprehensively review where the field stands on photo-CIDNP in proteins."
+    },
+    {
+      "anchor_id": "sota_phip",
+      "pid": "p06",
+      "query": "Do a broad survey of quantum-sensing approaches for biomedical NMR."
+    },
+    {
+      "anchor_id": "sota_phip",
+      "pid": "p07",
+      "query": "Give me an in-depth landscape of parahydrogen catalysis for aqueous systems."
+    },
+    {
+      "anchor_id": "sota_phip",
+      "pid": "p08",
+      "query": "What's the comprehensive picture of the field on hyperpolarized xenon lung imaging?"
+    },
+    {
+      "anchor_id": "sota_phip",
+      "pid": "p09",
+      "query": "Survey thoroughly the recent progress in DNP polariser hardware."
+    },
+    {
+      "anchor_id": "sota_phip",
+      "pid": "p10",
+      "query": "I want a deep, wide-ranging review of cryogenic dissolution DNP methods."
+    },
+    {
+      "anchor_id": "sota_phip",
+      "pid": "p11",
+      "query": "Give me the full state of the art on in-vivo singlet-state preservation."
+    },
+    {
+      "anchor_id": "sota_phip",
+      "pid": "p12",
+      "query": "Do an extensive overview of the field on metabolic flux imaging with hyperpolarized pyruvate."
+    },
+    {
+      "anchor_id": "sota_phip",
+      "pid": "p13",
+      "query": "Thoroughly summarise where research stands on long-lived nuclear spin states."
+    },
+    {
+      "anchor_id": "sota_phip",
+      "pid": "p14",
+      "query": "Give me a comprehensive synthesis of recent work on SABRE-SHEATH at microtesla fields."
+    },
+    {
+      "anchor_id": "sota_phip",
+      "pid": "p15",
+      "query": "I need a broad, in-depth survey of hyperpolarization for drug-metabolism studies."
+    },
+    {
+      "anchor_id": "sota_phip",
+      "pid": "p16",
+      "query": "Comprehensively map out the current frontier of parahydrogen-induced polarization in catalysis."
+    },
+    {
+      "anchor_id": "group_corpus_qa",
+      "pid": "p01",
+      "query": "What has our group reported on parahydrogen polarization efficiency?"
+    },
+    {
+      "anchor_id": "group_corpus_qa",
+      "pid": "p02",
+      "query": "Summarise our lab's findings on 13C relaxation times."
+    },
+    {
+      "anchor_id": "group_corpus_qa",
+      "pid": "p03",
+      "query": "In our own papers, what did we measure for SABRE enhancement at low field?"
+    },
+    {
+      "anchor_id": "group_corpus_qa",
+      "pid": "p04",
+      "query": "According to our group's work, which catalysts did we test?"
+    },
+    {
+      "anchor_id": "group_corpus_qa",
+      "pid": "p05",
+      "query": "What does our published work say about membrane protein dynamics?"
+    },
+    {
+      "anchor_id": "group_corpus_qa",
+      "pid": "p06",
+      "query": "What did our lab find about singlet-state preservation?"
+    },
+    {
+      "anchor_id": "group_corpus_qa",
+      "pid": "p07",
+      "query": "Across our papers, what polarization levels have we reported?"
+    },
+    {
+      "anchor_id": "group_corpus_qa",
+      "pid": "p08",
+      "query": "What has our group published on hyperpolarized pyruvate metabolism?"
+    },
+    {
+      "anchor_id": "group_corpus_qa",
+      "pid": "p09",
+      "query": "Summarise what we found about parahydrogen ortho-para conversion."
+    },
+    {
+      "anchor_id": "group_corpus_qa",
+      "pid": "p10",
+      "query": "In our group's studies, how did field strength affect enhancement?"
+    },
+    {
+      "anchor_id": "group_corpus_qa",
+      "pid": "p11",
+      "query": "What did we conclude about catalyst poisoning in our own work?"
+    },
+    {
+      "anchor_id": "group_corpus_qa",
+      "pid": "p12",
+      "query": "What does our lab's research say about T1 of hyperpolarized agents?"
+    },
+    {
+      "anchor_id": "group_corpus_qa",
+      "pid": "p13",
+      "query": "From our publications, what substrates did we hyperpolarize?"
+    },
+    {
+      "anchor_id": "group_corpus_qa",
+      "pid": "p14",
+      "query": "What has our group documented about SABRE solvent effects?"
+    },
+    {
+      "anchor_id": "group_corpus_qa",
+      "pid": "p15",
+      "query": "Summarise our own work on lipid-protein coupling in membranes."
+    },
+    {
+      "anchor_id": "group_corpus_qa",
+      "pid": "p16",
+      "query": "According to our papers, what enhancement factors did we achieve?"
+    },
+    {
+      "anchor_id": "citing_papers",
+      "pid": "p01",
+      "query": "List the papers that cite 10.1038/s41586-021-03456-2."
+    },
+    {
+      "anchor_id": "citing_papers",
+      "pid": "p02",
+      "query": "Who cites doi 10.1021/jacs.1c01234?"
+    },
+    {
+      "anchor_id": "citing_papers",
+      "pid": "p03",
+      "query": "Show me the citation network around 10.1002/anie.202012345."
+    },
+    {
+      "anchor_id": "citing_papers",
+      "pid": "p04",
+      "query": "Which works reference 10.1073/pnas.2101234118?"
+    },
+    {
+      "anchor_id": "citing_papers",
+      "pid": "p05",
+      "query": "Find everything citing the paper with doi 10.1126/science.abc1234."
+    },
+    {
+      "anchor_id": "citing_papers",
+      "pid": "p06",
+      "query": "What papers build on 10.1039/d0cp01234a?"
+    },
+    {
+      "anchor_id": "citing_papers",
+      "pid": "p07",
+      "query": "Give me the works that cite 10.1021/acs.jpclett.0c01234."
+    },
+    {
+      "anchor_id": "citing_papers",
+      "pid": "p08",
+      "query": "Trace the papers citing doi 10.1038/nature12373."
+    },
+    {
+      "anchor_id": "citing_papers",
+      "pid": "p09",
+      "query": "Which articles cite 10.1063/5.0012345?"
+    },
+    {
+      "anchor_id": "citing_papers",
+      "pid": "p10",
+      "query": "Show citations of the review at 10.1021/cr500426x."
+    },
+    {
+      "anchor_id": "citing_papers",
+      "pid": "p11",
+      "query": "List who has cited 10.1002/mrm.28765."
+    },
+    {
+      "anchor_id": "citing_papers",
+      "pid": "p12",
+      "query": "What cites doi 10.1016/j.jmr.2020.106789?"
+    },
+    {
+      "anchor_id": "citing_papers",
+      "pid": "p13",
+      "query": "Find the citing papers for 10.1038/s41557-021-00789-x."
+    },
+    {
+      "anchor_id": "citing_papers",
+      "pid": "p14",
+      "query": "Who references 10.1021/jacs.0c05678 in the literature?"
+    },
+    {
+      "anchor_id": "citing_papers",
+      "pid": "p15",
+      "query": "Map the citation graph of doi 10.1126/sciadv.abd1234."
+    },
+    {
+      "anchor_id": "citing_papers",
+      "pid": "p16",
+      "query": "Which papers cite 10.1073/pnas.1912345117?"
+    },
+    {
+      "anchor_id": "known_url_fetch",
+      "pid": "p01",
+      "query": "Pull up https://arxiv.org/abs/2406.12045 and give me the gist."
+    },
+    {
+      "anchor_id": "known_url_fetch",
+      "pid": "p02",
+      "query": "What's on this page? https://arxiv.org/abs/2406.12045"
+    },
+    {
+      "anchor_id": "known_url_fetch",
+      "pid": "p03",
+      "query": "Summarise the content at https://arxiv.org/abs/2406.12045 for me."
+    },
+    {
+      "anchor_id": "known_url_fetch",
+      "pid": "p04",
+      "query": "Read https://arxiv.org/abs/2406.12045 and tell me the main result."
+    },
+    {
+      "anchor_id": "known_url_fetch",
+      "pid": "p05",
+      "query": "Can you digest https://arxiv.org/abs/2406.12045 for me?"
+    },
+    {
+      "anchor_id": "known_url_fetch",
+      "pid": "p06",
+      "query": "Give me the highlights of https://arxiv.org/abs/2406.12045."
+    },
+    {
+      "anchor_id": "known_url_fetch",
+      "pid": "p07",
+      "query": "Open https://arxiv.org/abs/2406.12045 and summarise it."
+    },
+    {
+      "anchor_id": "known_url_fetch",
+      "pid": "p08",
+      "query": "TL;DR of https://arxiv.org/abs/2406.12045 please."
+    },
+    {
+      "anchor_id": "known_doi_read",
+      "pid": "p01",
+      "query": "Open doi:10.1021/jacs.0c01234 and tell me what method they used."
+    },
+    {
+      "anchor_id": "known_doi_read",
+      "pid": "p02",
+      "query": "Read 10.1021/jacs.0c01234 and summarise the hyperpolarization approach."
+    },
+    {
+      "anchor_id": "known_doi_read",
+      "pid": "p03",
+      "query": "What technique does doi:10.1021/jacs.0c01234 report? Read it."
+    },
+    {
+      "anchor_id": "known_doi_read",
+      "pid": "p04",
+      "query": "Pull the full text of 10.1021/jacs.0c01234 and give me the methods."
+    },
+    {
+      "anchor_id": "known_doi_read",
+      "pid": "p05",
+      "query": "Go through doi:10.1021/jacs.0c01234 and tell me the key result."
+    },
+    {
+      "anchor_id": "known_doi_read",
+      "pid": "p06",
+      "query": "Read the paper 10.1021/jacs.0c01234 and explain their setup."
+    },
+    {
+      "anchor_id": "known_doi_read",
+      "pid": "p07",
+      "query": "What experimental conditions are in doi:10.1021/jacs.0c01234? Read it."
+    },
+    {
+      "anchor_id": "known_doi_read",
+      "pid": "p08",
+      "query": "Fetch and read 10.1021/jacs.0c01234, then summarise the findings."
+    },
+    {
+      "anchor_id": "remember_research_area",
+      "pid": "p01",
+      "query": "For future reference, my work centres on dissolution DNP."
+    },
+    {
+      "anchor_id": "remember_research_area",
+      "pid": "p02",
+      "query": "Please remember that I specialise in DNP."
+    },
+    {
+      "anchor_id": "remember_research_area",
+      "pid": "p03",
+      "query": "Note for next time: I work with DNP hyperpolarization."
+    },
+    {
+      "anchor_id": "remember_research_area",
+      "pid": "p04",
+      "query": "Keep in mind going forward, my field is DNP."
+    },
+    {
+      "anchor_id": "remember_research_area",
+      "pid": "p05",
+      "query": "Just so you have it on file, I research DNP."
+    },
+    {
+      "anchor_id": "remember_research_area",
+      "pid": "p06",
+      "query": "Going forward, remember my focus is dissolution DNP."
+    },
+    {
+      "anchor_id": "remember_research_area",
+      "pid": "p07",
+      "query": "Make a note that my area is DNP."
+    },
+    {
+      "anchor_id": "remember_research_area",
+      "pid": "p08",
+      "query": "For the record, I do DNP work."
+    },
+    {
+      "anchor_id": "remember_research_area",
+      "pid": "p09",
+      "query": "Remember this about me: I work on DNP."
+    },
+    {
+      "anchor_id": "remember_research_area",
+      "pid": "p10",
+      "query": "From now on, know that my speciality is DNP."
+    },
+    {
+      "anchor_id": "remember_research_area",
+      "pid": "p11",
+      "query": "Save this: my research is in DNP."
+    },
+    {
+      "anchor_id": "remember_research_area",
+      "pid": "p12",
+      "query": "Bear in mind for later that I focus on DNP."
+    },
+    {
+      "anchor_id": "remember_research_area",
+      "pid": "p13",
+      "query": "I'd like you to remember I work in DNP."
+    },
+    {
+      "anchor_id": "remember_research_area",
+      "pid": "p14",
+      "query": "Note that, going forward, my work is DNP-based."
+    },
+    {
+      "anchor_id": "remember_research_area",
+      "pid": "p15",
+      "query": "Keep on record that my lab does DNP."
+    },
+    {
+      "anchor_id": "remember_research_area",
+      "pid": "p16",
+      "query": "Please file away that I specialise in dissolution DNP."
+    },
+    {
+      "anchor_id": "export_bibtex",
+      "pid": "p01",
+      "query": "BibTeX for 10.1/a, 10.2/b, 10.3/c please."
+    },
+    {
+      "anchor_id": "export_bibtex",
+      "pid": "p02",
+      "query": "Export these in BibTeX: 10.1021/x1, 10.1038/y2, 10.1002/z3."
+    },
+    {
+      "anchor_id": "export_bibtex",
+      "pid": "p03",
+      "query": "Give me BibTeX entries for 10.1/aa, 10.2/bb, 10.3/cc, 10.4/dd."
+    },
+    {
+      "anchor_id": "export_bibtex",
+      "pid": "p04",
+      "query": "I need BibTeX for these DOIs: 10.1/p, 10.2/q, 10.3/r."
+    },
+    {
+      "anchor_id": "export_bibtex",
+      "pid": "p05",
+      "query": "Format 10.1126/s1, 10.1063/s2, 10.1039/s3 as BibTeX."
+    },
+    {
+      "anchor_id": "export_bibtex",
+      "pid": "p06",
+      "query": "Produce BibTeX records for 10.1/m1, 10.2/m2, 10.3/m3."
+    },
+    {
+      "anchor_id": "export_bibtex",
+      "pid": "p07",
+      "query": "Make BibTeX out of 10.1073/n1, 10.1021/n2, 10.1002/n3, 10.1038/n4."
+    },
+    {
+      "anchor_id": "export_bibtex",
+      "pid": "p08",
+      "query": "Citations in BibTeX, please: 10.1/e, 10.2/f, 10.3/g."
+    },
+    {
+      "anchor_id": "export_bibtex",
+      "pid": "p09",
+      "query": "Give me BibTeX for these four: 10.1/w, 10.2/x, 10.3/y, 10.4/z."
+    },
+    {
+      "anchor_id": "export_bibtex",
+      "pid": "p10",
+      "query": "Export 10.1016/a, 10.1021/b, 10.1126/c to BibTeX."
+    },
+    {
+      "anchor_id": "export_bibtex",
+      "pid": "p11",
+      "query": "BibTeX entries for 10.1/k1, 10.2/k2, 10.3/k3 if you can."
+    },
+    {
+      "anchor_id": "export_bibtex",
+      "pid": "p12",
+      "query": "Turn 10.1/t, 10.2/u, 10.3/v into BibTeX for me."
+    },
+    {
+      "anchor_id": "export_bibtex",
+      "pid": "p13",
+      "query": "I want BibTeX for 10.1038/g1, 10.1039/g2, 10.1063/g3."
+    },
+    {
+      "anchor_id": "export_bibtex",
+      "pid": "p14",
+      "query": "Generate BibTeX for these three DOIs: 10.1/h, 10.2/i, 10.3/j."
+    },
+    {
+      "anchor_id": "export_bibtex",
+      "pid": "p15",
+      "query": "Please give BibTeX for 10.1002/c1, 10.1021/c2, 10.1126/c3."
+    },
+    {
+      "anchor_id": "export_bibtex",
+      "pid": "p16",
+      "query": "BibTeX, please, for 10.1/d1, 10.2/d2, 10.3/d3, 10.4/d4."
+    },
+    {
+      "anchor_id": "html_poster_artifact",
+      "pid": "p01",
+      "query": "Turn these three results into a printable one-page HTML handout."
+    },
+    {
+      "anchor_id": "html_poster_artifact",
+      "pid": "p02",
+      "query": "Build a slide summarising these findings."
+    },
+    {
+      "anchor_id": "html_poster_artifact",
+      "pid": "p03",
+      "query": "Make an HTML one-pager I can print for the poster session."
+    },
+    {
+      "anchor_id": "html_poster_artifact",
+      "pid": "p04",
+      "query": "Create a single-page summary document of these numbers."
+    },
+    {
+      "anchor_id": "html_poster_artifact",
+      "pid": "p05",
+      "query": "Put these results into a clean HTML poster."
+    },
+    {
+      "anchor_id": "html_poster_artifact",
+      "pid": "p06",
+      "query": "Make me a printable fact sheet from these three results."
+    },
+    {
+      "anchor_id": "html_poster_artifact",
+      "pid": "p07",
+      "query": "Design an HTML page that lays out these findings nicely."
+    },
+    {
+      "anchor_id": "html_poster_artifact",
+      "pid": "p08",
+      "query": "Generate a one-slide summary of these measurements."
+    },
+    {
+      "anchor_id": "html_poster_artifact",
+      "pid": "p09",
+      "query": "Assemble these into a tidy printable handout."
+    },
+    {
+      "anchor_id": "html_poster_artifact",
+      "pid": "p10",
+      "query": "Make a self-contained HTML summary of the three results."
+    },
+    {
+      "anchor_id": "html_poster_artifact",
+      "pid": "p11",
+      "query": "Build a poster-style page for these numbers."
+    },
+    {
+      "anchor_id": "html_poster_artifact",
+      "pid": "p12",
+      "query": "Lay these findings out as a one-page printable."
+    },
+    {
+      "anchor_id": "html_poster_artifact",
+      "pid": "p13",
+      "query": "Create an HTML card summarising these three measurements."
+    },
+    {
+      "anchor_id": "html_poster_artifact",
+      "pid": "p14",
+      "query": "Produce a printable summary sheet of these results."
+    },
+    {
+      "anchor_id": "html_poster_artifact",
+      "pid": "p15",
+      "query": "Make a single HTML page presenting these findings."
+    },
+    {
+      "anchor_id": "html_poster_artifact",
+      "pid": "p16",
+      "query": "Turn these into a clean one-page poster I can hand out."
+    },
+    {
+      "anchor_id": "reroute_research_to_compute",
+      "pid": "p01",
+      "query": "Now graph those enhancement values against magnetic field."
+    },
+    {
+      "anchor_id": "reroute_research_to_compute",
+      "pid": "p02",
+      "query": "Plot the numbers you just gave me versus temperature."
+    },
+    {
+      "anchor_id": "reroute_research_to_compute",
+      "pid": "p03",
+      "query": "Chart those polarization levels for me."
+    },
+    {
+      "anchor_id": "reroute_research_to_compute",
+      "pid": "p04",
+      "query": "Make a figure of those values against field strength."
+    },
+    {
+      "anchor_id": "reroute_research_to_compute",
+      "pid": "p05",
+      "query": "Show me a plot of those results over time."
+    },
+    {
+      "anchor_id": "reroute_research_to_compute",
+      "pid": "p06",
+      "query": "Visualise those numbers as a scatter plot."
+    },
+    {
+      "anchor_id": "reroute_research_to_compute",
+      "pid": "p07",
+      "query": "Draw a line through those data points for me."
+    },
+    {
+      "anchor_id": "reroute_research_to_compute",
+      "pid": "p08",
+      "query": "Plot those enhancement factors versus catalyst concentration."
+    },
+    {
+      "anchor_id": "reroute_research_to_compute",
+      "pid": "p09",
+      "query": "Turn those numbers into a bar chart."
+    },
+    {
+      "anchor_id": "reroute_research_to_compute",
+      "pid": "p10",
+      "query": "Graph the values you just listed."
+    },
+    {
+      "anchor_id": "reroute_research_to_compute",
+      "pid": "p11",
+      "query": "Give me a plot of those measurements."
+    },
+    {
+      "anchor_id": "reroute_research_to_compute",
+      "pid": "p12",
+      "query": "Make a quick figure from those numbers."
+    },
+    {
+      "anchor_id": "reroute_research_to_compute",
+      "pid": "p13",
+      "query": "Plot those against the field and show me."
+    },
+    {
+      "anchor_id": "reroute_research_to_compute",
+      "pid": "p14",
+      "query": "Chart the trend in those values."
+    },
+    {
+      "anchor_id": "reroute_research_to_compute",
+      "pid": "p15",
+      "query": "Overlay those two sets of numbers on one plot."
+    },
+    {
+      "anchor_id": "reroute_research_to_compute",
+      "pid": "p16",
+      "query": "Render those results as a figure."
+    },
+    {
+      "anchor_id": "corpus_absent_abstain",
+      "pid": "p01",
+      "query": "What does our group's published work say about dark matter detection?"
+    },
+    {
+      "anchor_id": "corpus_absent_abstain",
+      "pid": "p02",
+      "query": "Summarise our lab's publications on stock-market prediction."
+    },
+    {
+      "anchor_id": "corpus_absent_abstain",
+      "pid": "p03",
+      "query": "According to our papers, what did we find about medieval poetry?"
+    },
+    {
+      "anchor_id": "corpus_absent_abstain",
+      "pid": "p04",
+      "query": "What has our group reported on jet-engine turbine design?"
+    },
+    {
+      "anchor_id": "corpus_absent_abstain",
+      "pid": "p05",
+      "query": "In our own publications, what did we conclude about coral reef ecology?"
+    },
+    {
+      "anchor_id": "corpus_absent_abstain",
+      "pid": "p06",
+      "query": "What does our lab's work say about Roman military history?"
+    },
+    {
+      "anchor_id": "corpus_absent_abstain",
+      "pid": "p07",
+      "query": "Across our papers, what have we found on quantum chromodynamics confinement?"
+    },
+    {
+      "anchor_id": "corpus_absent_abstain",
+      "pid": "p08",
+      "query": "What did our group publish about exoplanet atmospheres?"
+    },
+    {
+      "anchor_id": "corpus_absent_abstain",
+      "pid": "p09",
+      "query": "Summarise our lab's research on supply-chain logistics."
+    },
+    {
+      "anchor_id": "corpus_absent_abstain",
+      "pid": "p10",
+      "query": "According to our work, what did we measure for glacier retreat rates?"
+    },
+    {
+      "anchor_id": "corpus_absent_abstain",
+      "pid": "p11",
+      "query": "What has our group documented about Renaissance painting techniques?"
+    },
+    {
+      "anchor_id": "corpus_absent_abstain",
+      "pid": "p12",
+      "query": "From our publications, what did we find about plate tectonics?"
+    },
+    {
+      "anchor_id": "corpus_absent_abstain",
+      "pid": "p13",
+      "query": "What does our group's research say about cryptocurrency markets?"
+    },
+    {
+      "anchor_id": "corpus_absent_abstain",
+      "pid": "p14",
+      "query": "In our papers, what did we report on songbird migration?"
+    },
+    {
+      "anchor_id": "corpus_absent_abstain",
+      "pid": "p15",
+      "query": "What has our lab studied about volcanic ash dispersal?"
+    },
+    {
+      "anchor_id": "corpus_absent_abstain",
+      "pid": "p16",
+      "query": "Across our own work, what did we conclude about ancient trade routes?"
+    },
+    {
+      "anchor_id": "weather_paraphrase",
+      "pid": "p01",
+      "query": "berlin wetter morgen, brauch ich ne jacke?"
+    },
+    {
+      "anchor_id": "weather_paraphrase",
+      "pid": "p02",
+      "query": "is it raining in Hamburg right now"
+    },
+    {
+      "anchor_id": "weather_paraphrase",
+      "pid": "p03",
+      "query": "quel temps fait-il a Paris aujourd'hui"
+    },
+    {
+      "anchor_id": "weather_paraphrase",
+      "pid": "p04",
+      "query": "wie is het weer in Amsterdam vandaag"
+    },
+    {
+      "anchor_id": "weather_paraphrase",
+      "pid": "p05",
+      "query": "che tempo fa a Roma adesso"
+    },
+    {
+      "anchor_id": "weather_paraphrase",
+      "pid": "p06",
+      "query": "koln wetter jetzt, regnet es?"
+    },
+    {
+      "anchor_id": "weather_paraphrase",
+      "pid": "p07",
+      "query": "what's it doing weather-wise in Dresden today"
+    },
+    {
+      "anchor_id": "weather_paraphrase",
+      "pid": "p08",
+      "query": "hace frio en Madrid ahora mismo?"
+    },
+    {
+      "anchor_id": "weather_paraphrase",
+      "pid": "p09",
+      "query": "weather in Vienna right now please"
+    },
+    {
+      "anchor_id": "weather_paraphrase",
+      "pid": "p10",
+      "query": "regnet es gerade in Frankfurt"
+    },
+    {
+      "anchor_id": "weather_paraphrase",
+      "pid": "p11",
+      "query": "what's the temp in Zurich this morning"
+    },
+    {
+      "anchor_id": "weather_paraphrase",
+      "pid": "p12",
+      "query": "il pleut a Lyon en ce moment?"
+    },
+    {
+      "anchor_id": "weather_paraphrase",
+      "pid": "p13",
+      "query": "how's the weather over in Hamburg today"
+    },
+    {
+      "anchor_id": "weather_paraphrase",
+      "pid": "p14",
+      "query": "stuttgart wetter heute nachmittag?"
+    },
+    {
+      "anchor_id": "weather_paraphrase",
+      "pid": "p15",
+      "query": "is it sunny in Brussels right now"
+    },
+    {
+      "anchor_id": "weather_paraphrase",
+      "pid": "p16",
+      "query": "what's the forecast for Geneva today"
+    }
+  ]
+}
