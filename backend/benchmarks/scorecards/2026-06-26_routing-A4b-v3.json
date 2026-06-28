@@ -1,0 +1,334 @@
+{
+  "header": {
+    "tag": "routing-A4b-v3",
+    "timestamp": "2026-06-26T14:41:37.869488+00:00",
+    "git_sha": "7aed1dc",
+    "model": "qwen3.6-35b-a3b",
+    "persona_policy": "chat (A0 decision A; not expected.profile)",
+    "base_url": "http://127.0.0.1:8080",
+    "reps": 8,
+    "seed": 42,
+    "python_version": "3.12.7",
+    "package_versions": {
+      "httpx": "0.27.0",
+      "pydantic": "2.13.4"
+    },
+    "note": "PRE-MIGRATION regression baseline. Not a paper result."
+  },
+  "aggregate": {
+    "n_items": 14,
+    "mean_pass_rate": 0.804,
+    "ci95_low": 0.664,
+    "ci95_high": 0.943,
+    "mean_flip_rate": 0.194
+  },
+  "per_item": {
+    "weather_with_location": {
+      "category": "simple_lookup",
+      "pass_rate": "8/8",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_no_location": {
+      "category": "clarify",
+      "pass_rate": "5/8",
+      "pass_fraction": 0.625,
+      "flip_rate": 0.571,
+      "checks_pass_rate": {
+        "first_tool": 0.625,
+        "forbidden": 0.75,
+        "solo": 0.875
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 2,
+          "failures": [
+            "first tool '<none>', expected 'ask_clarification'",
+            "expected a solo tool call in the first step"
+          ]
+        },
+        {
+          "rep": 4,
+          "failures": [
+            "first tool 'web_search', expected 'ask_clarification'",
+            "forbidden tools fired: ['web_search']"
+          ]
+        },
+        {
+          "rep": 5,
+          "failures": [
+            "first tool 'web_search', expected 'ask_clarification'",
+            "forbidden tools fired: ['web_search']"
+          ]
+        }
+      ]
+    },
+    "define_nmr": {
+      "category": "no_tool",
+      "pass_rate": "8/8",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "no_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "percent_calc": {
+      "category": "compute",
+      "pass_rate": "8/8",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "unit_convert_physical": {
+      "category": "compute",
+      "pass_rate": "8/8",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "sota_phip": {
+      "category": "deep_research",
+      "pass_rate": "8/8",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "group_corpus_qa": {
+      "category": "corpus_qa",
+      "pass_rate": "7/8",
+      "pass_fraction": 0.875,
+      "flip_rate": 0.286,
+      "checks_pass_rate": {
+        "first_tool": 0.875,
+        "required": 0.875
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 2,
+          "failures": [
+            "first tool 'ask_clarification', expected 'paper_search'",
+            "required 'paper_search': calls=0 (want 1-99), preds_ok=False"
+          ]
+        }
+      ]
+    },
+    "citing_papers": {
+      "category": "citation_graph",
+      "pass_rate": "8/8",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "known_url_fetch": {
+      "category": "direct_ref",
+      "pass_rate": "7/8",
+      "pass_fraction": 0.875,
+      "flip_rate": 0.286,
+      "checks_pass_rate": {
+        "first_tool": 0.875,
+        "forbidden": 1.0,
+        "required": 0.875
+      },
+      "diagnostics_rate": {},
+      "sample_failures": [
+        {
+          "rep": 5,
+          "failures": [
+            "first tool 'read_paper', expected 'web_fetch'"
+          ]
+        }
+      ]
+    },
+    "known_doi_read": {
+      "category": "direct_ref",
+      "pass_rate": "6/8",
+      "pass_fraction": 0.75,
+      "flip_rate": 0.286,
+      "checks_pass_rate": {
+        "forbidden": 0.75,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:read_paper": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 5,
+          "failures": [
+            "forbidden tools fired: ['semantic_scholar_search']"
+          ]
+        },
+        {
+          "rep": 6,
+          "failures": [
+            "forbidden tools fired: ['semantic_scholar_search']"
+          ]
+        }
+      ]
+    },
+    "remember_research_area": {
+      "category": "memory",
+      "pass_rate": "3/8",
+      "pass_fraction": 0.375,
+      "flip_rate": 0.571,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 0.375
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 0.375
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'remember': calls=0 (want 1-99), preds_ok=False"
+          ]
+        },
+        {
+          "rep": 1,
+          "failures": [
+            "required 'remember': calls=0 (want 1-99), preds_ok=False"
+          ]
+        },
+        {
+          "rep": 2,
+          "failures": [
+            "required 'remember': calls=0 (want 1-99), preds_ok=False"
+          ]
+        }
+      ]
+    },
+    "export_bibtex": {
+      "category": "citation_export",
+      "pass_rate": "5/8",
+      "pass_fraction": 0.625,
+      "flip_rate": 0.429,
+      "checks_pass_rate": {
+        "forbidden": 0.875,
+        "required": 0.625
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 0.375
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'export_citations': calls=0 (want 1-99), preds_ok=False"
+          ]
+        },
+        {
+          "rep": 3,
+          "failures": [
+            "required 'export_citations': calls=0 (want 1-99), preds_ok=False"
+          ]
+        },
+        {
+          "rep": 4,
+          "failures": [
+            "required 'export_citations': calls=0 (want 1-99), preds_ok=False"
+          ]
+        }
+      ]
+    },
+    "reroute_research_to_compute": {
+      "category": "multi_turn",
+      "pass_rate": "1/8",
+      "pass_fraction": 0.125,
+      "flip_rate": 0.286,
+      "checks_pass_rate": {
+        "forbidden": 0.125,
+        "required": 0.875
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 0.75,
+        "profile_match": 0.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "forbidden tools fired: ['deep_research', 'paper_search', 'paper_search', 'paper_search']"
+          ]
+        },
+        {
+          "rep": 1,
+          "failures": [
+            "forbidden tools fired: ['paper_search']"
+          ]
+        },
+        {
+          "rep": 3,
+          "failures": [
+            "forbidden tools fired: ['paper_search', 'paper_search', 'paper_search']"
+          ]
+        }
+      ]
+    },
+    "weather_paraphrase": {
+      "category": "robustness",
+      "pass_rate": "8/8",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    }
+  },
+  "skipped": [
+    {
+      "id": "web_search_degraded",
+      "reason": "needs inject_tool_result (deferred to A2)"
+    }
+  ]
+}

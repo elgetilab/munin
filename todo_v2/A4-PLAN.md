@@ -367,6 +367,38 @@ allowlists active, so the personas must land), A0 regression gate, a soft-bias
 confirmation run (does deferred-tool completed_in_turn rise?), and the 1-week
 soak watching for inappropriate cross-profile tool use.
 
+## A4b VALIDATED live (2026-06-28): best result of the migration
+
+Deployed + measured across v1->v3. Final: **mean pass 0.804** (A0 0.714 ->
+A3 0.696 -> A4a 0.732 -> A4b 0.589 -> v2 0.705 -> **v3 0.804**), the highest
+of the migration; no item regressed vs A0, so the A4b gate is met (1-week
+soak is the remaining real-world validation).
+
+What the iterations taught us:
+- **Soft bias works AND is a strong lever:** get_citations completed_in_turn
+  0.62 -> 1.00 (resident, no tool_search hop) -> the A2/A3 deferred-tool
+  residual fixed. But surfacing the WRONG tool over-biases: putting
+  semantic_scholar_search resident made the model over-search local/specific
+  queries (known_doi_read 8->3, group_corpus_qa 5->0 in A4b v1).
+- **The fix was varghele's local-first-then-branch model, not removing s2:**
+  branching to S2 is DESIRED (local corpus is curated + incomplete). Encoded
+  as research-fragment guidance (search local first; branch to S2 when local
+  is thin/off-corpus; read a known DOI directly; a URL -> web_fetch) + relaxed
+  the over-strict group_corpus_qa eval item (S2 not forbidden; assert
+  first_tool=paper_search). Recovered to 0.705 (v2).
+- **known_url_fetch:** the "read a known reference directly" guidance
+  overgeneralized to URLs (read_paper a URL). Fixed with DOI-vs-URL guidance +
+  web_fetch resident for research -> 0/8 -> 7/8 (past its 2/8 baseline) -> 0.804
+  (v3).
+
+**Still A5 tuning (not A4b blockers):** reroute (code+research ambiguity),
+remember (recognition), research OVER-TOOLING (28 calls on one query, occasional
+vLLM 400 max-context).
+
+**Still pending:** A4b post-soak dead-code cleanup (tool_allowlist(), the
+_run_tool_calls enforcement, _Params.tool_allowlist field); 1-week soak;
+frontend dead-handler cleanup.
+
 ## 7. Risks / notes
 
 - **Biggest blast radius of the migration.** Deleting the intercept touches
