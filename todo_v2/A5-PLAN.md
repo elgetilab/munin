@@ -118,3 +118,43 @@ does NOT ship via `deploy.sh`. So the entire test-set expansion (anchors +
 paraphrases + scorer + run modes) is built AND measured against the current
 live harness with NO deploy. Deploys are only needed when tuning the SERVED
 router (labelled set, fragments, router constants).
+
+## Measurement log (anchor tier, reps=5 unless noted)
+
+| run | mean | notable |
+|---|---|---|
+| baseline (A4b live) | 0.800 | weak: remember 0.20, url_fetch 0.40, doi_read/bibtex 0.60 |
+| v1 (chat block: direct-ref/memory/artifact) | 0.825 | +5 targeted wins, BUT reroute 1.0->0.2 (gate violation) |
+| v2 (plot-exclusion, memory->research, DOI no-branch) | 0.850 | remember 0.0->1.0; reroute still 0.0 |
+| v3 (slim chat block to deliverable-only) | 0.900 | reroute still failing under chat |
+| v3b (+ reroute stub: real numbers in prior turn) | 0.900 | reroute 0.0->1.0 (root cause was the stub, not routing) |
+| v4 (re-add clarification-primacy + bibtex nudge) | **0.950** | bibtex/weather recovered; all items 0.80-1.00 |
+
+Key findings:
+- **The chat block's only load-bearing win is `html_poster` (create_artifact).**
+  `url_fetch`/`doi_read`/`citing`/`remember` all route to RESEARCH, so chat
+  direct-ref/memory bullets were dead weight that destabilised chat-routed
+  `reroute`. v3 slimmed chat to a deliverable-only cue (plot -> run_python,
+  NEVER create_artifact).
+- **`remember` routes to RESEARCH**, not chat (probe-confirmed). The memory cue
+  had to live in the research fragment; in chat it never fired.
+- **`reroute` was broken by a brittle TEST STUB**: its prior assistant turn was
+  a placeholder ("(prior deep_research answer with a few numbers)") with no
+  actual numbers, so "plot those values" was under-specified and the model
+  searched to FIND values. Probe: with real numbers in the prior turn,
+  0/5 -> 4/5 clean run_python. Fixed the stub (commit edfa42b); this is exactly
+  A5's "a brittle setup must not swing the score" mandate.
+- The 0.80 items at v4 (`percent_calc`, `sota_phip`, `reroute`) are single-rep
+  benign deviations (inline arithmetic; set_plan-before-deep_research; one stray
+  search) - the reps=5 noise floor, not regressions.
+
+Served-side changes shipped (personas, flag-free; deploy = `deploy.sh personas`
++ retrieval restart): chat v1.5, research v1.3, code v1.2. Commits: 8fc2fd6
+(v1), 1095c31 (v2), 8d7d918 (v3), 41d20ad (v4); edfa42b (reroute test stub).
+
+## Open / next
+
+- Paraphrase tier (224 items) run for the phrasing-robustness number per
+  category (acceptance run; ~2h). Result recorded here once it lands.
+- known_doi_read still branches to S2 occasionally (0.80-1.0); acceptable.
+- 1-week soak on the v1-v4 persona changes before treating A5 as closed.

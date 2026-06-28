@@ -1,0 +1,412 @@
+{
+  "header": {
+    "tag": "a5-v2-anchor",
+    "timestamp": "2026-06-28T14:18:23.915935+00:00",
+    "git_sha": "1095c31",
+    "model": "unknown",
+    "persona_policy": "chat (A0 decision A; not expected.profile)",
+    "base_url": "http://127.0.0.1:8080",
+    "reps": 5,
+    "seed": 42,
+    "python_version": "3.12.7",
+    "package_versions": {
+      "httpx": "0.27.0",
+      "pydantic": "2.13.4"
+    },
+    "note": "PRE-MIGRATION regression baseline. Not a paper result.",
+    "tier": "anchor"
+  },
+  "aggregate": {
+    "n_items": 16,
+    "mean_pass_rate": 0.85,
+    "ci95_low": 0.714,
+    "ci95_high": 0.986,
+    "mean_flip_rate": 0.094
+  },
+  "by_category": {
+    "abstain": {
+      "n_items": 1,
+      "mean_pass": 0.6,
+      "min_pass": 0.6,
+      "stdev": 0.0
+    },
+    "artifact": {
+      "n_items": 1,
+      "mean_pass": 1.0,
+      "min_pass": 1.0,
+      "stdev": 0.0
+    },
+    "citation_export": {
+      "n_items": 1,
+      "mean_pass": 1.0,
+      "min_pass": 1.0,
+      "stdev": 0.0
+    },
+    "citation_graph": {
+      "n_items": 1,
+      "mean_pass": 1.0,
+      "min_pass": 1.0,
+      "stdev": 0.0
+    },
+    "clarify": {
+      "n_items": 1,
+      "mean_pass": 0.4,
+      "min_pass": 0.4,
+      "stdev": 0.0
+    },
+    "compute": {
+      "n_items": 2,
+      "mean_pass": 0.9,
+      "min_pass": 0.8,
+      "stdev": 0.1
+    },
+    "corpus_qa": {
+      "n_items": 1,
+      "mean_pass": 1.0,
+      "min_pass": 1.0,
+      "stdev": 0.0
+    },
+    "deep_research": {
+      "n_items": 1,
+      "mean_pass": 1.0,
+      "min_pass": 1.0,
+      "stdev": 0.0
+    },
+    "direct_ref": {
+      "n_items": 2,
+      "mean_pass": 0.9,
+      "min_pass": 0.8,
+      "stdev": 0.1
+    },
+    "memory": {
+      "n_items": 1,
+      "mean_pass": 1.0,
+      "min_pass": 1.0,
+      "stdev": 0.0
+    },
+    "multi_turn": {
+      "n_items": 1,
+      "mean_pass": 0.0,
+      "min_pass": 0.0,
+      "stdev": 0.0
+    },
+    "no_tool": {
+      "n_items": 1,
+      "mean_pass": 1.0,
+      "min_pass": 1.0,
+      "stdev": 0.0
+    },
+    "robustness": {
+      "n_items": 1,
+      "mean_pass": 1.0,
+      "min_pass": 1.0,
+      "stdev": 0.0
+    },
+    "simple_lookup": {
+      "n_items": 1,
+      "mean_pass": 1.0,
+      "min_pass": 1.0,
+      "stdev": 0.0
+    }
+  },
+  "per_item": {
+    "weather_with_location": {
+      "category": "simple_lookup",
+      "pass_rate": "5/5",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_no_location": {
+      "category": "clarify",
+      "pass_rate": "2/5",
+      "pass_fraction": 0.4,
+      "flip_rate": 0.25,
+      "checks_pass_rate": {
+        "first_tool": 0.4,
+        "forbidden": 0.6,
+        "solo": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 2,
+          "failures": [
+            "first tool 'web_search', expected 'ask_clarification'",
+            "forbidden tools fired: ['web_search']"
+          ]
+        },
+        {
+          "rep": 3,
+          "failures": [
+            "first tool 'web_search', expected 'ask_clarification'",
+            "forbidden tools fired: ['web_search']"
+          ]
+        },
+        {
+          "rep": 4,
+          "failures": [
+            "first tool 'recall', expected 'ask_clarification'"
+          ]
+        }
+      ]
+    },
+    "define_nmr": {
+      "category": "no_tool",
+      "pass_rate": "5/5",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "no_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "percent_calc": {
+      "category": "compute",
+      "pass_rate": "4/5",
+      "pass_fraction": 0.8,
+      "flip_rate": 0.25,
+      "checks_pass_rate": {
+        "first_tool": 0.8,
+        "forbidden": 1.0,
+        "required": 0.8
+      },
+      "diagnostics_rate": {},
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "first tool '<none>', expected 'calculate'"
+          ]
+        }
+      ]
+    },
+    "unit_convert_physical": {
+      "category": "compute",
+      "pass_rate": "5/5",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "sota_phip": {
+      "category": "deep_research",
+      "pass_rate": "5/5",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "group_corpus_qa": {
+      "category": "corpus_qa",
+      "pass_rate": "5/5",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_6": 0.4,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "citing_papers": {
+      "category": "citation_graph",
+      "pass_rate": "5/5",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "known_url_fetch": {
+      "category": "direct_ref",
+      "pass_rate": "5/5",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "known_doi_read": {
+      "category": "direct_ref",
+      "pass_rate": "4/5",
+      "pass_fraction": 0.8,
+      "flip_rate": 0.25,
+      "checks_pass_rate": {
+        "forbidden": 0.8,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:read_paper": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "forbidden tools fired: ['semantic_scholar_search']"
+          ]
+        }
+      ]
+    },
+    "remember_research_area": {
+      "category": "memory",
+      "pass_rate": "5/5",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 1.0
+      },
+      "sample_failures": []
+    },
+    "export_bibtex": {
+      "category": "citation_export",
+      "pass_rate": "5/5",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute": {
+      "category": "multi_turn",
+      "pass_rate": "0/5",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 0.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 0.6,
+        "profile_match": 0.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "forbidden tools fired: ['paper_search', 'paper_search', 'paper_search', 'deep_research']"
+          ]
+        },
+        {
+          "rep": 1,
+          "failures": [
+            "forbidden tools fired: ['paper_search', 'paper_search', 'deep_research', 'deep_research', 'paper_search']"
+          ]
+        },
+        {
+          "rep": 2,
+          "failures": [
+            "forbidden tools fired: ['paper_search', 'paper_search', 'paper_search', 'paper_search', 'paper_search']"
+          ]
+        }
+      ]
+    },
+    "weather_paraphrase": {
+      "category": "robustness",
+      "pass_rate": "5/5",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "html_poster_artifact": {
+      "category": "artifact",
+      "pass_rate": "5/5",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain": {
+      "category": "abstain",
+      "pass_rate": "3/5",
+      "pass_fraction": 0.6,
+      "flip_rate": 0.75,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "first_tool": 1.0,
+        "forbidden": 0.6
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 1,
+          "failures": [
+            "forbidden tools fired: ['deep_research']"
+          ]
+        },
+        {
+          "rep": 4,
+          "failures": [
+            "forbidden tools fired: ['deep_research']"
+          ]
+        }
+      ]
+    }
+  },
+  "skipped": [
+    {
+      "id": "web_search_degraded",
+      "reason": "needs inject_tool_result (deferred to A2)"
+    }
+  ]
+}
