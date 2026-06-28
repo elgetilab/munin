@@ -603,7 +603,13 @@ SEED_ITEMS: list[RoutingEvalItem] = [
         query="Now plot those polarization values vs field strength and show me.",
         context=EvalContext(prior_turns=[
             Turn(role="user", content="What polarization levels does SABRE reach at low field?"),
-            Turn(role="assistant", content="(prior deep_research answer with a few numbers)"),
+            # The prior answer MUST carry actual numbers: 'plot those values' is only
+            # well-posed if the values are already in context. A placeholder here makes
+            # the turn under-specified, so the model searches to FIND values to plot -
+            # which is the wrong behaviour the item means to forbid, induced by a brittle
+            # stub rather than by routing. Real data isolates the routing decision.
+            Turn(role="assistant", content="At low field, SABRE reaches roughly: 4% at "
+                 "2 mT, 6.5% at 6 mT, 5% at 10 mT, and 3% at 20 mT for pyridine substrates."),
         ]),
         expected=Expected(
             profile="code",
