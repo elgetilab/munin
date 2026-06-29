@@ -234,13 +234,17 @@ deploy_agents() {
 deploy_vllm() {
     echo "[vllm] Installing vLLM scripts..."
     need_file "$REPO_DIR/scripts/vllm/start-vllm-service.sh"
+    need_file "$REPO_DIR/scripts/vllm/start-vllm-service-tp2.sh"
     need_file "$REPO_DIR/scripts/vllm/schedule-vllm.sh"
     run "install -d -m 0755 $CLUSTER_SCRIPTS"
     run "install -m 0755 $REPO_DIR/scripts/vllm/start-vllm-service.sh $CLUSTER_SCRIPTS/start-vllm-service.sh"
+    run "install -m 0755 $REPO_DIR/scripts/vllm/start-vllm-service-tp2.sh $CLUSTER_SCRIPTS/start-vllm-service-tp2.sh"
     run "install -m 0755 $REPO_DIR/scripts/vllm/schedule-vllm.sh $CLUSTER_SCRIPTS/schedule-vllm.sh"
     run "ln -sf $CLUSTER_SCRIPTS/schedule-vllm.sh /usr/local/bin/vllm-service"
-    echo "[OK] vllm — changes take effect on next job submission"
-    echo "     to cut over now: sudo vllm-service stop && sudo vllm-service start"
+    echo "[OK] vllm — single-GPU (default) + tp2 (multi-GPU) scripts installed."
+    echo "     Single-GPU cutover: sudo vllm-service stop && sudo vllm-service start"
+    echo "     TP=2 (both GPUs, 128k): sudo vllm-service stop && \\"
+    echo "       sudo sbatch $CLUSTER_SCRIPTS/start-vllm-service-tp2.sh"
 }
 
 # ------------------------------------------------------------------------------
