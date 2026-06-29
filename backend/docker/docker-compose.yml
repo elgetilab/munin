@@ -170,6 +170,12 @@ services:
       # Uses host.docker.internal to reach vLLM running on host
       - VLLM_URL=http://<cluster-lan-ip>:8000
       - VLLM_MODEL_NAME=qwen3.6-35b-a3b
+      # Context window: the vLLM start scripts `export` these before
+      # `docker compose up` to match the running mode (single-GPU 65536/60000,
+      # TP=2 131072/125000) so the backend uses the right window. Compose
+      # substitutes the invoking shell's env here; defaults = single-GPU.
+      - VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-65536}
+      - VLLM_MAX_CONTEXT=${VLLM_MAX_CONTEXT:-60000}
       # A3: up-front per-turn router. See munin.env.
       - ROUTER_ENABLED=${ROUTER_ENABLED:-false}
       # Semantic Scholar API (for semantic_scholar_search tool)

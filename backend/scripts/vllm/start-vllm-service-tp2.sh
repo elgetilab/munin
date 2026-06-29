@@ -60,8 +60,6 @@ TENSOR_PARALLEL_SIZE=2
 MAX_MODEL_LEN=131072          # 128k (single-GPU script uses 65536). Native cap 262144.
 BACKEND_MAX_CONTEXT=125000    # retrieval history-trim ceiling (window minus a margin)
 
-ENV_FILE=/opt/munin/config/munin.env
-
 # Load environment
 if [ -f /opt/hugin/config/cluster.env ]; then
     source /opt/hugin/config/cluster.env
@@ -135,26 +133,15 @@ fi
 # ------------------------------------------------------------------------------
 # Pin the backend context window to match this mode, so the retrieval service
 # actually uses the larger window (otherwise it keeps trimming prompts to 64k).
-# The single-GPU script pins these back to 65536 / 60000. (Best-effort; warns
-# rather than failing the job if munin.env is not writable.)
+# The retrieval container reads these via compose
+# ${VLLM_MAX_MODEL_LEN}/${VLLM_MAX_CONTEXT} substitution at create time, so we
+# export them here (before `docker compose up`). The single-GPU script exports
+# 65536 / 60000 to put the cap back.
 # ------------------------------------------------------------------------------
-pin_env() {  # pin_env KEY VALUE
-    local key="$1" val="$2"
-    if [ ! -w "$ENV_FILE" ]; then
-        echo "[WARN] $ENV_FILE not writable; set ${key}=${val} manually so the"
-        echo "       backend uses the ${MAX_MODEL_LEN}-token window."
-        return 0
-    fi
-    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-        sed -i "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
-    else
-        echo "${key}=${val}" >> "$ENV_FILE"
-    fi
-}
 echo ""
 echo "Pinning backend context window (VLLM_MAX_MODEL_LEN=$MAX_MODEL_LEN)..."
-pin_env VLLM_MAX_MODEL_LEN "$MAX_MODEL_LEN"
-pin_env VLLM_MAX_CONTEXT "$BACKEND_MAX_CONTEXT"
+export VLLM_MAX_MODEL_LEN="$MAX_MODEL_LEN"
+export VLLM_MAX_CONTEXT="$BACKEND_MAX_CONTEXT"
 
 # ------------------------------------------------------------------------------
 # Start Retrieval Service (for knowledge base tools)
@@ -162,9 +149,10 @@ pin_env VLLM_MAX_CONTEXT "$BACKEND_MAX_CONTEXT"
 echo ""
 echo "Starting Retrieval Service..."
 cd /opt/munin/docker
-# --force-recreate so the retrieval container reloads munin.env (the context-
-# window pin above): a plain `up -d` leaves an already-running container on its
-# old env, which silently keeps the backend trimming to the old window.
+# --force-recreate so the retrieval container is recreated with the exported
+# VLLM_MAX_MODEL_LEN/VLLM_MAX_CONTEXT above; a plain `up -d` leaves an
+# already-running container on its old window, silently keeping the backend
+# trimming to the wrong size.
 docker compose --profile rag up -d --force-recreate retrieval
 
 for i in {1..30}; do
