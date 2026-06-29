@@ -152,9 +152,46 @@ Served-side changes shipped (personas, flag-free; deploy = `deploy.sh personas`
 + retrieval restart): chat v1.5, research v1.3, code v1.2. Commits: 8fc2fd6
 (v1), 1095c31 (v2), 8d7d918 (v3), 41d20ad (v4); edfa42b (reroute test stub).
 
-## Open / next
+## Paraphrase tier (224 items, reps=1) — the robustness deliverable
 
-- Paraphrase tier (224 items) run for the phrasing-robustness number per
-  category (acceptance run; ~2h). Result recorded here once it lands.
+Full clean run: **mean 0.911** (n=224, 0 errors). In line with the anchor 0.950,
+so phrasing is not swinging the score broadly. (NOTE: the first overnight run
+crossed a 02:00 vLLM shutdown; 63 items in 4 categories errored with
+`vLLM unreachable`. Those were re-run once vLLM was back; merged result is the
+0.911 above. The contaminated 0.652 scorecard is superseded.)
+
+By category (mean pass over 16 paraphrases each):
+
+| category | mean | note |
+|---|---|---|
+| simple_lookup, no_tool, compute, citation_graph, memory, robustness | 1.00 | solid |
+| direct_ref, artifact, abstain | 0.94 | solid |
+| corpus_qa, citation_export | 0.88 | good |
+| multi_turn (reroute) | 0.81 | recovered (stub fix) |
+| **clarify** | **0.69** | brittle - ask-in-prose vs `ask_clarification` tool; clarify-vs-act |
+| **deep_research** | **0.69** | brittle - see finding below |
+
+### Findings (report, do not silently tune)
+
+- **deep_research over-tooling -> vLLM 400 context-overflow.** 3/16 deep_research
+  paraphrases failed with `vLLM returned 400: maximum context length 65536 ...
+  prompt contains 49153 input tokens`. This is the PRE-EXISTING research
+  over-tooling issue (handoff noted "28 calls -> occasional vLLM 400"), surfaced
+  by paraphrase density - NOT caused by A5 tuning. The research fragment already
+  says "synthesise from deep_research, do not pile on more searches"; the root is
+  backend context budgeting not trimming deep_research's large output before the
+  vLLM call. Tracked as a separate backend context-budget fix, out of A5
+  persona-tuning scope. The `soft_max_calls` diagnostic (A5) flags this class.
+- **clarify (0.69)** is the inherent clarify-vs-act + tool-vs-prose ambiguity for
+  under-specified asks. Already heavily prompted (the ABSOLUTE clarification
+  rule). Residual; further prompt churn is high-risk/low-yield.
+- 2/16 deep_research "failures" are `set_plan` before `deep_research` - defensible
+  multi-step behaviour the strict first_tool gate counts as a miss.
+
+## Status: A5 measurement DONE
+
+Anchor 0.950, paraphrase 0.911, all 14 categories seeded, no structural
+regressions. Remaining before A5 closed:
+- 1-week soak on the v1-v4 persona changes (chat 1.5 / research 1.3 / code 1.2).
+- (separate) backend context-budget fix for the deep_research 400 over-tooling.
 - known_doi_read still branches to S2 occasionally (0.80-1.0); acceptable.
-- 1-week soak on the v1-v4 persona changes before treating A5 as closed.

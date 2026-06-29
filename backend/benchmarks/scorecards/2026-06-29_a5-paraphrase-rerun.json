@@ -1,0 +1,975 @@
+{
+  "header": {
+    "tag": "a5-paraphrase-rerun",
+    "timestamp": "2026-06-29T07:19:04.071004+00:00",
+    "git_sha": "3fbb68f",
+    "model": "unknown",
+    "persona_policy": "chat (A0 decision A; not expected.profile)",
+    "base_url": "http://127.0.0.1:8080",
+    "reps": 1,
+    "seed": 42,
+    "python_version": "3.12.7",
+    "package_versions": {
+      "httpx": "0.27.0",
+      "pydantic": "2.13.4"
+    },
+    "note": "PRE-MIGRATION regression baseline. Not a paper result.",
+    "tier": "paraphrase"
+  },
+  "aggregate": {
+    "n_items": 63,
+    "mean_pass_rate": 0.921,
+    "ci95_low": 0.854,
+    "ci95_high": 0.987,
+    "mean_flip_rate": 0.0
+  },
+  "by_category": {
+    "abstain": {
+      "n_items": 16,
+      "mean_pass": 0.938,
+      "min_pass": 0.0,
+      "stdev": 0.242
+    },
+    "artifact": {
+      "n_items": 15,
+      "mean_pass": 0.933,
+      "min_pass": 0.0,
+      "stdev": 0.249
+    },
+    "multi_turn": {
+      "n_items": 16,
+      "mean_pass": 0.812,
+      "min_pass": 0.0,
+      "stdev": 0.39
+    },
+    "robustness": {
+      "n_items": 16,
+      "mean_pass": 1.0,
+      "min_pass": 1.0,
+      "stdev": 0.0
+    }
+  },
+  "per_item": {
+    "html_poster_artifact__p02": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p03": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p04": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p05": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p06": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p07": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p08": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p09": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p10": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p11": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p12": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p13": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p14": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p15": {
+      "category": "artifact",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 0.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'create_artifact': calls=0 (want 1-99), preds_ok=False"
+          ]
+        }
+      ]
+    },
+    "html_poster_artifact__p16": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p01": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p02": {
+      "category": "multi_turn",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 0.0,
+        "required": 0.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'run_python': calls=0 (want 1-99), preds_ok=False",
+            "forbidden tools fired: ['paper_search', 'paper_search', 'paper_search']"
+          ]
+        }
+      ]
+    },
+    "reroute_research_to_compute__p03": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p04": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p05": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p06": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p07": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p08": {
+      "category": "multi_turn",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 0.0,
+        "required": 0.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'run_python': calls=0 (want 1-99), preds_ok=False",
+            "forbidden tools fired: ['paper_search', 'paper_search']"
+          ]
+        }
+      ]
+    },
+    "reroute_research_to_compute__p09": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p10": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p11": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p12": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p13": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p14": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p15": {
+      "category": "multi_turn",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 0.0,
+        "required": 0.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'run_python': calls=0 (want 1-99), preds_ok=False",
+            "forbidden tools fired: ['paper_search', 'paper_search', 'paper_search', 'paper_search']"
+          ]
+        }
+      ]
+    },
+    "reroute_research_to_compute__p16": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p01": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p02": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p03": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p04": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p05": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p06": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p07": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p08": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p09": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p10": {
+      "category": "abstain",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "first_tool": 0.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "first tool 'tool_search', expected 'paper_search'"
+          ]
+        }
+      ]
+    },
+    "corpus_absent_abstain__p11": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p12": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p13": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p14": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p15": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p16": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_paraphrase__p01": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p02": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p03": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p04": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p05": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p06": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p07": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p08": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p09": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p10": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p11": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p12": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p13": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p14": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p15": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p16": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    }
+  },
+  "skipped": []
+}
