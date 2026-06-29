@@ -19,7 +19,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 logger = logging.getLogger(__name__)
 
 PERSONAS_DIR = os.getenv("PERSONAS_DIR", "/app/personas")
+# The base routing profile: supplies the (now shared Munin) frame and the
+# router's fallback target. chat/code/research are INTERNAL routing profiles.
 DEFAULT_PERSONA_ID = os.getenv("DEFAULT_PERSONA", "chat")
+# The single USER-FACING identity. Selecting it (or omitting a persona) means
+# "let the router decide" (auto-route, no pin). It is NOT a loaded persona id;
+# the chat path maps it to no-pin. Power users still steer with /chat//code//research.
+AUTO_PERSONA_ID = os.getenv("AUTO_PERSONA", "munin")
 
 _personas: dict[str, dict] = {}
 
@@ -280,23 +286,37 @@ def persona_handoff_note(
 
 
 def public_personas() -> dict:
-    """Return the /api/personas payload.
+    """Return the /api/personas payload: the SINGLE user-facing **Munin**
+    identity.
 
-    Persona ids beginning with ``_`` are INTERNAL (eval/test fixtures, e.g.
-    the full-universe ``_eval_full`` used to preview the post-allowlist
-    deferred-tool behaviour) and are hidden from the user-facing selector.
-    They still load and are usable by id on the chat endpoint."""
-    default_id = DEFAULT_PERSONA_ID if DEFAULT_PERSONA_ID in _personas else (
-        next((pid for pid in _personas if not pid.startswith("_")), "chat")
-    )
-    return {
-        "personas": [
-            _public_view(p)
-            for pid, p in _personas.items()
-            if not pid.startswith("_")
-        ],
-        "default_persona": default_id,
+    Post-consolidation (todo_v2/PERSONA-CONSOLIDATION-PLAN.md) chat/code/research
+    are INTERNAL routing profiles the router selects per turn, not user-pickable
+    models. The frontend shows one "Munin" and never sends a model choice; the
+    chat path auto-routes. Slash commands (/chat //code //research) remain the
+    power-user per-turn override. Prompt suggestions are merged across the three
+    profiles so the starter prompts stay varied."""
+    suggestions: list = []
+    seen: set = set()
+    for pid in ("chat", "research", "code"):
+        p = _personas.get(pid) or {}
+        for s in (p.get("prompt_suggestions") or []):
+            key = (s.get("title") or s.get("content") or "").strip().lower()
+            if key and key not in seen:
+                seen.add(key)
+                suggestions.append(s)
+    munin = {
+        "id": AUTO_PERSONA_ID,
+        "name": "Munin",
+        "description": (
+            "Munin routes each question automatically. Use /research, /code, "
+            "or /chat to steer a single turn explicitly."
+        ),
+        "icon_url": None,   # the frontend supplies the Munin brand logo
+        "tags": [],
+        "capabilities": {},
+        "prompt_suggestions": suggestions[:8],
     }
+    return {"personas": [munin], "default_persona": AUTO_PERSONA_ID}
 
 
 def get_icon_path(persona_id: str) -> Optional[str]:

@@ -63,6 +63,19 @@ def test_fragments_differ():
     assert len({frags["chat"], frags["code"], frags["research"]}) == 3
 
 
+def test_public_personas_is_single_munin():
+    personas.load_personas()
+    pp = personas.public_personas()
+    assert pp["default_persona"] == personas.AUTO_PERSONA_ID == "munin"
+    assert [p["id"] for p in pp["personas"]] == ["munin"]
+    assert pp["personas"][0]["name"] == "Munin"
+    assert pp["personas"][0]["prompt_suggestions"]  # merged, non-empty
+    # internal profiles still resolve by id; the user-facing id does NOT load
+    # (the chat path maps it to no-pin / auto-route).
+    assert personas.get_persona("research") is not None
+    assert personas.get_persona("munin") is None
+
+
 def test_no_legacy_persona_names_remain():
     blob = " ".join((_SHARED / f"{pid}.json").read_text() for pid in _PROFILES)
     for legacy in ("Meitner", "Turing", "Curie"):

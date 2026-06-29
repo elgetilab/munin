@@ -1569,19 +1569,32 @@ async def stream_chat_completion(
     def _cancelled() -> bool:
         return cancel_event is not None and cancel_event.is_set()
 
+    # Auto-route: the single user-facing identity AUTO_PERSONA_ID ("munin"), or an
+    # unset persona, is NOT a routing profile - it means "let the router decide".
+    # Map it to no-pin (the router does pure KNN + chat fallback). A real profile
+    # id (chat/code/research, e.g. a slash command or a legacy client) still pins.
+    # All three profiles share one Munin frame, so the base voice is identical
+    # whichever profile supplies it. (todo_v2/PERSONA-CONSOLIDATION-PLAN.md)
+    _auto_route = persona_id in (None, "", persona_module.AUTO_PERSONA_ID, "auto")
+    if _auto_route:
+        persona_id = persona_module.DEFAULT_PERSONA_ID   # base profile for the frame
+
     persona = persona_module.get_persona(persona_id)
     if persona is None:
         yield _error_sse(f"Unknown persona: {persona_id}")
         return
 
     # --- A3: up-front per-turn router ---
-    # `persona`/`persona_id` resolved above is the PIN (the user's selector).
-    # Route THIS turn from the query, biased by the pin. The routed profile
-    # drives sampling + tools + tool scoping (Q5); the pin supplies only the
-    # base voice via compose_system_prompt below. When ROUTER_ENABLED is
-    # false, routed == pin so nothing changes (compose(pin,pin) == original).
+    # `persona`/`persona_id` resolved above is the PIN (the user's selector), or
+    # the base profile when auto-routing. Route THIS turn from the query, biased
+    # by the pin. The routed profile drives sampling + tools + tool scoping (Q5);
+    # the pin supplies only the base voice via compose_system_prompt below. When
+    # ROUTER_ENABLED is false, routed == pin so nothing changes.
     pin_persona = persona
-    pin_id = persona_id
+    pin_id = None if _auto_route else persona_id
+    # The user-facing identity to PERSIST on the conversation, so reopening it
+    # re-routes per turn instead of pinning the first turn's routed profile.
+    stored_persona_id = persona_module.AUTO_PERSONA_ID if _auto_route else persona_id
     routing_method = "pin"
     routing_confidence = 1.0
     if ROUTER_ENABLED:
@@ -1708,7 +1721,8 @@ async def stream_chat_completion(
         # that case nothing is persisted and default_tags stays NULL.
         created = await chat_store.create_conversation(
             user_email,
-            persona_id,
+            stored_persona_id,   # user-facing identity (munin/profile), NOT the
+                                 # routed profile, so reopening re-routes per turn
             title=None,
             default_tags=normalized_tags,
         )

@@ -1333,7 +1333,8 @@ async def api_chat_completions(request: Request):
         )
         if existing_conv is None:
             raise _error_404("Conversation not found")
-        persona_id = existing_conv.get("persona") or persona_module.DEFAULT_PERSONA_ID
+        # Legacy conversations with no stored persona auto-route (munin).
+        persona_id = existing_conv.get("persona") or persona_module.AUTO_PERSONA_ID
     else:
         project_default = (
             (project_for_request or {}).get("default_persona")
@@ -1342,10 +1343,12 @@ async def api_chat_completions(request: Request):
             profile = await user_profile_store.get_profile(user_email)
         except Exception:
             profile = None
+        # Unspecified -> the user-facing Munin identity, i.e. auto-route. A
+        # project/profile default_persona still pins if explicitly set.
         persona_id = (
             project_default
             or (profile or {}).get("default_persona")
-            or persona_module.DEFAULT_PERSONA_ID
+            or persona_module.AUTO_PERSONA_ID
         )
 
     if not isinstance(messages, list) or not messages:
