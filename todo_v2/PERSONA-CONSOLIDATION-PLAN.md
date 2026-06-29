@@ -72,6 +72,20 @@ per-profile; this is a consolidation of IDENTITY, not a collapse to one prompt
     internal routing profiles; picker removed; slash override retained).
 13. BACKEND-API.md `/api/personas` shape update.
 
+## Backend gate result (2026-06-29) — PASSED
+
+Frame reconciliation is **behavior-neutral**: anchor mean **0.950**, identical to
+the pre-consolidation v4 baseline, no real regression. Critical checks held:
+- `define_nmr` (chat `no_tool`) stayed 1.00 - the relocated research-integrity
+  rule ("never answer from general knowledge alone") did NOT leak into chat.
+- research items (sota_phip / group_corpus_qa / known_doi_read / citing_papers)
+  all 1.00 - the relocation preserved research behaviour.
+- `percent_calc` showed 0.60 at reps=5 but **10/10 at reps=10** (noise, not a
+  frame effect; it answers trivial percentages inline, calculate cue is in the
+  unchanged chat fragment).
+
+Commit bba3b01 (consolidation) + the drift-guard test. Backend done.
+
 ## Sequencing
 
 Backend first (consolidate + frame reconcile -> `deploy.sh retrieval` ->
