@@ -84,7 +84,16 @@ the pre-consolidation v4 baseline, no real regression. Critical checks held:
   frame effect; it answers trivial percentages inline, calculate cue is in the
   unchanged chat fragment).
 
-Commit bba3b01 (consolidation) + the drift-guard test. Backend done.
+Commit bba3b01 (consolidation) + the drift-guard test.
+
+### Backend step 2 done + verified (commit 3b53650)
+
+`/api/personas` returns a single "Munin" entry (default_persona "munin");
+`persona:"munin"` or unset -> no-pin auto-route (router decides from the query);
+a real profile id still pins (backward-compatible; the routing eval sends "chat"
+and is unaffected). New conversations persist "munin" so reopening re-routes.
+Live probe: munin -> {python:code, papers:research, weather:chat} all pin=null;
+chat -> pin="chat". Backend fully done.
 
 ## Sequencing
 
