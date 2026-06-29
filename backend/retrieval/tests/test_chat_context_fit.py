@@ -69,6 +69,67 @@ def test_tier3_reserve_locked_to_output_cap():
     assert cc.GENERATION_RESERVE == cc.DEFAULT_MAX_OUTPUT_TOKENS
 
 
+# --- Tier 2: budget_tool_results ------------------------------------------
+
+def _big(n_chars: int) -> str:
+    return "x" * n_chars
+
+
+def _fanout_messages(n_old_results: int, result_chars: int):
+    """system + user + [assistant(tool_calls) + k tool results] * iters, ending
+    with a final assistant(tool_calls) + a pending tool result batch."""
+    msgs = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "do a big research thing"},
+    ]
+    for i in range(n_old_results):
+        msgs.append({"role": "assistant", "content": "", "tool_calls": [{"id": f"a{i}"}]})
+        msgs.append({"role": "tool", "tool_call_id": f"a{i}", "content": _big(result_chars)})
+    # the pending batch: latest assistant + its (not-yet-synthesised) result
+    msgs.append({"role": "assistant", "content": "", "tool_calls": [{"id": "pending"}]})
+    msgs.append({"role": "tool", "tool_call_id": "pending", "content": _big(result_chars)})
+    return msgs
+
+
+def test_budget_noop_when_under_target():
+    msgs = _fanout_messages(2, 100)
+    out, n = cc.budget_tool_results(msgs, target_tokens=10_000)
+    assert n == 0 and out == msgs
+
+
+def test_budget_elides_oldest_until_fit_and_protects_pending():
+    # 20 old results of ~2k tokens each + a pending one; tiny target forces
+    # eliding the old ones. The pending tool result (after the last assistant)
+    # must stay full.
+    msgs = _fanout_messages(20, 8000)
+    pending_idx = len(msgs) - 1
+    pending_before = msgs[pending_idx]["content"]
+    out, n = cc.budget_tool_results(msgs, target_tokens=12_000)
+    assert n > 0
+    assert cc.prompt_tokens(out) <= 12_000 or n == 20  # fit, or elided all elidable
+    assert out[pending_idx]["content"] == pending_before  # pending untouched
+    # an elided old result keeps its role + tool_call_id, only content shrank
+    elided = next(m for m in out if m.get("role") == "tool"
+                  and m["content"] == cc._ELIDED_TOOL_RESULT)
+    assert "tool_call_id" in elided
+
+
+def test_budget_does_not_mutate_input():
+    msgs = _fanout_messages(10, 8000)
+    snapshot = [dict(m) for m in msgs]
+    cc.budget_tool_results(msgs, target_tokens=5_000)
+    assert msgs == snapshot  # original conversation untouched
+
+
+def test_budget_is_idempotent():
+    msgs = _fanout_messages(10, 8000)
+    out1, _ = cc.budget_tool_results(msgs, target_tokens=5_000)
+    out2, n2 = cc.budget_tool_results(out1, target_tokens=5_000)
+    # already-elided results are skipped and the pending batch is protected, so
+    # a second pass changes nothing.
+    assert n2 == 0 and out2 == out1
+
+
 if __name__ == "__main__":
     import types
     _orig = cc.prompt_tokens

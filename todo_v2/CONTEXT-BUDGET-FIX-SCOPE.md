@@ -1,8 +1,10 @@
 # Scope: deep_research vLLM 400 context-overflow (backend context budget)
 
-Status: **Tier 1 + Tier 3 IMPLEMENTED + VERIFIED** (commit 7fad0f2, deployed
-2026-06-29). Tier 2 still open. Surfaced by A5 paraphrase tier (3/16
-deep_research paraphrases 400'd). NOT an A5 persona-tuning item; a backend fix.
+Status: **ALL THREE TIERS IMPLEMENTED.** Tier 1 + Tier 3 verified in prod
+(commit 7fad0f2, deployed 2026-06-29: deep_research 0.69 -> 0.88, zero ctx
+errors). Tier 2 (mid-loop tool-result budgeting) built + unit-tested, pending
+deploy. Surfaced by A5 paraphrase tier (3/16 deep_research paraphrases 400'd).
+NOT an A5 persona-tuning item; a backend fix.
 
 VERIFIED: after deploy, the deep_research paraphrase category re-ran with ZERO
 context/vLLM errors (was 3); the three that 400'd (sota_phip__p09/p11/p14) all
@@ -60,17 +62,26 @@ Extract the raw-proxy logic into a shared helper so both paths use one
 implementation. Directly kills the 1-token (and larger) overflow.
 Effort: ~half day. Risk: low. Files: chat_service.py, main.py (extract helper).
 
-### Tier 2 - mid-loop prompt budgeting (the structural fix)
-When accumulated tool results push the prompt toward the window, trim WITHIN the
-turn before the next call. Options (pick one, lowest-risk first):
-- (a) Cap the SUM of retained full tool results per turn; replace the oldest
-  over-budget ones with their `{"_truncated":true,"preview":...}` stub (they have
-  already been folded into later assistant reasoning).
-- (b) Drop/summarise the oldest tool-role messages when prompt > threshold
-  (reuse `chat_context` summarisation).
-Addresses the real cause (over-tooling accumulation) so output budget isn't
-starved to the floor. Effort: ~1-1.5 days. Risk: medium (must not drop a result
-the model still needs this turn; keep the most recent K full).
+### Tier 2 - mid-loop tool-result budgeting (IMPLEMENTED)
+
+`chat_context.budget_tool_results(messages)`, called at the top of
+`_stream_vllm_once` before the Tier 1 fit. When the prompt exceeds
+`MAX_MODEL_LEN - GENERATION_RESERVE - CTX_MARGIN` (~48.6K), it elides the OLDEST
+tool-role results - replacing only their `content` with a compact
+`{"_elided":true,...}` stub (role + tool_call_id preserved, so the
+assistant<->tool pairing stays valid) - oldest first, until the prompt fits.
+
+Safety: it elides ONLY results before the most recent assistant message (prior
+loop iterations the model has already reasoned past); the PENDING batch (results
+after the last assistant message) is never touched, so a result the current step
+still needs is never dropped. It returns a COPY - the full results stay in the
+persisted conversation; only the vLLM-bound prompt is trimmed. Idempotent.
+
+Effect (composed with Tier 1): a heavy fan-out turn that would have squeezed the
+output budget toward the floor instead gets its old results elided, restoring the
+full output budget. Verified: a 50K-token fan-out prompt -> elide old result(s)
+-> output budget 14.7K -> 16.4K, pending result intact, input untouched.
+Unit tests in retrieval/tests/test_chat_context_fit.py (4 Tier 2 cases).
 
 ### Tier 3 - reserve alignment (one-liner)
 Set `GENERATION_RESERVE = 16384` (== max_tokens) or derive both from one constant

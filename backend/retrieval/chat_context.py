@@ -210,6 +210,62 @@ def fit_max_tokens(messages: list, requested_max: Optional[int]) -> int:
     return min(requested_max, room)
 
 
+# Compact replacement for a tool result elided to fit the window (Tier 2). The
+# caller preserves role/tool_call_id so the assistant<->tool pairing stays valid;
+# only the content shrinks.
+_ELIDED_TOOL_RESULT = (
+    '{"_elided": true, "note": "earlier tool result trimmed to fit the context '
+    'window; re-run the tool if you need its details again"}'
+)
+
+
+def budget_tool_results(messages: list, *, target_tokens: Optional[int] = None):
+    """Tier 2: keep a heavy fan-out turn's prompt within budget so the output
+    budget (fit_max_tokens) isn't starved to the floor. Returns
+    (new_messages, n_elided).
+
+    Does NOT mutate the input - the full results stay in the persisted
+    conversation; only the copy sent to vLLM is trimmed. Only tool results from
+    PRIOR loop iterations (before the most recent assistant message) are elided,
+    oldest first - the model has already reasoned past them. The pending batch
+    (tool results after the last assistant message) is never touched, so we never
+    drop a result the current step still needs.
+    (todo_v2/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 2.)"""
+    if target_tokens is None:
+        target_tokens = MAX_MODEL_LEN - GENERATION_RESERVE - CTX_MARGIN
+
+    def _tok(m: dict) -> int:
+        try:
+            return _message_tokens(m)
+        except Exception:
+            return max(1, len(str(m.get("content", ""))) // 4)
+
+    per = [_tok(m) if isinstance(m, dict) else 0 for m in messages]
+    total = sum(per) + 8
+    if total <= target_tokens:
+        return list(messages), 0
+
+    last_asst = max(
+        (i for i, m in enumerate(messages)
+         if isinstance(m, dict) and m.get("role") == "assistant"),
+        default=-1,
+    )
+    stub_tokens = _tok({"role": "tool", "content": _ELIDED_TOOL_RESULT})
+    out = list(messages)
+    elided = 0
+    for i, m in enumerate(messages):
+        if total <= target_tokens or i >= last_asst:
+            break  # fits, or we've reached the pending (protected) batch
+        if not (isinstance(m, dict) and m.get("role") == "tool"):
+            continue
+        if m.get("content") == _ELIDED_TOOL_RESULT:
+            continue  # already elided (idempotent)
+        total -= (per[i] - stub_tokens)
+        out[i] = {**m, "content": _ELIDED_TOOL_RESULT}
+        elided += 1
+    return out, elided
+
+
 def is_ctx_overflow(text: str) -> bool:
     """True if `text` is vLLM's context-length rejection message."""
     return "maximum context length" in (text or "").lower()

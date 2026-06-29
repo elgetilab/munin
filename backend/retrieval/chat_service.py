@@ -742,6 +742,18 @@ async def _stream_vllm_once(
     """
     acc = _StreamAccumulator()
 
+    # Tier 2: under heavy fan-out, elide OLD tool results (from prior loop
+    # iterations the model has already reasoned past) out of the prompt copy
+    # sent to vLLM so the output budget fit below isn't starved. No-op until
+    # results accumulate; never touches the pending batch or the persisted
+    # conversation. (todo_v2/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 2.)
+    messages, _n_elided = chat_context.budget_tool_results(messages)
+    if _n_elided:
+        logger.info(
+            "budgeted %d earlier tool result(s) out of the prompt to fit the "
+            "context window", _n_elided,
+        )
+
     body: dict[str, Any] = {
         "model": VLLM_MODEL_NAME,
         "messages": messages,
