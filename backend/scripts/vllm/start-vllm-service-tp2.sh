@@ -162,7 +162,10 @@ pin_env VLLM_MAX_CONTEXT "$BACKEND_MAX_CONTEXT"
 echo ""
 echo "Starting Retrieval Service..."
 cd /opt/munin/docker
-docker compose --profile rag up -d retrieval
+# --force-recreate so the retrieval container reloads munin.env (the context-
+# window pin above): a plain `up -d` leaves an already-running container on its
+# old env, which silently keeps the backend trimming to the old window.
+docker compose --profile rag up -d --force-recreate retrieval
 
 for i in {1..30}; do
     if curl -sf http://127.0.0.1:8080/health > /dev/null 2>&1; then
