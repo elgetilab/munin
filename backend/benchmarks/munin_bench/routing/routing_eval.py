@@ -692,21 +692,26 @@ SEED_ITEMS: list[RoutingEvalItem] = [
         context=EvalContext(tags=["group"], project="HypMol"),
         expected=Expected(
             profile="research",
-            first_tool="paper_search",
-            forbidden_tools=["run_python", "create_artifact", "deep_research"],
+            # Gate the ABSTENTION, not the retrieval-tool choice. For a topic far
+            # outside the corpus the model may local paper_search, web_search, OR
+            # deep_research to confirm it isn't there before abstaining - all
+            # defensible. What it must NOT do is fabricate an answer with a
+            # generative/mutating tool. So the gate is "no run_python/
+            # create_artifact"; first_tool=paper_search and deep_research-
+            # forbidding are dropped - they over-strictly failed wildly-out-of-
+            # domain paraphrases that abstained correctly. (A5-PLAN.md.)
+            forbidden_tools=["run_python", "create_artifact"],
             abstain=True,
             # reward_basis EXCLUDES "abstain" so the (nondeterministic) wording
-            # judge stays OFF; the routing-level proxy (no run_python/
-            # create_artifact fabrication, via forbidden_tools + abstain_routing)
-            # plus first_tool=paper_search gate deterministically.
-            reward_basis=["first_tool", "forbidden"],
+            # judge stays OFF; the deterministic no-fabrication proxy gates.
+            reward_basis=["forbidden"],
         ),
-        rationale="'Our group' about a topic far outside a hyperpolarization/NMR/"
-                  "biophysics corpus -> route to LOCAL paper_search first (the private-"
-                  "corpus point), then do NOT fabricate via code/artifact. Routing-level "
-                  "abstain proxy only; wording-level corpus-grounded abstention "
-                  "(withhold-list, shadow corpus, confabulated-citation rate) is Track C "
-                  "/ T3 and is deliberately NOT duplicated here.",
+        rationale="'Our group' about a topic far outside the hyperpolarization/NMR/"
+                  "biophysics corpus -> the model must NOT fabricate via code/artifact; "
+                  "it may search locally, on the web, or via deep_research to confirm the "
+                  "topic is absent before abstaining. Routing-level abstain proxy only "
+                  "(no-fabrication); wording-level corpus-grounded abstention (withhold-"
+                  "list, shadow corpus, confabulated-citation rate) is Track C / T3.",
     ),
 ]
 

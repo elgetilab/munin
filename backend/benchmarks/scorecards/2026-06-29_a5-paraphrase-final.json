@@ -1,0 +1,3437 @@
+{
+  "header": {
+    "tag": "a5-paraphrase-final",
+    "timestamp": "2026-06-29T10:33:36.670950+00:00",
+    "git_sha": "6e82be3",
+    "model": "unknown",
+    "persona_policy": "chat (A0 decision A; not expected.profile)",
+    "base_url": "http://127.0.0.1:8080",
+    "reps": 1,
+    "seed": 42,
+    "python_version": "3.12.7",
+    "package_versions": {
+      "httpx": "0.27.0",
+      "pydantic": "2.13.4"
+    },
+    "note": "Paraphrase tier (224) post context-budget fix, with relaxed abstain gate (abstain re-run merged in). reps=1. Not a paper result.",
+    "tier": "paraphrase"
+  },
+  "aggregate": {
+    "n_items": 224,
+    "mean_pass_rate": 0.893,
+    "ci95_low": 0.852,
+    "ci95_high": 0.933,
+    "mean_flip_rate": 0.0
+  },
+  "by_category": {
+    "abstain": {
+      "n_items": 16,
+      "mean_pass": 1.0,
+      "min_pass": 1.0,
+      "stdev": 0.0
+    },
+    "artifact": {
+      "n_items": 16,
+      "mean_pass": 0.812,
+      "min_pass": 0.0,
+      "stdev": 0.39
+    },
+    "citation_export": {
+      "n_items": 16,
+      "mean_pass": 0.812,
+      "min_pass": 0.0,
+      "stdev": 0.39
+    },
+    "citation_graph": {
+      "n_items": 16,
+      "mean_pass": 1.0,
+      "min_pass": 1.0,
+      "stdev": 0.0
+    },
+    "clarify": {
+      "n_items": 16,
+      "mean_pass": 0.562,
+      "min_pass": 0.0,
+      "stdev": 0.496
+    },
+    "compute": {
+      "n_items": 16,
+      "mean_pass": 0.875,
+      "min_pass": 0.0,
+      "stdev": 0.331
+    },
+    "corpus_qa": {
+      "n_items": 16,
+      "mean_pass": 1.0,
+      "min_pass": 1.0,
+      "stdev": 0.0
+    },
+    "deep_research": {
+      "n_items": 16,
+      "mean_pass": 0.875,
+      "min_pass": 0.0,
+      "stdev": 0.331
+    },
+    "direct_ref": {
+      "n_items": 16,
+      "mean_pass": 0.938,
+      "min_pass": 0.0,
+      "stdev": 0.242
+    },
+    "memory": {
+      "n_items": 16,
+      "mean_pass": 1.0,
+      "min_pass": 1.0,
+      "stdev": 0.0
+    },
+    "multi_turn": {
+      "n_items": 16,
+      "mean_pass": 0.75,
+      "min_pass": 0.0,
+      "stdev": 0.433
+    },
+    "no_tool": {
+      "n_items": 16,
+      "mean_pass": 1.0,
+      "min_pass": 1.0,
+      "stdev": 0.0
+    },
+    "robustness": {
+      "n_items": 16,
+      "mean_pass": 1.0,
+      "min_pass": 1.0,
+      "stdev": 0.0
+    },
+    "simple_lookup": {
+      "n_items": 16,
+      "mean_pass": 0.875,
+      "min_pass": 0.0,
+      "stdev": 0.331
+    }
+  },
+  "per_item": {
+    "citing_papers__p01": {
+      "category": "citation_graph",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "citing_papers__p02": {
+      "category": "citation_graph",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "citing_papers__p03": {
+      "category": "citation_graph",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "citing_papers__p04": {
+      "category": "citation_graph",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "citing_papers__p05": {
+      "category": "citation_graph",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "citing_papers__p06": {
+      "category": "citation_graph",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "citing_papers__p07": {
+      "category": "citation_graph",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "citing_papers__p08": {
+      "category": "citation_graph",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "citing_papers__p09": {
+      "category": "citation_graph",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "citing_papers__p10": {
+      "category": "citation_graph",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 1.0,
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "citing_papers__p11": {
+      "category": "citation_graph",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "citing_papers__p12": {
+      "category": "citation_graph",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "citing_papers__p13": {
+      "category": "citation_graph",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "citing_papers__p14": {
+      "category": "citation_graph",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "citing_papers__p15": {
+      "category": "citation_graph",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "citing_papers__p16": {
+      "category": "citation_graph",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:get_citations": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p01": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p02": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p03": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p04": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p05": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p06": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p07": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p08": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p09": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p10": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p11": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p12": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p13": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p14": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p15": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p16": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "define_nmr__p01": {
+      "category": "no_tool",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "no_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "define_nmr__p02": {
+      "category": "no_tool",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "no_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "define_nmr__p03": {
+      "category": "no_tool",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "no_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "define_nmr__p04": {
+      "category": "no_tool",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "no_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "define_nmr__p05": {
+      "category": "no_tool",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "no_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "define_nmr__p06": {
+      "category": "no_tool",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "no_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "define_nmr__p07": {
+      "category": "no_tool",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "no_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "define_nmr__p08": {
+      "category": "no_tool",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "no_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "define_nmr__p09": {
+      "category": "no_tool",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "no_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "define_nmr__p10": {
+      "category": "no_tool",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "no_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "define_nmr__p11": {
+      "category": "no_tool",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "no_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "define_nmr__p12": {
+      "category": "no_tool",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "no_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "define_nmr__p13": {
+      "category": "no_tool",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "no_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "define_nmr__p14": {
+      "category": "no_tool",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "no_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "define_nmr__p15": {
+      "category": "no_tool",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "no_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "define_nmr__p16": {
+      "category": "no_tool",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "no_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "export_bibtex__p01": {
+      "category": "citation_export",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 1.0
+      },
+      "sample_failures": []
+    },
+    "export_bibtex__p02": {
+      "category": "citation_export",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 1.0
+      },
+      "sample_failures": []
+    },
+    "export_bibtex__p03": {
+      "category": "citation_export",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 1.0
+      },
+      "sample_failures": []
+    },
+    "export_bibtex__p04": {
+      "category": "citation_export",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 1.0
+      },
+      "sample_failures": []
+    },
+    "export_bibtex__p05": {
+      "category": "citation_export",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 0.0
+      },
+      "sample_failures": []
+    },
+    "export_bibtex__p06": {
+      "category": "citation_export",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 0.0,
+        "required": 0.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 0.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'export_citations': calls=0 (want 1-99), preds_ok=False"
+          ]
+        }
+      ]
+    },
+    "export_bibtex__p07": {
+      "category": "citation_export",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 0.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 0.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'export_citations': calls=0 (want 1-99), preds_ok=False"
+          ]
+        }
+      ]
+    },
+    "export_bibtex__p08": {
+      "category": "citation_export",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 1.0
+      },
+      "sample_failures": []
+    },
+    "export_bibtex__p09": {
+      "category": "citation_export",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 1.0
+      },
+      "sample_failures": []
+    },
+    "export_bibtex__p10": {
+      "category": "citation_export",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 1.0
+      },
+      "sample_failures": []
+    },
+    "export_bibtex__p11": {
+      "category": "citation_export",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 0.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 0.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'export_citations': calls=0 (want 1-99), preds_ok=False"
+          ]
+        }
+      ]
+    },
+    "export_bibtex__p12": {
+      "category": "citation_export",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 1.0
+      },
+      "sample_failures": []
+    },
+    "export_bibtex__p13": {
+      "category": "citation_export",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 1.0
+      },
+      "sample_failures": []
+    },
+    "export_bibtex__p14": {
+      "category": "citation_export",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 0.0
+      },
+      "sample_failures": []
+    },
+    "export_bibtex__p15": {
+      "category": "citation_export",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 1.0
+      },
+      "sample_failures": []
+    },
+    "export_bibtex__p16": {
+      "category": "citation_export",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:export_citations": 1.0
+      },
+      "sample_failures": []
+    },
+    "group_corpus_qa__p01": {
+      "category": "corpus_qa",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_6": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "group_corpus_qa__p02": {
+      "category": "corpus_qa",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_6": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "group_corpus_qa__p03": {
+      "category": "corpus_qa",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_6": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "group_corpus_qa__p04": {
+      "category": "corpus_qa",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_6": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "group_corpus_qa__p05": {
+      "category": "corpus_qa",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_6": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "group_corpus_qa__p06": {
+      "category": "corpus_qa",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_6": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "group_corpus_qa__p07": {
+      "category": "corpus_qa",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_6": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "group_corpus_qa__p08": {
+      "category": "corpus_qa",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_6": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "group_corpus_qa__p09": {
+      "category": "corpus_qa",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_6": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "group_corpus_qa__p10": {
+      "category": "corpus_qa",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_6": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "group_corpus_qa__p11": {
+      "category": "corpus_qa",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_6": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "group_corpus_qa__p12": {
+      "category": "corpus_qa",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_6": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "group_corpus_qa__p13": {
+      "category": "corpus_qa",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_6": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "group_corpus_qa__p14": {
+      "category": "corpus_qa",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_6": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "group_corpus_qa__p15": {
+      "category": "corpus_qa",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_6": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "group_corpus_qa__p16": {
+      "category": "corpus_qa",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_6": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p01": {
+      "category": "artifact",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 0.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'create_artifact': calls=0 (want 1-99), preds_ok=False"
+          ]
+        }
+      ]
+    },
+    "html_poster_artifact__p02": {
+      "category": "artifact",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 0.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'create_artifact': calls=0 (want 1-99), preds_ok=False"
+          ]
+        }
+      ]
+    },
+    "html_poster_artifact__p03": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p04": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p05": {
+      "category": "artifact",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 0.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'create_artifact': calls=0 (want 1-99), preds_ok=False"
+          ]
+        }
+      ]
+    },
+    "html_poster_artifact__p06": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p07": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p08": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p09": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p10": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p11": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p12": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p13": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p14": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p15": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "html_poster_artifact__p16": {
+      "category": "artifact",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "known_doi_read__p01": {
+      "category": "direct_ref",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:read_paper": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "known_doi_read__p02": {
+      "category": "direct_ref",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 0.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:read_paper": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "forbidden tools fired: ['semantic_scholar_search']"
+          ]
+        }
+      ]
+    },
+    "known_doi_read__p03": {
+      "category": "direct_ref",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:read_paper": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "known_doi_read__p04": {
+      "category": "direct_ref",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:read_paper": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "known_doi_read__p05": {
+      "category": "direct_ref",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:read_paper": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "known_doi_read__p06": {
+      "category": "direct_ref",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:read_paper": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "known_doi_read__p07": {
+      "category": "direct_ref",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:read_paper": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "known_doi_read__p08": {
+      "category": "direct_ref",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:read_paper": 1.0,
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "known_url_fetch__p01": {
+      "category": "direct_ref",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "known_url_fetch__p02": {
+      "category": "direct_ref",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "known_url_fetch__p03": {
+      "category": "direct_ref",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "known_url_fetch__p04": {
+      "category": "direct_ref",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "known_url_fetch__p05": {
+      "category": "direct_ref",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "known_url_fetch__p06": {
+      "category": "direct_ref",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "known_url_fetch__p07": {
+      "category": "direct_ref",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "known_url_fetch__p08": {
+      "category": "direct_ref",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "percent_calc__p01": {
+      "category": "compute",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "percent_calc__p02": {
+      "category": "compute",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "percent_calc__p03": {
+      "category": "compute",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "percent_calc__p04": {
+      "category": "compute",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "percent_calc__p05": {
+      "category": "compute",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "percent_calc__p06": {
+      "category": "compute",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "percent_calc__p07": {
+      "category": "compute",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "percent_calc__p08": {
+      "category": "compute",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "remember_research_area__p01": {
+      "category": "memory",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 1.0
+      },
+      "sample_failures": []
+    },
+    "remember_research_area__p02": {
+      "category": "memory",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 1.0
+      },
+      "sample_failures": []
+    },
+    "remember_research_area__p03": {
+      "category": "memory",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 1.0
+      },
+      "sample_failures": []
+    },
+    "remember_research_area__p04": {
+      "category": "memory",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 1.0
+      },
+      "sample_failures": []
+    },
+    "remember_research_area__p05": {
+      "category": "memory",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 1.0
+      },
+      "sample_failures": []
+    },
+    "remember_research_area__p06": {
+      "category": "memory",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 1.0
+      },
+      "sample_failures": []
+    },
+    "remember_research_area__p07": {
+      "category": "memory",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 1.0
+      },
+      "sample_failures": []
+    },
+    "remember_research_area__p08": {
+      "category": "memory",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 1.0
+      },
+      "sample_failures": []
+    },
+    "remember_research_area__p09": {
+      "category": "memory",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 1.0
+      },
+      "sample_failures": []
+    },
+    "remember_research_area__p10": {
+      "category": "memory",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 1.0
+      },
+      "sample_failures": []
+    },
+    "remember_research_area__p11": {
+      "category": "memory",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 1.0
+      },
+      "sample_failures": []
+    },
+    "remember_research_area__p12": {
+      "category": "memory",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 1.0
+      },
+      "sample_failures": []
+    },
+    "remember_research_area__p13": {
+      "category": "memory",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 1.0
+      },
+      "sample_failures": []
+    },
+    "remember_research_area__p14": {
+      "category": "memory",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 1.0
+      },
+      "sample_failures": []
+    },
+    "remember_research_area__p15": {
+      "category": "memory",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 1.0
+      },
+      "sample_failures": []
+    },
+    "remember_research_area__p16": {
+      "category": "memory",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:remember": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p01": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p02": {
+      "category": "multi_turn",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 0.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'run_python': calls=0 (want 1-99), preds_ok=False"
+          ]
+        }
+      ]
+    },
+    "reroute_research_to_compute__p03": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p04": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p05": {
+      "category": "multi_turn",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 0.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'run_python': calls=0 (want 1-99), preds_ok=False"
+          ]
+        }
+      ]
+    },
+    "reroute_research_to_compute__p06": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p07": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p08": {
+      "category": "multi_turn",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 0.0,
+        "required": 0.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'run_python': calls=0 (want 1-99), preds_ok=False",
+            "forbidden tools fired: ['paper_search', 'paper_search', 'paper_search', 'paper_search', 'paper_search', 'paper_search', 'paper_search', 'paper_search']"
+          ]
+        }
+      ]
+    },
+    "reroute_research_to_compute__p09": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p10": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p11": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p12": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p13": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p14": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "reroute_research_to_compute__p15": {
+      "category": "multi_turn",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 0.0,
+        "required": 0.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'run_python': calls=0 (want 1-99), preds_ok=False",
+            "forbidden tools fired: ['paper_search', 'paper_search', 'paper_search', 'paper_search', 'paper_search', 'paper_search']"
+          ]
+        }
+      ]
+    },
+    "reroute_research_to_compute__p16": {
+      "category": "multi_turn",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "completed_in_turn:run_python": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p01": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p02": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p03": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p04": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p05": {
+      "category": "deep_research",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 0.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "first tool 'set_plan', expected 'deep_research'"
+          ]
+        }
+      ]
+    },
+    "sota_phip__p06": {
+      "category": "deep_research",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 0.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "first tool 'set_plan', expected 'deep_research'"
+          ]
+        }
+      ]
+    },
+    "sota_phip__p07": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p08": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p09": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p10": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p11": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p12": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p13": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p14": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p15": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 1.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p16": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "unit_convert_physical__p01": {
+      "category": "compute",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "unit_convert_physical__p02": {
+      "category": "compute",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "unit_convert_physical__p03": {
+      "category": "compute",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "unit_convert_physical__p04": {
+      "category": "compute",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "unit_convert_physical__p05": {
+      "category": "compute",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "unit_convert_physical__p06": {
+      "category": "compute",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "unit_convert_physical__p07": {
+      "category": "compute",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 0.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'calculate': calls=2 (want 1-99), preds_ok=False"
+          ]
+        }
+      ]
+    },
+    "unit_convert_physical__p08": {
+      "category": "compute",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "forbidden": 1.0,
+        "required": 0.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "required 'calculate': calls=0 (want 1-99), preds_ok=False"
+          ]
+        }
+      ]
+    },
+    "weather_no_location__p01": {
+      "category": "clarify",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "solo": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_no_location__p02": {
+      "category": "clarify",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 0.0,
+        "forbidden": 1.0,
+        "solo": 0.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "first tool '<none>', expected 'ask_clarification'",
+            "expected a solo tool call in the first step"
+          ]
+        }
+      ]
+    },
+    "weather_no_location__p03": {
+      "category": "clarify",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "solo": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_no_location__p04": {
+      "category": "clarify",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "solo": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_no_location__p05": {
+      "category": "clarify",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "solo": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_no_location__p06": {
+      "category": "clarify",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "solo": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_no_location__p07": {
+      "category": "clarify",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 0.0,
+        "forbidden": 1.0,
+        "solo": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "first tool 'recall', expected 'ask_clarification'"
+          ]
+        }
+      ]
+    },
+    "weather_no_location__p08": {
+      "category": "clarify",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 0.0,
+        "forbidden": 1.0,
+        "solo": 0.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "first tool '<none>', expected 'ask_clarification'",
+            "expected a solo tool call in the first step"
+          ]
+        }
+      ]
+    },
+    "weather_no_location__p09": {
+      "category": "clarify",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 0.0,
+        "forbidden": 1.0,
+        "solo": 0.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "first tool '<none>', expected 'ask_clarification'",
+            "expected a solo tool call in the first step"
+          ]
+        }
+      ]
+    },
+    "weather_no_location__p10": {
+      "category": "clarify",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "solo": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_no_location__p11": {
+      "category": "clarify",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "solo": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_no_location__p12": {
+      "category": "clarify",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "solo": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_no_location__p13": {
+      "category": "clarify",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 0.0,
+        "forbidden": 1.0,
+        "solo": 0.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "first tool '<none>', expected 'ask_clarification'",
+            "expected a solo tool call in the first step"
+          ]
+        }
+      ]
+    },
+    "weather_no_location__p14": {
+      "category": "clarify",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 0.0,
+        "forbidden": 1.0,
+        "solo": 0.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "first tool '<none>', expected 'ask_clarification'",
+            "expected a solo tool call in the first step"
+          ]
+        }
+      ]
+    },
+    "weather_no_location__p15": {
+      "category": "clarify",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 0.0,
+        "forbidden": 1.0,
+        "solo": 0.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "first tool '<none>', expected 'ask_clarification'",
+            "expected a solo tool call in the first step"
+          ]
+        }
+      ]
+    },
+    "weather_no_location__p16": {
+      "category": "clarify",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "solo": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_paraphrase__p01": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p02": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p03": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p04": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p05": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p06": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p07": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p08": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p09": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p10": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p11": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p12": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p13": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p14": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p15": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_paraphrase__p16": {
+      "category": "robustness",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {},
+      "sample_failures": []
+    },
+    "weather_with_location__p01": {
+      "category": "simple_lookup",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_with_location__p02": {
+      "category": "simple_lookup",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_with_location__p03": {
+      "category": "simple_lookup",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_with_location__p04": {
+      "category": "simple_lookup",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_with_location__p05": {
+      "category": "simple_lookup",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_with_location__p06": {
+      "category": "simple_lookup",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_with_location__p07": {
+      "category": "simple_lookup",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_with_location__p08": {
+      "category": "simple_lookup",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 0.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_with_location__p09": {
+      "category": "simple_lookup",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_with_location__p10": {
+      "category": "simple_lookup",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_with_location__p11": {
+      "category": "simple_lookup",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_with_location__p12": {
+      "category": "simple_lookup",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_with_location__p13": {
+      "category": "simple_lookup",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 0.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_with_location__p14": {
+      "category": "simple_lookup",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_with_location__p15": {
+      "category": "simple_lookup",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "weather_with_location__p16": {
+      "category": "simple_lookup",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0,
+        "forbidden": 1.0,
+        "required": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    }
+  },
+  "skipped": []
+}

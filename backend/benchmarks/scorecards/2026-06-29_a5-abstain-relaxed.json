@@ -1,0 +1,261 @@
+{
+  "header": {
+    "tag": "a5-abstain-relaxed",
+    "timestamp": "2026-06-29T10:45:19.322657+00:00",
+    "git_sha": "1d319d7",
+    "model": "unknown",
+    "persona_policy": "chat (A0 decision A; not expected.profile)",
+    "base_url": "http://127.0.0.1:8080",
+    "reps": 1,
+    "seed": 42,
+    "python_version": "3.12.7",
+    "package_versions": {
+      "httpx": "0.27.0",
+      "pydantic": "2.13.4"
+    },
+    "note": "PRE-MIGRATION regression baseline. Not a paper result.",
+    "tier": "paraphrase"
+  },
+  "aggregate": {
+    "n_items": 16,
+    "mean_pass_rate": 1.0,
+    "ci95_low": 1.0,
+    "ci95_high": 1.0,
+    "mean_flip_rate": 0.0
+  },
+  "by_category": {
+    "abstain": {
+      "n_items": 16,
+      "mean_pass": 1.0,
+      "min_pass": 1.0,
+      "stdev": 0.0
+    }
+  },
+  "per_item": {
+    "corpus_absent_abstain__p01": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p02": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p03": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p04": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p05": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p06": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p07": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p08": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p09": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p10": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 0.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p11": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p12": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p13": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p14": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p15": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "corpus_absent_abstain__p16": {
+      "category": "abstain",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "abstain_routing": 1.0,
+        "forbidden": 1.0
+      },
+      "diagnostics_rate": {
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    }
+  },
+  "skipped": []
+}
