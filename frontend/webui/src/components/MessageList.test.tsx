@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { detectPhase, MessageList } from './MessageList';
-import type { Message, Persona } from '../lib/types';
+import type { Message } from '../lib/types';
 
 // Mock heavy child components to keep tests focused on MessageList logic
 vi.mock('./FeatherVortex', () => ({
@@ -29,7 +29,7 @@ function makeStreaming(overrides: Partial<Parameters<typeof MessageList>[0]['str
     toolCalls: [],
     ragContext: null,
     clarification: null,
-    delegations: [],
+    routedProfile: null,
     phase: 'idle',
     ...overrides,
   };
@@ -352,56 +352,47 @@ describe('MessageList', () => {
     });
   });
 
-  // ── Persona divider (persona-switch tracking) ─────────────────────────────
-  describe('persona divider', () => {
-    const personas: Persona[] = [
-      { id: 'chat', name: 'Meitner - Chat', description: '', icon_url: '', tags: [], capabilities: {}, prompt_suggestions: [] },
-      { id: 'code', name: 'Turing - Code', description: '', icon_url: '', tags: [], capabilities: {}, prompt_suggestions: [] },
-    ];
+  // ── Routed-profile chip (per-turn router) ─────────────────────────────────
+  describe('routed-profile chip', () => {
     const mk = (id: string, role: Message['role'], content: string, persona?: string | null, extra: Partial<Message> = {}): Message =>
       ({ id, role, content, persona, created_at: new Date().toISOString(), ...extra });
 
-    it('draws a divider when the persona changes between turns', () => {
+    it('shows a capitalized chip for non-chat routed profiles', () => {
       const messages = [
-        mk('1', 'user', 'how would you code?', 'chat'),
-        mk('2', 'assistant', 'here is how', 'chat'),
-        mk('3', 'assistant', 'now coding', 'code'),
+        mk('1', 'user', 'how would you code?', 'munin'),
+        mk('2', 'assistant', 'now coding', 'code'),
       ];
-      render(<MessageList messages={messages} streaming={makeStreaming()} personas={personas} />);
-      expect(screen.getByLabelText('Switched to Turing')).toBeInTheDocument();
-      // exactly one boundary (chat -> code), not one per message
-      expect(screen.getAllByRole('separator')).toHaveLength(1);
+      render(<MessageList messages={messages} streaming={makeStreaming()} />);
+      expect(screen.getByText('Code')).toBeInTheDocument();
     });
 
-    it('draws no divider when every turn shares one persona', () => {
+    it('hides the chip for the default chat profile', () => {
       const messages = [
-        mk('1', 'user', 'hi', 'chat'),
+        mk('1', 'user', 'hi', 'munin'),
         mk('2', 'assistant', 'hello', 'chat'),
       ];
-      render(<MessageList messages={messages} streaming={makeStreaming()} personas={personas} />);
-      expect(screen.queryByRole('separator')).not.toBeInTheDocument();
+      render(<MessageList messages={messages} streaming={makeStreaming()} />);
+      expect(screen.queryByText('Chat')).not.toBeInTheDocument();
     });
 
-    it('draws no divider for legacy NULL-persona history', () => {
+    it('hides the chip for legacy NULL-persona history', () => {
       const messages = [
         mk('1', 'user', 'hi', null),
         mk('2', 'assistant', 'hello', null),
-        mk('3', 'assistant', 'more', null),
       ];
-      render(<MessageList messages={messages} streaming={makeStreaming()} personas={personas} />);
-      expect(screen.queryByRole('separator')).not.toBeInTheDocument();
+      render(<MessageList messages={messages} streaming={makeStreaming()} />);
+      expect(screen.queryByText('Research')).not.toBeInTheDocument();
+      expect(screen.queryByText('Code')).not.toBeInTheDocument();
     });
 
-    it('shows the delegation reason on the divider when present', () => {
-      const messages = [
-        mk('1', 'user', 'debug this', 'chat'),
-        mk('2', 'assistant', 'on it', 'code', {
-          delegations: [{ from_persona: 'chat', to_persona: 'code', reason: 'long debugging session' }],
-        }),
-      ];
-      render(<MessageList messages={messages} streaming={makeStreaming()} personas={personas} />);
-      expect(screen.getByLabelText('Switched to Turing')).toBeInTheDocument();
-      expect(screen.getByText('long debugging session')).toBeInTheDocument();
+    it('shows the chip for the in-progress streaming turn', () => {
+      render(
+        <MessageList
+          messages={[]}
+          streaming={makeStreaming({ phase: 'generating', content: 'thinking…', routedProfile: 'research' })}
+        />,
+      );
+      expect(screen.getByText('Research')).toBeInTheDocument();
     });
   });
 

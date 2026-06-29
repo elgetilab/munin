@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Message, ToolCall, RagContext, Clarification, Delegation, Persona } from '../lib/types';
+import type { Message, ToolCall, RagContext, Clarification } from '../lib/types';
 import { TaskLog } from './TaskLog';
 import { FeatherVortex } from './FeatherVortex';
 import { Markdown } from './Markdown';
 import { ClarificationCard } from './ClarificationCard';
 import { MemoryProposalPill } from './MemoryProposalPill';
 import { CompactBoundaryDivider } from './CompactBoundaryDivider';
-import { PersonaDivider } from './PersonaDivider';
 import { PlanCard } from './PlanCard';
 
 interface RetryingState {
@@ -21,7 +20,7 @@ interface StreamingState {
   toolCalls: ToolCall[];
   ragContext: RagContext | null;
   clarification: Clarification | null;
-  delegations: Delegation[];
+  routedProfile?: string | null;
   phase: 'idle' | 'thinking' | 'tool_call' | 'generating' | 'done' | 'error';
   retrying: RetryingState | null;
 }
@@ -29,7 +28,6 @@ interface StreamingState {
 interface MessageListProps {
   messages: Message[];
   streaming: StreamingState;
-  personas?: Persona[];
   onSendClarification?: (answer: string) => void;
   // P2 #25: invoked when the user accepts or dismisses a memory
   // proposal pill. Should remove the proposal from the message
@@ -47,22 +45,20 @@ interface MessageListProps {
   onPlanEdited?: () => void;
 }
 
-function personaName(personas: Persona[] | undefined, id: string): string {
-  const p = personas?.find(p => p.id === id);
-  if (!p) return id;
-  // Persona names often include a dash like "Curie - Research" — use the short label
-  return p.name.split('-')[0].trim() || p.name;
-}
-
-function DelegationNote({ delegation, personas }: { delegation: Delegation; personas?: Persona[] }) {
-  const to = personaName(personas, delegation.to_persona);
+// Small muted pill showing the internal profile the per-turn router
+// selected for an assistant message ("code" / "research"). The plain
+// "chat" profile is the default and gets no chip, keeping the common
+// case visually quiet.
+function RoutedProfileChip({ profile }: { profile?: string | null }) {
+  if (!profile) return null;
+  const normalized = profile.toLowerCase();
+  if (normalized === 'chat' || normalized === 'munin') return null;
+  const label = normalized.charAt(0).toUpperCase() + normalized.slice(1);
   return (
-    <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-accent/8 border border-accent/30 text-xs text-text-secondary">
-      <span className="text-accent leading-tight">{'↳'}</span>
-      <div className="leading-snug">
-        <span className="text-text-primary font-medium">Handing off to {to}</span>
-        {delegation.reason ? <>: <span className="text-text-secondary">{delegation.reason}</span></> : null}
-      </div>
+    <div className="select-none">
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wider text-text-secondary bg-bg-tertiary border border-border">
+        {label}
+      </span>
     </div>
   );
 }
@@ -95,7 +91,7 @@ export function detectPhase(streaming: StreamingState): string {
 // enough that they don't need the affordance.
 const JUMP_BUTTON_HIDE_THRESHOLD_PX = 96;
 
-export function MessageList({ messages, streaming, personas, onSendClarification, onDismissMemoryProposal, conversationId, onPlanApproved, onPlanRejected, onPlanEdited }: MessageListProps) {
+export function MessageList({ messages, streaming, onSendClarification, onDismissMemoryProposal, conversationId, onPlanApproved, onPlanRejected, onPlanEdited }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   // Drives the floating "jump to bottom" button. True when the user
@@ -157,42 +153,13 @@ export function MessageList({ messages, streaming, personas, onSendClarification
   const isActive = streaming.phase !== 'idle' && streaming.phase !== 'done' && streaming.phase !== 'error';
   const isIdle = streaming.phase === 'idle' || streaming.phase === 'done';
 
-  // Effective authoring persona per message, carrying the last known
-  // persona forward across legacy NULL rows so a divider is drawn only
-  // on a real change (and never for an all-legacy transcript).
-  const effectivePersonas: (string | undefined)[] = [];
-  {
-    let last: string | undefined = undefined;
-    for (const m of messages) {
-      if (m.persona) last = m.persona;
-      effectivePersonas.push(last);
-    }
-  }
-
   return (
     <div className="flex-1 relative min-h-0 flex flex-col">
     <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-6">
       <div className="max-w-2xl mx-auto space-y-6">
-        {messages.map((msg, idx) => {
-          // Persona-switch divider: drawn above the first message whose
-          // effective persona differs from the previous one. Covers both
-          // delegate_to_persona and manual switches, and survives reload.
-          const showPersonaDivider =
-            idx > 0 &&
-            !!effectivePersonas[idx] &&
-            effectivePersonas[idx] !== effectivePersonas[idx - 1];
-          const delegationReason = showPersonaDivider
-            ? msg.delegations?.find(d => d.to_persona === effectivePersonas[idx])?.reason
-            : undefined;
+        {messages.map((msg) => {
           return (
           <div key={msg.id}>
-            {showPersonaDivider ? (
-              <PersonaDivider
-                personaId={effectivePersonas[idx]!}
-                personas={personas}
-                reason={delegationReason}
-              />
-            ) : null}
             {/* P2 #22: render the boundary divider ABOVE the
                 assistant message that triggered compaction so the
                 visible order matches the conversation flow. */}
@@ -243,14 +210,8 @@ export function MessageList({ messages, streaming, personas, onSendClarification
               />
             )}
 
-            {/* Persona delegation notes for the current stream */}
-            {streaming.delegations.length > 0 && (
-              <div className="space-y-2">
-                {streaming.delegations.map((d, i) => (
-                  <DelegationNote key={i} delegation={d} personas={personas} />
-                ))}
-              </div>
-            )}
+            {/* Routed-profile chip for the in-progress turn. */}
+            <RoutedProfileChip profile={streaming.routedProfile} />
 
             {/* Loading vortex — show when no content yet OR during tool calls */}
             {(!streaming.content.trim() || streaming.phase === 'tool_call') && (
@@ -342,9 +303,10 @@ function MessageBubble({ message, onSendClarification, onDismissMemoryProposal }
         />
       )}
 
-      {/* Persona handoff is shown as a PersonaDivider above the bubble
-          (driven by the per-message persona field, reload-safe). The
-          inline DelegationNote is kept only for the live stream. */}
+      {/* Routed-profile chip: the internal profile the per-turn router
+          selected for this assistant turn (stored on message.persona).
+          Hidden for the default "chat" profile. */}
+      <RoutedProfileChip profile={message.persona} />
 
       {cleanContent(message.content) && (
         <div className="text-base text-text-primary leading-relaxed">

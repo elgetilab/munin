@@ -236,9 +236,8 @@ export default function App() {
     }
   }, [lastArtifactEvent]);
 
-  // Sync the persona indicator to the conversation's persona. Triggers on:
-  //  - conversation load (persisted persona is authoritative)
-  //  - persona_changed SSE event after a delegation
+  // Sync the persona indicator to the conversation's persona on
+  // conversation load (the persisted persona is authoritative).
   useEffect(() => {
     if (conversationPersona && conversationPersona !== selectedPersona) {
       setSelectedPersona(conversationPersona);
@@ -776,7 +775,7 @@ export default function App() {
               </div>
             ) : (
               <>
-                <MessageList messages={messages} streaming={streaming} personas={personas} onSendClarification={handleSend} onDismissMemoryProposal={dismissMemoryProposal} conversationId={conversationId} onPlanApproved={handlePlanApproved} onPlanRejected={() => { /* user types follow-up themselves */ }} onPlanEdited={handlePlanEdited} />
+                <MessageList messages={messages} streaming={streaming} onSendClarification={handleSend} onDismissMemoryProposal={dismissMemoryProposal} conversationId={conversationId} onPlanApproved={handlePlanApproved} onPlanRejected={() => { /* user types follow-up themselves */ }} onPlanEdited={handlePlanEdited} />
                 <ChatInput
                   ref={chatInputRef}
                   onSend={handleSend}

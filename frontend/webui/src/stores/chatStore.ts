@@ -49,7 +49,6 @@ import type {
   Clarification,
   CompactBoundary,
   Conversation,
-  Delegation,
   MemoryProposal,
   Message,
   MessageContent,
@@ -80,7 +79,11 @@ export interface StreamingState {
   toolCalls: ToolCall[];
   ragContext: RagContext | null;
   clarification: Clarification | null;
-  delegations: Delegation[];
+  // Profile the per-turn router selected for the in-flight stream
+  // ("chat" / "code" / "research"). Set on the `routing` SSE event,
+  // reset to null when a new turn starts. Drives the routed-profile
+  // chip on the streaming assistant bubble.
+  routedProfile: string | null;
   phase: 'idle' | 'thinking' | 'tool_call' | 'generating' | 'done' | 'error';
   // Set when the backend emits a `retrying` SSE because a vLLM call
   // hit a transient error (5xx / 429 / pre-first-byte drop). Cleared
@@ -99,7 +102,7 @@ export const INITIAL_STREAMING: StreamingState = {
   toolCalls: [],
   ragContext: null,
   clarification: null,
-  delegations: [],
+  routedProfile: null,
   phase: 'idle',
   retrying: null,
   reconnecting: null,
@@ -316,9 +319,9 @@ export const useChatStore = create<ChatState>()(
           id: `temp-${Date.now()}`,
           role: 'user',
           content,
-          // Persona this turn is addressed to (the source persona if a
-          // delegation happens later this turn). Matches what the backend
-          // persists, so the PersonaDivider lines up after reload.
+          // Persona this turn is addressed to ("munin"). The per-turn
+          // router decides the actual profile, which lands on the
+          // assistant message via the `routing` SSE event.
           persona,
           created_at: new Date().toISOString(),
         };
@@ -337,7 +340,10 @@ export const useChatStore = create<ChatState>()(
       // a re-entrant sendMessage (impossible in practice but
       // defensive) wouldn't cross-contaminate.
       const toolCalls: ToolCall[] = [];
-      const delegations: Delegation[] = [];
+      // Per-turn router decision. Latched on the `routing` SSE event and
+      // attached to the assistant message as its `persona` (routed
+      // profile) so the chip renders identically live and after reload.
+      let routedProfile: string | null = null;
       // P2 #25: memory proposals fire from a `stop` hook AFTER the
       // `done` event in most paths, so we collect them in a turn-
       // scoped accumulator and attach to the most recent assistant
@@ -422,19 +428,15 @@ export const useChatStore = create<ChatState>()(
             toolCalls.length > 0 ? _snapshotToolCalls(toolCalls) : null,
           rag_context: ragCtx,
           clarification: clarification,
-          delegations: delegations.length > 0 ? [...delegations] : null,
           memory_proposals:
             memoryProposals.length > 0 ? [...memoryProposals] : null,
           compact_boundary: compactBoundary,
           plan_snapshot: planSnapshot,
-          // Authoring persona: the delegation target if a handoff
-          // happened this turn, otherwise the persona it was sent under.
-          // Mirrors the backend's per-message persona so the divider is
-          // identical live and after reload.
-          persona:
-            delegations.length > 0
-              ? delegations[delegations.length - 1].to_persona
-              : persona,
+          // Routed profile for this turn ("chat" / "code" / "research"),
+          // as decided by the per-turn router. Stored on `persona` so the
+          // routed-profile chip renders identically live and after reload.
+          // Falls back to the persona the turn was sent under.
+          persona: routedProfile ?? persona,
           created_at: new Date().toISOString(),
         };
         set(state => {
@@ -675,23 +677,15 @@ export const useChatStore = create<ChatState>()(
               });
             }
             break;
-          case 'delegated':
-            // Persona handoff. Tokens streamed before this event
-            // came from the source persona; tokens after this come
-            // from the delegated one. We keep them concatenated
-            // and let the UI render the handoff marker between
-            // TaskLog and content.
-            delegations.push(event.data);
+          case 'routing':
+            // Per-turn router picked an internal profile
+            // ("chat" / "code" / "research") for this turn. Latch it
+            // so the assistant message carries it as its routed
+            // profile, and expose it on the streaming state to drive
+            // the in-progress routed-profile chip.
+            routedProfile = event.data.profile;
             set(state => {
-              state.streaming.delegations = [...delegations];
-              state.streaming.phase = 'thinking';
-            });
-            break;
-          case 'persona_changed':
-            // Backend persisted the new persona for this
-            // conversation. Sync local state.
-            set(state => {
-              state.conversationPersona = event.data.persona;
+              state.streaming.routedProfile = event.data.profile;
             });
             break;
           case 'retrying':
@@ -796,9 +790,9 @@ export const useChatStore = create<ChatState>()(
               tool_calls: toolCalls.length > 0 ? _snapshotToolCalls(toolCalls) : null,
               rag_context: ragCtx,
               clarification: clarification,
-              delegations: delegations.length > 0 ? [...delegations] : null,
               compact_boundary: compactBoundary,
               plan_snapshot: planSnapshot,
+              persona: routedProfile ?? persona,
               interrupted: true,
               created_at: new Date().toISOString(),
             };
@@ -885,7 +879,7 @@ export const useChatStore = create<ChatState>()(
             tool_calls: toolCalls.length > 0 ? toolCalls : null,
             rag_context: ragCtx,
             clarification: clarification,
-            delegations: delegations.length > 0 ? [...delegations] : null,
+            persona: routedProfile ?? persona,
             interrupted: true,
             created_at: new Date().toISOString(),
           };

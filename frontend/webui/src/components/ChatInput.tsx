@@ -2,8 +2,6 @@ import { useState, useRef, useEffect, useMemo, forwardRef, useImperativeHandle }
 import type { Persona, PromptSuggestion } from '../lib/types';
 import { uploadDocument } from '../lib/api';
 import type { UploadedDocument } from '../lib/api';
-import { PersonaSelector } from './PersonaSelector';
-import { useUserStore } from '../stores/userStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 
 const SLASH_COMMANDS = [
@@ -88,9 +86,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   conversationId,
   onFileUploaded,
 }: ChatInputProps, ref) {
-  const personas = useUserStore(s => s.personas);
-  const selectedPersona = useUserStore(s => s.selectedPersona);
-  const onSelectPersona = useUserStore(s => s.setSelectedPersona);
   const isEphemeral = useWorkspaceStore(s => s.isEphemeral);
   const tagCatalog = useWorkspaceStore(s => s.tagCatalog);
   const activeTags = useWorkspaceStore(s => s.activeTags);
@@ -659,7 +654,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Send a message..."
+          placeholder="Ask Munin anything… (/research, /code, /chat to steer)"
           rows={1}
           className="w-full resize-none bg-transparent px-5 pt-4 pb-2 text-sm text-text-primary placeholder-text-secondary outline-none"
         />
@@ -776,14 +771,16 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
           <div className="flex-1" />
 
-          {/* Persona selector — right side */}
-          {personas.length > 0 && (
-            <PersonaSelector
-              personas={personas}
-              selected={selectedPersona}
-              onSelect={onSelectPersona}
+          {/* Munin identity mark — non-interactive. The model now
+              auto-routes per turn, so there's no persona to pick. */}
+          <div className="flex items-center gap-1.5 px-2 select-none" aria-hidden>
+            <img
+              src="/shared/munin_logo_without_script.webp"
+              alt="Munin"
+              className="h-5 w-auto opacity-80"
             />
-          )}
+            <span className="text-sm text-text-secondary">Munin</span>
+          </div>
 
           {/* Send / Stop button */}
           {isStreaming ? (

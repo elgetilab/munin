@@ -2,10 +2,9 @@ import { http, HttpResponse } from 'msw';
 
 export const MOCK_PERSONAS = {
   personas: [
-    { id: 'chat', name: 'Meitner - Chat', description: 'General', icon_url: '', tags: [], capabilities: {}, prompt_suggestions: [] },
-    { id: 'code', name: 'Turing - Code', description: 'Code', icon_url: '', tags: [], capabilities: {}, prompt_suggestions: [] },
+    { id: 'munin', name: 'Munin', description: 'Munin assistant', icon_url: '', tags: [], capabilities: {}, prompt_suggestions: [] },
   ],
-  default_persona: 'chat',
+  default_persona: 'munin',
 };
 
 export const MOCK_CHATS = {

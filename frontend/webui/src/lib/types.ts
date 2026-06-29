@@ -48,7 +48,6 @@ export interface Message {
   tool_calls?: ToolCall[] | null;
   rag_context?: RagContext | null;
   clarification?: Clarification | null;
-  delegations?: Delegation[] | null;
   // True when the assistant turn was cut short by a stream error or
   // client disconnect. The content carries an inline `_(stream
   // interrupted: <reason>)_` marker matching the backend's
@@ -70,18 +69,13 @@ export interface Message {
   // transcript reload. Only the assistant message that LAST touched
   // the plan within a turn carries the snapshot.
   plan_snapshot?: Plan | null;
-  // Authoring persona for this turn (persona-switch tracking). Set by
-  // the backend per message; drives the PersonaDivider in the message
-  // list. Null/undefined on legacy rows predating the column — treated
-  // as "unattributed" so no spurious divider is drawn.
+  // Routed profile for this turn ("chat" / "code" / "research"), as
+  // chosen by the per-turn router. Set by the backend per message;
+  // drives the routed-profile chip in the message list. Null/undefined
+  // on legacy rows predating the column — treated as "unattributed" so
+  // no chip is drawn.
   persona?: string | null;
   created_at: string;
-}
-
-export interface Delegation {
-  from_persona: string;
-  to_persona: string;
-  reason: string;
 }
 
 export interface ToolCall {
@@ -204,8 +198,7 @@ export type SSEEvent =
   | { type: 'agent_tool_call'; data: { id: string; name: string; arguments: Record<string, unknown> } }
   | { type: 'agent_tool_result'; data: { id: string; name: string; result: unknown; duration_ms?: number } }
   | { type: 'agent_done'; data: { agent: string; tool_calls: number; duration_seconds: number; stopped_reason: string } }
-  | { type: 'delegated'; data: Delegation }
-  | { type: 'persona_changed'; data: { id: string; persona: string } }
+  | { type: 'routing'; data: { profile: string; pin: string | null; method: string; confidence?: number } }
   | { type: 'retrying'; data: { attempt: number; max_attempts: number; delay_s: number; reason: string } }
   | { type: 'reconnecting'; data: { attempt: number; max_attempts: number; delay_s: number } }
   | { type: 'memory_proposed'; data: MemoryProposal }
