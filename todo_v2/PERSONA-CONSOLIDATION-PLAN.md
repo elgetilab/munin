@@ -57,15 +57,45 @@ per-profile; this is a consolidation of IDENTITY, not a collapse to one prompt
 6. One logo for Munin (or reuse one); drop the per-persona logos from the picker
    path.
 
-### Frontend (webui + static)
-7. Remove / hide the persona picker component.
-8. Show the single "Munin" identity (header + message attribution = "Munin").
-9. Stop sending the selected persona (or send `munin`) -> backend auto-routes.
-10. Fold in the already-noted dead-handler cleanup (`delegated` /
-    `persona_changed` SSE handlers).
-11. Slash-command discoverability: a composer hint (placeholder / help) so the
-    `/chat`-`/code`-`/research` override is findable now the picker is gone.
-    (Low priority; auto-route covers non-power users.)
+### Frontend (webui) — SCOPED (2026-06-29)
+
+Important: after the backend change the CURRENT frontend already works
+(`/api/personas` returns one Munin -> `selectedPersona` defaults to "munin" ->
+the send already auto-routes). So this is cleanup + branding, NOT critical path.
+Build target `frontend/static/chat/` (vite `outDir`); served by Caddy at
+chat.muninai.org. Website Munin logo: `/shared/munin_logo_without_script.webp`.
+
+Files + changes:
+1. **ChatInput.tsx** - remove `<PersonaSelector>` (composer bottom bar). Replace
+   with a small static "Munin" mark (the shared logo + label), non-interactive.
+   Keep sending `selectedPersona` (== "munin") so the backend auto-routes.
+2. **PersonaSelector.tsx** - delete (sole consumer was ChatInput).
+3. **MessageList.tsx** - remove `PersonaDivider` + `DelegationNote` + the
+   `effectivePersonas` divider logic. CRITICAL UX: per-turn routing now changes
+   the per-message profile, which would otherwise render as bogus "switched to
+   Code/Research" dividers. (MessageList has no per-message avatars, so nothing
+   else to swap.)
+4. **PersonaDivider.tsx** - delete (only used by MessageList).
+5. **chatStore.ts** - remove `case 'delegated'` and `case 'persona_changed'` (dead
+   since A4) + the `delegations` / `streaming.delegations` state.
+6. **types.ts** - drop the `delegated` + `persona_changed` StreamEvent variants
+   and the now-unused `Delegation` type.
+7. **App.tsx** - leave the `conversationPersona -> selectedPersona` sync (harmless:
+   "munin" for new convs; legacy convs still sync their stored profile).
+8. **Branding** - reference `/shared/munin_logo_without_script.webp` (the website
+   logo, per varghele; NOT a persona logo).
+9. **Tests** - update/trim the suites that reference PersonaSelector /
+   PersonaDivider / delegated / persona_changed so `npm run test` + `build` pass.
+10. Optional (low priority, likely skip): a composer placeholder hint that
+    `/research //code //chat` exist; handling the `routing` SSE event to show a
+    subtle routed-profile chip. Default: skip - keeps the "no model selection"
+    UX clean.
+
+Deploy (I have VPS access: `varghele@<vps-host>`, key `~/.ssh/munin_admin`,
+rsync-based): `cd frontend/webui && npm run build`; rsync the tree + prune
+`frontend/static/chat/assets/` with `--delete`; Caddy serves the static files
+directly (no container rebuild for a webui-only change). Backend stays
+backward-compatible so nothing breaks mid-deploy.
 
 ### Docs
 12. DECISIONS.md dated entry (personas consolidated to one Munin identity; three
@@ -94,6 +124,20 @@ a real profile id still pins (backward-compatible; the routing eval sends "chat"
 and is unaffected). New conversations persist "munin" so reopening re-routes.
 Live probe: munin -> {python:code, papers:research, weather:chat} all pin=null;
 chat -> pin="chat". Backend fully done.
+
+### Frontend DONE + DEPLOYED (commit ed577a1, 2026-06-29)
+
+Picker removed (PersonaSelector + PersonaDivider deleted); composer shows a static
+Munin mark (`/shared/munin_logo_without_script.webp`) + slash hint placeholder;
+per-assistant-message routed-profile chip (subtle pill, shown only for
+code/research) from `message.persona` / the `routing` SSE event; dead
+`delegated`/`persona_changed` handlers + `Delegation` type removed; msw mock +
+tests aligned to single-Munin. `npm run build` + 206 tests pass. Built to
+`frontend/static/chat/`, rsynced to the VPS (varghele@<vps-host>), stale
+bundle pruned; new bundle live, Caddy serves it (302 -> auth confirms the gate).
+
+## Status: CONSOLIDATION COMPLETE (backend + frontend). Meitner/Turing/Curie ->
+one Munin, three internal routing profiles, auto-route, slash-command override.
 
 ## Sequencing
 
