@@ -1,30 +1,40 @@
 #!/bin/bash
-#SBATCH --job-name=vllm-service
+#SBATCH --job-name=vllm-service-tp2
 #SBATCH --partition=vllm-serving
-#SBATCH --gres=gpu:vllm:1
+#SBATCH --gres=gpu:vllm:1,gpu:batch:1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=16G
+#SBATCH --mem=32G
 #SBATCH --time=20:00:00
 #SBATCH --output=/opt/munin/logs/vllm-service-%j.out
 #SBATCH --error=/opt/munin/logs/vllm-service-%j.err
 
 # ==============================================================================
-# MUNIN VLLM SERVICE - SLURM JOB SCRIPT
+# MUNIN VLLM SERVICE - MULTI-GPU (TENSOR-PARALLEL) SLURM JOB SCRIPT
 # ==============================================================================
-# Runs vLLM serving on GPU 1 for the Munin backend.
-# Model: Qwen3.6-35B-A3B-AWQ-4bit (Gated DeltaNet + MoE Hybrid)
-# Personas: Chat (general), Code (programming), Research (academic)
-# Scheduled daily 6am - 2am via cron (or 24/7 via: vllm-service enable-24x7)
+# Same model as the single-GPU script, but SHARDED across BOTH RTX 5090s with
+# tensor parallelism (TP=2) to unlock a much larger context window.
 #
-# GPU allocation (hugin gres.conf):
-#   - We claim the WHOLE GPU 1 via gpu:vllm:1. The 35B-A3B AWQ-4bit model
-#     plus 64k KV cache needs ~30 GB VRAM, which fills the RTX 5090.
-#   - While this job holds gpu:vllm:1, the 8 cooperative shards on GPU 1
-#     (shard:vllm:N) are unavailable. Whole GPU 0 (gpu:batch:1) and its
-#     8 shards (shard:batch:N) remain free for user / deepresearch jobs.
-#   - If we ever shrink vLLM's footprint, the equivalent partial claim
-#     would be `#SBATCH --gres=shard:vllm:N` (N out of 8, ~4 GB each).
-#   - vllm-serving partition is capped at MaxCPUsPerNode=4 by SLURM.
+# Model: Qwen3.6-35B-A3B-AWQ-4bit (Gated DeltaNet + MoE Hybrid, 262k native)
+#
+# Why TP=2 helps here:
+#   - The 23 GB AWQ-4bit WEIGHTS are the limiter on a single 32 GB 5090
+#     (they leave only ~6 GB for everything else, hence the 64k cap).
+#   - TP=2 splits the weights across both cards (~11.5 GB/card), freeing
+#     ~17 GB/card. The KV cache is tiny on this model (hybrid attention: only
+#     10 of 40 layers are full-attention, plus 2 KV heads -> ~10 KB/token fp8),
+#     so the freed VRAM goes a long way: 128k context fits with wide headroom.
+#
+# TRADE-OFF (read before enabling):
+#   - This claims the WHOLE of BOTH GPUs (gpu:vllm:1 + gpu:batch:1). While it
+#     runs, GPU 0 is NO LONGER FREE for user / deepresearch / batch-eval jobs
+#     (the eval suite's overnight `run_all` on GPU 0 cannot run alongside it).
+#   - Use this for big-context sessions; use start-vllm-service.sh (single GPU,
+#     64k) as the default when GPU 0 needs to stay free for batch work.
+#   - The 5090s have NO NVLink, so TP communication crosses PCIe. Fine for a
+#     3B-active MoE, but prefill of very long prompts is slower than single-GPU.
+#
+# GPU allocation (hugin gres.conf): gpu:batch=/dev/nvidia0, gpu:vllm=/dev/nvidia1.
+# Requesting one of each gives this job both physical cards (TP ranks 0 and 1).
 # ==============================================================================
 
 set -e
@@ -37,7 +47,11 @@ MODEL_PATH="/opt/munin/data/models/qwen3.6-35b-a3b-awq-4bit"
 MODEL_NAME="qwen3.6-35b-a3b"
 VLLM_PORT=8000
 
-COMPOSE_DIR="/opt/munin"
+TENSOR_PARALLEL_SIZE=2
+MAX_MODEL_LEN=131072          # 128k (single-GPU script uses 65536). Native cap 262144.
+BACKEND_MAX_CONTEXT=125000    # retrieval history-trim ceiling (window minus a margin)
+
+ENV_FILE=/opt/munin/config/munin.env
 
 # Load environment
 if [ -f /opt/hugin/config/cluster.env ]; then
@@ -45,26 +59,23 @@ if [ -f /opt/hugin/config/cluster.env ]; then
 fi
 
 echo "=============================================="
-echo "MUNIN vLLM Service Starting"
+echo "MUNIN vLLM Service Starting (MULTI-GPU / TP=2)"
 echo "=============================================="
 echo "Job ID:     $SLURM_JOB_ID"
 echo "Node:       $SLURMD_NODENAME"
 echo "Start Time: $(date)"
-echo "GPU:        $CUDA_VISIBLE_DEVICES"
+echo "GPUs:       $CUDA_VISIBLE_DEVICES   (tensor-parallel-size=$TENSOR_PARALLEL_SIZE)"
+echo "Context:    $MAX_MODEL_LEN tokens"
 echo "=============================================="
 echo ""
 echo "Model: Qwen3.6-35B-A3B-AWQ-4bit"
-echo "  - Gated DeltaNet + MoE Hybrid"
-echo "  - 35B total parameters, 3B active"
-echo "  - AWQ 4-bit quantization"
-echo "  - 64k context window (native 262k)"
+echo "  - Gated DeltaNet + MoE Hybrid, 35B total / 3B active, AWQ 4-bit"
+echo "  - Tensor-parallel across BOTH RTX 5090s (weights sharded ~11.5 GB/card)"
+echo "  - ${MAX_MODEL_LEN} context window (native 262144)"
 echo "  - Reasoning enabled (generates <think> traces)"
-echo "  - 2 concurrent requests"
 echo ""
-echo "Personas (synced automatically from persona definitions):"
-echo "  - Meitner  : Chat — general assistant (day-to-day, writing, web + paper search)"
-echo "  - Turing   : Code — programming assistant (scientific computing, debugging)"
-echo "  - Curie    : Research — research assistant (deep literature search, citations)"
+echo "NOTE: this claims BOTH GPUs. GPU 0 is unavailable for batch jobs while"
+echo "      this is running. Use start-vllm-service.sh for single-GPU (64k)."
 echo "=============================================="
 
 # Load CUDA 13.0.2 module (required for Blackwell SM 120a)
@@ -79,26 +90,25 @@ export CUDACXX=/opt/cuda/13.0.2/bin/nvcc
 export PATH=/opt/cuda/13.0.2/bin:$PATH
 export LD_LIBRARY_PATH=/opt/cuda/13.0.2/lib64:$LD_LIBRARY_PATH
 
-# Verify correct nvcc is being used
 echo "CUDA compiler: $(which nvcc)"
 nvcc --version
 
 # Activate vLLM environment
 source /opt/munin/services/vllm/venv/bin/activate
 
-# Set environment variables
-# GPU 1 is assigned via SLURM gres type "vllm" (see gres.conf)
-echo "Using SLURM-assigned GPU: ${CUDA_VISIBLE_DEVICES:-not set}"
+echo "Using SLURM-assigned GPUs: ${CUDA_VISIBLE_DEVICES:-not set}"
 
-# Fix NVML/CUDA device mapping conflict
-# CUDA_DEVICE_ORDER ensures consistent ordering between NVML and CUDA
-# NVIDIA_VISIBLE_DEVICES syncs container/driver visibility with CUDA
+# Fix NVML/CUDA device mapping conflict; keep ordering consistent across both cards
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export NVIDIA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES}"
 
-# vLLM specific settings
+# vLLM / tensor-parallel settings
 export VLLM_WORKER_MULTIPROC_METHOD=spawn
 export VLLM_SKIP_P2P_CHECK=1
+# No NVLink on consumer 5090s: let NCCL fall back to PCIe/shared-memory transport
+# instead of failing a P2P probe. (SKIP_P2P_CHECK above already relaxes vLLM's own
+# check; NCCL_P2P_LEVEL=PXB keeps GPU-GPU traffic on PCIe.)
+export NCCL_P2P_LEVEL=PXB
 
 # Memory optimization: reduce fragmentation
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
@@ -106,32 +116,36 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # ------------------------------------------------------------------------------
 # Download model if needed
 # ------------------------------------------------------------------------------
-# Check if model needs to be downloaded
 if [ ! -d "$MODEL_PATH" ]; then
     echo ""
-    echo "Model not found locally. Downloading from HuggingFace..."
-    echo "This may take a while (model is ~19GB)..."
+    echo "Model not found locally. Downloading from HuggingFace (~23 GB)..."
     hf download "$MODEL_ID" --local-dir "$MODEL_PATH"
     echo "[OK] Model downloaded to $MODEL_PATH"
 fi
 
 # ------------------------------------------------------------------------------
-# Pin the backend context window to the single-GPU window (65536), so switching
-# back from the TP=2 script (which pins 131072) restores the 64k cap the
-# retrieval service enforces. Best-effort; warns if munin.env is not writable.
+# Pin the backend context window to match this mode, so the retrieval service
+# actually uses the larger window (otherwise it keeps trimming prompts to 64k).
+# The single-GPU script pins these back to 65536 / 60000. (Best-effort; warns
+# rather than failing the job if munin.env is not writable.)
 # ------------------------------------------------------------------------------
-ENV_FILE=/opt/munin/config/munin.env
 pin_env() {  # pin_env KEY VALUE
     local key="$1" val="$2"
-    [ -w "$ENV_FILE" ] || { echo "[WARN] $ENV_FILE not writable; set ${key}=${val} manually"; return 0; }
+    if [ ! -w "$ENV_FILE" ]; then
+        echo "[WARN] $ENV_FILE not writable; set ${key}=${val} manually so the"
+        echo "       backend uses the ${MAX_MODEL_LEN}-token window."
+        return 0
+    fi
     if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
         sed -i "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
     else
         echo "${key}=${val}" >> "$ENV_FILE"
     fi
 }
-pin_env VLLM_MAX_MODEL_LEN 65536
-pin_env VLLM_MAX_CONTEXT 60000
+echo ""
+echo "Pinning backend context window (VLLM_MAX_MODEL_LEN=$MAX_MODEL_LEN)..."
+pin_env VLLM_MAX_MODEL_LEN "$MAX_MODEL_LEN"
+pin_env VLLM_MAX_CONTEXT "$BACKEND_MAX_CONTEXT"
 
 # ------------------------------------------------------------------------------
 # Start Retrieval Service (for knowledge base tools)
@@ -141,7 +155,6 @@ echo "Starting Retrieval Service..."
 cd /opt/munin/docker
 docker compose --profile rag up -d retrieval
 
-# Wait for retrieval service to be ready
 for i in {1..30}; do
     if curl -sf http://127.0.0.1:8080/health > /dev/null 2>&1; then
         echo "[OK] Retrieval service is ready"
@@ -154,17 +167,18 @@ for i in {1..30}; do
 done
 
 # ------------------------------------------------------------------------------
-# Start vLLM server - Qwen3.6-35B-A3B-AWQ-4bit
+# Start vLLM server - tensor-parallel over both GPUs
 # ------------------------------------------------------------------------------
 echo ""
-echo "Starting vLLM server (Qwen3.6-35B-A3B-AWQ-4bit)..."
+echo "Starting vLLM server (TP=$TENSOR_PARALLEL_SIZE, ${MAX_MODEL_LEN} ctx)..."
 
 vllm serve "$MODEL_PATH" \
     --host 0.0.0.0 \
     --port $VLLM_PORT \
+    --tensor-parallel-size $TENSOR_PARALLEL_SIZE \
     --gpu-memory-utilization 0.90 \
-    --max-model-len 65536 \
-    --max-num-seqs 2 \
+    --max-model-len $MAX_MODEL_LEN \
+    --max-num-seqs 4 \
     --dtype float16 \
     --quantization compressed-tensors \
     --kv-cache-dtype fp8 \
@@ -176,27 +190,24 @@ vllm serve "$MODEL_PATH" \
 VLLM_PID=$!
 echo "vLLM PID: $VLLM_PID"
 
-# Wait for model to be ready (may take 5-10 minutes on first run due to JIT compilation)
+# Wait for model to be ready (TP adds NCCL init + per-rank JIT; allow extra time)
 echo "Waiting for model to load..."
-TIMEOUT_SECONDS=600  # 10 minutes for first-run JIT compilation
+TIMEOUT_SECONDS=900   # 15 minutes: TP init + first-run JIT across 2 ranks
 INTERVAL=5
 ELAPSED=0
 
 while [ $ELAPSED -lt $TIMEOUT_SECONDS ]; do
-    # Check if vLLM process is still running
     if ! kill -0 $VLLM_PID 2>/dev/null; then
         echo "[ERROR] vLLM process exited unexpectedly"
-        echo "Check logs above for error details"
+        echo "Check logs above for error details (common TP issues: NCCL/PCIe init)"
         exit 1
     fi
 
-    # Check health endpoint
     if curl -sf http://127.0.0.1:$VLLM_PORT/health > /dev/null 2>&1; then
-        echo "[OK] Qwen3.6-35B-A3B-AWQ-4bit is ready!"
+        echo "[OK] Qwen3.6-35B-A3B (TP=$TENSOR_PARALLEL_SIZE, ${MAX_MODEL_LEN} ctx) is ready!"
         break
     fi
 
-    # Progress indicator every 30 seconds
     if [ $((ELAPSED % 30)) -eq 0 ] && [ $ELAPSED -gt 0 ]; then
         echo "  Still loading... (${ELAPSED}s elapsed, vLLM PID $VLLM_PID running)"
     fi
@@ -207,7 +218,6 @@ done
 
 if [ $ELAPSED -ge $TIMEOUT_SECONDS ]; then
     echo "[ERROR] Model failed to start within ${TIMEOUT_SECONDS}s timeout"
-    echo "vLLM process is still running (PID $VLLM_PID) - may need more time"
     kill $VLLM_PID 2>/dev/null
     exit 1
 fi
@@ -217,25 +227,12 @@ fi
 # ------------------------------------------------------------------------------
 echo ""
 echo "=============================================="
-echo "MUNIN vLLM Service is LIVE"
+echo "MUNIN vLLM Service is LIVE (TP=$TENSOR_PARALLEL_SIZE)"
 echo "=============================================="
-echo ""
-echo "Endpoints:"
-echo "  vLLM API:    http://127.0.0.1:$VLLM_PORT/v1"
-echo ""
-echo "Model:"
-echo "  - $MODEL_NAME : Qwen3.6-35B-A3B (MoE 35B/3B active, AWQ-4bit, 64k ctx)"
-echo ""
-echo "Personas (synced from persona definitions):"
-echo "  - Meitner  : Chat — general assistant (day-to-day, writing, web + paper search)"
-echo "  - Turing   : Code — programming assistant (scientific computing, debugging)"
-echo "  - Curie    : Research — research assistant (deep literature search, citations)"
-echo ""
-echo "Test API:"
-echo "  curl http://127.0.0.1:$VLLM_PORT/v1/models"
-echo ""
+echo "  vLLM API:   http://127.0.0.1:$VLLM_PORT/v1"
+echo "  Model:      $MODEL_NAME (MoE 35B/3B, AWQ-4bit, ${MAX_MODEL_LEN} ctx, 2x RTX 5090)"
+echo "=============================================="
 
-# Write status files
 mkdir -p /opt/munin/logs
 echo "$(hostname)" > /opt/munin/logs/current_node.txt
 echo "$SLURM_JOB_ID" > /opt/munin/logs/current_job.txt
@@ -243,40 +240,24 @@ echo "running" > /opt/munin/logs/service_status.txt
 date > /opt/munin/logs/service_started.txt
 
 # ------------------------------------------------------------------------------
-# Cleanup function
+# Cleanup
 # ------------------------------------------------------------------------------
 CLEANUP_DONE=0
 cleanup() {
     [ "$CLEANUP_DONE" -eq 1 ] && return
     CLEANUP_DONE=1
-
     echo ""
-    echo "=============================================="
-    echo "Shutting down Munin vLLM service..."
-    echo "=============================================="
-
-    # Stop vLLM process
-    echo "Stopping vLLM server..."
+    echo "Shutting down Munin vLLM service (TP=$TENSOR_PARALLEL_SIZE)..."
     kill $VLLM_PID 2>/dev/null || true
-
-    # Update status
     echo "offline" > /opt/munin/logs/service_status.txt
-    rm -f /opt/munin/logs/current_node.txt
-    rm -f /opt/munin/logs/current_job.txt
-
-    echo ""
+    rm -f /opt/munin/logs/current_node.txt /opt/munin/logs/current_job.txt
     echo "[OK] Shutdown complete."
-    echo "=============================================="
 }
-
 trap cleanup EXIT SIGTERM SIGINT
 
-# Keep job alive - monitor vLLM
 echo ""
 echo "Service running. Monitoring vLLM..."
-
 while kill -0 $VLLM_PID 2>/dev/null; do
     sleep 30
 done
-
 echo "$(date): vLLM process exited"
