@@ -41,10 +41,18 @@ def get_neo4j():
     )
 
 
-def load_specter():
+def load_specter(device: str | None = None):
     """Load the SPECTER embedder, local path first then HF id — mirrors
-    database.get_specter()."""
+    database.get_specter().
+
+    ``device`` defaults to the env ``MUNIN_BENCH_SPECTER_DEVICE`` or "cpu".
+    CPU is the safe default on hugin: the GPUs are usually saturated by vLLM
+    (TP=2 at 0.90 util), so putting SPECTER on CUDA would OOM. Pass
+    ``device="cuda"`` only when the cards are free (large BEIR subsets)."""
     from sentence_transformers import SentenceTransformer
+
+    if device is None:
+        device = os.getenv("MUNIN_BENCH_SPECTER_DEVICE", "cpu")
 
     candidates = [
         (config.SPECTER_MODEL_PATH, "local path"),
@@ -54,8 +62,8 @@ def load_specter():
         if path == config.SPECTER_MODEL_PATH and not os.path.exists(path):
             continue
         try:
-            logger.info("Loading SPECTER from %s (%s)", path, desc)
-            return SentenceTransformer(path)
+            logger.info("Loading SPECTER from %s (%s) on %s", path, desc, device)
+            return SentenceTransformer(path, device=device)
         except Exception as e:  # pragma: no cover - load-time/env dependent
             logger.warning("SPECTER load from %s failed: %s", desc, e)
     raise RuntimeError("Could not load SPECTER model from local path or HF")

@@ -15,10 +15,14 @@ from .base import Retriever
 class SpecterDenseRetriever(Retriever):
     name = "specter_dense"
 
-    def __init__(self, qdrant, specter, collection: str = "papers"):
+    def __init__(self, qdrant, specter, collection: str = "papers",
+                 id_field: str = "doi"):
         self.qdrant = qdrant
         self.specter = specter
         self.collection = collection
+        # Production "papers" keys ids under "doi"; BEIR eval_* collections
+        # key them under "doc_id". A retriever instance is bound to one corpus.
+        self.id_field = id_field
 
     def _search(self, query: str, limit: int, query_filter=None) -> list[tuple[str, float]]:
         vec = self.specter.encode(query).tolist()
@@ -32,7 +36,7 @@ class SpecterDenseRetriever(Retriever):
         order: list[str] = []
         for r in results.points:
             payload = r.payload or {}
-            doi = (payload.get("doi") or "").strip()
+            doi = (payload.get(self.id_field) or "").strip()
             if not doi:
                 continue
             score = float(r.score)

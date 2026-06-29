@@ -283,7 +283,28 @@ On BEIR, the *real* story is (1) vs (2) vs (5): does dense beat BM25, and does t
 
 **Output format (`results/beir/<subset>/summary.md`):** one Markdown table per subset, columns = retrievers, rows = metrics with 95% CI in parens. Plus a small significance table for the headline pairs.
 
-**Gate:** `python -m munin_bench.pipelines.run_beir --subset scifact` completes end-to-end and produces a non-trivial nDCG@10 (>0.5 for SPECTER dense — sanity check against published SPECTER numbers, which run around 0.50–0.55 on SciFact).
+**Gate:** `python -m munin_bench.pipelines.run_beir --subset scifact` completes
+end-to-end and the pipeline reproduces a published reference number. The
+operative sanity check is **BM25**, not SPECTER: BM25 must land near the
+BEIR-published SciFact BM25 (nDCG@10 ≈ 0.665) — that validates data loading,
+qrels, and the metric in one shot. (Reconciled 2026-06-29: the original gate
+asked for SPECTER dense > 0.5 "around 0.50–0.55". Measured, SPECTER-v1 scores
+**0.4788** with Munin's production document construction (`title\n\nabstract`)
+and **0.4943** with the canonical SPECTER `title[SEP]abstract` form — neither
+clears 0.5, so the old threshold was optimistic. Our 0.4788 was confirmed
+correct two independent ways: it is bit-identical to `pytrec_eval`'s
+`ndcg_cut_10`, and our BM25 = 0.6523 reproduces the published BEIR BM25 within
+the CI. SPECTER is a citation-document embedder, not retrieval-tuned, so sitting
+well below BM25 on claim-verification queries is expected.)
+
+> **FINDING (2026-06-29) — production embedding leaves ~1.5 nDCG points on the
+> table.** Production embeds papers as `f"{title}\n\n{abstract}"`
+> (`paper_pipeline.py:1392`), but SPECTER's canonical input is
+> `title[SEP]abstract`. On SciFact that gap is +0.0155 nDCG@10 (0.4788 →
+> 0.4943). Switching the production separator to the tokenizer `[SEP]` token is
+> a low-risk retrieval improvement (cost: re-embedding the ~68k-paper corpus).
+> Track A deliberately measures the DEPLOYED construction (`\n\n`), so 0.4788
+> is the honest paper number; `[SEP]` is a future-work lead, not an eval change.
 
 ### Phase 4: local pool benchmark
 

@@ -12,7 +12,7 @@ Neo4j (BEIR subsets get their own `eval_*` collections in Phase 3).
 |---|---|---|
 | 1 | metrics (nDCG/Recall/MRR/Hits), paired bootstrap, Wilcoxon | **done** |
 | 2 | retrievers (BM25, SPECTER-dense, Agent, citation-rerank, RRF, 2-hop) | **done** |
-| 3 | BEIR runner | not started |
+| 3 | BEIR runner | **done** (SciFact validated: BM25 0.652 ≈ published; SPECTER 0.479) |
 | 4 | local pool benchmark | not started (needs varghele-curated `queries.jsonl`) |
 | 5 | LitQA2 anchor | not started |
 
@@ -56,6 +56,30 @@ PYTHONPATH=$HOME/.cache/munin_bench_deps:. \
 ```
 
 Expected: `GATE PASS` with every retriever returning 10 hits.
+
+## Run a BEIR subset (Phase 3)
+
+```bash
+cd backend/benchmarks
+PYTHONPATH=$HOME/.cache/munin_bench_deps:. MUNIN_BENCH_SPECTER_DEVICE=cpu \
+  /opt/munin/services/pipeline/venv/bin/python -m munin_bench.pipelines.run_beir \
+  --subset scifact          # or nfcorpus | scidocs | trec-covid | csfcube
+```
+
+Builds an isolated `eval_<subset>` Qdrant collection (SPECTER over
+`title\n\nabstract`, matching production), runs BM25 / SPECTER-dense /
+citation-rerank / RRF[BM25,SPECTER], writes
+`results/beir/<subset>/summary.{json,md}`. The eval never touches `papers`.
+SPECTER embeds on CPU by default (GPUs busy with vLLM); set
+`MUNIN_BENCH_SPECTER_DEVICE=cuda` for large subsets (trec-covid is 171k docs)
+when the cards are free. `--rebuild` drops + re-embeds the collection.
+
+**Validation (SciFact):** BM25 nDCG@10 = 0.652 reproduces the published BEIR
+number (~0.665), and our metric is bit-identical to `pytrec_eval`. SPECTER-v1
+dense = 0.479 (a citation embedder, expectedly below BM25 on claim queries);
+citation-rerank degenerates to dense on BEIR (no graph), confirmed empirically.
+See `todo_v2/RETRIEVAL-EVAL-SPEC.md` Phase 3 for the gate rationale and the
+`\n\n`-vs-`[SEP]` production finding.
 
 ## Frozen variant set (AgentRetriever)
 
