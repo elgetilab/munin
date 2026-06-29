@@ -188,6 +188,27 @@ By category (mean pass over 16 paraphrases each):
 - 2/16 deep_research "failures" are `set_plan` before `deep_research` - defensible
   multi-step behaviour the strict first_tool gate counts as a miss.
 
+## Paraphrase tier re-run after the context-budget fix (2026-06-29)
+
+Full clean run (224, reps=1, zero errors): **mean 0.866**. deep_research
+**0.69 -> 0.88** (the context-budget fix, commit 7fad0f2, confirmed: the 3
+items that 400'd now pass). Other categories wobbled +/-0.1 vs the earlier
+merged 0.911 - that gap is **reps=1 sampling noise** (each category = 16
+single-sample coin flips; every category shows a 0.00 min from one unlucky
+draw), NOT a regression: the max_tokens clamp only fires on >49k-token prompts,
+which none of these small-prompt items hit. True headline is ~0.87-0.91
+depending on sampling; a stable paper number needs higher reps (multi-hour each).
+
+Residual brittle categories:
+- **clarify ~0.56-0.69** - inherent ask-vs-act + ask-in-prose-vs-tool ambiguity.
+- **abstain ~0.62** - the model still ABSTAINS correctly (no run_python/
+  create_artifact fabrication in any failure); it just doesn't local
+  `paper_search`-FIRST for absurdly out-of-domain topics (medieval poetry, stock
+  market) where web/deep_research is defensible. The `first_tool=paper_search`
+  gate is over-strict for the wildly-out-of-corpus paraphrases - a test-design
+  observation, not a fabrication failure. (Consider relaxing the abstain gate to
+  reward_basis on the abstain proxy only, dropping first_tool.)
+
 ## Status: A5 measurement DONE
 
 Anchor 0.950, paraphrase 0.911, all 14 categories seeded, no structural
