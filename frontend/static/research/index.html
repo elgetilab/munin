@@ -600,6 +600,10 @@
             <p>Submit a research question for comprehensive analysis using <a href="https://huggingface.co/miromind-ai/MiroThinker-v1.5-30B" target="_blank" style="color: var(--accent);">Miro</a>.
                Jobs run on the cluster GPU and typically take 5-20 minutes to complete.</p>
 
+            <div class="notice-banner" role="status" style="margin: 16px 0; padding: 14px 18px; border-radius: 10px; background: var(--bg-tertiary); border: 1px solid var(--accent); color: var(--text-primary);">
+                <strong>Research job scheduling is paused.</strong> We're temporarily running the chat model across both GPUs to trial a longer context window, so new deep-research jobs cannot be scheduled right now. Existing job lookups below still work; scheduling will resume shortly.
+            </div>
+
             <!-- Lookup Job Panel -->
             <div class="lookup-panel">
                 <h3>Retrieve Existing Job</h3>
@@ -669,7 +673,7 @@ The model will provide a comprehensive research report with:
 - References"></textarea>
                 <div class="submit-row">
                     <span class="char-count"><span id="char-count">0</span> / 10,000 characters</span>
-                    <button id="submit-btn" class="submit-btn">Submit Research Job</button>
+                    <button id="submit-btn" class="submit-btn" disabled title="Research scheduling is paused while we trial a longer context window">Scheduling paused</button>
                 </div>
             </div>
 
