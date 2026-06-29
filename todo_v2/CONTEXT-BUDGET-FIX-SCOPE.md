@@ -1,7 +1,14 @@
 # Scope: deep_research vLLM 400 context-overflow (backend context budget)
 
-Status: SCOPE (for sign-off). Surfaced by A5 paraphrase tier (3/16 deep_research
-paraphrases 400'd). NOT an A5 persona-tuning item; a backend fix.
+Status: **Tier 1 + Tier 3 IMPLEMENTED + VERIFIED** (commit 7fad0f2, deployed
+2026-06-29). Tier 2 still open. Surfaced by A5 paraphrase tier (3/16
+deep_research paraphrases 400'd). NOT an A5 persona-tuning item; a backend fix.
+
+VERIFIED: after deploy, the deep_research paraphrase category re-ran with ZERO
+context/vLLM errors (was 3); the three that 400'd (sota_phip__p09/p11/p14) all
+pass; category mean 0.69 -> 0.875. The 2 residual misses are `set_plan` before
+`deep_research` (benign planning), not overflow. Unit test:
+retrieval/tests/test_chat_context_fit.py (7 cases).
 
 ## Symptom
 
