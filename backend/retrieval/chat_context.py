@@ -30,9 +30,34 @@ from usage_tracker import record_usage
 
 logger = logging.getLogger(__name__)
 
+# Default output-token cap for a chat turn. Single source so the history-trim
+# reservation (GENERATION_RESERVE) and the actual request cap stay in lockstep;
+# a mismatch (reserve 8000 < cap 16384) is how a heavy tool-loop turn overflowed
+# the window (todo_v2/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 3).
+DEFAULT_MAX_OUTPUT_TOKENS = int(os.getenv("VLLM_MAX_OUTPUT_TOKENS", "16384"))
 MAX_CONTEXT = int(os.getenv("VLLM_MAX_CONTEXT", "60000"))
-GENERATION_RESERVE = int(os.getenv("VLLM_GENERATION_RESERVE", "8000"))
+# Reserve the REAL output budget when trimming history (Tier 3): was 8000, half
+# the actual cap, which left the prompt room to overflow once tool results piled
+# up. Defaults to DEFAULT_MAX_OUTPUT_TOKENS so the two never drift again.
+GENERATION_RESERVE = int(
+    os.getenv("VLLM_GENERATION_RESERVE", str(DEFAULT_MAX_OUTPUT_TOKENS))
+)
 SUMMARY_TOKEN_BUDGET = 1200
+
+# --- Per-call output fitting (Tier 1) --------------------------------------
+# The TRUE served context window (prompt + output combined); mirrors
+# start-vllm-service.sh --max-model-len. assemble_context trims history once at
+# turn start, but tool results accumulate DURING the tool loop, so the output
+# budget must be re-fit to the room the (current) prompt leaves before each vLLM
+# call or a heavy fan-out turn overflows. (CONTEXT-BUDGET-FIX-SCOPE.md, Tier 1.)
+MAX_MODEL_LEN = int(os.getenv("VLLM_MAX_MODEL_LEN", "65536"))
+# Cushion for the gap between our token count and vLLM's chat-template framing.
+CTX_MARGIN = int(os.getenv("VLLM_CTX_MARGIN", "512"))
+# A turn whose prompt leaves less than this for output isn't worth running.
+MIN_OUTPUT_TOKENS = int(os.getenv("VLLM_MIN_OUTPUT_TOKENS", "256"))
+# Safety-net retries if vLLM still rejects for context length (local count
+# under-estimated, e.g. tokenizer not mounted -> char heuristic).
+MAX_REFIT_RETRIES = int(os.getenv("VLLM_MAX_REFIT_RETRIES", "3"))
 
 SUMMARIZE_PROMPT = (
     "You are compacting an ongoing conversation so that a language model can "
@@ -145,6 +170,60 @@ def _message_tokens(message: dict) -> int:
     image_tokens = _count_image_blocks(content) * _PER_IMAGE_TOKENS
     # Add a small framing overhead per message (~4 tokens for role/wrapping).
     return text_tokens + image_tokens + 4
+
+
+def prompt_tokens(messages: list) -> int:
+    """Token count for a messages list via the real Qwen tokenizer (falls back
+    to a char heuristic per message), plus a small allowance for the assistant
+    generation prompt / trailing special tokens. Canonical counterpart of
+    main.py::_raw_prompt_tokens, which predates this (dedupe is a follow-up)."""
+    total = 0
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        try:
+            total += _message_tokens(m)
+        except Exception:
+            total += max(1, len(str(m.get("content", ""))) // 4)
+    return total + 8
+
+
+def fit_max_tokens(messages: list, requested_max: Optional[int]) -> int:
+    """Clamp the output budget so prompt + output stays within MAX_MODEL_LEN.
+
+    Returns the fitted max_tokens. For the common case (a heavy but sub-window
+    prompt) the returned value fits exactly. If the prompt itself (near-)fills
+    the window it returns MIN_OUTPUT_TOKENS and logs a warning: the request may
+    still be rejected and trimming the conversation (a separate fix) is the real
+    remedy, but that is rarer than the accumulated-tool-result overflow this
+    guards. (CONTEXT-BUDGET-FIX-SCOPE.md, Tier 1.)"""
+    room = MAX_MODEL_LEN - prompt_tokens(messages) - CTX_MARGIN
+    if room < MIN_OUTPUT_TOKENS:
+        logger.warning(
+            "prompt fills the context window (room=%d < %d); clamping output to "
+            "the floor - the conversation likely needs trimming", room,
+            MIN_OUTPUT_TOKENS,
+        )
+        return MIN_OUTPUT_TOKENS
+    if not isinstance(requested_max, int) or requested_max <= 0:
+        return room
+    return min(requested_max, room)
+
+
+def is_ctx_overflow(text: str) -> bool:
+    """True if `text` is vLLM's context-length rejection message."""
+    return "maximum context length" in (text or "").lower()
+
+
+def halve_max_tokens(body: dict) -> bool:
+    """Halve body['max_tokens'] for a retry after a context-length rejection
+    slipped past the preemptive clamp (local count under-estimated). Returns
+    False when there's no output budget left to give up."""
+    current = body.get("max_tokens")
+    if not isinstance(current, int) or current <= MIN_OUTPUT_TOKENS:
+        return False
+    body["max_tokens"] = max(MIN_OUTPUT_TOKENS, current // 2)
+    return True
 
 
 def _augment_with_attachments(message: dict) -> str:

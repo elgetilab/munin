@@ -763,84 +763,112 @@ async def _stream_vllm_once(
         # source ≈ 9KB ≈ 3K tokens, so even argument-heavy turns fit
         # comfortably) while bounding worst-case occupancy. Personas
         # can override via params.max_tokens.
-        "max_tokens": 16384,
+        "max_tokens": chat_context.DEFAULT_MAX_OUTPUT_TOKENS,
     }
     body.update(sampling)
+    # Fit the output budget to the room the (current) prompt leaves. history is
+    # trimmed once at turn start, BEFORE tool results accumulate in the loop, so
+    # a heavy fan-out turn (deep_research + many searches) can push the prompt
+    # past the window; re-fit per call. (todo_v2/CONTEXT-BUDGET-FIX-SCOPE.md.)
+    body["max_tokens"] = chat_context.fit_max_tokens(messages, body.get("max_tokens"))
     if enable_tools:
         body["tools"] = _openai_tools_schema(persona)
         body["tool_choice"] = "auto"
 
-    try:
-        async with vllm_post_stream(body, purpose=purpose) as line_iter:
-            emitted_tool_ids: set[int] = set()
+    refit_attempts = 0
+    while True:
+        try:
+            async with vllm_post_stream(body, purpose=purpose) as line_iter:
+                emitted_tool_ids: set[int] = set()
 
-            async for line in line_iter:
-                if not line or not line.startswith("data:"):
-                    continue
-                payload = line[5:].strip()
-                if payload == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(payload)
-                except json.JSONDecodeError:
-                    continue
+                async for line in line_iter:
+                    if not line or not line.startswith("data:"):
+                        continue
+                    payload = line[5:].strip()
+                    if payload == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
 
-                if chunk.get("usage"):
-                    acc.usage = chunk["usage"]
+                    if chunk.get("usage"):
+                        acc.usage = chunk["usage"]
 
-                choices = chunk.get("choices") or []
-                if not choices:
-                    continue
-                choice = choices[0]
-                delta = choice.get("delta") or {}
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    choice = choices[0]
+                    delta = choice.get("delta") or {}
 
-                # vLLM's qwen3 reasoning parser emits reasoning on
-                # `delta.reasoning` (NOT `delta.reasoning_content`).
-                # Accept both names so we survive a future vLLM rename.
-                reasoning = delta.get("reasoning") or delta.get("reasoning_content")
-                if reasoning:
-                    acc.thinking_parts.append(reasoning)
-                    yield ("thinking", {"content": reasoning}, acc)
+                    # vLLM's qwen3 reasoning parser emits reasoning on
+                    # `delta.reasoning` (NOT `delta.reasoning_content`).
+                    # Accept both names so we survive a future vLLM rename.
+                    reasoning = delta.get("reasoning") or delta.get("reasoning_content")
+                    if reasoning:
+                        acc.thinking_parts.append(reasoning)
+                        yield ("thinking", {"content": reasoning}, acc)
 
-                content = delta.get("content")
-                if content:
-                    acc.content_parts.append(content)
-                    yield ("token", {"content": content}, acc)
+                    content = delta.get("content")
+                    if content:
+                        acc.content_parts.append(content)
+                        yield ("token", {"content": content}, acc)
 
-                for delta_tc in (delta.get("tool_calls") or []):
-                    idx = delta_tc.get("index", 0)
-                    slot = acc.tool_calls.setdefault(idx, {})
-                    if delta_tc.get("id"):
-                        slot["id"] = delta_tc["id"]
-                    fn = delta_tc.get("function") or {}
-                    if fn.get("name"):
-                        slot["name"] = fn["name"]
-                    if "arguments" in fn:
-                        slot["arguments_raw"] = (
-                            slot.get("arguments_raw", "") + (fn.get("arguments") or "")
-                        )
+                    for delta_tc in (delta.get("tool_calls") or []):
+                        idx = delta_tc.get("index", 0)
+                        slot = acc.tool_calls.setdefault(idx, {})
+                        if delta_tc.get("id"):
+                            slot["id"] = delta_tc["id"]
+                        fn = delta_tc.get("function") or {}
+                        if fn.get("name"):
+                            slot["name"] = fn["name"]
+                        if "arguments" in fn:
+                            slot["arguments_raw"] = (
+                                slot.get("arguments_raw", "") + (fn.get("arguments") or "")
+                            )
 
-                finish = choice.get("finish_reason")
-                if finish:
-                    acc.finish_reason = finish
+                    finish = choice.get("finish_reason")
+                    if finish:
+                        acc.finish_reason = finish
 
-            # Emit a tool_call SSE for each finalized tool call — we
-            # delay this until the stream ends so arguments are complete.
-            for tc in acc.finalized_tool_calls():
-                tc_id = id(tc)
-                if tc_id in emitted_tool_ids:
-                    continue
-                emitted_tool_ids.add(tc_id)
-                yield (
-                    "tool_call",
-                    {"id": tc["id"], "name": tc["name"], "arguments": tc["arguments"]},
-                    acc,
+                # Emit a tool_call SSE for each finalized tool call — we
+                # delay this until the stream ends so arguments are complete.
+                for tc in acc.finalized_tool_calls():
+                    tc_id = id(tc)
+                    if tc_id in emitted_tool_ids:
+                        continue
+                    emitted_tool_ids.add(tc_id)
+                    yield (
+                        "tool_call",
+                        {"id": tc["id"], "name": tc["name"], "arguments": tc["arguments"]},
+                        acc,
+                    )
+
+        except VLLMRequestError as e:
+            # Safety net: a context-length rejection that slipped past the
+            # preemptive fit (local token count under-estimated, e.g. tokenizer
+            # not mounted). vLLM checks context length BEFORE streaming, so
+            # nothing was emitted yet (acc still empty) - halving max_tokens and
+            # retrying is safe. (CONTEXT-BUDGET-FIX-SCOPE.md, Tier 1 backstop.)
+            if (
+                chat_context.is_ctx_overflow(str(e))
+                and not acc.content_parts
+                and not acc.thinking_parts
+                and not acc.tool_calls
+                and refit_attempts < chat_context.MAX_REFIT_RETRIES
+                and chat_context.halve_max_tokens(body)
+            ):
+                refit_attempts += 1
+                logger.warning(
+                    "vLLM context overflow past the preemptive fit; halved "
+                    "max_tokens to %d (retry %d/%d)",
+                    body["max_tokens"], refit_attempts, chat_context.MAX_REFIT_RETRIES,
                 )
-
-    except VLLMRequestError as e:
-        yield ("error", {"message": str(e)}, acc)
-    except Exception as e:
-        yield ("error", {"message": f"vLLM streaming failed: {e}"}, acc)
+                continue
+            yield ("error", {"message": str(e)}, acc)
+        except Exception as e:
+            yield ("error", {"message": f"vLLM streaming failed: {e}"}, acc)
+        break
 
 
 # --- Tool execution -----------------------------------------------------------
