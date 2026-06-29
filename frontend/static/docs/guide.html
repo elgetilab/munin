@@ -136,33 +136,30 @@
             Type a question, and the assistant will respond with a streamed answer. Your conversations are saved automatically and accessible from the sidebar.
         </p>
 
-        <h3>Choosing a persona</h3>
-        <p>Use the persona selector (bottom right of the input) to switch between three specialized assistants:</p>
+        <h3>How Munin routes</h3>
+        <p>You don't pick a model. Munin automatically routes each question to the right mode. When you want to force a specific mode for one message, start it with a slash command:</p>
 
         <div class="card">
             <div class="persona-row">
-                <img src="/shared/meitner-chat-inverted.svg" alt="Meitner">
                 <div>
-                    <strong>Meitner [Chat]</strong>
-                    <p>General-purpose assistant. Use for writing, web lookups, brainstorming, email drafts, and everyday questions.</p>
+                    <strong>Chat <code>/chat</code></strong>
+                    <p>General-purpose. Writing, web lookups, brainstorming, email drafts, and everyday questions.</p>
                 </div>
             </div>
             <div class="persona-row">
-                <img src="/shared/turing-code-inverted.svg" alt="Turing">
                 <div>
-                    <strong>Turing [Code]</strong>
-                    <p>Code assistant. Use for Python scripts, debugging, data analysis, SLURM jobs, and technical questions.</p>
+                    <strong>Code <code>/code</code></strong>
+                    <p>Code assistant. Python scripts, debugging, data analysis, SLURM jobs, and technical questions.</p>
                 </div>
             </div>
             <div class="persona-row">
-                <img src="/shared/curie-research-inverted.svg" alt="Curie">
                 <div>
-                    <strong>Curie [Research]</strong>
-                    <p>Research assistant. Use for literature search, paper analysis, citation exploration, and finding related work.</p>
+                    <strong>Research <code>/research</code></strong>
+                    <p>Research assistant. Literature search, paper analysis, citation exploration, and finding related work.</p>
                 </div>
             </div>
         </div>
-        <p>You can switch personas at any time, even mid-conversation. All three use the same underlying model with different system prompts and tool access.</p>
+        <p>Most of the time you can just ask, and Munin picks the right mode per turn. The slash commands are there for when you want to steer it explicitly. All modes use the same underlying model with different guidance and tool access.</p>
 
         <h3>Extended thinking</h3>
         <p>
@@ -291,8 +288,8 @@
         </div>
 
         <div class="card">
-            <h4>Persona mode (Munin assistants)</h4>
-            <p style="margin-bottom: 8px;">Set <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">"persona"</code> to <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">"chat"</code> (Meitner), <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">"code"</code> (Turing), or <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">"research"</code> (Curie). The assistant's system prompt is injected and tools (web search, paper search, citations) are available. Returns a <strong>custom SSE stream</strong>.</p>
+            <h4>Munin mode (full pipeline)</h4>
+            <p style="margin-bottom: 8px;">Omit <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">"persona"</code> (or set it to <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">"munin"</code>) to let Munin auto-route. To force a mode, set <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">"persona"</code> to <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">"chat"</code>, <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">"code"</code>, or <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">"research"</code>. The system prompt is injected and tools (web search, paper search, citations) are available. Returns a <strong>custom SSE stream</strong>.</p>
             <p style="margin-bottom: 0;">Standard OpenAI SDKs will not parse the persona SSE response correctly — use a raw HTTP client or SSE library instead.</p>
         </div>
 
@@ -319,7 +316,7 @@
 }</pre>
         <p>The <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">reasoning</code> field contains the model's chain-of-thought (always-on). The model is Qwen3.6-35B-A3B, a Mixture-of-Experts architecture with 3B active parameters per forward pass.</p>
 
-        <h3>Persona mode — custom SSE response</h3>
+        <h3>Munin mode — custom SSE response</h3>
         <p>When using persona mode, the response is a Server-Sent Events stream with these event types:</p>
         <div class="card">
             <h4>Event types</h4>
@@ -358,7 +355,7 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 print(f"Tokens used: {response.usage.total_tokens}")</pre>
 
-        <h3>Python example — persona mode (SSE)</h3>
+        <h3>Python example — Munin mode (SSE)</h3>
         <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">import httpx, json
 
 API_KEY = "sk-munin-..."
@@ -400,7 +397,7 @@ with httpx.stream(
 
 # Returns standard OpenAI JSON response</pre>
 
-        <h3>curl example — persona mode</h3>
+        <h3>curl example — Munin mode</h3>
         <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">curl -N https://api.muninai.org/v1/chat/completions \
   -H "Authorization: Bearer sk-munin-..." \
   -H "Content-Type: application/json" \
@@ -414,7 +411,7 @@ with httpx.stream(
 
         <h2 id="opencode">Using Munin with opencode</h2>
         <p>
-            <a href="https://opencode.ai" target="_blank" rel="noopener">opencode</a> is an open-source terminal coding agent that supports any OpenAI-compatible API. You can point it at Munin and use Turing (the code persona) as your local coding assistant. The setup is a single config file plus an environment variable.
+            <a href="https://opencode.ai" target="_blank" rel="noopener">opencode</a> is an open-source terminal coding agent that supports any OpenAI-compatible API. You can point it at Munin as your local coding assistant; set <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">persona</code> to <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">code</code> to force the code mode, or leave it to auto-route. The setup is a single config file plus an environment variable.
         </p>
 
         <h3>1. Install opencode</h3>
@@ -472,7 +469,7 @@ opencode</pre>
         <ul>
             <li><strong>Be specific.</strong> "Find papers on cholesterol-lipid interactions in DPPC membranes" works better than "find papers on lipids".</li>
             <li><strong>Use the right tool.</strong> Quick factual question? Chat. Need a specific paper? Paper Search. Need a full literature overview? Deep Research.</li>
-            <li><strong>Switch personas freely.</strong> Start with Curie to find papers, switch to Turing to implement something, use Meitner to write it up.</li>
+            <li><strong>Steer with slash commands.</strong> Munin routes automatically, or start a message with /research to find papers, /code to implement something, or /chat to write it up.</li>
             <li><strong>Upload your papers.</strong> The more papers in the database, the better the search results for everyone.</li>
         </ul>
     </main>

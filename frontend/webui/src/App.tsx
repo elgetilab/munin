@@ -156,36 +156,20 @@ export default function App() {
         }
       })
       .catch(() => {
-        // Fallback personas if API is down
+        // Fallback to the single Munin identity if the API is down. The model
+        // auto-routes server-side; "munin" maps to no-pin (router decides).
         setPersonas([
           {
-            id: 'chat',
-            name: 'Meitner - Chat',
-            description: 'General-purpose assistant',
-            icon_url: '/shared/meitner-chat-inverted.svg',
-            tags: [],
-            capabilities: {},
-            prompt_suggestions: [],
-          },
-          {
-            id: 'code',
-            name: 'Turing - Code',
-            description: 'Programming and technical tasks',
-            icon_url: '/shared/turing-code-inverted.svg',
-            tags: [],
-            capabilities: {},
-            prompt_suggestions: [],
-          },
-          {
-            id: 'research',
-            name: 'Curie - Research',
-            description: 'Academic research and analysis',
-            icon_url: '/shared/curie-research-inverted.svg',
+            id: 'munin',
+            name: 'Munin',
+            description: 'Munin routes each question automatically.',
+            icon_url: '/shared/munin_logo_without_script.webp',
             tags: [],
             capabilities: {},
             prompt_suggestions: [],
           },
         ]);
+        setSelectedPersona('munin');
       });
   }, []);
 

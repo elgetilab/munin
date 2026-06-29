@@ -144,10 +144,10 @@
 |            |                                                                 |
 |            v                                                                 |
 |  +-------------------+     +-------------------+                             |
-|  |     SearXNG       |     |       vLLM        |     Personas:              |
-|  |  (Web Search)     |     |     Port 8000     |       - Meitner (Chat)     |
-|  |   Port 8888       |     |                   |       - Turing (Code)      |
-|  +-------------------+     | Qwen3.6-35B-A3B |       - Curie (Research)   |
+|  |     SearXNG       |     |       vLLM        |     Munin (auto-route):    |
+|  |  (Web Search)     |     |     Port 8000     |       - chat profile       |
+|  |   Port 8888       |     |                   |       - code profile       |
+|  +-------------------+     | Qwen3.6-35B-A3B |       - research profile   |
 |                             | (MoE 35B/3B)      |                             |
 |                             +-------------------+                             |
 |                                                                              |
@@ -156,11 +156,12 @@
 </pre>
         </div>
 
-        <h2>Persona Comparison</h2>
+        <h2>Routing Profile Comparison</h2>
+        <p>Munin is one user-facing assistant. An up-front router picks one of three internal profiles per turn from the query (slash commands <code>/chat</code>, <code>/code</code>, <code>/research</code> force a profile). Each profile shares the same Munin base prompt and differs only in its task guidance, sampling, and surfaced tools.</p>
         <table>
             <thead>
                 <tr>
-                    <th>Persona</th>
+                    <th>Profile</th>
                     <th>Purpose</th>
                     <th>Thinking Mode</th>
                     <th>Tools Available</th>
@@ -168,27 +169,27 @@
             </thead>
             <tbody>
                 <tr>
-                    <td><strong>Meitner</strong></td>
+                    <td><strong>chat</strong></td>
                     <td>General-purpose chat, writing, web search, quick lookups</td>
                     <td>Enabled</td>
                     <td>Paper Search, Web Search, Date/Time</td>
                 </tr>
                 <tr>
-                    <td><strong>Turing</strong></td>
+                    <td><strong>code</strong></td>
                     <td>Code assistant, scientific Python, debugging, code review</td>
                     <td>Enabled</td>
                     <td>Web Search, Date/Time</td>
                 </tr>
                 <tr>
-                    <td><strong>Curie</strong></td>
+                    <td><strong>research</strong></td>
                     <td>Research assistant, literature search, paper analysis, citations</td>
                     <td>Enabled</td>
                     <td>Paper Search, Citations, Academic Search (Semantic Scholar, OpenAlex), Web Search</td>
                 </tr>
             </tbody>
         </table>
-        <p>All personas use the same underlying model: <code>Qwen3.6-35B-A3B</code> (MoE architecture, always-thinking).</p>
-        <p><strong>Workflow:</strong> Use Curie to discover and analyze papers, Turing to implement methods, and Meitner for general tasks and writing.</p>
+        <p>All profiles use the same underlying model: <code>Qwen3.6-35B-A3B</code> (MoE architecture, always-thinking).</p>
+        <p><strong>Workflow:</strong> just ask, and Munin routes to research for discovery and analysis, code for implementation, and chat for general tasks and writing.</p>
 
         <h2>RAG (Retrieval-Augmented Generation) Flow</h2>
         <p>When you ask a question with RAG enabled, here's what happens:</p>
@@ -325,7 +326,7 @@
                 </tr>
                 <tr>
                     <td>8000</td>
-                    <td>vLLM (all personas)</td>
+                    <td>vLLM (all routing profiles)</td>
                     <td>Internal only</td>
                 </tr>
                 <tr>
@@ -441,7 +442,7 @@
                     <td>GPU: GPU 0 via SLURM jobs</td>
                 </tr>
                 <tr>
-                    <td>Can: Chat with personas, search papers, deep research, upload</td>
+                    <td>Can: Chat with Munin, search papers, deep research, upload</td>
                     <td>Can: Submit SLURM jobs, run training/inference, SSH access</td>
                 </tr>
             </tbody>

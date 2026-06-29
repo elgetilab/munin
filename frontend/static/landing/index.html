@@ -214,6 +214,65 @@
             margin-right: 8px;
         }
 
+        /* Meet Munin */
+        .munin-intro {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 40px;
+            margin: 32px 0;
+            flex-wrap: wrap;
+        }
+        .munin-mark {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .munin-mark img {
+            width: 84px;
+            height: 84px;
+            object-fit: contain;
+        }
+        .munin-modes {
+            max-width: 460px;
+            text-align: left;
+        }
+        .munin-mode-list {
+            list-style: none;
+            margin: 12px 0;
+        }
+        .munin-mode-list li {
+            padding: 6px 0;
+            color: var(--text-secondary);
+        }
+        .munin-mode-list strong {
+            color: var(--text-primary);
+        }
+        .munin-hint {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        .munin-hint code {
+            background: var(--bg-tertiary);
+            color: var(--accent);
+            padding: 2px 6px;
+            border-radius: 6px;
+        }
+        .munin-cta {
+            display: inline-block;
+            background: var(--accent);
+            color: var(--bg-primary);
+            padding: 12px 28px;
+            border-radius: 8px;
+            font-weight: 600;
+            text-decoration: none;
+        }
+
         /* Knowledge Sources */
         .knowledge {
             padding: 48px 0;
@@ -259,7 +318,7 @@
     <section class="hero">
         <div class="container">
             <h1>Munin Research Assistant</h1>
-            <p>AI-powered research assistant with access to your papers and the web. Three specialized personas (Meitner, Turing, and Curie) for chat, coding, and research.</p>
+            <p>AI-powered research assistant with access to your papers and the web. Munin automatically routes each question to the right mode: chat, coding, or research.</p>
             <div class="hero-buttons">
                 <a href="https://chat.muninai.org" class="btn btn-primary">Open Chat</a>
                 <a href="https://search.muninai.org" class="btn btn-secondary">Search Papers</a>
@@ -275,7 +334,7 @@
                 <a href="https://chat.muninai.org" class="howto-card" style="text-decoration: none; color: inherit;">
                     <div class="howto-step">1</div>
                     <h3>Chat with AI</h3>
-                    <p>Ask questions, write text, get help with code, or explore research topics. Choose from three specialized personas: Meitner, Turing, and Curie.</p>
+                    <p>Ask questions, write text, get help with code, or explore research topics. Munin automatically routes each turn to the right mode, or steer it yourself with /research, /code, or /chat.</p>
                     <ul>
                         <li>General questions and writing</li>
                         <li>Programming and debugging</li>
@@ -318,40 +377,23 @@
 
     <section id="personas" class="personas">
         <div class="container">
-            <h2>Choose Your Assistant</h2>
-            <p>Three specialized personas, each optimized for different tasks. All use extended thinking to reason through complex problems.</p>
-            <div class="persona-grid">
-                <a href="https://chat.muninai.org?persona=chat" class="persona-card">
-                    <div class="persona-header">
-                        <img src="assets/meitner-chat-inverted.svg" alt="Meitner" class="persona-img">
-                        <div class="persona-title">
-                            <div class="persona-name">Meitner</div>
-                            <span class="persona-tag">Chat</span>
-                        </div>
-                    </div>
-                    <p class="persona-description">General-purpose assistant for writing, web search, quick lookups, and brainstorming.</p>
-                </a>
-                <a href="https://chat.muninai.org?persona=code" class="persona-card">
-                    <div class="persona-header">
-                        <img src="assets/turing-code-inverted.svg" alt="Turing" class="persona-img">
-                        <div class="persona-title">
-                            <div class="persona-name">Turing</div>
-                            <span class="persona-tag">Code</span>
-                        </div>
-                    </div>
-                    <p class="persona-description">Code assistant for programming, scientific computing, debugging, and code review.</p>
-                </a>
-                <a href="https://chat.muninai.org?persona=research" class="persona-card">
-                    <div class="persona-header">
-                        <img src="assets/curie-research-inverted.svg" alt="Curie" class="persona-img">
-                        <div class="persona-title">
-                            <div class="persona-name">Curie</div>
-                            <span class="persona-tag">Research</span>
-                        </div>
-                    </div>
-                    <p class="persona-description">Research assistant for literature search, paper analysis, citation exploration, and academic investigation.</p>
-                </a>
+            <h2>Meet Munin</h2>
+            <p>One assistant. Ask anything, and Munin automatically routes your question to the right mode. No model picking required.</p>
+            <div class="munin-intro">
+                <div class="munin-mark">
+                    <img src="/shared/munin_logo_without_script.webp" alt="Munin">
+                </div>
+                <div class="munin-modes">
+                    <p>Behind the scenes, Munin selects the best mode for each turn:</p>
+                    <ul class="munin-mode-list">
+                        <li><strong>Chat</strong> for writing, web search, quick lookups, and brainstorming.</li>
+                        <li><strong>Code</strong> for programming, scientific computing, debugging, and code review.</li>
+                        <li><strong>Research</strong> for literature search, paper analysis, and citation exploration.</li>
+                    </ul>
+                    <p class="munin-hint">Want to steer a turn yourself? Start your message with <code>/research</code>, <code>/code</code>, or <code>/chat</code>.</p>
+                </div>
             </div>
+            <a href="https://chat.muninai.org" class="munin-cta">Start chatting</a>
         </div>
     </section>
 

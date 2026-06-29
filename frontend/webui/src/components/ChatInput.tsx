@@ -659,7 +659,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           className="w-full resize-none bg-transparent px-5 pt-4 pb-2 text-sm text-text-primary placeholder-text-secondary outline-none"
         />
 
-        {/* Bottom bar: attach, spacer, persona selector, send */}
+        {/* Bottom bar: attach, spacer, Munin mark, send */}
         <div className="flex items-center gap-1 px-3 pb-3">
           {/* Attach button (+) with menu */}
           <div ref={attachRef} className="relative">
@@ -771,14 +771,18 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
           <div className="flex-1" />
 
-          {/* Munin identity mark — non-interactive. The model now
-              auto-routes per turn, so there's no persona to pick. */}
+          {/* Munin identity mark - non-interactive. The model now
+              auto-routes per turn, so there's no persona to pick. The black
+              raven logo sits centered in a white circle so it reads cleanly on
+              the dark composer. */}
           <div className="flex items-center gap-1.5 px-2 select-none" aria-hidden>
-            <img
-              src="/shared/munin_logo_without_script.webp"
-              alt="Munin"
-              className="h-5 w-auto opacity-80"
-            />
+            <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-white">
+              <img
+                src="/shared/munin_logo_without_script.webp"
+                alt="Munin"
+                className="h-4 w-4 object-contain"
+              />
+            </span>
             <span className="text-sm text-text-secondary">Munin</span>
           </div>
 
