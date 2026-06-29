@@ -1,10 +1,14 @@
 # Scope: deep_research vLLM 400 context-overflow (backend context budget)
 
-Status: **ALL THREE TIERS IMPLEMENTED.** Tier 1 + Tier 3 verified in prod
-(commit 7fad0f2, deployed 2026-06-29: deep_research 0.69 -> 0.88, zero ctx
-errors). Tier 2 (mid-loop tool-result budgeting) built + unit-tested, pending
-deploy. Surfaced by A5 paraphrase tier (3/16 deep_research paraphrases 400'd).
-NOT an A5 persona-tuning item; a backend fix.
+Status: **ALL THREE TIERS IMPLEMENTED + DEPLOYED.** Tier 1 + Tier 3 (commit
+7fad0f2): deep_research 0.69 -> 0.88, zero ctx errors. Tier 2 (commit fa707bb,
+deployed 2026-06-29): deep_research holds at 0.938, zero ctx errors, no
+regression; logic proven by unit + composed offline tests (a 50K-token fan-out
+prompt -> elide old result -> output budget 14.7K -> 16.4K). Direct prod log
+confirmation of a Tier-2 elision needs `sudo docker logs munin-retrieval | grep
+budgeted` (the eval runner can't read the container logs). Surfaced by A5
+paraphrase tier (3/16 deep_research paraphrases 400'd). NOT an A5 persona-tuning
+item; a backend fix.
 
 VERIFIED: after deploy, the deep_research paraphrase category re-ran with ZERO
 context/vLLM errors (was 3); the three that 400'd (sota_phip__p09/p11/p14) all

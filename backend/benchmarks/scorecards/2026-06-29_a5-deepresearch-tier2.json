@@ -1,0 +1,268 @@
+{
+  "header": {
+    "tag": "a5-deepresearch-tier2",
+    "timestamp": "2026-06-29T11:30:03.937705+00:00",
+    "git_sha": "fa707bb",
+    "model": "unknown",
+    "persona_policy": "chat (A0 decision A; not expected.profile)",
+    "base_url": "http://127.0.0.1:8080",
+    "reps": 1,
+    "seed": 42,
+    "python_version": "3.12.7",
+    "package_versions": {
+      "httpx": "0.27.0",
+      "pydantic": "2.13.4"
+    },
+    "note": "PRE-MIGRATION regression baseline. Not a paper result.",
+    "tier": "paraphrase"
+  },
+  "aggregate": {
+    "n_items": 16,
+    "mean_pass_rate": 0.938,
+    "ci95_low": 0.819,
+    "ci95_high": 1.0,
+    "mean_flip_rate": 0.0
+  },
+  "by_category": {
+    "deep_research": {
+      "n_items": 16,
+      "mean_pass": 0.938,
+      "min_pass": 0.0,
+      "stdev": 0.242
+    }
+  },
+  "per_item": {
+    "sota_phip__p01": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p02": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p03": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p04": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p05": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p06": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p07": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p08": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p09": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p10": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p11": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p12": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p13": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p14": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    },
+    "sota_phip__p15": {
+      "category": "deep_research",
+      "pass_rate": "0/1",
+      "pass_fraction": 0.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 0.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": [
+        {
+          "rep": 0,
+          "failures": [
+            "first tool 'set_plan', expected 'deep_research'"
+          ]
+        }
+      ]
+    },
+    "sota_phip__p16": {
+      "category": "deep_research",
+      "pass_rate": "1/1",
+      "pass_fraction": 1.0,
+      "flip_rate": 0.0,
+      "checks_pass_rate": {
+        "first_tool": 1.0
+      },
+      "diagnostics_rate": {
+        "calls_within_8": 0.0,
+        "profile_match": 1.0
+      },
+      "sample_failures": []
+    }
+  },
+  "skipped": []
+}
