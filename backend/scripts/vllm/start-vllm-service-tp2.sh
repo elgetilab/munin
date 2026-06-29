@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=vllm-service-tp2
 #SBATCH --partition=vllm-serving
-#SBATCH --gres=gpu:vllm:1,gpu:batch:1
+#SBATCH --gres=shard:vllm:6,shard:batch:6
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 #SBATCH --time=20:00:00
@@ -19,22 +19,26 @@
 # Why TP=2 helps here:
 #   - The 23 GB AWQ-4bit WEIGHTS are the limiter on a single 32 GB 5090
 #     (they leave only ~6 GB for everything else, hence the 64k cap).
-#   - TP=2 splits the weights across both cards (~11.5 GB/card), freeing
-#     ~17 GB/card. The KV cache is tiny on this model (hybrid attention: only
-#     10 of 40 layers are full-attention, plus 2 KV heads -> ~10 KB/token fp8),
-#     so the freed VRAM goes a long way: 128k context fits with wide headroom.
+#   - TP=2 splits the weights across both cards (~11.5 GB/card), freeing room.
+#     The KV cache is tiny on this model (hybrid attention: only 10 of 40 layers
+#     are full-attention, plus 2 KV heads -> ~10 KB/token fp8), so even at the
+#     reduced footprint below, 128k context serves ~13 concurrent requests.
 #
-# TRADE-OFF (read before enabling):
-#   - This claims the WHOLE of BOTH GPUs (gpu:vllm:1 + gpu:batch:1). While it
-#     runs, GPU 0 is NO LONGER FREE for user / deepresearch / batch-eval jobs
-#     (the eval suite's overnight `run_all` on GPU 0 cannot run alongside it).
-#   - Use this for big-context sessions; use start-vllm-service.sh (single GPU,
-#     64k) as the default when GPU 0 needs to stay free for batch work.
+# SHARD-AWARE ALLOCATION (leaves batch capacity free):
+#   - hugin shards are device-typed: shard:vllm = GPU 1, shard:batch = GPU 0
+#     (each card has 8 shards of ~4 GB). Claiming shard:vllm:6,shard:batch:6
+#     puts vLLM on BOTH cards (TP ranks 0+1) while leaving 2 shards (~8 GB) free
+#     on EACH card -> 4 small batch jobs can run alongside (2 per card).
+#   - SAFETY: shards are cooperative accounting with NO hardware enforcement, so
+#     vLLM's ACTUAL VRAM use must stay within its 6-shard (24 GB) claim or it
+#     would physically eat the "free" shards and OOM a co-resident job.
+#     --gpu-memory-utilization 0.70 keeps vLLM at ~22 GB/card (< 24 GB), leaving
+#     a margin under the 8 GB it hands back. Do NOT raise it past ~0.72.
+#   - Co-resident batch jobs SHARE silicon with the latency-sensitive TP ranks
+#     (no isolation): keep them light/interruptible. Heavy batch will jitter chat.
 #   - The 5090s have NO NVLink, so TP communication crosses PCIe. Fine for a
 #     3B-active MoE, but prefill of very long prompts is slower than single-GPU.
-#
-# GPU allocation (hugin gres.conf): gpu:batch=/dev/nvidia0, gpu:vllm=/dev/nvidia1.
-# Requesting one of each gives this job both physical cards (TP ranks 0 and 1).
+#   - Default remains start-vllm-service.sh (single GPU, 64k, all of GPU 0 free).
 # ==============================================================================
 
 set -e
@@ -74,8 +78,9 @@ echo "  - Tensor-parallel across BOTH RTX 5090s (weights sharded ~11.5 GB/card)"
 echo "  - ${MAX_MODEL_LEN} context window (native 262144)"
 echo "  - Reasoning enabled (generates <think> traces)"
 echo ""
-echo "NOTE: this claims BOTH GPUs. GPU 0 is unavailable for batch jobs while"
-echo "      this is running. Use start-vllm-service.sh for single-GPU (64k)."
+echo "NOTE: claims 6/8 shards on EACH card (vLLM ~22 GB/card at 0.70 util),"
+echo "      leaving 2 shards (~8 GB) free per card for 4 small batch jobs."
+echo "      Default is start-vllm-service.sh (single-GPU, 64k, all GPU 0 free)."
 echo "=============================================="
 
 # Load CUDA 13.0.2 module (required for Blackwell SM 120a)
@@ -176,9 +181,9 @@ vllm serve "$MODEL_PATH" \
     --host 0.0.0.0 \
     --port $VLLM_PORT \
     --tensor-parallel-size $TENSOR_PARALLEL_SIZE \
-    --gpu-memory-utilization 0.90 \
+    --gpu-memory-utilization 0.70 \
     --max-model-len $MAX_MODEL_LEN \
-    --max-num-seqs 4 \
+    --max-num-seqs 8 \
     --dtype float16 \
     --quantization compressed-tensors \
     --kv-cache-dtype fp8 \
