@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=vllm-service-tp2
 #SBATCH --partition=vllm-serving
-#SBATCH --gres=shard:vllm:6,shard:batch:6
+#SBATCH --gres=gpu:vllm:1,gpu:batch:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 #SBATCH --time=20:00:00
@@ -24,21 +24,26 @@
 #     are full-attention, plus 2 KV heads -> ~10 KB/token fp8), so even at the
 #     reduced footprint below, 128k context serves ~13 concurrent requests.
 #
-# SHARD-AWARE ALLOCATION (leaves batch capacity free):
-#   - hugin shards are device-typed: shard:vllm = GPU 1, shard:batch = GPU 0
-#     (each card has 8 shards of ~4 GB). Claiming shard:vllm:6,shard:batch:6
-#     puts vLLM on BOTH cards (TP ranks 0+1) while leaving 2 shards (~8 GB) free
-#     on EACH card -> 4 small batch jobs can run alongside (2 per card).
-#   - SAFETY: shards are cooperative accounting with NO hardware enforcement, so
-#     vLLM's ACTUAL VRAM use must stay within its 6-shard (24 GB) claim or it
-#     would physically eat the "free" shards and OOM a co-resident job.
-#     --gpu-memory-utilization 0.70 keeps vLLM at ~22 GB/card (< 24 GB), leaving
-#     a margin under the 8 GB it hands back. Do NOT raise it past ~0.72.
-#   - Co-resident batch jobs SHARE silicon with the latency-sensitive TP ranks
-#     (no isolation): keep them light/interruptible. Heavy batch will jitter chat.
+# ALLOCATION: claims the WHOLE of BOTH GPUs (gpu:vllm:1 + gpu:batch:1). While it
+# runs, ALL shards on both cards are blocked, so NO batch/deepresearch/user job
+# can schedule. Use start-vllm-service.sh (single GPU, 64k) as the default when
+# GPU 0 needs to stay free.
 #   - The 5090s have NO NVLink, so TP communication crosses PCIe. Fine for a
 #     3B-active MoE, but prefill of very long prompts is slower than single-GPU.
-#   - Default remains start-vllm-service.sh (single GPU, 64k, all of GPU 0 free).
+#
+# WHY NOT shards (to free batch capacity)? Tested 2026-06-29, CONFIRMED IMPOSSIBLE
+# on this SLURM setup (ConstrainDevices=yes):
+#   - A single-type shard job (e.g. --gres=shard:batch:2) runs, but its cgroup
+#     confines it to ONE physical card: nvidia-smi inside the job sees only that
+#     GPU. So forcing CUDA_VISIBLE_DEVICES=0,1 is blocked at the cgroup, not just
+#     the env - the override cannot reach the second card.
+#   - The dual-type claim that WOULD span both cards (shard:vllm:6,shard:batch:6)
+#     is UNSCHEDULABLE: it pends on Reason=Resources even on a fully idle node.
+#   => TP=2 needs BOTH GPUs visible, which only the whole-GPU claim
+#      (gpu:vllm:1,gpu:batch:1) gives, and that blocks all shards. Freeing shards
+#      under TP=2 would require a SLURM-level change (gres.conf / disabling
+#      cgroup ConstrainDevices). Until then: TP=2 = both whole cards, no batch;
+#      use start-vllm-service.sh (single GPU) when GPU 0 must stay free.
 # ==============================================================================
 
 set -e
@@ -78,9 +83,8 @@ echo "  - Tensor-parallel across BOTH RTX 5090s (weights sharded ~11.5 GB/card)"
 echo "  - ${MAX_MODEL_LEN} context window (native 262144)"
 echo "  - Reasoning enabled (generates <think> traces)"
 echo ""
-echo "NOTE: claims 6/8 shards on EACH card (vLLM ~22 GB/card at 0.70 util),"
-echo "      leaving 2 shards (~8 GB) free per card for 4 small batch jobs."
-echo "      Default is start-vllm-service.sh (single-GPU, 64k, all GPU 0 free)."
+echo "NOTE: claims BOTH whole GPUs (all shards blocked). No batch jobs can run"
+echo "      alongside. Default is start-vllm-service.sh (single-GPU, 64k)."
 echo "=============================================="
 
 # Load CUDA 13.0.2 module (required for Blackwell SM 120a)
@@ -181,7 +185,7 @@ vllm serve "$MODEL_PATH" \
     --host 0.0.0.0 \
     --port $VLLM_PORT \
     --tensor-parallel-size $TENSOR_PARALLEL_SIZE \
-    --gpu-memory-utilization 0.70 \
+    --gpu-memory-utilization 0.90 \
     --max-model-len $MAX_MODEL_LEN \
     --max-num-seqs 8 \
     --dtype float16 \
