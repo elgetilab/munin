@@ -239,6 +239,19 @@ echo "running" > /opt/munin/logs/service_status.txt
 date > /opt/munin/logs/service_started.txt
 
 # ------------------------------------------------------------------------------
+# Post-launch assertion: confirm the backend actually budgets against this
+# window (64k). Catches the case where vLLM is correct but the retrieval
+# container is on a stale VLLM_MAX_MODEL_LEN, silently clamping long answers.
+# Non-fatal (warns loudly; never kills the live service).
+# ------------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -x "$SCRIPT_DIR/check-context-window.sh" ]; then
+    "$SCRIPT_DIR/check-context-window.sh" 65536 || true
+else
+    echo "[WARN] check-context-window.sh not found beside this script; skipping window assertion"
+fi
+
+# ------------------------------------------------------------------------------
 # Cleanup function
 # ------------------------------------------------------------------------------
 CLEANUP_DONE=0
