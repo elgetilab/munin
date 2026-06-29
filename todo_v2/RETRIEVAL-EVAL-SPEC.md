@@ -158,7 +158,7 @@ Build `metrics/ir_metrics.py`, `metrics/bootstrap.py`, `metrics/significance.py`
 
 - `paired_wilcoxon(a: list[float], b: list[float]) -> dict` wrapping `scipy.stats.wilcoxon(a, b)`. Return W, p-value, n_nonzero.
 
-**Tests are mandatory before Phase 2.** Hand-write 4–5 cases per metric with known answers from a textbook or `ranx` output. Example: `ndcg_at_k(['a','b','c'], {'a': 2, 'c': 1}, k=3)` has DCG = 2 + 0 + 1/log2(4) = 2.5; ideal DCG = 2 + 1/log2(3) ≈ 2.6309; nDCG ≈ 0.9501. Verify against `ranx` if installed.
+**Tests are mandatory before Phase 2.** Hand-write 4–5 cases per metric with known answers from a textbook or `ranx` output. Example: `ndcg_at_k(['a','b','c'], {'a': 2, 'c': 1}, k=3)` has DCG = 2 + 0 + 1/log2(4) = 2.5; ideal DCG = 2 + 1/log2(3) ≈ 2.6309; nDCG = 2.5 / (2 + 1/log2(3)) = 0.950234 (an earlier draft rounded this to 0.9501; the exact value is 0.950234). Verify against `ranx` if installed.
 
 **Gate:** `pytest backend/benchmarks/tests/` passes with 100% coverage of metric functions. Don't proceed otherwise.
 
