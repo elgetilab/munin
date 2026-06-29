@@ -73,7 +73,7 @@ agents:
       Validates code output by running syntax checks and basic tests.
       Feeds errors back for automatic correction.
     trigger: >
-      Automatically triggered when the Turing persona outputs a code block.
+      Automatically triggered when the code profile outputs a code block.
       Do not invoke explicitly.
     tools:
       - execute_code  # sandboxed code execution (future)
@@ -159,7 +159,7 @@ These are parsed by the frontend and sent as `invoke_agent` tool calls. The mode
 
 ### Automatic (Code Checker)
 
-The code checker triggers automatically when the Turing persona outputs a code block. The backend detects code blocks in the model output and invokes the checker without user action. The user sees it in the task log:
+The code checker triggers automatically when Munin's code profile outputs a code block. The backend detects code blocks in the model output and invokes the checker without user action. The user sees it in the task log:
 
 ```
 🧠 Reasoned for 1.2s                                        ▸

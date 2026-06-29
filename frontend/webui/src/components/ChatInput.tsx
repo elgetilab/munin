@@ -4,10 +4,12 @@ import { uploadDocument } from '../lib/api';
 import type { UploadedDocument } from '../lib/api';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 
+// Router-recognized per-turn overrides (backend parse_slash: research|code|chat).
+// These force Munin's routing for one turn; otherwise it auto-routes.
 const SLASH_COMMANDS = [
-  { command: '/research', description: 'Deep research on a topic', icon: '\uD83D\uDD2C' },
-  { command: '/write', description: 'Write or draft a document', icon: '\uD83D\uDCDD' },
-  { command: '/analyze', description: 'Analyze a paper by DOI', icon: '\uD83D\uDCCA' },
+  { command: '/research', description: 'Force research mode for this turn', icon: '\uD83D\uDD2C' },
+  { command: '/code', description: 'Force code mode for this turn', icon: '\uD83D\uDCBB' },
+  { command: '/chat', description: 'Force chat mode for this turn', icon: '\uD83D\uDCAC' },
 ] as const;
 
 interface PendingImage {

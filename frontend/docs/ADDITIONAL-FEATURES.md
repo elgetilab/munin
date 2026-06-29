@@ -82,7 +82,7 @@ frontend/webui/public/
 
 ### What
 
-A per-user profile summary that persists across conversations: "This researcher works on membrane biophysics, prefers verbose explanations, frequently uses the Curie persona for citation analysis." Updated infrequently (every few conversations), injected into the system prompt so the model adapts to the user over time.
+A per-user profile summary that persists across conversations: "This researcher works on membrane biophysics, prefers verbose explanations, frequently uses the research mode for citation analysis." Updated infrequently (every few conversations), injected into the system prompt so the model adapts to the user over time.
 
 ### How
 
@@ -109,7 +109,7 @@ Recent conversation summaries:
 Write a brief profile (3-5 sentences) capturing:
 - Research interests and domains
 - Communication preferences (verbose vs. concise, formal vs. casual)
-- Frequently used tools and personas
+- Frequently used tools and modes
 - Any stated preferences or constraints
 ```
 
@@ -117,8 +117,8 @@ Write a brief profile (3-5 sentences) capturing:
 
 ```
 [User profile: This researcher works on membrane biophysics using MD simulations.
-They prefer detailed explanations with citations. They frequently use the Curie
-persona for literature discovery and the Turing persona for Python analysis scripts.]
+They prefer detailed explanations with citations. They frequently use the research
+mode for literature discovery and the code mode for Python analysis scripts.]
 ```
 
 **Privacy:** Users can view and delete their profile via the settings page. The profile is generated from conversation summaries (which are already stored), not from raw message content.
