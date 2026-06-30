@@ -426,6 +426,22 @@ LitQA2 anchors Munin against PaperQA2 — the closest academic comparator. vargh
 1. Download the LitQA2 eval split from FutureHouse's `aviary-paper-data` repo. Check the license; cite Skarlinski et al. 2024 and Narayanan et al. 2024 in any release.
 2. For each question, extract the source paper DOI. Check `data/litqa2/overlap.json`: which DOIs are in the Munin corpus?
 3. **If overlap < 50 questions, stop and tell varghele before continuing** — the comparison loses statistical power below that threshold. varghele will need to ingest more LitQA2 source papers before this phase can proceed.
+
+> **STATUS 2026-06-30 — overlap = 0/199, Phase 5 BLOCKED.** Checked the public
+> LitQA2 split (`futurehouse/lab-bench`, 199 Qs, each with a source DOI) against
+> the live `papers` corpus (67,482 DOIs). **Zero** source papers are in-corpus.
+> Verified not a DOI-normalisation artefact: formats match and publisher
+> prefixes overlap heavily (Nature/Elsevier/bioRxiv/Science/PNAS in both). It's
+> genuine — LitQA2 is general molecular-bio/microbiology/neuroscience (microglia,
+> connectomes, glycoRNA), a different slice than what's been ingested. Outputs:
+> `data/litqa2/overlap.json` (the check) and `data/litqa2/missing_papers.csv`
+> (all 190 unique source papers, title+venue+year via Crossref, 178 open-access,
+> sorted open-access-first then by #questions). To unlock Phase 5 varghele must
+> ingest ≥50 of these (≈1 paper ≈ 1 question). OPEN QUESTION: ingesting ~190
+> mostly-out-of-domain bio papers purely to run a benchmark is a real cost —
+> reconsider whether LitQA2 is the right anchor for Munin's corpus, or ingest a
+> prioritised subset and report the smaller N honestly.
+
 4. Run two tracks against the in-corpus subset:
    - **Retrieval-only:** does the production retriever (**`AgentRetriever`**, the chat agent path, per Q3) surface the source paper in the top-10? Report Recall@1/5/10 and MRR. (Optionally also report the `/search/hybrid` search-page config alongside for the same finding as Phase 4e.)
    - **End-to-end answer:** run the question through Munin's full chat pipeline with the research persona. Score: did the model pick the right multiple-choice option (or correctly say "Insufficient Information")? Report precision, accuracy, recall — matching PaperQA2's reported metrics so the numbers go side-by-side in the paper's comparison table.
