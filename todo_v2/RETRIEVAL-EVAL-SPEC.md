@@ -319,6 +319,29 @@ Extract candidate queries from `backend/retrieval/chat_store.py` (SQLite at `/va
 - Sample 300 candidates uniformly at random across the last 12 months.
 - Write to `data/local/candidates.jsonl`: `{qid, text, conversation_id, timestamp, n_papers_retrieved_originally}`.
 
+> **STATUS 2026-06-30 — 4a built, Phase 4 DEFERRED (insufficient usage).** The
+> extractor (`build_pool.py --extract-queries`) is built and run. The chat store
+> (375 conversations / 1719 messages, ~2.5 months Apr-Jun 2026) yields only
+> **42 candidate queries** — just 76 turns ever called `paper_search`, and after
+> the heuristics + dedupe that's 42. (We do NOT count `semantic_scholar_search`;
+> that's web retrieval, not the local corpus.) The spec targets 100-200 final
+> queries and Step 4b blocks below 100, so curating now would give an
+> underpowered pool (~25-40 after curation). **Decision: gather more real usage
+> first, re-extract later.**
+>
+> **TODO — synthetic-query augmentation (likely needed).** Real usage may not
+> reach 100-200 for a while, so plan a synthetic-query track to supplement (NOT
+> replace) the curated real queries: generate natural-language queries from
+> in-corpus papers (LLM reads a paper's title+abstract, emits a query it would
+> answer), giving an automatic query -> known-relevant-DOI pair (Promptagator /
+> InPars / LitQA2-style construction). Caveats to bake in: (a) clearly label
+> synthetic vs real and report them separately — the distributions differ; (b)
+> the "only the source paper is relevant" assumption undercounts other relevant
+> papers (pool bias), so pair synthetic items with the same pooled-judging step,
+> not bare source-DOI labels; (c) a synthetic set validates retrieval recall,
+> not real user intent. Treat real curated queries as primary and synthetic as a
+> power-boosting supplement. Build this when revisiting Phase 4.
+
 **Step 4b: Manual curation.**
 
 varghele will go through `candidates.jsonl` and produce `data/local/queries.jsonl`:
