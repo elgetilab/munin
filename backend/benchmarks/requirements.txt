@@ -20,3 +20,8 @@ tqdm
 
 # --- optional cross-checks (never a hard dependency) ---
 # pytrec_eval
+
+# --- LitQA2 paper acquisition (Phase 5 unblock; fetchers only) ---
+# curl_cffi: Chrome TLS impersonation to pass Cloudflare on publisher sites
+# from the institutional IP. requests (plain) is used for the OA fetcher.
+curl_cffi
