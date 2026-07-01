@@ -14,7 +14,7 @@ Neo4j (BEIR subsets get their own `eval_*` collections in Phase 3).
 | 2 | retrievers (BM25, SPECTER-dense, Agent, citation-rerank, RRF, 2-hop) | **done** |
 | 3 | BEIR runner | **done** (SciFact validated: BM25 0.652 ≈ published; SPECTER 0.479) |
 | 4 | local pool benchmark | 4a done (extractor); 4b needs varghele-curated `queries.jsonl`; only 42 candidates so far |
-| 5 | LitQA2 anchor | corpus ready: 199/199 questions in-corpus; retrieval+answer tracks not yet built |
+| 5 | LitQA2 anchor | **done** — retrieval (agent recall@10=0.44) + answer (acc 0.43 / prec 0.82 vs PaperQA2 0.66) |
 
 `AgentRetriever` is THE production retriever (the chat agent's `paper_search`
 path). `CitationRerankRetriever` is the search-page config, reported alongside.

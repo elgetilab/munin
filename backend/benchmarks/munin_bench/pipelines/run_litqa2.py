@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 import os
 
-from ..benchmarks.litqa2_runner import run
+from ..benchmarks.litqa2_runner import run, run_answer
 from ..clients import get_neo4j, get_qdrant, load_specter
 
 RESULTS_ROOT = os.path.abspath(
@@ -29,16 +29,27 @@ VARIANTS_PATH = os.path.abspath(
 
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--track", choices=["retrieval", "answer"], default="retrieval")
     ap.add_argument("--results-root", default=RESULTS_ROOT)
     ap.add_argument("--variants", default=VARIANTS_PATH)
     ap.add_argument("--n-resamples", type=int, default=1000)
+    ap.add_argument("--base-url", default="http://127.0.0.1:8080")
+    ap.add_argument("--email", default="litqa2-eval@localhost")
+    ap.add_argument("--concurrency", type=int, default=4)
+    ap.add_argument("--limit", type=int, default=0)
     args = ap.parse_args()
 
-    device = os.getenv("MUNIN_BENCH_SPECTER_DEVICE", "cpu")
     qc = get_qdrant()
+
+    if args.track == "answer":
+        run_answer(qc, base_url=args.base_url, email=args.email,
+                   results_root=args.results_root, n_resamples=args.n_resamples,
+                   concurrency=args.concurrency, limit=args.limit)
+        return 0
+
+    device = os.getenv("MUNIN_BENCH_SPECTER_DEVICE", "cpu")
     specter = load_specter(device=device)
     neo4j = get_neo4j()
-
     payload = run(qc, specter, neo4j, results_root=args.results_root,
                   variants_path=args.variants, n_resamples=args.n_resamples,
                   device=device)

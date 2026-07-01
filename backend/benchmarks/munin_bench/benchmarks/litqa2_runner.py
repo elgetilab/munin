@@ -20,7 +20,11 @@ from __future__ import annotations
 
 import json
 import os
+import random
+import re
 import subprocess
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from ..frozen_variants.regen_variants import PROMPT_SHA, expand_query
@@ -51,11 +55,14 @@ def load_litqa2() -> list[dict]:
     import pyarrow.parquet as pq
 
     path = hf_hub_download(LAB_BENCH_REPO, LITQA2_PARQUET, repo_type="dataset")
-    tbl = pq.read_table(path, columns=["id", "question", "sources"]).to_pylist()
+    tbl = pq.read_table(
+        path, columns=["id", "question", "ideal", "distractors", "sources"]
+    ).to_pylist()
     out = []
     for r in tbl:
         dois = [_norm_doi(s) for s in (r["sources"] or []) if s]
         out.append({"qid": r["id"], "question": r["question"],
+                    "ideal": r["ideal"], "distractors": list(r["distractors"] or []),
                     "source_dois": [d for d in dois if d]})
     return out
 
@@ -193,6 +200,214 @@ def run(qc, specter, neo4j, *, results_root, variants_path,
     _write_md(out_dir, payload)
     print(f"[litqa2] results -> {out_dir}/retrieval.{{json,md}}")
     return payload
+
+
+# ==========================================================================
+# Answer track — end-to-end MCQ through the full agentic chat pipeline
+# ==========================================================================
+ABSTAIN_OPTION = "Insufficient information to answer this question."
+# PaperQA2 published LitQA2 accuracy (Skarlinski et al. 2024). VERIFY exact
+# figure before citing; carried here for the side-by-side table.
+PAPERQA2_ACCURACY = 0.660
+
+
+def build_mcq(q: dict) -> dict:
+    """Deterministic MCQ (shuffle seeded by qid) with an abstention option."""
+    opts = [q["ideal"]] + list(q["distractors"]) + [ABSTAIN_OPTION]
+    random.Random(q["qid"]).shuffle(opts)
+    letters = [chr(65 + i) for i in range(len(opts))]
+    correct = letters[opts.index(q["ideal"])]
+    abstain = letters[opts.index(ABSTAIN_OPTION)]
+    prompt = (
+        "Answer this multiple-choice question. Use the paper search tools to "
+        "find the relevant paper. Give brief reasoning, then end with a line "
+        "exactly: 'Answer: <letter>'. If the papers do not contain enough "
+        "information, pick the 'Insufficient information' option.\n\n"
+        f"Question: {q['question']}\n\n"
+        + "\n".join(f"{l}) {o}" for l, o in zip(letters, opts))
+    )
+    return {"prompt": prompt, "letters": letters, "correct": correct,
+            "abstain": abstain}
+
+
+def parse_letter(text: str, letters: list[str]) -> str | None:
+    """Extract the chosen option letter from the final answer (robust)."""
+    valid = "".join(letters)
+    m = list(re.finditer(rf"answer\s*[:\-]?\s*\(?([{valid}])\)?", text, re.I))
+    if m:
+        return m[-1].group(1).upper()
+    # fallback: a lone letter on the last non-empty line
+    for line in reversed([l.strip() for l in text.splitlines() if l.strip()]):
+        m2 = re.fullmatch(rf"\(?([{valid}])\)?[.)]?", line, re.I)
+        if m2:
+            return m2.group(1).upper()
+    return None
+
+
+def _ask_chat(base_url: str, email: str, prompt: str, sock_timeout=60,
+              deadline=180) -> str:
+    """Stream one research chat and return the accumulated answer text.
+
+    Two guards, because the SSE stream sends `: keepalive` comments every ~15s
+    that reset the socket read timeout: (1) sock_timeout caps a single silent
+    read; (2) deadline is an application-level wall-clock cap on the whole
+    request so a generation that stalls-but-keeps-alive can't hang a worker
+    forever. On deadline we return whatever content arrived (parsed best-effort).
+    """
+    import time
+    body = {"persona": "research", "ephemeral": True,
+            "messages": [{"role": "user", "content": prompt}]}
+    req = urllib.request.Request(
+        base_url.rstrip("/") + "/api/chat/completions",
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json", "X-Munin-Email": email,
+                 "X-Munin-Ephemeral": "true", "Accept": "text/event-stream"},
+        method="POST")
+    content, ev = "", None
+    start = time.time()
+    resp = urllib.request.urlopen(req, timeout=sock_timeout)
+    try:
+        for raw in resp:
+            if time.time() - start > deadline:
+                break
+            line = raw.decode("utf-8", "replace").rstrip("\n")
+            if line.startswith("event:"):
+                ev = line[6:].strip()
+            elif line.startswith("data:"):
+                d = line[5:].strip()
+                if not d or d == "[DONE]":
+                    continue
+                try:
+                    obj = json.loads(d)
+                except Exception:
+                    continue
+                if ev == "token" and isinstance(obj, dict) and obj.get("content"):
+                    content += obj["content"]
+            if ev == "done":
+                break
+    finally:
+        resp.close()
+    return content
+
+
+def _score_one(q, base_url, email):
+    mcq = build_mcq(q)
+    try:
+        text = _ask_chat(base_url, email, mcq["prompt"])
+    except Exception as e:
+        return {"qid": q["qid"], "verdict": "error", "detail": type(e).__name__}
+    letter = parse_letter(text, mcq["letters"])
+    if letter is None:
+        verdict = "unparseable"
+    elif letter == mcq["correct"]:
+        verdict = "correct"
+    elif letter == mcq["abstain"]:
+        verdict = "abstain"
+    else:
+        verdict = "incorrect"
+    return {"qid": q["qid"], "verdict": verdict, "letter": letter,
+            "correct": mcq["correct"]}
+
+
+def run_answer(qc, *, base_url, email, results_root, n_resamples=1000,
+               concurrency=4, limit=0):
+    questions = load_litqa2()
+    # answer track scores ALL questions (retrieval-in-corpus is not required to
+    # answer; the model may still get it from web/S2), but we tag in-corpus.
+    corpus = set()
+    off = None
+    while True:
+        b, off = qc.scroll("papers", limit=4000, offset=off,
+                           with_payload=True, with_vectors=False)
+        for p in b:
+            d = ((p.payload or {}).get("doi") or "").strip().lower()
+            if d:
+                corpus.add(d)
+        if off is None:
+            break
+    if limit:
+        questions = questions[:limit]
+    print(f"[litqa2-answer] {len(questions)} questions, concurrency={concurrency}")
+
+    from concurrent.futures import as_completed
+    results = [None] * len(questions)
+    with ThreadPoolExecutor(max_workers=concurrency) as ex:
+        futs = {ex.submit(_score_one, q, base_url, email): i
+                for i, q in enumerate(questions)}
+        done = 0
+        for fut in as_completed(futs):
+            i = futs[fut]
+            results[i] = fut.result()
+            done += 1
+            if done % 20 == 0:
+                print(f"  [answer] {done}/{len(questions)}")
+
+    v = [r["verdict"] for r in results]
+    n = len(v)
+    correct = v.count("correct")
+    incorrect = v.count("incorrect")
+    abstain = v.count("abstain")
+    unparse = v.count("unparseable")
+    error = v.count("error")
+    attempted = correct + incorrect  # excludes abstain/unparse/error
+    # per-question 0/1 arrays for bootstrap
+    acc_arr = [1.0 if r["verdict"] == "correct" else 0.0 for r in results]
+    prec_arr = [1.0 if r["verdict"] == "correct" else 0.0
+                for r in results if r["verdict"] in ("correct", "incorrect")]
+    accuracy = single_bootstrap(acc_arr, n_resamples=n_resamples)
+    precision = single_bootstrap(prec_arr, n_resamples=n_resamples) if prec_arr else None
+
+    header = {
+        "track": "litqa2-answer",
+        "n": n, "correct": correct, "incorrect": incorrect,
+        "abstain": abstain, "unparseable": unparse, "error": error,
+        "attempted": attempted,
+        "git_sha": _git_sha(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "paperqa2_accuracy_published": PAPERQA2_ACCURACY,
+        "caveat": ("NOT like-for-like vs PaperQA2: PaperQA2 was trained on LitQA2 "
+                   "(train+eval), Munin's model (Qwen3.6-35B) was not. A loss is "
+                   "expected and informative; parity is strong; a win remarkable. "
+                   "Precision excludes abstentions + unparseable; accuracy counts "
+                   "them as wrong."),
+    }
+    out_dir = os.path.join(results_root, "litqa2")
+    os.makedirs(out_dir, exist_ok=True)
+    payload = {"header": header,
+               "accuracy": accuracy,
+               "precision": precision,
+               "abstention_rate": abstain / n if n else 0.0,
+               "results": results}
+    with open(os.path.join(out_dir, "answer.json"), "w") as fh:
+        json.dump(payload, fh, indent=2)
+    _write_answer_md(out_dir, payload)
+    print(f"[litqa2-answer] accuracy={accuracy['mean']:.3f} "
+          f"precision={precision['mean']:.3f} abstain={abstain}/{n} "
+          f"unparseable={unparse} -> {out_dir}/answer.{{json,md}}")
+    return payload
+
+
+def _write_answer_md(out_dir, payload):
+    h = payload["header"]
+    acc, prec = payload["accuracy"], payload["precision"]
+    lines = [
+        "# LitQA2 — answer track (end-to-end, research profile)", "",
+        f"- N={h['n']} | correct={h['correct']} incorrect={h['incorrect']} "
+        f"abstain={h['abstain']} unparseable={h['unparseable']} error={h['error']}",
+        f"- git: `{h['git_sha']}` | {h['generated_at']}", "",
+        "## Metrics (mean [95% CI])", "",
+        "| metric | Munin | PaperQA2 (published) |",
+        "|---|---|---|",
+        f"| accuracy | {acc['mean']:.3f} [{acc['ci_low']:.3f}, {acc['ci_high']:.3f}] "
+        f"| {h['paperqa2_accuracy_published']:.3f} [verify] |",
+    ]
+    if prec:
+        lines.append(f"| precision (of attempted) | {prec['mean']:.3f} "
+                     f"[{prec['ci_low']:.3f}, {prec['ci_high']:.3f}] | n/a |")
+    lines += [f"| abstention rate | {payload['abstention_rate']:.3f} | n/a |",
+              "", "## Caveat", "", h["caveat"]]
+    with open(os.path.join(out_dir, "answer_summary.md"), "w") as fh:
+        fh.write("\n".join(lines) + "\n")
 
 
 def _write_md(out_dir, payload):
