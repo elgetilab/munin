@@ -24,4 +24,6 @@ tqdm
 # --- LitQA2 paper acquisition (Phase 5 unblock; fetchers only) ---
 # curl_cffi: Chrome TLS impersonation to pass Cloudflare on publisher sites
 # from the institutional IP. requests (plain) is used for the OA fetcher.
+pyarrow          # read the LitQA2 lab-bench parquet (Phase 5)
+huggingface_hub  # download LitQA2 (Phase 5)
 curl_cffi
