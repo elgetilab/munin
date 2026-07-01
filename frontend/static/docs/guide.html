@@ -411,7 +411,7 @@ with httpx.stream(
 
         <h2 id="opencode">Using Munin with opencode</h2>
         <p>
-            <a href="https://opencode.ai" target="_blank" rel="noopener">opencode</a> is an open-source terminal coding agent that supports any OpenAI-compatible API. You can point it at Munin as your local coding assistant; set <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">persona</code> to <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">code</code> to force the code mode, or leave it to auto-route. The setup is a single config file plus an environment variable.
+            <a href="https://opencode.ai" target="_blank" rel="noopener">opencode</a> is an open-source terminal coding agent that supports any OpenAI-compatible API. You can point it at Munin as your local coding assistant; set <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">persona</code> to <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">code</code> to force the code mode, or leave it to auto-route. The setup is a single config file.
         </p>
 
         <h3>1. Install opencode</h3>
@@ -426,20 +426,14 @@ npm install -g opencode-ai</pre>
             Open <a href="https://chat.muninai.org">Chat</a> &rarr; click your name &rarr; <strong>Settings</strong> &rarr; <strong>API Keys</strong>. Create a key (it starts with <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">sk-munin-</code>) and copy it &mdash; it won't be shown again.
         </p>
 
-        <h3>3. Export your key</h3>
-        <p>Add this to your shell profile (<code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">~/.bashrc</code>, <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">~/.zshrc</code>, etc.) so opencode can pick it up:</p>
-        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">export MUNIN_API_KEY="sk-munin-..."</pre>
+        <h3>3. Verify your key</h3>
         <p>
-            Then <strong>open a new terminal</strong> (or run <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">source ~/.bashrc</code>) so the variable is set in the shell you launch opencode from. This is the most common setup mistake: if opencode can't see <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">MUNIN_API_KEY</code> at launch, it silently drops the Munin provider and the model never appears in the picker.
+            Before wiring up opencode, confirm the key works. Paste it into a quick <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">curl</code> against the model list:
         </p>
-        <p>Verify the key resolves and works before configuring opencode:</p>
-        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;"># should print sk-munin-...  (empty output means the key is not exported)
-echo "${MUNIN_API_KEY:0:9}..."
-
-# should return a JSON list containing qwen3.6-35b-a3b
-curl -s -H "Authorization: Bearer $MUNIN_API_KEY" https://api.muninai.org/v1/models</pre>
+        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;"># should return a JSON list containing qwen3.6-35b-a3b
+curl -s -H "Authorization: Bearer sk-munin-..." https://api.muninai.org/v1/models</pre>
         <p>
-            If the model list comes back, you are ready. A <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">401</code> means the key is missing or wrong; fix that before continuing, otherwise opencode will not see the model.
+            If the model list comes back, the key is good and you'll paste it straight into <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">opencode.json</code> in the next step. A <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">401</code> means the key is wrong or expired; regenerate it before continuing, otherwise opencode will not see the model.
         </p>
 
         <h3>4. Configure the provider</h3>
@@ -452,11 +446,15 @@ curl -s -H "Authorization: Bearer $MUNIN_API_KEY" https://api.muninai.org/v1/mod
       "name": "Munin",
       "options": {
         "baseURL": "https://api.muninai.org/v1",
-        "apiKey": "{env:MUNIN_API_KEY}"
+        "apiKey": "APIKEYHERE"
       },
       "models": {
         "qwen3.6-35b-a3b": {
-          "name": "Qwen 3.6 35B"
+          "name": "Qwen 3.6 35B",
+          "limit": {
+            "context": 65536,
+            "output": 16384
+          }
         }
       }
     }
@@ -466,6 +464,8 @@ curl -s -H "Authorization: Bearer $MUNIN_API_KEY" https://api.muninai.org/v1/mod
             Notes:
         </p>
         <ul>
+            <li>Replace <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">APIKEYHERE</code> with the <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">sk-munin-</code> key from step 2. opencode reads the key literally, so paste it in directly. If you keep <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">opencode.json</code> in a project, don't commit it &mdash; the key grants access to your quota.</li>
+            <li>The <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">limit</code> block matches the current deployment: a <strong>65,536-token</strong> context window with up to <strong>16,384 tokens</strong> of output per turn. opencode uses these to manage its context and compaction.</li>
             <li>opencode uses standard OpenAI chat completions, so requests automatically hit Munin's <strong>raw mode</strong> &mdash; the underlying model with no Munin persona, no system prompt, and no Munin tools. Opencode injects its own coding agent prompt.</li>
             <li>Munin's API rate limits apply: <strong>3 concurrent requests</strong>, <strong>60 requests/minute</strong>, <strong>100M tokens/month</strong>. Opencode can burn tokens fast on large repos &mdash; keep an eye on usage in chat Settings.</li>
         </ul>
