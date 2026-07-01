@@ -441,6 +441,14 @@ LitQA2 anchors Munin against PaperQA2 — the closest academic comparator. vargh
 > mostly-out-of-domain bio papers purely to run a benchmark is a real cost —
 > reconsider whether LitQA2 is the right anchor for Munin's corpus, or ingest a
 > prioritised subset and report the smaller N honestly.
+>
+> **RESOLVED 2026-07-01 (varghele: "grab all of them").** All 190 source DOIs
+> acquired (97 OA; +34 per-publisher via curl_cffi Cloudflare bypass from the
+> Leipzig IP; 59 manual browser grab of Elsevier/Oxford/Wiley) and ingested.
+> Coverage now **199/199 questions, 189/190 papers** (was 0). 48 papers were
+> "missing" only because GROBID mis-keyed them under a reference DOI (production
+> bug; see memory project_grobid_doi_extraction_bug), corrected via
+> re-key/fresh-embed. Phase 5 can run on the full 199-question set.
 
 4. Run two tracks against the in-corpus subset:
    - **Retrieval-only:** does the production retriever (**`AgentRetriever`**, the chat agent path, per Q3) surface the source paper in the top-10? Report Recall@1/5/10 and MRR. (Optionally also report the `/search/hybrid` search-page config alongside for the same finding as Phase 4e.)
