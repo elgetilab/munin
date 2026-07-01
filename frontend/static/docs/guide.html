@@ -429,6 +429,18 @@ npm install -g opencode-ai</pre>
         <h3>3. Export your key</h3>
         <p>Add this to your shell profile (<code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">~/.bashrc</code>, <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">~/.zshrc</code>, etc.) so opencode can pick it up:</p>
         <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">export MUNIN_API_KEY="sk-munin-..."</pre>
+        <p>
+            Then <strong>open a new terminal</strong> (or run <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">source ~/.bashrc</code>) so the variable is set in the shell you launch opencode from. This is the most common setup mistake: if opencode can't see <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">MUNIN_API_KEY</code> at launch, it silently drops the Munin provider and the model never appears in the picker.
+        </p>
+        <p>Verify the key resolves and works before configuring opencode:</p>
+        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;"># should print sk-munin-...  (empty output means the key is not exported)
+echo "${MUNIN_API_KEY:0:9}..."
+
+# should return a JSON list containing qwen3.6-35b-a3b
+curl -s -H "Authorization: Bearer $MUNIN_API_KEY" https://api.muninai.org/v1/models</pre>
+        <p>
+            If the model list comes back, you are ready. A <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">401</code> means the key is missing or wrong; fix that before continuing, otherwise opencode will not see the model.
+        </p>
 
         <h3>4. Configure the provider</h3>
         <p>Create <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">~/.config/opencode/opencode.json</code> for a global setup, or drop an <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">opencode.json</code> in any project root for a per-project setup:</p>
@@ -444,7 +456,7 @@ npm install -g opencode-ai</pre>
       },
       "models": {
         "qwen3.6-35b-a3b": {
-          "name": "Qwen 3.5 35B"
+          "name": "Qwen 3.6 35B"
         }
       }
     }
