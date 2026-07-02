@@ -95,6 +95,30 @@ unparseable needs a re-run.
 
 ---
 
+## Encoder bake-off — BEIR SciFact  · git `5f9ef15` · 2026-07-02
+
+In-memory, apples-to-apples (same `title\n\nabstract` docs, cosine, our
+metrics). Answers "would a better encoder help recall?" **Yes, dramatically.**
+
+| Encoder | nDCG@10 | Recall@10 | Recall@100 | MRR | Δ nDCG@10 vs SPECTER (p) |
+|---|---|---|---|---|---|
+| SPECTER-v1 (current) | 0.479 | 0.637 | 0.840 | 0.441 | — |
+| SciNCL | 0.564 | 0.723 | 0.908 | 0.530 | +0.085 (~0) |
+| E5-large-v2 | 0.722 | 0.844 | 0.963 | 0.692 | +0.243 (~0) |
+| **BGE-large-en-v1.5** | **0.746** | **0.873** | 0.948 | 0.716 | **+0.268 (~0)** |
+
+BGE-large lifts nDCG@10 +56% over SPECTER-v1 and **beats BM25 (0.652)**, which
+SPECTER lost to. Retrieval-tuning (E5/BGE) matters more than scientific
+pretraining (SciNCL). Caveats: SciFact != Munin's corpus (direction very likely
+holds, magnitude TBD); BGE/E5 are 1024-d (SPECTER 768-d) so deploying means a
+Qdrant collection recreate + full 68k re-embed. Highest-ROI change found:
+lifts retrieval AND (via the recall bound) answer accuracy together.
+
+Not yet done: confirm the winner on Munin's own corpus / LitQA2 (needs a one-off
+re-embed of the candidate pool with BGE/E5).
+
+---
+
 ## Reproduce
 
 ```bash
@@ -107,6 +131,7 @@ $PY -m pytest tests/                                              # Phase 1-2 un
 MUNIN_BENCH_SPECTER_DEVICE=cpu $PY -m munin_bench.pipelines.run_beir --subset scifact
 $PY -m munin_bench.pipelines.run_litqa2 --track retrieval
 $PY -m munin_bench.pipelines.run_litqa2 --track answer --concurrency 1   # concurrency<=vLLM max-num-seqs
+MUNIN_BENCH_SPECTER_DEVICE=cpu $PY -m munin_bench.pipelines.run_bakeoff --subset scifact
 ```
 
 Not yet run: BEIR nfcorpus/scidocs/trec-covid; Phase 4 local pool (deferred,
