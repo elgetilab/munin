@@ -114,8 +114,30 @@ holds, magnitude TBD); BGE/E5 are 1024-d (SPECTER 768-d) so deploying means a
 Qdrant collection recreate + full 68k re-embed. Highest-ROI change found:
 lifts retrieval AND (via the recall bound) answer accuracy together.
 
-Not yet done: confirm the winner on Munin's own corpus / LitQA2 (needs a one-off
-re-embed of the candidate pool with BGE/E5).
+## Encoder bake-off — LitQA2 pool (Munin corpus)  · git `2955824` · 2026-07-02
+
+Confirmation on Munin's OWN data: rank each LitQA2 source paper among a shared
+pool of 190 real source papers + 5000 random corpus papers (same pool for every
+encoder). Uses our papers + LitQA2 queries. **The SciFact win holds.**
+
+| metric | specter_v1 | scincl | e5_large_v2 | bge_large |
+|---|---|---|---|---|
+| Recall@1 | 0.392 | 0.432 | 0.641 | **0.661** |
+| Recall@10 | 0.663 | 0.678 | 0.817 | **0.837** |
+| MRR | 0.493 | 0.518 | 0.715 | **0.734** |
+
+Significance vs SPECTER-v1 (Recall@10, paired bootstrap): BGE +0.173 (p≈0),
+E5 +0.153 (p≈0), **SciNCL +0.015 (p=0.70, n.s.)**. So the lever is a general
+SOTA retriever (BGE/E5), NOT the scientific SPECTER successor. Absolute recall
+is inflated by the 5190-doc pool (SPECTER's full-corpus LitQA2 Recall@10 was
+0.44); the relative comparison is valid.
+
+**Conclusion:** deploying BGE-large (or E5-large) as the paper encoder is
+strongly evidence-backed — it substantially lifts retrieval on our corpus and,
+via the recall bound, should pull LitQA2 answer accuracy up. Cost: recreate the
+Qdrant `papers` collection at 1024-d + re-embed 68k papers + update query
+embedding in `paper_search`. That is the recommended production change; full-
+corpus magnitude confirmed only after the re-embed.
 
 ---
 
