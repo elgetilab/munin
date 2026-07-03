@@ -15,6 +15,15 @@ Neo4j (BEIR subsets get their own `eval_*` collections in Phase 3).
 | 3 | BEIR runner | **done** (SciFact validated: BM25 0.652 ≈ published; SPECTER 0.479) |
 | 4 | local pool benchmark | 4a done (extractor); 4b needs varghele-curated `queries.jsonl`; only 42 candidates so far |
 | 5 | LitQA2 anchor | **done** — retrieval (agent recall@10=0.44) + answer (acc 0.43 / prec 0.82 vs PaperQA2 0.66) |
+| E | regression harness — `run_all` → committed `scorecards/`, `compare` paired-diff | **done** |
+| — | encoder bake-off (BGE/E5 ≫ SPECTER-v1 on SciFact + Munin pool; see `RESULTS.md`) | **done** |
+
+**Regression harness (Track E):** `python -m munin_bench.pipelines.run_all
+--tag <label> --tracks beir-scifact,litqa2-retrieval[,litqa2-answer]` writes a
+provenance-stamped `scorecards/<date>_<tag>.{json,md}` (committed, with per-query
+arrays). `python -m munin_bench.pipelines.compare <old>.json <new>.json` diffs
+two runs with a paired bootstrap — the before/after check for a model or encoder
+swap.
 
 `AgentRetriever` is THE production retriever (the chat agent's `paper_search`
 path). `CitationRerankRetriever` is the search-page config, reported alongside.
