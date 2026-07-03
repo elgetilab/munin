@@ -779,12 +779,45 @@ check_kb_token_sync() {
     return 0
 }
 
+# The vLLM SLURM scripts live in the repo but run from $CLUSTER_SCRIPTS. When
+# the deployed copy lags the repo, the drift is silent and only bites on the
+# next restart: e.g. the launch script that boots misses the post-launch
+# context-window assertion, or serves a different window than the code budgets
+# against. This compares each repo script byte-for-byte against its deployed
+# copy and WARNS on drift/absence. Always returns 0 — a stale script must never
+# fail a retrieval deploy (vllm is a separate deploy target on its own cadence).
+check_vllm_scripts_sync() {
+    local drift=0 missing=0 checked=0 f
+    for f in start-vllm-service.sh start-vllm-service-tp2.sh \
+             schedule-vllm.sh check-context-window.sh; do
+        local repo="$REPO_DIR/scripts/vllm/$f"
+        local live="$CLUSTER_SCRIPTS/$f"
+        [ -f "$repo" ] || continue
+        checked=$((checked + 1))
+        if [ ! -f "$live" ]; then
+            missing=$((missing + 1))
+            echo "[WARN] vLLM script not deployed: $live"
+        elif ! cmp -s "$repo" "$live"; then
+            drift=$((drift + 1))
+            echo "[WARN] vLLM script drift: $live differs from repo"
+        fi
+    done
+    if [ $drift -eq 0 ] && [ $missing -eq 0 ]; then
+        echo "  [OK] vLLM scripts in sync ($checked matched against $CLUSTER_SCRIPTS)"
+    else
+        echo "       Redeploy to sync: sudo $REPO_DIR/deploy.sh vllm"
+        echo "       (takes effect on the next: sudo vllm-service stop && start)"
+    fi
+    return 0
+}
+
 deploy_verify() {
     echo "[verify] Smoke-testing retrieval endpoints..."
 
     if [ "$DRY_RUN" = "1" ]; then
         echo "  [dry-run] would poll $RETRIEVAL_BASE/health until 200, then curl /api/status + /api/personas"
         echo "  [dry-run] would compare KB_GATE_TOKEN fingerprint against the VPS (METRICS_VPS_SSH)"
+        echo "  [dry-run] would compare deployed vLLM scripts in $CLUSTER_SCRIPTS against the repo"
         return 0
     fi
 
@@ -842,6 +875,10 @@ deploy_verify() {
     # 4. KB_GATE_TOKEN must match the VPS or the admin Metrics tab breaks.
     #    Warning-only: never fails the deploy.
     check_kb_token_sync
+
+    # 5. Deployed vLLM scripts must match the repo, or restarts run stale
+    #    launch scripts. Warning-only: never fails the deploy.
+    check_vllm_scripts_sync
 
     echo "[OK] verify — all smoke tests passed"
 }
