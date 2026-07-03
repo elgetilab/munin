@@ -194,6 +194,8 @@ def run(qc, specter, neo4j, *, results_root, variants_path,
             for qid, rk in by_qid.items():
                 fh.write(json.dumps({"qid": qid, "ranking": rk}) + "\n")
     payload = {"header": header, "metrics": summary, "significance": sig,
+               "per_query": per_query, "qids": [q["qid"] for q in judged],
+               "metric_keys": METRIC_KEYS,
                "in_corpus_dois": sorted({d for q in judged for d in q["source_dois"] if d in corpus})}
     with open(os.path.join(out_dir, "retrieval.json"), "w") as fh:
         json.dump(payload, fh, indent=2)
@@ -373,10 +375,19 @@ def run_answer(qc, *, base_url, email, results_root, n_resamples=1000,
     }
     out_dir = os.path.join(results_root, "litqa2")
     os.makedirs(out_dir, exist_ok=True)
+    # per-query accuracy (0/1 by qid) so the scorecard/compare can pair-bootstrap
+    q_ids = [r["qid"] for r in results]
+    sc_summary = {"accuracy": {"munin": accuracy}}
+    if precision:
+        sc_summary["precision"] = {"munin": precision}
     payload = {"header": header,
                "accuracy": accuracy,
                "precision": precision,
                "abstention_rate": abstain / n if n else 0.0,
+               "per_query": {"munin": {"accuracy": acc_arr}},
+               "qids": q_ids,
+               "metric_keys": ["accuracy"],
+               "sc_summary": sc_summary,
                "results": results}
     with open(os.path.join(out_dir, "answer.json"), "w") as fh:
         json.dump(payload, fh, indent=2)

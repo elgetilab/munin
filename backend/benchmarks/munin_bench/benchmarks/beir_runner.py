@@ -239,7 +239,8 @@ def run_subset(qdrant, specter, subset, *, results_root, rebuild=False,
         with open(os.path.join(out_dir, f"{name}.jsonl"), "w") as fh:
             for qid in qids:
                 fh.write(json.dumps({"qid": qid, "ranking": by_qid[qid][:RETRIEVE_DEPTH]}) + "\n")
-    payload = {"header": header, "metrics": summary, "significance": sig}
+    payload = {"header": header, "metrics": summary, "significance": sig,
+               "per_query": per_query, "qids": qids, "metric_keys": METRIC_KEYS}
     with open(os.path.join(out_dir, "summary.json"), "w") as fh:
         json.dump(payload, fh, indent=2)
     _write_markdown(out_dir, payload)
