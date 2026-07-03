@@ -42,10 +42,16 @@ STOP and reassess (the 5k pool was optimistic).
 - [x] **A4. Parameterize the runner.** `litqa2_runner.run(..., collection,
   query_prefix, id_field)`; `run_all --encoder {specter-v1,bge-large}` threads
   model/collection/prefix. Encoder label flows into the scorecard header.
-- [ ] **A5. Validate.** (BLOCKED on A3 finishing.) `run_all --tag bge-large
-  --tracks litqa2-retrieval --encoder bge-large`; then `compare
-  scorecards/*_baseline-specter-v1.json scorecards/*_bge-large.json`. Commit the
-  BGE scorecard + a short note in `RESULTS.md`. Apply the gate above.
+- [x] **A5. Validate. GATE PASSED (2026-07-03).** BGE vs SPECTER on the full 68k:
+  AgentRetriever Recall@10 0.437 -> 0.729 (+0.29), Recall@1 0.191 -> 0.487,
+  MRR 0.276 -> 0.573, all p~0. FULL-corpus gain > pool gain. Scorecard +
+  compare committed; RESULTS.md updated.
+
+## PHASE A COMPLETE (2026-07-03)
+
+Migration strongly validated on the real corpus. `papers_bge` (68,121 pts,
+1024-d) retained for Phase B reuse. Next: Phase B production cutover
+(ENCODER-MIGRATION-PLAN.md) - backend code + deploy, varghele/root.
 - [ ] **A6. (optional) BEIR/bake-off for the record** already covered by the
   committed bake-off; no action unless we want a BEIR scorecard too.
 

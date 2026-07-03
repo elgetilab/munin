@@ -139,6 +139,29 @@ Qdrant `papers` collection at 1024-d + re-embed 68k papers + update query
 embedding in `paper_search`. That is the recommended production change; full-
 corpus magnitude confirmed only after the re-embed.
 
+## Encoder migration Phase A - full-corpus validation  · git `bc35b4d` · 2026-07-03
+
+BGE-large re-embed of ALL 68k papers (`papers_bge`, 1024-d), LitQA2 retrieval
+over the full corpus, `compare` vs the committed `baseline-specter-v1`
+scorecard (paired bootstrap, same 199 questions). **Gate PASSED, decisively.**
+
+| system | metric | SPECTER-v1 | BGE-large | Δ (p) |
+|---|---|---|---|---|
+| AgentRetriever (prod) | Recall@1 | 0.191 | 0.487 | +0.30 (~0) |
+| | Recall@10 | 0.437 | 0.729 | +0.29 (~0) |
+| | MRR | 0.276 | 0.573 | +0.30 (~0) |
+| SPECTER-dense | Recall@10 | 0.447 | 0.691 | +0.24 (~0) |
+
+The FULL-corpus gain (+0.29 Recall@10) is LARGER than the 5k-pool gain (+0.17):
+with 68k distractors SPECTER-v1 cannot pick the source out of the noise, so a
+better encoder helps MORE at scale, not less. AgentRetriever now surfaces the
+source in the top-10 73% of the time (was 44%). Since answer accuracy tracks
+Recall@10, this projects LitQA2 answer accuracy toward ~0.73 (past PaperQA2's
+0.66) - to be measured for real in Phase C. Scorecards:
+`scorecards/2026-07-03_{baseline-specter-v1,bge-large}.json`. Migration is
+strongly justified; proceed to Phase B (production cutover) per
+`todo_v2/ENCODER-MIGRATION-PLAN.md`.
+
 ---
 
 ## Reproduce
