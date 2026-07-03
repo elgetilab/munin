@@ -109,17 +109,19 @@ def _git_sha():
 
 
 def run(qc, specter, neo4j, *, results_root, variants_path,
-        n_resamples=1000, device="cpu"):
+        n_resamples=1000, device="cpu", collection="papers",
+        query_prefix="", id_field="doi"):
     questions = load_litqa2()
 
-    # corpus DOI set (to restrict to in-corpus questions + flag coverage)
+    # corpus DOI set from the TARGET collection (papers or papers_bge — same
+    # DOIs, so in-corpus membership is encoder-independent).
     corpus = set()
     off = None
     while True:
-        b, off = qc.scroll("papers", limit=4000, offset=off,
+        b, off = qc.scroll(collection, limit=4000, offset=off,
                            with_payload=True, with_vectors=False)
         for p in b:
-            d = ((p.payload or {}).get("doi") or "").strip().lower()
+            d = ((p.payload or {}).get(id_field) or "").strip().lower()
             if d:
                 corpus.add(d)
         if off is None:
@@ -127,14 +129,17 @@ def run(qc, specter, neo4j, *, results_root, variants_path,
 
     judged = [q for q in questions
               if any(d in corpus for d in q["source_dois"])]
-    print(f"[litqa2] {len(judged)}/{len(questions)} questions in-corpus")
+    print(f"[litqa2] {len(judged)}/{len(questions)} questions in-corpus "
+          f"(collection={collection})")
 
     print("[litqa2] building/loading frozen query variants...")
     variants = build_frozen_variants(judged, variants_path)
 
-    dense = SpecterDenseRetriever(qc, specter, "papers")
+    dense = SpecterDenseRetriever(qc, specter, collection, id_field=id_field,
+                                  query_prefix=query_prefix)
     retrievers = {
-        "agent": AgentRetriever(qc, specter, "papers", frozen_variants=variants),
+        "agent": AgentRetriever(qc, specter, collection, frozen_variants=variants,
+                                query_prefix=query_prefix),
         "specter_dense": dense,
         "citation_rerank_0.7_0.3": CitationRerankRetriever(
             dense, neo4j, vector_weight=0.7, citation_weight=0.3),

@@ -17,6 +17,10 @@ QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 # subsets get their own ``eval_*`` collections (Phase 3) and never touch this.
 PAPERS_COLLECTION = "papers"
 
+# Encoder-migration validation collection (Phase A). A 1024-d BGE re-embed of
+# `papers`, built + read only by the eval harness. Never touched by production.
+PAPERS_BGE_COLLECTION = "papers_bge"
+
 # --- Neo4j ------------------------------------------------------------------
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
@@ -29,6 +33,23 @@ SPECTER_MODEL_PATH = os.getenv(
     "SPECTER_MODEL_PATH", "/opt/munin/data/models/specter"
 )
 SPECTER_HF_ID = "sentence-transformers/allenai-specter"
+
+# BGE-large-en-v1.5 (encoder-migration candidate, 1024d). Query instruction is
+# applied to QUERIES ONLY (docs embedded raw) — matching the bake-off config, or
+# the recall gain shrinks. See ENCODER-MIGRATION-PLAN.md.
+BGE_LARGE_PATH = os.getenv("BGE_LARGE_PATH", "/opt/munin/data/models/bge-large")
+BGE_LARGE_HF_ID = "BAAI/bge-large-en-v1.5"
+BGE_QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
+
+# Encoder presets for the eval runners: label -> (model path/id, collection,
+# query_prefix). "specter-v1" is the production baseline; "bge-large" is Phase A.
+ENCODER_PRESETS = {
+    "specter-v1": {"model": SPECTER_MODEL_PATH, "hf": SPECTER_HF_ID,
+                   "collection": PAPERS_COLLECTION, "query_prefix": "", "dim": 768},
+    "bge-large": {"model": BGE_LARGE_PATH, "hf": BGE_LARGE_HF_ID,
+                  "collection": PAPERS_BGE_COLLECTION,
+                  "query_prefix": BGE_QUERY_INSTRUCTION, "dim": 1024},
+}
 
 # --- vLLM (query expansion for the frozen variant set) ----------------------
 VLLM_URL = os.getenv("VLLM_URL", "http://127.0.0.1:8000")

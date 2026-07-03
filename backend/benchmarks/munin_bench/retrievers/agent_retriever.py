@@ -38,6 +38,7 @@ class AgentRetriever(Retriever):
         collection: str = "papers",
         frozen_variants: Optional[dict[str, list[str]]] = None,
         single_variant: bool = False,
+        query_prefix: str = "",
     ):
         self.qdrant = qdrant
         self.specter = specter
@@ -45,6 +46,8 @@ class AgentRetriever(Retriever):
         # query (str) -> [base, variant1, ...]; base query is element 0.
         self.frozen_variants = frozen_variants or {}
         self.single_variant = single_variant
+        # Query-only instruction prefix for BGE-style encoders ("" = SPECTER).
+        self.query_prefix = query_prefix
 
     def variants_for(self, query: str) -> list[str]:
         """The variant list this retriever will fan out. Single-variant mode
@@ -58,7 +61,7 @@ class AgentRetriever(Retriever):
         return list(variants)
 
     def _search_one(self, q: str, per_query: int) -> list[tuple[str, float]]:
-        vec = self.specter.encode(q).tolist()
+        vec = self.specter.encode(self.query_prefix + q).tolist()
         results = self.qdrant.query_points(
             collection_name=self.collection,
             query=vec,

@@ -30,32 +30,22 @@ STOP and reassess (the 5k pool was optimistic).
 
 ## Tasks
 
-- [ ] **A1. Query-prefix support in retrievers.** Add `query_prefix: str = ""`
-  to `SpecterDenseRetriever` and `AgentRetriever`; prepend it to the query text
-  before `.encode(...)`. Default "" = SPECTER behaviour unchanged (backward
-  compatible). Doc embedding stays raw.
-- [ ] **A2. Generic encoder loader.** In `clients.py` add
-  `load_encoder(model_path, device=None)` (generalize `load_specter`); keep
-  `load_specter` as a thin wrapper. Add `BGE_LARGE_PATH` +
-  `BGE_QUERY_INSTRUCTION` to `config.py`.
-- [ ] **A3. Build `papers_bge`.** New tool
-  `munin_bench/pipelines/build_papers_bge.py`: scroll `papers`, re-embed each
-  point's `title\n\nabstract` with BGE-large (RAW, batch), upsert into
-  `papers_bge` (1024-d cosine) with the SAME point id + payload. Idempotent /
-  resumable (skip ids already in `papers_bge`). Reads only existing payloads (no
-  GROBID). This same tool is reusable for the Phase B production re-embed.
-  - Model download: `BAAI/bge-large-en-v1.5` -> `/opt/munin/data/models/bge-large`.
-  - Compute: CPU background (~1-2 h, reliable) OR a `sbatch` shard:batch job on
-    GPU0 (~30 min, scheduling-dependent). SEE OPEN QUESTION.
-- [ ] **A4. Parameterize the runner.** `litqa2_runner.run(..., collection,
-  query_prefix, id_field)`; thread through from `run_all` via a `--encoder`
-  preset ("specter-v1" | "bge-large") that selects model/collection/prefix, so
-  the same `run_all` produces either scorecard. Encoder label already flows into
-  the scorecard header (Track E).
-- [ ] **A5. Validate.** `run_all --tag bge-large --tracks litqa2-retrieval
-  --encoder bge-large`; then `compare scorecards/*_baseline-specter-v1.json
-  scorecards/*_bge-large.json`. Commit the BGE scorecard + a short note in
-  `RESULTS.md`. Apply the gate above.
+- [x] **A1. Query-prefix support in retrievers.** `query_prefix` added to
+  `SpecterDenseRetriever` + `AgentRetriever` (query-only; default "" = SPECTER).
+- [x] **A2. Generic encoder loader.** `clients.load_encoder(model, device,
+  hf_fallback)`; `load_specter` now a wrapper. `config.BGE_LARGE_*` +
+  `ENCODER_PRESETS` added. (Model loads from the HF id into cache; no /opt write
+  needed for Phase A.)
+- [~] **A3. Build `papers_bge`.** `munin_bench/pipelines/build_papers_bge.py`
+  written + RUNNING (CPU background, ~1-2 h). Idempotent/resumable, reads
+  existing payloads, upserts under the SAME id + payload. Reusable for Phase B.
+- [x] **A4. Parameterize the runner.** `litqa2_runner.run(..., collection,
+  query_prefix, id_field)`; `run_all --encoder {specter-v1,bge-large}` threads
+  model/collection/prefix. Encoder label flows into the scorecard header.
+- [ ] **A5. Validate.** (BLOCKED on A3 finishing.) `run_all --tag bge-large
+  --tracks litqa2-retrieval --encoder bge-large`; then `compare
+  scorecards/*_baseline-specter-v1.json scorecards/*_bge-large.json`. Commit the
+  BGE scorecard + a short note in `RESULTS.md`. Apply the gate above.
 - [ ] **A6. (optional) BEIR/bake-off for the record** already covered by the
   committed bake-off; no action unless we want a BEIR scorecard too.
 

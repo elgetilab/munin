@@ -18,8 +18,9 @@ from __future__ import annotations
 import argparse
 import os
 
+from .. import config
 from ..benchmarks import beir_runner, litqa2_runner
-from ..clients import get_neo4j, get_qdrant, load_specter
+from ..clients import get_neo4j, get_qdrant, load_encoder
 from ..scorecard import make_run_header, task_from_per_query, write_scorecard
 
 RESULTS_ROOT = os.path.abspath(
@@ -35,7 +36,8 @@ def main() -> int:
     ap.add_argument("--tag", required=True)
     ap.add_argument("--tracks", default="beir-scifact,litqa2-retrieval")
     ap.add_argument("--encoder", default="specter-v1",
-                    help="label recorded in the scorecard header (provenance only)")
+                    choices=list(config.ENCODER_PRESETS),
+                    help="encoder preset: model + papers collection + query prefix")
     ap.add_argument("--date", default=None, help="YYYY-MM-DD for the filename")
     ap.add_argument("--results-root", default=RESULTS_ROOT)
     args = ap.parse_args()
@@ -53,9 +55,14 @@ def main() -> int:
         date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     device = os.getenv("MUNIN_BENCH_SPECTER_DEVICE", "cpu")
+    preset = config.ENCODER_PRESETS[args.encoder]
     qc = get_qdrant()
-    specter = load_specter(device=device)
+    specter = load_encoder(preset["model"], device=device, hf_fallback=preset["hf"])
     neo4j = get_neo4j()
+
+    if "beir-scifact" in tracks and args.encoder != "specter-v1":
+        raise SystemExit("beir-scifact builds a 768-d eval collection; only the "
+                         "specter-v1 preset is wired for it. Run BEIR separately.")
 
     tasks = {}
     if "beir-scifact" in tracks:
@@ -65,9 +72,12 @@ def main() -> int:
         tasks["beir_scifact"] = task_from_per_query(
             p["per_query"], p["qids"], p["metrics"])
     if "litqa2-retrieval" in tracks:
-        print("=== track: litqa2-retrieval ===")
+        print(f"=== track: litqa2-retrieval (encoder={args.encoder}, "
+              f"collection={preset['collection']}) ===")
         p = litqa2_runner.run(qc, specter, neo4j, results_root=args.results_root,
-                              variants_path=VARIANTS, device=device)
+                              variants_path=VARIANTS, device=device,
+                              collection=preset["collection"],
+                              query_prefix=preset["query_prefix"])
         tasks["litqa2_retrieval"] = task_from_per_query(
             p["per_query"], p["qids"], p["metrics"])
     if "litqa2-answer" in tracks:

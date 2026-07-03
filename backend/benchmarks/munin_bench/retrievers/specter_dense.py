@@ -16,16 +16,19 @@ class SpecterDenseRetriever(Retriever):
     name = "specter_dense"
 
     def __init__(self, qdrant, specter, collection: str = "papers",
-                 id_field: str = "doi"):
+                 id_field: str = "doi", query_prefix: str = ""):
         self.qdrant = qdrant
         self.specter = specter
         self.collection = collection
         # Production "papers" keys ids under "doi"; BEIR eval_* collections
         # key them under "doc_id". A retriever instance is bound to one corpus.
         self.id_field = id_field
+        # Some encoders (BGE) prepend a query instruction to the QUERY only;
+        # docs are embedded raw. "" = SPECTER behaviour (no prefix).
+        self.query_prefix = query_prefix
 
     def _search(self, query: str, limit: int, query_filter=None) -> list[tuple[str, float]]:
-        vec = self.specter.encode(query).tolist()
+        vec = self.specter.encode(self.query_prefix + query).tolist()
         results = self.qdrant.query_points(
             collection_name=self.collection,
             query=vec,

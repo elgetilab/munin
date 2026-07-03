@@ -41,29 +41,37 @@ def get_neo4j():
     )
 
 
-def load_specter(device: str | None = None):
-    """Load the SPECTER embedder, local path first then HF id — mirrors
-    database.get_specter().
+def load_encoder(model, device: str | None = None, hf_fallback: str | None = None):
+    """Load any SentenceTransformer encoder (SPECTER, BGE, ...): local path first,
+    then an optional HF id fallback.
 
-    ``device`` defaults to the env ``MUNIN_BENCH_SPECTER_DEVICE`` or "cpu".
-    CPU is the safe default on hugin: the GPUs are usually saturated by vLLM
-    (TP=2 at 0.90 util), so putting SPECTER on CUDA would OOM. Pass
-    ``device="cuda"`` only when the cards are free (large BEIR subsets)."""
+    ``device`` defaults to the env ``MUNIN_BENCH_SPECTER_DEVICE`` or "cpu". CPU is
+    the safe default on hugin (GPUs saturated by vLLM); pass "cuda" only when a
+    card is free."""
     from sentence_transformers import SentenceTransformer
 
     if device is None:
         device = os.getenv("MUNIN_BENCH_SPECTER_DEVICE", "cpu")
 
-    candidates = [
-        (config.SPECTER_MODEL_PATH, "local path"),
-        (config.SPECTER_HF_ID, "HuggingFace"),
-    ]
+    candidates = [(model, "local path or id")]
+    if hf_fallback and hf_fallback != model:
+        candidates.append((hf_fallback, "HuggingFace fallback"))
+    last = None
     for path, desc in candidates:
-        if path == config.SPECTER_MODEL_PATH and not os.path.exists(path):
+        # skip a LOCAL path that doesn't exist (leading /, ., ~); HF ids like
+        # "org/model" contain a slash but aren't local paths, so always attempt.
+        if str(path).startswith((os.sep, ".", "~")) and not os.path.exists(path):
             continue
         try:
-            logger.info("Loading SPECTER from %s (%s) on %s", path, desc, device)
+            logger.info("Loading encoder from %s (%s) on %s", path, desc, device)
             return SentenceTransformer(path, device=device)
         except Exception as e:  # pragma: no cover - load-time/env dependent
-            logger.warning("SPECTER load from %s failed: %s", desc, e)
-    raise RuntimeError("Could not load SPECTER model from local path or HF")
+            logger.warning("encoder load from %s failed: %s", desc, e)
+            last = e
+    raise RuntimeError(f"Could not load encoder {model!r}: {last}")
+
+
+def load_specter(device: str | None = None):
+    """Backward-compatible SPECTER loader (thin wrapper over load_encoder)."""
+    return load_encoder(config.SPECTER_MODEL_PATH, device=device,
+                        hf_fallback=config.SPECTER_HF_ID)
