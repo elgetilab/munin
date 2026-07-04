@@ -140,8 +140,10 @@ Instant; `papers`+SPECTER untouched.
 ## Open items / risks to check BEFORE cutover
 
 - **Knowledge/embedding-map service** (`scripts/knowledge/build_embedding_map.py`,
-  nightly) reads paper vectors - if it assumes 768d/SPECTER it must switch to
-  `papers_bge`/1024d too, or it will break / mix encoders. VERIFY before cutover.
+  nightly) reads paper vectors (`with_vectors=True`) -> RESOLVED / low risk: it is
+  already env-driven (`QDRANT_COLLECTION`, default `papers`) and dim-agnostic
+  (UMAP runs on any vector size). At cutover just set `QDRANT_COLLECTION=papers_bge`
+  for that unit; no code change. (Add to the cutover runbook.)
 - Any other consumer of the `papers` collection vectors (not just payloads) must
   move to `papers_bge`. Payload-only consumers are dim-agnostic.
 - `papers_bge` must stay in sync with `papers` until cutover: papers ingested
