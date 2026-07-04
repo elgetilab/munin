@@ -2,8 +2,8 @@
 
 Production cutover SPECTER-v1 (768d, `papers`) -> BGE-large-en-v1.5 (1024d,
 `papers_bge`). Phase A validated it (RESULTS.md: AgentRetriever Recall@10
-0.44->0.73, p~0). Status: **DRAFT, no code changed yet.** Parent:
-`ENCODER-MIGRATION-PLAN.md`.
+0.44->0.73, p~0). Status: **CODE APPLIED 2026-07-04 (flag-gated, behaviour-
+neutral); NOT deployed, NOT cut over.** Parent: `ENCODER-MIGRATION-PLAN.md`.
 
 ## Design principle: flag-gated, deploy is a no-op
 
@@ -19,9 +19,10 @@ flip the two vars in `munin.env` + restart retrieval & pipeline. Rollback = flip
 them back + restart. `papers` (SPECTER) is kept live throughout for instant
 rollback. This decouples the risky behaviour change from the code deploy.
 
-CRITICAL: `get_specter()` is shared by the `papers` AND `notion` collections
-(both 768d). We must NOT globally swap it, or notion search breaks. Add a
-SEPARATE paper-encoder path; notion keeps `get_specter()`.
+Note (corrected 2026-07-04): `notion` search uses `get_bge()` (BGE-base), NOT
+`get_specter()` - so `get_specter()` is papers-only and the entanglement worry
+was unfounded. We still add a SEPARATE `get_paper_encoder()` (cleaner + explicit
++ future-proof) and leave `get_specter()` / `get_bge()` untouched.
 
 ## 1. `retrieval/database.py` - new paper-encoder abstraction
 

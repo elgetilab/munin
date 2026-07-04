@@ -73,6 +73,7 @@ from database import (
     get_qdrant, get_neo4j, get_specter, get_bge,
     is_specter_loaded, is_bge_loaded,
 )
+import database  # for the runtime-configurable PAPERS_COLLECTION / paper encoder
 from models import (
     RetrieveRequest, RetrievedDocument, RetrieveResponse,
     PaperNode, AuthorNode, CitationsResponse, ReferencesResponse,
@@ -317,7 +318,7 @@ def get_pdf_path(doi: str) -> Optional[str]:
 async def search_papers(query: str, top_k: int = 5) -> list[RetrievedDocument]:
     """Search papers collection using SPECTER embeddings."""
     qdrant = get_qdrant()
-    embedder = get_specter()
+    embedder = database.get_paper_encoder()
 
     if not qdrant or not embedder:
         return []
@@ -325,15 +326,15 @@ async def search_papers(query: str, top_k: int = 5) -> list[RetrievedDocument]:
     try:
         # Check if collection exists
         collections = qdrant.get_collections().collections
-        if not any(c.name == "papers" for c in collections):
+        if not any(c.name == database.PAPERS_COLLECTION for c in collections):
             return []
 
-        # Generate query embedding
-        vector = embedder.encode(query).tolist()
+        # Generate query embedding (BGE prepends PAPER_QUERY_PREFIX; "" for SPECTER)
+        vector = embedder.encode(database.PAPER_QUERY_PREFIX + query).tolist()
 
         # Search (qdrant-client 1.7+ uses query_points instead of search)
         results = qdrant.query_points(
-            collection_name="papers",
+            collection_name=database.PAPERS_COLLECTION,
             query=vector,
             limit=top_k
         )
@@ -1592,7 +1593,7 @@ async def api_tag_papers(
     # to render "1 of 418".
     try:
         count_res = qdrant.count(
-            collection_name="papers", count_filter=flt, exact=True
+            collection_name=database.PAPERS_COLLECTION, count_filter=flt, exact=True
         )
         total = getattr(count_res, "count", 0)
     except Exception:
@@ -1608,7 +1609,7 @@ async def api_tag_papers(
     try:
         while seen < offset + limit:
             points, scroll_offset = qdrant.scroll(
-                collection_name="papers",
+                collection_name=database.PAPERS_COLLECTION,
                 scroll_filter=flt,
                 limit=page_size,
                 offset=scroll_offset,
@@ -1821,7 +1822,7 @@ async def api_tags():
                     continue
                 try:
                     res = qdrant.count(
-                        collection_name="papers",
+                        collection_name=database.PAPERS_COLLECTION,
                         count_filter=qm.Filter(must=[
                             qm.FieldCondition(
                                 key="contributors[].group_slug",
@@ -1840,7 +1841,7 @@ async def api_tags():
                 if username:
                     try:
                         res = qdrant.count(
-                            collection_name="papers",
+                            collection_name=database.PAPERS_COLLECTION,
                             count_filter=qm.Filter(must=[
                                 qm.FieldCondition(
                                     key="contributors[].username",
@@ -1857,7 +1858,7 @@ async def api_tags():
                 if emails:
                     try:
                         res = qdrant.count(
-                            collection_name="papers",
+                            collection_name=database.PAPERS_COLLECTION,
                             count_filter=qm.Filter(should=[
                                 qm.FieldCondition(
                                     key="contributors[].email",
@@ -3383,7 +3384,7 @@ async def hybrid_search(request: HybridSearchRequest):
         List of papers with enriched metadata and combined scores
     """
     qdrant = get_qdrant()
-    embedder = get_specter()
+    embedder = database.get_paper_encoder()
 
     if not qdrant or not embedder:
         raise HTTPException(
@@ -3401,7 +3402,7 @@ async def hybrid_search(request: HybridSearchRequest):
     try:
         # Check if collection exists
         collections = qdrant.get_collections().collections
-        if not any(c.name == "papers" for c in collections):
+        if not any(c.name == database.PAPERS_COLLECTION for c in collections):
             return HybridSearchResponse(
                 query=request.query,
                 total_results=0,
@@ -3425,14 +3426,14 @@ async def hybrid_search(request: HybridSearchRequest):
                 )
             query_filter = Filter(must=conditions)
 
-        # Generate query embedding and search
-        vector = embedder.encode(request.query).tolist()
+        # Generate query embedding and search (BGE prefix on query; "" for SPECTER)
+        vector = embedder.encode(database.PAPER_QUERY_PREFIX + request.query).tolist()
 
         # Get more results than needed for re-ranking
         fetch_k = min(request.top_k * 3, 100)
 
         results = qdrant.query_points(
-            collection_name="papers",
+            collection_name=database.PAPERS_COLLECTION,
             query=vector,
             limit=fetch_k,
             query_filter=query_filter
@@ -3629,7 +3630,7 @@ async def get_enriched_paper(doi: str):
 
         # Get paper from Qdrant
         results = qdrant.scroll(
-            collection_name="papers",
+            collection_name=database.PAPERS_COLLECTION,
             scroll_filter=Filter(
                 must=[FieldCondition(key="doi", match=MatchValue(value=doi))]
             ),
@@ -3999,7 +4000,7 @@ async def startup():
             ):
                 try:
                     qd.create_payload_index(
-                        collection_name="papers",
+                        collection_name=database.PAPERS_COLLECTION,
                         field_name=key,
                         field_schema=schema,
                     )
@@ -4058,6 +4059,12 @@ async def startup():
         get_specter()
     except Exception:
         logger.exception("SPECTER preload failed")
+    try:
+        # Preload the ACTIVE paper encoder (BGE-large when PAPER_ENCODER=bge-large;
+        # a no-op alias of SPECTER otherwise).
+        database.get_paper_encoder()
+    except Exception:
+        logger.exception("paper encoder preload failed")
     try:
         get_bge()
     except Exception:

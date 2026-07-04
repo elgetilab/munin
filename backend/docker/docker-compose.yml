@@ -119,6 +119,9 @@ services:
     volumes:
       - /opt/munin/data/models/bge-base:/models/bge-base:ro
       - /opt/munin/data/models/specter:/models/specter:ro
+      # BGE-large paper encoder (encoder migration). Empty/missing is fine until
+      # PAPER_ENCODER=bge-large is set. See todo_v2/ENCODER-MIGRATION-PLAN.md.
+      - /opt/munin/data/models/bge-large:/models/bge-large:ro
       # Qwen3 tokenizer for exact context-budget token counting (P1 #8).
       # Only the ~7 MB tokenizer files, copied out of the vLLM model dir
       # by deploy.sh — the container never needs the full weights.
@@ -157,6 +160,11 @@ services:
       - SEARXNG_URL=http://searxng:8080
       - SPECTER_MODEL_PATH=/models/specter
       - BGE_MODEL_PATH=/models/bge-base
+      # Paper encoder migration (defaults preserve SPECTER+papers; flip both
+      # to bge-large / papers_bge to cut over). See ENCODER-MIGRATION-PLAN.md.
+      - PAPER_ENCODER=${PAPER_ENCODER:-specter}
+      - PAPERS_COLLECTION=${PAPERS_COLLECTION:-papers}
+      - BGE_LARGE_MODEL_PATH=${BGE_LARGE_MODEL_PATH:-/models/bge-large}
       - QWEN_TOKENIZER_PATH=/models/qwen/tokenizer.json
       - PAPERS_PDF_DIR=/papers
       # Chat persistence + user docs

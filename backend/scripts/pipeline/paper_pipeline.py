@@ -78,7 +78,12 @@ PROCESSED_DIR = "/opt/munin/data/papers/processed"
 # self._last_skip_reason, which the dispose helper reads.
 QUARANTINE_DIR = "/opt/munin/data/papers/pdf/quarantine"
 OCR_CACHE_DIR = "/opt/munin/data/papers/ocr_cache"
-COLLECTION_NAME = "papers"
+COLLECTION_NAME = os.getenv("PAPERS_COLLECTION", "papers")
+# Encoder migration: the pipeline must embed NEW papers with the SAME encoder
+# the retrieval service serves (PAPER_ENCODER). Set both together at cutover.
+# See todo_v2/ENCODER-MIGRATION-PLAN.md.
+PAPER_ENCODER = os.getenv("PAPER_ENCODER", "specter")   # specter | bge-large
+EMBED_DIM = 1024 if PAPER_ENCODER == "bge-large" else 768
 
 # Phase B (2026-05-13): every PDF the pipeline touches gets a sibling
 # `<stem>.state.json` sidecar tracking its lifecycle state. Forward-
@@ -634,7 +639,7 @@ class PaperPipeline:
             if COLLECTION_NAME not in collections:
                 self.qdrant.create_collection(
                     collection_name=COLLECTION_NAME,
-                    vectors_config=VectorParams(size=768, distance=Distance.COSINE)
+                    vectors_config=VectorParams(size=EMBED_DIM, distance=Distance.COSINE)
                 )
                 print(f"[OK] Created Qdrant collection: {COLLECTION_NAME}")
         except Exception as e:
@@ -677,15 +682,22 @@ class PaperPipeline:
                 device = "cpu"
                 print("[INFO] CUDA not available, using CPU for embeddings")
 
-            # Use local SPECTER model downloaded by 05-knowledge-base.sh
-            specter_path = "/opt/munin/data/models/specter"
-            if os.path.exists(specter_path):
-                self.embedder = SentenceTransformer(specter_path, device=device)
-                print(f"[OK] SPECTER embedder loaded from {specter_path}")
+            # Paper embedder — MUST match the retrieval service's PAPER_ENCODER.
+            if PAPER_ENCODER == "bge-large":
+                bge_path = os.getenv("BGE_LARGE_MODEL_PATH",
+                                     "/opt/munin/data/models/bge-large")
+                model = bge_path if os.path.exists(bge_path) else "BAAI/bge-large-en-v1.5"
+                self.embedder = SentenceTransformer(model, device=device)  # 1024d, docs raw
+                print(f"[OK] BGE-large embedder loaded from {model}")
             else:
-                # Fallback to downloading from HuggingFace
-                self.embedder = SentenceTransformer("sentence-transformers/allenai-specter", device=device)
-                print("[OK] SPECTER embedder loaded from HuggingFace")
+                # Local SPECTER model downloaded by 05-knowledge-base.sh
+                specter_path = "/opt/munin/data/models/specter"
+                if os.path.exists(specter_path):
+                    self.embedder = SentenceTransformer(specter_path, device=device)
+                    print(f"[OK] SPECTER embedder loaded from {specter_path}")
+                else:
+                    self.embedder = SentenceTransformer("sentence-transformers/allenai-specter", device=device)
+                    print("[OK] SPECTER embedder loaded from HuggingFace")
         except Exception as e:
             print(f"[WARNING] Embedder failed to load: {e}")
             self.embedder = None

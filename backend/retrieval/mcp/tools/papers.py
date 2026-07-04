@@ -20,7 +20,11 @@ from urllib.parse import quote
 
 import httpx
 
-from database import get_qdrant, get_neo4j, get_specter, PAPERS_PDF_DIR
+import database
+from database import (
+    get_qdrant, get_neo4j, get_paper_encoder, PAPERS_PDF_DIR,
+    PAPER_QUERY_PREFIX,
+)
 from .query_expansion import expand_queries
 from ..context import current_query_tags
 
@@ -198,9 +202,10 @@ def _qdrant_search_one(
     payload. `query_filter` — a Qdrant `Filter` from `_build_tag_filter`
     — scopes the search to a topic/group/contributor tag (§28)."""
     try:
-        vec = specter.encode(q).tolist()
+        # BGE prepends a query instruction (PAPER_QUERY_PREFIX); empty for SPECTER.
+        vec = specter.encode(PAPER_QUERY_PREFIX + q).tolist()
         results = qdrant.query_points(
-            collection_name="papers",
+            collection_name=database.PAPERS_COLLECTION,
             query=vec,
             limit=top_k,
             query_filter=query_filter,
@@ -283,7 +288,7 @@ async def paper_search(
         Dict with queries_executed, total_hits, applied_tags, results.
     """
     qdrant = get_qdrant()
-    specter = get_specter()
+    specter = get_paper_encoder()
     if not qdrant or not specter:
         return {"error": "Paper search not available (database or model not loaded)"}
 
@@ -525,7 +530,7 @@ def _paper_lookup_local(doi: str) -> Optional[dict]:
         from qdrant_client.models import Filter, FieldCondition, MatchValue
 
         results = qdrant.scroll(
-            collection_name="papers",
+            collection_name=database.PAPERS_COLLECTION,
             scroll_filter=Filter(
                 must=[FieldCondition(key="doi", match=MatchValue(value=doi))]
             ),
