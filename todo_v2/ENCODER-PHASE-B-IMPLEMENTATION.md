@@ -116,6 +116,13 @@ Change `collection_name="papers"` -> `collection_name=database.PAPERS_COLLECTION
 
 ## 6. Cutover runbook (varghele/root)
 
+0. **Run the pre-cutover checklist** (validates code-deployed + BGE model +
+   papers_bge parity + a BGE smoke query, tops up papers_bge, prints GO/NO-GO +
+   these commands):
+   `python -m munin_bench.pipelines.precutover_check`
+   (`--check-only` to skip the top-up). Proceed only on GO.
+
+
 1. Confirm `papers_bge` is complete (68,121 pts, 1024d) - already true from
    Phase A. Confirm the BGE model is at `/opt/munin/data/models/bge-large`.
 2. Deploy the flag-gated code (no-op): `sudo ./deploy.sh compose retrieval pipeline`.
