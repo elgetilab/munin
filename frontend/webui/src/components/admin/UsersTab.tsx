@@ -18,6 +18,49 @@ function roleLabel(role: AdminRole): string {
   return role === 'group_leader' ? 'Group leader' : role[0].toUpperCase() + role.slice(1);
 }
 
+type SortKey = 'first_name' | 'last_name' | 'primary_email' | 'role' | 'group' | 'emails';
+
+// Rank roles by privilege so the Role column sorts user -> group_leader ->
+// admin rather than alphabetically.
+const ROLE_RANK: Record<AdminRole, number> = { user: 0, group_leader: 1, admin: 2 };
+
+// Comparable value for a user under a given column. Numbers sort numerically
+// (role rank, email count); everything else case-insensitively as strings.
+function sortValue(u: AdminUser, key: SortKey): string | number {
+  switch (key) {
+    case 'first_name': return u.first_name.toLowerCase();
+    case 'last_name': return u.last_name.toLowerCase();
+    case 'primary_email': return u.primary_email.toLowerCase();
+    case 'role': return ROLE_RANK[u.role];
+    case 'group': return (u.group ?? '').toLowerCase();
+    case 'emails': return u.emails.length;
+  }
+}
+
+function SortHeader({ label, col, active, dir, onSort, align }: {
+  label: string;
+  col: SortKey;
+  active: boolean;
+  dir: 'asc' | 'desc';
+  onSort: (key: SortKey) => void;
+  align?: 'right';
+}) {
+  return (
+    <th className={`px-3 py-2 font-medium ${align === 'right' ? 'text-right' : ''}`}>
+      <button
+        type="button"
+        onClick={() => onSort(col)}
+        className={`inline-flex items-center gap-1 hover:text-text-primary cursor-pointer ${align === 'right' ? 'flex-row-reverse' : ''}`}
+      >
+        <span>{label}</span>
+        <span className={active ? 'text-accent' : 'text-text-secondary/40'} aria-hidden>
+          {active ? (dir === 'asc' ? '▲' : '▼') : '↕'}
+        </span>
+      </button>
+    </th>
+  );
+}
+
 
 export function UsersTab() {
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -27,6 +70,20 @@ export function UsersTab() {
   const [editing, setEditing] = useState<AdminUser | null>(null);
   const [adding, setAdding] = useState(false);
   const [filter, setFilter] = useState('');
+  const [unassignedOnly, setUnassignedOnly] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>('first_name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+  // Click a header to sort by it; click the active header again to flip
+  // direction. Switching columns always starts ascending.
+  const toggleSort = (key: SortKey) => {
+    if (key === sortKey) {
+      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -43,18 +100,30 @@ export function UsersTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  const filtered = filter
-    ? users.filter(u => {
-        const f = filter.toLowerCase();
-        return (
-          u.first_name.toLowerCase().includes(f) ||
-          u.last_name.toLowerCase().includes(f) ||
-          u.name.toLowerCase().includes(f) ||
-          u.emails.some(e => e.toLowerCase().includes(f)) ||
-          (u.group ?? '').toLowerCase().includes(f)
-        );
-      })
-    : users;
+  const filtered = users.filter(u => {
+    // "Unassigned" = no primary group. A multi-group member still has a
+    // primary group set, so this surfaces only users with no group at all.
+    if (unassignedOnly && u.group) return false;
+    if (!filter) return true;
+    const f = filter.toLowerCase();
+    return (
+      u.first_name.toLowerCase().includes(f) ||
+      u.last_name.toLowerCase().includes(f) ||
+      u.name.toLowerCase().includes(f) ||
+      u.emails.some(e => e.toLowerCase().includes(f)) ||
+      (u.group ?? '').toLowerCase().includes(f)
+    );
+  });
+
+  const displayed = [...filtered].sort((a, b) => {
+    const av = sortValue(a, sortKey);
+    const bv = sortValue(b, sortKey);
+    const cmp =
+      typeof av === 'number' && typeof bv === 'number'
+        ? av - bv
+        : String(av).localeCompare(String(bv));
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
 
   if (loading) return <div className="text-text-secondary text-sm py-12 text-center">Loading users...</div>;
   if (error) return <div className="text-error text-sm py-12 text-center">{error}</div>;
@@ -69,6 +138,15 @@ export function UsersTab() {
           onChange={e => setFilter(e.target.value)}
           className="flex-1 bg-bg-secondary border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent"
         />
+        <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer select-none whitespace-nowrap">
+          <input
+            type="checkbox"
+            checked={unassignedOnly}
+            onChange={e => setUnassignedOnly(e.target.checked)}
+            className="accent-accent cursor-pointer"
+          />
+          Unassigned only
+        </label>
         <span className="text-xs text-text-secondary">{filtered.length} / {users.length}</span>
         <button
           onClick={() => setAdding(true)}
@@ -82,17 +160,17 @@ export function UsersTab() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-text-secondary text-xs">
-              <th className="px-3 py-2 font-medium">First name</th>
-              <th className="px-3 py-2 font-medium">Last name</th>
-              <th className="px-3 py-2 font-medium">Primary email</th>
-              <th className="px-3 py-2 font-medium">Role</th>
-              <th className="px-3 py-2 font-medium">Group</th>
-              <th className="px-3 py-2 font-medium text-right">Emails</th>
+              <SortHeader label="First name" col="first_name" active={sortKey === 'first_name'} dir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Last name" col="last_name" active={sortKey === 'last_name'} dir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Primary email" col="primary_email" active={sortKey === 'primary_email'} dir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Role" col="role" active={sortKey === 'role'} dir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Group" col="group" active={sortKey === 'group'} dir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Emails" col="emails" active={sortKey === 'emails'} dir={sortDir} onSort={toggleSort} align="right" />
               <th className="px-3 py-2 font-medium w-px"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {filtered.map(u => (
+            {displayed.map(u => (
               <tr key={u.id} className="hover:bg-bg-primary/30">
                 <td className="px-3 py-2 text-text-primary">{u.first_name}</td>
                 <td className="px-3 py-2 text-text-primary">
@@ -110,9 +188,13 @@ export function UsersTab() {
                 </td>
               </tr>
             ))}
-            {filtered.length === 0 && (
+            {displayed.length === 0 && (
               <tr><td colSpan={7} className="px-3 py-6 text-center text-text-secondary text-sm">
-                {users.length === 0 ? 'No users yet.' : 'No users match the filter.'}
+                {users.length === 0
+                  ? 'No users yet.'
+                  : unassignedOnly && !filter
+                    ? 'No unassigned users — everyone belongs to a group.'
+                    : 'No users match the filter.'}
               </td></tr>
             )}
           </tbody>
