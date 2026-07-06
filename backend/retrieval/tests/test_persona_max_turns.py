@@ -83,7 +83,9 @@ def test_non_dict_persona() -> bool:
 
 
 def test_research_persona_json() -> bool:
-    """The shipped research.json sets max_turns: 16 (P1 #16)."""
+    """The shipped research.json sets max_turns: 24 (raised from 16 to give
+    deep multi-call exploration more room before the auto-continue / Continue
+    fallback kicks in — rpt_20260702)."""
     import json
 
     path = Path(__file__).resolve().parents[3] / "shared/personas/research.json"
@@ -93,8 +95,8 @@ def test_research_persona_json() -> bool:
         return True
     persona = json.load(open(path))
     return _check(
-        "research.json ships max_turns=16",
-        max_turns(persona) == 16,
+        "research.json ships max_turns=24",
+        max_turns(persona) == 24,
         f"got {max_turns(persona)}",
     )
 

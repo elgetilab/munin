@@ -43,6 +43,10 @@ interface MessageListProps {
   onPlanApproved?: () => void;
   onPlanRejected?: () => void;
   onPlanEdited?: () => void;
+  // Invoked when the user clicks Continue on a turn that stopped at its
+  // tool-use budget. The parent (App) sends a synthetic "please continue"
+  // user message so the model picks the task back up (rpt_20260702).
+  onContinue?: () => void;
 }
 
 // Small muted pill showing the internal profile the per-turn router
@@ -91,7 +95,7 @@ export function detectPhase(streaming: StreamingState): string {
 // enough that they don't need the affordance.
 const JUMP_BUTTON_HIDE_THRESHOLD_PX = 96;
 
-export function MessageList({ messages, streaming, onSendClarification, onDismissMemoryProposal, conversationId, onPlanApproved, onPlanRejected, onPlanEdited }: MessageListProps) {
+export function MessageList({ messages, streaming, onSendClarification, onDismissMemoryProposal, conversationId, onPlanApproved, onPlanRejected, onPlanEdited, onContinue }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   // Drives the floating "jump to bottom" button. True when the user
@@ -157,7 +161,15 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
     <div className="flex-1 relative min-h-0 flex flex-col">
     <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-6">
       <div className="max-w-2xl mx-auto space-y-6">
-        {messages.map((msg) => {
+        {messages.map((msg, i) => {
+          const isLast = i === messages.length - 1;
+          // Only surface Continue on the final bubble, and only while
+          // nothing is streaming — otherwise a mid-history paused turn or
+          // an in-flight continuation would show a stale button.
+          const streamingActive =
+            streaming.phase === 'thinking' ||
+            streaming.phase === 'tool_call' ||
+            streaming.phase === 'generating';
           return (
           <div key={msg.id}>
             {/* P2 #22: render the boundary divider ABOVE the
@@ -179,7 +191,7 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
                 onAfterEdit={onPlanEdited}
               />
             ) : null}
-            <MessageBubble message={msg} onSendClarification={onSendClarification} onDismissMemoryProposal={onDismissMemoryProposal} />
+            <MessageBubble message={msg} onSendClarification={onSendClarification} onDismissMemoryProposal={onDismissMemoryProposal} onContinue={isLast && !streamingActive ? onContinue : undefined} />
           </div>
           );
         })}
@@ -281,7 +293,7 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
   );
 }
 
-function MessageBubble({ message, onSendClarification, onDismissMemoryProposal }: { message: Message; onSendClarification?: (answer: string) => void; onDismissMemoryProposal?: (proposalId: string) => void }) {
+function MessageBubble({ message, onSendClarification, onDismissMemoryProposal, onContinue }: { message: Message; onSendClarification?: (answer: string) => void; onDismissMemoryProposal?: (proposalId: string) => void; onContinue?: () => void }) {
   if (message.role === 'user') {
     return (
       <div className="flex gap-3 justify-end">
@@ -320,6 +332,23 @@ function MessageBubble({ message, onSendClarification, onDismissMemoryProposal }
           clarification={message.clarification}
           onSubmit={onSendClarification}
         />
+      )}
+
+      {/* Budget-cap Continue affordance. Shown when the turn stopped
+          because it exhausted its (auto-extended) tool-use budget, so the
+          user can resume the task with one click instead of typing
+          "keep going" (rpt_20260702). */}
+      {message.paused_at_budget && onContinue && (
+        <div className="mt-2 flex items-center gap-2 text-sm text-text-secondary">
+          <span>Munin paused at its tool-use budget.</span>
+          <button
+            type="button"
+            onClick={onContinue}
+            className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium text-text-primary bg-bg-tertiary border border-border hover:bg-bg-secondary transition-colors"
+          >
+            Continue
+          </button>
+        </div>
       )}
 
       {/* P2 #25: auto-extracted memory candidates. Rendered below the

@@ -1925,6 +1925,17 @@ async def stream_chat_completion(
         # doing deep multi-call exploration want more than a chat
         # persona. personas.max_turns clamps to [1, 30].
         MAX_TURNS = persona_module.max_turns(persona)
+        # Exhaustion strategy (reported: "der stream bricht immer ab und ich
+        # muss ihn neu starten" — rpt_20260702). A long agentic task that
+        # runs out of turns used to force a wrap-up and stop, and because the
+        # `done` event looked identical to a clean finish, the user assumed
+        # the stream broke and nudged it with "keep going". We now grant ONE
+        # automatic budget extension so the model can finish work that
+        # legitimately needs more tool rounds, and if it STILL exhausts the
+        # doubled budget we fall back to the client-side Continue affordance
+        # (terminal_reason == "max_turns" in the `done` event).
+        AUTO_CONTINUE_EXTENSIONS = 1
+        turn_budget = MAX_TURNS * (AUTO_CONTINUE_EXTENSIONS + 1)
         hit_turn_cap = True  # assume exhaustion unless we break cleanly below
         # Set by the loop body when a vLLM stream error or empty response forces
         # us to abandon the current turn. Triggers the partial-state persistence
@@ -1939,7 +1950,7 @@ async def stream_chat_completion(
         # disconnect during streaming), the per-turn transfer is skipped,
         # leaving partial content in `acc` only; the save-always finally
         # folds the remainder so we never lose tokens the user already saw.
-        for turn in range(MAX_TURNS):
+        for turn in range(turn_budget):
             if _cancelled():
                 logger.info(
                     "client disconnected during turn %d; stopping early",
@@ -1947,6 +1958,15 @@ async def stream_chat_completion(
                 )
                 hit_turn_cap = False
                 break
+            if turn == MAX_TURNS:
+                # Crossed the persona's base budget while still calling tools;
+                # the auto-continue extension is now in effect. Log once so
+                # deep-task turn counts stay observable.
+                logger.info(
+                    "turn budget %d exhausted mid-task; auto-continuing up to "
+                    "%d turns before offering the client Continue affordance",
+                    MAX_TURNS, turn_budget,
+                )
             acc = None
             stream_error: Optional[str] = None
             recovery_used_this_turn = False
@@ -1957,22 +1977,27 @@ async def stream_chat_completion(
             # fired) is usually transient: the model emitted an immediate
             # stop with no content/thinking/tool-call, a shape we saw right
             # after a tool-validation error knocked the model off its plan
-            # (chat 5e27dfa4, 2026-06-16). Retry the turn once before giving
-            # up; bounded by range(2) so it can never loop. A *hard* stream
-            # error is NOT retried here; vllm_client already ran its own
-            # transient-error backoff before surfacing it.
-            for empty_attempt in range(2):
+            # (chat 5e27dfa4, 2026-06-16). That report (rpt_20260616) showed a
+            # single retry wasn't always enough, and per the "vLLM produced no
+            # output" post-mortem the engine is usually fine (200s in the
+            # service log), so an empty pass is worth retrying more than once.
+            # Retry the turn up to twice before giving up; bounded by range(3)
+            # so it can never loop. A *hard* stream error is NOT retried here;
+            # vllm_client already ran its own transient-error backoff before
+            # surfacing it.
+            for empty_attempt in range(3):
                 acc = None
                 stream_error = None
                 if empty_attempt > 0:
                     logger.info(
-                        "empty completion on turn %d; retrying once", turn
+                        "empty completion on turn %d; retry %d/2",
+                        turn, empty_attempt,
                     )
                     yield _sse(
                         "retrying",
                         {
-                            "attempt": 1,
-                            "max_attempts": 1,
+                            "attempt": empty_attempt,
+                            "max_attempts": 2,
                             "delay_s": 0,
                             "reason": "empty_response",
                         },
@@ -2663,6 +2688,10 @@ async def stream_chat_completion(
                 "usage": aggregate_totals(usage_agg),
                 "usage_by_purpose": usage_agg,
                 "finish_reason": finish_reason or "stop",
+                # Distinct from finish_reason (which is "stop" even after the
+                # turn-budget wrap-up). Lets the client tell a budget-capped
+                # turn apart from a clean finish and offer a Continue button.
+                "terminal_reason": terminal_reason,
             },
         )
 

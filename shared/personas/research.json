@@ -10,7 +10,7 @@
     "top_k": 20,
     "min_p": 0.0,
     "presence_penalty": 1.5,
-    "max_turns": 16,
+    "max_turns": 24,
     "resident_tools": [
       "get_citations",
       "get_references",

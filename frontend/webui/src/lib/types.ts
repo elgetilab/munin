@@ -55,6 +55,14 @@ export interface Message {
   // 'error' event so the partial response stays visible in the
   // message list before page reload (chat 3951063c, 2026-05-08).
   interrupted?: boolean;
+  // True when this turn ended because it exhausted its (already
+  // auto-extended) tool-use turn budget rather than finishing cleanly —
+  // the backend reports `terminal_reason: "max_turns"` on the `done`
+  // event. Drives a "Continue" affordance under the bubble so the user
+  // doesn't have to type "keep going". Live-only: not persisted, so it
+  // does not reappear after a transcript reload (by then the model has
+  // usually been continued or the point is moot).
+  paused_at_budget?: boolean;
   // P2 #25: auto-extracted memory candidates from this turn. Rendered
   // as accept/reject pills below the assistant bubble. Cleared once
   // the user acts on each one.
@@ -206,7 +214,7 @@ export type SSEEvent =
   | { type: 'plan_updated'; data: Plan }
   | { type: 'plan_approval_required'; data: PlanApprovalRequired }
   | { type: 'error'; data: { message: string } }
-  | { type: 'done'; data: { usage?: { prompt_tokens: number; completion_tokens: number }; finish_reason: string } };
+  | { type: 'done'; data: { usage?: { prompt_tokens: number; completion_tokens: number }; finish_reason: string; terminal_reason?: string } };
 
 // ── Compaction (P2 #22) ──────────────────────────────────────────────────────
 

@@ -319,6 +319,17 @@ export default function App() {
     );
   }, [sendMessage, selectedPersona, isEphemeral, projectIdForNewChat, activeTags]);
 
+  // Continue a turn that stopped at its tool-use budget (rpt_20260702).
+  // Same synthetic-message resume shape as the plan handlers: the model
+  // picks the task back up from the tool results already gathered.
+  const handleContinue = useCallback(() => {
+    sendMessage(
+      "Please continue where you left off.",
+      selectedPersona, isEphemeral, undefined,
+      projectIdForNewChat, activeTags.length > 0 ? activeTags : undefined,
+    );
+  }, [sendMessage, selectedPersona, isEphemeral, projectIdForNewChat, activeTags]);
+
   const handleSendMultimodal = useCallback((content: Array<{ type: string; text?: string; image_url?: { url: string } }>) => {
     const textPart = content.find(c => c.type === 'text')?.text || '[Image]';
     sendMessage(textPart, selectedPersona, isEphemeral, content, projectIdForNewChat, activeTags.length > 0 ? activeTags : undefined);
@@ -759,7 +770,7 @@ export default function App() {
               </div>
             ) : (
               <>
-                <MessageList messages={messages} streaming={streaming} onSendClarification={handleSend} onDismissMemoryProposal={dismissMemoryProposal} conversationId={conversationId} onPlanApproved={handlePlanApproved} onPlanRejected={() => { /* user types follow-up themselves */ }} onPlanEdited={handlePlanEdited} />
+                <MessageList messages={messages} streaming={streaming} onSendClarification={handleSend} onDismissMemoryProposal={dismissMemoryProposal} conversationId={conversationId} onPlanApproved={handlePlanApproved} onPlanRejected={() => { /* user types follow-up themselves */ }} onPlanEdited={handlePlanEdited} onContinue={handleContinue} />
                 <ChatInput
                   ref={chatInputRef}
                   onSend={handleSend}

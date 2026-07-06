@@ -437,6 +437,11 @@ export const useChatStore = create<ChatState>()(
           // routed-profile chip renders identically live and after reload.
           // Falls back to the persona the turn was sent under.
           persona: routedProfile ?? persona,
+          // Budget-cap turns finish with terminal_reason "max_turns" even
+          // though finish_reason is "stop"; flag the bubble so the UI can
+          // offer a Continue button instead of leaving the user to guess
+          // whether the model stopped on purpose (rpt_20260702).
+          paused_at_budget: event.data.terminal_reason === 'max_turns',
           created_at: new Date().toISOString(),
         };
         set(state => {
