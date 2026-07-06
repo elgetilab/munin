@@ -234,25 +234,43 @@ def build_mcq(q: dict) -> dict:
         + "\n".join(f"{l}) {o}" for l, o in zip(letters, opts))
     )
     return {"prompt": prompt, "letters": letters, "correct": correct,
-            "abstain": abstain}
+            "abstain": abstain, "options": dict(zip(letters, opts))}
 
 
-def parse_letter(text: str, letters: list[str]) -> str | None:
-    """Extract the chosen option letter from the final answer (robust)."""
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
+
+def parse_letter(text: str, letters: list[str], options: dict | None = None) -> str | None:
+    """Extract the chosen option letter from the answer (robust to several
+    formats; falls back to matching the stated answer TEXT against an option)."""
     valid = "".join(letters)
-    m = list(re.finditer(rf"answer\s*[:\-]?\s*\(?([{valid}])\)?", text, re.I))
-    if m:
-        return m[-1].group(1).upper()
-    # fallback: a lone letter on the last non-empty line
-    for line in reversed([l.strip() for l in text.splitlines() if l.strip()]):
-        m2 = re.fullmatch(rf"\(?([{valid}])\)?[.)]?", line, re.I)
+    # 1. explicit answer phrasings, anywhere (take the LAST occurrence)
+    pats = [rf"answer\s*(?:is|:|\-|=)?\s*\(?([{valid}])\)?\b",
+            rf"\b(?:option|choice|select|choose|pick)\s*\(?([{valid}])\)?\b",
+            rf"\bthe\s+(?:correct\s+)?answer\s+is\s*\(?([{valid}])\)?\b"]
+    hits = [m for p in pats for m in re.finditer(p, text, re.I)]
+    if hits:
+        return max(hits, key=lambda m: m.start()).group(1).upper()
+    # 2. a lone/leading letter on any of the last few non-empty lines
+    tail_lines = [l.strip() for l in text.splitlines() if l.strip()][-5:]
+    for line in reversed(tail_lines):
+        m2 = re.match(rf"\(?([{valid}])\)?[.):\-]", line, re.I) or \
+             re.fullmatch(rf"\(?([{valid}])\)?", line, re.I)
         if m2:
             return m2.group(1).upper()
+    # 3. fuzzy: the model wrote the ANSWER TEXT, not a letter -> map it back
+    if options:
+        tail = _norm(text[-600:])
+        for letter, opt in options.items():
+            n = _norm(opt)
+            if len(n) >= 12 and n in tail:   # avoid matching very short options
+                return letter
     return None
 
 
 def _ask_chat(base_url: str, email: str, prompt: str, sock_timeout=60,
-              deadline=180) -> str:
+              deadline=300) -> tuple[str, bool]:
     """Stream one research chat and return the accumulated answer text.
 
     Two guards, because the SSE stream sends `: keepalive` comments every ~15s
@@ -271,6 +289,7 @@ def _ask_chat(base_url: str, email: str, prompt: str, sock_timeout=60,
                  "X-Munin-Ephemeral": "true", "Accept": "text/event-stream"},
         method="POST")
     content, ev = "", None
+    truncated = True  # flipped to False only if we see the terminal `done` event
     start = time.time()
     resp = urllib.request.urlopen(req, timeout=sock_timeout)
     try:
@@ -291,19 +310,22 @@ def _ask_chat(base_url: str, email: str, prompt: str, sock_timeout=60,
                 if ev == "token" and isinstance(obj, dict) and obj.get("content"):
                     content += obj["content"]
             if ev == "done":
+                truncated = False
                 break
     finally:
         resp.close()
-    return content
+    # truncated=True means we cut off at the deadline before the model finished
+    # (its final 'Answer: X' line may be missing) — the key unparseable signal.
+    return content, truncated
 
 
 def _score_one(q, base_url, email):
     mcq = build_mcq(q)
     try:
-        text = _ask_chat(base_url, email, mcq["prompt"])
+        text, truncated = _ask_chat(base_url, email, mcq["prompt"])
     except Exception as e:
         return {"qid": q["qid"], "verdict": "error", "detail": type(e).__name__}
-    letter = parse_letter(text, mcq["letters"])
+    letter = parse_letter(text, mcq["letters"], mcq["options"])
     if letter is None:
         verdict = "unparseable"
     elif letter == mcq["correct"]:
@@ -313,7 +335,8 @@ def _score_one(q, base_url, email):
     else:
         verdict = "incorrect"
     return {"qid": q["qid"], "verdict": verdict, "letter": letter,
-            "correct": mcq["correct"]}
+            "correct": mcq["correct"], "truncated": truncated,
+            "text_len": len(text), "text_tail": text[-600:]}
 
 
 def run_answer(qc, *, base_url, email, results_root, n_resamples=1000,
