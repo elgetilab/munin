@@ -162,6 +162,37 @@ Recall@10, this projects LitQA2 answer accuracy toward ~0.73 (past PaperQA2's
 strongly justified; proceed to Phase B (production cutover) per
 `todo_v2/ENCODER-MIGRATION-PLAN.md`.
 
+## Encoder migration Phase C - end-to-end answer, post-cutover (final)  · 2026-07-06
+
+BGE deployed live; answer track re-run through the full agentic chat pipeline
+for BOTH encoders with a FIXED parser (same 199 questions, paired bootstrap).
+SPECTER measured via a temporary rollback so it's apples-to-apples.
+
+| metric | SPECTER-v1 | BGE-large | Δ (paired) | p |
+|---|---|---|---|---|
+| accuracy | 0.422 | 0.497 | +0.075 [0.015, 0.136] | **0.028** |
+| precision (attempted) | 0.832 | 0.853 | +0.022 | - |
+| verdicts | 84 correct / 97 abstain / 17 wrong | 99 correct / 80 abstain / 17 wrong | +15 correct, -17 abstain | |
+
+**The answer gain is real and significant** (+7.5 pts, p=0.028): better retrieval
+lets the model find the source and abstain less (97 -> 80). But it is MODEST
+relative to the retrieval jump (Recall@10 +0.29). PaperQA2's 0.66 is still ahead.
+
+METHOD NOTE (important): the first BGE run showed +0.05 n.s. - a HARNESS BUG. The
+answer parser dropped ~17% of BGE answers (and ~10% of SPECTER's) as
+"unparseable"; those were the model reasoning long then abstaining, truncated at
+the 180s deadline before the final line. Fix = a hardened parser (more formats +
+fuzzy answer-text match) + a 300s deadline + saving the full response text. The
+recovered cases became ABSTENTIONS, not correct answers, so accuracy barely
+moved but the comparison became honest. Runs are ~4-5h/arm at the 300s deadline
+(long answers now complete instead of truncating).
+
+**Revised thesis:** retrieval was the dominant bottleneck (Phase 5), but not the
+ONLY one - the model abstains on ~40% of questions even with good retrieval, so
+a large recall gain yields only a modest accuracy gain. The naive "accuracy ~=
+recall -> ~0.73" projection was wrong. Scorecards:
+`2026-07-06_answer-{specter-v1-v2,bge-large-v2}.json`.
+
 ---
 
 ## Reproduce
