@@ -3,7 +3,7 @@
 Non-invasive full-corpus validation of BGE-large-en-v1.5 vs SPECTER-v1. Build
 `papers_bge` (1024-d) alongside the live `papers` (768-d), run the eval against
 it, and `compare` scorecards. NOTHING here is read by production. Parent plan:
-`ENCODER-MIGRATION-PLAN.md`. Status: NOT started (2026-07-03).
+`ENCODER-MIGRATION-PLAN.md`. Status: COMPLETE (2026-07-03) — validated, gate passed.
 
 ## Outcome / gate
 

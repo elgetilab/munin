@@ -160,7 +160,7 @@ Recall@10, this projects LitQA2 answer accuracy toward ~0.73 (past PaperQA2's
 0.66) - to be measured for real in Phase C. Scorecards:
 `scorecards/2026-07-03_{baseline-specter-v1,bge-large}.json`. Migration is
 strongly justified; proceed to Phase B (production cutover) per
-`todo_v2/ENCODER-MIGRATION-PLAN.md`.
+`todo_v2/done/ENCODER-MIGRATION-PLAN.md`.
 
 ## Encoder migration Phase C - end-to-end answer, post-cutover (final)  · 2026-07-06
 

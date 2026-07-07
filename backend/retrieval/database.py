@@ -21,7 +21,7 @@ BGE_MODEL_PATH = os.getenv("BGE_MODEL_PATH", "/models/bge-base")
 PAPERS_PDF_DIR = os.getenv("PAPERS_PDF_DIR", "/opt/munin/data/papers/pdf")
 
 # --- Paper encoder selection (encoder migration; see
-# todo_v2/ENCODER-MIGRATION-PLAN.md). Defaults preserve today's behaviour, so
+# todo_v2/done/ENCODER-MIGRATION-PLAN.md). Defaults preserve today's behaviour, so
 # deploying the code is a no-op; cutover is an env flip + restart, rollback is
 # the reverse. PAPER_ENCODER and PAPERS_COLLECTION MUST be set together (a
 # BGE encoder implies the 1024d papers_bge collection, else dim mismatch).

@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # Default output-token cap for a chat turn. Single source so the history-trim
 # reservation (GENERATION_RESERVE) and the actual request cap stay in lockstep;
 # a mismatch (reserve 8000 < cap 16384) is how a heavy tool-loop turn overflowed
-# the window (todo_v2/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 3).
+# the window (todo_v2/done/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 3).
 DEFAULT_MAX_OUTPUT_TOKENS = int(os.getenv("VLLM_MAX_OUTPUT_TOKENS", "16384"))
 MAX_CONTEXT = int(os.getenv("VLLM_MAX_CONTEXT", "60000"))
 # Reserve the REAL output budget when trimming history (Tier 3): was 8000, half
@@ -230,7 +230,7 @@ def budget_tool_results(messages: list, *, target_tokens: Optional[int] = None):
     oldest first - the model has already reasoned past them. The pending batch
     (tool results after the last assistant message) is never touched, so we never
     drop a result the current step still needs.
-    (todo_v2/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 2.)"""
+    (todo_v2/done/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 2.)"""
     if target_tokens is None:
         target_tokens = MAX_MODEL_LEN - GENERATION_RESERVE - CTX_MARGIN
 

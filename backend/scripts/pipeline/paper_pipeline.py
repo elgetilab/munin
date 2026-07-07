@@ -81,7 +81,7 @@ OCR_CACHE_DIR = "/opt/munin/data/papers/ocr_cache"
 COLLECTION_NAME = os.getenv("PAPERS_COLLECTION", "papers")
 # Encoder migration: the pipeline must embed NEW papers with the SAME encoder
 # the retrieval service serves (PAPER_ENCODER). Set both together at cutover.
-# See todo_v2/ENCODER-MIGRATION-PLAN.md.
+# See todo_v2/done/ENCODER-MIGRATION-PLAN.md.
 PAPER_ENCODER = os.getenv("PAPER_ENCODER", "specter")   # specter | bge-large
 EMBED_DIM = 1024 if PAPER_ENCODER == "bge-large" else 768
 

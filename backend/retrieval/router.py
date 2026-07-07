@@ -5,7 +5,7 @@ call, from the query, biased by the pinned persona. The profile drives the
 layered system prompt (base[pin] + fragment[routed], see personas.py),
 sampling, and (pre-A4) tool subset.
 
-Cheapest-first cascade (handoff §A3, decisions in todo_v2/A3-PLAN.md):
+Cheapest-first cascade (handoff §A3, decisions in todo_v2/done/A3-PLAN.md):
   1. RULES (tier 1): slash commands /research /code /chat -> force that
      profile (absolute; overrides pin + KNN). Q1.
   2. KNN (tier 2): BGE-embed the query, distance-weighted vote over a small

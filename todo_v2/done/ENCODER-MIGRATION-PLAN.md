@@ -1,7 +1,10 @@
 # Paper encoder migration: SPECTER-v1 -> BGE-large-en-v1.5
 
-**Status: PLANNED, not started (2026-07-03).** Written for review; no production
-change until Phase A validates and the cutover is approved.
+**Status: COMPLETE + DEPLOYED (2026-07-06).** BGE-large is live in production;
+all phases done. A validated (Recall@10 0.44->0.73, p~0); B flag-gated cutover;
+C answer measured (+0.075 acc, p=0.028). Final numbers +
+context: `backend/benchmarks/RESULTS.md`. Kept here as the record + reusable
+playbook for future encoder swaps.
 
 ## Why
 
