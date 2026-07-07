@@ -27,43 +27,62 @@ SPECTER). Repointing realigns them.
 scrolls `with_vectors=True`, L2-normalizes, and UMAP-reduces whatever dim it
 finds. 768 -> 1024 just works. Only the env var changes.
 
+**GOTCHA - a plain repoint is NOT enough; you must force one rebuild.**
+`is_fresh()` skips the rebuild when every point already carries a `cluster_id`
+payload (it checks presence, not whether the geometry still matches). But
+`papers_bge` was built by COPYING payloads from `papers`, so its points
+inherited SPECTER-era `cluster_id`s (verified: a sample point still reads
+`cluster_id=89`). So the nightly (no `--force`) would scroll `papers_bge`, see
+cluster_ids everywhere, and no-op - leaving the map in SPECTER geometry. A
+one-time `--force` run redoes UMAP/HDBSCAN on the BGE vectors and re-stamps
+`papers_bge` with BGE-geometry cluster_ids; every nightly after that stays
+fresh on its own.
+
+Preconditions for the forced run: vLLM up (cluster labelling calls it) and
+`/opt/munin/knowledge/numba-cache` writable - both were true 2026-07-07.
+
 Commands (root):
 
 ```bash
-sudo systemctl edit munin-embedding-map    # opens a drop-in override
-```
+# 0. back up the current SPECTER-geometry map (map flipback insurance)
+sudo cp -a /opt/munin/knowledge/embedding_map.json \
+           /opt/munin/knowledge/embedding_map.json.specter.bak
 
-Add exactly:
+# 1. drop-in so every FUTURE nightly uses papers_bge
+sudo systemctl edit munin-embedding-map
+#    add exactly (leave the base unit alone; other env lines are inherited):
+#      [Service]
+#      Environment="QDRANT_COLLECTION=papers_bge"
 
-```ini
-[Service]
-Environment="QDRANT_COLLECTION=papers_bge"
-```
-
-(A drop-in `Environment=` overrides the same key in the base unit; the other
-env lines - QDRANT_HOST, VLLM_URL, NUMBA_CACHE_DIR, etc. - are inherited
-unchanged. Do NOT edit the base unit file.)
-
-Then:
-
-```bash
+# 2. reload + verify the override won
 sudo systemctl daemon-reload
-# verify the override won:
 systemctl show munin-embedding-map -p Environment | tr ' ' '\n' | grep QDRANT_COLLECTION
-#   -> Environment=QDRANT_COLLECTION=papers_bge  (papers must NOT also appear)
+#    -> QDRANT_COLLECTION=papers_bge   (papers must NOT also appear)
 
-# optional: run once now instead of waiting for 01:30
-sudo systemctl start munin-embedding-map
-journalctl -u munin-embedding-map -f    # watch: "Scrolling papers_bge ...", ~5-6 min
+# 3. ONE-TIME forced rebuild now (nightly won't, due to inherited cluster_ids).
+#    Replicates the unit's env + adds --force. ~6-10 min.
+sudo env \
+  QDRANT_HOST=127.0.0.1 QDRANT_PORT=6333 \
+  QDRANT_COLLECTION=papers_bge \
+  VLLM_URL=http://127.0.0.1:8000 VLLM_MODEL_NAME=qwen3.6-35b-a3b \
+  EMBEDDING_MAP_PATH=/opt/munin/knowledge/embedding_map.json \
+  NUMBA_CACHE_DIR=/opt/munin/knowledge/numba-cache \
+  /opt/munin/services/knowledge/venv/bin/python3 \
+  /opt/cluster/scripts/knowledge/build_embedding_map.py --force
 ```
 
-**Verify success:** after the run, `/opt/munin/knowledge/embedding_map.json`
-mtime is fresh and the log shows it scrolled `papers_bge` (68,121 records).
-The cluster labels/coordinates WILL shift vs the old map - expected, it is a
-fresh projection of a different (better) embedding space, not a bug.
+**Verify success:** log shows `Scrolling papers_bge`, then
+`Writing cluster_id/topic_label/topic_slug to 68121 points`, then the map
+write; `/opt/munin/knowledge/embedding_map.json` mtime is fresh and a sampled
+`papers_bge` point's `cluster_id` has changed from the inherited value. The
+cluster labels/coordinates WILL shift vs the old map - expected, it is a fresh
+projection of a different (better) embedding space, not a bug.
 
-**Rollback:** `sudo systemctl revert munin-embedding-map` (drops the drop-in),
-`daemon-reload`. Falls back to `papers`.
+**Rollback (map):** `sudo systemctl revert munin-embedding-map` (drops the
+drop-in) + `daemon-reload` restores the `papers` pointer; restore the backup
+with `sudo cp -a .../embedding_map.json.specter.bak .../embedding_map.json`.
+The `papers` collection itself is never touched here, so search rollback is
+unaffected.
 
 ---
 
