@@ -4,6 +4,11 @@ Measure the end-to-end payoff of the SPECTER -> BGE cutover and produce the
 paper's headline before/after. Run AFTER the Phase B cutover is live (per
 `ENCODER-PHASE-B-IMPLEMENTATION.md`). Parent: `ENCODER-MIGRATION-PLAN.md`.
 
+> **STATUS: EXECUTED 2026-07-06.** Headline table below is filled with the final
+> clean-parser paired numbers. Canonical writeup +
+> full context: **`backend/benchmarks/RESULTS.md`**. This file remains the
+> re-run command sheet for future model/encoder swaps.
+
 All commands run from `backend/benchmarks/` with:
 
 ```bash
@@ -68,14 +73,28 @@ Expected direction: accuracy tracks Recall@10, so ~0.43 -> toward ~0.73
 (projection from Phase A); past PaperQA2's 0.66 would be the result. Precision
 (of attempted) and abstention rate also move - report all three.
 
-## Paper headline table (fill from the two compares)
+## Paper headline table (FINAL, 2026-07-06)
+
+Answer rows are the clean-parser, same-corpus paired runs
+(`scorecards/2026-07-06_answer-{specter-v1-v2,bge-large-v2}.json`); the earlier
+0.427 SPECTER answer number was parser-confounded (see the method note below and
+in RESULTS.md).
 
 | metric | SPECTER-v1 | BGE-large | Δ (p) | PaperQA2 |
 |---|---|---|---|---|
 | Retrieval Recall@10 (AgentRetriever) | 0.437 | 0.729 | +0.29 (~0) | - |
 | Retrieval MRR | 0.276 | 0.573 | +0.30 (~0) | - |
-| Answer accuracy | 0.427 | ? | ? | 0.660 |
-| Answer precision (of attempted) | 0.817 | ? | ? | ~0.88 |
+| Answer accuracy | 0.422 | 0.497 | +0.075 (0.028) | 0.660 |
+| Answer precision (of attempted) | 0.832 | 0.853 | +0.022 (n.s.) | ~0.88 |
+
+> **Canonical writeup: `backend/benchmarks/RESULTS.md`** (sections "Encoder
+> migration Phase A / Phase C"). Headline: retrieval is a large, decisive win;
+> answer accuracy improves significantly but modestly (+0.075, p=0.028) because
+> the model abstains on ~40% of questions even with good retrieval. The naive
+> "accuracy ~= recall -> ~0.73" projection did NOT hold. Method note: the answer
+> parser had a bug (dropped long-reasoning-then-abstain answers, truncated at
+> 180s, as "unparseable"); fixed with a hardened parser + 300s deadline + saved
+> text (commit 3630f13) before the final measurement.
 
 ## Retire the old collection (after soak)
 
