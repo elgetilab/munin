@@ -27,6 +27,7 @@ Eval-suite results writeup: `backend/benchmarks/RESULTS.md` (canonical).
 | `A4-PLAN.md`, `A5-PLAN.md` | Router **A4** (delete delegation machinery + allowlists) and **A5** (paraphrase density / revisit reroute) — pending. |
 | `KICKOFF-QUESTIONS.md` | Resolved decision record (kept as a live reference cited by the spec). |
 | `IMPLEMENTATION-HANDOFF.md` | Overarching eval-suite handoff (reference). |
+| `MIGRATION-LOOSE-ENDS.md` | Encoder-migration tail: embedding-map repoint + `papers` retirement. varghele/root. |
 
 ## What's next (ordered plan, set 2026-07-06)
 
@@ -39,8 +40,9 @@ FIX, not just a number to measure. So:
    - **Track B - answer faithfulness** (local MiniCheck scoring). Master plan sec 3.
    - **Router A4/A5** - delete delegation machinery + allowlists; paraphrase
      density / revisit reroute.
-   - **Migration loose ends** - point the nightly embedding-map at `papers_bge`;
-     retire the old `papers` collection after a soak.
+   - **Migration loose ends** (`MIGRATION-LOOSE-ENDS.md`) - varghele/root:
+     repoint the nightly embedding-map at `papers_bge` (do soon), then retire
+     the old `papers` collection after a soak (deferred, one-way).
 
 **2. Harness iterations** - improve/finish the agentic harness itself
    (abstention behaviour, tool use, retrieval loop). Active development, not
