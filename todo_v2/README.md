@@ -28,18 +28,29 @@ Eval-suite results writeup: `backend/benchmarks/RESULTS.md` (canonical).
 | `KICKOFF-QUESTIONS.md` | Resolved decision record (kept as a live reference cited by the spec). |
 | `IMPLEMENTATION-HANDOFF.md` | Overarching eval-suite handoff (reference). |
 
-## What's next (suggested priority)
+## What's next (ordered plan, set 2026-07-06)
 
-1. **Track D — harness ablation** (bare model vs vanilla-RAG vs full agentic).
-   Newly compelling: the encoder migration showed the model abstains on ~40% of
-   questions even with good retrieval, so quantifying what the agentic harness
-   actually adds is the sharpest open question. Master plan section 5.
-2. **Track C — corpus-grounded abstention benchmark.** Directly probes that
-   abstention behaviour (over-abstention vs correct "not in corpus"). Master
-   plan section 4; the paper's most novel section.
-3. **Track B — answer faithfulness** (local MiniCheck scoring). Master plan §3.
-4. **Router A4/A5** — finish the migration cleanup (delete delegation, allowlists).
-5. **Migration loose ends** (small): point the nightly embedding-map at
-   `papers_bge`; retire the old `papers` collection after a soak.
-6. **Phase 4 local pool** — blocked on more real usage; revisit + likely a
-   synthetic-query track (see the spec's deferred note).
+Key sequencing decision: **Tracks C and D characterize the harness, so they run
+LAST, against a finished harness** - not while it is still being iterated on. The
+~40% abstention seen in the encoder migration is a harness-behaviour signal to
+FIX, not just a number to measure. So:
+
+**1. Cleanups first**
+   - **Track B - answer faithfulness** (local MiniCheck scoring). Master plan sec 3.
+   - **Router A4/A5** - delete delegation machinery + allowlists; paraphrase
+     density / revisit reroute.
+   - **Migration loose ends** - point the nightly embedding-map at `papers_bge`;
+     retire the old `papers` collection after a soak.
+
+**2. Harness iterations** - improve/finish the agentic harness itself
+   (abstention behaviour, tool use, retrieval loop). Active development, not
+   measurement.
+
+**3. Then C and D, on the finished harness**
+   - **Track C - corpus-grounded abstention benchmark** (over-abstention vs
+     correct "not in corpus"). Master plan sec 4.
+   - **Track D - harness ablation** (bare vs vanilla-RAG vs full agentic).
+     Master plan sec 5. The empirical backbone of the harness contribution claim.
+
+**Deferred:** Phase 4 local pool (blocked on more real usage / a synthetic-query
+track).
