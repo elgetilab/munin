@@ -14,7 +14,17 @@ Current state (verified 2026-07-07):
 
 ---
 
-## Task 1 - repoint the nightly embedding-map at `papers_bge`  (do soon)
+## Task 1 - repoint the nightly embedding-map at `papers_bge`  (DONE 2026-07-07)
+
+**Outcome:** drop-in `override.conf` set `QDRANT_COLLECTION=papers_bge`; a one-time
+`--force` rebuild reprojected the full 68,121-point corpus in BGE space (map
+regenerated 2026-07-07 12:07Z, **550 clusters** vs ~220 under SPECTER, ~41%
+noise). `papers_bge` points re-stamped with BGE-geometry cluster_ids (sample
+moved cluster 89 -> 405), so nightlies now stay fresh with no `--force`. SPECTER
+map preserved at `embedding_map.json.specter.bak`. Procedure kept below for the
+record / future encoder swaps.
+
+
 
 **Why now:** `munin-embedding-map.timer` rebuilds the 2D paper map nightly at
 01:30 from `QDRANT_COLLECTION`, which is **hardcoded to `papers`** in the unit
