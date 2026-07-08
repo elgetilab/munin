@@ -364,9 +364,6 @@ def _drive_stream_chat(
             lambda p: {"temperature": 0.7},
         ),
         patch.object(
-            chat_service.persona_module, "tool_allowlist", lambda p: None
-        ),
-        patch.object(
             chat_service.chat_store,
             "get_conversation",
             AsyncMock(return_value=conversation),
@@ -753,9 +750,6 @@ def _drive_stream_chat_disconnect_after(
             chat_service.persona_module,
             "sampling_params",
             lambda p: {"temperature": 0.7},
-        ),
-        patch.object(
-            chat_service.persona_module, "tool_allowlist", lambda p: None
         ),
         patch.object(
             chat_service.chat_store,
@@ -1145,9 +1139,6 @@ def test_unhandled_exception_in_assemble_context_persists_marker() -> bool:
             lambda p: {"temperature": 0.7},
         ),
         patch.object(
-            chat_service.persona_module, "tool_allowlist", lambda p: None
-        ),
-        patch.object(
             chat_service.chat_store,
             "get_conversation",
             AsyncMock(return_value=conversation),
@@ -1288,9 +1279,6 @@ def test_audit_exception_after_loop_still_persists() -> bool:
             chat_service.persona_module,
             "sampling_params",
             lambda p: {"temperature": 0.7},
-        ),
-        patch.object(
-            chat_service.persona_module, "tool_allowlist", lambda p: None
         ),
         patch.object(
             chat_service.chat_store,

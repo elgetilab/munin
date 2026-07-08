@@ -9,8 +9,9 @@ Or locally:
 
 tool_search resolves the calling persona via personas.get_persona; the
 tests monkeypatch that to return a synthetic persona so they don't
-depend on the persona JSON files being on disk. The real
-personas.tool_allowlist runs on the synthetic persona.
+depend on the persona JSON files being on disk. Since A4b retired the
+per-persona tool_allowlist, tool_search searches the full registry
+regardless of persona.
 """
 
 from __future__ import annotations
@@ -43,11 +44,13 @@ def _check(name: str, ok: bool, detail: str = "") -> bool:
 _real_get_persona = persona_module.get_persona
 
 
-def _install_persona(allowlist):
-    """Monkeypatch personas.get_persona to return a synthetic persona with
-    the given tool_allowlist (or no allowlist when allowlist is None)."""
-    params = {} if allowlist is None else {"tool_allowlist": list(allowlist)}
-    synthetic = {"id": "test", "params": params}
+def _install_persona(allowlist=None):
+    """Monkeypatch personas.get_persona to return a synthetic persona.
+
+    The ``allowlist`` argument is vestigial (kept so existing call sites
+    read unchanged): the per-persona tool_allowlist was retired in A4b, so
+    tool_search now searches the full registry regardless of persona."""
+    synthetic = {"id": "test", "params": {}}
     persona_module.get_persona = lambda _id: synthetic
     return synthetic
 
@@ -132,11 +135,10 @@ def test_tool_search_excludes_core_tools() -> bool:
     )
 
 
-def test_tool_search_respects_allowlist() -> bool:
-    """A persona whose allowlist excludes compile_latex must never have
-    compile_latex surfaced by tool_search."""
-    no_latex = [t for t in _BROAD if t != "compile_latex"]
-    _install_persona(no_latex)
+def test_tool_search_searches_full_registry() -> bool:
+    """A4b: tool_search surfaces any registered tool, regardless of the
+    routed profile (the per-persona allowlist that once scoped it is gone)."""
+    _install_persona()
     tok_p = current_persona.set("test")
     tok_u = current_unlocked_tools.set(set())
     try:
@@ -147,8 +149,8 @@ def test_tool_search_respects_allowlist() -> bool:
         _uninstall_persona()
     names = {m["name"] for m in res.get("matches", [])}
     return _check(
-        "tool_search respects the persona allowlist",
-        "compile_latex" not in names,
+        "tool_search searches the full registry (no allowlist scoping)",
+        "compile_latex" in names,
         f"names={names}",
     )
 
@@ -241,15 +243,13 @@ def _schema_names(persona: dict) -> set:
 
 
 def test_schema_core_only_when_nothing_unlocked() -> bool:
-    persona = {"id": "test", "params": {"tool_allowlist": list(_BROAD)}}
+    # No resident_tools, nothing unlocked -> the schema is exactly CORE.
+    persona = {"id": "test", "params": {}}
     tok = current_unlocked_tools.set(set())
     try:
         names = _schema_names(persona)
     finally:
         current_unlocked_tools.reset(tok)
-    # Schema should be exactly CORE intersected with the (broad) universe.
-    # _BROAD covers all of CORE except tool_search/delegate_to_persona,
-    # which tool_allowlist auto-injects, so the full CORE is present.
     return _check(
         "schema is core-only when nothing is unlocked",
         names == set(CORE_TOOLS),
@@ -258,7 +258,7 @@ def test_schema_core_only_when_nothing_unlocked() -> bool:
 
 
 def test_schema_includes_unlocked_after_search() -> bool:
-    persona = {"id": "test", "params": {"tool_allowlist": list(_BROAD)}}
+    persona = {"id": "test", "params": {}}
     tok = current_unlocked_tools.set({"get_citations", "compile_latex"})
     try:
         names = _schema_names(persona)
@@ -272,43 +272,18 @@ def test_schema_includes_unlocked_after_search() -> bool:
     )
 
 
-def test_schema_core_clamped_to_allowlist() -> bool:
-    """A code-style persona without paper_search/read_paper must not get
-    those core tools — core is intersected with the allowlist."""
-    code_like = [
-        "web_search", "run_python", "calculate", "create_artifact",
-        "ask_clarification", "compile_latex",
-    ]
-    persona = {"id": "test", "params": {"tool_allowlist": code_like}}
-    tok = current_unlocked_tools.set(set())
-    try:
-        names = _schema_names(persona)
-    finally:
-        current_unlocked_tools.reset(tok)
-    return _check(
-        "core is clamped to the persona allowlist",
-        "paper_search" not in names and "read_paper" not in names
-        and "run_python" in names and "tool_search" in names,
-        f"names={sorted(names)}",
-    )
-
-
 def test_schema_materially_smaller_than_universe() -> bool:
-    """The whole point: the schema is far smaller than the persona's
-    full tool universe."""
-    persona = {"id": "test", "params": {"tool_allowlist": list(_BROAD)}}
+    """The whole point of the deferred-tool model: the resident schema is far
+    smaller than the full registry (everything else reached via tool_search)."""
+    persona = {"id": "test", "params": {}}
     tok = current_unlocked_tools.set(set())
     try:
         schema_size = len(_schema_names(persona))
     finally:
         current_unlocked_tools.reset(tok)
-    universe_size = len(persona_module.tool_allowlist(persona))
-    # Core-only schema == CORE_TOOLS clamped to the allowlist. Track the
-    # actual CORE size (it grew to 11 when plan-mode tools were added) rather
-    # than a stale hardcoded bound; the real assertion is "materially smaller
-    # than the universe".
+    universe_size = len(MCP_TOOLS)
     return _check(
-        "deferred schema is materially smaller than the tool universe",
+        "deferred schema is materially smaller than the full registry",
         schema_size <= len(CORE_TOOLS) and schema_size < universe_size // 2,
         f"schema={schema_size}, universe={universe_size}, core={len(CORE_TOOLS)}",
     )
@@ -322,14 +297,13 @@ TESTS = [
     test_tool_search_keyword_match,
     test_tool_search_unlocks_into_contextvar,
     test_tool_search_excludes_core_tools,
-    test_tool_search_respects_allowlist,
+    test_tool_search_searches_full_registry,
     test_tool_search_caps_at_max,
     test_tool_search_surfaces_gate_tools_natural_phrasing,
     test_tool_search_no_match,
     test_tool_search_empty_query,
     test_schema_core_only_when_nothing_unlocked,
     test_schema_includes_unlocked_after_search,
-    test_schema_core_clamped_to_allowlist,
     test_schema_materially_smaller_than_universe,
 ]
 

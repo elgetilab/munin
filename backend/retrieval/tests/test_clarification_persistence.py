@@ -154,9 +154,6 @@ def _drive_stream_chat(capture: dict) -> list[dict]:
             lambda p: {"temperature": 0.7},
         ),
         patch.object(
-            chat_service.persona_module, "tool_allowlist", lambda p: None
-        ),
-        patch.object(
             chat_service.chat_store,
             "get_conversation",
             AsyncMock(return_value=conversation),
