@@ -38,8 +38,11 @@ FIX, not just a number to measure. So:
 
 **1. Cleanups first**
    - **Track B - answer faithfulness** (local MiniCheck scoring). Master plan sec 3.
-   - **Router A4/A5** - delete delegation machinery + allowlists; paraphrase
-     density / revisit reroute.
+   - **Router A4/A5** - A4a (delegation deleted) + A4b (allowlists retired +
+     soft bias) DONE and live; A4b post-soak dead-code cleanup landed
+     2026-07-08 (`c4e9ce6..45916e6`, not yet deployed = no-op cutover).
+     Remaining: A5 (paraphrase density / revisit reroute, over-tooling) +
+     frontend dead-handler cleanup (`delegated`/`persona_changed`).
    - **Migration loose ends** (`MIGRATION-LOOSE-ENDS.md`) - varghele/root:
      repoint the nightly embedding-map at `papers_bge` (do soon), then retire
      the old `papers` collection after a soak (deferred, one-way).

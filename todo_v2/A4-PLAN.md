@@ -395,9 +395,40 @@ What the iterations taught us:
 remember (recognition), research OVER-TOOLING (28 calls on one query, occasional
 vLLM 400 max-context).
 
-**Still pending:** A4b post-soak dead-code cleanup (tool_allowlist(), the
-_run_tool_calls enforcement, _Params.tool_allowlist field); 1-week soak;
-frontend dead-handler cleanup.
+**Still pending:** frontend dead-handler cleanup (`delegated`/`persona_changed`
+in `webui/src`) — separate frontend-deploy target.
+
+## A4b POST-SOAK CLEANUP DONE (2026-07-08)
+
+Soak reviewed (10 days live, deploy 2026-06-28 -> 2026-07-08; 81 user turns /
+27 conversations): **clean on the allowlist-relaxation dimension.** Cross-profile
+tool use was all appropriate and often newly-enabled (chat->run_python to count
+names / analyse pasted text, chat->compile_latex for documents, research->
+run_python on an uploaded PDF); ZERO tool-access errors; the single report was
+an unrelated stream-abort. Over-tooling (32/28 calls) is the known A5 item, not
+an allowlist-boundary issue.
+
+Dead-code removed (6 small commits, service runnable at each, tests green after
+each — c4e9ce6..45916e6):
+- `_run_tool_calls`: dropped the `allowed_tools` param + the synthetic
+  reject branch; caller no longer builds `allowed_tools_set`.
+- `_openai_tools_schema`: dropped the allowlist `allow`/`universe` intersection
+  — visible = `CORE ∪ resident_tools ∪ unlocked` over the full registry.
+- `mcp/tools/tool_search.py`: searches the full registry (removed the persona
+  scoping + now-unused `current_persona` import).
+- `personas.py`: removed the `tool_allowlist()` accessor (incl. its infra
+  auto-inject — set_plan/update_plan_item/tool_search are all in CORE_TOOLS, so
+  no behaviour change) and the `_Params.tool_allowlist` field.
+- Tests: retired `test_tool_allowlist.py`; adapted `test_tool_search.py`
+  (respects-allowlist -> full-registry; dropped the core-clamp test; universe =
+  MCP_TOOLS); removed the now-broken `tool_allowlist` monkeypatches in the two
+  persistence tests. `smoke-plan-mode.py` diagnostics refreshed.
+
+Verified: all 3 personas load under `extra="forbid"` (no stray field);
+tool_search/router/persona/artifact/concurrency/clarification/stream-error
+suites green (pre-existing teardown quirks aside). Not yet deployed — code sits
+in the working tree on `main`; A4b behaviour is already live via the personas,
+so this deletion is a no-op cutover (deploy at the next retrieval push).
 
 ## 7. Risks / notes
 
