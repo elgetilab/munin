@@ -129,9 +129,30 @@ contexts; aggregate to answer level.
   overall 0.746. Gate QA-AUROC >= 0.70 -> **flan-t5-large-sufficient**, no 7B
   escalation. ~35 min on CPU (GPU would cut this sharply if a window opens).
 
-Remaining: **B3** (free-text + `rag_context` capture, score the LitQA2 pool
-end-to-end as the interim single arm) and **B4** (faithfulness metrics +
-scorecard with paired-bootstrap CIs). B5 (frontier cross-check) stays opt-out.
+- **B3 + B4 - DONE (2026-07-08).** `faithfulness/capture.py` (resumable live
+  free-text answer + retrieved-context capture from `tool_result`/`rag_context`
+  SSE) + `faithfulness_runner.py` (score + B4 metrics with bootstrap CIs).
+  Ran the live **agentic-live** arm over 40 LitQA2 questions (capture ~82 min at
+  concurrency 1; MiniCheck scored on GPU0 ~9 min). Result
+  (`scorecards/2026-07-08_faithfulness-agentic-live.{json,md}`):
+  **% claims supported 0.378 [0.314, 0.442]** (length-robust headline), mean
+  faithfulness 0.413, per-answer grounding median 0.39; 22.6 claims/answer,
+  82.5 contexts/answer. Commits `3b9b8b9` (code), plus the metric refinement
+  below.
+  - **Findings the smoke surfaced (the point of B3):** (a) pipeline works
+    end-to-end with CIs; (b) `% fully supported` is length-confounded (-> 0 at
+    ~22 claims/answer) so `% claims supported` (macro) is the headline - added
+    to the runner; (c) MiniCheck scores EVERY sentence incl. non-factual
+    reasoning -> deflates; a real claim-extraction step (vs raw sentence split)
+    is the refinement before any paper figure; (d) the context union is generous
+    (all retrieval results) so support is if-anything inflated - yet 0.38 says a
+    lot of agentic-answer content is un-retrieved synthesis (relevant to C/D).
+  - **Track-D-ready:** each arm = one capture file; bare/RAG/agentic drop into
+    the same score+metrics path (arm field), enabling the paired comparison.
+
+B5 (frontier cross-check) stays opt-out. Track B core (B1-B4) COMPLETE; the
+single absolute faithfulness value is interim pending claim-extraction + the
+Track D paired arms.
 
 ## Open questions (need a decision before building)
 

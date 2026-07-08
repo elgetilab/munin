@@ -129,6 +129,13 @@ def score_and_metrics(captures: list[dict], *, arm: str, base_url: str,
     n_empty = len(per_q) - len(scored)
     mean_support = single_bootstrap([r["mean_support"] for r in scored],
                                     n_resamples=n_resamples) if scored else None
+    # % of an answer's claims that are grounded, macro-averaged over answers.
+    # This is the length-ROBUST headline; prefer it to frac_fully_supported.
+    frac_claims = single_bootstrap([r["frac_supported"] for r in scored],
+                                   n_resamples=n_resamples) if scored else None
+    # frac_fully_supported = "every claim grounded". At ~20 claims/answer this is
+    # a near-impossible, length-confounded bar; kept for completeness, NOT the
+    # headline.
     frac_full = single_bootstrap([1.0 if r["fully_supported"] else 0.0
                                   for r in scored],
                                  n_resamples=n_resamples) if scored else None
@@ -152,7 +159,8 @@ def score_and_metrics(captures: list[dict], *, arm: str, base_url: str,
             sum(r["n_contexts"] for r in scored) / len(scored)) if scored else None,
         # headline faithfulness metrics with bootstrap CIs
         "mean_faithfulness": mean_support,
-        "frac_fully_supported": frac_full,
+        "frac_claims_supported": frac_claims,
+        "frac_fully_supported": frac_full,  # length-confounded; not the headline
         "frac_any_unsupported": (
             1.0 - frac_full["mean"] if frac_full else None),
         "per_q": per_q,
@@ -167,19 +175,22 @@ def score_and_metrics(captures: list[dict], *, arm: str, base_url: str,
 
 
 def _print_summary(sc: dict) -> None:
-    mf, ff = sc["mean_faithfulness"], sc["frac_fully_supported"]
+    mf, fc, ff = (sc["mean_faithfulness"], sc["frac_claims_supported"],
+                  sc["frac_fully_supported"])
     print("\n=== Track B faithfulness (arm: %s) ===" % sc["arm"])
     print(f"answers: {sc['n_answers']} scored={sc['n_scored']} "
           f"empty/failed={sc['n_empty_or_failed']}")
     print(f"mean claims/answer={sc['mean_claims_per_answer']:.1f}  "
           f"mean contexts/answer={sc['mean_contexts_per_answer']:.1f}")
     if mf:
-        print(f"mean faithfulness = {mf['mean']:.3f}  "
+        print(f"mean faithfulness   = {mf['mean']:.3f}  "
               f"[{mf['ci_low']:.3f}, {mf['ci_high']:.3f}]  (n={mf['n']})")
+    if fc:
+        print(f"%% claims supported  = {fc['mean']:.3f}  "
+              f"[{fc['ci_low']:.3f}, {fc['ci_high']:.3f}]  (headline, length-robust)")
     if ff:
-        print(f"%% fully supported = {ff['mean']:.3f}  "
-              f"[{ff['ci_low']:.3f}, {ff['ci_high']:.3f}]")
-        print(f"%% any unsupported = {sc['frac_any_unsupported']:.3f}")
+        print(f"%% fully supported   = {ff['mean']:.3f}  "
+              f"(length-confounded at {sc['mean_claims_per_answer']:.0f} claims/answer)")
 
 
 def main() -> int:
