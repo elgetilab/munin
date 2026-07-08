@@ -395,8 +395,14 @@ What the iterations taught us:
 remember (recognition), research OVER-TOOLING (28 calls on one query, occasional
 vLLM 400 max-context).
 
-**Still pending:** frontend dead-handler cleanup (`delegated`/`persona_changed`
-in `webui/src`) — separate frontend-deploy target.
+**Frontend dead-handler cleanup — VERIFIED CLEAN 2026-07-08, no action.** Swept
+the whole `frontend/` tree: `webui/src` has ZERO `delegated`/`persona_changed`/
+`PersonaDivider`/`delegate` references, and the `ChatEvent` union in
+`lib/types.ts` carries no delegation events (only the live `routing` event). The
+A4a note's expectation was stale — the React rewrite never carried the old
+handlers. (The only "delegat" hits are loading flavor-text in
+`static/shared/feather-vortex.js` and a `DelegatesFocus` DOM prop inside a
+generated `static/chat` bundle — both non-issues.)
 
 ## A4b POST-SOAK CLEANUP DONE (2026-07-08)
 

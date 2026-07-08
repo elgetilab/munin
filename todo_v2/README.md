@@ -41,8 +41,9 @@ FIX, not just a number to measure. So:
    - **Router A4/A5** - A4a (delegation deleted) + A4b (allowlists retired +
      soft bias) DONE and live; A4b post-soak dead-code cleanup landed
      2026-07-08 (`c4e9ce6..45916e6`, not yet deployed = no-op cutover).
-     Remaining: A5 (paraphrase density / revisit reroute, over-tooling) +
-     frontend dead-handler cleanup (`delegated`/`persona_changed`).
+     Frontend dead-handler cleanup verified clean 2026-07-08 (React rewrite
+     never carried the old `delegated`/`persona_changed` handlers). Remaining:
+     A5 (paraphrase density / revisit reroute, over-tooling).
    - **Migration loose ends** (`MIGRATION-LOOSE-ENDS.md`) - varghele/root:
      repoint the nightly embedding-map at `papers_bge` (do soon), then retire
      the old `papers` collection after a soak (deferred, one-way).
