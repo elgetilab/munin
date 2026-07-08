@@ -699,7 +699,7 @@ SEED_ITEMS: list[RoutingEvalItem] = [
             # generative/mutating tool. So the gate is "no run_python/
             # create_artifact"; first_tool=paper_search and deep_research-
             # forbidding are dropped - they over-strictly failed wildly-out-of-
-            # domain paraphrases that abstained correctly. (A5-PLAN.md.)
+            # domain paraphrases that abstained correctly. (done/A5-PLAN.md.)
             forbidden_tools=["run_python", "create_artifact"],
             abstain=True,
             # reward_basis EXCLUDES "abstain" so the (nondeterministic) wording

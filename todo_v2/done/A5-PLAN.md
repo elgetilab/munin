@@ -281,3 +281,33 @@ benchmark-only iterate then `deploy.sh personas`).
 2. **Higher-rep paraphrase run for the paper:** do it now (multi-hour, pins the
    robustness CI) or defer to when the paper is actually being written? Default:
    defer - it is a paper deliverable, not a migration blocker.
+
+## A5 CLOSED (2026-07-08) - soak clean
+
+Ran the Step-1 routing-behaviour review over the live window (2026-06-28 ->
+2026-07-08, 81 user turns / 27 conversations). Verdict across the four residuals:
+
+- **reroute (implicit-plot):** 0 plot/graph asks in the window - no real-traffic
+  instance either way. The eval covers it (anchor 0.95; the 0/5 was a test-stub
+  artefact, fixed edfa42b). No regression evidence.
+- **remember recognition:** 0 remember-style asks in the window. Eval confirms
+  (0.0 -> 1.0 once the cue moved to the research fragment). No regression
+  evidence.
+- **clarify-vs-act:** 4 `ask_clarification` firings, all appropriate (weather ->
+  needs location; "write my next 3 papers" underspecified; spell-check with no
+  target; "go on"). No misfire. The eval-tier 0.56-0.69 brittleness did not
+  manifest as bad live behaviour.
+- **deep_research over-tooling / vLLM 400:** ZERO context-overflow 400s in the
+  post-fix July logs (all retained overflow hits are Jan-Mar, the old
+  32768-context model). The 28- and 32-tool-call research turns completed WITHOUT
+  a 400 - the context-budget fix (7fad0f2) holds in production.
+
+Stale items reconciled: context-budget fix is DONE (not pending); known_doi_read
+S2 branching accepted.
+
+**Remaining non-blocker (noted, not A5):** research verbosity - occasional 28-32
+tool-call turns. Non-breaking since 7fad0f2, but an efficiency/latency nit; a
+future soft call-budget / early-synthesis nudge could trim it. Out of migration
+scope.
+
+**A5 done => the persona -> router migration (A0-A5) is COMPLETE and live.**

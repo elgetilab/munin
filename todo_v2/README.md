@@ -12,6 +12,7 @@ stay here. Updated 2026-07-06.
 | `ENCODER-PHASE-B-IMPLEMENTATION.md` | Flag-gated cutover code. Applied + live. |
 | `ENCODER-PHASE-C-MEASUREMENT.md` | Answer before/after (+0.075 acc, p=0.028). |
 | `A0-PLAN.md` .. `A3-PLAN.md` | Persona->router migration A0-A3. Built + deployed. |
+| `A4-PLAN.md`, `A5-PLAN.md` | Migration A4 (delegation deleted + allowlists retired) and A5 (routing tuning, anchor 0.95). Complete + live; soak clean 2026-07-08. |
 | `CONTEXT-BUDGET-FIX-SCOPE.md` | 3-tier context-budget fix. Deployed. |
 | `PERSONA-CONSOLIDATION-PLAN.md` | One Munin identity, 3 routing profiles. Done. |
 
@@ -24,7 +25,6 @@ Eval-suite results writeup: `backend/benchmarks/RESULTS.md` (canonical).
 | `EVAL-SUITE-MASTER-PLAN.md` | Tracks B/C/D/F not built (see "What's next"). |
 | `RETRIEVAL-EVAL-SPEC.md` | Phases 1-3,5 done; **Phase 4 (local pool) deferred** (needs more usage / synthetic queries). Canonical retrieval spec. |
 | `BENCHMARK-TODO.md` | Benchmark landscape TODO; specced, not built. |
-| `A4-PLAN.md`, `A5-PLAN.md` | Router **A4** (delete delegation machinery + allowlists) and **A5** (paraphrase density / revisit reroute) — pending. |
 | `KICKOFF-QUESTIONS.md` | Resolved decision record (kept as a live reference cited by the spec). |
 | `IMPLEMENTATION-HANDOFF.md` | Overarching eval-suite handoff (reference). |
 | `MIGRATION-LOOSE-ENDS.md` | Encoder-migration tail: embedding-map repoint + `papers` retirement. varghele/root. |
@@ -38,15 +38,16 @@ FIX, not just a number to measure. So:
 
 **1. Cleanups first**
    - **Track B - answer faithfulness** (local MiniCheck scoring). Master plan sec 3.
-   - **Router A4/A5** - A4a (delegation deleted) + A4b (allowlists retired +
-     soft bias) DONE and live; A4b post-soak dead-code cleanup landed
-     2026-07-08 (`c4e9ce6..45916e6`, not yet deployed = no-op cutover).
-     Frontend dead-handler cleanup verified clean 2026-07-08 (React rewrite
-     never carried the old `delegated`/`persona_changed` handlers). Remaining:
-     A5 (paraphrase density / revisit reroute, over-tooling).
-   - **Migration loose ends** (`MIGRATION-LOOSE-ENDS.md`) - varghele/root:
-     repoint the nightly embedding-map at `papers_bge` (do soon), then retire
-     the old `papers` collection after a soak (deferred, one-way).
+     *(only remaining cleanup)*
+   - ~~**Router A4/A5**~~ DONE 2026-07-08. A4a (delegation deleted), A4b
+     (allowlists retired + soft bias, post-soak dead-code cleanup
+     `c4e9ce6..45916e6`), A5 (routing tuning) all complete + live; frontend
+     dead-handlers verified clean; soak clean. Migration A0-A5 finished. Plans
+     in `done/`. NB: the A4b dead-code deletion is committed but not yet
+     deployed - a no-op cutover on the next retrieval push.
+   - ~~**Migration loose ends**~~ Task 1 (embedding-map -> `papers_bge`) DONE
+     2026-07-07. Task 2 (retire old `papers`) deferred, one-way, post-soak
+     (varghele/root) - see `MIGRATION-LOOSE-ENDS.md`.
 
 **2. Harness iterations** - improve/finish the agentic harness itself
    (abstention behaviour, tool use, retrieval loop). Active development, not

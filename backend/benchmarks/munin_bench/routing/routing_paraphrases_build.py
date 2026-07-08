@@ -13,7 +13,7 @@ A paraphrase must PRESERVE the anchor's correct route. Hand-authoring
 guarantees that and lets us keep the literals the anchor's predicates assert
 (the "Leipzig" in the weather regex, the exact arxiv URL / DOIs, "DNP", three
 DOIs for the bibtex export, ...). The frozen JSON gives the same determinism a
-one-time model generation would, without the route-drift risk. (A5-PLAN.md.)
+one-time model generation would, without the route-drift risk. (done/A5-PLAN.md.)
 
 DISJOINTNESS (the bidirectional invariant)
 ------------------------------------------
