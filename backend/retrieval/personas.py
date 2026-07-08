@@ -76,7 +76,6 @@ class _Params(BaseModel):
     # so the model calls them without a tool_search hop. Additive only — every
     # tool stays reachable via tool_search; nothing is rejected.
     resident_tools: Optional[list[str]] = None
-    tool_allowlist: Optional[list[str]] = None
     # P2 #24 Phase 2: list of MCP tool names that REQUIRE an approved
     # plan before they run. The preToolUse hook in
     # ``hooks/plan_approval.py`` checks this list per dispatch; when a
@@ -420,65 +419,6 @@ def sampling_params(persona: dict) -> dict:
     ):
         if key in params:
             out[key] = params[key]
-    return out
-
-
-def tool_allowlist(persona: Optional[dict]) -> Optional[list[str]]:
-    """
-    Return the persona's explicit tool allowlist, or None if it has
-    no ``params.tool_allowlist`` field.
-
-    None means "fall back to all tools" — back-compat for personas
-    written before the per-persona-tool-subset change (2026-04-28).
-    Callers that filter the MCP schema must accept None and emit the
-    full tool list in that case.
-
-    Side effect: ``tool_search`` (+ plan-mode tools) are auto-injected into
-    every explicit allowlist (deduped). They are infrastructure tools every
-    persona needs (tool_search, P1 #7, is how the model discovers deferred
-    tools), so they need not be spelled out in each persona JSON. Opt-out via
-    a ``"-tool_name"`` entry is NOT supported yet — keep the auto-inject
-    simple.
-
-    The list is normalised to a list of strings (drops any non-string
-    entries silently).
-    """
-    if not isinstance(persona, dict):
-        return None
-    params = persona.get("params") or {}
-    raw = params.get("tool_allowlist")
-    if raw is None:
-        return None
-    if not isinstance(raw, list):
-        return None
-    out: list[str] = []
-    seen: set = set()
-    for entry in raw:
-        if isinstance(entry, str) and entry and entry not in seen:
-            out.append(entry)
-            seen.add(entry)
-    # Infrastructure tools auto-injected into every persona's
-    # allowlist. These are control-flow tools every persona needs
-    # regardless of its content-tool set:
-    #   - tool_search:         discover deferred (non-core) tools (P1 #7)
-    #   - set_plan,
-    #     update_plan_item:    structural plan mode (P2 #24 Phase 1).
-    #                          Without auto-inject, every persona's
-    #                          JSON would have to list them or the
-    #                          persona-allowlist reject path in
-    #                          _run_tool_calls would short-circuit
-    #                          every set_plan call with a synthetic
-    #                          "not available" error before the
-    #                          dispatcher ran. Discovered via the
-    #                          2026-05-29 smoke test on hugin.
-    for infra_tool in (
-        "tool_search",
-        "set_plan",
-        "update_plan_item",
-    ):
-        if infra_tool not in seen:
-            out.append(infra_tool)
-            seen.add(infra_tool)
     return out
 
 
