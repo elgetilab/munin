@@ -291,10 +291,9 @@ async def scenario_multistep_research(client: httpx.AsyncClient) -> SmokeOutcome
     if out.metrics["set_plan_ok"] == 0:
         out.reason = (
             "model called set_plan but every tool_result was an error — "
-            "the executor rejected the call. Most likely: the persona's "
-            "tool_allowlist doesn't include set_plan (auto-inject in "
-            "personas.tool_allowlist), or the dispatcher errored "
-            "(check tool_result payload). Errors observed: "
+            "the dispatcher errored (set_plan is a CORE tool, always "
+            "available since the A4b allowlist retirement; check the "
+            "tool_result payload). Errors observed: "
             f"{_failing_tool_result_messages(res, 'set_plan')!r}"
         )
         return out
@@ -480,8 +479,9 @@ async def scenario_phase2_gate(client: httpx.AsyncClient) -> SmokeOutcome:
     if out.metrics["set_plan_ok"] == 0:
         out.reason = (
             "research persona called set_plan but every result was an error "
-            "— executor rejection (check persona allowlist auto-inject in "
-            "personas.tool_allowlist). errors: "
+            "— dispatcher error (set_plan is a CORE tool, always available "
+            "since the A4b allowlist retirement; check the tool_result). "
+            "errors: "
             f"{_failing_tool_result_messages(res, 'set_plan')!r}"
         )
         return out
