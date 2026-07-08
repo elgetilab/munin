@@ -232,32 +232,20 @@ def _openai_tools_schema(persona: Optional[dict] = None) -> list[dict]:
     """
     Translate MCP_TOOLS into the OpenAI ``tools`` array vLLM expects.
 
-    Deferred-tool model (P1 #7). Only ``CORE_TOOLS`` — plus whatever
-    ``tool_search`` has unlocked this request via
-    ``current_unlocked_tools`` — are emitted, intersected with the
-    persona's allowlist. The allowlist stays the *authorization*
-    boundary (enforced in ``_run_tool_calls``); this function only
-    decides what is *visible in the schema*.
+    Deferred-tool model (P1 #7). Only ``CORE_TOOLS`` — plus the routed
+    profile's SOFT ``resident_tools`` bias and whatever ``tool_search``
+    has unlocked this request via ``current_unlocked_tools`` — are
+    emitted. Every other tool stays reachable via ``tool_search``;
+    nothing is walled off (the per-persona ``tool_allowlist`` hard
+    boundary was retired in A4b).
 
     Keeping the schema at ~9 tools instead of 39 keeps prefill well
     clear of the ~40K-token hang cliff (see scripts/repro_vllm_hang.py,
     2026-04-28) and trims ~15K tokens off every turn's prompt.
     """
-    allow: Optional[list[str]] = (
-        persona_module.tool_allowlist(persona) if persona is not None else None
-    )
-
-    # The persona allowlist (when present) is the tool universe; None = the
-    # full registry. A4b retires the hard allowlist, so personas now carry no
-    # `tool_allowlist` and universe is the full registry; the routed profile's
-    # SOFT `resident_tools` bias surfaces its high-value deferred tools beyond
-    # CORE (still everything reachable via tool_search; nothing rejected).
-    universe: set[str] = (
-        set(allow) if allow is not None else set(MCP_TOOLS.keys())
-    )
     resident = set(persona_module.resident_tools(persona)) if persona else set()
     unlocked = current_unlocked_tools.get() or set()
-    visible = (CORE_TOOLS | resident | unlocked) & universe
+    visible = CORE_TOOLS | resident | unlocked
 
     tools: list[dict] = []
     for name, spec in MCP_TOOLS.items():  # registry order for stable output
