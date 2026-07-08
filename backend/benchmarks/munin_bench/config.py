@@ -41,6 +41,15 @@ BGE_LARGE_PATH = os.getenv("BGE_LARGE_PATH", "/opt/munin/data/models/bge-large")
 BGE_LARGE_HF_ID = "BAAI/bge-large-en-v1.5"
 BGE_QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
+# Faithfulness judge (Track B). MiniCheck-Flan-T5-Large (<1B) predicts
+# support(doc, claim) -> [0,1] at the sentence level (Tang et al. 2024,
+# arXiv 2404.10774). Local path first, else the HF id. Runs on GPU when free
+# (env MUNIN_BENCH_ENTAILMENT_DEVICE) else CPU.
+MINICHECK_PATH = os.getenv("MINICHECK_PATH", "/opt/munin/data/models/minicheck-flan-t5-large")
+MINICHECK_HF_ID = "lytang/MiniCheck-Flan-T5-Large"
+# The 7B escalation variant (spec fallback if RAGTruth AUROC is poor).
+MINICHECK_7B_HF_ID = "bespokelabs/Bespoke-MiniCheck-7B"
+
 # Encoder presets for the eval runners: label -> (model path/id, collection,
 # query_prefix). "specter-v1" is the production baseline; "bge-large" is Phase A.
 ENCODER_PRESETS = {

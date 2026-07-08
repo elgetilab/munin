@@ -75,3 +75,24 @@ def load_specter(device: str | None = None):
     """Backward-compatible SPECTER loader (thin wrapper over load_encoder)."""
     return load_encoder(config.SPECTER_MODEL_PATH, device=device,
                         hf_fallback=config.SPECTER_HF_ID)
+
+
+def load_entailment(model, device: str | None = None):
+    """Load a seq2seq entailment / fact-checking model (MiniCheck-Flan-T5) as
+    ``(model, tokenizer, device)``. Local path first, else an HF id.
+
+    Device defaults to the env ``MUNIN_BENCH_ENTAILMENT_DEVICE`` (falls back to
+    "cuda" when a card is visible, else "cpu"). MiniCheck-Flan-T5-Large is <1B,
+    so CPU is tractable for the ~100s-of-example validation/scoring runs; pass
+    "cuda"/"cuda:0" only when a GPU window is free (vLLM holds the other card)."""
+    import torch
+    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+
+    if device is None:
+        device = os.getenv("MUNIN_BENCH_ENTAILMENT_DEVICE") or (
+            "cuda" if torch.cuda.is_available() else "cpu")
+    logger.info("Loading entailment model %s on %s", model, device)
+    tok = AutoTokenizer.from_pretrained(model)
+    mdl = AutoModelForSeq2SeqLM.from_pretrained(model).to(device)
+    mdl.eval()
+    return mdl, tok, device
