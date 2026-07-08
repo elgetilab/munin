@@ -18,6 +18,13 @@ rank_bm25
 pandas
 tqdm
 
+# --- Track B: answer faithfulness (local MiniCheck judge) ---
+# transformers loads MiniCheck-Flan-T5-Large (AutoModelForSeq2SeqLM); comes
+# transitively via sentence-transformers today but Track B depends on it
+# directly. torch is already pulled by sentence-transformers. RAGTruth (B2
+# validation) is fetched ungated from GitHub via urllib - no extra dep.
+transformers
+
 # --- optional cross-checks (never a hard dependency) ---
 # pytrec_eval
 
