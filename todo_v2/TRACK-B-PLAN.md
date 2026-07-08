@@ -105,6 +105,34 @@ contexts; aggregate to answer level.
 - No deploy: Track B lives entirely in `benchmarks/`, talks to the live API over
   HTTP for capture, and scores locally. Nothing ships via `deploy.sh`.
 
+## STATUS: B1 + B2 DONE (2026-07-08)
+
+- **B1 - MiniCheck scorer.** `munin_bench/faithfulness/minicheck.py` +
+  `clients.load_entailment`. Replicates the authors' canonical Flan-T5
+  inference (no `minicheck` pip dep, which pins old transformers): input
+  `"predict: {chunk}</s>{claim}"`, doc sentence-chunked to ~500 words,
+  seq2seq single-step decode, support = `softmax(logits[:,[3,209]])[:,1]`,
+  MAX over chunks. `score_answer` splits an answer into sentence-claims and
+  aggregates to mean/min support, fully-supported, any-unsupported. Smoke
+  (`smoke_minicheck.py`) passes: entailed ~0.98 vs fabricated ~0.01-0.03,
+  separation margin +0.945; a single-wrong-detail date-swap is a documented
+  MiniCheck weak spot (reported, not gated). Model cached at
+  `~/.cache/huggingface` (HF id `lytang/MiniCheck-Flan-T5-Large`); commit
+  `cb2e95c`.
+- **B2 - RAGTruth validation. GATE PASSED.** LLM-AggreFact is gated, so
+  RAGTruth pulled ungated from the authors' GitHub
+  (`faithfulness/ragtruth.py`, cached under `~/.cache/munin_bench_data`).
+  `validate_ragtruth.py` scores 120 responses (20 per task×label cell),
+  dependency-free rank-based AUROC + balanced accuracy. Result (scorecard
+  `scorecards/2026-07-08_faithfulness-judge-ragtruth.json`):
+  **QA AUROC 0.950 / BA 0.725** (Munin's task), Summary 0.708, Data2txt 0.723,
+  overall 0.746. Gate QA-AUROC >= 0.70 -> **flan-t5-large-sufficient**, no 7B
+  escalation. ~35 min on CPU (GPU would cut this sharply if a window opens).
+
+Remaining: **B3** (free-text + `rag_context` capture, score the LitQA2 pool
+end-to-end as the interim single arm) and **B4** (faithfulness metrics +
+scorecard with paired-bootstrap CIs). B5 (frontier cross-check) stays opt-out.
+
 ## Open questions (need a decision before building)
 
 1. **Scope now vs at Track D.** Recommend: build B1+B2 (validated scorer) NOW +
