@@ -10,3 +10,7 @@ __pycache__/
 # variant set (see RETRIEVAL-EVAL-SPEC Phase 2 / KICKOFF-QUESTIONS Q3).
 data/
 results/
+# Track B live-capture artifacts (answers + retrieved contexts). Bulky
+# (~2MB/arm) and regenerable from the live chat; the derived scorecard under
+# scorecards/ is the committed record.
+faithfulness_runs/
