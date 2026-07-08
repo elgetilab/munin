@@ -223,3 +223,61 @@ regressions. Remaining before A5 closed:
 - 1-week soak on the v1-v4 persona changes (chat 1.5 / research 1.3 / code 1.2).
 - (separate) backend context-budget fix for the deep_research 400 over-tooling.
 - known_doi_read still branches to S2 occasionally (0.80-1.0); acceptable.
+
+## A5 CLOSE-OUT PLAN (2026-07-08)
+
+State verified today: all A5 commits on `main` (8fc2fd6, 1095c31, 8d7d918,
+41d20ad, edfa42b, 7fad0f2); tuned personas LIVE (deployed chat 1.5 / code 1.2 /
+research 1.3 == shared); context-budget fix 7fad0f2 in. The build + measurement
+is done and deployed since ~2026-06-28, so ONLY soak-verification + doc close-out
+remain. A5 shipped the same day as A4b, so the same live window (2026-06-28 ->
+2026-07-08, 81 user turns / 27 conversations) is the soak for both.
+
+Reconcile the stale "remaining" list above:
+- **Context-budget fix: DONE, not pending.** 7fad0f2 landed and the plan's own
+  re-run (2026-06-29) confirmed deep_research 0.69 -> 0.88, the three 400s
+  resolved. The bullet is stale; strike it at close.
+- **known_doi_read S2 branching: accepted** (local-first-then-branch is desired;
+  0.80-1.0 is within noise). Not a blocker.
+- **1-week soak: window elapsed** — needs a real-traffic review, below.
+
+### Step 1 - routing-behaviour soak review (reuses the live window, no deploy)
+
+Query the same live data (chats.db + reported/ + vLLM logs) for the FOUR A5
+residuals specifically, not just generic allowlist safety (that was the A4b
+lens):
+1. **reroute** (implicit-plot): find turns where a prior assistant answer held
+   numbers and the user said "plot/graph those" - did it land on run_python, or
+   re-search? (The eval fix was a test-stub artefact; confirm real traffic is
+   fine.)
+2. **remember** recognition: "note that.../for future reference..." asks -> did
+   the model route to research + call remember, or drop it?
+3. **clarify-vs-act** (the brittle 0.56-0.69 category): sample under-specified
+   asks - reasonable ask_clarification vs prose-clarification vs wrong-act.
+4. **deep_research over-tooling / vLLM 400**: grep vLLM logs since 2026-06-28 for
+   `maximum context length`/400s on chat completions; confirm 7fad0f2 holds in
+   production (0 recurrences = closed).
+
+Output: a short soak verdict appended here. If clean, A5 closes. If a residual
+shows a real regression, it becomes a scoped follow-up (persona-fragment tweak,
+benchmark-only iterate then `deploy.sh personas`).
+
+### Step 2 - close-out bookkeeping
+
+- Mark A5 DONE here (strike the stale context-budget bullet; record the soak
+  verdict).
+- Update `todo_v2/README.md` (router row -> A4+A5 complete) and the
+  `project_router_migration` memory (A5 done; migration A0-A5 complete).
+- The paraphrase-tier robustness number (~0.89-0.91) is a paper input; note it's
+  reps=1 and a stable figure needs higher reps (multi-hour) IF the paper wants a
+  tight CI - out of close-out scope, flag only.
+
+### Open questions
+
+1. **Soak depth:** the live window is low-volume (81 turns). Close on "no
+   regression observed" (my default, matches how A4b closed), or hold A5 open for
+   a higher-traffic window / a fresh anchor-tier remeasure against the live
+   router first? Default: close on the review below being clean.
+2. **Higher-rep paraphrase run for the paper:** do it now (multi-hour, pins the
+   robustness CI) or defer to when the paper is actually being written? Default:
+   defer - it is a paper deliverable, not a migration blocker.
