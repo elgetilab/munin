@@ -195,6 +195,44 @@ recall -> ~0.73" projection was wrong. Scorecards:
 
 ---
 
+## Track B — answer faithfulness (local MiniCheck)  · git `73ab062` · 2026-07-08
+
+Local, privacy-preserving faithfulness judge: **MiniCheck-Flan-T5-Large** (<1B)
+scores each answer sentence's support against the retrieved contexts (replicates
+the authors' exact inference; no data leaves the premises).
+
+**Judge validated (B2)** on RAGTruth (ungated, GitHub), 120 responses:
+
+| task | AUROC | BA@0.5 |
+|---|---|---|
+| **QA** (Munin's task) | **0.950** | 0.725 |
+| Summary / Data2txt | 0.708 / 0.723 | 0.650 / 0.525 |
+
+Gate (QA-AUROC ≥ 0.70) passed → Flan-T5-Large sufficient, no 7B escalation.
+Scorecard `2026-07-08_faithfulness-judge-ragtruth`.
+
+**Interim single-arm faithfulness (B3/B4)** — live agentic arm, 40 LitQA2
+questions:
+
+| metric | value (95% CI) |
+|---|---|
+| **% claims supported** (macro, length-robust) | **0.378 [0.314, 0.442]** |
+| mean faithfulness (per-claim support) | 0.413 [0.367, 0.456] |
+| per-answer grounding | median 0.39 (22.6 claims, 82.5 contexts / answer) |
+
+**CAVEAT — this absolute value is interim, NOT a paper figure.** (1) One arm;
+faithfulness is meaningful as the Track D **paired** comparison (bare/RAG/agentic
+— the scorer + per-arm capture files are built for it). (2) We sentence-split the
+whole answer, so reasoning/hedge/transition sentences are scored and deflate the
+number; a real claim-extraction step is the refinement before any headline
+figure. (3) The context union is generous (all retrieval results), which if
+anything INFLATES support — yet it is still 0.38, so a substantial share of
+agentic-answer content is un-retrieved synthesis (directly relevant to Track C
+abstention and Track D harness-value). `% fully supported` = 0 is length math at
+~22 claims/answer, not a finding. Scorecard `2026-07-08_faithfulness-agentic-live`.
+
+---
+
 ## Reproduce
 
 ```bash
@@ -211,4 +249,14 @@ MUNIN_BENCH_SPECTER_DEVICE=cpu $PY -m munin_bench.pipelines.run_bakeoff --subset
 ```
 
 Not yet run: BEIR nfcorpus/scidocs/trec-covid; Phase 4 local pool (deferred,
-insufficient usage); master-plan Tracks B–F. Status table: `README.md`.
+insufficient usage); master-plan Tracks C–F (Track B judge built + validated,
+one interim arm above). Status table: `README.md`.
+
+```bash
+# Track B faithfulness (judge validation + one live arm)
+$PY -m munin_bench.faithfulness.smoke_minicheck                       # B1 sanity
+$PY -m munin_bench.faithfulness.validate_ragtruth --n-per-cell 20 --date <YYYY-MM-DD>   # B2
+MUNIN_BENCH_ENTAILMENT_DEVICE=cuda:0 $PY -m munin_bench.faithfulness.faithfulness_runner \
+  --base-url http://127.0.0.1:8080 --email litqa2-eval@localhost \
+  --arm agentic-live --limit 40 --concurrency 1 --date <YYYY-MM-DD>   # B3+B4 (capture on CPU-ok, score GPU)
+```
