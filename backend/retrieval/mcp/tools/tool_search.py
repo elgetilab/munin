@@ -21,7 +21,7 @@ import logging
 import math
 import re
 
-from ..context import current_persona, current_unlocked_tools
+from ..context import current_unlocked_tools
 from ..schemas import MCP_TOOLS, CORE_TOOLS
 
 logger = logging.getLogger(__name__)
@@ -106,13 +106,10 @@ async def tool_search(query: str) -> dict:
     if not isinstance(query, str) or not query.strip():
         return {"error": "tool_search requires a non-empty 'query' string"}
 
-    # Resolve the calling persona's tool universe. A persona with no
-    # explicit allowlist (legacy) searches the full registry.
-    import personas as persona_module
-
-    persona = persona_module.get_persona(current_persona.get())
-    allow = persona_module.tool_allowlist(persona) if persona else None
-    universe = set(allow) if allow is not None else set(MCP_TOOLS.keys())
+    # Every tool is discoverable — the per-persona tool_allowlist that once
+    # scoped this search was retired in A4b (profiles bias tool use softly,
+    # nothing is walled off).
+    universe = set(MCP_TOOLS.keys())
 
     query_terms = _tokenize(query)
     candidates: list[tuple[float, str, dict]] = []
