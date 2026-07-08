@@ -915,7 +915,6 @@ def _duplicate_create_artifact_ids(tool_calls: list[dict]) -> set[str]:
 async def _run_tool_calls(
     tool_calls: list[dict],
     persona_id: Optional[str] = None,
-    allowed_tools: Optional[set[str]] = None,
 ) -> list[dict]:
     """Execute all tool calls for a turn, preserving declared order.
 
@@ -928,16 +927,12 @@ async def _run_tool_calls(
     concurrently with each other — they don't share state by
     definition of "safe".
 
-    When ``allowed_tools`` is supplied, any tool call whose name is
-    not in the set is short-circuited with a synthetic error result
-    instead of being dispatched to the executor. qwen3 emits tool
-    calls from training memory regardless of the schema we send (the
-    schema is guidance, not enforcement), so a research-persona user
-    asking for "run this Python script" still produces a run_python
-    call even though the persona's allowlist excludes it. The
-    synthetic error tells the model to answer with the tools it has,
-    without executing the off-allowlist tool. (A4b retires the
-    allowlist entirely, at which point this reject path goes away.)
+    Every routed profile can reach every tool (the per-persona
+    ``tool_allowlist`` hard boundary was retired in A4b — profiles now
+    bias tool use SOFTLY via prompt guidance + ``resident_tools``
+    surfacing, and nothing is rejected). If a specific tool ever needs
+    a hard wall, add an explicit per-tool guard — do NOT resurrect the
+    allowlist.
     """
     # Within this response, collapse same-title create_artifact calls to
     # one real creation (chat d28ef78e). The skipped ones get a synthetic
@@ -946,22 +941,6 @@ async def _run_tool_calls(
 
     async def one(tc: dict) -> dict:
         name = tc.get("name") or ""
-        if allowed_tools is not None and name not in allowed_tools:
-            logger.info(
-                "persona-allowlist reject (persona=%r, tool=%r)",
-                persona_id, name,
-            )
-            err = (
-                f"The {name!r} tool is not available in the "
-                f"{persona_id!r} persona's tool set. Answer the "
-                f"request using only the tools you do have."
-            )
-            return {
-                "id": tc["id"],
-                "name": name,
-                "result": {"error": err},
-                "duration_ms": 0,
-            }
         # Duplicate create_artifact (same title, same response): skip the
         # actual creation but still return a result so the model gets
         # feedback and the tool_call_id is satisfied.
@@ -2300,23 +2279,11 @@ async def stream_chat_completion(
 
             current_sse_emitter.set(_push)
 
-            # Build the persona's effective allowlist so _run_tool_calls
-            # can reject off-allowlist calls with a synthetic error
-            # tool_result. ask_clarification is always permitted (control-flow
-            # tool). Personas without an explicit allowlist (back-compat path)
-            # get None, which means "all tools allowed" inside _run_tool_calls.
-            # (A4b retires the allowlist entirely; this whole path goes away.)
-            _allow_list = persona_module.tool_allowlist(persona)
-            allowed_tools_set: Optional[set[str]] = None
-            if _allow_list is not None:
-                allowed_tools_set = set(_allow_list) | {"ask_clarification"}
-
             async def _runner() -> list[dict]:
                 try:
                     return await _run_tool_calls(
                         tool_calls,
                         persona_id=persona_id,
-                        allowed_tools=allowed_tools_set,
                     )
                 finally:
                     # put_nowait is sync — safe to call after CancelledError
