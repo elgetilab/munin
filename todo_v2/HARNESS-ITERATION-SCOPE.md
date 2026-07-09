@@ -162,6 +162,20 @@ failure handling is thin. Real but lower-leverage; fold into a robustness pass.
    target to optimise against for the T1 grounding work.
 3. **Defer T4 (abstention) to Track C** - tune against its numbers, not blind.
 
+## T2 OUTCOME (2026-07-09): medium-default BACKFIRED -> reverted
+
+Deployed T2 (research 1.4) and measured. Routing anchor **0.950, no regression**
+(safe), BUT the paired 40-q Track B over-tooling comparison showed the
+medium-default made over-tooling WORSE: retrieval calls/answer **median 10.5 ->
+20.5** (mean 15.9 -> 19.3; 22/40 answers used more), grounding not improved
+(0.356 -> 0.284, CIs overlap). Mechanism: a thinner medium baseline induces MORE
+compensatory follow-up searches; the "<=3-4 follow-ups" prompt did not hold.
+Reverted the medium-default (research 1.5, `13418b9`; keeps the bounded-follow-up
+wording); **needs a personas redeploy**. Lesson: reducing per-call depth is the
+WRONG over-tooling lever; the real fix is a **code-level trajectory cap**
+(deferred - user chose T1 grounding next). T3 stays staged (deploy parked with
+`329c150`).
+
 ## Next step
 
 Implement **T2 + T3** (prompt-first). T2: rewrite the research-fragment
