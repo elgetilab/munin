@@ -29,8 +29,10 @@ RETRIEVAL_TOOLS = {
 }
 
 # Result keys that carry groundable text (title kept as a short label).
+# "excerpt" is paper_search's T1a abstract snippet - it IS retrieved evidence, so
+# it must count toward the grounding contexts or faithfulness is understated.
 _TEXT_KEYS = {"content", "text", "abstract", "snippet", "passage", "summary",
-              "body", "tldr", "answer"}
+              "body", "tldr", "answer", "excerpt"}
 _MIN_LEN = 20
 
 
