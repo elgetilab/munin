@@ -186,9 +186,11 @@ EXISTING wrap-up synthesis (`hit_turn_cap` path) so the model answers with what
 it has. Calibrated to the deep-default distribution (median 13.5, p90 40, max
 43): 30 cuts the clearly-excessive 30-52 tail (~18% of answers) while leaving
 typical research intact (24 would have clipped 30%). SAFETY ceiling, not a tuned
-knob. Loop tests still green. NEEDS a retrieval deploy to go live; measure via the
-Track B arm (`n_tool_calls` should cap at 30, the 40-52 tail gone) + confirm the
-routing anchor + Track B grounding do not regress.
+knob. Loop tests still green. **DEPLOYED + VERIFIED 2026-07-09:** post-cap
+`n_tool_calls` max 43 -> 31, p90 40 -> 30, answers >30 dropped 9/40 -> 2/40; 7
+answers hit the cap (terminal_reason=max_turns at exactly 30-31) and wrapped up.
+Grounding HELD (0.331 [0.275,0.387], no regression) with 0 empty/failed. The cap
+is the harness-iteration win. Scorecard `2026-07-09_faithfulness-agentic-live-cap`.
 
 ## Next step
 
