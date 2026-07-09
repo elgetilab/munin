@@ -51,6 +51,55 @@ def split_sentences(text: str) -> list[str]:
     return out
 
 
+# --- claim extraction (Track B refinement) ---------------------------------
+# Raw sentence-splitting over-counts: agentic answers carry process narration
+# ("I searched the corpus..."), meta/transitions, questions, and headers that
+# are not checkable factual claims and deflate faithfulness. We CONSERVATIVELY
+# drop only CLEAR non-claims (keeping a borderline sentence is safer than
+# dropping a real claim, which would spuriously inflate the score). Deterministic
+# on purpose - a dashboard metric must be reproducible. (LLM atomic-claim
+# decomposition is the higher-rigor option for a final paper figure; not used
+# here to keep the metric variance-free.)
+
+# First-person process / meta openers that describe the SEARCH, not a finding.
+_NON_CLAIM_OPENERS = re.compile(
+    r"^(let me\b|let's\b|i'?ll\b|i will\b|i can\b|i'?m going to\b|i am going to\b"
+    r"|first,?\s+i\b|now,?\s+i\b|next,?\b|to (answer|address|find|explore|begin)\b"
+    r"|based on (my|the) (search|research|retrieved|results|findings)\b"
+    r"|the (search|query|results?) (returned|found|show|indicate)\b"
+    r"|i (searched|looked|found|will search|will look|retrieved|ran|checked)\b"
+    r"|here('?s| is| are)\b|in (summary|conclusion|short)\b|to summari[sz]e\b"
+    r"|let me know\b|would you like\b|do you want\b|feel free\b)",
+    re.IGNORECASE,
+)
+# Markdown header / list-marker only, or a bare citation/URL line.
+_HEADER = re.compile(r"^\s*(#{1,6}\s|[-*+]\s*$|\d+\.\s*$)")
+_BARE_LINK = re.compile(r"^\s*[\[(]?https?://|^\s*doi:\s*\S+\s*$", re.IGNORECASE)
+_MIN_CLAIM_WORDS = 5
+
+
+def _is_non_claim(s: str) -> bool:
+    w = s.split()
+    if len(w) < _MIN_CLAIM_WORDS:
+        return True
+    if s.rstrip().endswith("?"):
+        return True
+    if _HEADER.match(s) or _BARE_LINK.match(s):
+        return True
+    if _NON_CLAIM_OPENERS.match(s):
+        return True
+    # must contain at least a few alphabetic word-characters to be a claim
+    if sum(c.isalpha() for c in s) < 10:
+        return True
+    return False
+
+
+def extract_claims(answer: str) -> list[str]:
+    """Sentences from ``answer`` that are checkable factual claims (drops
+    process narration, questions, headers, and sub-5-word fragments)."""
+    return [s for s in split_sentences(answer) if not _is_non_claim(s)]
+
+
 class MiniCheck:
     """Sentence-level fact-checker. Thread-unsafe (single model); construct once
     and reuse across a run."""
@@ -147,11 +196,16 @@ class MiniCheck:
         answer: str,
         contexts: list[str],
         threshold: float = 0.5,
+        claim_mode: str = "extract",
     ) -> dict:
-        """Split ``answer`` into claims (sentences) and score each against the
-        concatenated ``contexts``. Returns the Track B answer-level metrics."""
+        """Extract claims from ``answer`` and score each against the concatenated
+        ``contexts``. ``claim_mode``: "extract" (default; drop non-claims via
+        ``extract_claims``) or "sentences" (raw split, the pre-refinement
+        behaviour, kept for A/B comparison). Returns Track B answer-level
+        metrics."""
         document = "\n\n".join(c for c in (contexts or []) if c and c.strip())
-        claims = split_sentences(answer)
+        claims = (extract_claims(answer) if claim_mode == "extract"
+                  else split_sentences(answer))
         if not claims:
             return {
                 "n_claims": 0, "mean_support": None, "min_support": None,

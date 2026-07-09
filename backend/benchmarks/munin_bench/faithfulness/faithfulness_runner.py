@@ -99,15 +99,17 @@ def capture_pool(base_url: str, email: str, out_path: str, *,
 def score_and_metrics(captures: list[dict], *, arm: str, base_url: str,
                       device=None, threshold: float = 0.5,
                       n_resamples: int = 1000, date: str | None = None,
+                      claim_mode: str = "extract",
                       out_path: str | None = None) -> dict:
     mc = MiniCheck(device=device)
-    print(f"[b3] scoring {len(captures)} answers with MiniCheck on {mc.device}")
+    print(f"[b3] scoring {len(captures)} answers with MiniCheck on {mc.device} "
+          f"(claim_mode={claim_mode})")
 
     per_q: list[dict] = []
     t0 = time.time()
     for i, cap in enumerate(captures, 1):
         res = mc.score_answer(cap.get("answer", ""), cap.get("contexts", []),
-                              threshold=threshold)
+                              threshold=threshold, claim_mode=claim_mode)
         per_q.append({
             "qid": cap["qid"],
             "n_claims": res["n_claims"],
@@ -149,6 +151,7 @@ def score_and_metrics(captures: list[dict], *, arm: str, base_url: str,
         "git_sha": _git_sha(),
         "seed": 42,
         "threshold": threshold,
+        "claim_mode": claim_mode,
         "date": date,
         "n_answers": len(per_q),
         "n_scored": len(scored),
@@ -203,6 +206,8 @@ def main() -> int:
     ap.add_argument("--deadline", type=int, default=300)
     ap.add_argument("--device", default=None)
     ap.add_argument("--date", default=None)
+    ap.add_argument("--claim-mode", default="extract",
+                    choices=["extract", "sentences"])
     ap.add_argument("--capture-only", action="store_true")
     ap.add_argument("--score-only", action="store_true",
                     help="skip capture; score an existing <arm>.capture.jsonl")
@@ -232,7 +237,8 @@ def main() -> int:
     out = os.path.join(os.path.dirname(__file__), "..", "..", "scorecards",
                        f"{stamp}_faithfulness-{args.arm}.json")
     sc = score_and_metrics(captures, arm=args.arm, base_url=args.base_url,
-                           device=args.device, date=args.date, out_path=out)
+                           device=args.device, date=args.date,
+                           claim_mode=args.claim_mode, out_path=out)
     _print_summary(sc)
     return 0
 

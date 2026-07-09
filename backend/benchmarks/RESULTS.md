@@ -216,9 +216,14 @@ questions:
 
 | metric | value (95% CI) |
 |---|---|
-| **% claims supported** (macro, length-robust) | **0.378 [0.314, 0.442]** |
-| mean faithfulness (per-claim support) | 0.413 [0.367, 0.456] |
-| per-answer grounding | median 0.39 (22.6 claims, 82.5 contexts / answer) |
+| **% claims supported** (macro, length-robust) | **0.356 [0.272, 0.425]** |
+| mean faithfulness (per-claim support) | 0.404 [0.347, 0.450] |
+| per-answer grounding | 14.6 real claims, 82.5 contexts / answer |
+
+(claim-extraction refined 2026-07-09: dropping process-narration/questions/
+headers moved the number 0.378 -> 0.356, CIs overlap heavily — the grounding gap
+is ROBUST to claim extraction, not a narration artifact. `2026-07-09` scorecard
+supersedes `2026-07-08` as the dashboard baseline.)
 
 **CAVEAT — this absolute value is interim, NOT a paper figure.** (1) One arm;
 faithfulness is meaningful as the Track D **paired** comparison (bare/RAG/agentic

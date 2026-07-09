@@ -142,14 +142,24 @@ failure handling is thin. Real but lower-leverage; fold into a robustness pass.
 4. **T4 abstention** - defer to Track C; tune against its numbers.
 5. **T5 robustness** - cleanup pass.
 
-## Open questions
+## Decisions (2026-07-09)
 
-1. **Prompt-first vs code-first?** Recommend prompt-first (step 1) - the
-   research-fragment over-tooling contradiction is the highest-leverage,
-   lowest-risk change and ships without a code deploy.
-2. **Track B as the live dashboard:** re-run the 40-q agentic arm after each
-   grounding change (capture is resumable; scoring ~9 min GPU) and accept 0.378
-   as the baseline to beat? Or refine claim-extraction first so the number is
-   sharper before we optimise against it?
-3. **T4:** confirm we defer abstention tuning to Track C rather than tuning
-   prompts blind now.
+1. **Start prompt-first (T2 + T3)** - the research-fragment over-tooling
+   contradiction + tool-description scope front-loading. Lowest risk, mostly
+   deploy-only, measured on over-tooling count + routing anchor eval.
+2. **Sharpen Track B first - DONE.** Added deterministic claim extraction
+   (`extract_claims`: drop narration/questions/headers). Dashboard baseline is
+   now **% claims supported 0.356 [0.272, 0.425]** on 14.6 real claims/answer
+   (`2026-07-09` scorecard). Key: the number barely moved from the raw-sentence
+   0.378, so the grounding gap is ROBUST, not a narration artifact - a sound
+   target to optimise against for the T1 grounding work.
+3. **Defer T4 (abstention) to Track C** - tune against its numbers, not blind.
+
+## Next step
+
+Implement **T2 + T3** (prompt-first). T2: rewrite the research-fragment
+over-tooling licence ("10+ normal / not optimising for call count" -> bounded
+"after deep_research, <=N targeted follow-ups, then synthesise"). T3: front-load
+scope in the retrieval-tool descriptions + `tool_search` stemming. Gate: routing
+anchor 0.950 no-regress + over-tooling count drop; then re-run the Track B arm to
+watch grounding. Plan the exact edits before touching prompts (plan-first).
