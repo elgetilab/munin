@@ -11,14 +11,17 @@ drive the live `/api/chat/completions`, which loads `/opt/munin` personas + code
 
 - **`vi` cannot deploy** (deploy.sh is root/varghele). So each measured step needs
   a varghele deploy.
-- **There is uncommitted document-attachment WIP on the tree** (chat_service,
-  chat_context, document_store, main, frontend). A `deploy.sh retrieval` could
-  entangle it. So:
-  - **T2 = personas-only** (`deploy.sh personas` + restart) - does NOT ship the
-    attachment code. Safe to deploy + measure now.
-  - **T3 = retrieval code** (schemas.py, tool_search.py) - a retrieval deploy
-    would entangle the WIP. Make + commit the edits now, but **PARK the deploy**
-    until the attachment WIP lands, then coordinate ONE retrieval deploy.
+- The document-attachment WIP is now **committed** (`329c150`, varghele, 2026-07-09)
+  and landed cleanly under the T2/T3 commits (no conflict; disjoint files). So
+  the "park behind uncommitted WIP" concern is RESOLVED:
+  - **T2 = personas-only** (`deploy.sh personas` + restart) - independent of the
+    attachment code. Safe to deploy + measure now. APPLIED (`af2d04d`, research
+    1.3->1.4).
+  - **T3 = retrieval code** (schemas.py, tool_search.py) - APPLIED (`fdf8ded`).
+    A `deploy.sh retrieval` would now ship `329c150` + T3 together as a coherent
+    unit. No longer blocked by uncommitted code; the only question is whether
+    varghele considers `329c150` ready to go live - coordinate the timing, do not
+    self-deploy.
 
 Dashboard per step: routing anchor eval (**gate: >= 0.950, no regression**),
 `soft_max_calls` over-tooling diagnostic (**target: drop**), Track B agentic arm

@@ -34,6 +34,13 @@ Cadence: persona/fragment changes ship via `deploy.sh personas` + restart
 
 ### T1. Retrieved evidence is thin + truncated -> the faithfulness root  [HIGH / MED]
 
+> UPDATE 2026-07-09: `329c150` (varghele) already added the context-OVERFLOW
+> mitigation - the "degrade the largest pending tool results instead of
+> overflowing" last-resort in `chat_context.py`. So T1 should NO LONGER target
+> overflow/400s (done); it targets GROUNDING QUALITY: excerpts on results,
+> per-item truncation, structured sub-agent returns. Re-read `329c150`'s
+> chat_context/chat_service changes before starting T1.
+
 Mechanism (verified):
 - `paper_search` returns only `{title, doi, score, matched_by}` - **no abstract
   or matched excerpt** (`mcp/tools/papers.py` ~221). The model cannot see WHY a
