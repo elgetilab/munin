@@ -27,6 +27,7 @@ Eval-suite results writeup: `backend/benchmarks/RESULTS.md` (canonical).
 | `BENCHMARK-TODO.md` | Benchmark landscape TODO; specced, not built. |
 | `TRACK-B-PLAN.md` | Answer faithfulness (MiniCheck). B1-B4 built; judge validated (QA AUROC 0.95); interim arm 0.38 claims-supported. |
 | `HARNESS-ITERATION-SCOPE.md` | Scoping for the harness-iteration phase (grounding, over-tooling, tool defs). Pre-implementation. |
+| `T2-T3-EDIT-PLAN.md` | Concrete T2 (over-tooling) + T3 (tool defs) edits; measurement + deploy constraints. Plan, not applied. |
 | `KICKOFF-QUESTIONS.md` | Resolved decision record (kept as a live reference cited by the spec). |
 | `IMPLEMENTATION-HANDOFF.md` | Overarching eval-suite handoff (reference). |
 | `MIGRATION-LOOSE-ENDS.md` | Encoder-migration tail: embedding-map repoint + `papers` retirement. varghele/root. |
