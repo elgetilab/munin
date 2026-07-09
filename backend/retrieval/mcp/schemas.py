@@ -59,7 +59,7 @@ MCP_TOOLS = {
     },
     "paper_search": {
         "name": "paper_search",
-        "description": "Search the local scientific paper corpus using SPECTER semantic search with multi-query fan-out. Pass `queries` as an array of 3-5 varied phrasings for best coverage; the tool runs them in parallel and dedupes by DOI. Passing a single `query` string triggers automatic expansion into 3-5 variants. Returns papers with titles, authors, years, DOIs, and scores.",
+        "description": "Search the LOCAL curated paper corpus (fast; the corpus is deliberately curated and INCOMPLETE, so branch out to semantic_scholar_search when hits are thin or the topic is off-corpus) using SPECTER semantic search with multi-query fan-out. Pass `queries` as an array of 3-5 varied phrasings for best coverage; the tool runs them in parallel and dedupes by DOI. Passing a single `query` string triggers automatic expansion into 3-5 variants. Returns papers with titles, authors, years, DOIs, and scores.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -82,7 +82,7 @@ MCP_TOOLS = {
     },
     "semantic_scholar_search": {
         "name": "semantic_scholar_search",
-        "description": "Search Semantic Scholar (200M+ papers across all fields) with multi-query fan-out. Returns papers with titles, authors, DOIs, citation counts, abstracts, and AI-generated TLDRs. Pass `queries` as a list of 3-5 varied search phrasings for broad coverage, or a single `query` string which will be auto-expanded. Takes an optional `year` filter applied to every query.",
+        "description": "Search the EXTERNAL Semantic Scholar index (200M+ papers across all fields; broader coverage than the local corpus but slower and it uses the S2 quota, so prefer paper_search first and branch here when local hits are thin or off-corpus) with multi-query fan-out. Returns papers with titles, authors, DOIs, citation counts, abstracts, and AI-generated TLDRs. Pass `queries` as a list of 3-5 varied search phrasings for broad coverage, or a single `query` string which will be auto-expanded. Takes an optional `year` filter applied to every query.",
         "inputSchema": {
             "type": "object",
             "properties": {

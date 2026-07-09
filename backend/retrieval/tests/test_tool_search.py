@@ -190,6 +190,22 @@ def _surfaces(query: str, target: str) -> bool:
     return target in {m["name"] for m in res.get("matches", [])}
 
 
+def test_tool_search_stems_inflections() -> bool:
+    """T3b: inflected query terms must reach the tool via the suffix stemmer
+    (cite/citing/citations share a stem; reference/references likewise). These
+    would miss under the pre-stemming exact-token matcher."""
+    cases = [
+        ("which papers are citing this work", "get_citations"),
+        ("list the references cited by this paper", "get_references"),
+    ]
+    missing = [(q, t) for q, t in cases if not _surfaces(q, t)]
+    return _check(
+        "tool_search stems inflected query terms",
+        not missing,
+        f"missing={missing}",
+    )
+
+
 def test_tool_search_surfaces_gate_tools_natural_phrasing() -> bool:
     """A2 regression: the IDF-weighted matcher must surface the genuinely-
     relevant deferred tool for NATURAL queries, where the old substring
@@ -298,6 +314,7 @@ TESTS = [
     test_tool_search_unlocks_into_contextvar,
     test_tool_search_excludes_core_tools,
     test_tool_search_searches_full_registry,
+    test_tool_search_stems_inflections,
     test_tool_search_caps_at_max,
     test_tool_search_surfaces_gate_tools_natural_phrasing,
     test_tool_search_no_match,

@@ -55,10 +55,27 @@ _WORD_RE = re.compile(r"[a-z0-9]+")
 _NAME_W = 3.0   # a query term in the tool NAME is a stronger signal than
 _DESC_W = 1.0   # the same term buried in a long description.
 
+# Ordered suffix rules for a cheap, dependency-free, DETERMINISTic stemmer.
+# Applied to BOTH query and doc tokens so inflected query terms collapse onto
+# the tool vocabulary: "cite"/"citing"/"cited"/"citations" -> "cit",
+# "reference"/"references" -> "referenc". Longest suffix first; the trailing
+# "e" rule is what unifies "cite" with the "citations" family. Not a full
+# stemmer (Porter/nltk) - the tool vocabulary is small + technical, so a short
+# ruleset suffices and stays reproducible with no dependency.
+_SUFFIXES = ("ations", "ation", "ings", "ing", "ers", "es", "ed", "er", "s", "e")
+
+
+def _stem(t: str) -> str:
+    for suf in _SUFFIXES:
+        if t.endswith(suf) and len(t) - len(suf) >= 3:
+            return t[: -len(suf)]
+    return t
+
 
 def _tokenize(text: str) -> list[str]:
-    """Lowercase word tokens with stopwords removed."""
-    return [t for t in _WORD_RE.findall(text.lower()) if t not in _STOPWORDS]
+    """Lowercase, stopword-filtered, suffix-stemmed word tokens."""
+    return [_stem(t) for t in _WORD_RE.findall(text.lower())
+            if t not in _STOPWORDS]
 
 
 def _doc_tokens(name: str, description: str) -> tuple[set[str], set[str]]:
