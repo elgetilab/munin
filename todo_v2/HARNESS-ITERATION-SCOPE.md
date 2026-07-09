@@ -176,6 +176,20 @@ WRONG over-tooling lever; the real fix is a **code-level trajectory cap**
 (deferred - user chose T1 grounding next). T3 stays staged (deploy parked with
 `329c150`).
 
+## OVER-TOOLING CODE CAP built (2026-07-09, `438a51b`)
+
+After T2 (prompt) and T1a (evidence) both failed to move over-tooling, built the
+code cap the measurements pointed to: `MAX_TOOL_CALLS_PER_MESSAGE` (env
+`CHAT_MAX_TOOL_CALLS`, default **30**) - a cumulative tool-call ceiling on one
+message's agentic loop in `chat_service.py`; when tripped it routes into the
+EXISTING wrap-up synthesis (`hit_turn_cap` path) so the model answers with what
+it has. Calibrated to the deep-default distribution (median 13.5, p90 40, max
+43): 30 cuts the clearly-excessive 30-52 tail (~18% of answers) while leaving
+typical research intact (24 would have clipped 30%). SAFETY ceiling, not a tuned
+knob. Loop tests still green. NEEDS a retrieval deploy to go live; measure via the
+Track B arm (`n_tool_calls` should cap at 30, the 40-52 tail gone) + confirm the
+routing anchor + Track B grounding do not regress.
+
 ## Next step
 
 Implement **T2 + T3** (prompt-first). T2: rewrite the research-fragment
