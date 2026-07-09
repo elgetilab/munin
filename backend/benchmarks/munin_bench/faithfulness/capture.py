@@ -77,6 +77,7 @@ def capture_answer(base_url: str, email: str, question: str,
     contexts: list[str] = []
     seen: set[str] = set()
     n_tool_results = 0
+    n_tool_calls = 0  # ALL tool calls this turn (over-tooling signal), not just retrieval
     truncated = True
     ev = None
     start = time.time()
@@ -100,6 +101,8 @@ def capture_answer(base_url: str, email: str, question: str,
                 continue
             if ev == "token" and isinstance(obj, dict) and obj.get("content"):
                 content += obj["content"]
+            elif ev == "tool_call" and isinstance(obj, dict):
+                n_tool_calls += 1
             elif ev == "tool_result" and isinstance(obj, dict):
                 if obj.get("name") in RETRIEVAL_TOOLS:
                     n_tool_results += 1
@@ -121,4 +124,4 @@ def capture_answer(base_url: str, email: str, question: str,
     finally:
         resp.close()
     return {"answer": content, "contexts": contexts, "truncated": truncated,
-            "n_tool_results": n_tool_results}
+            "n_tool_results": n_tool_results, "n_tool_calls": n_tool_calls}
