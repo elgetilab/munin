@@ -343,6 +343,30 @@ def get_document_file_path(user_email: str, document_id: str) -> Optional[str]:
     return None
 
 
+async def get_document_text(
+    user_email: str, document_id: str
+) -> Optional[str]:
+    """Return the extracted plain text of a stored text document, or None
+    if the document is missing on disk.
+
+    Composes ``get_document_file_path`` + ``extract_text`` (no new
+    extraction logic). Used to inline an attached ``.pdf/.txt/.md/.docx``
+    into a chat turn so the model can act on its contents (translate,
+    summarise, ...). Returns ``""`` when the file exists but yields no
+    extractable text (e.g. a scanned PDF, or an image mistyped as a
+    document) so the caller can distinguish "not found" from "empty".
+    """
+    path = get_document_file_path(user_email, document_id)
+    if not path:
+        return None
+    try:
+        with open(path, "rb") as f:
+            file_bytes = f.read()
+    except OSError:
+        return None
+    return await extract_text(os.path.basename(path), file_bytes)
+
+
 async def upload_document(
     filename: str,
     file_bytes: bytes,

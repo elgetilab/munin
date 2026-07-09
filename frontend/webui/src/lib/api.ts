@@ -531,10 +531,22 @@ export async function uploadDocument(
 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(JSON.parse(xhr.responseText));
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          reject(new Error('Upload succeeded but the server response was malformed'));
+        }
       } else {
-        const err = JSON.parse(xhr.responseText).error?.message || `Upload failed (${xhr.status})`;
-        reject(new Error(err));
+        // The backend returns { error: { message } }, but a gateway/proxy
+        // error (502/504) can send a non-JSON body. Guard the parse so the
+        // real status still surfaces instead of a thrown SyntaxError.
+        let msg = `Upload failed (${xhr.status})`;
+        try {
+          msg = JSON.parse(xhr.responseText).error?.message || msg;
+        } catch {
+          /* non-JSON body - keep the status-based message */
+        }
+        reject(new Error(msg));
       }
     };
     xhr.onerror = () => reject(new Error('Upload failed'));

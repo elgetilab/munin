@@ -110,6 +110,14 @@ def _sse(event: str, payload: dict) -> dict:
 
 # --- Multimodal content resolution (§5) --------------------------------------
 
+# Cap on the extracted text of an attached document inlined into a single
+# user turn. ~12K tokens - large enough for a CV, a paper, or a long email
+# thread, bounded so a 200-page PDF can't blow the context window on its own.
+# Oversized docs are truncated with a note; the model can call search_user_docs
+# for the rest.
+MAX_DOC_INLINE_CHARS = 50_000
+
+
 async def _resolve_user_content_images(
     content: Any,
     user_email: str,
@@ -150,6 +158,47 @@ async def _resolve_user_content_images(
         btype = block.get("type")
         if btype == "text":
             resolved_blocks.append(vision.text_block(block.get("text") or ""))
+            continue
+        if btype == "document":
+            # A reference to an already-uploaded text document
+            # (.pdf/.txt/.md/.docx). Inline its extracted text so the model
+            # can act on the file the user attached (translate/summarise/...).
+            # Unlike images this is NOT count-capped; a huge doc is truncated
+            # to MAX_DOC_INLINE_CHARS instead. The injected text block flows
+            # into resolved_content -> the vLLM message and into persisted_text
+            # so a reload keeps the doc in context.
+            doc_id = block.get("document_id") or ""
+            filename = block.get("filename") or doc_id
+            text = await document_store.get_document_text(user_email, doc_id)
+            if text is None:
+                raise vision.VisionError(f"document not found: {doc_id!r}")
+            if text.strip():
+                if len(text) > MAX_DOC_INLINE_CHARS:
+                    text = (
+                        text[:MAX_DOC_INLINE_CHARS]
+                        + "\n\n[document truncated to fit the context window]"
+                    )
+                resolved_blocks.append(
+                    vision.text_block(f"[Attached document: {filename}]\n\n{text}")
+                )
+            else:
+                # File exists but yields no extractable text (empty, scanned
+                # PDF, or an image mistyped as a document). Note the gap so the
+                # model doesn't proceed as if it had read the file.
+                resolved_blocks.append(
+                    vision.text_block(
+                        f"[Attached document: {filename} - no extractable text "
+                        f"could be read from this file]"
+                    )
+                )
+            attachments.append(
+                {
+                    "document_id": doc_id,
+                    "filename": filename,
+                    "content_type": block.get("content_type") or "text/plain",
+                    "source": "document",
+                }
+            )
             continue
         if btype != "image_url":
             continue

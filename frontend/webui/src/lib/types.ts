@@ -406,7 +406,7 @@ export interface EmbeddingMap {
 
 // ── Chat Request ─────────────────────────────────────────────────────────────
 
-export type MessageContent = string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
+export type MessageContent = string | Array<{ type: string; text?: string; image_url?: { url: string }; document_id?: string; filename?: string }>;
 
 export interface ChatRequest {
   persona: string;

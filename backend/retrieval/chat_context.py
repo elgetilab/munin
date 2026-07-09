@@ -225,11 +225,14 @@ def budget_tool_results(messages: list, *, target_tokens: Optional[int] = None):
     (new_messages, n_elided).
 
     Does NOT mutate the input - the full results stay in the persisted
-    conversation; only the copy sent to vLLM is trimmed. Only tool results from
-    PRIOR loop iterations (before the most recent assistant message) are elided,
+    conversation; only the copy sent to vLLM is trimmed. Tool results from PRIOR
+    loop iterations (before the most recent assistant message) are elided first,
     oldest first - the model has already reasoned past them. The pending batch
-    (tool results after the last assistant message) is never touched, so we never
-    drop a result the current step still needs.
+    (tool results after the last assistant message) is preserved EXCEPT as a last
+    resort: if even after eliding all prior results the prompt still exceeds the
+    window (a single fan-out iteration whose own results overflow), the largest
+    pending results are elided too - degrading the turn instead of letting vLLM
+    reject it with a fatal context-length error.
     (todo_v2/done/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 2.)"""
     if target_tokens is None:
         target_tokens = MAX_MODEL_LEN - GENERATION_RESERVE - CTX_MARGIN
@@ -263,6 +266,32 @@ def budget_tool_results(messages: list, *, target_tokens: Optional[int] = None):
         total -= (per[i] - stub_tokens)
         out[i] = {**m, "content": _ELIDED_TOOL_RESULT}
         elided += 1
+
+    # Last resort: the pass above stops at the pending batch (i >= last_asst)
+    # to preserve the current step's results. But a SINGLE fan-out iteration
+    # whose own tool results exceed the window (deep_research + many searches,
+    # chat 5938cd64, 2026-07-08) would still overflow - and the alternative is
+    # a fatal vLLM "maximum context length" rejection that kills the turn.
+    # Degrade instead of dying: elide the largest pending tool results,
+    # largest first, until the prompt fits. The model loses some tool detail
+    # (and can re-run the tool) but the turn completes.
+    if total > target_tokens and last_asst >= 0:
+        pending = [
+            i for i, m in enumerate(messages)
+            if i > last_asst
+            and isinstance(m, dict)
+            and m.get("role") == "tool"
+            and m.get("content") != _ELIDED_TOOL_RESULT
+            and per[i] > stub_tokens
+        ]
+        pending.sort(key=lambda i: per[i], reverse=True)
+        for i in pending:
+            if total <= target_tokens:
+                break
+            total -= (per[i] - stub_tokens)
+            out[i] = {**messages[i], "content": _ELIDED_TOOL_RESULT}
+            elided += 1
+
     return out, elided
 
 
@@ -304,9 +333,16 @@ def _augment_with_attachments(message: dict) -> str:
     for att in attachments:
         if not isinstance(att, dict):
             continue
+        # Only image attachments are re-viewable via view_attachment, and only
+        # images are absent from the reloaded text (images are one-shot). Text
+        # documents are inlined into this message's content itself, so a
+        # "call view_attachment" hint would be wrong (view_attachment rejects
+        # non-images) and redundant - skip them.
+        ctype = att.get("content_type") or ""
+        if not ctype.startswith("image/"):
+            continue
         doc_id = att.get("document_id")
         filename = att.get("filename") or "unknown"
-        ctype = att.get("content_type") or "application/octet-stream"
         if doc_id:
             parts.append(f"{doc_id} ({filename}, {ctype})")
     if not parts:

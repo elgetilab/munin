@@ -330,8 +330,10 @@ export default function App() {
     );
   }, [sendMessage, selectedPersona, isEphemeral, projectIdForNewChat, activeTags]);
 
-  const handleSendMultimodal = useCallback((content: Array<{ type: string; text?: string; image_url?: { url: string } }>) => {
-    const textPart = content.find(c => c.type === 'text')?.text || '[Image]';
+  const handleSendMultimodal = useCallback((content: Array<{ type: string; text?: string; image_url?: { url: string }; document_id?: string; filename?: string }>) => {
+    const doc = content.find(c => c.type === 'document');
+    const textPart = content.find(c => c.type === 'text')?.text
+      || (doc ? `[${doc.filename || 'Document'}]` : '[Image]');
     sendMessage(textPart, selectedPersona, isEphemeral, content, projectIdForNewChat, activeTags.length > 0 ? activeTags : undefined);
   }, [sendMessage, selectedPersona, isEphemeral, projectIdForNewChat, activeTags]);
 

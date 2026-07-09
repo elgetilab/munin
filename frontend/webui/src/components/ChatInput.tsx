@@ -37,7 +37,7 @@ interface TagAutocompleteItem {
 // derivation here would duplicate logic.
 interface ChatInputProps {
   onSend: (content: string) => void;
-  onSendMultimodal?: (content: Array<{ type: string; text?: string; image_url?: { url: string } }>) => void;
+  onSendMultimodal?: (content: Array<{ type: string; text?: string; image_url?: { url: string }; document_id?: string; filename?: string }>) => void;
   onStop: () => void;
   isStreaming: boolean;
   persona: Persona | null;
@@ -99,6 +99,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const [uploadState, setUploadState] = useState<FileUploadState | null>(null);
   const [slashHighlight, setSlashHighlight] = useState(0);
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+  // Uploaded text documents (.pdf/.txt/.md/.docx) awaiting send. On submit each
+  // becomes a { type:'document', document_id } content block so the backend can
+  // inline the file's text into the turn. Distinct from pendingImages (images
+  // are sent inline as data URLs).
+  const [pendingDocs, setPendingDocs] = useState<UploadedDocument[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
   const [tagHighlight, setTagHighlight] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -253,6 +258,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     setImageError(null);
   };
 
+  const removeDoc = (documentId: string) => {
+    setPendingDocs(prev => prev.filter(d => d.document_id !== documentId));
+  };
+
   // Paste handler for images
   useEffect(() => {
     const el = textareaRef.current;
@@ -275,18 +284,23 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   const handleSubmit = () => {
     const trimmed = input.trim();
-    if ((!trimmed && pendingImages.length === 0) || isStreaming) return;
+    const hasAttachments = pendingImages.length > 0 || pendingDocs.length > 0;
+    if ((!trimmed && !hasAttachments) || isStreaming) return;
 
-    if (pendingImages.length > 0 && onSendMultimodal) {
-      const content: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
+    if (hasAttachments && onSendMultimodal) {
+      const content: Array<{ type: string; text?: string; image_url?: { url: string }; document_id?: string; filename?: string }> = [];
       if (trimmed) {
         content.push({ type: 'text', text: trimmed });
       }
       for (const img of pendingImages) {
         content.push({ type: 'image_url', image_url: { url: img.dataUrl } });
       }
+      for (const doc of pendingDocs) {
+        content.push({ type: 'document', document_id: doc.document_id, filename: doc.filename });
+      }
       onSendMultimodal(content);
       setPendingImages([]);
+      setPendingDocs([]);
     } else if (trimmed) {
       onSend(trimmed);
     }
@@ -367,8 +381,13 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         setUploadState(s => s ? { ...s, progress: pct } : null);
       });
       setUploadState({ file, progress: 100, status: 'done', result: doc });
+      // Hold the doc as a pending attachment so it's sent with the next message
+      // (deduped by document_id in case of a re-upload).
+      setPendingDocs(prev =>
+        prev.some(d => d.document_id === doc.document_id) ? prev : [...prev, doc]
+      );
       onFileUploaded?.(doc);
-      // Auto-dismiss after 5 seconds
+      // Auto-dismiss the progress chip after 5 seconds (the pending-doc chip stays).
       setTimeout(() => setUploadState(s => s?.status === 'done' ? null : s), 5000);
     } catch (e) {
       setUploadState({
@@ -645,6 +664,27 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           </div>
         )}
 
+        {/* Pending document chips */}
+        {pendingDocs.length > 0 && (
+          <div className="flex flex-wrap gap-2 px-5 pt-3">
+            {pendingDocs.map(doc => (
+              <div
+                key={doc.document_id}
+                className="flex items-center gap-2 pl-3 pr-2 py-1.5 rounded-lg bg-bg-secondary border border-border text-xs text-text-primary max-w-[16rem]"
+              >
+                <span className="truncate">{doc.filename}</span>
+                <button
+                  onClick={() => removeDoc(doc.document_id)}
+                  className="w-4 h-4 shrink-0 text-text-secondary hover:text-error flex items-center justify-center cursor-pointer"
+                  title="Remove attachment"
+                >
+                  &#10005;
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Image error */}
         {imageError && (
           <div className="px-5 pt-2 text-xs text-error">{imageError}</div>
@@ -802,7 +842,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           ) : (
             <button
               onClick={handleSubmit}
-              disabled={!input.trim() && pendingImages.length === 0}
+              disabled={!input.trim() && pendingImages.length === 0 && pendingDocs.length === 0}
               className="p-2.5 bg-accent rounded-full text-bg-primary cursor-pointer hover:bg-accent-hover transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               title="Send message"
             >

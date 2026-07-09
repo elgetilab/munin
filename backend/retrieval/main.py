@@ -1393,6 +1393,21 @@ async def api_chat_completions(request: Request):
                         status_code=400,
                         detail={"error": {"message": "image_url block missing url"}},
                     )
+            elif btype == "document":
+                # A reference to an already-uploaded text document
+                # (.pdf/.txt/.md/.docx). chat_service resolves it to the
+                # document's extracted text. Deliberately NOT counted
+                # against the image cap. See chat_service.py
+                # _resolve_user_content_images.
+                if not isinstance(block.get("document_id"), str) or not block.get(
+                    "document_id"
+                ):
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "error": {"message": "document block missing document_id"}
+                        },
+                    )
             else:
                 raise HTTPException(
                     status_code=400,

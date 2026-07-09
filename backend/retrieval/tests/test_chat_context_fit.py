@@ -19,6 +19,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import chat_context as cc  # noqa: E402
 
+try:
+    import pytest
+
+    @pytest.fixture(autouse=True)
+    def _isolate_prompt_tokens():
+        """Several fit tests reassign cc.prompt_tokens to a constant. Restore it
+        after each test so the stub doesn't leak into the budget_tool_results
+        tests (which need real token estimates). Under the standalone __main__
+        runner this fixture is inert, but tests run alphabetically there so the
+        budget tests execute before any fit test stubs prompt_tokens anyway."""
+        orig = cc.prompt_tokens
+        yield
+        cc.prompt_tokens = orig
+except ImportError:  # pytest not present in a bare standalone run
+    pass
+
 
 def _stub_prompt_tokens(n: int):
     """Force prompt_tokens to a fixed value so the fit arithmetic is tested
@@ -128,6 +144,41 @@ def test_budget_is_idempotent():
     # already-elided results are skipped and the pending batch is protected, so
     # a second pass changes nothing.
     assert n2 == 0 and out2 == out1
+
+
+def test_budget_elides_pending_as_last_resort_to_avoid_overflow():
+    # A single fan-out iteration whose OWN pending result exceeds the window,
+    # with no old results to elide. Rather than overflow (and let vLLM reject
+    # the turn), the pending result is elided as a last resort. This is julia's
+    # deep_research org-chart case (chat 5938cd64, 2026-07-08).
+    msgs = _fanout_messages(0, 200_000)  # ~50k-token pending result alone
+    pending_idx = len(msgs) - 1
+    out, n = cc.budget_tool_results(msgs, target_tokens=12_000)
+    assert n == 1
+    assert out[pending_idx]["content"] == cc._ELIDED_TOOL_RESULT
+    assert cc.prompt_tokens(out) <= 12_000
+    # persisted conversation untouched
+    assert msgs[pending_idx]["content"] != cc._ELIDED_TOOL_RESULT
+
+
+def test_budget_elides_largest_pending_first():
+    # Three pending results in one batch; elide largest-first only until it
+    # fits, keeping the smallest intact.
+    msgs = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "research"},
+        {"role": "assistant", "content": "",
+         "tool_calls": [{"id": "a"}, {"id": "b"}, {"id": "c"}]},
+        {"role": "tool", "tool_call_id": "a", "content": _big(120_000)},  # largest
+        {"role": "tool", "tool_call_id": "b", "content": _big(80_000)},
+        {"role": "tool", "tool_call_id": "c", "content": _big(8_000)},    # smallest
+    ]
+    out, n = cc.budget_tool_results(msgs, target_tokens=10_000)
+    assert n == 2  # the two largest elided
+    assert out[3]["content"] == cc._ELIDED_TOOL_RESULT   # a (largest)
+    assert out[4]["content"] == cc._ELIDED_TOOL_RESULT   # b
+    assert out[5]["content"] == _big(8_000)              # c (smallest) kept
+    assert cc.prompt_tokens(out) <= 10_000
 
 
 if __name__ == "__main__":
