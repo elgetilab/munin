@@ -81,6 +81,7 @@ def capture_answer(base_url: str, email: str, question: str,
     n_tool_results = 0
     n_tool_calls = 0  # ALL tool calls this turn (over-tooling signal), not just retrieval
     truncated = True
+    terminal_reason = None
     ev = None
     start = time.time()
     resp = urllib.request.urlopen(req, timeout=sock_timeout)
@@ -122,8 +123,12 @@ def capture_answer(base_url: str, email: str, question: str,
                         contexts.append(c)
             if ev == "done":
                 truncated = False
+                # terminal_reason == "max_turns" is the budget/tool-cap wrap-up
+                # path (over-tooling cap trips here); "done" = natural finish.
+                terminal_reason = obj.get("terminal_reason") if isinstance(obj, dict) else None
                 break
     finally:
         resp.close()
     return {"answer": content, "contexts": contexts, "truncated": truncated,
-            "n_tool_results": n_tool_results, "n_tool_calls": n_tool_calls}
+            "n_tool_results": n_tool_results, "n_tool_calls": n_tool_calls,
+            "terminal_reason": terminal_reason}
