@@ -217,6 +217,12 @@ def _qdrant_search_one(
             if isinstance(authors, list):
                 authors = [a if isinstance(a, str) else a.get("name", "") for a in authors][:5]
             doi = payload.get("doi")
+            # Surface a short abstract excerpt (T1a): lets the model ground a
+            # claim on real text AND judge relevance before a read_paper, rather
+            # than synthesising from bare metadata. Kept short (280 chars) so the
+            # result stays within the tool-result char budget.
+            abstract = (payload.get("abstract") or "").strip()
+            excerpt = (abstract[:280].rstrip() + "...") if len(abstract) > 280 else abstract
             row = {
                 "title": payload.get("title"),
                 "doi": doi,
@@ -225,6 +231,8 @@ def _qdrant_search_one(
                 "score": round(float(r.score), 3),
                 "matched_query": q,
             }
+            if excerpt:
+                row["excerpt"] = excerpt
             # Surface contributor attribution when present so the model
             # can cite it honestly ("a paper contributed by Zeitler Lab").
             contributors = payload.get("contributors")

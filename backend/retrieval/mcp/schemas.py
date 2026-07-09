@@ -59,7 +59,7 @@ MCP_TOOLS = {
     },
     "paper_search": {
         "name": "paper_search",
-        "description": "Search the LOCAL curated paper corpus (fast; the corpus is deliberately curated and INCOMPLETE, so branch out to semantic_scholar_search when hits are thin or the topic is off-corpus) using SPECTER semantic search with multi-query fan-out. Pass `queries` as an array of 3-5 varied phrasings for best coverage; the tool runs them in parallel and dedupes by DOI. Passing a single `query` string triggers automatic expansion into 3-5 variants. Returns papers with titles, authors, years, DOIs, and scores.",
+        "description": "Search the LOCAL curated paper corpus (fast; the corpus is deliberately curated and INCOMPLETE, so branch out to semantic_scholar_search when hits are thin or the topic is off-corpus) using SPECTER semantic search with multi-query fan-out. Pass `queries` as an array of 3-5 varied phrasings for best coverage; the tool runs them in parallel and dedupes by DOI. Passing a single `query` string triggers automatic expansion into 3-5 variants. Returns papers with titles, authors, years, DOIs, scores, and a short abstract excerpt you can ground claims on and use to judge relevance before calling read_paper.",
         "inputSchema": {
             "type": "object",
             "properties": {
