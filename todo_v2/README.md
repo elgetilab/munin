@@ -25,7 +25,8 @@ Eval-suite results writeup: `backend/benchmarks/RESULTS.md` (canonical).
 | `EVAL-SUITE-MASTER-PLAN.md` | Tracks B/C/D/F not built (see "What's next"). |
 | `RETRIEVAL-EVAL-SPEC.md` | Phases 1-3,5 done; **Phase 4 (local pool) deferred** (needs more usage / synthetic queries). Canonical retrieval spec. |
 | `BENCHMARK-TODO.md` | Benchmark landscape TODO; specced, not built. |
-| `TRACK-B-PLAN.md` | Answer faithfulness (local MiniCheck + RAGTruth validation). DRAFT plan; not built. |
+| `TRACK-B-PLAN.md` | Answer faithfulness (MiniCheck). B1-B4 built; judge validated (QA AUROC 0.95); interim arm 0.38 claims-supported. |
+| `HARNESS-ITERATION-SCOPE.md` | Scoping for the harness-iteration phase (grounding, over-tooling, tool defs). Pre-implementation. |
 | `KICKOFF-QUESTIONS.md` | Resolved decision record (kept as a live reference cited by the spec). |
 | `IMPLEMENTATION-HANDOFF.md` | Overarching eval-suite handoff (reference). |
 | `MIGRATION-LOOSE-ENDS.md` | Encoder-migration tail: embedding-map repoint + `papers` retirement. varghele/root. |
