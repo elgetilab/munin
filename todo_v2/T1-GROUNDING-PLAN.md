@@ -57,6 +57,18 @@ after T1a/T1b show the excerpt approach lifts grounding.
 3. If T1a helps but truncation is dropping papers -> T1b. Then T1c for the
    sub-agent path. Each gated on a Track B re-measure.
 
+## T1a OUTCOME (2026-07-09): NULL for grounding -> STOP the T1b/T1c evidence track
+
+Deployed T1a + measured (paired 40-q, both deep-default + extract). Grounding
+**0.356 -> 0.303** (CIs overlap; flat-to-down), over-tooling flat (median 10.5 ->
+13.5), contexts 85.6 -> 100.0. Adding evidence did NOT move grounding, so the
+~35% gap is NOT an evidence-availability problem - it is model synthesis beyond
+retrieved text + MiniCheck literalness (faithful cross-source synthesis scores as
+"unsupported"). Therefore **T1b/T1c (also evidence-availability fixes) are
+unlikely to help and are DE-PRIORITISED.** Keep T1a (harmless relevance-judging
+feature). The grounding number needs a correctness-aware judge (Track C/D), not
+more retrieval plumbing. Scorecard `2026-07-09_faithfulness-agentic-live-t1a`.
+
 ## Open questions
 
 1. Excerpt length: 280 chars default OK, or longer (more grounding text, fewer
