@@ -117,6 +117,20 @@ def _sse(event: str, payload: dict) -> dict:
 # for the rest.
 MAX_DOC_INLINE_CHARS = 50_000
 
+# Over-tooling backstop: hard ceiling on the CUMULATIVE tool calls in one user
+# message's agentic loop. Prompt-level bounds (persona depth / follow-up
+# guidance) proved insufficient - the harness eval (2026-07-09) showed 28-32-call
+# tails persisted regardless of depth-default or a prose follow-up cap. This cap
+# routes into the existing wrap-up synthesis (answer with what you have); a user
+# can Continue for a fresh budget.
+# Calibration (deep-default research, 40-answer Track B arm 2026-07-09): total
+# tool_calls/answer median 13.5, p90 40, max 43 - a heavy tail. Default 30
+# targets the clearly-excessive 30-52 tail (trips ~18% of answers) while leaving
+# typical research (<=29 calls) intact; 24 would have clipped 30%. This is a
+# SAFETY ceiling, not a tuned efficiency knob - the optimal needs a
+# quality-vs-calls sweep. Env-overridable via CHAT_MAX_TOOL_CALLS.
+MAX_TOOL_CALLS_PER_MESSAGE = int(os.getenv("CHAT_MAX_TOOL_CALLS", "30"))
+
 
 async def _resolve_user_content_images(
     content: Any,
@@ -1952,6 +1966,9 @@ async def stream_chat_completion(
         # (terminal_reason == "max_turns" in the `done` event).
         AUTO_CONTINUE_EXTENSIONS = 1
         turn_budget = MAX_TURNS * (AUTO_CONTINUE_EXTENSIONS + 1)
+        # Cumulative tool calls across this message's agentic loop; the
+        # MAX_TOOL_CALLS_PER_MESSAGE backstop trips the wrap-up when exceeded.
+        total_tool_calls = 0
         hit_turn_cap = True  # assume exhaustion unless we break cleanly below
         # Set by the loop body when a vLLM stream error or empty response forces
         # us to abandon the current turn. Triggers the partial-state persistence
@@ -2512,6 +2529,20 @@ async def stream_chat_completion(
                 view_followup = None
             if view_followup is not None:
                 messages.append(view_followup)
+
+            # Over-tooling backstop: cap the CUMULATIVE tool calls this message.
+            # Prompt bounds proved insufficient (harness eval 2026-07-09), so this
+            # is a hard ceiling. hit_turn_cap is still True here (this turn made
+            # tool calls, so the no-tool-calls path that clears it did not run),
+            # so breaking routes into the wrap-up synthesis below: the model is
+            # told to answer with what it has. The user can Continue for more.
+            total_tool_calls += len(tool_calls)
+            if total_tool_calls >= MAX_TOOL_CALLS_PER_MESSAGE:
+                logger.info(
+                    "tool-call budget reached (%d >= %d, persona=%s) - forcing wrap-up",
+                    total_tool_calls, MAX_TOOL_CALLS_PER_MESSAGE, persona_id,
+                )
+                break
 
         # --- 5b. Wrap-up: force a final synthesis if the loop exhausted its
         # turn budget, OR the last turn produced no real content. The empty-last-
