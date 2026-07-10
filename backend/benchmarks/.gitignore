@@ -14,3 +14,4 @@ results/
 # (~2MB/arm) and regenerable from the live chat; the derived scorecard under
 # scorecards/ is the committed record.
 faithfulness_runs/
+c1_runs/

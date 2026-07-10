@@ -1,0 +1,951 @@
+{
+  "meta": {
+    "n": 100,
+    "seed": 42,
+    "n_doi": 80,
+    "n_desc": 20,
+    "generator": "munin_bench.abstention.fabricate"
+  },
+  "items": [
+    {
+      "id": "fab-doi-001",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.7003",
+      "journal": "Protein Science",
+      "topic": "EPR oximetry in tumour microenvironments",
+      "question": "Summarise the key findings of 10.1002/pro.7003.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-002",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.6383",
+      "journal": "Protein Science",
+      "topic": "solid-state NMR of lipid-raft partitioning",
+      "question": "Summarise the key findings of 10.1002/pro.6383.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-003",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2023.539898",
+      "journal": "J. Magn. Reson.",
+      "topic": "graph-neural-network prediction of enzyme turnover numbers",
+      "question": "Summarise the key findings of 10.1016/j.jmr.2023.539898.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-004",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-025-92547",
+      "journal": "Nature Communications",
+      "topic": "conformational exchange in membrane transporters by CPMG relaxation dispersion",
+      "question": "Summarise the key findings of 10.1038/s41467-025-92547.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-005",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2022.988662",
+      "journal": "J. Mol. Biol.",
+      "topic": "EPR oximetry in tumour microenvironments",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1016/j.jmb.2022.988662.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-006",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2022.182627",
+      "journal": "J. Magn. Reson.",
+      "topic": "machine-learned force fields for RNA tertiary structure",
+      "question": "What does 10.1016/j.jmr.2022.182627 report about machine-learned force fields for RNA tertiary structure?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-007",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka9166",
+      "journal": "Nucleic Acids Res.",
+      "topic": "residual dipolar couplings in multidomain protein alignment",
+      "question": "What method did the paper 10.1093/nar/gka9166 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-008",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41592-025-95977",
+      "journal": "Nature Methods",
+      "topic": "hyperpolarised dissolution-DNP of pyruvate metabolism",
+      "question": "What does 10.1038/s41592-025-95977 report about hyperpolarised dissolution-DNP of pyruvate metabolism?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-009",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.6669",
+      "journal": "Protein Science",
+      "topic": "cross-correlated relaxation in intrinsically disordered proteins",
+      "question": "What method did the paper 10.1002/pro.6669 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-010",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.9297",
+      "journal": "Protein Science",
+      "topic": "cross-correlated relaxation in intrinsically disordered proteins",
+      "question": "Summarise the key findings of 10.1002/pro.9297.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-011",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2628306011",
+      "journal": "PNAS",
+      "topic": "spin-label distance distributions in amyloid fibrils by DEER/PELDOR",
+      "question": "What does 10.1073/pnas.2628306011 report about spin-label distance distributions in amyloid fibrils by DEER/PELDOR?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-012",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-023-99577",
+      "journal": "Nature Communications",
+      "topic": "cryo-EM of the ribosome elongation cycle",
+      "question": "What method did the paper 10.1038/s41467-023-99577 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-013",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-025-90771",
+      "journal": "Nature Communications",
+      "topic": "single-molecule FRET of chaperone-assisted folding",
+      "question": "What method did the paper 10.1038/s41467-025-90771 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-014",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.8440",
+      "journal": "Protein Science",
+      "topic": "cross-correlated relaxation in intrinsically disordered proteins",
+      "question": "Summarise the key findings of 10.1002/pro.8440.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-015",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.9148",
+      "journal": "Protein Science",
+      "topic": "conformational exchange in membrane transporters by CPMG relaxation dispersion",
+      "question": "What does 10.1002/pro.9148 report about conformational exchange in membrane transporters by CPMG relaxation dispersion?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-016",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2023.103402",
+      "journal": "J. Mol. Biol.",
+      "topic": "solid-state NMR of lipid-raft partitioning",
+      "question": "Summarise the key findings of 10.1016/j.jmb.2023.103402.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-017",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.6626",
+      "journal": "Protein Science",
+      "topic": "solid-state NMR of lipid-raft partitioning",
+      "question": "Summarise the key findings of 10.1002/pro.6626.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-018",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka9805",
+      "journal": "Nucleic Acids Res.",
+      "topic": "hyperpolarised dissolution-DNP of pyruvate metabolism",
+      "question": "Summarise the key findings of 10.1093/nar/gka9805.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-019",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2491969690",
+      "journal": "PNAS",
+      "topic": "graph-neural-network prediction of enzyme turnover numbers",
+      "question": "What method did the paper 10.1073/pnas.2491969690 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-020",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-025-94342",
+      "journal": "Nature Communications",
+      "topic": "molecular-dynamics free-energy landscapes of protein folding",
+      "question": "What method did the paper 10.1038/s41467-025-94342 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-021",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2023.518373",
+      "journal": "J. Magn. Reson.",
+      "topic": "conformational exchange in membrane transporters by CPMG relaxation dispersion",
+      "question": "What method did the paper 10.1016/j.jmr.2023.518373 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-022",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2763016614",
+      "journal": "PNAS",
+      "topic": "hyperpolarised dissolution-DNP of pyruvate metabolism",
+      "question": "Summarise the key findings of 10.1073/pnas.2763016614.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-023",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41592-022-90514",
+      "journal": "Nature Methods",
+      "topic": "solid-state NMR of lipid-raft partitioning",
+      "question": "What method did the paper 10.1038/s41592-022-90514 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-024",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.5c92167",
+      "journal": "JACS",
+      "topic": "paramagnetic relaxation enhancement mapping of transient encounter complexes",
+      "question": "What method did the paper 10.1021/jacs.5c92167 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-025",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2025.864491",
+      "journal": "J. Mol. Biol.",
+      "topic": "conformational exchange in membrane transporters by CPMG relaxation dispersion",
+      "question": "Summarise the key findings of 10.1016/j.jmb.2025.864491.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-026",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2024.360735",
+      "journal": "J. Mol. Biol.",
+      "topic": "spin-label distance distributions in amyloid fibrils by DEER/PELDOR",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1016/j.jmb.2024.360735.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-027",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-024-91235",
+      "journal": "Nature Communications",
+      "topic": "conformational exchange in membrane transporters by CPMG relaxation dispersion",
+      "question": "Summarise the key findings of 10.1038/s41467-024-91235.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-028",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.6681",
+      "journal": "Protein Science",
+      "topic": "paramagnetic relaxation enhancement mapping of transient encounter complexes",
+      "question": "What method did the paper 10.1002/pro.6681 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-029",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2022.497382",
+      "journal": "J. Mol. Biol.",
+      "topic": "cross-correlated relaxation in intrinsically disordered proteins",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1016/j.jmb.2022.497382.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-030",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2025.299122",
+      "journal": "J. Magn. Reson.",
+      "topic": "EPR oximetry in tumour microenvironments",
+      "question": "Summarise the key findings of 10.1016/j.jmr.2025.299122.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-031",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jbc.2022.712554",
+      "journal": "J. Biol. Chem.",
+      "topic": "spin-label distance distributions in amyloid fibrils by DEER/PELDOR",
+      "question": "Summarise the key findings of 10.1016/j.jbc.2022.712554.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-032",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2022.171849",
+      "journal": "J. Magn. Reson.",
+      "topic": "molecular-dynamics free-energy landscapes of protein folding",
+      "question": "Summarise the key findings of 10.1016/j.jmr.2022.171849.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-033",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka7717",
+      "journal": "Nucleic Acids Res.",
+      "topic": "machine-learned force fields for RNA tertiary structure",
+      "question": "What does 10.1093/nar/gka7717 report about machine-learned force fields for RNA tertiary structure?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-034",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.3c94351",
+      "journal": "JACS",
+      "topic": "single-molecule FRET of chaperone-assisted folding",
+      "question": "What does 10.1021/jacs.3c94351 report about single-molecule FRET of chaperone-assisted folding?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-035",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.bpj.2024.10.676",
+      "journal": "Biophysical Journal",
+      "topic": "conformational exchange in membrane transporters by CPMG relaxation dispersion",
+      "question": "What method did the paper 10.1016/j.bpj.2024.10.676 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-036",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2024.465962",
+      "journal": "J. Magn. Reson.",
+      "topic": "cross-correlated relaxation in intrinsically disordered proteins",
+      "question": "What method did the paper 10.1016/j.jmr.2024.465962 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-037",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.bpj.2024.10.779",
+      "journal": "Biophysical Journal",
+      "topic": "photo-CIDNP of transient radical pairs in cryptochromes",
+      "question": "What method did the paper 10.1016/j.bpj.2024.10.779 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-038",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.2c99064",
+      "journal": "JACS",
+      "topic": "machine-learned force fields for RNA tertiary structure",
+      "question": "What method did the paper 10.1021/jacs.2c99064 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-039",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jbc.2023.629959",
+      "journal": "J. Biol. Chem.",
+      "topic": "conformational exchange in membrane transporters by CPMG relaxation dispersion",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1016/j.jbc.2023.629959.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-040",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.2c92143",
+      "journal": "JACS",
+      "topic": "EPR oximetry in tumour microenvironments",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1021/jacs.2c92143.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-041",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2025.217308",
+      "journal": "J. Magn. Reson.",
+      "topic": "solid-state NMR of lipid-raft partitioning",
+      "question": "Summarise the key findings of 10.1016/j.jmr.2025.217308.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-042",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jbc.2023.233636",
+      "journal": "J. Biol. Chem.",
+      "topic": "photo-CIDNP of transient radical pairs in cryptochromes",
+      "question": "What does 10.1016/j.jbc.2023.233636 report about photo-CIDNP of transient radical pairs in cryptochromes?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-043",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2510373808",
+      "journal": "PNAS",
+      "topic": "machine-learned force fields for RNA tertiary structure",
+      "question": "What method did the paper 10.1073/pnas.2510373808 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-044",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2590108532",
+      "journal": "PNAS",
+      "topic": "graph-neural-network prediction of enzyme turnover numbers",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1073/pnas.2590108532.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-045",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.7566",
+      "journal": "Protein Science",
+      "topic": "residual dipolar couplings in multidomain protein alignment",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1002/pro.7566.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-046",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2894246837",
+      "journal": "PNAS",
+      "topic": "hyperpolarised dissolution-DNP of pyruvate metabolism",
+      "question": "Summarise the key findings of 10.1073/pnas.2894246837.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-047",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.9540",
+      "journal": "Protein Science",
+      "topic": "cryo-EM of the ribosome elongation cycle",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1002/pro.9540.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-048",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.6731",
+      "journal": "Protein Science",
+      "topic": "allosteric coupling in G-protein-coupled receptors",
+      "question": "Summarise the key findings of 10.1002/pro.6731.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-049",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka7787",
+      "journal": "Nucleic Acids Res.",
+      "topic": "conformational exchange in membrane transporters by CPMG relaxation dispersion",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1093/nar/gka7787.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-050",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka6006",
+      "journal": "Nucleic Acids Res.",
+      "topic": "single-molecule FRET of chaperone-assisted folding",
+      "question": "What method did the paper 10.1093/nar/gka6006 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-051",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jbc.2025.796503",
+      "journal": "J. Biol. Chem.",
+      "topic": "residual dipolar couplings in multidomain protein alignment",
+      "question": "Summarise the key findings of 10.1016/j.jbc.2025.796503.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-052",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.4c96592",
+      "journal": "JACS",
+      "topic": "spin-label distance distributions in amyloid fibrils by DEER/PELDOR",
+      "question": "What method did the paper 10.1021/jacs.4c96592 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-053",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2025.745414",
+      "journal": "J. Mol. Biol.",
+      "topic": "residual dipolar couplings in multidomain protein alignment",
+      "question": "Summarise the key findings of 10.1016/j.jmb.2025.745414.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-054",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.4c99502",
+      "journal": "JACS",
+      "topic": "paramagnetic relaxation enhancement mapping of transient encounter complexes",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1021/jacs.4c99502.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-055",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2024.958179",
+      "journal": "J. Magn. Reson.",
+      "topic": "graph-neural-network prediction of enzyme turnover numbers",
+      "question": "What method did the paper 10.1016/j.jmr.2024.958179 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-056",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-022-97784",
+      "journal": "Nature Communications",
+      "topic": "paramagnetic relaxation enhancement mapping of transient encounter complexes",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1038/s41467-022-97784.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-057",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.6999",
+      "journal": "Protein Science",
+      "topic": "EPR oximetry in tumour microenvironments",
+      "question": "Summarise the key findings of 10.1002/pro.6999.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-058",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41592-025-98486",
+      "journal": "Nature Methods",
+      "topic": "hyperpolarised dissolution-DNP of pyruvate metabolism",
+      "question": "Summarise the key findings of 10.1038/s41592-025-98486.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-059",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.bpj.2023.11.709",
+      "journal": "Biophysical Journal",
+      "topic": "graph-neural-network prediction of enzyme turnover numbers",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1016/j.bpj.2023.11.709.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-060",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka9046",
+      "journal": "Nucleic Acids Res.",
+      "topic": "paramagnetic relaxation enhancement mapping of transient encounter complexes",
+      "question": "What does 10.1093/nar/gka9046 report about paramagnetic relaxation enhancement mapping of transient encounter complexes?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-061",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2959741412",
+      "journal": "PNAS",
+      "topic": "EPR oximetry in tumour microenvironments",
+      "question": "What does 10.1073/pnas.2959741412 report about EPR oximetry in tumour microenvironments?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-062",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2760613550",
+      "journal": "PNAS",
+      "topic": "hyperpolarised dissolution-DNP of pyruvate metabolism",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1073/pnas.2760613550.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-063",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-023-96678",
+      "journal": "Nature Communications",
+      "topic": "molecular-dynamics free-energy landscapes of protein folding",
+      "question": "Summarise the key findings of 10.1038/s41467-023-96678.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-064",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2818197538",
+      "journal": "PNAS",
+      "topic": "residual dipolar couplings in multidomain protein alignment",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1073/pnas.2818197538.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-065",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2023.330080",
+      "journal": "J. Magn. Reson.",
+      "topic": "molecular-dynamics free-energy landscapes of protein folding",
+      "question": "What does 10.1016/j.jmr.2023.330080 report about molecular-dynamics free-energy landscapes of protein folding?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-066",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.9766",
+      "journal": "Protein Science",
+      "topic": "solid-state NMR of lipid-raft partitioning",
+      "question": "Summarise the key findings of 10.1002/pro.9766.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-067",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2022.773971",
+      "journal": "J. Mol. Biol.",
+      "topic": "spin-label distance distributions in amyloid fibrils by DEER/PELDOR",
+      "question": "Summarise the key findings of 10.1016/j.jmb.2022.773971.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-068",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.5c97449",
+      "journal": "JACS",
+      "topic": "cross-correlated relaxation in intrinsically disordered proteins",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1021/jacs.5c97449.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-069",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.2c98837",
+      "journal": "JACS",
+      "topic": "single-molecule FRET of chaperone-assisted folding",
+      "question": "Summarise the key findings of 10.1021/jacs.2c98837.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-070",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.9437",
+      "journal": "Protein Science",
+      "topic": "spin-label distance distributions in amyloid fibrils by DEER/PELDOR",
+      "question": "What method did the paper 10.1002/pro.9437 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-071",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-025-93571",
+      "journal": "Nature Communications",
+      "topic": "graph-neural-network prediction of enzyme turnover numbers",
+      "question": "What does 10.1038/s41467-025-93571 report about graph-neural-network prediction of enzyme turnover numbers?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-072",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-022-91771",
+      "journal": "Nature Communications",
+      "topic": "machine-learned force fields for RNA tertiary structure",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1038/s41467-022-91771.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-073",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2023.720859",
+      "journal": "J. Mol. Biol.",
+      "topic": "residual dipolar couplings in multidomain protein alignment",
+      "question": "Summarise the key findings of 10.1016/j.jmb.2023.720859.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-074",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka8709",
+      "journal": "Nucleic Acids Res.",
+      "topic": "solid-state NMR of lipid-raft partitioning",
+      "question": "What does 10.1093/nar/gka8709 report about solid-state NMR of lipid-raft partitioning?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-075",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41586-025-97102",
+      "journal": "Nature",
+      "topic": "photo-CIDNP of transient radical pairs in cryptochromes",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1038/s41586-025-97102.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-076",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-025-98548",
+      "journal": "Nature Communications",
+      "topic": "machine-learned force fields for RNA tertiary structure",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1038/s41467-025-98548.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-077",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.bpj.2025.11.188",
+      "journal": "Biophysical Journal",
+      "topic": "photo-CIDNP of transient radical pairs in cryptochromes",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1016/j.bpj.2025.11.188.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-078",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2806936666",
+      "journal": "PNAS",
+      "topic": "spin-label distance distributions in amyloid fibrils by DEER/PELDOR",
+      "question": "Give me the main result and the sample size from the paper with DOI 10.1073/pnas.2806936666.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-079",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2677403790",
+      "journal": "PNAS",
+      "topic": "photo-CIDNP of transient radical pairs in cryptochromes",
+      "question": "What does 10.1073/pnas.2677403790 report about photo-CIDNP of transient radical pairs in cryptochromes?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-doi-080",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2022.300337",
+      "journal": "J. Magn. Reson.",
+      "topic": "paramagnetic relaxation enhancement mapping of transient encounter complexes",
+      "question": "What method did the paper 10.1016/j.jmr.2022.300337 use, and what did it conclude?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-001",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "Biophysical Journal",
+      "topic": "single-molecule FRET of chaperone-assisted folding",
+      "fake_author": "Rosenthal",
+      "fake_title": "Characterises single-molecule FRET of chaperone-assisted folding in a bacterial ABC transporter",
+      "question": "Summarise the 2025 Biophysical Journal paper by Rosenthal et al. on single-molecule FRET of chaperone-assisted folding.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-002",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "PNAS",
+      "topic": "molecular-dynamics free-energy landscapes of protein folding",
+      "fake_author": "Marchetti",
+      "fake_title": "Uncovers molecular-dynamics free-energy landscapes of protein folding in the spliceosome B-complex",
+      "question": "What did Marchetti and colleagues (PNAS, 2023) find about molecular-dynamics free-energy landscapes of protein folding?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-003",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "J. Magn. Reson.",
+      "topic": "cryo-EM of the ribosome elongation cycle",
+      "fake_author": "Petrov",
+      "fake_title": "Dissects cryo-EM of the ribosome elongation cycle in the spliceosome B-complex",
+      "question": "What experimental system did Petrov et al. use in their cryo-EM of the ribosome elongation cycle study?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-004",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "JACS",
+      "topic": "cross-correlated relaxation in intrinsically disordered proteins",
+      "fake_author": "Andersson",
+      "fake_title": "Quantifies cross-correlated relaxation in intrinsically disordered proteins in the beta-2 adrenergic receptor",
+      "question": "What experimental system did Andersson et al. use in their cross-correlated relaxation in intrinsically disordered proteins study?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-005",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "J. Biol. Chem.",
+      "topic": "conformational exchange in membrane transporters by CPMG relaxation dispersion",
+      "fake_author": "Steinberg",
+      "fake_title": "Quantifies conformational exchange in membrane transporters by CPMG relaxation dispersion in the Hsp70 chaperone cycle",
+      "question": "What experimental system did Steinberg et al. use in their conformational exchange in membrane transporters by CPMG relaxation dispersion study?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-006",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "JACS",
+      "topic": "EPR oximetry in tumour microenvironments",
+      "fake_author": "Andersson",
+      "fake_title": "Resolves EPR oximetry in tumour microenvironments in the Hsp70 chaperone cycle",
+      "question": "What did Andersson and colleagues (JACS, 2024) find about EPR oximetry in tumour microenvironments?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-007",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "J. Biol. Chem.",
+      "topic": "spin-label distance distributions in amyloid fibrils by DEER/PELDOR",
+      "fake_author": "Steinberg",
+      "fake_title": "Reveals spin-label distance distributions in amyloid fibrils by DEER/PELDOR in alpha-synuclein oligomers",
+      "question": "What did Steinberg and colleagues (J. Biol. Chem., 2024) find about spin-label distance distributions in amyloid fibrils by DEER/PELDOR?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-008",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "Nature",
+      "topic": "solid-state NMR of lipid-raft partitioning",
+      "fake_author": "Vasquez",
+      "fake_title": "Maps solid-state NMR of lipid-raft partitioning in photosystem II",
+      "question": "Summarise the 2024 Nature paper by Vasquez et al. on solid-state NMR of lipid-raft partitioning.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-009",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "Nature",
+      "topic": "machine-learned force fields for RNA tertiary structure",
+      "fake_author": "Ibanez",
+      "fake_title": "Characterises machine-learned force fields for RNA tertiary structure in photosystem II",
+      "question": "What did Ibanez and colleagues (Nature, 2024) find about machine-learned force fields for RNA tertiary structure?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-010",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "Nature Communications",
+      "topic": "allosteric coupling in G-protein-coupled receptors",
+      "fake_author": "Nakashima",
+      "fake_title": "Characterises allosteric coupling in G-protein-coupled receptors in the beta-2 adrenergic receptor",
+      "question": "Summarise the 2024 Nature Communications paper by Nakashima et al. on allosteric coupling in G-protein-coupled receptors.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-011",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "Biophysical Journal",
+      "topic": "conformational exchange in membrane transporters by CPMG relaxation dispersion",
+      "fake_author": "Dubois",
+      "fake_title": "Maps conformational exchange in membrane transporters by CPMG relaxation dispersion in alpha-synuclein oligomers",
+      "question": "What experimental system did Dubois et al. use in their conformational exchange in membrane transporters by CPMG relaxation dispersion study?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-012",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "Nature Methods",
+      "topic": "hyperpolarised dissolution-DNP of pyruvate metabolism",
+      "fake_author": "Marchetti",
+      "fake_title": "Constrains hyperpolarised dissolution-DNP of pyruvate metabolism in the Hsp70 chaperone cycle",
+      "question": "What experimental system did Marchetti et al. use in their hyperpolarised dissolution-DNP of pyruvate metabolism study?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-013",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "Biophysical Journal",
+      "topic": "photo-CIDNP of transient radical pairs in cryptochromes",
+      "fake_author": "Dubois",
+      "fake_title": "Uncovers photo-CIDNP of transient radical pairs in cryptochromes in a riboswitch aptamer domain",
+      "question": "What did Dubois and colleagues (Biophysical Journal, 2025) find about photo-CIDNP of transient radical pairs in cryptochromes?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-014",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "Nucleic Acids Res.",
+      "topic": "allosteric coupling in G-protein-coupled receptors",
+      "fake_author": "Larkin",
+      "fake_title": "Quantifies allosteric coupling in G-protein-coupled receptors in the Hsp70 chaperone cycle",
+      "question": "What did Larkin and colleagues (Nucleic Acids Res., 2022) find about allosteric coupling in G-protein-coupled receptors?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-015",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "Nature Methods",
+      "topic": "spin-label distance distributions in amyloid fibrils by DEER/PELDOR",
+      "fake_author": "Fenwick",
+      "fake_title": "Maps spin-label distance distributions in amyloid fibrils by DEER/PELDOR in the beta-2 adrenergic receptor",
+      "question": "Summarise the 2023 Nature Methods paper by Fenwick et al. on spin-label distance distributions in amyloid fibrils by DEER/PELDOR.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-016",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "J. Mol. Biol.",
+      "topic": "paramagnetic relaxation enhancement mapping of transient encounter complexes",
+      "fake_author": "Vasquez",
+      "fake_title": "Uncovers paramagnetic relaxation enhancement mapping of transient encounter complexes in a bacterial ABC transporter",
+      "question": "Summarise the 2025 J. Mol. Biol. paper by Vasquez et al. on paramagnetic relaxation enhancement mapping of transient encounter complexes.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-017",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "JACS",
+      "topic": "EPR oximetry in tumour microenvironments",
+      "fake_author": "Marchetti",
+      "fake_title": "Resolves EPR oximetry in tumour microenvironments in the Hsp70 chaperone cycle",
+      "question": "What did Marchetti and colleagues (JACS, 2025) find about EPR oximetry in tumour microenvironments?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-018",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "Protein Science",
+      "topic": "machine-learned force fields for RNA tertiary structure",
+      "fake_author": "Kowalczyk",
+      "fake_title": "Constrains machine-learned force fields for RNA tertiary structure in the beta-2 adrenergic receptor",
+      "question": "What experimental system did Kowalczyk et al. use in their machine-learned force fields for RNA tertiary structure study?",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-019",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "Protein Science",
+      "topic": "spin-label distance distributions in amyloid fibrils by DEER/PELDOR",
+      "fake_author": "Steinberg",
+      "fake_title": "Maps spin-label distance distributions in amyloid fibrils by DEER/PELDOR in the beta-2 adrenergic receptor",
+      "question": "Summarise the 2024 Protein Science paper by Steinberg et al. on spin-label distance distributions in amyloid fibrils by DEER/PELDOR.",
+      "correct_behavior": "not_found_no_confabulation"
+    },
+    {
+      "id": "fab-desc-020",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "journal": "JACS",
+      "topic": "machine-learned force fields for RNA tertiary structure",
+      "fake_author": "Halloran",
+      "fake_title": "Characterises machine-learned force fields for RNA tertiary structure in the beta-2 adrenergic receptor",
+      "question": "What did Halloran and colleagues (JACS, 2024) find about machine-learned force fields for RNA tertiary structure?",
+      "correct_behavior": "not_found_no_confabulation"
+    }
+  ]
+}
