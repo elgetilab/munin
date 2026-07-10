@@ -104,6 +104,36 @@ needs the Qdrant shadow + a retrieval env-flip via varghele) - the other half of
 calibration. The in-corpus LitQA2 answer track (~40% abstain) is the standing
 over-abstention baseline until C2.
 
+## C2b BUILD + HANDOFF (2026-07-10) - shadow-corpus paired test, chosen: second instance
+
+Built (mine, no deploy):
+- `papers_shadow` Qdrant collection = `papers_bge` minus 49 source papers
+  (68,074 pts, 0 leakage). Non-destructive; `papers_bge` untouched.
+- 50 single-source-DOI in-corpus LitQA2 questions frozen
+  (`abstention/c2_questions.json`, seed 42; 49 distinct DOIs, 2 share a source).
+- `abstention/build_shadow.py` (rebuild), `abstention/run_c2.py` (per-arm MCQ
+  scoring + paired metrics), `docker/docker-compose.shadow.yml` (generated from
+  the real retrieval block: reuses `munin-retrieval:latest`, port 8081,
+  `PAPERS_COLLECTION=papers_shadow`, `PAPER_ENCODER=bge-large`, `ROUTER_ENABLED=true`).
+
+**varghele: bring up the isolated shadow instance (zero prod impact - separate
+container, separate port, prod :8080 + papers_bge untouched):**
+```
+cd /opt/munin/docker
+docker compose --profile rag -f docker-compose.yml -f docker-compose.shadow.yml up -d retrieval-shadow
+curl -s -o /dev/null -w "shadow :8081 -> %{http_code}\n" http://127.0.0.1:8081/api/status
+```
+Tear down after the eval:
+```
+docker compose -f docker-compose.yml -f docker-compose.shadow.yml stop retrieval-shadow && docker rm munin-retrieval-shadow
+```
+
+Eval (mine): PRESENT arm runs now on :8080; ABSENT arm on :8081 once the shadow
+is up. `run_c2` writes the paired scorecard when both arms are captured.
+- **Metrics:** over-abstention (present abstains on answerable), **correct-
+  abstention** (present-correct -> absent-abstain, the calibration flip),
+  over-confidence (absent still answers with the source gone).
+
 ## Open questions
 
 1. **C1 first, defer C2?** (Recommend: yes - C1 is cheap, novel, no infra; decide

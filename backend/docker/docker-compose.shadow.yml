@@ -1,0 +1,151 @@
+# Track C2b - shadow retrieval instance (EVAL ONLY, temporary).
+# Second retrieval on 127.0.0.1:8081 searching papers_shadow (papers_bge minus
+# 49 LitQA2 source papers). Non-destructive: reuses munin-retrieval:latest;
+# papers_bge + prod :8080 untouched.
+# Up:   cd /opt/munin/docker && docker compose --profile rag -f docker-compose.yml -f docker-compose.shadow.yml up -d retrieval-shadow
+# Down: docker compose -f docker-compose.yml -f docker-compose.shadow.yml stop retrieval-shadow && docker rm munin-retrieval-shadow
+services:
+  retrieval-shadow:
+    image: munin-retrieval:latest
+    container_name: munin-retrieval-shadow
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8081:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Allows container to reach host services
+    volumes:
+      - /opt/munin/data/models/bge-base:/models/bge-base:ro
+      - /opt/munin/data/models/specter:/models/specter:ro
+      # BGE-large paper encoder (encoder migration). Empty/missing is fine until
+      # PAPER_ENCODER=bge-large is set. See todo_v2/done/ENCODER-MIGRATION-PLAN.md.
+      - /opt/munin/data/models/bge-large:/models/bge-large:ro
+      # Qwen3 tokenizer for exact context-budget token counting (P1 #8).
+      # Only the ~7 MB tokenizer files, copied out of the vLLM model dir
+      # by deploy.sh — the container never needs the full weights.
+      # Empty/missing dir is fine: chat_context falls back to a char
+      # heuristic. See DECISIONS.md 2026-05-21.
+      - /opt/munin/data/models/qwen-tokenizer:/models/qwen:ro
+      # :rw because /api/admin/ingest writes PDFs into pdf/inbox/ and
+      # moves them to pdf/{doi_hash}.pdf after the pipeline succeeds (§28).
+      - /opt/munin/data/papers/pdf:/papers:rw
+      # Processed-marker dir the pipeline watcher consults (one
+      # JSON per PDF basename). /api/admin/ingest writes a marker
+      # on success so the watcher daemon skips papers the
+      # admin-ingest path already handled.
+      - /opt/munin/data/papers/processed:/papers-processed:rw
+      # Persona definitions (chat personas + logos)
+      - /opt/munin/personas:/app/personas:ro
+      # Agent registry (agents.yml)
+      - /opt/munin/config:/app/config:ro
+      # Chat persistence (SQLite) and user document store
+      - /opt/munin/data:/data:rw
+      - /opt/munin/data/user_docs:/data/user_docs:rw
+      # Deep Research volumes
+      - /opt/munin/deepresearch/queue:/deepresearch/queue:rw
+      - /opt/munin/deepresearch/jobs:/deepresearch/jobs:ro
+      - /opt/munin/deepresearch:/deepresearch/status:ro
+      # §15 embedding map (built by host-side systemd timer)
+      - /opt/munin/knowledge:/knowledge:ro
+      # §28 paper pipeline (invoked as subprocess by /api/admin/ingest)
+      - /opt/cluster/scripts/pipeline:/app/pipeline:ro
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-munin-neo4j-password}
+      - SEARXNG_URL=http://searxng:8080
+      - SPECTER_MODEL_PATH=/models/specter
+      - BGE_MODEL_PATH=/models/bge-base
+      # Paper encoder migration (defaults preserve SPECTER+papers; flip both
+      # to bge-large / papers_bge to cut over). See ENCODER-MIGRATION-PLAN.md.
+      - PAPER_ENCODER=bge-large
+      - PAPERS_COLLECTION=papers_shadow
+      - BGE_LARGE_MODEL_PATH=${BGE_LARGE_MODEL_PATH:-/models/bge-large}
+      - QWEN_TOKENIZER_PATH=/models/qwen/tokenizer.json
+      - PAPERS_PDF_DIR=/papers
+      # Chat persistence + user docs
+      - CHATS_DB_PATH=/data/chats.db
+      - USER_DOCS_DIR=/data/user_docs
+      # Deep Research environment
+      - DEEPRESEARCH_QUEUE_DIR=/deepresearch/queue
+      - DEEPRESEARCH_JOBS_DIR=/deepresearch/jobs
+      - SLURM_QUEUE_FILE=/deepresearch/status/slurm_queue.json
+      # vLLM for MCP tools (llm_summarize, web_fetch with summarize)
+      # Uses host.docker.internal to reach vLLM running on host
+      - VLLM_URL=http://<cluster-lan-ip>:8000
+      - VLLM_MODEL_NAME=qwen3.6-35b-a3b
+      # Context window: the vLLM start scripts `export` these before
+      # `docker compose up` to match the running mode (single-GPU 65536/60000,
+      # TP=2 131072/125000) so the backend uses the right window. Compose
+      # substitutes the invoking shell's env here; defaults = single-GPU.
+      - VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-65536}
+      - VLLM_MAX_CONTEXT=${VLLM_MAX_CONTEXT:-60000}
+      # A3: up-front per-turn router. See munin.env.
+      - ROUTER_ENABLED=true
+      # Semantic Scholar API (for semantic_scholar_search tool)
+      - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
+      # Sandbox sidecar (§2). Reached over the internal sandbox-net.
+      - SANDBOX_URL=http://sandbox:8090
+      # §28 contributor ingest (VPS hook → POST /api/admin/ingest)
+      - ADMIN_INGEST_TOKEN=${ADMIN_INGEST_TOKEN:-}
+      # P1 #11: contributors.yml is now pulled from auth.muninai.org
+      # on a 5-minute timer. CONTRIBUTORS_CONFIG points at the writable
+      # /data mount because /app/config is read-only. The deploy script
+      # seeds /opt/munin/data/contributors.yml (= /data inside) the
+      # first time so ingest works before the first sync completes.
+      - CONTRIBUTORS_CONFIG=/data/contributors.yml
+      - CONTRIBUTORS_SYNC_URL=${CONTRIBUTORS_SYNC_URL:-https://auth.muninai.org/admin/contributors.yaml}
+      - CONTRIBUTORS_SYNC_TOKEN=${CONTRIBUTORS_SYNC_TOKEN:-}
+      # Admin metrics proxy (in-house dashboards under webui Admin
+      # panel -> Metrics tab). URL points at the auth service's
+      # /admin/check-role endpoint; the token is the same KB_GATE_TOKEN
+      # the tusd hook-service uses, since the lookup is identical
+      # (read-only role check). When the token is unset, the metrics
+      # proxy returns 503 so the panel surfaces "not configured".
+      - AUTH_CHECK_ROLE_URL=${AUTH_CHECK_ROLE_URL:-https://auth.muninai.org/admin/check-role}
+      - KB_GATE_TOKEN=${KB_GATE_TOKEN:-}
+      # Prometheus URL for the metrics proxy. Inside the docker network
+      # the prometheus container is reachable by service name.
+      - PROMETHEUS_URL=${PROMETHEUS_URL:-http://prometheus:9090}
+      - CONTRIBUTORS_SYNC_INTERVAL_SECS=${CONTRIBUTORS_SYNC_INTERVAL_SECS:-300}
+      - PAPER_PIPELINE_SCRIPT=/app/pipeline/paper_pipeline.py
+      # paper_pipeline.py subprocess reads this for GROBID connectivity
+      # (QDRANT_HOST / NEO4J_PASSWORD are already set above and inherited).
+      - GROBID_URL=http://grobid:8070
+      # /api/admin/ingest writes a processed-marker here so the
+      # host-side munin-paper-pipeline.service watcher skips the paper.
+      - PAPERS_PROCESSED_DIR=/papers-processed
+      # POST /api/chats/{id}/report writes here. Default
+      # /opt/munin/data/reported doesn't exist inside the container
+      # (host's /opt/munin/data is mounted at /data), so without
+      # this override reports land in the container's ephemeral
+      # writable layer and vanish on rebuild. /data/reported is on
+      # the persistent host volume.
+      - MUNIN_REPORTED_DIR=/data/reported
+      # Concurrency cap on /api/admin/ingest so the VPS hook + cron
+      # can't fork 37+ paper_pipeline subprocesses in parallel and
+      # saturate GROBID's 10-engine pool. Over-cap requests fast-fail
+      # with 503 + Retry-After: 60. Keep below GROBID's pool size
+      # (10) minus the watcher's --workers (1) → 4 leaves comfortable
+      # headroom.
+      - INGEST_CONCURRENCY=${INGEST_CONCURRENCY:-4}
+    depends_on:
+      - qdrant
+      - neo4j
+      - searxng
+      - sandbox
+    networks:
+      # Retrieval is on both the public-facing munin-network (where qdrant /
+      # neo4j / searxng live) and the internal-only sandbox-net so it can
+      # reach the sandbox container at http://sandbox:8090. The sandbox
+      # itself is on sandbox-net only and cannot reach the internet or any
+      # other Munin service.
+      - default
+      - sandbox-net
+    profiles:
+      - rag  # Start with: docker compose --profile rag up
+
+  # ============================================================================
+  # SANDBOX SERVICE - Jupyter kernels for run_python (§2)
+  # ============================================================================

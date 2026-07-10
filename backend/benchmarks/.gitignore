@@ -15,3 +15,4 @@ results/
 # scorecards/ is the committed record.
 faithfulness_runs/
 c1_runs/
+c2_runs/
