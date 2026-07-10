@@ -225,18 +225,65 @@ headers moved the number 0.378 -> 0.356, CIs overlap heavily — the grounding g
 is ROBUST to claim extraction, not a narration artifact. `2026-07-09` scorecard
 supersedes `2026-07-08` as the dashboard baseline.)
 
-**CAVEAT — this absolute value is interim, NOT a paper figure.** (1) One arm;
-faithfulness is meaningful as the Track D **paired** comparison (bare/RAG/agentic
-— the scorer + per-arm capture files are built for it). (2) We sentence-split the
-whole answer, so reasoning/hedge/transition sentences are scored and deflate the
-number; a real claim-extraction step is the refinement before any headline
-figure. (3) The context union is generous (all retrieval results), which if
-anything INFLATES support — yet it is still 0.38, so a substantial share of
-agentic-answer content is un-retrieved synthesis (directly relevant to Track C
-abstention and Track D harness-value). `% fully supported` = 0 is length math at
-~22 claims/answer, not a finding. Scorecard `2026-07-08_faithfulness-agentic-live`.
+**What the number is and is not.** (1) One arm; faithfulness is most meaningful as
+the Track D **paired** comparison (bare/RAG/agentic — the scorer + per-arm capture
+files are built for it). (2) Claim extraction (2026-07-09) replaced raw
+sentence-split; the number barely moved (0.378 -> 0.356), so the gap is ROBUST,
+not a narration artifact. (3) The context union is generous (all retrieval
+results), which if anything INFLATES support. `% fully supported` = 0 is length
+math, not a finding.
+
+**Crucially, the un-grounded ~65% is NOT hallucination** (settled by two later
+results): the T1a null (adding paper_search excerpts did not move grounding, so it
+is not an evidence-availability problem) and **Track C1 (0/100 confabulations on
+nonexistent papers)**. So the un-supported claims are faithful cross-source
+synthesis + MiniCheck literalness (a claim entailed by two passages jointly scores
+"unsupported"), not fabrication. Scorecards `2026-07-09_faithfulness-agentic-live`
+(baseline), `-t1a`, `-cap`.
 
 ---
+
+## Harness iteration — over-tooling & grounding  · 2026-07-09
+
+Three deploy-measured experiments to improve the agentic harness, each gated on
+the routing anchor eval (>= 0.950) + the Track B arm. A disciplined arc: two null/
+negative results and one win.
+
+| lever | type | result |
+|---|---|---|
+| research fragment: deep -> **medium** default | prompt | **backfired** — paired over-tooling median 10.5 -> 20.5 calls (thinner baseline induces more compensatory search). Reverted. |
+| "<=3-4 follow-ups" wording | prompt | did not bite (over-tooling flat). Kept (harmless). |
+| **T1a** paper_search abstract excerpts | code | **null** for grounding (0.356 -> 0.303, CIs overlap) and over-tooling. So the grounding gap is NOT evidence-availability. |
+| **over-tooling code cap** (`CHAT_MAX_TOOL_CALLS=30`) | code | **works** — tool_calls/answer max 43 -> 31, p90 40 -> 30, >30 tail 9/40 -> 2/40; grounding held (0.331), 0 failures. |
+
+Lessons (evidence-backed): over-tooling is not fixable by prompt (needs the code
+cap — shipped, routes into the existing wrap-up synthesis); grounding is not an
+evidence-availability problem (T1a null) — it is model synthesis + judge
+literalness (Track C1). Post-deploy routing anchor **0.963** (no regression; one
+`known_doi_read` S2-branch side-effect from a T3 description, fixed).
+Scorecards: `2026-07-09_faithfulness-agentic-live-{t1a,cap}`,
+`2026-07-09_t2-postdeploy`, `2026-07-10_postcap-t3`.
+
+## Track C1 — corpus-grounded abstention (fabricated papers)  · 2026-07-10
+
+"Munin knows when the corpus does not contain the answer" (RQ-M1, corpus-absence
+half). The private-corpus abstention regime no public benchmark covers. Set: 100
+frozen fabricated items — 80 Crossref-verified-nonexistent DOIs + 20 nonexistent-
+paper-by-description, in the group's fields; zero collide with the 67,675-DOI
+corpus, so any local citation of them is a confabulation.
+
+| metric | value |
+|---|---|
+| **abstain / correct-refusal rate** | **0.98 [0.95, 1.00]** (manual review of 2 residuals: also refusals -> ~100%) |
+| **confabulated LOCAL citations** (real corpus DOI cited as the fake paper) | **0 / 100** (fully automatic, judge-free) |
+
+Munin calls read_paper on the fake DOI (Crossref 404s), often searches, then
+refuses / asks for a corrected identifier; it never invents findings or
+substitutes a real local paper. **Strongly supports the anti-hallucination claim**
+and settles the Track B question: the un-grounded content is not fabrication.
+NOTE: this is the corpus-ABSENT extreme; OVER-abstention (refusing when the answer
+IS present) is the standing in-corpus LitQA2 baseline (~40% abstain) + the deferred
+C2 shadow-corpus paired test. Scorecard `2026-07-10_abstention-c1-fabricated`.
 
 ## Reproduce
 
@@ -264,4 +311,9 @@ $PY -m munin_bench.faithfulness.validate_ragtruth --n-per-cell 20 --date <YYYY-M
 MUNIN_BENCH_ENTAILMENT_DEVICE=cuda:0 $PY -m munin_bench.faithfulness.faithfulness_runner \
   --base-url http://127.0.0.1:8080 --email litqa2-eval@localhost \
   --arm agentic-live --limit 40 --concurrency 1 --date <YYYY-MM-DD>   # B3+B4 (capture on CPU-ok, score GPU)
+
+# Track C1 abstention (fabricated papers)
+$PY -m munin_bench.abstention.fabricate --n 100                       # freeze the set (Crossref-verified)
+PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c1 \
+  --base-url http://127.0.0.1:8080 --email litqa2-eval@localhost --date <YYYY-MM-DD>
 ```
