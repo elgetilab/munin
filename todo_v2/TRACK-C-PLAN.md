@@ -117,10 +117,14 @@ Built (mine, no deploy):
   `PAPERS_COLLECTION=papers_shadow`, `PAPER_ENCODER=bge-large`, `ROUTER_ENABLED=true`).
 
 **varghele: bring up the isolated shadow instance (zero prod impact - separate
-container, separate port, prod :8080 + papers_bge untouched):**
+container, separate port, prod :8080 + papers_bge untouched). The compose
+override lives in the REPO, so copy it into the deployed docker dir first; the
+`default` network is the fixed-name `munin-network`, so the shadow joins the
+running qdrant/neo4j regardless of compose project name.**
 ```
+sudo cp backend/docker/docker-compose.shadow.yml /opt/munin/docker/
 cd /opt/munin/docker
-docker compose --profile rag -f docker-compose.yml -f docker-compose.shadow.yml up -d retrieval-shadow
+sudo docker compose --profile rag -f docker-compose.yml -f docker-compose.shadow.yml up -d retrieval-shadow
 curl -s -o /dev/null -w "shadow :8081 -> %{http_code}\n" http://127.0.0.1:8081/api/status
 ```
 Tear down after the eval:
