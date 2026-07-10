@@ -87,6 +87,23 @@ since nothing is naturally absent.
 3. Fold results into `RESULTS.md`; this is the abstention half of RQ-M1 and the
    correctness-aware lens the Track B literal-grounding number needed.
 
+## C1 RESULT (2026-07-10): Munin does NOT confabulate nonexistent papers
+
+Ran the 100 fabricated items through the live chat. **Abstain/refusal rate 0.98
+[0.95, 1.00]** (automatic markers; manual review of the 2 residuals confirms both
+are refusals -> reviewed ~100%). **0/100 confabulated local citations** - never
+substituted a real corpus DOI, never invented findings. Behaviour: read_paper on
+the fake DOI 404s, then it refuses / asks for a corrected identifier. Strongly
+supports RQ-M1 (corpus-absence half) and reframes Track B: the ~35% literal
+grounding is NOT hallucination (0 confabulation here) - it is faithful synthesis +
+judge literalness, per the T1a null. Scorecard
+`2026-07-10_abstention-c1-fabricated`. **C1 DONE.**
+
+Remaining for a full Track C: **over-abstention** (C2 shadow-corpus paired test,
+needs the Qdrant shadow + a retrieval env-flip via varghele) - the other half of
+calibration. The in-corpus LitQA2 answer track (~40% abstain) is the standing
+over-abstention baseline until C2.
+
 ## Open questions
 
 1. **C1 first, defer C2?** (Recommend: yes - C1 is cheap, novel, no infra; decide
