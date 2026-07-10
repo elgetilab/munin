@@ -82,7 +82,7 @@ MCP_TOOLS = {
     },
     "semantic_scholar_search": {
         "name": "semantic_scholar_search",
-        "description": "Search the EXTERNAL Semantic Scholar index (200M+ papers across all fields; broader coverage than the local corpus but slower and it uses the S2 quota, so prefer paper_search first and branch here when local hits are thin or off-corpus) with multi-query fan-out. Returns papers with titles, authors, DOIs, citation counts, abstracts, and AI-generated TLDRs. Pass `queries` as a list of 3-5 varied search phrasings for broad coverage, or a single `query` string which will be auto-expanded. Takes an optional `year` filter applied to every query.",
+        "description": "Search the EXTERNAL Semantic Scholar index (200M+ papers across all fields; broader coverage than the local corpus but slower and it uses the S2 quota, so prefer paper_search first and branch here when local hits are thin or off-corpus) with multi-query fan-out. This is for SEARCH by topic. When the user hands you a specific DOI to read, use read_paper - do NOT search here for a paper you can already identify. Returns papers with titles, authors, DOIs, citation counts, abstracts, and AI-generated TLDRs. Pass `queries` as a list of 3-5 varied search phrasings for broad coverage, or a single `query` string which will be auto-expanded. Takes an optional `year` filter applied to every query.",
         "inputSchema": {
             "type": "object",
             "properties": {
