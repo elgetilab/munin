@@ -138,6 +138,21 @@ is up. `run_c2` writes the paired scorecard when both arms are captured.
   abstention** (present-correct -> absent-abstain, the calibration flip),
   over-confidence (absent still answers with the source gone).
 
+## C2b RESULT (2026-07-10): confounded by parametric knowledge
+
+Shadow verified (removed papers 0/12 in shadow top-20 vs 8/12 live). Paired 50-q:
+present acc 0.40 / abstain 0.48; absent acc 0.34 / abstain 0.50. On the 20
+answerable (present-correct), source removal gave: **4 correct-abstention, 12
+still-correct (from training/web/S2), 4 wrong**. KEY FINDING: removing the local
+source rarely triggers abstention because LitQA2 questions are answerable WITHOUT
+it (Qwen training + web) - so the paired MCQ test is CONFOUNDED, NOT a clean
+corpus-grounded-abstention measure. Reportable: **over-abstention 48%** (even with
+the source present - the real miscalibration) and over-confidence-on-removal 4/20.
+C1 (fabricated, definitely-unanswerable) stays the clean abstention signal.
+A clean C2 would need questions answerable ONLY from the local corpus (not in the
+base model / not on the web) - hard to guarantee. Scorecard
+`2026-07-10_abstention-c2-shadow`. **Shadow instance: TEAR DOWN.**
+
 ## Open questions
 
 1. **C1 first, defer C2?** (Recommend: yes - C1 is cheap, novel, no infra; decide
