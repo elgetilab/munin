@@ -6,15 +6,21 @@ is the durable summary. Numbers are copied from the result JSONs, not memory.
 
 **Provenance shared by all runs below**
 - Generation model: `qwen3.6-35b-a3b` (Qwen3.6-35B-A3B-AWQ-4bit), vLLM.
-- Retrieval encoder: **SPECTER-v1** (`sentence-transformers/allenai-specter`,
-  768d), documents embedded as `title\n\nabstract` (matches production).
-- Production corpus: Qdrant `papers`, ~68k papers (incl. the LitQA2 backfill).
+- Retrieval encoder: this changed partway. Phase 3-5 + the bake-offs used
+  **SPECTER-v1** (`allenai-specter`, 768d, corpus `papers`); the encoder
+  migration cut over to **BGE-large-en-v1.5** (1024d, corpus `papers_bge`) -
+  **now live in production**. Each section states the encoder it used; the old
+  `papers`/SPECTER collection is retained only as a rollback.
 - Metric = our `munin_bench.metrics`, verified bit-identical to `pytrec_eval`.
 - CIs are 95% percentile bootstrap (1000 resamples, seed 42).
 
-> **One-line story:** SPECTER-v1 is a weak retriever, and answer accuracy is
-> bounded by retrieval recall (0.43 ≈ 0.44), so the highest-leverage lever is a
-> better encoder, not a better LLM. Details under "Cross-cutting findings".
+> **One-line story (updated 2026-07-10):** retrieval was the bottleneck (SPECTER
+> answer acc 0.43 ≈ recall 0.44), so we migrated the encoder to BGE-large
+> (Recall@10 0.44 -> 0.73, answer acc +0.075, DONE + live). Later work then
+> characterised the AGENTIC HARNESS: over-tooling is fixable only by a code cap
+> (prompt levers backfired/null), and the answers' un-grounded content is faithful
+> synthesis, NOT hallucination (Track C1: 0 confabulation on fabricated papers;
+> the model errs conservative - ~48% over-abstention). Full arc below.
 
 ---
 
