@@ -43,7 +43,8 @@ def run(arm: str, *, top_k: int = 5, limit: int = 0) -> dict:
             raise SystemExit("arm must be bare|rag")
         cls = classify(ans, asked_doi=it.get("doi"))
         per.append({"id": it["id"], "kind": it["kind"], "verdict": cls["verdict"],
-                    "abstained": cls["abstained"], "cited_in_corpus": cls["cited_in_corpus"]})
+                    "abstained": cls["abstained"], "cited_in_corpus": cls["cited_in_corpus"],
+                    "answer_tail": (ans or "")[-400:]})
         if i % 20 == 0 or i == len(items):
             print(f"  {i}/{len(items)} ({time.time()-t0:.0f}s)")
 
