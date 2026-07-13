@@ -53,9 +53,11 @@ def compare(arms=("bare", "rag", "agentic"), date: str | None = None) -> dict:
     for a in arms:
         rows = [data[a][q] for q in qids]
         c = Counter(r["verdict"] for r in rows)
+        attempted = c["correct"] + c["incorrect"]  # parseable, non-abstain
         per_arm[a] = {
             "accuracy": c["correct"] / len(rows),
             "abstain_rate": c["abstain"] / len(rows),
+            "precision_of_attempted": (c["correct"] / attempted) if attempted else None,
             "verdicts": dict(c),
             "cost": _cost(rows),
         }
