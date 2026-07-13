@@ -19,9 +19,11 @@ _BARE_SYSTEM = (
     "You have no external tools."
 )
 _RAG_SYSTEM = (
-    "You are a research assistant. Answer the question using ONLY the retrieved "
-    "context provided below; if the context does not contain the answer, say so "
-    "and pick the insufficient-information option."
+    "You are a research assistant. Use the retrieved context below to help answer "
+    "the question; you may also draw on your own knowledge. Pick the "
+    "insufficient-information option only if you genuinely cannot determine the "
+    "answer from the context or your knowledge. (Vanilla RAG: retrieved evidence "
+    "+ the model, no tools or agentic loop.)"
 )
 
 
