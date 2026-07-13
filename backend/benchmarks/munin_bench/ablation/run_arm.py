@@ -95,7 +95,10 @@ def _agentic_one(q: dict, base_url: str, email: str, deadline: int = 300) -> dic
         base_url.rstrip("/") + "/api/chat/completions", data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json", "X-Munin-Email": email,
                  "X-Munin-Ephemeral": "true", "Accept": "text/event-stream"}, method="POST")
+    from ..faithfulness.capture import RETRIEVAL_TOOLS, _extract_texts
     content, ev, n_calls = "", None, 0
+    contexts: list[str] = []
+    seen: set[str] = set()
     t0 = time.time()
     resp = urllib.request.urlopen(req, timeout=60)
     try:
@@ -118,13 +121,19 @@ def _agentic_one(q: dict, base_url: str, email: str, deadline: int = 300) -> dic
                 content += o["content"]
             elif ev == "tool_call":
                 n_calls += 1
+            elif ev == "tool_result" and o.get("name") in RETRIEVAL_TOOLS:
+                found: list[str] = []
+                _extract_texts(o.get("result"), found)
+                for t in found:
+                    if t not in seen:
+                        seen.add(t); contexts.append(t)
             if ev == "done":
                 break
     finally:
         resp.close()
     return {"qid": q["qid"], **_verdict(mcq, content), "tool_calls": n_calls,
             "elapsed_s": round(time.time() - t0, 2), "prompt_tokens": None,
-            "completion_tokens": None, "text_tail": content[-300:]}
+            "completion_tokens": None, "answer": content, "contexts": contexts}
 
 
 def run(arm: str, n: int, *, top_k: int = 5, base_url: str = "http://127.0.0.1:8080",
@@ -145,7 +154,8 @@ def run(arm: str, n: int, *, top_k: int = 5, base_url: str = "http://127.0.0.1:8
             r = V.rag_answer(mcq["prompt"], ctx)
             row = {"qid": q["qid"], **_verdict(mcq, r["content"]), "tool_calls": 0,
                    "elapsed_s": r["elapsed_s"], "prompt_tokens": r["prompt_tokens"],
-                   "completion_tokens": r["completion_tokens"], "n_contexts": len(ctx)}
+                   "completion_tokens": r["completion_tokens"], "n_contexts": len(ctx),
+                   "answer": r["content"], "contexts": ctx}
         elif arm == "agentic":
             row = _agentic_one(q, base_url, email)
         else:
