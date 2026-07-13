@@ -30,6 +30,7 @@ Eval-suite results writeup: `backend/benchmarks/RESULTS.md` (canonical).
 | `T2-T3-EDIT-PLAN.md` | Concrete T2 (over-tooling) + T3 (tool defs) edits; measurement + deploy constraints. Plan, not applied. |
 | `T1-GROUNDING-PLAN.md` | T1 grounding edits (paper_search excerpts, per-item truncation, structured sub-agent returns). T1a applied; T1b/c planned. |
 | `TRACK-C-PLAN.md` | Corpus-grounded abstention scope (C1 fabricated + confabulation detector now; C2 shadow-corpus needs infra). |
+| `TRACK-D-PLAN.md` | Harness ablation (bare / RAG / agentic) accuracy + cost. Plan; not built. |
 | `KICKOFF-QUESTIONS.md` | Resolved decision record (kept as a live reference cited by the spec). |
 | `IMPLEMENTATION-HANDOFF.md` | Overarching eval-suite handoff (reference). |
 | `MIGRATION-LOOSE-ENDS.md` | Encoder-migration tail: embedding-map repoint + `papers` retirement. varghele/root. |
