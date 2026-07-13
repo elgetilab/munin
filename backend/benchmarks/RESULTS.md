@@ -319,6 +319,40 @@ over-confidence-on-removal 4/20. Also: answers are NOT purely corpus-grounded
 corpus (not in the base model / web) - hard to guarantee; **C1 (fabricated) stays
 the clean abstention signal.** Scorecard `2026-07-10_abstention-c2-shadow`.
 
+## Track D — harness ablation (bare / RAG / agentic)  · 2026-07-13
+
+The empirical backbone: does the agentic harness beat the bare model and vanilla
+RAG? 100 in-corpus LitQA2 MCQ questions, three arms (bare = direct vLLM no tools;
+RAG = BGE top-5 -> context -> single completion; agentic = live harness), all at
+concurrency=1.
+
+| arm | accuracy | precision-of-attempted | abstain | cost |
+|---|---|---|---|---|
+| RAG (naive top-5) | 0.150 | 0.52 | 0.70 | 10s, 0 tools |
+| bare (parametric) | 0.320 | 0.48 | 0.25 | 14s, 0 tools |
+| **agentic (harness)** | **0.560** | **0.86** | 0.31 | 118s, 16 tools |
+
+Paired deltas (p~0): **agentic-bare +0.240 [0.11,0.37]**, **agentic-RAG +0.410
+[0.31,0.51]**, **RAG-bare -0.170 [-0.26,-0.08]**.
+
+**Findings:**
+1. **The harness wins big and significantly** (+0.24 acc over bare; dominates
+   precision 0.86 vs 0.48 - answers more, guesses wrong far less) at ~8x cost.
+2. **Naive RAG HURTS (below bare).** Verified from answers: imperfect top-5
+   retrieval makes the model ANCHOR on the abstracts and abstain ("not enough
+   information") instead of using correct parametric knowledge (70% abstain). The
+   value is the AGENTIC LOOP's iterative multi-source retrieval, not retrieval
+   per se. (RAG accuracy is prompt-sensitive; the anchoring effect is robust.)
+3. **Grounding is flat across RAG (0.324) and agentic (~0.33, Track B)** despite
+   the 3.7x accuracy gap - the harness improves CORRECTNESS + ABSTENTION, not
+   literal grounding.
+4. **Tool-grounding drives good abstention.** On the C1 fabricated set per arm,
+   genuine confabulation falls ~7/100 (bare, invents findings) -> ~0 (agentic:
+   read_paper 404s the fake DOI). Auto-abstain: agentic 0.80 > bare 0.59 >
+   RAG 0.36.
+
+Scorecard `2026-07-13_harness-ablation.{json,md}`. This completes Tracks A-D.
+
 ## Reproduce
 
 ```bash
@@ -356,4 +390,10 @@ PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.build_s
 # varghele brings up the shadow retrieval instance on :8081 (docker/docker-compose.shadow.yml)
 PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 --arm present --base-url http://127.0.0.1:8080 --email ... --date <D>
 PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 --arm absent  --base-url http://127.0.0.1:8081 --email ... --date <D>  # writes paired scorecard
+
+# Track D harness ablation (bare / RAG / agentic)
+for arm in bare rag agentic; do PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.ablation.run_arm --arm $arm --n 100; done
+$PY -m munin_bench.ablation.compare --date <D>
+$PY -m munin_bench.ablation.abstain_arms --arm bare   # + --arm rag: abstention per arm on the fabricated set
+MUNIN_BENCH_ENTAILMENT_DEVICE=cuda:0 $PY -m munin_bench.ablation.faithfulness --date <D>
 ```
