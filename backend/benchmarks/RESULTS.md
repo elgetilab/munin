@@ -281,9 +281,37 @@ Munin calls read_paper on the fake DOI (Crossref 404s), often searches, then
 refuses / asks for a corrected identifier; it never invents findings or
 substitutes a real local paper. **Strongly supports the anti-hallucination claim**
 and settles the Track B question: the un-grounded content is not fabrication.
-NOTE: this is the corpus-ABSENT extreme; OVER-abstention (refusing when the answer
-IS present) is the standing in-corpus LitQA2 baseline (~40% abstain) + the deferred
-C2 shadow-corpus paired test. Scorecard `2026-07-10_abstention-c1-fabricated`.
+NOTE: this is the corpus-ABSENT extreme; OVER-abstention is Track C2 below.
+Scorecard `2026-07-10_abstention-c1-fabricated`.
+
+## Track C2b — paired shadow-corpus abstention  · 2026-07-10
+
+The complementary paired test: 50 single-source-DOI LitQA2 questions asked twice —
+against the live corpus (`papers_bge`, :8080, source PRESENT) and an isolated
+second retrieval instance on a shadow collection (`papers_shadow` = papers_bge
+minus the 49 sources, :8081, source ABSENT). Shadow verified (removed papers 8/12
+in live top-20, **0/12 in shadow**).
+
+| | present (source in) | absent (source removed) |
+|---|---|---|
+| accuracy | 0.40 | 0.34 |
+| abstain rate | **0.48** | 0.50 |
+
+On the 20 answerable questions (present-correct), removing the source gave: **4
+correct-abstention, 12 still-correct, 4 wrong.**
+
+**Key finding — a confound that is itself informative.** Removing the local source
+rarely triggers abstention because LitQA2 questions are answerable WITHOUT it (the
+paper is likely in Qwen's training; the model also web/S2-searches). So the paired
+answer-flip is NOT a clean corpus-grounded-abstention measure - `correct_abstention`
+0.20 understates calibration (12/16 non-abstentions were genuinely CORRECT).
+Reportable, un-confounded: **over-abstention 48%** (abstains even WITH the source -
+the real miscalibration; usefulness cost, vs ~0 confabulation in C1) and
+over-confidence-on-removal 4/20. Also: answers are NOT purely corpus-grounded
+(12/20 correct from external knowledge), which explains part of Track B's
+"un-grounded" fraction. A clean C2 needs questions answerable ONLY from the local
+corpus (not in the base model / web) - hard to guarantee; **C1 (fabricated) stays
+the clean abstention signal.** Scorecard `2026-07-10_abstention-c2-shadow`.
 
 ## Reproduce
 
@@ -316,4 +344,10 @@ MUNIN_BENCH_ENTAILMENT_DEVICE=cuda:0 $PY -m munin_bench.faithfulness.faithfulnes
 $PY -m munin_bench.abstention.fabricate --n 100                       # freeze the set (Crossref-verified)
 PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c1 \
   --base-url http://127.0.0.1:8080 --email litqa2-eval@localhost --date <YYYY-MM-DD>
+
+# Track C2b paired shadow-corpus abstention
+PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.build_shadow --n 50   # build papers_shadow + freeze questions
+# varghele brings up the shadow retrieval instance on :8081 (docker/docker-compose.shadow.yml)
+PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 --arm present --base-url http://127.0.0.1:8080 --email ... --date <D>
+PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 --arm absent  --base-url http://127.0.0.1:8081 --email ... --date <D>  # writes paired scorecard
 ```
