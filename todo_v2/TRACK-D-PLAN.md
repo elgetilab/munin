@@ -1,6 +1,6 @@
 # Track D - harness value & cost (ablation) - plan
 
-Status: PLAN 2026-07-13. Spec: `EVAL-SUITE-MASTER-PLAN.md` sec 5. The empirical
+Status: DONE 2026-07-13 (agentic 0.56 >> bare 0.32 >> RAG 0.15, all p~0; scorecard 2026-07-13_harness-ablation). Spec: `EVAL-SUITE-MASTER-PLAN.md` sec 5. The empirical
 backbone of "the agentic harness adds measurable value over the bare model."
 Sharpened by C2 (the model answers 12/20 answerable questions correctly WITHOUT
 the local source -> strong parametric knowledge -> "what does the harness add?"
