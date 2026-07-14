@@ -270,6 +270,14 @@ the budget, it gets a `--quick` subset (e.g. SciFact only for BEIR).
 
 ## 7. Track F — Follow-up scope (documented, not built)
 
+> STATUS 2026-07-14: two cheap pieces PULLED FORWARD now that A-E are
+> done: (1) the light **certification gate** (`certify.py` +
+> `certification_thresholds.json`; `run_all --certify`) - provisional
+> thresholds = current baselines, PASS/FAIL, NOT the validated/predictive
+> version (that stays follow-up); (2) the **solve(prompt)->answer** adapter
+> (`ablation/solve.py`) so an InspectAI bridge is a wrapper. The
+> **hyperpolarization expert benchmark stays follow-up** (needs expert vetting).
+
 Kept here so the suite's architecture anticipates them; each is a
 one-paragraph placeholder that the follow-up proposal expands.
 

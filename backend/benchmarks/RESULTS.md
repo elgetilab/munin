@@ -400,6 +400,6 @@ MUNIN_BENCH_ENTAILMENT_DEVICE=cuda:0 $PY -m munin_bench.ablation.faithfulness --
 # Track E — one unified re-certification run (all tracks + reliability)
 PYTHONPATH=$HOME/.cache/munin_bench_deps:. NEO4J_PASSWORD=... $PY -m munin_bench.pipelines.run_all \
   --tag <label> --tracks beir-scifact,litqa2-retrieval,litqa2-answer,faithfulness,abstention,ablation \
-  --with-reliability --date <D>          # writes ONE committed scorecard; compare across model swaps
+  --with-reliability --certify --date <D>   # ONE committed scorecard + re-cert PASS/FAIL vs certification_thresholds.json
 $PY -m munin_bench.pipelines.compare <old>.json <new>.json    # paired-bootstrap regression diff
 ```
