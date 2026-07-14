@@ -4,13 +4,18 @@
       python -m munin_bench.pipelines.run_all --tag baseline-specter \\
         --tracks beir-scifact,litqa2-retrieval [--date 2026-07-03]
 
-Tracks (opt-in via --tracks; answer is slow + hits the shared chat service):
+Tracks (opt-in via --tracks; the live-chat + GPU tracks are slow):
   beir-scifact       BEIR SciFact (in eval_* collection)
   litqa2-retrieval   AgentRetriever/dense/citation-rerank over LitQA2 (live papers)
   litqa2-answer      end-to-end MCQ (research profile) — slow, concurrency 1
+  faithfulness       Track B: MiniCheck grounding of the live agentic arm (GPU)
+  abstention         Track C1: refuse/confabulate on fabricated papers
+  ablation           Track D: bare vs RAG vs agentic accuracy (slow: agentic ~hrs)
+  --with-reliability folds the behavioral QA registry (pong, ...) PASS/FLAKY/FAIL
 
 Writes scorecards/<date>_<tag>.{json,md} (committed). Compare two with
-`python -m munin_bench.pipelines.compare A.json B.json`.
+`python -m munin_bench.pipelines.compare A.json B.json`. Use --limit to smoke-test
+the wiring without full re-runs.
 """
 
 from __future__ import annotations
@@ -28,7 +33,15 @@ RESULTS_ROOT = os.path.abspath(
 VARIANTS = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "data", "litqa2",
                  "litqa2_variants.json"))
-ALL_TRACKS = ["beir-scifact", "litqa2-retrieval", "litqa2-answer"]
+ALL_TRACKS = ["beir-scifact", "litqa2-retrieval", "litqa2-answer",
+              "faithfulness", "abstention", "ablation"]
+
+
+def _metric(x) -> dict:
+    """Coerce a bootstrap dict or scalar to the scorecard metric shape."""
+    if isinstance(x, dict) and "mean" in x:
+        return {"mean": x["mean"], "ci_low": x.get("ci_low"), "ci_high": x.get("ci_high")}
+    return {"mean": float(x) if x is not None else None}
 
 
 def main() -> int:
@@ -40,6 +53,13 @@ def main() -> int:
                     help="encoder preset: model + papers collection + query prefix")
     ap.add_argument("--date", default=None, help="YYYY-MM-DD for the filename")
     ap.add_argument("--results-root", default=RESULTS_ROOT)
+    ap.add_argument("--base-url", default="http://127.0.0.1:8080",
+                    help="live chat for faithfulness/abstention/ablation")
+    ap.add_argument("--email", default="litqa2-eval@localhost")
+    ap.add_argument("--limit", type=int, default=0,
+                    help="cap questions for the live tracks (0 = full; use to smoke-test wiring)")
+    ap.add_argument("--with-reliability", action="store_true",
+                    help="run the backend/eval behavioral QA registry (pong, ...)")
     args = ap.parse_args()
 
     tracks = [t.strip() for t in args.tracks.split(",") if t.strip()]
@@ -57,8 +77,15 @@ def main() -> int:
     device = os.getenv("MUNIN_BENCH_SPECTER_DEVICE", "cpu")
     preset = config.ENCODER_PRESETS[args.encoder]
     qc = get_qdrant()
-    specter = load_encoder(preset["model"], device=device, hf_fallback=preset["hf"])
-    neo4j = get_neo4j()
+    # Retrieval tracks need the encoder + neo4j; the live-chat/GPU tracks
+    # (faithfulness/abstention/ablation) do not, so don't force NEO4J_PASSWORD
+    # or an encoder load for a B/C/D-only run.
+    retrieval_tracks = {"beir-scifact", "litqa2-retrieval", "litqa2-answer"}
+    if retrieval_tracks & set(tracks):
+        specter = load_encoder(preset["model"], device=device, hf_fallback=preset["hf"])
+        neo4j = get_neo4j()
+    else:
+        specter = neo4j = None
 
     if "beir-scifact" in tracks and args.encoder != "specter-v1":
         raise SystemExit("beir-scifact builds a 768-d eval collection; only the "
@@ -88,9 +115,55 @@ def main() -> int:
         tasks["litqa2_answer"] = task_from_per_query(
             p["per_query"], p["qids"], p["sc_summary"])
 
+    if "faithfulness" in tracks:
+        print("=== track: faithfulness (Track B, live capture + MiniCheck) ===")
+        from ..faithfulness.faithfulness_runner import capture_pool, score_and_metrics
+        work = os.path.join(args.results_root, "..", "faithfulness_runs")
+        os.makedirs(work, exist_ok=True)
+        cap = os.path.join(work, "run_all.capture.jsonl")
+        caps = capture_pool(args.base_url, args.email, cap, limit=args.limit or 0)
+        sc = score_and_metrics(caps, arm="agentic-live", base_url=args.base_url)
+        tasks["faithfulness"] = {"agentic-live": {
+            "metrics": {"frac_claims_supported": _metric(sc["frac_claims_supported"]),
+                        "mean_faithfulness": _metric(sc["mean_faithfulness"])},
+            "per_query": {r["qid"]: {"frac_supported": r["frac_supported"]}
+                          for r in sc["per_q"] if r["frac_supported"] is not None}}}
+
+    if "abstention" in tracks:
+        print("=== track: abstention (Track C1, fabricated papers) ===")
+        from ..abstention.run_c1 import run as run_c1
+        sc = run_c1(args.base_url, args.email, limit=args.limit or 0)
+        tasks["abstention_c1"] = {"agentic": {
+            "metrics": {"abstain_rate": _metric(sc["abstain_rate"]),
+                        "confabulation_rate": _metric(sc["confabulation_rate"])},
+            "per_query": {p["id"]: {"abstained": 1.0 if p["abstained"] else 0.0}
+                          for p in sc["per_item"]}}}
+
+    if "ablation" in tracks:
+        print("=== track: ablation (Track D, bare/rag/agentic) ===")
+        from ..ablation.run_arm import run as run_arm_fn
+        from ..ablation.compare import compare as compare_arms
+        n = args.limit or 100
+        for arm in ("bare", "rag", "agentic"):
+            run_arm_fn(arm, n, base_url=args.base_url, email=args.email)
+        sc = compare_arms(date=None)
+        tasks["ablation"] = {arm: {
+            "metrics": {"accuracy": _metric(pa["accuracy"]),
+                        "precision": _metric(pa.get("precision_of_attempted"))},
+            "per_query": {}} for arm, pa in sc["per_arm"].items()}
+
     meta = make_run_header(qc, neo4j, encoder=args.encoder, tag=args.tag)
+    if args.with_reliability:
+        print("=== reliability: behavioral QA registry ===")
+        try:
+            from .reliability import run_registry
+            meta["reliability"] = run_registry(base_url=args.base_url)
+        except Exception as e:
+            meta["reliability"] = {"error": f"{type(e).__name__}: {e}"}
+            print(f"  reliability registry failed: {e}")
     path = write_scorecard(meta, tasks, args.results_root, date_str)
-    neo4j.close()
+    if neo4j is not None:
+        neo4j.close()
     print(f"\nscorecard -> {path}  (+ .md)")
     print("commit it, then: python -m munin_bench.pipelines.compare <old>.json <new>.json")
     return 0
