@@ -60,6 +60,8 @@ def main() -> int:
                     help="cap questions for the live tracks (0 = full; use to smoke-test wiring)")
     ap.add_argument("--with-reliability", action="store_true",
                     help="run the backend/eval behavioral QA registry (pong, ...)")
+    ap.add_argument("--certify", action="store_true",
+                    help="check the written scorecard against certification_thresholds.json (re-cert gate)")
     args = ap.parse_args()
 
     tracks = [t.strip() for t in args.tracks.split(",") if t.strip()]
@@ -165,8 +167,21 @@ def main() -> int:
     if neo4j is not None:
         neo4j.close()
     print(f"\nscorecard -> {path}  (+ .md)")
+
+    gate_fail = False
+    if args.certify:
+        import json as _json
+        from .certify import certify as _certify
+        thr = os.path.join(os.path.dirname(__file__), "..", "..", "certification_thresholds.json")
+        res = _certify({"meta": meta, "tasks": tasks}, _json.load(open(thr)))
+        print("\n=== certification gate ===")
+        for c in res["checks"]:
+            print(f"  [{c['status']:4s}] {c['name']}")
+        print(f"OVERALL: {res['overall']} ({res['n_fail']} fail, {res['n_skip']} skipped)")
+        gate_fail = res["overall"] == "FAIL"
+
     print("commit it, then: python -m munin_bench.pipelines.compare <old>.json <new>.json")
-    return 0
+    return 1 if gate_fail else 0
 
 
 if __name__ == "__main__":

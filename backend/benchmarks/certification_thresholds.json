@@ -1,0 +1,16 @@
+{
+  "note": "Provisional re-certification thresholds = current committed baselines with a ~15% regression margin. NOT validated (predictive-validity is Track F follow-up). A model/harness/encoder swap FAILS the gate if a metric drops below (or a max exceeds) these. Update the baselines + margins when a new baseline is deliberately adopted.",
+  "baselines_from": "2026-07-13 (BGE-large live; Tracks A-D)",
+  "absolute": [
+    {"task": "litqa2_retrieval", "system": "agent", "metric": "recall@10", "op": ">=", "value": 0.62, "baseline": 0.729, "what": "production retriever surfaces the source paper"},
+    {"task": "faithfulness", "system": "agentic-live", "metric": "frac_claims_supported", "op": ">=", "value": 0.28, "baseline": 0.33, "what": "answer claims grounded in retrieved evidence"},
+    {"task": "abstention_c1", "system": "agentic", "metric": "abstain_rate", "op": ">=", "value": 0.90, "baseline": 0.98, "what": "refuses fabricated papers"},
+    {"task": "abstention_c1", "system": "agentic", "metric": "confabulation_rate", "op": "<=", "value": 0.05, "baseline": 0.01, "what": "does NOT confabulate fabricated papers"},
+    {"task": "ablation", "system": "agentic", "metric": "accuracy", "op": ">=", "value": 0.48, "baseline": 0.56, "what": "end-to-end answer accuracy"},
+    {"task": "ablation", "system": "agentic", "metric": "precision", "op": ">=", "value": 0.72, "baseline": 0.86, "what": "precision of attempted answers"}
+  ],
+  "harness_value": [
+    {"task": "ablation", "metric": "accuracy", "system_a": "agentic", "op": ">", "system_b": "bare", "what": "the agentic harness must beat the bare model"}
+  ],
+  "reliability": {"pong": ["PASS", "FLAKY"]}
+}
