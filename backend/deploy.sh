@@ -269,6 +269,9 @@ deploy_maintenance() {
 # deepresearch: scripts + systemd unit + MiroThinker model (guarded)
 # ------------------------------------------------------------------------------
 deploy_deepresearch() {
+    echo "[deepresearch] NOTE: Deep Research is currently DISABLED (MiroThinker retirement pending)."
+    echo "[deepresearch]       Re-enabling needs DEEPRESEARCH_ENABLED=1 on the retrieval service"
+    echo "[deepresearch]       plus: systemctl enable --now deepresearch-daemon"
     echo "[deepresearch] Installing daemon + job script..."
     need_file "$REPO_DIR/scripts/deepresearch/deepresearch-daemon.py"
     need_file "$REPO_DIR/scripts/deepresearch/deepresearch-job.sh"

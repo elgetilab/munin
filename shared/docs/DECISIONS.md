@@ -10,6 +10,32 @@ self-document (renames, refactors, bug fixes).
 
 ---
 
+## 2026-07: Deep Research (MiroThinker) disabled, kept in code
+
+The standalone Deep Research feature (research.muninai.org, `/deepresearch/*`
+endpoints, `deepresearch-daemon` + SLURM job running MiroThinker-30B on GPU 0)
+is disabled but not deleted, pending a final retirement decision. The chat-side
+`deep_research` MCP tool (composite decompose/expand/search pipeline on the main
+model) covers the same ground far cheaper and stays; it is unrelated to Miro.
+
+What "disabled" means:
+- `POST /deepresearch/submit` returns 503 unless `DEEPRESEARCH_ENABLED=1`
+  (flag in `retrieval/database.py`, default off). The read endpoints
+  (`status`, `output`, `jobs`, `queue`) still work so past reports remain
+  downloadable.
+- `deepresearch-daemon` is `systemctl disable --now`ed on hugin; unit file and
+  scripts stay installed, `deploy.sh deepresearch` still works but prints a
+  disabled notice.
+- research.muninai.org serves an "unavailable" notice page pointing to Chat;
+  all nav/footer/docs links to it were removed. The old submit UI is in git
+  history (`frontend/static/research/index.html`).
+- MiroThinker weights stay on disk at
+  `/opt/munin/data/models/mirothinker-v1.5-30b` (~17 GB).
+
+Why disable rather than delete: the model may still be retired for good or
+revived with a stronger harness; keeping the plumbing makes either cheap.
+Re-enable = env flag + daemon enable + restore the page from git.
+
 ## 2026-06: persona delegation retired in favour of the per-turn router (A1-A4)
 
 The persona system used to do three entangled jobs: tool-allowlist scoping,

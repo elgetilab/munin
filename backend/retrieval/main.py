@@ -68,6 +68,7 @@ from sse_starlette.sse import EventSourceResponse
 from database import (
     QDRANT_HOST, QDRANT_PORT, NEO4J_URI, SEARXNG_URL,
     PAPERS_PDF_DIR,
+    DEEPRESEARCH_ENABLED,
     DEEPRESEARCH_QUEUE_DIR, DEEPRESEARCH_JOBS_DIR, SLURM_QUEUE_FILE,
     VLLM_URL,
     get_qdrant, get_neo4j, get_specter, get_bge,
@@ -3704,6 +3705,12 @@ async def submit_deepresearch(request: DeepResearchRequest):
     The question will be queued for processing by a 30B thinking model
     running on the cluster GPU. Results will be available as Markdown and PDF.
     """
+    if not DEEPRESEARCH_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": {"message": "Deep Research is disabled. Past reports remain available."}},
+        )
+
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 

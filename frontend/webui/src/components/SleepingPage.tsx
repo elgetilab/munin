@@ -46,7 +46,7 @@ export function SleepingPage({ nextStart }: SleepingPageProps) {
           The cluster GPUs are reserved for experiments between 2:00 AM and 6:00 AM.
         </p>
         <p className="text-text-secondary text-sm leading-relaxed">
-          Chat and Deep Research will be back at <span className="text-text-primary font-medium">{time}</span>.
+          Chat will be back at <span className="text-text-primary font-medium">{time}</span>.
         </p>
       </div>
 

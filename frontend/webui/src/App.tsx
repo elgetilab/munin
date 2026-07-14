@@ -481,7 +481,6 @@ export default function App() {
           <nav className="flex gap-4 text-sm">
             <a href="https://muninai.org" className="text-text-secondary hover:text-accent no-underline transition-colors">Home</a>
             <a href="https://search.muninai.org" className="text-text-secondary hover:text-accent no-underline transition-colors">Search</a>
-            <a href="https://research.muninai.org" className="text-text-secondary hover:text-accent no-underline transition-colors">Research</a>
             <a href="https://docs.muninai.org" className="text-text-secondary hover:text-accent no-underline transition-colors">Docs</a>
             <span className="text-accent">Knowledge</span>
             <button
@@ -615,7 +614,6 @@ export default function App() {
           <nav className="hidden md:flex gap-4 text-sm">
             <a href="https://muninai.org" className="text-text-secondary hover:text-accent no-underline transition-colors">Home</a>
             <a href="https://search.muninai.org" className="text-text-secondary hover:text-accent no-underline transition-colors">Search</a>
-            <a href="https://research.muninai.org" className="text-text-secondary hover:text-accent no-underline transition-colors">Research</a>
             <a href="https://docs.muninai.org" className="text-text-secondary hover:text-accent no-underline transition-colors">Docs</a>
             <button
               onClick={() => {

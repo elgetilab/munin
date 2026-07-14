@@ -53,7 +53,7 @@ export function MaintenancePage({ message, since }: MaintenancePageProps) {
         <p className="text-text-secondary text-sm leading-relaxed mb-1">
           {message
             ? message
-            : 'Chat and Deep Research are temporarily unavailable while the cluster is being worked on.'}
+            : 'Chat is temporarily unavailable while the cluster is being worked on.'}
         </p>
         {sinceLabel && (
           <p className="text-text-secondary text-sm leading-relaxed">

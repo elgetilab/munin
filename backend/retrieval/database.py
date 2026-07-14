@@ -34,6 +34,11 @@ _BGE_QUERY_INSTRUCTION = "Represent this sentence for searching relevant passage
 PAPER_QUERY_PREFIX = _BGE_QUERY_INSTRUCTION if PAPER_ENCODER == "bge-large" else ""
 
 # Deep Research configuration
+# Submission is disabled by default while the MiroThinker research model is
+# under review for retirement. Read endpoints (status/output/jobs/queue) stay
+# up so past reports remain downloadable. Re-enable with DEEPRESEARCH_ENABLED=1
+# AND `systemctl enable --now deepresearch-daemon` on the cluster head.
+DEEPRESEARCH_ENABLED = os.getenv("DEEPRESEARCH_ENABLED", "0") == "1"
 DEEPRESEARCH_QUEUE_DIR = os.getenv("DEEPRESEARCH_QUEUE_DIR", "/deepresearch/queue")
 DEEPRESEARCH_JOBS_DIR = os.getenv("DEEPRESEARCH_JOBS_DIR", "/deepresearch/jobs")
 SLURM_QUEUE_FILE = os.getenv("SLURM_QUEUE_FILE", "/deepresearch/slurm_queue.json")

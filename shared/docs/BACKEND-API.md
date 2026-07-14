@@ -20,6 +20,10 @@ describes the *implementation*. Where they disagree, this file wins.
 The service also exposes the legacy `/retrieve`, `/search/hybrid`,
 `/citations/{doi}`, `/mcp/*`, `/deepresearch/*`, etc. routes, those are
 **not** part of the frontend contract. Ignore them for the UI.
+(`POST /deepresearch/submit` is additionally disabled since 2026-07:
+returns 503 unless the service runs with `DEEPRESEARCH_ENABLED=1`;
+the read-only `/deepresearch/*` routes still serve past reports.
+See DECISIONS.md "Deep Research (MiroThinker) disabled".)
 
 Two more routes exist but are out-of-band for the UI:
 
