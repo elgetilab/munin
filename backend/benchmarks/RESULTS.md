@@ -396,4 +396,10 @@ for arm in bare rag agentic; do PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -
 $PY -m munin_bench.ablation.compare --date <D>
 $PY -m munin_bench.ablation.abstain_arms --arm bare   # + --arm rag: abstention per arm on the fabricated set
 MUNIN_BENCH_ENTAILMENT_DEVICE=cuda:0 $PY -m munin_bench.ablation.faithfulness --date <D>
+
+# Track E — one unified re-certification run (all tracks + reliability)
+PYTHONPATH=$HOME/.cache/munin_bench_deps:. NEO4J_PASSWORD=... $PY -m munin_bench.pipelines.run_all \
+  --tag <label> --tracks beir-scifact,litqa2-retrieval,litqa2-answer,faithfulness,abstention,ablation \
+  --with-reliability --date <D>          # writes ONE committed scorecard; compare across model swaps
+$PY -m munin_bench.pipelines.compare <old>.json <new>.json    # paired-bootstrap regression diff
 ```
