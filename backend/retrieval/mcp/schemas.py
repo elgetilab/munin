@@ -269,6 +269,35 @@ MCP_TOOLS = {
             "required": ["query"]
         }
     },
+    "compute": {
+        "name": "compute",
+        "description": "Turn a natural-language spec into code, run it in the network-off sandbox, and return a reproducible bundle (code + data + figure) with a stated verification level. Best for plots and quick analyses ('plot the fold-change by condition', 'fit a curve and show residuals'). Routing is deterministic: language='python' runs in the sandbox (verify_level='executed' - it actually ran and produced a figure); other languages come back generated but not executed. If the data comes from a paper, pass the `data_handle` from source(mode='extract') - never paste the numbers yourself; the agent materialises the rows into the sandbox so provenance is preserved. Returns {code (byte-identical to what ran, reads data.csv from its own dir, seeded RNG), language, verify_level (executed|returned|failed), ran, has_figure, artifacts (rendered figure comes back for a glance-check), attempts, errors}. A bounded repair loop fixes runtime errors and stops if it gets stuck. Note: 'runs' is not 'correct' - eyeball the returned figure.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "spec": {
+                    "type": "string",
+                    "description": "What to compute or plot, in natural language."
+                },
+                "data_handle": {
+                    "type": "string",
+                    "description": "Optional handle from source(mode='extract') whose rows should be materialised as data.csv in the sandbox. Do NOT transcribe values into the spec."
+                },
+                "language": {
+                    "type": "string",
+                    "description": "Programming language. 'python' (default) executes in the sandbox; others are generated but not run.",
+                    "default": "python"
+                },
+                "budget": {
+                    "type": "string",
+                    "enum": ["quick", "compute"],
+                    "description": "quick (~15s, default, the plot case) or compute (longer, for heavier numerics).",
+                    "default": "quick"
+                }
+            },
+            "required": ["spec"]
+        }
+    },
     "get_citations": {
         "name": "get_citations",
         "description": "Get papers that cite a given paper. Queries the LOCAL Neo4j citation graph built from the curated paper corpus - fast but only covers papers in our corpus. If the user wants broader coverage across the whole Semantic Scholar graph (~200M papers), use `s2_get_citations` instead.",

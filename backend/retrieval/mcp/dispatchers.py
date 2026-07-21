@@ -22,6 +22,7 @@ from .tools import (
     check_papers_availability,
     compare_papers,
     compile_latex,
+    compute,
     create_artifact,
     deep_research,
     export_citations,
@@ -134,6 +135,16 @@ async def _search(arguments: dict) -> dict:
         filters=arguments.get("filters"),
         depth=arguments.get("depth", "normal"),
         top_k=arguments.get("top_k", 10),
+    )
+
+
+@register_tool("compute")
+async def _compute(arguments: dict) -> dict:
+    return await compute(
+        spec=arguments.get("spec", ""),
+        data_handle=arguments.get("data_handle"),
+        language=arguments.get("language", "python"),
+        budget=arguments.get("budget", "quick"),
     )
 
 

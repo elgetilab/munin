@@ -27,6 +27,7 @@ from .read_paper import read_paper
 from .compare_papers import compare_papers
 from .source import source
 from .search_agent import search
+from .compute_agent import compute
 from .s2_citations import s2_get_citations, s2_get_references
 from .chats import search_past_conversations
 from .memory import remember, forget, recall
@@ -61,6 +62,7 @@ __all__ = [
     "compare_papers",
     "source",
     "search",
+    "compute",
     "get_citations",
     "get_references",
     "s2_get_citations",
