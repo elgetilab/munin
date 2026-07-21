@@ -120,6 +120,10 @@ app = FastAPI(
 # Include MCP router
 app.include_router(mcp_router)
 
+# Deep Research agent: detached-job HTTP surface (start -> poll -> document).
+from research_routes import router as research_router  # noqa: E402
+app.include_router(research_router)
+
 # Expose Prometheus /metrics on the same FastAPI app (P1 #12). Caddy
 # only proxies /api/* and /paper/* externally, so /metrics is naturally
 # cluster-internal — no auth, scraped by a Prometheus running inside

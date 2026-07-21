@@ -33,12 +33,26 @@ import json
 import os
 import re
 import uuid
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import httpx
 
 from agent_trace import AgentTrace
 from database import VLLM_MODEL_NAME, VLLM_URL
+
+# Progress callback: `progress(event: str, data: dict)`. Non-fatal (a bad
+# callback must never kill the run). The manager passes one so a detached job's
+# progress is durable for reconnect/poll; None in a bare/eval call.
+ProgressFn = Callable[[str, dict], None]
+
+
+def _emit(progress: Optional[ProgressFn], event: str, **data: Any) -> None:
+    if progress is None:
+        return
+    try:
+        progress(event, data)
+    except Exception:
+        pass
 
 # Funnel widths are CONFIG, not agent-chosen (D9) - this is what makes cost
 # predictable. Defaults are modest; a full run widens SCREEN_KEEP/READ_CAP.
@@ -190,31 +204,52 @@ def _checkpoint(job_id: str, question: str, plan: list[dict]) -> None:
         pass
 
 
+def _load_checkpoint(job_id: str) -> Optional[list[dict]]:
+    try:
+        blob = json.load(open(os.path.join(CHECKPOINT_DIR, f"{job_id}.json")))
+        return blob.get("plan")
+    except Exception:
+        return None
+
+
 async def deep_research(question: str, *, depth: str = "normal",
                         max_subq: int = DEFAULT_MAX_SUBQ,
                         screen_keep: int = DEFAULT_SCREEN_KEEP,
                         read_cap: int = DEFAULT_READ_CAP,
-                        job_id: Optional[str] = None) -> dict:
+                        job_id: Optional[str] = None,
+                        progress: Optional[ProgressFn] = None) -> dict:
     """Run the research loop and return {document, plan, citations, trace}.
 
-    Callable synchronously (tests/eval) or as a detached task (the chat-service
-    integration wraps this). Checkpoints the plan after each sub-question so an
-    interrupted run resumes instead of restarting (D6b)."""
+    Callable synchronously (tests/eval) or as a detached task (the manager wraps
+    this). Checkpoints the plan after each sub-question so an interrupted run
+    resumes instead of restarting (D6b): pass the same job_id and it reloads the
+    plan and skips already-resolved sub-questions. `progress(event, data)` is
+    called at each milestone for the manager's durable progress record."""
     if not question or not str(question).strip():
         return {"error": "deep_research requires a question"}
     job_id = job_id or "dr_" + uuid.uuid4().hex[:16]
     tr = AgentTrace("deep_research", question=question, job_id=job_id)
 
-    subs = await _decompose(question, max_subq)
-    tr.llm(1)
-    plan = [{"id": f"sq{i}", "sub_question": s, "status": "open",
-             "notes": [], "evidence_refs": []} for i, s in enumerate(subs)]
-    tr.decide("plan", n_sub_questions=len(plan))
-    _checkpoint(job_id, question, plan)
+    # Resume from a checkpoint if one exists for this job_id; else plan afresh.
+    plan = _load_checkpoint(job_id)
+    if plan:
+        tr.decide("resumed from checkpoint", n_sub_questions=len(plan),
+                  open=sum(1 for n in plan if n["status"] == "open"))
+        _emit(progress, "resumed", n_sub_questions=len(plan))
+    else:
+        subs = await _decompose(question, max_subq)
+        tr.llm(1)
+        plan = [{"id": f"sq{i}", "sub_question": s, "status": "open",
+                 "notes": [], "evidence_refs": []} for i, s in enumerate(subs)]
+        tr.decide("plan", n_sub_questions=len(plan))
+        _checkpoint(job_id, question, plan)
+        _emit(progress, "plan", sub_questions=[n["sub_question"] for n in plan])
 
     for node in plan:
         if node["status"] != "open":  # resumed: skip already-done sub-questions
             continue
+        _emit(progress, "sub_question_start", id=node["id"],
+              sub_question=node["sub_question"])
         try:
             await _resolve(node, depth, read_cap, screen_keep, tr)
         except Exception as exc:  # noqa: BLE001 - one bad sub-question shouldn't kill the run
@@ -222,7 +257,10 @@ async def deep_research(question: str, *, depth: str = "normal",
             tr.decide("sub-question failed", sub_question=node["sub_question"],
                       err=str(exc)[:160])
         _checkpoint(job_id, question, plan)
+        _emit(progress, "sub_question_done", id=node["id"],
+              status=node["status"], n_notes=len(node["notes"]))
 
+    _emit(progress, "synthesising", n_resolved=sum(1 for n in plan if n["status"] == "resolved"))
     # Synthesise sections from notes (grouped by sub_question via the plan).
     sections = [await _synthesise_section(node) for node in plan]
     n_resolved = sum(1 for n in plan if n["status"] == "resolved")
@@ -235,4 +273,5 @@ async def deep_research(question: str, *, depth: str = "normal",
            "citations": citations}
     env["trace"] = tr.finish(outcome="resolved", n_sub_questions=len(plan),
                              n_resolved=n_resolved, n_citations=len(citations))
+    _emit(progress, "done", n_resolved=n_resolved, n_citations=len(citations))
     return env
