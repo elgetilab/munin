@@ -49,6 +49,7 @@ from .tools import (
     save_artifact_to_documents,
     search_past_conversations,
     search_user_docs,
+    search,
     semantic_scholar_search,
     source,
     tool_search,
@@ -123,6 +124,16 @@ async def _source(arguments: dict) -> dict:
         question=arguments.get("question"),
         focus=arguments.get("focus"),
         schema=arguments.get("schema"),
+    )
+
+
+@register_tool("search")
+async def _search(arguments: dict) -> dict:
+    return await search(
+        query=arguments.get("query"),
+        filters=arguments.get("filters"),
+        depth=arguments.get("depth", "normal"),
+        top_k=arguments.get("top_k", 10),
     )
 
 

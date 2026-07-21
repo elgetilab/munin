@@ -240,6 +240,35 @@ MCP_TOOLS = {
             "required": ["refs"]
         }
     },
+    "search": {
+        "name": "search",
+        "description": "Find and rank the evidence relevant to a topic across three tiers in one call: the local curated corpus (corpus_paper), external open-access papers via Semantic Scholar (oa_paper), and the web (web). Supersedes paper_search + semantic_scholar_search + web_search for the 'find me sources' intent. Every hit carries a `source_type` so you can judge trust (a Nature paper and an SEO listicle are not comparable on score); the ranker prefers the corpus, then OA, and caps web. Deduplicates across tiers on the alias set (DOI / arXiv / title), so the preprint and the published version collapse to one. Returns {ranked: [{ref, title, snippet, score, source_type, ...}], coverage_note, thin_evidence, counts}. If a sub-corpus scope is active (e.g. a #group tag), `coverage_note` reports 'X in scope, Y consortium-wide' so a scoping gap is not misread as a missing paper. `thin_evidence: true` warns that few strong scholarly hits were found rather than padding with weak ones. Use depth='deep' to include the web tier.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The topic or question to find evidence for. Automatically expanded into query variants across each tier."
+                },
+                "depth": {
+                    "type": "string",
+                    "enum": ["normal", "deep"],
+                    "description": "normal = local corpus + Semantic Scholar; deep = also search the web. Default normal.",
+                    "default": "normal"
+                },
+                "filters": {
+                    "type": "object",
+                    "description": "Optional {year: '2020-2024'} applied to the scholarly tier, and {tags: [...]} to override the active sub-corpus scope."
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "Max ranked results to return. Default 10.",
+                    "default": 10
+                }
+            },
+            "required": ["query"]
+        }
+    },
     "get_citations": {
         "name": "get_citations",
         "description": "Get papers that cite a given paper. Queries the LOCAL Neo4j citation graph built from the curated paper corpus - fast but only covers papers in our corpus. If the user wants broader coverage across the whole Semantic Scholar graph (~200M papers), use `s2_get_citations` instead.",
