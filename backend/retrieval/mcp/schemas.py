@@ -17,9 +17,18 @@ Each tool has:
 # (ask_clarification, tool_search) must always be present; the rest are
 # the high-frequency workhorses.
 CORE_TOOLS = frozenset({
+    # Specialised agents (the primary read/find/compute surface). `source`
+    # supersedes read_paper+compare_papers; `search` consolidates the three
+    # search tools; `compute` is spec->verified-code. read_paper is dropped from
+    # core (source covers it via mode=summary) but stays reachable via
+    # tool_search during transition; paper_search/web_search/run_python remain
+    # core for their distinct residual intents (they are also what the agents
+    # call internally).
+    "source",
+    "search",
+    "compute",
     "paper_search",
     "web_search",
-    "read_paper",
     "run_python",
     "create_artifact",
     "calculate",
