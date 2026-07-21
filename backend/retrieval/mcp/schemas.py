@@ -206,6 +206,40 @@ MCP_TOOLS = {
             "required": ["dois"]
         }
     },
+    "source": {
+        "name": "source",
+        "description": "Read 1..N documents and return a GROUNDED result with a stated outcome. This is the unified read agent: it supersedes read_paper (use mode='summary') and compare_papers (use mode='compare'), and adds two modes those lacked. mode='qa' answers a SPECIFIC question from the paper's FULL text (not a lossy summary) - use this when the user wants a precise value, number, or result that lives in the body, a table, or a figure caption ('what buried surface area did they report?', 'what was the fold-change in condition X?'); it quotes the exact supporting sentence or returns outcome='not_found' rather than guessing. mode='extract' pulls structured rows against a schema and returns a data HANDLE + a 5-row preview (never the full rows) for the compute agent to plot. `refs` is a list of tagged references - {\"doi\":\"...\"}, {\"arxiv\":\"...\"}, {\"url\":\"...\"}, or {\"title\":\"...\"} (fuzzy; may return outcome='ambiguous' with candidates). Every call returns an `outcome` (resolved | not_found | ambiguous | extraction_failed | out_of_scope | unresolved) so you always know WHICH way it went. Prefer this over read_paper/compare_papers.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "refs": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "Tagged references to read, e.g. [{\"doi\": \"10.1038/nature12373\"}] or [{\"title\": \"AlphaFold structure prediction\"}]. Bare DOI strings are accepted too."
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["summary", "qa", "extract", "compare"],
+                    "description": "summary = narrative + key findings (like read_paper); qa = answer `question` from full text; extract = structured rows against `schema`, handle-only; compare = side-by-side markdown over 2-5 refs.",
+                    "default": "summary"
+                },
+                "question": {
+                    "type": "string",
+                    "description": "Required for mode='qa' (the specific question to answer from the full text); optional for mode='extract' to steer what to pull."
+                },
+                "focus": {
+                    "type": "string",
+                    "description": "Optional topic bias for summary/compare, e.g. 'statistical methods', 'the mouse cohort'."
+                },
+                "schema": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional column list for mode='extract'. Omit on the first call to get a proposed schema + preview, then call again with the finalized columns."
+                }
+            },
+            "required": ["refs"]
+        }
+    },
     "get_citations": {
         "name": "get_citations",
         "description": "Get papers that cite a given paper. Queries the LOCAL Neo4j citation graph built from the curated paper corpus - fast but only covers papers in our corpus. If the user wants broader coverage across the whole Semantic Scholar graph (~200M papers), use `s2_get_citations` instead.",

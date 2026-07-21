@@ -70,6 +70,17 @@ current_corpus_scope: ContextVar[str] = ContextVar(
     "current_corpus_scope", default="all"
 )
 
+# Confabulated-ref audit (design D16 / §4.1). Search/paper tools add every DOI
+# they surface here as they fan out; the `source` agent checks membership so a
+# `{doi}` that was NEVER in a prior tool result this conversation is flagged as
+# model-generated in the trace (a confabulated DOI can resolve to a real but
+# WRONG paper with a perfect grounding envelope - the worst failure mode).
+# `None` means "not wired" (no audit possible); chat_service binds a fresh set
+# per request. This turns speculation into a log line.
+current_seen_dois: ContextVar[Optional[set]] = ContextVar(
+    "current_seen_dois", default=None
+)
+
 # URL allowlist for web_fetch (Bug 4b, 2026-06-01). web_search and
 # paper_search add every result URL here as they fan out; web_fetch
 # rejects URLs not in the set with a synthetic error nudging the model

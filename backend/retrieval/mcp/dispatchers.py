@@ -50,6 +50,7 @@ from .tools import (
     search_past_conversations,
     search_user_docs,
     semantic_scholar_search,
+    source,
     tool_search,
     transcribe_equation,
     update_artifact,
@@ -111,6 +112,17 @@ async def _compare_papers(arguments: dict) -> dict:
         dois=arguments.get("dois", []),
         focus=arguments.get("focus"),
         max_papers=arguments.get("max_papers", 5),
+    )
+
+
+@register_tool("source")
+async def _source(arguments: dict) -> dict:
+    return await source(
+        refs=arguments.get("refs", []),
+        mode=arguments.get("mode", "summary"),
+        question=arguments.get("question"),
+        focus=arguments.get("focus"),
+        schema=arguments.get("schema"),
     )
 
 
