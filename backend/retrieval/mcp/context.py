@@ -57,6 +57,19 @@ current_sse_emitter: ContextVar[Optional[EmitterFn]] = ContextVar(
     "current_sse_emitter", default=None
 )
 
+# Provenance controls (design D29). Two config-not-inference levers the model
+# never sets: `current_egress` (what the network layer may reach) and
+# `current_corpus_scope` (which document provenances an answer may draw on).
+# Defaults are permissive (full / all) to preserve current behaviour; a
+# certification or benchmark run forces the strict pair (off / curated_only).
+# Read + enforced via `provenance.py`; recorded in every agent trace. They are
+# separate controls because egress-off is necessary but not sufficient for a
+# private-corpus claim - a cached OA paper answers without touching the network.
+current_egress: ContextVar[str] = ContextVar("current_egress", default="full")
+current_corpus_scope: ContextVar[str] = ContextVar(
+    "current_corpus_scope", default="all"
+)
+
 # URL allowlist for web_fetch (Bug 4b, 2026-06-01). web_search and
 # paper_search add every result URL here as they fan out; web_fetch
 # rejects URLs not in the set with a synthetic error nudging the model

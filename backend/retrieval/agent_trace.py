@@ -43,6 +43,8 @@ def _request_context() -> dict:
     (and remains testable in isolation). Missing context is not an error - a
     trace written outside a request (e.g. a benchmark) simply has null fields.
     """
+    ctx = {"conversation_id": None, "user": None, "persona": None,
+           "egress": None, "corpus_scope": None}
     try:
         from mcp.context import (
             current_conversation_id,
@@ -50,13 +52,18 @@ def _request_context() -> dict:
             current_user_email,
         )
 
-        return {
-            "conversation_id": current_conversation_id.get(),
-            "user": current_user_email.get(),
-            "persona": current_persona.get(),
-        }
+        ctx["conversation_id"] = current_conversation_id.get()
+        ctx["user"] = current_user_email.get()
+        ctx["persona"] = current_persona.get()
     except Exception:
-        return {"conversation_id": None, "user": None, "persona": None}
+        pass
+    try:
+        import provenance
+
+        ctx.update(provenance.snapshot())  # egress + corpus_scope (D29)
+    except Exception:
+        pass
+    return ctx
 
 
 def _today() -> str:
