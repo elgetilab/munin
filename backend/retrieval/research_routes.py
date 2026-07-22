@@ -19,7 +19,10 @@ from fastapi import APIRouter, HTTPException, Request
 
 import deep_research_manager as manager
 
-router = APIRouter(prefix="/research", tags=["deep-research-agent"])
+# Prefix MUST start with /api/: the frontend Caddy only forwards /api/* and
+# /paper/* to the cluster, and the gateway proxies /api/{path} -> cluster
+# /api/{path} (prefix preserved). A bare /research would be cluster-internal only.
+router = APIRouter(prefix="/api/research", tags=["deep-research-agent"])
 
 
 def _require_email(request: Request) -> str:
