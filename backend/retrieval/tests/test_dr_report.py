@@ -87,6 +87,41 @@ def test_read_candidates_respects_cap(monkeypatch):
     assert reads == 2 and len(node["evidence_refs"]) == 2
 
 
+def test_group_by_subquestion():
+    notes = [
+        {"claim": "a", "sub_question_id": "sq0"},
+        {"claim": "b", "sub_question_id": "sq1"},
+        {"claim": "c", "sub_question_id": "sq0"},
+    ]
+    groups = D._group_by_subquestion(notes)
+    assert set(groups) == {"sq0", "sq1"}
+    assert [n["claim"] for n in groups["sq0"]] == ["a", "c"]  # order preserved
+    assert [n["claim"] for n in groups["sq1"]] == ["b"]
+
+
+def test_extract_value_number_plus_unit():
+    assert D._extract_value("K ≈ 84,000 M⁻¹") == ("84000", "M⁻¹")
+    assert D._extract_value("IC50 of 1.4 µmol/L") == ("1.4", "µmol/L")
+    assert D._extract_value("a 37% improvement") == ("37", "%")
+    assert D._extract_value("~10-fold higher") == ("10", "fold")
+    # bare counts (no unit) are not quantities
+    assert D._extract_value("5 sub-questions were posed") == (None, None)
+    assert D._extract_value("no numbers here") == (None, None)
+
+
+def test_numeric_conflicts_same_unit_different_value():
+    notes = [
+        {"value": "84000", "unit": "M⁻¹", "claim": "a"},
+        {"value": "100", "unit": "M⁻¹", "claim": "b"},      # conflicts with the first
+        {"value": "1.4", "unit": "µmol/L", "claim": "c"},   # different unit, no conflict
+        {"value": "84000", "unit": "M⁻¹", "claim": "d"},    # same value, no conflict
+    ]
+    conflicts = D._numeric_conflicts(notes)
+    pairs = {(a["claim"], b["claim"]) for a, b in conflicts}
+    assert ("a", "b") in pairs
+    assert ("a", "d") not in pairs and ("a", "c") not in pairs
+
+
 def test_citations_dedupe_and_keep_read_depth():
     plan = [
         {"notes": [

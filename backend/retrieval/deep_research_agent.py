@@ -132,6 +132,39 @@ def _answer_line(answer: str) -> str:
     return (m.group(1).strip() if m else answer.strip())[:400]
 
 
+# R4: pull a quantity (number + recognised scientific unit) out of a finding so
+# the report can carry hard numbers and the synthesiser can contrast them. Only
+# number+unit pairs are extracted - a bare count ("5 papers") is not a quantity.
+# Longest / most specific units FIRST - regex alternation is first-match, not
+# longest-match, so µmol/L must precede µM (which is a substring of "µmol").
+_UNIT = (r"(µmol/L|mmol/L|nmol/L|kcal/mol|kJ/mol|M⁻¹|M-1|kDa|Da|"
+         r"nM|pM|µM|μM|mM|Å²|Å|%|×|[-\s]?fold|nm|mV|°C|bp|kb)")
+_VALUE_RE = re.compile(r"[~≈]?\s*([-+]?\d[\d,]*(?:\.\d+)?)\s*" + _UNIT, re.IGNORECASE)
+
+
+def _extract_value(text: str) -> tuple[Optional[str], Optional[str]]:
+    m = _VALUE_RE.search(text or "")
+    if not m:
+        return None, None
+    val = m.group(1).replace(",", "").replace(" ", "")
+    unit = (m.group(2) or "").strip().lstrip("-").strip() or None
+    return val, unit
+
+
+def _numeric_conflicts(notes: list[dict]) -> list[tuple[dict, dict]]:
+    """Pairs of notes reporting the SAME unit but a DIFFERENT value - a concrete,
+    deterministic contradiction signal (R3/R4). The synthesiser is told to name
+    these explicitly rather than average them."""
+    out = []
+    withval = [n for n in notes if n.get("value") and n.get("unit")]
+    for i in range(len(withval)):
+        for j in range(i + 1, len(withval)):
+            a, b = withval[i], withval[j]
+            if a["unit"] == b["unit"] and a["value"] != b["value"]:
+                out.append((a, b))
+    return out
+
+
 def _seen_dois(node: dict) -> set:
     return {((r.get("ref") or {}).get("doi") or "").lower()
             for r in node["evidence_refs"] if (r.get("ref") or {}).get("doi")}
@@ -166,9 +199,13 @@ async def _read_candidates(node: dict, candidates: list[dict], cap: int,
         node["evidence_refs"].append({"ref": env.get("ref_resolved"),
                                       "read_depth": depth_read, "outcome": outcome})
         if outcome == "resolved" and env.get("answer") and not env.get("abstained"):
-            note = {"claim": _answer_line(env["answer"]), "quote": env.get("quote"),
+            claim = _answer_line(env["answer"])
+            val, unit = _extract_value(claim)
+            if not val:
+                val, unit = _extract_value(env.get("quote") or "")
+            note = {"claim": claim, "quote": env.get("quote"),
                     "ref": env.get("ref_resolved"), "read_depth": depth_read,
-                    "sub_question_id": node["id"]}
+                    "sub_question_id": node["id"], "value": val, "unit": unit}
             node["notes"].append(note)
             await _emit(progress, "note", sub_question_id=node["id"],
                         claim=note["claim"], quote=note["quote"], ref=note["ref"])
@@ -230,20 +267,40 @@ async def _snowball(node: dict, extra_reads: int, screen_keep: int,
         node["status"] = "resolved" if node["notes"] else node["status"]
 
 
+def _group_by_subquestion(notes: list[dict]) -> dict:
+    """Group notes by their sub_question_id, preserving order. The unit of
+    contradiction detection: conflicting claims live within one sub-question."""
+    groups: dict[str, list[dict]] = {}
+    for n in notes:
+        groups.setdefault(n.get("sub_question_id") or "", []).append(n)
+    return groups
+
+
 async def _synthesise_section(node: dict) -> str:
     notes = node["notes"]
     if not notes:
         return f"## {node['sub_question']}\n\n_No supporting evidence was found._\n"
-    body = "\n".join(
-        f"- claim: {n['claim']}\n  quote: \"{(n.get('quote') or '')[:300]}\"\n"
-        f"  ref: {(n['ref'] or {}).get('title') or (n['ref'] or {}).get('doi')}"
-        for n in notes)
+    # Number the notes so the synthesiser can contrast specific sources.
+    def _fmt(i: int, n: dict) -> str:
+        val = f"\n    value: {n['value']} {n.get('unit') or ''}".rstrip() if n.get("value") else ""
+        return (f"[{i}] claim: {n['claim']}{val}\n"
+                f"    quote: \"{(n.get('quote') or '')[:300]}\"\n"
+                f"    source: {(n['ref'] or {}).get('title') or (n['ref'] or {}).get('doi')}")
+    body = "\n".join(_fmt(i, n) for i, n in enumerate(notes, 1))
+    conflicts = _numeric_conflicts(notes)
+    if conflicts:
+        body += "\n\nCONFLICTING VALUES (name these disagreements explicitly): " + \
+            "; ".join(f"{a['value']} {a['unit']} vs {b['value']} {b['unit']}"
+                      for a, b in conflicts)
     section = await _llm(
-        "You draft one section of a research report from evidence notes. Draft "
-        "ONLY from the quoted evidence - do not add claims not in the notes. Cite "
-        "papers by short title. If the notes DISAGREE, name the split explicitly "
-        "rather than averaging. 2-5 sentences.",
-        f"Sub-question: {node['sub_question']}\n\nNotes:\n{body}", max_tokens=600)
+        "You draft one section of a research report from numbered evidence notes. "
+        "SYNTHESISE across the notes - connect and contrast them, do not just list. "
+        "Draft ONLY from the quoted evidence; add no claims not in the notes; cite "
+        "sources by short title. If two notes DISAGREE (opposite claims, or "
+        "different values/units for the same quantity), name the disagreement "
+        "explicitly and cite both sides rather than averaging or picking one. "
+        "3-6 sentences.",
+        f"Sub-question: {node['sub_question']}\n\nNotes:\n{body}", max_tokens=700)
     return f"## {node['sub_question']}\n\n{section}\n"
 
 
