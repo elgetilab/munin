@@ -200,6 +200,47 @@ async def _synthesise_section(node: dict) -> str:
     return f"## {node['sub_question']}\n\n{section}\n"
 
 
+def _cite(ref: Optional[dict]) -> str:
+    ref = ref or {}
+    return ref.get("title") or ref.get("doi") or "source"
+
+
+async def _tldr(question: str, notes: list[dict]) -> str:
+    """A 3-5 bullet TL;DR of the strongest findings, grounded in the notes."""
+    if not notes:
+        return ""
+    body = "\n".join(f"- {n['claim']} (source: {_cite(n.get('ref'))})" for n in notes[:24])
+    out = await _llm(
+        "Write a 3-5 bullet TL;DR for a research report from these grounded "
+        "findings. Each bullet is a bold headline claim followed by one sentence, "
+        "and names its source. Draft ONLY from the findings; add no new claims. "
+        "Use '- ' bullets.",
+        f"Question: {question}\n\nFindings:\n{body}", max_tokens=600)
+    return f"## TL;DR\n\n{out}\n\n" if out else ""
+
+
+def _key_findings(notes: list[dict]) -> str:
+    """Numbered claim + inline citation per grounded note (deterministic)."""
+    if not notes:
+        return ""
+    lines = [f"{i}. {n['claim']} ({_cite(n.get('ref'))})" for i, n in enumerate(notes, 1)]
+    return "## Key Findings\n\n" + "\n".join(lines) + "\n\n"
+
+
+def _caveats(plan: list[dict], citations: list[dict]) -> str:
+    """Honest limitations: unanswered sub-questions + abstract-only citations."""
+    lines: list[str] = []
+    unresolved = [n["sub_question"] for n in plan if n["status"] != "resolved"]
+    if unresolved:
+        lines.append("- The available sources did not answer:")
+        lines += [f"  - {u}" for u in unresolved]
+    abstract_only = [c for c in citations if c.get("read_depth") == "abstract"]
+    if abstract_only:
+        lines.append(f"- {len(abstract_only)} source(s) were read at the abstract "
+                     "level only, so claims resting on them are less certain.")
+    return "## Caveats\n\n" + "\n".join(lines) + "\n" if lines else ""
+
+
 def _citations(plan: list[dict]) -> list[dict]:
     seen, out = set(), []
     for node in plan:
@@ -288,12 +329,17 @@ async def deep_research(question: str, *, depth: str = "normal",
 
     await _emit(progress, "synthesising",
                 n_resolved=sum(1 for n in plan if n["status"] == "resolved"))
-    # Synthesise sections from notes (grouped by sub_question via the plan).
-    sections = [await _synthesise_section(node) for node in plan]
+    # Claude-style layout, drawn only from grounded notes:
+    #   Title / TL;DR / Key Findings / Details (per sub-question) / Sources / Caveats
+    all_notes = [n for node in plan for n in node["notes"]]
     n_resolved = sum(1 for n in plan if n["status"] == "resolved")
     citations = _citations(plan)
-    # A proper Sources section: numbered, linked by DOI, with the read depth so a
-    # reader can tell a full-text citation from an abstract-only one.
+
+    tldr_md = await _tldr(question, all_notes)
+    key_findings_md = _key_findings(all_notes)
+    sections = [await _synthesise_section(node) for node in plan]  # Details
+    details_md = "## Details\n\n" + "\n".join(sections) if sections else ""
+    # Sources: numbered, DOI-linked, with read depth (full-text vs abstract).
     sources_md = ""
     if citations:
         lines = []
@@ -304,10 +350,12 @@ async def deep_research(question: str, *, depth: str = "normal",
             link = f"[{title}](https://doi.org/{doi})" if doi else title
             lines.append(f"{i}. {link} _(read: {c.get('read_depth') or 'unknown'})_")
         sources_md = "\n## Sources\n\n" + "\n".join(lines) + "\n"
-    document = (f"# {question}\n\n" + "\n".join(sections) + sources_md +
+    caveats_md = _caveats(plan, citations)
+
+    document = (f"# {question}\n\n" + tldr_md + key_findings_md + details_md +
+                sources_md + "\n" + caveats_md +
                 f"\n---\n_{n_resolved}/{len(plan)} sub-questions resolved from "
-                f"{sum(len(n['notes']) for n in plan)} grounded notes; "
-                f"{len(citations)} sources cited._\n")
+                f"{len(all_notes)} grounded notes; {len(citations)} sources cited._\n")
 
     env = {"job_id": job_id, "document": document, "plan": plan,
            "citations": citations}
