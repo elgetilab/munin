@@ -90,13 +90,31 @@ def _parse_json(text: str, default):
         return default
 
 
+def _coerce_str_list(parsed) -> list[str]:
+    """A list of non-empty strings from an LLM's JSON. Handles the common failure
+    where the model wraps the list in an object, e.g. {"sub_questions": [...]} -
+    iterating that dict would otherwise yield its KEYS ("sub_questions") as if
+    they were the items (the capstone bug)."""
+    if isinstance(parsed, dict):
+        # Take the first list value; else the string values.
+        for v in parsed.values():
+            if isinstance(v, list):
+                parsed = v
+                break
+        else:
+            parsed = [v for v in parsed.values() if isinstance(v, str)]
+    if not isinstance(parsed, list):
+        return []
+    return [str(s).strip() for s in parsed if isinstance(s, str) and s.strip()]
+
+
 async def _decompose(question: str, max_subq: int) -> list[str]:
     out = await _llm(
         "You are a research planner. Break the user's question into 2-5 concrete, "
-        "independently-answerable sub-questions. Return ONLY a JSON list of strings.",
+        "independently-answerable sub-questions. Return ONLY a JSON array of "
+        "strings (not an object), e.g. [\"...\", \"...\"].",
         f"Question: {question}", max_tokens=500)
-    subs = _parse_json(out, [])
-    subs = [str(s).strip() for s in subs if isinstance(s, str) and s.strip()]
+    subs = _coerce_str_list(_parse_json(out, []))
     return subs[:max_subq] or [question]
 
 

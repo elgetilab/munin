@@ -87,6 +87,20 @@ def test_read_candidates_respects_cap(monkeypatch):
     assert reads == 2 and len(node["evidence_refs"]) == 2
 
 
+def test_coerce_str_list_handles_object_wrapped_list():
+    # The bare list case.
+    assert D._coerce_str_list(["a", "b"]) == ["a", "b"]
+    # The capstone bug: LLM wrapped the list in an object. Must extract the list,
+    # NOT return the dict keys.
+    assert D._coerce_str_list({"sub_questions": ["q1", "q2"]}) == ["q1", "q2"]
+    assert D._coerce_str_list({"questions": ["q1"], "note": "x"}) == ["q1"]
+    # Object of string values (no list) -> the values, not the keys.
+    assert D._coerce_str_list({"1": "q1", "2": "q2"}) == ["q1", "q2"]
+    # Junk.
+    assert D._coerce_str_list("nope") == []
+    assert D._coerce_str_list([1, 2, ""]) == []
+
+
 def test_group_by_subquestion():
     notes = [
         {"claim": "a", "sub_question_id": "sq0"},
