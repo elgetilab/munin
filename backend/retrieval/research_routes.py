@@ -41,18 +41,25 @@ async def start(request: Request) -> dict:
     if not question:
         raise HTTPException(status_code=400,
                             detail={"error": {"message": "question is required"}})
+    # A brand-new chat has no conversation yet. Create one so Deep Research can be
+    # launched as the FIRST action in a fresh chat; the report is delivered there
+    # as an artifact. The client switches to the returned conversation_id.
     conv = body.get("conversation_id")
+    created_conversation = False
     if not conv:
-        raise HTTPException(status_code=400,
-                            detail={"error": {"message": "conversation_id is required "
-                                    "(the report is delivered as an artifact in it)"}})
+        import chat_store
+        c = await chat_store.create_conversation(
+            user_email=email, persona="munin", title=question[:80])
+        conv = c["id"]
+        created_conversation = True
     kw = {k: body[k] for k in ("max_subq", "screen_keep", "read_cap")
           if isinstance(body.get(k), int)}
     job_id = await manager.start_job(
         question, conversation_id=conv, user_email=email,
         depth=body.get("depth", "normal"),
         resume_job_id=body.get("resume_job_id"), **kw)
-    return {"job_id": job_id, "status": "queued"}
+    return {"job_id": job_id, "conversation_id": conv,
+            "created_conversation": created_conversation, "status": "queued"}
 
 
 @router.get("/status/{job_id}")
