@@ -156,7 +156,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
   const canEdit = isLatest && summary?.source === 'model_written';
 
   return (
-    <div className="w-96 lg:w-[32rem] xl:w-[36rem] border-l border-border bg-bg-secondary flex flex-col h-full">
+    <div data-testid="artifact-panel" className="w-96 lg:w-[32rem] xl:w-[36rem] border-l border-border bg-bg-secondary flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
         {selectedArtifactId ? (
@@ -191,6 +191,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
               {artifacts.map(art => (
                 <button
                   key={art.id}
+                  data-testid="artifact-item"
                   onClick={() => onSelectArtifact(art.id)}
                   className="w-full text-left px-4 py-3 hover:bg-bg-tertiary transition-colors cursor-pointer border-b border-border last:border-0"
                 >

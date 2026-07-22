@@ -763,7 +763,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         {/* Deep Research mode armed (toggle on, no job yet): the next send starts
             a background research job rather than a chat turn. */}
         {deepResearchMode && !drActive && (
-          <div className="px-5 pt-2 flex items-center gap-2 text-xs text-accent">
+          <div data-testid="dr-armed" className="px-5 pt-2 flex items-center gap-2 text-xs text-accent">
             <svg className="shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 3h6M10 3v6.5L5.5 18a2 2 0 0 0 1.8 3h9.4a2 2 0 0 0 1.8-3L14 9.5V3" />
             </svg>
@@ -781,13 +781,13 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         {/* Deep Research status: live step + elapsed time while the job runs in
             the background; the report arrives as an artifact when it finishes. */}
         {drActive && drJob && (
-          <div className="px-5 pt-2 flex items-center gap-2 text-xs text-text-secondary">
+          <div data-testid="dr-status" className="px-5 pt-2 flex items-center gap-2 text-xs text-text-secondary">
             <svg className="animate-spin shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
               <path d="M21 12a9 9 0 1 1-6.219-8.56" />
             </svg>
             <span className="flex-1 truncate">
-              <span className="text-text-primary">Deep Research:</span> {drJob.step}
-              <span className="text-text-secondary"> ({formatElapsed(drElapsed)})</span>
+              <span className="text-text-primary">Deep Research:</span> <span data-testid="dr-status-step">{drJob.step}</span>
+              <span className="text-text-secondary" data-testid="dr-status-elapsed"> ({formatElapsed(drElapsed)})</span>
             </span>
           </div>
         )}
@@ -801,6 +801,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         {/* Textarea */}
         <textarea
           ref={textareaRef}
+          data-testid="composer-textarea"
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -814,6 +815,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           {/* Attach button (+) with menu */}
           <div ref={attachRef} className="relative">
             <button
+              data-testid="composer-attach"
               onClick={() => setAttachMenuOpen(!attachMenuOpen)}
               className="p-2 text-text-secondary hover:text-text-primary rounded-lg hover:bg-bg-tertiary transition-colors cursor-pointer"
               title="Attach"
@@ -866,6 +868,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                     artifact) instead of a normal chat turn. Needs a saved chat. */}
                 <div className="border-t border-border" />
                 <button
+                  data-testid="attach-deep-research"
                   onClick={() => {
                     if (drResearchUnavailable) return;
                     setDeepResearchMode(m => !m);
@@ -970,6 +973,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           {/* Send / Stop button */}
           {isStreaming ? (
             <button
+              data-testid="composer-stop"
               onClick={onStop}
               className="p-2.5 bg-error rounded-full text-bg-primary cursor-pointer hover:opacity-90 transition-opacity"
               title="Stop generating"
@@ -980,6 +984,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             </button>
           ) : (
             <button
+              data-testid="composer-send"
               onClick={handleSubmit}
               disabled={(!input.trim() && pendingImages.length === 0 && pendingDocs.length === 0) || drStarting}
               className="p-2.5 bg-accent rounded-full text-bg-primary cursor-pointer hover:bg-accent-hover transition-colors disabled:opacity-30 disabled:cursor-not-allowed"

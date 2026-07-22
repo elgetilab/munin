@@ -604,20 +604,22 @@ export default function App() {
 
           {/* Ephemeral toggle */}
           <button
+            data-testid="ephemeral-toggle"
             onClick={handleToggleEphemeral}
             className={`text-xs px-2.5 py-1 rounded-full transition-colors cursor-pointer border ${
               isEphemeral
                 ? 'bg-warning/15 border-warning text-warning'
                 : 'bg-bg-tertiary border-border text-text-secondary hover:text-text-primary'
             }`}
-            title={isEphemeral ? 'Ephemeral mode ON — chats won\'t be saved' : 'Enable ephemeral mode'}
+            title={isEphemeral ? "Ephemeral mode ON. Chats won't be saved." : 'Enable ephemeral mode'}
           >
-            {isEphemeral ? 'Ephemeral' : 'Ephemeral'}
+            Ephemeral
           </button>
 
           {/* Artifacts panel toggle */}
           {conversationId && !isEphemeral && (
             <button
+              data-testid="artifacts-button"
               onClick={() => setArtifactPanelOpen(!artifactPanelOpen)}
               className={`text-xs px-2.5 py-1 rounded-full transition-colors cursor-pointer border ${
                 artifactPanelOpen
