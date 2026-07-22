@@ -47,6 +47,61 @@ from database import VLLM_MODEL_NAME, VLLM_URL
 
 logger = logging.getLogger(__name__)
 
+# Unpaywall is the canonical open-access PDF resolver (far broader coverage than
+# Semantic Scholar's openAccessPdf field, and it returns direct PDF links). It is
+# the OA full-text lever: without it, OA papers not in the local corpus fall back
+# to abstract-only, which qa mode then abstains on. Requires a contact email per
+# their API policy.
+UNPAYWALL_EMAIL = os.getenv("UNPAYWALL_EMAIL", "munin@muninai.org")
+
+
+_PDF_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+
+
+async def _unpaywall_pdf_urls(doi: str) -> list[str]:
+    """Candidate OA PDF URLs for a DOI via Unpaywall, best first. Repository
+    copies (PMC, institutional) are ordered ahead of publisher copies, which
+    frequently block scripted downloads with an HTML interstitial or 403."""
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            r = await client.get(f"https://api.unpaywall.org/v2/{doi}",
+                                 params={"email": UNPAYWALL_EMAIL})
+        if r.status_code != 200:
+            return []
+        locs = [l for l in (r.json().get("oa_locations") or []) if l.get("url_for_pdf")]
+        # repository before publisher; PMC first within repositories.
+        def rank(l: dict) -> tuple:
+            host = l.get("host_type") or ""
+            url = l.get("url_for_pdf") or ""
+            return (0 if host == "repository" else 1, 0 if "ncbi.nlm.nih.gov" in url else 1)
+        locs.sort(key=rank)
+        return [l["url_for_pdf"] for l in locs]
+    except Exception as exc:  # noqa: BLE001 - resolver failure is non-fatal
+        logger.info("unpaywall lookup failed for %s: %s", doi, exc)
+        return []
+
+
+async def _download_valid_pdf(url: str) -> Optional[bytes]:
+    """Download a URL with a browser UA and return the bytes only if they are an
+    actual PDF (magic `%PDF-`). Publishers often return an HTML anti-bot page
+    with a 200, which would otherwise be 'extracted' into garbage and abstained
+    on; validating the magic bytes lets the caller skip to the next candidate."""
+    try:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True,
+                                     headers={"User-Agent": _PDF_UA}) as client:
+            async with client.stream("GET", url) as resp:
+                if resp.status_code != 200:
+                    return None
+                buf = bytearray()
+                async for chunk in resp.aiter_bytes():
+                    buf.extend(chunk)
+                    if len(buf) > 50 * 1024 * 1024:
+                        break
+        data = bytes(buf)
+        return data if data[:5] == b"%PDF-" else None
+    except Exception:  # noqa: BLE001
+        return None
+
 # qa/extract send the FULL paper text (not llm_summarize's 30k cap). 140k chars
 # ~= 35k tokens, comfortably inside the 65k context with room for the question
 # and answer. Above this we fall back to chunk-ranking (overflow only, D15).
@@ -173,12 +228,26 @@ async def _fetch_and_extract(doi: str, tr: AgentTrace) -> dict:
         cached = _read_cache(doi)
         if cached:
             origin, pdf_bytes = P.ORIGIN_OA_CACHE, cached
-        elif lookup.get("open_access_pdf") and P.may_fetch(P.NET_OA_DOWNLOAD):
-            fetched = await _download_pdf(lookup["open_access_pdf"])
-            if fetched:
-                origin, url, pdf_bytes = P.ORIGIN_OA_DOWNLOAD, lookup["open_access_pdf"], fetched
-                _write_cache(doi, fetched)
-                _warn_if_cache_bloated()
+        elif P.may_fetch(P.NET_OA_DOWNLOAD):
+            # Try OA PDF URLs until one yields a VALID pdf: the S2 lookup's URL,
+            # then Unpaywall's (repository copies first). Each download is
+            # magic-byte checked, so a publisher HTML interstitial is skipped
+            # rather than mis-extracted - this is what turns OA papers from
+            # abstract-only (abstain) into full-text reads.
+            oa_urls: list[str] = []
+            if lookup.get("open_access_pdf"):
+                oa_urls.append(lookup["open_access_pdf"])
+            for u in await _unpaywall_pdf_urls(doi):
+                if u not in oa_urls:
+                    oa_urls.append(u)
+            for oa_url in oa_urls[:5]:
+                fetched = await _download_valid_pdf(oa_url)
+                if fetched:
+                    origin, url, pdf_bytes = P.ORIGIN_OA_DOWNLOAD, oa_url, fetched
+                    _write_cache(doi, fetched)
+                    _warn_if_cache_bloated()
+                    tr.decide("OA full-text fetched", url=oa_url)
+                    break
 
     # Provenance gate: a source may exist but be out of the active corpus_scope
     # (e.g. an OA download under corpus_scope=curated_only). That is a distinct
