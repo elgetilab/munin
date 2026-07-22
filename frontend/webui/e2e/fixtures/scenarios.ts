@@ -10,8 +10,17 @@ export const ANNOUNCEMENT = { announcement: null };
 export const USAGE = { current_month: { tokens_used: 0, tokens_limit: 1000000, tokens_remaining: 1000000, requests: 0, tools_used: {} }, api_keys: [] };
 export const EMPTY_CHATS = { conversations: [], total: 0 };
 
-export function emptyConversation(id: string) {
+export function emptyConversation(id: string): { id: string; title: string; persona: string; created_at: string; updated_at: string; summary: null; messages: Array<{ id: string; role: string; content: string; created_at: string }> } {
   return { id, title: 'Deep Research', persona: 'munin', created_at: new Date(0).toISOString(), updated_at: new Date(0).toISOString(), summary: null, messages: [] };
+}
+
+// A conversation row for the sidebar list.
+export function conversationSummary(id: string, title: string) {
+  return { id, title, persona: 'chat', created_at: new Date(0).toISOString(), updated_at: new Date(0).toISOString(), message_count: 1, preview: title, pinned: false, pinned_at: null };
+}
+
+export function artifactSummary(id: string, title: string, content_type = 'text/markdown') {
+  return { id, title, content_type, latest_version: 1, word_count: 10, byte_size: 100, source: 'model_written', created_at: new Date(0).toISOString(), updated_at: new Date(0).toISOString() };
 }
 
 // A plain assistant reply.

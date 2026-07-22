@@ -9,7 +9,11 @@ export interface MockState {
   chatScript: SseEvent[];
   conversations: Record<string, unknown>[];
   artifacts: Record<string, unknown>[];
-  research: { steps: ReturnType<typeof S.researchProgression>; poll: number; reportArtifact: Record<string, unknown> | null };
+  // Per-conversation artifacts. When set for a conversation id, the list +
+  // single-artifact endpoints scope to it and 404 on a cross-conversation fetch
+  // (reproduces the "artifact not found on switch" bug).
+  perConversationArtifacts: Record<string, Record<string, unknown>[]>;
+  research: { steps: ReturnType<typeof S.researchProgression>; poll: number; reportArtifact: Record<string, unknown> | null; question: string };
   unmocked: string[];
 }
 
@@ -31,7 +35,8 @@ export async function installMocks(page: Page, init: Partial<MockState> = {}): P
     chatScript: init.chatScript ?? S.simpleReply(),
     conversations: init.conversations ?? [],
     artifacts: init.artifacts ?? [],
-    research: { steps: [], poll: 0, reportArtifact: null },
+    perConversationArtifacts: init.perConversationArtifacts ?? {},
+    research: { steps: [], poll: 0, reportArtifact: null, question: '' },
     unmocked: [],
   };
 
@@ -71,20 +76,44 @@ export async function installMocks(page: Page, init: Partial<MockState> = {}): P
     if (p === '/api/chats') return m === 'GET'
       ? json(route, { conversations: state.conversations, total: state.conversations.length })
       : json(route, {});
-    if (/^\/api\/chats\/[^/]+\/artifacts$/.test(p)) return json(route, { artifacts: state.artifacts, total: state.artifacts.length });
-    if (/^\/api\/chats\/[^/]+\/artifacts\/[^/]+$/.test(p)) {
-      const id = p.split('/').pop();
-      const a = state.artifacts.find((x) => x.id === id) || S.DR_REPORT_ARTIFACT;
+    const artifactsListMatch = p.match(/^\/api\/chats\/([^/]+)\/artifacts$/);
+    if (artifactsListMatch) {
+      const cid = artifactsListMatch[1];
+      const list = state.perConversationArtifacts[cid] ?? state.artifacts;
+      return json(route, { artifacts: list, total: list.length });
+    }
+    const artifactOneMatch = p.match(/^\/api\/chats\/([^/]+)\/artifacts\/([^/]+)$/);
+    if (artifactOneMatch) {
+      const [, cid, id] = artifactOneMatch;
+      const scoped = state.perConversationArtifacts[cid];
+      // Cross-conversation fetch (the bug): the artifact isn't in this
+      // conversation -> 404, exactly like the backend.
+      if (scoped && !scoped.find((x) => x.id === id)) {
+        return json(route, { error: { message: 'artifact not found' } }, 404);
+      }
+      const a = (scoped ?? state.artifacts).find((x) => x.id === id) || S.DR_REPORT_ARTIFACT;
       return json(route, { ...a, content: '# Report\n\nMocked artifact body.', version: 1, change_summary: '', created_by: 'assistant' });
     }
-    if (/^\/api\/chats\/[^/]+$/.test(p)) return m === 'GET' ? json(route, S.emptyConversation(p.split('/').pop() || 'conv-e2e')) : json(route, {});
+    if (/^\/api\/chats\/[^/]+$/.test(p) && m === 'GET') {
+      const cid = p.split('/').pop() || 'conv-e2e';
+      // The DR conversation carries the research question as a user message (the
+      // backend persists it), so a fresh DR chat is not empty.
+      if (cid === 'conv-dr' && state.research.question) {
+        const c = S.emptyConversation(cid);
+        c.messages = [{ id: 'm-dr', role: 'user', content: state.research.question, created_at: new Date(0).toISOString() }];
+        return json(route, c);
+      }
+      return json(route, S.emptyConversation(cid));
+    }
+    if (/^\/api\/chats\/[^/]+$/.test(p)) return json(route, {});
 
     // chat completions (SSE)
     if (p === '/api/chat/completions') return sse(route, state.chatScript);
 
     // deep research
     if (p === '/api/research/start') {
-      state.research = { steps: S.researchProgression('dr-e2e', 'conv-dr'), poll: 0, reportArtifact: S.DR_REPORT_ARTIFACT };
+      const posted = (req.postDataJSON?.() ?? {}) as { question?: string };
+      state.research = { steps: S.researchProgression('dr-e2e', 'conv-dr'), poll: 0, reportArtifact: S.DR_REPORT_ARTIFACT, question: posted.question ?? '' };
       return json(route, { job_id: 'dr-e2e', conversation_id: 'conv-dr', created_conversation: true, status: 'queued' });
     }
     if (p.startsWith('/api/research/status/')) {
