@@ -88,3 +88,13 @@ kinase-inhibitor partitioning) through the full pipeline (OA lever + wider funne
 + snowball + R1 report). Saves to `todo_v2/MUNIN-DR-SAMPLE-REPORT.md` so the user
 can compare Munin's report side-by-side with the Claude reference
 (`compass_artifact_...md`).
+
+**The capstone caught a real bug (b5a58c6).** The first capstone run produced an
+off-topic report about ChatGPT chemistry, researching the literal string
+"sub_questions". Root cause: `_decompose` asked for a JSON list but the model
+returned an OBJECT `{"sub_questions": [...]}`; the old code iterated the dict and
+got its KEYS as the sub-questions. Fix: `_coerce_str_list` extracts the wrapped
+list (and handles a few other malformed shapes); the decompose prompt now says
+"array, not object". Unit-tested (10/10). This is exactly the class of bug the
+end-to-end run exists to catch - it would have shipped silently otherwise. Re-ran
+the capstone with the fix (result appended below).
