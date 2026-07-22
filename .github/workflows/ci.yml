@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  webui:
+    name: webui (lint, unit, build, e2e)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/webui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/webui/package-lock.json
+      - run: npm ci
+      - name: Lint (app source, non-blocking pre-existing debt)
+        run: npx eslint src
+        continue-on-error: true
+      - name: Unit tests (vitest)
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: E2E tests (Playwright, mocked)
+        run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/webui/playwright-report/
+          retention-days: 7
+
+  python:
+    name: python services (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: auth service tests
+        run: |
+          python -m pip install -U pip
+          pip install -r frontend/auth/requirements.txt pytest
+          pytest frontend/auth/tests -q
+      - name: upload service tests (best-effort - no pinned deps)
+        continue-on-error: true
+        run: |
+          pip install fastapi pytest pyyaml httpx
+          pytest frontend/upload/tests -q
+      - name: benchmarks unit tests (pure functions)
+        run: |
+          pip install -r backend/benchmarks/requirements.txt pytest
+          pytest backend/benchmarks/tests -q
+
+# Note: the retrieval service unit tests (backend/retrieval/tests) need heavy
+# deps (torch, qdrant-client) + a running vLLM/Qdrant/Neo4j for some, so they run
+# on the cluster, not in CI. A future job could run them inside the
+# munin-retrieval image. The behavioral evals (evals/run_eval.py, munin_bench)
+# are live-service and stay out of CI.
