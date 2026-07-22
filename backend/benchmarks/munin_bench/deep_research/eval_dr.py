@@ -36,10 +36,24 @@ from database import VLLM_MODEL_NAME, VLLM_URL
 
 _HERE = os.path.dirname(__file__)
 
+# In-corpus questions (the curated corpus covers these well).
 SEED_QUESTIONS = [
     "What are the main off-target risks of CRISPR base editing and how are they detected?",
     "How do prime editors differ from base editors in mechanism and editing precision?",
     "What experimental methods are used to map genome-wide Cas9 off-target activity?",
+]
+
+# Off-corpus questions: the curated corpus (biophysics / NMR / protein focus) is
+# thin here, so most relevant papers are OA and often only reachable as
+# abstracts, which source(qa) then abstains on -> low resolution_rate. This is
+# the coverage gap surfaced by the kinase-membrane run (conversation
+# 0a71c13a). Kept as a SEPARATE list so a regression here is visible and not
+# averaged into the in-corpus baseline. Run with --offcorpus to include them;
+# the fix lever is better OA full-text fetching + reading web sources, not a
+# threshold change.
+OFFCORPUS_QUESTIONS = [
+    "How does the lipid composition of membranes influence the binding affinity of small-molecule kinase inhibitors?",
+    "What methods are used to study the partitioning of kinase inhibitors into lipid bilayers?",
 ]
 
 # Provisional DR certification thresholds (first version; tighten with data).
@@ -124,8 +138,11 @@ def main() -> int:
     ap.add_argument("--read-cap", type=int, default=3)
     ap.add_argument("--screen-keep", type=int, default=8)
     ap.add_argument("--max-subq", type=int, default=3)
+    ap.add_argument("--offcorpus", action="store_true",
+                    help="include the off-corpus coverage-gap questions (bug b)")
     args = ap.parse_args()
-    qs = SEED_QUESTIONS[:args.limit] if args.limit else SEED_QUESTIONS
+    pool = SEED_QUESTIONS + (OFFCORPUS_QUESTIONS if args.offcorpus else [])
+    qs = pool[:args.limit] if args.limit else pool
     print(f"[dr-eval] {len(qs)} question(s)")
     res = asyncio.run(run(qs, read_cap=args.read_cap, screen_keep=args.screen_keep,
                           max_subq=args.max_subq))

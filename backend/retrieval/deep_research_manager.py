@@ -104,6 +104,16 @@ async def _deliver(job_id: str, conv: Optional[str], user: Optional[str],
             content_type="text/markdown", language="markdown",
             change_summary="Deep Research report")
         _jobs[job_id]["artifact_id"] = (art or {}).get("id")
+        # Leave an assistant message so the conversation reads question -> report
+        # on reload (the artifact itself renders in the side panel).
+        try:
+            import chat_store
+            await chat_store.add_message(
+                conv, "assistant",
+                f"I've finished the deep research report. See the **Research: "
+                f"{question[:70]}** artifact in the panel.")
+        except Exception:  # noqa: BLE001
+            pass
     except Exception as exc:  # noqa: BLE001
         _jobs[job_id]["delivery_error"] = f"{type(exc).__name__}: {exc}"
 

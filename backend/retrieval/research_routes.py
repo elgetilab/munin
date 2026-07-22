@@ -44,14 +44,21 @@ async def start(request: Request) -> dict:
     # A brand-new chat has no conversation yet. Create one so Deep Research can be
     # launched as the FIRST action in a fresh chat; the report is delivered there
     # as an artifact. The client switches to the returned conversation_id.
+    import chat_store
     conv = body.get("conversation_id")
     created_conversation = False
     if not conv:
-        import chat_store
         c = await chat_store.create_conversation(
             user_email=email, persona="munin", title=question[:80])
         conv = c["id"]
         created_conversation = True
+    # Record the research question as a user message so the conversation view is
+    # populated - a fresh DR chat would otherwise open empty (the report is a
+    # background job, not a chat turn). Non-fatal if it fails.
+    try:
+        await chat_store.add_message(conv, "user", question)
+    except Exception:  # noqa: BLE001
+        pass
     kw = {k: body[k] for k in ("max_subq", "screen_keep", "read_cap")
           if isinstance(body.get(k), int)}
     job_id = await manager.start_job(
