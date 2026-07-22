@@ -98,3 +98,55 @@ list (and handles a few other malformed shapes); the decompose prompt now says
 "array, not object". Unit-tested (10/10). This is exactly the class of bug the
 end-to-end run exists to catch - it would have shipped silently otherwise. Re-ran
 the capstone with the fix (result appended below).
+
+**Capstone result (after the fix):** 3 real sub-questions, 2 resolved / 1
+unresolvable, **21 reads**, 6 grounded notes, 5 citations (4 full-text, 1
+abstract). Report saved to `todo_v2/MUNIN-DR-SAMPLE-REPORT.md`. All features
+visibly working:
+- All 5 sections render, gated correctly (Caveats lists the 1 unresolved
+  sub-question + the 1 abstract-only source).
+- **R3 contradiction-naming fired**: the efficacy/resistance section explicitly
+  contrasts "trans-flupentixol reverses MDR by blocking efflux" vs "membrane
+  sequestration reduces efficacy" - "While one mechanism highlights ... the
+  opposing perspective emphasizes ...". That is the cross-source synthesis the
+  step was built for, on real evidence.
+- Every claim traceable to a read PDF; read_depth shown per source.
+
+vs Claude: Munin now matches on STRUCTURE, SYNTHESIS, CONTRADICTION-NAMING, and
+GROUNDING DISCIPLINE, and beats it on auditability (Claude self-admits its numbers
+need verifying against PDFs). It remains far behind on BREADTH (5 sources vs
+~50) - a funnel/corpus/rate-limit gap, not a design gap. In the runner, S2 is
+rate-limited (no API key), throttling snowball + OA; production (S2 key, no
+limits) reads more, and the earlier off-corpus eval hit 0.83 resolution. Note:
+some findings still hedge "the text does not cover kinase inhibitors
+specifically" because the corpus is thin on this exact topic - honest, and a
+coverage matter (grow corpus / more reads), not a bug.
+
+---
+
+## FINAL SUMMARY
+
+Done this session, all committed on `main`, all verified:
+1. **Frontend DR inline rendering + composer block** (f3149db) - 18/18 E2E.
+2. **R1** Claude-style report (fe7c76b) - 4 unit tests + live.
+3. **R2** wider funnel + depth-1 snowball (8e2583e) - reads 2-3x up, unit tests.
+4. **R3+R4** cross-source synthesis, numeric-conflict detection, quantitative
+   value/unit extraction (4ed63b5) - 10/10 unit tests, R3 verified in the report.
+5. **Bug fix** decompose object-wrapped list (b5a58c6) - caught by the capstone.
+
+Unit tests: 10/10 (`backend/retrieval/tests/test_dr_report.py`). Frontend E2E:
+18/18. Sample report vs Claude reference: side by side in `todo_v2/`.
+
+**NOT deployed** (autonomous session; deploy is the user's call): all of the
+above is backend + frontend committed-not-deployed. To go live:
+`sudo bash deploy.sh retrieval` (backend: event log, report, funnel, OA lever,
+decompose fix) AND rsync the built webui (frontend: inline rendering). The two
+depend on each other (inline UI reads the event-log endpoints), so deploy
+together.
+
+**Open follow-ups (not blocking):** breadth is the remaining gap vs Claude -
+levers are a Semantic Scholar API key in any offline eval, more reads/sub-questions
+(config), depth-2 snowball (after measurement), and growing the corpus on
+off-corpus topics. EuropePMC full-text fallback for PMC/ASM papers (the 2/8 the OA
+lever couldn't fetch). Report title could be generated rather than echoing the
+raw question.
