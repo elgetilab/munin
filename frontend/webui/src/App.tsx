@@ -23,6 +23,24 @@ import { ReportDialog } from './components/ReportDialog';
 import { KnowledgePanel } from './components/KnowledgePanel';
 import { KnowledgePage } from './components/KnowledgePage';
 import type { Project } from './lib/types';
+import type { ResearchStatus } from './lib/api';
+
+// Turn the backend Deep Research progress log into a short human-readable step
+// for the composer status line. Reads the most recent event.
+function labelForProgress(progress?: ResearchStatus['progress']): string {
+  if (!progress || progress.length === 0) return 'Starting';
+  const last = progress[progress.length - 1];
+  const s = (v: unknown) => (typeof v === 'string' ? v : '');
+  switch (last.event) {
+    case 'plan': return `Planning ${Array.isArray(last.sub_questions) ? last.sub_questions.length : ''} sub-questions`.trim();
+    case 'resumed': return 'Resuming from where it left off';
+    case 'sub_question_start': return `Researching: ${s(last.sub_question).slice(0, 80) || 'a sub-question'}`;
+    case 'sub_question_done': return 'Reading papers and taking notes';
+    case 'synthesising': return 'Writing the report';
+    case 'done': return 'Finishing up';
+    default: return 'Working';
+  }
+}
 
 export default function App() {
   const status = useStatus();
@@ -219,30 +237,37 @@ export default function App() {
   // job is cleared shortly after it finishes.
   const drJob = useDeepResearchStore(s => s.job);
   const drSetStatus = useDeepResearchStore(s => s.setStatus);
+  const drSetProgress = useDeepResearchStore(s => s.setProgress);
   const drClear = useDeepResearchStore(s => s.clear);
+  const drJobId = drJob?.id;
+  const drJobConv = drJob?.conversationId;
+  const drJobActive = drJob?.status === 'queued' || drJob?.status === 'running';
   useEffect(() => {
-    if (!drJob || (drJob.status !== 'queued' && drJob.status !== 'running')) return;
+    if (!drJobId || !drJobActive) return;
     let mounted = true;
     const tick = async () => {
       try {
-        const s = await getResearchStatus(drJob.id);
+        const s = await getResearchStatus(drJobId);
         if (!mounted) return;
         drSetStatus(s.status);
+        drSetProgress(labelForProgress(s.progress));
         if (s.status === 'done') {
-          const res = await fetchArtifacts(drJob.conversationId);
-          if (mounted) setArtifacts(res.artifacts);
-          setTimeout(() => { drClear(); }, 4000);
-        } else if (s.status === 'error' || s.status === 'cancelled') {
+          if (drJobConv) {
+            const res = await fetchArtifacts(drJobConv);
+            if (mounted) setArtifacts(res.artifacts);
+          }
           setTimeout(() => { drClear(); }, 6000);
+        } else if (s.status === 'error' || s.status === 'cancelled') {
+          setTimeout(() => { drClear(); }, 8000);
         }
       } catch {
         /* transient; keep polling */
       }
     };
-    const id = setInterval(tick, 4000);
+    const id = setInterval(tick, 2000);
     tick();
     return () => { mounted = false; clearInterval(id); };
-  }, [drJob, drSetStatus, drClear, setArtifacts]);
+  }, [drJobId, drJobConv, drJobActive, drSetStatus, drSetProgress, drClear, setArtifacts]);
 
   // Auto-open panel and select the latest artifact whenever one is created or updated
   useEffect(() => {

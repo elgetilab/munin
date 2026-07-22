@@ -3,6 +3,7 @@ import type { Persona, PromptSuggestion } from '../lib/types';
 import { uploadDocument, startDeepResearch } from '../lib/api';
 import type { UploadedDocument } from '../lib/api';
 import { useWorkspaceStore } from '../stores/workspaceStore';
+import { useChatStore } from '../stores/chatStore';
 import { useDeepResearchStore } from '../stores/deepResearchStore';
 
 // Router-recognized per-turn overrides (backend parse_slash: research|code|chat).
@@ -12,6 +13,14 @@ const SLASH_COMMANDS = [
   { command: '/code', description: 'Force code mode for this turn', icon: '\uD83D\uDCBB' },
   { command: '/chat', description: 'Force chat mode for this turn', icon: '\uD83D\uDCAC' },
 ] as const;
+
+// Elapsed seconds -> "45s" / "3m 05s" for the Deep Research status line.
+function formatElapsed(sec: number): string {
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}m ${s.toString().padStart(2, '0')}s`;
+}
 
 interface PendingImage {
   id: string;
@@ -95,8 +104,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const onTagsChange = useWorkspaceStore(s => s.setActiveTags);
   const drJob = useDeepResearchStore(s => s.job);
   const startDrJob = useDeepResearchStore(s => s.startJob);
+  const loadConversation = useChatStore(s => s.loadConversation);
+  const drActive = !!drJob && (drJob.status === 'queued' || drJob.status === 'running');
   const [drStarting, setDrStarting] = useState(false);
   const [deepResearchMode, setDeepResearchMode] = useState(false);
+  const [drElapsed, setDrElapsed] = useState(0);
   const [input, setInput] = useState('');
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [knowledgePickerOpen, setKnowledgePickerOpen] = useState(false);
@@ -196,13 +208,23 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     setSlashHighlight(0);
   }, [input]);
 
-  // Deep Research mode can't survive losing a saved conversation (e.g. switching
-  // to a new/incognito chat) - disarm it so a stale toggle can't fire.
+  // Deep Research mode can't survive an incognito chat - disarm it so a stale
+  // toggle can't fire. (A brand-new non-incognito chat IS allowed: the backend
+  // creates a conversation for the run.)
   useEffect(() => {
-    if (deepResearchMode && (!conversationId || isEphemeral)) {
+    if (deepResearchMode && isEphemeral) {
       setDeepResearchMode(false);
     }
-  }, [deepResearchMode, conversationId, isEphemeral]);
+  }, [deepResearchMode, isEphemeral]);
+
+  // Tick the elapsed-time display once a second while a job is running.
+  useEffect(() => {
+    if (!drActive || !drJob) { setDrElapsed(0); return; }
+    const update = () => setDrElapsed(Math.max(0, Math.round((Date.now() - drJob.startedAt) / 1000)));
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [drActive, drJob]);
 
   // Close attach menu / knowledge picker on outside click
   useEffect(() => {
@@ -330,21 +352,25 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   // Deep Research: kick off a long-running detached backend job on the typed
   // question. Not a chat turn - it runs in the background (minutes) and delivers
-  // a markdown report as an artifact. Needs a persistent conversation (the
-  // artifact lands there). A busy job blocks starting another (backend cap = 1).
-  const drActive = !!drJob && (drJob.status === 'queued' || drJob.status === 'running');
-  // The toggle can't be enabled without a saved (non-ephemeral) conversation.
-  const drResearchUnavailable = !conversationId || isEphemeral || drActive;
+  // a markdown report as an artifact. Works in a brand-new chat (the backend
+  // creates the conversation). Only blocked in incognito or while a job runs
+  // (backend cap = 1).
+  const drResearchUnavailable = isEphemeral || drActive;
 
   const handleDeepResearch = async () => {
     const question = input.trim();
-    if (!question || !conversationId || drActive || drStarting) return;
+    if (!question || drActive || drStarting || isEphemeral) return;
     setDrStarting(true);
     try {
-      const { job_id } = await startDeepResearch(conversationId, question);
-      startDrJob(job_id, question, conversationId);
+      const r = await startDeepResearch(conversationId ?? null, question);
+      startDrJob(r.job_id, question, r.conversation_id, Date.now());
       setInput('');
       setDeepResearchMode(false); // one-shot: mode resets after starting a job
+      // Started from a fresh chat: switch to the conversation the backend made
+      // so progress and the delivered report show up in the right place.
+      if (r.created_conversation && r.conversation_id && r.conversation_id !== conversationId) {
+        loadConversation(r.conversation_id).catch(() => {});
+      }
     } catch (err) {
       setImageError(err instanceof Error ? err.message : 'Failed to start deep research');
     } finally {
@@ -741,7 +767,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             <svg className="shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 3h6M10 3v6.5L5.5 18a2 2 0 0 0 1.8 3h9.4a2 2 0 0 0 1.8-3L14 9.5V3" />
             </svg>
-            <span className="flex-1 truncate">Deep Research is on &mdash; your next message runs as a background report.</span>
+            <span className="flex-1 truncate">Deep Research is on. Your next message runs as a background report.</span>
             <button
               onClick={() => setDeepResearchMode(false)}
               className="text-text-secondary hover:text-text-primary cursor-pointer"
@@ -752,17 +778,24 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           </div>
         )}
 
-        {/* Deep Research status: the job runs in the background; the report
-            arrives as an artifact (App refetches on completion). */}
+        {/* Deep Research status: live step + elapsed time while the job runs in
+            the background; the report arrives as an artifact when it finishes. */}
         {drActive && drJob && (
           <div className="px-5 pt-2 flex items-center gap-2 text-xs text-text-secondary">
             <svg className="animate-spin shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
               <path d="M21 12a9 9 0 1 1-6.219-8.56" />
             </svg>
-            <span className="truncate">
-              Researching &ldquo;{drJob.question}&rdquo; in the background &mdash; the report will appear in Artifacts.
+            <span className="flex-1 truncate">
+              <span className="text-text-primary">Deep Research:</span> {drJob.step}
+              <span className="text-text-secondary"> ({formatElapsed(drElapsed)})</span>
             </span>
           </div>
+        )}
+        {drJob && drJob.status === 'done' && (
+          <div className="px-5 pt-2 text-xs text-success">Deep Research finished. The report is in Artifacts.</div>
+        )}
+        {drJob && (drJob.status === 'error' || drJob.status === 'cancelled') && (
+          <div className="px-5 pt-2 text-xs text-error">Deep Research {drJob.status}.</div>
         )}
 
         {/* Textarea */}
@@ -844,8 +877,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                     drResearchUnavailable ? 'text-text-secondary opacity-50 cursor-not-allowed' : 'text-text-primary hover:bg-bg-tertiary'
                   }`}
                   title={
-                    isEphemeral ? 'Deep Research needs a saved chat (not incognito)'
-                    : !conversationId ? 'Send a message first to start a chat'
+                    isEphemeral ? 'Deep Research is not available in incognito chats'
+                    : drActive ? 'A research report is already running'
                     : 'Run a thorough multi-source investigation in the background'
                   }
                 >

@@ -604,13 +604,15 @@ export interface ResearchStatus {
 }
 
 export async function startDeepResearch(
-  conversationId: string,
+  conversationId: string | null,
   question: string,
-): Promise<{ job_id: string; status: string }> {
+): Promise<{ job_id: string; conversation_id: string; created_conversation: boolean; status: string }> {
   const res = await fetch(`${API}/research/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ conversation_id: conversationId, question }),
+    // Omit conversation_id for a brand-new chat; the backend creates one and
+    // returns it so we can switch to it.
+    body: JSON.stringify(conversationId ? { conversation_id: conversationId, question } : { question }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
