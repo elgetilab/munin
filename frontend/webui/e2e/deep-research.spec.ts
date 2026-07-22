@@ -22,7 +22,7 @@ test.describe('deep research', () => {
     await expect(page.getByTestId('dr-armed')).toBeVisible();
   });
 
-  test('arming then sending starts a background job and shows live progress', async ({ page }) => {
+  test('arming then sending renders the research inline and blocks the composer', async ({ page }) => {
     const state = await installMocks(page);
     await page.goto('/');
     await openAttachMenu(page);
@@ -30,29 +30,36 @@ test.describe('deep research', () => {
     await page.getByTestId('composer-textarea').fill('What are CRISPR off-target risks?');
     await page.getByTestId('composer-send').click();
 
-    // Live status line appears with a step and a ticking elapsed timer.
-    const status = page.getByTestId('dr-status');
-    await expect(status).toBeVisible();
-    await expect(page.getByTestId('dr-status-step')).toContainText(/Planning|Researching|Writing/);
-    await expect(page.getByTestId('dr-status-elapsed')).toContainText(/\d+s/);
+    // The research renders inline (plan checklist), like normal tool use.
+    await expect(page.getByTestId('research-timeline')).toBeVisible();
+    await expect(page.getByTestId('research-plan-item').first()).toBeVisible();
 
-    // As the mocked status progresses across polls, it reaches the report and the
-    // artifact list refetch surfaces it.
-    await expect(page.getByText(/report is in Artifacts/i)).toBeVisible({ timeout: 15000 });
+    // The composer is blocked while it runs.
+    await expect(page.getByTestId('dr-blocked')).toBeVisible();
+    await expect(page.getByTestId('composer-textarea')).toBeDisabled();
+
+    // As polls advance, a tool card (a search/read) and then a note appear, and
+    // it finishes with a report link + the artifact surfacing.
+    await expect(page.getByTestId('research-tool-row').first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId('research-note').first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId('research-report-link')).toBeVisible({ timeout: 15000 });
     expect(state.artifacts.some((a) => a.id === 'art-dr')).toBe(true);
+
+    // Clicking the report link opens the artifact panel.
+    await page.getByTestId('research-report-link').click();
+    await expect(page.getByTestId('artifact-panel')).toBeVisible();
   });
 
-  test('deep research status copy contains no em-dash', async ({ page }) => {
+  test('the inline research view contains no em-dash', async ({ page }) => {
     await installMocks(page);
     await page.goto('/');
     await openAttachMenu(page);
     await page.getByTestId('attach-deep-research').click();
-    const armed = await page.getByTestId('dr-armed').innerText();
-    expect(armed).not.toContain('—'); // em dash
+    expect(await page.getByTestId('dr-armed').innerText()).not.toContain('—');
     await page.getByTestId('composer-textarea').fill('q');
     await page.getByTestId('composer-send').click();
-    const status = await page.getByTestId('dr-status').innerText();
-    expect(status).not.toContain('—');
+    await expect(page.getByTestId('research-timeline')).toBeVisible();
+    expect(await page.getByTestId('research-timeline').innerText()).not.toContain('—');
   });
 
   test('toggle is disabled in incognito (ephemeral) chats', async ({ page }) => {

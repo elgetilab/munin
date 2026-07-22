@@ -14,14 +14,6 @@ const SLASH_COMMANDS = [
   { command: '/chat', description: 'Force chat mode for this turn', icon: '\uD83D\uDCAC' },
 ] as const;
 
-// Elapsed seconds -> "45s" / "3m 05s" for the Deep Research status line.
-function formatElapsed(sec: number): string {
-  if (sec < 60) return `${sec}s`;
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}m ${s.toString().padStart(2, '0')}s`;
-}
-
 interface PendingImage {
   id: string;
   dataUrl: string;
@@ -50,6 +42,7 @@ interface ChatInputProps {
   onSendMultimodal?: (content: Array<{ type: string; text?: string; image_url?: { url: string }; document_id?: string; filename?: string }>) => void;
   onStop: () => void;
   isStreaming: boolean;
+  researchActive?: boolean;   // a Deep Research job is running for this chat
   persona: Persona | null;
   suggestions?: PromptSuggestion[];
   showSuggestions?: boolean;
@@ -93,6 +86,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   onSendMultimodal,
   onStop,
   isStreaming,
+  researchActive = false,
   suggestions: _suggestions,
   showSuggestions: _showSuggestions,
   conversationId,
@@ -102,13 +96,12 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const tagCatalog = useWorkspaceStore(s => s.tagCatalog);
   const activeTags = useWorkspaceStore(s => s.activeTags);
   const onTagsChange = useWorkspaceStore(s => s.setActiveTags);
-  const drJob = useDeepResearchStore(s => s.job);
   const startDrJob = useDeepResearchStore(s => s.startJob);
   const loadConversation = useChatStore(s => s.loadConversation);
-  const drActive = !!drJob && (drJob.status === 'queued' || drJob.status === 'running');
+  // A running job blocks starting another and (via researchActive) the composer.
+  const drActive = researchActive;
   const [drStarting, setDrStarting] = useState(false);
   const [deepResearchMode, setDeepResearchMode] = useState(false);
-  const [drElapsed, setDrElapsed] = useState(0);
   const [input, setInput] = useState('');
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [knowledgePickerOpen, setKnowledgePickerOpen] = useState(false);
@@ -217,15 +210,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     }
   }, [deepResearchMode, isEphemeral]);
 
-  // Tick the elapsed-time display once a second while a job is running.
-  useEffect(() => {
-    if (!drActive || !drJob) { setDrElapsed(0); return; }
-    const update = () => setDrElapsed(Math.max(0, Math.round((Date.now() - drJob.startedAt) / 1000)));
-    update();
-    const id = setInterval(update, 1000);
-    return () => clearInterval(id);
-  }, [drActive, drJob]);
-
   // Close attach menu / knowledge picker on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -320,7 +304,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const handleSubmit = () => {
     const trimmed = input.trim();
     const hasAttachments = pendingImages.length > 0 || pendingDocs.length > 0;
-    if ((!trimmed && !hasAttachments) || isStreaming) return;
+    if ((!trimmed && !hasAttachments) || isStreaming || researchActive) return;
 
     // Deep Research mode: the composer's send starts a background research job
     // instead of a chat turn (Claude-style toggle in the "+" menu).
@@ -778,24 +762,12 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           </div>
         )}
 
-        {/* Deep Research status: live step + elapsed time while the job runs in
-            the background; the report arrives as an artifact when it finishes. */}
-        {drActive && drJob && (
-          <div data-testid="dr-status" className="px-5 pt-2 flex items-center gap-2 text-xs text-text-secondary">
-            <svg className="animate-spin shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-            </svg>
-            <span className="flex-1 truncate">
-              <span className="text-text-primary">Deep Research:</span> <span data-testid="dr-status-step">{drJob.step}</span>
-              <span className="text-text-secondary" data-testid="dr-status-elapsed"> ({formatElapsed(drElapsed)})</span>
-            </span>
+        {/* While a Deep Research job runs, the progress is shown inline in the
+            conversation (ResearchTimeline) and the composer is blocked. */}
+        {researchActive && (
+          <div data-testid="dr-blocked" className="px-5 pt-2 text-xs text-text-secondary">
+            Deep Research is running. You can send new messages once it finishes.
           </div>
-        )}
-        {drJob && drJob.status === 'done' && (
-          <div className="px-5 pt-2 text-xs text-success">Deep Research finished. The report is in Artifacts.</div>
-        )}
-        {drJob && (drJob.status === 'error' || drJob.status === 'cancelled') && (
-          <div className="px-5 pt-2 text-xs text-error">Deep Research {drJob.status}.</div>
         )}
 
         {/* Textarea */}
@@ -805,9 +777,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask Munin anything… (/research, /code, /chat to steer)"
+          disabled={researchActive}
+          placeholder={researchActive ? 'Deep Research is running…' : 'Ask Munin anything… (/research, /code, /chat to steer)'}
           rows={1}
-          className="w-full resize-none bg-transparent px-5 pt-4 pb-2 text-sm text-text-primary placeholder-text-secondary outline-none"
+          className="w-full resize-none bg-transparent px-5 pt-4 pb-2 text-sm text-text-primary placeholder-text-secondary outline-none disabled:opacity-50"
         />
 
         {/* Bottom bar: attach, spacer, Munin mark, send */}
@@ -986,7 +959,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             <button
               data-testid="composer-send"
               onClick={handleSubmit}
-              disabled={(!input.trim() && pendingImages.length === 0 && pendingDocs.length === 0) || drStarting}
+              disabled={(!input.trim() && pendingImages.length === 0 && pendingDocs.length === 0) || drStarting || researchActive}
               className="p-2.5 bg-accent rounded-full text-bg-primary cursor-pointer hover:bg-accent-hover transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               title={deepResearchMode ? 'Start Deep Research' : 'Send message'}
             >

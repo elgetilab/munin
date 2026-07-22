@@ -13,7 +13,7 @@ export interface MockState {
   // single-artifact endpoints scope to it and 404 on a cross-conversation fetch
   // (reproduces the "artifact not found on switch" bug).
   perConversationArtifacts: Record<string, Record<string, unknown>[]>;
-  research: { steps: ReturnType<typeof S.researchProgression>; poll: number; reportArtifact: Record<string, unknown> | null; question: string };
+  research: { snapshots: ReturnType<typeof S.researchSnapshots>; poll: number; reportArtifact: Record<string, unknown> | null; question: string };
   unmocked: string[];
 }
 
@@ -36,7 +36,7 @@ export async function installMocks(page: Page, init: Partial<MockState> = {}): P
     conversations: init.conversations ?? [],
     artifacts: init.artifacts ?? [],
     perConversationArtifacts: init.perConversationArtifacts ?? {},
-    research: { steps: [], poll: 0, reportArtifact: null, question: '' },
+    research: { snapshots: [], poll: 0, reportArtifact: null, question: '' },
     unmocked: [],
   };
 
@@ -113,17 +113,23 @@ export async function installMocks(page: Page, init: Partial<MockState> = {}): P
     // deep research
     if (p === '/api/research/start') {
       const posted = (req.postDataJSON?.() ?? {}) as { question?: string };
-      state.research = { steps: S.researchProgression('dr-e2e', 'conv-dr'), poll: 0, reportArtifact: S.DR_REPORT_ARTIFACT, question: posted.question ?? '' };
+      const q = posted.question ?? '';
+      state.research = { snapshots: S.researchSnapshots('dr-e2e', 'conv-dr', q), poll: 0, reportArtifact: S.DR_REPORT_ARTIFACT, question: q };
       return json(route, { job_id: 'dr-e2e', conversation_id: 'conv-dr', created_conversation: true, status: 'queued' });
     }
     if (p.startsWith('/api/research/status/')) {
-      const { steps } = state.research;
-      const step = steps[Math.min(state.research.poll, steps.length - 1)];
+      const { snapshots } = state.research;
+      const snap = snapshots[Math.min(state.research.poll, snapshots.length - 1)];
       state.research.poll += 1;
-      if (step?.status === 'done' && state.research.reportArtifact && !state.artifacts.find((a) => a.id === 'art-dr')) {
+      if (snap?.status === 'done' && state.research.reportArtifact && !state.artifacts.find((a) => a.id === 'art-dr')) {
         state.artifacts.unshift(state.research.reportArtifact);
       }
-      return json(route, step ?? { status: 'error', error: 'no steps' });
+      return json(route, snap ?? { status: 'error', error: 'no snapshots' });
+    }
+    if (p.startsWith('/api/research/for-conversation/')) {
+      const { snapshots } = state.research;
+      const snap = snapshots.length ? snapshots[Math.min(state.research.poll, snapshots.length - 1)] : null;
+      return json(route, { job: snap });
     }
 
     state.unmocked.push(`${m} ${p}`);

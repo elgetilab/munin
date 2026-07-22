@@ -4,9 +4,10 @@ import { useChatStore } from './stores/chatStore';
 import { useUiStore } from './stores/uiStore';
 import { useUserStore } from './stores/userStore';
 import { useWorkspaceStore } from './stores/workspaceStore';
-import { useDeepResearchStore } from './stores/deepResearchStore';
+import { useDeepResearchStore, isActive as isDrActive } from './stores/deepResearchStore';
+import { ResearchTimeline } from './components/ResearchTimeline';
 import { useStatus } from './hooks/useStatus';
-import { fetchPersonas, fetchMe, fetchAnnouncement, fetchUsageStats, fetchArtifacts, fetchTags, getResearchStatus } from './lib/api';
+import { fetchPersonas, fetchMe, fetchAnnouncement, fetchUsageStats, fetchArtifacts, fetchTags, getResearchStatus, fetchResearchForConversation } from './lib/api';
 import type { UserProfile } from './lib/api';
 import { getGreeting } from './lib/greetings';
 import { Sidebar } from './components/Sidebar';
@@ -23,24 +24,6 @@ import { ReportDialog } from './components/ReportDialog';
 import { KnowledgePanel } from './components/KnowledgePanel';
 import { KnowledgePage } from './components/KnowledgePage';
 import type { Project } from './lib/types';
-import type { ResearchStatus } from './lib/api';
-
-// Turn the backend Deep Research progress log into a short human-readable step
-// for the composer status line. Reads the most recent event.
-function labelForProgress(progress?: ResearchStatus['progress']): string {
-  if (!progress || progress.length === 0) return 'Starting';
-  const last = progress[progress.length - 1];
-  const s = (v: unknown) => (typeof v === 'string' ? v : '');
-  switch (last.event) {
-    case 'plan': return `Planning ${Array.isArray(last.sub_questions) ? last.sub_questions.length : ''} sub-questions`.trim();
-    case 'resumed': return 'Resuming from where it left off';
-    case 'sub_question_start': return `Researching: ${s(last.sub_question).slice(0, 80) || 'a sub-question'}`;
-    case 'sub_question_done': return 'Reading papers and taking notes';
-    case 'synthesising': return 'Writing the report';
-    case 'done': return 'Finishing up';
-    default: return 'Working';
-  }
-}
 
 export default function App() {
   const status = useStatus();
@@ -234,17 +217,28 @@ export default function App() {
     }
   }, [conversationId, isEphemeral, setArtifacts, setSelectedArtifactId]);
 
-  // Poll an active Deep Research job. The job runs detached on the backend, so
-  // its markdown report is created out-of-band (not on the live SSE stream) -
-  // on completion we refetch the artifact list so it appears in the panel. The
-  // job is cleared shortly after it finishes.
+  // Deep Research: the job runs detached; its progress is a durable event log
+  // rendered inline (ResearchTimeline). On opening a conversation, load its DR
+  // job (if any); while a job is active, poll its log; on completion, refetch
+  // artifacts so the report appears in the panel.
   const drJob = useDeepResearchStore(s => s.job);
-  const drSetStatus = useDeepResearchStore(s => s.setStatus);
-  const drSetProgress = useDeepResearchStore(s => s.setProgress);
+  const drSetJob = useDeepResearchStore(s => s.setJob);
   const drClear = useDeepResearchStore(s => s.clear);
   const drJobId = drJob?.id;
   const drJobConv = drJob?.conversationId;
-  const drJobActive = drJob?.status === 'queued' || drJob?.status === 'running';
+  const drJobActive = isDrActive(drJob?.status) && drJobConv === conversationId;
+
+  // Load the conversation's DR job on open (and clear a stale one on switch).
+  useEffect(() => {
+    let mounted = true;
+    if (!conversationId || isEphemeral) { drClear(); return; }
+    fetchResearchForConversation(conversationId)
+      .then(({ job }) => { if (mounted && job) drSetJob(job); else if (mounted && drJob?.conversationId !== conversationId) drClear(); })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, [conversationId, isEphemeral, drSetJob, drClear]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Poll the active job's event log.
   useEffect(() => {
     if (!drJobId || !drJobActive) return;
     let mounted = true;
@@ -252,25 +246,17 @@ export default function App() {
       try {
         const s = await getResearchStatus(drJobId);
         if (!mounted) return;
-        drSetStatus(s.status);
-        drSetProgress(labelForProgress(s.progress));
-        if (s.status === 'done') {
-          if (drJobConv) {
-            const res = await fetchArtifacts(drJobConv);
-            if (mounted) setArtifacts(res.artifacts);
-          }
-          setTimeout(() => { drClear(); }, 6000);
-        } else if (s.status === 'error' || s.status === 'cancelled') {
-          setTimeout(() => { drClear(); }, 8000);
+        drSetJob(s);
+        if (s.status === 'done' && drJobConv) {
+          const res = await fetchArtifacts(drJobConv);
+          if (mounted) setArtifacts(res.artifacts);
         }
-      } catch {
-        /* transient; keep polling */
-      }
+      } catch { /* transient; keep polling */ }
     };
     const id = setInterval(tick, 2000);
     tick();
     return () => { mounted = false; clearInterval(id); };
-  }, [drJobId, drJobConv, drJobActive, drSetStatus, drSetProgress, drClear, setArtifacts]);
+  }, [drJobId, drJobConv, drJobActive, drSetJob, setArtifacts]);
 
   // Auto-open panel and select the latest artifact whenever one is created or updated
   useEffect(() => {
@@ -833,12 +819,16 @@ export default function App() {
             ) : (
               <>
                 <MessageList messages={messages} streaming={streaming} onSendClarification={handleSend} onDismissMemoryProposal={dismissMemoryProposal} conversationId={conversationId} onPlanApproved={handlePlanApproved} onPlanRejected={() => { /* user types follow-up themselves */ }} onPlanEdited={handlePlanEdited} onContinue={handleContinue} />
+                {drJob && drJob.conversationId === conversationId && (
+                  <ResearchTimeline job={drJob} />
+                )}
                 <ChatInput
                   ref={chatInputRef}
                   onSend={handleSend}
                   onSendMultimodal={handleSendMultimodal}
                   onStop={stopGenerating}
                   isStreaming={isStreaming}
+                  researchActive={drJobActive}
                   persona={currentPersona}
                   suggestions={currentPersona?.prompt_suggestions}
                   showSuggestions={false}

@@ -68,14 +68,31 @@ export function errorReply(): SseEvent[] {
   return [ev.conversation('conv-e2e'), ...tokens('starting'), ev.error('vLLM unavailable'), ev.done('error')];
 }
 
-// Deep Research status progression, returned across successive status polls.
-export function researchProgression(jobId: string, conversationId: string) {
-  const base = { job_id: jobId, question: 'What are CRISPR off-target risks?', conversation_id: conversationId, artifact_id: null as string | null, error: null as string | null };
+// Deep Research event-log snapshots, returned across successive status polls.
+// Each snapshot is a full job with the CUMULATIVE render-ready event log (plan,
+// tool cards, notes, artifact), matching the backend research_store shape.
+export function researchSnapshots(jobId: string, conversationId: string, question = 'What are CRISPR off-target risks?') {
+  const base = { job_id: jobId, conversation_id: conversationId, question, error: null as string | null };
+  const log: Array<Record<string, unknown>> = [];
+  const step = (status: string, artifact_id: string | null, ...evs: Array<Record<string, unknown>>) => {
+    log.push(...evs);
+    return { ...base, status, artifact_id, events: log.map((e) => ({ ...e })) };
+  };
   return [
-    { ...base, status: 'running', progress: [{ t: 0.2, event: 'plan', sub_questions: ['a', 'b', 'c'] }] },
-    { ...base, status: 'running', progress: [{ t: 1.1, event: 'sub_question_start', id: 'sq0', sub_question: 'DNA off-target types' }] },
-    { ...base, status: 'running', progress: [{ t: 2.4, event: 'synthesising', n_resolved: 2 }] },
-    { ...base, status: 'done', artifact_id: 'art-dr', progress: [{ t: 3.0, event: 'done', n_citations: 4 }] },
+    step('running', null, { t: 0.2, type: 'plan', items: [{ id: 'sq0', text: 'Sub-question one', status: 'open' }, { id: 'sq1', text: 'Sub-question two', status: 'open' }] }),
+    step('running', null,
+      { t: 0.5, type: 'plan_update', id: 'sq0', status: 'in_progress' },
+      { t: 0.6, type: 'tool_call', id: 'tc1', name: 'search', arguments: { query: 'sub-question one' } },
+      { t: 2.0, type: 'tool_result', id: 'tc1', summary: '8 candidates, 3 kept to read' }),
+    step('running', null,
+      { t: 2.1, type: 'tool_call', id: 'tc2', name: 'source', arguments: { doi: '10.1/x', title: 'A key paper' } },
+      { t: 5.0, type: 'tool_result', id: 'tc2', summary: 'A key paper - resolved (full_text)', outcome: 'resolved', read_depth: 'full_text' },
+      { t: 5.1, type: 'note', claim: 'Lipid composition influences binding', ref: { title: 'A key paper', doi: '10.1/x' } },
+      { t: 5.2, type: 'plan_update', id: 'sq0', status: 'resolved' }),
+    step('done', 'art-dr',
+      { t: 6.0, type: 'synthesising', n_resolved: 1 },
+      { t: 6.5, type: 'artifact', artifact_id: 'art-dr', title: 'Research: ' + question.slice(0, 40), n_resolved: 1, n_citations: 1 },
+      { t: 6.6, type: 'done', artifact_id: 'art-dr' }),
   ];
 }
 

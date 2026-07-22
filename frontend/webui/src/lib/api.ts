@@ -594,11 +594,14 @@ export async function reportChat(
 // delivered as a markdown artifact in the conversation. Auth (X-Munin-Email) is
 // injected by the gateway, same as every other /api call.
 
+export interface ResearchEventDTO { t: number; type: string; [k: string]: unknown }
+
 export interface ResearchStatus {
   job_id: string;
+  conversation_id?: string;
   question: string;
   status: 'queued' | 'running' | 'done' | 'error' | 'cancelled';
-  progress?: Array<{ t: number; event: string; [k: string]: unknown }>;
+  events?: ResearchEventDTO[];
   artifact_id?: string | null;
   error?: string | null;
 }
@@ -624,6 +627,14 @@ export async function startDeepResearch(
 export async function getResearchStatus(jobId: string): Promise<ResearchStatus> {
   const res = await fetch(`${API}/research/status/${encodeURIComponent(jobId)}`);
   if (!res.ok) throw new Error(`Failed to fetch research status (${res.status})`);
+  return res.json();
+}
+
+// The conversation's most recent DR job (+ its event log), or {job: null}. Used
+// on chat open to re-load and render the inline research view.
+export async function fetchResearchForConversation(conversationId: string): Promise<{ job: ResearchStatus | null }> {
+  const res = await fetch(`${API}/research/for-conversation/${encodeURIComponent(conversationId)}`);
+  if (!res.ok) return { job: null };
   return res.json();
 }
 

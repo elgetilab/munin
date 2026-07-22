@@ -16,10 +16,10 @@ test.describe('regressions', () => {
     const q = 'How do kinase inhibitors partition into lipid bilayers?';
     await page.getByTestId('composer-textarea').fill(q);
     await page.getByTestId('composer-send').click();
-    // The main conversation area (not just the composer status line) shows the
-    // question as a sent message.
+    // The main conversation area shows the question as a sent message, and the
+    // research renders inline below it.
     await expect(page.getByText(q)).toBeVisible();
-    await expect(page.getByTestId('dr-status')).toBeVisible();
+    await expect(page.getByTestId('research-timeline')).toBeVisible();
   });
 
   // Bug c: switching conversations kept the previous conversation's selected
