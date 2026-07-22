@@ -96,6 +96,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const drJob = useDeepResearchStore(s => s.job);
   const startDrJob = useDeepResearchStore(s => s.startJob);
   const [drStarting, setDrStarting] = useState(false);
+  const [deepResearchMode, setDeepResearchMode] = useState(false);
   const [input, setInput] = useState('');
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [knowledgePickerOpen, setKnowledgePickerOpen] = useState(false);
@@ -195,6 +196,14 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     setSlashHighlight(0);
   }, [input]);
 
+  // Deep Research mode can't survive losing a saved conversation (e.g. switching
+  // to a new/incognito chat) - disarm it so a stale toggle can't fire.
+  useEffect(() => {
+    if (deepResearchMode && (!conversationId || isEphemeral)) {
+      setDeepResearchMode(false);
+    }
+  }, [deepResearchMode, conversationId, isEphemeral]);
+
   // Close attach menu / knowledge picker on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -291,6 +300,13 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     const hasAttachments = pendingImages.length > 0 || pendingDocs.length > 0;
     if ((!trimmed && !hasAttachments) || isStreaming) return;
 
+    // Deep Research mode: the composer's send starts a background research job
+    // instead of a chat turn (Claude-style toggle in the "+" menu).
+    if (deepResearchMode && trimmed && !hasAttachments) {
+      handleDeepResearch();
+      return;
+    }
+
     if (hasAttachments && onSendMultimodal) {
       const content: Array<{ type: string; text?: string; image_url?: { url: string }; document_id?: string; filename?: string }> = [];
       if (trimmed) {
@@ -317,8 +333,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   // a markdown report as an artifact. Needs a persistent conversation (the
   // artifact lands there). A busy job blocks starting another (backend cap = 1).
   const drActive = !!drJob && (drJob.status === 'queued' || drJob.status === 'running');
-  const canDeepResearch = !!input.trim() && !isStreaming && !drStarting && !drActive
-    && !!conversationId && !isEphemeral;
+  // The toggle can't be enabled without a saved (non-ephemeral) conversation.
+  const drResearchUnavailable = !conversationId || isEphemeral || drActive;
 
   const handleDeepResearch = async () => {
     const question = input.trim();
@@ -328,6 +344,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       const { job_id } = await startDeepResearch(conversationId, question);
       startDrJob(job_id, question, conversationId);
       setInput('');
+      setDeepResearchMode(false); // one-shot: mode resets after starting a job
     } catch (err) {
       setImageError(err instanceof Error ? err.message : 'Failed to start deep research');
     } finally {
@@ -717,6 +734,24 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           <div className="px-5 pt-2 text-xs text-error">{imageError}</div>
         )}
 
+        {/* Deep Research mode armed (toggle on, no job yet): the next send starts
+            a background research job rather than a chat turn. */}
+        {deepResearchMode && !drActive && (
+          <div className="px-5 pt-2 flex items-center gap-2 text-xs text-accent">
+            <svg className="shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 3h6M10 3v6.5L5.5 18a2 2 0 0 0 1.8 3h9.4a2 2 0 0 0 1.8-3L14 9.5V3" />
+            </svg>
+            <span className="flex-1 truncate">Deep Research is on &mdash; your next message runs as a background report.</span>
+            <button
+              onClick={() => setDeepResearchMode(false)}
+              className="text-text-secondary hover:text-text-primary cursor-pointer"
+              title="Turn off Deep Research"
+            >
+              Turn off
+            </button>
+          </div>
+        )}
+
         {/* Deep Research status: the job runs in the background; the report
             arrives as an artifact (App refetches on completion). */}
         {drActive && drJob && (
@@ -791,6 +826,37 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                     <path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" />
                   </svg>
                   Attach knowledge
+                </button>
+
+                {/* Deep Research toggle. When on, the next send starts a
+                    long-running background research job (delivers a report as an
+                    artifact) instead of a normal chat turn. Needs a saved chat. */}
+                <div className="border-t border-border" />
+                <button
+                  onClick={() => {
+                    if (drResearchUnavailable) return;
+                    setDeepResearchMode(m => !m);
+                    setAttachMenuOpen(false);
+                    textareaRef.current?.focus();
+                  }}
+                  disabled={drResearchUnavailable}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors cursor-pointer ${
+                    drResearchUnavailable ? 'text-text-secondary opacity-50 cursor-not-allowed' : 'text-text-primary hover:bg-bg-tertiary'
+                  }`}
+                  title={
+                    isEphemeral ? 'Deep Research needs a saved chat (not incognito)'
+                    : !conversationId ? 'Send a message first to start a chat'
+                    : 'Run a thorough multi-source investigation in the background'
+                  }
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 3h6M10 3v6.5L5.5 18a2 2 0 0 0 1.8 3h9.4a2 2 0 0 0 1.8-3L14 9.5V3" />
+                  </svg>
+                  <span className="flex-1">Deep Research</span>
+                  {/* on/off pill */}
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${deepResearchMode ? 'bg-accent/15 text-accent' : 'bg-bg-tertiary text-text-secondary'}`}>
+                    {deepResearchMode ? 'On' : 'Off'}
+                  </span>
                 </button>
               </div>
             )}
@@ -868,34 +934,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             <span className="text-sm text-text-secondary">Munin</span>
           </div>
 
-          {/* Deep Research: start a long-running background research job on the
-              typed question. Delivers a report as an artifact. Hidden while
-              streaming; disabled in ephemeral chats (needs a conversation to
-              deliver to) and while a job is already running (backend cap = 1). */}
-          {!isStreaming && (
-            <button
-              onClick={handleDeepResearch}
-              disabled={!canDeepResearch}
-              className="p-2 text-text-secondary hover:text-accent rounded-lg hover:bg-bg-tertiary transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-              title={
-                drActive ? 'A research report is already running'
-                : isEphemeral ? 'Deep Research needs a saved chat (not incognito)'
-                : !conversationId ? 'Send a message first to start a chat'
-                : 'Deep Research: investigate this question in the background (minutes)'
-              }
-            >
-              {drStarting || drActive ? (
-                <svg className="animate-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                </svg>
-              ) : (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 3h6M10 3v6.5L5.5 18a2 2 0 0 0 1.8 3h9.4a2 2 0 0 0 1.8-3L14 9.5V3" />
-                </svg>
-              )}
-            </button>
-          )}
-
           {/* Send / Stop button */}
           {isStreaming ? (
             <button
@@ -910,14 +948,25 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           ) : (
             <button
               onClick={handleSubmit}
-              disabled={!input.trim() && pendingImages.length === 0 && pendingDocs.length === 0}
+              disabled={(!input.trim() && pendingImages.length === 0 && pendingDocs.length === 0) || drStarting}
               className="p-2.5 bg-accent rounded-full text-bg-primary cursor-pointer hover:bg-accent-hover transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Send message"
+              title={deepResearchMode ? 'Start Deep Research' : 'Send message'}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="12" y1="19" x2="12" y2="5" />
-                <polyline points="5 12 12 5 19 12" />
-              </svg>
+              {drStarting ? (
+                <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                </svg>
+              ) : deepResearchMode ? (
+                /* flask: sending will start a research job */
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 3h6M10 3v6.5L5.5 18a2 2 0 0 0 1.8 3h9.4a2 2 0 0 0 1.8-3L14 9.5V3" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="19" x2="12" y2="5" />
+                  <polyline points="5 12 12 5 19 12" />
+                </svg>
+              )}
             </button>
           )}
         </div>
