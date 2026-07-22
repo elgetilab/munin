@@ -59,8 +59,9 @@ async def _emit(progress: Optional[ProgressFn], event: str, **data: Any) -> None
 # Funnel widths are CONFIG, not agent-chosen (D9) - this is what makes cost
 # predictable. Defaults are modest; a full run widens SCREEN_KEEP/READ_CAP.
 DEFAULT_MAX_SUBQ = 5
-DEFAULT_SCREEN_KEEP = 12     # candidates kept per sub-question after screening
-DEFAULT_READ_CAP = 4         # full source(qa) reads per sub-question
+DEFAULT_SCREEN_KEEP = 15     # candidates kept per sub-question after screening
+DEFAULT_READ_CAP = 6         # full source(qa) reads per sub-question (R2: wider)
+DEFAULT_SNOWBALL_READS = 3   # extra reads from the references of the best papers
 CHECKPOINT_DIR = os.getenv("DEEP_RESEARCH_DIR", "/data/deep_research")
 
 
@@ -131,44 +132,37 @@ def _answer_line(answer: str) -> str:
     return (m.group(1).strip() if m else answer.strip())[:400]
 
 
-async def _resolve(node: dict, depth: str, read_cap: int, screen_keep: int,
-                   tr: AgentTrace, progress: Optional[ProgressFn] = None) -> None:
-    """Fill a plan node's notes + evidence_refs and set its status. Emits
-    tool_call/tool_result events so the search + each paper-read render inline
-    (the same cards as normal tool use)."""
-    from mcp.tools.search_agent import search
+def _seen_dois(node: dict) -> set:
+    return {((r.get("ref") or {}).get("doi") or "").lower()
+            for r in node["evidence_refs"] if (r.get("ref") or {}).get("doi")}
+
+
+async def _read_candidates(node: dict, candidates: list[dict], cap: int,
+                           tr: AgentTrace, progress: Optional[ProgressFn]) -> int:
+    """Read up to `cap` candidates with source(qa), skipping DOIs already read;
+    append grounded notes and emit tool cards. Returns the number read."""
     from mcp.tools.source import source
-
     sq = node["sub_question"]
-    # search shows as a tool card.
-    tc = "tc-" + uuid.uuid4().hex[:8]
-    await _emit(progress, "tool_call", id=tc, name="search",
-                arguments={"query": sq}, sub_question_id=node["id"])
-    res = await search(query=sq, depth=depth, top_k=screen_keep + 6)
-    candidates = (res or {}).get("ranked", [])
-    # Keep only readable scholarly refs (a web listicle has no DOI to source()).
-    candidates = [c for c in candidates if c.get("doi")]
-    kept = await _screen(sq, candidates, screen_keep, tr)
-    await _emit(progress, "tool_result", id=tc,
-                summary=f"{len(candidates)} candidates, {len(kept)} kept to read")
-
+    seen = _seen_dois(node)
     reads = 0
-    for c in kept:
-        if reads >= read_cap:
+    for c in candidates:
+        if reads >= cap:
             break
+        doi = c.get("doi")
+        if not doi or doi.lower() in seen:
+            continue
+        seen.add(doi.lower())
         reads += 1
         rc = "tc-" + uuid.uuid4().hex[:8]
-        title = (c.get("title") or c["doi"])[:90]
+        title = (c.get("title") or doi)[:90]
         await _emit(progress, "tool_call", id=rc, name="source",
-                    arguments={"doi": c["doi"], "question": sq, "title": title},
+                    arguments={"doi": doi, "question": sq, "title": title},
                     sub_question_id=node["id"])
-        env = await source(refs=[{"doi": c["doi"]}], mode="qa", question=sq)
-        outcome = env.get("outcome")
-        depth_read = env.get("read_depth")
+        env = await source(refs=[{"doi": doi}], mode="qa", question=sq)
+        outcome, depth_read = env.get("outcome"), env.get("read_depth")
         await _emit(progress, "tool_result", id=rc,
                     summary=f"{title} - {outcome} ({depth_read})",
-                    outcome=outcome, read_depth=depth_read,
-                    ref=env.get("ref_resolved"))
+                    outcome=outcome, read_depth=depth_read, ref=env.get("ref_resolved"))
         node["evidence_refs"].append({"ref": env.get("ref_resolved"),
                                       "read_depth": depth_read, "outcome": outcome})
         if outcome == "resolved" and env.get("answer") and not env.get("abstained"):
@@ -178,9 +172,62 @@ async def _resolve(node: dict, depth: str, read_cap: int, screen_keep: int,
             node["notes"].append(note)
             await _emit(progress, "note", sub_question_id=node["id"],
                         claim=note["claim"], quote=note["quote"], ref=note["ref"])
+    return reads
+
+
+async def _resolve(node: dict, depth: str, read_cap: int, screen_keep: int,
+                   tr: AgentTrace, progress: Optional[ProgressFn] = None) -> None:
+    """Fill a plan node's notes via search -> screen -> read. Emits tool cards."""
+    from mcp.tools.search_agent import search
+
+    sq = node["sub_question"]
+    tc = "tc-" + uuid.uuid4().hex[:8]
+    await _emit(progress, "tool_call", id=tc, name="search",
+                arguments={"query": sq}, sub_question_id=node["id"])
+    res = await search(query=sq, depth=depth, top_k=screen_keep + 6)
+    candidates = [c for c in (res or {}).get("ranked", []) if c.get("doi")]
+    kept = await _screen(sq, candidates, screen_keep, tr)
+    await _emit(progress, "tool_result", id=tc,
+                summary=f"{len(candidates)} candidates, {len(kept)} kept to read")
+
+    reads = await _read_candidates(node, kept, read_cap, tr, progress)
     node["status"] = "resolved" if node["notes"] else "unresolvable"
     tr.decide("resolved sub-question", sub_question=sq, status=node["status"],
               n_notes=len(node["notes"]), n_reads=reads)
+
+
+async def _snowball(node: dict, extra_reads: int, screen_keep: int,
+                    tr: AgentTrace, progress: Optional[ProgressFn]) -> None:
+    """Depth-1 expansion (R2): pull the references of this sub-question's best
+    cited papers, screen them for relevance, and read a few more. Highest-value
+    deep-research move; kept to depth 1 and a small extra-read budget."""
+    if not node["notes"]:
+        return
+    from mcp.tools.s2_citations import s2_get_references
+    sq = node["sub_question"]
+    seen = _seen_dois(node)
+    refs: list[dict] = []
+    for n in node["notes"][:2]:  # references of the two strongest cited papers
+        doi = (n.get("ref") or {}).get("doi")
+        if not doi:
+            continue
+        try:
+            r = await s2_get_references(doi, limit=40)
+        except Exception:  # noqa: BLE001
+            continue
+        for p in (r.get("references") or []):
+            d = p.get("doi")
+            if d and d.lower() not in seen:
+                seen.add(d.lower())
+                refs.append({"doi": d, "title": p.get("title"),
+                             "snippet": p.get("abstract") or p.get("tldr") or ""})
+    if not refs:
+        return
+    kept = await _screen(sq, refs, screen_keep, tr)
+    tr.decide("snowball", sub_question=sq, n_refs=len(refs), n_kept=len(kept))
+    read = await _read_candidates(node, kept, extra_reads, tr, progress)
+    if read and node["status"] != "resolved":
+        node["status"] = "resolved" if node["notes"] else node["status"]
 
 
 async def _synthesise_section(node: dict) -> str:
@@ -277,6 +324,7 @@ async def deep_research(question: str, *, depth: str = "normal",
                         max_subq: int = DEFAULT_MAX_SUBQ,
                         screen_keep: int = DEFAULT_SCREEN_KEEP,
                         read_cap: int = DEFAULT_READ_CAP,
+                        snowball_reads: int = DEFAULT_SNOWBALL_READS,
                         job_id: Optional[str] = None,
                         progress: Optional[ProgressFn] = None) -> dict:
     """Run the research loop and return {document, plan, citations, trace}.
@@ -319,8 +367,12 @@ async def deep_research(question: str, *, depth: str = "normal",
                     sub_question=node["sub_question"])
         try:
             await _resolve(node, depth, read_cap, screen_keep, tr, progress)
+            # Depth-1 snowball from the strongest papers (R2), if it resolved.
+            if snowball_reads and node["status"] == "resolved":
+                await _snowball(node, snowball_reads, screen_keep, tr, progress)
         except Exception as exc:  # noqa: BLE001 - one bad sub-question shouldn't kill the run
-            node["status"] = "unresolvable"
+            if node["status"] == "open":
+                node["status"] = "unresolvable"
             tr.decide("sub-question failed", sub_question=node["sub_question"],
                       err=str(exc)[:160])
         _checkpoint(job_id, question, plan)
