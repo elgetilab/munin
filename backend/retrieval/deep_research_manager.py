@@ -2,19 +2,18 @@
 Deep Research manager: detached-task lifecycle, concurrency, and delivery.
 
 Deep Research is a long-running (many-minute) in-process agent, so it cannot run
-inside a chat turn. This manager owns its lifecycle (AGENT-IMPLEMENTATION-PLAN.md
-D6): a request kicks off a DETACHED asyncio task (survives the client
-disconnecting), progress accrues to a durable per-job record that a reconnect/poll
-reads, the plan is checkpointed so a crash RESUMES rather than restarts, and the
-final composite is delivered as a markdown ARTIFACT. Concurrency is a configurable
-cap (default 1, D6c) enforced by a semaphore so the many-minute run does not
-oversubscribe the 2-slot vLLM shared with chat.
+inside a chat turn. This manager kicks off a DETACHED asyncio task (survives the
+client disconnecting) and streams the job's progress as render-ready EVENTS into
+a durable log (``research_store``): plan, a tool_call/tool_result per search and
+per paper read, notes, and the final artifact. The frontend reads that log and
+renders it inline in the conversation, exactly like normal tool use; because the
+log is durable and ordered, a client that disconnects and returns just re-reads
+it (every read is a replay). This is the "background work mirrored onto the
+stream" model - the job is the source of truth, the UI is a view onto its log.
 
-This is the integration core. What still needs chat_service surgery (deploy-gated,
-not verifiable from the host): streaming the job's progress over SSE while the
-client is connected + stream_registry replay on reconnect, and the request-body
-on/off toggle that calls `start_job`. Those bridge this manager's durable progress
-record to the live SSE stream; the manager itself is loop-testable in isolation.
+Concurrency is a configurable cap (default 1) enforced by a semaphore so the
+many-minute run does not oversubscribe the vLLM shared with chat. The plan is
+also checkpointed (agent side) so a crash resumes rather than restarts.
 """
 
 from __future__ import annotations
@@ -26,17 +25,19 @@ import uuid
 from typing import Any, Optional
 
 import deep_research_agent as _dr
+import research_store
 
 MAX_CONCURRENT = int(os.getenv("DEEP_RESEARCH_MAX_CONCURRENT", "1"))
 
 _sem: Optional[asyncio.Semaphore] = None
-_jobs: dict[str, dict] = {}
+# job_id -> running asyncio.Task, kept only so cancel_job can interrupt it. The
+# durable state lives in research_store, not here.
+_tasks: dict[str, asyncio.Task] = {}
 
 
 def _get_sem() -> asyncio.Semaphore:
-    # Lazily bound so it attaches to the running loop, not import-time.
     global _sem
-    if _sem is None:
+    if _sem is None:  # lazily bound to the running loop, not import-time
         _sem = asyncio.Semaphore(MAX_CONCURRENT)
     return _sem
 
@@ -44,58 +45,61 @@ def _get_sem() -> asyncio.Semaphore:
 async def start_job(question: str, *, conversation_id: Optional[str] = None,
                     user_email: Optional[str] = None, depth: str = "normal",
                     resume_job_id: Optional[str] = None, **kw: Any) -> str:
-    """Kick off a detached Deep Research job; return its job_id immediately.
-
-    `resume_job_id` reuses an existing job's checkpoint (the agent skips
-    already-resolved sub-questions). Extra kwargs (max_subq/screen_keep/read_cap)
-    pass through to the agent."""
+    """Create a durable job and kick off its detached task; return the job_id."""
     job_id = resume_job_id or ("dr_" + uuid.uuid4().hex[:16])
-    _jobs[job_id] = {
-        "job_id": job_id, "question": question, "status": "queued",
-        "progress": [], "conversation_id": conversation_id,
-        "user_email": user_email, "created": time.time(),
-        "document": None, "citations": None, "error": None}
-    asyncio.create_task(_run(job_id, question, depth, conversation_id, user_email, kw))
+    await research_store.create_job(job_id, conversation_id, user_email, question)
+    _tasks[job_id] = asyncio.create_task(
+        _run(job_id, question, depth, conversation_id, user_email, kw))
     return job_id
 
 
 async def _run(job_id: str, question: str, depth: str,
                conv: Optional[str], user: Optional[str], kw: dict) -> None:
-    rec = _jobs[job_id]
+    started = time.time()
+
+    async def _progress(event: str, data: dict) -> None:
+        # Every agent milestone becomes a render-ready event in the durable log.
+        await research_store.append_event(
+            job_id, {"t": round(time.time() - started, 1), "type": event, **data})
+
     try:
-        # Concurrency cap (default 1): a second job queues here rather than
-        # oversubscribing the shared vLLM.
+        # Concurrency cap: a second job queues here rather than oversubscribing
+        # the shared vLLM. Status stays 'queued' until the slot is free.
         async with _get_sem():
-            rec["status"] = "running"
-            rec["started"] = time.time()
-
-            def _progress(event: str, data: dict) -> None:
-                rec["progress"].append({"t": round(time.time() - rec["started"], 1),
-                                        "event": event, **data})
-
+            await research_store.set_status(job_id, "running")
             env = await _dr.deep_research(question, depth=depth, job_id=job_id,
                                           progress=_progress, **kw)
             if env.get("error"):
-                rec.update(status="error", error=env["error"], finished=time.time())
+                await research_store.set_status(job_id, "error", error=env["error"])
+                await _progress("error", {"message": env["error"]})
                 return
-            rec.update(status="done", document=env["document"],
-                       citations=env["citations"], plan=env["plan"],
-                       finished=time.time())
-            await _deliver(job_id, conv, user, question, env["document"])
+            # Deliver the report as an artifact, then emit the final events so the
+            # inline view ends with a link to the report.
+            artifact_id = await _deliver(job_id, conv, user, question, env["document"])
+            await research_store.set_status(job_id, "done", artifact_id=artifact_id)
+            n_resolved = sum(1 for n in env["plan"] if n["status"] == "resolved")
+            await _progress("artifact", {"artifact_id": artifact_id,
+                                         "title": f"Research: {question[:70]}",
+                                         "n_resolved": n_resolved,
+                                         "n_sub_questions": len(env["plan"]),
+                                         "n_citations": len(env["citations"])})
+            await _progress("done", {"artifact_id": artifact_id})
     except asyncio.CancelledError:
-        rec.update(status="cancelled", finished=time.time())
+        await research_store.set_status(job_id, "cancelled")
         raise
     except Exception as exc:  # noqa: BLE001 - a job failure must not crash the loop
-        rec.update(status="error", error=f"{type(exc).__name__}: {exc}",
-                   finished=time.time())
+        await research_store.set_status(job_id, "error",
+                                        error=f"{type(exc).__name__}: {exc}")
+    finally:
+        _tasks.pop(job_id, None)
 
 
 async def _deliver(job_id: str, conv: Optional[str], user: Optional[str],
-                   question: str, document: str) -> None:
-    """Deliver the composite as a markdown artifact (D6a). Non-fatal: the job is
-    still 'done' and pollable even if artifact write fails."""
+                   question: str, document: str) -> Optional[str]:
+    """Deliver the composite as a markdown artifact + an assistant message.
+    Returns the artifact id (or None). Non-fatal."""
     if not conv or not user:
-        return
+        return None
     try:
         import artifact_store
         art = await artifact_store.create_artifact(
@@ -103,9 +107,6 @@ async def _deliver(job_id: str, conv: Optional[str], user: Optional[str],
             title=f"Research: {question[:70]}", content=document,
             content_type="text/markdown", language="markdown",
             change_summary="Deep Research report")
-        _jobs[job_id]["artifact_id"] = (art or {}).get("id")
-        # Leave an assistant message so the conversation reads question -> report
-        # on reload (the artifact itself renders in the side panel).
         try:
             import chat_store
             await chat_store.add_message(
@@ -114,40 +115,32 @@ async def _deliver(job_id: str, conv: Optional[str], user: Optional[str],
                 f"{question[:70]}** artifact in the panel.")
         except Exception:  # noqa: BLE001
             pass
-    except Exception as exc:  # noqa: BLE001
-        _jobs[job_id]["delivery_error"] = f"{type(exc).__name__}: {exc}"
-
-
-_POLL_KEYS = ("job_id", "question", "status", "progress", "document",
-              "citations", "error", "artifact_id", "delivery_error", "created",
-              "started", "finished")
-
-
-def get_job(job_id: str, user_email: Optional[str] = None) -> Optional[dict]:
-    """Poll a job's current state (durable across client disconnect). If
-    `user_email` is given, returns None unless it owns the job (handles are
-    unguessable + private, design §4.3)."""
-    rec = _jobs.get(job_id)
-    if rec is None:
+        return (art or {}).get("id")
+    except Exception:  # noqa: BLE001
         return None
-    if user_email is not None and rec.get("user_email") != user_email:
-        return None
-    return {k: rec.get(k) for k in _POLL_KEYS}
 
 
-def list_jobs(user_email: Optional[str] = None) -> list[dict]:
-    out = []
-    for rec in _jobs.values():
-        if user_email and rec.get("user_email") != user_email:
-            continue
-        out.append({k: rec.get(k) for k in
-                    ("job_id", "question", "status", "created", "finished")})
-    return sorted(out, key=lambda r: r.get("created") or 0, reverse=True)
+async def get_job(job_id: str, user_email: Optional[str] = None) -> Optional[dict]:
+    """Full job record + ordered event log (durable across disconnect/restart)."""
+    return await research_store.get_job(job_id, user_email)
 
 
-def cancel_job(job_id: str) -> bool:
-    rec = _jobs.get(job_id)
-    if rec and rec.get("status") in ("queued", "running"):
-        rec["status"] = "cancelled"
-        return True
-    return False
+async def get_job_for_conversation(conversation_id: str,
+                                   user_email: str) -> Optional[dict]:
+    """The conversation's DR job, for re-loading the inline view on open."""
+    return await research_store.get_job_for_conversation(conversation_id, user_email)
+
+
+async def list_jobs(user_email: str) -> list[dict]:
+    return await research_store.list_jobs(user_email)
+
+
+async def cancel_job(job_id: str, user_email: Optional[str] = None) -> bool:
+    job = await research_store.get_job(job_id, user_email)
+    if not job or job.get("status") not in ("queued", "running"):
+        return False
+    task = _tasks.get(job_id)
+    if task and not task.done():
+        task.cancel()
+    await research_store.set_status(job_id, "cancelled")
+    return True

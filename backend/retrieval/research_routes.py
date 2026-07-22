@@ -71,24 +71,36 @@ async def start(request: Request) -> dict:
 
 @router.get("/status/{job_id}")
 async def status(job_id: str, request: Request) -> dict:
+    """Full job state + ordered event log. The client renders `events` inline and
+    re-reads on reconnect (every read is a replay)."""
     email = _require_email(request)
-    job = manager.get_job(job_id, user_email=email)
+    job = await manager.get_job(job_id, user_email=email)
     if job is None:
         raise HTTPException(status_code=404,
                             detail={"error": {"message": "unknown or unauthorized job"}})
     return job
 
 
+@router.get("/for-conversation/{conversation_id}")
+async def for_conversation(conversation_id: str, request: Request) -> dict:
+    """The conversation's most recent DR job (+event log), or {job: null}. Lets the
+    client re-load and render the inline research view when a chat is re-opened."""
+    email = _require_email(request)
+    job = await manager.get_job_for_conversation(conversation_id, email)
+    return {"job": job}
+
+
 @router.get("/jobs")
 async def jobs(request: Request) -> dict:
     email = _require_email(request)
-    return {"jobs": manager.list_jobs(email)}
+    return {"jobs": await manager.list_jobs(email)}
 
 
 @router.post("/cancel/{job_id}")
 async def cancel(job_id: str, request: Request) -> dict:
     email = _require_email(request)
-    if manager.get_job(job_id, user_email=email) is None:
+    cancelled = await manager.cancel_job(job_id, user_email=email)
+    if not cancelled and await manager.get_job(job_id, user_email=email) is None:
         raise HTTPException(status_code=404,
                             detail={"error": {"message": "unknown or unauthorized job"}})
-    return {"cancelled": manager.cancel_job(job_id)}
+    return {"cancelled": cancelled}

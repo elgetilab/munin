@@ -33,24 +33,26 @@ import json
 import os
 import re
 import uuid
-from typing import Any, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 import httpx
 
 from agent_trace import AgentTrace
 from database import VLLM_MODEL_NAME, VLLM_URL
 
-# Progress callback: `progress(event: str, data: dict)`. Non-fatal (a bad
-# callback must never kill the run). The manager passes one so a detached job's
-# progress is durable for reconnect/poll; None in a bare/eval call.
-ProgressFn = Callable[[str, dict], None]
+# Async progress callback: `await progress(event: str, data: dict)`. The manager
+# passes one that appends a render-ready event to the durable job log (so the
+# frontend renders the run inline, and a reconnect replays it); None in a
+# bare/eval call. Async so events persist IN ORDER (a fire-and-forget task could
+# reorder the log). Non-fatal - a bad callback must never kill the run.
+ProgressFn = Callable[[str, dict], Awaitable[None]]
 
 
-def _emit(progress: Optional[ProgressFn], event: str, **data: Any) -> None:
+async def _emit(progress: Optional[ProgressFn], event: str, **data: Any) -> None:
     if progress is None:
         return
     try:
-        progress(event, data)
+        await progress(event, data)
     except Exception:
         pass
 
@@ -130,34 +132,52 @@ def _answer_line(answer: str) -> str:
 
 
 async def _resolve(node: dict, depth: str, read_cap: int, screen_keep: int,
-                   tr: AgentTrace) -> None:
-    """Fill a plan node's notes + evidence_refs and set its status."""
+                   tr: AgentTrace, progress: Optional[ProgressFn] = None) -> None:
+    """Fill a plan node's notes + evidence_refs and set its status. Emits
+    tool_call/tool_result events so the search + each paper-read render inline
+    (the same cards as normal tool use)."""
     from mcp.tools.search_agent import search
     from mcp.tools.source import source
 
     sq = node["sub_question"]
+    # search shows as a tool card.
+    tc = "tc-" + uuid.uuid4().hex[:8]
+    await _emit(progress, "tool_call", id=tc, name="search",
+                arguments={"query": sq}, sub_question_id=node["id"])
     res = await search(query=sq, depth=depth, top_k=screen_keep + 6)
     candidates = (res or {}).get("ranked", [])
     # Keep only readable scholarly refs (a web listicle has no DOI to source()).
     candidates = [c for c in candidates if c.get("doi")]
     kept = await _screen(sq, candidates, screen_keep, tr)
+    await _emit(progress, "tool_result", id=tc,
+                summary=f"{len(candidates)} candidates, {len(kept)} kept to read")
 
     reads = 0
     for c in kept:
         if reads >= read_cap:
             break
         reads += 1
+        rc = "tc-" + uuid.uuid4().hex[:8]
+        title = (c.get("title") or c["doi"])[:90]
+        await _emit(progress, "tool_call", id=rc, name="source",
+                    arguments={"doi": c["doi"], "question": sq, "title": title},
+                    sub_question_id=node["id"])
         env = await source(refs=[{"doi": c["doi"]}], mode="qa", question=sq)
+        outcome = env.get("outcome")
+        depth_read = env.get("read_depth")
+        await _emit(progress, "tool_result", id=rc,
+                    summary=f"{title} - {outcome} ({depth_read})",
+                    outcome=outcome, read_depth=depth_read,
+                    ref=env.get("ref_resolved"))
         node["evidence_refs"].append({"ref": env.get("ref_resolved"),
-                                      "read_depth": env.get("read_depth"),
-                                      "outcome": env.get("outcome")})
-        if env.get("outcome") == "resolved" and env.get("answer") and not env.get("abstained"):
-            node["notes"].append({
-                "claim": _answer_line(env["answer"]),
-                "quote": env.get("quote"),
-                "ref": env.get("ref_resolved"),
-                "read_depth": env.get("read_depth"),
-                "sub_question_id": node["id"]})
+                                      "read_depth": depth_read, "outcome": outcome})
+        if outcome == "resolved" and env.get("answer") and not env.get("abstained"):
+            note = {"claim": _answer_line(env["answer"]), "quote": env.get("quote"),
+                    "ref": env.get("ref_resolved"), "read_depth": depth_read,
+                    "sub_question_id": node["id"]}
+            node["notes"].append(note)
+            await _emit(progress, "note", sub_question_id=node["id"],
+                        claim=note["claim"], quote=note["quote"], ref=note["ref"])
     node["status"] = "resolved" if node["notes"] else "unresolvable"
     tr.decide("resolved sub-question", sub_question=sq, status=node["status"],
               n_notes=len(node["notes"]), n_reads=reads)
@@ -232,10 +252,16 @@ async def deep_research(question: str, *, depth: str = "normal",
 
     # Resume from a checkpoint if one exists for this job_id; else plan afresh.
     plan = _load_checkpoint(job_id)
+    # The plan event carries id + text + status per sub-question so the frontend
+    # renders it as a live checklist (and updates each item as it resolves).
+    def _plan_items() -> list[dict]:
+        return [{"id": n["id"], "text": n["sub_question"], "status": n["status"]}
+                for n in plan]
+
     if plan:
         tr.decide("resumed from checkpoint", n_sub_questions=len(plan),
                   open=sum(1 for n in plan if n["status"] == "open"))
-        _emit(progress, "resumed", n_sub_questions=len(plan))
+        await _emit(progress, "plan", items=_plan_items(), resumed=True)
     else:
         subs = await _decompose(question, max_subq)
         tr.llm(1)
@@ -243,35 +269,48 @@ async def deep_research(question: str, *, depth: str = "normal",
                  "notes": [], "evidence_refs": []} for i, s in enumerate(subs)]
         tr.decide("plan", n_sub_questions=len(plan))
         _checkpoint(job_id, question, plan)
-        _emit(progress, "plan", sub_questions=[n["sub_question"] for n in plan])
+        await _emit(progress, "plan", items=_plan_items())
 
     for node in plan:
         if node["status"] != "open":  # resumed: skip already-done sub-questions
             continue
-        _emit(progress, "sub_question_start", id=node["id"],
-              sub_question=node["sub_question"])
+        await _emit(progress, "plan_update", id=node["id"], status="in_progress",
+                    sub_question=node["sub_question"])
         try:
-            await _resolve(node, depth, read_cap, screen_keep, tr)
+            await _resolve(node, depth, read_cap, screen_keep, tr, progress)
         except Exception as exc:  # noqa: BLE001 - one bad sub-question shouldn't kill the run
             node["status"] = "unresolvable"
             tr.decide("sub-question failed", sub_question=node["sub_question"],
                       err=str(exc)[:160])
         _checkpoint(job_id, question, plan)
-        _emit(progress, "sub_question_done", id=node["id"],
-              status=node["status"], n_notes=len(node["notes"]))
+        await _emit(progress, "plan_update", id=node["id"], status=node["status"],
+                    n_notes=len(node["notes"]))
 
-    _emit(progress, "synthesising", n_resolved=sum(1 for n in plan if n["status"] == "resolved"))
+    await _emit(progress, "synthesising",
+                n_resolved=sum(1 for n in plan if n["status"] == "resolved"))
     # Synthesise sections from notes (grouped by sub_question via the plan).
     sections = [await _synthesise_section(node) for node in plan]
     n_resolved = sum(1 for n in plan if n["status"] == "resolved")
-    document = (f"# {question}\n\n" + "\n".join(sections) +
-                f"\n\n---\n_{n_resolved}/{len(plan)} sub-questions resolved from "
-                f"{sum(len(n['notes']) for n in plan)} grounded notes._\n")
     citations = _citations(plan)
+    # A proper Sources section: numbered, linked by DOI, with the read depth so a
+    # reader can tell a full-text citation from an abstract-only one.
+    sources_md = ""
+    if citations:
+        lines = []
+        for i, c in enumerate(citations, 1):
+            ref = c.get("ref") or {}
+            doi = ref.get("doi")
+            title = ref.get("title") or doi or "source"
+            link = f"[{title}](https://doi.org/{doi})" if doi else title
+            lines.append(f"{i}. {link} _(read: {c.get('read_depth') or 'unknown'})_")
+        sources_md = "\n## Sources\n\n" + "\n".join(lines) + "\n"
+    document = (f"# {question}\n\n" + "\n".join(sections) + sources_md +
+                f"\n---\n_{n_resolved}/{len(plan)} sub-questions resolved from "
+                f"{sum(len(n['notes']) for n in plan)} grounded notes; "
+                f"{len(citations)} sources cited._\n")
 
     env = {"job_id": job_id, "document": document, "plan": plan,
            "citations": citations}
     env["trace"] = tr.finish(outcome="resolved", n_sub_questions=len(plan),
                              n_resolved=n_resolved, n_citations=len(citations))
-    _emit(progress, "done", n_resolved=n_resolved, n_citations=len(citations))
     return env
