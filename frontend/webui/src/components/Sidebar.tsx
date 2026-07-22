@@ -790,6 +790,7 @@ function ChatRow({
   return (
     <div className="relative">
       <div
+        data-testid="chat-row"
         onClick={() => onSelect(chat.id)}
         className={`group flex items-center gap-2 px-2 py-2 rounded-md cursor-pointer text-sm transition-colors ${
           isCurrent

@@ -222,14 +222,17 @@ export default function App() {
     }
   }, [conversationId]);
 
-  // Load artifacts when conversation changes
+  // Load artifacts when conversation changes. Clear the selected artifact FIRST:
+  // otherwise the panel keeps the previous conversation's selectedArtifactId and
+  // refetches it against the new conversation, which 404s ("artifact not found").
   useEffect(() => {
+    setSelectedArtifactId(null);
     if (conversationId && !isEphemeral) {
       fetchArtifacts(conversationId)
         .then(res => setArtifacts(res.artifacts))
         .catch(() => {}); // may not have artifacts
     }
-  }, [conversationId, isEphemeral, setArtifacts]);
+  }, [conversationId, isEphemeral, setArtifacts, setSelectedArtifactId]);
 
   // Poll an active Deep Research job. The job runs detached on the backend, so
   // its markdown report is created out-of-band (not on the live SSE stream) -
