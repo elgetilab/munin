@@ -588,6 +588,43 @@ export async function reportChat(
   return res.json();
 }
 
+// ── Deep Research ─────────────────────────────────────────────────────────────
+// Long-running detached backend agent. `start` returns immediately with a
+// job_id; `status` is polled (durable across disconnect). The finished report is
+// delivered as a markdown artifact in the conversation. Auth (X-Munin-Email) is
+// injected by the gateway, same as every other /api call.
+
+export interface ResearchStatus {
+  job_id: string;
+  question: string;
+  status: 'queued' | 'running' | 'done' | 'error' | 'cancelled';
+  progress?: Array<{ t: number; event: string; [k: string]: unknown }>;
+  artifact_id?: string | null;
+  error?: string | null;
+}
+
+export async function startDeepResearch(
+  conversationId: string,
+  question: string,
+): Promise<{ job_id: string; status: string }> {
+  const res = await fetch(`${API}/research/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversation_id: conversationId, question }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `Failed to start research (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function getResearchStatus(jobId: string): Promise<ResearchStatus> {
+  const res = await fetch(`${API}/research/status/${encodeURIComponent(jobId)}`);
+  if (!res.ok) throw new Error(`Failed to fetch research status (${res.status})`);
+  return res.json();
+}
+
 // ── Artifacts ───────────────────────────────────────────────────────────────
 
 export async function fetchArtifacts(conversationId: string): Promise<{ artifacts: ArtifactSummary[]; total: number }> {

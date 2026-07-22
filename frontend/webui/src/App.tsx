@@ -4,8 +4,9 @@ import { useChatStore } from './stores/chatStore';
 import { useUiStore } from './stores/uiStore';
 import { useUserStore } from './stores/userStore';
 import { useWorkspaceStore } from './stores/workspaceStore';
+import { useDeepResearchStore } from './stores/deepResearchStore';
 import { useStatus } from './hooks/useStatus';
-import { fetchPersonas, fetchMe, fetchAnnouncement, fetchUsageStats, fetchArtifacts, fetchTags } from './lib/api';
+import { fetchPersonas, fetchMe, fetchAnnouncement, fetchUsageStats, fetchArtifacts, fetchTags, getResearchStatus } from './lib/api';
 import type { UserProfile } from './lib/api';
 import { getGreeting } from './lib/greetings';
 import { Sidebar } from './components/Sidebar';
@@ -211,6 +212,37 @@ export default function App() {
         .catch(() => {}); // may not have artifacts
     }
   }, [conversationId, isEphemeral, setArtifacts]);
+
+  // Poll an active Deep Research job. The job runs detached on the backend, so
+  // its markdown report is created out-of-band (not on the live SSE stream) -
+  // on completion we refetch the artifact list so it appears in the panel. The
+  // job is cleared shortly after it finishes.
+  const drJob = useDeepResearchStore(s => s.job);
+  const drSetStatus = useDeepResearchStore(s => s.setStatus);
+  const drClear = useDeepResearchStore(s => s.clear);
+  useEffect(() => {
+    if (!drJob || (drJob.status !== 'queued' && drJob.status !== 'running')) return;
+    let mounted = true;
+    const tick = async () => {
+      try {
+        const s = await getResearchStatus(drJob.id);
+        if (!mounted) return;
+        drSetStatus(s.status);
+        if (s.status === 'done') {
+          const res = await fetchArtifacts(drJob.conversationId);
+          if (mounted) setArtifacts(res.artifacts);
+          setTimeout(() => { drClear(); }, 4000);
+        } else if (s.status === 'error' || s.status === 'cancelled') {
+          setTimeout(() => { drClear(); }, 6000);
+        }
+      } catch {
+        /* transient; keep polling */
+      }
+    };
+    const id = setInterval(tick, 4000);
+    tick();
+    return () => { mounted = false; clearInterval(id); };
+  }, [drJob, drSetStatus, drClear, setArtifacts]);
 
   // Auto-open panel and select the latest artifact whenever one is created or updated
   useEffect(() => {

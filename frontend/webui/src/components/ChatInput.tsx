@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
 import type { Persona, PromptSuggestion } from '../lib/types';
-import { uploadDocument } from '../lib/api';
+import { uploadDocument, startDeepResearch } from '../lib/api';
 import type { UploadedDocument } from '../lib/api';
 import { useWorkspaceStore } from '../stores/workspaceStore';
+import { useDeepResearchStore } from '../stores/deepResearchStore';
 
 // Router-recognized per-turn overrides (backend parse_slash: research|code|chat).
 // These force Munin's routing for one turn; otherwise it auto-routes.
@@ -92,6 +93,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const tagCatalog = useWorkspaceStore(s => s.tagCatalog);
   const activeTags = useWorkspaceStore(s => s.activeTags);
   const onTagsChange = useWorkspaceStore(s => s.setActiveTags);
+  const drJob = useDeepResearchStore(s => s.job);
+  const startDrJob = useDeepResearchStore(s => s.startJob);
+  const [drStarting, setDrStarting] = useState(false);
   const [input, setInput] = useState('');
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [knowledgePickerOpen, setKnowledgePickerOpen] = useState(false);
@@ -306,6 +310,29 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     }
     setInput('');
     setImageError(null);
+  };
+
+  // Deep Research: kick off a long-running detached backend job on the typed
+  // question. Not a chat turn - it runs in the background (minutes) and delivers
+  // a markdown report as an artifact. Needs a persistent conversation (the
+  // artifact lands there). A busy job blocks starting another (backend cap = 1).
+  const drActive = !!drJob && (drJob.status === 'queued' || drJob.status === 'running');
+  const canDeepResearch = !!input.trim() && !isStreaming && !drStarting && !drActive
+    && !!conversationId && !isEphemeral;
+
+  const handleDeepResearch = async () => {
+    const question = input.trim();
+    if (!question || !conversationId || drActive || drStarting) return;
+    setDrStarting(true);
+    try {
+      const { job_id } = await startDeepResearch(conversationId, question);
+      startDrJob(job_id, question, conversationId);
+      setInput('');
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : 'Failed to start deep research');
+    } finally {
+      setDrStarting(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -690,6 +717,19 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           <div className="px-5 pt-2 text-xs text-error">{imageError}</div>
         )}
 
+        {/* Deep Research status: the job runs in the background; the report
+            arrives as an artifact (App refetches on completion). */}
+        {drActive && drJob && (
+          <div className="px-5 pt-2 flex items-center gap-2 text-xs text-text-secondary">
+            <svg className="animate-spin shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+            <span className="truncate">
+              Researching &ldquo;{drJob.question}&rdquo; in the background &mdash; the report will appear in Artifacts.
+            </span>
+          </div>
+        )}
+
         {/* Textarea */}
         <textarea
           ref={textareaRef}
@@ -827,6 +867,34 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             </span>
             <span className="text-sm text-text-secondary">Munin</span>
           </div>
+
+          {/* Deep Research: start a long-running background research job on the
+              typed question. Delivers a report as an artifact. Hidden while
+              streaming; disabled in ephemeral chats (needs a conversation to
+              deliver to) and while a job is already running (backend cap = 1). */}
+          {!isStreaming && (
+            <button
+              onClick={handleDeepResearch}
+              disabled={!canDeepResearch}
+              className="p-2 text-text-secondary hover:text-accent rounded-lg hover:bg-bg-tertiary transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+              title={
+                drActive ? 'A research report is already running'
+                : isEphemeral ? 'Deep Research needs a saved chat (not incognito)'
+                : !conversationId ? 'Send a message first to start a chat'
+                : 'Deep Research: investigate this question in the background (minutes)'
+              }
+            >
+              {drStarting || drActive ? (
+                <svg className="animate-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                </svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 3h6M10 3v6.5L5.5 18a2 2 0 0 0 1.8 3h9.4a2 2 0 0 0 1.8-3L14 9.5V3" />
+                </svg>
+              )}
+            </button>
+          )}
 
           {/* Send / Stop button */}
           {isStreaming ? (
