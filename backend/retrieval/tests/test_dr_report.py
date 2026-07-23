@@ -46,41 +46,47 @@ def test_caveats_surface_unresolved_and_abstract_only():
 import asyncio
 
 
-def _fake_source(answers):
+def _fake_source(findings_by_key):
+    """Fake source(mode='findings') keyed by doi OR url."""
     async def fake(refs, mode, question):  # noqa: ARG001
-        doi = refs[0]["doi"]
-        a = answers.get(doi, {"outcome": "not_found"})
-        return {"outcome": a["outcome"], "read_depth": a.get("read_depth", "full_text"),
-                "answer": a.get("answer"), "quote": a.get("quote"),
-                "ref_resolved": {"doi": doi, "title": a.get("title", doi)},
-                "abstained": a["outcome"] != "resolved"}
+        key = refs[0].get("doi") or refs[0].get("url")
+        fs = findings_by_key.get(key)
+        if not fs:
+            return {"outcome": "not_found", "read_depth": "full_text",
+                    "findings": [], "ref_resolved": {"doi": key}}
+        return {"outcome": "resolved", "read_depth": "full_text", "findings": fs,
+                "ref_resolved": ({"doi": key} if str(key).startswith("10.") else {"url": key})}
     return fake
 
 
-def test_read_candidates_dedup_cap_and_notes(monkeypatch):
+def _src_module():
     import sys, importlib
     importlib.import_module("mcp.tools.source")
-    src = sys.modules["mcp.tools.source"]  # the submodule is shadowed by the fn in the package
-    answers = {
-        "10.1/a": {"outcome": "resolved", "answer": "Answer: A holds", "quote": "q", "title": "Paper A"},
-        "10.1/b": {"outcome": "resolved", "answer": "Answer: B holds", "quote": "q", "title": "Paper B"},
-    }
-    monkeypatch.setattr(src, "source", _fake_source(answers))
+    return sys.modules["mcp.tools.source"]  # submodule shadowed by the fn in the package
+
+
+def test_read_candidates_multi_note_dedup_and_web(monkeypatch):
+    # lever 2 (multi-note): a paper yields several notes; lever 1 (web): a URL
+    # candidate is read too. Duplicate + cap respected.
+    monkeypatch.setattr(_src_module(), "source", _fake_source({
+        "10.1/a": [{"claim": "A1", "quote": "q"}, {"claim": "A2", "quote": "q"}],
+        "10.1/b": [{"claim": "B1", "quote": "q"}],
+        "https://ex.org/p": [{"claim": "W1", "quote": "q"}],
+    }))
     node = {"sub_question": "Q", "id": "sq0", "notes": [], "evidence_refs": []}
-    cands = [{"doi": "10.1/a"}, {"doi": "10.1/a"}, {"doi": "10.1/b"}, {"doi": "10.1/c"}]
-    reads = asyncio.run(D._read_candidates(node, cands, 5, D.AgentTrace("t"), None))
-    dois = [(r["ref"] or {}).get("doi") for r in node["evidence_refs"]]
-    assert dois == ["10.1/a", "10.1/b", "10.1/c"]  # duplicate 'a' skipped
-    assert len(node["notes"]) == 2                  # a, b resolved; c not_found
-    assert reads == 3
+    cands = [{"doi": "10.1/a"}, {"doi": "10.1/a"}, {"doi": "10.1/b"},
+             {"url": "https://ex.org/p"}, {"doi": "10.1/c"}]
+    reads = asyncio.run(D._read_candidates(node, cands, 6, D.AgentTrace("t"), None))
+    keys = [(r["ref"] or {}).get("doi") or (r["ref"] or {}).get("url") for r in node["evidence_refs"]]
+    assert keys == ["10.1/a", "10.1/b", "https://ex.org/p", "10.1/c"]  # dup skipped, web read
+    # multi-note: a->2, b->1, web->1, c->0 = 4 notes
+    assert {n["claim"] for n in node["notes"]} == {"A1", "A2", "B1", "W1"}
+    assert reads == 4
 
 
 def test_read_candidates_respects_cap(monkeypatch):
-    import sys, importlib
-    importlib.import_module("mcp.tools.source")
-    src = sys.modules["mcp.tools.source"]  # the submodule is shadowed by the fn in the package
-    monkeypatch.setattr(src, "source", _fake_source(
-        {"10.1/a": {"outcome": "resolved", "answer": "Answer: x", "title": "A"}}))
+    monkeypatch.setattr(_src_module(), "source", _fake_source(
+        {f"10.1/{i}": [{"claim": f"c{i}", "quote": "q"}] for i in range(10)}))
     node = {"sub_question": "Q", "id": "sq0", "notes": [], "evidence_refs": []}
     cands = [{"doi": f"10.1/{i}"} for i in range(10)]
     reads = asyncio.run(D._read_candidates(node, cands, 2, D.AgentTrace("t"), None))

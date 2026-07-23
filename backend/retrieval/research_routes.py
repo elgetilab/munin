@@ -63,7 +63,7 @@ async def start(request: Request) -> dict:
           if isinstance(body.get(k), int)}
     job_id = await manager.start_job(
         question, conversation_id=conv, user_email=email,
-        depth=body.get("depth", "normal"),
+        depth=body.get("depth", "deep"),  # include the web tier (lever 1)
         resume_job_id=body.get("resume_job_id"), **kw)
     return {"job_id": job_id, "conversation_id": conv,
             "created_conversation": created_conversation, "status": "queued"}

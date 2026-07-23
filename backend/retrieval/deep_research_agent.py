@@ -58,10 +58,11 @@ async def _emit(progress: Optional[ProgressFn], event: str, **data: Any) -> None
 
 # Funnel widths are CONFIG, not agent-chosen (D9) - this is what makes cost
 # predictable. Defaults are modest; a full run widens SCREEN_KEEP/READ_CAP.
-DEFAULT_MAX_SUBQ = 5
-DEFAULT_SCREEN_KEEP = 15     # candidates kept per sub-question after screening
-DEFAULT_READ_CAP = 6         # full source(qa) reads per sub-question (R2: wider)
-DEFAULT_SNOWBALL_READS = 3   # extra reads from the references of the best papers
+DEFAULT_MAX_SUBQ = 6         # more sub-questions -> broader coverage
+DEFAULT_SCREEN_KEEP = 20     # candidates kept per sub-question after screening
+DEFAULT_READ_CAP = 8         # full reads per sub-question (breadth lever 3)
+DEFAULT_SNOWBALL_READS = 4   # extra reads per snowball pass
+DEFAULT_SNOWBALL_DEPTH = 2   # snowball the snowballed papers once more (depth-2)
 CHECKPOINT_DIR = os.getenv("DEEP_RESEARCH_DIR", "/data/deep_research")
 
 
@@ -183,50 +184,63 @@ def _numeric_conflicts(notes: list[dict]) -> list[tuple[dict, dict]]:
     return out
 
 
-def _seen_dois(node: dict) -> set:
-    return {((r.get("ref") or {}).get("doi") or "").lower()
-            for r in node["evidence_refs"] if (r.get("ref") or {}).get("doi")}
+def _seen_keys(node: dict) -> set:
+    """DOIs and URLs already read for this sub-question (dedup across the funnel
+    + snowball, and across the corpus/OA/web tiers)."""
+    out = set()
+    for r in node["evidence_refs"]:
+        ref = r.get("ref") or {}
+        for k in (ref.get("doi"), ref.get("url")):
+            if k:
+                out.add(k.lower())
+    return out
 
 
 async def _read_candidates(node: dict, candidates: list[dict], cap: int,
                            tr: AgentTrace, progress: Optional[ProgressFn]) -> int:
-    """Read up to `cap` candidates with source(qa), skipping DOIs already read;
-    append grounded notes and emit tool cards. Returns the number read."""
+    """Read up to `cap` candidates with source(findings) - papers by DOI AND web
+    pages by URL (lever 1) - and turn each grounded finding into its own note
+    (lever 2: multi-note, still quote-backed). Dedups across DOIs+URLs. Returns
+    the number of documents read."""
     from mcp.tools.source import source
     sq = node["sub_question"]
-    seen = _seen_dois(node)
+    seen = _seen_keys(node)
     reads = 0
     for c in candidates:
         if reads >= cap:
             break
-        doi = c.get("doi")
-        if not doi or doi.lower() in seen:
+        doi, url = c.get("doi"), c.get("url")
+        key = (doi or url or "").lower()
+        if not key or key in seen:
             continue
-        seen.add(doi.lower())
+        seen.add(key)
         reads += 1
+        ref = {"doi": doi} if doi else {"url": url}
+        title = (c.get("title") or doi or url or "source")[:90]
         rc = "tc-" + uuid.uuid4().hex[:8]
-        title = (c.get("title") or doi)[:90]
         await _emit(progress, "tool_call", id=rc, name="source",
-                    arguments={"doi": doi, "question": sq, "title": title},
+                    arguments={"doi": doi, "url": url, "question": sq, "title": title},
                     sub_question_id=node["id"])
-        env = await source(refs=[{"doi": doi}], mode="qa", question=sq)
+        env = await source(refs=[ref], mode="findings", question=sq)
         outcome, depth_read = env.get("outcome"), env.get("read_depth")
+        findings = env.get("findings") or []
         await _emit(progress, "tool_result", id=rc,
-                    summary=f"{title} - {outcome} ({depth_read})",
+                    summary=f"{title} - {outcome} ({len(findings)} findings, {depth_read})",
                     outcome=outcome, read_depth=depth_read, ref=env.get("ref_resolved"))
         node["evidence_refs"].append({"ref": env.get("ref_resolved"),
                                       "read_depth": depth_read, "outcome": outcome})
-        if outcome == "resolved" and env.get("answer") and not env.get("abstained"):
-            claim = _answer_line(env["answer"])
-            val, unit = _extract_value(claim)
-            if not val:
-                val, unit = _extract_value(env.get("quote") or "")
-            note = {"claim": claim, "quote": env.get("quote"),
-                    "ref": env.get("ref_resolved"), "read_depth": depth_read,
-                    "sub_question_id": node["id"], "value": val, "unit": unit}
-            node["notes"].append(note)
-            await _emit(progress, "note", sub_question_id=node["id"],
-                        claim=note["claim"], quote=note["quote"], ref=note["ref"])
+        if outcome == "resolved" and findings:
+            for f in findings:
+                claim = f["claim"]
+                val, unit = _extract_value(claim)
+                if not val:
+                    val, unit = _extract_value(f.get("quote") or "")
+                note = {"claim": claim, "quote": f.get("quote"),
+                        "ref": env.get("ref_resolved"), "read_depth": depth_read,
+                        "sub_question_id": node["id"], "value": val, "unit": unit}
+                node["notes"].append(note)
+                await _emit(progress, "note", sub_question_id=node["id"],
+                            claim=claim, quote=f.get("quote"), ref=note["ref"])
     return reads
 
 
@@ -240,7 +254,8 @@ async def _resolve(node: dict, depth: str, read_cap: int, screen_keep: int,
     await _emit(progress, "tool_call", id=tc, name="search",
                 arguments={"query": sq}, sub_question_id=node["id"])
     res = await search(query=sq, depth=depth, top_k=screen_keep + 6)
-    candidates = [c for c in (res or {}).get("ranked", []) if c.get("doi")]
+    # Keep readable candidates: papers (DOI) AND web pages (URL) - lever 1.
+    candidates = [c for c in (res or {}).get("ranked", []) if c.get("doi") or c.get("url")]
     kept = await _screen(sq, candidates, screen_keep, tr)
     await _emit(progress, "tool_result", id=tc,
                 summary=f"{len(candidates)} candidates, {len(kept)} kept to read")
@@ -251,18 +266,19 @@ async def _resolve(node: dict, depth: str, read_cap: int, screen_keep: int,
               n_notes=len(node["notes"]), n_reads=reads)
 
 
-async def _snowball(node: dict, extra_reads: int, screen_keep: int,
-                    tr: AgentTrace, progress: Optional[ProgressFn]) -> None:
-    """Depth-1 expansion (R2): pull the references of this sub-question's best
-    cited papers, screen them for relevance, and read a few more. Highest-value
-    deep-research move; kept to depth 1 and a small extra-read budget."""
-    if not node["notes"]:
-        return
+async def _snowball(node: dict, source_notes: list[dict], extra_reads: int,
+                    screen_keep: int, tr: AgentTrace,
+                    progress: Optional[ProgressFn]) -> int:
+    """Expansion (R2): pull the references of the given papers, screen them for
+    relevance, and read a few more. Called once per depth level. Returns the
+    number of NEW notes added (so the caller can drive depth-2 from them)."""
+    if not source_notes:
+        return 0
     from mcp.tools.s2_citations import s2_get_references
     sq = node["sub_question"]
-    seen = _seen_dois(node)
+    seen = _seen_keys(node)
     refs: list[dict] = []
-    for n in node["notes"][:2]:  # references of the two strongest cited papers
+    for n in source_notes[:3]:  # references of the strongest cited papers
         doi = (n.get("ref") or {}).get("doi")
         if not doi:
             continue
@@ -277,12 +293,14 @@ async def _snowball(node: dict, extra_reads: int, screen_keep: int,
                 refs.append({"doi": d, "title": p.get("title"),
                              "snippet": p.get("abstract") or p.get("tldr") or ""})
     if not refs:
-        return
+        return 0
     kept = await _screen(sq, refs, screen_keep, tr)
     tr.decide("snowball", sub_question=sq, n_refs=len(refs), n_kept=len(kept))
-    read = await _read_candidates(node, kept, extra_reads, tr, progress)
-    if read and node["status"] != "resolved":
-        node["status"] = "resolved" if node["notes"] else node["status"]
+    before = len(node["notes"])
+    await _read_candidates(node, kept, extra_reads, tr, progress)
+    if len(node["notes"]) > before and node["status"] != "resolved":
+        node["status"] = "resolved"
+    return len(node["notes"]) - before
 
 
 def _group_by_subquestion(notes: list[dict]) -> dict:
@@ -395,11 +413,12 @@ def _load_checkpoint(job_id: str) -> Optional[list[dict]]:
         return None
 
 
-async def deep_research(question: str, *, depth: str = "normal",
+async def deep_research(question: str, *, depth: str = "deep",
                         max_subq: int = DEFAULT_MAX_SUBQ,
                         screen_keep: int = DEFAULT_SCREEN_KEEP,
                         read_cap: int = DEFAULT_READ_CAP,
                         snowball_reads: int = DEFAULT_SNOWBALL_READS,
+                        snowball_depth: int = DEFAULT_SNOWBALL_DEPTH,
                         job_id: Optional[str] = None,
                         progress: Optional[ProgressFn] = None) -> dict:
     """Run the research loop and return {document, plan, citations, trace}.
@@ -443,8 +462,20 @@ async def deep_research(question: str, *, depth: str = "normal",
         try:
             await _resolve(node, depth, read_cap, screen_keep, tr, progress)
             # Depth-1 snowball from the strongest papers (R2), if it resolved.
+            # Snowball from the strongest papers (depth 1), then from what that
+            # pass adds (depth 2), each bounded by snowball_reads.
             if snowball_reads and node["status"] == "resolved":
-                await _snowball(node, snowball_reads, screen_keep, tr, progress)
+                before = len(node["notes"])
+                await _snowball(node, node["notes"][:3], snowball_reads,
+                                screen_keep, tr, progress)
+                new_notes = node["notes"][before:]
+                for _ in range(max(0, snowball_depth - 1)):
+                    if not new_notes:
+                        break
+                    mark = len(node["notes"])
+                    await _snowball(node, new_notes[:2], snowball_reads,
+                                    screen_keep, tr, progress)
+                    new_notes = node["notes"][mark:]
         except Exception as exc:  # noqa: BLE001 - one bad sub-question shouldn't kill the run
             if node["status"] == "open":
                 node["status"] = "unresolvable"
