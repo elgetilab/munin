@@ -11,9 +11,9 @@ import { isActive } from '../stores/deepResearchStore';
 interface PlanItem { id: string; text: string; status: string }
 interface ToolRow {
   id: string; name: string; query?: string; title?: string;
-  summary?: string; outcome?: string; read_depth?: string; done: boolean;
+  summary?: string; outcome?: string; read_depth?: string; tier?: string; done: boolean;
 }
-interface Note { claim: string; ref?: { doi?: string; title?: string } }
+interface Note { claim: string; ref?: { doi?: string; title?: string }; tier?: string }
 
 function derive(events: ResearchEvent[]) {
   const plan: Record<string, PlanItem> = {};
@@ -52,11 +52,11 @@ function derive(events: ResearchEvent[]) {
       }
       case 'tool_result': {
         const row = rowById[s(e.id) || ''];
-        if (row) { row.summary = s(e.summary); row.outcome = s(e.outcome); row.read_depth = s(e.read_depth); row.done = true; }
+        if (row) { row.summary = s(e.summary); row.outcome = s(e.outcome); row.read_depth = s(e.read_depth); row.tier = s(e.tier); row.done = true; }
         break;
       }
       case 'note': {
-        notes.push({ claim: s(e.claim) || '', ref: (e.ref as Note['ref']) || undefined });
+        notes.push({ claim: s(e.claim) || '', ref: (e.ref as Note['ref']) || undefined, tier: s(e.tier) });
         break;
       }
       case 'synthesising': synthesising = true; break;
@@ -68,6 +68,21 @@ function derive(events: ResearchEvent[]) {
 }
 
 const STATUS_MARK: Record<string, string> = { open: '○', in_progress: '◐', resolved: '●', unresolvable: '×' };
+
+// Which source tier a citation came from - the breadth signal.
+const TIER_LABEL: Record<string, string> = { corpus: 'corpus', oa: 'open access', web: 'web' };
+function TierBadge({ tier }: { tier?: string }) {
+  if (!tier || !TIER_LABEL[tier]) return null;
+  return (
+    <span
+      data-testid="research-tier"
+      data-tier={tier}
+      className="ml-1 px-1 py-px rounded text-[10px] uppercase tracking-wide bg-bg-secondary text-text-secondary"
+    >
+      {TIER_LABEL[tier]}
+    </span>
+  );
+}
 
 export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
   const setSelectedArtifactId = useUiStore((s) => s.setSelectedArtifactId);
@@ -147,6 +162,7 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
               <li key={i} data-testid="research-note" className="text-sm text-text-secondary">
                 <span className="text-text-primary">{n.claim}</span>
                 {n.ref?.title && <span className="text-[11px]"> · {n.ref.title}</span>}
+                <TierBadge tier={n.tier} />
               </li>
             ))}
           </ul>

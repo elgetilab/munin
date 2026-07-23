@@ -196,6 +196,18 @@ def _seen_keys(node: dict) -> set:
     return out
 
 
+def _origin_tier(origin: Optional[str]) -> str:
+    """Collapse source.origin into the display tier (corpus | oa | web) so the
+    timeline can badge each citation by where it came from - the breadth signal."""
+    if origin == "web":
+        return "web"
+    if origin in ("oa_cache", "oa_download", "s2_abstract"):
+        return "oa"
+    if origin == "local_kb":
+        return "corpus"
+    return "unknown"
+
+
 async def _read_candidates(node: dict, candidates: list[dict], cap: int,
                            tr: AgentTrace, progress: Optional[ProgressFn]) -> int:
     """Read up to `cap` candidates with source(findings) - papers by DOI AND web
@@ -224,11 +236,14 @@ async def _read_candidates(node: dict, candidates: list[dict], cap: int,
         env = await source(refs=[ref], mode="findings", question=sq)
         outcome, depth_read = env.get("outcome"), env.get("read_depth")
         findings = env.get("findings") or []
+        tier = _origin_tier((env.get("source") or {}).get("origin"))
         await _emit(progress, "tool_result", id=rc,
-                    summary=f"{title} - {outcome} ({len(findings)} findings, {depth_read})",
-                    outcome=outcome, read_depth=depth_read, ref=env.get("ref_resolved"))
+                    summary=f"{title} - {outcome} ({len(findings)} findings, {depth_read}, {tier})",
+                    outcome=outcome, read_depth=depth_read, tier=tier,
+                    ref=env.get("ref_resolved"))
         node["evidence_refs"].append({"ref": env.get("ref_resolved"),
-                                      "read_depth": depth_read, "outcome": outcome})
+                                      "read_depth": depth_read, "outcome": outcome,
+                                      "tier": tier})
         if outcome == "resolved" and findings:
             for f in findings:
                 claim = f["claim"]
@@ -237,10 +252,11 @@ async def _read_candidates(node: dict, candidates: list[dict], cap: int,
                     val, unit = _extract_value(f.get("quote") or "")
                 note = {"claim": claim, "quote": f.get("quote"),
                         "ref": env.get("ref_resolved"), "read_depth": depth_read,
-                        "sub_question_id": node["id"], "value": val, "unit": unit}
+                        "tier": tier, "sub_question_id": node["id"],
+                        "value": val, "unit": unit}
                 node["notes"].append(note)
                 await _emit(progress, "note", sub_question_id=node["id"],
-                            claim=claim, quote=f.get("quote"), ref=note["ref"])
+                            claim=claim, quote=f.get("quote"), ref=note["ref"], tier=tier)
     return reads
 
 
@@ -389,7 +405,8 @@ def _citations(plan: list[dict]) -> list[dict]:
             key = (ref.get("doi") or ref.get("title") or "").lower()
             if key and key not in seen:
                 seen.add(key)
-                out.append({"ref": ref, "read_depth": n.get("read_depth")})
+                out.append({"ref": ref, "read_depth": n.get("read_depth"),
+                            "tier": n.get("tier")})
     return out
 
 
@@ -506,7 +523,9 @@ async def deep_research(question: str, *, depth: str = "deep",
             doi = ref.get("doi")
             title = ref.get("title") or doi or "source"
             link = f"[{title}](https://doi.org/{doi})" if doi else title
-            lines.append(f"{i}. {link} _(read: {c.get('read_depth') or 'unknown'})_")
+            tier = c.get("tier")
+            tier_tag = f", {tier}" if tier and tier != "unknown" else ""
+            lines.append(f"{i}. {link} _(read: {c.get('read_depth') or 'unknown'}{tier_tag})_")
         sources_md = "\n## Sources\n\n" + "\n".join(lines) + "\n"
     caveats_md = _caveats(plan, citations)
 

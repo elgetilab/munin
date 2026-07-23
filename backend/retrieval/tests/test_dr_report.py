@@ -54,9 +54,20 @@ def _fake_source(findings_by_key):
         if not fs:
             return {"outcome": "not_found", "read_depth": "full_text",
                     "findings": [], "ref_resolved": {"doi": key}}
+        is_paper = str(key).startswith("10.")
         return {"outcome": "resolved", "read_depth": "full_text", "findings": fs,
-                "ref_resolved": ({"doi": key} if str(key).startswith("10.") else {"url": key})}
+                "source": {"origin": "local_kb" if is_paper else "web"},
+                "ref_resolved": ({"doi": key} if is_paper else {"url": key})}
     return fake
+
+
+def test_origin_tier_mapping():
+    assert D._origin_tier("web") == "web"
+    assert D._origin_tier("oa_cache") == "oa"
+    assert D._origin_tier("oa_download") == "oa"
+    assert D._origin_tier("s2_abstract") == "oa"
+    assert D._origin_tier("local_kb") == "corpus"
+    assert D._origin_tier(None) == "unknown"
 
 
 def _src_module():
@@ -82,6 +93,9 @@ def test_read_candidates_multi_note_dedup_and_web(monkeypatch):
     # multi-note: a->2, b->1, web->1, c->0 = 4 notes
     assert {n["claim"] for n in node["notes"]} == {"A1", "A2", "B1", "W1"}
     assert reads == 4
+    # tier travels with each note: DOI papers -> corpus, the URL -> web.
+    tier_by_claim = {n["claim"]: n["tier"] for n in node["notes"]}
+    assert tier_by_claim == {"A1": "corpus", "A2": "corpus", "B1": "corpus", "W1": "web"}
 
 
 def test_read_candidates_respects_cap(monkeypatch):
