@@ -187,3 +187,40 @@ Both tiers work in production; the read paths for them are unit-tested here.
 
 **Deploy:** these DR changes need `sudo bash deploy.sh retrieval` to go live
 (alongside the earlier committed-not-deployed DR work).
+
+---
+
+## Search ranking fix + source-tier auditability  [DONE + DEPLOYED]  (cd708cd, daba612)
+
+Live A/B testing of the deployed DR endpoint surfaced two things:
+
+1. **Ranking crowded out external tiers (fixed, `cd708cd`).** `_dedup_and_rank`
+   did `(corpus + oa + web)[:top_k]`, so a corpus-rich query filled `top_k` and
+   OA/web were truncated off before screening. Confirmed live: the web tier
+   returned 17-20 results that were silently discarded. Fix reserves **4 OA + 3
+   web** slots within `top_k` (`OA_QUOTA`/`WEB_QUOTA`); corpus takes the rest.
+   Verified: ranking went 26-corpus/0-external → 19/4/3. +3 unit tests.
+
+2. **Source tier was invisible in the timeline (fixed, `daba612`).** Reads/notes
+   didn't say which tier a citation came from. Added `_origin_tier()` +
+   propagation into events, `evidence_refs`, `_citations`, the Sources list, and a
+   `TierBadge` in `ResearchTimeline.tsx`. Now every citation is badged
+   corpus/oa/web.
+
+Both **deployed** (backend via `deploy.sh retrieval`; webui rebuilt + rsynced to
+the VPS). 14/14 DR unit tests + 3 ranking tests pass.
+
+## The real web-breadth blocker: SearXNG is IP-blocked  [INVESTIGATED]
+
+Per-engine probe: all four general engines fail from the cluster's datacenter IP —
+duckduckgo `CAPTCHA`, startpage `Suspended: CAPTCHA`, qwant/mojeek `Suspended:
+access denied`. Inherent to scraper engines from a datacenter IP; not tunable.
+Science engines (arxiv/biorxiv/S2) work because they're APIs. Full analysis +
+industry context in **`RESUME-2026-07-23.md`**.
+
+## NEXT: Brave Search API  [NOT STARTED — resume here]
+
+User has a paid Brave key. Plan = call the Brave JSON API directly from `web.py`
+(NOT SearXNG's brave scraper engine). Full step-by-step, rate-limit caveats, and
+open questions are in **`RESUME-2026-07-23.md`**. Cluster restart pending to add
+`BRAVE_API_KEY` to the retrieval container env.
