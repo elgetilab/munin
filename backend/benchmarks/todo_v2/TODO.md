@@ -19,13 +19,33 @@ also failed to fetch — same commit adds retry-with-backoff (recovers NCBI/PMC
 burst rate-limiting) and reports `blocked` vs `empty` (MDPI is a hard
 datacenter-IP wall, unfixable at the fetch layer).
 
-**Still to do once `fc7b57b` is deployed:** re-run and record the actual breadth
-numbers.
-- Harness: `backend/retrieval/tests/smoke_dr_breadth.py` (in-process; needs
-  `SEMANTIC_SCHOLAR_API_KEY` + `BRAVE_API_KEY` exported), or drive the live
-  container via `POST /api/research/start` (has both keys already).
-- Expected signal: notes > 0 again, `web (url) reads > 0`, more total reads,
-  web-tagged citations.
+**Re-measured post-deploy of `fc7b57b` (2026-07-23), same capstone question via
+`POST /api/research/start`:**
+
+| metric | pre-Brave | Brave live, thinking bug | post-fix (now) |
+|---|---|---|---|
+| grounded notes | 6 | 0 | **10** |
+| sub-questions resolved | 2/3 | 0/3 | 1/3 |
+| distinct papers cited | 5 | 0 | 3 |
+| reads → not_found (abstained) | — | 21/21 | 14/18 |
+| web (url) reads | 0 | 1 | 0 (this run) |
+| report | populated | EMPTY | populated (9.3k, all 5 sections) |
+
+**Grounding is fixed** (0 → 10 notes, empty → full report). **The breadth gap is
+NOT closed.** The limiter is no longer the web tier plumbing (confirmed live —
+web URLs surface and read; this run kept 0 by screening variance) but the
+**per-read abstention rate**: 14/18 full-text reads still returned `not_found`,
+and multi-note concentrated all 10 notes into just 3 papers. That is the known
+`read_paper` / over-abstention ceiling (project_readpaper_bottleneck), plus thin
+on-topic corpus depth.
+
+**Remaining breadth levers (new item, was the point of this measure):**
+- Reduce per-read abstention — `source(qa|findings)` says `not_found` on ~78% of
+  reads even on relevant papers. This, not the web tier, now caps breadth.
+- Widen the funnel (more sub-questions, higher `read_cap`/`screen_keep`) and run
+  a couple more times to get a stable web-contribution number (0 here is
+  variance, not a regression).
+- Grow corpus depth on under-covered topics.
 
 ## 2. Confirm the Source-agent eval gate ran  (validation debt)
 `done/AGENT-IMPLEMENTATION-PLAN.md` Part 5 defines the whole justification for the
