@@ -218,9 +218,34 @@ access denied`. Inherent to scraper engines from a datacenter IP; not tunable.
 Science engines (arxiv/biorxiv/S2) work because they're APIs. Full analysis +
 industry context in **`RESUME-2026-07-23.md`**.
 
-## NEXT: Brave Search API  [NOT STARTED — resume here]
+## Brave Search API integration  [IMPLEMENTED — awaiting deploy]
 
-User has a paid Brave key. Plan = call the Brave JSON API directly from `web.py`
-(NOT SearXNG's brave scraper engine). Full step-by-step, rate-limit caveats, and
-open questions are in **`RESUME-2026-07-23.md`**. Cluster restart pending to add
-`BRAVE_API_KEY` to the retrieval container env.
+User has a paid Brave key; implemented post cluster-restart on 2026-07-23.
+`web.py` now calls the Brave JSON API directly (NOT SearXNG's brave scraper
+engine) as the primary web source when `BRAVE_API_KEY` is set; SearXNG stays as
+keyless supplement, and with the key unset behaviour is unchanged. Details:
+
+- `_brave_one()` + a min-interval throttle: `BRAVE_SEARCH_QPS` (default 1 = free
+  tier safe; raise in cluster.env for paid tiers) serializes Brave calls; one
+  retry on 429 honouring Retry-After. Failures surface as an
+  `engines_unresponsive` entry named `brave`, never as transport_error (that
+  still means "SearXNG unreachable").
+- Fan-out cap: only the first `BRAVE_MAX_QUERIES` (default 3) expanded variants
+  go to Brave (billed per request); SearXNG still gets all variants free.
+- Degradation: when Brave answers cleanly, zero hits = real "no info found"
+  (no TOOL FAILURE warning even with SearXNG fully suspended/unreachable);
+  warning fires only when Brave is down/unconfigured too.
+- Compose: `BRAVE_API_KEY`/`BRAVE_SEARCH_QPS`/`BRAVE_MAX_QUERIES` passthrough
+  added to `docker-compose.yml` + shadow. Key itself lives in
+  `/opt/hugin/config/cluster.env` (root-only; could not verify from `vi`).
+- Tests: new `tests/test_web_brave.py` (9/9). Also repaired
+  `test_web_search_failsafe.py`: its fixtures still simulated the pre-2026-06
+  engine roster (brave/ddg/startpage), so the all-engines-down warning could
+  never trigger — 3 tests silently stale-failing since qwant/mojeek replaced
+  brave. Updated to the current 4-engine roster + pinned `BRAVE_API_KEY=""` so
+  the suite stays hermetic in-container. Now 8/8.
+- Rationale captured in `shared/docs/DECISIONS.md` (2026-07 Brave entry).
+
+**Deploy:** needs `sudo bash deploy.sh retrieval` (varghele). Verify after:
+`web_search` returns `engine:"brave"` hits, then a live `smoke_dr_breadth.py`
+run should show web reads > 0 with `web` tier badges.

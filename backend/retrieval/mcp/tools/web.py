@@ -2,12 +2,15 @@
 Web-related MCP tools.
 
 Provides:
-- web_search: Search the web using SearXNG (multi-query fan-out)
+- web_search: Search the web via the Brave Search API (primary, when
+  BRAVE_API_KEY is set) plus a SearXNG multi-query fan-out (supplement)
 - web_fetch_content: Fetch and extract content from URLs
 """
 
 import asyncio
 import logging
+import os
+import time
 from typing import Optional
 
 import httpx
@@ -21,13 +24,94 @@ logger = logging.getLogger(__name__)
 
 
 # Engines passed to SearXNG on every web_search. Google is intentionally
-# excluded (see docker/searxng/settings.yml for the rationale) and brave
-# was dropped on 2026-06-01 after months of "Suspended: too many
-# requests" (rate-limited by Brave on our IP). We do NOT use Brave's
-# official API as the 1k/month free quota was too thin for multi-user
-# load; instead qwant and mojeek were added to settings.yml as
-# independent keyless engines to compensate.
+# excluded (see docker/searxng/settings.yml for the rationale). All four
+# of these are keyless HTML scrapers and are routinely CAPTCHA'd or
+# access-denied from the cluster's datacenter IP (probe 2026-07-22:
+# every one suspended). They are kept only as a zero-cost supplement;
+# the primary web source is the keyed Brave Search API below.
 _SEARXNG_ENGINES = "startpage,duckduckgo,qwant,mojeek"
+
+# Brave Search API (api.search.brave.com) — the keyed JSON API, NOT the
+# SearXNG `brave` engine (an HTML scraper, dropped 2026-06-01 after
+# months of "Suspended: too many requests"). When BRAVE_API_KEY is set,
+# Brave is the primary web source and SearXNG becomes best-effort
+# supplement; when unset, behaviour is identical to the SearXNG-only
+# path.
+BRAVE_API_KEY = os.getenv("BRAVE_API_KEY", "")
+BRAVE_API_URL = "https://api.search.brave.com/res/v1/web/search"
+# Free tier allows 1 req/s; paid tiers lift this. Calls are serialized
+# through a min-interval throttle so a multi-query fan-out can't 429.
+BRAVE_SEARCH_QPS = float(os.getenv("BRAVE_SEARCH_QPS", "1"))
+# How many of the expanded query variants go to Brave (each is one
+# billed request; SearXNG still gets the full fan-out for free).
+BRAVE_MAX_QUERIES = int(os.getenv("BRAVE_MAX_QUERIES", "3"))
+
+_brave_lock = asyncio.Lock()
+_brave_next_ok = 0.0
+
+
+async def _brave_throttle() -> None:
+    """Serialize Brave calls to at most BRAVE_SEARCH_QPS requests/sec."""
+    global _brave_next_ok
+    async with _brave_lock:
+        wait = _brave_next_ok - time.monotonic()
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _brave_next_ok = time.monotonic() + 1.0 / max(BRAVE_SEARCH_QPS, 0.1)
+
+
+async def _brave_one(client: httpx.AsyncClient, q: str, count: int = 10) -> dict:
+    """Single Brave Search API query.
+
+    Returns the same batch shape as `_searxng_one` so the merge loop in
+    `web_search` consumes both identically. Failures are reported as an
+    unresponsive-engine entry named "brave" (never as transport_error —
+    that field means "SearXNG itself unreachable" in the degradation
+    logic). One retry on 429, honouring Retry-After up to 2s.
+    """
+    for attempt in (0, 1):
+        await _brave_throttle()
+        try:
+            response = await client.get(
+                BRAVE_API_URL,
+                params={
+                    "q": q,
+                    "count": max(1, min(count, 20)),
+                    "search_lang": "en",
+                },
+                headers={
+                    "X-Subscription-Token": BRAVE_API_KEY,
+                    "Accept": "application/json",
+                },
+            )
+            if response.status_code == 429 and attempt == 0:
+                try:
+                    delay = float(response.headers.get("Retry-After", "1"))
+                except ValueError:
+                    delay = 1.0
+                await asyncio.sleep(min(delay, 2.0))
+                continue
+            response.raise_for_status()
+            body = response.json()
+        except Exception as e:
+            logger.warning("brave search %r failed: %s", q, e)
+            return {
+                "results": [],
+                "unresponsive": [["brave", str(e)]],
+                "transport_error": None,
+            }
+        rows = ((body.get("web") or {}).get("results")) or []
+        results = [
+            {
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "content": r.get("description", ""),
+                "engine": "brave",
+            }
+            for r in rows
+            if r.get("url")
+        ]
+        return {"results": results, "unresponsive": [], "transport_error": None}
 
 
 def _record_url(url: str) -> None:
@@ -84,7 +168,8 @@ async def web_search(
     top_k: int = 10,
 ) -> dict:
     """
-    Search the web using SearXNG with multi-query fan-out.
+    Search the web: Brave Search API (primary, when BRAVE_API_KEY is set)
+    plus SearXNG multi-query fan-out (supplement / keyless fallback).
 
     Behaviour:
         - If `queries` is a non-empty list: run exactly those queries in
@@ -116,13 +201,21 @@ async def web_search(
     if not query_list:
         return {"error": "web_search got empty query list after normalization"}
 
+    # Brave (keyed API, primary when configured) gets the first
+    # BRAVE_MAX_QUERIES variants — each is a billed request, serialized
+    # by the QPS throttle. SearXNG gets the full fan-out for free and
+    # runs concurrently.
+    brave_queries = query_list[:BRAVE_MAX_QUERIES] if BRAVE_API_KEY else []
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            raw_batches = await asyncio.gather(
-                *(_searxng_one(client, q) for q in query_list)
+            all_batches = await asyncio.gather(
+                *(_searxng_one(client, q) for q in query_list),
+                *(_brave_one(client, q, count=top_k) for q in brave_queries),
             )
     except Exception as e:
         return {"error": f"Web search failed: {str(e)}"}
+    raw_batches = all_batches[: len(query_list)]
+    brave_batches = all_batches[len(query_list):]
 
     # Merge + dedupe by URL, counting how many queries surfaced each url.
     # Also aggregate engine status across all queries so the caller can
@@ -132,8 +225,11 @@ async def web_search(
     seen: dict[str, dict] = {}
     total_hits = 0
     unresponsive: dict[str, str] = {}  # engine_name -> reason (last wins)
-    transport_errors = 0
-    for q, batch in zip(query_list, raw_batches):
+    transport_errors = 0  # SearXNG-only: "the search backend is unreachable"
+    query_batch_pairs = list(zip(query_list, raw_batches)) + list(
+        zip(brave_queries, brave_batches)
+    )
+    for q, batch in query_batch_pairs:
         for rank, item in enumerate(batch.get("results", [])):
             total_hits += 1
             url = item.get("url", "")
@@ -191,6 +287,8 @@ async def web_search(
 
     # Surface engine degradation to the caller.
     requested_engines = [e for e in _SEARXNG_ENGINES.split(",") if e]
+    if BRAVE_API_KEY:
+        requested_engines.append("brave")
     if unresponsive:
         out["engines_unresponsive"] = [
             [name, reason] for name, reason in sorted(unresponsive.items())
@@ -203,7 +301,11 @@ async def web_search(
         len(unresponsive) >= len(requested_engines) and len(requested_engines) > 0
     )
     transport_total = transport_errors == len(query_list) and len(query_list) > 0
-    if total_hits == 0 and (all_engines_down or transport_total):
+    # When Brave ran and answered cleanly, a zero-hit response is a real
+    # "no information found" even if every SearXNG scraper was down or
+    # SearXNG itself was unreachable — don't cry TOOL FAILURE.
+    brave_ok = bool(brave_queries) and "brave" not in unresponsive
+    if total_hits == 0 and (all_engines_down or transport_total) and not brave_ok:
         if transport_total:
             reason = (
                 f"Could not reach the search backend ({SEARXNG_URL}) on "

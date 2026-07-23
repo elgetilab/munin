@@ -36,6 +36,12 @@ sys.path.insert(0, "/app")
 
 from mcp.tools import web as web_module  # noqa: E402
 
+# This suite covers the SearXNG-only degradation path. Force the Brave
+# API off so the tests stay hermetic when run inside the production
+# container (where BRAVE_API_KEY is set and web_search would otherwise
+# fan out real API calls). Brave-path coverage: test_web_brave.py.
+web_module.BRAVE_API_KEY = ""
+
 
 def _check(name: str, ok: bool, detail: str = "") -> bool:
     label = "PASS" if ok else "FAIL"
@@ -136,17 +142,19 @@ def test_partial_degradation_logs_engine_no_warning() -> bool:
 # ---------------------------------------------------------------------------
 
 def test_689f8df3_all_engines_suspended_warning_emitted() -> bool:
-    """Exact reported-chat failure shape (689f8df3, 2026-05-06).
-    Every engine is suspended, web_search returns 0 hits, and the
-    result must carry a `warning` field telling the model this is
-    tool failure, not 'no info found'."""
+    """Reported-chat failure shape (689f8df3, 2026-05-06), updated to
+    the current engine roster (brave was dropped from _SEARXNG_ENGINES
+    on 2026-06-01; qwant/mojeek replaced it). Every engine is suspended,
+    web_search returns 0 hits, and the result must carry a `warning`
+    field telling the model this is tool failure, not 'no info found'."""
     responses = [
         {
             "results": [],
             "unresponsive": [
-                ["brave", "Suspended: too many requests"],
-                ["duckduckgo", "Suspended: access denied"],
                 ["startpage", "Suspended: CAPTCHA"],
+                ["duckduckgo", "Suspended: access denied"],
+                ["qwant", "Suspended: access denied"],
+                ["mojeek", "Suspended: too many requests"],
             ],
             "transport_error": None,
         }
@@ -167,7 +175,7 @@ def test_689f8df3_all_engines_suspended_warning_emitted() -> bool:
             "expected engines_unresponsive list to be present",
         )
     engines = {pair[0] for pair in out["engines_unresponsive"]}
-    if engines != {"brave", "duckduckgo", "startpage"}:
+    if engines != {"startpage", "duckduckgo", "qwant", "mojeek"}:
         return _check(
             "689f8df3 all-engines-suspended -> warning",
             False,
@@ -281,9 +289,10 @@ def test_unresponsive_dict_shape_accepted() -> bool:
         {
             "results": [],
             "unresponsive": [
-                {"name": "brave", "reason": "rate-limited"},
-                {"engine": "duckduckgo", "error": "blocked"},
                 {"name": "startpage", "reason": "CAPTCHA"},
+                {"engine": "duckduckgo", "error": "blocked"},
+                {"name": "qwant", "reason": "rate-limited"},
+                {"engine": "mojeek", "error": "denied"},
             ],
             "transport_error": None,
         }
@@ -293,7 +302,7 @@ def test_unresponsive_dict_shape_accepted() -> bool:
     engines = {pair[0] for pair in out.get("engines_unresponsive") or []}
     return _check(
         "dict-shaped unresponsive entries -> accepted",
-        engines == {"brave", "duckduckgo", "startpage"}
+        engines == {"startpage", "duckduckgo", "qwant", "mojeek"}
         and "warning" in out,
         f"engines={engines!r}, warning={'warning' in out}",
     )
@@ -309,7 +318,7 @@ def test_multi_query_aggregates_unresponsive() -> bool:
     responses = [
         {
             "results": [],
-            "unresponsive": [["brave", "rate-limited"]],
+            "unresponsive": [["startpage", "CAPTCHA"], ["mojeek", "denied"]],
             "transport_error": None,
         },
         {
@@ -319,7 +328,7 @@ def test_multi_query_aggregates_unresponsive() -> bool:
         },
         {
             "results": [],
-            "unresponsive": [["startpage", "CAPTCHA"]],
+            "unresponsive": [["qwant", "rate-limited"]],
             "transport_error": None,
         },
     ]
@@ -328,7 +337,7 @@ def test_multi_query_aggregates_unresponsive() -> bool:
     engines = {pair[0] for pair in out.get("engines_unresponsive") or []}
     return _check(
         "multi-query aggregates unresponsive engines",
-        engines == {"brave", "duckduckgo", "startpage"}
+        engines == {"startpage", "duckduckgo", "qwant", "mojeek"}
         and "warning" in out,
         f"engines={engines!r}",
     )

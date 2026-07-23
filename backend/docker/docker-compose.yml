@@ -188,6 +188,12 @@ services:
       - ROUTER_ENABLED=${ROUTER_ENABLED:-false}
       # Semantic Scholar API (for semantic_scholar_search tool)
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
+      # Brave Search API (primary web_search source; SearXNG scrapers are
+      # dead from the datacenter IP). QPS default matches the free tier;
+      # raise in cluster.env if the key's paid tier allows (Base = 20/s).
+      - BRAVE_API_KEY=${BRAVE_API_KEY:-}
+      - BRAVE_SEARCH_QPS=${BRAVE_SEARCH_QPS:-1}
+      - BRAVE_MAX_QUERIES=${BRAVE_MAX_QUERIES:-3}
       # Sandbox sidecar (§2). Reached over the internal sandbox-net.
       - SANDBOX_URL=http://sandbox:8090
       # §28 contributor ingest (VPS hook → POST /api/admin/ingest)

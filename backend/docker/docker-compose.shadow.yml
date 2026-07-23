@@ -85,6 +85,9 @@ services:
       - ROUTER_ENABLED=true
       # Semantic Scholar API (for semantic_scholar_search tool)
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
+      - BRAVE_API_KEY=${BRAVE_API_KEY:-}
+      - BRAVE_SEARCH_QPS=${BRAVE_SEARCH_QPS:-1}
+      - BRAVE_MAX_QUERIES=${BRAVE_MAX_QUERIES:-3}
       # Sandbox sidecar (§2). Reached over the internal sandbox-net.
       - SANDBOX_URL=http://sandbox:8090
       # §28 contributor ingest (VPS hook → POST /api/admin/ingest)

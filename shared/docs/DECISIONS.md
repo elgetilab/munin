@@ -10,6 +10,42 @@ self-document (renames, refactors, bug fixes).
 
 ---
 
+## 2026-07: web_search primary source = Brave Search API (direct), SearXNG demoted to supplement
+
+`web_search` (retrieval MCP tool) now calls the Brave Search API
+(`api.search.brave.com`, keyed JSON API) directly from `web.py` when
+`BRAVE_API_KEY` is set, with the SearXNG fan-out kept as a keyless
+best-effort supplement. Why this shape:
+
+- **The scraper path is dead from a datacenter IP.** All four keyless
+  SearXNG engines (startpage, duckduckgo, qwant, mojeek) are CAPTCHA'd
+  or access-denied from the cluster's IP (probe 2026-07-22). This is
+  inherent to scraping consumer engines from a datacenter address, not
+  tunable via UA/proxy settings. The "science" engines keep working
+  because they are APIs — which is the lesson.
+- **Direct call, not SearXNG's `brave` engine.** SearXNG's built-in
+  `brave` engine is an HTML scraper (dropped 2026-06-01 after months of
+  "Suspended: too many requests"); it has no first-class engine for the
+  JSON API. Industry practice for production web search is a keyed
+  index API or a paid SERP proxy, never scraping.
+- **Why Brave was rejected before and isn't now:** the free tier's
+  1k req/month quota was too thin for multi-user load. A paid key
+  removed that objection.
+- **Rate limiting:** Brave free tier is 1 req/s, so Brave calls are
+  serialized through a min-interval throttle (`BRAVE_SEARCH_QPS`,
+  default 1; raise via cluster.env when the key's tier allows) and the
+  fan-out to Brave is capped at `BRAVE_MAX_QUERIES` (default 3) variants
+  per call since each is a billed request. SearXNG still gets the full
+  fan-out for free.
+- **Degradation semantics preserved:** when Brave answers cleanly, a
+  zero-hit response is a real "no information found" even if SearXNG is
+  fully suspended; the TOOL FAILURE warning only fires when nothing
+  keyed worked either. With `BRAVE_API_KEY` unset, behaviour is
+  byte-identical to the old SearXNG-only path.
+- **Sovereignty:** web queries leave the cluster to Brave — the same
+  trust boundary the scraper path already had. Brave is an independent
+  index and EU-friendly, the most defensible of the keyed options.
+
 ## 2026-07: Deep Research (MiroThinker) disabled, kept in code
 
 The standalone Deep Research feature (research.muninai.org, `/deepresearch/*`
