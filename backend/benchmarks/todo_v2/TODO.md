@@ -32,20 +32,37 @@ datacenter-IP wall, unfixable at the fetch layer).
 | report | populated | EMPTY | populated (9.3k, all 5 sections) |
 
 **Grounding is fixed** (0 → 10 notes, empty → full report). **The breadth gap is
-NOT closed.** The limiter is no longer the web tier plumbing (confirmed live —
-web URLs surface and read; this run kept 0 by screening variance) but the
-**per-read abstention rate**: 14/18 full-text reads still returned `not_found`,
-and multi-note concentrated all 10 notes into just 3 papers. That is the known
-`read_paper` / over-abstention ceiling (project_readpaper_bottleneck), plus thin
-on-topic corpus depth.
+NOT closed** — but the per-read abstention that looked like the cause turned out
+to be **correct, honest behaviour, not a defect** (investigated 2026-07-23):
 
-**Remaining breadth levers (new item, was the point of this measure):**
-- Reduce per-read abstention — `source(qa|findings)` says `not_found` on ~78% of
-  reads even on relevant papers. This, not the web tier, now caps breadth.
-- Widen the funnel (more sub-questions, higher `read_cap`/`screen_keep`) and run
-  a couple more times to get a stable web-contribution number (0 here is
-  variance, not a regression).
-- Grow corpus depth on under-covered topics.
+- The read step discriminates correctly. The 3 papers that resolved are exactly
+  the ones about kinase inhibitors × membranes ("Membrane lipid therapy",
+  "VPS34-IN1 selective inhibitor", "Impact of Small-Molecule Kinase Inhibitors
+  on Lipid Membranes"). The 14 abstentions are topically-adjacent papers (PKC
+  enzymology, EGFR signalling, MD bilayer simulations, force fields) that don't
+  address *small-molecule kinase inhibitors*.
+- Reproduced: `source(findings)` on the PKC paper abstains 3/3 on the exact run
+  question (about inhibitors) but resolves 5/5 on its real topic (PKC activity);
+  same for the EGFR paper. Abstention is honest, not stochastic or over-strict.
+- The real cause is UPSTREAM — **retrieval relevance + corpus depth**. For the
+  hardest sub-question the corpus top hits were daunomycin (not a kinase
+  inhibitor) and generic MD simulations; the OA/Semantic Scholar tier returned
+  K-RAS, a GPCR Nobel lecture, virus entry, exosomes (semantically off). The
+  single most on-topic paper came from the **web/Brave tier** — so Brave is
+  already pulling its weight; the read pool just skews corpus-heavy (ranking
+  reserves only 3 web slots).
+
+**Real breadth levers (corrected):**
+- Retrieval relevance, esp. the OA/Semantic Scholar tier returning off-topic
+  papers for specific queries; the ranker/embedding doesn't distinguish "kinase
+  inhibitor partitioning" from "anything about kinases/membranes".
+- Corpus depth on under-covered intersections (kinase inhibitor × membrane).
+- Give the web tier more read slots when the corpus is thin (it surfaced the
+  best paper here but only gets 3 reserved slots).
+- Do NOT "fix" abstention — honest quote-or-abstain is the design's core value;
+  loosening it would trade trust for hollow breadth.
+- Minor: grounding calls run at `temperature=0.7`; not the cause here (behaviour
+  was consistent), but lowering it for extraction would cut incidental variance.
 
 ## 2. Confirm the Source-agent eval gate ran  (validation debt)
 `done/AGENT-IMPLEMENTATION-PLAN.md` Part 5 defines the whole justification for the
