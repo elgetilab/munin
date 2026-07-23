@@ -228,8 +228,8 @@ MCP_TOOLS = {
                 },
                 "mode": {
                     "type": "string",
-                    "enum": ["summary", "qa", "extract", "compare"],
-                    "description": "summary = narrative + key findings (like read_paper); qa = answer `question` from full text; extract = structured rows against `schema`, handle-only; compare = side-by-side markdown over 2-5 refs.",
+                    "enum": ["summary", "qa", "findings", "extract", "compare"],
+                    "description": "summary = narrative + key findings (like read_paper); qa = answer `question` from full text; findings = up to 4 distinct grounded findings (claim + verbatim quote) for `question`; extract = structured rows against `schema`, handle-only; compare = side-by-side markdown over 2-5 refs.",
                     "default": "summary"
                 },
                 "question": {

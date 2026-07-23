@@ -426,6 +426,82 @@ async def _mode_extract(ext: dict, question: Optional[str], schema: Optional[lis
             "preview": rows[:5], "provenance": ext["ref_resolved"]}
 
 
+_FINDINGS_SYSTEM = (
+    "You extract the DISTINCT findings in a document that bear on a specific "
+    "question. Return ONLY a JSON array of up to 4 objects, each "
+    "{\"claim\": \"...\", \"quote\": \"...\"}: `claim` is one specific factual "
+    "finding relevant to the question; `quote` is the verbatim sentence copied "
+    "from the text that supports it. Include ONLY findings the text actually "
+    "states - if the text does not address the question, return []. Do not repeat "
+    "the same finding, and do not invent quotes."
+)
+
+
+async def _mode_findings(ext: dict, question: str, tr: AgentTrace) -> dict:
+    """Multi-note: up to 4 grounded findings (claim + verbatim quote) from the
+    full text. Each becomes a separate citation in Deep Research, so one paper can
+    contribute several findings - without loosening grounding (every claim keeps
+    its quote)."""
+    text = ext["full_text"][:MAX_FULLTEXT_CHARS]
+    user = f"Full text:\n{text}\n\n---\n\nQuestion: {question}"
+    res = await _vllm_answer(_FINDINGS_SYSTEM, user, max_tokens=1500,
+                             enable_thinking=False)
+    tr.llm(1)
+    if res.get("error"):
+        return {"_llm_error": res["error"]}
+    m = re.search(r"\[.*\]", res["content"], re.DOTALL)
+    if not m:
+        return {"findings": []}
+    try:
+        arr = json.loads(m.group(0))
+    except Exception:
+        return {"findings": []}
+    findings = [{"claim": str(f["claim"]).strip(), "quote": str(f.get("quote") or "").strip()}
+                for f in arr if isinstance(f, dict) and f.get("claim")]
+    return {"findings": findings[:4]}
+
+
+async def _fetch_web_text(url: str) -> tuple[Optional[str], Optional[str]]:
+    """Fetch a web page and extract its main text (trafilatura). Returns
+    (text, title)."""
+    try:
+        import trafilatura
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True,
+                                     headers={"User-Agent": _PDF_UA}) as client:
+            r = await client.get(url)
+        if r.status_code != 200 or not r.text:
+            return None, None
+        text = trafilatura.extract(r.text, include_comments=False,
+                                   include_tables=True) or ""
+        title = None
+        try:
+            md = trafilatura.extract_metadata(r.text)
+            title = getattr(md, "title", None) if md else None
+        except Exception:  # noqa: BLE001
+            title = None
+        return text, (title or url)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("web text fetch failed for %s: %s", url, exc)
+        return None, None
+
+
+async def _fetch_and_extract_web(url: str, tr: AgentTrace) -> dict:
+    """Web-page analogue of _fetch_and_extract, so modes read a page like a paper
+    (Lever 1: the DR loop can now cite web sources, not just DOI papers)."""
+    if not P.may_fetch(P.NET_WEB):
+        return {"outcome": "out_of_scope", "reason": "web egress off",
+                "ref_resolved": {"url": url}}
+    text, title = await _fetch_web_text(url)
+    if not text or len(text) < 200:
+        return {"outcome": "extraction_failed", "reason": "empty or unreadable web page",
+                "ref_resolved": {"url": url, "title": title}}
+    ref_resolved = {"url": url, "title": title}
+    tr.source(ref_resolved)
+    return {"outcome": "resolved", "read_depth": "full_text", "ref_resolved": ref_resolved,
+            "abstract": "", "full_text": text,
+            "source": {"origin": P.ORIGIN_WEB, "url": url, "extraction_method": "web_text"}}
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -433,12 +509,12 @@ async def _mode_extract(ext: dict, question: Optional[str], schema: Optional[lis
 async def source(refs: list, mode: str = "summary", question: Optional[str] = None,
                  focus: Optional[str] = None, schema: Optional[list] = None) -> dict:
     """Read 1..N documents and return a grounded result. See module docstring."""
-    if mode not in ("summary", "qa", "extract", "compare"):
-        return {"error": f"unknown mode {mode!r}; expected summary|qa|extract|compare"}
+    if mode not in ("summary", "qa", "findings", "extract", "compare"):
+        return {"error": f"unknown mode {mode!r}; expected summary|qa|findings|extract|compare"}
     if not isinstance(refs, list) or not refs:
         return {"error": "refs must be a non-empty list"}
-    if mode == "qa" and not question:
-        return {"error": "mode=qa requires a question"}
+    if mode in ("qa", "findings") and not question:
+        return {"error": f"mode={mode} requires a question"}
 
     # compare fans out over source-summary + one synthesis call (folds in
     # compare_papers, now inheriting source's resolution + provenance).
@@ -450,10 +526,11 @@ async def source(refs: list, mode: str = "summary", question: Optional[str] = No
     ref = _coerce_ref(refs[0])
     tr = AgentTrace("source", mode=mode, question=question, focus=focus)
 
-    # Resolve the ref to a DOI (with the confabulated-DOI audit).
+    # Resolve the ref to a DOI (with the confabulated-DOI audit) or a web URL.
     doi = _doi_from_ref(ref)
+    web_url = ref.get("url") if doi is None else None
     candidates = None
-    if doi is None and ref.get("title"):
+    if doi is None and not web_url and ref.get("title"):
         r = await _resolve_title(ref["title"], tr)
         if "resolved_doi" in r:
             doi, candidates = r["resolved_doi"], r.get("candidates")
@@ -462,18 +539,19 @@ async def source(refs: list, mode: str = "summary", question: Optional[str] = No
                    "ref_resolved": {"title": ref["title"]}}
             env["trace"] = tr.finish(outcome="ambiguous")
             return env
-    if doi is None:
+    if doi is None and not web_url:
         env = {"outcome": "unresolved", "reason": "ref carries no resolvable id",
                "ref_resolved": ref}
         env["trace"] = tr.finish(outcome="unresolved", reason="no id")
         return env
 
-    ref_generated = _ref_was_seen(doi) is False
+    ref_generated = bool(doi) and _ref_was_seen(doi) is False
     if ref_generated:
         tr.decide("DOI not seen in a prior tool result (possible confabulation)",
                   doi=doi)
 
-    ext = await _fetch_and_extract(doi, tr)
+    # Paper (DOI) or web page (URL) - both yield the same ext shape.
+    ext = await (_fetch_and_extract(doi, tr) if doi else _fetch_and_extract_web(web_url, tr))
     if ext["outcome"] != "resolved":
         env = {k: v for k, v in ext.items() if k not in ("full_text",)}
         env["ref_generated"] = ref_generated
@@ -485,6 +563,8 @@ async def source(refs: list, mode: str = "summary", question: Optional[str] = No
         body = await _mode_summary(ext, focus, tr)
     elif mode == "qa":
         body = await _mode_qa(ext, question, tr)
+    elif mode == "findings":
+        body = await _mode_findings(ext, question, tr)
     else:  # extract
         body = await _mode_extract(ext, question, schema, tr)
 
@@ -494,8 +574,9 @@ async def source(refs: list, mode: str = "summary", question: Optional[str] = No
         env["trace"] = tr.finish(outcome="extraction_failed", reason=body["_llm_error"])
         return env
 
-    # qa that comes back INSUFFICIENT is a not_found, not a resolved answer.
-    outcome = "not_found" if (mode == "qa" and body.get("abstained")) else "resolved"
+    # A qa/findings read with nothing found is not_found, not a resolved answer.
+    outcome = "not_found" if ((mode == "qa" and body.get("abstained"))
+                              or (mode == "findings" and not body.get("findings"))) else "resolved"
     env = {"outcome": outcome, "ref_resolved": ext["ref_resolved"],
            "source": ext["source"], "read_depth": ext.get("read_depth"),
            "ref_generated": ref_generated, **body}
