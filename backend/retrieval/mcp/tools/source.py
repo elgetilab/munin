@@ -57,6 +57,38 @@ UNPAYWALL_EMAIL = os.getenv("UNPAYWALL_EMAIL", "munin@muninai.org")
 
 _PDF_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 
+# Browser-like headers for web-page fetches. A bare UA is enough for some
+# hosts; the Accept* pair gets past a few naive blocks (not hard bot walls).
+_WEB_HEADERS = {
+    "User-Agent": _PDF_UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+# Web fetch retries. The DR loop fires several source reads at once; NCBI/PMC
+# in particular rate-limits the burst (a page that 200s when fetched alone can
+# 429/403 mid-run). Retrying with backoff recovers those. Hard datacenter-IP
+# bot walls (e.g. MDPI Cloudflare) 403 on every attempt and are given up on -
+# nothing at the fetch layer bypasses them; OA/corpus tiers cover those papers.
+_WEB_FETCH_ATTEMPTS = 3
+_WEB_RETRY_STATUSES = frozenset({401, 403, 429, 500, 502, 503, 504})
+_WEB_MIN_TEXT_CHARS = 200
+
+
+def _web_should_retry(status_code: int) -> bool:
+    """Whether an HTTP status warrants another attempt (transient block/error)."""
+    return status_code in _WEB_RETRY_STATUSES
+
+
+def _web_backoff(attempt: int, retry_after: Optional[str]) -> float:
+    """Seconds to wait before the next attempt. Honours a numeric Retry-After
+    header (capped), else exponential 0.5/1/2s (capped at 4s)."""
+    if retry_after:
+        try:
+            return min(float(retry_after), 5.0)
+        except (TypeError, ValueError):
+            pass
+    return min(0.5 * (2 ** attempt), 4.0)
+
 
 async def _unpaywall_pdf_urls(doi: str) -> list[str]:
     """Candidate OA PDF URLs for a DOI via Unpaywall, best first. Repository
@@ -444,12 +476,20 @@ async def _mode_findings(ext: dict, question: str, tr: AgentTrace) -> dict:
     its quote)."""
     text = ext["full_text"][:MAX_FULLTEXT_CHARS]
     user = f"Full text:\n{text}\n\n---\n\nQuestion: {question}"
-    res = await _vllm_answer(_FINDINGS_SYSTEM, user, max_tokens=1500,
-                             enable_thinking=False)
+    # Thinking MUST stay on: qwen3.6 needs to reason "does this text address the
+    # question -> extract the finding -> copy the quote". With thinking disabled
+    # it abstains and returns [] even on plainly relevant text (empty reports;
+    # observed after the 2026-07 cluster restart). `qa` mode already relies on
+    # thinking. Budget 8000 so the reasoning pass has headroom before the array
+    # (a 3000-token cap truncated the whole completion to empty in testing).
+    res = await _vllm_answer(_FINDINGS_SYSTEM, user, max_tokens=8000)
     tr.llm(1)
     if res.get("error"):
         return {"_llm_error": res["error"]}
-    m = re.search(r"\[.*\]", res["content"], re.DOTALL)
+    # Strip any exposed reasoning block, then greedily grab the outermost JSON
+    # array (`\[.*\]`, DOTALL) so a `]` inside a quote can't truncate it early.
+    content = re.sub(r"<think>.*?</think>", "", res.get("content") or "", flags=re.DOTALL)
+    m = re.search(r"\[.*\]", content, re.DOTALL)
     if not m:
         return {"findings": []}
     try:
@@ -461,28 +501,63 @@ async def _mode_findings(ext: dict, question: str, tr: AgentTrace) -> dict:
     return {"findings": findings[:4]}
 
 
-async def _fetch_web_text(url: str) -> tuple[Optional[str], Optional[str]]:
-    """Fetch a web page and extract its main text (trafilatura). Returns
-    (text, title)."""
-    try:
-        import trafilatura
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True,
-                                     headers={"User-Agent": _PDF_UA}) as client:
-            r = await client.get(url)
-        if r.status_code != 200 or not r.text:
-            return None, None
-        text = trafilatura.extract(r.text, include_comments=False,
-                                   include_tables=True) or ""
-        title = None
+async def _fetch_web_text(url: str) -> tuple[Optional[str], Optional[str], str]:
+    """Fetch a web page and extract its main text (trafilatura), with bounded
+    retry on transient blocks/errors and a precision->recall extraction
+    fallback.
+
+    Returns `(text, title, status)` where status is:
+        "ok"      - text extracted
+        "blocked" - last response was an auth/rate block (401/403/429) that
+                    survived the retries (typically a datacenter-IP bot wall)
+        "empty"   - fetched 200 but no article text could be extracted
+        "error"   - the page could not be fetched (network / non-retryable)
+    """
+    import asyncio
+
+    import trafilatura
+
+    html = None
+    status = "error"
+    for attempt in range(_WEB_FETCH_ATTEMPTS):
         try:
-            md = trafilatura.extract_metadata(r.text)
-            title = getattr(md, "title", None) if md else None
-        except Exception:  # noqa: BLE001
-            title = None
-        return text, (title or url)
-    except Exception as exc:  # noqa: BLE001
-        logger.info("web text fetch failed for %s: %s", url, exc)
-        return None, None
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True,
+                                         headers=_WEB_HEADERS) as client:
+                r = await client.get(url)
+        except Exception as exc:  # noqa: BLE001
+            logger.info("web fetch %s attempt %d error: %s", url, attempt, exc)
+            status = "error"
+            if attempt < _WEB_FETCH_ATTEMPTS - 1:
+                await asyncio.sleep(_web_backoff(attempt, None))
+            continue
+        if r.status_code == 200 and r.text:
+            html = r.text
+            status = "ok"
+            break
+        status = "blocked" if r.status_code in (401, 403, 429) else "error"
+        if _web_should_retry(r.status_code) and attempt < _WEB_FETCH_ATTEMPTS - 1:
+            await asyncio.sleep(_web_backoff(attempt, r.headers.get("Retry-After")))
+            continue
+        break  # non-retryable (e.g. 404) or out of attempts
+
+    if html is None:
+        return None, None, status
+
+    # Precision extract first; fall back to recall for pages trafilatura's
+    # precision heuristics strip too aggressively.
+    text = (trafilatura.extract(html, include_comments=False, include_tables=True)
+            or trafilatura.extract(html, include_comments=False,
+                                   include_tables=True, favor_recall=True)
+            or "")
+    title = None
+    try:
+        md = trafilatura.extract_metadata(html)
+        title = getattr(md, "title", None) if md else None
+    except Exception:  # noqa: BLE001
+        title = None
+    if len(text) < _WEB_MIN_TEXT_CHARS:
+        return None, (title or url), "empty"
+    return text, (title or url), "ok"
 
 
 async def _fetch_and_extract_web(url: str, tr: AgentTrace) -> dict:
@@ -491,9 +566,14 @@ async def _fetch_and_extract_web(url: str, tr: AgentTrace) -> dict:
     if not P.may_fetch(P.NET_WEB):
         return {"outcome": "out_of_scope", "reason": "web egress off",
                 "ref_resolved": {"url": url}}
-    text, title = await _fetch_web_text(url)
-    if not text or len(text) < 200:
-        return {"outcome": "extraction_failed", "reason": "empty or unreadable web page",
+    text, title, status = await _fetch_web_text(url)
+    if not text or len(text) < _WEB_MIN_TEXT_CHARS:
+        reason = {
+            "blocked": "publisher blocked the request (bot protection / datacenter IP)",
+            "empty": "fetched but no extractable article text",
+            "error": "could not fetch the page (network or non-retryable error)",
+        }.get(status, "empty or unreadable web page")
+        return {"outcome": "extraction_failed", "reason": reason,
                 "ref_resolved": {"url": url, "title": title}}
     ref_resolved = {"url": url, "title": title}
     tr.source(ref_resolved)
