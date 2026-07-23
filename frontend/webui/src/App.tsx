@@ -818,10 +818,7 @@ export default function App() {
               </div>
             ) : (
               <>
-                <MessageList messages={messages} streaming={streaming} onSendClarification={handleSend} onDismissMemoryProposal={dismissMemoryProposal} conversationId={conversationId} onPlanApproved={handlePlanApproved} onPlanRejected={() => { /* user types follow-up themselves */ }} onPlanEdited={handlePlanEdited} onContinue={handleContinue} />
-                {drJob && drJob.conversationId === conversationId && (
-                  <ResearchTimeline job={drJob} />
-                )}
+                <MessageList messages={messages} streaming={streaming} onSendClarification={handleSend} onDismissMemoryProposal={dismissMemoryProposal} conversationId={conversationId} onPlanApproved={handlePlanApproved} onPlanRejected={() => { /* user types follow-up themselves */ }} onPlanEdited={handlePlanEdited} onContinue={handleContinue} researchTimeline={drJob && drJob.conversationId === conversationId ? <ResearchTimeline job={drJob} /> : null} />
                 <ChatInput
                   ref={chatInputRef}
                   onSend={handleSend}

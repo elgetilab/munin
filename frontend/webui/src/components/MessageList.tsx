@@ -47,6 +47,11 @@ interface MessageListProps {
   // tool-use budget. The parent (App) sends a synthetic "please continue"
   // user message so the model picks the task back up (rpt_20260702).
   onContinue?: () => void;
+  // The Deep Research timeline for the active conversation, if any. Rendered
+  // as the last item of the transcript so it scrolls WITH the messages
+  // instead of sitting pinned above the composer. App owns the DR store and
+  // passes the ready-to-render node (or null).
+  researchTimeline?: React.ReactNode;
 }
 
 // Small muted pill showing the internal profile the per-turn router
@@ -95,7 +100,7 @@ export function detectPhase(streaming: StreamingState): string {
 // enough that they don't need the affordance.
 const JUMP_BUTTON_HIDE_THRESHOLD_PX = 96;
 
-export function MessageList({ messages, streaming, onSendClarification, onDismissMemoryProposal, conversationId, onPlanApproved, onPlanRejected, onPlanEdited, onContinue }: MessageListProps) {
+export function MessageList({ messages, streaming, onSendClarification, onDismissMemoryProposal, conversationId, onPlanApproved, onPlanRejected, onPlanEdited, onContinue, researchTimeline }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   // Drives the floating "jump to bottom" button. True when the user
@@ -268,6 +273,10 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
             <FeatherVortex size="idle" />
           </div>
         )}
+
+        {/* Deep Research timeline — last item of the transcript so it scrolls
+            with the conversation instead of overlaying it. */}
+        {researchTimeline}
 
         <div ref={bottomRef} />
       </div>

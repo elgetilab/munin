@@ -99,13 +99,12 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
   };
 
   return (
-    // Height is bounded and the body scrolls internally: a finished job can
-    // carry 50+ findings and as many activity rows, and this card renders as
-    // a flex sibling of the (min-h-0, collapsible) message list. Without the
-    // cap the card's intrinsic height wins the flex fight and blocks the whole
-    // conversation from view. Header + footer stay pinned; detail scrolls.
-    <div data-testid="research-timeline" className="mx-auto max-w-3xl w-full my-4 rounded-xl border border-border bg-bg-secondary overflow-hidden flex flex-col max-h-[min(60vh,34rem)]">
-      <div className="shrink-0 flex items-center gap-2 px-4 py-3 border-b border-border">
+    // Rendered as the last item of the message transcript (see MessageList),
+    // so it scrolls WITH the conversation rather than sitting pinned above the
+    // composer. It therefore flows at its natural height - no internal scroll
+    // or height cap, which would nest a second scrollbar inside the chat area.
+    <div data-testid="research-timeline" className="mx-auto max-w-3xl w-full my-4 rounded-xl border border-border bg-bg-secondary overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent">
           <path d="M9 3h6M10 3v6.5L5.5 18a2 2 0 0 0 1.8 3h9.4a2 2 0 0 0 1.8-3L14 9.5V3" />
         </svg>
@@ -118,9 +117,9 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
         </span>
       </div>
 
-      {/* Scrollable body: plan + activity + findings. divide-y draws the
-          inter-section rules so nothing doubles against the pinned footer. */}
-      <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-border">
+      {/* Body: plan + activity + findings. divide-y draws the inter-section
+          rules so nothing doubles against the footer's top border. */}
+      <div className="divide-y divide-border">
 
       {/* Plan checklist */}
       {plan.length > 0 && (
@@ -178,10 +177,10 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
         </div>
       )}
 
-      </div>{/* /scrollable body */}
+      </div>{/* /body */}
 
       {/* Footer / report link */}
-      <div className="shrink-0 border-t border-border px-4 py-3 flex items-center gap-2">
+      <div className="border-t border-border px-4 py-3 flex items-center gap-2">
         {active ? (
           <span className="flex items-center gap-2 text-xs text-text-secondary">
             <svg className="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>

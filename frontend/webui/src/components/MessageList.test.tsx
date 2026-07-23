@@ -159,6 +159,27 @@ describe('MessageList', () => {
     expect(md).toHaveTextContent('Hi there! How can I help?');
   });
 
+  it('renders the research timeline inside the scroll container, after the messages', () => {
+    render(
+      <MessageList
+        messages={[assistantMsg]}
+        streaming={makeStreaming()}
+        researchTimeline={<div data-testid="dr-timeline-stub">timeline</div>}
+      />,
+    );
+
+    const timeline = screen.getByTestId('dr-timeline-stub');
+    // Must live inside the scrollable transcript so it scrolls with the chat,
+    // not as a sibling pinned above the composer.
+    const scroll = timeline.closest('.overflow-y-auto');
+    expect(scroll).not.toBeNull();
+  });
+
+  it('omits the research timeline when none is passed', () => {
+    render(<MessageList messages={[assistantMsg]} streaming={makeStreaming()} />);
+    expect(screen.queryByTestId('dr-timeline-stub')).toBeNull();
+  });
+
   it('shows FeatherVortex during active streaming with no content', () => {
     render(
       <MessageList
