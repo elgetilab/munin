@@ -144,9 +144,46 @@ decompose fix) AND rsync the built webui (frontend: inline rendering). The two
 depend on each other (inline UI reads the event-log endpoints), so deploy
 together.
 
-**Open follow-ups (not blocking):** breadth is the remaining gap vs Claude -
-levers are a Semantic Scholar API key in any offline eval, more reads/sub-questions
-(config), depth-2 snowball (after measurement), and growing the corpus on
-off-corpus topics. EuropePMC full-text fallback for PMC/ASM papers (the 2/8 the OA
-lever couldn't fetch). Report title could be generated rather than echoing the
-raw question.
+**Open follow-ups (not blocking):** EuropePMC full-text fallback for PMC/ASM
+papers (the 2/8 the OA lever couldn't fetch). Report title could be generated
+rather than echoing the raw question.
+
+---
+
+## Breadth levers 1-4  [DONE]  (source.py 29f7fec, DR loop 424f74d)
+
+The remaining gap vs Claude was breadth. Implemented all four levers while keeping
+every citation full-text-grounded (no snippet tier):
+
+1. **Read the web tier.** `source` now reads web pages by URL, not just papers by
+   DOI: `_fetch_and_extract_web` (trafilatura, browser UA, `origin=web`), gated by
+   `may_fetch(NET_WEB)`. The DR loop keeps URL candidates through screening and
+   reads them like any paper. Source-level fetch verified (16k chars from a live
+   page); unit-tested end to end (a URL candidate flows through `_read_candidates`).
+2. **Multi-note extraction.** New `source(mode="findings")` returns up to 4
+   distinct claims, each with its own verbatim quote; each becomes a separate
+   grounded note+citation. One paper can now contribute several findings without
+   loosening grounding. **Verified live: 12 notes from 10 reads, 3 papers
+   multi-noted.** (On off-topic papers it correctly returns `[]` — same abstention
+   the strict question demands; no regression vs the old qa-mode read.)
+3. **Wider caps + depth-2 snowball.** Defaults raised: `max_subq` 4->6,
+   `screen_keep` -> 20, `read_cap` -> 8, `snowball_reads` -> 4, new
+   `snowball_depth = 2` (snowball the snowballed papers once more). `_seen_dois`
+   became `_seen_keys` (dedups DOIs **and** URLs across the corpus/OA/web tiers and
+   both snowball passes). `research_routes` default depth `normal`->`deep` so
+   UI-triggered runs include the web tier.
+4. **Semantic Scholar API key in eval.** No code change — the code already reads
+   `SEMANTIC_SCHOLAR_API_KEY` (papers.py, s2_citations.py). Confirmed the need: the
+   offline eval env is keyless, so S2 (the OA tier) rate-limits to 0 results.
+   **Action for the user:** `export SEMANTIC_SCHOLAR_API_KEY=...` before any offline
+   `eval_dr`/diag run; production already has it in the retrieval container env.
+
+Unit tests: 10/10 (`_read_candidates` test rewritten for multi-note + web + dedup +
+cap). Live breadth harness: `tests/smoke_dr_breadth.py`.
+
+**Eval-env caveat (not a code bug):** the offline env can't demonstrate the web/OA
+tiers — SearXNG's upstream engines return 0 from the cluster IP and S2 is keyless.
+Both tiers work in production; the read paths for them are unit-tested here.
+
+**Deploy:** these DR changes need `sudo bash deploy.sh retrieval` to go live
+(alongside the earlier committed-not-deployed DR work).
