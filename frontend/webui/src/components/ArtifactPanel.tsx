@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ArtifactSummary, ArtifactFull } from '../lib/types';
 import { fetchArtifact, updateArtifact } from '../lib/api';
 import { getExtension } from '../lib/artifactDownload';
+import { printArtifactAsPdf } from '../lib/printPdf';
 import { Markdown } from './Markdown';
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -63,6 +64,9 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The rendered-content node, read by "Save as PDF" so the print output
+  // carries the same formatting (headings, tables, math) the user sees.
+  const contentRef = useRef<HTMLDivElement>(null);
 
   const loadArtifact = useCallback(async (id: string, version?: number) => {
     setLoading(true);
@@ -123,6 +127,12 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadPdf = () => {
+    if (!loadedArtifact || !contentRef.current) return;
+    const ok = printArtifactAsPdf(contentRef.current.innerHTML, loadedArtifact.title);
+    if (!ok) setError('Could not open the print view - allow pop-ups for this site, then try again.');
+  };
+
   const handleEdit = () => {
     if (loadedArtifact) {
       setEditContent(loadedArtifact.content);
@@ -154,6 +164,10 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
   const summary = artifacts.find(a => a.id === selectedArtifactId);
   const isLatest = loadedArtifact && summary && loadedArtifact.version === summary.latest_version;
   const canEdit = isLatest && summary?.source === 'model_written';
+  // "Save as PDF" applies to rendered text artifacts (reports, notes, code).
+  // Existing PDFs already download as-is, and images have nothing to render.
+  const ct = loadedArtifact?.content_type || '';
+  const canPdf = !editing && !!loadedArtifact && ct !== 'application/pdf' && !ct.startsWith('image/');
 
   return (
     <div data-testid="artifact-panel" className="w-96 lg:w-[32rem] xl:w-[36rem] border-l border-border bg-bg-secondary flex flex-col h-full">
@@ -258,6 +272,14 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
                 >
                   Download
                 </button>
+                {canPdf && (
+                  <button
+                    onClick={handleDownloadPdf}
+                    className="px-2 py-1 text-xs text-text-secondary hover:text-accent transition-colors cursor-pointer"
+                  >
+                    PDF
+                  </button>
+                )}
               </div>
 
               {/* Edit mode */}
@@ -298,7 +320,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
                 </div>
               ) : (
                 // Content viewer
-                <div className="flex-1 overflow-y-auto px-4 py-3">
+                <div ref={contentRef} className="flex-1 overflow-y-auto px-4 py-3">
                   <ArtifactContent artifact={loadedArtifact} />
                 </div>
               )}
