@@ -37,6 +37,7 @@ TIER_WEB = "web"
 _TIER_RANK = {TIER_CORPUS: 0, TIER_OA: 1, TIER_WEB: 2}
 
 WEB_QUOTA = 3            # web caps at N regardless of volume (it wins on volume)
+OA_QUOTA = 4             # OA slots reserved within top_k (see _dedup_and_rank)
 THIN_EVIDENCE_MIN = 3    # fewer than N scholarly hits => thin_evidence
 
 
@@ -114,11 +115,16 @@ def _dedup_and_rank(hits: list[dict], top_k: int) -> list[dict]:
     corpus = sorted([h for h in items if h["source_type"] == TIER_CORPUS],
                     key=lambda r: -(r.get("score") or 0))
     oa = sorted([h for h in items if h["source_type"] == TIER_OA],
-                key=lambda r: -(r.get("score") or 0))
+                key=lambda r: -(r.get("score") or 0))[:OA_QUOTA]
     web = sorted([h for h in items if h["source_type"] == TIER_WEB],
                  key=lambda r: -(r.get("score") or 0))[:WEB_QUOTA]
-    # Prefer corpus, then OA, then a capped tail of web.
-    return (corpus + oa + web)[:top_k]
+    # Reserve the external tiers within top_k: a plentiful corpus must NOT crowd
+    # OA/web out of the read pool (that silently caps breadth to the corpus). We
+    # keep corpus first for trust, but only up to (top_k - reserved) so the
+    # reserved OA + web slots always survive into screening.
+    reserved = oa + web
+    corpus_budget = max(0, top_k - len(reserved))
+    return (corpus[:corpus_budget] + reserved)[:top_k]
 
 
 async def search(query: str, filters: Optional[dict] = None,
