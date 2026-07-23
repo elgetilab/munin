@@ -7,13 +7,25 @@ The specialised-agents architecture and the Deep Research breadth work (the whol
 The capstone's honest verdict was Munin reads ~5 sources vs Claude's ~50, blamed
 on the dead web tier + Semantic Scholar rate-limiting — **not** a design flaw.
 Both are now fixed: the Brave Search API shipped as the primary web source
-(`06687d7`, deployed + verified), and production has the S2 key. Re-run the
-off-corpus / capstone eval and confirm breadth (web + snowball reads) actually
-went up.
+(`06687d7`, deployed + verified), and production has the S2 key.
+
+**First-pass re-measure (2026-07-23) surfaced — and fixed — a blocker.** A full
+production run confirmed Brave feeds the DR loop (web URLs now surface and get
+read) but resolved 0/3 sub-questions with 0 notes: post cluster-restart, qwen3.6
+returned `[]` from `source(mode=findings)` whenever thinking was disabled, so
+every read abstained and reports came out empty. Fixed in `fc7b57b` (findings
+mode now runs with thinking on, 8k tokens; tolerant array parse). Two web pages
+also failed to fetch — same commit adds retry-with-backoff (recovers NCBI/PMC
+burst rate-limiting) and reports `blocked` vs `empty` (MDPI is a hard
+datacenter-IP wall, unfixable at the fetch layer).
+
+**Still to do once `fc7b57b` is deployed:** re-run and record the actual breadth
+numbers.
 - Harness: `backend/retrieval/tests/smoke_dr_breadth.py` (in-process; needs
-  `SEMANTIC_SCHOLAR_API_KEY` exported and, for Brave, `BRAVE_API_KEY` — the
-  production container already has both).
-- Expected signal: `web (url) reads > 0`, more total reads, web-tagged citations.
+  `SEMANTIC_SCHOLAR_API_KEY` + `BRAVE_API_KEY` exported), or drive the live
+  container via `POST /api/research/start` (has both keys already).
+- Expected signal: notes > 0 again, `web (url) reads > 0`, more total reads,
+  web-tagged citations.
 
 ## 2. Confirm the Source-agent eval gate ran  (validation debt)
 `done/AGENT-IMPLEMENTATION-PLAN.md` Part 5 defines the whole justification for the
