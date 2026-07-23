@@ -1,9 +1,18 @@
 # Deep Research: Munin vs Claude Research — comparison and target format
 
-Purpose: use the Claude Research reference (`todo_v2/compass_artifact_wf-...md`,
-same prompt: membrane lipid composition × kinase-inhibitor partitioning) to shape
-Munin's Deep Research **report format** and **agent behaviour**. This is the
-target we build toward; the recommendations at the end are the work items.
+> **Status (2026-07-23):** work items **R1-R4 shipped** (report structure, wider
+> funnel + snowball, contradiction synthesis, quantitative notes — see the
+> archived `done/AUTONOMOUS-SESSION-LOG.md`). **R5 (Recommendations section)
+> remains open, optional.** The one live breadth gap (Munin ~5 sources vs
+> Claude ~50) is now re-measurable since the web tier (Brave) and the S2 key
+> are live — see `TODO.md`. Kept live because R5 + the breadth re-measure are
+> still ahead.
+
+Purpose: use the Claude Research reference (the `compass_artifact_*.md` export,
+same prompt: membrane lipid composition × kinase-inhibitor partitioning — kept
+locally on the user's machine, never committed) to shape Munin's Deep Research
+**report format** and **agent behaviour**. This is the target we build toward;
+the recommendations at the end are the work items.
 
 ## 1. What Claude produced (the reference)
 
@@ -80,7 +89,7 @@ trade quotes-from-read-PDFs for recalled-citation breadth.
 
 ## 5. Gaps to close — recommendations (prioritized)
 
-### R1. Report structure (rendering; cheap, high impact)
+### R1. Report structure (rendering; cheap, high impact)  — DONE
 Reshape the document builder in `deep_research_agent.py` to emit the Claude-style
 skeleton, populated only from grounded notes:
 - **TL;DR** — 3-5 bold headline claims, generated from the highest-confidence
@@ -94,7 +103,7 @@ skeleton, populated only from grounded notes:
   is where "no supporting evidence" belongs, as one honest section, not scattered.
 This is a synthesis-prompt + template change; no new agent capability needed.
 
-### R2. Widen the funnel (agent config + snowball)
+### R2. Widen the funnel (agent config + snowball)  — DONE
 Claude's breadth comes from reading far more. Raise the ceilings for DR runs
 (they are config, D9): more sub-questions, `read_cap` ~6-8, `screen_keep` higher,
 and turn on **depth-1 snowball** (references of the strongest papers, back through
@@ -102,20 +111,20 @@ the screener). Now affordable because the **OA full-text lever** landed reads at
 `read_depth: full_text` — more candidates are actually readable. Measure cost vs
 resolution on the off-corpus eval before committing widths.
 
-### R3. Cross-source synthesis + contradiction surfacing (D12)
+### R3. Cross-source synthesis + contradiction surfacing (D12)  — DONE
 Two notes on the same `sub_question_id` with conflicting claims should be handed
 to the synthesiser *together* with an instruction to name the split (the design
 already specified structured notes `{claim, value?, unit?, quote, ref}` for
 exactly this). This is what turns "a list of findings" into "a synthesis." Add a
 lightweight contradiction pass over notes grouped by sub-question.
 
-### R4. Quantitative extraction in notes
+### R4. Quantitative extraction in notes  — DONE
 Bias `source(qa)` toward pulling the specific number/unit (K, IC50, fold-change)
 into the note's `value`/`unit` fields, not just a prose claim. The quote already
 anchors it. This makes the report read like Claude's (hard numbers) while staying
 grounded.
 
-### R5. Recommendations section (optional, later)
+### R5. Recommendations section (optional, later)  — OPEN
 A final synthesis pass over all confirmed findings can produce actionable
 recommendations. Lower priority; only attempt once R1-R3 make the evidence base
 rich enough to justify them, and keep each tied to cited findings.
