@@ -1,18 +1,20 @@
 # Background turn completion ("close the tab, the answer still lands")
 
-Status: DEPLOYED + LIVE-VERIFIED 2026-07-25 (backend deploy.sh by
-user; VPS gateway + webui rsync'd and restarted). Verified live:
+Status: DONE. Deployed + live-verified 2026-07-25 (backend deploy.sh
+by user; VPS gateway + webui rsync'd and restarted). Verified live:
 closed-tab turn survived past grace and persisted clean with title
 (promotion exercised); resume GET streamed live through the gateway
-(timestamped tail over 6s, 804 events); cancel endpoint 204 +
-prompt partial persist; active_stream done:false→true and generating
-flag observed against a live turn. One bug found and fixed during
-verification (commit 7f0c001): registry streams for NEW conversations
-never got their conversation_id, so active_stream/generating missed
-first-message turns — fix committed, NEEDS one more
-`sudo ./deploy.sh retrieval` to go live. After that: archive this
-plan to done/. Also still open: the save-always marker wording says
-"client disconnected" for explicit Stop. C deviations from plan: the
+(timestamped tail over 6s, 804 events); cancel endpoint 204 + prompt
+partial persist; active_stream done:false→true and generating flag
+observed against a live turn. One bug found during verification and
+fixed (commit 7f0c001): registry streams for NEW conversations never
+got their conversation_id, so active_stream/generating missed
+first-message turns — fix deployed and spot-checked live (a fresh
+conversation reports active_stream mid-turn). Remaining follow-up
+(minor, tracked here only): the save-always marker wording says
+"client disconnected before completion" for explicit Stop / cap /
+runaway cancels; revisit alongside any future Stop UX work — tests
+assert the current string. C deviations from plan: the
 mount-time resume now goes through loadConversation (server truth)
 instead of resuming straight off the stored last_event_id — this also
 fixes a latent P1 #10 wart where the post-refresh final bubble was
