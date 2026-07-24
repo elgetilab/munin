@@ -285,6 +285,35 @@ projected **0.844** (168/199) versus 0.814 measured.
 as the 0.497 baseline; the 0.844 projection had a budget the baseline never got.
 A clean full re-run under the 900s deadline is what should replace it.
 
+### Clean full re-run under the 900s deadline (2026-07-24)
+
+Committed scorecard `2026-07-24_answer-full-900s`. All 199 questions, same
+budget each, **0 truncated, 0 unparseable**.
+
+| | 300s run | 900s run |
+|---|---|---|
+| accuracy | 0.814 (0.759-0.869) | **0.864 (0.819-0.910)** |
+| precision | 0.926 (n=175) | 0.920 (n=187) |
+| correct / incorrect / abstain | 162 / 13 / 13 | 172 / 15 / 12 |
+| unparseable (truncations) | 11 | **0** |
+
+0.864 is the canonical post-fix number, and it matched the +0.03 projection
+(0.844) within noise rather than the +0.05 I first guessed. Precision essentially
+unchanged, so the gain came from converting truncations into answers, not from
+answering more loosely.
+
+**Honest churn note.** 34/199 verdicts changed between the two runs, and it is
+NOT just the 11 recovered truncations: 6 correct->incorrect and 6
+incorrect->correct flipped purely from temperature-0.7 resampling. Net movement
+is real (the CI floor rose from 0.759 to 0.819), but any single-question or
+sub-3-point comparison in this benchmark is inside the noise floor. This is the
+same stochasticity caveat that applied to the DR hand-runs; only aggregate,
+repeated measurements should be trusted.
+
+**Headline for the session:** LitQA2 answer accuracy 0.497 -> 0.864, precision
+0.85 -> 0.92, over-abstention 42% -> ~6% withheld, versus PaperQA2's 0.66. The
+`source` agent's full-text reading is doing the work the architecture predicted.
+
 **Attribution, honestly:** this spans 2026-07-06 to 2026-07-24, which includes
 the entire four-agent architecture landing, not just the recent retrieval work.
 The dominant cause is almost certainly `source(mode=qa)` reading FULL text
