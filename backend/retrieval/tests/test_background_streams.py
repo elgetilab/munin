@@ -90,7 +90,11 @@ def test_cancel_fires_cancel_event() -> bool:
                     f"/api/chat/completions/{s.stream_id}/cancel",
                     headers={"X-Munin-Email": OWNER},
                 )
-            return resp.status_code == 204 and s.cancel_event.is_set()
+            return (
+                resp.status_code == 204
+                and s.cancel_event.is_set()
+                and s.cancel_reason == "stopped by user"
+            )
         finally:
             _evict(s)
 

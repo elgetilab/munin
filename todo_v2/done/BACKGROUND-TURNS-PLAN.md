@@ -10,11 +10,11 @@ observed against a live turn. One bug found during verification and
 fixed (commit 7f0c001): registry streams for NEW conversations never
 got their conversation_id, so active_stream/generating missed
 first-message turns — fix deployed and spot-checked live (a fresh
-conversation reports active_stream mid-turn). Remaining follow-up
-(minor, tracked here only): the save-always marker wording says
-"client disconnected before completion" for explicit Stop / cap /
-runaway cancels; revisit alongside any future Stop UX work — tests
-assert the current string. C deviations from plan: the
+conversation reports active_stream mid-turn). Follow-up RESOLVED
+2026-07-25: cancel sites now record cancel_reason on the Stream and
+the save-always marker surfaces it — "stopped by user" for the Stop
+endpoint, cap/time-limit phrases for server cancels; "client
+disconnected before completion" is reserved for genuine disconnects. C deviations from plan: the
 mount-time resume now goes through loadConversation (server truth)
 instead of resuming straight off the stored last_event_id — this also
 fixes a latent P1 #10 wart where the post-refresh final bubble was

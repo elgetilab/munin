@@ -2574,10 +2574,11 @@ async def stream_chat_completion(
         # certainly fail too, and the second failure would either overwrite or
         # truncate the partial state we already captured. Persist what we have.
         if _cancelled():
-            # Client is gone — don't burn another vLLM slot on a synthesis
-            # the user will never see. Save-always finally still runs.
+            # Turn was cancelled (Stop, background cap, or runaway
+            # guard) — don't burn another vLLM slot on a synthesis no
+            # one is waiting for. Save-always finally still runs.
             logger.info(
-                "client disconnected before wrap-up; skipping synthesis",
+                "turn cancelled before wrap-up; skipping synthesis",
             )
         elif (hit_turn_cap or not last_turn_content) and not had_stream_error:
             wrap_up_messages = list(messages) + [
@@ -2801,8 +2802,19 @@ async def stream_chat_completion(
                 _disconnect_seen = _cancelled() or _exc_type in (
                     GeneratorExit, asyncio.CancelledError
                 )
+                # Explicit cancellations carry their reason on the
+                # registry stream ("stopped by user", background caps).
+                # A plain aclose/shutdown has none and keeps the
+                # disconnect wording.
+                _cancel_reason = None
+                if _cancelled() and stream_id:
+                    _reg_s = stream_registry.registry.get(stream_id)
+                    if _reg_s is not None:
+                        _cancel_reason = _reg_s.cancel_reason
                 if had_stream_error:
                     _marker_reason = had_stream_error
+                elif _cancel_reason:
+                    _marker_reason = _cancel_reason
                 elif _disconnect_seen:
                     _marker_reason = "client disconnected before completion"
                 else:

@@ -107,6 +107,14 @@ class Stream:
         self.background: bool = False
         self.started_ts: float = time.monotonic()
 
+        # Why cancel_event fired, set just before .set() at each cancel
+        # site (Stop endpoint, background cap, runaway guard). The
+        # save-always marker in chat_service reads this so a stopped
+        # turn's transcript says "stopped by user" instead of blaming a
+        # client disconnect. None when the event never fired or for a
+        # plain aclose/shutdown.
+        self.cancel_reason: Optional[str] = None
+
         self.done: bool = False
         self.truncated: bool = False
         self.completed_ts: Optional[float] = None
@@ -222,6 +230,9 @@ async def _grace_timer(stream: Stream) -> None:
                     "(%d); cancelling",
                     stream.stream_id, int(GRACE_S), others,
                 )
+                stream.cancel_reason = (
+                    "cancelled: too many background turns running"
+                )
                 stream.cancel_event.set()
                 return
 
@@ -253,6 +264,9 @@ async def _grace_timer(stream: Stream) -> None:
                 "stream %s exceeded BACKGROUND_MAX_S (%ds) with no "
                 "listener; cancelling",
                 stream.stream_id, int(BACKGROUND_MAX_S),
+            )
+            stream.cancel_reason = (
+                "cancelled: background time limit reached"
             )
             stream.cancel_event.set()
             return

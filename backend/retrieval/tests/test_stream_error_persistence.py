@@ -714,6 +714,8 @@ def _drive_stream_chat_disconnect_after(
     fake_run_tools_fn,
     capture: dict,
     target_event: str,
+    cancel_event: Optional[asyncio.Event] = None,
+    stream_id: Optional[str] = None,
 ) -> list[dict]:
     """
     Drive stream_chat_completion until the consumer receives an SSE event
@@ -816,6 +818,8 @@ def _drive_stream_chat_disconnect_after(
             user_message={"content": "trigger"},
             rag_config=None,
             ephemeral=False,
+            cancel_event=cancel_event,
+            stream_id=stream_id,
         )
 
         async def _run() -> None:
@@ -829,6 +833,12 @@ def _drive_stream_chat_disconnect_after(
                         # deterministic for the test; the same effect
                         # happens via GC + aclose() when main.py's
                         # event_stream() returns after its `break`.
+                        # When a cancel_event was supplied, set it first —
+                        # that is the explicit-Stop shape: the cancel
+                        # endpoint fires the event, then the client
+                        # aborts its fetch.
+                        if cancel_event is not None:
+                            cancel_event.set()
                         await gen.aclose()
                         return
             except StopAsyncIteration:
@@ -1384,6 +1394,49 @@ def test_audit_exception_after_loop_still_persists() -> bool:
 # Runner
 # ---------------------------------------------------------------------------
 
+def test_explicit_stop_marker_says_stopped_by_user() -> bool:
+    """Background turns follow-up: an explicit Stop (cancel endpoint)
+    records cancel_reason on the registry stream before firing
+    cancel_event. The save-always marker must surface that reason —
+    "stopped by user" — instead of blaming a client disconnect, which
+    is what the transcript used to claim for every cancellation."""
+    import stream_registry as sr
+
+    s = sr.Stream(
+        user_email="test@example.com", conversation_id="test-conv-1"
+    )
+    s.cancel_reason = "stopped by user"  # what the endpoint sets
+    sr.registry.register(s)
+    capture: dict = {}
+    try:
+        _drive_stream_chat_disconnect_after(
+            _fake_stream_error_after_partial_content,
+            _fake_run_tool_calls_unused,
+            capture,
+            target_event="token",
+            cancel_event=s.cancel_event,
+            stream_id=s.stream_id,
+        )
+        assistant_calls = [
+            c for c in capture["calls"] if c.get("role") == "assistant"
+        ]
+        content = (
+            assistant_calls[0].get("content") or ""
+        ) if assistant_calls else ""
+        ok = (
+            len(assistant_calls) == 1
+            and "stream interrupted: stopped by user" in content
+            and "client disconnected" not in content
+        )
+        return _check(
+            "explicit Stop -> marker says stopped by user",
+            ok,
+            f"content={content!r}",
+        )
+    finally:
+        sr.registry._streams.pop(s.stream_id, None)
+
+
 def test_new_conversation_backfills_registry_stream() -> bool:
     """Background turns: for a NEW conversation the registry Stream is
     constructed before the conversation row exists (the POST body has
@@ -1404,13 +1457,22 @@ def test_new_conversation_backfills_registry_stream() -> bool:
     sr.registry.register(s)
     capture: dict = {}
     try:
-        _drive_stream_chat(
-            _clean_stream,
-            _fake_run_tool_calls_unused,
-            capture,
-            conversation_id=None,
-            stream_id=s.stream_id,
-        )
+        # This is the only test here that completes a turn CLEANLY, so
+        # it is the only one that reaches the post-turn stop hooks —
+        # patch them out or the memory-extract hook tries to open the
+        # real chats.db, which only exists inside the container.
+        with patch.object(
+            chat_service.hooks_module,
+            "dispatch_stop",
+            AsyncMock(return_value=None),
+        ):
+            _drive_stream_chat(
+                _clean_stream,
+                _fake_run_tool_calls_unused,
+                capture,
+                conversation_id=None,
+                stream_id=s.stream_id,
+            )
         return _check(
             "new-conversation turn backfills registry conversation_id",
             s.conversation_id == "test-conv-1",
@@ -1421,6 +1483,7 @@ def test_new_conversation_backfills_registry_stream() -> bool:
 
 
 TESTS = [
+    test_explicit_stop_marker_says_stopped_by_user,
     test_new_conversation_backfills_registry_stream,
     # Pure helper
     test_marker_on_empty_content,

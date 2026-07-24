@@ -281,7 +281,13 @@ def test_grace_cancels_at_background_cap() -> bool:
             except asyncio.TimeoutError:
                 cancelled = False
             grace.cancel()
-            return cancelled and not s.background
+            return (
+                cancelled
+                and not s.background
+                and s.cancel_reason == (
+                    "cancelled: too many background turns running"
+                )
+            )
         finally:
             stream_registry.GRACE_S = orig
             for other in seeded:
@@ -314,7 +320,13 @@ def test_background_hard_cap_cancels() -> bool:
             except asyncio.TimeoutError:
                 cancelled = False
             grace.cancel()
-            return was_promoted and cancelled
+            return (
+                was_promoted
+                and cancelled
+                and s.cancel_reason == (
+                    "cancelled: background time limit reached"
+                )
+            )
         finally:
             stream_registry.GRACE_S = orig_grace
             stream_registry.BACKGROUND_MAX_S = orig_max

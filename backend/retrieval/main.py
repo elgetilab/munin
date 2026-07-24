@@ -1584,6 +1584,7 @@ async def api_chat_completions_cancel(stream_id: str, request: Request):
             detail={"error": {"message": "stream does not belong to this user"}},
         )
     if not stream.done:
+        stream.cancel_reason = "stopped by user"
         stream.cancel_event.set()
     return Response(status_code=204)
 

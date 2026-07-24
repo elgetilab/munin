@@ -502,6 +502,13 @@ completion.
 Explicitly cancel an in-flight chat completion (background turns).
 Used by the webui Stop button. Idempotent.
 
+A cancelled turn persists its partial content with an italic marker
+naming the cause: `_(stream interrupted: stopped by user)_` for this
+endpoint, or a background cap / time-limit phrase when the server
+cancelled. The "client disconnected before completion" wording is
+reserved for genuine disconnects (aclose without a cancel signal,
+e.g. service shutdown).
+
 **Responses**:
 
 - `204 No Content` — cancellation signalled, or the stream had
