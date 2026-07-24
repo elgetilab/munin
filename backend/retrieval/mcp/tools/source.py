@@ -469,12 +469,62 @@ _FINDINGS_SYSTEM = (
 )
 
 
+_TRIAGE_SYSTEM = (
+    "You decide whether a document is worth reading in full to answer a research "
+    "question. Answer YES if the document contains ANY specific finding that bears "
+    "on the question. Answer NO only if the document clearly does not address the "
+    "question at all. When uncertain, answer YES. "
+    "Reply with exactly one word: YES or NO."
+)
+# Full-text triage before the expensive extraction. Measured 2026-07-24 against
+# 16 papers whose real read outcome was already known: it passed 2/2 papers that
+# went on to yield grounded notes and skipped 14/14 that returned nothing, at
+# ~0.8s versus ~15-20s for the extraction it replaces. Metadata-level relevance
+# could not do this (bi-encoder AUC 0.655, cross-encoder 0.616): the signal that
+# predicts a useful read lives in the full text, not the title or abstract.
+#
+# Recall is what matters here, not precision. A wrongly skipped paper is a silent
+# unrecoverable drop (D8), so the prompt is biased to YES, the call FAILS OPEN
+# (any error proceeds to extraction), and every skip is traced.
+TRIAGE_ENABLED = (os.getenv("SOURCE_TRIAGE_ENABLED", "1").strip().lower()
+                  not in ("0", "false", "no"))
+
+
+async def _triage_worth_reading(text: str, question: str, tr: AgentTrace) -> bool:
+    """Cheap yes/no gate over the FULL text. Returns True when the document
+    should go on to the expensive findings extraction. Fails open."""
+    if not TRIAGE_ENABLED:
+        return True
+    try:
+        res = await _vllm_answer(_TRIAGE_SYSTEM,
+                                 f"Question: {question}\n\nDocument:\n{text}",
+                                 max_tokens=8, temperature=0.0,
+                                 enable_thinking=False)
+        tr.llm(1)
+        if res.get("error"):
+            return True                      # fail open
+        return "YES" in (res.get("content") or "").upper()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("triage failed, proceeding to extraction: %s", exc)
+        return True                          # fail open
+
+
 async def _mode_findings(ext: dict, question: str, tr: AgentTrace) -> dict:
     """Multi-note: up to 4 grounded findings (claim + verbatim quote) from the
     full text. Each becomes a separate citation in Deep Research, so one paper can
     contribute several findings - without loosening grounding (every claim keeps
     its quote)."""
     text = ext["full_text"][:MAX_FULLTEXT_CHARS]
+
+    # Gate the expensive extraction on a cheap full-text relevance check. ~74% of
+    # DR reads return nothing; each of those was paying for an 8000-token
+    # thinking pass to discover that. Skipping them is what buys the budget to
+    # read more candidates.
+    if not await _triage_worth_reading(text, question, tr):
+        tr.decide("triaged out before extraction", question=question,
+                  title=(ext.get("ref_resolved") or {}).get("title"))
+        return {"findings": [], "triaged_out": True}
+
     user = f"Full text:\n{text}\n\n---\n\nQuestion: {question}"
     # Thinking MUST stay on: qwen3.6 needs to reason "does this text address the
     # question -> extract the finding -> copy the quote". With thinking disabled

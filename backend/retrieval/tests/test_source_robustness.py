@@ -76,6 +76,11 @@ def test_backoff() -> bool:
 
 def _findings_with_content(content: str) -> list:
     async def _fake_vllm(system, user, *, max_tokens=4096, temperature=0.7, enable_thinking=True):
+        # The cheap triage gate runs first; wave it through so these cases test
+        # the EXTRACTION call. (Asserting here would trip on triage's
+        # thinking=False/max_tokens=8 and silently exercise the fail-open path.)
+        if "YES or NO" in system:
+            return {"content": "YES"}
         # The fix must NOT disable thinking (that caused the empty-report bug).
         assert enable_thinking is True, "findings mode must run with thinking on"
         assert max_tokens >= 8000, "findings mode must give the reasoning pass headroom"
@@ -119,6 +124,85 @@ def test_findings_skips_bad_items() -> bool:
     return _check("findings: item without claim skipped", len(f) == 1, f"got {f!r}")
 
 
+
+# ---------------------------------------------------------------------------
+# Full-text triage gate (2026-07-24)
+# ---------------------------------------------------------------------------
+
+def _findings_with_triage(triage_reply: str, findings_content: str):
+    """Run _mode_findings with both vLLM calls stubbed. Returns (out, n_calls)."""
+    calls = []
+
+    async def _fake_vllm(system, user, *, max_tokens=4096, temperature=0.7,
+                         enable_thinking=True):
+        calls.append({"system": system, "max_tokens": max_tokens,
+                      "enable_thinking": enable_thinking})
+        if "YES or NO" in system:
+            return {"content": triage_reply}
+        return {"content": findings_content}
+
+    orig = S._vllm_answer
+    S._vllm_answer = _fake_vllm
+    try:
+        ext = {"full_text": "some paper text", "ref_resolved": {"title": "t"}}
+        out = _run(S._mode_findings(ext, "does X cause Y?", AgentTrace("source", mode="findings")))
+    finally:
+        S._vllm_answer = orig
+    return out, calls
+
+
+def test_triage_skips_the_expensive_extraction() -> bool:
+    out, calls = _findings_with_triage("NO", '[{"claim":"a","quote":"q"}]')
+    ok = (out.get("findings") == [] and out.get("triaged_out") is True
+          and len(calls) == 1 and calls[0]["max_tokens"] == 8)
+    return _check("triage NO -> extraction skipped, only the cheap call made", ok,
+                  f"out={out!r} calls={len(calls)}")
+
+
+def test_triage_yes_runs_the_extraction() -> bool:
+    out, calls = _findings_with_triage("YES", '[{"claim":"a","quote":"q"}]')
+    ok = (len(out.get("findings") or []) == 1 and len(calls) == 2
+          and calls[1]["enable_thinking"] is True and calls[1]["max_tokens"] >= 8000)
+    return _check("triage YES -> extraction runs with thinking + full budget", ok,
+                  f"out={out!r} calls={[c['max_tokens'] for c in calls]}")
+
+
+def test_triage_fails_open_on_error() -> bool:
+    """A wrongly skipped paper is an unrecoverable silent drop (D8), so any
+    triage failure MUST proceed to extraction rather than skip."""
+    calls = []
+
+    async def _fake_vllm(system, user, *, max_tokens=4096, temperature=0.7,
+                         enable_thinking=True):
+        calls.append(max_tokens)
+        if "YES or NO" in system:
+            return {"error": "vLLM exploded"}
+        return {"content": '[{"claim":"a","quote":"q"}]'}
+
+    orig = S._vllm_answer
+    S._vllm_answer = _fake_vllm
+    try:
+        ext = {"full_text": "t", "ref_resolved": {"title": "t"}}
+        out = _run(S._mode_findings(ext, "q?", AgentTrace("source", mode="findings")))
+    finally:
+        S._vllm_answer = orig
+    ok = len(out.get("findings") or []) == 1 and len(calls) == 2
+    return _check("triage error -> fails OPEN, extraction still runs", ok,
+                  f"out={out!r} calls={calls}")
+
+
+def test_triage_can_be_disabled() -> bool:
+    orig_flag = S.TRIAGE_ENABLED
+    S.TRIAGE_ENABLED = False
+    try:
+        out, calls = _findings_with_triage("NO", '[{"claim":"a","quote":"q"}]')
+    finally:
+        S.TRIAGE_ENABLED = orig_flag
+    ok = len(out.get("findings") or []) == 1 and len(calls) == 1
+    return _check("triage disabled -> no gate call, extraction runs", ok,
+                  f"out={out!r} calls={len(calls)}")
+
+
 TESTS = [
     test_should_retry,
     test_backoff,
@@ -127,6 +211,10 @@ TESTS = [
     test_findings_quote_with_bracket,
     test_findings_empty_and_prose,
     test_findings_skips_bad_items,
+    test_triage_skips_the_expensive_extraction,
+    test_triage_yes_runs_the_extraction,
+    test_triage_fails_open_on_error,
+    test_triage_can_be_disabled,
 ]
 
 
