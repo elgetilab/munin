@@ -52,6 +52,46 @@ to be **correct, honest behaviour, not a defect** (investigated 2026-07-23):
   already pulling its weight; the read pool just skews corpus-heavy (ranking
   reserves only 3 web slots).
 
+## 1b. BLOCKER FOUND 2026-07-24: reserved tier slots are truncated at the READ stage
+
+The retrieval work (OA keyword queries + relevance re-rank, see
+`OA-RELEVANCE-PLAN.md`) demonstrably improved the candidate pool: OA median
+relevance 0.604 -> 0.746, web sitting at 0.75-0.83 and holding the single most
+on-topic paper. **None of it reached the Deep Research loop.** A DR run
+immediately after deploying it produced 18/18 `not_found`, 0 notes, 0/3 resolved,
+and read **16 corpus / 2 OA / 0 web**.
+
+Cause, traced through the chain:
+
+1. `_dedup_and_rank` returns `(corpus + reserved)[:top_k]`, i.e. **corpus first**,
+   with the reserved OA/web slots appended at the TAIL (search_agent.py:311).
+2. `_screen` preserves that order (`kept = [...][:keep]`, deep_research_agent.py:141).
+3. `_read_candidates` iterates from the head and stops at `read_cap`
+   (deep_research_agent.py:221-223).
+
+So with `read_cap=6` over a corpus-first list, the read loop never reaches the
+OA/web tail. The tier reservation added in `cd708cd` guarantees the external
+tiers survive into `ranked`, and then the read stage truncates them away again.
+It is the same crowding-out defect as the original one, reappearing one stage
+later: fixed at the ranking layer, still present at the consumption layer.
+
+This also explains why the run got WORSE than the previous one (0 notes vs 10):
+whether a genuinely on-topic paper gets read is currently luck of the ordering.
+The previous run happened to pull the bullseye paper in via a DOI in the OA tier;
+this one did not.
+
+**Nothing upstream of the read stage can fix this.** Better retrieval cannot help
+while the read pool is chosen as top-N of a trust-ordered list.
+
+Options for the fix (needs a decision):
+- (a) Reserve READ slots per tier, mirroring the ranking reservation - e.g. of
+  `read_cap`, guarantee 1-2 to non-corpus when available. Conservative, matches
+  the existing reservation philosophy.
+- (b) Order the read pool by `relevance` regardless of tier, now that one shared
+  relevance axis exists. Reads are quote-grounded either way, so trust still
+  governs citation weighting rather than what gets read. Simpler and uses the
+  new signal, but drops "corpus first" at the read stage.
+
 **Real breadth levers (corrected):**
 - Retrieval relevance, esp. the OA/Semantic Scholar tier returning off-topic
   papers for specific queries; the ranker/embedding doesn't distinguish "kinase
