@@ -41,6 +41,7 @@ import project_store
 import memory_store
 import artifact_store
 import plan_store
+import stream_registry
 import capabilities as capabilities_module
 import vision
 from database import VLLM_MODEL_NAME
@@ -1784,6 +1785,17 @@ async def stream_chat_completion(
     assert conversation is not None
     # Now that we know the concrete id, re-bind the MCP context var.
     current_conversation_id.set(conversation["id"])
+
+    # Background turns: backfill the registry stream's conversation_id.
+    # For a NEW conversation the Stream was constructed before this id
+    # existed (the POST body has none), so without this the
+    # `active_stream` / `generating` lookups never match first-message
+    # turns — exactly the close-tab-on-first-question case. Ephemeral
+    # ids are synthetic and never queried, skip them.
+    if stream_id and not ephemeral:
+        _reg_stream = stream_registry.registry.get(stream_id)
+        if _reg_stream is not None and _reg_stream.conversation_id is None:
+            _reg_stream.conversation_id = conversation["id"]
 
     # §28 follow-up: fold conversation default_tags into effective_tags.
     # Body tags (when present) win; otherwise inherit the persisted

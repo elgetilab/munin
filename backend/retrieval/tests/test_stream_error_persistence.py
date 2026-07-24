@@ -322,12 +322,18 @@ def _drive_stream_chat(
     fake_stream_fn,
     fake_run_tools_fn,
     capture: dict,
+    conversation_id: Optional[str] = "test-conv-1",
+    stream_id: Optional[str] = None,
 ) -> list[dict]:
     """
     Run `stream_chat_completion` with a comprehensive set of patches that
     bypass DB, vision, system-prompt assembly, and persona lookup. Captures
     all `chat_store.add_message` calls into `capture["calls"]`. Returns the
     full list of yielded SSE events for inspection.
+
+    Pass ``conversation_id=None`` to exercise the new-conversation path
+    (create_conversation is patched to return the stub id) and
+    ``stream_id`` to exercise the background-turns registry backfill.
     """
     capture["calls"] = []
 
@@ -415,10 +421,13 @@ def _drive_stream_chat(
         gen = stream_chat_completion(
             user_email="test@example.com",
             persona_id="chat",
-            conversation_id=conversation["id"],
+            conversation_id=(
+                conversation["id"] if conversation_id is not None else None
+            ),
             user_message={"content": "Try the orchestrator"},
             rag_config=None,
             ephemeral=False,
+            stream_id=stream_id,
         )
         _drain(events, gen)
     return events
@@ -1375,7 +1384,44 @@ def test_audit_exception_after_loop_still_persists() -> bool:
 # Runner
 # ---------------------------------------------------------------------------
 
+def test_new_conversation_backfills_registry_stream() -> bool:
+    """Background turns: for a NEW conversation the registry Stream is
+    constructed before the conversation row exists (the POST body has
+    no conversation_id), so stream_chat_completion must backfill
+    stream.conversation_id once the row is created — otherwise the
+    active_stream / generating lookups never match first-message
+    turns, which is exactly the close-tab-on-first-question case
+    (found in live verification 2026-07-25)."""
+    import stream_registry as sr
+
+    async def _clean_stream(*args: Any, **kwargs: Any) -> AsyncIterator[tuple]:
+        acc = _StreamAccumulator()
+        acc.content_parts.append("Answer.")
+        acc.finish_reason = "stop"
+        yield ("token", {"content": "Answer."}, acc)
+
+    s = sr.Stream(user_email="test@example.com", conversation_id=None)
+    sr.registry.register(s)
+    capture: dict = {}
+    try:
+        _drive_stream_chat(
+            _clean_stream,
+            _fake_run_tool_calls_unused,
+            capture,
+            conversation_id=None,
+            stream_id=s.stream_id,
+        )
+        return _check(
+            "new-conversation turn backfills registry conversation_id",
+            s.conversation_id == "test-conv-1",
+            f"conversation_id={s.conversation_id!r}",
+        )
+    finally:
+        sr.registry._streams.pop(s.stream_id, None)
+
+
 TESTS = [
+    test_new_conversation_backfills_registry_stream,
     # Pure helper
     test_marker_on_empty_content,
     test_marker_on_whitespace_only_content,
