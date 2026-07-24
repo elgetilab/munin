@@ -1,9 +1,72 @@
-# Retrieval relevance plan: unify the ranking axis across tiers
+# Retrieval relevance plan: rank each tier on a relevance axis
 
-Status: DRAFT, awaiting approval. Scope: `backend/retrieval/mcp/tools/search_agent.py`
-(+ a prompt tweak in `query_expansion.py`). Motivated by the 2026-07-23 breadth
-investigation (see `TODO.md` item 1): the DR loop wastes reads on off-topic OA
-papers, which then honestly abstain.
+Status: APPROVED 2026-07-24, implementing. Scope:
+`backend/retrieval/mcp/tools/search_agent.py` (+ a prompt tweak in
+`query_expansion.py`). Motivated by the 2026-07-23 breadth investigation (see
+`TODO.md` item 1): the DR loop wastes reads on off-topic OA papers, which then
+honestly abstain.
+
+## Decisions (resolved)
+
+- **A. Keep tier trust; multiple axes, not one global axis.** Rank *within* each
+  tier by relevance and gate the reserved slots. The corpus-first trust ordering
+  and the quota structure stay. This preserves the D18/D19 design contract.
+- **B. Calibrate the floor.** Measure the BGE-large cosine distribution on the
+  capstone sub-questions (known on-topic vs known off-topic candidates) before
+  setting any constant. Ship it env-overridable.
+- **C. Max over variants** for the relevance score.
+- **D. Land item 0 (shared expansion) as its own commit** ahead of the re-rank.
+
+## Calibration results (step 2, measured 2026-07-24)
+
+BGE-large cosine over **30 real retrieved candidates** (live `search`, the three
+capstone sub-questions), query embedded with the BGE prefix, candidates as
+`title\n\nsnippet`, exactly as production encodes them.
+
+Overall: `min 0.569, median 0.679, mean 0.670, max 0.773`. The band is narrow;
+BGE has a high compressed baseline, which is why the floor had to be measured
+rather than guessed.
+
+| tier | n | min | median | max |
+|---|---|---|---|---|
+| corpus | 13 | 0.572 | 0.685 | 0.709 |
+| **OA** | 8 | 0.569 | **0.604** | 0.746 |
+| **web** | 9 | 0.655 | **0.727** | 0.773 |
+
+Two things fall straight out of this and justify the whole change:
+
+- **The OA tier has the LOWEST median relevance of the three, yet it gets 4
+  reserved slots ranked by citation count.** That is the defect, quantified.
+- **The web tier has the HIGHEST median, yet it is capped at 3.** Brave is
+  pulling its weight; the quota shape is currently upside down relative to
+  actual relevance.
+
+Separation is clean enough to gate on: the on-topic bullseye ("Impact of
+Selected Small-Molecule Kinase Inhibitors on Lipid Membranes") scores
+0.727-0.773 across all three sub-questions, and a genuinely relevant OA hit
+(sorafenib/regorafenib, both kinase inhibitors) scores 0.746. The clearly
+off-topic tail (MUC4 oncomucin 0.569, phototropin1 0.586, transglutaminase
+0.584, doxorubicin resistance 0.612, neoadjuvant therapy 0.613) sits below 0.62.
+
+**Floor chosen: 0.62** (`OA_RELEVANCE_FLOOR` / `WEB_RELEVANCE_FLOOR`,
+env-overridable). It cuts the off-topic tail while keeping every genuinely
+relevant external hit in the sample.
+
+*Known limitation:* an absolute floor may be brittle across domains, since a
+different field could shift the whole similarity band. Mitigated by the env
+override and by logging the drop count. If it proves brittle, the follow-up is a
+relative floor (e.g. `max(abs_floor, best_in_query - margin)`).
+
+## Implementation sequence
+
+| Step | What | Commit |
+|---|---|---|
+| 1 | Item 0: expand once in `search()`, pass `queries=` to all three tiers | own commit |
+| 2 | Calibration probe: cosine distribution on-topic vs off-topic (informs step 4) | throwaway script, numbers recorded here |
+| 3 | Item 1 + 2: `_attach_relevance`, rank within tier by relevance | own commit |
+| 4 | Item 3: relevance floor gating the reserved slots, using step 2's number | same commit as 3 or its own |
+| 5 | Item 4: tighten `EXPANSION_SYSTEM_PROMPT` to preserve salient entities | own commit |
+| 6 | Tests + before/after measurement on the capstone queries | with each commit |
 
 ---
 
