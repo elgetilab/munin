@@ -637,7 +637,7 @@ async def api_list_chats(
     as ``__unfiled__`` to list only conversations that have no project.
     """
     user_email = _require_user_email(request)
-    return await chat_store.get_conversations(
+    result = await chat_store.get_conversations(
         user_email=user_email,
         limit=limit,
         offset=offset,
@@ -646,6 +646,15 @@ async def api_list_chats(
         pinned_only=pinned_only,
         project_id=project_id,
     )
+    # Background turns: flag conversations with a live in-flight stream
+    # so the sidebar can show a "generating" indicator. Derived from the
+    # in-process stream registry — no DB state involved.
+    generating_ids = (
+        stream_registry_module.registry.in_flight_conversation_ids(user_email)
+    )
+    for conv in result.get("conversations", []):
+        conv["generating"] = conv["id"] in generating_ids
+    return result
 
 
 @app.get("/api/chats/{conversation_id}")
@@ -664,6 +673,23 @@ async def api_get_chat(conversation_id: str, request: Request):
 
     plan = await plan_store.get_plan(conversation_id)
     conversation["plan"] = plan  # None if no plan; same shape as /plan
+    # Background turns: surface the registry's newest stream for this
+    # conversation (in-flight, or completed within DONE_RETENTION_S).
+    # ``done: false`` tells the client to re-attach via the resume
+    # endpoint; a 410 on that re-attach means "reload the transcript,
+    # the persisted answer is already in it".
+    active = stream_registry_module.registry.find_for_conversation(
+        conversation_id, user_email
+    )
+    conversation["active_stream"] = (
+        {
+            "stream_id": active.stream_id,
+            "done": active.done,
+            "last_seq": active.last_seq,
+        }
+        if active is not None
+        else None
+    )
     return conversation
 
 
@@ -1441,11 +1467,12 @@ async def api_chat_completions(request: Request):
     # P1 #10: the listener and the work are decoupled via a Stream in
     # the registry. The chat_service generator runs as its own task,
     # appending events to the stream's log. A grace timer (default 60s)
-    # absorbs brief disconnects — only after the listener has been
-    # absent for that window does it fire ``cancel_event`` and let
-    # P0 #2's cancellation cascade run. This lets a WiFi blip or
-    # browser refresh resume the in-flight turn via
-    # GET /api/chat/completions/resume.
+    # absorbs brief disconnects; past the grace window the stream is
+    # promoted to background and runs to completion anyway (bounded by
+    # per-user and wall-clock caps in stream_registry), so a closed tab
+    # still gets its answer persisted. A WiFi blip or browser refresh
+    # resumes the in-flight turn via GET /api/chat/completions/resume;
+    # explicit cancellation is POST /api/chat/completions/{id}/cancel.
     stream = stream_registry_module.Stream(
         user_email=user_email,
         conversation_id=conversation_id,
@@ -1531,6 +1558,34 @@ async def api_chat_completions_resume(stream_id: str, request: Request):
         stream_registry_module.serve_stream(stream, after_seq=after_seq),
         ping=int(stream_registry_module.KEEPALIVE_S),
     )
+
+
+@app.post("/api/chat/completions/{stream_id}/cancel")
+async def api_chat_completions_cancel(stream_id: str, request: Request):
+    """Explicitly cancel an in-flight chat completion.
+
+    Used by the frontend Stop button. Before background turns, Stop
+    only aborted the client fetch and relied on the grace timer to
+    cancel 60s later; now that grace expiry promotes to background
+    instead of cancelling, stopping requires this explicit signal —
+    which also makes Stop take effect immediately rather than after
+    the grace window. Idempotent: cancelling a completed or already-
+    cancelled stream is a no-op 204."""
+    user_email = _require_user_email(request)
+    stream = stream_registry_module.registry.get(stream_id)
+    if stream is None:
+        raise HTTPException(
+            status_code=410,
+            detail={"error": {"message": "stream is gone"}},
+        )
+    if stream.user_email and stream.user_email != user_email:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": {"message": "stream does not belong to this user"}},
+        )
+    if not stream.done:
+        stream.cancel_event.set()
+    return Response(status_code=204)
 
 
 # ==============================================================================

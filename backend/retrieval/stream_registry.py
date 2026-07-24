@@ -8,19 +8,35 @@ runs against a per-request ``Stream`` object that owns:
 - a ``listener_attached`` / ``listener_detached`` pair so multiple
   successive HTTP responses (the original POST and any GET resume)
   can attach/detach the same underlying generator without restarting it,
-- a grace timer that fires ``cancel_event`` only after the listener has
-  been absent for ``GRACE_S`` seconds, replacing P0 #2's immediate cancel
-  on disconnect — so a brief WiFi drop or browser refresh recovers
-  instead of losing the turn.
+- a grace timer that supervises listenerless streams. After ``GRACE_S``
+  seconds without a listener the stream is promoted to *background*
+  (the turn keeps running to completion and persists normally, so a
+  closed tab still gets its answer) rather than cancelled. Promotion
+  is bounded: at most ``MAX_BACKGROUND_PER_USER`` concurrent background
+  streams per user (beyond that, grace expiry cancels as it used to),
+  and a listenerless stream is hard-cancelled ``BACKGROUND_MAX_S``
+  after it started as a runaway guard. Explicit cancellation is now an
+  endpoint (``POST /api/chat/completions/{stream_id}/cancel``), used
+  by the frontend Stop button.
 
 A reconnect (``GET /api/chat/completions/resume``) looks up the stream
 by id, validates ``Last-Event-ID`` and the request user against the
 stream's owner, replays log entries with ``seq > last_seq``, then
-attaches as the new listener and streams future events live.
+attaches as a listener and streams future events live. Listeners are
+refcounted, so two tabs can watch the same stream; the grace timer
+only engages when the count drops to zero.
 
 Tunables:
 
-- ``GRACE_S``                 grace window before cancel after disconnect.
+- ``GRACE_S``                 grace window after disconnect before the
+                              stream is promoted to background (or
+                              cancelled, if the user is at the cap).
+- ``BACKGROUND_MAX_S``        wall-clock cap for a listenerless stream,
+                              measured from stream creation. Backstop on
+                              top of the tool-turn budget.
+- ``MAX_BACKGROUND_PER_USER`` concurrent background streams allowed per
+                              user before grace expiry falls back to
+                              cancelling.
 - ``KEEPALIVE_S``             SSE comment cadence when idle, so reverse
                               proxies don't drop the connection.
 - ``MAX_LOG_EVENTS``          per-stream replay buffer cap; on overflow
@@ -41,6 +57,8 @@ from typing import AsyncIterator, Optional
 logger = logging.getLogger(__name__)
 
 GRACE_S = 60.0
+BACKGROUND_MAX_S = 1800.0
+MAX_BACKGROUND_PER_USER = 2
 KEEPALIVE_S = 15.0
 MAX_LOG_EVENTS = 1000
 DONE_RETENTION_S = 60.0
@@ -66,16 +84,28 @@ class Stream:
         # because consumers re-read the log after waking).
         self._wake: asyncio.Event = asyncio.Event()
 
-        # P0 #2 cancellation signal. Now fired by the grace timer
-        # instead of immediately by the disconnect watchdog.
+        # P0 #2 cancellation signal. Fired by the explicit cancel
+        # endpoint (Stop button), by grace expiry when the user is at
+        # the background cap, or by the BACKGROUND_MAX_S runaway guard.
         self.cancel_event: asyncio.Event = asyncio.Event()
 
-        # Initial state is attached: the POST request that created this
-        # stream is presumed to be wiring up the first listener
-        # immediately.
+        # Listeners are refcounted so concurrent readers (two tabs on
+        # one conversation) don't corrupt the attached/detached state:
+        # the events below track the count's zero/nonzero transitions
+        # only. The count starts at 0 (serve_stream attaches the first
+        # listener) but the events start in the "attached" state so the
+        # grace timer doesn't begin a grace window before the creating
+        # POST has wired up its listener.
+        self._listener_count: int = 0
         self._listener_attached: asyncio.Event = asyncio.Event()
         self._listener_attached.set()
         self._listener_detached: asyncio.Event = asyncio.Event()
+
+        # True while the stream is running with no listener past the
+        # grace window (the closed-tab case). Cleared on reattach.
+        # Counts against MAX_BACKGROUND_PER_USER.
+        self.background: bool = False
+        self.started_ts: float = time.monotonic()
 
         self.done: bool = False
         self.truncated: bool = False
@@ -129,28 +159,44 @@ class Stream:
         self._wake.clear()
         await self._wake.wait()
 
+    @property
+    def last_seq(self) -> int:
+        """Seq of the most recently recorded event (0 if none yet)."""
+        return self._next_seq - 1
+
     # -- listener API ------------------------------------------------------
 
     def attach_listener(self) -> None:
+        self._listener_count += 1
         self._listener_detached.clear()
         self._listener_attached.set()
         self.last_disconnect_ts = None
+        # A watched stream is not background; freeing the cap slot on
+        # reattach keeps the per-user count honest.
+        self.background = False
 
     def detach_listener(self) -> None:
-        self._listener_attached.clear()
-        self._listener_detached.set()
-        self.last_disconnect_ts = time.monotonic()
+        self._listener_count = max(0, self._listener_count - 1)
+        if self._listener_count == 0:
+            self._listener_attached.clear()
+            self._listener_detached.set()
+            self.last_disconnect_ts = time.monotonic()
 
     @property
     def listener_attached(self) -> bool:
-        return self._listener_attached.is_set()
+        return self._listener_count > 0
 
 
 async def _grace_timer(stream: Stream) -> None:
-    """Per-stream supervisor: wait for the listener to detach, then give
-    GRACE_S for a reconnect. If grace expires with no reattach, fire
-    ``cancel_event`` — the P0 #2 cancellation cascade in chat_service
-    runs from there unchanged."""
+    """Per-stream supervisor: wait for the last listener to detach, then
+    give GRACE_S for a reconnect. If grace expires with no reattach, the
+    stream is promoted to background and keeps running (the closed-tab
+    case: the turn completes and persists, the answer is there on
+    reopen). Grace expiry only cancels when the user is already at
+    MAX_BACKGROUND_PER_USER, and a listenerless stream is cancelled
+    outright once it is older than BACKGROUND_MAX_S — the P0 #2
+    cancellation cascade in chat_service runs from ``cancel_event``
+    unchanged in both fallback paths."""
     try:
         while not stream.done:
             await stream._listener_detached.wait()
@@ -163,12 +209,53 @@ async def _grace_timer(stream: Stream) -> None:
                 # Reattached in time; loop to wait for the next detach.
                 continue
             except asyncio.TimeoutError:
+                pass
+
+            # Grace expired with no listener. Promote to background if
+            # the user has cap room, else fall back to cancelling.
+            others = registry.count_background(
+                stream.user_email, exclude_stream_id=stream.stream_id
+            )
+            if others >= MAX_BACKGROUND_PER_USER:
                 logger.info(
-                    "stream %s grace expired (%ds); cancelling",
-                    stream.stream_id, int(GRACE_S),
+                    "stream %s grace expired (%ds) at background cap "
+                    "(%d); cancelling",
+                    stream.stream_id, int(GRACE_S), others,
                 )
                 stream.cancel_event.set()
                 return
+
+            stream.background = True
+            logger.info(
+                "stream %s grace expired (%ds); promoted to background "
+                "(user has %d other background stream(s))",
+                stream.stream_id, int(GRACE_S), others,
+            )
+
+            # Supervise the background stream until a listener reattaches
+            # (attach_listener clears ``background``; loop back to
+            # waiting for the next detach) or the wall-clock runaway
+            # guard fires.
+            remaining = BACKGROUND_MAX_S - (
+                time.monotonic() - stream.started_ts
+            )
+            if remaining > 0:
+                try:
+                    await asyncio.wait_for(
+                        stream._listener_attached.wait(), timeout=remaining
+                    )
+                    continue
+                except asyncio.TimeoutError:
+                    pass
+            if stream.done:
+                return
+            logger.warning(
+                "stream %s exceeded BACKGROUND_MAX_S (%ds) with no "
+                "listener; cancelling",
+                stream.stream_id, int(BACKGROUND_MAX_S),
+            )
+            stream.cancel_event.set()
+            return
     except asyncio.CancelledError:
         # Janitor or shutdown cancelled us. Don't propagate.
         return
@@ -186,6 +273,48 @@ class StreamRegistry:
 
     def get(self, stream_id: str) -> Optional[Stream]:
         return self._streams.get(stream_id)
+
+    def count_background(
+        self, user_email: str, exclude_stream_id: Optional[str] = None
+    ) -> int:
+        """In-flight background streams owned by ``user_email``. Linear
+        scan; the registry holds at most tens of entries."""
+        return sum(
+            1
+            for s in self._streams.values()
+            if s.user_email == user_email
+            and not s.done
+            and s.background
+            and s.stream_id != exclude_stream_id
+        )
+
+    def in_flight_conversation_ids(self, user_email: str) -> set:
+        """Conversation ids with a live (not done) stream owned by
+        ``user_email``. Feeds the sidebar's "generating" flag."""
+        return {
+            s.conversation_id
+            for s in self._streams.values()
+            if not s.done
+            and s.user_email == user_email
+            and s.conversation_id
+        }
+
+    def find_for_conversation(
+        self, conversation_id: str, user_email: str
+    ) -> Optional[Stream]:
+        """Newest stream for a conversation, owned by ``user_email``.
+        Includes recently-completed streams still under DONE_RETENTION_S
+        (callers read ``stream.done`` to tell the cases apart); returns
+        None once the janitor has evicted everything for the id."""
+        candidates = [
+            s
+            for s in self._streams.values()
+            if s.conversation_id == conversation_id
+            and s.user_email == user_email
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda s: s.started_ts)
 
     def start_janitor(self) -> None:
         """Spawn the background cleanup task. Idempotent."""

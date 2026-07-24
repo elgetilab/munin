@@ -1,6 +1,12 @@
 # Background turn completion ("close the tab, the answer still lands")
 
-Status: PLANNED, awaiting go-ahead.
+Status: Phase A IMPLEMENTED 2026-07-25 (committed, not deployed);
+B/C/D pending. Defaults confirmed: MAX_BACKGROUND_PER_USER=2,
+BACKGROUND_MAX_S=30min, cap cancels the new stream, Stop keeps the
+save-always partial persist. Follow-up noted during A: the save-always
+marker text "client disconnected before completion" now really means
+"cancelled" (Stop / cap / runaway); revisit the wording alongside
+Phase C's Stop rework, tests assert the current string.
 
 ## Goal
 

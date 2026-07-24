@@ -206,52 +206,254 @@ def test_serve_attaches_and_detaches() -> bool:
 # Grace timer
 # ---------------------------------------------------------------------------
 
-def test_grace_fires_cancel_after_window() -> bool:
-    """With a tiny grace window, an unreattached detach must fire
-    cancel_event."""
+def test_grace_promotes_to_background() -> bool:
+    """Background turns: grace expiry with cap room must PROMOTE the
+    stream (background=True, keeps running), not cancel it. This
+    replaces the pre-background-turns test that asserted cancellation
+    here."""
     async def go():
         orig = stream_registry.GRACE_S
         stream_registry.GRACE_S = 0.1
         try:
             s = Stream(user_email="u@x", conversation_id="c1")
+            s.attach_listener()
             grace = asyncio.create_task(_grace_timer(s))
             s.detach_listener()
-            try:
-                await asyncio.wait_for(s.cancel_event.wait(), timeout=0.5)
-                fired = True
-            except asyncio.TimeoutError:
-                fired = False
+            await asyncio.sleep(0.3)
+            promoted = s.background and not s.cancel_event.is_set()
             grace.cancel()
-            return fired
+            return promoted
         finally:
             stream_registry.GRACE_S = orig
 
     return _check(
-        "grace timer fires cancel_event after the window expires",
+        "grace expiry promotes to background instead of cancelling",
         asyncio.run(go()),
     )
 
 
 def test_grace_does_not_fire_if_reattached() -> bool:
-    """Reattach during the grace window must cancel the cancel."""
+    """Reattach during the grace window: no cancel, no promotion."""
     async def go():
         orig = stream_registry.GRACE_S
         stream_registry.GRACE_S = 0.2
         try:
             s = Stream(user_email="u@x", conversation_id="c1")
+            s.attach_listener()
             grace = asyncio.create_task(_grace_timer(s))
             s.detach_listener()
             await asyncio.sleep(0.05)
             s.attach_listener()
             await asyncio.sleep(0.3)
-            fired = s.cancel_event.is_set()
+            ok = not s.cancel_event.is_set() and not s.background
             grace.cancel()
-            return fired is False
+            return ok
         finally:
             stream_registry.GRACE_S = orig
 
     return _check(
         "reattach within the grace window prevents cancellation",
+        asyncio.run(go()),
+    )
+
+
+def test_grace_cancels_at_background_cap() -> bool:
+    """A user already at MAX_BACKGROUND_PER_USER gets the pre-background
+    behavior: grace expiry cancels. Seeds the process-wide registry
+    (which _grace_timer consults) and cleans it up."""
+    async def go():
+        orig = stream_registry.GRACE_S
+        stream_registry.GRACE_S = 0.1
+        seeded: list[Stream] = []
+        try:
+            for i in range(stream_registry.MAX_BACKGROUND_PER_USER):
+                other = Stream(user_email="u@x", conversation_id=f"bg{i}")
+                other.background = True
+                stream_registry.registry.register(other)
+                seeded.append(other)
+            s = Stream(user_email="u@x", conversation_id="c1")
+            s.attach_listener()
+            grace = asyncio.create_task(_grace_timer(s))
+            s.detach_listener()
+            try:
+                await asyncio.wait_for(s.cancel_event.wait(), timeout=0.5)
+                cancelled = True
+            except asyncio.TimeoutError:
+                cancelled = False
+            grace.cancel()
+            return cancelled and not s.background
+        finally:
+            stream_registry.GRACE_S = orig
+            for other in seeded:
+                stream_registry.registry._streams.pop(other.stream_id, None)
+
+    return _check(
+        "grace expiry at the per-user background cap still cancels",
+        asyncio.run(go()),
+    )
+
+
+def test_background_hard_cap_cancels() -> bool:
+    """A listenerless background stream must be cancelled once it is
+    older than BACKGROUND_MAX_S (runaway guard)."""
+    async def go():
+        orig_grace = stream_registry.GRACE_S
+        orig_max = stream_registry.BACKGROUND_MAX_S
+        stream_registry.GRACE_S = 0.05
+        stream_registry.BACKGROUND_MAX_S = 0.2
+        try:
+            s = Stream(user_email="u@x", conversation_id="c1")
+            s.attach_listener()
+            grace = asyncio.create_task(_grace_timer(s))
+            s.detach_listener()
+            await asyncio.sleep(0.1)
+            was_promoted = s.background
+            try:
+                await asyncio.wait_for(s.cancel_event.wait(), timeout=0.5)
+                cancelled = True
+            except asyncio.TimeoutError:
+                cancelled = False
+            grace.cancel()
+            return was_promoted and cancelled
+        finally:
+            stream_registry.GRACE_S = orig_grace
+            stream_registry.BACKGROUND_MAX_S = orig_max
+
+    return _check(
+        "listenerless background stream is cancelled at BACKGROUND_MAX_S",
+        asyncio.run(go()),
+    )
+
+
+def test_reattach_clears_background() -> bool:
+    """Re-attaching to a background stream must clear the flag (freeing
+    the cap slot) and keep the stream alive; a later detach re-enters
+    the grace cycle."""
+    async def go():
+        orig = stream_registry.GRACE_S
+        stream_registry.GRACE_S = 0.1
+        try:
+            s = Stream(user_email="u@x", conversation_id="c1")
+            s.attach_listener()
+            grace = asyncio.create_task(_grace_timer(s))
+            s.detach_listener()
+            await asyncio.sleep(0.2)
+            promoted = s.background
+            s.attach_listener()
+            cleared = not s.background
+            # Detach again: the timer loops and re-promotes.
+            s.detach_listener()
+            await asyncio.sleep(0.3)
+            repromoted = s.background and not s.cancel_event.is_set()
+            grace.cancel()
+            return promoted and cleared and repromoted
+        finally:
+            stream_registry.GRACE_S = orig
+
+    return _check(
+        "reattach clears background; next detach re-promotes",
+        asyncio.run(go()),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Listener refcount (two tabs on one stream)
+# ---------------------------------------------------------------------------
+
+def test_listener_refcount_second_tab() -> bool:
+    """Two listeners attached, one detaches: the stream must still count
+    as attached and the grace cycle must not engage. Only when the last
+    listener detaches does promotion happen."""
+    async def go():
+        orig = stream_registry.GRACE_S
+        stream_registry.GRACE_S = 0.1
+        try:
+            s = Stream(user_email="u@x", conversation_id="c1")
+            s.attach_listener()   # tab 1
+            s.attach_listener()   # tab 2
+            grace = asyncio.create_task(_grace_timer(s))
+            s.detach_listener()   # tab 2 closes
+            await asyncio.sleep(0.3)
+            still_attached = s.listener_attached
+            untouched = not s.background and not s.cancel_event.is_set()
+            s.detach_listener()   # tab 1 closes
+            await asyncio.sleep(0.3)
+            promoted = s.background and not s.cancel_event.is_set()
+            grace.cancel()
+            return still_attached and untouched and promoted
+        finally:
+            stream_registry.GRACE_S = orig
+
+    return _check(
+        "refcounted listeners: one of two detaching does not start grace",
+        asyncio.run(go()),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Registry lookup helpers (background turns)
+# ---------------------------------------------------------------------------
+
+def test_registry_count_background() -> bool:
+    async def go():
+        r = StreamRegistry()
+        a = Stream(user_email="u@x", conversation_id="c1")
+        a.background = True
+        b = Stream(user_email="u@x", conversation_id="c2")
+        b.background = True
+        b.mark_done()          # done: must not count
+        c = Stream(user_email="u@x", conversation_id="c3")  # not background
+        d = Stream(user_email="v@x", conversation_id="c4")
+        d.background = True    # other user: must not count
+        for s in (a, b, c, d):
+            r.register(s)
+        return (
+            r.count_background("u@x") == 1
+            and r.count_background("u@x", exclude_stream_id=a.stream_id) == 0
+            and r.count_background("v@x") == 1
+        )
+
+    return _check(
+        "count_background filters done/other-user/excluded streams",
+        asyncio.run(go()),
+    )
+
+
+def test_registry_find_for_conversation() -> bool:
+    async def go():
+        r = StreamRegistry()
+        old = Stream(user_email="u@x", conversation_id="c1")
+        old.started_ts -= 100.0  # force ordering
+        new = Stream(user_email="u@x", conversation_id="c1")
+        other_user = Stream(user_email="v@x", conversation_id="c1")
+        for s in (old, new, other_user):
+            r.register(s)
+        found = r.find_for_conversation("c1", "u@x")
+        none_for_wrong_user = r.find_for_conversation("c1", "w@x") is None
+        none_for_unknown = r.find_for_conversation("nope", "u@x") is None
+        return (
+            found is new and none_for_wrong_user and none_for_unknown
+        )
+
+    return _check(
+        "find_for_conversation returns newest owned stream only",
+        asyncio.run(go()),
+    )
+
+
+def test_registry_in_flight_conversation_ids() -> bool:
+    async def go():
+        r = StreamRegistry()
+        live = Stream(user_email="u@x", conversation_id="c1")
+        finished = Stream(user_email="u@x", conversation_id="c2")
+        finished.mark_done()
+        ephemeral = Stream(user_email="u@x", conversation_id=None)
+        for s in (live, finished, ephemeral):
+            r.register(s)
+        return r.in_flight_conversation_ids("u@x") == {"c1"}
+
+    return _check(
+        "in_flight_conversation_ids: live, owned, non-ephemeral only",
         asyncio.run(go()),
     )
 
@@ -326,8 +528,15 @@ TESTS = [
     test_serve_replays_then_streams_live,
     test_serve_after_seq_skips_replayed,
     test_serve_attaches_and_detaches,
-    test_grace_fires_cancel_after_window,
+    test_grace_promotes_to_background,
     test_grace_does_not_fire_if_reattached,
+    test_grace_cancels_at_background_cap,
+    test_background_hard_cap_cancels,
+    test_reattach_clears_background,
+    test_listener_refcount_second_tab,
+    test_registry_count_background,
+    test_registry_find_for_conversation,
+    test_registry_in_flight_conversation_ids,
     test_parse_last_event_id_basic,
     test_registry_register_get,
     test_registry_janitor_drops_completed_streams,

@@ -1589,11 +1589,15 @@ async def stream_chat_completion(
     model still has full access to tools — "ephemeral" means not stored by
     Munin, not untrackable by the world.
 
-    ``cancel_event`` is set by main.py's disconnect watchdog when the client
-    drops. We poll it at safe seams (turn boundaries, before wrap-up, before
-    auto-title) to skip work no one's waiting for, and use it to proactively
-    cancel the in-flight tool runner task so a long ``run_python`` doesn't
-    keep a vLLM slot held after disconnect.
+    ``cancel_event`` is set by the explicit cancel endpoint (the Stop
+    button), or by stream_registry's grace timer when a listenerless
+    stream can't be promoted to background (per-user cap) or outlives
+    the BACKGROUND_MAX_S runaway guard. A plain disconnect no longer
+    cancels — the turn runs to completion in the background and
+    persists. We poll the event at safe seams (turn boundaries, before
+    wrap-up, before auto-title) to skip work no one's waiting for, and
+    use it to proactively cancel the in-flight tool runner task so a
+    long ``run_python`` doesn't keep a vLLM slot held after cancel.
     """
 
     def _cancelled() -> bool:
@@ -2775,11 +2779,12 @@ async def stream_chat_completion(
                 # they themselves closed the tab).
                 #
                 # We treat the turn as a disconnect when EITHER
-                # cancel_event was explicitly set by main.py's
-                # disconnect watchdog OR the in-flight exception is
-                # GeneratorExit / CancelledError (the consumer
-                # aclose()'d this generator without the watchdog
-                # participating; happens in tests + during shutdown).
+                # cancel_event was set (Stop button, background-cap
+                # fallback, or the BACKGROUND_MAX_S runaway guard) OR
+                # the in-flight exception is GeneratorExit /
+                # CancelledError (the consumer aclose()'d this
+                # generator without the event participating; happens
+                # in tests + during shutdown).
                 _exc_type = sys.exc_info()[0]
                 _disconnect_seen = _cancelled() or _exc_type in (
                     GeneratorExit, asyncio.CancelledError
