@@ -14,13 +14,15 @@ is the durable summary. Numbers are copied from the result JSONs, not memory.
 - Metric = our `munin_bench.metrics`, verified bit-identical to `pytrec_eval`.
 - CIs are 95% percentile bootstrap (1000 resamples, seed 42).
 
-> **One-line story (updated 2026-07-10):** retrieval was the bottleneck (SPECTER
-> answer acc 0.43 ≈ recall 0.44), so we migrated the encoder to BGE-large
-> (Recall@10 0.44 -> 0.73, answer acc +0.075, DONE + live). Later work then
-> characterised the AGENTIC HARNESS: over-tooling is fixable only by a code cap
-> (prompt levers backfired/null), and the answers' un-grounded content is faithful
-> synthesis, NOT hallucination (Track C1: 0 confabulation on fabricated papers;
-> the model errs conservative - ~48% over-abstention). Full arc below.
+> **One-line story (updated 2026-07-24):** retrieval was the FIRST bottleneck
+> (SPECTER answer acc 0.43 ≈ recall 0.44), fixed by the BGE-large migration
+> (Recall@10 0.44 -> 0.73, answer acc -> 0.497). The bigger lever came later: the
+> flat tool loop was replaced by named agents, and `source(mode=qa)` reading FULL
+> text instead of `read_paper`'s summarise-and-discard collapsed over-abstention
+> from ~42% to 6% and took **LitQA2 answer accuracy 0.497 -> 0.864** (precision
+> 0.92, past PaperQA2's 0.66). So the reading path, not retrieval, was the real
+> ceiling on single-source answering; retrieval/corpus now bounds only BREADTH
+> (distinct sources per Deep Research report). Full arc below.
 
 ---
 
@@ -198,6 +200,62 @@ ONLY one - the model abstains on ~40% of questions even with good retrieval, so
 a large recall gain yields only a modest accuracy gain. The naive "accuracy ~=
 recall -> ~0.73" projection was wrong. Scorecards:
 `2026-07-06_answer-{specter-v1-v2,bge-large-v2}.json`.
+
+---
+
+## LitQA2 answer — post agent-architecture  · git `9f0c02a` · 2026-07-24
+
+The single biggest answer-accuracy move in the suite, and it is NOT an encoder
+or retrieval change. Between 2026-07-06 and 2026-07-24 the flat MCP tool loop was
+replaced by the four named agents (source / search / compute / deep_research).
+The load-bearing one for this benchmark is `source(mode=qa)`, which reads the
+**full paper text** in one LLM call instead of `read_paper`'s
+summarise-and-discard. Track D had shown the discard step was the bottleneck: a
+full-text oracle flipped 9/11 over-abstentions to correct (0.82 ceiling). The
+`source` agent was built to deliver that oracle in production.
+
+Same 199 questions, same model (`qwen3.6-35b-a3b`), same encoder (BGE-large),
+same runner + scoring code as the 2026-07-06 baseline (verified by git log on
+`litqa2_runner.py`).
+
+| metric | 2026-07-06 baseline | 2026-07-24 (900s) | Δ |
+|---|---|---|---|
+| accuracy | 0.497 [0.432, 0.563] | **0.864 [0.819, 0.910]** | +0.367 |
+| precision (attempted) | 0.853 (n=116) | 0.920 (n=187) | +0.067 |
+| withheld (abstain+unparse) | 83/199 (42%) | 12/199 (6%) | -71 |
+| verdicts | 99 correct | 172 correct / 15 wrong / 12 abstain / 0 unparse | |
+
+The CIs are disjoint (baseline tops out at 0.563). **This clears the 0.82
+architectural ceiling (0.864) and exceeds PaperQA2's published 0.660** — with the
+standing caveat that it is not like-for-like (PaperQA2 was trained on LitQA2;
+Qwen3.6 was not, so the comparison flatters Munin here).
+
+DEADLINE, and why it moved again. The Phase C run used a 300s wall-clock deadline.
+`source(mode=qa)` reads full text with thinking ON (~20s/read after the
+2026-07-23 findings-mode fix), so a research turn doing several reads now
+legitimately needs more than 5 minutes. A first full run at 300s scored **0.814**
+but truncated 11 answers (all counted wrong). Raising the deadline to 900s
+(`f4558c4`) and re-running clean gave 0.864 with **0 truncations, 0
+unparseable**. The 300s and 900s runs are BOTH valid; use 0.814 only if comparing
+to the 300s-era baseline directly, 0.864 as the current headline.
+
+STOCHASTICITY CAVEAT (measured, not assumed). Comparing the 300s and 900s runs
+question-by-question, 34/199 verdicts changed - and only 11 of those were the
+recovered truncations. 6 correct->incorrect and 6 incorrect->correct flipped
+purely from temperature-0.7 resampling. The net gain is real (CI floor rose
+0.759 -> 0.819) but any single-question or sub-3-point delta on this benchmark is
+inside the noise floor. Trust aggregates, not individual runs.
+
+Scorecard: `2026-07-24_answer-full-900s.json`. The 300s comparison run is
+preserved off-tree.
+
+**Revised thesis (supersedes Phase C's).** Phase C concluded retrieval was the
+dominant bottleneck and the model's ~40% abstention was a hard floor. That floor
+was NOT the model - it was `read_paper` discarding the text that held the answer.
+Giving the model the full text (source-qa) collapsed over-abstention from ~42% to
+6% and roughly doubled accuracy. Retrieval quality still bounds BREADTH (how many
+distinct sources a Deep Research report can cite - see `todo_v2/TODO.md`), but on
+single-source MCQ answering the reading path, not retrieval, was the ceiling.
 
 ---
 
