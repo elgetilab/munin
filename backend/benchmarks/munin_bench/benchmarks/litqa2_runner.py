@@ -270,7 +270,7 @@ def parse_letter(text: str, letters: list[str], options: dict | None = None) -> 
 
 
 def _ask_chat(base_url: str, email: str, prompt: str, sock_timeout=60,
-              deadline=300) -> tuple[str, bool]:
+              deadline=900) -> tuple[str, bool]:
     """Stream one research chat and return the accumulated answer text.
 
     Two guards, because the SSE stream sends `: keepalive` comments every ~15s
@@ -278,6 +278,15 @@ def _ask_chat(base_url: str, email: str, prompt: str, sock_timeout=60,
     read; (2) deadline is an application-level wall-clock cap on the whole
     request so a generation that stalls-but-keeps-alive can't hang a worker
     forever. On deadline we return whatever content arrived (parsed best-effort).
+
+    `deadline` was 300s until 2026-07-24. Every one of the 11 "unparseable"
+    verdicts in the 2026-07-24 run was a deadline truncation (truncation was
+    perfectly predictive: no truncated response ever parsed), and 6 of them had
+    produced only whitespace, i.e. the agent was still inside its tool loop when
+    the clock ran out. A single `source` read now costs ~20s (full text, thinking
+    on), so a research turn doing several reads plus synthesis legitimately needs
+    more than 5 minutes. 900s gives it room; a genuinely hung request is still
+    bounded.
     """
     import time
     body = {"persona": "research", "ephemeral": True,
@@ -392,6 +401,7 @@ def run_answer(qc, *, base_url, email, results_root, n_resamples=1000,
         "n": n, "correct": correct, "incorrect": incorrect,
         "abstain": abstain, "unparseable": unparse, "error": error,
         "attempted": attempted,
+        "deadline_truncated": sum(1 for r in results if r.get("truncated")),
         "git_sha": _git_sha(),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "paperqa2_accuracy_published": PAPERQA2_ACCURACY,
@@ -420,9 +430,18 @@ def run_answer(qc, *, base_url, email, results_root, n_resamples=1000,
     with open(os.path.join(out_dir, "answer.json"), "w") as fh:
         json.dump(payload, fh, indent=2)
     _write_answer_md(out_dir, payload)
+    # Report deadline truncations SEPARATELY. Lumping them into "unparseable"
+    # hides a harness limit as if it were a model failure: in the 2026-07-24 run
+    # all 11 unparseables were truncations, which reads very differently.
+    n_trunc = sum(1 for r in results if r.get("truncated"))
     print(f"[litqa2-answer] accuracy={accuracy['mean']:.3f} "
           f"precision={precision['mean']:.3f} abstain={abstain}/{n} "
-          f"unparseable={unparse} -> {out_dir}/answer.{{json,md}}")
+          f"unparseable={unparse} (deadline-truncated={n_trunc}) "
+          f"-> {out_dir}/answer.{{json,md}}")
+    if n_trunc:
+        print(f"[litqa2-answer] WARNING: {n_trunc}/{n} responses hit the "
+              f"wall-clock deadline before answering. These score as wrong. "
+              f"Raise `deadline` in _ask_chat if the agent needs longer.")
     return payload
 
 
