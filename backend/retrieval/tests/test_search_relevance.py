@@ -177,3 +177,51 @@ def test_oa_queries_falls_back_when_stripped_too_far():
 def test_oa_queries_dedupes():
     out = SA._oa_queries(["kinase inhibitor membrane", "the kinase inhibitor membrane"])
     assert len(out) == 1
+
+
+# ---------------------------------------------------------------------------
+# DR read ordering (the read pool must follow relevance, not tier order)
+# ---------------------------------------------------------------------------
+
+def test_read_order_is_by_relevance_not_tier():
+    """Regression guard for the 2026-07-24 blocker: `search` returns corpus
+    first with the reserved OA/web slots at the TAIL, and read_cap then took the
+    head, so the external tiers were never read despite scoring highest."""
+    import importlib as _il
+    _il.import_module("deep_research_agent")
+    DR = sys.modules["deep_research_agent"]
+
+    ranked = ([{"source_type": "corpus_paper", "doi": f"10.c/{i}", "relevance": 0.65}
+               for i in range(11)]
+              + [{"source_type": "oa_paper", "doi": "10.o/1", "relevance": 0.75}]
+              + [{"source_type": "web", "url": "https://e.org/1", "relevance": 0.83}])
+    ordered = sorted(ranked, key=DR._read_order_key)
+    assert ordered[0]["source_type"] == "web", "highest relevance must be read first"
+    assert ordered[1]["source_type"] == "oa_paper"
+    # With read_cap=6 the external tiers now actually get read.
+    assert {c["source_type"] for c in ordered[:6]} == {"web", "oa_paper", "corpus_paper"}
+
+
+def test_read_order_falls_back_to_tier_order_without_relevance():
+    """Encoder unavailable -> no relevance -> stable sort preserves the original
+    corpus-first order, i.e. exactly the old behaviour."""
+    import importlib as _il
+    _il.import_module("deep_research_agent")
+    DR = sys.modules["deep_research_agent"]
+
+    ranked = [{"source_type": "corpus_paper", "doi": "10.c/1"},
+              {"source_type": "oa_paper", "doi": "10.o/1"},
+              {"source_type": "web", "url": "https://e.org/1"}]
+    ordered = sorted(ranked, key=DR._read_order_key)
+    assert [c["source_type"] for c in ordered] == ["corpus_paper", "oa_paper", "web"]
+
+
+def test_read_order_mixed_scored_and_unscored():
+    import importlib as _il
+    _il.import_module("deep_research_agent")
+    DR = sys.modules["deep_research_agent"]
+
+    ranked = [{"source_type": "corpus_paper", "doi": "10.c/1"},
+              {"source_type": "web", "url": "https://e.org/1", "relevance": 0.80}]
+    ordered = sorted(ranked, key=DR._read_order_key)
+    assert ordered[0]["source_type"] == "web", "scored candidates lead unscored"

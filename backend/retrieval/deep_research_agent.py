@@ -260,6 +260,20 @@ async def _read_candidates(node: dict, candidates: list[dict], cap: int,
     return reads
 
 
+def _read_order_key(c: dict):
+    """Sort key putting the most relevant candidate first, regardless of tier.
+
+    Candidates with no `relevance` (encoder unavailable, so `search` fell back
+    to the legacy per-tier sort) go last as a group. Python's sort is stable, so
+    within an equal key the original tier-trust order is preserved - which makes
+    a missing encoder degrade to exactly the old behaviour.
+    """
+    rel = c.get("relevance")
+    if rel is None:
+        return (1, 0.0)
+    return (0, -float(rel))
+
+
 async def _resolve(node: dict, depth: str, read_cap: int, screen_keep: int,
                    tr: AgentTrace, progress: Optional[ProgressFn] = None) -> None:
     """Fill a plan node's notes via search -> screen -> read. Emits tool cards."""
@@ -272,6 +286,15 @@ async def _resolve(node: dict, depth: str, read_cap: int, screen_keep: int,
     res = await search(query=sq, depth=depth, top_k=screen_keep + 6)
     # Keep readable candidates: papers (DOI) AND web pages (URL) - lever 1.
     candidates = [c for c in (res or {}).get("ranked", []) if c.get("doi") or c.get("url")]
+    # Read in RELEVANCE order, not tier order. `search` returns corpus first for
+    # trust, with the reserved OA/web slots appended at the tail; both the
+    # screener's `[:keep]` and the read loop's `read_cap` then take from the
+    # HEAD, so the external tiers were reserved into `ranked` and immediately
+    # truncated back out (measured 2026-07-24: 16 corpus / 2 OA / 0 web reads
+    # while the web tier held the highest-relevance candidates). Tier trust
+    # still governs how a citation is weighted; it should not decide what is
+    # worth reading. Every read is quote-grounded regardless of tier.
+    candidates = sorted(candidates, key=_read_order_key)
     kept = await _screen(sq, candidates, screen_keep, tr)
     await _emit(progress, "tool_result", id=tc,
                 summary=f"{len(candidates)} candidates, {len(kept)} kept to read")
