@@ -1,6 +1,27 @@
 # Cross-encoder re-rank: plan, with a validation gate first
 
-Status: DRAFT, awaiting decision. Motivated by `TODO.md` item 1b: after the
+Status: **NOT BUILT. Superseded 2026-07-24 by the full-text triage** (commit
+`bfe7e14`), which is the alternative this document recommended. Kept for the
+measurement that ruled the cross-encoder out.
+
+The triage was validated the same way, against 16 papers whose real read outcome
+was already known, and the contrast is stark:
+
+| approach | separation |
+|---|---|
+| bi-encoder cosine on metadata | AUC 0.655 |
+| cross-encoder on metadata | AUC 0.616 |
+| **cheap LLM call on the FULL TEXT** | **2/2 useful passed, 14/14 useless skipped, 0 wrong drops** |
+
+That is the finding in one line: **the signal that predicts a useful read lives
+in the full text, not in the title or abstract.** No metadata re-ranker was ever
+going to fix this, which is why the gate in this plan mattered.
+
+Original draft follows.
+
+---
+
+Status of the original draft: awaiting decision. Motivated by `TODO.md` item 1b: after the
 read-order fix, reads still abstain ~74% of the time, and the hypothesis was
 that bi-encoder cosine cannot separate "topically near" from "answers the
 question", so a cross-encoder should.
