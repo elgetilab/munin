@@ -266,6 +266,25 @@ over-abstention it was designed to fix has collapsed from 42% withheld to 12%.
 
 For reference, PaperQA2 on this benchmark is 0.66.
 
+**The 11 "unparseable" verdicts were a harness artefact, not a parser bug**
+(`f4558c4`). Every one was a wall-clock deadline truncation, and truncation was
+perfectly predictive: no truncated response ever parsed. Six had produced only
+whitespace, i.e. the agent was still inside its tool loop at the 300s cut-off. A
+`source` read now costs ~20s (full text, thinking on), so a research turn doing
+several reads legitimately needs longer. Deadline raised 300s -> 900s, and
+truncations are now reported separately from `unparseable` (lumping them hid a
+harness limit as a model failure). `parse_letter` was deliberately NOT touched -
+there was no evidence it was broken, and loosening a scorer to catch non-answers
+would inflate the metric rather than fix it.
+
+Re-running only those 11 with the raised deadline: **0/11 still truncated**, so
+900s is sufficient. Verdicts 6 correct / 3 abstain / 2 incorrect, giving a
+projected **0.844** (168/199) versus 0.814 measured.
+
+*Use 0.814 for the baseline comparison.* It was produced under the same harness
+as the 0.497 baseline; the 0.844 projection had a budget the baseline never got.
+A clean full re-run under the 900s deadline is what should replace it.
+
 **Attribution, honestly:** this spans 2026-07-06 to 2026-07-24, which includes
 the entire four-agent architecture landing, not just the recent retrieval work.
 The dominant cause is almost certainly `source(mode=qa)` reading FULL text
