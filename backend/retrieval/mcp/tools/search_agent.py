@@ -135,6 +135,7 @@ async def search(query: str, filters: Optional[dict] = None,
     egress to permit it. See module docstring for the full contract.
     """
     from mcp.tools.papers import paper_search, semantic_scholar_search
+    from mcp.tools.query_expansion import expand_queries
     from mcp.tools.web import web_search
     import asyncio
 
@@ -152,11 +153,22 @@ async def search(query: str, filters: Optional[dict] = None,
     tr.decide("tier fan-out", corpus=True, oa=do_oa, web=do_web,
               egress=P.get_egress())
 
-    tasks = [paper_search(query=query, top_k=top_k, tags=tags)]
+    # Expand ONCE here and hand the same variant list to every tier. Passing
+    # `query=` instead would make each tool expand independently: three vLLM
+    # calls per search, and three different variant lists, so the tiers would be
+    # answering different questions and their scores would not be comparable.
+    # `expand_queries` always returns [base, ...variants], so the user's exact
+    # wording is still executed verbatim against each tier.
+    variants = await expand_queries(query, n=5)
+    if not variants:
+        variants = [query]
+    tr.decide("query expansion", n_variants=len(variants))
+
+    tasks = [paper_search(queries=variants, top_k=top_k, tags=tags)]
     if do_oa:
-        tasks.append(semantic_scholar_search(query=query, top_k=top_k, year=year))
+        tasks.append(semantic_scholar_search(queries=variants, top_k=top_k, year=year))
     if do_web:
-        tasks.append(web_search(query=query, top_k=top_k))
+        tasks.append(web_search(queries=variants, top_k=top_k))
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     corpus_res = results[0] if not isinstance(results[0], Exception) else {}
@@ -179,7 +191,9 @@ async def search(query: str, filters: Optional[dict] = None,
     applied_tags = (corpus_res or {}).get("applied_tags")
     coverage_note = None
     if applied_tags:
-        unscoped = await paper_search(query=query, top_k=top_k, tags=[])
+        # Same variants as the scoped call, or the comparison would be against a
+        # different expansion (and would burn a fourth expansion call).
+        unscoped = await paper_search(queries=variants, top_k=top_k, tags=[])
         scoped_n = len(corpus_hits)
         unscoped_n = len((unscoped or {}).get("results", []))
         coverage_note = (f"{scoped_n} in the active scope; "
