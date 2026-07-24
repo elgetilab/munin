@@ -127,6 +127,50 @@ vocabulary overlap. Cosine ranking cannot separate those from genuine hits.
   it passes vocabulary-overlap papers straight into the read budget.
 - Corpus depth on the specific intersection remains a real, separate constraint.
 
+### Full-text triage shipped and measured (2026-07-24, `bfe7e14`)
+
+A cheap yes/no relevance call over the full text now gates the expensive
+8000-token findings extraction. Validated before building against 16 papers with
+known read outcomes (2/2 useful passed, 14/14 useless skipped), after metadata
+re-ranking was ruled out (bi-encoder AUC 0.655, cross-encoder 0.616 - see
+`CROSS-ENCODER-PLAN.md`). The signal that predicts a useful read lives in the
+full text, not the title or abstract.
+
+Live run, same capstone question and parameters as before:
+
+| | without triage | with triage |
+|---|---|---|
+| reads | 19 | **23** |
+| notes | 8 | **11** |
+| distinct sources | 3 | **4** |
+| sub-questions resolved | 1/3 | **2/3** |
+| wall clock | ~220s | 285s |
+
+Per-read timings confirm the mechanism: **8 of 20 reads were triaged out** at
+~3.6s each (29s total) where a full extraction costs ~18s, so roughly **115s was
+saved and reinvested** into more reads and more snowball (which fired harder
+because more sub-questions resolved). The run is longer because it did more work,
+not because triage is slow: a skipped read measured 2.5s against 22.9s for a full
+extraction.
+
+**False-negative check.** Two skips looked suspicious, notably "The interaction
+of sorafenib and regorafenib with membranes is modulated by their lipid
+composition" - on its title, a direct hit. Checked via `qa` (which bypasses the
+gate): the paper was available at `read_depth: abstract` only, the abstract
+carries no mechanistic content, and `qa` "resolved" it purely from model
+knowledge with an EMPTY quote. `findings` requires a verbatim quote, so the skip
+was correct. No false negative found, but this is the failure mode to keep
+watching, and every skip is traced for exactly that reason.
+
+**Remaining waste:** 8 reads passed triage and still yielded nothing, costing
+79s. That is the recall bias working as designed (D8: when uncertain, read it).
+Tightening the prompt would recover that time at the cost of real false
+negatives, which is the wrong trade until breadth is no longer the priority.
+
+**Next:** reads are now materially cheaper, so raising `read_cap` (currently 6
+per sub-question in these measurements) is the natural way to convert the saving
+into breadth. That is the experiment to run next.
+
 **Real breadth levers (corrected):**
 - Retrieval relevance, esp. the OA/Semantic Scholar tier returning off-topic
   papers for specific queries; the ranker/embedding doesn't distinguish "kinase
