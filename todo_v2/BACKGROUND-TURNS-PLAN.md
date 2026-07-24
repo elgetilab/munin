@@ -1,7 +1,9 @@
 # Background turn completion ("close the tab, the answer still lands")
 
-Status: Phases A+B+C IMPLEMENTED 2026-07-25 (committed, not
-deployed); D (contract docs) pending. C deviations from plan: the
+Status: ALL PHASES (A-D) IMPLEMENTED 2026-07-25, committed, NOT yet
+deployed. Remaining before archiving to done/: deploy backend
+(deploy.sh), deploy VPS (gateway + webui, backend first), then the
+manual close-tab matrix below plus the gateway keepalive curl. C deviations from plan: the
 mount-time resume now goes through loadConversation (server truth)
 instead of resuming straight off the stored last_event_id — this also
 fixes a latent P1 #10 wart where the post-refresh final bubble was

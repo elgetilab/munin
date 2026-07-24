@@ -186,7 +186,8 @@ Lists the authenticated user's conversations.
       "pinned": true,
       "pinned_at": "2026-04-14T09:00:00Z",
       "message_count": 4,
-      "preview": "Can you explain the differences between..."
+      "preview": "Can you explain the differences between...",
+      "generating": false
     }
   ],
   "total": 42
@@ -197,6 +198,11 @@ Notes:
 
 - Ordered by `pinned DESC, updated_at DESC` - pinned conversations float
   to the top of the listing regardless of their last activity.
+- `generating` (background turns): `true` when the conversation has a
+  live in-flight stream in the server's registry. Derived per request
+  from in-process state, no DB column. The webui renders a pulsing
+  dot on the sidebar row; the value is only as fresh as the listing
+  fetch.
 - `pinned_at` is `null` for unpinned rows.
 - `preview` is the **first user message** of the conversation, truncated to
   117 chars + ellipsis.
@@ -254,6 +260,21 @@ Loads a full conversation with messages in order.
   not strings.
 - `thinking` is the accumulated `reasoning_content` from the vLLM stream.
 - Ownership is enforced by `WHERE user_email = ?`; we don't leak 403 vs 404.
+- The response also carries `active_stream` (background turns): the
+  registry's newest stream for this conversation, or `null`:
+
+  ```json
+  "active_stream": {"stream_id": "abc123...", "done": false, "last_seq": 41}
+  ```
+
+  `done: false` means a turn is still generating — the client should
+  re-attach via §4.8a with **no** `Last-Event-ID` so the full log
+  replays (the transcript above only contains persisted turns).
+  `done: true` means the turn completed within the ~60 s retention
+  window and its answer is already in `messages`. A `null` says
+  nothing about the past: completed streams are evicted ~60 s after
+  finishing. Like `generating`, this is in-process registry state, so
+  it does not survive a retrieval-service restart.
 
 ### 4.6 `PATCH /api/chats/{id}`
 
@@ -422,9 +443,11 @@ unchanged so the client can trim and retry.
 **`id:` framing and reconnect (P1 #10).** Every SSE event carries an
 `id: <stream_id>-<seq>` line where `seq` is a monotonic per-stream
 integer starting at 1. The first `conversation` event's payload also
-carries `stream_id` so the client can persist it (e.g. sessionStorage)
-and resume across a browser refresh. SSE comments (`: keepalive`) fire
-every ~15 s of silence so reverse proxies don't drop idle connections.
+carries `stream_id` so the client can persist it (the webui uses
+localStorage — moved from sessionStorage for background turns, so the
+pointer survives a closed tab) and resume across a refresh or reopen.
+SSE comments (`: keepalive`) fire every ~15 s of silence so reverse
+proxies don't drop idle connections.
 
 ### 4.8a `GET /api/chat/completions/resume?stream_id=<id>`
 
@@ -435,12 +458,25 @@ with `seq > last_seq` from its in-memory log, then continues live
 until `done`. Same authorization as the POST (`X-Munin-Email` must
 match the stream's owner).
 
-The server keeps the underlying chat-completion task alive for a
-**60 s grace window** after the listener disconnects, so a brief WiFi
-blip or full page reload recovers without losing the turn. If grace
-expires with no reconnect, the work is cancelled (the P0 #2
-cancellation cascade runs and the save-always finally persists
-partial state).
+**Background turns.** A disconnect no longer cancels the turn. After
+the last listener has been gone for the **60 s grace window**, the
+stream is promoted to *background*: it keeps generating, and the
+finished answer persists through the normal completion path, so a
+closed tab still gets its answer on the next conversation load.
+Listeners are refcounted (two tabs can watch one stream); the grace
+timer only engages when the count hits zero. Bounds:
+
+- at most **2 concurrent background streams per user**
+  (`MAX_BACKGROUND_PER_USER`) — at the cap, grace expiry cancels the
+  newest candidate exactly as it did pre-background-turns;
+- a listenerless stream is hard-cancelled **30 min after it started**
+  (`BACKGROUND_MAX_S`), a runaway guard on top of the tool-turn
+  budget.
+
+Cancellation (Stop button, cap fallback, runaway guard) still runs
+the P0 #2 cascade and the save-always finally persists partial state.
+Explicit cancellation is §4.8b — closing the connection alone stops
+nothing.
 
 **Responses**:
 
@@ -448,11 +484,31 @@ partial state).
   events arrive in `seq` order, then live events follow.
 - `410 Gone` — the stream is unknown, evicted (kept ~60 s after
   completion), or its log overflowed (>1000 events) past the
-  client's checkpoint. The frontend treats this as terminal and
-  shows the partial state it already had.
+  client's checkpoint. Because the turn's outcome is persisted
+  regardless, the webui treats this as "reload the transcript"
+  (synthetic `stream_gone` event, §5), not as an error.
 - `403 Forbidden` — `X-Munin-Email` does not match the stream's
   owner. Stream ids are UUIDs so this shouldn't happen organically;
   it's a belt-and-braces check.
+
+Note for proxies: this GET has no body, so gateways that detect
+streaming by a `stream: true` body flag must also honour
+`Accept: text/event-stream` (the VPS gateway does since background
+turns Phase B) — otherwise the resumed stream gets buffered to
+completion.
+
+### 4.8b `POST /api/chat/completions/{stream_id}/cancel`
+
+Explicitly cancel an in-flight chat completion (background turns).
+Used by the webui Stop button. Idempotent.
+
+**Responses**:
+
+- `204 No Content` — cancellation signalled, or the stream had
+  already finished (no-op).
+- `410 Gone` — unknown or evicted stream id.
+- `403 Forbidden` — `X-Munin-Email` does not match the stream's
+  owner.
 
 ### 4.9 `POST /api/documents/upload`
 
@@ -1207,7 +1263,7 @@ data: <minified json>
 
 | Event | Payload | Emitted when |
 |---|---|---|
-| `conversation` | `{"id": "...", "title": "..." \| null, "is_new": true \| false, "ephemeral": true \| false, "stream_id": "..."}` | At stream start; again after auto-title for new conversations. `ephemeral: true` means the id has the `ephemeral-` prefix and was never persisted; the auto-title follow-up event is skipped. `stream_id` (P1 #10) is the server-assigned id for this SSE stream — the frontend persists it (sessionStorage) along with the latest `Last-Event-ID` so a browser refresh or WiFi blip can resume via the `/resume` endpoint |
+| `conversation` | `{"id": "...", "title": "..." \| null, "is_new": true \| false, "ephemeral": true \| false, "stream_id": "..."}` | At stream start; again after auto-title for new conversations. `ephemeral: true` means the id has the `ephemeral-` prefix and was never persisted; the auto-title follow-up event is skipped. `stream_id` (P1 #10) is the server-assigned id for this SSE stream — the frontend persists it (localStorage since background turns, so the pointer survives a closed tab) along with the latest `Last-Event-ID`, and latches it in-memory so Stop can hit §4.8b. Resume via the `/resume` endpoint |
 | `routing` | `{"profile": "chat"\|"research"\|"code", "pin": "chat"\|..., "method": "rule"\|"knn"\|"fallback"\|"pin", "confidence": 0.0}` | **A3** (persona→router migration). Fires once at stream start, before the first model call. `profile` is the per-turn routed profile (drives the layered system prompt, sampling, and tools); `pin` is the user's selected persona. `method` is how the profile was decided (`rule`=slash command, `knn`=example-set match, `fallback`=pin/chat default, `pin`=router disabled). When `ROUTER_ENABLED` is false, `profile == pin` and `method == "pin"`. Replaces the retired `persona_changed`/`delegated` events (the delegation machinery is removed at A4). |
 | `thinking` | `{"content": "partial reasoning text"}` | Multiple. Accumulate client-side. Sourced from vLLM `delta.reasoning_content` (qwen3 reasoning parser) |
 | `tool_call` | `{"id": "tc-1", "name": "paper_search", "arguments": {...}}` | Once per finalized tool call the main model asks for. Emitted after the vLLM delta for that turn finishes, not mid-arguments |
@@ -1225,6 +1281,7 @@ data: <minified json>
 | `done` | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}, "usage_by_purpose": {"main_turn": {...}, "wrap_up": {...}, ...}, "finish_reason": "stop", "terminal_reason": "done"}` | Always the last event on success. `usage` is the **aggregate across every vLLM call this turn**, not just the last one — the gateway records `total_tokens` from here for quota. `usage_by_purpose` is the same numbers broken down by call site for debugging: `main_turn`, `wrap_up`, `forced_clarification`, `forced_required`, `agent_turn`, `agent_wrap_up`, `summary`, `title`. Purposes with zero calls are omitted. `terminal_reason` ∈ `done` / `max_turns` / `stream_error` / `cancelled` — distinct from `finish_reason` (which is `stop` even after the turn-budget wrap-up). The frontend uses `terminal_reason == "max_turns"` to render a **Continue** affordance so the user can resume a task that hit its (auto-extended) tool-use budget without retyping "keep going" |
 | `retrying` | `{"attempt": N, "max_attempts": M, "delay_s": 1.0, "reason": "vllm 503"}` | A vLLM call hit a transient error (5xx / 429 / connection drop / pre-first-byte stream drop) and is about to retry. Fires before the backoff sleep. `attempt` is 1-indexed. `reason` is a short tag (e.g. `vllm 503`, `vllm ConnectError`). Multiple may fire per turn. Frontend should render a transient "reconnecting" indicator and reset it once any other event resumes |
 | `reconnecting` | `{"attempt": N, "max_attempts": M, "delay_s": 1.0}` | **Synthetic, client-side only** (P1 #10). Not emitted by the server — the frontend's SSE consumer dispatches it when an SSE connection drops and a `GET /api/chat/completions/resume` is being attempted with `Last-Event-ID`. Renders the same "reconnecting" indicator as `retrying`; cleared on the first real event from the resumed connection |
+| `stream_gone` | `{"reason": "..."}` (fields optional) | **Synthetic, client-side only** (background turns). Dispatched by `resumeChat` when a resume GET returns `410 Gone`. Because the turn's outcome — completed answer or save-always partial — is already persisted, the store reacts by **reloading the conversation transcript**, not by showing an error banner. The mid-stream reconnect loop in `streamChat` deliberately does NOT use this: there the user is watching a live bubble die, and an error banner is the honest signal |
 | `memory_proposed` | `{"id": "uuid", "key": "user_role", "value": "postdoc in Smith Lab", "reason": "stable identity fact"}` | **P2 #25**. Auto-extracted memory candidate from a post-turn classifier hook. Fires zero or more times per turn, typically AFTER `done` (the `stop` hook runs in the finally block). Only fires when `terminal_reason ∈ {done, max_turns}` — never on cancelled/error paths. Capped at 3 per turn and 10 pending per user (FIFO). Frontend renders an inline accept/reject pill below the assistant bubble; user action posts to `/api/memories/proposed/{id}/{accept,reject}`. Skips the persistent store ContextVar lookup is unavailable (ephemeral chats are silently skipped) |
 | `plan_updated` | `{"conversation_id": "...", "items": [...], "requires_approval": bool, "approved_at": str\|null, "approval_mode": "each"\|"auto", "created_at": "...", "updated_at": "..."}` | **P2 #24 Phase 1**. Fires after every successful `set_plan` or `update_plan_item` MCP tool dispatch. Frontend renders an inline `PlanCard` checkbox list above the assistant bubble whose turn last touched the plan. State persists across reloads via `Message.plan_snapshot` (also returned in `GET /api/chats/{id}` under the `plan` key). |
 | `plan_approval_required` | `{"tool": "...", "arguments": {...}, "plan": {...}}` | **P2 #24 Phase 2**. Fires from the `preToolUse` gate hook when a gated tool dispatch short-circuits because the in-flight plan is unapproved. The dispatch returns a synthetic `{"status": "awaiting_user_approval", ...}` result; the model sees this, generates a "waiting for approval" message, and the turn ends with `done`. Frontend renders Approve / Approve-all / Edit / Reject buttons on the inline `PlanCard`; the user's choice posts to `/api/chats/{cid}/plan/{approve\|reject}` or `PATCH /api/chats/{cid}/plan`, then the frontend sends a synthetic `"I've approved the plan, please continue."` user message so the model resumes. |

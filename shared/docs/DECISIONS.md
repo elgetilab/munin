@@ -10,6 +10,42 @@ self-document (renames, refactors, bug fixes).
 
 ---
 
+## 2026-07: background turns — registry is the source of truth, no DB status column
+
+Chat turns now survive a closed tab: after the 60 s reconnect grace,
+the stream registry promotes a listenerless turn to *background*
+(bounded: 2 per user, 30 min wall-clock) instead of cancelling it, so
+the answer generates to completion and persists. Non-obvious choices:
+
+- **"Turn in progress" state lives in the in-memory StreamRegistry,
+  not in chats.db.** `GET /api/chats/{id}` derives `active_stream`
+  (and the listing derives `generating`) from the registry at request
+  time. A durable status column was rejected: the registry and the
+  chats API share a process, so the registry is always reachable when
+  the question is asked, and a DB status would go stale exactly when
+  it matters — on process death the turn is dead anyway (SIGTERM runs
+  the save-always persist) and a durable "generating" flag would lie
+  forever. Deep Research keeps its `research_jobs.status` column
+  because its jobs deliver into chats asynchronously; chat turns
+  deliver into the same process's registry.
+- **Stop became an explicit endpoint**
+  (`POST /api/chat/completions/{id}/cancel`). Before background
+  turns, the Stop button only aborted the client fetch and silently
+  relied on the grace timer to cancel 60 s later. Once grace expiry
+  promotes instead of cancels, closing the connection stops nothing —
+  and as a side effect Stop is now immediate instead of delayed a
+  minute.
+- **410 on resume is a reload signal, not an error.** The turn's
+  outcome is persisted no matter how the stream ends, so the webui
+  maps a resume 410 to "refetch the transcript" (synthetic
+  `stream_gone` event). Mid-stream reconnect failures keep the error
+  banner: there the user watched a live bubble die.
+- **Reopen re-attach replays from seq 0**, ignoring any stored
+  `Last-Event-ID`: the client's accumulators are empty after a
+  reload, so resuming mid-log would build a final bubble missing
+  everything before the checkpoint (latent P1 #10 wart, fixed by the
+  same change).
+
 ## 2026-07: web_search primary source = Brave Search API (direct), SearXNG demoted to supplement
 
 `web_search` (retrieval MCP tool) now calls the Brave Search API
