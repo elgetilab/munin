@@ -196,6 +196,38 @@ runs had different sub-questions. n=2 makes the effect look real, but n=2 is
 still thin. Anything we want to actually rely on should go through the DR eval
 harness with repeats, not ad-hoc single runs.
 
+### Corpus coverage IS the ceiling: the Elgeti-corpus test (2026-07-24)
+
+The Elgeti Lab corpus (group `elgeti`, 608 papers) is deep in one niche:
+GPCR/rhodopsin 273 papers, conformational dynamics 165, EPR/DEER spin labeling
+135. A question aimed at that niche, same code and same parameters as the
+kinase-inhibitor question:
+
+| | kinase-inhibitor Q (thin corpus) | Elgeti Q (deep corpus) |
+|---|---|---|
+| notes | 9-11 | **38** |
+| distinct sources cited | 3-4 | **8** |
+| sub-questions resolved | 2/3 | **3/3** |
+| reads | 15-20 | 30 |
+| report | ~7-9k chars | **17.5k chars** |
+
+Roughly 3.5x the findings and 2x the sources from identical machinery. Corpus
+relevance for that topic sits at 0.75-0.84 versus 0.65-0.70 for the kinase
+question, and the citations are all on point (DEER Analysis of GPCR
+Conformational Heterogeneity; Angiotensin Analogs with Divergent Bias Stabilize
+Distinct Receptor Conformations; Probing the Y2 Receptor ... for EPR
+Measurements).
+
+**This settles the thread's central question.** Four real defects were found and
+fixed (findings-mode thinking, S2 query shape, OA fame-ranking, read-stage
+truncation) and together they moved distinct sources 3 -> 4. Pointing the same
+system at a topic the corpus actually covers moved it to 8 immediately. Breadth
+was bounded by corpus coverage, not by the retrieval or reading machinery.
+
+Question text: `todo_v2/` scratch, reproduced in the session log. Kept for a
+side-by-side against Claude, where the interesting axis is whether Munin surfaces
+lab-specific work a general model has never seen.
+
 **Real breadth levers (corrected):**
 - Retrieval relevance, esp. the OA/Semantic Scholar tier returning off-topic
   papers for specific queries; the ranker/embedding doesn't distinguish "kinase
