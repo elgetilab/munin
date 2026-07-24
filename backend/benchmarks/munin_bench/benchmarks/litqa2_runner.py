@@ -213,9 +213,18 @@ def run(qc, specter, neo4j, *, results_root, variants_path,
 # Answer track — end-to-end MCQ through the full agentic chat pipeline
 # ==========================================================================
 ABSTAIN_OPTION = "Insufficient information to answer this question."
-# PaperQA2 published LitQA2 accuracy (Skarlinski et al. 2024). VERIFY exact
-# figure before citing; carried here for the side-by-side table.
+# PaperQA2's published LitQA2 result, VERIFIED 2026-07-25 against the primary
+# source (Skarlinski et al. 2024, arXiv:2409.13740v2, "Language agents achieve
+# superhuman synthesis of scientific knowledge"): "a precision of 85.2% +/- 1.1%
+# (mean +/- SD, n=3), and an accuracy of 66.0% +/- 1.2%". Human experts on the
+# same set: precision 73.8% +/- 9.6%, accuracy 67.7% +/- 11.9% (n=9) - i.e.
+# PaperQA2's accuracy was NOT significantly different from humans (p=0.66); its
+# precision was (p=0.0036). Metric definitions match ours: accuracy = correct
+# over ALL questions, precision = correct over ANSWERED (non-"insufficient").
 PAPERQA2_ACCURACY = 0.660
+PAPERQA2_PRECISION = 0.852
+LITQA2_HUMAN_ACCURACY = 0.677
+LITQA2_HUMAN_PRECISION = 0.738
 
 
 def build_mcq(q: dict) -> dict:
@@ -454,15 +463,16 @@ def _write_answer_md(out_dir, payload):
         f"abstain={h['abstain']} unparseable={h['unparseable']} error={h['error']}",
         f"- git: `{h['git_sha']}` | {h['generated_at']}", "",
         "## Metrics (mean [95% CI])", "",
-        "| metric | Munin | PaperQA2 (published) |",
-        "|---|---|---|",
+        "| metric | Munin | PaperQA2 (published) | Human experts (published) |",
+        "|---|---|---|---|",
         f"| accuracy | {acc['mean']:.3f} [{acc['ci_low']:.3f}, {acc['ci_high']:.3f}] "
-        f"| {h['paperqa2_accuracy_published']:.3f} [verify] |",
+        f"| {PAPERQA2_ACCURACY:.3f} | {LITQA2_HUMAN_ACCURACY:.3f} |",
     ]
     if prec:
         lines.append(f"| precision (of attempted) | {prec['mean']:.3f} "
-                     f"[{prec['ci_low']:.3f}, {prec['ci_high']:.3f}] | n/a |")
-    lines += [f"| abstention rate | {payload['abstention_rate']:.3f} | n/a |",
+                     f"[{prec['ci_low']:.3f}, {prec['ci_high']:.3f}] "
+                     f"| {PAPERQA2_PRECISION:.3f} | {LITQA2_HUMAN_PRECISION:.3f} |")
+    lines += [f"| abstention rate | {payload['abstention_rate']:.3f} | n/a | n/a |",
               "", "## Caveat", "", h["caveat"]]
     with open(os.path.join(out_dir, "answer_summary.md"), "w") as fh:
         fh.write("\n".join(lines) + "\n")

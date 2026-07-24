@@ -226,9 +226,24 @@ same runner + scoring code as the 2026-07-06 baseline (verified by git log on
 | verdicts | 99 correct | 172 correct / 15 wrong / 12 abstain / 0 unparse | |
 
 The CIs are disjoint (baseline tops out at 0.563). **This clears the 0.82
-architectural ceiling (0.864) and exceeds PaperQA2's published 0.660** — with the
-standing caveat that it is not like-for-like (PaperQA2 was trained on LitQA2;
-Qwen3.6 was not, so the comparison flatters Munin here).
+architectural ceiling (0.864).**
+
+Published LitQA2 baselines, VERIFIED 2026-07-25 against the primary source
+(Skarlinski et al. 2024, arXiv:2409.13740v2 — accuracy = correct / all asked,
+precision = correct / answered, identical to our definitions):
+
+| system | accuracy | precision |
+|---|---|---|
+| **Munin (2026-07-24)** | **0.864 [0.819, 0.910]** | 0.920 |
+| PaperQA2 | 0.660 ± 0.012 (n=3) | 0.852 ± 0.011 |
+| Human experts | 0.677 ± 0.119 (n=9) | 0.738 ± 0.096 |
+
+Munin's accuracy exceeds both PaperQA2 (0.660) and the human-expert mean (0.677),
+and its precision (0.920) exceeds both. Read this with the like-for-like caveat
+firmly attached: **PaperQA2 was trained on LitQA2 and Munin's Qwen3.6 was not, so
+the accuracy comparison flatters Munin**; the human number carries a huge SD
+(±0.119) on n=9; and our 0.864 has the temperature churn documented below. It is
+a strong, real result, not a clean "beats humans" headline.
 
 DEADLINE, and why it moved again. The Phase C run used a 300s wall-clock deadline.
 `source(mode=qa)` reads full text with thinking ON (~20s/read after the
