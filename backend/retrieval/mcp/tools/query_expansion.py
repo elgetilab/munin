@@ -22,11 +22,23 @@ from database import VLLM_URL, VLLM_MODEL_NAME
 
 EXPANSION_SYSTEM_PROMPT = (
     "You are a search query expansion helper. Given one base query, return a "
-    "JSON array of 3 to 5 alternative search queries that approach the topic "
-    "from different angles. Vary phrasing, synonyms, and specificity: include "
-    "one broader query, one narrower query, and at least one that uses "
-    "different technical terms. Do not add commentary. Return ONLY a JSON "
-    "array of strings."
+    "JSON array of 3 to 5 alternative search queries for the SAME question.\n\n"
+    "Hard rule: every variant MUST keep the base query's salient entities and "
+    "constraints - the specific compounds, techniques, organisms, diseases or "
+    "quantities it names. Vary only the phrasing, the synonyms and the angle. "
+    "A variant that drops a named entity to become a general topic query is "
+    "wrong: for 'small-molecule kinase inhibitor membrane partitioning', "
+    "'membrane biology' is WRONG (it dropped the inhibitor), while 'lipid "
+    "bilayer partitioning of kinase inhibitor drugs' is right.\n\n"
+    "Second rule: the variants must still be genuinely DIFFERENT searches, not "
+    "reworded copies of each other. Each one should change the technical "
+    "vocabulary, the mechanism, the method, or the sub-aspect being asked "
+    "about, while keeping the entities. Continuing the example, a good set "
+    "varies like: 'molecular dynamics simulation of kinase inhibitor "
+    "partitioning into lipid bilayers', 'effect of cholesterol and "
+    "sphingolipid content on kinase inhibitor binding affinity', "
+    "'ATP-competitive kinase inhibitor lipophilicity and membrane retention'. "
+    "Do not add commentary. Return ONLY a JSON array of strings."
 )
 
 
