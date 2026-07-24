@@ -9,13 +9,15 @@ import {
 import type { SSEEvent } from './types';
 
 /**
- * Tests for the SSE reconnect plumbing (P1 #10).
+ * Tests for the SSE reconnect plumbing (P1 #10 + background turns).
  *
  * Covers: id: line parsing → lastEventId tracking; stream_id capture
- * from the conversation event → sessionStorage write; sessionStorage
+ * from the conversation event → localStorage write (moved from
+ * sessionStorage so the pointer survives a closed tab); localStorage
  * lifecycle (write on stream_id, update on id:, clear on done/error/
- * gone); ephemeral chats skip sessionStorage; resumeChat sends
- * Last-Event-ID; 410 surfaces error + clears sessionStorage.
+ * gone); ephemeral chats skip persistence; resumeChat sends
+ * Last-Event-ID; 410 emits the synthetic stream_gone event (reload
+ * signal, not an error banner) and clears the pointer.
  *
  * The exponential-backoff reconnect loop itself isn't unit-tested here
  * (it would need fake timers + multi-fixture sequencing); the wiring
@@ -36,11 +38,11 @@ function sseResponse(events: Array<{ event: string; data: unknown; id?: string }
 }
 
 beforeEach(() => {
-  // Tests share a process-wide sessionStorage; reset between cases.
-  try { sessionStorage.clear(); } catch { /* ignore */ }
+  // Tests share a process-wide localStorage; reset between cases.
+  try { localStorage.clear(); } catch { /* ignore */ }
 });
 
-describe('streamChat — id parsing & sessionStorage', () => {
+describe('streamChat — id parsing & localStorage', () => {
   it('parses id: lines and persists stream_id + last_event_id on conversation event', async () => {
     server.use(
       http.post('/api/chat/completions', () => sseResponse([
@@ -53,15 +55,15 @@ describe('streamChat — id parsing & sessionStorage', () => {
     const events: SSEEvent[] = [];
     await streamChat({ persona: 'chat', messages: [], rag: { enabled: false }, stream: true }, e => events.push(e));
 
-    // sessionStorage is cleared on done — so by the end it's gone, but
+    // localStorage is cleared on done — so by the end it's gone, but
     // the conversation event having stream_id was enough to write it.
     // Verify the lifecycle by also inspecting events.
     expect(events.map(e => e.type)).toEqual(['conversation', 'token', 'done']);
-    // done clears sessionStorage.
+    // done clears localStorage.
     expect(readActiveStream()).toBeNull();
   });
 
-  it('writes sessionStorage between the conversation event and done', async () => {
+  it('writes localStorage between the conversation event and done', async () => {
     // Capture the persisted state mid-stream (on the `token` event).
     // The fixture ends with `done` so streamChat doesn't enter the
     // reconnect loop; the persistence is observed before `done` clears it.
@@ -88,7 +90,7 @@ describe('streamChat — id parsing & sessionStorage', () => {
     expect(readActiveStream()).toBeNull();
   });
 
-  it('does NOT persist sessionStorage for ephemeral chats', async () => {
+  it('does NOT persist the pointer for ephemeral chats', async () => {
     server.use(
       http.post('/api/chat/completions', () => sseResponse([
         { id: 'eph-1', event: 'conversation', data: { id: 'ephemeral-abc', title: '', is_new: true, ephemeral: true, stream_id: 'eph' } },
@@ -106,7 +108,7 @@ describe('streamChat — id parsing & sessionStorage', () => {
     expect(snapshotAtToken).toBeNull();
   });
 
-  it('clears sessionStorage on a server-emitted error event', async () => {
+  it('clears localStorage on a server-emitted error event', async () => {
     server.use(
       http.post('/api/chat/completions', () => sseResponse([
         { id: 'sid2-1', event: 'conversation', data: { id: 'conv-x', title: '', is_new: true, stream_id: 'sid2' } },
@@ -140,9 +142,12 @@ describe('resumeChat', () => {
     expect(events.map(e => e.type)).toEqual(['token', 'done']);
   });
 
-  it('surfaces a terminal error and clears sessionStorage on 410 Gone', async () => {
-    // Pre-populate sessionStorage as if mid-stream.
-    sessionStorage.setItem(
+  it('emits stream_gone and clears the pointer on 410 Gone', async () => {
+    // Pre-populate localStorage as if mid-stream. Background turns:
+    // 410 on a resume means the outcome is already persisted, so the
+    // consumer gets the synthetic stream_gone (reload the transcript)
+    // rather than an error banner.
+    localStorage.setItem(
       'munin.active_stream',
       JSON.stringify({ stream_id: 's-evicted', conversation_id: 'c-1', last_event_id: 's-evicted-7' }),
     );
@@ -158,11 +163,11 @@ describe('resumeChat', () => {
 
     expect(readActiveStream()).toBeNull();
     expect(events.length).toBe(1);
-    expect(events[0].type).toBe('error');
+    expect(events[0].type).toBe('stream_gone');
   });
 
-  it('reads the persisted entry from sessionStorage on demand', () => {
-    sessionStorage.setItem(
+  it('reads the persisted entry from localStorage on demand', () => {
+    localStorage.setItem(
       'munin.active_stream',
       JSON.stringify({ stream_id: 'sid', conversation_id: 'conv', last_event_id: 'sid-12' }),
     );
@@ -174,12 +179,12 @@ describe('resumeChat', () => {
   });
 
   it('readActiveStream rejects malformed JSON', () => {
-    sessionStorage.setItem('munin.active_stream', '{ not valid json');
+    localStorage.setItem('munin.active_stream', '{ not valid json');
     expect(readActiveStream()).toBeNull();
   });
 
   it('readActiveStream rejects entries missing required fields', () => {
-    sessionStorage.setItem('munin.active_stream', JSON.stringify({ stream_id: 'x' })); // no conversation_id
+    localStorage.setItem('munin.active_stream', JSON.stringify({ stream_id: 'x' })); // no conversation_id
     expect(readActiveStream()).toBeNull();
   });
 });

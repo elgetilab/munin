@@ -798,6 +798,14 @@ function ChatRow({
             : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary'
         }`}
       >
+        {/* Background turns: a live stream is generating in this
+            conversation (server-derived, refreshes with the list). */}
+        {chat.generating && (
+          <span
+            className="flex-shrink-0 w-2 h-2 rounded-full bg-accent animate-pulse"
+            title="Generating…"
+          />
+        )}
         {editingId === chat.id ? (
           <input
             autoFocus

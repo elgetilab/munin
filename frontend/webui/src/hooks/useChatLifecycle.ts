@@ -3,14 +3,20 @@
  *
  * The Zustand chatStore can't hold React effects, but a couple of
  * lifecycle pieces still need a real `useEffect` somewhere — at the
- * moment, just the P1 #10 Phase 3 SSE resume that checks
- * sessionStorage for an active stream and reconnects to it. App.tsx
- * calls this hook once at mount.
+ * moment, just the background-turns mount resume. App.tsx calls this
+ * hook once at mount.
  *
- * Before commit 4 this effect lived inside a much larger
- * `useChat()` wrapper that also re-exposed every store slice as a
- * destructured tuple. The wrapper has been retired; only the effect
- * remains, on its own.
+ * Background turns: the localStorage pointer written during a live
+ * stream is only a navigation hint — "this conversation had a turn in
+ * flight". The server's `active_stream` field on the conversation is
+ * the source of truth, so all this effect does is load the pointed-at
+ * conversation; `loadConversation` re-attaches if the server reports
+ * the stream is still live, and otherwise the transcript already
+ * carries the completed (or save-always partial) answer. This replaces
+ * the earlier P1 #10 Phase 3 shape that resumed straight from the
+ * stored stream_id + last_event_id: resuming mid-log after a reload
+ * left the final bubble missing everything before the checkpoint,
+ * since the in-memory accumulators start empty.
  */
 
 import { useEffect } from 'react';
@@ -20,30 +26,22 @@ import { useChatStore } from '../stores/chatStore';
 
 
 export function useChatLifecycle(): void {
-  // P1 #10 Phase 3 — on mount, check sessionStorage for an active
-  // SSE stream and resume it. Cross-browser-refresh case: refreshing
-  // the chat tab mid-stream re-attaches to the in-flight turn
-  // (provided the server hasn't yet evicted it past the grace
-  // window). Runs once per mount; no-op when there's no active
-  // stream.
   useEffect(() => {
     const active = readActiveStream();
     if (!active) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        await useChatStore.getState().loadConversation(active.conversation_id);
-      } catch {
-        // The conversation may not exist yet (very fresh stream);
-        // the resume will surface a 410 if the server has also
-        // lost it.
-      }
-      if (cancelled) return;
-      await useChatStore.getState().sendMessage(
-        '', '', false, undefined, undefined, undefined,
-        { streamId: active.stream_id, lastEventId: active.last_event_id },
-      );
-    })();
-    return () => { cancelled = true; };
+    // The URL wins over the pointer: App.tsx's routing effect loads
+    // /c/{id} (and /knowledge routes render no chat), and since the
+    // pointer now survives in localStorage it may reference a
+    // conversation other than the one the user deliberately opened.
+    // Only navigate to the pending conversation from the root path;
+    // everywhere else the sidebar's "generating" dot is the signal,
+    // and opening that conversation re-attaches via loadConversation.
+    if (window.location.pathname !== '/') return;
+    // loadConversation handles the rest: re-attach when the server
+    // reports a live stream, plain transcript render otherwise. A
+    // 404 (conversation deleted since) just surfaces the normal
+    // load error; the pointer is cleared when the stream ends or
+    // the next turn starts, so we don't clear it here.
+    void useChatStore.getState().loadConversation(active.conversation_id);
   }, []); // mount-only
 }

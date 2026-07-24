@@ -1,7 +1,15 @@
 # Background turn completion ("close the tab, the answer still lands")
 
-Status: Phases A+B IMPLEMENTED 2026-07-25 (committed, not deployed);
-C/D pending. Live verification for B after VPS deploy: curl the
+Status: Phases A+B+C IMPLEMENTED 2026-07-25 (committed, not
+deployed); D (contract docs) pending. C deviations from plan: the
+mount-time resume now goes through loadConversation (server truth)
+instead of resuming straight off the stored last_event_id — this also
+fixes a latent P1 #10 wart where the post-refresh final bubble was
+missing everything before the checkpoint; and the mount resume only
+navigates from the root path so a localStorage pointer can't hijack a
+tab opened on a different /c/{id} URL. Rollout order matters: deploy
+backend (A) before webui (C) — loadConversation's re-attach reads
+`active_stream` from the chats API. Live verification for B after VPS deploy: curl the
 resume endpoint through the gateway with Accept: text/event-stream
 and confirm incremental delivery (keepalives arriving every ~15s
 rather than one buffered body at stream end). Defaults confirmed: MAX_BACKGROUND_PER_USER=2,

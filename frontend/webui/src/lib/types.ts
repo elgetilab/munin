@@ -28,6 +28,22 @@ export interface ConversationSummary {
   preview: string;
   pinned: boolean;
   pinned_at: string | null;
+  /** Background turns: a live stream is generating in this conversation. */
+  generating?: boolean;
+}
+
+/**
+ * Background turns: the registry's newest stream for a conversation,
+ * surfaced on GET /api/chats/{id}. `done: false` means the turn is
+ * still generating — re-attach via the resume endpoint (replay from
+ * seq 0). `done: true` means it completed within the server's
+ * retention window and the persisted transcript already carries the
+ * answer.
+ */
+export interface ActiveStreamInfo {
+  stream_id: string;
+  done: boolean;
+  last_seq: number;
 }
 
 export interface Conversation {
@@ -38,6 +54,7 @@ export interface Conversation {
   updated_at: string;
   summary: string | null;
   messages: Message[];
+  active_stream?: ActiveStreamInfo | null;
 }
 
 export interface Message {
@@ -214,6 +231,11 @@ export type SSEEvent =
   | { type: 'plan_updated'; data: Plan }
   | { type: 'plan_approval_required'; data: PlanApprovalRequired }
   | { type: 'error'; data: { message: string } }
+  // Synthetic, client-side only (background turns): a resume GET got
+  // 410 — the stream is evicted or truncated. The turn's outcome is
+  // already persisted server-side, so the consumer reloads the
+  // transcript instead of surfacing an error banner.
+  | { type: 'stream_gone'; data: { reason?: string } }
   | { type: 'done'; data: { usage?: { prompt_tokens: number; completion_tokens: number }; finish_reason: string; terminal_reason?: string } };
 
 // ── Compaction (P2 #22) ──────────────────────────────────────────────────────

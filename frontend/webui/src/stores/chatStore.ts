@@ -37,7 +37,9 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 
 import {
+  cancelChat,
   fetchChat,
+  readActiveStream,
   resumeChat,
   streamChat,
 } from '../lib/api';
@@ -94,6 +96,11 @@ export interface StreamingState {
   // Last-Event-ID resume is being attempted (P1 #10). Cleared once
   // any event lands on the resumed connection.
   reconnecting: ReconnectingState | null;
+  // Server-assigned id of the in-flight SSE stream, latched off the
+  // `conversation` event. Lets Stop hit the explicit cancel endpoint
+  // (background turns) — closing the connection alone no longer
+  // cancels the turn.
+  streamId: string | null;
 }
 
 export const INITIAL_STREAMING: StreamingState = {
@@ -106,6 +113,7 @@ export const INITIAL_STREAMING: StreamingState = {
   phase: 'idle',
   retrying: null,
   reconnecting: null,
+  streamId: null,
 };
 
 
@@ -186,6 +194,13 @@ interface ChatState {
 // scoped). Each new sendMessage replaces it; stopGenerating aborts
 // via this handle.
 let _abortController: AbortController | null = null;
+
+// Background turns: stream ids this session has already tried to
+// re-attach to via loadConversation's auto-resume. Guards against a
+// loop where a truncated-but-live stream 410s on resume, stream_gone
+// reloads the conversation, and the reload sees the same
+// `active_stream` again.
+const _attemptedResumes = new Set<string>();
 
 
 /**
@@ -281,6 +296,29 @@ export const useChatStore = create<ChatState>()(
           state.conversationId = chat.id;
           state.conversationPersona = chat.persona || null;
         });
+        // Background turns: the server says a stream is still
+        // generating for this conversation — re-attach and watch it
+        // live. lastEventId is deliberately omitted: the transcript
+        // above only holds persisted turns, so the in-flight bubble
+        // must reconstruct from a full replay (seq 0), not from
+        // wherever some earlier tab left off. Skipped when another
+        // stream is already being consumed (the streaming slice is
+        // global — one live turn at a time) and for streams we
+        // already tried (see _attemptedResumes).
+        const active = chat.active_stream;
+        if (
+          active &&
+          !active.done &&
+          !_attemptedResumes.has(active.stream_id) &&
+          get().streaming.phase === 'idle'
+        ) {
+          _attemptedResumes.add(active.stream_id);
+          void get().sendMessage(
+            '', chat.persona || 'munin', false,
+            undefined, undefined, undefined,
+            { streamId: active.stream_id },
+          );
+        }
         return chat;
       } catch (e) {
         set(state => {
@@ -519,12 +557,17 @@ export const useChatStore = create<ChatState>()(
           case 'conversation':
             // May fire twice: first with null title, second with
             // generated title. Skip for ephemeral chats — don't
-            // track the synthetic ID.
-            if (!ephemeral) {
-              set(state => {
-                if (!state.conversationId) state.conversationId = event.data.id;
-              });
-            }
+            // track the synthetic ID. The stream_id is latched for
+            // every chat (ephemeral included) so Stop can hit the
+            // explicit cancel endpoint.
+            set(state => {
+              if (!ephemeral && !state.conversationId) {
+                state.conversationId = event.data.id;
+              }
+              if (event.data.stream_id) {
+                state.streaming.streamId = event.data.stream_id;
+              }
+            });
             break;
           case 'rag_context':
             ragCtx = event.data;
@@ -808,6 +851,23 @@ export const useChatStore = create<ChatState>()(
             });
             break;
           }
+          case 'stream_gone': {
+            // Background turns: a resume GET got 410 — the stream is
+            // evicted (finished more than DONE_RETENTION_S ago) or
+            // its replay log truncated. Either way the turn's
+            // outcome — complete answer or save-always partial with
+            // marker — is already in chat_store, so reload the
+            // transcript instead of surfacing an error banner.
+            // _attemptedResumes stops the reload from re-attaching
+            // the same stream.
+            stopPacer();
+            const cid = get().conversationId;
+            set(state => {
+              state.streaming = INITIAL_STREAMING;
+            });
+            if (cid) void get().loadConversation(cid);
+            break;
+          }
           case 'done': {
             // If the pacer still has tokens queued, defer the bubble
             // push until the queue drains so the user sees the
@@ -910,6 +970,15 @@ export const useChatStore = create<ChatState>()(
     },
 
     stopGenerating: () => {
+      // Background turns: signal the server first — aborting the
+      // fetch alone only detaches the listener, after which the turn
+      // would be promoted to background and run to completion. The
+      // latched streamId covers the common case; the localStorage
+      // pointer is the fallback for a turn resumed before the
+      // `conversation` event replayed.
+      const sid =
+        get().streaming.streamId ?? readActiveStream()?.stream_id;
+      if (sid) void cancelChat(sid);
       _abortController?.abort();
       set(state => {
         state.streaming.phase = 'done';

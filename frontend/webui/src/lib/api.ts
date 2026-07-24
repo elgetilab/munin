@@ -771,11 +771,14 @@ export async function fetchStatus(): Promise<SystemStatus> {
 // surface an error.
 const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 16000, 30000];
 
-// sessionStorage key for the active SSE stream (P1 #10 Phase 3, survives
-// browser refresh, dies with the tab). Holds {stream_id, conversation_id,
-// last_event_id}. Ephemeral chats are deliberately not persisted: a
-// refresh of an ephemeral chat has nothing to restore from chat_store so
-// the resume target would be meaningless.
+// localStorage key for the active SSE stream (P1 #10 Phase 3; moved
+// from sessionStorage for background turns so the pointer survives a
+// closed tab, not just a refresh). Holds {stream_id, conversation_id,
+// last_event_id}. It is only a navigation hint — the server's
+// `active_stream` on GET /api/chats/{id} is the source of truth, so a
+// stale entry costs one conversation load, nothing more. Ephemeral
+// chats are deliberately not persisted: nothing exists in chat_store
+// to restore, so the resume target would be meaningless.
 const ACTIVE_STREAM_KEY = 'munin.active_stream';
 
 export interface ActiveStreamPersist {
@@ -786,7 +789,7 @@ export interface ActiveStreamPersist {
 
 export function readActiveStream(): ActiveStreamPersist | null {
   try {
-    const raw = sessionStorage.getItem(ACTIVE_STREAM_KEY);
+    const raw = localStorage.getItem(ACTIVE_STREAM_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed && parsed.stream_id && parsed.conversation_id) return parsed;
@@ -795,11 +798,11 @@ export function readActiveStream(): ActiveStreamPersist | null {
 }
 
 function writeActiveStream(value: ActiveStreamPersist): void {
-  try { sessionStorage.setItem(ACTIVE_STREAM_KEY, JSON.stringify(value)); } catch { /* ignore */ }
+  try { localStorage.setItem(ACTIVE_STREAM_KEY, JSON.stringify(value)); } catch { /* ignore */ }
 }
 
 export function clearActiveStream(): void {
-  try { sessionStorage.removeItem(ACTIVE_STREAM_KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem(ACTIVE_STREAM_KEY); } catch { /* ignore */ }
 }
 
 /**
@@ -1007,9 +1010,13 @@ export async function streamChat(
   }
 }
 
-// Resume an existing stream after a page reload. Returns the same
-// resolution states as streamChat. Used by useChat on mount when
-// sessionStorage carries an active stream.
+// Resume an existing stream after a page reload or a conversation
+// (re)open. Returns the same resolution states as streamChat. Unlike
+// streamChat's mid-stream reconnect loop (where 'gone' is an error —
+// the user is watching a bubble that just died), a 410 here emits the
+// synthetic `stream_gone` event: the turn's outcome is already
+// persisted server-side, so the right reaction is to reload the
+// transcript, not to show a banner.
 export async function resumeChat(
   streamId: string,
   lastEventId: string | undefined,
@@ -1027,10 +1034,7 @@ export async function resumeChat(
     await _attemptResume(state, onEvent, signal);
   if (outcome === 'gone') {
     clearActiveStream();
-    onEvent({
-      type: 'error',
-      data: { message: 'Stream is no longer available on the server.' },
-    });
+    onEvent({ type: 'stream_gone', data: {} });
     return;
   }
   if (outcome === 'error') {
@@ -1069,10 +1073,7 @@ export async function resumeChat(
     outcome = await _attemptResume(state, onEvent, signal);
     if (outcome === 'gone') {
       clearActiveStream();
-      onEvent({
-        type: 'error',
-        data: { message: 'Stream is no longer available on the server.' },
-      });
+      onEvent({ type: 'stream_gone', data: {} });
       return;
     }
     if (outcome === 'error') {
@@ -1084,6 +1085,20 @@ export async function resumeChat(
       return;
     }
   }
+}
+
+// Explicitly cancel an in-flight chat completion (background turns).
+// Stop must signal the server: closing the SSE connection alone no
+// longer cancels anything — the turn would just keep running in the
+// background. Best-effort: a failed cancel only means the turn runs
+// to completion, which is safe.
+export async function cancelChat(streamId: string): Promise<void> {
+  try {
+    await fetch(
+      `${API}/chat/completions/${encodeURIComponent(streamId)}/cancel`,
+      { method: 'POST' },
+    );
+  } catch { /* best-effort */ }
 }
 
 // ── Memory proposals (P2 #25) ────────────────────────────────────────────────
