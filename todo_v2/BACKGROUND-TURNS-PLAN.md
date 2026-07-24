@@ -1,7 +1,10 @@
 # Background turn completion ("close the tab, the answer still lands")
 
-Status: Phase A IMPLEMENTED 2026-07-25 (committed, not deployed);
-B/C/D pending. Defaults confirmed: MAX_BACKGROUND_PER_USER=2,
+Status: Phases A+B IMPLEMENTED 2026-07-25 (committed, not deployed);
+C/D pending. Live verification for B after VPS deploy: curl the
+resume endpoint through the gateway with Accept: text/event-stream
+and confirm incremental delivery (keepalives arriving every ~15s
+rather than one buffered body at stream end). Defaults confirmed: MAX_BACKGROUND_PER_USER=2,
 BACKGROUND_MAX_S=30min, cap cancels the new stream, Stop keeps the
 save-always partial persist. Follow-up noted during A: the save-always
 marker text "client disconnected before completion" now really means

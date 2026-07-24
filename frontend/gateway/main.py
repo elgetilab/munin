@@ -670,9 +670,16 @@ async def proxy_api(request: Request, path: str):
 
         body = await request.body()
 
-        # Check if this is a streaming request
-        is_streaming = False
-        if body and content_type and "json" in content_type:
+        # Check if this is a streaming request: either the JSON body
+        # carries stream:true (the chat POST), or the client asks for
+        # SSE outright via Accept: text/event-stream — the resume GET
+        # (background turns Phase B) has no body, and without this
+        # check it fell into the buffered branch below, which blocks
+        # until the upstream stream ends and defeats a live re-attach.
+        is_streaming = "text/event-stream" in (
+            request.headers.get("Accept") or ""
+        ).lower()
+        if not is_streaming and body and content_type and "json" in content_type:
             try:
                 req_json = json.loads(body)
                 is_streaming = req_json.get("stream", False)
