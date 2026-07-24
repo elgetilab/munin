@@ -132,3 +132,48 @@ def test_missing_relevance_passes_the_gate():
     ranked = SA._dedup_and_rank(corpus + oa, top_k=10)
     tiers = [h["source_type"] for h in ranked]
     assert tiers.count(SA.TIER_OA) == SA.OA_QUOTA
+
+
+# ---------------------------------------------------------------------------
+# Keyword shaping for the OA tier
+# ---------------------------------------------------------------------------
+
+LONG_Q = ("What are the molecular mechanisms by which specific membrane lipid "
+          "compositions influence the partitioning and binding affinity of "
+          "small-molecule kinase inhibitors?")
+
+
+def test_keywordize_strips_question_scaffolding():
+    kw = SA._keywordize(LONG_Q)
+    low = kw.lower()
+    for stop in ("what", "are", "the", "by which", "of the"):
+        assert stop not in low.split() if " " not in stop else True
+    assert "molecular" in low and "membrane" in low
+
+
+def test_keywordize_preserves_the_salient_entity():
+    """The whole point: truncating the tail drops 'kinase inhibitors', and an
+    entity-less keyword query is what returns broad off-topic papers."""
+    kw = SA._keywordize(LONG_Q).lower()
+    assert "kinase" in kw and "inhibitor" in kw, kw
+
+
+def test_keywordize_dedupes_and_preserves_order():
+    kw = SA._keywordize("kinase kinase inhibitor membrane inhibitor")
+    assert kw.split() == ["kinase", "inhibitor", "membrane"]
+
+
+def test_keywordize_empty_for_pure_stopwords():
+    assert SA._keywordize("what are the of and to") == ""
+
+
+def test_oa_queries_falls_back_when_stripped_too_far():
+    """A query that keywordizes to nothing must still be searchable."""
+    out = SA._oa_queries(["what are the of and to", LONG_Q])
+    assert out[0] == "what are the of and to"      # fell back to the original
+    assert "kinase" in out[1].lower()
+
+
+def test_oa_queries_dedupes():
+    out = SA._oa_queries(["kinase inhibitor membrane", "the kinase inhibitor membrane"])
+    assert len(out) == 1

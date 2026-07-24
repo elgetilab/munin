@@ -116,6 +116,61 @@ def _norm_web(rows: list[dict]) -> list[dict]:
             for r in rows]
 
 
+# Semantic Scholar's /paper/search is a KEYWORD endpoint, not a semantic one.
+# Measured 2026-07-24: a long natural-language sub-question returns ZERO results
+# from S2, while the same question reduced to its content words returns hits. The
+# corpus (BGE dense) and Brave both handle natural language fine, so only the OA
+# tier gets this treatment.
+_KEYWORD_STOP = frozenset("""
+a an the of for to in on by and or with without into from as at is are was were
+be been being do does did how what which why when where that this these those it
+its their there can could may might must should would will shall we you they he
+she not no than then so such very more most other another each any all some
+between among during through including within under over upon eg ie
+""".split())
+# Deliberately generous: truncating drops the trailing entity ("... kinase
+# inhibitors"), and an entity-less keyword query is exactly what returns the
+# broad off-topic papers this whole change exists to stop. Measured: dropping to
+# 10 words returned 18 BROAD hits with the entity gone; keeping all 16 returned 4
+# SPECIFIC hits with it intact. Four on-topic beats eighteen off-topic when the
+# tier only has OA_QUOTA slots.
+_KEYWORD_MAX_WORDS = 16
+
+
+def _keywordize(q: str, max_words: int = _KEYWORD_MAX_WORDS) -> str:
+    """Reduce a natural-language query to content words for a keyword backend.
+
+    Preserves word order and de-duplicates. Returns "" when nothing meaningful
+    survives, so the caller can fall back to the original string.
+    """
+    words = re.findall(r"[A-Za-z][A-Za-z0-9\-]+", q or "")
+    seen: set[str] = set()
+    out: list[str] = []
+    for w in words:
+        k = w.lower()
+        if k in _KEYWORD_STOP or len(w) <= 2 or k in seen:
+            continue
+        seen.add(k)
+        out.append(w)
+        if len(out) >= max_words:
+            break
+    return " ".join(out)
+
+
+def _oa_queries(variants: list[str]) -> list[str]:
+    """Keyword-shaped queries for the OA tier, de-duplicated, order preserved.
+    Falls back to the original variant when keywordization strips too much."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for v in variants:
+        kw = _keywordize(v)
+        q = kw if len(kw.split()) >= 2 else v
+        if q and q.lower() not in seen:
+            seen.add(q.lower())
+            out.append(q)
+    return out
+
+
 def _doc_text(hit: dict) -> str:
     """Candidate text to embed. Must match how corpus documents were embedded
     (``title\\n\\nabstract``) or the cosines are not comparable."""
@@ -293,9 +348,16 @@ async def search(query: str, filters: Optional[dict] = None,
         variants = [query]
     tr.decide("query expansion", n_variants=len(variants))
 
+    # Each tier gets the query SHAPE its backend can actually match. Corpus is a
+    # dense BGE index and Brave handles prose, so both take the natural-language
+    # variants. S2 is keyword-based and returns nothing for a full question, so
+    # it gets the content words. Relevance scoring below still uses the
+    # natural-language variants, independent of what each tier was sent.
+    oa_variants = _oa_queries(variants)
     tasks = [paper_search(queries=variants, top_k=top_k, tags=tags)]
     if do_oa:
-        tasks.append(semantic_scholar_search(queries=variants, top_k=top_k, year=year))
+        tr.decide("oa keyword queries", n=len(oa_variants), sample=oa_variants[:1])
+        tasks.append(semantic_scholar_search(queries=oa_variants, top_k=top_k, year=year))
     if do_web:
         tasks.append(web_search(queries=variants, top_k=top_k))
     results = await asyncio.gather(*tasks, return_exceptions=True)
