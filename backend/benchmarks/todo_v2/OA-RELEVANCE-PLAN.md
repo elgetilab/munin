@@ -210,7 +210,39 @@ the "before").
   (web median 0.727).
 - **OA: not measurable.** The OA tier returned **zero candidates** on this run.
 
-### Blocker found: the OA tier is silently rate-limited
+### CORRECTION (2026-07-24, later): the key is fine; the real cause is query shape
+
+The "verify the key" conclusion below was **wrong** and is kept only for the
+record. Verified by an interleaved probe: the retrieval container returned S2
+results **6/6** while unauthenticated calls from the same public IP were 429'd
+**6/6**. The container is authenticated, `SEMANTIC_SCHOLAR_API_KEY` is set and
+working. The transient emptiness was rate limiting that the measurement runs
+largely self-inflicted (each live `search` fires 5 S2 calls).
+
+The actual cause of a zero OA tier is that **S2's `/paper/search` is a KEYWORD
+endpoint and returns 0 results for a long natural-language question**:
+
+| query sent to S2 | results |
+|---|---|
+| full sub-question (natural language) | **0** |
+| same question reduced to content words | **18** |
+
+This was made worse by items 0 and 4 together: sharing one variant list meant S2
+received the natural-language variants, and the tightened expansion prompt made
+those variants longer and more sentence-like. Fixed in `7bbe985`: each tier now
+gets the query SHAPE its backend can match. Corpus (dense BGE) and Brave keep
+natural language; the OA tier gets `_keywordize`d content words. Relevance
+scoring still uses the natural-language variants, independent of what was sent.
+
+A second measured trade-off shaped the keywordizer: truncating to 10 words
+returned **18 broad** hits with "kinase inhibitors" stripped off the tail, while
+keeping all 16 returned **4 specific** hits with the entity intact. Four on-topic
+beats eighteen off-topic when the tier only has `OA_QUOTA` slots, so the cap is
+deliberately generous (16) and entity-preserving. This is also the likely
+original source of the off-topic OA problem: only the broadest variants ever
+matched S2, so the OA tier was populated from the least specific queries.
+
+### Superseded diagnosis: the OA tier is silently rate-limited
 
 `semantic_scholar_search` returned `{"results": [], "error": None}`. Probing the
 S2 API directly from this host returns **HTTP 429 Too Many Requests** with
