@@ -92,6 +92,41 @@ Options for the fix (needs a decision):
   governs citation weighting rather than what gets read. Simpler and uses the
   new signal, but drops "corpus first" at the read stage.
 
+### Read-order fix verified (2026-07-24, `ea87e24` deployed)
+
+The read pool is now ordered by relevance instead of tier. All three
+pre-registered predictions held:
+
+| | before fix | after fix |
+|---|---|---|
+| web reads | **0** (every run to date) | **3** |
+| `not_found` rate | 100% | **74%** |
+| notes | 0 | **8** |
+| read tier mix | 16 corpus / 2 OA / 0 web | **4 corpus / 10 OA / 3 web** |
+| report | empty | 7.7k, all 5 sections |
+
+The mechanism is fixed: the external tiers are read for the first time, and the
+read pool flipped from corpus-dominated to OA/web-dominated, which is exactly
+what relevance ordering does when the corpus is thin on a topic.
+
+**But the breadth number itself did not move.** Distinct papers cited is still
+**3** (8 notes, concentrated by multi-note: 4 + 3 + 1), and the abstention rate
+only went 78% -> 74%. So the read-selection bug was real and is fixed, yet it was
+not what was capping breadth.
+
+What this isolates: reads still abstain ~3 times in 4 even when reading the
+highest-cosine candidates. Bi-encoder similarity gets papers that are
+*topically near* but do not answer the specific question - the corpus scores
+raft-biology papers at 0.78-0.80 on a kinase-inhibitor question purely on
+vocabulary overlap. Cosine ranking cannot separate those from genuine hits.
+
+**Next lever (unchanged by this fix): relevance PRECISION, not ordering.**
+- A cross-encoder re-rank over the top-N candidates, which judges the (query,
+  document) pair jointly instead of comparing two independent embeddings.
+- Or a sharper screener prompt: it currently errs permissive by design (D8), so
+  it passes vocabulary-overlap papers straight into the read budget.
+- Corpus depth on the specific intersection remains a real, separate constraint.
+
 **Real breadth levers (corrected):**
 - Retrieval relevance, esp. the OA/Semantic Scholar tier returning off-topic
   papers for specific queries; the ranker/embedding doesn't distinguish "kinase
