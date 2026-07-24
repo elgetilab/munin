@@ -1,9 +1,18 @@
 # Background turn completion ("close the tab, the answer still lands")
 
-Status: ALL PHASES (A-D) IMPLEMENTED 2026-07-25, committed, NOT yet
-deployed. Remaining before archiving to done/: deploy backend
-(deploy.sh), deploy VPS (gateway + webui, backend first), then the
-manual close-tab matrix below plus the gateway keepalive curl. C deviations from plan: the
+Status: DEPLOYED + LIVE-VERIFIED 2026-07-25 (backend deploy.sh by
+user; VPS gateway + webui rsync'd and restarted). Verified live:
+closed-tab turn survived past grace and persisted clean with title
+(promotion exercised); resume GET streamed live through the gateway
+(timestamped tail over 6s, 804 events); cancel endpoint 204 +
+prompt partial persist; active_stream done:false→true and generating
+flag observed against a live turn. One bug found and fixed during
+verification (commit 7f0c001): registry streams for NEW conversations
+never got their conversation_id, so active_stream/generating missed
+first-message turns — fix committed, NEEDS one more
+`sudo ./deploy.sh retrieval` to go live. After that: archive this
+plan to done/. Also still open: the save-always marker wording says
+"client disconnected" for explicit Stop. C deviations from plan: the
 mount-time resume now goes through loadConversation (server truth)
 instead of resuming straight off the stored last_event_id — this also
 fixes a latent P1 #10 wart where the post-refresh final bubble was
