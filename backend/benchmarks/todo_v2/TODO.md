@@ -167,9 +167,34 @@ watching, and every skip is traced for exactly that reason.
 Tightening the prompt would recover that time at the cost of real false
 negatives, which is the wrong trade until breadth is no longer the priority.
 
-**Next:** reads are now materially cheaper, so raising `read_cap` (currently 6
-per sub-question in these measurements) is the natural way to convert the saving
-into breadth. That is the experiment to run next.
+### read_cap experiment: raising it made things WORSE (2026-07-24)
+
+The obvious way to spend the triage saving was more reads. It backfires. Two
+runs per condition, everything else identical:
+
+| read_cap | reads | notes | distinct sources |
+|---|---|---|---|
+| 6 | 20, 15 | **11, 9** | 4, 3 |
+| 12 | 29, 32 | **5, 5** | 3, 2 |
+
+Notes ranges do not overlap (9-11 vs 5-5): doubling the read budget roughly
+halved the findings, and distinct sources did not improve either. **Do not raise
+`read_cap`.** 6 stays.
+
+Mechanism not established. Ruled out: `_seen_keys` is per-node, so a paper
+consumed by one sub-question is NOT blocked from a later one. Remaining
+candidates are snowball crowd-out (at cap=12 the initial phase consumes nearly
+the whole budget, and snowball reads are references of papers that already
+answered, so they are the high-yield ones) and plain stochasticity in the
+extraction, which runs at `temperature=0.7`.
+
+**Methodological caveat that applies to this whole thread.** The pipeline is
+stochastic end to end: decomposition wording differs run to run, retrieval is
+non-deterministic, and the findings call samples at temperature 0.7. The first
+read_cap comparison (n=1 each) showed notes 11 -> 5 and was confounded: the two
+runs had different sub-questions. n=2 makes the effect look real, but n=2 is
+still thin. Anything we want to actually rely on should go through the DR eval
+harness with repeats, not ad-hoc single runs.
 
 **Real breadth levers (corrected):**
 - Retrieval relevance, esp. the OA/Semantic Scholar tier returning off-topic
