@@ -199,6 +199,45 @@ vectors; then it is unit-testable with no model and no network.
    suite's `AgentRetriever` is corpus-only). Closing that is tracked separately
    in `TODO.md`; without it there is no automated score for this change.
 
+## Measurement outcome (step 6, 2026-07-24)
+
+Ran the committed ranking against real live candidates for the three capstone
+sub-questions (the live container still runs the old ranking, so its output is
+the "before").
+
+- **web: 0/9 reserved slots below the floor.** The web tier is already earning
+  its slots; the 0.62 floor does not touch it. Consistent with the calibration
+  (web median 0.727).
+- **OA: not measurable.** The OA tier returned **zero candidates** on this run.
+
+### Blocker found: the OA tier is silently rate-limited
+
+`semantic_scholar_search` returned `{"results": [], "error": None}`. Probing the
+S2 API directly from this host returns **HTTP 429 Too Many Requests** with
+"apply for a key for higher rate limits". The calibration run 30 minutes earlier
+did get 8 OA candidates, so availability is bursty, which is exactly what an
+unauthenticated / shared-pool rate limit looks like.
+
+Two things follow:
+
+1. **Verify `SEMANTIC_SCHOLAR_API_KEY` is actually set in the retrieval
+   container.** The container's OA tier came back empty at the same moment a
+   keyless call from the host was 429'd, which is what you would expect if the
+   container is also calling S2 unauthenticated. If the key is missing or
+   expired, the OA tier is effectively dead in production, and no amount of
+   re-ranking helps a tier that returns nothing.
+2. **`semantic_scholar_search` has no degradation signal.**
+   `_semantic_scholar_one` catches the 429, logs a warning and returns `[]`, so
+   the tool reports zero results with no error. That is the same silent-zero
+   failure mode `web_search` was given a `warning` field for after chat
+   689f8df3. The OA tier deserves the same treatment: surface "the scholarly
+   backend was rate-limited" so an empty OA tier is never misread as "no OA
+   literature exists". Tracked as a follow-up.
+
+Until the key question is resolved, the OA half of this work cannot be scored
+end to end. The ranking, gating and expansion changes are all in and unit-tested
+regardless, and they take effect the moment the tier returns candidates again.
+
 ## Risks
 
 - **Blast radius is limited to the `search` agent.** The benchmark
