@@ -270,6 +270,40 @@ Until the key question is resolved, the OA half of this work cannot be scored
 end to end. The ranking, gating and expansion changes are all in and unit-tested
 regardless, and they take effect the moment the tier returns candidates again.
 
+## Final verification (post-deploy of `7bbe985`, 2026-07-24)
+
+Three capstone sub-questions through the live `search` agent, paced to avoid
+self-inflicted S2 throttling.
+
+| signal | before | after |
+|---|---|---|
+| OA candidates per sub-question (`counts.oa_paper`) | **0** | **18** |
+| OA median relevance | 0.604 | **0.746** |
+| OA minimum relevance | 0.569 | **0.673** (all clear the 0.62 floor) |
+| ranked tier mix | 15 corpus / 0 OA / 3 web | **11 corpus / 4 OA / 3 web** |
+| hits carrying a relevance score | n/a | **54/54** |
+
+The OA tier is alive, its reserved quota is filled, and the top OA hits are now
+genuinely on topic: "Interaction of the small-molecule kinase inhibitors ..."
+(0.766), "Lipid raft localization of EGFR alters the response ..." (0.780).
+Relevance scoring is confirmed running in production (every ranked hit carries a
+score, so `_attach_relevance` is not silently falling back).
+
+**Honest attribution:** the decisive lever was **query shaping**, not the
+re-ranking. Keywordizing the OA queries is what took the tier from 0 to 18
+candidates and lifted the median by +0.14. The re-rank and the floor are still
+doing useful work (they order within the tier and protect against an off-topic
+tail) but on these queries the floor now gates nothing, because the input got
+good enough that it no longer binds. It stays as a safety net.
+
+**Residual, worth knowing:** a few OA hits score high on cosine while being
+arguably off topic ("pKa measurements for the SAMPL6 prediction challenge" 0.756,
+"An Assessment of Dispersion-Corrected DFT Methods" 0.753, "Cell Biology of Virus
+Entry" 0.673). That is a bi-encoder limitation: vocabulary overlap reads as
+similarity. Raising the floor would not separate them cleanly from genuine hits
+in the same band. The next lever for that is a cross-encoder re-rank or a
+sharper screener prompt, not a threshold tweak.
+
 ## Risks
 
 - **Blast radius is limited to the `search` agent.** The benchmark
