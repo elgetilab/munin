@@ -240,7 +240,41 @@ lab-specific work a general model has never seen.
 - Minor: grounding calls run at `temperature=0.7`; not the cause here (behaviour
   was consistent), but lowering it for extraction would cut incidental variance.
 
-## 2. Confirm the Source-agent eval gate ran  (validation debt)
+## 2. Source-agent eval gate: RUN AND PASSED (2026-07-24)
+
+LitQA2 answer track, 199 questions, driven against the live chat research
+persona. Apples-to-apples with the 2026-07-06 baseline: same question set, same
+model (`qwen3.6-35b-a3b`), same encoder (bge-large), and the runner/scoring code
+is **unchanged** since that scorecard (verified by git log on
+`litqa2_runner.py`).
+
+| | 2026-07-06 baseline | 2026-07-24 |
+|---|---|---|
+| accuracy | 0.497 (CI 0.432-0.563) | **0.814 (CI 0.759-0.869)** |
+| precision | 0.853 (n=116 answered) | **0.926 (n=175 answered)** |
+| questions actually answered | 116/199 (42% withheld) | **175/199 (12% withheld)** |
+| verdicts | - | 162 correct, 13 incorrect, 13 abstain, 11 unparseable |
+
+The confidence intervals do not overlap (baseline tops out at 0.563, the new
+result starts at 0.759).
+
+**This is the architecture's own predicted ceiling, hit.** The original Track D
+diagnosis found that `read_paper`'s summarise-and-discard was the bottleneck and
+that a full-text oracle flipped over-abstentions to **0.82**. The `source` agent
+was built to deliver that oracle in production. Measured: **0.814**. The
+over-abstention it was designed to fix has collapsed from 42% withheld to 12%.
+
+For reference, PaperQA2 on this benchmark is 0.66.
+
+**Attribution, honestly:** this spans 2026-07-06 to 2026-07-24, which includes
+the entire four-agent architecture landing, not just the recent retrieval work.
+The dominant cause is almost certainly `source(mode=qa)` reading FULL text
+instead of `read_paper` summarising and discarding it. The retrieval fixes from
+2026-07-24 are in the number but cannot be separated out by this measurement.
+The answer track drives the CHAT research persona, so it does not exercise the
+Deep Research read-ordering or triage work at all.
+
+## 2b. (superseded) Confirm the Source-agent eval gate ran
 `done/AGENT-IMPLEMENTATION-PLAN.md` Part 5 defines the whole justification for the
 architecture: re-run the 20-question over-abstention set through `source(mode=qa)`
 and compare abstain→correct against the 0.82 full-text oracle. Confirm this ran
