@@ -538,7 +538,7 @@ SEED_ITEMS: list[RoutingEvalItem] = [
                   "Searching for a page you already have the URL to is wrong routing.",
     ),
 
-    # --- direct_ref: known DOI -> read_paper -----------------------------
+    # --- direct_ref: known DOI -> source (read the full text) ------------
     RoutingEvalItem(
         id="known_doi_read",
         category="direct_ref",
@@ -547,15 +547,45 @@ SEED_ITEMS: list[RoutingEvalItem] = [
         expected=Expected(
             profile="research",
             required_tools=[ToolExpectation(
-                name="read_paper",
-                arg_predicates=[Predicate(path="doi", op=PredOp.REGEX, value=r"10\.1021/jacs\.0c01234")],
-                via_tool_search_ok=True,
+                name="source",
+                # source read modes: summary (narrative) or qa (answer a
+                # specific question from full text). "what method did they
+                # use" fits either; assert only that source is the tool.
+                arg_predicates=[Predicate(
+                    path="mode", op=PredOp.IN_SET,
+                    value=["summary", "qa", None],
+                )],
             )],
-            forbidden_tools=["deep_research", "semantic_scholar_search"],
+            # read_paper is retired (folded into source); it must never fire.
+            forbidden_tools=["read_paper", "deep_research", "semantic_scholar_search"],
             reward_basis=["required", "forbidden"],
         ),
-        rationale="A specific DOI + 'read ... tell me the method' -> read_paper "
-                  "(full-text). deep_research is over-routing for a single known paper.",
+        rationale="A specific DOI + 'read ... tell me the method' -> source "
+                  "(full-text read; supersedes the retired read_paper). "
+                  "deep_research is over-routing for a single known paper.",
+    ),
+
+    # --- direct_ref: compare known papers -> source(mode=compare) --------
+    RoutingEvalItem(
+        id="compare_known_dois",
+        category="direct_ref",
+        query="Compare these two papers on how they measured polarization: "
+              "10.1021/jacs.0c01234 and 10.1038/nature12373.",
+        expected=Expected(
+            profile="research",
+            required_tools=[ToolExpectation(
+                name="source",
+                arg_predicates=[Predicate(
+                    path="mode", op=PredOp.EQ, value="compare",
+                )],
+            )],
+            # compare_papers is retired (folded into source mode=compare).
+            forbidden_tools=["compare_papers", "read_paper", "deep_research"],
+            reward_basis=["required", "forbidden"],
+        ),
+        rationale="'Compare these two papers on axis X' with known DOIs -> "
+                  "source(mode=compare), which supersedes the retired "
+                  "compare_papers. deep_research over-routes for two known papers.",
     ),
 
     # --- memory: store a durable fact ------------------------------------

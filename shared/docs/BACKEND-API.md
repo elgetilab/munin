@@ -1385,11 +1385,13 @@ are defined in `config/agents.yml` with their own tool allowlists, iteration
 limits, and wall-clock timeouts. Agents cannot invoke each other.
 
 **Deferred tool schema (P1 #7).** The `tools` array sent to vLLM does
-**not** carry all 39 tools. It carries only a ~9-tool core set
-(`paper_search`, `web_search`, `read_paper`, `run_python`,
-`create_artifact`, `calculate`, `ask_clarification`,
-`delegate_to_persona`, `tool_search`), intersected with the persona's
-allowlist. Every other tool is hidden until the model calls
+**not** carry every registered tool. It carries only a small core set
+(`source`, `search`, `compute`, `paper_search`, `web_search`,
+`run_python`, `create_artifact`, `calculate`, `ask_clarification`,
+`tool_search`, `set_plan`, `update_plan_item`), intersected with the
+persona's allowlist. (`read_paper` and `compare_papers` were retired and
+folded into the `source` agent — `source` with `mode='summary'` /
+`mode='compare'` covers them.) Every other tool is hidden until the model calls
 `tool_search` with a natural-language query; the executor returns the
 matching tools' schemas (top 8 by relevance, scoped to the persona's
 allowlist) and unlocks them into the schema for the rest of that

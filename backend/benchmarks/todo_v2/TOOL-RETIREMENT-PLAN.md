@@ -1,6 +1,9 @@
 # Tool retirement plan (benchmarks TODO #4)
 
-Status: PLANNED, awaiting go-ahead + one scoping decision.
+Status: IMPLEMENTED 2026-07-25 (read_paper + compare_papers retired;
+calculate + run_python kept per decision A). Committed, NOT deployed.
+Before/after evals pending (needs cluster). Commits: 978f9ce (tool
+surface), 09980fd (top-level fn prune), + routing/docs.
 
 ## What the code actually shows (vs the TODO premise)
 

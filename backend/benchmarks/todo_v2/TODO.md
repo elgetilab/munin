@@ -334,12 +334,28 @@ confirmed findings producing actionable recommendations, each tied to a cited
 finding. Prompt/template change in `deep_research_agent.py`; explicitly
 lower-priority and gated on R1-R3 (all done).
 
-## 4. Retire the folded-in tools  (cleanup with behavioral impact)
-Design-v2 had `source` fold in `read_paper` + `compare_papers`, and `compute`
-fold in `run_python` + `calculate`. The agents landed, but all the originals are
-still registered side-by-side in `mcp/dispatchers.py`. Decide whether to
-deprecate the originals and update the model's tool roster + system prompts.
-Behavioral change — do it deliberately, with an eval before/after.
+## 4. Retire the folded-in tools  (IN PROGRESS 2026-07-25)
+Design-v2 claimed `source` folds in `read_paper` + `compare_papers` and
+`compute` folds in `run_python` + `calculate`. Investigation
+(`TOOL-RETIREMENT-PLAN.md`) found only the `source` half is real in code:
+`source` genuinely reuses read_paper/compare_papers helpers and both were
+already non-core (tool_search-only). `compute` never folded `calculate`
+(zero refs) and *uses* `run_python` (load-bearing across latex/vision/
+artifact/Stage-C).
+
+**Done (committed, not deployed):** retired `read_paper` + `compare_papers`
+as tools — schema/dispatcher/exports removed, description references
+rerouted to `source`, module helpers kept, top-level fns pruned, tests +
+routing seed (`known_doi_read` now expects source; added `compare_known_dois`)
++ BACKEND-API.md updated. Commits 978f9ce, 09980fd.
+
+**Kept by decision (varghele 2026-07-25):** `calculate` (a cheap sympy
+primitive the fold never actually absorbed; retiring it would downgrade
+common arithmetic to run_python/compute) and `run_python` (load-bearing).
+
+**Remaining:** before/after evals — routing eval (primary; the seed set now
+proves read/compare route to source) + LitQA2 answer track (regression
+guard). Needs the cluster. Then deploy retrieval and mark resolved.
 
 ---
 
