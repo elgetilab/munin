@@ -1,7 +1,7 @@
 # todo_v2 — index
 
 At-a-glance status. **Completed plans live in `done/`**; active/remaining plans
-stay here. Updated 2026-07-06.
+stay here. Updated 2026-07-25.
 
 ## Done (`done/`)
 
@@ -15,6 +15,7 @@ stay here. Updated 2026-07-06.
 | `A4-PLAN.md`, `A5-PLAN.md` | Migration A4 (delegation deleted + allowlists retired) and A5 (routing tuning, anchor 0.95). Complete + live; soak clean 2026-07-08. |
 | `CONTEXT-BUDGET-FIX-SCOPE.md` | 3-tier context-budget fix. Deployed. |
 | `PERSONA-CONSOLIDATION-PLAN.md` | One Munin identity, 3 routing profiles. Done. |
+| `TRACK-D-PLAN.md` | Harness ablation: agentic 0.56 >> bare 0.32 >> RAG 0.15 (all p~0). DONE 2026-07-13. |
 
 Eval-suite results writeup: `backend/benchmarks/RESULTS.md` (canonical).
 
@@ -29,8 +30,7 @@ Eval-suite results writeup: `backend/benchmarks/RESULTS.md` (canonical).
 | `HARNESS-ITERATION-SCOPE.md` | Scoping for the harness-iteration phase (grounding, over-tooling, tool defs). Pre-implementation. |
 | `T2-T3-EDIT-PLAN.md` | Concrete T2 (over-tooling) + T3 (tool defs) edits; measurement + deploy constraints. Plan, not applied. |
 | `T1-GROUNDING-PLAN.md` | T1 grounding edits (paper_search excerpts, per-item truncation, structured sub-agent returns). T1a applied; T1b/c planned. |
-| `TRACK-C-PLAN.md` | Corpus-grounded abstention scope (C1 fabricated + confabulation detector now; C2 shadow-corpus needs infra). |
-| `TRACK-D-PLAN.md` | Harness ablation (bare / RAG / agentic) accuracy + cost. Plan; not built. |
+| `TRACK-C-PLAN.md` | Corpus-grounded abstention scope (C1 fabricated + confabulation detector done; C2 shadow-corpus needs infra). |
 | `KICKOFF-QUESTIONS.md` | Resolved decision record (kept as a live reference cited by the spec). |
 | `IMPLEMENTATION-HANDOFF.md` | Overarching eval-suite handoff (reference). |
 | `MIGRATION-LOOSE-ENDS.md` | Encoder-migration tail: embedding-map repoint + `papers` retirement. varghele/root. |
@@ -60,10 +60,14 @@ FIX, not just a number to measure. So:
    measurement.
 
 **3. Then C and D, on the finished harness**
+   - ~~**Track D - harness ablation**~~ DONE 2026-07-13: bare vs vanilla-RAG vs
+     full agentic, agentic 0.56 >> bare 0.32 >> RAG 0.15 (all p~0; scorecard
+     `2026-07-13_harness-ablation`). Plan in `done/`. The empirical backbone of
+     the harness-contribution claim.
    - **Track C - corpus-grounded abstention benchmark** (over-abstention vs
-     correct "not in corpus"). Master plan sec 4.
-   - **Track D - harness ablation** (bare vs vanilla-RAG vs full agentic).
-     Master plan sec 5. The empirical backbone of the harness contribution claim.
+     correct "not in corpus"). Master plan sec 4. C1 (fabricated papers +
+     confabulation detector) done with scorecards; C2 (shadow-corpus) still
+     needs the collection-building infra.
 
 **Deferred:** Phase 4 local pool (blocked on more real usage / a synthetic-query
 track).

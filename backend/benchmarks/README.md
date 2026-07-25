@@ -1,8 +1,8 @@
 # Munin retrieval evaluation harness
 
 Paper-grade, reproducible retrieval benchmarks. Build spec:
-`todo_v2/RETRIEVAL-EVAL-SPEC.md`; suite-wide plan:
-`todo_v2/EVAL-SUITE-MASTER-PLAN.md`. This folder is benchmark code only — it
+`../../todo_v2/RETRIEVAL-EVAL-SPEC.md`; suite-wide plan:
+`../../todo_v2/EVAL-SUITE-MASTER-PLAN.md`. This folder is benchmark code only — it
 never ships in `deploy.sh`, and it only ever *reads* the production Qdrant /
 Neo4j (BEIR subsets get their own `eval_*` collections in Phase 3).
 
@@ -87,7 +87,7 @@ when the cards are free. `--rebuild` drops + re-embeds the collection.
 number (~0.665), and our metric is bit-identical to `pytrec_eval`. SPECTER-v1
 dense = 0.479 (a citation embedder, expectedly below BM25 on claim queries);
 citation-rerank degenerates to dense on BEIR (no graph), confirmed empirically.
-See `todo_v2/RETRIEVAL-EVAL-SPEC.md` Phase 3 for the gate rationale and the
+See `../../todo_v2/RETRIEVAL-EVAL-SPEC.md` Phase 3 for the gate rationale and the
 `\n\n`-vs-`[SEP]` production finding.
 
 ## Frozen variant set (AgentRetriever)
