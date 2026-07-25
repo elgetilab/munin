@@ -1,10 +1,13 @@
 """
-MCP tool: compare_papers (§8).
+Comparison-prompt building blocks (formerly the compare_papers MCP
+tool, §8).
 
-A thin composite on top of §7 ``read_paper``. Fans out read_paper
-calls for N DOIs in parallel, then feeds the resulting summaries
-into a single LLM call that produces a side-by-side markdown
-comparison.
+The compare_papers tool was retired once the `source` agent's
+mode='compare' superseded it; this module is kept because `source`
+(mcp/tools/source.py) reuses `_build_comparison_prompt` and
+`HARD_MAX_PAPERS`. The top-level `compare_papers()` entry point (which
+fanned out read_paper calls) is gone; the prompt builder below is the
+surface.
 
 Design decisions (locked 2026-04-14):
 
@@ -33,7 +36,6 @@ import asyncio
 from typing import Any, Optional
 
 HARD_MAX_PAPERS = 5
-MIN_PAPERS = 1
 
 
 # ---------------------------------------------------------------------------
@@ -138,165 +140,3 @@ def _build_comparison_prompt(
     user_text = "\n\n".join(sections)
     return base, user_text
 
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
-async def compare_papers(
-    dois: list[str],
-    focus: Optional[str] = None,
-    max_papers: int = HARD_MAX_PAPERS,
-) -> dict:
-    """
-    Fan out ``read_paper`` for each DOI in parallel, then produce a
-    single side-by-side markdown comparison via one extra LLM call.
-    See module docstring for the full contract.
-    """
-    from .read_paper import read_paper
-    from .llm import llm_summarize
-
-    # Validate / normalise the DOI list.
-    if not isinstance(dois, list):
-        return {"error": "dois must be a list of strings"}
-    cleaned: list[str] = []
-    seen: set[str] = set()
-    for d in dois:
-        if not isinstance(d, str):
-            continue
-        d = d.strip()
-        if not d:
-            continue
-        key = d.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        cleaned.append(d)
-    if not cleaned:
-        return {"error": "dois must contain at least one non-empty DOI"}
-
-    try:
-        limit = int(max_papers)
-    except (TypeError, ValueError):
-        limit = HARD_MAX_PAPERS
-    limit = max(MIN_PAPERS, min(limit, HARD_MAX_PAPERS))
-    cleaned = cleaned[:limit]
-
-    # Parallel read_paper fan-out.
-    read_results = await asyncio.gather(
-        *(read_paper(doi=d, focus=focus) for d in cleaned),
-        return_exceptions=True,
-    )
-
-    successful: list[dict] = []
-    failed: list[dict] = []
-    all_sources_used: set[str] = set()
-
-    for doi, result in zip(cleaned, read_results):
-        if isinstance(result, Exception):
-            failed.append({
-                "doi": doi,
-                "error": f"{type(result).__name__}: {result}",
-            })
-            continue
-        if not isinstance(result, dict):
-            failed.append({
-                "doi": doi,
-                "error": f"read_paper returned unexpected {type(result).__name__}",
-            })
-            continue
-        if result.get("error"):
-            failed.append({
-                "doi": doi,
-                "error": result["error"],
-            })
-            continue
-        for src in (result.get("sources_used") or []):
-            all_sources_used.add(src)
-        successful.append(result)
-
-    # If nothing succeeded there's nothing to compare.
-    if not successful:
-        return {
-            "focus": focus,
-            "papers": [],
-            "comparison": None,
-            "failed": failed,
-            "error": (
-                "compare_papers could not read any of the requested "
-                "DOIs. See `failed` for per-DOI reasons."
-            ),
-        }
-
-    # Trim what we echo back to the caller to keep the response
-    # bounded. Callers that need full details can call read_paper
-    # on a specific DOI afterwards.
-    papers_metadata: list[dict] = []
-    for p in successful:
-        papers_metadata.append({
-            "doi": p.get("doi"),
-            "title": p.get("title"),
-            "authors": (p.get("authors") or [])[:10],
-            "summary": p.get("summary"),
-            "key_findings": p.get("key_findings") or [],
-            "sources_used": p.get("sources_used") or [],
-        })
-
-    # Single papers take a shortcut - no "comparison" to produce.
-    if len(successful) == 1:
-        lone = successful[0]
-        single_title = lone.get("title") or "the paper"
-        return {
-            "focus": focus,
-            "papers": papers_metadata,
-            "comparison": (
-                f"Only one paper was available to read ({single_title}). "
-                f"Its summary is above under `papers[0].summary` and "
-                f"its key findings under `papers[0].key_findings`; "
-                f"there is nothing to compare."
-            ),
-            "failed": failed,
-            "sources_used": sorted(all_sources_used),
-            "n_compared": 1,
-        }
-
-    # Build the comparison prompt and fire the single LLM call.
-    system_instruction, user_text = _build_comparison_prompt(
-        successful, focus
-    )
-    llm_result = await llm_summarize(
-        text=user_text,
-        instruction=system_instruction,
-        max_tokens=3000,
-    )
-    if not isinstance(llm_result, dict) or llm_result.get("error"):
-        error_msg = (
-            llm_result.get("error")
-            if isinstance(llm_result, dict)
-            else "unknown LLM failure"
-        )
-        return {
-            "focus": focus,
-            "papers": papers_metadata,
-            "comparison": None,
-            "failed": failed,
-            "error": f"comparison LLM call failed: {error_msg}",
-            "sources_used": sorted(all_sources_used),
-        }
-
-    comparison_md = (llm_result.get("summary") or "").strip()
-    if not comparison_md:
-        comparison_md = (
-            "The comparison LLM call returned an empty response. "
-            "Please retry or fall back to reading each paper "
-            "individually via read_paper."
-        )
-
-    return {
-        "focus": focus,
-        "papers": papers_metadata,
-        "comparison": comparison_md,
-        "failed": failed,
-        "sources_used": sorted(all_sources_used),
-        "n_compared": len(successful),
-    }

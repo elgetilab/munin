@@ -1,8 +1,15 @@
 """
-MCP tool: read_paper (§7).
+Paper fetch/parse/summarise building blocks (formerly the read_paper
+MCP tool, §7).
 
-Fetch + parse + summarise a paper in one call. Chains infrastructure
-we already have:
+The read_paper tool was retired once the `source` agent superseded it;
+this module is kept because `source` (mcp/tools/source.py) reuses its
+helpers: PDF resolution/cache (`_download_pdf`, `_read_cache`,
+`_write_cache`, `_warn_if_cache_bloated`) and the two summarisers
+(`_summarise_narrative`, `_summarise_key_findings`). The top-level
+`read_paper()` entry point is gone; the helpers below are the surface.
+
+Chains infrastructure we already have:
 
   paper_lookup      → resolve DOI to title / authors / OA PDF URL
   /papers/pdf/      → local corpus for papers we've already crawled
@@ -216,147 +223,3 @@ async def _summarise_key_findings(
             findings.append(stripped.split(".", 1)[1].strip())
     return [f for f in findings if f]
 
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
-async def read_paper(doi: str, focus: Optional[str] = None) -> dict:
-    """
-    Fetch, parse, and summarise a paper by DOI. See module docstring
-    for the full flow and cache policy.
-    """
-    import mcp.tools.papers as paper_tools  # lazy, circular-safe
-    from mcp.tools.papers import paper_lookup, get_pdf_path
-
-    doi = (doi or "").strip()
-    if not doi:
-        return {"error": "read_paper requires a non-empty DOI"}
-
-    lookup = await paper_lookup(doi)
-    if not isinstance(lookup, dict) or lookup.get("error"):
-        return {
-            "error": (lookup or {}).get("error", "paper_lookup failed"),
-            "doi": doi,
-        }
-
-    title = lookup.get("title") or ""
-    authors = lookup.get("authors") or []
-    abstract = lookup.get("abstract") or lookup.get("tldr") or ""
-    oa_pdf_url = lookup.get("open_access_pdf")
-    lookup_source = lookup.get("source")  # "local" | "semantic_scholar" | "crossref"
-
-    sources_used: list[str] = []
-    pdf_bytes: Optional[bytes] = None
-
-    # Step 1: local corpus (fastest, most reliable)
-    local_path = get_pdf_path(doi)
-    if local_path and os.path.isfile(local_path):
-        try:
-            with open(local_path, "rb") as f:
-                pdf_bytes = f.read()
-            sources_used.append("local")
-        except OSError:
-            pdf_bytes = None
-
-    # Step 2: disk cache (previously downloaded)
-    if pdf_bytes is None:
-        cached = _read_cache(doi)
-        if cached:
-            pdf_bytes = cached
-            sources_used.append("cache")
-
-    # Step 3: fresh download from OA URL
-    downloaded_fresh = False
-    if pdf_bytes is None and oa_pdf_url:
-        fetched = await _download_pdf(oa_pdf_url)
-        if fetched:
-            pdf_bytes = fetched
-            sources_used.append("open_access_pdf")
-            downloaded_fresh = True
-
-    # Step 4: fall back to abstract-only summary
-    if pdf_bytes is None:
-        if not abstract:
-            return {
-                "error": (
-                    "No PDF available (not in local corpus, no cache, no "
-                    "open-access URL) and no abstract/TLDR to fall back on"
-                ),
-                "doi": doi,
-                "title": title,
-                "authors": authors,
-                "sources_used": [],
-            }
-        return {
-            "doi": doi,
-            "title": title,
-            "authors": authors,
-            "abstract": abstract,
-            "summary": abstract,
-            "key_findings": [],
-            "sources_used": ["s2_abstract"],
-            "lookup_source": lookup_source,
-            "cache_size_mb": round(_warn_if_cache_bloated(), 2),
-        }
-
-    # Extract text from the PDF (GROBID first, pypdf fallback).
-    import document_store
-    try:
-        extracted_text = await document_store._extract_pdf(pdf_bytes)
-    except Exception as exc:
-        extracted_text = ""
-        logger.warning("read_paper PDF extraction failed for %s: %s", doi, exc)
-
-    if not extracted_text or len(extracted_text) < 200:
-        # GROBID + pypdf both failed; treat as abstract-only.
-        if abstract:
-            return {
-                "doi": doi,
-                "title": title,
-                "authors": authors,
-                "abstract": abstract,
-                "summary": abstract,
-                "key_findings": [],
-                "sources_used": sources_used + ["s2_abstract"],
-                "lookup_source": lookup_source,
-                "cache_size_mb": round(_warn_if_cache_bloated(), 2),
-                "note": "PDF extraction failed; falling back to abstract",
-            }
-        return {
-            "error": "PDF extraction failed and no abstract to fall back on",
-            "doi": doi,
-            "title": title,
-            "authors": authors,
-            "sources_used": sources_used,
-        }
-
-    # Persist to cache if this was a fresh download. Don't re-cache
-    # bytes that came from /papers/pdf/ or the cache itself.
-    if downloaded_fresh:
-        _write_cache(doi, pdf_bytes)
-
-    # Two separate summarisation calls. Run in parallel to halve wall time.
-    summary, key_findings = await asyncio.gather(
-        _summarise_narrative(extracted_text, focus, title),
-        _summarise_key_findings(extracted_text, focus),
-    )
-
-    if not summary:
-        # One last fallback: if summarisation produced nothing, surface
-        # the abstract so the caller gets SOMETHING.
-        summary = abstract or f"[could not summarise {title!r}]"
-
-    return {
-        "doi": doi,
-        "title": title,
-        "authors": authors,
-        "abstract": abstract,
-        "summary": summary,
-        "key_findings": key_findings,
-        "focus": focus,
-        "sources_used": sources_used,
-        "lookup_source": lookup_source,
-        "extracted_text_chars": len(extracted_text),
-        "cache_size_mb": round(_warn_if_cache_bloated(), 2),
-    }
