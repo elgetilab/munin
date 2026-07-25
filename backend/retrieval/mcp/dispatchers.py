@@ -20,7 +20,6 @@ from .tools import (
     ask_clarification,
     calculate,
     check_papers_availability,
-    compare_papers,
     compile_latex,
     compute,
     create_artifact,
@@ -40,7 +39,6 @@ from .tools import (
     paper_lookup,
     paper_search,
     read_artifact,
-    read_paper,
     recall,
     remember,
     run_python,
@@ -98,23 +96,6 @@ async def _semantic_scholar_search(arguments: dict) -> dict:
 @register_tool("paper_lookup")
 async def _paper_lookup(arguments: dict) -> dict:
     return await paper_lookup(arguments.get("doi", ""))
-
-
-@register_tool("read_paper")
-async def _read_paper(arguments: dict) -> dict:
-    return await read_paper(
-        doi=arguments.get("doi", ""),
-        focus=arguments.get("focus"),
-    )
-
-
-@register_tool("compare_papers")
-async def _compare_papers(arguments: dict) -> dict:
-    return await compare_papers(
-        dois=arguments.get("dois", []),
-        focus=arguments.get("focus"),
-        max_papers=arguments.get("max_papers", 5),
-    )
 
 
 @register_tool("source")

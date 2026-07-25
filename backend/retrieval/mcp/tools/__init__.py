@@ -23,8 +23,6 @@ from .llm import llm_summarize
 from .documents import search_user_docs, view_attachment
 from .equation import transcribe_equation
 from .faq import faq
-from .read_paper import read_paper
-from .compare_papers import compare_papers
 from .source import source
 from .search_agent import search
 from .compute_agent import compute
@@ -58,8 +56,6 @@ __all__ = [
     "paper_search",
     "semantic_scholar_search",
     "paper_lookup",
-    "read_paper",
-    "compare_papers",
     "source",
     "search",
     "compute",

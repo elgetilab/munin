@@ -168,11 +168,13 @@ def test_gate_rejects_wrong_type() -> bool:
 
 
 def test_gate_rejects_array_passed_as_string() -> bool:
-    res = _run(execute_mcp_tool("compare_papers", {"dois": "10.1234/foo"}))
+    # `paper_search.queries` is array-typed; a bare string must fail at the
+    # gate. (Was compare_papers.dois before that tool was retired.)
+    res = _run(execute_mcp_tool("paper_search", {"queries": "one query"}))
     err = (res or {}).get("error", "")
     return _check(
         "gate rejects string in array-typed field",
-        "invalid arguments" in err and "dois" in err,
+        "invalid arguments" in err and "queries" in err,
         f"res={res}",
     )
 

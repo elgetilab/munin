@@ -62,7 +62,7 @@ def _uninstall_persona():
 # A broad allowlist covering most of the registry for discovery tests.
 _BROAD = [
     "web_search", "web_fetch", "paper_search", "semantic_scholar_search",
-    "paper_lookup", "read_paper", "compare_papers", "get_citations",
+    "paper_lookup", "source", "get_citations",
     "get_references", "s2_get_citations", "s2_get_references",
     "get_author_papers", "get_paper_pdf", "check_papers_availability",
     "export_citations", "compile_latex", "run_python", "sandbox_reset",

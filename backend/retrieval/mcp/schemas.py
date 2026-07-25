@@ -18,12 +18,11 @@ Each tool has:
 # the high-frequency workhorses.
 CORE_TOOLS = frozenset({
     # Specialised agents (the primary read/find/compute surface). `source`
-    # supersedes read_paper+compare_papers; `search` consolidates the three
-    # search tools; `compute` is spec->verified-code. read_paper is dropped from
-    # core (source covers it via mode=summary) but stays reachable via
-    # tool_search during transition; paper_search/web_search/run_python remain
-    # core for their distinct residual intents (they are also what the agents
-    # call internally).
+    # supersedes read_paper+compare_papers (both retired as tools; source
+    # covers them via mode=summary / mode=compare); `search` consolidates the
+    # three search tools; `compute` is spec->verified-code.
+    # paper_search/web_search/run_python remain core for their distinct
+    # residual intents (they are also what the agents call internally).
     "source",
     "search",
     "compute",
@@ -68,7 +67,7 @@ MCP_TOOLS = {
     },
     "paper_search": {
         "name": "paper_search",
-        "description": "Search the LOCAL curated paper corpus (fast; the corpus is deliberately curated and INCOMPLETE, so branch out to semantic_scholar_search when hits are thin or the topic is off-corpus) using SPECTER semantic search with multi-query fan-out. Pass `queries` as an array of 3-5 varied phrasings for best coverage; the tool runs them in parallel and dedupes by DOI. Passing a single `query` string triggers automatic expansion into 3-5 variants. Returns papers with titles, authors, years, DOIs, scores, and a short abstract excerpt you can ground claims on and use to judge relevance before calling read_paper.",
+        "description": "Search the LOCAL curated paper corpus (fast; the corpus is deliberately curated and INCOMPLETE, so branch out to semantic_scholar_search when hits are thin or the topic is off-corpus) using SPECTER semantic search with multi-query fan-out. Pass `queries` as an array of 3-5 varied phrasings for best coverage; the tool runs them in parallel and dedupes by DOI. Passing a single `query` string triggers automatic expansion into 3-5 variants. Returns papers with titles, authors, years, DOIs, scores, and a short abstract excerpt you can ground claims on and use to judge relevance before calling source to read the full text.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -91,7 +90,7 @@ MCP_TOOLS = {
     },
     "semantic_scholar_search": {
         "name": "semantic_scholar_search",
-        "description": "Search the EXTERNAL Semantic Scholar index (200M+ papers across all fields; broader coverage than the local corpus but slower and it uses the S2 quota, so prefer paper_search first and branch here when local hits are thin or off-corpus) with multi-query fan-out. This is for SEARCH by topic. When the user hands you a specific DOI to read, use read_paper - do NOT search here for a paper you can already identify. Returns papers with titles, authors, DOIs, citation counts, abstracts, and AI-generated TLDRs. Pass `queries` as a list of 3-5 varied search phrasings for broad coverage, or a single `query` string which will be auto-expanded. Takes an optional `year` filter applied to every query.",
+        "description": "Search the EXTERNAL Semantic Scholar index (200M+ papers across all fields; broader coverage than the local corpus but slower and it uses the S2 quota, so prefer paper_search first and branch here when local hits are thin or off-corpus) with multi-query fan-out. This is for SEARCH by topic. When the user hands you a specific DOI to read, use source (mode='summary') - do NOT search here for a paper you can already identify. Returns papers with titles, authors, DOIs, citation counts, abstracts, and AI-generated TLDRs. Pass `queries` as a list of 3-5 varied search phrasings for broad coverage, or a single `query` string which will be auto-expanded. Takes an optional `year` filter applied to every query.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -171,48 +170,6 @@ MCP_TOOLS = {
                 }
             },
             "required": ["url"]
-        }
-    },
-    "read_paper": {
-        "name": "read_paper",
-        "description": "Fetch, parse, and summarise a paper by DOI in one call. Chains paper_lookup (for title/authors/OA URL) → PDF resolution (local corpus first, then on-disk cache, then fresh download from the OA URL) → GROBID text extraction → two separate LLM summarisation calls (one for the narrative summary, one for a bulleted key-findings list). Falls back to the Semantic Scholar abstract if no PDF is reachable. Use this when the user asks substantive questions about a specific paper ('what are the main findings of 10.1234/xyz', 'summarise this paper for me', 'what methods did paper X use') and you want deep content rather than just the title + abstract you get from paper_lookup alone. The optional `focus` parameter biases both summaries toward a specific topic ('lipid rafts', 'statistical methods', 'the mouse cohort') - use it when the user's question has a clear angle rather than a generic ask. Returns {doi, title, authors, abstract, summary, key_findings: [...], sources_used, cache_size_mb}. sources_used values: 'local' (paper was in the curated corpus), 'cache' (previously downloaded), 'open_access_pdf' (freshly downloaded), or 's2_abstract' (no PDF available, summarised from the abstract).",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "doi": {
-                    "type": "string",
-                    "description": "Paper DOI (e.g. '10.1038/nature12373')."
-                },
-                "focus": {
-                    "type": "string",
-                    "description": "Optional topic bias for the summary. E.g. 'methods', 'lipid rafts', 'the mouse cohort'. Omit for a general summary covering the whole paper."
-                }
-            },
-            "required": ["doi"]
-        }
-    },
-    "compare_papers": {
-        "name": "compare_papers",
-        "description": "Compare 2-5 papers side-by-side on a specific axis. Fans out `read_paper` for each DOI in parallel (so a comparison of 5 papers takes about the same wall-clock time as reading one), then runs a single LLM call that produces a structured markdown comparison with sections for Methods, Results, Scope and limitations, Where they disagree, Common ground, and a Verdict. Use this whenever the user asks things like 'compare these three papers', 'how do X and Y differ on method Z', 'which of these papers has the strongest evidence for X'. The `focus` argument biases every section of the comparison toward a specific question - strongly recommended since focused comparisons are much more useful than generic ones. Returns {focus, papers, comparison (markdown string), failed, sources_used, n_compared}. If some DOIs can't be read, the tool returns partial results with the failures listed under `failed` - the model should acknowledge them to the user. Hard cap of 5 papers per call. Do NOT use this for single-paper reads (call `read_paper` directly instead).",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "dois": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of 2-5 DOIs to compare. Duplicates are deduped; more than 5 are silently trimmed to 5."
-                },
-                "focus": {
-                    "type": "string",
-                    "description": "The specific question or axis of comparison, e.g. 'handling of batch effects', 'sample size and statistical power', 'treatment of reproducibility'. Omit for a generic comparison but strongly recommended."
-                },
-                "max_papers": {
-                    "type": "integer",
-                    "description": "Maximum number of papers to compare. Default 5, hard cap 5.",
-                    "default": 5
-                }
-            },
-            "required": ["dois"]
         }
     },
     "source": {
@@ -992,7 +949,7 @@ MCP_TOOLS = {
     },
     "faq": {
         "name": "faq",
-        "description": "Look up admin-curated answers to user-facing how-to questions. Use this ONLY when the user asks how the Munin interface works ('how do I upload a document?', 'what is incognito mode?', 'what's the difference between the personas?', 'how do I start a project?'). Do NOT use it for research questions - those go through deep_research / paper_search / web_search / read_paper / etc. The list of available topic ids is in the === CAPABILITIES === block of your system prompt under 'FAQ topics'. Three call modes: (1) faq(topic='upload_documents') returns the full answer for one topic; (2) faq(search='upload') does substring matching and returns a list of previews; (3) faq() with no arguments returns the table of contents (all topics with their questions, no answer bodies). Start with mode (1) when you know the exact topic; fall back to (2) or (3) when you don't.",
+        "description": "Look up admin-curated answers to user-facing how-to questions. Use this ONLY when the user asks how the Munin interface works ('how do I upload a document?', 'what is incognito mode?', 'what's the difference between the personas?', 'how do I start a project?'). Do NOT use it for research questions - those go through deep_research / paper_search / web_search / source / etc. The list of available topic ids is in the === CAPABILITIES === block of your system prompt under 'FAQ topics'. Three call modes: (1) faq(topic='upload_documents') returns the full answer for one topic; (2) faq(search='upload') does substring matching and returns a list of previews; (3) faq() with no arguments returns the table of contents (all topics with their questions, no answer bodies). Start with mode (1) when you know the exact topic; fall back to (2) or (3) when you don't.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1013,7 +970,7 @@ MCP_TOOLS = {
         "description": (
             "Discover tools that are NOT in your current tool list. Your "
             "schema only carries a small core set (paper/web search, "
-            "read_paper, run_python, create_artifact, calculate, "
+            "source, run_python, create_artifact, calculate, "
             "ask_clarification). Many other "
             "capabilities exist but are hidden until you search for them: "
             "citation-graph traversal, Semantic Scholar lookups, LaTeX "
