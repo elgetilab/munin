@@ -328,11 +328,15 @@ architecture: re-run the 20-question over-abstention set through `source(mode=qa
 and compare abstain→correct against the 0.82 full-text oracle. Confirm this ran
 against the landed `source.py` (not just the design); if not, run it.
 
-## 3. R5 — Recommendations section in DR reports  (optional, small)
-The one open item from `DR-VS-CLAUDE-COMPARISON.md`. A final synthesis pass over
-confirmed findings producing actionable recommendations, each tied to a cited
-finding. Prompt/template change in `deep_research_agent.py`; explicitly
-lower-priority and gated on R1-R3 (all done).
+## 3. R5 — Recommendations section in DR reports  — DONE 2026-07-25
+Final grounded synthesis pass `_recommendations` in `deep_research_agent.py`:
+3-5 actionable recommendations over confirmed notes, each a bold imperative
+headline naming its finding + source with a decision threshold where the
+evidence supports one; sits between Sources and Caveats; gated on
+`_MIN_NOTES_FOR_RECS`=3 so thin runs skip it. Gate unit-tested
+(`test_dr_report.py`), prose validated live. Committed, NEEDS
+`sudo ./deploy.sh retrieval` to go live. Full arc R1-R5 now complete
+(`DR-VS-CLAUDE-COMPARISON.md`).
 
 ## 4. Retire the folded-in tools  (IN PROGRESS 2026-07-25)
 Design-v2 claimed `source` folds in `read_paper` + `compare_papers` and
@@ -383,7 +387,7 @@ Plan + full write-up: `TOOL-RETIREMENT-PLAN.md`.
 ---
 
 ## Still-current reference (kept at top level)
-- `DR-VS-CLAUDE-COMPARISON.md` — report-format target; R1-R4 done, R5 open.
+- `DR-VS-CLAUDE-COMPARISON.md` — report-format target; R1-R5 all done.
 - `MUNIN-DR-SAMPLE-REPORT.md` — sample DR output for side-by-side comparison.
 
 ## History

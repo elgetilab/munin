@@ -63,6 +63,7 @@ DEFAULT_SCREEN_KEEP = 20     # candidates kept per sub-question after screening
 DEFAULT_READ_CAP = 8         # full reads per sub-question (breadth lever 3)
 DEFAULT_SNOWBALL_READS = 4   # extra reads per snowball pass
 DEFAULT_SNOWBALL_DEPTH = 2   # snowball the snowballed papers once more (depth-2)
+_MIN_NOTES_FOR_RECS = 3      # R5: below this, skip Recommendations (too thin)
 CHECKPOINT_DIR = os.getenv("DEEP_RESEARCH_DIR", "/data/deep_research")
 
 
@@ -406,6 +407,30 @@ def _key_findings(notes: list[dict]) -> str:
     return "## Key Findings\n\n" + "\n".join(lines) + "\n\n"
 
 
+async def _recommendations(question: str, notes: list[dict]) -> str:
+    """R5: a short list of actionable recommendations, each grounded in and
+    citing a specific finding, with a decision threshold where the evidence
+    supports one. Only emitted when the evidence base is rich enough to justify
+    them - thin runs skip the section rather than pad it with hollow advice
+    (per DR-VS-CLAUDE-COMPARISON.md R5: gated on a real evidence base)."""
+    if len(notes) < _MIN_NOTES_FOR_RECS:
+        return ""
+    body = "\n".join(
+        f"- {n['claim']} (source: {_cite(n.get('ref'))})" for n in notes[:24]
+    )
+    out = await _llm(
+        "Write 3-5 actionable recommendations for a research report, drawn ONLY "
+        "from these grounded findings. Each recommendation is a bold imperative "
+        "headline followed by one or two sentences that (a) name the specific "
+        "finding and source it rests on, and (b) where the evidence supports it, "
+        "give a concrete decision threshold or condition (a number, a cutoff, or "
+        "an 'if X then Y'). Add no claim that is not in the findings; if the "
+        "evidence does not support a threshold, omit it rather than inventing "
+        "one. Use '- ' bullets.",
+        f"Question: {question}\n\nFindings:\n{body}", max_tokens=800)
+    return f"## Recommendations\n\n{out}\n\n" if out else ""
+
+
 def _caveats(plan: list[dict], citations: list[dict]) -> str:
     """Honest limitations: unanswered sub-questions + abstract-only citations."""
     lines: list[str] = []
@@ -528,7 +553,7 @@ async def deep_research(question: str, *, depth: str = "deep",
     await _emit(progress, "synthesising",
                 n_resolved=sum(1 for n in plan if n["status"] == "resolved"))
     # Claude-style layout, drawn only from grounded notes:
-    #   Title / TL;DR / Key Findings / Details (per sub-question) / Sources / Caveats
+    #   Title / TL;DR / Key Findings / Details / Sources / Recommendations / Caveats
     all_notes = [n for node in plan for n in node["notes"]]
     n_resolved = sum(1 for n in plan if n["status"] == "resolved")
     citations = _citations(plan)
@@ -550,10 +575,11 @@ async def deep_research(question: str, *, depth: str = "deep",
             tier_tag = f", {tier}" if tier and tier != "unknown" else ""
             lines.append(f"{i}. {link} _(read: {c.get('read_depth') or 'unknown'}{tier_tag})_")
         sources_md = "\n## Sources\n\n" + "\n".join(lines) + "\n"
+    recommendations_md = await _recommendations(question, all_notes)
     caveats_md = _caveats(plan, citations)
 
     document = (f"# {question}\n\n" + tldr_md + key_findings_md + details_md +
-                sources_md + "\n" + caveats_md +
+                sources_md + "\n" + recommendations_md + caveats_md +
                 f"\n---\n_{n_resolved}/{len(plan)} sub-questions resolved from "
                 f"{len(all_notes)} grounded notes; {len(citations)} sources cited._\n")
 

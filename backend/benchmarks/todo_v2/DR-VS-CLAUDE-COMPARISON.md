@@ -1,12 +1,13 @@
 # Deep Research: Munin vs Claude Research — comparison and target format
 
-> **Status (2026-07-23):** work items **R1-R4 shipped** (report structure, wider
-> funnel + snowball, contradiction synthesis, quantitative notes — see the
-> archived `done/AUTONOMOUS-SESSION-LOG.md`). **R5 (Recommendations section)
-> remains open, optional.** The one live breadth gap (Munin ~5 sources vs
-> Claude ~50) is now re-measurable since the web tier (Brave) and the S2 key
-> are live — see `TODO.md`. Kept live because R5 + the breadth re-measure are
-> still ahead.
+> **Status (2026-07-25):** work items **R1-R5 all shipped** (report structure,
+> wider funnel + snowball, contradiction synthesis, quantitative notes, and now
+> the Recommendations section — R1-R4 in archived
+> `done/AUTONOMOUS-SESSION-LOG.md`, R5 in `deep_research_agent.py`
+> `_recommendations`). The report-format arc is complete. The remaining live
+> item is the breadth question (Munin ~5 sources vs Claude ~50), which the
+> corpus-coverage investigation in `TODO.md` settled as corpus-bounded, not a
+> machinery defect.
 
 Purpose: use the Claude Research reference (the `compass_artifact_*.md` export,
 same prompt: membrane lipid composition × kinase-inhibitor partitioning — kept
@@ -124,10 +125,14 @@ into the note's `value`/`unit` fields, not just a prose claim. The quote already
 anchors it. This makes the report read like Claude's (hard numbers) while staying
 grounded.
 
-### R5. Recommendations section (optional, later)  — OPEN
-A final synthesis pass over all confirmed findings can produce actionable
-recommendations. Lower priority; only attempt once R1-R3 make the evidence base
-rich enough to justify them, and keep each tied to cited findings.
+### R5. Recommendations section  — DONE (2026-07-25)
+Final grounded synthesis pass (`_recommendations` in `deep_research_agent.py`)
+over all confirmed notes, emitting 3-5 actionable recommendations, each a bold
+imperative headline that names its supporting finding + source and gives a
+concrete decision threshold where the evidence supports one. Sits between
+Sources and Caveats. Gated on `_MIN_NOTES_FOR_RECS` (3) so thin runs skip the
+section rather than pad it. Draws ONLY from notes (no new claims), same
+grounding discipline as `_tldr`. Gate is unit-tested; prose validated live.
 
 ## 6. Mapping to the build
 

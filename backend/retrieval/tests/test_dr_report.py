@@ -61,6 +61,18 @@ def _fake_source(findings_by_key):
     return fake
 
 
+def test_recommendations_gate_skips_thin_evidence():
+    """R5: the Recommendations pass is gated on a real evidence base. Below
+    _MIN_NOTES_FOR_RECS notes it returns "" WITHOUT calling the LLM (the early
+    return happens before any await on _llm, so this is safe without network)."""
+    import asyncio
+    assert asyncio.run(D._recommendations("Q", [])) == ""
+    thin = [{"claim": "a", "ref": {"title": "P1"}},
+            {"claim": "b", "ref": {"title": "P2"}}]
+    assert len(thin) < D._MIN_NOTES_FOR_RECS
+    assert asyncio.run(D._recommendations("Q", thin)) == ""
+
+
 def test_origin_tier_mapping():
     assert D._origin_tier("web") == "web"
     assert D._origin_tier("oa_cache") == "oa"
