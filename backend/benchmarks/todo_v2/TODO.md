@@ -353,9 +353,32 @@ routing seed (`known_doi_read` now expects source; added `compare_known_dois`)
 primitive the fold never actually absorbed; retiring it would downgrade
 common arithmetic to run_python/compute) and `run_python` (load-bearing).
 
-**Remaining:** before/after evals — routing eval (primary; the seed set now
-proves read/compare route to source) + LitQA2 answer track (regression
-guard). Needs the cluster. Then deploy retrieval and mark resolved.
+**DONE 2026-07-25.** Deployed to prod (retrieval); read_paper endpoint 404s,
+schema entry gone. Routing before/after (17 items x 5 reps, seed 42, live;
+scorecards `2026-07-25_toolretire-{before,after}`):
+
+- Retirement is behaviorally SAFE: no control item regressed because of it.
+  Overall 0.788 -> 0.835 is NOT attributable to the change — it's
+  percent_calc (3/5->5/5) + weather/group items moving, all temperature-0.7
+  noise on tools I didn't touch; CIs overlap (.63-.95 vs .69-.98).
+- Intended effect landed: source-`required` rose on both targeted items —
+  known_doi_read 0.8 -> 1.0 (source now ALWAYS handles a known-DOI read),
+  compare_known_dois 0.2 -> 0.4. read_paper/compare_papers can no longer
+  fire (forbidden), confirmed.
+- Two residual routing quirks, PRE-EXISTING and independent of the
+  retirement (logged as follow-ups, not regressions):
+  (a) known_doi_read still fails its strict forbidden gate because the model
+      adds a stray semantic_scholar_search on a known DOI (over-tooling);
+      S2 stray went 1/5 -> 3/5, but at n=5 that's inside noise.
+  (b) compare_known_dois: model prefers N individual source reads over one
+      source(mode=compare); compare-mode selection is the real lever, not
+      the retirement.
+- n=5 + temperature 0.7 means single-item moves are inside the noise floor;
+  behavioral safety is clear, a rigorous routing-improvement claim would
+  need more reps. LitQA2 answer track skipped by decision — retired tools
+  aren't on that path (answer track uses source(mode=qa)).
+
+Plan + full write-up: `TOOL-RETIREMENT-PLAN.md`.
 
 ---
 

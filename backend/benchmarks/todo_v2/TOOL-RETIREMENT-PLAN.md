@@ -1,9 +1,16 @@
 # Tool retirement plan (benchmarks TODO #4)
 
-Status: IMPLEMENTED 2026-07-25 (read_paper + compare_papers retired;
-calculate + run_python kept per decision A). Committed, NOT deployed.
-Before/after evals pending (needs cluster). Commits: 978f9ce (tool
-surface), 09980fd (top-level fn prune), + routing/docs.
+Status: DONE 2026-07-25. read_paper + compare_papers retired; calculate +
+run_python kept per decision A. Committed AND deployed to prod (retrieval).
+Routing before/after run live (scorecards 2026-07-25_toolretire-{before,
+after}): retirement behaviorally safe (no control regression); source now
+handles read/compare intents (known_doi_read source-required 0.8->1.0,
+compare_known_dois 0.2->0.4); overall 0.788->0.835 is temperature-0.7 noise
+on untouched tools (CIs overlap). Two pre-existing routing quirks surfaced
+(S2 over-tooling on known DOIs; compare-mode under-selection) — logged in
+TODO #4 as follow-ups, not caused by this change. Commits: 978f9ce, 09980fd,
+be6bf7c, 20a62ef (before), a144561 (after). LitQA2 skipped (retired tools
+not on the answer path).
 
 ## What the code actually shows (vs the TODO premise)
 
