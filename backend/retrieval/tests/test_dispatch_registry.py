@@ -3,7 +3,8 @@ Tests for the MCP dispatch registry (P2 #19).
 
 Pins the three properties the new shape guarantees:
   1. Every name in MCP_TOOLS has a dispatcher (except the explicit
-     schema-only allowlist, currently just delegate_to_persona)
+     schema-only allowlist, `_SCHEMA_ONLY`, currently empty —
+     delegate_to_persona, its former sole member, was removed at A4)
   2. Every dispatcher name is in MCP_TOOLS — no orphans
   3. register_tool rejects duplicates at decoration time
   4. The executor routes by registry, returns Unknown tool for
@@ -80,14 +81,25 @@ def test_verify_at_startup_passes_today() -> bool:
         return _check("verify_dispatch_registry passes for the live registry", False, str(e))
 
 
-def test_delegate_to_persona_is_schema_only() -> bool:
-    """delegate_to_persona is in MCP_TOOLS but intentionally has no
-    dispatcher (chat_service intercepts it before the executor)."""
+def test_schema_only_allowlist_is_coherent() -> bool:
+    """`_SCHEMA_ONLY` holds tools that appear in MCP_TOOLS for schema/
+    discovery but are intentionally not dispatched. Every member (if any)
+    must be a real MCP_TOOLS entry with no dispatcher. It is currently
+    empty: delegate_to_persona, its former sole member, was removed at A4
+    (the router replaced persona handoff), so it must stay fully gone —
+    not in MCP_TOOLS, not in the allowlist, not registered."""
+    members_coherent = all(
+        name in MCP_TOOLS and get_dispatcher(name) is None
+        for name in _SCHEMA_ONLY
+    )
+    delegate_retired = (
+        "delegate_to_persona" not in MCP_TOOLS
+        and "delegate_to_persona" not in _SCHEMA_ONLY
+        and get_dispatcher("delegate_to_persona") is None
+    )
     return _check(
-        "delegate_to_persona is in schema but not registered",
-        "delegate_to_persona" in MCP_TOOLS
-        and "delegate_to_persona" in _SCHEMA_ONLY
-        and get_dispatcher("delegate_to_persona") is None,
+        "schema-only allowlist coherent; delegate_to_persona retired (A4)",
+        members_coherent and delegate_retired,
     )
 
 
@@ -149,7 +161,7 @@ TESTS = [
     test_every_schema_tool_has_dispatcher,
     test_no_orphan_dispatchers,
     test_verify_at_startup_passes_today,
-    test_delegate_to_persona_is_schema_only,
+    test_schema_only_allowlist_is_coherent,
     test_register_tool_rejects_duplicate,
     test_unknown_tool_returns_error,
     test_registry_dispatch_routes_to_function,
