@@ -122,6 +122,41 @@ path): recovering to `correct`. With reads now local for 176/186, a re-run of
 the agentic arm should land near the true ~0.86 rather than the load-depressed
 0.66.
 
+### FINAL RUN 2026-07-26 (local corpus 186/186, TP=2 both GPUs, concurrency=8)
+
+Archive completed to 186/186 (incl. all of MuninDATA's manually-fetched Cell
+Press/MDPI/JCS/bpj papers). vLLM relaunched TP=2 (both GPUs, max-num-seqs=8,
+gpu-mem-util 0.85 - the 0.90 default was ~70MiB short of GPU 0's embedder
+headroom). Agentic arm re-run at concurrency=8 in 78 min (vs 6-8h).
+
+**Result: agentic 0.688** (prec 0.907, abstain 0.23). Three-arm paired:
+bare 0.302, RAG 0.171, agentic 0.688. **agentic-bare = +0.387 [0.297,0.472]**,
+agentic-RAG = +0.518, RAG-bare = -0.131, all p~0. The harness-value delta is
+ROBUST (+0.36..+0.39 across every run: 300s, 900s, local/conc8).
+
+**Unresolved gap - a likely real regression, NOT reads:** agentic is 0.688
+post-deploy vs **0.864 on 2026-07-24 pre-deploy**. Local corpus recovered only
+~9 of the 40 flips; **31 correct(07-24)->abstain(now) persist, and only 1/31
+cites a read/access failure** - they are GENUINE over-abstentions (abstains
+average 24 tool calls vs 5 for corrects: the model over-searches then honestly
+abstains). Reads are proven working (source resolves full_text on local PDFs).
+So the ~0.17 gap is answer/search BEHAVIOR, coincident with the 07-25/26
+deploys (tool retirement / R5 / background-turns), NOT the read pipeline. The
+routing eval (tool-selection only) would not catch an answer-accuracy
+regression. Also confounded with concurrency=8 batching (standalone 0.864 was
+concurrency~4).
+
+**Follow-up (next session, cluster moved):** bisect the cause - re-run a ~15-Q
+subset at concurrency=1 (isolate batching) and/or revert the tool retirement
+and re-measure (isolate the deploy). If it's the retirement, that's a
+production answer-accuracy regression to fix; the skipped LitQA2 guard would
+have caught it.
+
+**For the paper:** the harness-value delta (+0.39) is the defensible headline.
+Report the agentic absolute carefully - 0.86 is the clean pre-deploy /
+low-concurrency best case; 0.69 is the current post-deploy / concurrency-8
+ablation. Do not present 0.69 as the harness's ceiling.
+
 Pending (after fetch is healthy): re-run agentic -> re-`compare` -> MiniCheck
 -> assemble+commit scorecard + vs-07-13 diff.
 

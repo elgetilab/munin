@@ -1,0 +1,85 @@
+{
+  "track": "harness-ablation",
+  "n_paired": 199,
+  "git_sha": "49bd5f5",
+  "date": "2026-07-26",
+  "per_arm": {
+    "bare": {
+      "accuracy": 0.3015075376884422,
+      "abstain_rate": 0.20100502512562815,
+      "precision_of_attempted": 0.47619047619047616,
+      "verdicts": {
+        "correct": 60,
+        "abstain": 40,
+        "incorrect": 66,
+        "unparseable": 33
+      },
+      "cost": {
+        "mean_prompt_tokens": 164.1,
+        "mean_completion_tokens": 2981.5,
+        "mean_elapsed_s": 14.7,
+        "mean_tool_calls": 0.0
+      }
+    },
+    "rag": {
+      "accuracy": 0.1708542713567839,
+      "abstain_rate": 0.7487437185929648,
+      "precision_of_attempted": 0.7083333333333334,
+      "verdicts": {
+        "abstain": 149,
+        "correct": 34,
+        "incorrect": 14,
+        "unparseable": 2
+      },
+      "cost": {
+        "mean_prompt_tokens": 1445.3,
+        "mean_completion_tokens": 1831.5,
+        "mean_elapsed_s": 9.1,
+        "mean_tool_calls": 0.0
+      }
+    },
+    "agentic": {
+      "accuracy": 0.6884422110552764,
+      "abstain_rate": 0.23115577889447236,
+      "precision_of_attempted": 0.9072847682119205,
+      "verdicts": {
+        "correct": 137,
+        "abstain": 46,
+        "incorrect": 14,
+        "unparseable": 2
+      },
+      "cost": {
+        "mean_prompt_tokens": null,
+        "mean_completion_tokens": null,
+        "mean_elapsed_s": 183.8,
+        "mean_tool_calls": 11.1
+      }
+    }
+  },
+  "deltas": {
+    "rag_minus_bare": {
+      "delta": -0.1307,
+      "ci": [
+        -0.196,
+        -0.0704
+      ],
+      "p": 0.0
+    },
+    "agentic_minus_rag": {
+      "delta": 0.5176,
+      "ci": [
+        0.4421,
+        0.598
+      ],
+      "p": 0.0
+    },
+    "agentic_minus_bare": {
+      "delta": 0.3869,
+      "ci": [
+        0.2965,
+        0.4724
+      ],
+      "p": 0.0
+    }
+  }
+}
