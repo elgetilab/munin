@@ -189,8 +189,29 @@ and tripped S2 rate-limiting).
 **Fixes:** (1) replenish/renew the Brave API plan (402 = billing/quota);
 (2) S2 429 - add/refresh the S2 API key and/or backoff; (3) for reproducible
 evals, cache or disable live web/S2 during benchmark runs so the eval doesn't
-self-exhaust the quotas. Re-run the agentic arm at low concurrency once search
-is restored for the clean ~0.86 paper number.
+self-exhaust the quotas.
+
+### DECISION 2026-07-26 (varghele): NO clean agentic re-run - Brave too costly
+
+The Brave key burned >EUR15 over the last few days, largely from the
+benchmarking load itself, so we will NOT re-run the agentic arm live. Paper
+guidance, final:
+- **Agentic absolute = 0.864** (the 2026-07-24 standalone run, measured with
+  FRESH search APIs, same 199 / 900s / identical request path). This is the
+  clean number; the ablation's 0.688 was search-degraded (Brave 402 / S2 429)
+  and must NOT be reported as the harness accuracy.
+- **Harness-value delta:** the paired ablation gives agentic-bare = **+0.387**
+  but that used the degraded (0.688) agentic arm, so it is a CONSERVATIVE
+  LOWER BOUND. With the clean 0.864 the true delta is ~+0.56 (unpaired, since
+  we won't produce clean per-question agentic verdicts). Report +0.39 as the
+  rigorous paired floor and note the true gap is larger.
+- **MiniCheck faithfulness: dropped** for the agentic arm (needs clean answers
+  + contexts we won't regenerate; the 07-24 scorecard stored only text_tail,
+  no contexts). RAG-arm grounding could still be scored from the stored
+  ablation contexts if wanted, but it's an optional extension, not T2 core.
+- **Mandatory for any FUTURE eval run:** cache or hard-disable the live web
+  tier so a benchmark can never touch the paid Brave key again (cost guard,
+  not just reproducibility). Same for reads: use the now-local 186/186 corpus.
 
 **For the paper:** the harness-value delta (+0.39) is the defensible headline.
 Report the agentic absolute carefully - 0.86 is the clean pre-deploy /
