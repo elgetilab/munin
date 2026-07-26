@@ -12,7 +12,7 @@ Bib-ready details:
 | **Asta Paper Finder ~2× ReAct** | ✅ | Asta Paper Finder scores **over double** ReAct on PaperFindingBench (and +15% on LitQA2-FullText-Search) — the "~2× ReAct" claim holds. Source: AstaBench paper (2510.21652) / Ai2 Asta blog. |
 | **AbstentionBench** | ✅ | Kirichenko, Ibrahim, Chaudhuri, Bell (Meta FAIR), "AbstentionBench: Reasoning LLMs Fail on Unanswerable Questions", **NeurIPS 2025 Datasets & Benchmarks Track**, **arXiv 2506.09038** (OpenReview OkHC30LLpO). 20 datasets / ~35k unanswerable queries; key finding: reasoning fine-tuning *degrades* abstention (~24%). NeurIPS 2025 venue CONFIRMED. |
 | **AbstentionBench public variants (T13)** | ✅ | Same paper; the abstain-variant construction (underspecified / false-premise / stale, incl. new underspecified-reasoning sets) is in 2506.09038. |
-| **MedAbstain** | ⚠️ exists | Medical-MCQA abstention benchmark (conformal prediction + adversarial perturbations + insufficient-evidence/missing-info injection). Confirmed to exist; **get the exact arXiv ID + authors before it enters munin.bib** (a distinct related paper, "Knowing When to Abstain: Medical LLMs Under Clinical Uncertainty" arXiv 2601.12471, also exists — don't conflate). |
+| **MedAbstain** | ✅ | Machcha, Yerra, Gupta, Sahoo, Sultana, Yu, Yao, "Knowing When to Abstain: Medical LLMs Under Clinical Uncertainty", **EACL 2026 Main** (2026.eacl-long.291), **arXiv 2601.12471**. **CORRECTION to the earlier note:** MedAbstain is NOT a separate paper — it is the benchmark *introduced by* "Knowing When to Abstain" (abstract: "We introduce MedAbstain, a unified benchmark and evaluation protocol for abstention in medical multiple-choice..."). They are one and the same; do not double-cite. Medical MCQA abstention via conformal prediction (LAC/APS) + adversarial perturbations + explicit abstain option + insufficient-evidence injection. Key finding: an explicit abstain option raises safe abstention far more than input perturbations; scale/prompting barely help. |
 | **AutoResearchBench** | ✅ | Xiong, Luo, "AutoResearchBench: Benchmarking AI Agents on Complex Scientific Literature Discovery", **arXiv 2604.25256** (Apr 2026). Deep Research (find a target paper) + Wide Research (collect a set). Top LLMs **9.39% Deep / 9.31% IoU Wide** — the "<10% on hard splits" claim is CORRECT *for this benchmark*. (Note the Deep/Wide split mirrors Munin's own DR-breadth framing.) |
 | **PaperArena** | ✅ w/ CORRECTION | Wang, Cheng et al. (USTC ai4science), "PaperArena: An Evaluation Benchmark for Tool-Augmented Agentic Reasoning on Scientific Literature", **arXiv 2510.10909**. **CORRECTION: the TODO's "frontier agents score <10% on the hard splits" is WRONG for PaperArena** — Gemini 2.5 Pro (multi-agent) = 38.78% overall, **18.47% on the hard subset** (vs 83.5% PhD-expert). The <10% figure belongs to AutoResearchBench; the TODO (T17) conflated the two. Finding worth citing: agents "invoke far more tools than necessary" (over-tooling) — directly relevant to Munin's own over-tooling work. |
 | **HalluLens** | ✅ | Meta FAIR + HKUST, "HalluLens: LLM Hallucination Benchmark", **ACL 2025** (2025.acl-long.1176), **arXiv 2504.17550**. Extrinsic/intrinsic taxonomy + dynamic test-set generation. |
@@ -67,6 +67,10 @@ construct-time DOI ground truth and a paired confabulation axis."
   cluster.
 
 ## Remaining
-- **MedAbstain**: confirm exact arXiv/authors before bib (one targeted lookup).
+- **MedAbstain**: DONE (2026-07-27) — = "Knowing When to Abstain" (Machcha et
+  al., EACL 2026, arXiv 2601.12471); one paper, not two. Bib-ready.
 - **T3 novelty check**: DONE (above). Fold the narrowed claim + KnowOrNot cite
   into the plan docs when the paper draft starts.
+
+All `[VERIFY]` anchors + MedAbstain are now resolved; nothing citation-side is
+left open before drafting.
