@@ -86,7 +86,12 @@ def _retrieve(question: str, top_k: int) -> list[str]:
 
 
 # --- agentic arm (live chat) capture: verdict + tool_calls + timing ------
-def _agentic_one(q: dict, base_url: str, email: str, deadline: int = 300) -> dict:
+# deadline=900 matches the standalone LitQA2 answer track (raised 300->900 on
+# 2026-07-24 after truncations-scored-as-wrong were found to be a harness limit,
+# not a model failure). At 300s a `source` read of several full papers can't
+# finish, so the turn truncates mid-loop and scores unparseable; 900 lets a
+# multi-read research turn complete. Cost timing stays valid at concurrency=1.
+def _agentic_one(q: dict, base_url: str, email: str, deadline: int = 900) -> dict:
     import urllib.request
     mcq = build_mcq(q)
     body = {"persona": "research", "ephemeral": True,
