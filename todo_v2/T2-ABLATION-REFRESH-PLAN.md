@@ -146,11 +146,27 @@ routing eval (tool-selection only) would not catch an answer-accuracy
 regression. Also confounded with concurrency=8 batching (standalone 0.864 was
 concurrency~4).
 
-**Follow-up (next session, cluster moved):** bisect the cause - re-run a ~15-Q
-subset at concurrency=1 (isolate batching) and/or revert the tool retirement
-and re-measure (isolate the deploy). If it's the retirement, that's a
-production answer-accuracy regression to fix; the skipped LitQA2 guard would
-have caught it.
+**Bisect part 1 DONE 2026-07-26 (concurrency=1 on 15 known over-abstains):**
+6 correct / 7 abstain / 2 incorrect. They were 0/15 correct at concurrency=8,
+so batch-1 recovers ~40% -> **part of the gap IS concurrency-8 batching**. But
+9/15 STILL fail at concurrency=1 (thrashing 30 tools) -> **part is a REAL
+residual regression** independent of batching and reads. Decomposition:
+  - concurrency=8, post-deploy:      0.688 (measured)
+  - concurrency=1, post-deploy:      ~0.75 (extrapolated: +~12 of 31 recover)
+  - concurrency~4, PRE-deploy 07-24: 0.864
+So ~half the 0.86->0.69 gap is high-concurrency batching, ~half is a genuine
+post-deploy answer/search regression (over-search -> abstain), coincident with
+tool-retirement/R5/background-turns.
+
+**Bisect part 2 (NEEDS a deploy - next session):** revert the tool retirement,
+`deploy.sh retrieval`, re-run the 9 still-failing questions. If they recover,
+the retirement regressed answer accuracy (the skipped LitQA2 guard would have
+caught it) and it should be reconsidered / source's read-vs-abstain behavior
+tuned. If not, look at R5 / background-turns or a corpus/model change.
+
+**Paper guidance updated:** run the agentic arm at LOW concurrency (<=4) for
+the reported number (batching alone costs ~0.06); and the true post-fix ceiling
+is only knowable after part 2. The +0.39 harness-value delta stands regardless.
 
 **For the paper:** the harness-value delta (+0.39) is the defensible headline.
 Report the agentic absolute carefully - 0.86 is the clean pre-deploy /
