@@ -27,9 +27,36 @@ understates; true number ~standalone 0.864. Committed the deadline fix
 Abstention-per-arm (C1 fabricated): bare 0.61, RAG 0.42 (Track D 0.59/0.36),
 agentic 0.80 reused from `2026-07-10_abstention-c1-fabricated`.
 
-Pending: 900s agentic re-run -> re-`compare` -> MiniCheck faithfulness (CPU/bg,
-GPU-OOM-safe) -> assemble+commit `2026-07-26_harness-ablation` scorecard +
-vs-07-13 diff.
+### BLOCKED 2026-07-26: full-text-read regression confounds the agentic arm
+
+900s re-run did NOT change accuracy (0.668 -> 0.663); truncations became
+abstains, not corrects. But it surfaced a bigger problem: the agentic arm is
+0.66 while the standalone LitQA2 track measured **0.864 on 2026-07-24** (same
+199 Qs, same 900s, byte-identical request path, deterministic MCQ). Aligning
+per-question verdicts: **40 flipped correct(07-24) -> abstain(07-26)**, 7 the
+other way. Re-running 20 of the 40 through the standalone path NOW: **15/20
+still abstain** -> PERSISTENT, not run-time noise.
+
+Mechanism: the flipped answers make 25-31 tool calls but abstain saying they
+"cannot access the full article / figures / tables". Direct `source(mode=qa)`
+on a flipped DOI returns `outcome=not_found, read_depth=abstract` -> **the
+full-text FETCH is falling back to abstract-only**, so the model honestly
+abstains. (That direct call ran out-of-container so it's only corroborating;
+the live-service recheck is the real signal.)
+
+Likely NOT the tool retirement: `source`'s PDF fetch is an independent code
+path (helpers kept; smoke read papers fine). Prime suspect is full-text /
+OA-download reliability degrading between 07-24 and 07-26 (the LitQA2 papers
+appear to depend on live OA fetch, not the local /papers corpus). `/data` is a
+host mount so the 332-file PDF cache persists across rebuilds - not a wiped
+cache.
+
+Needs in-container diagnosis (docker exec/logs on munin-retrieval) to confirm.
+T2 agentic arm is confounded until full-text reads are healthy - do NOT
+finalize the scorecard on 0.66. bare/RAG arms + abstention-per-arm are fine.
+
+Pending (after fetch is healthy): re-run agentic -> re-`compare` -> MiniCheck
+-> assemble+commit scorecard + vs-07-13 diff.
 
 ## Key finding: T2 ≈ Track D, already built and run
 
