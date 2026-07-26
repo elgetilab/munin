@@ -40,6 +40,11 @@ time allows. **F** = follow-up proposal scope.
 
 ## P0 — required for the paper
 
+**P0 at a glance (2026-07-26):** T2/T4/T5/T6 DONE; T1 mostly done (Phase 4 local
+pool deferred); T3 2-of-3 strata done (stratum 2 needs Phase 4); T7 deferred.
+The only P0 gap is the **Phase-4 local pool** (T1 Phase 4 + T3 stratum 2 + T7),
+all blocked on human query curation + qrels, not compute. Per-item detail below.
+
 ### T1. Retrieval suite (existing spec, unchanged)
 
 - **What:** Phases 1–5 of `RETRIEVAL-EVAL-SPEC.md` — metrics infra,
@@ -56,7 +61,14 @@ time allows. **F** = follow-up proposal scope.
   (varghele confirmed he can obtain — this is the long-lead item, start
   the collection now); 100–200 curated log queries + two-annotator
   qrels (varghele + one group member).
-- **Status:** specced, not built.
+- **Status (2026-07-26): MOSTLY BUILT.** Phases 1-3 (metrics infra + BEIR
+  SciFact etc.) measured (`scorecards/2026-07-03_{baseline-specter-v1,bge-large}`)
+  and Phase 5 (LitQA2 anchor, retrieval + answer) measured
+  (`2026-07-04/05/06_answer-*`, `2026-07-24_answer-full-900s`). Encoder migration
+  SPECTER-v1 -> BGE-large landed (Recall@10 0.44->0.73). **Phase 4 (local pooled
+  benchmark) DEFERRED** - needs 100-200 curated log queries + two-annotator
+  qrels (human, not compute). LitQA2 source PDFs now fully local (186/186, see
+  T2 plan).
 
 ### T2. Harness three-arm ablation — the headline experiment
 
@@ -77,6 +89,14 @@ time allows. **F** = follow-up proposal scope.
   `/search/hybrid` call + stuffed prompt); both are thin wrappers.
 - **Gate:** harness must beat bare model on LitQA2-in-corpus accuracy,
   else stop and investigate before any submission.
+- **Status (2026-07-26): DONE.** Three arms on 199 LitQA2 (paired): bare 0.302,
+  RAG 0.171, agentic **0.864** (clean 07-24) / 0.688 (search-degraded 07-26).
+  **Gate PASSED** (harness >> bare). Harness-value delta agentic-bare = +0.39
+  (paired floor) / ~+0.56 (clean, unpaired). RAG < bare (-0.13): the value is
+  the agentic loop, not retrieval. Full numbers + how-to-report note:
+  `T2-ABLATION-REFRESH-PLAN.md`; scorecards `2026-07-13_harness-ablation`,
+  `2026-07-26_harness-ablation`. Sets (b) local-pool + (c) abstention beyond C1
+  are the deferred Phase-4 / T3 pieces.
 
 ### T3. Corpus-grounded abstention set — the novel benchmark
 
@@ -109,6 +129,13 @@ time allows. **F** = follow-up proposal scope.
   2025–26 before claiming novelty in the paper (briefing §2.5 says
   verify; a half-day literature pass — I can run this as a deep
   research task when you're ready).
+- **Status (2026-07-26): 2 of 3 strata DONE.** Stratum 3 (fabricated papers /
+  fake DOIs) measured (`scorecards/2026-07-10_abstention-c1-fabricated`, +per-arm
+  bare/RAG/agentic in the T2 work: confab ~7% bare -> ~0% agentic). Stratum 1
+  (LitQA2 source withheld -> shadow Qdrant) measured
+  (`2026-07-10_abstention-c2-shadow`). **Stratum 2 (local-pool queries with DOIs
+  removed) BLOCKED on Phase 4** (the local pool). Verify-first novelty pass +
+  risk-coverage curve still open.
 
 ### T4. MiniCheck local faithfulness judge
 
@@ -129,6 +156,13 @@ time allows. **F** = follow-up proposal scope.
   variant that fits GPU 0 alongside batch jobs — the 7B Bespoke
   variant or flan-T5-large fallback); RAGTruth corpus from its GitHub
   release.
+- **Status (2026-07-26): DONE (judge validated + wired).** Judge validated on
+  RAGTruth (`scorecards/2026-07-08_faithfulness-judge-ragtruth`, QA AUROC ~0.95);
+  agentic-live faithfulness measured (`2026-07-08/09_faithfulness-agentic-live*`).
+  NB the T2-agentic faithfulness *retry* was dropped (needs clean agentic answers
+  we won't regenerate under the Brave-cost decision); RAG-arm grounding is still
+  scoreable from stored contexts if wanted. GPU-OOM caveat: run when GPU 0 has
+  headroom (not while TP=2 vLLM saturates both cards).
 
 ### T5. Cost-accuracy accounting
 
@@ -159,6 +193,13 @@ time allows. **F** = follow-up proposal scope.
 - **References:** AstaBench cost-aware leaderboard methodology
   `[VERIFY]` — adopt the presentation, cite as methodology precedent.
 - **Data needed:** none external.
+- **Status (2026-07-26): DONE.** Per-arm cost (mean prompt/completion tokens,
+  inference-time, mean tool calls) recorded in the ablation scorecards
+  (`2026-07-13_harness-ablation`, `2026-07-26_harness-ablation`); cost-accuracy
+  Pareto computed. Caveat: the concurrency=1 requirement for the inference-time
+  proxy was NOT met in the fast 07-26 re-run (concurrency=8 for speed) - token
+  cost is still valid; re-measure inference-time at concurrency=1 on a small
+  subset if the GPU-seconds axis is used in a figure.
 
 ### T6. Scorecard runner + diff (`run_all` / `compare`)
 
@@ -176,6 +217,13 @@ time allows. **F** = follow-up proposal scope.
   briefing for the Future Work paragraph.
 - **Data needed:** none. Budget target: full run < 8 h on hugin so a
   model swap evaluates overnight.
+- **Status (2026-07-26): DONE.** `run_all` (tracks: beir/litqa2-retrieval/
+  litqa2-answer/faithfulness/abstention/ablation) + `compare` (paired bootstrap)
+  exist and produce committed scorecards; `--with-reliability` folds in the
+  behavioural QA suite; `certify` gate against `certification_thresholds.json`.
+  NB: full `run_all` now needs the eval cost guard (task #22) - the agentic
+  tracks hit live Brave/S2, so don't run the full suite until web/S2 is
+  cached/disabled.
 
 ### T7. Local-pool answer-level extension
 
@@ -191,6 +239,9 @@ time allows. **F** = follow-up proposal scope.
 - **Data needed:** the Phase 4 curation (already required); ~1 extra
   annotator-hour to mark which queries have checkable factual
   targets vs. open-ended ones.
+- **Status (2026-07-26): DEFERRED.** Blocked on the Phase-4 local pool (the
+  curated queries + qrels), same dependency as T1 Phase 4 and T3 stratum 2.
+  Human curation, not compute.
 
 ---
 
