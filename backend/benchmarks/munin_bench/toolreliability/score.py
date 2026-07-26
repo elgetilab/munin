@@ -7,11 +7,17 @@ ablation/run_arm.py::_agentic_one - a tool error is a `result` dict with an
 
 Metrics (BENCHMARK-TODO T11):
   - mean_calls_per_query : mean tool_results per query
-  - error_rate           : tool_results with error / all tool_results
-  - recovery_rate        : of queries with >=1 tool error, fraction that
-                           still land a LATER non-error tool call OR finish
-                           with a non-empty answer (didn't dead-end on the error)
-  - per_tool             : {name: {calls, errors, error_rate}}
+  - error_rate           : HARD errors (executor raised -> result.error) / calls
+  - degraded_rate        : hard errors OR SOFT self-reported failures (a tool
+                           ran but returned a "warning"/"engines_unresponsive",
+                           e.g. web_search on a Brave 402). Captures the outage
+                           class that error_rate MISSES - the 2026-07-26 Brave
+                           402 showed 0% hard-error but a real degraded_rate.
+  - recovery_rate        : of queries with >=1 tool FAILURE (hard or soft),
+                           fraction that still land a LATER good call OR finish
+                           with a non-empty answer (didn't dead-end)
+  - per_tool             : {name: {calls, errors, degraded, error_rate,
+                           degraded_rate}}
 
 Usage:
     python -m munin_bench.toolreliability.score <run.json> [--tag NAME]
@@ -29,11 +35,15 @@ from collections import defaultdict
 def score(records: list[dict]) -> dict:
     """records: list of per-query dicts with `tool_events` (+ optional `answer`)."""
     n_q = len(records)
-    total_calls = total_errors = 0
-    per_tool: dict[str, dict] = defaultdict(lambda: {"calls": 0, "errors": 0})
-    q_with_error = 0
+    total_calls = total_errors = total_degraded = 0
+    per_tool: dict[str, dict] = defaultdict(
+        lambda: {"calls": 0, "errors": 0, "degraded": 0})
+    q_with_failure = 0
     q_recovered = 0
     q_with_events = 0
+
+    def _failed(e: dict) -> bool:  # hard error OR soft degradation
+        return bool(e.get("is_error") or e.get("degraded"))
 
     for r in records:
         evs = r.get("tool_events") or []
@@ -46,18 +56,21 @@ def score(records: list[dict]) -> dict:
             if e.get("is_error"):
                 per_tool[name]["errors"] += 1
                 total_errors += 1
-        # recovery: this query had >=1 error?
-        err_idxs = [i for i, e in enumerate(evs) if e.get("is_error")]
-        if err_idxs:
-            q_with_error += 1
-            first_err = err_idxs[0]
-            later_success = any(not e.get("is_error") for e in evs[first_err + 1:])
+            if _failed(e):
+                per_tool[name]["degraded"] += 1
+                total_degraded += 1
+        # recovery: query had >=1 tool FAILURE (hard or soft)?
+        fail_idxs = [i for i, e in enumerate(evs) if _failed(e)]
+        if fail_idxs:
+            q_with_failure += 1
+            later_ok = any(not _failed(e) for e in evs[fail_idxs[0] + 1:])
             finished = bool((r.get("answer") or "").strip())
-            if later_success or finished:
+            if later_ok or finished:
                 q_recovered += 1
 
     for t in per_tool.values():
         t["error_rate"] = round(t["errors"] / t["calls"], 4) if t["calls"] else 0.0
+        t["degraded_rate"] = round(t["degraded"] / t["calls"], 4) if t["calls"] else 0.0
 
     return {
         "n_queries": n_q,
@@ -65,8 +78,9 @@ def score(records: list[dict]) -> dict:
         "total_tool_calls": total_calls,
         "mean_calls_per_query": round(total_calls / n_q, 2) if n_q else 0.0,
         "error_rate": round(total_errors / total_calls, 4) if total_calls else 0.0,
-        "n_queries_with_error": q_with_error,
-        "recovery_rate": round(q_recovered / q_with_error, 4) if q_with_error else None,
+        "degraded_rate": round(total_degraded / total_calls, 4) if total_calls else 0.0,
+        "n_queries_with_failure": q_with_failure,
+        "recovery_rate": round(q_recovered / q_with_failure, 4) if q_with_failure else None,
         "per_tool": {k: dict(v) for k, v in sorted(
             per_tool.items(), key=lambda kv: -kv[1]["calls"])},
     }

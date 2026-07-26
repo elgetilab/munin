@@ -132,9 +132,16 @@ def _agentic_one(q: dict, base_url: str, email: str, deadline: int = 900) -> dic
                 n_calls += 1
             elif ev == "tool_result":
                 res = o.get("result")
+                _rd = res if isinstance(res, dict) else {}
                 tool_events.append({
                     "name": o.get("name"),
-                    "is_error": isinstance(res, dict) and "error" in res,
+                    # hard error: executor raised -> {"error": ...}
+                    "is_error": "error" in _rd,
+                    # soft degradation: the tool ran but SELF-REPORTS failure
+                    # (web_search sets "warning"/"engines_unresponsive" on a
+                    # Brave 402 / all-engines-down; invisible to is_error).
+                    "degraded": bool(_rd.get("warning")
+                                     or _rd.get("engines_unresponsive")),
                     "duration_ms": o.get("duration_ms"),
                 })
                 if o.get("name") in RETRIEVAL_TOOLS:
