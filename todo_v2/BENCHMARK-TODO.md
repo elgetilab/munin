@@ -8,6 +8,10 @@ call needed to write that plan.
 `[VERIFY]` = anchor taken from `munin-benchmark-landscape-briefing.md`
 that post-dates verified knowledge or wasn't re-confirmed; check the
 arXiv ID / venue / current state before citing in the paper.
+**VERIFICATION PASS DONE 2026-07-26 — see `CITATIONS-VERIFIED.md`.** All
+anchors confirmed real + bib-ready (IDs/venues/authors); one correction landed
+(PaperArena is ~18% hard / ~39% overall, NOT <10% — that was AutoResearchBench).
+Only MedAbstain still needs its exact arXiv ID before munin.bib.
 
 Priorities: **P0** = required for the paper push. **P1** = in-paper if
 time allows. **F** = follow-up proposal scope.
@@ -353,18 +357,20 @@ all blocked on human query curation + qrels, not compute. Per-item detail below.
 - **Data needed:** months of scorecard history across model/harness
   changes; deployment incident/feedback records to correlate against.
 
-### T17. PaperArena / AutoResearchBench `[VERIFY]`
+### T17. PaperArena / AutoResearchBench (VERIFIED 2026-07-26)
 
 - **What:** tool-augmented agentic literature reasoning
-  (PaperArena, 2510.10909) and deep/wide discovery
-  (AutoResearchBench, 2604.25256).
-- **Why deferred:** frontier agents reportedly score <10% on the hard
-  splits; a 35B model's score is noise. Track for the proposal's
-  related-work positioning; revisit if the harness or base model
-  jumps a class.
-- **Data needed:** verify both benchmarks' existence, IDs, and
-  release state — these have the least-confirmable identifiers in
-  the briefing.
+  (PaperArena, arXiv 2510.10909, USTC ai4science) and deep/wide discovery
+  (AutoResearchBench, arXiv 2604.25256, Xiong & Luo, Apr 2026).
+- **Why deferred:** both are very hard, but note the CORRECTED numbers:
+  **AutoResearchBench** ~9% (9.39% Deep / 9.31% IoU Wide) for top LLMs -> a
+  35B score is noise there. **PaperArena** is NOT <10%: Gemini 2.5 Pro
+  multi-agent 38.78% overall / **18.47% hard** (vs 83.5% expert) - the earlier
+  "<10% on the hard splits" note conflated it with AutoResearchBench (fixed).
+  PaperArena's "agents over-invoke tools" finding is directly relevant to
+  Munin's over-tooling work. Track for the proposal's related-work positioning.
+- **Verification:** IDs, venues, authors confirmed - see
+  `CITATIONS-VERIFIED.md`.
 
 ---
 

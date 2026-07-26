@@ -104,6 +104,10 @@ def _agentic_one(q: dict, base_url: str, email: str, deadline: int = 900) -> dic
     content, ev, n_calls = "", None, 0
     contexts: list[str] = []
     seen: set[str] = set()
+    # T11 tool-use reliability: ordered per-tool OUTCOMES from tool_result
+    # events (SSE result dict carries an "error" key on executor failure -
+    # chat_service one(): {"error": ...}). Local-stream signal, no web dep.
+    tool_events: list[dict] = []
     t0 = time.time()
     resp = urllib.request.urlopen(req, timeout=60)
     try:
@@ -126,19 +130,27 @@ def _agentic_one(q: dict, base_url: str, email: str, deadline: int = 900) -> dic
                 content += o["content"]
             elif ev == "tool_call":
                 n_calls += 1
-            elif ev == "tool_result" and o.get("name") in RETRIEVAL_TOOLS:
-                found: list[str] = []
-                _extract_texts(o.get("result"), found)
-                for t in found:
-                    if t not in seen:
-                        seen.add(t); contexts.append(t)
+            elif ev == "tool_result":
+                res = o.get("result")
+                tool_events.append({
+                    "name": o.get("name"),
+                    "is_error": isinstance(res, dict) and "error" in res,
+                    "duration_ms": o.get("duration_ms"),
+                })
+                if o.get("name") in RETRIEVAL_TOOLS:
+                    found: list[str] = []
+                    _extract_texts(res, found)
+                    for t in found:
+                        if t not in seen:
+                            seen.add(t); contexts.append(t)
             if ev == "done":
                 break
     finally:
         resp.close()
     return {"qid": q["qid"], **_verdict(mcq, content), "tool_calls": n_calls,
             "elapsed_s": round(time.time() - t0, 2), "prompt_tokens": None,
-            "completion_tokens": None, "answer": content, "contexts": contexts}
+            "completion_tokens": None, "answer": content, "contexts": contexts,
+            "tool_events": tool_events}
 
 
 def run(arm: str, n: int, *, top_k: int = 5, base_url: str = "http://127.0.0.1:8080",
