@@ -1,8 +1,33 @@
 # T2 — harness three-arm ablation (refresh + finalize)
 
-Status: EXECUTING 2026-07-26. Decisions (varghele): (1) FULL 199; (2) RETRY
-MiniCheck; (3) local-pool OUT OF SCOPE; (4) INCLUDE abstention-per-arm;
-(5) paper-grade: RE-RUN agentic at 900s deadline (option b).
+Status: DONE 2026-07-26. Decisions (varghele): (1) FULL 199; (2) MiniCheck
+dropped; (3) local-pool OUT OF SCOPE; (4) abstention-per-arm done; (5) NO
+agentic re-run (Brave cost); paper uses the 07-24 standalone 0.864 as the clean
+agentic accuracy. Full narrative below; headline numbers here:
+
+## HOW TO REPORT THE THREE NUMBERS (paper)
+
+Three arms, LitQA2 answer (199 Q, MCQ+abstain, 900s):
+- bare (no tools):        **0.302**   (07-26 ablation, paired)
+- vanilla RAG (top-5):    **0.171**   (07-26 ablation, paired)  -- RAG HURTS
+- agentic harness:        **0.864**   (07-24 standalone, FRESH search APIs)
+
+1. **Harness accuracy = 0.864.** Cite this for "how well the harness answers."
+   Do NOT cite the ablation's 0.688 - that arm ran while the Brave/S2 search
+   quotas were exhausted (self-inflicted by the day's eval load) and is
+   search-degraded, not representative.
+2. **Harness value over bare = +0.39 (floor) / ~+0.56 (clean).**
+   - Rigorous PAIRED delta agentic-bare = **+0.387 [0.30, 0.47], p~0** - but it
+     uses the degraded (0.688) agentic arm, so it is a CONSERVATIVE LOWER BOUND.
+   - At the clean 0.864 the gap is ~+0.56, but that is UNPAIRED (0.864 is a
+     separate run from the ablation's bare/RAG) - no bootstrap CI.
+   - Suggested wording: "the harness beats the bare model by >=+0.39 (paired,
+     p~0) and by ~+0.56 at its full-search accuracy."
+   - Do NOT print `0.864 - 0.302 = 0.56` as if it were a paired result.
+3. **RAG < bare (-0.13, paired):** naive top-5 RAG anchors the model on
+   imperfect context -> over-abstains; the value is the AGENTIC LOOP, not
+   retrieval per se.
+Cost/abstention/faithfulness: see the run sections below.
 
 ### Results so far (199, seed-7 order)
 
