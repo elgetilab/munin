@@ -51,9 +51,33 @@ appear to depend on live OA fetch, not the local /papers corpus). `/data` is a
 host mount so the 332-file PDF cache persists across rebuilds - not a wiped
 cache.
 
-Needs in-container diagnosis (docker exec/logs on munin-retrieval) to confirm.
-T2 agentic arm is confounded until full-text reads are healthy - do NOT
-finalize the scorecard on 0.66. bare/RAG arms + abstention-per-arm are fine.
+### ROOT CAUSE 2026-07-26 (in-container diagnosis, docker via `sg docker -c`)
+
+NOT a code regression, NOT the tool retirement (source's fetch is independent
+and works; magic-byte guard correctly rejects HTML). It is OA full-text fetch
+reliability:
+- Provenance gates OPEN (corpus_scope=all, egress on) - ruled out.
+- Unpaywall works (200, is_oa) and returns valid OA PDF URLs.
+- `_download_valid_pdf` fails on two mechanisms:
+  1. **PMC/NCBI rate-limiting under eval load** - the ~6-8h run fired ~199
+     full-text fetches (+ retries: the 25-31 tool calls per flipped Q are the
+     model retrying failing reads), PMC throttled and returned anti-bot HTML
+     (200 + text/html), magic-byte guard rejects -> abstract. Spaced out now,
+     4/6 sampled flipped papers fetch FINE (Nature/bioRxiv/some PMC). This is
+     the bulk of the 40 flips and it's eval-induced, transient.
+  2. **Persistent publisher block** for an Elsevier/Cell (cell.com) subset:
+     403 from the datacenter IP, never fetches. Small, permanent.
+
+So agentic 0.66 is depressed by eval-load rate-limiting, not a true
+per-query regression; standalone 0.864 (differently-timed) is closer to true.
+
+**Fix for paper-grade T2: pre-ingest the LitQA2 source PDFs into the local
+/papers corpus** so reads don't depend on hammering live OA (benchmark TODO
+already flags LitQA2 PDFs as the long-lead item for T1/T3). Then re-run the
+agentic arm -> no rate-limiting -> true accuracy, and reproducible.
+Production follow-ups (lower priority): NCBI api_key for higher PMC limits;
+handle publisher 403s. bare/RAG arms + abstention-per-arm unaffected (bare
+uses no retrieval; RAG uses local BGE over papers_bge).
 
 Pending (after fetch is healthy): re-run agentic -> re-`compare` -> MiniCheck
 -> assemble+commit scorecard + vs-07-13 diff.
