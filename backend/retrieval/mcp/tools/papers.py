@@ -473,6 +473,14 @@ async def semantic_scholar_search(
     Returns:
         Dict with queries_executed, total, results.
     """
+    # Egress guard (cost/privacy): skip the live S2 API when egress != full
+    # (e.g. a benchmark run sending X-Munin-Egress: off) so eval load can't
+    # trip S2 rate limits. Default egress "full" -> real users unaffected.
+    import provenance
+    if not provenance.may_fetch(provenance.NET_SCHOLARLY_API):
+        return {"queries_executed": [], "total": 0, "results": [],
+                "warning": "Semantic Scholar search is disabled for this "
+                           "request (egress=off). Treat as tool failure."}
     top_k = min(top_k, 100)
 
     if queries:

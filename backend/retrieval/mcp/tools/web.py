@@ -190,6 +190,18 @@ async def web_search(
             queries_executed: list of the query strings actually run
             total_hits: total raw results before dedup
     """
+    # Egress guard (cost/privacy): when the request set egress != full (e.g. a
+    # benchmark run sending X-Munin-Egress: off), do NOT hit the paid Brave key
+    # or the keyless engines. Returns the same degraded shape as an
+    # all-engines-down call so the model treats it as a tool failure, not "no
+    # results". Default egress is "full", so real users are unaffected.
+    import provenance
+    if not provenance.may_fetch(provenance.NET_WEB):
+        return {"queries_executed": [], "total_hits": 0, "results": [],
+                "engines_unresponsive": [["egress", "disabled (egress=off)"]],
+                "warning": "Web search is disabled for this request "
+                           "(egress=off). Treat as TOOL FAILURE, not 'no "
+                           "information found'."}
     # Decide which queries to execute.
     if queries:
         query_list = [q.strip() for q in queries if q and q.strip()]
@@ -414,6 +426,11 @@ async def web_fetch_content(
             truncated: bool (true when page exceeded ~40k chars)
         Or {"error": "...", "url": ...} on failure.
     """
+    # Egress guard (cost/privacy): skip the live fetch when egress != full.
+    import provenance
+    if not provenance.may_fetch(provenance.NET_WEB):
+        return {"error": "web fetch is disabled for this request (egress=off)",
+                "url": url}
     # Bug 4b: gate against hallucinated URLs. The set is seeded by
     # `chat_service.stream_chat_completion` from prior tool_call results
     # AND from URLs in user-message content, then updated in place by

@@ -1255,6 +1255,18 @@ async def api_chat_completions(request: Request):
     mid-stream tool execution. Emits SSE events consumed by the Munin frontend.
     """
     user_email = _require_user_email(request)
+    # Cost/privacy guard: honour an X-Munin-Egress header so a benchmark run
+    # can disable the live web tier (Brave = paid) and scholarly API (S2 =
+    # rate-limited) per-request, without a global config change and without
+    # affecting real users. Set on the request context BEFORE the detached
+    # runner task is created (asyncio.create_task copies the current context),
+    # so chat_service's tools inherit it. Default stays "full" when absent.
+    _egress = (request.headers.get("X-Munin-Egress") or "").strip().lower()
+    if _egress:
+        import provenance
+        if _egress in provenance.EGRESS_LEVELS:
+            from mcp.context import current_egress
+            current_egress.set(_egress)
     try:
         body = await request.json()
     except Exception:

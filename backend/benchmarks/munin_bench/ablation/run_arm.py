@@ -99,7 +99,11 @@ def _agentic_one(q: dict, base_url: str, email: str, deadline: int = 900) -> dic
     req = urllib.request.Request(
         base_url.rstrip("/") + "/api/chat/completions", data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json", "X-Munin-Email": email,
-                 "X-Munin-Ephemeral": "true", "Accept": "text/event-stream"}, method="POST")
+                 "X-Munin-Ephemeral": "true", "Accept": "text/event-stream",
+                 # cost guard: eval never touches the paid Brave key / S2 API.
+                 # Set MUNIN_EVAL_EGRESS=full to opt back in for a live run.
+                 "X-Munin-Egress": os.getenv("MUNIN_EVAL_EGRESS", "off")},
+        method="POST")
     from ..faithfulness.capture import RETRIEVAL_TOOLS, _extract_texts
     content, ev, n_calls = "", None, 0
     contexts: list[str] = []

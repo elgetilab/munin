@@ -304,7 +304,11 @@ def _ask_chat(base_url: str, email: str, prompt: str, sock_timeout=60,
         base_url.rstrip("/") + "/api/chat/completions",
         data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json", "X-Munin-Email": email,
-                 "X-Munin-Ephemeral": "true", "Accept": "text/event-stream"},
+                 "X-Munin-Ephemeral": "true", "Accept": "text/event-stream",
+                 # cost guard: default OFF so routine runs never spend the paid
+                 # Brave key / trip S2. For the intentional clean answer-track
+                 # measurement (needs live search), run with MUNIN_EVAL_EGRESS=full.
+                 "X-Munin-Egress": os.getenv("MUNIN_EVAL_EGRESS", "off")},
         method="POST")
     content, ev = "", None
     truncated = True  # flipped to False only if we see the terminal `done` event
