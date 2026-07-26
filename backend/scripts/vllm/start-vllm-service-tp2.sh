@@ -176,7 +176,7 @@ vllm serve "$MODEL_PATH" \
     --host 0.0.0.0 \
     --port $VLLM_PORT \
     --tensor-parallel-size $TENSOR_PARALLEL_SIZE \
-    --gpu-memory-utilization 0.90 \
+    --gpu-memory-utilization 0.85 \
     --max-model-len $MAX_MODEL_LEN \
     --max-num-seqs 8 \
     --dtype float16 \
