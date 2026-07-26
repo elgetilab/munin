@@ -288,6 +288,24 @@ all blocked on human query curation + qrels, not compute. Per-item detail below.
 - **Why:** quantifies harness robustness for the engineering section;
   feeds Track E scorecards; near-zero cost once T2 logs trajectories.
 - **Data needed:** none.
+- **Status (2026-07-27): BUILT.** Capture: `_agentic_one` now logs per-tool
+  `tool_events` (hard `is_error` + soft `degraded` = self-reported
+  warning/engines_unresponsive). Scorer: `munin_bench/toolreliability/score.py`.
+  Key design finding: a hard-error-only metric MISSES the dominant failure mode
+  - `web_search` catches a Brave 402 and returns a warning, so it shows 0%
+  hard-error during a total outage; T11 therefore reports BOTH error_rate and
+  degraded_rate. First result (15 Q, `scorecards/
+  2026-07-27_toolreliability-searchdegraded`, **current Brave-402 state**):
+  mean 16.1 calls/q, error_rate 3.3%, degraded_rate 11.2%, recovery 1.0.
+  Per-tool: web_search degraded 1.0 (Brave 402), web_fetch error 1.0
+  (datacenter-IP block); source/paper_search/semantic_scholar_search/search/
+  paper_lookup all 0.0 (corpus/local tools healthy). Interpretation: the harness
+  is robust (recovery 1.0, corpus tools clean); the 16 calls/q + web degradation
+  are the search-outage over-tooling, not a harness defect. **Re-run once
+  Brave/S2 are restored for a clean baseline** (scorer just re-runs the new
+  capture file; instrumentation persists). Beyond routing-eval's per-item
+  forbidden/soft_max_calls, T11 adds aggregate error/degraded/recovery + per-tool
+  rates.
 
 ---
 

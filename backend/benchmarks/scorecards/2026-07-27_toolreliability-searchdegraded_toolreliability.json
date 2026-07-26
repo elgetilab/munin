@@ -1,0 +1,61 @@
+{
+  "n_queries": 15,
+  "n_queries_with_tool_events": 15,
+  "total_tool_calls": 241,
+  "mean_calls_per_query": 16.07,
+  "error_rate": 0.0332,
+  "degraded_rate": 0.112,
+  "n_queries_with_failure": 9,
+  "recovery_rate": 1.0,
+  "per_tool": {
+    "semantic_scholar_search": {
+      "calls": 100,
+      "errors": 0,
+      "degraded": 0,
+      "error_rate": 0.0,
+      "degraded_rate": 0.0
+    },
+    "source": {
+      "calls": 53,
+      "errors": 0,
+      "degraded": 0,
+      "error_rate": 0.0,
+      "degraded_rate": 0.0
+    },
+    "paper_search": {
+      "calls": 47,
+      "errors": 0,
+      "degraded": 0,
+      "error_rate": 0.0,
+      "degraded_rate": 0.0
+    },
+    "web_search": {
+      "calls": 19,
+      "errors": 0,
+      "degraded": 19,
+      "error_rate": 0.0,
+      "degraded_rate": 1.0
+    },
+    "web_fetch": {
+      "calls": 8,
+      "errors": 8,
+      "degraded": 8,
+      "error_rate": 1.0,
+      "degraded_rate": 1.0
+    },
+    "search": {
+      "calls": 8,
+      "errors": 0,
+      "degraded": 0,
+      "error_rate": 0.0,
+      "degraded_rate": 0.0
+    },
+    "paper_lookup": {
+      "calls": 6,
+      "errors": 0,
+      "degraded": 0,
+      "error_rate": 0.0,
+      "degraded_rate": 0.0
+    }
+  }
+}
