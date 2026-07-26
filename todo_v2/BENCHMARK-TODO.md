@@ -138,8 +138,14 @@ all blocked on human query curation + qrels, not compute. Per-item detail below.
   bare/RAG/agentic in the T2 work: confab ~7% bare -> ~0% agentic). Stratum 1
   (LitQA2 source withheld -> shadow Qdrant) measured
   (`2026-07-10_abstention-c2-shadow`). **Stratum 2 (local-pool queries with DOIs
-  removed) BLOCKED on Phase 4** (the local pool). Verify-first novelty pass +
-  risk-coverage curve still open.
+  removed) BLOCKED on Phase 4** (the local pool). Risk-coverage curve still open.
+  **Verify-first novelty pass DONE (2026-07-27, see CITATIONS-VERIFIED.md):**
+  the strong "nothing public covers corpus-grounded abstention" claim does NOT
+  survive — KnowOrNot (arXiv 2505.13545, May 2025) already operationalizes
+  out-of-KB abstention in RAG (govt-policy domain). Narrowed novel claim that
+  holds: scientific-literature + DOI-level construct-time ground truth + joint
+  corpus-grounded-abstention & confabulated-citation axes against a live RAG
+  stack. Soften the plan-doc novelty wording + cite KnowOrNot before drafting.
 
 ### T4. MiniCheck local faithfulness judge
 

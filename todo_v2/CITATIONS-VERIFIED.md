@@ -25,9 +25,48 @@ Bib-ready details:
 - Fixed the PaperArena `<10%` error in `BENCHMARK-TODO.md` T17.
 - All other anchors are safe to enter `munin.bib` with the IDs above.
 
+## T3 novelty check (2026-07-27) — is corpus-grounded abstention novel?
+
+**Verdict: the STRONG claim does not survive; a NARROWED claim does.** The plan
+(`EVAL-SUITE-MASTER-PLAN.md` L123-124, `TRACK-C-PLAN`) says corpus-grounded /
+private-corpus abstention is "a gap nothing public covers." That literal
+statement is **not defensible** as of mid-2026 — the concept is named and
+operationalized in prior work. The paper must soften it. What remains genuinely
+novel is the *specific combination*, not the concept.
+
+Closest prior art, in decreasing similarity:
+
+| work | what it does | overlap with T3 | what it does NOT do |
+|---|---|---|---|
+| **KnowOrNot** — Foo, Prasad, Khoo, arXiv **2505.13545** (May 2025) | Library + methodology for evaluating **out-of-knowledge-base (OOKB) robustness in RAG** — "LLMs may still hallucinate when presented with questions outside of the knowledge base ... expected to abstain"; auto-generates eval data without gold answers; demo benchmark **PolicyBench** (govt-policy QA chatbots). | **This is the same core concept** as "corpus-grounded abstention." Directly refutes "nothing public covers it." | Govt-policy domain, not scientific literature; **no DOI-level ground truth; no fabricated-citation / confabulation stratum**; not built against a live production RAG stack with source-paper withholding + positive controls. |
+| **Sufficient Context** — Joren et al., **ICLR 2025**, arXiv **2411.06037** | Post-hoc classifier for whether *already-retrieved* context is sufficient; shows models answer-instead-of-abstain when context is insufficient; selective-generation method. | Same failure mode (answer vs abstain under missing evidence). | Classifies sufficiency of retrieved context on existing QA sets (HotpotQA/MuSiQue); **does not withhold documents from a corpus by construction**; no citations/DOIs. |
+| **RefusalBench** — Muhamed et al., **EACL 2026**, arXiv **2510.10390** | Generative eval of **selective refusal in grounded LMs**; 176 perturbation strategies × 6 uncertainty categories; RefusalBench-NQ + RefusalBench-GaRAGe. | Selective refusal under flawed/insufficient context; programmatic construction. | Perturbs context linguistically rather than removing a known source from a real corpus; general QA, no DOI ground truth, no confabulated-citation rate. |
+| **RGB "Negative Rejection"** (Chen et al., AAAI 2024) & **Know2Guess** (2606.26101), **"Purging the Gray Zone"** (2604.14324), **KG-guided abstention eval** (2412.07430) | Various knowledge-boundary / rejection-when-docs-insufficient measures. | Abstain-when-insufficient signal. | None target scientific literature + DOI construct-time ground truth + confabulation jointly. |
+| **AbstentionBench** (2506.09038), **Know Your Limits** (2407.18418, survey) | Intrinsic-unanswerability abstention (false premise, underspecified, stale, unknowable). | Abstention framing / metrics vocabulary. | **Not corpus-grounded at all** — answerability is intrinsic to the question, not relative to a deployed corpus. |
+| Citation-fabrication line: **CiteAudit** (2602.23452), **CiteCheck** (2605.27700), **"Source or It Didn't Happen"** (2605.08583), **BibTeX hallucination** (2604.03159) | Detect hallucinated/fabricated references & DOIs in generated scientific text (DOI is the worst-performing field; fabrication rates high). | Munin's stratum-3 confabulated-citation rate. | Measure citation *fidelity in generated text*; **do not tie fabrication to corpus-withholding abstention** — orthogonal axis Munin unifies. |
+
+**What is genuinely novel in T3 (safe to claim):** not "corpus-grounded
+abstention" per se, but the *combination* — a single scientific-literature
+benchmark with **DOI-level ground truth known by construction** that jointly
+measures (a) corpus-grounded abstention via **real source-paper withholding
+against a live production RAG stack** (shadow-Qdrant, with the ingested paper as
+a positive control), and (b) **confabulated-citation rate on fabricated DOIs /
+fake authors** — two axes that the abstention literature (KnowOrNot, Sufficient
+Context, RefusalBench) and the citation-fabrication literature (CiteAudit,
+CiteCheck) each cover *separately* but none together, and none in the
+paper-search agent regime. KnowOrNot is the mandatory prior-art cite; frame T3
+as "extending OOKB-style abstention (KnowOrNot) to scientific literature with
+construct-time DOI ground truth and a paired confabulation axis."
+
+**Plan-doc edits needed before the paper draft:**
+- `EVAL-SUITE-MASTER-PLAN.md` L123-124 & L166 ("nothing public does" / "it's
+  novel (no public benchmark)") → soften to the narrowed claim above; add
+  KnowOrNot as the closest prior art.
+- `BENCHMARK-TODO.md` T3 "References" → add KnowOrNot (2505.13545), Sufficient
+  Context (2411.06037), RefusalBench (2510.10390), and the citation-fabrication
+  cluster.
+
 ## Remaining
 - **MedAbstain**: confirm exact arXiv/authors before bib (one targeted lookup).
-- **T3 novelty check** (is corpus-grounded abstention genuinely novel vs
-  2025-26 work?) is a SEPARATE, deeper question than anchor verification — the
-  benchmarks above (AbstentionBench, MedAbstain, Know-Your-Limits) are the
-  closest prior art to compare against when making the novelty claim.
+- **T3 novelty check**: DONE (above). Fold the narrowed claim + KnowOrNot cite
+  into the plan docs when the paper draft starts.
