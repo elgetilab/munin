@@ -71,13 +71,35 @@ reliability:
 So agentic 0.66 is depressed by eval-load rate-limiting, not a true
 per-query regression; standalone 0.864 (differently-timed) is closer to true.
 
-**Fix for paper-grade T2: pre-ingest the LitQA2 source PDFs into the local
-/papers corpus** so reads don't depend on hammering live OA (benchmark TODO
-already flags LitQA2 PDFs as the long-lead item for T1/T3). Then re-run the
-agentic arm -> no rate-limiting -> true accuracy, and reproducible.
-Production follow-ups (lower priority): NCBI api_key for higher PMC limits;
-handle publisher 403s. bare/RAG arms + abstention-per-arm unaffected (bare
-uses no retrieval; RAG uses local BGE over papers_bge).
+### REFINED 2026-07-26: it's eval-LOAD read degradation, not just OA fetch
+
+Corpus coverage (checked /opt/munin/data/papers/pdf, `doi_<sanitized>.pdf`):
+**146/199 LitQA2 papers have local PDFs, 53 missing** (the prior ingest
+couldn't fetch the missing ones - Elsevier etc.). Of the 40 flips: **21 have
+local PDFs, 19 missing**.
+
+Decisive test - `source(qa)` NOW on 4 flipped papers that HAVE local PDFs:
+3/4 `resolved` at `read_depth=full_text`, 1 `full_text` but not_found for that
+Q. So local-PDF reads work fine when spaced. Those 21 abstained only DURING
+the run -> transient extraction/pipeline degradation under sustained load.
+The 19 missing-PDF flips are OA rate-limiting under the burst.
+
+Unified: full research-turn evals that do hundreds of live full-text reads
+back-to-back degrade the read pipeline (OA rate-limit accumulation + GROBID/
+extraction hiccups over 6-8h); individual spaced reads succeed. True per-query
+agentic accuracy ~0.86 (standalone); ablation 0.66 is LOAD-DEPRESSED. NOT a
+code regression, NOT the tool retirement. bare/RAG/abstention arms unaffected
+(no live full-text fetch).
+
+**Paths to a clean paper-grade agentic number (decision needed):**
+1. Ingest the 53 missing PDFs + pre-warm/cache extraction for all 199, then
+   re-run agentic reading from local/cache -> deterministic, load-independent,
+   reproducible. Most robust; also unblocks T1/T3.
+2. Just re-run agentic (reads work spaced) - risks another transient dip,
+   non-deterministic.
+3. Report agentic = standalone 0.864 (clean, same 199/900s/request path) and
+   present the paired ablation delta (+0.36) as CONSERVATIVE (agentic arm
+   depressed by eval-load). No new long run.
 
 Pending (after fetch is healthy): re-run agentic -> re-`compare` -> MiniCheck
 -> assemble+commit scorecard + vs-07-13 diff.
