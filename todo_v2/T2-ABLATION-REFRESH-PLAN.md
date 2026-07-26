@@ -1,9 +1,35 @@
 # T2 — harness three-arm ablation (refresh + finalize)
 
-Status: APPROVED 2026-07-25, executing. Decisions (varghele): (1) FULL 199
-in-corpus questions; (2) RETRY faithfulness-per-arm MiniCheck; (3) local-pool
-arm OUT OF SCOPE; (4) INCLUDE abstention-per-arm on the C1 set. Expect the
-agentic arm ~6-7h at concurrency=1.
+Status: EXECUTING 2026-07-26. Decisions (varghele): (1) FULL 199; (2) RETRY
+MiniCheck; (3) local-pool OUT OF SCOPE; (4) INCLUDE abstention-per-arm;
+(5) paper-grade: RE-RUN agentic at 900s deadline (option b).
+
+### Results so far (199, seed-7 order)
+
+bare/RAG done (reproduce Track D within noise); agentic first pass at the OLD
+300s deadline, being re-run at 900s (paper-grade).
+
+| arm | accuracy | precision | abstain | cost |
+|---|---|---|---|---|
+| RAG | 0.171 | 0.71 | 0.75 | 9.1s, 0 tools |
+| bare | 0.302 | 0.48 | 0.20 | 14.7s, 0 tools |
+| agentic @300s (interim) | 0.668 | 0.937 | 0.21 | 102.6s, 12.5 tools |
+
+Paired deltas @300s (p~0): agentic-bare **+0.367** [0.276,0.452] (Track D was
++0.24); agentic-rag +0.498; rag-bare -0.131 (RAG hurts, reproduces).
+
+**300s caveat that triggered the re-run:** all 15 agentic unparseables were at
+exactly 300s (truncations scored wrong), 23 questions hit the cap. So 0.668
+understates; true number ~standalone 0.864. Committed the deadline fix
+(`3a1dfa2`, 300->900) and re-running agentic at 900s. The 300s result is kept
+(`scratchpad agentic_300s.json`) as the same-deadline Track-D before/after.
+
+Abstention-per-arm (C1 fabricated): bare 0.61, RAG 0.42 (Track D 0.59/0.36),
+agentic 0.80 reused from `2026-07-10_abstention-c1-fabricated`.
+
+Pending: 900s agentic re-run -> re-`compare` -> MiniCheck faithfulness (CPU/bg,
+GPU-OOM-safe) -> assemble+commit `2026-07-26_harness-ablation` scorecard +
+vs-07-13 diff.
 
 ## Key finding: T2 ≈ Track D, already built and run
 
