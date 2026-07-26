@@ -101,6 +101,27 @@ code regression, NOT the tool retirement. bare/RAG/abstention arms unaffected
    present the paired ablation delta (+0.36) as CONSERVATIVE (agentic arm
    depressed by eval-load). No new long run.
 
+### LOCAL PDF ARCHIVE built 2026-07-26 (the real fix)
+
+Found the July-1 acquisition folder `backend/benchmarks/data/litqa2/pdfs/`
+(130 PDFs + acquire manifests). Consolidated ALL available LitQA2 papers into
+it: **176/186 unique papers now archived on-disk** (52 copied from the live
+corpus, 130 already there). The whole `data/` dir is gitignored, so it
+persists in the repo folder without bloating git - a durable corpus for future
+benchmark runs that can't disappear.
+
+10 remain unobtainable (paywalled Cell Press/Elsevier + MDPI + CoB, no OA, not
+on Sci-Hub) - listed with titles in `data/litqa2/still_missing.json` for manual
+fetch (institutional access). The 33 recoverable-but-missing-from-corpus PDFs
+were also pushed into the live retrieval cache (`/data/papers_cached` via the
+container; overwriting 1-page junk with the real multi-page versions), so
+`source` reads them LOCALLY now - no OA fetch, load-independent.
+
+Validation (previously-flipped questions whose PDF is now local, via standalone
+path): recovering to `correct`. With reads now local for 176/186, a re-run of
+the agentic arm should land near the true ~0.86 rather than the load-depressed
+0.66.
+
 Pending (after fetch is healthy): re-run agentic -> re-`compare` -> MiniCheck
 -> assemble+commit scorecard + vs-07-13 diff.
 
