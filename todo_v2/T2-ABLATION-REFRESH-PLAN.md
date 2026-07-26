@@ -168,6 +168,30 @@ tuned. If not, look at R5 / background-turns or a corpus/model change.
 the reported number (batching alone costs ~0.06); and the true post-fix ceiling
 is only knowable after part 2. The +0.39 harness-value delta stands regardless.
 
+### ROOT CAUSE FOUND 2026-07-26 (varghele's hypothesis - correct): search APIs exhausted
+
+Live check of `web_search` + logs: **Brave API returns 402 Payment Required**
+(quota/subscription used up), ALL other web engines down (ddg/startpage
+CAPTCHA, mojeek/qwant access-denied) -> web_search total_hits=0 TOOL FAILURE;
+**and Semantic Scholar returns 429 (rate-limited)**. So BOTH external search
+tiers are dead right now. This is the "real residual regression" - it is NOT a
+code regression and NOT the tool retirement (now definitively exonerated). The
+research persona reaches for web/S2 on corpus-miss questions, both fail, it
+thrashes (30 tool calls on dead searches) and abstains. Explains the bisect
+(the 9/15 that failed at concurrency=1 needed web/S2; the 6 that recovered were
+answerable from the local corpus alone) AND the timing (07-24 0.864 had fresh
+APIs; the day's eval load - thousands of web/S2 calls - burned the Brave quota
+and tripped S2 rate-limiting).
+
+**True harness accuracy with working search ~= 0.86** (07-24). Bisect part 2
+(revert retirement) is UNNECESSARY - the cause is external.
+
+**Fixes:** (1) replenish/renew the Brave API plan (402 = billing/quota);
+(2) S2 429 - add/refresh the S2 API key and/or backoff; (3) for reproducible
+evals, cache or disable live web/S2 during benchmark runs so the eval doesn't
+self-exhaust the quotas. Re-run the agentic arm at low concurrency once search
+is restored for the clean ~0.86 paper number.
+
 **For the paper:** the harness-value delta (+0.39) is the defensible headline.
 Report the agentic absolute carefully - 0.86 is the clean pre-deploy /
 low-concurrency best case; 0.69 is the current post-deploy / concurrency-8
