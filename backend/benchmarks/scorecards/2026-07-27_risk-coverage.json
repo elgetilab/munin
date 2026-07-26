@@ -1,0 +1,126 @@
+{
+  "track": "risk-coverage",
+  "points": [
+    {
+      "n": 199,
+      "coverage": 0.6332,
+      "coverage_ci": [
+        0.5628,
+        0.6985
+      ],
+      "selective_risk": 0.5238,
+      "selective_risk_ci": [
+        0.4403,
+        0.6121
+      ],
+      "abstain": 40,
+      "unparseable": 33,
+      "correct": 60,
+      "incorrect": 66,
+      "population": "litqa2-answerable",
+      "arm": "bare",
+      "desired": "answer"
+    },
+    {
+      "n": 199,
+      "coverage": 0.2412,
+      "coverage_ci": [
+        0.1859,
+        0.3065
+      ],
+      "selective_risk": 0.2917,
+      "selective_risk_ci": [
+        0.1628,
+        0.4146
+      ],
+      "abstain": 149,
+      "unparseable": 2,
+      "correct": 34,
+      "incorrect": 14,
+      "population": "litqa2-answerable",
+      "arm": "rag",
+      "desired": "answer"
+    },
+    {
+      "n": 199,
+      "coverage": 0.7588,
+      "coverage_ci": [
+        0.6985,
+        0.8191
+      ],
+      "selective_risk": 0.0927,
+      "selective_risk_ci": [
+        0.0523,
+        0.1419
+      ],
+      "abstain": 46,
+      "unparseable": 2,
+      "correct": 137,
+      "incorrect": 14,
+      "population": "litqa2-answerable",
+      "arm": "agentic",
+      "desired": "answer"
+    },
+    {
+      "n": 50,
+      "coverage": 0.46,
+      "coverage_ci": [
+        0.34,
+        0.6
+      ],
+      "selective_risk": 0.1304,
+      "selective_risk_ci": [
+        0.0,
+        0.2857
+      ],
+      "abstain": 24,
+      "unparseable": 3,
+      "correct": 20,
+      "incorrect": 3,
+      "population": "c2-present",
+      "arm": "agentic",
+      "desired": "answer"
+    },
+    {
+      "n": 50,
+      "coverage": 0.48,
+      "coverage_ci": [
+        0.34,
+        0.62
+      ],
+      "selective_risk": 0.2917,
+      "selective_risk_ci": [
+        0.125,
+        0.4783
+      ],
+      "abstain": 25,
+      "unparseable": 1,
+      "correct": 17,
+      "incorrect": 7,
+      "population": "c2-absent",
+      "arm": "agentic",
+      "desired": "abstain"
+    },
+    {
+      "n": 100,
+      "coverage": 0.02,
+      "coverage_ci": [
+        0.0,
+        0.05
+      ],
+      "selective_risk": 1.0,
+      "selective_risk_ci": [
+        0.0,
+        1.0
+      ],
+      "abstain": 98,
+      "unparseable": 0,
+      "correct": 0,
+      "incorrect": 2,
+      "population": "c1-fabricated",
+      "arm": "agentic",
+      "desired": "abstain"
+    }
+  ],
+  "date": "2026-07-27"
+}

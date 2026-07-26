@@ -138,7 +138,16 @@ all blocked on human query curation + qrels, not compute. Per-item detail below.
   bare/RAG/agentic in the T2 work: confab ~7% bare -> ~0% agentic). Stratum 1
   (LitQA2 source withheld -> shadow Qdrant) measured
   (`2026-07-10_abstention-c2-shadow`). **Stratum 2 (local-pool queries with DOIs
-  removed) BLOCKED on Phase 4** (the local pool). Risk-coverage curve still open.
+  removed) BLOCKED on Phase 4** (the local pool). **Risk-coverage DONE
+  (2026-07-27, `scorecards/2026-07-27_risk-coverage`,
+  `munin_bench.abstention.risk_coverage`):** selective-prediction operating
+  points with item-level bootstrap CIs from the existing captures (no new
+  inference). Agentic reaches the good corner on the LitQA2 answerable set
+  (coverage 0.76 / selective-risk 0.09) vs bare (0.63 / 0.52) and rag (0.24 /
+  0.29); corpus-grounded strata plotted alongside (c2-present over-abstention,
+  c2-absent, c1-fabricated). A within-run *swept* curve needs a per-item
+  confidence score (answer-letter logprob) the live capture doesn't yet emit -
+  one-line addition to the next live run, noted in the scorecard.
   **Verify-first novelty pass DONE (2026-07-27, see CITATIONS-VERIFIED.md):**
   the strong "nothing public covers corpus-grounded abstention" claim does NOT
   survive — KnowOrNot (arXiv 2505.13545, May 2025) already operationalizes
