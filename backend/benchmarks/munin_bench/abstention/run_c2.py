@@ -62,7 +62,17 @@ def run_arm(arm: str, base_url: str, email: str, *, concurrency: int = 1,
             if i % 10 == 0 or i == len(qs):
                 print(f"  {i}/{len(qs)}")
     json.dump(results, open(path, "w"), indent=2)
-    print(f"[c2:{arm}] verdicts -> {path}")
+    # Sidecar metadata. `egress` is a first-class experimental variable for C2:
+    # with egress=full the model re-fetches the "removed" source papers from
+    # Semantic Scholar / Unpaywall, so the ABSENT arm stops measuring
+    # corpus-grounded abstention (measured 2026-07-27: 17 of 49 removed sources
+    # were pulled back in over the web). Hold it constant across the pair, and
+    # use egress=off for any corpus-grounded claim.
+    meta = {"arm": arm, "base_url": base_url, "n": len(results),
+            "egress": os.getenv("MUNIN_EVAL_EGRESS", "off"),
+            "git_sha": _git_sha()}
+    json.dump(meta, open(os.path.join(work, f"{arm}.meta.json"), "w"), indent=2)
+    print(f"[c2:{arm}] verdicts -> {path}  (egress={meta['egress']})")
     return results
 
 

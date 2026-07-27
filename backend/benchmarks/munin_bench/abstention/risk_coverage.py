@@ -97,7 +97,11 @@ def _arm_verdicts(name: str) -> tuple[list[str], dict]:
 def _c2_verdicts(arm: str) -> tuple[list[str], dict]:
     path = os.path.join(_C2, f"{arm}.verdicts.json")
     d = json.load(open(path))
-    return [v["verdict"] for v in d.values()], _prov(path)
+    prov = _prov(path)
+    meta_path = os.path.join(_C2, f"{arm}.meta.json")
+    if os.path.exists(meta_path):
+        prov["egress"] = json.load(open(meta_path)).get("egress", "unknown")
+    return [v["verdict"] for v in d.values()], prov
 
 
 def _latest_c1() -> str:
@@ -139,16 +143,23 @@ def build() -> dict:
         p.update(prov)
         rows.append(p)
     dates = sorted({r["captured"] for r in rows if r["captured"] != "unknown"})
+    egresses = sorted({r["egress"] for r in rows if r.get("egress")})
+    warn = []
+    if len(dates) > 1:
+        warn.append("MIXED CAPTURE DATES")
+    if len(egresses) > 1:
+        warn.append("MIXED EGRESS SETTINGS")
     return {"track": "risk-coverage", "points": rows,
             "provenance": {
                 "capture_dates": dates,
+                "egress_settings": egresses,
                 "mixed_generations": len(dates) > 1,
+                "mixed_egress": len(egresses) > 1,
                 "note": (
-                    "All points must come from the same harness generation "
-                    "before these are plotted on shared axes. "
-                    + ("MIXED CAPTURE DATES -- DO NOT PLOT AS-IS."
-                       if len(dates) > 1 else
-                       "Single capture date: safe to plot.")),
+                    "All points must share a harness generation AND an egress "
+                    "setting before being plotted on shared axes. "
+                    + (" + ".join(warn) + " -- DO NOT PLOT AS-IS."
+                       if warn else "Consistent: safe to plot.")),
             }}
 
 

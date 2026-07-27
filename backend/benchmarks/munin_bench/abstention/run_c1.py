@@ -30,7 +30,16 @@ _HERE = os.path.dirname(__file__)
 _SET = os.path.join(_HERE, "fabricated_abstention.json")
 
 
-def _ask(base_url: str, email: str, question: str, deadline: int = 240) -> dict:
+def _ask(base_url: str, email: str, question: str, deadline: int = 900) -> dict:
+    """Ask one fabricated-paper question.
+
+    `deadline` was 240s until 2026-07-27. That predated `source(mode=qa)`
+    full-text reading (~20s/read) and the agent architecture, so on the current
+    harness a 240s cap truncates mid-reasoning. A truncated response has no
+    abstention marker, so `detect` scores it as "did not abstain" -> an
+    inflated confabulation rate. Same failure litqa2_runner hit at 300s and
+    fixed on 2026-07-24; matched to its 900s here.
+    """
     body = {"persona": "research", "ephemeral": True,
             "messages": [{"role": "user", "content": question}]}
     req = urllib.request.Request(
@@ -88,6 +97,7 @@ def _git_sha() -> str:
 
 
 def run(base_url: str, email: str, *, limit: int = 0, concurrency: int = 1,
+        deadline: int = 900,
         date: str | None = None, out_dir: str | None = None) -> dict:
     payload = json.load(open(_SET))
     items = payload["items"]
@@ -104,7 +114,7 @@ def run(base_url: str, email: str, *, limit: int = 0, concurrency: int = 1,
 
     def one(it: dict) -> dict:
         try:
-            res = _ask(base_url, email, it["question"])
+            res = _ask(base_url, email, it["question"], deadline=deadline)
         except Exception as e:
             return {**it, "answer": "", "tool_calls": [], "error": type(e).__name__}
         return {**it, **res}
@@ -169,10 +179,12 @@ def main() -> int:
     ap.add_argument("--email", default=os.getenv("MUNIN_BENCH_EMAIL", "litqa2-eval@localhost"))
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--concurrency", type=int, default=1)
+    ap.add_argument("--deadline", type=int, default=900,
+                    help="wall-clock cap per question (s); 900 matches litqa2_runner")
     ap.add_argument("--date", default=None)
     args = ap.parse_args()
     run(args.base_url, args.email, limit=args.limit,
-        concurrency=args.concurrency, date=args.date)
+        concurrency=args.concurrency, date=args.date, deadline=args.deadline)
     return 0
 
 
