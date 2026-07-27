@@ -37,7 +37,15 @@ def _ask(base_url: str, email: str, question: str, deadline: int = 240) -> dict:
         base_url.rstrip("/") + "/api/chat/completions",
         data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json", "X-Munin-Email": email,
-                 "X-Munin-Ephemeral": "true", "Accept": "text/event-stream"},
+                 "X-Munin-Ephemeral": "true", "Accept": "text/event-stream",
+                 # Egress must be EXPLICIT. Until 2026-07-27 this runner sent no
+                 # header at all, so it silently inherited the server-side
+                 # default of "full" (main.py) while run_c2 -> litqa2_runner
+                 # defaulted to "off". The two abstention arms were therefore
+                 # not comparable to each other, nor to the ablation (which
+                 # runs "full"). Set MUNIN_EVAL_EGRESS explicitly; "full" is
+                 # required for any run that shares a figure with the ablation.
+                 "X-Munin-Egress": os.getenv("MUNIN_EVAL_EGRESS", "off")},
         method="POST")
     content = ""
     tools: list[str] = []

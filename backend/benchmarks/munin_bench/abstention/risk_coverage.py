@@ -30,6 +30,8 @@ is not silently flattered by the attempted-only denominator.
 
 from __future__ import annotations
 
+import datetime as _dt
+import glob
 import json
 import os
 import random
@@ -73,26 +75,52 @@ def _point(verdicts: list[str]) -> dict:
     }
 
 
-def _arm_verdicts(name: str) -> list[str]:
-    d = json.load(open(os.path.join(_ABL, f"{name}.json")))
-    return [r["verdict"] for r in d["per_q"]]
+def _captured(path: str) -> str:
+    """Capture date of a source file, as an ISO date. Recorded per point so a
+    figure can never again silently mix harness generations."""
+    try:
+        return _dt.date.fromtimestamp(os.path.getmtime(path)).isoformat()
+    except OSError:
+        return "unknown"
 
 
-def _c2_verdicts(arm: str) -> list[str]:
-    d = json.load(open(os.path.join(_C2, f"{arm}.verdicts.json")))
-    return [v["verdict"] for v in d.values()]
+def _prov(path: str) -> dict:
+    return {"source": os.path.relpath(path, _BENCH), "captured": _captured(path)}
 
 
-def _c1_verdicts() -> list[str]:
+def _arm_verdicts(name: str) -> tuple[list[str], dict]:
+    path = os.path.join(_ABL, f"{name}.json")
+    d = json.load(open(path))
+    return [r["verdict"] for r in d["per_q"]], _prov(path)
+
+
+def _c2_verdicts(arm: str) -> tuple[list[str], dict]:
+    path = os.path.join(_C2, f"{arm}.verdicts.json")
+    d = json.load(open(path))
+    return [v["verdict"] for v in d.values()], _prov(path)
+
+
+def _latest_c1() -> str:
+    """Newest C1 fabricated scorecard. This was hardcoded to the 2026-07-10
+    file until 2026-07-27, which silently pinned the abstention points to a
+    pre-agent-architecture harness while the ablation points tracked HEAD."""
+    hits = sorted(glob.glob(os.path.join(_SCORECARDS,
+                                         "*_abstention-c1-fabricated.json")))
+    if not hits:
+        raise FileNotFoundError("no *_abstention-c1-fabricated.json scorecard found")
+    return hits[-1]
+
+
+def _c1_verdicts() -> tuple[list[str], dict]:
     """Map the fabricated-set classifier verdicts onto the answered/abstain/
     incorrect vocabulary: correct_abstain -> abstain (desired); any substantive
     or confabulated answer -> incorrect (it should not have answered)."""
-    sc = json.load(open(os.path.join(_SCORECARDS,
-                                     "2026-07-10_abstention-c1-fabricated.json")))
+    path = _latest_c1()
+    sc = json.load(open(path))
     out = []
     for it in sc["per_item"]:
         out.append("abstain" if it["abstained"] else "incorrect")
-    return out
+    return out, _prov(path)
 
 
 def build() -> dict:
@@ -105,11 +133,23 @@ def build() -> dict:
         ("c1-fabricated", "agentic", _c1_verdicts(), "abstain"),
     ]
     rows = []
-    for population, arm, verdicts, desired in configs:
+    for population, arm, (verdicts, prov), desired in configs:
         p = _point(verdicts)
         p.update({"population": population, "arm": arm, "desired": desired})
+        p.update(prov)
         rows.append(p)
-    return {"track": "risk-coverage", "points": rows}
+    dates = sorted({r["captured"] for r in rows if r["captured"] != "unknown"})
+    return {"track": "risk-coverage", "points": rows,
+            "provenance": {
+                "capture_dates": dates,
+                "mixed_generations": len(dates) > 1,
+                "note": (
+                    "All points must come from the same harness generation "
+                    "before these are plotted on shared axes. "
+                    + ("MIXED CAPTURE DATES -- DO NOT PLOT AS-IS."
+                       if len(dates) > 1 else
+                       "Single capture date: safe to plot.")),
+            }}
 
 
 def _ascii_plot(rows: list[dict]) -> str:
