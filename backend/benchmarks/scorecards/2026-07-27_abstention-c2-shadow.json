@@ -1,0 +1,20 @@
+{
+  "n_paired": 50,
+  "present": {
+    "accuracy": 0.54,
+    "abstain_rate": 0.4
+  },
+  "absent": {
+    "accuracy": 0.08,
+    "abstain_rate": 0.74
+  },
+  "answerable_n": 27,
+  "on_answerable_when_source_removed": {
+    "correct_abstention": 18,
+    "answered_still_correct": 4,
+    "answered_now_wrong": 5,
+    "correct_abstention_rate": 0.6666666666666666
+  },
+  "date": "2026-07-27",
+  "git_sha": "8d0366c"
+}

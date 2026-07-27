@@ -84,14 +84,24 @@ def _captured(path: str) -> str:
         return "unknown"
 
 
-def _prov(path: str) -> dict:
-    return {"source": os.path.relpath(path, _BENCH), "captured": _captured(path)}
+def _prov(path: str, egress: str = "unknown") -> dict:
+    """Provenance for one point. `egress` defaults to "unknown" rather than
+    being omitted: a missing value must TRIP the mixed-egress warning, not
+    silently pass it. (First cut of this check omitted the key entirely, so a
+    plot mixing egress=full ablation points with egress=off C2 points reported
+    `mixed_egress: false` -- false comfort, worse than no check.)"""
+    return {"source": os.path.relpath(path, _BENCH), "captured": _captured(path),
+            "egress": egress}
 
 
 def _arm_verdicts(name: str) -> tuple[list[str], dict]:
     path = os.path.join(_ABL, f"{name}.json")
     d = json.load(open(path))
-    return [r["verdict"] for r in d["per_q"]], _prov(path)
+    meta_path = os.path.join(_ABL, f"{name}.meta.json")
+    egress = "unknown"
+    if os.path.exists(meta_path):
+        egress = json.load(open(meta_path)).get("egress", "unknown")
+    return [r["verdict"] for r in d["per_q"]], _prov(path, egress)
 
 
 def _c2_verdicts(arm: str) -> tuple[list[str], dict]:
@@ -124,7 +134,7 @@ def _c1_verdicts() -> tuple[list[str], dict]:
     out = []
     for it in sc["per_item"]:
         out.append("abstain" if it["abstained"] else "incorrect")
-    return out, _prov(path)
+    return out, _prov(path, sc.get("egress", "unknown"))
 
 
 def build() -> dict:
@@ -143,18 +153,25 @@ def build() -> dict:
         p.update(prov)
         rows.append(p)
     dates = sorted({r["captured"] for r in rows if r["captured"] != "unknown"})
-    egresses = sorted({r["egress"] for r in rows if r.get("egress")})
+    # "n/a-no-tools" arms (bare / rag make 0 tool calls) cannot be affected by
+    # egress, so they are excluded from the comparison rather than counted as
+    # a distinct setting. "unknown" is NOT excluded -- it must warn.
+    egresses = sorted({r["egress"] for r in rows
+                       if r.get("egress") != "n/a-no-tools"})
     warn = []
     if len(dates) > 1:
         warn.append("MIXED CAPTURE DATES")
-    if len(egresses) > 1:
+    if "unknown" in egresses:
+        warn.append("UNRECORDED EGRESS ON >=1 POINT")
+    if len([e for e in egresses if e != "unknown"]) > 1:
         warn.append("MIXED EGRESS SETTINGS")
     return {"track": "risk-coverage", "points": rows,
             "provenance": {
                 "capture_dates": dates,
                 "egress_settings": egresses,
                 "mixed_generations": len(dates) > 1,
-                "mixed_egress": len(egresses) > 1,
+                "mixed_egress": len([e for e in egresses
+                                     if e != "unknown"]) > 1,
                 "note": (
                     "All points must share a harness generation AND an egress "
                     "setting before being plotted on shared axes. "

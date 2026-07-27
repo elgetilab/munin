@@ -373,6 +373,24 @@ and settles the Track B question: the un-grounded content is not fabrication.
 NOTE: this is the corpus-ABSENT extreme; OVER-abstention is Track C2 below.
 Scorecard `2026-07-10_abstention-c1-fabricated`.
 
+**RE-RUN 2026-07-27 on the current harness — result HOLDS.** Same 100 frozen
+items, post agent-architecture, `egress=full`:
+
+| metric | 07-10 | 07-27 |
+|---|---|---|
+| abstain / correct-refusal | 0.980 [0.950, 1.000] | **0.970 [0.930, 1.000]** |
+| confabulated LOCAL citations | 0 / 100 | **0 / 100** |
+| verdicts | 98 abstain / 1 possible-confab / 1 ambiguous | 97 / 2 / 1 |
+
+A one-item difference, well inside overlapping CIs. This is the informative
+null: abstention on fabricated papers survived the rewrite **unchanged**, even
+though the same rewrite moved over-abstention on answerable questions
+substantially (Track C2 below). The two behaviours are independent — the
+harness became less trigger-happy about refusing real questions without
+becoming credulous about fake ones. `egress=full` makes this the *harder*
+condition: the model may search the entire live web and must still conclude the
+paper does not exist. Scorecard `2026-07-27_abstention-c1-fabricated`.
+
 ## Track C2b — paired shadow-corpus abstention  · 2026-07-10
 
 The complementary paired test: 50 single-source-DOI LitQA2 questions asked twice —
@@ -401,6 +419,67 @@ over-confidence-on-removal 4/20. Also: answers are NOT purely corpus-grounded
 "un-grounded" fraction. A clean C2 needs questions answerable ONLY from the local
 corpus (not in the base model / web) - hard to guarantee; **C1 (fabricated) stays
 the clean abstention signal.** Scorecard `2026-07-10_abstention-c2-shadow`.
+
+> **The conclusion in the paragraph above is SUPERSEDED.** It was true of the
+> 2026-07-10 harness and is false of the current one. Re-run below.
+
+### Track C2b RE-RUN · 2026-07-27 · the confound is gone
+
+Same 50 frozen questions, same paired design, shadow rebuilt from the same 49
+frozen DOIs (verified: 49/49 present in `papers_bge`, **0/49** in
+`papers_shadow`). Both arms at **`egress=off`**, matching the 07-10 condition,
+so this is a like-for-like comparison across harness generations.
+
+| | 07-10 present | 07-10 absent | **07-27 present** | **07-27 absent** |
+|---|---|---|---|---|
+| accuracy | 0.400 | 0.340 | **0.540** | **0.080** |
+| abstain rate | 0.480 | 0.500 | **0.400** | **0.740** |
+| unparseable | 3 | — | **0** | **0** |
+| accuracy drop on source removal | \-0.060 | | **\-0.460** | |
+
+On the answerable subset (questions the present arm got right), when the source
+is removed from the corpus:
+
+| | 07-10 (n=20) | 07-27 (n=27) |
+|---|---|---|
+| **correct abstention** (desired) | 4 — **0.20** | 18 — **0.67** |
+| answered still correct (from memory/web) | 12 | 4 |
+| answered now wrong (over-confident) | 4 | 5 |
+
+**This is the Track C claim, measured.** The old harness answered 12 of 20 from
+parametric memory when the local source was gone, which is why 07-10 concluded
+the design was fatally confounded. The current harness answers 4 of 27 and
+correctly abstains on 18. Correct-abstention rate **0.20 -> 0.67**. Pull the
+supporting paper out of the corpus and the system now declines to answer rather
+than falling back on what the base model happens to remember: it is genuinely
+corpus-grounded, not reciting.
+
+**Caveats to carry into the paper.** (1) 5 of 27 still answered wrong on
+removal, so this is strong calibration, not perfect. (2) n=27 on the answerable
+subset is small; the 0.67 needs a CI before it is quoted. (3) C1 is no longer
+the *only* clean abstention signal, but it remains the cleanest — C2 depends on
+the shadow-corpus construction, C1 does not.
+
+**EGRESS IS A FIRST-CLASS VARIABLE HERE — do not compare across it.** A parallel
+`egress=full` pair was captured the same day (scorecards
+`2026-07-27_abstention-c2-shadow-egressfull`, captures `c2_runs/*.egressfull.*`):
+present 0.820 / absent 0.740, i.e. removing the local source costs almost
+nothing, because the model re-fetches the removed papers over the web (measured:
+**17 of 49** removed sources pulled back in via Semantic Scholar / Unpaywall).
+That pair is a legitimate "with web access" robustness result and is **not** a
+corpus-grounded abstention measurement. The three present-arm conditions
+decompose cleanly:
+
+| present arm | accuracy |
+|---|---|
+| 07-10, corpus only | 0.400 |
+| 07-27, corpus only | 0.540 (harness gain **+0.14**) |
+| 07-27, corpus + web | 0.820 (web tier adds **+0.28**) |
+
+Note the web tier contributes more than the harness upgrade on this set. Any
+claim that quotes 0.82 must say the web was open.
+
+Scorecard `2026-07-27_abstention-c2-shadow`.
 
 ## Track D — harness ablation (bare / RAG / agentic)  · PILOT · 2026-07-13
 
@@ -491,29 +570,44 @@ Derived from already-captured verdicts, no new inference. `coverage` = fraction
 answered; `selective_risk` = error rate among answered. 95% CIs are item-level
 bootstrap, 2000 resamples.
 
-| population | arm | desired | coverage | selective risk | n |
-|---|---|---|---|---|---|
-| litqa2-answerable | bare | answer | 0.633 [0.56, 0.70] | 0.524 [0.44, 0.61] | 199 |
-| litqa2-answerable | rag | answer | 0.241 [0.19, 0.31] | 0.292 [0.16, 0.41] | 199 |
-| **litqa2-answerable** | **agentic** | answer | **0.925 [0.88, 0.96]** | **0.092 [0.05, 0.14]** | 199 |
-| c2-present | agentic | answer | 0.460 [0.34, 0.60] | 0.130 [0.00, 0.29] | 50 |
-| c2-absent | agentic | abstain | 0.480 [0.34, 0.62] | 0.292 [0.12, 0.48] | 50 |
-| c1-fabricated | agentic | abstain | 0.020 [0.00, 0.05] | 1.000 [0.00, 1.00] | 100 |
+| population | arm | desired | coverage | selective risk | n | egress |
+|---|---|---|---|---|---|---|
+| litqa2-answerable | bare | answer | 0.633 [0.56, 0.70] | 0.524 [0.44, 0.61] | 199 | n/a (0 tools) |
+| litqa2-answerable | rag | answer | 0.241 [0.19, 0.31] | 0.292 [0.16, 0.41] | 199 | n/a (0 tools) |
+| **litqa2-answerable** | **agentic** | answer | **0.925 [0.88, 0.96]** | **0.092 [0.05, 0.14]** | 199 | full |
+| c2-present | agentic | answer | 0.600 [0.46, 0.74] | 0.100 [0.00, 0.23] | 50 | off |
+| c2-absent | agentic | **abstain** | 0.260 [0.14, 0.38] | 0.692 [0.42, 0.93] | 50 | off |
+| c1-fabricated | agentic | **abstain** | 0.030 [0.00, 0.07] | 1.000 [0.00, 1.00] | 100 | full |
 
-On the answerable population the agentic arm reaches the good corner: high
-coverage *and* low selective risk. Bare answers nearly as often at ~5.7x the
-risk; RAG buys low risk only by collapsing coverage to 0.24.
+All abstention points are now re-run on the current harness (2026-07-27); the
+07-10 captures they previously used are retired. On the answerable population
+the agentic arm reaches the good corner: high coverage *and* low selective risk.
+Bare answers nearly as often at ~5.7x the risk; RAG buys low risk only by
+collapsing coverage to 0.24. For the two `desired = abstain` populations, LOW
+coverage is the good outcome: c1-fabricated at 0.030 and c2-absent at 0.260.
 
-> **PROVENANCE WARNING — do not plot these six points on shared axes as-is.**
-> The three `litqa2-answerable` rows come from the 2026-07-27 captures on the
-> current harness. The `c1-*` and `c2-*` rows are read from the **2026-07-10**
-> captures (`risk_coverage.py` hardcodes
-> `2026-07-10_abstention-c1-fabricated.json` and the 07-10 `c2_runs`), which
-> predate the agent-architecture rewrite that collapsed over-abstention from
-> ~42% to 6%. The abstention points are therefore from a **different system**
-> than the answerable points. C1 is expected to be robust (near-zero coverage is
-> already the desired behaviour); C2 is expected to move materially. Re-run
-> before any paper figure. Tracked as the Track C re-run.
+> **READ THE `egress` COLUMN BEFORE PLOTTING.** These six points do not share
+> one experimental condition, and `risk_coverage.py` now refuses to bless them:
+> it emits `mixed_generations` / `mixed_egress` in the scorecard's `provenance`
+> block. Each *claim* is internally valid — the ablation trio (harness value),
+> the C2 pair (both `egress=off`, corpus-grounded abstention), and C1 standalone
+> (`egress=full`, the harder condition). What is invalid is reading across them
+> on one set of axes. Facet the figure by claim, or annotate egress per point.
+>
+> `bare` and `rag` are marked `n/a` rather than a setting because they make 0
+> tool calls, so egress provably cannot reach them; their 2026-07-25 capture
+> date is therefore harmless even though the ablation's agentic arm is 07-27.
+
+> **The `c1-fabricated` selective risk of 1.000 is not meaningful.** It is 3
+> answered items of which 3 scored incorrect, hence the uninformative
+> [0.00, 1.00] CI. Read that point on **coverage only** (0.030, near-zero, which
+> is the correct behaviour). A "risk = 1.0" marker plotted without this caveat
+> looks alarming and means nothing.
+
+**Limitation (unchanged):** these are operating points, not a within-run swept
+curve. The chat emits a hard abstain decision with no per-item confidence, so
+one run yields one point. A true swept curve needs the answer-letter logprob
+captured per item — a one-line addition to the next capture, not a re-run.
 
 Scorecard `2026-07-27_risk-coverage.{json,md}`.
 
@@ -585,10 +679,10 @@ MUNIN_BENCH_SPECTER_DEVICE=cpu $PY -m munin_bench.pipelines.run_bakeoff --subset
 Not yet run (as of 2026-07-27): BEIR nfcorpus/scidocs/trec-covid; **Phase 4
 local pool** (deferred, blocked on human query curation + two-annotator qrels,
 not compute) and the two P0 items that depend on it (T3 stratum 2, T7); Track F
-throughout. Track B has a validated judge plus one interim arm. **Track C needs
-a re-run on the current harness** — its C1/C2 captures are from 2026-07-10 and
-predate the agent architecture; see the provenance warning in the risk-coverage
-section. Tracks A, D and T11 are current. Status table: `README.md`.
+throughout. Track B has a validated judge plus one interim arm. **Track C
+re-run DONE 2026-07-27**: C1 held (0.970 abstain, 0 confabulated local cites),
+C2 correct-abstention 0.20 -> 0.67 at matched `egress=off`. Tracks A, C, D and
+T11 are all current. Status table: `README.md`.
 
 ```bash
 # Track B faithfulness (judge validation + one live arm)

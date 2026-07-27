@@ -34,16 +34,16 @@ Eval-suite results writeup: `backend/benchmarks/RESULTS.md` (canonical).
 
 | Plan | Status / what's left |
 |---|---|
-| `EVAL-SUITE-MASTER-PLAN.md` | Suite spec. Tracks A/D built; B has a validated judge + one interim arm; C built but needs the re-run; F not built. See "What's next". |
+| `EVAL-SUITE-MASTER-PLAN.md` | Suite spec. Tracks A/D built; B has a validated judge + one interim arm; C built and re-run 2026-07-27; F not built. See "What's next". |
 | `RETRIEVAL-EVAL-SPEC.md` | Phases 1-3,5 done; **Phase 4 (local pool) deferred** (needs more usage / synthetic queries). Canonical retrieval spec. |
-| `BENCHMARK-TODO.md` | Benchmark landscape TODO. P0 status 2026-07-27: T2/T4/T5/T6 done, T1 mostly done, T3 needs the re-run + stratum 2, T7 deferred. **The only human-blocked P0 is Phase 4** (query curation + qrels). |
+| `BENCHMARK-TODO.md` | Benchmark landscape TODO. P0 status 2026-07-27: T2/T4/T5/T6 done, T1 mostly done, T3 re-run done (stratum 2 still needs Phase 4), T7 deferred. **The only human-blocked P0 is Phase 4** (query curation + qrels). |
 | `T2-ABLATION-REFRESH-PLAN.md` | Reporting guidance for the Track D/T2 ablation, incl. why the 07-26 run is load-depressed and 07-27 is the headline. |
 | `CITATIONS-VERIFIED.md` | Citation verification pass — **all `[VERIFY]` anchors resolved** with arXiv IDs, plus the T3 novelty check (KnowOrNot is prior art) and the PaperArena correction. Bib-ready. |
 | `TRACK-B-PLAN.md` | Answer faithfulness (MiniCheck). B1-B4 built; judge validated (QA AUROC 0.95); interim arm 0.38 claims-supported. |
 | `HARNESS-ITERATION-SCOPE.md` | Scoping for the harness-iteration phase (grounding, over-tooling, tool defs). Pre-implementation. |
 | `T2-T3-EDIT-PLAN.md` | Concrete T2 (over-tooling) + T3 (tool defs) edits; measurement + deploy constraints. Plan, not applied. |
 | `T1-GROUNDING-PLAN.md` | T1 grounding edits (paper_search excerpts, per-item truncation, structured sub-agent returns). T1a applied; T1b/c planned. |
-| `TRACK-C-PLAN.md` | Corpus-grounded abstention. C1 (fabricated + confabulation detector) and C2b (paired shadow-corpus) both BUILT and RUN 2026-07-10 — the shadow infra exists (`docker-compose.shadow.yml`, `abstention.run_c2`). C2b found a confound (LitQA2 questions are answerable without the local source), so **C1 stays the clean abstention signal**. **Open: both captures predate the agent architecture and need a re-run** before any paper figure. |
+| `TRACK-C-PLAN.md` | Corpus-grounded abstention. **RE-RUN DONE 2026-07-27 on the current harness.** C1 held (abstain 0.970, 0 confabulated local cites). C2b's 07-10 confound is GONE: at matched `egress=off`, correct-abstention on the answerable subset went **0.20 -> 0.67** and accuracy drops 0.54 -> 0.08 when the source is removed. The system is genuinely corpus-grounded. Remaining: stratum 2 (needs Phase 4); CI on the n=27 subset. |
 | `KICKOFF-QUESTIONS.md` | Resolved decision record (kept as a live reference cited by the spec). |
 | `IMPLEMENTATION-HANDOFF.md` | Overarching eval-suite handoff (reference). |
 | `MIGRATION-LOOSE-ENDS.md` | Encoder-migration tail: embedding-map repoint + `papers` retirement. varghele/root. |
@@ -84,11 +84,15 @@ FIX, not just a number to measure. So:
      correct "not in corpus"). Master plan sec 4. C1 (fabricated papers +
      confabulation detector) and C2b (paired shadow-corpus) both BUILT and RUN
      2026-07-10; risk-coverage operating points derived 2026-07-27.
-     **OPEN: re-run C1 + C2 on the current harness.** Both captures predate the
-     agent-architecture rewrite that took over-abstention ~42% -> 6%, so the
-     risk-coverage figure currently mixes two system generations on shared axes.
-     C1 should be robust; C2 is expected to move. This is compute, not human
-     time.
+     ~~re-run C1 + C2 on the current harness~~ **DONE 2026-07-27.** C1 held
+     (0.970 vs 0.980, overlapping CIs). C2 moved decisively: correct-abstention
+     **0.20 -> 0.67**, which REVERSES the 07-10 verdict that C2 was fatally
+     confounded. Two process findings came out of it: (a) `egress` is a
+     first-class variable — at `egress=full` the model re-fetches removed source
+     papers from S2/Unpaywall (17 of 49), so the absent arm must run
+     `egress=off`; (b) `risk_coverage.py` now records capture date AND egress
+     per point and refuses to bless a mixed figure. Remaining: stratum 2
+     (blocked on Phase 4), and a CI on the n=27 answerable subset.
 
 **Deferred:** Phase 4 local pool (blocked on more real usage / a synthetic-query
 track).
