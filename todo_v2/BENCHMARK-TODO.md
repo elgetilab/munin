@@ -93,14 +93,20 @@ all blocked on human query curation + qrels, not compute. Per-item detail below.
   `/search/hybrid` call + stuffed prompt); both are thin wrappers.
 - **Gate:** harness must beat bare model on LitQA2-in-corpus accuracy,
   else stop and investigate before any submission.
-- **Status (2026-07-26): DONE.** Three arms on 199 LitQA2 (paired): bare 0.302,
-  RAG 0.171, agentic **0.864** (clean 07-24) / 0.688 (search-degraded 07-26).
-  **Gate PASSED** (harness >> bare). Harness-value delta agentic-bare = +0.39
-  (paired floor) / ~+0.56 (clean, unpaired). RAG < bare (-0.13): the value is
-  the agentic loop, not retrieval. Full numbers + how-to-report note:
-  `T2-ABLATION-REFRESH-PLAN.md`; scorecards `2026-07-13_harness-ablation`,
-  `2026-07-26_harness-ablation`. Sets (b) local-pool + (c) abstention beyond C1
-  are the deferred Phase-4 / T3 pieces.
+- **Status (2026-07-27): DONE — definitive clean run in hand.** Three arms on
+  199 LitQA2 (paired): bare 0.302, RAG 0.171, agentic **0.839**. This is the
+  single clean concurrency-1 pass with live search (`egress=full`), TP=2, 4.4h,
+  Brave 200-OK throughout (verified no 402/429; ~1,093 Brave calls ≈ $5-6). It
+  SUPERSEDES the 07-24 (0.864, partial) and 07-26 (0.688, search-degraded)
+  numbers — report **0.839**. **Gate PASSED.** Paired harness-value:
+  agentic-bare = **+0.538** [0.457, 0.618] p<0.001; agentic-rag = +0.668;
+  rag-bare = -0.131 (value is the agentic loop, not retrieval). Verdicts:
+  167 correct / 15 abstain / 17 incorrect / 0 unparseable (the 900s deadline
+  fully eliminated truncation). Scorecard `2026-07-27_harness-ablation`;
+  how-to-report note in `T2-ABLATION-REFRESH-PLAN.md`. NB agentic token cost is
+  None in this SSE-capture run; valid concurrency-1 wall-clock = 79s/q, 8.6
+  tool calls/q (T5). Sets (b) local-pool + (c) abstention beyond C1 remain the
+  deferred Phase-4 / T3 pieces.
 
 ### T3. Corpus-grounded abstention set — the novel benchmark
 
@@ -142,9 +148,11 @@ all blocked on human query curation + qrels, not compute. Per-item detail below.
   (2026-07-27, `scorecards/2026-07-27_risk-coverage`,
   `munin_bench.abstention.risk_coverage`):** selective-prediction operating
   points with item-level bootstrap CIs from the existing captures (no new
-  inference). Agentic reaches the good corner on the LitQA2 answerable set
-  (coverage 0.76 / selective-risk 0.09) vs bare (0.63 / 0.52) and rag (0.24 /
-  0.29); corpus-grounded strata plotted alongside (c2-present over-abstention,
+  inference; refreshed 2026-07-27 with the clean agentic run). Agentic reaches
+  the good corner on the LitQA2 answerable set (coverage **0.925** /
+  selective-risk 0.092 - up from the degraded run's 0.76 as truncations vanished)
+  vs bare (0.63 / 0.52) and rag (0.24 / 0.29); corpus-grounded strata plotted
+  alongside (c2-present over-abstention,
   c2-absent, c1-fabricated). A within-run *swept* curve needs a per-item
   confidence score (answer-letter logprob) the live capture doesn't yet emit -
   one-line addition to the next live run, noted in the scorecard.
@@ -309,18 +317,26 @@ all blocked on human query curation + qrels, not compute. Per-item detail below.
   Key design finding: a hard-error-only metric MISSES the dominant failure mode
   - `web_search` catches a Brave 402 and returns a warning, so it shows 0%
   hard-error during a total outage; T11 therefore reports BOTH error_rate and
-  degraded_rate. First result (15 Q, `scorecards/
-  2026-07-27_toolreliability-searchdegraded`, **current Brave-402 state**):
-  mean 16.1 calls/q, error_rate 3.3%, degraded_rate 11.2%, recovery 1.0.
-  Per-tool: web_search degraded 1.0 (Brave 402), web_fetch error 1.0
-  (datacenter-IP block); source/paper_search/semantic_scholar_search/search/
-  paper_lookup all 0.0 (corpus/local tools healthy). Interpretation: the harness
-  is robust (recovery 1.0, corpus tools clean); the 16 calls/q + web degradation
-  are the search-outage over-tooling, not a harness defect. **Re-run once
-  Brave/S2 are restored for a clean baseline** (scorer just re-runs the new
-  capture file; instrumentation persists). Beyond routing-eval's per-item
-  forbidden/soft_max_calls, T11 adds aggregate error/degraded/recovery + per-tool
-  rates.
+  degraded_rate. **CLEAN baseline DONE (2026-07-27, 199 Q,
+  `scorecards/2026-07-27_toolreliability-clean`,** from the same clean agentic
+  run as T2): mean **8.61 calls/q** (HALF the degraded-state 16.1 - a healthy
+  agent that gets real results thrashes far less), error_rate 6.1%,
+  degraded_rate 24.0%, recovery **1.0**. Per-tool: the answer-critical LOCAL
+  tools are essentially perfect - paper_search 330 calls 0/0, source 266 calls
+  0.4% err, semantic_scholar 451 calls 0/0. Degradation is confined to the WEB
+  tier: web_fetch 45% error (datacenter-IP block on arbitrary page fetches),
+  web_search "degraded" 1.0 - BUT that flag fires on the dead KEYLESS fallback
+  engines (ddg/startpage/etc, CAPTCHA'd from the datacenter IP) while the
+  primary Brave tier was 200-OK all run, so it OVERSTATES real degradation.
+  Two capture caveats to note in the writeup: (1) S2 rate-limiting is logged as
+  a WARNING but not surfaced in the tool result dict, so it shows 0 degraded
+  here despite ~8 questions hitting S2 limits (same blind spot we fixed for
+  Brave 402, now for S2); (2) web_search degraded conflates "primary failed"
+  with "a fallback engine unresponsive." Headline finding stands: the harness
+  is robust because local corpus tools are rock-solid and the agent recovers
+  from web-tier flakiness (recovery 1.0, 0 unparseable, 0.839 accuracy). Beyond
+  routing-eval's per-item forbidden/soft_max_calls, T11 adds aggregate
+  error/degraded/recovery + per-tool rates.
 
 ---
 

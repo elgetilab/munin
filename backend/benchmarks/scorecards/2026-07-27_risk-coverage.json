@@ -43,20 +43,20 @@
     },
     {
       "n": 199,
-      "coverage": 0.7588,
+      "coverage": 0.9246,
       "coverage_ci": [
-        0.6985,
-        0.8191
+        0.8844,
+        0.9598
       ],
-      "selective_risk": 0.0927,
+      "selective_risk": 0.0924,
       "selective_risk_ci": [
-        0.0523,
-        0.1419
+        0.0535,
+        0.1364
       ],
-      "abstain": 46,
-      "unparseable": 2,
-      "correct": 137,
-      "incorrect": 14,
+      "abstain": 15,
+      "unparseable": 0,
+      "correct": 167,
+      "incorrect": 17,
       "population": "litqa2-answerable",
       "arm": "agentic",
       "desired": "answer"
