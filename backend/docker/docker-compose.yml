@@ -176,7 +176,9 @@ services:
       - SLURM_QUEUE_FILE=/deepresearch/status/slurm_queue.json
       # vLLM for MCP tools (llm_summarize, web_fetch with summarize)
       # Uses host.docker.internal to reach vLLM running on host
-      - VLLM_URL=http://<cluster-lan-ip>:8000
+      # (resolved via the extra_hosts host-gateway entry above; must not be
+      # pinned to a host LAN IP — that breaks on any subnet change)
+      - VLLM_URL=http://host.docker.internal:8000
       - VLLM_MODEL_NAME=qwen3.6-35b-a3b
       # Context window: the vLLM start scripts `export` these before
       # `docker compose up` to match the running mode (single-GPU 65536/60000,

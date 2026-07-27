@@ -57,7 +57,7 @@ from typing import Any, Optional
 
 import httpx
 
-VLLM_URL = os.getenv("VLLM_URL", "http://<cluster-lan-ip>:8000")
+VLLM_URL = os.getenv("VLLM_URL", "http://127.0.0.1:8000")
 VLLM_MODEL = os.getenv("VLLM_MODEL_NAME", "qwen3.6-35b-a3b")
 RETRIEVAL_BASE = os.getenv("RETRIEVAL_BASE", "http://127.0.0.1:8080")
 
