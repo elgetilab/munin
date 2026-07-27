@@ -120,9 +120,15 @@ CIs (Track A Phase 1 infra reused).
 **Claim it supports:** "Munin knows when the corpus doesn't contain
 the answer" — the briefing's thinnest-area / signature claim, and the
 single most differentiating benchmark we can build now. General
-abstention benchmarks (AbstentionBench `[VERIFY]`) do not cover the
-private-corpus regime; nothing public does (briefing §2.5 — verify in
-the deeper pass).
+abstention benchmarks (AbstentionBench, arXiv 2506.09038) target
+intrinsic unanswerability, not the private-corpus regime. NB the
+novelty pass (2026-07-27, `CITATIONS-VERIFIED.md`) found the closest
+prior art IS public — KnowOrNot (Foo et al., arXiv 2505.13545)
+operationalizes out-of-knowledge-base abstention in RAG — so the novel
+contribution is the *combination* (scientific-literature + DOI
+construct-time ground truth + joint abstention & confabulated-citation
+axes vs a live RAG stack), NOT the bare concept. Soften any "nothing
+public covers it" wording accordingly.
 
 **The corpus-grounded abstention set (build; no experts needed):**
 
@@ -163,8 +169,10 @@ Language Models Hallucinate" for the framing that reward structures
 favour guessing; "Know Your Limits" survey (TACL 2025 `[VERIFY]`).
 
 **Why this is the paper's best new section:** it's cheap (built from
-assets Phases 4–5 already require), it's novel (no public benchmark
-covers it), it's automatic (DOI-checking needs no judge), and it
+assets Phases 4–5 already require), it's novel in combination (KnowOrNot
+covers OOKB abstention generally, but not scientific-lit + DOI ground
+truth + confabulation together — see `CITATIONS-VERIFIED.md`), it's
+automatic (DOI-checking needs no judge), and it
 directly previews RQ-M1 for the follow-up proposal.
 
 ---

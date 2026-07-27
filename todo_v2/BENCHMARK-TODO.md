@@ -11,7 +11,10 @@ arXiv ID / venue / current state before citing in the paper.
 **VERIFICATION PASS DONE 2026-07-26 — see `CITATIONS-VERIFIED.md`.** All
 anchors confirmed real + bib-ready (IDs/venues/authors); one correction landed
 (PaperArena is ~18% hard / ~39% overall, NOT <10% — that was AutoResearchBench).
-Only MedAbstain still needs its exact arXiv ID before munin.bib.
+All anchors incl. MedAbstain now bib-ready (MedAbstain = "Knowing When to
+Abstain", Machcha et al., EACL 2026, arXiv 2601.12471 - one paper); T3 novelty
+pass done (KnowOrNot 2505.13545 is prior art, narrow the claim). See
+`CITATIONS-VERIFIED.md`.
 
 Priorities: **P0** = required for the paper push. **P1** = in-paper if
 time allows. **F** = follow-up proposal scope.

@@ -1,33 +1,36 @@
 # T2 — harness three-arm ablation (refresh + finalize)
 
-Status: DONE 2026-07-26. Decisions (varghele): (1) FULL 199; (2) MiniCheck
-dropped; (3) local-pool OUT OF SCOPE; (4) abstention-per-arm done; (5) NO
-agentic re-run (Brave cost); paper uses the 07-24 standalone 0.864 as the clean
-agentic accuracy. Full narrative below; headline numbers here:
+Status: DONE 2026-07-27 - DEFINITIVE CLEAN RUN measured. Decisions (varghele):
+(1) FULL 199; (2) MiniCheck dropped; (3) local-pool OUT OF SCOPE; (4)
+abstention-per-arm done; (5) after Brave was funded, the clean concurrency-1
+agentic re-run WAS produced (2026-07-27), so the paper no longer relies on the
+07-24 standalone or the degraded 07-26 ablation. Historical diagnosis narrative
+kept below as the record; CURRENT headline numbers here.
 
-## HOW TO REPORT THE THREE NUMBERS (paper)
+## HOW TO REPORT THE THREE NUMBERS (paper) - UPDATED 2026-07-27
 
-Three arms, LitQA2 answer (199 Q, MCQ+abstain, 900s):
-- bare (no tools):        **0.302**   (07-26 ablation, paired)
-- vanilla RAG (top-5):    **0.171**   (07-26 ablation, paired)  -- RAG HURTS
-- agentic harness:        **0.864**   (07-24 standalone, FRESH search APIs)
+Three arms, LitQA2 answer (199 Q, MCQ+abstain, 900s), ALL from the single clean
+2026-07-27 paired run (agentic at concurrency-1, `egress=full`, Brave 200-OK
+throughout, no 402/429 anywhere - scorecard `2026-07-27_harness-ablation`):
+- bare (no tools):        **0.302**   (paired)
+- vanilla RAG (top-5):    **0.171**   (paired)  -- RAG HURTS
+- agentic harness:        **0.839**   (paired, clean live search)
 
-1. **Harness accuracy = 0.864.** Cite this for "how well the harness answers."
-   Do NOT cite the ablation's 0.688 - that arm ran while the Brave/S2 search
-   quotas were exhausted (self-inflicted by the day's eval load) and is
-   search-degraded, not representative.
-2. **Harness value over bare = +0.39 (floor) / ~+0.56 (clean).**
-   - Rigorous PAIRED delta agentic-bare = **+0.387 [0.30, 0.47], p~0** - but it
-     uses the degraded (0.688) agentic arm, so it is a CONSERVATIVE LOWER BOUND.
-   - At the clean 0.864 the gap is ~+0.56, but that is UNPAIRED (0.864 is a
-     separate run from the ablation's bare/RAG) - no bootstrap CI.
-   - Suggested wording: "the harness beats the bare model by >=+0.39 (paired,
-     p~0) and by ~+0.56 at its full-search accuracy."
-   - Do NOT print `0.864 - 0.302 = 0.56` as if it were a paired result.
+1. **Harness accuracy = 0.839.** The definitive clean number. SUPERSEDES the
+   07-24 standalone 0.864 (partial, differently-timed) and the 07-26 ablation
+   0.688 (search-degraded). All three arms are now ONE paired run - no
+   cross-run splicing, no timing confound.
+2. **Harness value over bare = +0.538, clean AND paired.** agentic-bare =
+   **+0.538 [0.457, 0.618], p<0.001** (paired bootstrap). The old "+0.39 paired
+   floor vs ~+0.56 unpaired ceiling" tension is RESOLVED - we now have a clean
+   paired delta, so report **+0.538** directly with its CI and drop the
+   floor/ceiling hedging. agentic-rag = +0.668; rag-bare = -0.131.
 3. **RAG < bare (-0.13, paired):** naive top-5 RAG anchors the model on
    imperfect context -> over-abstains; the value is the AGENTIC LOOP, not
    retrieval per se.
-Cost/abstention/faithfulness: see the run sections below.
+Verdicts: 167 correct / 15 abstain / 17 incorrect / 0 unparseable. Cost (valid
+concurrency-1): 79s/q wall-clock, 8.6 tool calls/q. Cost/abstention/
+faithfulness detail + the historical diagnosis: run sections below.
 
 ### Results so far (199, seed-7 order)
 

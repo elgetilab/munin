@@ -2,8 +2,11 @@
 
 Status: SCOPING 2026-07-10. Spec: `EVAL-SUITE-MASTER-PLAN.md` sec 4. Reframed
 against current reality (below). The paper's most differentiating benchmark:
-"Munin knows when the corpus does not contain the answer" - no public benchmark
-covers the private-corpus abstention regime.
+"Munin knows when the corpus does not contain the answer". Novelty pass
+(2026-07-27, `CITATIONS-VERIFIED.md`): the closest public prior art is KnowOrNot
+(arXiv 2505.13545, OOKB abstention in RAG), so the novel contribution is the
+COMBINATION (scientific-lit + DOI construct-time ground truth + confabulated-
+citation axis vs a live RAG stack), not the private-corpus concept itself.
 
 ## Reality check that reshapes the strata
 

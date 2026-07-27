@@ -120,7 +120,7 @@ backend/eval/                  # deployment-behavioral; never cited in the paper
 
 1. **LitQA2 source PDFs** (T1/T3) — longest lead. From day one maintain `ingest-list` vs `withhold-list`; the withhold-list IS the T3 abstention ground truth. Losing the split loses the paper's best novel benchmark.
 2. **MiniCheck weights + RAGTruth corpus** (T4) — largest MiniCheck variant that fits GPU 0 alongside batch jobs (7B Bespoke, flan-T5-large fallback).
-3. **`[VERIFY]` pass** on briefing anchors (AstaBench, AbstentionBench, MedAbstain, AutoResearchBench, PaperArena, HalluLens, FaithBench, CSFCube, "Know Your Limits", Asta-2×-ReAct claim) — half a day, before any enters `munin.bib`. Include the T3 novelty check: confirm nothing comparable to corpus-grounded abstention shipped 2025–26.
+3. **`[VERIFY]` pass** on briefing anchors (AstaBench, AbstentionBench, MedAbstain, AutoResearchBench, PaperArena, HalluLens, FaithBench, CSFCube, "Know Your Limits", Asta-2×-ReAct claim) — half a day, before any enters `munin.bib`. Include the T3 novelty check: confirm nothing comparable to corpus-grounded abstention shipped 2025–26. **DONE 2026-07-27 (`CITATIONS-VERIFIED.md`): all anchors bib-ready; T3 novelty pass found KnowOrNot (2505.13545) as public prior art, so the claim is narrowed to the combination, not the concept.**
 4. **LitSearch, QASPER** (T8/T10) — public, quick, P1.
 5. **Stratum-3 fake references** (T3) — ~30 min of varghele's domain imagination; do not fully automate.
 6. **LLM-judge budget** (T9) — varghele sets a number once.
