@@ -5,9 +5,10 @@ evaluation. varghele writes per-item implementation plans later; each
 entry here gives the what / why / reference / data / build-vs-adopt
 call needed to write that plan.
 
-`[VERIFY]` = anchor taken from `munin-benchmark-landscape-briefing.md`
-that post-dates verified knowledge or wasn't re-confirmed; check the
-arXiv ID / venue / current state before citing in the paper.
+**Citation status: ALL ANCHORS VERIFIED — no `[VERIFY]` markers remain in this
+document.** The arXiv IDs and venues inline below are the confirmed ones; cite
+them directly. The former `[VERIFY]` convention (anchor taken from
+`munin-benchmark-landscape-briefing.md`, not yet re-confirmed) is retired.
 **VERIFICATION PASS DONE 2026-07-26 — see `CITATIONS-VERIFIED.md`.** All
 anchors confirmed real + bib-ready (IDs/venues/authors); one correction landed
 (PaperArena is ~18% hard / ~39% overall, NOT <10% — that was AutoResearchBench).
@@ -36,12 +37,12 @@ time allows. **F** = follow-up proposal scope.
 | T9 | RAGAS external-judge cross-check | B | P1 | per existing §4a | judge budget |
 | T10 | QASPER full-text QA anchor | B/D | P1 | adopt | QASPER data |
 | T11 | Tool-use reliability metrics | D | P1 | build (thin) | T2 telemetry |
-| T12 | AstaBench via InspectAI | D/F | F | adopt `[VERIFY]` | InspectAI bridge |
-| T13 | AbstentionBench public variants | C/F | F | adopt `[VERIFY]` | dataset access |
+| T12 | AstaBench via InspectAI | D/F | F | adopt (arXiv 2510.21652) | InspectAI bridge |
+| T13 | AbstentionBench public variants | C/F | F | adopt (arXiv 2506.09038) | dataset access |
 | T14 | FACTS-style long-form grounding | B/F | F | adapt method | judge budget |
 | T15 | Hyperpolarization expert benchmark | F | F | build | experts ("firm maybe") |
 | T16 | Certification thresholds + validity | F | F | build (research) | scorecard history |
-| T17 | PaperArena / AutoResearchBench | F | F | adopt `[VERIFY]` | — |
+| T17 | PaperArena / AutoResearchBench | F | F | adopt (2510.10909 / 2604.25256) | — |
 
 ---
 
@@ -88,8 +89,9 @@ all blocked on human query curation + qrels, not compute. Per-item detail below.
   Briefing finding 2 warns the result can go either way — that risk
   is the reason to run it before review, not after.
 - **References:** PaperQA2 ablations (Skarlinski et al. 2024) as
-  precedent for scaffolding-beats-RAG; Asta Paper Finder ~2x ReAct
-  claim `[VERIFY]` as secondary motivation.
+  precedent for scaffolding-beats-RAG; Asta Paper Finder scores over
+  double ReAct on PaperFindingBench (AstaBench, arXiv 2510.21652 —
+  VERIFIED) as secondary motivation.
 - **Data needed:** nothing new — consumes T1's question sets. Needs a
   "bare model" code path (direct vLLM call with tool instructions
   stripped from the persona prompt) and a "vanilla RAG" path (single
@@ -130,9 +132,12 @@ all blocked on human query curation + qrels, not compute. Per-item detail below.
   rate on answerable controls, risk-coverage curve, confabulated-
   citation rate.
 - **References:** AbstentionBench variant-construction method
-  (Kirichenko et al., NeurIPS 2025, arXiv 2506.09038 `[VERIFY]`);
-  Kalai et al. 2025 ("Why Language Models Hallucinate") for framing;
-  "Know Your Limits" (TACL 2025 `[VERIFY]`) as survey anchor.
+  (Kirichenko, Ibrahim, Chaudhuri, Bell, NeurIPS 2025 Datasets &
+  Benchmarks, arXiv 2506.09038 — venue VERIFIED); Kalai, Nachum,
+  Vempala, Zhang, "Why Language Models Hallucinate" (arXiv 2509.04664)
+  for framing; Wen et al., "Know Your Limits: A Survey of Abstention in
+  Large Language Models" (TACL 2025, 2025.tacl-1.26, arXiv 2407.18418)
+  as survey anchor.
 - **Data needed:** LitQA2 PDFs (shared with T1 — ingest a controlled
   subset, withhold the rest); a shadow Qdrant collection (tooling to
   build it is part of the item); ~30 min of varghele's time inventing
@@ -220,8 +225,9 @@ all blocked on human query curation + qrels, not compute. Per-item detail below.
   leaderboards and reinforces the on-prem story. Cheap: the retrieval
   spec (§3d) already mandates per-query timing; this extends it to
   tokens and GPU-seconds.
-- **References:** AstaBench cost-aware leaderboard methodology
-  `[VERIFY]` — adopt the presentation, cite as methodology precedent.
+- **References:** AstaBench cost-aware (accuracy vs inference cost)
+  Pareto leaderboard methodology, arXiv 2510.21652 — adopt the
+  presentation, cite as methodology precedent.
 - **Data needed:** none external.
 - **Status (2026-07-26): DONE.** Per-arm cost (mean prompt/completion tokens,
   inference-time, mean tool calls) recorded in the ablation scorecards
@@ -345,7 +351,7 @@ all blocked on human query curation + qrels, not compute. Per-item detail below.
 
 ## F — follow-up proposal scope
 
-### T12. AstaBench via InspectAI `[VERIFY]`
+### T12. AstaBench via InspectAI (arXiv 2510.21652)
 
 - **What:** wrap Munin's harness arm as an InspectAI agent; run
   selected AstaBench literature-understanding components
@@ -359,7 +365,7 @@ all blocked on human query curation + qrels, not compute. Per-item detail below.
 - **Data needed:** `allenai/asta-bench` repo access; InspectAI
   package; verify both exist as the briefing describes.
 
-### T13. AbstentionBench public variants `[VERIFY]`
+### T13. AbstentionBench public variants (arXiv 2506.09038)
 
 - **What:** run the harness on AbstentionBench's GSM8K/GPQA/MMLU
   abstain variants to position Munin's abstention behaviour against
@@ -367,8 +373,8 @@ all blocked on human query curation + qrels, not compute. Per-item detail below.
 - **Why deferred:** general-knowledge abstention is not Munin's
   claim; corpus-grounded abstention (T3) is. The public variants add
   comparability for the proposal, not the paper.
-- **Data needed:** AbstentionBench datasets (arXiv 2506.09038
-  `[VERIFY]` — confirm release state).
+- **Data needed:** AbstentionBench datasets (arXiv 2506.09038; paper
+  VERIFIED, dataset release state still to confirm at use time).
 
 ### T14. FACTS-Grounding-style long-form grounding
 
@@ -440,9 +446,10 @@ all blocked on human query curation + qrels, not compute. Per-item detail below.
 5. **Stratum-3 fake references** (T3) — 30 min of varghele's domain
    imagination.
 6. **LLM-judge budget decision** (T9) — a number, set once.
-7. **Verification pass on `[VERIFY]` anchors** — half a day of
-   search before any of them enters munin.bib; I can run this as a
-   deep-research task on request.
+7. ~~**Verification pass on `[VERIFY]` anchors**~~ DONE 2026-07-26.
+   Every anchor confirmed real and citable with arXiv IDs and venues in
+   `CITATIONS-VERIFIED.md`; one factual error found and fixed (T17
+   PaperArena, below). Safe to enter munin.bib.
 
 ## Suggested paper-push sequencing (calendar view)
 

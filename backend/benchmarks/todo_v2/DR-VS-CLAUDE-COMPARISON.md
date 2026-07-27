@@ -9,9 +9,9 @@
 > corpus-coverage investigation in `TODO.md` settled as corpus-bounded, not a
 > machinery defect.
 
-Purpose: use the Claude Research reference (the `compass_artifact_*.md` export,
-same prompt: membrane lipid composition × kinase-inhibitor partitioning — kept
-locally on the user's machine, never committed) to shape Munin's Deep Research
+Purpose: use the Claude Research reference (same prompt: membrane lipid
+composition × kinase-inhibitor partitioning) — committed alongside this doc as
+[`CLAUDE-DR-REFERENCE-REPORT.md`](CLAUDE-DR-REFERENCE-REPORT.md) to shape Munin's Deep Research
 **report format** and **agent behaviour**. This is the target we build toward;
 the recommendations at the end are the work items.
 

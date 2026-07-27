@@ -91,9 +91,10 @@ across 6 cases incl. the µmol/L-vs-µM alternation-order fix, and
 Running the exact question the user gave Claude (membrane lipid composition x
 kinase-inhibitor partitioning) through the full pipeline (OA lever + wider funnel
 + snowball + R1 report). Saves to `todo_v2/MUNIN-DR-SAMPLE-REPORT.md` so the user
-can compare Munin's report side-by-side with the Claude reference (the
-`compass_artifact_*.md` export, kept locally on the user's machine — it was
-never committed to the repo).
+can compare Munin's report side-by-side with the Claude reference. NOTE
+(2026-07-27): this log originally said the reference was never committed. It
+was in fact committed (in `01eaa68`, under an opaque `compass_artifact_*`
+filename) and now lives at `backend/benchmarks/todo_v2/CLAUDE-DR-REFERENCE-REPORT.md`.
 
 **The capstone caught a real bug (b5a58c6).** The first capstone run produced an
 off-topic report about ChatGPT chemistry, researching the literal string

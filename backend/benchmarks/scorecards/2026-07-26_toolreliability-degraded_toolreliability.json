@@ -1,0 +1,46 @@
+{
+  "n_queries": 15,
+  "n_queries_with_tool_events": 15,
+  "total_tool_calls": 209,
+  "mean_calls_per_query": 13.93,
+  "error_rate": 0.0574,
+  "n_queries_with_error": 7,
+  "recovery_rate": 1.0,
+  "per_tool": {
+    "semantic_scholar_search": {
+      "calls": 60,
+      "errors": 1,
+      "error_rate": 0.0167
+    },
+    "paper_search": {
+      "calls": 46,
+      "errors": 0,
+      "error_rate": 0.0
+    },
+    "web_search": {
+      "calls": 44,
+      "errors": 0,
+      "error_rate": 0.0
+    },
+    "source": {
+      "calls": 23,
+      "errors": 0,
+      "error_rate": 0.0
+    },
+    "web_fetch": {
+      "calls": 19,
+      "errors": 10,
+      "error_rate": 0.5263
+    },
+    "search": {
+      "calls": 11,
+      "errors": 0,
+      "error_rate": 0.0
+    },
+    "paper_lookup": {
+      "calls": 6,
+      "errors": 1,
+      "error_rate": 0.1667
+    }
+  }
+}

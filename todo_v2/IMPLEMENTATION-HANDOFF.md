@@ -12,7 +12,7 @@ Read in order; all four must be present in the repo. If any is missing, STOP and
 
 1. `RETRIEVAL-EVAL-SPEC.md` — authoritative for Track A (retrieval). Its build order, gates, anti-goals, and appendices are binding. Rule inherited from it: **if the spec contradicts the codebase, the code wins — update the spec in a separate commit, then proceed. Never deviate silently.**
 2. `EVAL-SUITE-MASTER-PLAN.md` — the six-track architecture (A retrieval / B faithfulness / C abstention / D harness ablation + cost / E scorecard / F follow-up), the `backend/benchmarks/` vs `backend/eval/` boundary contract (§8), and the cross-track build order (§10).
-3. `BENCHMARK-TODO.md` — items T1–T17 with priorities (P0/P1/F), references, data needs. `[VERIFY]`-flagged anchors must be confirmed before entering `munin.bib`.
+3. `BENCHMARK-TODO.md` — items T1–T17 with priorities (P0/P1/F), references, data needs. Citation anchors are all VERIFIED (2026-07-26, `CITATIONS-VERIFIED.md`) and bib-ready; the `[VERIFY]` convention is retired.
 4. `routing_eval.py` — the bespoke routing eval: schema, predicate DSL, scorer, 15 seed items across 14 declared categories. Stubs to wire: `run_item`, `judge_abstention`, `as_inspect_task` (the last stays a stub — see §F below).
 5. Background only: `munin-benchmark-landscape-briefing.md`.
 
@@ -208,7 +208,7 @@ Defaults if no answer in a working day: per retrieval spec §5 (0.8/0.2, interac
 5. Never write to the production `papers` Qdrant collection or production Neo4j graph; eval collections live under `eval_*`.
 6. Never auto-tune α/β; the sweep characterises, the paper claim stands until varghele changes it.
 7. MiniCheck stays the primary judge; no frontier-API judge in the re-run loop.
-8. No `[VERIFY]`-flagged citation before confirmation.
+8. No unverified citation enters `munin.bib`. As of 2026-07-26 every anchor is confirmed (`CITATIONS-VERIFIED.md`); re-check only anchors added after that date.
 9. No InspectAI runner adoption now — async-callable arm shape only (master plan §7 decision; `as_inspect_task` stays a stub).
 10. When a hard gate fails (kappa, BM25, LitQA2 overlap, harness-beats-bare): stop and report; do not tune until it passes.
 11. No scope creep, no dashboards, no slick CLI; deviations from spec go in a commit + note to varghele, never silently (retrieval spec §6, §7 anti-goals apply suite-wide).

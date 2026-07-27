@@ -1,7 +1,18 @@
 # todo_v2 — index
 
 At-a-glance status. **Completed plans live in `done/`**; active/remaining plans
-stay here. Updated 2026-07-25.
+stay here. Updated 2026-07-27.
+
+> **Two `todo_v2/` directories exist.** This one (repo root) is the **eval suite
+> and paper track**. The other, `backend/benchmarks/todo_v2/`, is the **agent
+> architecture and Deep Research** track. They have separate `done/` dirs and
+> separate TODOs. Check which you are in before filing anything.
+>
+> **T-numbers are not global.** `BENCHMARK-TODO.md` numbers benchmark items
+> (T1 retrieval suite, T2 ablation, T3 abstention, T4 MiniCheck judge...);
+> `HARNESS-ITERATION-SCOPE.md` numbers harness edits (T1 grounding, T2
+> over-tooling, T3 tool defs, T4 abstention push-pull). Same labels, different
+> namespaces. Always qualify: "BENCHMARK T4" vs "HARNESS T4".
 
 ## Done (`done/`)
 
@@ -15,7 +26,7 @@ stay here. Updated 2026-07-25.
 | `A4-PLAN.md`, `A5-PLAN.md` | Migration A4 (delegation deleted + allowlists retired) and A5 (routing tuning, anchor 0.95). Complete + live; soak clean 2026-07-08. |
 | `CONTEXT-BUDGET-FIX-SCOPE.md` | 3-tier context-budget fix. Deployed. |
 | `PERSONA-CONSOLIDATION-PLAN.md` | One Munin identity, 3 routing profiles. Done. |
-| `TRACK-D-PLAN.md` | Harness ablation: agentic 0.56 >> bare 0.32 >> RAG 0.15 (all p~0). DONE 2026-07-13. |
+| `TRACK-D-PLAN.md` | Harness ablation. **Definitive clean run 2026-07-27** (n=199 paired, finished agent architecture): agentic **0.839** >> bare 0.302 >> RAG 0.171; harness value **+0.538 [0.457, 0.618] p<0.001**. The 07-13 n=100 pilot (0.56/0.32/0.15) is superseded — do not cite it. |
 
 Eval-suite results writeup: `backend/benchmarks/RESULTS.md` (canonical).
 
@@ -23,14 +34,16 @@ Eval-suite results writeup: `backend/benchmarks/RESULTS.md` (canonical).
 
 | Plan | Status / what's left |
 |---|---|
-| `EVAL-SUITE-MASTER-PLAN.md` | Tracks B/C/D/F not built (see "What's next"). |
+| `EVAL-SUITE-MASTER-PLAN.md` | Suite spec. Tracks A/D built; B has a validated judge + one interim arm; C built but needs the re-run; F not built. See "What's next". |
 | `RETRIEVAL-EVAL-SPEC.md` | Phases 1-3,5 done; **Phase 4 (local pool) deferred** (needs more usage / synthetic queries). Canonical retrieval spec. |
-| `BENCHMARK-TODO.md` | Benchmark landscape TODO; specced, not built. |
+| `BENCHMARK-TODO.md` | Benchmark landscape TODO. P0 status 2026-07-27: T2/T4/T5/T6 done, T1 mostly done, T3 needs the re-run + stratum 2, T7 deferred. **The only human-blocked P0 is Phase 4** (query curation + qrels). |
+| `T2-ABLATION-REFRESH-PLAN.md` | Reporting guidance for the Track D/T2 ablation, incl. why the 07-26 run is load-depressed and 07-27 is the headline. |
+| `CITATIONS-VERIFIED.md` | Citation verification pass — **all `[VERIFY]` anchors resolved** with arXiv IDs, plus the T3 novelty check (KnowOrNot is prior art) and the PaperArena correction. Bib-ready. |
 | `TRACK-B-PLAN.md` | Answer faithfulness (MiniCheck). B1-B4 built; judge validated (QA AUROC 0.95); interim arm 0.38 claims-supported. |
 | `HARNESS-ITERATION-SCOPE.md` | Scoping for the harness-iteration phase (grounding, over-tooling, tool defs). Pre-implementation. |
 | `T2-T3-EDIT-PLAN.md` | Concrete T2 (over-tooling) + T3 (tool defs) edits; measurement + deploy constraints. Plan, not applied. |
 | `T1-GROUNDING-PLAN.md` | T1 grounding edits (paper_search excerpts, per-item truncation, structured sub-agent returns). T1a applied; T1b/c planned. |
-| `TRACK-C-PLAN.md` | Corpus-grounded abstention scope (C1 fabricated + confabulation detector done; C2 shadow-corpus needs infra). |
+| `TRACK-C-PLAN.md` | Corpus-grounded abstention. C1 (fabricated + confabulation detector) and C2b (paired shadow-corpus) both BUILT and RUN 2026-07-10 — the shadow infra exists (`docker-compose.shadow.yml`, `abstention.run_c2`). C2b found a confound (LitQA2 questions are answerable without the local source), so **C1 stays the clean abstention signal**. **Open: both captures predate the agent architecture and need a re-run** before any paper figure. |
 | `KICKOFF-QUESTIONS.md` | Resolved decision record (kept as a live reference cited by the spec). |
 | `IMPLEMENTATION-HANDOFF.md` | Overarching eval-suite handoff (reference). |
 | `MIGRATION-LOOSE-ENDS.md` | Encoder-migration tail: embedding-map repoint + `papers` retirement. varghele/root. |
@@ -60,14 +73,22 @@ FIX, not just a number to measure. So:
    measurement.
 
 **3. Then C and D, on the finished harness**
-   - ~~**Track D - harness ablation**~~ DONE 2026-07-13: bare vs vanilla-RAG vs
-     full agentic, agentic 0.56 >> bare 0.32 >> RAG 0.15 (all p~0; scorecard
-     `2026-07-13_harness-ablation`). Plan in `done/`. The empirical backbone of
-     the harness-contribution claim.
+   - ~~**Track D - harness ablation**~~ DONE. Pilot 2026-07-13 (n=100), then the
+     definitive clean run **2026-07-27** on the finished architecture (n=199
+     paired): agentic **0.839** >> bare 0.302 >> RAG 0.171, harness value
+     **+0.538 [0.457, 0.618] p<0.001** (scorecard `2026-07-27_harness-ablation`).
+     Plan in `done/`. The empirical backbone of the harness-contribution claim.
+     T11 tool reliability rides on the same run: 8.6 calls/query, **recovery
+     rate 1.000** across the 86 queries that hit a tool failure.
    - **Track C - corpus-grounded abstention benchmark** (over-abstention vs
      correct "not in corpus"). Master plan sec 4. C1 (fabricated papers +
-     confabulation detector) done with scorecards; C2 (shadow-corpus) still
-     needs the collection-building infra.
+     confabulation detector) and C2b (paired shadow-corpus) both BUILT and RUN
+     2026-07-10; risk-coverage operating points derived 2026-07-27.
+     **OPEN: re-run C1 + C2 on the current harness.** Both captures predate the
+     agent-architecture rewrite that took over-abstention ~42% -> 6%, so the
+     risk-coverage figure currently mixes two system generations on shared axes.
+     C1 should be robust; C2 is expected to move. This is compute, not human
+     time.
 
 **Deferred:** Phase 4 local pool (blocked on more real usage / a synthetic-query
 track).

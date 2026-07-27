@@ -241,7 +241,7 @@ Use `ir_datasets` to load BEIR subsets. **Do not download from the original BEIR
 - `beir/trec-covid` — 50 queries, ~171K docs. Heavy; build last.
 - `beir/nfcorpus/test` — ~325 test queries, 3.6K docs.
 - `beir/scidocs` — paper-to-paper recommendation, several sub-tasks. Use `beir/scidocs` from `ir_datasets`; pick the qrels variant the paper cites (SPECTER's RELISH and CITE — verify against `ir_datasets`' available scorefiles).
-- CSFCube — **not in BEIR proper.** Find it via `ir_datasets` (`csfcube` if available) or fall back to the original Mysore et al. release at <https://github.com/iesl/CSFCube>. Document whichever path you use. The paper flags CSFCube as `[VERIFY]`, so if the dataset is hard to access, it's acceptable to drop CSFCube from this round — note the omission and rationale in `results/beir_summary.md`.
+- CSFCube — **not in BEIR proper.** Find it via `ir_datasets` (`csfcube` if available) or fall back to the original Mysore et al. release at <https://github.com/iesl/CSFCube>. Document whichever path you use. CSFCube is VERIFIED as citable (Mysore, O'Gorman, McCallum, Zamani, arXiv 2103.12906) but is CS-domain, not chemistry — note the domain mismatch if used. If the dataset is hard to access it remains acceptable to drop it from this round; note the omission and rationale in `results/beir_summary.md`.
 
 **Pipeline (`run_beir.py`):**
 

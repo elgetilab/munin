@@ -25,11 +25,14 @@ its phases directly).
   these; the *content* is deferred.
 
 **Relationship to the briefing.** This plan operationalizes
-`munin-benchmark-landscape-briefing.md`. Several anchors in the
-briefing post-date verified knowledge (AstaBench, AbstentionBench,
-MedAbstain, AutoResearchBench, PaperArena, HalluLens, FaithBench);
-they are carried as the briefing states them and marked `[VERIFY]`
-in the TODO document. Verify before citing in the paper.
+`munin-benchmark-landscape-briefing.md`. The anchors that post-dated
+verified knowledge (AstaBench, AbstentionBench, MedAbstain,
+AutoResearchBench, PaperArena, HalluLens, FaithBench) were all
+**confirmed real and bib-ready on 2026-07-26** — arXiv IDs, venues and
+authors in `CITATIONS-VERIFIED.md`. One factual correction landed
+(PaperArena scores ~18% hard / ~39% overall; the <10% figure belongs to
+AutoResearchBench). The `[VERIFY]` convention is retired; cite the IDs
+as written.
 
 ---
 
@@ -164,9 +167,12 @@ Construct ~150–200 items in three strata:
   checking emitted DOIs against the corpus — fully automatic).
 
 **References:** AbstentionBench method for variant construction
-(Kirichenko et al., NeurIPS 2025 `[VERIFY]`); Kalai et al. 2025 "Why
-Language Models Hallucinate" for the framing that reward structures
-favour guessing; "Know Your Limits" survey (TACL 2025 `[VERIFY]`).
+(Kirichenko, Ibrahim, Chaudhuri, Bell, NeurIPS 2025 Datasets &
+Benchmarks, arXiv 2506.09038); Kalai, Nachum, Vempala, Zhang, "Why
+Language Models Hallucinate" (arXiv 2509.04664) for the framing that
+reward structures favour guessing; Wen et al., "Know Your Limits: A
+Survey of Abstention in Large Language Models" (TACL 2025,
+2025.tacl-1.26, arXiv 2407.18418).
 
 **Why this is the paper's best new section:** it's cheap (built from
 assets Phases 4–5 already require), it's novel in combination (KnowOrNot
@@ -199,7 +205,8 @@ and cost (below). Report per-arm with paired bootstrap CIs.
 
 **Precedent:** PaperQA2's ablations (Skarlinski et al. 2024) showed
 scaffolding beats vanilla RAG; briefing finding 2 (Asta Paper Finder
-~2x ReAct `[VERIFY]`) reinforces. The briefing also warns the result
+scores over double ReAct on PaperFindingBench, AstaBench arXiv
+2510.21652 — VERIFIED) reinforces. The briefing also warns the result
 is not guaranteed — a stronger base model can hurt a specialized
 harness — which is exactly why the experiment is worth running and
 reporting honestly either way.
@@ -214,8 +221,8 @@ benchmark traffic.
 log prompt/completion tokens, wall-clock, and inference-time. Report an
 accuracy-vs-cost plot per benchmark — self-hosted cost is compute time,
 not API dollars, which is itself a point worth making. Methodology
-reference: AstaBench's cost-aware leaderboard `[VERIFY]` — adopt the
-Pareto presentation, not the infrastructure.
+reference: AstaBench's cost-aware leaderboard (arXiv 2510.21652) —
+adopt the Pareto presentation, not the infrastructure.
 
 > **RECONCILED 2026-06-18 (KICKOFF-QUESTIONS Q5):** the original text said
 > GPU-seconds "via SLURM job accounting on hugin, for free". That does NOT

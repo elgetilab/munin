@@ -14,7 +14,7 @@ is the durable summary. Numbers are copied from the result JSONs, not memory.
 - Metric = our `munin_bench.metrics`, verified bit-identical to `pytrec_eval`.
 - CIs are 95% percentile bootstrap (1000 resamples, seed 42).
 
-> **One-line story (updated 2026-07-24):** retrieval was the FIRST bottleneck
+> **One-line story (updated 2026-07-27):** retrieval was the FIRST bottleneck
 > (SPECTER answer acc 0.43 ≈ recall 0.44), fixed by the BGE-large migration
 > (Recall@10 0.44 -> 0.73, answer acc -> 0.497). The bigger lever came later: the
 > flat tool loop was replaced by named agents, and `source(mode=qa)` reading FULL
@@ -22,7 +22,11 @@ is the durable summary. Numbers are copied from the result JSONs, not memory.
 > from ~42% to 6% and took **LitQA2 answer accuracy 0.497 -> 0.864** (precision
 > 0.92, past PaperQA2's 0.66). So the reading path, not retrieval, was the real
 > ceiling on single-source answering; retrieval/corpus now bounds only BREADTH
-> (distinct sources per Deep Research report). Full arc below.
+> (distinct sources per Deep Research report). The harness ablation then closed
+> the loop on the central claim: on the finished architecture, **agentic 0.839 vs
+> bare 0.302 vs naive-RAG 0.171**, harness value **+0.538 [0.457, 0.618]
+> p<0.001** (2026-07-27, n=199 paired), with tool-failure **recovery 1.000**.
+> Full arc below.
 
 ---
 
@@ -73,9 +77,14 @@ established papers.
 
 | Metric | Munin | PaperQA2 (published) |
 |---|---|---|
-| Accuracy | 0.427 [0.36, 0.50] | 0.660 [verify] |
-| Precision (of attempted) | **0.817** [0.74, 0.89] | ~0.88 |
+| Accuracy | 0.427 [0.36, 0.50] | 0.660 |
+| Precision (of attempted) | **0.817** [0.74, 0.89] | 0.852 |
 | Abstention rate | 0.372 | — |
+
+**PaperQA2 baseline** (accuracy 0.660, precision 0.852, n=248): verified against
+the primary source; full provenance and the human-expert comparison are in the
+2026-07-24 section below. This table previously carried `0.660 [verify]` and
+precision "~0.88"; the published precision is **0.852**, corrected 2026-07-27.
 
 **NOT like-for-like:** PaperQA2 was trained on LitQA2; Munin's off-the-shelf
 Qwen was not. `unparseable` (no clean `Answer: X`) counts as wrong for accuracy,
@@ -99,7 +108,8 @@ unparseable needs a re-run.
    (needs a corpus re-embed). See memory `project_specter_sep_finding`.
 4. **The agentic fan-out did not rescue recall** here (answer acc ≈ single-pass
    recall) — but that's a hint, not a measurement. The harness's marginal value
-   is Track D (bare vs vanilla-RAG vs agentic), not yet built.
+   is Track D (bare vs vanilla-RAG vs agentic) — since built, and it confirmed
+   the hint emphatically: +0.538 harness value on the finished architecture.
 
 ---
 
@@ -392,7 +402,12 @@ over-confidence-on-removal 4/20. Also: answers are NOT purely corpus-grounded
 corpus (not in the base model / web) - hard to guarantee; **C1 (fabricated) stays
 the clean abstention signal.** Scorecard `2026-07-10_abstention-c2-shadow`.
 
-## Track D — harness ablation (bare / RAG / agentic)  · 2026-07-13
+## Track D — harness ablation (bare / RAG / agentic)  · PILOT · 2026-07-13
+
+> **SUPERSEDED as the headline by the 2026-07-27 clean run below.** This n=100
+> pilot was the first of several iterations and predates the agent-architecture
+> rewrite. Kept for the arm-design rationale and the naive-RAG-hurts finding,
+> both of which reproduced. Do not cite these numbers.
 
 The empirical backbone: does the agentic harness beat the bare model and vanilla
 RAG? 100 in-corpus LitQA2 MCQ questions, three arms (bare = direct vLLM no tools;
@@ -424,7 +439,133 @@ Paired deltas (p~0): **agentic-bare +0.240 [0.11,0.37]**, **agentic-RAG +0.410
    read_paper 404s the fake DOI). Auto-abstain: agentic 0.80 > bare 0.59 >
    RAG 0.36.
 
-Scorecard `2026-07-13_harness-ablation.{json,md}`. This completes Tracks A-D.
+Scorecard `2026-07-13_harness-ablation.{json,md}`.
+
+---
+
+## Track D — harness ablation, CLEAN RUN (headline)  · git `9c476b8` · 2026-07-27
+
+The definitive Track D result, on the finished agent architecture, per the
+master plan's rule that C and D characterise a *frozen* harness. 199 paired
+in-corpus LitQA2 questions, same three arms, concurrency=1, `X-Munin-Egress`
+full.
+
+| arm | accuracy | precision-of-attempted | abstain | unparseable | cost |
+|---|---|---|---|---|---|
+| RAG (naive top-5) | 0.171 | 0.708 | 0.749 | 2 | 9.1s, 0 tools |
+| bare (parametric) | 0.302 | 0.476 | 0.201 | 33 | 14.7s, 0 tools |
+| **agentic (harness)** | **0.839** | **0.908** | 0.075 | 0 | 79.0s, 8.6 tools |
+
+Paired bootstrap deltas: **agentic-bare +0.538 [0.457, 0.618] p<0.001**;
+agentic-RAG +0.668 [0.598, 0.734] p<0.001; RAG-bare -0.131 [-0.196, -0.070]
+p<0.001.
+
+**Findings:**
+1. **Harness value more than doubled vs the pilot** (+0.538 vs +0.240). The
+   agent architecture and `source(mode=qa)` full-text reading, not arm design,
+   account for the gap: agentic abstention fell 0.31 -> 0.075 while precision
+   rose 0.86 -> 0.908, i.e. it answers far more *and* guesses wrong less.
+2. **Naive RAG still hurts, and the mechanism reproduced.** RAG sits below bare
+   (-0.131, p<0.001) with a 0.749 abstain rate: imperfect top-5 context makes
+   the model anchor on the retrieved abstracts and refuse, rather than fall back
+   on correct parametric knowledge. This is the second independent replication.
+3. **The agentic arm produced zero unparseable answers** (vs 33 for bare), so
+   its accuracy is not inflated by lenient parsing.
+4. **Cost is ~5.4x bare wall-clock at 8.6 tool calls/query**, down from the
+   pilot's 16 calls, so the tool-retirement work bought accuracy AND fewer calls.
+
+**A degraded companion run is retained deliberately.**
+`2026-07-26_harness-ablation` is the same three arms with constrained egress and
+higher concurrency: agentic scores **0.688** (abstain 0.231, 11.1 calls/query,
+183.8s). Bare and RAG are bit-identical across the two runs, which isolates the
+difference to the agentic arm's external-tool access. Use 07-27 as the headline
+and 07-26 as the load/egress sensitivity point. **Do not average them.**
+
+Scorecard `2026-07-27_harness-ablation.{json,md}`.
+
+---
+
+## Track C — risk-coverage operating points  · 2026-07-27
+
+Derived from already-captured verdicts, no new inference. `coverage` = fraction
+answered; `selective_risk` = error rate among answered. 95% CIs are item-level
+bootstrap, 2000 resamples.
+
+| population | arm | desired | coverage | selective risk | n |
+|---|---|---|---|---|---|
+| litqa2-answerable | bare | answer | 0.633 [0.56, 0.70] | 0.524 [0.44, 0.61] | 199 |
+| litqa2-answerable | rag | answer | 0.241 [0.19, 0.31] | 0.292 [0.16, 0.41] | 199 |
+| **litqa2-answerable** | **agentic** | answer | **0.925 [0.88, 0.96]** | **0.092 [0.05, 0.14]** | 199 |
+| c2-present | agentic | answer | 0.460 [0.34, 0.60] | 0.130 [0.00, 0.29] | 50 |
+| c2-absent | agentic | abstain | 0.480 [0.34, 0.62] | 0.292 [0.12, 0.48] | 50 |
+| c1-fabricated | agentic | abstain | 0.020 [0.00, 0.05] | 1.000 [0.00, 1.00] | 100 |
+
+On the answerable population the agentic arm reaches the good corner: high
+coverage *and* low selective risk. Bare answers nearly as often at ~5.7x the
+risk; RAG buys low risk only by collapsing coverage to 0.24.
+
+> **PROVENANCE WARNING — do not plot these six points on shared axes as-is.**
+> The three `litqa2-answerable` rows come from the 2026-07-27 captures on the
+> current harness. The `c1-*` and `c2-*` rows are read from the **2026-07-10**
+> captures (`risk_coverage.py` hardcodes
+> `2026-07-10_abstention-c1-fabricated.json` and the 07-10 `c2_runs`), which
+> predate the agent-architecture rewrite that collapsed over-abstention from
+> ~42% to 6%. The abstention points are therefore from a **different system**
+> than the answerable points. C1 is expected to be robust (near-zero coverage is
+> already the desired behaviour); C2 is expected to move materially. Re-run
+> before any paper figure. Tracked as the Track C re-run.
+
+Scorecard `2026-07-27_risk-coverage.{json,md}`.
+
+---
+
+## T11 — tool-use reliability  · 2026-07-27
+
+Telemetry over the agentic arm of the same 199-question clean run. `degraded` =
+the call returned but with unusable or empty payload; `recovery_rate` = fraction
+of queries hitting a tool failure that still reached a final answer.
+
+| metric | clean run (199 q) |
+|---|---|
+| total tool calls | 1714 |
+| mean calls/query | 8.61 |
+| error rate | 0.061 |
+| degraded rate | 0.240 |
+| queries with a failure | 86 |
+| **recovery rate** | **1.000** |
+
+Per tool (calls / error rate / degraded rate):
+
+| tool | calls | error | degraded |
+|---|---|---|---|
+| semantic_scholar_search | 451 | 0.000 | 0.000 |
+| paper_search | 330 | 0.000 | 0.000 |
+| web_search | 307 | 0.003 | **1.000** |
+| source | 266 | 0.004 | 0.004 |
+| web_fetch | 221 | **0.453** | 0.453 |
+| search | 90 | 0.000 | 0.000 |
+| paper_lookup | 49 | 0.061 | 0.061 |
+
+**Findings:**
+1. **Recovery rate is 1.000.** 86 of 199 queries hit at least one tool failure
+   and *every one* still produced a final answer. This is the reliability claim
+   the harness section needs: failures are absorbed, not propagated.
+2. **`web_fetch` is the weak link** at a 45% error rate, dominated by publisher
+   datacenter-IP walls (MDPI is a hard block, unfixable at the fetch layer) and
+   burst rate-limiting. Retry-with-backoff (`fc7b57b`) recovers the transient
+   share.
+3. **`web_search` degraded at 1.000 is a measurement artifact, not an outage.**
+   Every call is flagged degraded because the arm ran with the corpus-first
+   ranking that reserves few web slots, so results are returned but unused
+   downstream. Read it as "web results rarely consumed", not "web search broken".
+4. Corpus and S2 retrieval are effectively error-free (0.000 over 781 calls).
+
+Two 15-query fault-injection probes are retained alongside:
+`2026-07-26_toolreliability-degraded` (13.9 calls/q, error 0.057) and
+`2026-07-27_toolreliability-searchdegraded` (16.1 calls/q, error 0.033). Both
+also show **recovery 1.000**, and both show call counts rising under degradation
+(8.6 -> 13.9/16.1), i.e. the harness compensates for bad tools by working
+harder. Scorecards `2026-07-27_toolreliability-clean.json` plus the two probes.
 
 ## Reproduce
 
@@ -441,9 +582,13 @@ $PY -m munin_bench.pipelines.run_litqa2 --track answer --concurrency 1   # concu
 MUNIN_BENCH_SPECTER_DEVICE=cpu $PY -m munin_bench.pipelines.run_bakeoff --subset scifact
 ```
 
-Not yet run: BEIR nfcorpus/scidocs/trec-covid; Phase 4 local pool (deferred,
-insufficient usage); master-plan Tracks C–F (Track B judge built + validated,
-one interim arm above). Status table: `README.md`.
+Not yet run (as of 2026-07-27): BEIR nfcorpus/scidocs/trec-covid; **Phase 4
+local pool** (deferred, blocked on human query curation + two-annotator qrels,
+not compute) and the two P0 items that depend on it (T3 stratum 2, T7); Track F
+throughout. Track B has a validated judge plus one interim arm. **Track C needs
+a re-run on the current harness** — its C1/C2 captures are from 2026-07-10 and
+predate the agent architecture; see the provenance warning in the risk-coverage
+section. Tracks A, D and T11 are current. Status table: `README.md`.
 
 ```bash
 # Track B faithfulness (judge validation + one live arm)
