@@ -293,6 +293,20 @@ all blocked on human query curation + qrels, not compute. Per-item detail below.
   Phase 3 infrastructure exists.
 - **Data needed:** LitSearch corpus + qrels (public, GitHub/HF).
   Caveat for the paper: ML/NLP domain, not chemistry.
+- **Status (2026-07-28): BUILT + RUN.** 597 queries / 64,183 docs, BGE-large
+  (production encoder), isolated `eval_litsearch`. BGE-dense **nDCG@10 0.485**
+  > BM25 0.378 (+0.107, p≈0) — the reverse of the SPECTER-era BEIR result;
+  RRF adds nothing over dense (n.s.). **It also found a production bug:**
+  citation-rerank scores **0.117** (−0.368 vs dense, p≈0) because
+  `compute_citation_score` spans [0,1] while BGE cosine spans ~0.087 inside the
+  pool, so the nominal 70/30 relevance/citation split behaves as ~83/17
+  citation-first (4.95x influence ratio). Affects `/search/hybrid` in
+  production. This ALSO revises the Phase-5 cold-start explanation — the
+  collapse reproduces on a dense citation graph. Scorecard
+  `2026-07-28_litsearch.json`; runner `munin_bench/benchmarks/litsearch_runner.py`.
+  Unlike BEIR (empty graph -> citation-rerank degenerates to dense), LitSearch
+  is the first public benchmark where this retriever is genuinely exercised
+  (top-10 changed on 597/597 queries).
 
 ### T9. RAGAS external-judge cross-check
 
@@ -302,6 +316,21 @@ all blocked on human query curation + qrels, not compute. Per-item detail below.
 - **Why:** validates T4's local judge against the field-standard
   approach without inheriting its cost or privacy problems.
 - **Data needed:** LLM-judge budget (varghele sets the cap, per §4a).
+- **Status (2026-07-28): DROPPED — deliberate scope cut, not an oversight.**
+  Three blockers, none of them schedule: (1) no frontier API key exists on the
+  cluster (checked `/opt/hugin/config`, `/opt/munin/config`, and the retrieval
+  container: none); (2) the judge spend cap was never set — it is still listed
+  as an open decision below; (3) it would send Munin answers + retrieved
+  contexts to a third-party API, i.e. off-premises egress of eval data, which
+  is precisely what the privacy thesis argues against.
+  **Why dropping is defensible on the merits:** T9's purpose is to validate the
+  local MiniCheck judge. That validation already exists and is *stronger* —
+  MiniCheck was scored against **RAGTruth's human span annotations** (QA AUROC
+  **0.950**, `2026-07-08_faithfulness-judge-ragtruth`), i.e. against ground
+  truth rather than against another model's opinion. Agreement with a frontier
+  judge would be weaker evidence than agreement with human annotators. State it
+  this way in the paper: the local judge is validated against humans, and no
+  eval data leaves the premises.
 
 ### T10. QASPER anchor
 
@@ -445,7 +474,7 @@ all blocked on human query curation + qrels, not compute. Per-item detail below.
 4. **LitSearch, QASPER** (T8, T10) — public, quick, P1.
 5. **Stratum-3 fake references** (T3) — 30 min of varghele's domain
    imagination.
-6. **LLM-judge budget decision** (T9) — a number, set once.
+6. ~~**LLM-judge budget decision** (T9)~~ MOOT — T9 dropped 2026-07-28 (no frontier key, unset cap, and it would egress eval data; the local judge is already human-validated at QA AUROC 0.95). See T9.
 7. ~~**Verification pass on `[VERIFY]` anchors**~~ DONE 2026-07-26.
    Every anchor confirmed real and citable with arXiv IDs and venues in
    `CITATIONS-VERIFIED.md`; one factual error found and fixed (T17

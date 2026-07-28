@@ -62,11 +62,18 @@ source paper?
 | MRR | 0.277 [0.23, 0.33] | 0.308 [0.25, 0.37] | 0.001 |
 
 Findings: (1) multi-query fan-out does **not** beat single-query dense
-(Recall@10 p=0.71); (2) citation-rerank **collapses to ~0** — a real cold-start
+(Recall@10 p=0.71); (2) citation-rerank **collapses to ~0** — a cold-start
 effect: the LitQA2 sources were backfilled with 0 citations, so re-ranking
 demotes them below older cited papers (a source ranked #1 by dense falls out of
 top-20). Partly a backfill artifact (no CITES edges); not representative of
 established papers.
+
+> **The cold-start explanation above is INCOMPLETE (revised 2026-07-28).** On
+> LitSearch, citation-rerank collapses just as badly (−0.368 nDCG@10, p≈0) on a
+> corpus with a *dense* citation graph (344k edges), where cold-start cannot
+> apply. The underlying cause is a score-scale mismatch in the re-rank formula
+> that is present regardless of graph density. Cold-start compounded it here
+> but did not cause it. See the T8 LitSearch section below.
 
 ---
 
@@ -352,6 +359,73 @@ literalness (Track C1). Post-deploy routing anchor **0.963** (no regression; one
 `known_doi_read` S2-branch side-effect from a T3 description, fixed).
 Scorecards: `2026-07-09_faithfulness-agentic-live-{t1a,cap}`,
 `2026-07-09_t2-postdeploy`, `2026-07-10_postcap-t3`.
+
+## T8 — LitSearch retrieval benchmark  · 2026-07-28
+
+LitSearch (Ajith et al. 2024, arXiv 2407.18940): **597 real natural-language
+literature-search queries** over a **64,183-paper** S2ORC corpus. The closest
+public benchmark to Munin's actual usage — finding papers from a question,
+rather than BEIR/SciFact's claim-verification framing. Encoder is
+**BGE-large-en-v1.5, the production encoder** (the 2026-06/07 BEIR tables above
+used SPECTER-v1 — do not compare across them). Binary relevance, mean 1.07
+relevant papers per query. Isolated `eval_litsearch` collection.
+
+| retriever | nDCG@10 [95% CI] | R@10 | R@100 | MRR | Δ nDCG@10 vs dense (p) |
+|---|---|---|---|---|---|
+| BM25 | 0.378 [0.345, 0.413] | 0.511 | 0.699 | 0.349 | −0.107 [−0.137, −0.077] (0.0000) |
+| **BGE-dense (production)** | **0.485 [0.453, 0.516]** | **0.637** | 0.829 | 0.451 | — |
+| citation-rerank 0.7/0.3 | **0.117** [0.097, 0.138] | 0.195 | 0.829 | 0.116 | **−0.368 [−0.405, −0.331] (0.0000)** |
+| RRF[BM25, BGE] | 0.490 [0.455, 0.526] | 0.628 | **0.830** | 0.462 | +0.005 [−0.019, +0.030] (0.72, n.s.) |
+
+**Findings:**
+1. **Dense beats BM25 decisively** (+0.107 nDCG@10, p≈0) on realistic
+   paper-finding queries. This is the mirror image of the SPECTER-era BEIR
+   result, where BM25 beat the dense retriever — the encoder migration flipped
+   it. RRF adds nothing over dense alone here (n.s.).
+2. **Citation-rerank is catastrophic: −0.368 nDCG@10, a 76% relative drop.**
+   It changed the top-10 on **597 / 597** queries, so it is genuinely
+   exercised, not inert. R@100 is *identical* to dense (0.829) — confirming it
+   only reorders the fetched pool, and that all the damage is in the ordering.
+
+### Why citation-rerank fails: a score-scale mismatch (production bug)
+
+This is not "citations are a bad signal". Measured over 40 queries on the
+top-100 dense pool:
+
+| quantity | value |
+|---|---|
+| dense cosine spread within pool | **0.087** |
+| citation score spread within pool | **1.000** |
+| weighted influence, dense (×0.7) | 0.061 |
+| weighted influence, citation (×0.3) | 0.300 |
+| **citation / dense ranking influence** | **4.95x** |
+
+`compute_citation_score` log-normalises citation counts to a full [0, 1] range,
+while BGE cosine similarities inside a top-100 pool span only ~0.087. Combining
+them raw means the nominally "70% relevance / 30% citations" formula behaves as
+roughly **83% citations / 17% relevance**. At the class-default 0.8/0.2 it is
+still ~2.9x. The re-ranker effectively sorts by citation count and uses
+relevance as a tiebreak.
+
+**This affects production**: the same formula is the `/search/hybrid` path in
+`main.py` (the retriever module mirrors it verbatim by design), i.e. the search
+page. **Fix:** min-max normalise the dense score within the fetched pool before
+combining, so both terms span [0, 1] and the weights mean what they say.
+
+**It also revises an earlier conclusion.** Phase 5 (LitQA2) saw citation-rerank
+collapse to ~0 and attributed it to cold-start (backfilled sources with 0
+citations). Cold-start was real but not the whole story: here the graph is
+**dense — 344,703 in-corpus edges over 35,978 papers, max in-degree 4,964** —
+and it collapses anyway. The scale mismatch is present regardless of graph
+density, and would not have been visible on BEIR at all, where the graph is
+empty and citation-rerank degenerates harmlessly to dense-only.
+
+**Domain caveat:** LitSearch is ML/NLP, not chemistry. It measures the
+retrieval *mechanism* on realistic queries, not Munin's own domain.
+
+Scorecard `2026-07-28_litsearch.json`.
+
+---
 
 ## Track C1 — corpus-grounded abstention (fabricated papers)  · 2026-07-10
 
