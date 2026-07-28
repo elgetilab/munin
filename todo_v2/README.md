@@ -39,7 +39,7 @@ Eval-suite results writeup: `backend/benchmarks/RESULTS.md` (canonical).
 | `BENCHMARK-TODO.md` | Benchmark landscape TODO. P0 status 2026-07-27: T2/T4/T5/T6 done, T1 mostly done, T3 re-run done (stratum 2 still needs Phase 4), T7 deferred. **The only human-blocked P0 is Phase 4** (query curation + qrels). |
 | `T2-ABLATION-REFRESH-PLAN.md` | Reporting guidance for the Track D/T2 ablation, incl. why the 07-26 run is load-depressed and 07-27 is the headline. |
 | `CITATIONS-VERIFIED.md` | Citation verification pass — **all `[VERIFY]` anchors resolved** with arXiv IDs, plus the T3 novelty check (KnowOrNot is prior art) and the PaperArena correction. Bib-ready. |
-| `TRACK-B-PLAN.md` | Answer faithfulness (MiniCheck). B1-B4 built; judge validated (QA AUROC 0.95); interim arm 0.38 claims-supported. |
+| `TRACK-B-PLAN.md` | Answer faithfulness (MiniCheck). B1-B4 built; judge validated (QA AUROC 0.95). **Per-arm paired faithfulness DONE 2026-07-27**: RAG 0.326 vs agentic 0.340, paired delta **+0.023 [-0.043, +0.089] p=0.496 (n=189)** — grounding does NOT improve with the harness, despite a 4.9x accuracy gap. `bare` is structurally unscoreable (retrieves nothing). |
 | `HARNESS-ITERATION-SCOPE.md` | Scoping for the harness-iteration phase (grounding, over-tooling, tool defs). Pre-implementation. |
 | `T2-T3-EDIT-PLAN.md` | Concrete T2 (over-tooling) + T3 (tool defs) edits; measurement + deploy constraints. Plan, not applied. |
 | `T1-GROUNDING-PLAN.md` | T1 grounding edits (paper_search excerpts, per-item truncation, structured sub-agent returns). T1a applied; T1b/c planned. |
@@ -56,8 +56,11 @@ LAST, against a finished harness** - not while it is still being iterated on. Th
 FIX, not just a number to measure. So:
 
 **1. Cleanups first**
-   - **Track B - answer faithfulness** (local MiniCheck scoring). Master plan sec 3.
-     *(only remaining cleanup)*
+   - ~~**Track B - answer faithfulness**~~ DONE. Judge validated (QA AUROC 0.95);
+     per-arm paired comparison run 2026-07-27: RAG 0.326 vs agentic 0.340,
+     paired delta **+0.023 [-0.043, +0.089] p=0.496**. The harness buys
+     correctness/abstention/calibration, NOT literal grounding — state that
+     boundary plainly in the paper. `bare` cannot be scored at all (no contexts).
    - ~~**Router A4/A5**~~ DONE 2026-07-08. A4a (delegation deleted), A4b
      (allowlists retired + soft bias, post-soak dead-code cleanup
      `c4e9ce6..45916e6`), A5 (routing tuning) all complete + live; frontend

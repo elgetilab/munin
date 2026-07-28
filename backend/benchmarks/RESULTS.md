@@ -512,7 +512,9 @@ Paired deltas (p~0): **agentic-bare +0.240 [0.11,0.37]**, **agentic-RAG +0.410
    per se. (RAG accuracy is prompt-sensitive; the anchoring effect is robust.)
 3. **Grounding is flat across RAG (0.324) and agentic (~0.33, Track B)** despite
    the 3.7x accuracy gap - the harness improves CORRECTNESS + ABSTENTION, not
-   literal grounding.
+   literal grounding. **Confirmed 2026-07-27 on full n with a paired test:**
+   RAG 0.326, agentic 0.340, paired delta +0.023 [-0.043, +0.089] p=0.496.
+   See "Faithfulness per arm" under the clean run below.
 4. **Tool-grounding drives good abstention.** On the C1 fabricated set per arm,
    genuine confabulation falls ~7/100 (bare, invents findings) -> ~0 (agentic:
    read_paper 404s the fake DOI). Auto-abstain: agentic 0.80 > bare 0.59 >
@@ -561,6 +563,49 @@ difference to the agentic arm's external-tool access. Use 07-27 as the headline
 and 07-26 as the load/egress sensitivity point. **Do not average them.**
 
 Scorecard `2026-07-27_harness-ablation.{json,md}`.
+
+### Faithfulness per arm (Track B x Track D)  · 2026-07-27
+
+The paired grounding comparison the master plan (sec 3) specifies for Track B:
+same MiniCheck-Flan-T5-Large judge as B2/B3, scoring each arm's answer claims
+against **that arm's own contexts**, over the 07-27 ablation captures. Scoring
+only, no new generation.
+
+| arm | % claims supported | n |
+|---|---|---|
+| RAG (naive top-5) | 0.326 [0.283, 0.365] | 195 |
+| agentic (harness) | 0.340 [0.293, 0.389] | 193 |
+| bare (parametric) | **not scoreable** | 0 / 199 |
+
+**Paired bootstrap, agentic − RAG: `+0.023 [-0.043, +0.089]`, p = 0.496
+(n = 189 shared questions).**
+
+**Grounding does NOT improve with the harness.** The paired delta is
+indistinguishable from zero, on the same questions where accuracy differs by
+4.9x (agentic 0.839 vs RAG 0.171). This is a genuine null, not an underpowered
+one: the CI is ±0.07 around a base of ~0.33, tight enough to exclude any
+meaningful effect. It replicates the 07-13 pilot's finding 3 (RAG 0.324,
+agentic ~0.33) almost exactly on full n, across two independent runs.
+
+**What this means for the claim.** The harness buys **correctness, abstention
+and calibration — not literal grounding.** That boundary should be stated
+plainly in the paper rather than buried; it is also consistent with Track C,
+where the system reliably knows when it lacks a source (correct abstention
+0.67) without its answered claims being more textually entailed by retrieved
+context. A sharper reading: the agentic arm achieves the same *fraction* against
+a far larger evidence set (up to 217 contexts vs RAG's fixed 5), so per unit of
+retrieved evidence it converts *less* of it into supported claims. Retrieving
+more is not the same as grounding more.
+
+**`bare` is structurally unscoreable, not merely unmeasured.** A parametric arm
+retrieves nothing (0 of 199 answers carry any context), so there is no evidence
+set to check claims against and faithfulness is undefined. The master plan's
+"bare / RAG / agentic" per-arm faithfulness can therefore only ever be a
+two-arm comparison. Note the implication: bare answers 30.2% of questions
+correctly with nothing whatsoever to ground against.
+
+Scorecard `2026-07-27_harness-ablation-faithfulness.json` (includes per-question
+values for both arms, so the paired test is reproducible without re-scoring).
 
 ---
 
@@ -679,7 +724,8 @@ MUNIN_BENCH_SPECTER_DEVICE=cpu $PY -m munin_bench.pipelines.run_bakeoff --subset
 Not yet run (as of 2026-07-27): BEIR nfcorpus/scidocs/trec-covid; **Phase 4
 local pool** (deferred, blocked on human query curation + two-annotator qrels,
 not compute) and the two P0 items that depend on it (T3 stratum 2, T7); Track F
-throughout. Track B has a validated judge plus one interim arm. **Track C
+throughout. Track B: judge validated, and the **per-arm paired faithfulness is now DONE**
+(2026-07-27, RAG vs agentic, delta n.s.) — see the ablation section. **Track C
 re-run DONE 2026-07-27**: C1 held (0.970 abstain, 0 confabulated local cites),
 C2 correct-abstention 0.20 -> 0.67 at matched `egress=off`. Tracks A, C, D and
 T11 are all current. Status table: `README.md`.
