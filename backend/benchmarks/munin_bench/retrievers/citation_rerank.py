@@ -84,11 +84,25 @@ class CitationRerankRetriever(Retriever):
         norm_v = self.vector_weight / total_weight
         norm_c = self.citation_weight / total_weight
 
+        # Min-max normalise the vector score within the fetched pool before
+        # mixing. Mirrors main.py::hybrid_search (fixed 2026-07-28). Cosine
+        # similarities inside a pool span ~0.087 with BGE while
+        # compute_citation_score spans [0,1], so mixing them raw let the
+        # citation term drive ~5x more ranking variance than relevance and
+        # inverted the intended 0.7/0.3 relevance-first weighting. Measured
+        # cost before the fix: -0.368 nDCG@10 on LitSearch.
+        v_scores = [float(v) for _, v in dense_hits]
+        v_min, v_max = min(v_scores), max(v_scores)
+        v_range = v_max - v_min
+
         rescored: list[tuple[str, float]] = []
         for doi, vector_score in dense_hits:
             citation_count = counts.get(doi, {}).get("citation_count", 0)
             citation_score = compute_citation_score(citation_count, max_citations)
-            combined = norm_v * float(vector_score) + norm_c * citation_score
+            vector_norm = (
+                (float(vector_score) - v_min) / v_range if v_range > 0 else 1.0
+            )
+            combined = norm_v * vector_norm + norm_c * citation_score
             rescored.append((doi, combined))
 
         rescored.sort(key=lambda x: x[1], reverse=True)

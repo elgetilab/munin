@@ -300,8 +300,15 @@ all blocked on human query curation + qrels, not compute. Per-item detail below.
   citation-rerank scores **0.117** (−0.368 vs dense, p≈0) because
   `compute_citation_score` spans [0,1] while BGE cosine spans ~0.087 inside the
   pool, so the nominal 70/30 relevance/citation split behaves as ~83/17
-  citation-first (4.95x influence ratio). Affects `/search/hybrid` in
-  production. This ALSO revises the Phase-5 cold-start explanation — the
+  citation-first (4.95x influence ratio). Affected `/search/hybrid` in
+  production — **FIXED 2026-07-28**: min-max normalise the vector score within
+  the fetched pool (`main.py::hybrid_search` + the mirrored eval retriever).
+  Post-fix re-run on the same collection: citation-rerank **0.117 -> 0.469
+  nDCG@10** (+0.352), now at practical parity with dense (-0.016, p=0.014);
+  BM25/dense/RRF bit-identical as a control. The fix removes active harm rather
+  than creating a gain — on a near-single-target benchmark (1.07 relevant/query)
+  a popularity prior has little to add. **NOT YET DEPLOYED to /opt/munin.**
+  This ALSO revises the Phase-5 cold-start explanation — the
   collapse reproduces on a dense citation graph. Scorecard
   `2026-07-28_litsearch.json`; runner `munin_bench/benchmarks/litsearch_runner.py`.
   Unlike BEIR (empty graph -> citation-rerank degenerates to dense), LitSearch

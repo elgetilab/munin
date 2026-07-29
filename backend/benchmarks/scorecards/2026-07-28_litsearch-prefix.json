@@ -1,7 +1,7 @@
 {
   "track": "litsearch",
   "date": "2026-07-28",
-  "git_sha": "c0d237d",
+  "git_sha": "0efbe68",
   "encoder": "BGE-large-en-v1.5",
   "encoder_note": "PRODUCTION encoder. The 2026-06/07 BEIR tables used SPECTER-v1 \u2014 do not compare across them.",
   "n_queries": 597,
@@ -93,16 +93,16 @@
     },
     "citation_rerank_0.7_0.3": {
       "ndcg@10": {
-        "mean": 0.4692463833719482,
-        "ci_low": 0.43716845442292734,
-        "ci_high": 0.5025074710090119,
+        "mean": 0.11728279062601249,
+        "ci_low": 0.09731886592204259,
+        "ci_high": 0.13807368889511185,
         "n": 597,
         "n_resamples": 1000
       },
       "recall@10": {
-        "mean": 0.6093243997766611,
-        "ci_low": 0.5707942490228922,
-        "ci_high": 0.6455108877721942,
+        "mean": 0.19530988274706867,
+        "ci_low": 0.16431881630374093,
+        "ci_high": 0.22534896705750976,
         "n": 597,
         "n_resamples": 1000
       },
@@ -114,16 +114,16 @@
         "n_resamples": 1000
       },
       "mrr": {
-        "mean": 0.44194301475207176,
-        "ci_low": 0.4074216604535049,
-        "ci_high": 0.47708865799401606,
+        "mean": 0.11644408506664058,
+        "ci_low": 0.09702787971867932,
+        "ci_high": 0.1354990911689925,
         "n": 597,
         "n_resamples": 1000
       },
       "hits@10": {
-        "mean": 0.6214405360134003,
-        "ci_low": 0.5829145728643216,
-        "ci_high": 0.6599664991624791,
+        "mean": 0.20938023450586266,
+        "ci_low": 0.17587939698492464,
+        "ci_high": 0.24120603015075376,
         "n": 597,
         "n_resamples": 1000
       }
@@ -191,22 +191,22 @@
     },
     "citation_rerank_0.7_0.3_vs_bge_dense": {
       "ndcg@10": {
-        "mean_a": 0.4692463833719482,
+        "mean_a": 0.11728279062601249,
         "mean_b": 0.4850803721512166,
-        "mean_diff": -0.015833988779268438,
-        "ci_low": -0.03001977107785429,
-        "ci_high": -0.0033233384185185995,
-        "p_value_two_sided": 0.014,
+        "mean_diff": -0.36779758152520414,
+        "ci_low": -0.40467052927599095,
+        "ci_high": -0.33058820476426976,
+        "p_value_two_sided": 0.0,
         "n": 597,
         "n_resamples": 1000
       },
       "recall@10": {
-        "mean_a": 0.6093243997766611,
+        "mean_a": 0.19530988274706867,
         "mean_b": 0.6374092685650474,
-        "mean_diff": -0.028084868788386376,
-        "ci_low": -0.05014237855946398,
-        "ci_high": -0.007255723059743162,
-        "p_value_two_sided": 0.004,
+        "mean_diff": -0.4420993858179788,
+        "ci_low": -0.4852247347850362,
+        "ci_high": -0.3964712451144612,
+        "p_value_two_sided": 0.0,
         "n": 597,
         "n_resamples": 1000
       }
@@ -235,6 +235,16 @@
     }
   },
   "device": "cuda:0",
-  "generated_at": "2026-07-28T07:19:46.146272+00:00",
-  "domain_caveat": "LitSearch is ML/NLP, not chemistry. It measures the retrieval mechanism on realistic paper-finding queries, not Munin's own domain."
+  "generated_at": "2026-07-28T05:59:26.977502+00:00",
+  "domain_caveat": "LitSearch is ML/NLP, not chemistry. It measures the retrieval mechanism on realistic paper-finding queries, not Munin's own domain.",
+  "citation_rerank_diagnosis": {
+    "dense_cosine_spread_top100": 0.0865,
+    "citation_score_spread_top100": 1.0,
+    "weighted_dense_influence": 0.0605,
+    "weighted_citation_influence": 0.3,
+    "citation_over_dense_influence_ratio": 4.95,
+    "measured_on": "40 queries, BGE-large, top-100 dense pool",
+    "finding": "SCALE MISMATCH, not a weighting choice. compute_citation_score log-normalises citations to a full [0,1] range, while BGE cosine similarities within a top-100 pool span only ~0.087. At the documented 0.7/0.3 weights the citation term therefore drives ~5x more ranking variance than relevance: the formula is nominally 70/30 relevance-first but behaves as ~83/17 citation-first. At 0.8/0.2 it is still ~2.9x. Fix = min-max normalise the dense score within the fetched pool before combining, so both terms span [0,1].",
+    "affects": "production /search/hybrid path (main.py), i.e. the search page"
+  }
 }

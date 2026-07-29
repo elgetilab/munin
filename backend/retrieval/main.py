@@ -3548,6 +3548,28 @@ async def hybrid_search(request: HybridSearchRequest):
             default=1
         )
 
+        # Min-max normalise the VECTOR score within the fetched pool before
+        # mixing it with the citation score.
+        #
+        # WHY (measured 2026-07-28, LitSearch, scorecard `2026-07-28_litsearch`):
+        # compute_citation_score log-normalises to a full [0,1] range, but
+        # cosine similarities inside a top-k pool are tightly clustered — with
+        # BGE-large the spread is only ~0.087. Mixing the two raw meant the
+        # citation term drove ~5x more ranking variance than relevance, so the
+        # nominal 0.7/0.3 relevance-first split actually behaved as ~83/17
+        # citation-first: the ranker sorted by popularity and used relevance as
+        # a tiebreak. On LitSearch that cost -0.368 nDCG@10 vs dense alone
+        # (0.117 vs 0.485, p~0). Normalising both terms to [0,1] makes the
+        # weights mean what they say.
+        #
+        # A degenerate pool (all-identical scores) yields v_range == 0; every
+        # paper then gets vector_norm 1.0, which correctly reduces the ranking
+        # to the citation term rather than dividing by zero.
+        _vec_scores = [float(h.score) for h in results.points]
+        _v_min = min(_vec_scores) if _vec_scores else 0.0
+        _v_max = max(_vec_scores) if _vec_scores else 0.0
+        _v_range = _v_max - _v_min
+
         # Build enriched papers with combined scores
         enriched_papers = []
         for hit in results.points:
@@ -3565,8 +3587,13 @@ async def hybrid_search(request: HybridSearchRequest):
             norm_vector_weight = request.vector_weight / total_weight
             norm_citation_weight = request.citation_weight / total_weight
 
+            # Rank on the pool-normalised vector score; REPORT the raw one
+            # below, so the API contract for `vector_score` is unchanged.
+            vector_norm = (
+                (vector_score - _v_min) / _v_range if _v_range > 0 else 1.0
+            )
             combined_score = (
-                norm_vector_weight * vector_score +
+                norm_vector_weight * vector_norm +
                 norm_citation_weight * citation_score
             )
 

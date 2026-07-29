@@ -374,7 +374,8 @@ relevant papers per query. Isolated `eval_litsearch` collection.
 |---|---|---|---|---|---|
 | BM25 | 0.378 [0.345, 0.413] | 0.511 | 0.699 | 0.349 | −0.107 [−0.137, −0.077] (0.0000) |
 | **BGE-dense (production)** | **0.485 [0.453, 0.516]** | **0.637** | 0.829 | 0.451 | — |
-| citation-rerank 0.7/0.3 | **0.117** [0.097, 0.138] | 0.195 | 0.829 | 0.116 | **−0.368 [−0.405, −0.331] (0.0000)** |
+| citation-rerank 0.7/0.3 (**fixed**) | 0.469 [0.437, 0.503] | 0.609 | 0.829 | 0.442 | −0.016 [−0.030, −0.003] (0.014) |
+| citation-rerank 0.7/0.3 (*pre-fix*) | *0.117 [0.097, 0.138]* | *0.195* | *0.829* | *0.116* | *−0.368 [−0.405, −0.331] (0.0000)* |
 | RRF[BM25, BGE] | 0.490 [0.455, 0.526] | 0.628 | **0.830** | 0.462 | +0.005 [−0.019, +0.030] (0.72, n.s.) |
 
 **Findings:**
@@ -407,10 +408,45 @@ roughly **83% citations / 17% relevance**. At the class-default 0.8/0.2 it is
 still ~2.9x. The re-ranker effectively sorts by citation count and uses
 relevance as a tiebreak.
 
-**This affects production**: the same formula is the `/search/hybrid` path in
+**This affected production**: the same formula is the `/search/hybrid` path in
 `main.py` (the retriever module mirrors it verbatim by design), i.e. the search
-page. **Fix:** min-max normalise the dense score within the fetched pool before
-combining, so both terms span [0, 1] and the weights mean what they say.
+page.
+
+### FIXED 2026-07-28 — min-max normalise the vector score within the pool
+
+`main.py::hybrid_search` and `munin_bench/retrievers/citation_rerank.py` now
+min-max normalise the vector score across the fetched pool before mixing, so
+both terms span [0, 1] and the weights mean what they say. The raw
+`vector_score` is still what the API reports; only ranking uses the normalised
+value, so the response contract is unchanged. A degenerate all-equal pool gives
+`vector_norm = 1.0`, collapsing to the citation term rather than dividing by zero.
+
+Re-ran LitSearch on the same collection, so this is a clean A/B:
+
+| citation-rerank 0.7/0.3 | nDCG@10 | R@10 | MRR | vs BGE-dense |
+|---|---|---|---|---|
+| before | 0.117 | 0.195 | 0.116 | −0.368 [−0.405, −0.331] p=0.0000 |
+| **after** | **0.469** | **0.609** | **0.442** | **−0.016 [−0.030, −0.003] p=0.014** |
+
+**+0.352 nDCG@10, recovering 96% of the gap to dense.** BM25, BGE-dense and RRF
+are bit-identical across the two runs — a control confirming the change touched
+only the re-ranker.
+
+**Read the residual honestly.** Citation-rerank is now *statistically* still a
+hair below dense (−0.016, p=0.014) though practically at parity. So the fix
+**removes active harm; it does not turn citations into a win on this
+benchmark.** That is the expected result here rather than a disappointment:
+LitSearch is near-single-target retrieval (mean 1.07 relevant papers/query), so
+a popularity prior has almost nothing to contribute — the best it can do is not
+get in the way. Whether the citation signal *helps* on broader,
+survey-style queries is a separate question this benchmark cannot answer, and
+Munin's own local pool (Phase 4) is the place to ask it.
+
+Regression test: `tests/test_citation_rerank.py::test_production_weights_are_
+relevance_first_regression` pins the fixture ranking that inverted under the
+bug. **Note those tests previously asserted the UNNORMALISED formula** — the
+suite was encoding the defect, so it failed on the fix and had to be rewritten
+against hand-derived expectations.
 
 **It also revises an earlier conclusion.** Phase 5 (LitQA2) saw citation-rerank
 collapse to ~0 and attributed it to cold-start (backfilled sources with 0
@@ -423,7 +459,7 @@ empty and citation-rerank degenerates harmlessly to dense-only.
 **Domain caveat:** LitSearch is ML/NLP, not chemistry. It measures the
 retrieval *mechanism* on realistic queries, not Munin's own domain.
 
-Scorecard `2026-07-28_litsearch.json`.
+Scorecards: `2026-07-28_litsearch.json` (post-fix, canonical) and `2026-07-28_litsearch-prefix.json` (pre-fix, retained as the before-half of the A/B).
 
 ---
 
