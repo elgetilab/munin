@@ -10,6 +10,50 @@ self-document (renames, refactors, bug fixes).
 
 ---
 
+## 2026-08: citation grounding - supply the metadata, then audit the claim
+
+A user reported two papers attributed to authors who had nothing to do with
+them (chat 61443530): PMC2098716 credited to "Bazzi et al." (really Le Guyader
+et al.) and PMID 23274277 to "Gonzalez-Rodriguez et al." (really Loura, do
+Canto, Martins). Investigation found a third, uncaught: "Mun et al." for
+10.1021/jp061300r (really Repáková et al.).
+
+None of the three names appeared in any tool result. The cause was a metadata
+hole, not a retrieval error: the web tier returns a title, a URL and a snippet
+and no author list (176 of 176 web hits in a month), `web_fetch` returns an
+LLM summary of the page body with the metadata already discarded (20 of 26
+PubMed/PMC fetches yielded no usable metadata), and PMC serves us a bot-check
+page that the summarizer described as though it were the article. Given a
+title and an identifier but no authors, the model supplied plausible names
+from memory.
+
+Two decisions follow from that.
+
+**The metadata is now fetched structurally, never inferred.** `bibref.py`
+resolves any DOI / PMID / PMCID / arXiv id through corpus, Semantic Scholar,
+Crossref and NCBI eutils, `web_search` attaches the result to any hit whose
+URL carries an identifier, and `web_fetch` parses citation meta tags out of
+the HTML before the summarizer ever runs. No LLM is in any of these paths, so
+there is nothing to hallucinate. Where metadata genuinely cannot be had, the
+result carries an explicit `authors: null` plus `metadata_available: false`:
+a MISSING field reads to a model as "not applicable", an explicit null reads
+as "unknown, do not guess", and that difference is the point.
+
+**The audit annotates, it does not rewrite.** `audit_citation_claims_in_content`
+flags any "X et al." whose surname appears in no tool result from that turn,
+prefixing a `[backend warning]` block, exactly like the two phantom-URL audits
+it sits beside. We deliberately did NOT add a repair generation: the same
+persona already carried "Do NOT fabricate paper titles, authors, abstracts or
+DOIs" and that rule is what failed here, so the fix had to be mechanical
+rather than another instruction, and the annotation keeps the human in the
+loop instead of hiding the error behind a silent retry. `munin_citation_claims_total`
+tracks grounded vs ungrounded so the rate is measured rather than waiting for
+the next user report.
+
+Matching is word-boundary, not substring, for a specific reason: the third
+fabrication ("Mun") escaped an earlier hand audit because "Mun" is a substring
+of "Munin", which appears in every tool payload.
+
 ## 2026-08: deploy defaults are production, not the pre-migration state
 
 Two settings had drifted from "what the cluster runs" to "what the

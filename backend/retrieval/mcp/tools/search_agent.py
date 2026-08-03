@@ -111,9 +111,30 @@ def _norm_oa(rows: list[dict]) -> list[dict]:
 
 
 def _norm_web(rows: list[dict]) -> list[dict]:
-    return [{"source_type": TIER_WEB, "title": r.get("title"), "url": r.get("url"),
-             "snippet": (r.get("snippet") or "")[:300], "score": r.get("matched_by")}
-            for r in rows]
+    """Web hits, carrying bibliographic metadata when web_search resolved it.
+
+    `authors` is ALWAYS present, as a list or as None, and `metadata_available`
+    says which. A missing key reads as "not applicable" and invites the model
+    to supply the author from memory; an explicit null says "unknown, do not
+    guess". That is the failure this shape exists to prevent (chat 61443530:
+    three author names invented for web hits that carried a title and nothing
+    else).
+    """
+    out = []
+    for r in rows:
+        authors = r.get("authors") or None
+        entry = {"source_type": TIER_WEB, "title": r.get("title"),
+                 "url": r.get("url"), "snippet": (r.get("snippet") or "")[:300],
+                 "score": r.get("matched_by"),
+                 "authors": authors,
+                 "year": r.get("year"),
+                 "metadata_available": bool(authors)}
+        if r.get("doi"):
+            entry["doi"] = r["doi"]
+        if r.get("bibliographic"):
+            entry["bibliographic"] = r["bibliographic"]
+        out.append(entry)
+    return out
 
 
 # Semantic Scholar's /paper/search is a KEYWORD endpoint, not a semantic one.

@@ -195,5 +195,6 @@ Response: Prometheus's `/api/v1/query_range` body verbatim.
 | `munin_mcp_tool_duration_seconds` | `name` | wall time of one MCP tool dispatch |
 | `munin_chat_turns_total` | `persona`, `terminal_reason` | chat turn outcomes |
 | `munin_phantom_url_total` | `kind` | hallucinated artifact / paper URLs caught by post-turn audit |
+| `munin_citation_claims_total` | `outcome` | "X et al." attributions per turn, `grounded` when the surname appears in a tool result from that turn, `ungrounded` when it does not. Watch the ratio, not the raw ungrounded count: it is only interpretable against how many attributions were made. |
 
 Plus `python_*` and `process_*` from `prometheus_client` defaults.

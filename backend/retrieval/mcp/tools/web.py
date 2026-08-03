@@ -10,6 +10,7 @@ Provides:
 import asyncio
 import logging
 import os
+import re
 import time
 from typing import Optional
 
@@ -162,6 +163,66 @@ async def _searxng_one(client: httpx.AsyncClient, q: str) -> dict:
     }
 
 
+# A scholarly result whose URL carries an identifier gets its real
+# bibliographic record attached (chat 61443530, 2026-07-29: the model cited
+# "Bazzi et al." for a PMC id and "Gonzalez-Rodriguez et al." for a PMID
+# because a web hit carries a title and a URL and nothing else, so there was
+# no author list to be faithful to). Bounded so a search of ordinary web
+# pages costs nothing extra: only URLs that actually contain an identifier
+# are resolved, at most _BIBREF_MAX_PER_SEARCH of them, concurrently.
+_BIBREF_MAX_PER_SEARCH = 6
+
+
+async def _attach_bibliographic(results: list[dict]) -> None:
+    """Attach `bibliographic` to scholarly results, in place.
+
+    Every result gets an explicit `metadata_available` flag: a MISSING
+    authors field reads to the model as "not applicable", while an explicit
+    false reads as "unknown, do not guess". That distinction is the whole
+    point of this function.
+    """
+    import bibref
+
+    candidates = []
+    for r in results:
+        r["metadata_available"] = False
+        ident = bibref.extract_identifier(r.get("url") or "")
+        if ident and len(candidates) < _BIBREF_MAX_PER_SEARCH:
+            candidates.append((r, ident))
+
+    if not candidates:
+        return
+
+    async def _one(entry: dict, ident: tuple) -> None:
+        meta = await bibref.resolve(*ident)
+        if not meta or not meta.get("authors"):
+            return
+        entry["bibliographic"] = {
+            "title": meta.get("title"),
+            "authors": meta.get("authors"),
+            "year": meta.get("year"),
+            "journal": meta.get("journal"),
+            "doi": meta.get("doi"),
+            "pmid": meta.get("pmid"),
+            "pmcid": meta.get("pmcid"),
+            "metadata_source": meta.get("source"),
+        }
+        # Mirrored at the top level so the ranking layers and the model see
+        # the same field names they get from the corpus and OA tiers.
+        entry["authors"] = meta.get("authors")
+        entry["year"] = meta.get("year")
+        if meta.get("doi"):
+            entry["doi"] = meta["doi"]
+        entry["metadata_available"] = True
+
+    try:
+        await asyncio.gather(*(_one(e, i) for e, i in candidates))
+    except Exception:
+        # Enrichment is strictly additive: a failure here must never fail
+        # the search that would otherwise have succeeded.
+        logger.exception("bibliographic enrichment failed")
+
+
 async def web_search(
     query: Optional[str] = None,
     queries: Optional[list[str]] = None,
@@ -291,10 +352,13 @@ async def web_search(
     for r in merged[:top_k]:
         _record_url(r.get("url", ""))
 
+    top = merged[:top_k]
+    await _attach_bibliographic(top)
+
     out: dict = {
         "queries_executed": query_list,
         "total_hits": total_hits,
-        "results": merged[:top_k],
+        "results": top,
     }
 
     # Surface engine degradation to the caller.
@@ -396,6 +460,127 @@ def _chunk_for_summarization(text: str, target_chars: int = _FETCH_CHUNK_CHARS) 
     return chunks
 
 
+# Publisher and index pages carry their bibliographic record in Highwire /
+# Dublin Core meta tags. We used to throw that away: trafilatura extracts the
+# body text, the summarizer condenses it, and the metadata never reaches the
+# caller. Asked "extract all authors" from a PubMed page, the summarizer
+# answered "the provided text does not list any authors" (chat 61443530)
+# because by then the authors really were gone. Parse them structurally,
+# before any LLM sees the page.
+_META_RE = re.compile(
+    r"<meta\s+[^>]*?(?:name|property)\s*=\s*[\"']([^\"']+)[\"'][^>]*?"
+    r"content\s*=\s*[\"']([^\"']*)[\"']",
+    re.I | re.S,
+)
+# Same attributes in the other order (content= before name=), which is just
+# as common in the wild.
+_META_RE_REV = re.compile(
+    r"<meta\s+[^>]*?content\s*=\s*[\"']([^\"']*)[\"'][^>]*?"
+    r"(?:name|property)\s*=\s*[\"']([^\"']+)[\"']",
+    re.I | re.S,
+)
+
+# Interstitials that are not the page you asked for. A PMC fetch returned 131
+# characters of "Checking your browser" and the summarizer dutifully described
+# the security notice as though it were the article.
+_BOT_CHECK_MARKERS = (
+    "checking your browser",
+    "security verification",
+    "verifying you are human",
+    "enable javascript and cookies",
+    "captcha",
+    "unusual traffic",
+    "request could not be processed at this time",
+    "preparing to download",
+)
+_BOT_CHECK_MAX_CHARS = 600
+
+
+def _meta_pairs(html: str) -> list[tuple[str, str]]:
+    pairs = [(n.lower().strip(), v.strip()) for n, v in _META_RE.findall(html or "")]
+    pairs += [(n.lower().strip(), v.strip()) for v, n in _META_RE_REV.findall(html or "")]
+    return pairs
+
+
+def extract_meta_bibliographic(html: str) -> dict:
+    """Pull citation metadata out of a page's meta tags.
+
+    Handles Highwire (`citation_author`, repeated once per author),
+    Dublin Core (`dc.creator`), and the OpenGraph title as a last resort.
+    Returns {} when the page carries none, which is the normal case for an
+    ordinary web page.
+    """
+    if not html:
+        return {}
+    authors: list[str] = []
+    out: dict = {}
+    for name, value in _meta_pairs(html):
+        if not value:
+            continue
+        if name in ("citation_author", "dc.creator", "citation_authors"):
+            # citation_authors (plural) packs several names into one tag.
+            for part in re.split(r";|\s+and\s+", value):
+                part = part.strip()
+                if part and part not in authors:
+                    authors.append(part)
+        elif name in ("citation_title", "dc.title") and "title" not in out:
+            out["title"] = value
+        elif name in ("citation_journal_title", "citation_journal") and "journal" not in out:
+            out["journal"] = value
+        elif name == "citation_doi" and "doi" not in out:
+            out["doi"] = value.replace("doi:", "").strip()
+        elif name == "citation_pmid" and "pmid" not in out:
+            out["pmid"] = value
+        elif name in ("citation_date", "citation_publication_date",
+                      "citation_online_date") and "year" not in out:
+            m = re.search(r"\b(1[89]\d{2}|20\d{2})\b", value)
+            if m:
+                out["year"] = int(m.group(1))
+    if authors:
+        out["authors"] = authors[:25]
+    if out:
+        out["metadata_source"] = "page_meta"
+    return out
+
+
+# Canonical resolvers: hosts where the URL IS an identifier, so there is
+# nothing to hallucinate about the address itself. The phantom-URL gate was
+# written for invented artifact and paper links; it also blocked a legitimate
+# PubMed metadata lookup for a PMID the model had just read off a PMC page
+# (chat 61443530), which is exactly the check we want it to be able to do.
+# Publisher pages stay gated: only these hosts, and only with an identifier.
+_CANONICAL_REF_HOSTS = (
+    "doi.org", "dx.doi.org",
+    "pubmed.ncbi.nlm.nih.gov", "pmc.ncbi.nlm.nih.gov",
+    "www.ncbi.nlm.nih.gov/pmc", "arxiv.org",
+)
+
+
+def _is_canonical_reference_url(url: str) -> bool:
+    if not url or not isinstance(url, str):
+        return False
+    low = url.lower()
+    if not any(f"//{h}" in low or f"//www.{h}" in low for h in _CANONICAL_REF_HOSTS):
+        return False
+    try:
+        import bibref
+        return bibref.extract_identifier(url) is not None
+    except Exception:
+        return False
+
+
+def looks_like_bot_check(content: str) -> bool:
+    """True when the extracted text is an anti-bot interstitial rather than
+    the page. Deliberately requires BOTH a marker and a very short extract:
+    a real article that merely mentions "captcha" must not trip this."""
+    if not content:
+        return False
+    if len(content) > _BOT_CHECK_MAX_CHARS:
+        return False
+    low = content.lower()
+    return any(marker in low for marker in _BOT_CHECK_MARKERS)
+
+
 async def web_fetch_content(
     url: str,
     summary_instruction: str = "Summarize the main points and key findings, focusing on factual content.",
@@ -439,7 +624,8 @@ async def web_fetch_content(
     # fetched). `None` means the gate is unwired (standalone tests,
     # back-compat) and gating is skipped.
     allow = current_search_urls.get()
-    if allow is not None and isinstance(url, str) and url not in allow:
+    if (allow is not None and isinstance(url, str) and url not in allow
+            and not _is_canonical_reference_url(url)):
         return {
             "error": (
                 "URL not from any recent search result. Call web_search "
@@ -478,6 +664,42 @@ async def web_fetch_content(
     if not content:
         return {"error": "Could not extract content from URL", "url": url}
 
+    # Resolve the page's bibliographic record BEFORE summarising, from its
+    # meta tags, falling back to the identifier in the URL. Both paths are
+    # structural: no LLM is involved, so nothing can be invented here.
+    biblio = extract_meta_bibliographic(html)
+    if not biblio.get("authors"):
+        try:
+            import bibref
+            resolved = await bibref.resolve_url(url)
+            if resolved and resolved.get("authors"):
+                biblio = {k: v for k, v in {
+                    "title": resolved.get("title"),
+                    "authors": resolved.get("authors"),
+                    "year": resolved.get("year"),
+                    "journal": resolved.get("journal"),
+                    "doi": resolved.get("doi"),
+                    "pmid": resolved.get("pmid"),
+                    "pmcid": resolved.get("pmcid"),
+                    "metadata_source": resolved.get("source"),
+                }.items() if v}
+        except Exception:
+            logger.exception("bibref fallback failed for %s", url)
+
+    if looks_like_bot_check(content):
+        # Returning a "summary" of a security notice reads like content and
+        # is worse than an honest failure: it is what let a 131-character
+        # interstitial pass for an article.
+        return {
+            "error": (
+                "Page returned an anti-bot interstitial, not the article "
+                "(the host blocked automated access). Nothing was read."
+            ),
+            "blocked_by_bot_check": True,
+            "url": url,
+            **({"bibliographic": biblio} if biblio else {}),
+        }
+
     total_chars = len(content)
     truncated = False
     if total_chars > _FETCH_MAX_TOTAL_CHARS:
@@ -506,6 +728,7 @@ async def web_fetch_content(
         return {
             "url": url,
             "summary": summary,
+            "bibliographic": biblio or None,
             "chunks_summarized": 1,
             "successful_chunks": 1,
             "total_chars_original": total_chars,
@@ -586,6 +809,7 @@ async def web_fetch_content(
     return {
         "url": url,
         "summary": summary,
+        "bibliographic": biblio or None,
         "chunks_summarized": len(chunks),
         "successful_chunks": len(chunk_summaries),
         "total_chars_original": total_chars,

@@ -51,7 +51,7 @@ from usage_tracker import (
     record_usage,
     aggregate_totals,
 )
-from metrics import observe_phantom_urls, observe_turn
+from metrics import observe_citation_claims, observe_phantom_urls, observe_turn
 from tool_result import truncate_tool_result
 from mcp.schemas import MCP_TOOLS, CORE_TOOLS
 from mcp.executor import execute_mcp_tool, partition_by_concurrency_safety
@@ -1348,6 +1348,167 @@ def audit_paper_urls_in_content(
         notice_lines.append(f"- `{u}`")
     notice_lines.extend(["", "---", ""])
     return "\n".join(notice_lines) + "\n" + content, phantoms
+
+
+# --- Ungrounded-author-attribution audit (chat 61443530, 2026-07-29) -------
+#
+# The model attributed PMC2098716 to "Bazzi et al." and PMID 23274277 to
+# "Gonzalez-Rodriguez et al.". Neither name occurred in any tool result on
+# those turns; both papers had come in as web hits, which carry a title and
+# a URL and no author list. A third attribution ("Mun et al." for
+# 10.1021/jp061300r) was wrong the same way. The persona already forbids
+# fabricating authors, so this is the backstop for when that rule slips:
+# same shape as the two phantom-URL audits above, annotate-only.
+#
+# Matching is deliberately conservative. It fires on "Surname et al.", the
+# form used for an attribution, and it treats a surname as grounded if it
+# appears ANYWHERE in the turn's tool payloads. False negatives are fine;
+# false positives put a scary warning on a correct answer, which is worse.
+_AUTHOR_ATTRIB_RE = _re.compile(
+    r"(?<![\w'\-])"                       # not mid-word
+    r"([A-ZÀ-ÖØ-Þ][\w'\-]*(?:\s+[A-ZÀ-ÖØ-Þ][\w'\-]*)?)"   # Surname / Von Surname
+    r"\s+et\s+al\.",
+    _re.UNICODE,
+)
+
+# Surnames that are part of the product's own vocabulary or too generic to
+# carry information. "Munin" matters specifically: a naive substring check
+# treats the author "Mun" as grounded because "Munin" appears in every
+# payload, which is exactly how the third fabrication in chat 61443530
+# escaped an earlier hand audit.
+_ATTRIB_STOPWORDS = frozenset({
+    "Munin", "Hugin", "The", "This", "These", "Those", "Their", "It",
+    "Figure", "Table", "Section", "Author", "Authors", "Study", "Paper",
+})
+
+
+# Vancouver style puts the initials AFTER the surname ("Knight MJ et al."),
+# so the last token is not always the name to check. Initials are all-caps
+# runs of at most three letters; real two-token surnames ("Le Guyader",
+# "do Canto") always carry lower-case letters, so this cannot eat them.
+_INITIALS_RE = _re.compile(r"^[A-ZÀ-ÖØ-Þ]{1,3}$")
+
+
+def _surname_of(attribution: str) -> str:
+    """The surname inside a matched attribution.
+
+    "Loura", "L. Loura" and "Knight MJ" all reduce to the name a tool result
+    would list. Getting this wrong is not cosmetic: auditing "Knight MJ et al."
+    against the token "MJ" reported a fabrication for a correctly cited paper.
+    """
+    tokens = [t for t in (attribution or "").split() if t]
+    if not tokens:
+        return ""
+    if len(tokens) > 1 and _INITIALS_RE.match(tokens[-1].rstrip(".")):
+        return tokens[-2]
+    return tokens[-1]
+
+
+def _tool_payload_text(tool_calls) -> str:
+    """Flatten every tool result on the turn into one searchable string."""
+    if not tool_calls:
+        return ""
+    try:
+        return json.dumps(tool_calls, ensure_ascii=False, default=str)
+    except Exception:
+        return str(tool_calls)
+
+
+def conversation_grounding_text(conversation: Optional[dict]) -> str:
+    """Searchable text of everything EARLIER in this conversation that can
+    legitimately ground an author name: prior tool results, and what the user
+    themselves wrote.
+
+    Needed because the model does not see prior tool results (history is
+    replayed as role/content only, see chat_context.assemble_context), so on
+    turn 3 it cites a paper it read on turn 1 from its own earlier answer.
+    Measured over 387 attributions in July 2026: 87 of the 105 that this turn's
+    payloads could not explain were grounded in an earlier turn, and 1 was a
+    name the user supplied. Auditing against the turn alone would put a
+    fabrication warning on all 88.
+
+    Prior ASSISTANT prose is deliberately excluded. Grounding a name on the
+    model's own earlier text would let one fabrication launder itself through
+    the rest of the conversation, which is the opposite of what this audit is
+    for.
+    """
+    if not conversation:
+        return ""
+    parts: list[str] = []
+    for m in (conversation.get("messages") or []):
+        if not isinstance(m, dict):
+            continue
+        if m.get("tool_calls"):
+            parts.append(_tool_payload_text(m["tool_calls"]))
+        if m.get("role") == "user":
+            content = m.get("content")
+            if isinstance(content, str):
+                parts.append(content)
+    return "\n".join(parts)
+
+
+def _surname_grounded(surname: str, payload: str) -> bool:
+    """True when `surname` occurs in the payload as a WORD.
+
+    Word-boundary matching, not substring: "Mun" must not be satisfied by
+    "Munin", and "Le Guyader" must match across the space. Diacritics are
+    compared as written, so "Repáková" matches the tool result's spelling
+    and "Repakova" does not, which is the conservative direction (an
+    ungrounded flag on a transliteration is a false positive we accept
+    rather than silently passing a name we cannot find).
+    """
+    if not surname:
+        return True
+    pattern = r"(?<![\w'\-])" + _re.escape(surname) + r"(?![\w'\-])"
+    return _re.search(pattern, payload, _re.UNICODE) is not None
+
+
+def audit_citation_claims_in_content(
+    content: str, tool_calls: Optional[list], prior_grounding: str = ""
+) -> tuple:
+    """Return (content, ungrounded_surnames, grounded_count).
+
+    `ungrounded_surnames` lists every "X et al." attribution whose surname
+    appears neither in a tool result from this turn nor in `prior_grounding`
+    (earlier tool results and user text for the conversation, built by
+    `conversation_grounding_text`). When non-empty the content is prefixed
+    with a [backend warning] block, matching the two phantom-URL audits, so
+    the saved transcript carries the audit trail.
+
+    Pure function -- no I/O, safe to unit-test.
+    """
+    if not isinstance(content, str) or not content:
+        return content, [], 0
+
+    candidates = []
+    for raw in _AUTHOR_ATTRIB_RE.findall(content):
+        surname = _surname_of(raw)
+        if not surname or surname in _ATTRIB_STOPWORDS:
+            continue
+        if surname not in candidates:
+            candidates.append(surname)
+
+    if not candidates:
+        return content, [], 0
+
+    payload = _tool_payload_text(tool_calls)
+    if prior_grounding:
+        payload = f"{payload}\n{prior_grounding}"
+    ungrounded = [s for s in candidates if not _surname_grounded(s, payload)]
+    grounded = len(candidates) - len(ungrounded)
+    if not ungrounded:
+        return content, [], grounded
+
+    notice_lines = [
+        "**[backend warning]** This response attributes "
+        f"{len(ungrounded)} citation(s) to author name(s) that appear in NO "
+        "tool result from this turn. Verify before using: "
+        + ", ".join(f"`{s} et al.`" for s in ungrounded),
+        "",
+        "---",
+        "",
+    ]
+    return "\n".join(notice_lines) + "\n" + content, ungrounded, grounded
 
 
 async def _build_full_system_prompt(
@@ -2651,6 +2812,22 @@ async def stream_chat_completion(
                 _phantom_paper_urls,
             )
             observe_phantom_urls("paper", len(_phantom_paper_urls))
+        # Ungrounded-author audit. Same backstop shape, for "X et al."
+        # attributions with no supporting tool result on the turn (chat
+        # 61443530, 2026-07-29: two wrong authors reported by a user, a
+        # third found while investigating).
+        final_content, _ungrounded_cites, _grounded_cites = (
+            audit_citation_claims_in_content(
+                final_content, final_tool_calls,
+                conversation_grounding_text(conversation),
+            )
+        )
+        if _ungrounded_cites:
+            logger.warning(
+                "ungrounded author attributions in conversation: %s",
+                _ungrounded_cites,
+            )
+        observe_citation_claims(_grounded_cites, len(_ungrounded_cites))
 
         if not ephemeral:
             await chat_store.add_message(

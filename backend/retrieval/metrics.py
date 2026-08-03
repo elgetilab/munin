@@ -82,6 +82,13 @@ phantom_url_total = Counter(
     labelnames=("kind",),  # kind = artifact | paper
 )
 
+citation_claims_total = Counter(
+    "munin_citation_claims_total",
+    "Author attributions in assistant answers, by whether a tool result "
+    "from the same turn supports them.",
+    labelnames=("outcome",),  # outcome = grounded | ungrounded
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers — single import surface for call sites.
@@ -127,6 +134,16 @@ def observe_turn(persona: Optional[str], terminal_reason: str) -> None:
 def observe_phantom_urls(kind: str, count: int) -> None:
     if count > 0:
         phantom_url_total.labels(kind=kind).inc(count)
+
+
+def observe_citation_claims(grounded: int, ungrounded: int) -> None:
+    """Record the per-turn author-attribution audit. Both counts matter: the
+    ungrounded rate is only interpretable against how many attributions were
+    made at all."""
+    if grounded > 0:
+        citation_claims_total.labels(outcome="grounded").inc(grounded)
+    if ungrounded > 0:
+        citation_claims_total.labels(outcome="ungrounded").inc(ungrounded)
 
 
 # ---------------------------------------------------------------------------
