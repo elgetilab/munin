@@ -33,7 +33,10 @@ def main() -> int:
 
     device = os.getenv("MUNIN_BENCH_SPECTER_DEVICE", "cpu")
     qc = get_qdrant()
-    src, dst = config.PAPERS_COLLECTION, config.PAPERS_BGE_COLLECTION
+    # Source is always the legacy 768-d corpus: this pipeline exists to build
+    # (and top up) papers_bge FROM papers, so it must not follow
+    # PAPERS_COLLECTION now that that points at the destination.
+    src, dst = config.PAPERS_LEGACY_COLLECTION, config.PAPERS_BGE_COLLECTION
     total_src = qc.count(src).count
     print(f"[papers_bge] source {src}={total_src} -> {dst} (1024d) on {device}")
 

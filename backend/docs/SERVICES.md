@@ -62,9 +62,16 @@ docker compose --profile rag up -d
 docker compose ps
 ```
 
-### 3. Start Deep Research Daemon
+### 3. Deep Research Daemon (LEGACY, disabled)
 
-The Deep Research daemon watches for job submissions and processes them via SLURM.
+Deep Research as users experience it runs **in-process inside the
+retrieval container** (`/api/research/*`). It starts with retrieval and
+needs nothing here.
+
+The daemon below belongs to the retired MiroThinker path, disabled in
+2026-07 (see `shared/docs/DECISIONS.md`). It stays `disable`d; the
+commands are kept for the record and for a possible revival, which also
+needs `DEEPRESEARCH_ENABLED=1` in cluster.env plus a retrieval restart.
 
 ```bash
 # Start the daemon

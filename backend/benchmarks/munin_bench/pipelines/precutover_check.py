@@ -59,7 +59,10 @@ def main() -> int:
         f"{OK if code_ok else FAIL} 1. flag-gated code deployed "
         f"(database.py={'yes' if db_ok else 'NO'}, compose={'yes' if comp_ok else 'NO'})"))
     if not code_ok:
-        results.append((None, "        -> run: sudo ./deploy.sh compose retrieval pipeline"))
+        # One mode per invocation: deploy.sh rejects extra arguments.
+        results.append((None, "        -> run: sudo ./deploy.sh compose"
+                              " && sudo ./deploy.sh retrieval"
+                              " && sudo ./deploy.sh pipeline"))
 
     # --- 2. BGE model present ----------------------------------------------
     model_ok = os.path.isdir(BGE_HOST_MODEL) and any(
@@ -74,7 +77,9 @@ def main() -> int:
             f" S('BAAI/bge-large-en-v1.5').save('{BGE_HOST_MODEL}')\""))
 
     # --- 3. papers_bge parity (+ optional top-up) --------------------------
-    papers = qc.count(config.PAPERS_COLLECTION).count
+    # Parity is measured against the legacy corpus this tool was written to
+    # migrate away from, not against whatever PAPERS_COLLECTION points at now.
+    papers = qc.count(config.PAPERS_LEGACY_COLLECTION).count
     bge_exists = qc.collection_exists(config.PAPERS_BGE_COLLECTION)
     dim = (qc.get_collection(config.PAPERS_BGE_COLLECTION).config.params.vectors.size
            if bge_exists else None)

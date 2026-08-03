@@ -15,11 +15,19 @@ QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 # The PRODUCTION papers collection. Read-only for the eval harness; BEIR
 # subsets get their own ``eval_*`` collections (Phase 3) and never touch this.
-PAPERS_COLLECTION = "papers"
+# Points at papers_bge since the 2026-07 encoder cutover: scorecard headers
+# were still counting the retired 768-d `papers` corpus, so reported corpus
+# sizes lagged what the arms actually searched.
+PAPERS_COLLECTION = "papers_bge"
 
-# Encoder-migration validation collection (Phase A). A 1024-d BGE re-embed of
-# `papers`, built + read only by the eval harness. Never touched by production.
+# 1024-d BGE collection, kept as its own name because the migration pipelines
+# below address source and destination separately. Same collection as
+# PAPERS_COLLECTION now that the cutover is live.
 PAPERS_BGE_COLLECTION = "papers_bge"
+
+# The retired 768-d SPECTER-v1 corpus. Only the migration/pre-cutover tooling
+# reads it (as the copy source and the rollback target); no arm searches it.
+PAPERS_LEGACY_COLLECTION = "papers"
 
 # --- Neo4j ------------------------------------------------------------------
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")

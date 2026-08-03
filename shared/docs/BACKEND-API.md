@@ -96,6 +96,13 @@ Polled by the frontend's `useStatus` hook every 60 s.
     "grobid": "ok",
     "searxng": "ok"
   },
+  "paper_space": {
+    "encoder": "bge-large",
+    "collection": "papers_bge",
+    "encoder_dim": 1024,
+    "collection_dim": 1024,
+    "query_prefix": true
+  },
   "timestamp": "2026-04-13T16:30:00Z"
 }
 ```
@@ -118,6 +125,13 @@ Notes:
   loaded. On a fresh boot it will be `"unavailable"` until the first call
   that needs them (first RAG call or first document upload). This is not a
   bug, it means "not loaded yet", not "broken".
+- `paper_space` (added 2026-08) describes which paper vector space is
+  serving search: the active encoder, the Qdrant collection, and both
+  real widths. `collection_dim` is `null` when the collection does not
+  exist yet or Qdrant is unreachable. It exists so a deploy or an eval
+  can assert the encoder/collection pairing instead of trusting env
+  config; the frontend does not render it. Retrieval refuses to start
+  when the two widths disagree.
 - `services.grobid` may read `unavailable` in the container-DNS form; it's
   probed at `http://grobid:8070/api/isalive`.
 

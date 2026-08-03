@@ -10,6 +10,40 @@ self-document (renames, refactors, bug fixes).
 
 ---
 
+## 2026-08: deploy defaults are production, not the pre-migration state
+
+Two settings had drifted from "what the cluster runs" to "what the
+cluster ran before the last migration", in both cases because the real
+value lived only in `/opt/hugin/config/cluster.env`, which is not in
+git.
+
+**Paper encoder.** `PAPER_ENCODER` / `PAPERS_COLLECTION` defaulted to
+`specter` / `papers` in `database.py` and in compose, while production
+had run `bge-large` / `papers_bge` since the 2026-07 cutover. Anything
+started without cluster.env (a fresh host, a local run, the eval
+harness) silently searched the retired 768-d corpus and looked like it
+worked. The defaults now match production; rollback is the env flip in
+the other direction. Because the two vars are a pair, a half-flip is now
+a boot failure (`database.verify_paper_space()` compares encoder width
+against the collection's real vector size) and a deploy failure
+(`deploy.sh verify` asserts the pairing over `/api/status`). Related:
+`deploy.sh models` stages the bge-large weights, which nothing did
+before, so the container no longer falls back to pulling 1.3 GB from
+HuggingFace on each start.
+
+**Deep Research.** `deploy.sh all` still provisioned the MiroThinker
+daemon and offered its 17 GB download for a feature disabled in 2026-07,
+using a `huggingface-cli` binary that no longer exists in the vLLM venv.
+The legacy target is now excluded from `all`, the download is opt-in via
+`--with-model`, and `DEEPRESEARCH_ENABLED` is finally passed through
+compose so the documented re-enable path actually works. The Deep
+Research users see is the in-process agent behind `/api/research/*` and
+was never part of any of this; `deploy.sh verify` now probes it.
+
+The general rule this encodes: when a migration completes, move the
+defaults, do not leave them pointing at the rollback. Secrets stay in
+cluster.env; topology should not.
+
 ## 2026-07: background turns — registry is the source of truth, no DB status column
 
 Chat turns now survive a closed tab: after the 60 s reconnect grace,

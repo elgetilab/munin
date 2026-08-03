@@ -590,6 +590,10 @@ async def api_status():
         "maintenance": read_maintenance(),
         "vllm": vllm_block,
         "services": services,
+        # Which paper vector space is actually serving search. Surfaced so a
+        # deploy (and any eval run) can assert the encoder/collection pair
+        # instead of trusting cluster.env to be right.
+        "paper_space": database.paper_space(),
         "timestamp": datetime.utcnow().isoformat() + "Z",
     }
 
@@ -4186,6 +4190,12 @@ async def startup():
         database.get_paper_encoder()
     except Exception:
         logger.exception("paper encoder preload failed")
+
+    # Encoder and collection are a pair. A half-flip is a dimension mismatch
+    # that makes every paper search fail at query time, so fail the boot
+    # instead of serving a broken corpus. Deliberately NOT wrapped in
+    # try/except: the raise is the point.
+    database.verify_paper_space()
     try:
         get_bge()
     except Exception:

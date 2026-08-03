@@ -133,7 +133,14 @@ After `deploy.sh all`, expect:
 - `/opt/munin/data/models/`: LLM + embedding models on disk.
 - `/opt/munin/data/papers/pdf/`: paper PDFs.
 - `/opt/munin/data/user_docs/`: per-user uploaded documents.
-- `/opt/munin/deepresearch/`: deep-research job queue + results.
+- `/opt/munin/data/papers_cached/`: `read_paper` full-text cache (grows
+  without bound; see `docs/RUNTIME-CONFIG.md`).
+- `/opt/munin/data/deep_research/`: in-process Deep Research job
+  checkpoints (the feature users see in chat).
+- `/opt/munin/data/agent_traces/`, `.../agent_extracts/`: agent trace and
+  source-extraction records.
+- `/opt/munin/deepresearch/`: LEGACY MiroThinker job queue + results,
+  kept so old reports stay downloadable.
 - `/opt/munin/logs/`: service status files.
 
 The `/opt/hugin/...` path is hardcoded in `deploy.sh` from the
@@ -149,7 +156,7 @@ what would change.
 
 ```bash
 sudo ./deploy.sh all            # Full deploy: dirs → compose → personas →
-                                #   agents → vllm → deepresearch → tunnel →
+                                #   agents → models → vllm → tunnel →
                                 #   sandbox → retrieval (rebuilds both
                                 #   containers)
 sudo ./deploy.sh sandbox        # Sync sandbox/, rebuild + restart sandbox container
@@ -157,8 +164,9 @@ sudo ./deploy.sh retrieval      # Sync retrieval/, rebuild + restart container
 sudo ./deploy.sh compose        # docker-compose.yml + grobid.yaml only (no restart)
 sudo ./deploy.sh personas       # Persona JSON + logos (mounted; no restart)
 sudo ./deploy.sh agents         # config/agents.yml + munin.env.template
+sudo ./deploy.sh models         # Stage embedding models (downloads bge-large)
 sudo ./deploy.sh vllm           # vLLM SLURM + cron scripts → /opt/cluster/scripts/llm/
-sudo ./deploy.sh deepresearch   # Deep research daemon + MiroThinker model (guarded)
+sudo ./deploy.sh deepresearch   # LEGACY MiroThinker path (disabled; not in `all`)
 sudo ./deploy.sh tunnel         # munin-tunnel.service install + restart
 sudo ./deploy.sh dirs           # Create filesystem layout (idempotent)
 ```
@@ -168,9 +176,16 @@ Notes:
   `sudo vllm-service stop && sudo vllm-service start`.
 - **Env vars**: `/opt/munin/docker/.env` is a symlink to
   `/opt/hugin/config/cluster.env`, which Docker Compose auto-loads.
-- **MiroThinker download** is guarded by the target directory, so
-  re-running `deploy deepresearch` is a no-op once the model is
-  present.
+  Which variables actually reach the container, and which only have
+  code defaults, is catalogued in [`docs/RUNTIME-CONFIG.md`](docs/RUNTIME-CONFIG.md).
+- **Paper encoder**: `deploy retrieval` ends in `verify`, which fails
+  the deploy if the live encoder/collection pair is not
+  bge-large/papers_bge. Deliberate rollback:
+  `EXPECTED_PAPER_ENCODER=specter EXPECTED_PAPERS_COLLECTION=papers sudo ./deploy.sh verify`.
+- **Deep Research**: the in-chat feature (`/api/research/*`) runs inside
+  retrieval and needs no deploy step of its own. `deploy deepresearch`
+  provisions the retired MiroThinker daemon only, is excluded from
+  `all`, and downloads the 17 GB weights solely with `--with-model`.
 
 ## Common Tasks
 

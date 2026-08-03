@@ -12,16 +12,20 @@
 #   sudo ./deploy.sh compose        - docker/docker-compose.yml
 #   sudo ./deploy.sh personas       - persona JSON + logos
 #   sudo ./deploy.sh agents         - config/agents.yml + munin.env.template
+#   sudo ./deploy.sh models         - stage embedding models (bge-large etc.)
 #   sudo ./deploy.sh vllm           - scripts/vllm/*.sh → /opt/cluster/scripts/llm/
 #   sudo ./deploy.sh maintenance    - maintenance-mode toggle → munin-maintenance
-#   sudo ./deploy.sh deepresearch   - scripts/deepresearch/* + systemd unit + MiroThinker model
+#   sudo ./deploy.sh deepresearch   - LEGACY MiroThinker path (disabled; not in `all`)
+#                                     add --with-model to fetch the 17 GB weights
 #   sudo ./deploy.sh tunnel         - munin-tunnel.service (+ daemon-reload + restart)
 #   sudo ./deploy.sh knowledge      - §15 embedding-map script + nightly timer
 #   sudo ./deploy.sh pipeline       - paper_pipeline.py → /opt/cluster/scripts/pipeline/ (§28)
 #   sudo ./deploy.sh retrieval      - retrieval/ code, rebuild + restart container
 #   sudo ./deploy.sh searxng        - searxng settings.yml + restart container
 #   sudo ./deploy.sh monitoring     - prometheus + grafana on the metrics endpoint
-#   sudo ./deploy.sh verify         - smoke-test /api/status and /api/personas
+#   sudo ./deploy.sh verify         - smoke-test /api/status, /api/personas,
+#                                     the paper encoder/collection pairing and
+#                                     the deep research router
 #   sudo ./deploy.sh --dry-run <mode> - show what would change, do nothing
 #
 # NOTE: vLLM SLURM job changes only take effect on next submission. Use
@@ -38,10 +42,21 @@ fi
 
 MODE=${1:-}
 if [ -z "$MODE" ]; then
-    echo "Usage: sudo $0 [--dry-run] <mode>"
-    echo "Modes: all dirs compose personas agents vllm maintenance deepresearch tunnel knowledge pipeline retrieval sandbox searxng verify"
+    echo "Usage: sudo $0 [--dry-run] <mode> [--with-model]"
+    echo "Modes: all dirs compose personas agents models vllm maintenance deepresearch tunnel knowledge pipeline retrieval sandbox searxng monitoring verify"
     exit 1
 fi
+shift
+
+# Opt-in to the 17 GB MiroThinker download in the legacy `deepresearch` mode.
+# Off by default because the feature is disabled (see deploy_deepresearch).
+WITH_MODEL=${DEEPRESEARCH_WITH_MODEL:-0}
+for arg in "$@"; do
+    case "$arg" in
+        --with-model) WITH_MODEL=1 ;;
+        *) echo "[ERROR] Unknown argument: $arg"; exit 1 ;;
+    esac
+done
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SHARED_DIR="$(cd "$REPO_DIR/../shared" && pwd)"
@@ -73,6 +88,16 @@ VLLM_VENV=/opt/munin/services/vllm/venv
 # MODEL_PATH in scripts/vllm/start-vllm-service.sh.
 VLLM_MODEL_DIR=$MUNIN_ROOT/data/models/qwen3.6-35b-a3b-awq-4bit
 QWEN_TOKENIZER_DIR=$MUNIN_ROOT/data/models/qwen-tokenizer
+
+# Embedding models the retrieval container mounts read-only. bge-large is
+# the live paper encoder since the 2026-07 cutover; specter/papers is the
+# rollback pair. Keep these paths in sync with the retrieval volume mounts
+# in docker/docker-compose.yml.
+MODELS_DIR=$MUNIN_ROOT/data/models
+BGE_LARGE_DIR=$MODELS_DIR/bge-large
+BGE_LARGE_HF_ID="BAAI/bge-large-en-v1.5"
+BGE_BASE_DIR=$MODELS_DIR/bge-base
+SPECTER_DIR=$MODELS_DIR/specter
 
 echo "=============================================="
 echo "MUNIN BACKEND - Deployment"
@@ -118,6 +143,17 @@ deploy_dirs() {
     echo "[dirs] Ensuring filesystem layout..."
     run "mkdir -p $MUNIN_CONFIG $MUNIN_PERSONAS/logos"
     run "mkdir -p $MUNIN_DATA $MUNIN_DATA/reported $MUNIN_USER_DOCS $MUNIN_LOGS"
+    # Runtime dirs the retrieval container writes into via the /data mount.
+    # The code mkdirs them on first use, so this is mostly so a fresh cluster
+    # has the layout visible (and documented) before anything runs. See
+    # docs/RUNTIME-CONFIG.md for what writes where and how each one grows.
+    #   deep_research/  in-process Deep Research job checkpoints (dr_*.json)
+    #   agent_traces/   per-turn agent traces (AGENT_TRACE_DIR)
+    #   agent_extracts/ source-agent extractions (AGENT_EXTRACT_DIR)
+    #   papers_cached/  read_paper full-text cache (grows; PAPERS_CACHE_WARN_GB)
+    run "mkdir -p $MUNIN_DATA/deep_research $MUNIN_DATA/agent_traces"
+    run "mkdir -p $MUNIN_DATA/agent_extracts $MUNIN_DATA/papers_cached"
+    # LEGACY MiroThinker queue (disabled 2026-07; kept so old reports resolve).
     run "mkdir -p $MUNIN_DEEPRESEARCH/queue $MUNIN_DEEPRESEARCH/jobs"
     run "mkdir -p $MUNIN_DOCKER $MUNIN_RETRIEVAL $MUNIN_SANDBOX"
     run "mkdir -p $CLUSTER_SCRIPTS"
@@ -229,6 +265,79 @@ deploy_agents() {
 }
 
 # ------------------------------------------------------------------------------
+# models: make sure the embedding models retrieval mounts actually exist
+# ------------------------------------------------------------------------------
+# The retrieval container mounts three model dirs read-only. If bge-large is
+# missing, database.get_paper_encoder() silently falls back to pulling
+# BAAI/bge-large-en-v1.5 from HuggingFace into the container's ephemeral
+# layer: 1.3 GB re-downloaded on every rebuild, and a hard failure on a host
+# with no outbound network. Staging it here makes the live encoder a
+# deployed artifact like everything else.
+#
+# specter + bge-base are checked but never downloaded: specter is the
+# rollback encoder and bge-base serves user docs, both provisioned during
+# initial cluster setup (SETUP-CLUSTER.md).
+hf_cli() {
+    # The HF CLI was renamed huggingface-cli -> hf. Both spellings exist in
+    # the wild depending on when the venv was built; prefer the new one.
+    if [ -x "$VLLM_VENV/bin/hf" ]; then
+        echo "$VLLM_VENV/bin/hf"
+    elif [ -x "$VLLM_VENV/bin/huggingface-cli" ]; then
+        echo "$VLLM_VENV/bin/huggingface-cli"
+    fi
+}
+
+deploy_models() {
+    echo "[models] Checking embedding models under $MODELS_DIR..."
+    run "install -d -m 0755 $MODELS_DIR"
+
+    for d in "$SPECTER_DIR:specter (rollback paper encoder)" \
+             "$BGE_BASE_DIR:bge-base (user documents)"; do
+        local path=${d%%:*}
+        local what=${d#*:}
+        if [ -d "$path" ]; then
+            echo "  [OK] $what present"
+        else
+            echo "  [warn] $what MISSING at $path"
+            echo "         retrieval falls back to a HuggingFace pull at runtime;"
+            echo "         see SETUP-CLUSTER.md for the intended provisioning."
+        fi
+    done
+
+    if [ -f "$BGE_LARGE_DIR/config.json" ]; then
+        echo "  [OK] bge-large (live paper encoder) present"
+        echo "[OK] models"
+        return 0
+    fi
+
+    echo "  bge-large not found at $BGE_LARGE_DIR"
+    echo "  Model: $BGE_LARGE_HF_ID (~1.3 GB)"
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "  [dry-run] would download $BGE_LARGE_HF_ID → $BGE_LARGE_DIR"
+        return 0
+    fi
+
+    local cli
+    cli=$(hf_cli)
+    if [ -z "$cli" ]; then
+        echo "[WARN] no HuggingFace CLI in $VLLM_VENV — download manually:"
+        echo "       $VLLM_VENV/bin/hf download $BGE_LARGE_HF_ID \\"
+        echo "           --local-dir $BGE_LARGE_DIR"
+        echo "       Until then the paper encoder is fetched from HF on every"
+        echo "       container start."
+        return 0
+    fi
+
+    run "install -d -m 0755 $BGE_LARGE_DIR"
+    if "$cli" download "$BGE_LARGE_HF_ID" --local-dir "$BGE_LARGE_DIR"; then
+        echo "[OK] models — bge-large staged to $BGE_LARGE_DIR"
+    else
+        echo "[WARN] bge-large download failed; retrieval will fetch it from HF"
+        echo "       at runtime. Retry: sudo $REPO_DIR/deploy.sh models"
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # vllm: copy SLURM job + cron wrapper into /opt/cluster/scripts/llm/
 # ------------------------------------------------------------------------------
 deploy_vllm() {
@@ -266,12 +375,28 @@ deploy_maintenance() {
 }
 
 # ------------------------------------------------------------------------------
-# deepresearch: scripts + systemd unit + MiroThinker model (guarded)
+# deepresearch: LEGACY MiroThinker path (disabled; NOT part of `all`)
 # ------------------------------------------------------------------------------
+# This is the retired standalone Deep Research: research.muninai.org, the
+# /deepresearch/* endpoints, the deepresearch-daemon, and a SLURM job running
+# MiroThinker-30B. Disabled 2026-07 (DECISIONS.md) and deliberately dropped
+# from `all`, so a fresh cluster does not provision a feature that is off.
+#
+# The Deep Research users actually get runs IN-PROCESS inside retrieval
+# (/api/research/*, deep_research_manager.py) and needs no separate deploy
+# step beyond the dirs created by `deploy.sh dirs`.
+#
+# The 17 GB MiroThinker download is opt-in: `deploy.sh deepresearch --with-model`
+# or DEEPRESEARCH_WITH_MODEL=1. Weights already on disk are left alone.
 deploy_deepresearch() {
-    echo "[deepresearch] NOTE: Deep Research is currently DISABLED (MiroThinker retirement pending)."
-    echo "[deepresearch]       Re-enabling needs DEEPRESEARCH_ENABLED=1 on the retrieval service"
-    echo "[deepresearch]       plus: systemctl enable --now deepresearch-daemon"
+    echo "[deepresearch] LEGACY MiroThinker path. Deep Research submission is"
+    echo "[deepresearch] DISABLED; read endpoints stay up for past reports."
+    echo "[deepresearch] Re-enable needs BOTH:"
+    echo "[deepresearch]   1. DEEPRESEARCH_ENABLED=1 in $HUGIN_ENV, then"
+    echo "[deepresearch]      docker compose --profile rag up -d retrieval"
+    echo "[deepresearch]   2. systemctl enable --now deepresearch-daemon"
+    echo "[deepresearch] The in-chat Deep Research (/api/research/*) is separate"
+    echo "[deepresearch] and unaffected by any of this."
     echo "[deepresearch] Installing daemon + job script..."
     need_file "$REPO_DIR/scripts/deepresearch/deepresearch-daemon.py"
     need_file "$REPO_DIR/scripts/deepresearch/deepresearch-job.sh"
@@ -283,34 +408,34 @@ deploy_deepresearch() {
     run "systemctl daemon-reload"
 
     echo ""
-    echo "[deepresearch] Checking MiroThinker model..."
     if [ -d "$MIROTHINKER_MODEL_DIR" ]; then
-        echo "[SKIP] MiroThinker already present at $MIROTHINKER_MODEL_DIR"
+        echo "[deepresearch] MiroThinker weights present at $MIROTHINKER_MODEL_DIR (~17 GB)."
+        echo "[deepresearch] Kept on disk per DECISIONS.md; delete manually if the"
+        echo "[deepresearch] retirement is made final."
+    elif [ "$WITH_MODEL" != "1" ]; then
+        echo "[deepresearch] MiroThinker weights NOT present and NOT downloaded."
+        echo "[deepresearch] The feature is disabled, so 17 GB is not spent by default."
+        echo "[deepresearch] To fetch them: sudo $0 deepresearch --with-model"
     else
-        echo "MiroThinker not found at $MIROTHINKER_MODEL_DIR"
-        echo "Model: $MIROTHINKER_MODEL_ID (~17 GB, 10-30 min download)"
-        if [ -f "$VLLM_VENV/bin/activate" ]; then
-            if [ "$DRY_RUN" = "0" ]; then
-                # shellcheck disable=SC1091
-                source "$VLLM_VENV/bin/activate"
-                huggingface-cli download "$MIROTHINKER_MODEL_ID" \
-                    --local-dir "$MIROTHINKER_MODEL_DIR" \
-                    --local-dir-use-symlinks False
-                deactivate
-                echo "[OK] MiroThinker downloaded"
-            else
-                echo "  [dry-run] would download $MIROTHINKER_MODEL_ID → $MIROTHINKER_MODEL_DIR"
-            fi
+        echo "[deepresearch] Downloading MiroThinker (opt-in via --with-model)..."
+        echo "               $MIROTHINKER_MODEL_ID (~17 GB, 10-30 min)"
+        local cli
+        cli=$(hf_cli)
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "  [dry-run] would download $MIROTHINKER_MODEL_ID → $MIROTHINKER_MODEL_DIR"
+        elif [ -z "$cli" ]; then
+            echo "[WARN] no HuggingFace CLI in $VLLM_VENV — download manually:"
+            echo "       $VLLM_VENV/bin/hf download $MIROTHINKER_MODEL_ID \\"
+            echo "           --local-dir $MIROTHINKER_MODEL_DIR"
+        elif "$cli" download "$MIROTHINKER_MODEL_ID" \
+                --local-dir "$MIROTHINKER_MODEL_DIR"; then
+            echo "[OK] MiroThinker downloaded"
         else
-            echo "[WARN] vLLM venv not found at $VLLM_VENV"
-            echo "       Download manually after Phase 2 vLLM setup:"
-            echo "         source $VLLM_VENV/bin/activate"
-            echo "         huggingface-cli download $MIROTHINKER_MODEL_ID \\"
-            echo "             --local-dir $MIROTHINKER_MODEL_DIR"
+            echo "[WARN] MiroThinker download failed"
         fi
     fi
 
-    echo "[OK] deepresearch — enable with: systemctl enable --now deepresearch-daemon"
+    echo "[OK] deepresearch (legacy) — daemon stays disabled unless you enable it"
 }
 
 # ------------------------------------------------------------------------------
@@ -814,11 +939,82 @@ check_vllm_scripts_sync() {
     return 0
 }
 
+# Expected production pairing. Change these two together, and only when the
+# live paper corpus really moves (an encoder migration), never to paper over
+# a deploy that came up wrong.
+EXPECTED_PAPER_ENCODER=${EXPECTED_PAPER_ENCODER:-bge-large}
+EXPECTED_PAPERS_COLLECTION=${EXPECTED_PAPERS_COLLECTION:-papers_bge}
+
+# Assert the running service embeds and searches in the same space, and that
+# the space is the one production is supposed to be in. Reads the paper_space
+# block /api/status now returns. Returns 1 on mismatch (fails the deploy).
+check_paper_space() {
+    local body="$1" fields
+    fields=$(python3 - "$body" <<'PY' 2>/dev/null
+import json, sys
+sp = (json.loads(sys.argv[1]) or {}).get("paper_space")
+# No block at all means the service predates the check: print nothing so the
+# caller can tell "missing" apart from "present but wrong".
+if sp:
+    print("%s %s %s %s" % (sp.get("encoder", "?"), sp.get("collection", "?"),
+                           sp.get("encoder_dim", "?"), sp.get("collection_dim", "?")))
+PY
+)
+    if [ -z "$fields" ]; then
+        echo "[WARN] /api/status has no paper_space block — retrieval predates"
+        echo "       the encoder check; redeploy retrieval to enable it."
+        return 0
+    fi
+
+    local enc coll enc_dim coll_dim
+    read -r enc coll enc_dim coll_dim <<< "$fields"
+
+    if [ "$enc_dim" = "None" ]; then
+        echo "[FAIL] paper encoder $enc did not load — every paper search will"
+        echo "       fail. Check: docker logs --tail 200 munin-retrieval"
+        return 1
+    fi
+
+    if [ "$enc_dim" != "$coll_dim" ] && [ "$coll_dim" != "None" ]; then
+        echo "[FAIL] paper space mismatch: encoder $enc emits ${enc_dim}d but"
+        echo "       collection $coll stores ${coll_dim}d. PAPER_ENCODER and"
+        echo "       PAPERS_COLLECTION must be set together in $HUGIN_ENV."
+        return 1
+    fi
+
+    if [ "$enc" != "$EXPECTED_PAPER_ENCODER" ] || \
+       [ "$coll" != "$EXPECTED_PAPERS_COLLECTION" ]; then
+        echo "[FAIL] paper space is $enc/$coll, expected"
+        echo "       $EXPECTED_PAPER_ENCODER/$EXPECTED_PAPERS_COLLECTION."
+        echo "       If this is a deliberate rollback, re-run with:"
+        echo "         EXPECTED_PAPER_ENCODER=$enc EXPECTED_PAPERS_COLLECTION=$coll \\"
+        echo "           sudo $0 verify"
+        return 1
+    fi
+
+    if [ "$coll_dim" = "None" ]; then
+        echo "  [warn] paper space: $enc (${enc_dim}d), collection $coll not"
+        echo "         readable yet (fresh cluster or Qdrant down)"
+    else
+        echo "  [OK] paper space — $enc (${enc_dim}d) / $coll (${coll_dim}d)"
+    fi
+
+    # The encoder should be a deployed artifact, not an HF pull at boot.
+    if [ "$enc" = "bge-large" ] && [ ! -f "$BGE_LARGE_DIR/config.json" ]; then
+        echo "[WARN] $BGE_LARGE_DIR is missing — the container is fetching"
+        echo "       bge-large from HuggingFace on every start."
+        echo "       Fix: sudo $0 models"
+    fi
+    return 0
+}
+
 deploy_verify() {
     echo "[verify] Smoke-testing retrieval endpoints..."
 
     if [ "$DRY_RUN" = "1" ]; then
         echo "  [dry-run] would poll $RETRIEVAL_BASE/health until 200, then curl /api/status + /api/personas"
+        echo "  [dry-run] would assert paper_space == $EXPECTED_PAPER_ENCODER/$EXPECTED_PAPERS_COLLECTION with matching dims"
+        echo "  [dry-run] would probe /api/research/jobs for the deep research router"
         echo "  [dry-run] would compare KB_GATE_TOKEN fingerprint against the VPS (METRICS_VPS_SSH)"
         echo "  [dry-run] would compare deployed vLLM scripts in $CLUSTER_SCRIPTS against the repo"
         return 0
@@ -858,6 +1054,14 @@ deploy_verify() {
     vllm_state=$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['vllm'].get('status','?'))" "$status_body")
     echo "  [OK] /api/status — vllm=$vllm_state"
 
+    # 2b. Paper vector space. The encoder and the collection are a pair, and
+    #     the pairing lives in cluster.env, not in git — so a host that lost
+    #     (or never had) those keys used to come up quietly on the retired
+    #     SPECTER stack. Retrieval refuses to boot on a dimension mismatch;
+    #     this additionally FAILS the deploy when the live pairing is not the
+    #     expected production one, so a rollback can never be silent.
+    check_paper_space "$status_body" || return 1
+
     # 3. /api/personas — must return 200 with a non-empty personas array.
     local personas_body
     personas_body=$(curl -fsS -m 5 -H "X-Munin-Email: $VERIFY_EMAIL" "$RETRIEVAL_BASE/api/personas" 2>/dev/null || true)
@@ -875,11 +1079,26 @@ deploy_verify() {
     persona_ids=$(python3 -c "import json,sys; print(','.join(p['id'] for p in json.loads(sys.argv[1])['personas']))" "$personas_body")
     echo "  [OK] /api/personas — $persona_count loaded ($persona_ids)"
 
-    # 4. KB_GATE_TOKEN must match the VPS or the admin Metrics tab breaks.
+    # 4. /api/research/jobs — the in-process Deep Research router must be
+    #    mounted. Cheap to break (it is included by one line in main.py) and
+    #    invisible until a user starts a report, so probe it here.
+    local research_code
+    research_code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 \
+        -H "X-Munin-Email: $VERIFY_EMAIL" "$RETRIEVAL_BASE/api/research/jobs" \
+        2>/dev/null || true)
+    if [ "$research_code" = "200" ]; then
+        echo "  [OK] /api/research/jobs — deep research router mounted"
+    else
+        echo "[FAIL] /api/research/jobs returned $research_code (expected 200)"
+        echo "       The in-chat Deep Research feature is down."
+        return 1
+    fi
+
+    # 5. KB_GATE_TOKEN must match the VPS or the admin Metrics tab breaks.
     #    Warning-only: never fails the deploy.
     check_kb_token_sync
 
-    # 5. Deployed vLLM scripts must match the repo, or restarts run stale
+    # 6. Deployed vLLM scripts must match the repo, or restarts run stale
     #    launch scripts. Warning-only: never fails the deploy.
     check_vllm_scripts_sync
 
@@ -896,6 +1115,7 @@ case "$MODE" in
     compose)      deploy_compose ;;
     personas)     deploy_personas ;;
     agents)       deploy_agents ;;
+    models)       deploy_models ;;
     vllm)         deploy_vllm ;;
     maintenance)  deploy_maintenance ;;
     deepresearch) deploy_deepresearch ;;
@@ -912,9 +1132,13 @@ case "$MODE" in
         deploy_compose
         deploy_personas
         deploy_agents
+        deploy_models        # bge-large must exist before retrieval starts,
+                             # else the container pulls it from HuggingFace
         deploy_vllm
         deploy_maintenance
-        deploy_deepresearch
+        # deploy_deepresearch is NOT part of `all`: it provisions the retired
+        # MiroThinker path (disabled 2026-07). Run it explicitly if you are
+        # reviving that feature. The Deep Research in chat needs nothing here.
         deploy_tunnel
         deploy_knowledge
         deploy_pipeline
@@ -925,7 +1149,7 @@ case "$MODE" in
         ;;
     *)
         echo "[ERROR] Unknown mode: $MODE"
-        echo "Modes: all dirs compose personas agents vllm maintenance deepresearch tunnel knowledge pipeline retrieval sandbox searxng verify"
+        echo "Modes: all dirs compose personas agents models vllm maintenance deepresearch tunnel knowledge pipeline retrieval sandbox searxng monitoring verify"
         exit 1
         ;;
 esac

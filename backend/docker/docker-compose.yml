@@ -160,20 +160,37 @@ services:
       - SEARXNG_URL=http://searxng:8080
       - SPECTER_MODEL_PATH=/models/specter
       - BGE_MODEL_PATH=/models/bge-base
-      # Paper encoder migration (defaults preserve SPECTER+papers; flip both
-      # to bge-large / papers_bge to cut over). See ENCODER-MIGRATION-PLAN.md.
-      - PAPER_ENCODER=${PAPER_ENCODER:-specter}
-      - PAPERS_COLLECTION=${PAPERS_COLLECTION:-papers}
+      # Paper encoder. The defaults ARE production (cutover completed
+      # 2026-07), so a host without these keys in cluster.env still comes up
+      # on the live stack. Rollback = set both to specter / papers.
+      # They move together or retrieval refuses to boot (dim mismatch guard
+      # in database.verify_paper_space). See ENCODER-MIGRATION-PLAN.md.
+      - PAPER_ENCODER=${PAPER_ENCODER:-bge-large}
+      - PAPERS_COLLECTION=${PAPERS_COLLECTION:-papers_bge}
       - BGE_LARGE_MODEL_PATH=${BGE_LARGE_MODEL_PATH:-/models/bge-large}
       - QWEN_TOKENIZER_PATH=/models/qwen/tokenizer.json
       - PAPERS_PDF_DIR=/papers
       # Chat persistence + user docs
       - CHATS_DB_PATH=/data/chats.db
       - USER_DOCS_DIR=/data/user_docs
-      # Deep Research environment
+      # LEGACY Deep Research (MiroThinker + deepresearch-daemon + SLURM job).
+      # Disabled 2026-07, kept so past reports stay downloadable; see
+      # DECISIONS.md. DEEPRESEARCH_ENABLED=1 in cluster.env re-opens
+      # POST /deepresearch/submit, and needs the daemon enabled too.
+      # This is NOT the Deep Research users see in chat, which runs
+      # in-process in retrieval (see DEEP_RESEARCH_* below).
+      - DEEPRESEARCH_ENABLED=${DEEPRESEARCH_ENABLED:-0}
       - DEEPRESEARCH_QUEUE_DIR=/deepresearch/queue
       - DEEPRESEARCH_JOBS_DIR=/deepresearch/jobs
       - SLURM_QUEUE_FILE=/deepresearch/status/slurm_queue.json
+      # CURRENT Deep Research: the in-process agent behind /api/research/*.
+      # Checkpoints land in /data/deep_research (host
+      # /opt/munin/data/deep_research). MAX_CONCURRENT bounds how many
+      # research jobs share vLLM with interactive chat.
+      - DEEP_RESEARCH_DIR=${DEEP_RESEARCH_DIR:-/data/deep_research}
+      - DEEP_RESEARCH_MAX_CONCURRENT=${DEEP_RESEARCH_MAX_CONCURRENT:-1}
+      # Base URL used when a report links back to a Munin page.
+      - MUNIN_PUBLIC_URL=${MUNIN_PUBLIC_URL:-https://search.muninai.org}
       # vLLM for MCP tools (llm_summarize, web_fetch with summarize)
       # Uses host.docker.internal to reach vLLM running on host
       # (resolved via the extra_hosts host-gateway entry above; must not be

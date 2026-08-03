@@ -21,12 +21,15 @@ BGE_MODEL_PATH = os.getenv("BGE_MODEL_PATH", "/models/bge-base")
 PAPERS_PDF_DIR = os.getenv("PAPERS_PDF_DIR", "/opt/munin/data/papers/pdf")
 
 # --- Paper encoder selection (encoder migration; see
-# todo_v2/done/ENCODER-MIGRATION-PLAN.md). Defaults preserve today's behaviour, so
-# deploying the code is a no-op; cutover is an env flip + restart, rollback is
-# the reverse. PAPER_ENCODER and PAPERS_COLLECTION MUST be set together (a
-# BGE encoder implies the 1024d papers_bge collection, else dim mismatch).
-PAPER_ENCODER = os.getenv("PAPER_ENCODER", "specter")            # specter | bge-large
-PAPERS_COLLECTION = os.getenv("PAPERS_COLLECTION", "papers")     # papers | papers_bge
+# todo_v2/done/ENCODER-MIGRATION-PLAN.md). The defaults ARE production: the
+# SPECTER-v1 -> BGE-large cutover completed 2026-07, so an unconfigured run
+# (local dev, eval harness, fresh container) now matches the live stack
+# instead of silently benchmarking the retired one. Rollback is the env flip
+# in the other direction: PAPER_ENCODER=specter + PAPERS_COLLECTION=papers.
+# The two MUST move together (a BGE encoder implies the 1024d papers_bge
+# collection); verify_paper_space() below enforces that at startup.
+PAPER_ENCODER = os.getenv("PAPER_ENCODER", "bge-large")            # bge-large | specter
+PAPERS_COLLECTION = os.getenv("PAPERS_COLLECTION", "papers_bge")   # papers_bge | papers
 BGE_LARGE_MODEL_PATH = os.getenv("BGE_LARGE_MODEL_PATH", "/models/bge-large")
 # BGE query instruction applied to QUERIES ONLY (docs embedded raw). Empty for
 # SPECTER. Must match the eval bake-off or the recall gain shrinks.
@@ -53,6 +56,7 @@ _neo4j = None
 _specter = None
 _bge = None
 _paper_encoder = None
+_papers_collection_dim = None   # memoised width of PAPERS_COLLECTION
 
 
 # ==============================================================================
@@ -141,6 +145,84 @@ def is_specter_loaded() -> bool:
 def is_bge_loaded() -> bool:
     """Return True if BGE model has been lazy-loaded (does not trigger load)."""
     return _bge is not None
+
+
+def paper_space() -> dict:
+    """Describe the active paper vector space (encoder, collection, dims).
+
+    ``encoder_dim`` is the loaded model's real output width, so it reflects
+    what we actually embed with rather than what the flag claims.
+    ``collection_dim`` is None when Qdrant is unreachable or the collection
+    does not exist yet (fresh cluster, before the first ingest).
+    """
+    encoder_dim = None
+    try:
+        enc = get_paper_encoder()
+        if enc is not None:
+            encoder_dim = enc.get_sentence_embedding_dimension()
+    except Exception:
+        logger.exception("Could not determine paper encoder dimension")
+
+    # /api/status is polled by the frontend, so the collection width is
+    # memoised after the first successful read (it cannot change without a
+    # restart, since the collection name is env-fixed).
+    global _papers_collection_dim
+    collection_dim = _papers_collection_dim
+    try:
+        client = get_qdrant()
+        if collection_dim is None and client is not None \
+                and client.collection_exists(PAPERS_COLLECTION):
+            params = client.get_collection(PAPERS_COLLECTION).config.params.vectors
+            # Unnamed vectors give a VectorParams; named ones give a dict.
+            collection_dim = (params.size if hasattr(params, "size")
+                              else next(iter(params.values())).size)
+            _papers_collection_dim = collection_dim
+    except Exception:
+        logger.exception("Could not read %s vector size from Qdrant",
+                         PAPERS_COLLECTION)
+
+    return {
+        "encoder": PAPER_ENCODER,
+        "collection": PAPERS_COLLECTION,
+        "encoder_dim": encoder_dim,
+        "collection_dim": collection_dim,
+        "query_prefix": bool(PAPER_QUERY_PREFIX),
+    }
+
+
+def verify_paper_space() -> dict:
+    """Fail startup when the encoder and the papers collection disagree.
+
+    PAPER_ENCODER and PAPERS_COLLECTION are a pair: flipping one without the
+    other produces a dimension mismatch where every paper search fails at
+    query time, which historically surfaced as unexplained empty results
+    rather than as a config error. Raising here turns a half-flip into a
+    loud, immediate boot failure.
+
+    A missing collection is NOT fatal: a fresh cluster has no papers until
+    the pipeline creates it. Unreachable Qdrant is likewise non-fatal, since
+    /api/status already reports that.
+    """
+    space = paper_space()
+    enc_dim, coll_dim = space["encoder_dim"], space["collection_dim"]
+
+    if enc_dim is not None and coll_dim is not None and enc_dim != coll_dim:
+        raise RuntimeError(
+            f"Paper vector space mismatch: PAPER_ENCODER={PAPER_ENCODER} emits "
+            f"{enc_dim}d but collection {PAPERS_COLLECTION} stores {coll_dim}d. "
+            "These two env vars must be set together "
+            "(bge-large + papers_bge, or specter + papers)."
+        )
+
+    if coll_dim is None:
+        logger.warning(
+            "Paper space unverified: collection %s not readable (fresh cluster "
+            "or Qdrant down). Encoder=%s (%sd).",
+            PAPERS_COLLECTION, PAPER_ENCODER, enc_dim)
+    else:
+        logger.info("Paper space OK: encoder=%s (%sd) collection=%s (%sd)",
+                    PAPER_ENCODER, enc_dim, PAPERS_COLLECTION, coll_dim)
+    return space
 
 
 def get_qdrant():
