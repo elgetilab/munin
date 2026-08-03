@@ -60,6 +60,11 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 
+# Deployed side by side into /opt/cluster/scripts/pipeline by deploy.sh, so a
+# plain module import works both from the repo and from the install dir.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from author_names import best_author_list  # noqa: E402
+
 # ==============================================================================
 # Configuration
 # ==============================================================================
@@ -1384,6 +1389,29 @@ class PaperPipeline:
                 grobid["year"] = crossref["published-print"]["date-parts"][0][0]
             except (IndexError, TypeError):
                 pass
+
+        # Authors. Until 2026-08 this merge enriched title/journal/year and
+        # left authors as whatever GROBID scraped off the PDF text layer,
+        # which is why 9.2% of papers_bge carried names like 'R Tait1',
+        # 'Walfram Tet~laff~~' or 'Theodor-Kocher Institute', and another
+        # 8.5% carried none. We only get here when the title-similarity guard
+        # above passed, so the Crossref record is known to describe THIS
+        # paper and its author list is safe to consider.
+        #
+        # best_author_list picks the more informative of the two rather than
+        # always trusting Crossref: Crossref frequently gives initials
+        # ("D C Leitman") where the PDF gave the full name ("Dale Leitman"),
+        # but Crossref wins when GROBID dropped or mangled entries.
+        crossref_authors = [
+            f"{a.get('given', '')} {a.get('family', '')}".strip()
+            for a in (crossref.get("author") or [])
+            if a.get("family") or a.get("name")
+        ] or [
+            a.get("name", "") for a in (crossref.get("author") or [])
+        ]
+        merged_authors = best_author_list(grobid.get("authors"), crossref_authors)
+        if merged_authors:
+            grobid["authors"] = [{"name": n} for n in merged_authors]
 
         return grobid
 

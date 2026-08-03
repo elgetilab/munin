@@ -472,6 +472,15 @@ deploy_pipeline() {
     # disk afterwards (re-runs are no-ops).
     run "install -m 0755 $REPO_DIR/scripts/pipeline/migrate_quarantine_layout.py \
         $PIPELINE_DIR/migrate_quarantine_layout.py"
+    # Author-name hygiene (Phase C, 2026-08). author_names.py is imported by
+    # paper_pipeline.py at startup, so it MUST land alongside it or ingest
+    # breaks. audit_authors.py is the read-only corpus report.
+    need_file "$REPO_DIR/scripts/pipeline/author_names.py"
+    need_file "$REPO_DIR/scripts/pipeline/audit_authors.py"
+    run "install -m 0644 $REPO_DIR/scripts/pipeline/author_names.py \
+        $PIPELINE_DIR/author_names.py"
+    run "install -m 0755 $REPO_DIR/scripts/pipeline/audit_authors.py \
+        $PIPELINE_DIR/audit_authors.py"
     # seed_processed_markers.py and reattribute_unknown.py were
     # retired in the 2026-05-13 pipeline consolidation (see
     # docs/PIPELINE-CONSOLIDATION-PLAN.md). The first was a one-shot
