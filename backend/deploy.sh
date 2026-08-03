@@ -477,10 +477,16 @@ deploy_pipeline() {
     # breaks. audit_authors.py is the read-only corpus report.
     need_file "$REPO_DIR/scripts/pipeline/author_names.py"
     need_file "$REPO_DIR/scripts/pipeline/audit_authors.py"
+    need_file "$REPO_DIR/scripts/pipeline/repair_authors.py"
     run "install -m 0644 $REPO_DIR/scripts/pipeline/author_names.py \
         $PIPELINE_DIR/author_names.py"
     run "install -m 0755 $REPO_DIR/scripts/pipeline/audit_authors.py \
         $PIPELINE_DIR/audit_authors.py"
+    # repair_authors.py is the one-way backfill (Qdrant payload writes).
+    # Deployed but never run by any timer or service: it is operator-invoked,
+    # dry-run by default, and needs --apply.
+    run "install -m 0755 $REPO_DIR/scripts/pipeline/repair_authors.py \
+        $PIPELINE_DIR/repair_authors.py"
     # seed_processed_markers.py and reattribute_unknown.py were
     # retired in the 2026-05-13 pipeline consolidation (see
     # docs/PIPELINE-CONSOLIDATION-PLAN.md). The first was a one-shot

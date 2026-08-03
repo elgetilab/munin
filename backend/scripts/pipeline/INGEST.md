@@ -33,6 +33,7 @@ journalctl -fu munin-paper-detect.service           # tail the sweep
 |---|---|---|
 | `paper_cleanup.py review` | Whenever you want; weekly is plenty | Triage what `sweep` auto-quarantined. Keep / reject / skip per record. |
 | `paper_crawler.py crawl --max N` | When you want fresh papers from the citation queue | Pulls new PDFs into `/papers/pdf/`; the watcher takes it from there. |
+| `audit_authors.py --markdown out.md` | Before and after any author backfill | Reports how much of the corpus carries damaged or missing authors. Read-only, safe any time. |
 
 ### Less common (operator escape hatches)
 
@@ -66,6 +67,9 @@ turns PDFs into searchable corpus entries. The active pieces:
 | `paper_pipeline.py` | The ingest engine. PDF → GROBID → CrossRef → SPECTER → Qdrant + Neo4j. Run as `--single <pdf>` for one PDF, `--watch` as a long-running systemd service. |
 | `paper_crawler.py` | Citation-based PDF acquisition. arXiv first, Sci-Hub fallback. Maintains a SQLite queue of pending downloads. |
 | `paper_cleanup.py` | All cleanup, repair, detection, and remediation subcommands. |
+| `author_names.py` | Author-name sanitising (`sanitize_authors`) and source selection (`best_author_list`). Imported by `paper_pipeline.py`, so it must be deployed alongside it. |
+| `audit_authors.py` | Read-only corpus report: how many author lists are clean / damaged / empty, and what a DOI lookup would fix. Writes nothing. |
+| `repair_authors.py` | Backfill for damaged and empty author lists. Dry run by default; `--apply` writes Qdrant payloads only. |
 
 ## Ingest paths
 

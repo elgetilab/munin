@@ -105,6 +105,7 @@ first use, so an existing cluster is unaffected either way.
 | `data/agent_extracts/ex_*.json` | source agent | ~120 KB | none |
 | `data/deep_research/dr_*.json` | in-process DR | ~480 KB, one per job | none |
 | `data/papers/pdf/` | pipeline + ingest | large, corpus-sized | quarantine layout, see INGEST.md |
+| `data/author_repair_state.json` | `repair_authors.py --apply` | tiny | resume marker for the author backfill; delete to force a full re-scan (`REPAIR_STATE_FILE` overrides the path) |
 | `deepresearch/queue`, `deepresearch/jobs` | LEGACY Miro daemon | frozen (feature disabled) | keep for old reports |
 
 The unbounded one that matters is `papers_cached`: it is a full-text

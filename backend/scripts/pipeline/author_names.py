@@ -221,11 +221,46 @@ def _fullness_score(names: list[str]) -> tuple:
         tokens = n.split()
         if len(tokens) < 2:
             continue
-        # Everything except the last token is a given name / particle.
+        # Everything except the last token is a given name / particle. An
+        # ALL-CAPS token does not count: some sources shout the whole name
+        # ("MICHAEL J. DAWSON"), and a correctly-cased list is the better
+        # record even when the shouty one carries an extra middle initial.
+        # Case is never rewritten here, because "MCDONALD".title() would
+        # yield "Mcdonald" and inventing a spelling is the failure mode this
+        # whole line of work exists to remove.
         if any(len(t.strip(".")) > 1 and t.strip(".").isalpha()
+               and not t.strip(".").isupper()
                for t in tokens[:-1]):
             full_given += 1
     return (full_given, len(names), sum(len(n) for n in names))
+
+
+def _is_more_complete(a: list[str], b: list[str]) -> bool:
+    """True when `a` holds materially more authors than `b`.
+
+    A dropped author is a worse defect than an abbreviated given name: the
+    OCR-damaged record for 10.1523/jneurosci.09-04-01452.1989 kept two
+    plausible-looking but misspelled names ("Freda Mil", "Mark Blsby") where
+    the paper has five, so a pure fullness score would have preferred the
+    wreckage. Materially means two more names, or half again as many.
+    """
+    if not b:
+        return bool(a)
+    return len(a) >= len(b) + 2 or len(a) >= 1.5 * len(b)
+
+
+def _better(a: list[str], b: list[str]) -> bool:
+    """Is candidate `a` a better author list than the incumbent `b`?"""
+    if not b:
+        return bool(a)
+    if _is_more_complete(a, b):
+        return True
+    if _is_more_complete(b, a):
+        return False
+    # Comparable length: prefer real given names over initials, then the
+    # more detailed rendering.
+    sa, sb = _fullness_score(a), _fullness_score(b)
+    return sa > sb
 
 
 def best_author_list(*candidates) -> list[str]:
@@ -235,14 +270,13 @@ def best_author_list(*candidates) -> list[str]:
     source. Sanitisation runs first so a list is judged on what would actually
     be stored. Ties go to the earlier candidate, so callers should pass their
     preferred source first.
+
+    Two competing goods are traded off here, in this order: completeness (do
+    not lose an author) beats fullness (spell the given name out).
     """
     best: list[str] = []
-    best_score = None
     for cand in candidates:
         cleaned = sanitize_authors(cand)
-        if not cleaned:
-            continue
-        score = _fullness_score(cleaned)
-        if best_score is None or score > best_score:
-            best, best_score = cleaned, score
+        if cleaned and _better(cleaned, best):
+            best = cleaned
     return best
