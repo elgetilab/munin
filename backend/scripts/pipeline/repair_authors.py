@@ -322,6 +322,7 @@ def main() -> int:
     examples: list[dict] = []
     quarantined: list[dict] = []
     title_mismatch: list[dict] = []
+    unresolved: list[dict] = []
     written = 0
 
     for i, record in enumerate(candidates, 1):
@@ -345,7 +346,13 @@ def main() -> int:
         action, authors, source = decide(record, external)
         outcomes[action] += 1
 
-        if action == "skip_title":
+        if action == "skip_unresolved":
+            # Recorded so a later --with-s2 pass has a worklist instead of
+            # re-querying all 13k DOIs: the 2026-08-03 dry run left 754 of
+            # these, 5.6% of candidates, where Crossref had no author list.
+            unresolved.append({"id": record["id"], "doi": record.get("doi"),
+                               "title": (record.get("title") or "")[:90]})
+        elif action == "skip_title":
             title_mismatch.append({
                 "id": record["id"], "doi": record.get("doi"),
                 "stored_title": (record.get("title") or "")[:90],
@@ -414,6 +421,7 @@ def main() -> int:
             "examples": examples,
             "quarantined": quarantined,
             "title_mismatch": title_mismatch,
+            "unresolved": unresolved,
         }, indent=2, ensure_ascii=False))
         print(f"\n[repair] report -> {args.report}", file=sys.stderr)
     return 0
