@@ -1,0 +1,16 @@
+# CI-only slim install for backend/benchmarks/tests.
+#
+# The unit tests under tests/ are pure functions (metrics, bootstrap,
+# significance, RRF, citation rerank, trajectory, routing profile assertions)
+# and need nothing beyond this list. The full requirements.txt resolves to
+# torch plus the whole nvidia CUDA wheel set, transformers, ranx/numba and
+# matplotlib, which is several GB of download for tests that never touch a
+# model or a live service.
+#
+# Install requirements.txt (not this file) for anything that actually runs a
+# benchmark: retrievers, faithfulness judging, LitQA2 acquisition.
+numpy
+scipy
+pytest
+pydantic   # munin_bench/routing/routing_eval.py imports it at module level
+httpx      # same, for the live-service runner config block

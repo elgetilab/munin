@@ -4,9 +4,14 @@
 # (benchmark code never ships in deploy.sh).
 
 # --- Phase 1: metrics + bootstrap + significance + tests ---
+# pydantic and httpx are imported at module level by
+# munin_bench/routing/routing_eval.py, so the unit tests need them even
+# though nothing here talks to a live service.
 numpy
 scipy
 pytest
+pydantic
+httpx
 
 # --- Phase 2+: retrievers and benchmark runners ---
 ir_datasets

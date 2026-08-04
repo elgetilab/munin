@@ -53,7 +53,7 @@ jobs:
       - name: auth service tests
         run: |
           python -m pip install -U pip
-          pip install -r frontend/auth/requirements.txt pytest
+          pip install -r frontend/auth/requirements-dev.txt
           pytest frontend/auth/tests -q
       - name: upload service tests (best-effort - no pinned deps)
         continue-on-error: true
@@ -62,7 +62,7 @@ jobs:
           pytest frontend/upload/tests -q
       - name: benchmarks unit tests (pure functions)
         run: |
-          pip install -r backend/benchmarks/requirements.txt pytest
+          pip install -r backend/benchmarks/requirements-ci.txt
           pytest backend/benchmarks/tests -q
 
 # Note: the retrieval service unit tests (backend/retrieval/tests) need heavy
