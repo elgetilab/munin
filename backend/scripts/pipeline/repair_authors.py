@@ -176,9 +176,21 @@ def crossref_record(doi: str) -> dict | None:
 def s2_record(doi: str) -> dict | None:
     """Semantic Scholar, used only with --with-s2.
 
-    S2 often carries fuller given names than Crossref ("Laurent Le Guyader"
-    vs "L Le Guyader"), which the fuller-name policy prefers. Off by default
-    because it is rate-limited and the run is 13k DOIs long.
+    NOT RECOMMENDED for this corpus, measured 2026-08-04. A --with-s2 pass
+    over the 826 records Crossref could not resolve wrote just 16, and 3 of
+    those 16 were wrong in a way no structural check can catch:
+
+        10.1113/jphysiol.1933.sp003049 -> 'N.W', 'Since Loewi'  (not people)
+        10.1042/bj1730697              -> 'LI BySU-CHEN'        (mangled)
+        10.1038/bjc.1976.71            -> 'Ian Front'           (invented;
+                                          the paper is by P. R. Twentyman)
+
+    All three passed the title guard because S2's title was right; only its
+    author list was junk. A 19% error rate on writes is worse than leaving
+    the field empty, since a wrong author is the failure this whole line of
+    work exists to remove. Those three were reverted (_authors_source =
+    reverted_bad_s2). Prefer leaving these records unresolved, or verify by
+    hand, rather than running this at scale.
     """
     url = ("https://api.semanticscholar.org/graph/v1/paper/DOI:"
            + urllib.parse.quote(doi, safe="") + "?fields=title,authors")
