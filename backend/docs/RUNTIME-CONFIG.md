@@ -48,6 +48,12 @@ compose file and redeploying.
 | `DEEP_RESEARCH_DIR` / `DEEP_RESEARCH_MAX_CONCURRENT` | `/data/deep_research` / `1` | in-process DR (added 2026-08) |
 | `MUNIN_PUBLIC_URL` | `https://search.muninai.org` | report + paper links (added 2026-08) |
 
+One key is read by `deploy.sh`, not by the service: **`MUNIN_VPS_HOST`**,
+the host the reverse SSH tunnel connects to. `deploy.sh tunnel` renders it
+into `munin-tunnel.service` and refuses to install the unit if it is unset.
+It is not committed, because it is deployment-specific (it used to be a
+hardcoded public IP in the unit file).
+
 ### The one paired setting
 
 `PAPER_ENCODER` and `PAPERS_COLLECTION` are not independent. bge-large

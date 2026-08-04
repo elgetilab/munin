@@ -3,6 +3,9 @@ Description=Munin reverse SSH tunnel to VPS
 After=network-online.target
 Wants=network-online.target
 
+# __MUNIN_VPS_HOST__ is substituted by `deploy.sh tunnel` from MUNIN_VPS_HOST
+# in /opt/hugin/config/cluster.env. The host is deployment-specific, so it is
+# not committed; deploy fails loudly rather than installing a broken unit.
 [Service]
 Type=simple
 User=root
@@ -15,7 +18,7 @@ ExecStart=/usr/bin/autossh -M 0 -N \
     -o "StrictHostKeyChecking=accept-new" \
     -i /root/.ssh/munin_tunnel \
     -R 127.0.0.1:18080:localhost:8080 \
-    tunnel@<vps-host>
+    tunnel@__MUNIN_VPS_HOST__
 Restart=always
 RestartSec=10
 

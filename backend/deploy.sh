@@ -628,7 +628,31 @@ deploy_knowledge() {
 deploy_tunnel() {
     echo "[tunnel] Installing munin-tunnel.service..."
     need_file "$REPO_DIR/config/munin-tunnel.service"
-    run "install -m 0644 $REPO_DIR/config/munin-tunnel.service $SYSTEMD_DIR/munin-tunnel.service"
+
+    # The VPS host is deployment-specific and deliberately NOT in the repo
+    # (it used to be a hardcoded public IP). It comes from MUNIN_VPS_HOST in
+    # cluster.env; without it we would install a unit that tries to ssh to
+    # the literal string __MUNIN_VPS_HOST__, so fail loudly instead.
+    local vps_host
+    vps_host=$(clusterenv_get MUNIN_VPS_HOST)
+    if [ -z "$vps_host" ]; then
+        echo "[ERROR] MUNIN_VPS_HOST is not set in $HUGIN_ENV."
+        echo "        Add it (the VPS hostname or IP the tunnel connects to):"
+        echo "          echo 'MUNIN_VPS_HOST=vps.example.org' >> $HUGIN_ENV"
+        exit 1
+    fi
+    echo "[tunnel] Target host: $vps_host"
+
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "  [dry-run] would render __MUNIN_VPS_HOST__ -> $vps_host and install the unit"
+    else
+        local rendered
+        rendered=$(mktemp)
+        sed "s#__MUNIN_VPS_HOST__#${vps_host}#g" \
+            "$REPO_DIR/config/munin-tunnel.service" > "$rendered"
+        install -m 0644 "$rendered" "$SYSTEMD_DIR/munin-tunnel.service"
+        rm -f "$rendered"
+    fi
     run "systemctl daemon-reload"
     if systemctl list-unit-files munin-tunnel.service >/dev/null 2>&1; then
         run "systemctl restart munin-tunnel.service"
