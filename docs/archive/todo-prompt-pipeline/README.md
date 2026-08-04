@@ -3,15 +3,15 @@
 > **STATUS: PARKED since 2026-06-11. Not the active roadmap.**
 >
 > Active work lives in two other places, and neither supersedes this one:
-> - [`todo_v2/`](../todo_v2/) — the **eval suite and paper track**
+> - [`docs/paper-track/`](../docs/paper-track/) — the **eval suite and paper track**
 >   (retrieval/answer benchmarks, Tracks A–F).
-> - [`backend/benchmarks/todo_v2/`](../backend/benchmarks/todo_v2/) — the
+> - [`docs/agent-track/`](../docs/agent-track/) — the
 >   **agent architecture and Deep Research** track.
 >
 > This directory is a *different* concern: a human-in-the-loop **prompt
 > optimizer** and a **behaviour-scenario catalogue**. It was never built
 > beyond the pong scenario. Its seed harness
-> (`backend/retrieval/evals/run_eval.py`) still exists, and `todo_v2/done/
+> (`backend/retrieval/evals/run_eval.py`) still exists, and `docs/paper-track/done/
 > A0-PLAN.md` cites `eval-scenarios.md`, so the content is live reference
 > rather than dead weight. Revive or retire deliberately; do not treat the
 > statuses below as current.

@@ -1,7 +1,7 @@
 """Tests for the context-budget fit (chat_context.fit_max_tokens + helpers).
 
 Guards the deep_research vLLM 400 context-overflow fix
-(todo_v2/done/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 1 + Tier 3): the output budget is
+(docs/paper-track/done/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 1 + Tier 3): the output budget is
 clamped so prompt + output never exceeds the model window, and the history-trim
 reservation stays in lockstep with the real output cap.
 

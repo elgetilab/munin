@@ -8,7 +8,7 @@ passing item may fail"). It is explicitly a regression baseline, **never a
 paper result**.
 
 **Placement (Q7/Q10).** `backend/benchmarks/munin_bench/routing/`.
-`routing_eval.py` moves here from `todo_v2/` as part of this commit, no
+`routing_eval.py` moves here from `docs/paper-track/` as part of this commit, no
 duplicate left behind.
 
 **Status:** plan for review. No code until varghele signs off (plan-first).
@@ -49,7 +49,7 @@ existing SSE parser in `scripts/test_delegate_persona.py`.
 ```
 backend/benchmarks/munin_bench/routing/
   __init__.py
-  routing_eval.py        # moved from todo_v2/, with run_item/judge wired
+  routing_eval.py        # moved from docs/paper-track/, with run_item/judge wired
   run.py                 # CLI: drive seed set, N reps, write scorecard
   trajectory.py          # SSE parse + step reconstruction (reused by both)
   README.md              # how varghele re-runs it
@@ -256,7 +256,7 @@ that was SKIPPED at A0.
 - [ ] Full seed set run at N reps under the agreed persona policy.
 - [ ] `scorecards/<date>_routing-pre-migration.json` (+ `.md`) committed,
       header records model+revision, git SHA, persona policy, reps, seed.
-- [ ] `routing_eval.py` relocated into the package; no `todo_v2/` duplicate.
+- [ ] `routing_eval.py` relocated into the package; no `docs/paper-track/` duplicate.
 - [ ] Decisions A/B/C recorded in KICKOFF-QUESTIONS or a short A0 note.
 
 ## 9. Risks / notes

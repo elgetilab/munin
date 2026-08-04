@@ -46,7 +46,7 @@ THIN_EVIDENCE_MIN = 3    # fewer than N scholarly hits => thin_evidence
 
 # Relevance floor for the RESERVED external slots. Calibrated 2026-07-24 over 30
 # real retrieved candidates on the capstone sub-questions (see
-# todo_v2/OA-RELEVANCE-PLAN.md): the clearly off-topic tail sits below 0.62
+# docs/paper-track/OA-RELEVANCE-PLAN.md): the clearly off-topic tail sits below 0.62
 # while every genuinely relevant external hit scored above it. BGE cosine has a
 # high compressed baseline (observed band 0.57-0.77), so this is NOT a
 # general-purpose "similarity is high" threshold - it is tied to this encoder.

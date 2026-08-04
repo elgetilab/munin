@@ -1,6 +1,6 @@
 """
 Standalone tests for real-tokenizer context-budget counting
-(chat_context.approx_tokens, P1 #8 from munin-audit.md).
+(chat_context.approx_tokens, P1 #8 from docs/architecture/HARNESS-AUDIT-2026-05.md).
 
 Run inside the retrieval container:
     docker exec munin-retrieval python /app/tests/test_token_counting.py

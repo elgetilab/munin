@@ -1,7 +1,7 @@
 # Pipeline consolidation plan (2026-05-13)
 
 Follow-on to the 2026-05-12 ingest audit
-([`PAPER-INGEST-AUDIT.md`](PAPER-INGEST-AUDIT.md)). The audit work
+([`../PAPER-INGEST-AUDIT.md`](../PAPER-INGEST-AUDIT.md)). The audit work
 shipped hardening + a remediation tool, but the broader
 `backend/scripts/pipeline/` directory has been growing organically
 for months and the operator has lost the overview. This plan

@@ -373,7 +373,7 @@ corrections to the handoff's reasoning.**
    the paper-citation use is the same run. No duplication.
 
 The pong test and the `backend/scripts/` QA tools stay in `eval/`, keeping
-the boundary otherwise clean. `routing_eval.py` moves from `todo_v2/` into
+the boundary otherwise clean. `routing_eval.py` moves from `docs/paper-track/` into
 `benchmarks/munin_bench/routing/` as part of the A0 commit (see Q10).
 
 ---
@@ -440,14 +440,14 @@ state, not by reconstructing the briefing.
 
 ---
 
-## Q10 ✅ DECIDED — Where do `todo_v2/` artifacts land in the tree?
+## Q10 ✅ DECIDED — Where do `docs/paper-track/` artifacts land in the tree?
 
 **The question.** Where do the planning docs and `routing_eval.py` live as
 the build starts, and how do the decisions recorded here propagate?
 
 **DECISION (2026-06-18).**
 
-1. **Planning docs (`todo_v2/*.md`)** stay in `todo_v2/` while in flight
+1. **Planning docs (`docs/paper-track/*.md`)** stay in `docs/paper-track/` while in flight
    (repo working-doc convention). A spec graduates to `backend/docs/` or
    `shared/docs/` via `git mv` + a short stub when its content stabilizes
    (e.g. retrieval spec after Phase 5), matching the archive-over-delete
@@ -457,7 +457,7 @@ the build starts, and how do the decisions recorded here propagate?
    commit (per Q7), no duplicate left behind.
 3. **`KICKOFF-QUESTIONS.md`** is the durable decision record (the *why*
    behind choices the specs state as bare *what*). It stays as the dated
-   audit trail; its decisions propagate into the specs. When `todo_v2/`
+   audit trail; its decisions propagate into the specs. When `docs/paper-track/`
    retires, it graduates alongside the spec, not deleted.
 
 **Spec-reconciliation backlog (created by Q1/Q3/Q4/Q5; lands as ONE "spec

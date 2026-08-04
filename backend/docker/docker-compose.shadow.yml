@@ -25,7 +25,7 @@ services:
       - /opt/munin/data/models/bge-base:/models/bge-base:ro
       - /opt/munin/data/models/specter:/models/specter:ro
       # BGE-large paper encoder (encoder migration). Empty/missing is fine until
-      # PAPER_ENCODER=bge-large is set. See todo_v2/done/ENCODER-MIGRATION-PLAN.md.
+      # PAPER_ENCODER=bge-large is set. See docs/paper-track/done/ENCODER-MIGRATION-PLAN.md.
       - /opt/munin/data/models/bge-large:/models/bge-large:ro
       # Qwen3 tokenizer for exact context-budget token counting (P1 #8).
       # Only the ~7 MB tokenizer files, copied out of the vLLM model dir

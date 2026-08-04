@@ -90,11 +90,11 @@ across 6 cases incl. the µmol/L-vs-µM alternation-order fix, and
 
 Running the exact question the user gave Claude (membrane lipid composition x
 kinase-inhibitor partitioning) through the full pipeline (OA lever + wider funnel
-+ snowball + R1 report). Saves to `todo_v2/MUNIN-DR-SAMPLE-REPORT.md` so the user
++ snowball + R1 report). Saves to `docs/paper-track/MUNIN-DR-SAMPLE-REPORT.md` so the user
 can compare Munin's report side-by-side with the Claude reference. NOTE
 (2026-07-27): this log originally said the reference was never committed. It
 was in fact committed (in `01eaa68`, under an opaque `compass_artifact_*`
-filename) and now lives at `backend/benchmarks/todo_v2/CLAUDE-DR-REFERENCE-REPORT.md`.
+filename) and now lives at `docs/agent-track/CLAUDE-DR-REFERENCE-REPORT.md`.
 
 **The capstone caught a real bug (b5a58c6).** The first capstone run produced an
 off-topic report about ChatGPT chemistry, researching the literal string
@@ -108,7 +108,7 @@ the capstone with the fix (result appended below).
 
 **Capstone result (after the fix):** 3 real sub-questions, 2 resolved / 1
 unresolvable, **21 reads**, 6 grounded notes, 5 citations (4 full-text, 1
-abstract). Report saved to `todo_v2/MUNIN-DR-SAMPLE-REPORT.md`. All features
+abstract). Report saved to `docs/paper-track/MUNIN-DR-SAMPLE-REPORT.md`. All features
 visibly working:
 - All 5 sections render, gated correctly (Caveats lists the 1 unresolved
   sub-question + the 1 abstract-only source).
@@ -142,7 +142,7 @@ Done this session, all committed on `main`, all verified:
 5. **Bug fix** decompose object-wrapped list (b5a58c6) - caught by the capstone.
 
 Unit tests: 10/10 (`backend/retrieval/tests/test_dr_report.py`). Frontend E2E:
-18/18. Sample report vs Claude reference: side by side in `todo_v2/`.
+18/18. Sample report vs Claude reference: side by side in `docs/paper-track/`.
 
 **NOT deployed** (autonomous session; deploy is the user's call): all of the
 above is backend + frontend committed-not-deployed. To go live:

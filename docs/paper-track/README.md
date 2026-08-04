@@ -1,12 +1,16 @@
-# todo_v2 — index
+# Paper track — index
 
-At-a-glance status. **Completed plans live in `done/`**; active/remaining plans
-stay here. Updated 2026-07-27.
+The eval suite and everything that feeds the paper: retrieval benchmarks,
+the harness ablation, abstention, faithfulness, reliability. **Completed
+plans live in [`done/`](done/)**; what stays here is open work. Renamed from
+`todo_v2/` on 2026-08-04. Updated 2026-08-04.
 
-> **Two `todo_v2/` directories exist.** This one (repo root) is the **eval suite
-> and paper track**. The other, `backend/benchmarks/todo_v2/`, is the **agent
-> architecture and Deep Research** track. They have separate `done/` dirs and
-> separate TODOs. Check which you are in before filing anything.
+> **Start at [`../../PAPER.md`](../../PAPER.md)** if you want the results
+> rather than the plans: it maps every claim to its scorecard and its
+> reproduce command.
+>
+> **The sibling track is [`../agent-track/`](../agent-track/)** (agent
+> architecture and Deep Research). Separate `done/`, separate TODO.
 >
 > **T-numbers are not global.** `BENCHMARK-TODO.md` numbers benchmark items
 > (T1 retrieval suite, T2 ablation, T3 abstention, T4 MiniCheck judge...);
@@ -27,8 +31,11 @@ stay here. Updated 2026-07-27.
 | `CONTEXT-BUDGET-FIX-SCOPE.md` | 3-tier context-budget fix. Deployed. |
 | `PERSONA-CONSOLIDATION-PLAN.md` | One Munin identity, 3 routing profiles. Done. |
 | `TRACK-D-PLAN.md` | Harness ablation. **Definitive clean run 2026-07-27** (n=199 paired, finished agent architecture): agentic **0.839** >> bare 0.302 >> RAG 0.171; harness value **+0.538 [0.457, 0.618] p<0.001**. The 07-13 n=100 pilot (0.56/0.32/0.15) is superseded — do not cite it. |
+| `T2-ABLATION-REFRESH-PLAN.md` | Track D refresh. **DONE 2026-07-27**, definitive clean run (n=199 paired). |
+| `CITATIONS-VERIFIED.md` | `[VERIFY]` anchor pass 2026-07-26; every anchor checked, no markers remain. |
 
-Eval-suite results writeup: `backend/benchmarks/RESULTS.md` (canonical).
+Eval-suite results writeup: `backend/benchmarks/RESULTS.md` (canonical);
+claim-to-scorecard index: [`../../PAPER.md`](../../PAPER.md).
 
 ## Remaining (here)
 

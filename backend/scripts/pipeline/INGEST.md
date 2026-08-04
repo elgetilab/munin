@@ -53,7 +53,7 @@ For deeper context:
 - [`../../docs/PAPER-INGEST-AUDIT.md`](../../docs/PAPER-INGEST-AUDIT.md)
   — the 2026-05-12 audit that introduced the ingest-time
   title-similarity guard.
-- [`../../docs/PIPELINE-CONSOLIDATION-PLAN.md`](../../docs/PIPELINE-CONSOLIDATION-PLAN.md)
+- [`../../docs/archive/PIPELINE-CONSOLIDATION-PLAN.md`](../../docs/archive/PIPELINE-CONSOLIDATION-PLAN.md)
   — the consolidation that produced this directory's current shape.
   All six phases (A-F) shipped 2026-05-13 to 2026-05-15.
 
@@ -478,4 +478,4 @@ follow up with `reingest-queue`. See
 - The in-progress pipeline consolidation that will replace
   `skipped/` + `failed/` with a unified `quarantine/` and rebuild the
   cleanup CLI around a state-machine model:
-  [`../../docs/PIPELINE-CONSOLIDATION-PLAN.md`](../../docs/PIPELINE-CONSOLIDATION-PLAN.md).
+  [`../../docs/archive/PIPELINE-CONSOLIDATION-PLAN.md`](../../docs/archive/PIPELINE-CONSOLIDATION-PLAN.md).

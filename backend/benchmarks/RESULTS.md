@@ -185,7 +185,7 @@ Recall@10, this projects LitQA2 answer accuracy toward ~0.73 (past PaperQA2's
 0.66) - to be measured for real in Phase C. Scorecards:
 `scorecards/2026-07-03_{baseline-specter-v1,bge-large}.json`. Migration is
 strongly justified; proceed to Phase B (production cutover) per
-`../../todo_v2/done/ENCODER-MIGRATION-PLAN.md`.
+`../../docs/paper-track/done/ENCODER-MIGRATION-PLAN.md`.
 
 ## Encoder migration Phase C - end-to-end answer, post-cutover (final)  · 2026-07-06
 
@@ -286,7 +286,7 @@ dominant bottleneck and the model's ~40% abstention was a hard floor. That floor
 was NOT the model - it was `read_paper` discarding the text that held the answer.
 Giving the model the full text (source-qa) collapsed over-abstention from ~42% to
 6% and roughly doubled accuracy. Retrieval quality still bounds BREADTH (how many
-distinct sources a Deep Research report can cite - see `todo_v2/TODO.md`), but on
+distinct sources a Deep Research report can cite - see `docs/paper-track/TODO.md`), but on
 single-source MCQ answering the reading path, not retrieval, was the ceiling.
 
 ---

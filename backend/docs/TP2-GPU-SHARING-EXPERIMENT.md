@@ -64,7 +64,7 @@ with memory protection. Sketch:
 ### Recommendation
 Only worth it if "batch jobs alongside 128k vLLM" becomes a frequent, hard
 requirement. With Miro (MiroThinker, GPU 0's main batch tenant) being retired
-(see todo_v2 / memory), GPU 0 frees up anyway, so the simple toggle is likely the
+(see docs/paper-track / memory), GPU 0 frees up anyway, so the simple toggle is likely the
 better trade. Revisit MPS only if that assumption breaks.
 
 See also: memory `reference_hugin_gpu_sharding`, `project_miro_retirement`;

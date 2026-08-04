@@ -9,7 +9,7 @@ text (live answers have no stable ground truth; the routing decision does).
 Two jobs:
 1. Measures routing accuracy against Munin's real tool list (a paper-citable
    harness-section number — this is why it lives in `benchmarks/`, not
-   `eval/`; see `../../../../todo_v2/KICKOFF-QUESTIONS.md` Q7).
+   `eval/`; see `../../../../docs/paper-track/KICKOFF-QUESTIONS.md` Q7).
 2. Is the regression harness for the persona → router migration (Part A):
    the A0 baseline below is what A4 regresses against.
 

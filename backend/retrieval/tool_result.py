@@ -5,7 +5,7 @@ A tool result is handed back to the model as the ``content`` of a
 ``tool``-role message. It used to be ``json.dumps(result)[:8000]`` — a
 raw character slice, which turns any oversized result into *syntactically
 broken JSON*. The model then parses garbage and either silently re-quotes
-it or gets confused (P1 #15 from munin-audit.md).
+it or gets confused (P1 #15 from docs/architecture/HARNESS-AUDIT-2026-05.md).
 
 ``truncate_tool_result`` always returns a string that is **valid JSON**
 and within the character budget. Three tiers:

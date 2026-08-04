@@ -23,7 +23,21 @@ frontend/   VPS-side. Caddy, email-OTP auth, API gateway, tusd, hook service,
 shared/     Cross-cut artifacts both sides consume: persona JSONs
             (shared/personas/), contributor allowlist
             (shared/config/contributors.yml), contracts (shared/docs/).
+docs/       paper-track/ (eval suite, benchmarks), agent-track/ (agent
+            architecture, Deep Research), architecture/, handoffs/, archive/.
 ```
+
+## Paper artifacts
+
+[`PAPER.md`](PAPER.md) is the index for the publication: every headline
+claim, the measurement behind it, the scorecard filename, what is explicitly
+**not** claimed, and the reproduce command per track. The numbers themselves
+live in [`backend/benchmarks/RESULTS.md`](backend/benchmarks/RESULTS.md),
+with committed per-run scorecards under `backend/benchmarks/scorecards/`.
+
+Headline: the agentic harness scores **0.839** on LitQA2 against **0.302**
+bare and **0.171** naive RAG (n=199 paired, harness value +0.538 [0.457,
+0.618], p<0.001).
 
 ## Architecture
 

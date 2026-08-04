@@ -21,7 +21,7 @@ BGE_MODEL_PATH = os.getenv("BGE_MODEL_PATH", "/models/bge-base")
 PAPERS_PDF_DIR = os.getenv("PAPERS_PDF_DIR", "/opt/munin/data/papers/pdf")
 
 # --- Paper encoder selection (encoder migration; see
-# todo_v2/done/ENCODER-MIGRATION-PLAN.md). The defaults ARE production: the
+# docs/paper-track/done/ENCODER-MIGRATION-PLAN.md). The defaults ARE production: the
 # SPECTER-v1 -> BGE-large cutover completed 2026-07, so an unconfigured run
 # (local dev, eval harness, fresh container) now matches the live stack
 # instead of silently benchmarking the retired one. Rollback is the env flip

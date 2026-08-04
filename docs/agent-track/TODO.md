@@ -1,4 +1,11 @@
-# todo_v2 — open items
+# Agent track — open items
+
+Agent architecture and Deep Research. **Completed plans live in
+[`done/`](done/)** with a stub left at the original path. Renamed from
+`backend/benchmarks/todo_v2/` on 2026-08-04.
+
+> Sibling track: [`../paper-track/`](../paper-track/) (eval suite, benchmarks,
+> the numbers that go in the paper). Results index: [`../../PAPER.md`](../../PAPER.md).
 
 The specialised-agents architecture and the Deep Research breadth work (the whole
 `done/` arc) shipped and deployed. What's genuinely left, in rough priority:
@@ -224,7 +231,7 @@ truncation) and together they moved distinct sources 3 -> 4. Pointing the same
 system at a topic the corpus actually covers moved it to 8 immediately. Breadth
 was bounded by corpus coverage, not by the retrieval or reading machinery.
 
-Question text: `todo_v2/` scratch, reproduced in the session log. Kept for a
+Question text: `docs/paper-track/` scratch, reproduced in the session log. Kept for a
 side-by-side against Claude, where the interesting axis is whether Munin surfaces
 lab-specific work a general model has never seen.
 

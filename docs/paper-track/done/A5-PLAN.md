@@ -266,7 +266,7 @@ benchmark-only iterate then `deploy.sh personas`).
 
 - Mark A5 DONE here (strike the stale context-budget bullet; record the soak
   verdict).
-- Update `todo_v2/README.md` (router row -> A4+A5 complete) and the
+- Update `docs/paper-track/README.md` (router row -> A4+A5 complete) and the
   `project_router_migration` memory (A5 done; migration A0-A5 complete).
 - The paraphrase-tier robustness number (~0.89-0.91) is a paper input; note it's
   reps=1 and a stable figure needs higher reps (multi-hour) IF the paper wants a

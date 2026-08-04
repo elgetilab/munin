@@ -3,7 +3,7 @@ Structured logging for the Munin retrieval service.
 
 Before this module existed, every diagnostic was ``print(f"[WARNING] ...")``
 straight to stdout: no correlation id, no log level, no structured fields,
-no way to filter. Closing P1 #6 from munin-audit.md.
+no way to filter. Closing P1 #6 from docs/architecture/HARNESS-AUDIT-2026-05.md.
 
 Shape: one JSON object per line on stdout, suitable for journald / Loki /
 ``jq``. Each line carries the standard fields (``ts``, ``level``,

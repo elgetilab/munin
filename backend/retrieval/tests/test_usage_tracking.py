@@ -1,6 +1,6 @@
 """
 Standalone tests for the per-request token-usage aggregator
-(usage_tracker.py, P0 #3 from munin-audit.md).
+(usage_tracker.py, P0 #3 from docs/architecture/HARNESS-AUDIT-2026-05.md).
 
 Run inside the retrieval container:
     docker exec munin-retrieval python /app/tests/test_usage_tracking.py

@@ -14,7 +14,7 @@
 > originally written assuming the chat agent retrieves via `/search/hybrid`
 > with live weights 0.8/0.2. Both assumptions were wrong against the code.
 > The corrected picture is below; the original is preserved in git history.
-> Decision records: `todo_v2/KICKOFF-QUESTIONS.md` Q1 (weights) and Q3
+> Decision records: `docs/paper-track/KICKOFF-QUESTIONS.md` Q1 (weights) and Q3
 > (which retriever is "production").
 
 Munin has **two distinct retrieval paths**, and the eval must not conflate

@@ -1,7 +1,7 @@
 """Drift guard: the three Munin routing-profile files share ONE identical frame.
 
 After consolidating Meitner/Turing/Curie into a single Munin identity
-(todo_v2/done/PERSONA-CONSOLIDATION-PLAN.md), chat/code/research.json carry the SAME
+(docs/paper-track/done/PERSONA-CONSOLIDATION-PLAN.md), chat/code/research.json carry the SAME
 frame (prefix = identity + CORE RULES + OUTPUT STYLE; suffix = TASK PLANNING +
 DISCOVERING TOOLS) and differ ONLY in the per-profile fragment, sampling, and
 resident_tools. We keep three hand-maintained files (not one), so this test is

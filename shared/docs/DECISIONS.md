@@ -191,7 +191,7 @@ Re-enable = env flag + daemon enable + restore the page from git.
 The persona system used to do three entangled jobs: tool-allowlist scoping,
 prompt/sampling shaping, and mid-conversation **delegation** (`delegate_to_persona`
 handed a turn to another persona, with message rewind, persona persistence,
-and `delegated`/`persona_changed` SSE). The migration (`todo_v2/`, steps A1-A4)
+and `delegated`/`persona_changed` SSE). The migration (`docs/paper-track/`, steps A1-A4)
 replaced delegation with an up-front **per-turn router** (`router.py`): each
 turn's profile (chat/research/code) is chosen from the query, biased by the
 pinned persona, and the system prompt is composed `base[pin] + fragment[routed]`.

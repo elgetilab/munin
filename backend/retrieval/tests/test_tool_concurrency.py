@@ -1,6 +1,6 @@
 """
 Standalone tests for concurrency-safety partitioning of tool calls
-(mcp/executor.py + the two dispatchers, P0 #5 from munin-audit.md).
+(mcp/executor.py + the two dispatchers, P0 #5 from docs/architecture/HARNESS-AUDIT-2026-05.md).
 
 Run inside the retrieval container:
     docker exec munin-retrieval python /app/tests/test_tool_concurrency.py

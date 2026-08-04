@@ -798,7 +798,7 @@ async def _stream_vllm_once(
     # iterations the model has already reasoned past) out of the prompt copy
     # sent to vLLM so the output budget fit below isn't starved. No-op until
     # results accumulate; never touches the pending batch or the persisted
-    # conversation. (todo_v2/done/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 2.)
+    # conversation. (docs/paper-track/done/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 2.)
     messages, _n_elided = chat_context.budget_tool_results(messages)
     if _n_elided:
         logger.info(
@@ -833,7 +833,7 @@ async def _stream_vllm_once(
     # Fit the output budget to the room the (current) prompt leaves. history is
     # trimmed once at turn start, BEFORE tool results accumulate in the loop, so
     # a heavy fan-out turn (deep_research + many searches) can push the prompt
-    # past the window; re-fit per call. (todo_v2/done/CONTEXT-BUDGET-FIX-SCOPE.md.)
+    # past the window; re-fit per call. (docs/paper-track/done/CONTEXT-BUDGET-FIX-SCOPE.md.)
     body["max_tokens"] = chat_context.fit_max_tokens(messages, body.get("max_tokens"))
     if enable_tools:
         body["tools"] = _openai_tools_schema(persona)
@@ -1770,7 +1770,7 @@ async def stream_chat_completion(
     # Map it to no-pin (the router does pure KNN + chat fallback). A real profile
     # id (chat/code/research, e.g. a slash command or a legacy client) still pins.
     # All three profiles share one Munin frame, so the base voice is identical
-    # whichever profile supplies it. (todo_v2/done/PERSONA-CONSOLIDATION-PLAN.md)
+    # whichever profile supplies it. (docs/paper-track/done/PERSONA-CONSOLIDATION-PLAN.md)
     _auto_route = persona_id in (None, "", persona_module.AUTO_PERSONA_ID, "auto")
     if _auto_route:
         persona_id = persona_module.DEFAULT_PERSONA_ID   # base profile for the frame

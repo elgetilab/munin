@@ -288,7 +288,7 @@ def public_personas() -> dict:
     """Return the /api/personas payload: the SINGLE user-facing **Munin**
     identity.
 
-    Post-consolidation (todo_v2/done/PERSONA-CONSOLIDATION-PLAN.md) chat/code/research
+    Post-consolidation (docs/paper-track/done/PERSONA-CONSOLIDATION-PLAN.md) chat/code/research
     are INTERNAL routing profiles the router selects per turn, not user-pickable
     models. The frontend shows one "Munin" and never sends a model choice; the
     chat path auto-routes. Slash commands (/chat //code //research) remain the
@@ -364,7 +364,7 @@ def build_system_prompt(persona: dict) -> str:
 #   suffix   = TASK PLANNING + DISCOVERING TOOLS         -> from the PIN
 # Composition = prefix(pin) + fragment(routed) + suffix(pin). When pin==routed
 # this reconstructs the original prompt exactly (behavior-preserving on
-# ordinary turns; see todo_v2/done/A3-PLAN.md §2a).
+# ordinary turns; see docs/paper-track/done/A3-PLAN.md §2a).
 _FRAGMENT_START_AFTER = "=== END OUTPUT STYLE ==="
 _FRAGMENT_END_BEFORE = "=== TASK PLANNING ==="
 
