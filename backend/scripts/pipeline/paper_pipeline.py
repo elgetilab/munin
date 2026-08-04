@@ -668,6 +668,18 @@ class PaperPipeline:
                     "CREATE CONSTRAINT author_id IF NOT EXISTS "
                     "FOR (a:Author) REQUIRE a.author_id IS UNIQUE"
                 )
+                # Papers are looked up by DOI far more often than by
+                # paper_id: the ingest path, /api/papers/{doi}/citations,
+                # get_author_papers, and the graph reconciliation all match
+                # on it. Without this index each lookup is a full label scan
+                # (measured 2026-08-04 on 718,795 Paper nodes: 1,437,591 db
+                # hits per lookup, versus 2 with the index). NOT unique:
+                # 170 DOIs legitimately carry two nodes today, which is a
+                # separate defect and would make a constraint fail.
+                session.run(
+                    "CREATE INDEX paper_doi IF NOT EXISTS "
+                    "FOR (p:Paper) ON (p.doi)"
+                )
             print("[OK] Neo4j connected")
         except Exception as e:
             print(f"[WARNING] Neo4j connection failed: {e}")

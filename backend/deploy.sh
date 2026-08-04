@@ -487,6 +487,12 @@ deploy_pipeline() {
     # dry-run by default, and needs --apply.
     run "install -m 0755 $REPO_DIR/scripts/pipeline/repair_authors.py \
         $PIPELINE_DIR/repair_authors.py"
+    # repair_author_graph.py reconciles the Neo4j author graph with the
+    # (already repaired) Qdrant payloads. Same rules: operator-invoked,
+    # dry-run by default, and --apply refuses to run without --backup.
+    need_file "$REPO_DIR/scripts/pipeline/repair_author_graph.py"
+    run "install -m 0755 $REPO_DIR/scripts/pipeline/repair_author_graph.py \
+        $PIPELINE_DIR/repair_author_graph.py"
     # seed_processed_markers.py and reattribute_unknown.py were
     # retired in the 2026-05-13 pipeline consolidation (see
     # docs/PIPELINE-CONSOLIDATION-PLAN.md). The first was a one-shot

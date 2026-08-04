@@ -70,6 +70,7 @@ turns PDFs into searchable corpus entries. The active pieces:
 | `author_names.py` | Author-name sanitising (`sanitize_authors`) and source selection (`best_author_list`). Imported by `paper_pipeline.py`, so it must be deployed alongside it. |
 | `audit_authors.py` | Read-only corpus report: how many author lists are clean / damaged / empty, and what a DOI lookup would fix. Writes nothing. |
 | `repair_authors.py` | Backfill for damaged and empty author lists. Dry run by default; `--apply` writes Qdrant payloads only. |
+| `repair_author_graph.py` | Reconciles the Neo4j `:Author` graph with the Qdrant payloads (no network). Dry run by default; `--apply` requires `--backup`. |
 
 ## Ingest paths
 
