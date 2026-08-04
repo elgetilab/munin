@@ -1,0 +1,250 @@
+{
+  "track": "litsearch",
+  "date": "2026-07-28",
+  "git_sha": "0efbe68",
+  "encoder": "BGE-large-en-v1.5",
+  "encoder_note": "PRODUCTION encoder. The 2026-06/07 BEIR tables used SPECTER-v1 \u2014 do not compare across them.",
+  "n_queries": 597,
+  "n_docs": 64183,
+  "retrieve_depth": 100,
+  "relevance": "binary (query corpusids)",
+  "citation_graph": {
+    "papers_cited_in_corpus": 35978,
+    "edges": 344703,
+    "top10_changed_vs_dense": 597,
+    "top10_changed_frac": 1.0,
+    "note": "Non-zero means citation-rerank is genuinely exercised here, unlike BEIR where it degenerates to dense."
+  },
+  "dense_pool_with_citations": 35458,
+  "aggregates": {
+    "bm25": {
+      "ndcg@10": {
+        "mean": 0.3782625919657277,
+        "ci_low": 0.34545865621820976,
+        "ci_high": 0.4126073681246111,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "recall@10": {
+        "mean": 0.5109994416527079,
+        "ci_low": 0.47346454494695694,
+        "ci_high": 0.5529913456169737,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "recall@100": {
+        "mean": 0.6989391401451702,
+        "ci_low": 0.6633096035734226,
+        "ci_high": 0.7361850921273032,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "mrr": {
+        "mean": 0.34855174349731205,
+        "ci_low": 0.3149859838029362,
+        "ci_high": 0.380879863461348,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "hits@10": {
+        "mean": 0.5209380234505863,
+        "ci_low": 0.4824120603015075,
+        "ci_high": 0.5644891122278057,
+        "n": 597,
+        "n_resamples": 1000
+      }
+    },
+    "bge_dense": {
+      "ndcg@10": {
+        "mean": 0.4850803721512166,
+        "ci_low": 0.4525123895734581,
+        "ci_high": 0.5160523090559744,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "recall@10": {
+        "mean": 0.6374092685650474,
+        "ci_low": 0.6011139028475712,
+        "ci_high": 0.6742043551088778,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "recall@100": {
+        "mean": 0.8285315466219989,
+        "ci_low": 0.7982523729759909,
+        "ci_high": 0.8564000558347293,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "mrr": {
+        "mean": 0.4506629773315213,
+        "ci_low": 0.4173780608124093,
+        "ci_high": 0.48336294786050815,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "hits@10": {
+        "mean": 0.6515912897822446,
+        "ci_low": 0.6147403685092128,
+        "ci_high": 0.6884422110552764,
+        "n": 597,
+        "n_resamples": 1000
+      }
+    },
+    "citation_rerank_0.7_0.3": {
+      "ndcg@10": {
+        "mean": 0.11728279062601249,
+        "ci_low": 0.09731886592204259,
+        "ci_high": 0.13807368889511185,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "recall@10": {
+        "mean": 0.19530988274706867,
+        "ci_low": 0.16431881630374093,
+        "ci_high": 0.22534896705750976,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "recall@100": {
+        "mean": 0.8285315466219989,
+        "ci_low": 0.7982523729759909,
+        "ci_high": 0.8564000558347293,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "mrr": {
+        "mean": 0.11644408506664058,
+        "ci_low": 0.09702787971867932,
+        "ci_high": 0.1354990911689925,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "hits@10": {
+        "mean": 0.20938023450586266,
+        "ci_low": 0.17587939698492464,
+        "ci_high": 0.24120603015075376,
+        "n": 597,
+        "n_resamples": 1000
+      }
+    },
+    "rrf_bm25_bge": {
+      "ndcg@10": {
+        "mean": 0.4904115611046574,
+        "ci_low": 0.45534942296553144,
+        "ci_high": 0.526264605137984,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "recall@10": {
+        "mean": 0.6279731993299832,
+        "ci_low": 0.5870910106085986,
+        "ci_high": 0.667176158570631,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "recall@100": {
+        "mean": 0.8302065884980457,
+        "ci_low": 0.7992741485203796,
+        "ci_high": 0.8581253489670576,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "mrr": {
+        "mean": 0.46173004218070857,
+        "ci_low": 0.4271095622511802,
+        "ci_high": 0.49655236892112253,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "hits@10": {
+        "mean": 0.6398659966499163,
+        "ci_low": 0.5996649916247906,
+        "ci_high": 0.680108877721943,
+        "n": 597,
+        "n_resamples": 1000
+      }
+    }
+  },
+  "significance_vs_bge_dense": {
+    "bm25_vs_bge_dense": {
+      "ndcg@10": {
+        "mean_a": 0.3782625919657277,
+        "mean_b": 0.4850803721512166,
+        "mean_diff": -0.10681778018548885,
+        "ci_low": -0.13665108200139034,
+        "ci_high": -0.0769994241873057,
+        "p_value_two_sided": 0.0,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "recall@10": {
+        "mean_a": 0.5109994416527079,
+        "mean_b": 0.6374092685650474,
+        "mean_diff": -0.12640982691233948,
+        "ci_low": -0.1652833612506979,
+        "ci_high": -0.0887213847012842,
+        "p_value_two_sided": 0.0,
+        "n": 597,
+        "n_resamples": 1000
+      }
+    },
+    "citation_rerank_0.7_0.3_vs_bge_dense": {
+      "ndcg@10": {
+        "mean_a": 0.11728279062601249,
+        "mean_b": 0.4850803721512166,
+        "mean_diff": -0.36779758152520414,
+        "ci_low": -0.40467052927599095,
+        "ci_high": -0.33058820476426976,
+        "p_value_two_sided": 0.0,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "recall@10": {
+        "mean_a": 0.19530988274706867,
+        "mean_b": 0.6374092685650474,
+        "mean_diff": -0.4420993858179788,
+        "ci_low": -0.4852247347850362,
+        "ci_high": -0.3964712451144612,
+        "p_value_two_sided": 0.0,
+        "n": 597,
+        "n_resamples": 1000
+      }
+    },
+    "rrf_bm25_bge_vs_bge_dense": {
+      "ndcg@10": {
+        "mean_a": 0.4904115611046574,
+        "mean_b": 0.4850803721512166,
+        "mean_diff": 0.0053311889534407055,
+        "ci_low": -0.01907159858894255,
+        "ci_high": 0.03037712020739519,
+        "p_value_two_sided": 0.72,
+        "n": 597,
+        "n_resamples": 1000
+      },
+      "recall@10": {
+        "mean_a": 0.6279731993299832,
+        "mean_b": 0.6374092685650474,
+        "mean_diff": -0.00943606923506421,
+        "ci_low": -0.040653266331658285,
+        "ci_high": 0.02161222780569514,
+        "p_value_two_sided": 0.572,
+        "n": 597,
+        "n_resamples": 1000
+      }
+    }
+  },
+  "device": "cuda:0",
+  "generated_at": "2026-07-28T05:59:26.977502+00:00",
+  "domain_caveat": "LitSearch is ML/NLP, not chemistry. It measures the retrieval mechanism on realistic paper-finding queries, not Munin's own domain.",
+  "citation_rerank_diagnosis": {
+    "dense_cosine_spread_top100": 0.0865,
+    "citation_score_spread_top100": 1.0,
+    "weighted_dense_influence": 0.0605,
+    "weighted_citation_influence": 0.3,
+    "citation_over_dense_influence_ratio": 4.95,
+    "measured_on": "40 queries, BGE-large, top-100 dense pool",
+    "finding": "SCALE MISMATCH, not a weighting choice. compute_citation_score log-normalises citations to a full [0,1] range, while BGE cosine similarities within a top-100 pool span only ~0.087. At the documented 0.7/0.3 weights the citation term therefore drives ~5x more ranking variance than relevance: the formula is nominally 70/30 relevance-first but behaves as ~83/17 citation-first. At 0.8/0.2 it is still ~2.9x. Fix = min-max normalise the dense score within the fetched pool before combining, so both terms span [0,1].",
+    "affects": "production /search/hybrid path (main.py), i.e. the search page"
+  }
+}

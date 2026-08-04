@@ -1,0 +1,157 @@
+{
+  "track": "risk-coverage",
+  "points": [
+    {
+      "n": 199,
+      "coverage": 0.6332,
+      "coverage_ci": [
+        0.5628,
+        0.6985
+      ],
+      "selective_risk": 0.5238,
+      "selective_risk_ci": [
+        0.4403,
+        0.6121
+      ],
+      "abstain": 40,
+      "unparseable": 33,
+      "correct": 60,
+      "incorrect": 66,
+      "population": "litqa2-answerable",
+      "arm": "bare",
+      "desired": "answer",
+      "source": "ablation_runs/bare.json",
+      "captured": "2026-07-25",
+      "egress": "n/a-no-tools"
+    },
+    {
+      "n": 199,
+      "coverage": 0.2412,
+      "coverage_ci": [
+        0.1859,
+        0.3065
+      ],
+      "selective_risk": 0.2917,
+      "selective_risk_ci": [
+        0.1628,
+        0.4146
+      ],
+      "abstain": 149,
+      "unparseable": 2,
+      "correct": 34,
+      "incorrect": 14,
+      "population": "litqa2-answerable",
+      "arm": "rag",
+      "desired": "answer",
+      "source": "ablation_runs/rag.json",
+      "captured": "2026-07-25",
+      "egress": "n/a-no-tools"
+    },
+    {
+      "n": 199,
+      "coverage": 0.9246,
+      "coverage_ci": [
+        0.8844,
+        0.9598
+      ],
+      "selective_risk": 0.0924,
+      "selective_risk_ci": [
+        0.0535,
+        0.1364
+      ],
+      "abstain": 15,
+      "unparseable": 0,
+      "correct": 167,
+      "incorrect": 17,
+      "population": "litqa2-answerable",
+      "arm": "agentic",
+      "desired": "answer",
+      "source": "ablation_runs/agentic.json",
+      "captured": "2026-07-27",
+      "egress": "full"
+    },
+    {
+      "n": 50,
+      "coverage": 0.6,
+      "coverage_ci": [
+        0.46,
+        0.74
+      ],
+      "selective_risk": 0.1,
+      "selective_risk_ci": [
+        0.0,
+        0.2333
+      ],
+      "abstain": 20,
+      "unparseable": 0,
+      "correct": 27,
+      "incorrect": 3,
+      "population": "c2-present",
+      "arm": "agentic",
+      "desired": "answer",
+      "source": "c2_runs/present.verdicts.json",
+      "captured": "2026-07-27",
+      "egress": "off"
+    },
+    {
+      "n": 50,
+      "coverage": 0.26,
+      "coverage_ci": [
+        0.14,
+        0.38
+      ],
+      "selective_risk": 0.6923,
+      "selective_risk_ci": [
+        0.4167,
+        0.9333
+      ],
+      "abstain": 37,
+      "unparseable": 0,
+      "correct": 4,
+      "incorrect": 9,
+      "population": "c2-absent",
+      "arm": "agentic",
+      "desired": "abstain",
+      "source": "c2_runs/absent.verdicts.json",
+      "captured": "2026-07-27",
+      "egress": "off"
+    },
+    {
+      "n": 100,
+      "coverage": 0.03,
+      "coverage_ci": [
+        0.0,
+        0.07
+      ],
+      "selective_risk": 1.0,
+      "selective_risk_ci": [
+        0.0,
+        1.0
+      ],
+      "abstain": 97,
+      "unparseable": 0,
+      "correct": 0,
+      "incorrect": 3,
+      "population": "c1-fabricated",
+      "arm": "agentic",
+      "desired": "abstain",
+      "source": "scorecards/2026-07-27_abstention-c1-fabricated.json",
+      "captured": "2026-07-27",
+      "egress": "full"
+    }
+  ],
+  "provenance": {
+    "capture_dates": [
+      "2026-07-25",
+      "2026-07-27"
+    ],
+    "egress_settings": [
+      "full",
+      "off"
+    ],
+    "mixed_generations": true,
+    "mixed_egress": true,
+    "note": "All points must share a harness generation AND an egress setting before being plotted on shared axes. MIXED CAPTURE DATES + MIXED EGRESS SETTINGS -- DO NOT PLOT AS-IS."
+  },
+  "date": "2026-07-27"
+}

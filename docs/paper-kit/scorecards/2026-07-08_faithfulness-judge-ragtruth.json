@@ -1,0 +1,44 @@
+{
+  "track": "faithfulness-judge-validation",
+  "dataset": "RAGTruth (test split, GitHub ungated)",
+  "judge_model": "lytang/MiniCheck-Flan-T5-Large",
+  "device": "cpu",
+  "git_sha": "cb2e95c",
+  "seed": 42,
+  "n_per_cell": 20,
+  "threshold": 0.5,
+  "elapsed_s": 2116.4,
+  "overall": {
+    "n": 120,
+    "n_grounded": 60,
+    "n_hallucinated": 60,
+    "auroc": 0.7461111111111111,
+    "balanced_accuracy": 0.6333333333333333
+  },
+  "per_task": {
+    "QA": {
+      "n": 40,
+      "n_grounded": 20,
+      "n_hallucinated": 20,
+      "auroc": 0.95,
+      "balanced_accuracy": 0.725
+    },
+    "Summary": {
+      "n": 40,
+      "n_grounded": 20,
+      "n_hallucinated": 20,
+      "auroc": 0.7075,
+      "balanced_accuracy": 0.65
+    },
+    "Data2txt": {
+      "n": 40,
+      "n_grounded": 20,
+      "n_hallucinated": 20,
+      "auroc": 0.7225,
+      "balanced_accuracy": 0.525
+    }
+  },
+  "gate_auroc": 0.7,
+  "gate_reference": "QA-auroc",
+  "verdict": "flan-t5-large-sufficient"
+}
