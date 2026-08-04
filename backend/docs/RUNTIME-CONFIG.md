@@ -60,34 +60,53 @@ than returning nothing. `deploy.sh verify` re-checks the same thing over
 bge-large/papers_bge (override with `EXPECTED_PAPER_ENCODER` +
 `EXPECTED_PAPERS_COLLECTION` for a deliberate rollback).
 
-## Read by the code, NOT passed by compose
+## Also wired through compose (added 2026-08-04)
 
-These fall back to their code defaults on the cluster. Nothing is broken
-(the defaults are what production wants today), but changing any of them
-currently requires a repo edit plus redeploy, not a cluster.env line.
-Listed so we can decide, per knob, whether it deserves compose wiring.
+These previously had code defaults only, so changing one meant editing the
+repo and redeploying. They are now passed through with their existing values
+as the defaults, which means the wiring itself changed no behaviour. Set any
+of them in `/opt/hugin/config/cluster.env` and recreate the container to
+override.
 
-| Variable | Code default | Consumer | Note |
+| Variable | Default | Consumer | Note |
 |---|---|---|---|
-| `SOURCE_TRIAGE_ENABLED` | `1` | `mcp/tools/source.py:489` | kill switch for source-agent triage, no way to flip live |
-| `UNPAYWALL_EMAIL` | `munin@muninai.org` | `mcp/tools/source.py:55` | polite-pool identity for Unpaywall |
+| `SOURCE_TRIAGE_ENABLED` | `1` | `mcp/tools/source.py:489` | kill switch for source-agent triage |
+| `UNPAYWALL_EMAIL` | `munin@muninai.org` | `mcp/tools/source.py:55` | polite-pool identity |
+| `CHAT_MAX_TOOL_CALLS` | `30` | `chat_service.py:133` | per-message tool-call ceiling |
+| `SANDBOX_HTTP_TIMEOUT_S` | `180` | sandbox client | |
+| `DEFAULT_PERSONA` / `AUTO_PERSONA` | `chat` / `munin` | `personas.py` | |
+| `PERSONAS_DIR` / `AGENTS_CONFIG` / `FAQ_PATH` | `/app/personas`, `/app/config/agents.yml`, `/app/config/faq.yml` | `personas.py`, faq tool | **mount-locked**: change only alongside the matching volume |
 | `PAPERS_CACHE_DIR` | `/data/papers_cached` | `mcp/tools/read_paper.py:61` | see growth note below |
 | `PAPERS_CACHE_WARN_GB` | `5` | `mcp/tools/read_paper.py:63` | warn threshold only, no eviction |
 | `AGENT_TRACE_DIR` | `/data/agent_traces` | `agent_trace.py:34` | |
 | `AGENT_EXTRACT_DIR` | `/data/agent_extracts` | `mcp/tools/source.py:144` | |
-| `CHAT_MAX_TOOL_CALLS` | `30` | `chat_service.py:133` | per-message tool-call ceiling |
-| `DEFAULT_PERSONA` / `AUTO_PERSONA` | `chat` / `munin` | `personas.py` | |
-| `PERSONAS_DIR` / `AGENTS_CONFIG` / `FAQ_PATH` | `/app/personas`, `/app/config/agents.yml`, `/app/config/faq.yml` | `personas.py`, faq tool | match the read-only mounts |
-| `LOG_LEVEL` | `INFO` | `logging_config.py:117` | raising it live needs a compose edit |
 | `PIPELINE_TIMEOUT_SECS` | `600` | ingest route | |
 | `INGEST_ACQUIRE_TIMEOUT_SECS` | `5` | ingest route | |
-| `SANDBOX_HTTP_TIMEOUT_S` | `180` | sandbox client | |
 | `CONTRIBUTORS_SYNC_BACKOFF_SECS` | `60` | `contributors_sync.py` | |
-| `VLLM_MAX_OUTPUT_TOKENS` | `16384` | `chat_context.py:37` | |
-| `VLLM_GENERATION_RESERVE` | = max output tokens | `chat_context.py:43` | |
+| `VLLM_MAX_OUTPUT_TOKENS` | `16384` | `chat_context.py:37` | interacts with the context window |
+| `VLLM_GENERATION_RESERVE` | `16384` | `chat_context.py:43` | raising it shrinks room for history |
 | `VLLM_CTX_MARGIN` | `512` | `chat_context.py:55` | |
 | `VLLM_MIN_OUTPUT_TOKENS` | `256` | `chat_context.py:57` | |
 | `VLLM_MAX_REFIT_RETRIES` | `3` | `chat_context.py:60` | |
+| `LOG_LEVEL` | `INFO` | `logging_config.py:117` | |
+
+Every environment variable the retrieval service reads is now passed by
+compose. A drift check worth re-running after adding any `os.getenv` call:
+
+```bash
+# from backend/retrieval: lists anything read by code but not in compose
+python3 - <<'EOF'
+import re, yaml, pathlib
+code = set()
+for p in pathlib.Path('.').rglob('*.py'):
+    if 'tests' in str(p) or 'evals' in str(p): continue
+    for m in re.finditer(r'(?:os\.environ\.get|os\.getenv|environ\[)\(?["\']([A-Z][A-Z0-9_]{2,})', p.read_text()):
+        code.add(m.group(1))
+d = yaml.safe_load(open('../docker/docker-compose.yml'))
+passed = {e.split('=')[0] for e in d['services']['retrieval']['environment']}
+print(sorted(code - passed - {'VAR'}) or 'none missing')
+EOF
+```
 
 ## Runtime directories
 

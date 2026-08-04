@@ -258,6 +258,49 @@ services:
       # (10) minus the watcher's --workers (1) → 4 leaves comfortable
       # headroom.
       - INGEST_CONCURRENCY=${INGEST_CONCURRENCY:-4}
+      # ----------------------------------------------------------------
+      # Knobs that used to have code defaults only (2026-08-04). Every
+      # default below is the value the code already used, so passing them
+      # changes nothing by itself; the point is that they can now be tuned
+      # from cluster.env instead of needing a repo edit and a redeploy.
+      # Catalogued in backend/docs/RUNTIME-CONFIG.md.
+      # ----------------------------------------------------------------
+      # Agent + tool behaviour
+      - SOURCE_TRIAGE_ENABLED=${SOURCE_TRIAGE_ENABLED:-1}
+      - CHAT_MAX_TOOL_CALLS=${CHAT_MAX_TOOL_CALLS:-30}
+      - SANDBOX_HTTP_TIMEOUT_S=${SANDBOX_HTTP_TIMEOUT_S:-180}
+      # Polite-pool identity for Unpaywall OA lookups.
+      - UNPAYWALL_EMAIL=${UNPAYWALL_EMAIL:-munin@muninai.org}
+      # Personas. The two ids pick which profile a turn starts from; the
+      # three paths must match the read-only mounts above, so change them
+      # only alongside the corresponding volume.
+      - DEFAULT_PERSONA=${DEFAULT_PERSONA:-chat}
+      - AUTO_PERSONA=${AUTO_PERSONA:-munin}
+      - PERSONAS_DIR=${PERSONAS_DIR:-/app/personas}
+      - AGENTS_CONFIG=${AGENTS_CONFIG:-/app/config/agents.yml}
+      - FAQ_PATH=${FAQ_PATH:-/app/config/faq.yml}
+      # read_paper full-text cache. PAPERS_CACHE_WARN_GB only warns; there
+      # is no eviction, and the cache stood at 2.0 GB on 2026-08-04.
+      - PAPERS_CACHE_DIR=${PAPERS_CACHE_DIR:-/data/papers_cached}
+      - PAPERS_CACHE_WARN_GB=${PAPERS_CACHE_WARN_GB:-5}
+      # Agent trace + extraction records (both under the /data mount).
+      - AGENT_TRACE_DIR=${AGENT_TRACE_DIR:-/data/agent_traces}
+      - AGENT_EXTRACT_DIR=${AGENT_EXTRACT_DIR:-/data/agent_extracts}
+      # Ingest timeouts (subprocess wall clock, and how long a request
+      # waits for a slot before it 503s).
+      - PIPELINE_TIMEOUT_SECS=${PIPELINE_TIMEOUT_SECS:-600}
+      - INGEST_ACQUIRE_TIMEOUT_SECS=${INGEST_ACQUIRE_TIMEOUT_SECS:-5}
+      - CONTRIBUTORS_SYNC_BACKOFF_SECS=${CONTRIBUTORS_SYNC_BACKOFF_SECS:-60}
+      # Context-budget arithmetic. These interact with VLLM_MAX_MODEL_LEN /
+      # VLLM_MAX_CONTEXT above: raising the output reserve shrinks the room
+      # left for history. See chat_context.py before changing them.
+      - VLLM_MAX_OUTPUT_TOKENS=${VLLM_MAX_OUTPUT_TOKENS:-16384}
+      - VLLM_GENERATION_RESERVE=${VLLM_GENERATION_RESERVE:-16384}
+      - VLLM_CTX_MARGIN=${VLLM_CTX_MARGIN:-512}
+      - VLLM_MIN_OUTPUT_TOKENS=${VLLM_MIN_OUTPUT_TOKENS:-256}
+      - VLLM_MAX_REFIT_RETRIES=${VLLM_MAX_REFIT_RETRIES:-3}
+      # Log verbosity for the whole service.
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     depends_on:
       - qdrant
       - neo4j

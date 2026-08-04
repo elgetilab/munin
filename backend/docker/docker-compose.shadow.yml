@@ -1,3 +1,11 @@
+# RETIRED 2026-08-04. The Track C2 egress-off re-run it was built for is
+# finished (see benchmarks/RESULTS.md). The munin-retrieval-shadow container
+# was stopped and removed, and the papers_shadow collection deleted after a
+# snapshot (papers_shadow-...-2026-08-04-09-24-28.snapshot, 420 MB, 68,080
+# points). This file is kept because it is the recipe: rebuild the corpus
+# with `munin_bench.abstention.build_shadow --n 50`, then bring the instance
+# up with the command below. Nothing deploys it; deploy.sh never installed it.
+#
 # Track C2b - shadow retrieval instance (EVAL ONLY, temporary).
 # Second retrieval on 127.0.0.1:8081 searching papers_shadow (papers_bge minus
 # 49 LitQA2 source papers). Non-destructive: reuses munin-retrieval:latest;
