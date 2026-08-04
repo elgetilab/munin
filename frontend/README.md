@@ -184,7 +184,7 @@ frontend/                    # VPS-side of the monorepo
 ```
 
 The contract docs (`BACKEND-API.md`, `BACKEND-FRONTEND-SYNC.md`)
-live in `../shared/docs/`. See the top-level `CLAUDE.md`.
+live in `../shared/docs/`. See the top-level `README.md`.
 
 ## Key Paths on VPS
 

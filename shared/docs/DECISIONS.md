@@ -344,7 +344,7 @@ obvious from the diff.
   with a comment block documenting the worst-case wall-time math and
   pointing operators at the edit site. Env knobs are tempting but
   every additional env var is one more thing to forget on a fresh
-  cluster; the breadcrumb in `backend/CLAUDE.md` makes the constants
+  cluster; the breadcrumb in `backend/README.md` makes the constants
   findable. Change them by editing + redeploying retrieval.
 
 - **`is_concurrency_safe` defaults True**, with eight explicit
@@ -508,6 +508,11 @@ future "should we delete this?" question can find the answer:
   `chat_service.py` and `future_features.md`.
 
 ## 2026-05-04: CLAUDE.md kept lean; runbook content lives in README.md
+
+> **Note (2026-08-04):** the `CLAUDE.md` files are no longer part of the
+> public repository. They remain in the working tree for local agent
+> sessions and are gitignored. The decision below is kept because it
+> explains why the READMEs carry the runbook content they do.
 
 CLAUDE.md is auto-loaded into the agent's context every session.
 Keep it focused on "what you need to know to make safe edits in

@@ -19,7 +19,7 @@ Worst-case wall time for the foreground path with defaults is
 plus up to one per-attempt request latency.
 
 To change behaviour: edit these constants and redeploy retrieval. A
-breadcrumb pointing here lives in backend/CLAUDE.md.
+breadcrumb pointing here lives in backend/README.md.
 
 Each retry attempt emits a ``retrying`` SSE event via the
 ``current_sse_emitter`` ContextVar so the frontend can render a

@@ -49,3 +49,11 @@ Thumbs.db
 /backend/.claude/scheduled_tasks.lock
 /backend/.claude/
 /backend/.claude/
+
+# Claude Code assistant context. Kept on disk for local sessions, out of the
+# public repo (removed from tracking 2026-08-04). The project-facing content
+# they duplicated lives in README.md / DESIGN.md / shared/docs/.
+CLAUDE.md
+**/CLAUDE.md
+.claude/
+**/.claude/

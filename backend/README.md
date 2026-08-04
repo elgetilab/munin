@@ -10,7 +10,7 @@ For first-time setup on a new cluster, follow the top-level
 operating reference once the deploy is in place.
 
 VPS-side code is in `../frontend/`; cross-cut artifacts in
-`../shared/`. See the top-level `CLAUDE.md` for monorepo rules.
+`../shared/`. See the top-level `README.md` for monorepo rules.
 
 ## Services
 
@@ -73,7 +73,6 @@ and the contributor allowlist are cross-cut and live in
 
 ```
 backend/
-├── CLAUDE.md                 # Agent context (conventions, gotchas)
 ├── README.md                 # This file
 ├── DESIGN.md                 # Original design intent (mostly historical)
 ├── deploy.sh

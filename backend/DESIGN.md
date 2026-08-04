@@ -6,7 +6,7 @@
 > code changes, or "what to discard" describe **already-completed**
 > work — kept here as a record of design intent. For the live API
 > contract, see `../shared/docs/BACKEND-API.md`. For the live
-> repo layout and deploy commands, see `CLAUDE.md`.
+> repo layout and deploy commands, see `README.md`.
 
 ## Scope
 
@@ -78,7 +78,7 @@ out-of-contract for the frontend.
 3. **Auth headers** — read `X-Munin-Email`. The transitional
    `X-Authentik-Email` fallback was removed in 2026-04
    (gateway/retrieval) and 2026-05 (upload hook). See
-   `CLAUDE.md` Auth Headers.
+   `README.md` / `../shared/docs/BACKEND-API.md` (auth headers).
 4. **Docker compose** — chat SQLite volume + user_docs Qdrant
    collection setup live in `docker/docker-compose.yml` and the
    `startup` hook of `retrieval/main.py`.
@@ -87,12 +87,12 @@ out-of-contract for the frontend.
 
 ## Repository Structure
 
-For the live, accurate layout see `CLAUDE.md`. The original
+For the live, accurate layout see `README.md`. The original
 intended structure (preserved here as design history) was:
 
 ```
 backend/                              ← cluster half of the monorepo
-├── CLAUDE.md, DESIGN.md, deploy.sh
+├── DESIGN.md, deploy.sh
 ├── config/                           ← munin.env.template, agents.yml,
 │                                     ←   *.service / *.timer files
 ├── docker/                           ← docker-compose.yml + service configs
