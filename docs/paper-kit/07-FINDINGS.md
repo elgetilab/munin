@@ -218,9 +218,13 @@ one of the signals is absent.
 abstain rather than fall back on what the base model happens to remember.
 
 **Evidence.** At matched `egress=off`, on the answerable subset, correct
-abstention on source removal moved **0.20 → 0.67** between the old flat loop and
-the current harness. Overall accuracy drops 0.540 → 0.080 when the source is
-removed (a −0.460 drop, against −0.060 for the old harness).
+abstention on source removal moved from **0.200 [0.050, 0.350]** (n=20) to
+**0.667 [0.481, 0.852]** (n=27) between the old flat loop and the current
+harness. The two intervals are disjoint, and because both runs use the same 50
+frozen questions the change can be tested directly as a question-paired
+bootstrap: **delta +0.467 [0.232, 0.697], p < 0.001**. Overall accuracy drops
+0.540 → 0.080 when the source is removed (a −0.460 drop, against −0.060 for the
+old harness).
 
 **Mechanism.** The old harness answered 12 of 20 from parametric memory when
 the local source was gone. The current one answers 4 of 27 and correctly
@@ -241,9 +245,10 @@ about fake ones.** These are separable properties, and a system can move one
 without the other.
 
 **Caveats that must travel with this claim.** Five of 27 still answered wrong on
-removal, so this is strong calibration and not perfect. n = 27 on the answerable
-subset is small and the 0.67 has no CI yet. C1 remains the cleanest signal
-because it does not depend on a shadow-corpus construction.
+removal, so this is strong calibration and not perfect. n = 27 is small, so the
+interval is wide (±0.18 around 0.667) even though it excludes the old harness
+comfortably. C1 remains the cleanest signal because it does not depend on a
+shadow-corpus construction.
 
 ---
 

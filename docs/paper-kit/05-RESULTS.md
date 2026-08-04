@@ -132,9 +132,47 @@ the source is removed:
 
 | | 07-10 (n=20) | 07-27 (n=27) |
 |---|---|---|
-| **Correct abstention** (desired) | 4 (**0.20**) | 18 (**0.67**) |
-| Answered, still correct (from memory or web) | 12 | 4 |
-| Answered, now wrong (over-confident) | 4 | 5 |
+| **Correct abstention** (desired) | 4 (**0.200**) | 18 (**0.667**) |
+| Answered, still correct (from memory or web) | 12 (0.600) | 4 (0.148) |
+| Answered, now wrong (over-confident) | 4 (0.200) | 5 (0.185) |
+
+**Confidence intervals on correct abstention** (added 2026-08-04 by re-scoring
+the existing captures; verdicts unchanged). Percentile bootstrap, 2000
+resamples, seed 42, with the Wilson score interval alongside because at
+n = 20-27 the bootstrap can only land on multiples of 1/n:
+
+| Run | n | Rate | Bootstrap | Wilson |
+|---|---|---|---|---|
+| 2026-07-10 | 20 | 0.200 | [0.050, 0.350] | [0.081, 0.416] |
+| **2026-07-27** | **27** | **0.667** | **[0.481, 0.852]** | **[0.478, 0.814]** |
+
+**The two intervals are disjoint on both methods.**
+
+**The move is a tested delta, not an inference from non-overlap.** Both runs
+use the same 50 frozen questions, so the comparison is paired at the question
+level: one resample of question ids drives both arms, and each arm derives its
+own answerable subset inside that resample.
+
+**correct abstention 0.200 → 0.667: delta +0.467 [0.232, 0.697], p < 0.001**
+(n = 50 paired questions, 2000 resamples, seed 42).
+
+A third interval is stored in the scorecard: an **unconditional** bootstrap
+that also resamples *which* questions are answerable, giving [0.481, 0.833]. It
+is marginally **narrower** than the conditional interval, not wider, because
+the rate is a ratio estimator whose numerator and denominator co-vary, so the
+membership variance largely cancels. Its role is a robustness check that
+conditioning on the observed subset is not flattering the interval, not a more
+conservative bound. Quote the conditional bootstrap [0.481, 0.852] for
+consistency with every other CI in the suite.
+
+The other two cells of the answerable subset (they are a **multinomial** over
+the same 27 items, so these marginals are not independent and cannot move
+separately): answered-still-correct 0.148 [0.037, 0.296], answered-now-wrong
+0.185 [0.037, 0.333].
+
+The remaining rates on the full n = 50 pair, for completeness: present accuracy
+0.540 [0.400, 0.680], present abstain 0.400 [0.260, 0.540], absent accuracy
+0.080 [0.020, 0.160], absent abstain 0.740 [0.620, 0.840].
 
 Scorecard: `2026-07-27_abstention-c2-shadow`.
 
@@ -144,6 +182,11 @@ Present 0.820 / absent 0.740. Removing the local source costs almost nothing
 because the model re-fetches removed papers over the web: **17 of 49** removed
 sources were pulled back in through Semantic Scholar / Unpaywall. This is a
 robustness result, **not** an abstention measurement.
+
+Correct abstention on this pair's answerable subset is **0.098 [0.024, 0.195]**
+(n = 41), against 0.667 at `egress=off`. Reported for comparability of method
+only. **Do not read the two against each other**: they are different
+experiments, and the gap is the web tier, not a calibration change.
 
 Decomposition of the three present-arm conditions:
 

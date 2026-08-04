@@ -63,9 +63,11 @@ narrowed to corpus-grounded abstention with a paired shadow corpus.
 - **C1, fabricated papers** (n=100): abstain 0.970 [0.930, 1.000], **0
   confabulated local citations**.
 - **C2b, paired shadow corpus** at matched `egress=off` (n=50): accuracy drops
-  0.540 → 0.080 when the source paper is removed, abstain 0.400 → 0.740. The
-  2026-07-10 reading of this pair was confounded by egress; the 2026-07-27
-  re-run at matched egress reverses it.
+  0.540 → 0.080 when the source paper is removed, abstain 0.400 → 0.740. On the
+  answerable subset, correct abstention is **0.667 [0.481, 0.852]** (n=27), up
+  from 0.200 [0.050, 0.350] on the 2026-07-10 harness: question-paired delta
+  **+0.467 [0.232, 0.697], p < 0.001**. The 2026-07-10 reading of this pair was
+  confounded by egress; the 2026-07-27 re-run at matched egress reverses it.
 - **Risk-coverage**, litqa2-answerable, n=199: agentic reaches coverage
   **0.925 [0.88, 0.96]** at selective risk **0.092 [0.05, 0.14]**; bare answers
   nearly as often (0.633) at ~5.7x the risk (0.524); RAG buys low risk only by

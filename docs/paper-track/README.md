@@ -50,7 +50,7 @@ claim-to-scorecard index: [`../../PAPER.md`](../../PAPER.md).
 | `HARNESS-ITERATION-SCOPE.md` | Scoping for the harness-iteration phase (grounding, over-tooling, tool defs). Pre-implementation. |
 | `T2-T3-EDIT-PLAN.md` | Concrete T2 (over-tooling) + T3 (tool defs) edits; measurement + deploy constraints. Plan, not applied. |
 | `T1-GROUNDING-PLAN.md` | T1 grounding edits (paper_search excerpts, per-item truncation, structured sub-agent returns). T1a applied; T1b/c planned. |
-| `TRACK-C-PLAN.md` | Corpus-grounded abstention. **RE-RUN DONE 2026-07-27 on the current harness.** C1 held (abstain 0.970, 0 confabulated local cites). C2b's 07-10 confound is GONE: at matched `egress=off`, correct-abstention on the answerable subset went **0.20 -> 0.67** and accuracy drops 0.54 -> 0.08 when the source is removed. The system is genuinely corpus-grounded. Remaining: stratum 2 (needs Phase 4); CI on the n=27 subset. |
+| `TRACK-C-PLAN.md` | Corpus-grounded abstention. **RE-RUN DONE 2026-07-27 on the current harness.** C1 held (abstain 0.970, 0 confabulated local cites). C2b's 07-10 confound is GONE: at matched `egress=off`, correct-abstention on the answerable subset went **0.200 [0.050, 0.350] -> 0.667 [0.481, 0.852]** (question-paired delta **+0.467 [0.232, 0.697], p<0.001**, CIs added 2026-08-04) and accuracy drops 0.54 -> 0.08 when the source is removed. The system is genuinely corpus-grounded. Remaining: stratum 2 (needs Phase 4). |
 | `KICKOFF-QUESTIONS.md` | Resolved decision record (kept as a live reference cited by the spec). |
 | `IMPLEMENTATION-HANDOFF.md` | Overarching eval-suite handoff (reference). |
 | `MIGRATION-LOOSE-ENDS.md` | Encoder-migration tail: embedding-map repoint + `papers` retirement. varghele/root. |
@@ -102,7 +102,10 @@ FIX, not just a number to measure. So:
      papers from S2/Unpaywall (17 of 49), so the absent arm must run
      `egress=off`; (b) `risk_coverage.py` now records capture date AND egress
      per point and refuses to bless a mixed figure. Remaining: stratum 2
-     (blocked on Phase 4), and a CI on the n=27 answerable subset.
+     (blocked on Phase 4). ~~CI on the n=27 answerable subset~~ **DONE
+     2026-08-04**: 0.667 [0.481, 0.852] bootstrap / [0.478, 0.814] Wilson, and
+     the 0.20 -> 0.67 move is now a question-paired test (+0.467 [0.232,
+     0.697], p<0.001) rather than an eyeballed non-overlap.
 
 **Deferred:** Phase 4 local pool (blocked on more real usage / a synthetic-query
 track).

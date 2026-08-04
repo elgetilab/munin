@@ -201,6 +201,29 @@ risk     = incorrect / answered       ( = 1 - precision_of_attempted )
 per-configuration `unparseable` count is reported so a high-unparseable arm is
 not silently flattered by an attempted-only denominator.
 
+**Proportions on small subsets carry two intervals.** The C2 correct-abstention
+rate sits on an answerable subset of 20-27 items, where the percentile
+bootstrap can only land on multiples of 1/n and degenerates entirely at p near
+0 or 1. So the scorer reports the bootstrap (for consistency with every other
+CI in the suite) **and** the closed-form Wilson score interval alongside it.
+Where they disagree, prefer Wilson and say so; where they agree, quote the
+bootstrap.
+
+A third, **unconditional** interval is also stored, which resamples the full
+paired question set and re-derives the answerable subset inside each resample,
+so it carries the uncertainty in *which* questions are answerable. It comes out
+marginally narrower than the conditional interval rather than wider, because
+the rate is a ratio estimator whose numerator and denominator co-vary. It is a
+robustness check on conditioning, not a more conservative bound, and the
+docstring and unit tests say so explicitly because the opposite is the natural
+assumption.
+
+**Two-run comparisons on these subsets are paired at the question level**, not
+compared as two marginal intervals. The C2 runs share the same 50 frozen
+questions, so one resample of question ids drives both arms and each derives
+its own answerable subset within it. Disjoint marginal CIs are weaker evidence
+than this test.
+
 **A stated limitation rather than a hidden one:** these are operating points,
 not a within-run swept curve. The chat emits a hard abstain decision per item
 (it selects the "Insufficient information" option) with no per-item confidence,

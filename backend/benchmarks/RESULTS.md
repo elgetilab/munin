@@ -552,9 +552,34 @@ is removed from the corpus:
 
 | | 07-10 (n=20) | 07-27 (n=27) |
 |---|---|---|
-| **correct abstention** (desired) | 4 — **0.20** | 18 — **0.67** |
+| **correct abstention** (desired) | 4 — **0.20** [0.05, 0.35] | 18 — **0.67** [0.48, 0.85] |
 | answered still correct (from memory/web) | 12 | 4 |
 | answered now wrong (over-confident) | 4 | 5 |
+
+**CIs added 2026-08-04** (`run_c2 --rescore`; verdicts unchanged, scoring only).
+Percentile bootstrap, 2000 resamples, seed 42. Wilson score intervals are
+reported alongside in the scorecard because at n=20-27 the bootstrap can only
+land on multiples of 1/n: 07-10 Wilson [0.081, 0.416], 07-27 Wilson
+[0.478, 0.814]. **The two intervals are disjoint on both methods.**
+
+The move itself is now tested rather than inferred from non-overlap. Both runs
+use the same 50 frozen questions, so the delta is paired at the QUESTION level
+(one resample of qids drives both arms; each derives its own answerable subset
+inside that resample):
+
+**correct-abstention 0.200 -> 0.667, delta +0.467 [0.232, 0.697], p < 0.001**
+(n=50 paired questions, 2000 resamples).
+
+A third interval is stored, an *unconditional* bootstrap that also resamples
+WHICH questions are answerable: [0.481, 0.833]. It is marginally NARROWER than
+the conditional one, not wider — the rate is a ratio estimator, so numerator
+and denominator co-vary and the membership variance largely cancels. It is a
+robustness check that conditioning on the observed subset is not flattering the
+interval, not a more conservative bound.
+
+Same treatment applied to the `egress=full` pair for comparability:
+correct abstention **0.098** [0.024, 0.195] on n=41 answerable. Do not read it
+against the `egress=off` numbers.
 
 **This is the Track C claim, measured.** The old harness answered 12 of 20 from
 parametric memory when the local source was gone, which is why 07-10 concluded
@@ -566,7 +591,8 @@ corpus-grounded, not reciting.
 
 **Caveats to carry into the paper.** (1) 5 of 27 still answered wrong on
 removal, so this is strong calibration, not perfect. (2) n=27 on the answerable
-subset is small; the 0.67 needs a CI before it is quoted. (3) C1 is no longer
+subset is small, so the interval is wide (±0.18); ~~the 0.67 needs a CI before
+it is quoted~~ **DONE 2026-08-04**, see above. (3) C1 is no longer
 the *only* clean abstention signal, but it remains the cleanest — C2 depends on
 the shadow-corpus construction, C1 does not.
 

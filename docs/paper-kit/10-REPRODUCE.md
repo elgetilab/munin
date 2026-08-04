@@ -165,6 +165,26 @@ PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 
 that the removed DOIs are present in the live collection and absent from the
 shadow, and reports the counts.
 
+Re-score existing captures without regenerating anything (this is how the CIs
+were added to the 2026-07-27 scorecards, and the cheap path whenever scoring
+changes but the captures do not):
+
+```bash
+# egress=off pair, preserving the capture-time git sha, plus the
+# question-paired delta against the earlier 2026-07-10 captures
+PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 \
+  --rescore --date 2026-07-27 --keep-git-sha 8d0366c --vs-suffix 2026-07-10
+
+# egress=full pair
+PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 \
+  --rescore --suffix egressfull --date 2026-07-27 \
+  --out-tag abstention-c2-shadow-egressfull --keep-git-sha 8d0366c
+```
+
+A re-scored scorecard records `rescored_by` and `rescored_at_git_sha` alongside
+the original `git_sha`, so a later reader can see that the verdicts and the
+statistics came from different passes.
+
 ### Track C: risk-coverage
 
 ```bash

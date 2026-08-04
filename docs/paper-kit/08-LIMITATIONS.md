@@ -61,9 +61,12 @@ except as sensitivity points.
 
 ### The abstention claim
 
-- n = 27 on the C2 answerable subset is small, and the correct-abstention rate
-  of 0.67 **does not yet have a confidence interval**. It should not be quoted
-  as a precise figure until it does.
+- n = 27 on the C2 answerable subset is small. The correct-abstention rate is
+  **0.667 [0.481, 0.852]** (bootstrap) / [0.478, 0.814] (Wilson), so the
+  interval is roughly ±0.18 wide. Quote it with the interval, never bare. The
+  *change* from the old harness is on firmer ground than the level is:
+  **+0.467 [0.232, 0.697], p < 0.001**, question-paired over the same 50 frozen
+  questions.
 - Five of 27 still answered wrong when the source was removed. Strong
   calibration, not perfect.
 - C1 remains the cleaner of the two signals because it does not depend on the

@@ -2,19 +2,127 @@
   "n_paired": 50,
   "present": {
     "accuracy": 0.82,
-    "abstain_rate": 0.12
+    "abstain_rate": 0.12,
+    "accuracy_ci": {
+      "rate": 0.82,
+      "n": 50,
+      "bootstrap": {
+        "ci_low": 0.7,
+        "ci_high": 0.92,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.6920394632569922,
+        "ci_high": 0.9022980732976582
+      }
+    },
+    "abstain_rate_ci": {
+      "rate": 0.12,
+      "n": 50,
+      "bootstrap": {
+        "ci_low": 0.04,
+        "ci_high": 0.22,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.05617600150932274,
+        "ci_high": 0.23804817383202992
+      }
+    }
   },
   "absent": {
     "accuracy": 0.74,
-    "abstain_rate": 0.14
+    "abstain_rate": 0.14,
+    "accuracy_ci": {
+      "rate": 0.74,
+      "n": 50,
+      "bootstrap": {
+        "ci_low": 0.62,
+        "ci_high": 0.84,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.6044684273515117,
+        "ci_high": 0.8412847250644762
+      }
+    },
+    "abstain_rate_ci": {
+      "rate": 0.14,
+      "n": 50,
+      "bootstrap": {
+        "ci_low": 0.06,
+        "ci_high": 0.24,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.06950833427016294,
+        "ci_high": 0.2618619371058554
+      }
+    }
   },
   "answerable_n": 41,
   "on_answerable_when_source_removed": {
     "correct_abstention": 4,
     "answered_still_correct": 35,
     "answered_now_wrong": 2,
-    "correct_abstention_rate": 0.0975609756097561
+    "correct_abstention_rate": 0.0975609756097561,
+    "correct_abstention_rate_ci": {
+      "rate": 0.0975609756097561,
+      "n": 41,
+      "bootstrap": {
+        "ci_low": 0.024390243902439025,
+        "ci_high": 0.1951219512195122,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.03859708489808934,
+        "ci_high": 0.22547681305523387
+      }
+    },
+    "answered_still_correct_rate_ci": {
+      "rate": 0.8536585365853658,
+      "n": 41,
+      "bootstrap": {
+        "ci_low": 0.7317073170731707,
+        "ci_high": 0.9512195121951219,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.7155654195751904,
+        "ci_high": 0.9311575185870407
+      }
+    },
+    "answered_now_wrong_rate_ci": {
+      "rate": 0.04878048780487805,
+      "n": 41,
+      "bootstrap": {
+        "ci_low": 0.0,
+        "ci_high": 0.12195121951219512,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.013480945365169042,
+        "ci_high": 0.16138978870370846
+      }
+    },
+    "correct_abstention_rate_ci_unconditional": {
+      "ci_low": 0.023255813953488372,
+      "ci_high": 0.2,
+      "n_resamples": 2000,
+      "seed": 42,
+      "empty_resamples": 0,
+      "note": "resamples the full paired set and re-derives the answerable subset each time, so it carries the uncertainty in which questions are answerable as well as in the abstention rate"
+    }
   },
   "date": "2026-07-27",
-  "git_sha": "a29e579"
+  "git_sha": "8d0366c",
+  "rescored_by": "munin_bench.abstention.run_c2 --rescore",
+  "rescored_at_git_sha": "ab48d37"
 }

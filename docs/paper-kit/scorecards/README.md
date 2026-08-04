@@ -1,6 +1,6 @@
 # Scorecards behind the headline claims
 
-15 committed scorecard JSONs, copied verbatim from
+16 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
@@ -32,7 +32,8 @@ the same questions. It is the reason these files are large.
 | `2026-07-27_harness-ablation-faithfulness.json` | Per-arm paired faithfulness, RAG vs agentic (per-question values included) | R2 |
 | `2026-07-08_faithfulness-judge-ragtruth.json` | MiniCheck judge validation on RAGTruth | R2 |
 | `2026-07-27_abstention-c1-fabricated.json` | C1, 100 fabricated papers, current harness | R3 |
-| `2026-07-27_abstention-c2-shadow.json` | C2b paired shadow corpus at `egress=off` | R3 |
+| `2026-07-27_abstention-c2-shadow.json` | C2b paired shadow corpus at `egress=off`, with CIs and the question-paired delta against the 2026-07-10 run | R3 |
+| `2026-07-10_abstention-c2-shadow.json` | The earlier C2b pair (old flat-loop harness), rescored with the same CIs so the two are comparable | R3 |
 | `2026-07-27_abstention-c2-shadow-egressfull.json` | The same pair at `egress=full`. **A different experiment.** Do not compare across the two. | R3 |
 | `2026-07-27_risk-coverage.json` | Six risk-coverage operating points, with `mixed_generations` / `mixed_egress` provenance markers | R3 |
 | `2026-07-28_litsearch.json` | LitSearch, post-fix, canonical | R4.2 |
@@ -57,3 +58,16 @@ the same questions. It is the reason these files are large.
 4. **The `2026-07-26` companion ablation is not in this folder** on purpose. It
    is a load/egress sensitivity point (agentic 0.688) and averaging it with the
    headline would be wrong.
+5. **The C2 scorecards carry three intervals per rate.** `bootstrap` is the one
+   to quote (it matches every other CI in the suite). `wilson` is the
+   closed-form check, which matters because the answerable subset is only 20-27
+   items. `correct_abstention_rate_ci_unconditional` also resamples *which*
+   items are answerable; it is a robustness check and comes out marginally
+   **narrower**, not wider, so do not present it as a conservative bound.
+6. **The three cells of `on_answerable_when_source_removed` are a multinomial**
+   over the same items. Their marginal CIs are not independent and the three
+   rates cannot move separately.
+7. **`rescored_by` in a scorecard means the verdicts and the statistics were
+   produced in different passes.** `git_sha` is the capture-time commit;
+   `rescored_at_git_sha` is when the CIs were added. Nothing about the
+   underlying verdicts changed.
