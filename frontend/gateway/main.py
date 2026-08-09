@@ -44,6 +44,25 @@ def is_admin(request: Request) -> bool:
     return email in ADMIN_EMAILS
 
 
+def header_safe(value: str) -> str:
+    """Make a header value safe to hand to httpx.
+
+    httpx normalises str header values with .encode("ascii"), so a single
+    non-ASCII character raises UnicodeEncodeError. That exception used to
+    surface as a blanket 502 "Backend unavailable." on EVERY authenticated
+    /api/* request for any user whose display name carried an accent:
+    "Person115" broke his whole session, /api/status included.
+
+    Non-ASCII characters are dropped rather than transliterated: the only
+    header this applies to is X-Munin-Name, which no upstream code reads
+    (it's documented in backend/CLAUDE.md but has no consumer), so exact
+    fidelity buys nothing and a transliteration table is a dependency and
+    a wrong-guess risk for scripts we don't handle. If the name header
+    ever grows a real consumer, revisit this.
+    """
+    return value.encode("ascii", "ignore").decode("ascii")
+
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("api-gateway")
 
@@ -617,7 +636,11 @@ async def proxy_api(request: Request, path: str):
             upstream_resp = await http_client.request(request.method, f"/api/{path}{query_string}")
             return Response(content=upstream_resp.content, status_code=upstream_resp.status_code, headers=dict(upstream_resp.headers))
         except Exception as e:
-            log.error(f"Public proxy error: {e}")
+            log.error(
+                f"Public proxy error: {type(e).__name__}: {e} "
+                f"[{request.method} /api/{path}]",
+                exc_info=True,
+            )
             return JSONResponse(status_code=502, content={"error": {"code": "proxy_error", "message": "Backend unavailable."}})
 
     email, source, api_key_id = resolve_auth(request)
@@ -661,8 +684,10 @@ async def proxy_api(request: Request, path: str):
         url = f"/api/{path}{query_string}"
 
         headers = {
-            "X-Munin-Email": email,
-            "X-Munin-Name": request.headers.get("X-Munin-Name", email.split("@")[0]),
+            "X-Munin-Email": header_safe(email),
+            "X-Munin-Name": header_safe(
+                request.headers.get("X-Munin-Name", email.split("@")[0])
+            ),
         }
         content_type = request.headers.get("Content-Type")
         if content_type:
@@ -784,7 +809,11 @@ async def proxy_api(request: Request, path: str):
     except Exception as e:
         if not is_exempt:
             concurrent_tracker[email] -= 1
-        log.error(f"Proxy error: {e}")
+        log.error(
+            f"Proxy error: {type(e).__name__}: {e} "
+            f"[{request.method} /api/{path} user={email}]",
+            exc_info=True,
+        )
         return JSONResponse(status_code=502, content={"error": {"code": "proxy_error", "message": "Backend unavailable."}})
 
 
@@ -834,8 +863,8 @@ async def proxy_v1(request: Request, path: str):
         upstream_path += f"?{request.url.query}"
 
     headers = {
-        "X-Munin-Email": email,
-        "X-Munin-Name": email.split("@")[0],
+        "X-Munin-Email": header_safe(email),
+        "X-Munin-Name": header_safe(email.split("@")[0]),
         "X-Munin-Ephemeral": "true",  # API requests should not be saved as conversations
     }
     content_type = request.headers.get("Content-Type")
@@ -907,7 +936,11 @@ async def proxy_v1(request: Request, path: str):
             return Response(content=upstream_resp.content, status_code=upstream_resp.status_code, headers=dict(upstream_resp.headers))
     except Exception as e:
         concurrent_tracker[email] -= 1
-        log.error(f"V1 proxy error: {e}")
+        log.error(
+            f"V1 proxy error: {type(e).__name__}: {e} "
+            f"[{request.method} /v1/{path} user={email}]",
+            exc_info=True,
+        )
         return JSONResponse(status_code=502, content={"error": {"code": "proxy_error", "message": "Backend unavailable."}})
 
 

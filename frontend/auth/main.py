@@ -729,6 +729,23 @@ def _yaml_str(s: str) -> str:
     return s
 
 
+def _header_safe(value: str) -> str:
+    """Strip non-ASCII so a value can ride in a forward-auth header.
+
+    Starlette encodes response headers as latin-1, so a name outside that
+    range ("Lukasz" with a slashed L, any CJK name) raises inside the
+    Response constructor and 500s /auth/check, which fails forward-auth
+    and locks the user out of every protected route. Latin-1-representable
+    accents survived this far but then died one hop later, where httpx
+    encodes request headers as ASCII (see gateway header_safe()). Strip to
+    the intersection here so neither boundary can fire.
+
+    Display fidelity is unaffected: the UI reads names from /auth/me and
+    /api/profile as JSON, which is UTF-8 and carries the real spelling.
+    """
+    return value.encode("ascii", "ignore").decode("ascii")
+
+
 def get_display_name(email: str) -> str | None:
     conn = get_db()
     row = conn.execute("SELECT name FROM display_names WHERE email = ?", (email,)).fetchone()
@@ -1035,12 +1052,12 @@ async def auth_check(request: Request):
     user = lookup_user(session["email"])
     role = user["role"] if user else "user"
     headers = {
-        "X-Munin-Email": session["email"],
-        "X-Munin-Name": name,
-        "X-Munin-Role": role,
+        "X-Munin-Email": _header_safe(session["email"]),
+        "X-Munin-Name": _header_safe(name),
+        "X-Munin-Role": _header_safe(role),
     }
     if user and user["group"]:
-        headers["X-Munin-Group"] = user["group"]
+        headers["X-Munin-Group"] = _header_safe(user["group"])
     return Response(status_code=200, headers=headers)
 
 

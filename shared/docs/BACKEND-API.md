@@ -41,12 +41,24 @@ key) and attaches headers to the proxied request.
 | Header | Purpose | Required |
 |---|---|---|
 | `X-Munin-Email` | user identity | Yes |
-| `X-Munin-Name` | display name | No, not consumed by backend today |
+| `X-Munin-Name` | display name, ASCII-only (see below) | No, not consumed by backend today |
 | `X-Munin-Ephemeral` | when `true`, forces ephemeral chat (no persistence); VPS gateway stamps this on every `/v1/*` API-key request | No |
 
 Every `/api/*` route except `/api/status` and `/api/personas/{id}/icon`
 requires `X-Munin-Email`; missing → **401** with
 `{"error": {"message": "Missing authentication header"}}`.
+
+**These header values are stripped to ASCII** by munin-auth
+(`_header_safe`) and again by the gateway (`header_safe`). Two encoders
+sit in the path and neither accepts arbitrary Unicode: Starlette writes
+response headers as latin-1, and httpx writes request headers as ASCII.
+A user named "Person115" therefore 502'd on every authenticated
+`/api/*` call until 2026-08. So `X-Munin-Name` may arrive with accents
+missing, or empty for a wholly non-Latin name. Don't use it for display
+or identity; the real spelling is served as UTF-8 JSON by `/auth/me`,
+and identity belongs to `X-Munin-Email`. If the backend ever starts
+consuming the name header, change the transport (RFC 8187, or move the
+name into the JSON body) rather than removing the strip.
 
 The old `X-Authentik-Email` transitional fallback was removed on
 2026-04-21, the gateway sets `X-Munin-Email` exclusively now.
