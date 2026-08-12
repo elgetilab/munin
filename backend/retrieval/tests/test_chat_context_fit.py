@@ -181,6 +181,196 @@ def test_budget_elides_largest_pending_first():
     assert cc.prompt_tokens(out) <= 10_000
 
 
+# --- 2026-08: the two prompt costs no budget guard could see -----------------
+#
+# Live symptom: 23 turns died on vLLM context-length rejections (14 of them in
+# the first 12 days of August, hitting 4 of 19 active users) while Tier 1's
+# "prompt fills the context window" warning had fired ZERO times and Tier 2 had
+# elided NOTHING in 30 days of logs. Both guards read a token count that omitted
+# (a) the tools schema, which rides in body["tools"] rather than in `messages`,
+# and (b) tool_call arguments, which live in `tool_calls` rather than `content`.
+# So both guards agreed with each other and both were wrong.
+
+
+def _run_python_call(source_chars: int, *, nested: bool = True) -> dict:
+    """An assistant message whose only real weight is its tool-call arguments,
+    which is the shape chat_service appends inside the tool loop."""
+    args = {"code": "x" * source_chars}
+    if nested:
+        return {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "run_python", "arguments": __import__("json").dumps(args)},
+            }],
+        }
+    # The persisted (chat_store) shape keeps name/arguments at the top level.
+    return {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"id": "call_1", "name": "run_python", "arguments": args}],
+    }
+
+
+def test_tool_call_arguments_are_counted():
+    # Pre-fix this scored 4 tokens (the framing allowance) no matter how large
+    # the arguments were. Production run_python calls measured 3857-6457 tokens.
+    msg = _run_python_call(20_000)
+    assert cc._message_tokens(msg) > 1_000
+
+
+def test_tool_call_arguments_counted_in_both_shapes():
+    nested = cc._message_tokens(_run_python_call(20_000, nested=True))
+    flat = cc._message_tokens(_run_python_call(20_000, nested=False))
+    # Same payload either way, so the two must land in the same ballpark.
+    assert nested > 1_000 and flat > 1_000
+    assert abs(nested - flat) < max(nested, flat) * 0.2
+
+
+def test_tool_call_results_are_not_double_counted():
+    """Results reach vLLM as separate role:"tool" messages, so counting them
+    here as well would double-bill them and make Tier 2 over-elide."""
+    with_result = {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{
+            "id": "c1", "name": "search", "arguments": {"q": "x"},
+            "result": {"payload": "y" * 40_000},
+        }],
+    }
+    without_result = {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"id": "c1", "name": "search", "arguments": {"q": "x"}}],
+    }
+    assert cc._message_tokens(with_result) == cc._message_tokens(without_result)
+
+
+def test_malformed_tool_calls_do_not_raise():
+    for bad in (None, "not-a-list", [None], [{"function": "not-a-dict"}], [{}], 7):
+        assert cc._message_tokens({"role": "assistant", "content": "", "tool_calls": bad}) >= 0
+
+
+def test_tools_schema_tokens_counts_and_caches():
+    assert cc.tools_schema_tokens(None) == 0
+    assert cc.tools_schema_tokens([]) == 0
+    schema = [
+        {"type": "function", "function": {
+            "name": f"tool_{i}",
+            "description": "d" * 400,
+            "parameters": {"type": "object", "properties": {"q": {"type": "string"}}},
+        }}
+        for i in range(15)
+    ]
+    n = cc.tools_schema_tokens(schema)
+    assert n > 500
+    assert cc.tools_schema_tokens(schema) == n  # cached, stable across calls
+
+
+def test_fit_subtracts_the_schema_cost():
+    # Prompt large enough that the remaining room binds, not the requested cap,
+    # so the schema's cost is visible in the result.
+    _stub_prompt_tokens(50_000)
+    without = cc.fit_max_tokens([], 16384, extra_tokens=0)
+    with_schema = cc.fit_max_tokens([], 16384, extra_tokens=7_000)
+    assert without == cc.MAX_MODEL_LEN - 50_000 - cc.CTX_MARGIN
+    assert without - with_schema == 7_000
+
+
+def test_fit_hits_the_floor_once_the_schema_is_counted():
+    # A prompt that looks fine alone but not once the schema is charged. This is
+    # the case Tier 1 silently passed for two months.
+    _stub_prompt_tokens(cc.MAX_MODEL_LEN - 6_000)
+    assert cc.fit_max_tokens([], 16384, extra_tokens=7_000) == cc.MIN_OUTPUT_TOKENS
+
+
+def test_budget_trips_only_once_the_schema_is_counted():
+    """The regression in one assertion: identical messages, and eliding happens
+    only when the out-of-band schema cost is included."""
+    msgs = _fanout_messages(6, 8_000)
+    body_tokens = cc.prompt_tokens(msgs)
+    target = body_tokens + 1_000  # messages alone fit, with 1k to spare
+    out_blind, n_blind = cc.budget_tool_results(msgs, target_tokens=target)
+    assert n_blind == 0 and out_blind == msgs  # pre-fix behaviour
+    _, n_aware = cc.budget_tool_results(
+        msgs, target_tokens=target, extra_tokens=7_000
+    )
+    assert n_aware > 0  # schema pushes it over, so Tier 2 acts
+
+
+# --- Item 3: the refit must not trust a derived figure -----------------------
+
+_DERIVED_MSG = (
+    "vLLM returned 400: {\"error\":{\"message\":\"This model's maximum context "
+    "length is 65536 tokens. However, you requested 2048 output tokens and your "
+    "prompt contains at least 63489 input tokens, for a total of at least 65537 "
+    "tokens.\"}}"
+)
+_MEASURED_MSG = (
+    "vLLM returned 400: {\"error\":{\"message\":\"Input length (70787) exceeds "
+    "model's maximum context length (65536).\"}}"
+)
+
+
+def test_derived_prompt_figure_is_rejected():
+    """63489 == 65536 + 1 - 2048, i.e. it is computed FROM max_tokens, not
+    measured. Refitting from it cannot converge, so it must not be parsed as
+    ground truth (main.py::_raw_prompt_tokens documents the same trap)."""
+    assert 65536 + 1 - 2048 == 63489  # the identity that makes it unusable
+    assert cc.parse_exact_prompt_tokens(_DERIVED_MSG) is None
+
+
+def test_measured_prompt_figure_is_parsed():
+    assert cc.parse_exact_prompt_tokens(_MEASURED_MSG) == 70787
+    assert cc.parse_exact_prompt_tokens("") is None
+    assert cc.parse_exact_prompt_tokens("unrelated error") is None
+
+
+def test_refit_uses_the_measured_prompt_to_fit_exactly():
+    body = {"max_tokens": 16384}
+    measured = cc.MAX_MODEL_LEN - 4_000  # leaves 4000 before the margin
+    msg = f"Input length ({measured}) exceeds model's maximum context length (65536)."
+    assert cc.refit_max_tokens(body, msg) == "exact"
+    assert body["max_tokens"] == 4_000 - cc.CTX_MARGIN
+    assert measured + body["max_tokens"] <= cc.MAX_MODEL_LEN
+
+
+def test_refit_returns_none_when_the_prompt_alone_overflows():
+    """Shape B: no max_tokens value can help, so the caller must shrink the
+    prompt instead of burning retries on the output budget."""
+    body = {"max_tokens": 16384}
+    assert cc.refit_max_tokens(body, _MEASURED_MSG) is None
+
+
+def test_refit_falls_back_to_halving_for_the_derived_shape():
+    body = {"max_tokens": 16384}
+    assert cc.refit_max_tokens(body, _DERIVED_MSG) == "halved"
+    assert body["max_tokens"] == 8192
+
+
+def test_refit_always_makes_progress():
+    """A measurement that would imply a LARGER budget must still shrink, or the
+    retry loop could spin until it exhausts its attempts."""
+    body = {"max_tokens": 512}
+    msg = "Input length (1000) exceeds model's maximum context length (65536)."
+    assert cc.refit_max_tokens(body, msg) == "exact"
+    assert body["max_tokens"] < 512
+
+
+def test_retry_ladder_can_reach_a_viable_budget():
+    """Production wall: nine identical rejections at max_tokens=2048, which is
+    exactly DEFAULT_MAX_OUTPUT_TOKENS halved three times. With the old ceiling
+    of 3 the ladder could not go below 2048 and the turn died; the ceiling must
+    allow reaching a small budget."""
+    body = {"max_tokens": cc.DEFAULT_MAX_OUTPUT_TOKENS}
+    for _ in range(cc.MAX_REFIT_RETRIES):
+        cc.halve_max_tokens(body)
+    assert body["max_tokens"] <= 1024
+    assert cc.MAX_REFIT_RETRIES >= 4
+
+
 if __name__ == "__main__":
     import types
     _orig = cc.prompt_tokens

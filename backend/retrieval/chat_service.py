@@ -794,12 +794,23 @@ async def _stream_vllm_once(
     """
     acc = _StreamAccumulator()
 
+    # Build the tools schema BEFORE budgeting. vLLM renders it into the prompt,
+    # but it rides in body["tools"] rather than in `messages`, so both guards
+    # below are blind to it unless its cost is passed in explicitly. It used to
+    # be attached to the body AFTER the fit ran, which left 6-7K tokens per call
+    # unbudgeted and was half of why heavy turns overflowed the window with
+    # every guard reporting room to spare.
+    tools_payload = _openai_tools_schema(persona) if enable_tools else None
+    schema_tokens = chat_context.tools_schema_tokens(tools_payload)
+
     # Tier 2: under heavy fan-out, elide OLD tool results (from prior loop
     # iterations the model has already reasoned past) out of the prompt copy
     # sent to vLLM so the output budget fit below isn't starved. No-op until
     # results accumulate; never touches the pending batch or the persisted
     # conversation. (docs/paper-track/done/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 2.)
-    messages, _n_elided = chat_context.budget_tool_results(messages)
+    messages, _n_elided = chat_context.budget_tool_results(
+        messages, extra_tokens=schema_tokens
+    )
     if _n_elided:
         logger.info(
             "budgeted %d earlier tool result(s) out of the prompt to fit the "
@@ -834,9 +845,11 @@ async def _stream_vllm_once(
     # trimmed once at turn start, BEFORE tool results accumulate in the loop, so
     # a heavy fan-out turn (deep_research + many searches) can push the prompt
     # past the window; re-fit per call. (docs/paper-track/done/CONTEXT-BUDGET-FIX-SCOPE.md.)
-    body["max_tokens"] = chat_context.fit_max_tokens(messages, body.get("max_tokens"))
-    if enable_tools:
-        body["tools"] = _openai_tools_schema(persona)
+    body["max_tokens"] = chat_context.fit_max_tokens(
+        messages, body.get("max_tokens"), extra_tokens=schema_tokens
+    )
+    if tools_payload is not None:
+        body["tools"] = tools_payload
         body["tool_choice"] = "auto"
 
     refit_attempts = 0
@@ -920,15 +933,48 @@ async def _stream_vllm_once(
                 and not acc.thinking_parts
                 and not acc.tool_calls
                 and refit_attempts < chat_context.MAX_REFIT_RETRIES
-                and chat_context.halve_max_tokens(body)
             ):
-                refit_attempts += 1
-                logger.warning(
-                    "vLLM context overflow past the preemptive fit; halved "
-                    "max_tokens to %d (retry %d/%d)",
-                    body["max_tokens"], refit_attempts, chat_context.MAX_REFIT_RETRIES,
-                )
-                continue
+                outcome = chat_context.refit_max_tokens(body, str(e))
+                if outcome is not None:
+                    refit_attempts += 1
+                    logger.warning(
+                        "vLLM context overflow past the preemptive fit; refit "
+                        "max_tokens to %d via %s (retry %d/%d)",
+                        body["max_tokens"], outcome, refit_attempts,
+                        chat_context.MAX_REFIT_RETRIES,
+                    )
+                    continue
+
+                # No output budget can rescue this: the prompt ALONE meets or
+                # exceeds the window. Only prompt reduction helps. When vLLM
+                # gave us a measured size, use it to correct our undercount and
+                # re-elide against ground truth rather than against a number we
+                # already know is wrong.
+                measured = chat_context.parse_exact_prompt_tokens(str(e))
+                if measured is not None:
+                    undercount = max(
+                        0, measured - chat_context.prompt_tokens(messages)
+                    )
+                    corrected = schema_tokens + undercount
+                    messages, n_forced = chat_context.budget_tool_results(
+                        messages, extra_tokens=corrected
+                    )
+                    if n_forced:
+                        refit_attempts += 1
+                        body["messages"] = messages
+                        body["max_tokens"] = chat_context.fit_max_tokens(
+                            messages,
+                            chat_context.DEFAULT_MAX_OUTPUT_TOKENS,
+                            extra_tokens=corrected,
+                        )
+                        logger.warning(
+                            "vLLM measured the prompt at %d tokens (we counted "
+                            "%d short); elided %d tool result(s) and refit "
+                            "max_tokens to %d (retry %d/%d)",
+                            measured, undercount, n_forced, body["max_tokens"],
+                            refit_attempts, chat_context.MAX_REFIT_RETRIES,
+                        )
+                        continue
             yield ("error", {"message": str(e)}, acc)
         except Exception as e:
             yield ("error", {"message": f"vLLM streaming failed: {e}"}, acc)

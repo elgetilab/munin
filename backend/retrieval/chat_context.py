@@ -17,8 +17,10 @@ past the budget and hit vLLM as a hard error (P1 #8).
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
 from typing import Any, Optional
 
 from database import VLLM_MODEL_NAME
@@ -56,8 +58,12 @@ CTX_MARGIN = int(os.getenv("VLLM_CTX_MARGIN", "512"))
 # A turn whose prompt leaves less than this for output isn't worth running.
 MIN_OUTPUT_TOKENS = int(os.getenv("VLLM_MIN_OUTPUT_TOKENS", "256"))
 # Safety-net retries if vLLM still rejects for context length (local count
-# under-estimated, e.g. tokenizer not mounted -> char heuristic).
-MAX_REFIT_RETRIES = int(os.getenv("VLLM_MAX_REFIT_RETRIES", "3"))
+# under-estimated, e.g. tokenizer not mounted -> char heuristic). Raised 3 -> 5
+# in 2026-08: halving from DEFAULT_MAX_OUTPUT_TOKENS reaches only 2048 in three
+# steps (16384 -> 8192 -> 4096 -> 2048), and production hit a wall of rejections
+# that were still over the window at 2048. Three steps could not reach a viable
+# budget, so the ladder exhausted and the turn died; five reaches 512.
+MAX_REFIT_RETRIES = int(os.getenv("VLLM_MAX_REFIT_RETRIES", "5"))
 
 SUMMARIZE_PROMPT = (
     "You are compacting an ongoing conversation so that a language model can "
@@ -164,12 +170,95 @@ def _count_image_blocks(content: Any) -> int:
 _PER_IMAGE_TOKENS = 120
 
 
+def _tool_calls_tokens(message: dict) -> int:
+    """Token cost of a message's ``tool_calls`` payload.
+
+    Assistant messages in the tool loop carry the function name and its JSON
+    arguments in ``tool_calls``, not in ``content`` (chat_service builds them
+    at the OpenAI shape, ``{"function": {"name", "arguments"}}``). vLLM's chat
+    template renders those into the prompt, so they are real prompt tokens.
+
+    Counting ``content`` alone scored such a message at the 4-token framing
+    allowance while a single ``run_python`` call measured 3.8-6.5K tokens of
+    source. That undercount is why both budget guards believed a tool-heavy
+    turn had room to spare while its real prompt walked past the window
+    (observed live: prompts of 65542-70939 against a 65536 window, with
+    Tier 2's 48640 threshold never once tripping).
+
+    Tool RESULTS are deliberately not counted here: they reach vLLM as
+    separate ``role: "tool"`` messages whose payload sits in ``content``, so
+    they are already counted, and they are what ``budget_tool_results``
+    elides.
+    """
+    tool_calls = message.get("tool_calls")
+    if not isinstance(tool_calls, list):
+        return 0
+    total = 0
+    for call in tool_calls:
+        if not isinstance(call, dict):
+            continue
+        fn = call.get("function")
+        fn = fn if isinstance(fn, dict) else {}
+        # OpenAI shape nests under "function"; the persisted shape
+        # (chat_store) keeps name/arguments at the top level. Accept both.
+        name = fn.get("name") or call.get("name") or ""
+        args = fn.get("arguments") if "arguments" in fn else call.get("arguments")
+        if args is None:
+            args_text = ""
+        elif isinstance(args, str):
+            args_text = args
+        else:
+            try:
+                args_text = json.dumps(args, ensure_ascii=False, default=str)
+            except (TypeError, ValueError):
+                args_text = str(args)
+        # +8 for the per-call wrapper (id, type, function envelope).
+        total += approx_tokens(str(name)) + approx_tokens(args_text) + 8
+    return total
+
+
 def _message_tokens(message: dict) -> int:
     content = message.get("content")
     text_tokens = approx_tokens(_content_to_text(content))
     image_tokens = _count_image_blocks(content) * _PER_IMAGE_TOKENS
+    tool_call_tokens = _tool_calls_tokens(message)
     # Add a small framing overhead per message (~4 tokens for role/wrapping).
-    return text_tokens + image_tokens + 4
+    return text_tokens + image_tokens + tool_call_tokens + 4
+
+
+# Token cost of a rendered tools schema, keyed by a hash of its JSON. The
+# schema is stable per routed profile, so this is a handful of entries; the
+# cap is only a guard against an unbounded persona set.
+_TOOLS_TOKENS_CACHE: dict[int, int] = {}
+_TOOLS_TOKENS_CACHE_MAX = 64
+
+
+def tools_schema_tokens(tools: Optional[list]) -> int:
+    """Prompt cost of the ``tools`` schema sent alongside a chat request.
+
+    The schema travels in ``body["tools"]``, NOT in ``messages``, but vLLM
+    renders it into the prompt. Neither ``fit_max_tokens`` nor
+    ``budget_tool_results`` can see it unless the caller measures it here and
+    passes the result in as ``extra_tokens``. Live schemas cost 6220 (chat),
+    6898 (research) and 7289 (code) tokens, and until 2026-08 they were
+    attached to the body AFTER the fit ran, so every call under-budgeted by
+    that much.
+    """
+    if not tools:
+        return 0
+    try:
+        payload = json.dumps(tools, ensure_ascii=False, default=str, sort_keys=True)
+    except (TypeError, ValueError):
+        payload = str(tools)
+    key = hash(payload)
+    cached = _TOOLS_TOKENS_CACHE.get(key)
+    if cached is not None:
+        return cached
+    # +16 for the template's framing around the tool block itself.
+    count = approx_tokens(payload) + 16
+    if len(_TOOLS_TOKENS_CACHE) < _TOOLS_TOKENS_CACHE_MAX:
+        _TOOLS_TOKENS_CACHE[key] = count
+    return count
 
 
 def prompt_tokens(messages: list) -> int:
@@ -188,8 +277,15 @@ def prompt_tokens(messages: list) -> int:
     return total + 8
 
 
-def fit_max_tokens(messages: list, requested_max: Optional[int]) -> int:
+def fit_max_tokens(
+    messages: list, requested_max: Optional[int], *, extra_tokens: int = 0
+) -> int:
     """Clamp the output budget so prompt + output stays within MAX_MODEL_LEN.
+
+    ``extra_tokens`` covers prompt content that is NOT in ``messages``: the
+    ``tools`` schema (see ``tools_schema_tokens``), plus any measured
+    undercount fed back from a vLLM rejection. Omitting it is what let the
+    schema's 6-7K tokens go unbudgeted on every call.
 
     Returns the fitted max_tokens. For the common case (a heavy but sub-window
     prompt) the returned value fits exactly. If the prompt itself (near-)fills
@@ -197,7 +293,7 @@ def fit_max_tokens(messages: list, requested_max: Optional[int]) -> int:
     still be rejected and trimming the conversation (a separate fix) is the real
     remedy, but that is rarer than the accumulated-tool-result overflow this
     guards. (CONTEXT-BUDGET-FIX-SCOPE.md, Tier 1.)"""
-    room = MAX_MODEL_LEN - prompt_tokens(messages) - CTX_MARGIN
+    room = MAX_MODEL_LEN - prompt_tokens(messages) - extra_tokens - CTX_MARGIN
     if room < MIN_OUTPUT_TOKENS:
         logger.warning(
             "prompt fills the context window (room=%d < %d); clamping output to "
@@ -219,7 +315,12 @@ _ELIDED_TOOL_RESULT = (
 )
 
 
-def budget_tool_results(messages: list, *, target_tokens: Optional[int] = None):
+def budget_tool_results(
+    messages: list,
+    *,
+    target_tokens: Optional[int] = None,
+    extra_tokens: int = 0,
+):
     """Tier 2: keep a heavy fan-out turn's prompt within budget so the output
     budget (fit_max_tokens) isn't starved to the floor. Returns
     (new_messages, n_elided).
@@ -244,7 +345,11 @@ def budget_tool_results(messages: list, *, target_tokens: Optional[int] = None):
             return max(1, len(str(m.get("content", ""))) // 4)
 
     per = [_tok(m) if isinstance(m, dict) else 0 for m in messages]
-    total = sum(per) + 8
+    # ``extra_tokens`` is prompt weight outside ``messages`` (tools schema, plus
+    # any undercount vLLM has already told us about). Without it this comparison
+    # ran against a count that omitted the schema, so the threshold was never
+    # reached and this function elided nothing in production for two months.
+    total = sum(per) + 8 + extra_tokens
     if total <= target_tokens:
         return list(messages), 0
 
@@ -309,6 +414,67 @@ def halve_max_tokens(body: dict) -> bool:
         return False
     body["max_tokens"] = max(MIN_OUTPUT_TOKENS, current // 2)
     return True
+
+
+# vLLM rejects an oversized request in two shapes, and only one carries a real
+# measurement:
+#
+#   "Input length (70787) exceeds model's maximum context length (65536)"
+#       -> 70787 is the MEASURED prompt. Usable.
+#   "...you requested 2048 output tokens and your prompt contains at least
+#    63489 input tokens, for a total of at least 65537 tokens"
+#       -> that figure is DERIVED as (window + 1 - max_tokens), not measured.
+#          Every observed instance satisfied 65536 + 1 - 2048 == 63489 exactly.
+#          Refitting from it cannot converge (it moves with max_tokens), which
+#          is the trap main.py::_raw_prompt_tokens documents. Unusable.
+_EXACT_PROMPT_TOKENS_RE = re.compile(r"input length \((\d+)\)\s+exceeds", re.I)
+
+
+def parse_exact_prompt_tokens(text: str) -> Optional[int]:
+    """vLLM's MEASURED prompt size, if the rejection carries one.
+
+    Returns None for the "at least N input tokens" shape, whose figure is
+    derived from max_tokens rather than measured. Callers must treat None as
+    "no ground truth available", not as "no overflow".
+    """
+    if not text:
+        return None
+    match = _EXACT_PROMPT_TOKENS_RE.search(text)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except (TypeError, ValueError):
+        return None
+
+
+def refit_max_tokens(body: dict, error_text: str) -> Optional[str]:
+    """Shrink the output budget after a context-length rejection.
+
+    Returns:
+        ``"exact"``  vLLM handed us a measured prompt size and the output
+                     budget was refit to the room it actually leaves.
+        ``"halved"`` no measurement available, so fall back to the halving
+                     search (the only convergent option for the derived shape).
+        ``None``     no output budget can rescue this request: the prompt
+                     alone meets or exceeds the window, so only prompt
+                     reduction helps. The caller should re-elide and retry.
+
+    Progress is guaranteed in the ``"exact"`` branch by clamping strictly
+    below the current value, so a bad measurement cannot spin the retry loop.
+    """
+    exact = parse_exact_prompt_tokens(error_text)
+    if exact is None:
+        return "halved" if halve_max_tokens(body) else None
+
+    room = MAX_MODEL_LEN - exact - CTX_MARGIN
+    current = body.get("max_tokens")
+    if isinstance(current, int) and current > 0:
+        room = min(room, current - 1)
+    if room < MIN_OUTPUT_TOKENS:
+        return None
+    body["max_tokens"] = room
+    return "exact"
 
 
 def _augment_with_attachments(message: dict) -> str:

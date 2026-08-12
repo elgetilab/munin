@@ -298,7 +298,11 @@ services:
       - VLLM_GENERATION_RESERVE=${VLLM_GENERATION_RESERVE:-16384}
       - VLLM_CTX_MARGIN=${VLLM_CTX_MARGIN:-512}
       - VLLM_MIN_OUTPUT_TOKENS=${VLLM_MIN_OUTPUT_TOKENS:-256}
-      - VLLM_MAX_REFIT_RETRIES=${VLLM_MAX_REFIT_RETRIES:-3}
+      # 5, not 3: halving from VLLM_MAX_OUTPUT_TOKENS reaches only 2048 in three
+      # steps, and production hit a wall of rejections still over the window at
+      # 2048, so the ladder exhausted and the turn died. Keep in lockstep with
+      # chat_context.MAX_REFIT_RETRIES - this value overrides that default.
+      - VLLM_MAX_REFIT_RETRIES=${VLLM_MAX_REFIT_RETRIES:-5}
       # Log verbosity for the whole service.
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     depends_on:

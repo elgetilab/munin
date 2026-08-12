@@ -120,3 +120,63 @@ still over-tools. The fix must be context-side.
   `soft_max_calls` diagnostic to track it).
 - Token-budgeting `truncate_tool_result` (char-based today; noted as a possible
   follow-up in tool_result.py:34).
+
+---
+
+## REOPENED 2026-08-12: all three tiers were reading a blind token count
+
+The status line above ("ALL THREE TIERS IMPLEMENTED + DEPLOYED... zero ctx
+errors") was true only for the deep_research paraphrase eval category it was
+verified against. General chat kept overflowing, and the rate accelerated:
+4 rejections in June, 5 in July, **14 in the first 12 days of August**, hitting
+4 of 19 active users and 9 of 55 conversations. Nobody reported it; the turn
+just dies with an `error` SSE.
+
+Cause: every tier fed off `_message_tokens`, which omitted the two largest
+contributors to a tool-heavy prompt.
+
+1. **The tools schema was never counted at all.** It rides in `body["tools"]`,
+   not in `messages`, and `chat_service` attached it two lines AFTER
+   `fit_max_tokens` ran. Live cost: 6220 (chat) / 6898 (research) / 7289 (code)
+   tokens on every single call.
+2. **`tool_calls` were never counted.** Arguments live in `tool_calls`, not
+   `content`, so an assistant message that shipped 6457 tokens of `run_python`
+   source scored 4 tokens. Measured undercount on one representative 3-call
+   code turn: **14,974 tokens**.
+
+Both guards read the same blind number, so they agreed with each other and were
+both wrong. The consequences were visible in the logs all along:
+
+| signal | over 30 days of prod logs |
+|---|---|
+| Tier 1's "prompt fills the context window" warning | **0 occurrences** |
+| Tier 2's "budgeted N earlier tool result(s)" | **0 occurrences, ever** |
+| the halving retry ladder | **60 occurrences** |
+
+This doc predicted its own blind spot: Tier 2's prod verification was listed as
+still needed via `docker logs munin-retrieval | grep budgeted`. That grep
+returns nothing, because Tier 2 has never once fired in production.
+
+### Also corrected: the retry ladder could not reach a viable budget
+
+Nine rejections were numerically identical at `max_tokens=2048`, which is
+`DEFAULT_MAX_OUTPUT_TOKENS` halved three times against a ceiling of exactly 3.
+The ladder exhausted before it could go lower and the turn died.
+`MAX_REFIT_RETRIES` is now 5 in both `chat_context.py` and
+`backend/docker/docker-compose.yml` (the compose value overrides the code
+default, so changing only the code would have been a no-op in production).
+
+### The trap in reading vLLM's error
+
+Two rejection shapes exist and only one carries a measurement:
+
+- `Input length (70787) exceeds model's maximum context length (65536)` is a
+  real measurement, and is now used to refit exactly and to correct the
+  undercount before re-eliding.
+- `...you requested 2048 output tokens and your prompt contains at least 63489
+  input tokens` is **derived**: 65536 + 1 - 2048 == 63489 exactly, in every
+  observed instance. Refitting from it cannot converge, which is the trap
+  `main.py::_raw_prompt_tokens` already documented. `parse_exact_prompt_tokens`
+  returns None for this shape on purpose.
+
+Guarded by 15 new cases in `retrieval/tests/test_chat_context_fit.py`.
