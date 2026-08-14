@@ -25,7 +25,7 @@ from typing import Optional
 
 import httpx
 
-from database import VLLM_URL, VLLM_MODEL_NAME
+from database import VLLM_URL, VLLM_MODEL_NAME, thinking_off_fields
 
 from .query_expansion import expand_queries
 from .papers import paper_search, semantic_scholar_search
@@ -136,7 +136,7 @@ async def decompose_question(question: str, n: int = 4) -> list[str]:
                     "temperature": 0.5,
                     "stream": False,
                     # Qwen3 would otherwise eat the budget inside <think>.
-                    "chat_template_kwargs": {"enable_thinking": False},
+                    **thinking_off_fields(),
                 },
             )
             if resp.status_code != 200:

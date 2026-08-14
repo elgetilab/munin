@@ -28,7 +28,7 @@ import os
 
 import httpx
 
-from database import VLLM_URL, VLLM_MODEL_NAME
+from database import VLLM_URL, VLLM_MODEL_NAME, thinking_off_fields
 
 from ..context import current_user_email
 
@@ -119,7 +119,7 @@ async def transcribe_equation(image_ref: str) -> dict:
                     "max_tokens": 512,
                     "temperature": 0.2,
                     "stream": False,
-                    "chat_template_kwargs": {"enable_thinking": False},
+                    **thinking_off_fields(),
                 },
             )
     except httpx.TimeoutException:

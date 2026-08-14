@@ -23,7 +23,7 @@ import json
 import logging
 from typing import Optional
 
-from database import VLLM_MODEL_NAME
+from database import VLLM_MODEL_NAME, thinking_off_fields
 from vllm_client import VLLMRequestError, vllm_post_json
 from memory_store import MAX_KEY_CHARS, MAX_VALUE_CHARS
 
@@ -169,9 +169,10 @@ async def extract_memories(
                 "max_tokens": 400,
                 "temperature": 0.1,
                 "stream": False,
-                # Disable Qwen3 reasoning — classifier is mechanical;
-                # any <think> trace eats the small token budget.
-                "chat_template_kwargs": {"enable_thinking": False},
+                # Disable reasoning — classifier is mechanical; any <think>
+                # trace eats the small token budget. Skipped automatically
+                # if the endpoint does not accept the toggle.
+                **thinking_off_fields(),
             },
             timeout=60.0,
             foreground=False,

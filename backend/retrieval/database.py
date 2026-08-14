@@ -46,9 +46,90 @@ DEEPRESEARCH_QUEUE_DIR = os.getenv("DEEPRESEARCH_QUEUE_DIR", "/deepresearch/queu
 DEEPRESEARCH_JOBS_DIR = os.getenv("DEEPRESEARCH_JOBS_DIR", "/deepresearch/jobs")
 SLURM_QUEUE_FILE = os.getenv("SLURM_QUEUE_FILE", "/deepresearch/slurm_queue.json")
 
-# vLLM configuration (for MCP tools)
-VLLM_URL = os.getenv("VLLM_URL", "http://127.0.0.1:8000")
-VLLM_MODEL_NAME = os.getenv("VLLM_MODEL_NAME", "qwen3.6-35b-a3b")
+# ------------------------------------------------------------------------------
+# Language-model endpoint.
+#
+# Munin speaks plain OpenAI-compatible HTTP, so the endpoint does not have to be
+# vLLM: Ollama, llama.cpp's server, or a hosted API all work. The reference
+# deployment is vLLM and the published results were measured on it.
+#
+# LLM_BASE_URL / LLM_MODEL_NAME are the names to use. VLLM_URL / VLLM_MODEL_NAME
+# remain as aliases because they are what the cluster's cluster.env and every
+# vLLM launch script already export; dropping them would be a silent
+# misconfiguration on the next deploy. The internal symbols keep the old names
+# so the 43 call sites across 14 modules do not churn.
+# ------------------------------------------------------------------------------
+DEFAULT_LLM_BASE_URL = "http://127.0.0.1:8000"
+DEFAULT_LLM_MODEL_NAME = "qwen3.6-35b-a3b"
+
+
+def _env_flag(name: str, default: bool, env=None) -> bool:
+    raw = (os.environ if env is None else env).get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in ("0", "false", "no", "off", "")
+
+
+def resolve_llm_endpoint(env=None) -> tuple:
+    """(base_url, model_name) from the environment, new names winning.
+
+    A PURE function of `env` on purpose. These used to be inline `os.getenv`
+    calls at module scope, which made them untestable without reimporting the
+    module -- and module reload does not reliably re-read the environment once
+    something else in the process has already imported it, so the tests that
+    tried were passing alone and failing in the suite. Keeping the resolution
+    in a function that takes a mapping makes it directly testable and is why
+    the empty-string case below is pinned by a test rather than assumed.
+
+    An EMPTY value falls through to the next candidate rather than winning:
+    `LLM_BASE_URL=` in a .env file means "not set", not "use a blank base URL",
+    which would otherwise send every request to a relative path.
+    """
+    env = os.environ if env is None else env
+    url = env.get("LLM_BASE_URL") or env.get("VLLM_URL") or DEFAULT_LLM_BASE_URL
+    model = (env.get("LLM_MODEL_NAME") or env.get("VLLM_MODEL_NAME")
+             or DEFAULT_LLM_MODEL_NAME)
+    return url, model
+
+
+# Does the endpoint accept `chat_template_kwargs`?
+#
+# Munin disables model "thinking" for mechanical sub-tasks (summarise, expand a
+# query, transcribe an equation, extract a memory) because a long <think> trace
+# eats a small token budget and produces nothing useful. vLLM exposes that as
+# `chat_template_kwargs: {"enable_thinking": false}`, which is a passthrough to
+# the chat template and NOT part of the OpenAI schema.
+#
+# Strict servers reject unknown top-level request fields with a 400, so sending
+# it blindly turns "point Munin at your own endpoint" into an immediate hard
+# failure on every one of those sub-tasks. Gate it instead: on, the behaviour is
+# byte-identical to before; off, the field is omitted and the only cost is that
+# those sub-tasks may emit reasoning the caller then discards.
+#
+# Left ON by default so the reference deployment is unchanged. Turn it off for
+# an endpoint that 400s (the symptom is every summarise/expand call failing
+# while plain chat works).
+LLM_THINKING_TOGGLE = _env_flag("LLM_THINKING_TOGGLE", True)
+
+VLLM_URL, VLLM_MODEL_NAME = resolve_llm_endpoint()
+
+
+def thinking_off_fields(enabled: bool = None) -> dict:
+    """Request fields that disable the endpoint's reasoning trace, or `{}`.
+
+    Splat into a request-body literal: `{..., **thinking_off_fields()}`.
+    `enabled` exists so a test can pin both branches without touching the
+    process environment; callers pass nothing.
+    """
+    if not (LLM_THINKING_TOGGLE if enabled is None else enabled):
+        return {}
+    return {"chat_template_kwargs": {"enable_thinking": False}}
+
+
+def thinking_off(body: dict, enabled: bool = None) -> dict:
+    """Mutating form of `thinking_off_fields`, for a body built up in steps."""
+    body.update(thinking_off_fields(enabled))
+    return body
 
 # Lazy-loaded clients and models
 _qdrant = None

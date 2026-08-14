@@ -23,7 +23,7 @@ import os
 import re
 from typing import Any, Optional
 
-from database import VLLM_MODEL_NAME
+from database import VLLM_MODEL_NAME, thinking_off_fields
 import asyncio
 
 from chat_store import get_conversation, get_messages_after_index, update_summary
@@ -556,7 +556,7 @@ async def _call_vllm(
                 "max_tokens": max_tokens,
                 "temperature": 0.3,
                 "stream": False,
-                "chat_template_kwargs": {"enable_thinking": False},
+                **thinking_off_fields(),
             },
             timeout=60.0,
             foreground=False,

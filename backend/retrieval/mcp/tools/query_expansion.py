@@ -18,7 +18,7 @@ from typing import Optional
 
 import httpx
 
-from database import VLLM_URL, VLLM_MODEL_NAME
+from database import VLLM_URL, VLLM_MODEL_NAME, thinking_off_fields
 
 EXPANSION_SYSTEM_PROMPT = (
     "You are a search query expansion helper. Given one base query, return a "
@@ -132,7 +132,7 @@ async def expand_queries(
                     # Qwen3's reasoning phase is expensive and eats the whole
                     # token budget for a task this simple — disable it so the
                     # model writes straight to `content`.
-                    "chat_template_kwargs": {"enable_thinking": False},
+                    **thinking_off_fields(),
                 },
             )
             if resp.status_code != 200:

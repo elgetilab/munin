@@ -432,6 +432,55 @@ services:
       - rag
 
   # ============================================================================
+  # vLLM (profile: gpu) - OPTIONAL, and off by default
+  # ============================================================================
+  # Munin needs an OpenAI-compatible /v1 endpoint; it does not care what serves
+  # it. The default is to bring your own via LLM_BASE_URL (Ollama, llama.cpp, a
+  # remote vLLM, a hosted API). This service is here for the case where the
+  # host has an NVIDIA GPU and you want the reference server locally.
+  #
+  # NOT in the default profile set, and it must not be: it fails to start on
+  # any machine without an NVIDIA runtime, which is most machines.
+  #
+  # The reference deployment does NOT use this. There vLLM runs as a SLURM job
+  # with the GPU allocated by the scheduler (scripts/vllm/start-vllm-service.sh),
+  # because the cluster shares its GPUs with other work. The flags below mirror
+  # that script; keep them in step if you change one.
+  #
+  # Set LLM_BASE_URL=http://vllm:8000 to point retrieval at it.
+  vllm:
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:latest}
+    container_name: ${MUNIN_PREFIX:-munin}-vllm
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${VLLM_HOST_PORT:-8000}:8000"
+    volumes:
+      # Weights are large. Cache them outside the container so a recreate does
+      # not re-download, and so a host-side vLLM can share the same cache.
+      - ${MUNIN_ROOT:-/opt/munin}/data/models:/models
+      - ${HF_CACHE_DIR:-${MUNIN_ROOT:-/opt/munin}/data/hf-cache}:/root/.cache/huggingface
+    command: >
+      --model ${VLLM_SERVE_MODEL:-cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit}
+      --served-model-name ${VLLM_MODEL_NAME:-qwen3.6-35b-a3b}
+      --host 0.0.0.0 --port 8000
+      --gpu-memory-utilization ${VLLM_GPU_MEM_UTIL:-0.90}
+      --max-model-len ${VLLM_MAX_MODEL_LEN:-65536}
+      --max-num-seqs ${VLLM_MAX_NUM_SEQS:-2}
+      --kv-cache-dtype ${VLLM_KV_CACHE_DTYPE:-fp8}
+      --enable-auto-tool-choice
+      --tool-call-parser ${VLLM_TOOL_PARSER:-qwen3_xml}
+      --reasoning-parser ${VLLM_REASONING_PARSER:-qwen3}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${VLLM_GPU_COUNT:-1}
+              capabilities: [gpu]
+    profiles:
+      - gpu
+
+  # ============================================================================
   # PAPER PIPELINE JOBS (profile: pipeline)
   # ============================================================================
   # Container equivalents of four host-side systemd units:

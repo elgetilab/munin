@@ -38,7 +38,7 @@ from typing import Any, Awaitable, Callable, Optional
 import httpx
 
 from agent_trace import AgentTrace
-from database import VLLM_MODEL_NAME, VLLM_URL
+from database import VLLM_MODEL_NAME, VLLM_URL, thinking_off
 
 # Async progress callback: `await progress(event: str, data: dict)`. The manager
 # passes one that appends a render-ready event to the durable job log (so the
@@ -74,7 +74,7 @@ async def _llm(system: str, user: str, *, max_tokens: int = 1500,
                          {"role": "user", "content": user}],
             "max_tokens": max_tokens, "temperature": 0.4, "stream": False}
     if not thinking:
-        body["chat_template_kwargs"] = {"enable_thinking": False}
+        thinking_off(body)
     async with httpx.AsyncClient(timeout=180.0) as client:
         r = await client.post(f"{VLLM_URL}/v1/chat/completions", json=body)
     if r.status_code != 200:

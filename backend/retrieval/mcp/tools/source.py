@@ -43,7 +43,7 @@ import httpx
 
 import provenance as P
 from agent_trace import AgentTrace
-from database import VLLM_MODEL_NAME, VLLM_URL
+from database import VLLM_MODEL_NAME, VLLM_URL, thinking_off
 
 logger = logging.getLogger(__name__)
 
@@ -343,7 +343,7 @@ async def _vllm_answer(system: str, user: str, *, max_tokens: int = 4096,
         "max_tokens": max_tokens, "temperature": temperature, "stream": False,
     }
     if not enable_thinking:
-        body["chat_template_kwargs"] = {"enable_thinking": False}
+        thinking_off(body)
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
             r = await client.post(f"{VLLM_URL}/v1/chat/completions", json=body)

@@ -42,7 +42,7 @@ from typing import Any, Optional
 import httpx
 
 from agent_trace import AgentTrace
-from database import VLLM_MODEL_NAME, VLLM_URL
+from database import VLLM_MODEL_NAME, VLLM_URL, thinking_off_fields
 from mcp.tools.source import EXTRACT_DIR
 
 # The one broad pinned image's libraries (design D23) + safe stdlib. An import
@@ -81,7 +81,7 @@ async def _vllm_code(system: str, user: str, max_tokens: int = 2000) -> str:
             "messages": [{"role": "system", "content": system},
                          {"role": "user", "content": user}],
             "max_tokens": max_tokens, "temperature": 0.2, "stream": False,
-            "chat_template_kwargs": {"enable_thinking": False}}
+            **thinking_off_fields()}
     async with httpx.AsyncClient(timeout=120.0) as client:
         r = await client.post(f"{VLLM_URL}/v1/chat/completions", json=body)
     if r.status_code != 200:

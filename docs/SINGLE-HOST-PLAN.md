@@ -303,6 +303,49 @@ Each phase is independently useful and independently verifiable.
 - Optional `gpu` vLLM profile.
 - **Verify:** the stack answers a chat turn against a small Ollama model.
 
+> **Phase 3 DONE 2026-08-14.**
+>
+> **The spike's answer: the coupling is one field, not a rewrite.** Tool calling
+> is already portable, because the vLLM-side `--tool-call-parser qwen3_xml`
+> normalises to standard OpenAI `tool_calls` before the client ever sees it, and
+> the reasoning fields are read defensively (`delta.reasoning or
+> delta.reasoning_content`) so their absence is harmless. `<think>` stripping is
+> a regex on output and a no-op when there is nothing to strip. The single real
+> blocker was `chat_template_kwargs`, vLLM's non-OpenAI passthrough used at 9
+> call sites to suppress reasoning on mechanical sub-tasks: a strict server 400s
+> on unknown top-level fields, which would have made every summarise, expand and
+> transcribe call fail while plain chat appeared to work.
+>
+> Gated behind `LLM_THINKING_TOGGLE` (default on, so the reference deployment is
+> byte-identical) via `thinking_off_fields()` / `thinking_off()`, which also
+> collapses 9 copies of the same literal into one helper. `LLM_BASE_URL` and
+> `LLM_MODEL_NAME` added as the primary names, with `VLLM_URL` / `VLLM_MODEL_NAME`
+> kept as aliases because cluster.env and every vLLM launch script export them.
+> Internal symbol names unchanged, so the 43 call sites across 14 modules do not
+> churn. Optional `gpu` profile added, deliberately excluded from the default
+> profile set because it cannot start without an NVIDIA runtime.
+>
+> **A testing trap worth not re-laying.** The first version of the test drove
+> `importlib.reload(database)` under `monkeypatch.setenv`. It passed in
+> isolation and failed inside the full suite: once another module has imported
+> `database`, a reload does not reliably re-read the environment. Rather than
+> keep chasing the root cause, the config moved into pure functions
+> (`resolve_llm_endpoint(env)`, `_env_flag(name, default, env)`) that take a
+> mapping, which is both directly testable and the reason the empty-string case
+> is now pinned rather than assumed. Reading config at import time is what made
+> this untestable in the first place, and is the same shape as the stale-default
+> bugs found in Phase 2.
+>
+> **Verified:** 25 new tests pass alone and in the suite; the full retrieval
+> suite goes 552 passed / 23 failed before to 577 passed / 23 failed after, the
+> same 23 being pre-existing environment failures (they read files outside the
+> mounted directory), confirmed by running the identical suite against a
+> pristine worktree of the previous commit. Compose defaults byte-identical; all
+> deploy dry-runs unchanged.
+>
+> **Not yet verified:** an actual chat turn against a non-vLLM endpoint. That
+> needs a host where the stack can be brought up.
+
 ### Phase 4: make the frontend portable
 
 - `VITE_AUTH_BASE` / `VITE_API_BASE` in the webui, production values as

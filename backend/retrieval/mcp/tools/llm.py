@@ -7,7 +7,7 @@ Provides:
 
 import httpx
 
-from database import VLLM_URL, VLLM_MODEL_NAME
+from database import VLLM_URL, VLLM_MODEL_NAME, thinking_off_fields
 
 
 async def llm_summarize(text: str, instruction: str, max_tokens: int = 1200) -> dict:
@@ -58,7 +58,7 @@ async def llm_summarize(text: str, instruction: str, max_tokens: int = 1200) -> 
                     "stream": False,
                     # Disable Qwen3 reasoning — a simple summary task would
                     # otherwise burn the whole token budget inside <think>.
-                    "chat_template_kwargs": {"enable_thinking": False},
+                    **thinking_off_fields(),
                 },
             )
 
