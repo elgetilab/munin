@@ -3,7 +3,78 @@
 # ==============================================================================
 # Always-on services for the Munin research cluster.
 # vLLM is started separately by SLURM job.
+#
+# ------------------------------------------------------------------------------
+# THIS FILE SERVES TWO TARGETS. Read this before editing a path.
+# ------------------------------------------------------------------------------
+# 1. The reference cluster. `deploy.sh compose` installs this file into
+#    /opt/munin/docker/ and runs `docker compose` from there. Every default
+#    below IS the production value, so the cluster needs no overrides at all
+#    and an operator running `docker compose` by hand in /opt/munin/docker
+#    gets exactly the deployed behaviour. (Same principle as the encoder
+#    defaults: see DECISIONS.md 2026-08, "deploy defaults are production".)
+#
+# 2. A single-host run straight from a clone, for development, demos, and
+#    anyone reproducing the system. The repo-root `.env.example` overrides the
+#    path variables to point back into the working tree. See
+#    docs/SINGLE-HOST-PLAN.md.
+#
+# The two never collide because Compose reads `.env` from the CURRENT WORKING
+# DIRECTORY: the cluster picks up /opt/munin/docker/.env (a symlink to
+# cluster.env), a local run picks up the repo-root .env.
+#
+# GOTCHA when overriding a path with a RELATIVE value: Compose resolves it
+# against the PROJECT DIRECTORY, which is this file's directory
+# (backend/docker/), not your shell's cwd. So repo root is `../..` from here.
+# The repo-root .env.example already accounts for this; copy its style.
+#
+# Path variables, all defaulting to the production layout:
+#   MUNIN_ROOT            /opt/munin                     data, models, knowledge
+#   MUNIN_RETRIEVAL_SRC   /opt/munin/services/retrieval  retrieval build context
+#   MUNIN_SANDBOX_SRC     /opt/munin/services/sandbox    sandbox build context
+#   MUNIN_PIPELINE_SRC    /opt/cluster/scripts/pipeline  pipeline mounted into retrieval
+#   MUNIN_PERSONAS_SRC    /opt/munin/personas            persona JSON + logos
+#   MUNIN_AGENT_CONFIG    /opt/munin/config              agents.yml, faq.yml
+#   MUNIN_SEARXNG_CONFIG  /opt/munin/services/searxng    searxng settings.yml
+#   MUNIN_DOCKER_CONFIG   /opt/munin/docker              grobid.yaml, prometheus.yml
+#
+# Resource variables, sized for a cluster node by default and worth lowering
+# on a laptop (GROBID in particular will thrash a 16 GB machine):
+#   GROBID_IMAGE          lfoppiano/grobid:0.8.2   (the CRF-only image is far
+#                                                   smaller; see .env.example)
+#   GROBID_JAVA_OPTS      -Xmx12g -Xms2g
+#   GROBID_MEM_LIMIT      16G
+#
+# ------------------------------------------------------------------------------
+# ONE-TIME MIGRATION on the reference cluster (read before the next deploy)
+# ------------------------------------------------------------------------------
+# The `name:` below pins the Compose PROJECT. Without it, Compose derives the
+# project from the directory basename, which is `docker` both for
+# /opt/munin/docker and for this file's own backend/docker. Two different
+# checkouts therefore looked like ONE stack: running `docker compose up` from a
+# clone on a host already running Munin silently recreated the live containers
+# against the clone's (empty) data directories, and a `down` tore the whole
+# production stack out. That is not hypothetical; it happened on 2026-08-14.
+#
+# Pinning the name fixes it, but the stack deployed before this change carries
+# `com.docker.compose.project=docker`, so the first deploy after it will hit
+# container-name conflicts. Migrate once, during a maintenance window:
+#
+#     cd /opt/munin/docker
+#     sudo docker compose down                       # tears down project `docker`
+#     sudo docker compose --profile rag --profile monitoring up -d
+#
+# All application data is in bind mounts, so nothing there is lost. The ONE
+# casualty is Prometheus: its TSDB lives in a named volume, which Compose scopes
+# by project, so `docker_prometheus_data` is orphaned and the admin Metrics tab
+# restarts with an empty 30-day window. The old volume is not deleted; recover
+# the history later by copying it into `munin_prometheus_data` if it matters.
+# `deploy.sh` detects the project mismatch and refuses to run rather than
+# failing halfway.
 # ==============================================================================
+
+# Pin the project name. See the migration note above before changing it.
+name: ${MUNIN_PREFIX:-munin}
 
 services:
   # ============================================================================
@@ -11,13 +82,13 @@ services:
   # ============================================================================
   qdrant:
     image: qdrant/qdrant:latest
-    container_name: munin-qdrant
+    container_name: ${MUNIN_PREFIX:-munin}-qdrant
     restart: unless-stopped
     ports:
-      - "127.0.0.1:6333:6333"
-      - "127.0.0.1:6334:6334"
+      - "127.0.0.1:${QDRANT_HOST_PORT:-6333}:6333"
+      - "127.0.0.1:${QDRANT_GRPC_HOST_PORT:-6334}:6334"
     volumes:
-      - /opt/munin/knowledge/qdrant_storage:/qdrant/storage
+      - ${MUNIN_ROOT:-/opt/munin}/knowledge/qdrant_storage:/qdrant/storage
     environment:
       - QDRANT__SERVICE__GRPC_PORT=6334
 
@@ -26,14 +97,14 @@ services:
   # ============================================================================
   neo4j:
     image: neo4j:5-community
-    container_name: munin-neo4j
+    container_name: ${MUNIN_PREFIX:-munin}-neo4j
     restart: unless-stopped
     ports:
-      - "127.0.0.1:7474:7474"
-      - "127.0.0.1:7687:7687"
+      - "127.0.0.1:${NEO4J_HTTP_HOST_PORT:-7474}:7474"
+      - "127.0.0.1:${NEO4J_BOLT_HOST_PORT:-7687}:7687"
     volumes:
-      - /opt/munin/knowledge/neo4j_data:/data
-      - /opt/munin/knowledge/neo4j_logs:/logs
+      - ${MUNIN_ROOT:-/opt/munin}/knowledge/neo4j_data:/data
+      - ${MUNIN_ROOT:-/opt/munin}/knowledge/neo4j_logs:/logs
     environment:
       - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-munin-neo4j-password}
       - NEO4J_PLUGINS=["apoc"]
@@ -49,17 +120,17 @@ services:
     # 2026-Q2 abuse reports). Pair it with the mounted grobid.yaml
     # below so our consolidator hits Crossref's polite pool via
     # mailto. See docker/grobid/grobid.yaml.
-    image: lfoppiano/grobid:0.8.2
-    container_name: munin-grobid
+    image: ${GROBID_IMAGE:-lfoppiano/grobid:0.8.2}
+    container_name: ${MUNIN_PREFIX:-munin}-grobid
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8070:8070"
+      - "127.0.0.1:${GROBID_HOST_PORT:-8070}:8070"
     volumes:
       # Override the in-image grobid.yaml so we can set
       # consolidation.crossref.mailto = admin@example.org. Without
       # this, GROBID's internal "Grobi/x.y" Crossref client uses
       # the anonymous pool and gets rate-limited.
-      - /opt/munin/docker/grobid/grobid.yaml:/opt/grobid/grobid-home/config/grobid.yaml:ro
+      - ${MUNIN_DOCKER_CONFIG:-/opt/munin/docker}/grobid/grobid.yaml:/opt/grobid/grobid-home/config/grobid.yaml:ro
     environment:
       # GROBID's JVM defaults to ~4 GB heap — too small once the
       # watcher daemon + admin-ingest + cron retry all hammer it
@@ -74,24 +145,24 @@ services:
       # JAVA_TOOL_OPTIONS (always honored by the JVM regardless of
       # wrapper). Belt + suspenders so the heap actually grows.
       # Restart GROBID with `up -d --force-recreate` after editing.
-      - JAVA_OPTS=-Xmx12g -Xms2g
-      - JAVA_TOOL_OPTIONS=-Xmx12g -Xms2g
+      - JAVA_OPTS=${GROBID_JAVA_OPTS:--Xmx12g -Xms2g}
+      - JAVA_TOOL_OPTIONS=${GROBID_JAVA_OPTS:--Xmx12g -Xms2g}
     deploy:
       resources:
         limits:
-          memory: 16G
+          memory: ${GROBID_MEM_LIMIT:-16G}
 
   # ============================================================================
   # SEARXNG - Self-hosted meta-search engine (free web search)
   # ============================================================================
   searxng:
     image: searxng/searxng:latest
-    container_name: munin-searxng
+    container_name: ${MUNIN_PREFIX:-munin}-searxng
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8888:8080"
+      - "127.0.0.1:${SEARXNG_HOST_PORT:-8888}:8080"
     volumes:
-      - /opt/munin/services/searxng:/etc/searxng:rw
+      - ${MUNIN_SEARXNG_CONFIG:-/opt/munin/services/searxng}:/etc/searxng:rw
     environment:
       - SEARXNG_BASE_URL=http://localhost:8888
       - SEARXNG_SECRET=${SEARXNG_SECRET:-munin-searxng-secret-key}
@@ -107,50 +178,50 @@ services:
   # ============================================================================
   retrieval:
     build:
-      context: /opt/munin/services/retrieval
-      dockerfile: ../../../../../../opt/munin/services/retrieval/Dockerfile
-    image: munin-retrieval:latest
-    container_name: munin-retrieval
+      context: ${MUNIN_RETRIEVAL_SRC:-/opt/munin/services/retrieval}
+      dockerfile: Dockerfile
+    image: ${MUNIN_PREFIX:-munin}-retrieval:latest
+    container_name: ${MUNIN_PREFIX:-munin}-retrieval
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${RETRIEVAL_HOST_PORT:-8080}:8080"
     extra_hosts:
       - "host.docker.internal:host-gateway"  # Allows container to reach host services
     volumes:
-      - /opt/munin/data/models/bge-base:/models/bge-base:ro
-      - /opt/munin/data/models/specter:/models/specter:ro
+      - ${MUNIN_ROOT:-/opt/munin}/data/models/bge-base:/models/bge-base:ro
+      - ${MUNIN_ROOT:-/opt/munin}/data/models/specter:/models/specter:ro
       # BGE-large paper encoder (encoder migration). Empty/missing is fine until
       # PAPER_ENCODER=bge-large is set. See docs/paper-track/done/ENCODER-MIGRATION-PLAN.md.
-      - /opt/munin/data/models/bge-large:/models/bge-large:ro
+      - ${MUNIN_ROOT:-/opt/munin}/data/models/bge-large:/models/bge-large:ro
       # Qwen3 tokenizer for exact context-budget token counting (P1 #8).
       # Only the ~7 MB tokenizer files, copied out of the vLLM model dir
       # by deploy.sh — the container never needs the full weights.
       # Empty/missing dir is fine: chat_context falls back to a char
       # heuristic. See DECISIONS.md 2026-05-21.
-      - /opt/munin/data/models/qwen-tokenizer:/models/qwen:ro
+      - ${MUNIN_ROOT:-/opt/munin}/data/models/qwen-tokenizer:/models/qwen:ro
       # :rw because /api/admin/ingest writes PDFs into pdf/inbox/ and
       # moves them to pdf/{doi_hash}.pdf after the pipeline succeeds (§28).
-      - /opt/munin/data/papers/pdf:/papers:rw
+      - ${MUNIN_ROOT:-/opt/munin}/data/papers/pdf:/papers:rw
       # Processed-marker dir the pipeline watcher consults (one
       # JSON per PDF basename). /api/admin/ingest writes a marker
       # on success so the watcher daemon skips papers the
       # admin-ingest path already handled.
-      - /opt/munin/data/papers/processed:/papers-processed:rw
+      - ${MUNIN_ROOT:-/opt/munin}/data/papers/processed:/papers-processed:rw
       # Persona definitions (chat personas + logos)
-      - /opt/munin/personas:/app/personas:ro
+      - ${MUNIN_PERSONAS_SRC:-/opt/munin/personas}:/app/personas:ro
       # Agent registry (agents.yml)
-      - /opt/munin/config:/app/config:ro
+      - ${MUNIN_AGENT_CONFIG:-/opt/munin/config}:/app/config:ro
       # Chat persistence (SQLite) and user document store
-      - /opt/munin/data:/data:rw
-      - /opt/munin/data/user_docs:/data/user_docs:rw
+      - ${MUNIN_ROOT:-/opt/munin}/data:/data:rw
+      - ${MUNIN_ROOT:-/opt/munin}/data/user_docs:/data/user_docs:rw
       # Deep Research volumes
-      - /opt/munin/deepresearch/queue:/deepresearch/queue:rw
-      - /opt/munin/deepresearch/jobs:/deepresearch/jobs:ro
-      - /opt/munin/deepresearch:/deepresearch/status:ro
+      - ${MUNIN_ROOT:-/opt/munin}/deepresearch/queue:/deepresearch/queue:rw
+      - ${MUNIN_ROOT:-/opt/munin}/deepresearch/jobs:/deepresearch/jobs:ro
+      - ${MUNIN_ROOT:-/opt/munin}/deepresearch:/deepresearch/status:ro
       # §15 embedding map (built by host-side systemd timer)
-      - /opt/munin/knowledge:/knowledge:ro
+      - ${MUNIN_ROOT:-/opt/munin}/knowledge:/knowledge:ro
       # §28 paper pipeline (invoked as subprocess by /api/admin/ingest)
-      - /opt/cluster/scripts/pipeline:/app/pipeline:ro
+      - ${MUNIN_PIPELINE_SRC:-/opt/cluster/scripts/pipeline}:/app/pipeline:ro
     environment:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
@@ -195,7 +266,7 @@ services:
       # Uses host.docker.internal to reach vLLM running on host
       # (resolved via the extra_hosts host-gateway entry above; must not be
       # pinned to a host LAN IP — that breaks on any subnet change)
-      - VLLM_URL=http://host.docker.internal:8000
+      - VLLM_URL=${VLLM_URL:-http://host.docker.internal:8000}
       - VLLM_MODEL_NAME=qwen3.6-35b-a3b
       # Context window: the vLLM start scripts `export` these before
       # `docker compose up` to match the running mode (single-GPU 65536/60000,
@@ -326,10 +397,10 @@ services:
   # ============================================================================
   sandbox:
     build:
-      context: /opt/munin/services/sandbox
-      dockerfile: ../../../../../../opt/munin/services/sandbox/Dockerfile
-    image: munin-sandbox:latest
-    container_name: munin-sandbox
+      context: ${MUNIN_SANDBOX_SRC:-/opt/munin/services/sandbox}
+      dockerfile: Dockerfile
+    image: ${MUNIN_PREFIX:-munin}-sandbox:latest
+    container_name: ${MUNIN_PREFIX:-munin}-sandbox
     restart: unless-stopped
     # No host port. Reachable only from the retrieval container over the
     # internal docker network at http://sandbox:8090.
@@ -371,12 +442,12 @@ services:
   # /api/admin/metrics/{query,query_range} -- see docs/MONITORING.md.
   prometheus:
     image: prom/prometheus:v3.0.1
-    container_name: munin-prometheus
+    container_name: ${MUNIN_PREFIX:-munin}-prometheus
     restart: unless-stopped
     ports:
-      - "127.0.0.1:9090:9090"
+      - "127.0.0.1:${PROMETHEUS_HOST_PORT:-9090}:9090"
     volumes:
-      - /opt/munin/docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ${MUNIN_DOCKER_CONFIG:-/opt/munin/docker}/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -391,12 +462,16 @@ services:
 
 volumes:
   prometheus_data:
+    # Pinned explicitly. Compose would otherwise derive it from the project
+    # name, so any future change to `name:` above would silently orphan the
+    # TSDB and Prometheus would restart with no history.
+    name: ${MUNIN_PREFIX:-munin}_prometheus_data
 
 networks:
   default:
-    name: munin-network
+    name: ${MUNIN_PREFIX:-munin}-network
   sandbox-net:
-    name: munin-sandbox-net
+    name: ${MUNIN_PREFIX:-munin}-sandbox-net
     # internal: true means containers on this network have no route to the
     # outside world. Combined with firejail --net=none on the kernel
     # subprocess itself, the kernel ends up doubly isolated: the kernel

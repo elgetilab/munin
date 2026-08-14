@@ -46,6 +46,12 @@ Thumbs.db
 # --- Local artifacts ---
 *.local
 *.bak
+
+# Runtime state for a single-host `docker compose up` from a clone: vector DB,
+# graph DB, chat SQLite, uploaded PDFs, downloaded model weights, caches. The
+# reference cluster keeps the equivalent under /opt/munin. Location is set by
+# MUNIN_ROOT in the repo-root .env; see .env.example.
+/.runtime/
 /backend/.claude/scheduled_tasks.lock
 /backend/.claude/
 /backend/.claude/

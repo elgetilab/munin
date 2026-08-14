@@ -233,6 +233,29 @@ Each phase is independently useful and independently verifiable.
 - **Verify:** `deploy.sh --dry-run all` shows no change on the cluster, and
   `docker compose up qdrant neo4j` works from a fresh clone.
 
+> **Phase 1 DONE 2026-08-14.** All host paths parameterised behind `MUNIN_ROOT`
+> and seven source-path variables, defaults unchanged from production; build
+> contexts repo-relative-capable; container names, image tags, host ports and
+> networks parameterised by `MUNIN_PREFIX`; GROBID image and heap tunable; root
+> `.env.example` added. Verified: `docker compose config` with defaults differs
+> from the pre-change baseline only in the four intended lines, and all ten
+> `deploy.sh --dry-run` modes are byte-identical.
+>
+> **Two findings from Phase 1 that were not in the original analysis:**
+>
+> 1. **Compose derives the project name from the directory basename**, which
+>    was `docker` for both `/opt/munin/docker` and a clone's `backend/docker`.
+>    A `compose up` from a clone on a host already running Munin therefore
+>    recreated the live containers against the clone's empty data directories,
+>    and a `compose down` removed the production stack. This happened for real
+>    on 2026-08-14 during testing. Fixed by pinning `name: ${MUNIN_PREFIX:-munin}`,
+>    which forces a **one-time migration** on the cluster (documented in the
+>    compose header; `deploy.sh` refuses to deploy until it is done). Prometheus
+>    loses its TSDB history to the project rename; nothing else moves.
+> 2. **Bind-mount directories are created root-owned**, so `.runtime/` cannot be
+>    cleaned up by the user who ran `docker compose up`. Needs either a
+>    documented `sudo rm -rf`, or user-namespace mapping. Folded into Phase 5.
+
 ### Phase 2: containerise the host-side daemons
 
 - One `munin-pipeline` image, three compose services, `pipeline` profile.

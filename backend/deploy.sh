@@ -184,8 +184,53 @@ deploy_dirs() {
 # ------------------------------------------------------------------------------
 # compose: copy docker-compose.yml + grobid.yaml (no restart)
 # ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# Compose project guard.
+#
+# docker-compose.yml now pins `name: ${MUNIN_PREFIX:-munin}`. Before that it had
+# no `name:`, so Compose derived the project from the directory basename —
+# `docker` for /opt/munin/docker, and ALSO `docker` for a clone's own
+# backend/docker. Two unrelated checkouts looked like one stack: a `compose up`
+# from a clone recreated the live containers against the clone's empty data
+# dirs, and a `compose down` took production out (2026-08-14).
+#
+# Consequence for the cluster: containers deployed before the pin carry
+# project=docker and will collide by container_name with the newly-named
+# project. Catch it here with the exact remedy rather than letting `up` fail
+# halfway through a deploy.
+# ------------------------------------------------------------------------------
+COMPOSE_PROJECT_EXPECTED=${MUNIN_PREFIX:-munin}
+
+check_compose_project() {
+    local running
+    running=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' \
+              "${COMPOSE_PROJECT_EXPECTED}-retrieval" 2>/dev/null || true)
+
+    # Nothing running (fresh host), or already migrated: nothing to do.
+    [ -z "$running" ] && return 0
+    [ "$running" = "$COMPOSE_PROJECT_EXPECTED" ] && return 0
+
+    echo ""
+    echo "[ERROR] Compose project mismatch."
+    echo "        Running containers belong to project '$running', but"
+    echo "        docker-compose.yml now pins project '$COMPOSE_PROJECT_EXPECTED'."
+    echo "        Deploying now would fail on container-name conflicts."
+    echo ""
+    echo "        One-time migration (brief outage, no application data lost):"
+    echo "          cd $MUNIN_DOCKER"
+    echo "          sudo docker compose down"
+    echo "          sudo docker compose --profile rag --profile monitoring up -d"
+    echo ""
+    echo "        Prometheus history is the one casualty: its named volume is"
+    echo "        scoped by project, so '${running}_prometheus_data' is orphaned"
+    echo "        (not deleted). Everything else is on bind mounts."
+    echo ""
+    return 1
+}
+
 deploy_compose() {
     echo "[compose] Installing docker-compose.yml..."
+    check_compose_project || exit 1
     need_file "$REPO_DIR/docker/docker-compose.yml"
     run "install -d -m 0755 $MUNIN_DOCKER"
     run "install -m 0644 $REPO_DIR/docker/docker-compose.yml $MUNIN_DOCKER/docker-compose.yml"
@@ -832,6 +877,9 @@ stage_qwen_tokenizer() {
 
 deploy_retrieval() {
     echo "[retrieval] Syncing code to $MUNIN_RETRIEVAL..."
+    # This mode ends in `compose up`, so refuse before doing any work if the
+    # running stack predates the project-name pin.
+    check_compose_project || exit 1
     need_file "$REPO_DIR/retrieval"
     run "install -d -m 0755 $MUNIN_RETRIEVAL"
 
