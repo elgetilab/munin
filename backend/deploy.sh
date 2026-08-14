@@ -506,6 +506,13 @@ deploy_pipeline() {
     need_file "$REPO_DIR/config/munin-paper-detect.service"
 
     run "install -d -m 0755 $PIPELINE_DIR"
+    # Daily-schedule wrapper. The cluster drives these jobs with systemd
+    # timers and does not need it, but it lives one level up at the scripts
+    # root so the containerised equivalents (compose `pipeline` profile, which
+    # mounts that root) work on any host without a second sync path.
+    need_file "$REPO_DIR/scripts/run-daily.sh"
+    run "install -m 0755 $REPO_DIR/scripts/run-daily.sh \
+        $(dirname $PIPELINE_DIR)/run-daily.sh"
     run "install -m 0755 $REPO_DIR/scripts/pipeline/paper_pipeline.py \
         $PIPELINE_DIR/paper_pipeline.py"
     run "install -m 0755 $REPO_DIR/scripts/pipeline/paper_cleanup.py \

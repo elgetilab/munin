@@ -83,11 +83,20 @@ PROCESSED_DIR = "/opt/munin/data/papers/processed"
 # self._last_skip_reason, which the dispose helper reads.
 QUARANTINE_DIR = "/opt/munin/data/papers/pdf/quarantine"
 OCR_CACHE_DIR = "/opt/munin/data/papers/ocr_cache"
-COLLECTION_NAME = os.getenv("PAPERS_COLLECTION", "papers")
 # Encoder migration: the pipeline must embed NEW papers with the SAME encoder
-# the retrieval service serves (PAPER_ENCODER). Set both together at cutover.
+# the retrieval service serves (PAPER_ENCODER), into the SAME collection. The
+# two move together or ingest writes vectors the search path cannot read.
 # See docs/paper-track/done/ENCODER-MIGRATION-PLAN.md.
-PAPER_ENCODER = os.getenv("PAPER_ENCODER", "specter")   # specter | bge-large
+#
+# THE DEFAULTS ARE PRODUCTION (corrected 2026-08-14). They read `specter` /
+# `papers` until then, i.e. the pre-migration rollback pair, so any run without
+# cluster.env -- a fresh cluster, a container started without the env file, a
+# manual invocation -- silently ingested into the retired 768d corpus and
+# looked like it worked. That is the identical bug DECISIONS.md 2026-08 fixed
+# in retrieval/database.py; this copy of it was missed. Rollback is the flip in
+# the other direction (specter + papers), never a half-flip.
+COLLECTION_NAME = os.getenv("PAPERS_COLLECTION", "papers_bge")
+PAPER_ENCODER = os.getenv("PAPER_ENCODER", "bge-large")   # specter | bge-large
 EMBED_DIM = 1024 if PAPER_ENCODER == "bge-large" else 768
 
 # Phase B (2026-05-13): every PDF the pipeline touches gets a sibling

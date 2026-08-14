@@ -432,6 +432,153 @@ services:
       - rag
 
   # ============================================================================
+  # PAPER PIPELINE JOBS (profile: pipeline)
+  # ============================================================================
+  # Container equivalents of four host-side systemd units:
+  #   munin-paper-pipeline.service     -> pipeline-watcher
+  #   munin-paper-detect.service       -> pipeline-detect
+  #   munin-paper-reattribute.timer    -> pipeline-reattribute
+  #   munin-embedding-map.timer        -> knowledge-map
+  #
+  # >>> DO NOT ENABLE THIS PROFILE ON THE REFERENCE CLUSTER. <<<
+  # The cluster runs the systemd units above. Starting these alongside them
+  # gives you TWO watchers ingesting the same drop directory and two detect
+  # sweeps quarantining concurrently, which saturates GROBID's engine pool
+  # (the exact failure the watcher's --workers 1 exists to avoid). Pick one
+  # mechanism per host. `deploy.sh` never passes --profile pipeline.
+  #
+  # The first three reuse the retrieval image rather than building their own:
+  # every dependency they import (qdrant_client, neo4j, sentence_transformers,
+  # torch, pypdf, yaml, requests) is already installed there, so a second image
+  # would duplicate ~2.5 GB of torch for nothing. They therefore require the
+  # `rag` profile to have built that image at least once -- which it will have,
+  # since nothing here is useful without the retrieval service anyway.
+
+  pipeline-watcher:
+    image: ${MUNIN_PREFIX:-munin}-retrieval:latest
+    container_name: ${MUNIN_PREFIX:-munin}-pipeline-watcher
+    restart: unless-stopped
+    # --workers 1 is deliberate and load-bearing: GROBID has a finite engine
+    # pool (~10) and /api/admin/ingest consumes from the same pool. Raising it
+    # reproduced "Could not get an engine from the pool" 503s in 2026-04.
+    command: >
+      python /app/scripts/pipeline/paper_pipeline.py
+      --watch --fast --workers 1 --dir /papers
+    volumes:
+      - ${MUNIN_SCRIPTS_SRC:-/opt/cluster/scripts}:/app/scripts:ro
+      - ${MUNIN_ROOT:-/opt/munin}/data/papers/pdf:/papers:rw
+      - ${MUNIN_ROOT:-/opt/munin}/data/papers/processed:/papers-processed:rw
+      - ${MUNIN_ROOT:-/opt/munin}/data:/data:rw
+      - ${MUNIN_ROOT:-/opt/munin}/data/models/bge-large:/models/bge-large:ro
+      - ${MUNIN_ROOT:-/opt/munin}/data/models/specter:/models/specter:ro
+    environment: &pipeline_env
+      # Service names, not 127.0.0.1: the systemd units use loopback because
+      # they run on the host and reach the published ports. In-network these
+      # resolve directly and do not depend on the port publishing at all.
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-munin-neo4j-password}
+      - GROBID_URL=http://grobid:8070
+      # Encoder/collection pair. MUST match what retrieval serves or ingest
+      # writes vectors the search path cannot read. Same pairing rule as
+      # database.verify_paper_space(); see DECISIONS.md 2026-08.
+      - PAPER_ENCODER=${PAPER_ENCODER:-bge-large}
+      - PAPERS_COLLECTION=${PAPERS_COLLECTION:-papers_bge}
+      - BGE_LARGE_MODEL_PATH=${BGE_LARGE_MODEL_PATH:-/models/bge-large}
+      - SPECTER_MODEL_PATH=/models/specter
+      - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
+      - CONTRIBUTORS_CONFIG_PATH=/data/contributors.yml
+      - ADMIN_EMAIL=${PIPELINE_ADMIN_EMAIL:-admin@example.org}
+      - WATCH_POLL_SECS=${WATCH_POLL_SECS:-60}
+    depends_on:
+      - qdrant
+      - neo4j
+      - grobid
+    profiles:
+      - pipeline
+
+  pipeline-detect:
+    image: ${MUNIN_PREFIX:-munin}-retrieval:latest
+    container_name: ${MUNIN_PREFIX:-munin}-pipeline-detect
+    restart: unless-stopped
+    # `sweep` is already an internally-paced infinite loop
+    # (DETECT_CYCLE_PACE_SECS), so it maps to a long-running container
+    # directly and needs no scheduler wrapper.
+    command: python /app/scripts/pipeline/paper_cleanup.py sweep
+    volumes:
+      - ${MUNIN_SCRIPTS_SRC:-/opt/cluster/scripts}:/app/scripts:ro
+      - ${MUNIN_ROOT:-/opt/munin}/data/papers/pdf:/papers:rw
+      - ${MUNIN_ROOT:-/opt/munin}/data:/data:rw
+      - ${MUNIN_ROOT:-/opt/munin}/data/models/bge-large:/models/bge-large:ro
+      - ${MUNIN_ROOT:-/opt/munin}/data/models/specter:/models/specter:ro
+    environment: *pipeline_env
+    depends_on:
+      - qdrant
+      - neo4j
+      - grobid
+    profiles:
+      - pipeline
+
+  pipeline-reattribute:
+    image: ${MUNIN_PREFIX:-munin}-retrieval:latest
+    container_name: ${MUNIN_PREFIX:-munin}-pipeline-reattribute
+    restart: unless-stopped
+    command: >
+      /app/scripts/run-daily.sh ${REATTRIBUTE_AT:-04:30}
+      python /app/scripts/pipeline/paper_cleanup.py reattribute
+    volumes:
+      - ${MUNIN_SCRIPTS_SRC:-/opt/cluster/scripts}:/app/scripts:ro
+      - ${MUNIN_ROOT:-/opt/munin}/data/papers/pdf:/papers:rw
+      - ${MUNIN_ROOT:-/opt/munin}/data:/data:rw
+    environment: *pipeline_env
+    depends_on:
+      - qdrant
+      - neo4j
+    profiles:
+      - pipeline
+
+  # ============================================================================
+  # KNOWLEDGE MAP (profile: pipeline)
+  # ============================================================================
+  knowledge-map:
+    build:
+      context: ${MUNIN_KNOWLEDGE_SRC:-/opt/cluster/scripts/knowledge}
+      dockerfile: Dockerfile
+    image: ${MUNIN_PREFIX:-munin}-knowledge:latest
+    container_name: ${MUNIN_PREFIX:-munin}-knowledge-map
+    restart: unless-stopped
+    command: >
+      /app/scripts/run-daily.sh ${EMBEDDING_MAP_AT:-01:30}
+      python /app/scripts/knowledge/build_embedding_map.py
+    volumes:
+      - ${MUNIN_SCRIPTS_SRC:-/opt/cluster/scripts}:/app/scripts:ro
+      - ${MUNIN_ROOT:-/opt/munin}/knowledge:/knowledge:rw
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      # The collection the map is built FROM. Must track PAPERS_COLLECTION:
+      # pointing it at the retired `papers` silently maps the wrong corpus.
+      # The repo's systemd unit carried the stale `papers` default until
+      # 2026-08-14, masked in production only by an untracked drop-in.
+      - QDRANT_COLLECTION=${PAPERS_COLLECTION:-papers_bge}
+      - VLLM_URL=${VLLM_URL:-http://host.docker.internal:8000}
+      - VLLM_MODEL_NAME=${VLLM_MODEL_NAME:-qwen3.6-35b-a3b}
+      - EMBEDDING_MAP_PATH=/knowledge/embedding_map.json
+      # Persist the numba JIT cache so the UMAP compile is paid once.
+      - NUMBA_CACHE_DIR=/knowledge/numba-cache
+      # A fresh instance has no map at all, so build one immediately rather
+      # than leaving the knowledge page empty until the first 01:30.
+      - RUN_DAILY_ON_START=${EMBEDDING_MAP_ON_START:-1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - qdrant
+    profiles:
+      - pipeline
+
+  # ============================================================================
   # PROMETHEUS - scrape /metrics from retrieval (P1 #12)
   # ============================================================================
   # Bound to 127.0.0.1:9090 only. Same network as retrieval so it can

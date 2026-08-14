@@ -13,7 +13,13 @@ ExecStart=/opt/munin/services/knowledge/venv/bin/python3 /opt/cluster/scripts/kn
 
 Environment="QDRANT_HOST=127.0.0.1"
 Environment="QDRANT_PORT=6333"
-Environment="QDRANT_COLLECTION=papers"
+# The collection the map is built FROM. Must track the live PAPERS_COLLECTION;
+# `papers` is the retired 768d SPECTER corpus. This said `papers` until
+# 2026-08-14 and production was correct only because of an untracked systemd
+# drop-in added at the 2026-07 cutover, so a deploy to a fresh cluster would
+# have mapped the wrong corpus. Same "defaults must be production" rule as
+# DECISIONS.md 2026-08.
+Environment="QDRANT_COLLECTION=papers_bge"
 Environment="VLLM_URL=http://127.0.0.1:8000"
 Environment="VLLM_MODEL_NAME=qwen3.6-35b-a3b"
 Environment="EMBEDDING_MAP_PATH=/opt/munin/knowledge/embedding_map.json"

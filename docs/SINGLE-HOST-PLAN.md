@@ -263,6 +263,39 @@ Each phase is independently useful and independently verifiable.
 - **Verify:** dropping a PDF into the watched directory ingests it end to end,
   with no systemd anywhere.
 
+> **Phase 2 DONE 2026-08-14.** Four systemd units now have container
+> equivalents behind the `pipeline` profile: `pipeline-watcher`,
+> `pipeline-detect`, `pipeline-reattribute`, `knowledge-map`. Nightly timers
+> are replaced by `scripts/run-daily.sh`, a ~40-line scheduler that recomputes
+> its target from the wall clock each cycle (so it neither drifts nor breaks on
+> DST), keeps looping when a job fails, and can run once at startup in place of
+> the timers' `Persistent=true` catch-up.
+>
+> **The image split was decided by measurement, not guesswork.** The watcher,
+> detect and reattribute jobs reuse the retrieval image because every module
+> they import is already installed there (verified inside the running
+> container), so they cost nothing extra. Only the embedding map needs a new
+> image, for umap-learn and hdbscan. Building that FROM retrieval would have
+> inherited torch for a job that never loads a model; from `python:3.11-slim`
+> it is **941 MB against retrieval's 8.67 GB**.
+>
+> **Footprint data for Phase 5's README number:** retrieval 8.67 GB, sandbox
+> 2.83 GB, knowledge 941 MB, before GROBID, Qdrant, Neo4j, Prometheus and
+> SearXNG. "All profiles on" is expensive and the README must say so.
+>
+> **Two stale defaults found and fixed**, both the same class as the
+> `database.py` bug in DECISIONS.md 2026-08 ("defaults must be production"):
+> `paper_pipeline.py` defaulted to `specter` / `papers`, so any run without
+> cluster.env ingested into the retired 768d corpus; and the repo's
+> `munin-embedding-map.service` still said `QDRANT_COLLECTION=papers`, correct
+> in production only because of an **untracked systemd drop-in** added at the
+> 2026-07 cutover, so a deploy to a fresh cluster would have mapped the wrong
+> corpus.
+>
+> **Not yet verified:** the end-to-end ingest test (drop a PDF, watch it land
+> in Qdrant and Neo4j). It needs a host without a live deployment, for the same
+> reason Phase 1's bring-up test does.
+
 ### Phase 3: LLM endpoint indirection
 
 - `LLM_BASE_URL` / `LLM_MODEL_NAME` throughout, replacing the
