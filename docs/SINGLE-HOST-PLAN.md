@@ -1,7 +1,7 @@
 # Single-host Docker deployment: investigation and plan
 
-Status: **proposal, not approved.** Written 2026-08-14 for the public-release
-push.
+Status: **scope decided 2026-08-14, implementation not started.** Written for
+the public-release push. Decisions taken are in §5.
 
 Goal: `git clone && cp .env.example .env && docker compose up` brings up the
 whole Munin stack on one machine.
@@ -15,8 +15,10 @@ What a reader of the paper can realistically do matters more than a vague
 
 **In scope.** A reviewer, a collaborator, or another group brings up the full
 stack on one machine, logs in, uploads a handful of PDFs, and uses chat,
-search, retrieval, agents, and Deep Research against **their own** corpus and
-**their own** LLM endpoint.
+search, retrieval, agents, uploads, the sandbox, LaTeX and Deep Research
+against **their own** corpus and **their own** LLM endpoint. Decided
+2026-08-14: the default `up` brings up every feature profile, not a minimal
+core (§5).
 
 **Explicitly not in scope.** Reproducing the paper's numbers. Those need the
 68k-paper private corpus and a specific GPU, and `docs/paper-kit/10-REPRODUCE.md`
@@ -186,6 +188,11 @@ must default off. Without this there is no way in.
 
 ### D5. A local Caddy profile plus a build-time API base
 
+**Decided: do this now, and verify it with a real frontend deploy before
+submission.** The env vars default to the production values, so the built
+output is unchanged; the deploy is what proves that claim rather than assuming
+it.
+
 Two halves:
 
 - A second Caddyfile (`caddy/Caddyfile.local`) serving everything on
@@ -197,10 +204,17 @@ Two halves:
 
 ### D6. Seed data, so a fresh instance does not look broken
 
-An optional `seed` profile that ingests ~20 open-access PDFs (arXiv or PMC, both
-redistributable by link) so search, retrieval, and the citation graph return
-something on first boot. An empty instance is indistinguishable from a broken
-one, and that is the first impression a reviewer gets.
+A `seed` profile that ingests ~20 open-access papers so search, retrieval, and
+the citation graph return something on first boot. An empty instance is
+indistinguishable from a broken one, and that is the first impression a
+reviewer gets.
+
+**Fetched, not committed.** The repo carries a list of DOIs and arXiv ids plus
+a fetch script; the PDFs are pulled at setup time from arXiv and PMC. That
+sidesteps redistribution entirely and keeps the repo small. Cost: the seed step
+needs network access and will partly fail behind a strict firewall, so it must
+degrade to "corpus is empty, here is how to add your own" rather than erroring
+out.
 
 ---
 
@@ -288,16 +302,48 @@ README rather than discovered by the user.
 
 ---
 
-## 5. Open questions for you
+## 5. Decisions taken (2026-08-14)
 
-1. **Does the single-host compose file conflict with the "no top-level deploy
-   script" rule?** I read it as a different thing, but it is your rule.
-2. **How far does "runnable" go?** Chat plus retrieval only, or the full surface
-   including uploads, Deep Research, sandbox and LaTeX? The latter roughly
-   doubles the image footprint.
-3. **Is a GPU assumed?** My default is no, with an opt-in profile.
-4. **Should the demo ship seed papers?** I recommend yes, ~20 open-access, but
-   it adds a redistribution question to check.
-5. **Do we touch the production frontend before submission**, or hold Phase 4
-   until after? Holding it means the quick-start needs a documented workaround
-   for login, which is ugly but safe.
+| Question | Decision |
+|---|---|
+| Scope of the one-command setup | **Everything, all feature profiles on**: uploads, sandbox, LaTeX, Deep Research, pipeline. See the footprint note below. |
+| The webui's hardcoded auth domain | **Fix now**, behind env vars defaulting to the production values, and **verify with a real frontend deploy** before submission. |
+| Seed papers | **Yes, ~20 open-access**, fetched by DOI or arXiv id at setup time rather than committed, so nothing is redistributed. |
+| Compose layout | **Parameterise the existing file.** No second compose file describing the same services. |
+
+### Consequences of "everything on"
+
+Footprint stops being a footnote and becomes a work item. Retrieval carries
+torch, the sandbox carries roughly a gigabyte of TeX Live, and GROBID's
+deep-learning image is very large. Three mitigations move into the plan proper
+rather than being optional:
+
+- Switch GROBID to the **CRF-only image** as the default, with the DL image as
+  an opt-in for anyone who wants the better parser.
+- **Measure and publish the actual pull size and cold-start time** in the
+  README. A user who knows it is 18 GB up front is fine; one who discovers it
+  at minute forty is not.
+- Keep the profiles as **profiles** even though they all default on, so a user
+  on a small machine can turn things off, and document which ones cost the
+  most.
+
+### How one-command entry works without a root compose file
+
+Set `COMPOSE_FILE` in the repo-root `.env`:
+
+```
+COMPOSE_FILE=backend/docker/docker-compose.yml:frontend/docker-compose.yml
+COMPOSE_PROFILES=rag,pipeline,monitoring
+```
+
+Docker Compose reads `.env` from the working directory and honours both keys,
+so a plain `docker compose up` at the repo root brings up both halves. No new
+file describes any service, nothing duplicates the cluster path, and the
+"no top-level deploy script" rule is untouched: there is no script.
+
+### Still assumed, flag if wrong
+
+**No GPU by default.** "All profiles on" is read as all *feature* profiles; the
+`gpu` vLLM profile stays opt-in, because it cannot work on a machine without
+the hardware and would fail the default `up`. The default remains a
+bring-your-own `LLM_BASE_URL`.
