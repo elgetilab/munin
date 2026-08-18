@@ -1,7 +1,13 @@
 # Single-host Docker deployment: investigation and plan
 
-Status: **scope decided 2026-08-14, implementation not started.** Written for
-the public-release push. Decisions taken are in §5.
+Status: **Phases 1-5 implemented (2026-08-14 to 2026-08-18); Phase 6 optional
+and not started.** Written for the public-release push. Decisions taken are in
+§5; each phase carries its own outcome note below.
+
+**One thing is owed across all of it:** nothing here has been brought up end to
+end on a machine without a live deployment. Every phase was verified by
+configuration resolution, unit tests and dry-run diffing, which catches a great
+deal but is not the same as watching it boot. See "What is still unverified".
 
 Goal: `git clone && cp .env.example .env && docker compose up` brings up the
 whole Munin stack on one machine.
@@ -427,6 +433,60 @@ Each phase is independently useful and independently verifiable.
   cluster-plus-VPS split from the first line.
 - **Verify:** a clean machine, following only the README, reaches a working
   chat turn. Ideally tested by someone who has not seen the repo.
+
+> **Phase 5 DONE 2026-08-18.**
+>
+> **One-command entry** without a root compose file, per the decision in §5:
+> `COMPOSE_FILE` and `COMPOSE_PROFILES` in the repo-root `.env` make a plain
+> `docker compose up` at the root bring up both halves. 19 services resolve.
+>
+> **Seed corpus** (`backend/scripts/seed/seed_corpus.py`, profile `seed`). It
+> QUERIES the arXiv API rather than shipping a list of ids, deliberately: a
+> hardcoded list is a list that can be wrong, and a plausible-but-wrong
+> identifier resolving to a real-but-different paper is precisely the failure
+> mode this project's own evaluation is about. Querying makes every id real by
+> construction and lets a user seed their own field via `SEED_QUERY`. Verified
+> live against arXiv: 3 real on-topic PDFs downloaded, a re-run skipped all 3,
+> an unreachable network exits 0 with an explanation rather than failing the
+> stack, and bad arguments exit 2.
+>
+> **Footprint measured and published** in the README: ~17 GB with every profile
+> on, dominated by retrieval at 8.67 GB (PyTorch) and the sandbox at 2.83 GB
+> (TeX Live), plus ~1.3 GB of encoder weights fetched on first start.
+>
+> **A Phase 1 error, caught by measuring.** I had recommended switching GROBID
+> to `grobid/grobid:0.8.2` as "the CRF-only image, far smaller". The opposite is
+> true: the deployed `lfoppiano/grobid:0.8.2` is 1.73 GB on disk and
+> `grobid/grobid:0.8.2` is 9.53 GB compressed. Following my own advice would
+> have made the download roughly 5x worse. Corrected in `.env.example`, the
+> compose header and §1.5 above.
+>
+> **Docs restructured** around the two paths the README now leads with, with the
+> four SETUP documents explicitly marked as the group-deployment path.
+>
+> **Root-owned `.runtime` documented, not fixed.** Docker creates bind-mount
+> sources as root and the databases write as their own container users. Running
+> everything under the invoking uid would fix it, but Qdrant and Neo4j expect
+> their own uids, so the cleanup command is documented rather than the problem
+> papered over.
+
+---
+
+## What is still unverified
+
+Honest list, because every phase note ends with a version of it.
+
+| Not yet done | Needs |
+|---|---|
+| `docker compose up` reaching a working chat turn | A host with no live Munin deployment |
+| A PDF ingesting end to end through the containerised pipeline | Same |
+| A chat turn against a non-vLLM endpoint (Ollama etc.) | Same |
+| The frontend deploy that confirms the webui changes | A VPS deploy, which you asked to do |
+| The Phase 1 compose-project migration on the cluster | A maintenance window; `deploy.sh` refuses until then |
+
+The first three are the same missing thing: a clean machine. Phase 6's CI smoke
+test is the durable answer, since it would catch a broken quick-start before a
+user does rather than after.
 
 ### Phase 6 (optional): CI smoke test
 
