@@ -357,6 +357,64 @@ Each phase is independently useful and independently verifiable.
 - **Verify:** log in at `http://localhost` on a machine with no mail server and
   no DNS.
 
+> **Phase 4 DONE 2026-08-18** (deploy verification still owed, see below).
+>
+> **Site URLs behind Vite env vars.** `webui/src/lib/urls.ts` is now the single
+> source: `AUTH_BASE` (the only functional one, driving `/auth/me` and the
+> admin API) plus six navigation URLs. 20 hardcoded literals across six
+> components replaced. **Every default is the production value**, so a build
+> with no `VITE_*` set targets the live deployment exactly as before.
+>
+> **The by-hand build is not byte-identical, and that is expected.** The bundle
+> hash changes because the code is structurally different: the same 7 origins
+> now appear once each in a shared module instead of repeated per call site,
+> and `/auth/me` / `/admin` are built by template literal rather than sitting in
+> the bundle as whole strings. The semantic proof is that the 219 existing msw
+> tests still pass, since they mock the absolute production URLs and a
+> mismatch would 404. A build with `VITE_AUTH_BASE` set was confirmed to put
+> the override in the bundle, so both directions work.
+>
+> **Login without a mail server.** `AUTH_DEV_ECHO_OTP` logs the code instead of
+> emailing it, returning before any SMTP work so a host with no relay does not
+> hang on a connect timeout. Off by default, and it prints a four-line banner on
+> every boot, because leaving it on means log access equals login access.
+>
+> **`caddy/Caddyfile.local`** serves the whole stack from one origin,
+> `http://localhost`, splitting by path. That is not only convenience: same
+> origin means the session cookie needs no cross-site handling, where the
+> subdomain layout depends on a cookie scoped to `.muninai.org` that has no
+> `localhost` equivalent. Selected by `MUNIN_CADDYFILE`, defaulting to the
+> production file. The explicit `command:` this required was checked against the
+> caddy image's default CMD and is byte-identical.
+>
+> **Docker webui build** (`webui/Dockerfile`, profile `webui`) removes the host
+> Node requirement. Deliberately NOT wired into caddy's `depends_on`: a
+> dependency on a profiled service implicitly enables that profile everywhere,
+> including production. The cost is that the first page load can 404 until the
+> build finishes.
+>
+> **Frontend compose paths parameterised**, the same treatment as Phase 1. This
+> was mandatory, not tidiness: verified by probe that with two files in
+> `COMPOSE_FILE`, a literal `./caddy` in the *second* file resolves against the
+> *first* file's directory. Without it, every frontend mount would have pointed
+> into `backend/docker/`.
+>
+> **The stale `frontend/static/chat` build is untracked** (63 files, gitignored
+> since some earlier change but still committed).
+>
+> **Verified:** both Caddyfiles pass `caddy validate`; combined two-file compose
+> resolves every frontend path into the working tree; frontend compose defaults
+> unchanged bar the equivalent caddy command, an empty `AUTH_DEV_ECHO_OTP`, and
+> `SMTP_PORT` now defaulting to 587 instead of an empty string that `int()`
+> would have raised on; backend compose defaults and deploy dry-runs unchanged.
+> Test suites: auth 97, webui 222, gateway 11, upload 10, all passing.
+>
+> **Still owed: the deploy verification you asked for.** Nothing here has been
+> deployed to the VPS. The production build path (`npm run build` + rsync) is
+> untouched and the defaults are unchanged, but that is an argument, not a
+> demonstration. Deploy the frontend and confirm login and the admin panel
+> before the paper goes out.
+
 ### Phase 5: one-command up, seed data, and docs
 
 - Root `compose.yaml` (or a documented `--profile` invocation) that starts

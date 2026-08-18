@@ -58,6 +58,20 @@ SMTP_SENDER = os.environ.get("SMTP_SENDER", "noreply@muninai.org")
 SMTP_MAX_ATTEMPTS = int(os.environ.get("SMTP_MAX_ATTEMPTS", "4"))
 SMTP_RETRY_BASE_DELAY = float(os.environ.get("SMTP_RETRY_BASE_DELAY", "0.5"))
 SMTP_TIMEOUT = float(os.environ.get("SMTP_TIMEOUT", "20"))
+
+# Development / demo login. When on, the OTP is written to the service log
+# instead of being emailed, and SMTP is not contacted at all.
+#
+# Why this exists: OTP delivery was SMTP-only, so bringing Munin up on a fresh
+# machine required working mail credentials before you could log in even once.
+# That made "clone it and try it" impossible without a mail relay, which is a
+# hard stop for anyone evaluating the system.
+#
+# It is OFF by default and announces itself loudly at startup, because leaving
+# it on in a real deployment means anyone who can read the logs can log in as
+# anyone on the whitelist.
+DEV_ECHO_OTP = os.environ.get("AUTH_DEV_ECHO_OTP", "").strip().lower() in (
+    "1", "true", "yes", "on")
 SESSION_MAX_AGE = int(os.environ.get("SESSION_MAX_AGE", "2592000"))  # 30 days
 OTP_EXPIRY = int(os.environ.get("OTP_EXPIRY", "600"))  # 10 minutes
 
@@ -898,7 +912,18 @@ def verify_otp(email: str, code: str) -> tuple[bool, str]:
 # ── Email ────────────────────────────────────────────────────────────────────
 
 async def send_otp_email(email: str, code: str, name: str):
-    """Send OTP code via SMTP."""
+    """Send OTP code via SMTP, or log it when AUTH_DEV_ECHO_OTP is set.
+
+    The dev branch returns BEFORE any SMTP work, so a host with no mail relay
+    (and no credentials configured) can still complete a login.
+    """
+    if DEV_ECHO_OTP:
+        log.warning(
+            "AUTH_DEV_ECHO_OTP is on: login code for %s is %s "
+            "(not emailed; unset AUTH_DEV_ECHO_OTP for real delivery)",
+            email, code)
+        return
+
     tmpl = templates.get_template("email_otp.html")
     html_body = tmpl.render(code=code, name=name, expiry_minutes=OTP_EXPIRY // 60)
 
@@ -943,6 +968,15 @@ async def send_otp_email(email: str, code: str, name: str):
 
 @app.on_event("startup")
 async def startup():
+    if DEV_ECHO_OTP:
+        # Loud on every boot, on purpose. This is the difference between a
+        # demo instance and one where reading the logs is enough to sign in
+        # as any whitelisted user.
+        log.warning("=" * 72)
+        log.warning("AUTH_DEV_ECHO_OTP IS ENABLED - login codes are written to")
+        log.warning("this log instead of being emailed. Development and demo")
+        log.warning("use only. Do NOT run a real deployment like this.")
+        log.warning("=" * 72)
     init_db()
     migrate_split_name_v1()
     migrate_group_members_v1()

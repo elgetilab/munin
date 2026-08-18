@@ -1,4 +1,5 @@
 import type { Persona, ConversationSummary, Conversation, ChatRequest, SystemStatus, SSEEvent, MuninProfile, ArtifactSummary, ArtifactFull, Project, TagCatalog, TagPapersResponse, EmbeddingMap } from './types';
+import { AUTH_BASE } from './urls';
 
 const API = '/api';
 
@@ -72,13 +73,13 @@ export interface UserProfile {
 }
 
 export async function fetchMe(): Promise<UserProfile> {
-  const res = await fetch('https://auth.muninai.org/auth/me', { credentials: 'include' });
+  const res = await fetch(`${AUTH_BASE}/auth/me`, { credentials: 'include' });
   if (!res.ok) throw new Error('Failed to fetch user info');
   return res.json();
 }
 
 export async function updateProfile(data: { full_name?: string; nickname?: string; avatar?: string }): Promise<UserProfile> {
-  const res = await fetch('https://auth.muninai.org/auth/me', {
+  const res = await fetch(`${AUTH_BASE}/auth/me`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -224,7 +225,7 @@ export async function fetchAdminUsage(): Promise<AdminUsage> {
 // cookie. Failure surfaces a server-supplied error string when present so
 // the UI can show "email already in use" instead of a generic "Failed".
 
-const AUTH_ADMIN = 'https://auth.muninai.org/admin';
+const AUTH_ADMIN = `${AUTH_BASE}/admin`;
 
 export type AdminRole = 'user' | 'group_leader' | 'admin';
 

@@ -4,6 +4,7 @@ import type { UserProfile, ApiKeyInfo, UsageStats } from '../lib/api';
 import type { MuninProfile } from '../lib/types';
 import { useUiStore } from '../stores/uiStore';
 import { useUserStore } from '../stores/userStore';
+import { API_PUBLIC_URL } from '../lib/urls';
 
 interface SettingsProps {
   profile: UserProfile;
@@ -559,7 +560,7 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
 
 client = OpenAI(
     api_key="sk-munin-...",
-    base_url="https://api.muninai.org/v1"
+    base_url="${API_PUBLIC_URL}"
 )
 
 response = client.chat.completions.create(

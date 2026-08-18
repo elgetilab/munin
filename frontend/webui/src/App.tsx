@@ -24,6 +24,7 @@ import { ReportDialog } from './components/ReportDialog';
 import { KnowledgePanel } from './components/KnowledgePanel';
 import { KnowledgePage } from './components/KnowledgePage';
 import type { Project } from './lib/types';
+import { CHAT_URL, DOCS_URL, SEARCH_URL, SITE_HOME, UPLOAD_URL } from './lib/urls';
 
 export default function App() {
   const status = useStatus();
@@ -519,21 +520,21 @@ export default function App() {
       <div className="flex flex-col h-screen">
         {/* Standalone header for knowledge page */}
         <header className="flex items-center gap-3 px-4 py-2.5 border-b border-border bg-bg-secondary">
-          <a href="https://muninai.org" className="flex items-center gap-2 no-underline">
+          <a href={SITE_HOME} className="flex items-center gap-2 no-underline">
             <img src="/shared/munin_logo_without_script.webp" alt="Munin" className="w-7 h-7" />
             <span className="text-text-primary font-semibold text-sm">Munin</span>
           </a>
           <div className="flex-1" />
           <nav className="flex gap-4 text-sm">
-            <a href="https://muninai.org" className="text-text-secondary hover:text-accent no-underline transition-colors">Home</a>
-            <a href="https://search.muninai.org" className="text-text-secondary hover:text-accent no-underline transition-colors">Search</a>
-            <a href="https://docs.muninai.org" className="text-text-secondary hover:text-accent no-underline transition-colors">Docs</a>
+            <a href={SITE_HOME} className="text-text-secondary hover:text-accent no-underline transition-colors">Home</a>
+            <a href={SEARCH_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Search</a>
+            <a href={DOCS_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Docs</a>
             <span className="text-accent">Knowledge</span>
             <button
               onClick={() => { setShowKnowledgePage(false); window.history.pushState(null, '', '/'); }}
               className="text-text-secondary hover:text-accent no-underline transition-colors cursor-pointer bg-transparent border-none p-0 text-sm"
             >Chat</button>
-            <a href="https://upload.muninai.org" className="text-text-secondary hover:text-accent no-underline transition-colors">Upload</a>
+            <a href={UPLOAD_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Upload</a>
           </nav>
         </header>
         <KnowledgePage
@@ -660,9 +661,9 @@ export default function App() {
           <div className="flex-1" />
 
           <nav className="hidden md:flex gap-4 text-sm">
-            <a href="https://muninai.org" className="text-text-secondary hover:text-accent no-underline transition-colors">Home</a>
-            <a href="https://search.muninai.org" className="text-text-secondary hover:text-accent no-underline transition-colors">Search</a>
-            <a href="https://docs.muninai.org" className="text-text-secondary hover:text-accent no-underline transition-colors">Docs</a>
+            <a href={SITE_HOME} className="text-text-secondary hover:text-accent no-underline transition-colors">Home</a>
+            <a href={SEARCH_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Search</a>
+            <a href={DOCS_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Docs</a>
             <button
               onClick={() => {
                 setShowKnowledgePage(true);
@@ -673,8 +674,8 @@ export default function App() {
               }}
               className={`${showKnowledgePage ? 'text-accent' : 'text-text-secondary hover:text-accent'} no-underline transition-colors cursor-pointer bg-transparent border-none p-0 text-sm`}
             >Knowledge</button>
-            <a href="https://chat.muninai.org" className={`${!showKnowledgePage ? 'text-accent' : 'text-text-secondary hover:text-accent'} no-underline transition-colors`}>Chat</a>
-            <a href="https://upload.muninai.org" className="text-text-secondary hover:text-accent no-underline transition-colors">Upload</a>
+            <a href={CHAT_URL} className={`${!showKnowledgePage ? 'text-accent' : 'text-text-secondary hover:text-accent'} no-underline transition-colors`}>Chat</a>
+            <a href={UPLOAD_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Upload</a>
           </nav>
         </header>
 

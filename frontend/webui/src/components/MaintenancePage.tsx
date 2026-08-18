@@ -1,4 +1,5 @@
 import { useRef, useEffect } from 'react';
+import { SEARCH_URL, UPLOAD_URL } from '../lib/urls';
 
 declare function createVortex(canvas: HTMLCanvasElement, featherCount: number, sizeMultiplier: number, speedMultiplier?: number): () => void;
 
@@ -64,14 +65,14 @@ export function MaintenancePage({ message, since }: MaintenancePageProps) {
 
       <div className="flex flex-col gap-3 w-full max-w-xs">
         <a
-          href="https://search.muninai.org"
+          href={SEARCH_URL}
           className="flex items-center justify-between px-4 py-3 bg-bg-secondary border border-border rounded-lg text-sm text-text-primary hover:border-accent transition-colors no-underline"
         >
           <span>Paper Search is still available</span>
           <span className="text-accent">{'→'}</span>
         </a>
         <a
-          href="https://upload.muninai.org"
+          href={UPLOAD_URL}
           className="flex items-center justify-between px-4 py-3 bg-bg-secondary border border-border rounded-lg text-sm text-text-primary hover:border-accent transition-colors no-underline"
         >
           <span>Upload papers</span>

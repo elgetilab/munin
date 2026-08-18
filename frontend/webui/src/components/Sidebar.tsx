@@ -3,6 +3,7 @@ import { fetchChats, deleteChat, renameChat, pinChat, unpinChat, fetchProjects, 
 import type { ConversationSummary, Project } from '../lib/types';
 import { useUserStore } from '../stores/userStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
+import { DOCS_URL, SITE_HOME } from '../lib/urls';
 
 // P2 #26 commit 3: user identity slots (userEmail / userName /
 // userAvatar / isAdmin) and activeProjectId pulled from stores
@@ -337,7 +338,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     <aside className="w-64 flex-shrink-0 bg-bg-secondary border-r border-border flex flex-col h-full relative">
       {/* Logo */}
       <div className="px-4 pt-4 pb-3">
-        <a href="https://muninai.org" className="flex items-center gap-2.5 no-underline">
+        <a href={SITE_HOME} className="flex items-center gap-2.5 no-underline">
           <img
             src="/shared/munin_logo_without_script.webp"
             alt="Munin"
@@ -638,7 +639,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                 </button>
               )}
               <a
-                href="https://docs.muninai.org"
+                href={DOCS_URL}
                 className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary transition-colors cursor-pointer no-underline"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">

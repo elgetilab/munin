@@ -11,36 +11,42 @@ services:
       # running container — `caddy reload` then re-reads stale config.
       # Mounting the directory resolves the file by path on each read, so
       # rsync + reload applies changes without recreating the container.
-      - ./caddy:/etc/caddy:ro
-      - ./static:/srv/static:ro
+      - ${MUNIN_FRONTEND_SRC:-.}/caddy:/etc/caddy:ro
+      - ${MUNIN_FRONTEND_SRC:-.}/static:/srv/static:ro
       - caddy_data:/data
       - caddy_config:/config
+    # Which config to load. Defaults to the production Caddyfile
+    # (subdomains + ACME); the local one serves everything from
+    # http://localhost with no TLS. See caddy/Caddyfile.local.
+    command: caddy run --config /etc/caddy/${MUNIN_CADDYFILE:-Caddyfile} --adapter caddyfile
 
   # ── munin-auth — email OTP authentication ─────────────────────────────────
   munin-auth:
-    build: ./auth
+    build: ${MUNIN_FRONTEND_SRC:-.}/auth
     restart: unless-stopped
     ports:
       - "127.0.0.1:8090:8090"
     volumes:
-      - ./auth/whitelist.csv:/data/whitelist.csv:ro
+      - ${MUNIN_FRONTEND_SRC:-.}/auth/whitelist.csv:/data/whitelist.csv:ro
       # P1 #11 one-shot seed: contributors.yml is imported into the
       # users table on first boot, then served from the DB. The file
       # itself is no longer consulted at request time.
-      - ../shared/config/contributors.yml:/data/contributors.yml:ro
+      - ${MUNIN_SHARED_SRC:-../shared}/config/contributors.yml:/data/contributors.yml:ro
       - auth_data:/data/db
     environment:
       SECRET_KEY: ${AUTH_SECRET_KEY}
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_PORT: ${SMTP_PORT}
-      SMTP_USERNAME: ${SMTP_USERNAME}
-      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_SENDER: ${SMTP_SENDER:-noreply@muninai.org}
       SESSION_MAX_AGE: 2592000
       OTP_EXPIRY: 600
       # P1 #11: bearer token the cluster uses to fetch
       # /admin/contributors.yaml without needing an admin session.
       CONTRIBUTORS_SYNC_TOKEN: ${CONTRIBUTORS_SYNC_TOKEN:-}
+      # Log the OTP instead of emailing it. Demo only; see .env.example.
+      AUTH_DEV_ECHO_OTP: ${AUTH_DEV_ECHO_OTP:-}
       # P1 #11 commit 4: bearer token the tusd hook-service presents
       # to /admin/check-role on every pre-create. Separate from
       # CONTRIBUTORS_SYNC_TOKEN so the two callers can rotate
@@ -53,7 +59,7 @@ services:
     restart: unless-stopped
     network_mode: host
     volumes:
-      - /mnt/uploads/staging:/srv/tusd-data
+      - ${MUNIN_UPLOADS_DIR:-/mnt/uploads}/staging:/srv/tusd-data
     command: >
       -upload-dir=/srv/tusd-data
       -hooks-http=http://127.0.0.1:18088/hooks
@@ -67,11 +73,11 @@ services:
 
   # ── Hook Service — post-upload file organization + cluster ingest ──────────
   hook-service:
-    build: ./upload
+    build: ${MUNIN_FRONTEND_SRC:-.}/upload
     restart: unless-stopped
     network_mode: host
     volumes:
-      - /mnt/uploads:/mnt/uploads
+      - ${MUNIN_UPLOADS_DIR:-/mnt/uploads}:/mnt/uploads
     environment:
       ADMIN_INGEST_TOKEN: ${ADMIN_INGEST_TOKEN:-}
       CLUSTER_INGEST_URL: http://127.0.0.1:18080/api/admin/ingest
@@ -86,16 +92,48 @@ services:
 
   # ── API Gateway — proxy, API keys, rate limiting, usage tracking ──────────
   api-gateway:
-    build: ./gateway
+    build: ${MUNIN_FRONTEND_SRC:-.}/gateway
     restart: unless-stopped
     network_mode: host
     volumes:
       - gateway_data:/data
-      - ./config/quotas.yml:/data/quotas.yml:ro
+      - ${MUNIN_FRONTEND_SRC:-.}/config/quotas.yml:/data/quotas.yml:ro
     environment:
       SECRET_KEY: ${AUTH_SECRET_KEY}
-      CLUSTER_TUNNEL: http://127.0.0.1:18080
+      CLUSTER_TUNNEL: ${CLUSTER_TUNNEL:-http://127.0.0.1:18080}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-admin@muninai.org}
+
+  # ── webui-build — build the chat SPA without a host Node toolchain ─────────
+  # Profile `webui`, so it never runs on the VPS, where the UI is built with
+  # npm and rsynced. Writes into the same static/chat directory Caddy already
+  # serves, so nothing else has to change.
+  #
+  # No depends_on from caddy: pulling a profiled service into caddy's
+  # dependencies would implicitly enable this profile everywhere, including
+  # production. Caddy reads from disk per request, so the only cost of the
+  # missing ordering is that the first page load can 404 until the build
+  # finishes. Watch it with: docker compose logs -f webui-build
+  webui-build:
+    build:
+      context: ${MUNIN_FRONTEND_SRC:-.}/webui
+      dockerfile: Dockerfile
+      args:
+        # Empty means "use the production default" (see src/lib/urls.ts), so a
+        # build with none of these set is the production bundle.
+        VITE_AUTH_BASE: ${VITE_AUTH_BASE:-}
+        VITE_SITE_HOME: ${VITE_SITE_HOME:-}
+        VITE_CHAT_URL: ${VITE_CHAT_URL:-}
+        VITE_SEARCH_URL: ${VITE_SEARCH_URL:-}
+        VITE_DOCS_URL: ${VITE_DOCS_URL:-}
+        VITE_UPLOAD_URL: ${VITE_UPLOAD_URL:-}
+        VITE_API_PUBLIC_URL: ${VITE_API_PUBLIC_URL:-}
+    image: ${MUNIN_PREFIX:-munin}-webui:latest
+    container_name: ${MUNIN_PREFIX:-munin}-webui-build
+    restart: "no"
+    volumes:
+      - ${MUNIN_FRONTEND_SRC:-.}/static/chat:/out
+    profiles:
+      - webui
 
 volumes:
   caddy_data:
