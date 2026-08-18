@@ -57,7 +57,7 @@ ARXIV_API = "https://export.arxiv.org/api/query"
 ATOM = {"a": "http://www.w3.org/2005/Atom"}
 
 # arXiv asks for a descriptive User-Agent and a delay between calls.
-UA = "munin-seed/1.0 (+https://github.com/varghele/munin; research corpus seeding)"
+UA = "munin-seed/1.0 (+https://github.com/elgetilab/munin; research corpus seeding)"
 
 # Matches the reference deployment's domain (membrane biophysics), so the demo
 # corpus is topically coherent and the clustering on the knowledge map has
