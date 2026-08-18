@@ -201,36 +201,78 @@ deploy_dirs() {
 # ------------------------------------------------------------------------------
 COMPOSE_PROJECT_EXPECTED=${MUNIN_PREFIX:-munin}
 
+# Returns the compose project of the running stack, or empty if nothing runs.
+running_compose_project() {
+    docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' \
+        "${COMPOSE_PROJECT_EXPECTED}-retrieval" 2>/dev/null || true
+}
+
+print_compose_migration() {
+    local running="$1"
+    echo ""
+    echo "        One-time migration. ORDER MATTERS: the pinned name only takes"
+    echo "        effect once the new compose file is installed, and the old"
+    echo "        stack must be torn down by its OLD project name."
+    echo ""
+    echo "          # 1. install the compose file that pins the project name"
+    echo "          sudo ./deploy.sh compose"
+    echo ""
+    echo "          # 2. tear down the OLD project. -p is required (the new file"
+    echo "          #    now says '$COMPOSE_PROJECT_EXPECTED'), and the profile flags are"
+    echo "          #    required or retrieval/sandbox/prometheus are left behind."
+    echo "          cd $MUNIN_DOCKER"
+    echo "          sudo docker compose -p $running --profile rag --profile monitoring down"
+    echo ""
+    echo "          # 3. bring it back up under the pinned name"
+    echo "          sudo docker compose --profile rag --profile monitoring up -d"
+    echo ""
+    echo "        Application data is on bind mounts and is untouched. Prometheus"
+    echo "        history is the one casualty: its volume is project-scoped, so"
+    echo "        '${running}_prometheus_data' is orphaned (not deleted)."
+    echo ""
+}
+
+# Blocks a mode that STARTS containers. Installing files is safe and must not
+# be blocked -- `deploy.sh compose` is step 1 of the migration itself, so
+# refusing it here would deadlock: the file that pins the name could never be
+# installed. (It did, on 2026-08-18.)
 check_compose_project() {
     local running
-    running=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' \
-              "${COMPOSE_PROJECT_EXPECTED}-retrieval" 2>/dev/null || true)
+    running=$(running_compose_project)
 
-    # Nothing running (fresh host), or already migrated: nothing to do.
     [ -z "$running" ] && return 0
     [ "$running" = "$COMPOSE_PROJECT_EXPECTED" ] && return 0
 
     echo ""
     echo "[ERROR] Compose project mismatch."
     echo "        Running containers belong to project '$running', but"
-    echo "        docker-compose.yml now pins project '$COMPOSE_PROJECT_EXPECTED'."
-    echo "        Deploying now would fail on container-name conflicts."
-    echo ""
-    echo "        One-time migration (brief outage, no application data lost):"
-    echo "          cd $MUNIN_DOCKER"
-    echo "          sudo docker compose down"
-    echo "          sudo docker compose --profile rag --profile monitoring up -d"
-    echo ""
-    echo "        Prometheus history is the one casualty: its named volume is"
-    echo "        scoped by project, so '${running}_prometheus_data' is orphaned"
-    echo "        (not deleted). Everything else is on bind mounts."
-    echo ""
+    echo "        docker-compose.yml pins project '$COMPOSE_PROJECT_EXPECTED'."
+    echo "        Starting containers now would fail on name conflicts."
+    print_compose_migration "$running"
     return 1
+}
+
+# Advisory version for `compose`, which only writes files.
+warn_compose_project() {
+    local running
+    running=$(running_compose_project)
+
+    [ -z "$running" ] && return 0
+    [ "$running" = "$COMPOSE_PROJECT_EXPECTED" ] && return 0
+
+    echo ""
+    echo "[NOTE] The running stack is project '$running'; this file pins"
+    echo "       '$COMPOSE_PROJECT_EXPECTED'. Installing it is safe and changes nothing"
+    echo "       until you recreate the containers, but until you do, a plain"
+    echo "       'docker compose up' here will try to create a SECOND stack and"
+    echo "       fail on container-name conflicts."
+    print_compose_migration "$running"
+    return 0
 }
 
 deploy_compose() {
     echo "[compose] Installing docker-compose.yml..."
-    check_compose_project || exit 1
+    warn_compose_project
     need_file "$REPO_DIR/docker/docker-compose.yml"
     run "install -d -m 0755 $MUNIN_DOCKER"
     run "install -m 0644 $REPO_DIR/docker/docker-compose.yml $MUNIN_DOCKER/docker-compose.yml"

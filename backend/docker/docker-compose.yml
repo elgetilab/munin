@@ -61,9 +61,13 @@
 # `com.docker.compose.project=docker`, so the first deploy after it will hit
 # container-name conflicts. Migrate once, during a maintenance window:
 #
+#     sudo ./deploy.sh compose      # 1. install THIS file (pins the name)
 #     cd /opt/munin/docker
-#     sudo docker compose down                       # tears down project `docker`
-#     sudo docker compose --profile rag --profile monitoring up -d
+#     # 2. tear down the OLD project. `-p docker` is required once this file is
+#     #    installed, and the profile flags are required or retrieval, sandbox
+#     #    and prometheus are left running under the old project.
+#     sudo docker compose -p docker --profile rag --profile monitoring down
+#     sudo docker compose --profile rag --profile monitoring up -d   # 3.
 #
 # All application data is in bind mounts, so nothing there is lost. The ONE
 # casualty is Prometheus: its TSDB lives in a named volume, which Compose scopes
