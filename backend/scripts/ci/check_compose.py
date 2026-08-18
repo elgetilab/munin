@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+"""
+==============================================================================
+Compose invariant checks
+==============================================================================
+The single-host setup rests on a few properties that are easy to break with a
+careless edit and produce no error when broken, only wrong behaviour:
+
+  1. THE CLUSTER DEFAULTS ARE PRODUCTION. `docker compose config` with no env
+     at all must resolve to /opt/munin, because that is what the deployed file
+     runs on and `deploy.sh` supplies no overrides. If a default drifts to a
+     repo-relative path, the next cluster deploy quietly points at nothing.
+
+  2. THE LOCAL OVERRIDES REACH THE WORKING TREE. With .env.example, no path may
+     still point at /opt, or a clone would depend on a machine it is not on.
+
+  3. THE PROJECT NAME IS PINNED. Without `name:`, Compose derives the project
+     from the directory basename -- `docker` for BOTH /opt/munin/docker and a
+     clone's backend/docker -- so a local `compose up` adopts and recreates the
+     production stack. That happened on 2026-08-14.
+
+  4. FRONTEND PATHS SURVIVE BEING SECOND IN COMPOSE_FILE. Compose resolves
+     relative paths against the FIRST file's directory, so a literal ./caddy in
+     the frontend file would resolve into backend/docker/. Every frontend path
+     must be parameterised and land under frontend/.
+
+Run from the repo root:  python3 backend/scripts/ci/check_compose.py
+==============================================================================
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+
+BACKEND = "backend/docker/docker-compose.yml"
+FRONTEND = "frontend/docker-compose.yml"
+
+failures: list = []
+checks = 0
+
+
+def check(name: str, ok: bool, detail: str = "") -> None:
+    global checks
+    checks += 1
+    if ok:
+        print(f"  ok   {name}")
+    else:
+        print(f"  FAIL {name}" + (f"\n         {detail}" if detail else ""))
+        failures.append(name)
+
+
+def compose_config(files: list, env_file: str | None, cwd: str,
+                   profiles: list | None = None) -> dict:
+    cmd = ["docker", "compose"]
+    for f in files:
+        cmd += ["-f", f]
+    cmd += ["--env-file", env_file or os.devnull]
+    for p in profiles or []:
+        cmd += ["--profile", p]
+    # `--format` is a flag of the `config` subcommand, not of `docker compose`.
+    cmd += ["config", "--format", "json"]
+
+    r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"compose config failed:\n{r.stderr[:800]}")
+    return json.loads(r.stdout)
+
+
+def sources(cfg: dict) -> list:
+    """Every host path the config binds, plus every build context."""
+    out = []
+    for svc in cfg.get("services", {}).values():
+        for v in svc.get("volumes") or []:
+            if isinstance(v, dict) and v.get("type") == "bind" and v.get("source"):
+                out.append(v["source"])
+        b = svc.get("build")
+        if isinstance(b, dict) and b.get("context"):
+            out.append(b["context"])
+    return out
+
+
+def main() -> int:
+    root = os.path.abspath(os.getcwd())
+    if not os.path.exists(BACKEND):
+        print(f"run me from the repo root (no {BACKEND})", file=sys.stderr)
+        return 2
+
+    # --- 1. cluster defaults are production --------------------------------
+    print("\ncluster defaults (no env, as deploy.sh runs it)")
+    cfg = compose_config(["docker-compose.yml"], None,
+                         cwd=os.path.join(root, "backend/docker"),
+                         profiles=["rag", "monitoring"])
+    srcs = sources(cfg)
+    stray = [s for s in srcs if not s.startswith(("/opt/munin", "/opt/cluster"))]
+    check("every path resolves under /opt", not stray, f"stray: {stray[:4]}")
+    check("project name pinned to 'munin'", cfg.get("name") == "munin",
+          f"got {cfg.get('name')!r}")
+    check("retrieval build context is the deployed source",
+          any(s == "/opt/munin/services/retrieval" for s in srcs))
+
+    # --- 3. the collision that motivated the pin ---------------------------
+    # A repo checkout and /opt/munin/docker are both basename `docker`, so
+    # without `name:` they would share a project and adopt each other.
+    print("\nproject isolation")
+    local_cfg = compose_config(["docker-compose.yml"], None,
+                               cwd=os.path.join(root, "backend/docker"))
+    check("clone and cluster cannot share a project",
+          local_cfg.get("name") == "munin",
+          "unset name: means the basename 'docker' is used by BOTH")
+
+    # --- 2. local overrides reach the working tree -------------------------
+    print("\nlocal overrides (.env.example)")
+    cfg = compose_config([BACKEND, FRONTEND], ".env.example", cwd=root,
+                         profiles=["rag", "pipeline", "monitoring", "webui", "seed"])
+    srcs = sources(cfg)
+    leaked = [s for s in srcs if s.startswith(("/opt/munin", "/opt/cluster"))]
+    check("no path still points at /opt", not leaked, f"leaked: {leaked[:4]}")
+    check("paths land inside the repo",
+          all(s.startswith(root) for s in srcs),
+          f"outside: {[s for s in srcs if not s.startswith(root)][:4]}")
+
+    # --- 4. frontend paths survive being the SECOND file -------------------
+    print("\nfrontend paths with backend first in COMPOSE_FILE")
+    fe = [s for s in srcs if "/frontend/" in s or s.endswith("/frontend")]
+    check("frontend sources resolve under frontend/", bool(fe),
+          "none found; a literal ./path would land in backend/docker/")
+    misrouted = [s for s in srcs
+                 if s.startswith(os.path.join(root, "backend/docker"))
+                 and "backend/docker" not in ("searxng", "grobid", "prometheus")
+                 and not any(k in s for k in ("grobid", "prometheus", "searxng"))]
+    check("nothing misrouted into backend/docker/", not misrouted,
+          f"misrouted: {misrouted[:4]}")
+
+    # --- frontend standalone, as the VPS runs it ---------------------------
+    print("\nfrontend standalone (as the VPS runs it)")
+    cfg = compose_config(["docker-compose.yml"], None,
+                         cwd=os.path.join(root, "frontend"))
+    srcs = sources(cfg)
+    fe_root = os.path.join(root, "frontend")
+    ok = all(s.startswith((fe_root, os.path.join(root, "shared"), "/mnt/uploads"))
+             for s in srcs)
+    check("resolves relative to frontend/", ok,
+          f"unexpected: {[s for s in srcs if not s.startswith(fe_root)][:4]}")
+    caddyfile = next((c for svc in cfg["services"].values()
+                      for c in (svc.get("command") or [])
+                      if isinstance(c, str) and "Caddyfile" in c), None)
+    check("defaults to the production Caddyfile",
+          caddyfile == "/etc/caddy/Caddyfile", f"got {caddyfile!r}")
+
+    print(f"\n{checks - len(failures)}/{checks} checks passed")
+    if failures:
+        print("FAILED: " + ", ".join(failures))
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

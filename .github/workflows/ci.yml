@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The single-host smoke job is expensive (it builds the ~8.7 GB retrieval
+  # image), so it does not run per-PR. Weekly plus on-demand is enough to catch
+  # the quick-start rotting, which is the failure it exists to prevent.
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -65,8 +71,135 @@ jobs:
           pip install -r backend/benchmarks/requirements-ci.txt
           pytest backend/benchmarks/tests -q
 
+  compose:
+    name: compose invariants (single-host + cluster)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose config resolves, and the invariants hold
+        # Cheap (no images pulled) and guards the properties the whole
+        # single-host setup rests on: cluster defaults stay production, local
+        # overrides reach the working tree, the project name is pinned so a
+        # clone cannot adopt a running deployment, and frontend paths survive
+        # being second in COMPOSE_FILE.
+        run: python3 backend/scripts/ci/check_compose.py
+
+      - name: Stub LLM behaves as an OpenAI-compatible endpoint
+        run: |
+          python3 backend/scripts/ci/stub_llm.py --port 18999 &
+          for i in $(seq 1 20); do
+            curl -sf http://127.0.0.1:18999/v1/models >/dev/null && break
+            sleep 0.5
+          done
+          curl -sf http://127.0.0.1:18999/v1/models >/dev/null
+          curl -sf -X POST http://127.0.0.1:18999/v1/chat/completions \
+            -H 'Content-Type: application/json' \
+            -d '{"model":"m","messages":[]}' >/dev/null
+
+      - name: Strict endpoint rejects the vLLM-only field (gates LLM_THINKING_TOGGLE)
+        # Proves the toggle is load-bearing rather than decorative: with the
+        # field present a strict server 400s, without it the same call succeeds.
+        run: |
+          python3 backend/scripts/ci/stub_llm.py --port 18998 --strict &
+          for i in $(seq 1 20); do
+            curl -sf http://127.0.0.1:18998/v1/models >/dev/null && break
+            sleep 0.5
+          done
+          on=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            http://127.0.0.1:18998/v1/chat/completions -H 'Content-Type: application/json' \
+            -d '{"model":"m","messages":[],"chat_template_kwargs":{"enable_thinking":false}}')
+          off=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            http://127.0.0.1:18998/v1/chat/completions -H 'Content-Type: application/json' \
+            -d '{"model":"m","messages":[]}')
+          echo "toggle on -> $on, toggle off -> $off"
+          test "$on" = "400" || { echo "expected 400 with the field"; exit 1; }
+          test "$off" = "200" || { echo "expected 200 without it"; exit 1; }
+
+  single-host-smoke:
+    name: single-host smoke (builds retrieval, boots against a stub LLM)
+    # Not on PRs: builds the ~8.7 GB retrieval image. Weekly + on demand.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reclaim runner disk
+        # The retrieval image alone is larger than the free space a stock
+        # runner leaves, so drop the preinstalled toolchains we do not use.
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
+
+      - name: Configure for a single host
+        run: |
+          cp .env.example .env
+          # No GPU and no model on a CI runner: point at the stub on the host.
+          sed -i 's|^LLM_BASE_URL=.*|LLM_BASE_URL=http://host.docker.internal:8000|' .env
+          # Only what the smoke needs. Pipeline/webui/seed/monitoring are
+          # exercised by the compose job's config check, not booted here.
+          sed -i 's|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=rag|' .env
+          sed -i 's|^COMPOSE_FILE=.*|COMPOSE_FILE=backend/docker/docker-compose.yml|' .env
+
+      - name: Start the stub LLM
+        run: |
+          nohup python3 backend/scripts/ci/stub_llm.py --port 8000 \
+            > /tmp/stub-llm.log 2>&1 &
+          for i in $(seq 1 20); do
+            curl -sf http://127.0.0.1:8000/v1/models >/dev/null && break
+            sleep 0.5
+          done
+          curl -sf http://127.0.0.1:8000/v1/models
+
+      - name: Bring the stack up
+        run: docker compose up -d --build qdrant neo4j retrieval
+
+      - name: Retrieval becomes healthy
+        run: |
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:8080/health >/dev/null && break
+            sleep 5
+          done
+          curl -sf http://127.0.0.1:8080/health
+
+      - name: It reached the model endpoint
+        run: |
+          status=$(curl -sf http://127.0.0.1:8080/api/status)
+          echo "$status" | python3 -m json.tool
+          echo "$status" | python3 -c "
+          import json,sys
+          d = json.load(sys.stdin)
+          assert d['vllm']['status'] == 'running', d['vllm']
+          assert d['services']['retrieval'] == 'ok', d['services']
+          print('status ok')"
+
+      - name: A real LLM round-trip through the tool path
+        # Exercises the code that builds the request body, including the
+        # thinking toggle, rather than only asserting the service booted.
+        run: |
+          docker compose exec -T retrieval python -c "
+          import asyncio, sys
+          sys.path.insert(0, '/app')
+          from mcp.tools.llm import llm_summarize
+          r = asyncio.run(llm_summarize('Some text to condense.', 'Summarise.'))
+          assert 'error' not in r, r
+          print('llm_summarize ok:', str(r)[:100])"
+
+      - name: Logs on failure
+        if: failure()
+        run: |
+          echo '--- stub ---'; cat /tmp/stub-llm.log || true
+          echo '--- retrieval ---'; docker compose logs --tail 200 retrieval || true
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v || true
+
 # Note: the retrieval service unit tests (backend/retrieval/tests) need heavy
 # deps (torch, qdrant-client) + a running vLLM/Qdrant/Neo4j for some, so they run
-# on the cluster, not in CI. A future job could run them inside the
-# munin-retrieval image. The behavioral evals (evals/run_eval.py, munin_bench)
-# are live-service and stay out of CI.
+# on the cluster, not in CI. The `single-host-smoke` job above now boots that
+# image against a stub, which covers the import/startup path; the tests
+# themselves still run on the cluster. The behavioral evals (evals/run_eval.py,
+# munin_bench) are live-service and stay out of CI.

@@ -478,21 +478,48 @@ Honest list, because every phase note ends with a version of it.
 
 | Not yet done | Needs |
 |---|---|
-| `docker compose up` reaching a working chat turn | A host with no live Munin deployment |
+| `docker compose up` reaching a working chat turn | A host with no live Munin deployment. The `single-host-smoke` CI job covers this once it runs. |
 | A PDF ingesting end to end through the containerised pipeline | Same |
-| A chat turn against a non-vLLM endpoint (Ollama etc.) | Same |
-| The frontend deploy that confirms the webui changes | A VPS deploy, which you asked to do |
-| The Phase 1 compose-project migration on the cluster | A maintenance window; `deploy.sh` refuses until then |
+| ~~A chat turn against a non-vLLM endpoint~~ | Partly covered: `llm_summarize` against the stub is a non-vLLM round-trip. A real small model is still untested. |
+| ~~The frontend deploy~~ | **DONE 2026-08-18.** Deployed and verified: bundle byte-identical to the local build, auth endpoints reachable, dev-OTP off. An actual OTP login still needs a human. |
+| ~~The compose-project migration on the cluster~~ | **DONE 2026-08-18.** All seven containers now on project `munin`; `deploy.sh retrieval` deployed and verify passed. |
+| The `single-host-smoke` job itself | Its first run on a GitHub runner |
 
 The first three are the same missing thing: a clean machine. Phase 6's CI smoke
 test is the durable answer, since it would catch a broken quick-start before a
 user does rather than after.
 
-### Phase 6 (optional): CI smoke test
+### Phase 6: CI smoke test
 
-A GitHub Actions job that brings the stack up against a stub LLM and asserts a
-chat turn completes. This is what stops the quick-start rotting three months
-after the paper is out, which is the normal fate of these things.
+> **DONE 2026-08-18.** Two jobs in `.github/workflows/ci.yml`.
+>
+> **`compose`** runs on every push and PR and is cheap (pulls nothing). It
+> drives `backend/scripts/ci/check_compose.py`, which asserts the four
+> properties this whole effort rests on: cluster defaults still resolve under
+> `/opt`, local overrides reach the working tree with nothing left pointing at
+> `/opt`, the project name is pinned so a clone cannot adopt a running
+> deployment, and frontend paths still land under `frontend/` when the backend
+> file is first in `COMPOSE_FILE`. The checks were verified to FAIL when each
+> invariant is deliberately broken, not merely to pass today.
+>
+> It also gates `LLM_THINKING_TOGGLE` with the strict stub: the same request
+> must 400 with `chat_template_kwargs` present and 200 without it, which turns
+> Phase 3's central claim into a test.
+>
+> **`single-host-smoke`** builds the retrieval image and boots it with Qdrant
+> and Neo4j against the stub, asserting `/health`, that `/api/status` reports
+> the model endpoint reachable, and that `llm_summarize` completes a real
+> round-trip through the request-building code. Weekly and on-demand only, not
+> per-PR, because the image is ~8.7 GB; a runner disk-reclaim step precedes it.
+>
+> **`backend/scripts/ci/stub_llm.py`** is useful outside CI too: it lets anyone
+> bring the stack up with no GPU, no API key and no model at all, to see the
+> plumbing work.
+>
+> **Not executed on a GitHub runner.** Both jobs were rehearsed locally
+> (`check_compose.py` 10/10, the stub's three assertions pass), but the smoke
+> job's disk and build-time behaviour on a hosted runner is unverified until it
+> first runs. Expect to tune it.
 
 ---
 
