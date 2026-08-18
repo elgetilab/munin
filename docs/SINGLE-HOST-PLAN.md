@@ -1,7 +1,8 @@
 # Single-host Docker deployment: investigation and plan
 
-Status: **Phases 1-5 implemented (2026-08-14 to 2026-08-18); Phase 6 done.** Written for the public-release push. Decisions taken are in
-§5; each phase carries its own outcome note below.
+Status: **Phases 1-6 implemented, 2026-08-14 to 2026-08-18.** Written for the
+public-release push. Decisions taken are in §5; each phase carries its own
+outcome note below.
 
 **Status of the central claim:** the quick-start is demonstrated, not just
 argued. The `single-host-smoke` CI job builds the retrieval image from a clean
