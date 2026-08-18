@@ -1,13 +1,13 @@
 # Single-host Docker deployment: investigation and plan
 
-Status: **Phases 1-5 implemented (2026-08-14 to 2026-08-18); Phase 6 optional
-and not started.** Written for the public-release push. Decisions taken are in
+Status: **Phases 1-5 implemented (2026-08-14 to 2026-08-18); Phase 6 done.** Written for the public-release push. Decisions taken are in
 §5; each phase carries its own outcome note below.
 
-**One thing is owed across all of it:** nothing here has been brought up end to
-end on a machine without a live deployment. Every phase was verified by
-configuration resolution, unit tests and dry-run diffing, which catches a great
-deal but is not the same as watching it boot. See "What is still unverified".
+**Status of the central claim:** the quick-start is demonstrated, not just
+argued. The `single-host-smoke` CI job builds the retrieval image from a clean
+checkout, boots the stack, and completes an LLM round-trip against a non-vLLM
+endpoint, in about eight minutes. What remains untested is the ingest path in
+containers and the profiles that job leaves out. See "Verification status".
 
 Goal: `git clone && cp .env.example .env && docker compose up` brings up the
 whole Munin stack on one machine.
@@ -469,6 +469,49 @@ Each phase is independently useful and independently verifiable.
 > everything under the invoking uid would fix it, but Qdrant and Neo4j expect
 > their own uids, so the cleanup command is documented rather than the problem
 > papered over.
+
+---
+
+### Phase 6: CI smoke test
+
+> **DONE 2026-08-18.** Two jobs in `.github/workflows/ci.yml`.
+>
+> **`compose`** runs on every push and PR and is cheap (pulls nothing). It
+> drives `backend/scripts/ci/check_compose.py`, which asserts the four
+> properties this whole effort rests on: cluster defaults still resolve under
+> `/opt`, local overrides reach the working tree with nothing left pointing at
+> `/opt`, the project name is pinned so a clone cannot adopt a running
+> deployment, and frontend paths still land under `frontend/` when the backend
+> file is first in `COMPOSE_FILE`. The checks were verified to FAIL when each
+> invariant is deliberately broken, not merely to pass today.
+>
+> It also gates `LLM_THINKING_TOGGLE` with the strict stub: the same request
+> must 400 with `chat_template_kwargs` present and 200 without it, which turns
+> Phase 3's central claim into a test.
+>
+> **`single-host-smoke`** builds the retrieval image and boots it with Qdrant
+> and Neo4j against the stub, asserting `/health`, that `/api/status` reports
+> the model endpoint reachable, and that `llm_summarize` completes a real
+> round-trip through the request-building code. Weekly and on-demand only, not
+> per-PR, because the image is ~8.7 GB; a runner disk-reclaim step precedes it.
+>
+> **`backend/scripts/ci/stub_llm.py`** is useful outside CI too: it lets anyone
+> bring the stack up with no GPU, no API key and no model at all, to see the
+> plumbing work.
+>
+> **First run green, 2026-08-18** (run 32133192116; `single-host-smoke` 8m02s
+> against a 60-minute cap). None of the three predicted failure modes occurred:
+> disk sufficed after the reclaim step, retrieval was healthy in ~31 s against a
+> 5-minute budget, and `--format json` and `host-gateway` both behaved on a
+> hosted runner. No tuning needed.
+>
+> One real failure came out of this work, in the existing `python` job rather
+> than the new ones: the auth dev-OTP test was the first thing ever to render
+> `email_otp.html` from outside `frontend/auth/`, and `main.py` loaded templates
+> from a bare relative path. That worked from the container WORKDIR and from a
+> local `cd frontend/auth`, and raised `TemplateNotFound` when CI ran pytest from
+> the repo root. Fixed at the cause (a `__file__`-relative loader), not in the
+> test.
 
 ---
 
