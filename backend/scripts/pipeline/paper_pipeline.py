@@ -75,14 +75,31 @@ NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "munin-neo4j-password")
 
-PAPERS_DIR = "/opt/munin/data/papers/pdf"
-PROCESSED_DIR = "/opt/munin/data/papers/processed"
+# Corpus locations. These MUST be environment-overridable: the host-side
+# watcher (munin-paper-pipeline.service) sees the corpus at the paths below,
+# but /api/admin/ingest runs this same script inside the retrieval container,
+# where the corpus is bind-mounted at /papers and /papers-processed.
+#
+# Until 2026-08-18 they were hardcoded to the host paths. Inside the container
+# those paths do not exist, and _dispose_post_pipeline created them with
+# mkdir(parents=True) before moving the PDF in, so every uploaded PDF was
+# filed into the container's writable layer, recorded in Qdrant as if it were
+# on disk, and destroyed by the next container rebuild. Half of one
+# contributor's 627 papers were lost this way before anyone noticed, because
+# the failure looked exactly like success. See UPLOAD-INGEST-REPAIR-PLAN.md
+# defect 1. The defaults are the host paths, so the watcher and manual
+# invocations are unaffected; the container already exports the two env names
+# used here. `require_corpus_dirs()` refuses to run if they are wrong.
+PAPERS_DIR = os.getenv("PAPERS_PDF_DIR", "/opt/munin/data/papers/pdf")
+PROCESSED_DIR = os.getenv("PAPERS_PROCESSED_DIR", "/opt/munin/data/papers/processed")
 # SKIPPED_DIR removed 2026-05-13 (Phase E follow-up): the legacy
 # disk-log path was replaced by the state sidecar in
 # pdf/quarantine/<stem>.state.json. _log_skipped_pdf now only sets
 # self._last_skip_reason, which the dispose helper reads.
-QUARANTINE_DIR = "/opt/munin/data/papers/pdf/quarantine"
-OCR_CACHE_DIR = "/opt/munin/data/papers/ocr_cache"
+QUARANTINE_DIR = os.getenv(
+    "PAPERS_QUARANTINE_DIR", os.path.join(PAPERS_DIR, "quarantine")
+)
+OCR_CACHE_DIR = os.getenv("PAPERS_OCR_CACHE_DIR", "/opt/munin/data/papers/ocr_cache")
 # Encoder migration: the pipeline must embed NEW papers with the SAME encoder
 # the retrieval service serves (PAPER_ENCODER), into the SAME collection. The
 # two move together or ingest writes vectors the search path cannot read.
@@ -276,7 +293,7 @@ def _write_state_sidecar(pdf_path, payload: Dict) -> None:
     Uses a tempfile + rename so partial writes never leave a corrupt
     sidecar visible."""
     sc = _state_sidecar_path(pdf_path)
-    sc.parent.mkdir(parents=True, exist_ok=True)
+    sc.parent.mkdir(exist_ok=True)
     tmp = sc.with_suffix(sc.suffix + ".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
@@ -320,6 +337,58 @@ def _build_state_sidecar(
     return payload
 
 
+def require_corpus_dirs(check_collection: bool = True) -> None:
+    """Refuse to run unless the corpus directories are really there.
+
+    The 2026-08-18 data loss happened because a wrong PAPERS_DIR was silently
+    created instead of raising: the pipeline reported success while filing
+    PDFs into a container layer. So the corpus root is now a precondition,
+    not something this script will conjure. Call once at startup, before any
+    PDF is touched.
+
+    `check_collection` additionally catches a mount that exists but is empty,
+    which in production means the bind mount is missing rather than that the
+    corpus is genuinely new. Skipped on a fresh install (empty collection) and
+    on any Qdrant error, so an unrelated outage cannot block ingest.
+    """
+    for label, path in (("PAPERS_PDF_DIR", PAPERS_DIR),
+                        ("PAPERS_PROCESSED_DIR", PROCESSED_DIR)):
+        if not os.path.isdir(path):
+            sys.exit(
+                f"[FATAL] {label}={path} is not a directory. This process will "
+                f"not create it: on the cluster that path is a bind mount, and "
+                f"creating it silently sends every ingested PDF into a "
+                f"container layer that the next rebuild deletes. Set {label} "
+                f"to the mounted corpus (the retrieval container uses "
+                f"/papers and /papers-processed)."
+            )
+        if not os.access(path, os.W_OK | os.X_OK):
+            sys.exit(f"[FATAL] {label}={path} is not writable by this process.")
+
+    if not check_collection:
+        return
+    try:
+        has_pdf = any(n.endswith(".pdf") for n in os.listdir(PAPERS_DIR))
+    except OSError:
+        return
+    if has_pdf:
+        return
+    try:
+        from qdrant_client import QdrantClient
+        count = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT).count(
+            collection_name=COLLECTION_NAME, exact=True
+        ).count
+    except Exception:
+        return  # Qdrant unreachable or collection absent; not our problem here.
+    if count > 0:
+        sys.exit(
+            f"[FATAL] PAPERS_PDF_DIR={PAPERS_DIR} holds no PDFs, but "
+            f"{COLLECTION_NAME} has {count} points. That combination means the "
+            f"corpus bind mount is missing. Refusing to run rather than "
+            f"re-filing the corpus into an empty directory."
+        )
+
+
 def _dispose_post_pipeline(
     pdf_path: str,
     paper: "Optional[Paper]",
@@ -359,7 +428,7 @@ def _dispose_post_pipeline(
         safe_doi = paper.doi.replace("/", "_")
         final_pdf = Path(PAPERS_DIR) / f"doi_{safe_doi}.pdf"
     else:
-        Path(QUARANTINE_DIR).mkdir(parents=True, exist_ok=True)
+        Path(QUARANTINE_DIR).mkdir(exist_ok=True)
         if paper and paper.doi:
             safe_doi = paper.doi.replace("/", "_")
             final_pdf = Path(QUARANTINE_DIR) / f"doi_{safe_doi}.pdf"
@@ -373,7 +442,11 @@ def _dispose_post_pipeline(
     # merged into the contributors[] list on the Qdrant point).
     if pdf.resolve() != final_pdf.resolve():
         try:
-            final_pdf.parent.mkdir(parents=True, exist_ok=True)
+            # exist_ok but NOT parents: the corpus root is validated at
+            # startup by require_corpus_dirs(), so a missing parent here means
+            # something is wrong with the mount and we want the OSError, not a
+            # freshly invented directory. See UPLOAD-INGEST-REPAIR-PLAN.md.
+            final_pdf.parent.mkdir(exist_ok=True)
             if final_pdf.exists():
                 if pdf.exists():
                     pdf.unlink()
@@ -453,7 +526,7 @@ def _dispose_post_pipeline(
     # scanned by the watcher, so this only matters for live.)
     if target_state == "live":
         try:
-            Path(PROCESSED_DIR).mkdir(parents=True, exist_ok=True)
+            Path(PROCESSED_DIR).mkdir(exist_ok=True)
             marker = Path(PROCESSED_DIR) / f"{final_pdf.stem}.json"
             with open(marker, "w") as f:
                 json.dump({
@@ -1853,7 +1926,7 @@ def process_directory(pipeline: PaperPipeline, papers_dir: str, reprocess: bool 
     """Process all PDFs in a directory"""
     papers_path = Path(papers_dir)
     processed_path = Path(PROCESSED_DIR)
-    processed_path.mkdir(parents=True, exist_ok=True)
+    processed_path.mkdir(exist_ok=True)
 
     pdf_files = list(papers_path.glob("*.pdf"))
     print(f"Found {len(pdf_files)} PDF files")
@@ -1949,7 +2022,7 @@ def watch_directory(pipeline: PaperPipeline, papers_dir: str):
     print("Press Ctrl+C to stop")
 
     processed_path = Path(PROCESSED_DIR)
-    processed_path.mkdir(parents=True, exist_ok=True)
+    processed_path.mkdir(exist_ok=True)
 
     while True:
         try:
@@ -1997,6 +2070,11 @@ def main():
                         ))
 
     args = parser.parse_args()
+
+    # Before touching a single PDF: the corpus directories must already
+    # exist and be writable. Exits non-zero with an explanation otherwise.
+    # See UPLOAD-INGEST-REPAIR-PLAN.md defect 1 for what this prevents.
+    require_corpus_dirs()
 
     pipeline = PaperPipeline(fast_mode=args.fast, workers=args.workers)
 

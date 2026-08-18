@@ -128,7 +128,15 @@ services:
       - GROBID_URL=http://grobid:8070
       # /api/admin/ingest writes a processed-marker here so the
       # host-side munin-paper-pipeline.service watcher skips the paper.
+      # Since 2026-08-18 the paper_pipeline subprocess reads this and
+      # PAPERS_PDF_DIR too. It used to hardcode the host paths, which do not
+      # exist in here, so it filed every uploaded PDF into the container's
+      # writable layer and lost it on the next rebuild. Same failure mode as
+      # MUNIN_REPORTED_DIR below. See UPLOAD-INGEST-REPAIR-PLAN.md defect 1.
       - PAPERS_PROCESSED_DIR=/papers-processed
+      # OCR cache for scanned PDFs. Host path is /opt/munin/data/papers/
+      # ocr_cache, which is this same directory via the /data mount.
+      - PAPERS_OCR_CACHE_DIR=/data/papers/ocr_cache
       # POST /api/chats/{id}/report writes here. Default
       # /opt/munin/data/reported doesn't exist inside the container
       # (host's /opt/munin/data is mounted at /data), so without

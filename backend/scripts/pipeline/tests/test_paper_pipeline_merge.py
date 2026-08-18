@@ -751,6 +751,159 @@ def test_dispose_watcher_pdf_already_in_place_no_move() -> bool:
 # Runner
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Corpus-path configuration + the require_corpus_dirs precondition
+# (2026-08-18 upload-ingest repair, defect 1). The regression these guard
+# against: PAPERS_DIR was hardcoded to a host path, so the same script running
+# inside the retrieval container created that path in the container's writable
+# layer and filed every uploaded PDF there. See UPLOAD-INGEST-REPAIR-PLAN.md.
+# ---------------------------------------------------------------------------
+
+def _reload_pipeline(env: dict):
+    """Re-exec the module with `env` applied, returning the fresh module.
+
+    The path constants are read at import time, so overriding them has to
+    happen through a reload rather than by assignment.
+    """
+    import importlib.util
+    previous = {k: os.environ.get(k) for k in env}
+    os.environ.update({k: v for k, v in env.items() if v is not None})
+    for k, v in env.items():
+        if v is None:
+            os.environ.pop(k, None)
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "paper_pipeline_env_test", _PAPER_PIPELINE_PATH
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    finally:
+        for k, v in previous.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def test_corpus_paths_default_to_host_layout() -> bool:
+    """No env set: the host watcher's paths, unchanged from before the fix."""
+    mod = _reload_pipeline({
+        "PAPERS_PDF_DIR": None,
+        "PAPERS_PROCESSED_DIR": None,
+        "PAPERS_QUARANTINE_DIR": None,
+        "PAPERS_OCR_CACHE_DIR": None,
+    })
+    return _check(
+        "corpus paths: default to the host layout",
+        mod.PAPERS_DIR == "/opt/munin/data/papers/pdf"
+        and mod.PROCESSED_DIR == "/opt/munin/data/papers/processed"
+        and mod.QUARANTINE_DIR == "/opt/munin/data/papers/pdf/quarantine"
+        and mod.OCR_CACHE_DIR == "/opt/munin/data/papers/ocr_cache",
+        f"got {mod.PAPERS_DIR!r} / {mod.PROCESSED_DIR!r} / {mod.QUARANTINE_DIR!r}",
+    )
+
+
+def test_corpus_paths_follow_container_env() -> bool:
+    """The container's mounts win when exported, and quarantine follows
+    PAPERS_PDF_DIR rather than staying pinned to the host path."""
+    mod = _reload_pipeline({
+        "PAPERS_PDF_DIR": "/papers",
+        "PAPERS_PROCESSED_DIR": "/papers-processed",
+        "PAPERS_QUARANTINE_DIR": None,
+        "PAPERS_OCR_CACHE_DIR": "/data/papers/ocr_cache",
+    })
+    return _check(
+        "corpus paths: follow the container env",
+        mod.PAPERS_DIR == "/papers"
+        and mod.PROCESSED_DIR == "/papers-processed"
+        and mod.QUARANTINE_DIR == "/papers/quarantine"
+        and mod.OCR_CACHE_DIR == "/data/papers/ocr_cache",
+        f"got {mod.PAPERS_DIR!r} / {mod.PROCESSED_DIR!r} / {mod.QUARANTINE_DIR!r}",
+    )
+
+
+def test_require_corpus_dirs_exits_on_missing_dir() -> bool:
+    """A PAPERS_DIR that isn't there is fatal, not something we create."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as td:
+        missing = str(Path(td) / "not-mounted")
+        orig = pp.PAPERS_DIR
+        pp.PAPERS_DIR = missing
+        try:
+            try:
+                pp.require_corpus_dirs(check_collection=False)
+                raised = False
+            except SystemExit:
+                raised = True
+        finally:
+            pp.PAPERS_DIR = orig
+        return _check(
+            "require_corpus_dirs: missing PAPERS_DIR exits",
+            raised and not os.path.exists(missing),
+            "it either did not exit or it created the directory",
+        )
+
+
+def test_require_corpus_dirs_passes_on_real_dirs() -> bool:
+    """The happy path stays quiet."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as td:
+        papers = Path(td) / "pdf"; papers.mkdir()
+        processed = Path(td) / "processed"; processed.mkdir()
+        (papers / "doi_10.1_x.pdf").write_text("fake-pdf")
+        orig = (pp.PAPERS_DIR, pp.PROCESSED_DIR)
+        pp.PAPERS_DIR, pp.PROCESSED_DIR = str(papers), str(processed)
+        try:
+            pp.require_corpus_dirs(check_collection=False)
+            ok = True
+        except SystemExit:
+            ok = False
+        finally:
+            pp.PAPERS_DIR, pp.PROCESSED_DIR = orig
+        return _check("require_corpus_dirs: real dirs pass", ok)
+
+
+def test_dispose_does_not_create_a_missing_corpus_dir() -> bool:
+    """The heart of defect 1: if PAPERS_DIR has vanished, disposal must fail
+    loudly instead of conjuring the directory and filing the PDF into it."""
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    with tempfile.TemporaryDirectory() as td:
+        td_inbox = Path(td) / "inbox"; td_inbox.mkdir()
+        ghost = Path(td) / "ghost" / "pdf"          # two levels missing
+        orig = (pp.PAPERS_DIR, pp.PROCESSED_DIR, pp.QUARANTINE_DIR)
+        pp.PAPERS_DIR = str(ghost)
+        pp.PROCESSED_DIR = str(Path(td) / "ghost" / "processed")
+        pp.QUARANTINE_DIR = str(ghost / "quarantine")
+        try:
+            inbox_pdf = td_inbox / "uuid.pdf"
+            inbox_pdf.write_text("fake-pdf")
+            paper = pp.Paper(
+                id="abcd0123", title="T", abstract="", authors=[],
+                doi="10.1/x", year=2020, journal="J", references=[],
+            )
+            pp._dispose_post_pipeline(
+                pdf_path=str(inbox_pdf), paper=paper, skip_reason=None,
+                ingest_path="upload", qdrant_client=MagicMock(),
+            )
+            # The PDF must still be in inbox, and the bogus tree must not exist.
+            ok = inbox_pdf.exists() and not ghost.exists()
+        finally:
+            pp.PAPERS_DIR, pp.PROCESSED_DIR, pp.QUARANTINE_DIR = orig
+        return _check(
+            "dispose: missing corpus dir is not invented, PDF is not lost",
+            ok,
+            "the PDF left inbox/ or the directory tree was created",
+        )
+
+
 TESTS = [
     test_normalize_basic,
     test_normalize_drops_stopwords,
@@ -797,6 +950,12 @@ TESTS = [
     test_dispose_quarantine_when_paper_is_none,
     test_dispose_quarantine_null_doi_deletes_qdrant_point,
     test_dispose_watcher_pdf_already_in_place_no_move,
+    # 2026-08-18 upload-ingest repair, defect 1
+    test_corpus_paths_default_to_host_layout,
+    test_corpus_paths_follow_container_env,
+    test_require_corpus_dirs_exits_on_missing_dir,
+    test_require_corpus_dirs_passes_on_real_dirs,
+    test_dispose_does_not_create_a_missing_corpus_dir,
 ]
 
 
