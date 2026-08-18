@@ -339,3 +339,89 @@ def get_neo4j():
             logger.exception("Failed to connect to Neo4j")
             _neo4j = None
     return _neo4j
+
+
+# ==============================================================================
+# Paper PDF resolution
+# ==============================================================================
+# Single resolver for "which file on disk holds this DOI's PDF".
+#
+# Until 2026-08-18 there were two copies: main.get_pdf_path (exact
+# os.path.exists only) and mcp.tools.papers.get_pdf_path (exact, plus a
+# legacy no-prefix form, plus a case-insensitive listdir scan). They drifted,
+# and the drift was user-visible: the pipeline lowercases the DOI when it
+# names the file while the crawler kept the registrant's original case, so
+# GET /paper/{doi}/pdf returned 404 on 22 of one contributor's papers whose
+# PDFs were sitting right there under a different case. read_paper found them
+# because the MCP copy had the fallback. See UPLOAD-INGEST-REPAIR-PLAN.md
+# defect 3.
+#
+# The case-insensitive step is a lowercase index rather than the old
+# per-call os.listdir: the HTTP route hits this on every miss and the corpus
+# is ~66k files. Invalidated on the directory's mtime, which changes whenever
+# a file is added or removed, so an ingest is picked up on the next call.
+_pdf_index: dict[str, str] | None = None
+_pdf_index_mtime: float = -1.0
+_pdf_index_dir: str | None = None
+
+
+def _pdf_name_candidates(doi: str) -> list[str]:
+    """Filenames that could hold this DOI, most canonical first.
+
+    `doi_<doi with / -> _>.pdf` is what paper_pipeline writes today. The
+    `:`-substituted variant matches paper_crawler's sanitisation, and the
+    bare forms are a pre-`doi_` legacy layout still present in the corpus.
+    """
+    slash = doi.replace("/", "_")
+    both = slash.replace(":", "_")
+    names = [f"doi_{slash}.pdf", f"doi_{both}.pdf", f"{slash}.pdf", f"{both}.pdf"]
+    # dict.fromkeys: dedupe (slash == both for most DOIs) but keep order.
+    return list(dict.fromkeys(names))
+
+
+def _pdf_lower_index() -> dict[str, str]:
+    """Lowercased filename -> real filename, rebuilt when the dir changes."""
+    global _pdf_index, _pdf_index_mtime, _pdf_index_dir
+    try:
+        mtime = os.stat(PAPERS_PDF_DIR).st_mtime
+    except OSError:
+        return {}
+    if (
+        _pdf_index is not None
+        and mtime == _pdf_index_mtime
+        and _pdf_index_dir == PAPERS_PDF_DIR
+    ):
+        return _pdf_index
+    try:
+        index = {
+            n.lower(): n
+            for n in os.listdir(PAPERS_PDF_DIR)
+            if n.lower().endswith(".pdf")
+        }
+    except OSError as e:
+        logger.warning("PDF index rebuild failed for %s: %s", PAPERS_PDF_DIR, e)
+        return {}
+    _pdf_index, _pdf_index_mtime, _pdf_index_dir = index, mtime, PAPERS_PDF_DIR
+    return index
+
+
+def get_pdf_path(doi: str) -> "str | None":
+    """Absolute path to this DOI's PDF, or None when the corpus lacks it.
+
+    Tries each candidate filename exactly, then once more against a
+    case-insensitive index. Case differences are common: the pipeline
+    lowercases DOIs, publishers and the crawler do not.
+    """
+    if not doi:
+        return None
+    candidates = _pdf_name_candidates(doi)
+    for name in candidates:
+        path = os.path.join(PAPERS_PDF_DIR, name)
+        if os.path.exists(path):
+            return path
+    index = _pdf_lower_index()
+    for name in candidates:
+        real = index.get(name.lower())
+        if real:
+            return os.path.join(PAPERS_PDF_DIR, real)
+    return None

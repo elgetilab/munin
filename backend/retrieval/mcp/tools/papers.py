@@ -22,8 +22,8 @@ import httpx
 
 import database
 from database import (
-    get_qdrant, get_neo4j, get_paper_encoder, PAPERS_PDF_DIR,
-    PAPER_QUERY_PREFIX,
+    get_qdrant, get_neo4j, get_paper_encoder,
+    PAPER_QUERY_PREFIX, get_pdf_path,
 )
 from .query_expansion import expand_queries
 from ..context import current_query_tags
@@ -124,43 +124,10 @@ def get_citation_counts(dois: list[str]) -> dict:
         return {}
 
 
-def get_pdf_path(doi: str) -> str | None:
-    """
-    Get the PDF file path for a paper by DOI.
-
-    Args:
-        doi: Paper DOI
-
-    Returns:
-        Path to PDF file if exists, None otherwise
-    """
-    if not doi:
-        return None
-
-    # DOI sanitization - match paper_crawler.py logic
-    safe_doi = doi.replace("/", "_").replace(":", "_")
-
-    # Primary format: doi_10.1234_example.pdf (from paper_crawler.py)
-    pdf_path = os.path.join(PAPERS_PDF_DIR, f"doi_{safe_doi}.pdf")
-    if os.path.exists(pdf_path):
-        return pdf_path
-
-    # Legacy format: 10.1234_example.pdf (without prefix)
-    legacy_path = os.path.join(PAPERS_PDF_DIR, f"{safe_doi}.pdf")
-    if os.path.exists(legacy_path):
-        return legacy_path
-
-    # Case-insensitive fallback
-    if PAPERS_PDF_DIR and os.path.isdir(PAPERS_PDF_DIR):
-        target_lower = f"doi_{safe_doi}.pdf".lower()
-        try:
-            for f in os.listdir(PAPERS_PDF_DIR):
-                if f.lower() == target_lower:
-                    return os.path.join(PAPERS_PDF_DIR, f)
-        except OSError:
-            pass
-
-    return None
+# get_pdf_path is re-exported from database so the HTTP route in main.py and
+# these tools resolve identically. This module owned the only copy with a
+# case-insensitive fallback, which is why read_paper could serve papers whose
+# download link 404'd. See UPLOAD-INGEST-REPAIR-PLAN.md defect 3.
 
 
 def _paper_dedupe_key(paper: dict) -> str:

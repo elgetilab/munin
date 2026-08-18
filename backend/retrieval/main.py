@@ -67,7 +67,7 @@ from sse_starlette.sse import EventSourceResponse
 # Import from local modules
 from database import (
     QDRANT_HOST, QDRANT_PORT, NEO4J_URI, SEARXNG_URL,
-    PAPERS_PDF_DIR,
+    PAPERS_PDF_DIR, get_pdf_path,
     DEEPRESEARCH_ENABLED,
     DEEPRESEARCH_QUEUE_DIR, DEEPRESEARCH_JOBS_DIR, SLURM_QUEUE_FILE,
     VLLM_URL,
@@ -292,29 +292,12 @@ def get_authors_other_papers(doi: str, limit: int = 20) -> list[dict]:
 # ==============================================================================
 # PDF File Helpers
 # ==============================================================================
-def doi_to_filename(doi: str) -> str:
-    """
-    Convert a DOI to the PDF filename format.
-
-    Example: "10.1111/j.1745-7254.2008.00726.x" -> "doi_10.1111_j.1745-7254.2008.00726.x.pdf"
-    """
-    # Replace forward slashes with underscores
-    safe_doi = doi.replace("/", "_")
-    return f"doi_{safe_doi}.pdf"
-
-
-def get_pdf_path(doi: str) -> Optional[str]:
-    """
-    Get the full path to a paper's PDF file.
-
-    Returns None if the file doesn't exist.
-    """
-    filename = doi_to_filename(doi)
-    filepath = os.path.join(PAPERS_PDF_DIR, filename)
-
-    if os.path.exists(filepath):
-        return filepath
-    return None
+# get_pdf_path and its filename-candidate logic now live in database.py, so
+# this module and the MCP paper tools share one resolver. The local copy here
+# matched only the exact lowercase filename, so /paper/{doi}/pdf 404'd on PDFs
+# that were present under the registrant's original case, while read_paper
+# served them fine.
+# See UPLOAD-INGEST-REPAIR-PLAN.md defect 3.
 
 
 # ==============================================================================
@@ -1784,11 +1767,9 @@ def _paper_stub(payload: dict) -> dict:
         }
     if doi:
         # Convention: only return a download_url when the PDF is on disk.
-        # Cheap to check — os.path.exists against PAPERS_PDF_DIR.
-        pdf_path = os.path.join(
-            PAPERS_PDF_DIR, f"doi_{doi.replace('/', '_')}.pdf"
-        )
-        if os.path.isfile(pdf_path):
+        # Must use the same resolver the download route uses, or the UI
+        # offers links that 404 (and hides links that would have worked).
+        if get_pdf_path(doi):
             stub["download_url"] = f"{PUBLIC_MUNIN_URL}/paper/{quote(doi, safe='')}/pdf"
     return stub
 
