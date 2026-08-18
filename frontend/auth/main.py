@@ -108,7 +108,16 @@ app.add_middleware(
 )
 
 signer = TimestampSigner(SECRET_KEY)
-templates = Environment(loader=FileSystemLoader("templates"), autoescape=True)
+# Resolve templates relative to THIS FILE, not the working directory. The
+# container's WORKDIR made a bare "templates" work in production, but it made
+# every caller cwd-dependent: rendering worked when run from frontend/auth and
+# raised TemplateNotFound from anywhere else, which is how it surfaced in CI
+# (pytest runs from the repo root).
+templates = Environment(
+    loader=FileSystemLoader(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                         "templates")),
+    autoescape=True,
+)
 
 # In-memory stores (transient state only — user data lives in SQLite)
 otp_store: dict[str, dict] = {}  # email -> {code, expires, attempts}
