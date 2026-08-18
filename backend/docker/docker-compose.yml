@@ -40,8 +40,9 @@
 #
 # Resource variables, sized for a cluster node by default and worth lowering
 # on a laptop (GROBID in particular will thrash a 16 GB machine):
-#   GROBID_IMAGE          lfoppiano/grobid:0.8.2   (the CRF-only image is far
-#                                                   smaller; see .env.example)
+#   GROBID_IMAGE          lfoppiano/grobid:0.8.2   (already the SMALL one:
+#                                                   1.73 GB, vs 9.53 GB for the
+#                                                   official grobid/grobid)
 #   GROBID_JAVA_OPTS      -Xmx12g -Xms2g
 #   GROBID_MEM_LIMIT      16G
 #
@@ -587,6 +588,36 @@ services:
       - neo4j
     profiles:
       - pipeline
+
+  # ============================================================================
+  # SEED CORPUS (profile: seed) - one-shot
+  # ============================================================================
+  # A fresh instance has an empty corpus, which looks identical to a broken
+  # one. This downloads open-access arXiv PDFs into the pipeline's drop
+  # directory and exits; the watcher does the actual ingest, so this service
+  # never touches Qdrant or Neo4j.
+  #
+  # Requires the `pipeline` profile too, or the PDFs will just sit there.
+  # Re-running is free: already-present files are skipped.
+  seed:
+    image: ${MUNIN_PREFIX:-munin}-retrieval:latest
+    container_name: ${MUNIN_PREFIX:-munin}-seed
+    restart: "no"
+    command: >
+      python /app/scripts/seed/seed_corpus.py
+      --limit ${SEED_LIMIT:-20}
+      --dir /papers
+    volumes:
+      - ${MUNIN_SCRIPTS_SRC:-/opt/cluster/scripts}:/app/scripts:ro
+      - ${MUNIN_ROOT:-/opt/munin}/data/papers/pdf:/papers:rw
+    environment:
+      # Seed your own field instead of the reference deployment's domain, e.g.
+      #   SEED_QUERY='abs:"transformer" AND cat:cs.CL'
+      - SEED_QUERY=${SEED_QUERY:-}
+      # arXiv asks for 3s between requests. Do not lower it.
+      - SEED_DELAY=${SEED_DELAY:-3}
+    profiles:
+      - seed
 
   # ============================================================================
   # KNOWLEDGE MAP (profile: pipeline)

@@ -59,9 +59,52 @@ The two sides share three contracts: the HTTP API surface
 persona definitions ([`shared/personas/`](shared/personas)), and the
 contributor allowlist ([`shared/config/contributors.yml`](shared/config/contributors.yml)).
 
-## Reproducing this on your own infrastructure
+## Running it
 
-Setup is split across four documents. Read them in order; each one works as a checklist you can tick through.
+There are two paths, and they are genuinely different. Pick one.
+
+### A. Try it on one machine
+
+Everything in Docker on a single host. For evaluating Munin, developing on it,
+or demonstrating it. **Not** how the production deployment runs.
+
+```bash
+git clone <this repo> && cd munin
+cp .env.example .env
+$EDITOR .env          # at minimum: LLM_BASE_URL, AUTH_SECRET_KEY, ADMIN_EMAILS
+docker compose up -d
+```
+
+Then open <http://localhost>. Your login code is printed to the auth log
+(`docker compose logs munin-auth | grep "login code"`), because
+`AUTH_DEV_ECHO_OTP=1` is set in the example config so you do not need a mail
+server to get in.
+
+**You must supply a language model.** Munin speaks OpenAI-compatible HTTP and
+does not host one. Point `LLM_BASE_URL` at Ollama, llama.cpp, a vLLM you run,
+or a hosted API. Nothing answers without it.
+
+**Be ready for the download.** Roughly **17 GB of images** with every profile
+enabled, dominated by the retrieval service (8.7 GB, mostly PyTorch) and the
+`run_python` sandbox (2.8 GB, mostly TeX Live). Trim it by removing profiles
+from `COMPOSE_PROFILES` in `.env`. The paper encoder (~1.3 GB) is fetched from
+HuggingFace on first start, on top of that.
+
+The corpus starts empty. The `seed` profile downloads ~20 open-access arXiv
+papers so search returns something; point `SEED_QUERY` at your own field, or
+drop your own PDFs into `.runtime/data/papers/pdf/` and the pipeline watcher
+will ingest them.
+
+Details, every knob, and the things that will trip you up are in
+[`.env.example`](.env.example) and [`docs/SINGLE-HOST-PLAN.md`](docs/SINGLE-HOST-PLAN.md).
+
+### B. Deploy it for a group
+
+The production topology: a SLURM cluster for inference, retrieval and the paper
+pipeline, plus a small VPS for auth, the gateway and the web UI. This is what
+the reference deployment runs and what the paper measures.
+
+Four documents, in order; each works as a checklist.
 
 1. [SETUP-PREREQUISITES.md](SETUP-PREREQUISITES.md): hardware, accounts, software, models, and secrets to gather before you start.
 2. [SETUP-CLUSTER.md](SETUP-CLUSTER.md): provisioning the SLURM cluster side (vLLM, retrieval API, knowledge bases, paper pipeline, tunnel).
@@ -69,6 +112,13 @@ Setup is split across four documents. Read them in order; each one works as a ch
 4. [SETUP-VERIFY.md](SETUP-VERIFY.md): end-to-end smoke tests.
 
 For per-side internals after you are running, see [`backend/README.md`](backend/README.md) and [`frontend/README.md`](frontend/README.md).
+
+### What path A does not give you
+
+It will not reproduce the paper's numbers. Those need the 68k-paper corpus and
+a specific GPU. [`docs/paper-kit/10-REPRODUCE.md`](docs/paper-kit/10-REPRODUCE.md)
+states plainly which results are externally reproducible (the metric code, BEIR
+and SciFact, LitSearch, the abstention items) and which are not.
 
 ## Status
 

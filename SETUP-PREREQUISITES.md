@@ -1,5 +1,14 @@
 # Munin: Prerequisites
 
+> **This is the group-deployment path (cluster + VPS).** If you only want to
+> try Munin, develop on it, or demonstrate it, you do not need any of this:
+> one machine with Docker and an OpenAI-compatible model endpoint is enough.
+> See "Try it on one machine" in the [README](README.md), which is a `.env`
+> file and one `docker compose up`.
+>
+> Read on if you are deploying Munin for a research group, which is the
+> topology the paper measures.
+
 Before you start setup, gather everything below. Each section is a checklist; tick items off as you go. Once this is complete, proceed to [SETUP-CLUSTER.md](SETUP-CLUSTER.md).
 
 ## Hardware

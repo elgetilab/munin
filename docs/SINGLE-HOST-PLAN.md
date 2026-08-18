@@ -95,9 +95,11 @@ locked out of their own instance at step one.
   one host should just be the retrieval service.
 - `INGEST_CONCURRENCY`, GROBID heap (12 GB) and its 16 GB memory cap are sized
   for a cluster node and will fail or thrash on a 16 GB laptop.
-- The GROBID image in use (`lfoppiano/grobid:0.8.2`, the deep-learning variant)
-  is very large. The CRF-only image is a fraction of the size and is almost
-  certainly the right default for a demo.
+- ~~The GROBID image in use is the large deep-learning variant.~~ **This was
+  wrong**, corrected 2026-08-18 by measuring: `lfoppiano/grobid:0.8.2` is
+  1.73 GB on disk and the official `grobid/grobid:0.8.2` is 9.53 GB compressed.
+  Production already runs the smaller one, and the "fix" would have made the
+  download 5x worse.
 
 ### 1.6 What is already fine, and worth knowing
 
@@ -475,8 +477,10 @@ torch, the sandbox carries roughly a gigabyte of TeX Live, and GROBID's
 deep-learning image is very large. Three mitigations move into the plan proper
 rather than being optional:
 
-- Switch GROBID to the **CRF-only image** as the default, with the DL image as
-  an opt-in for anyone who wants the better parser.
+- ~~Switch GROBID to the CRF-only image~~ **Not needed, and the premise was
+  wrong.** Measured 2026-08-18: the deployed `lfoppiano/grobid:0.8.2` is 1.73 GB
+  on disk; the official `grobid/grobid:0.8.2` is 9.53 GB compressed. Production
+  already runs the small one.
 - **Measure and publish the actual pull size and cold-start time** in the
   README. A user who knows it is 18 GB up front is fine; one who discovers it
   at minute forty is not.
