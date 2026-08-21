@@ -263,12 +263,15 @@ def test_merge_ligplot_rejects() -> bool:
     }
     out = pipe._merge_metadata(dict(grobid), crossref)
     return _check(
-        "merge: LIGPLOT-style mismatch keeps GROBID metadata",
+        "merge: LIGPLOT-style mismatch keeps GROBID metadata and DROPS the DOI",
         out["title"] == grobid["title"]
         and out.get("year") == 1995
         and out.get("journal") == "Protein Engineering"
         and out.get("_crossref_doi_rejected") == "10.2307/411791"
-        and "Language and information" in out.get("_crossref_title_rejected", ""),
+        and "Language and information" in out.get("_crossref_title_rejected", "")
+        # The 2026-08-18 change. Keeping this DOI is what let an upload
+        # overwrite the cited paper's record.
+        and out.get("doi") is None,
         f"got {out!r}",
     )
 
@@ -904,6 +907,181 @@ def test_dispose_does_not_create_a_missing_corpus_dir() -> bool:
         )
 
 
+# ---------------------------------------------------------------------------
+# DOI recovery by title + the collision backstop
+# (2026-08-18 upload-ingest repair, defect 2). GROBID sometimes reads a DOI
+# off the reference list; looking it up returns a valid record for the WRONG
+# paper. Because the DOI keys the Qdrant point, the Neo4j node and the
+# filename, keeping it overwrites the cited paper instead of adding this one.
+# See UPLOAD-INGEST-REPAIR-PLAN.md defect 2.
+# ---------------------------------------------------------------------------
+
+class _FakeResponse:
+    def __init__(self, payload, status_code=200):
+        self._payload, self.status_code = payload, status_code
+
+    def json(self):
+        return self._payload
+
+
+def _crossref_items(*titles_and_dois):
+    return {"message": {"items": [
+        {"DOI": doi, "title": [title]} for title, doi in titles_and_dois
+    ]}}
+
+
+def _with_fake_requests(payload, status_code=200):
+    """Swap pp.requests.get for one returning `payload`. Returns a restore fn
+    plus the list that captures the params of each call."""
+    calls = []
+
+    class _FakeRequests:
+        @staticmethod
+        def get(url, params=None, headers=None, timeout=None):
+            calls.append(params or {})
+            return _FakeResponse(payload, status_code)
+
+    original = pp.requests
+    pp.requests = _FakeRequests
+    return (lambda: setattr(pp, "requests", original)), calls
+
+
+def test_recovery_accepts_confident_title_match() -> bool:
+    pipe = _make_pipeline_stub()
+    title = "Pressure Dependence of the Photocycle Kinetics of Bacteriorhodopsin"
+    restore, calls = _with_fake_requests(_crossref_items(
+        ("Pressure dependence of the photocycle kinetics of bacteriorhodopsin", "10.1016/right"),
+        ("Something else entirely about lipids", "10.1016/wrong"),
+    ))
+    try:
+        got = pipe._fetch_crossref_by_title(title, [{"name": "Klink"}])
+    finally:
+        restore()
+    return _check(
+        "recovery: confident title match returns the right DOI",
+        got is not None and got.get("DOI") == "10.1016/right"
+        and calls and calls[0].get("query.author") == "Klink",
+        f"got {got!r}, calls={calls!r}",
+    )
+
+
+def test_recovery_rejects_weak_title_match() -> bool:
+    """Below the recovery bar we must return None, not the best of a bad
+    field. A wrong DOI here is exactly the damage we are undoing."""
+    pipe = _make_pipeline_stub()
+    restore, _ = _with_fake_requests(_crossref_items(
+        ("Regulation of enzyme activity in bacterial systems", "10.1016/nope"),
+    ))
+    try:
+        got = pipe._fetch_crossref_by_title(
+            "Conformational selection or induced fit: a flux description", None
+        )
+    finally:
+        restore()
+    return _check("recovery: weak match returns None", got is None, f"got {got!r}")
+
+
+def test_recovery_handles_empty_and_error_responses() -> bool:
+    pipe = _make_pipeline_stub()
+    restore, _ = _with_fake_requests({"message": {"items": []}})
+    try:
+        empty = pipe._fetch_crossref_by_title("Some title", None)
+    finally:
+        restore()
+    restore, _ = _with_fake_requests({}, status_code=503)
+    try:
+        errored = pipe._fetch_crossref_by_title("Some title", None)
+    finally:
+        restore()
+    no_title = pipe._fetch_crossref_by_title("", None)
+    return _check(
+        "recovery: empty results, HTTP errors and blank titles all return None",
+        empty is None and errored is None and no_title is None,
+    )
+
+
+class _FakeQdrant:
+    """Minimal stand-in exposing just the retrieve() the guard calls."""
+
+    def __init__(self, payload_by_id=None, raises=False):
+        self._by_id, self._raises = payload_by_id or {}, raises
+
+    def retrieve(self, collection_name, ids, with_payload=True, with_vectors=False):
+        if self._raises:
+            raise RuntimeError("qdrant down")
+        out = []
+        for i in ids:
+            if i in self._by_id:
+                out.append(type("R", (), {"payload": self._by_id[i]})())
+        return out
+
+
+def _point_id(doi: str) -> int:
+    import hashlib
+    return int(hashlib.sha256(doi.lower().encode()).hexdigest()[:16], 16)
+
+
+def _paper(title: str, doi: str):
+    return pp.Paper(id="abcd0123", title=title, abstract="", authors=[],
+                    doi=doi, year=2020, journal="J", references=[])
+
+
+def test_collision_guard_refuses_a_different_paper() -> bool:
+    """The backstop: the DOI already holds an unrelated paper."""
+    pipe = _make_pipeline_stub()
+    doi = "10.1021/bi9714969"
+    pipe.qdrant = _FakeQdrant({_point_id(doi): {
+        "title": "Time and pH Dependence of the L-to-M Transition in the Photocycle"
+    }})
+    reason = pipe._collision_reason(_paper("Molecular Basis of Olfactory Receptor Signalling", doi))
+    return _check(
+        "collision: refuses to overwrite a different paper",
+        reason is not None and "doi_collision_different_paper" in reason,
+        f"got {reason!r}",
+    )
+
+
+def test_collision_guard_allows_the_same_paper() -> bool:
+    """A genuine re-ingest of the same paper must still go through, even
+    when the title has been cleaned up between runs."""
+    pipe = _make_pipeline_stub()
+    doi = "10.7554/elife.57264"
+    pipe.qdrant = _FakeQdrant({_point_id(doi): {
+        "title": "How to measure and evaluate binding affinities"
+    }})
+    reason = pipe._collision_reason(
+        _paper("How to measure and evaluate <i>binding affinities</i>", doi)
+    )
+    return _check("collision: same paper re-ingests cleanly", reason is None, f"got {reason!r}")
+
+
+def test_collision_guard_allows_a_new_doi() -> bool:
+    pipe = _make_pipeline_stub()
+    pipe.qdrant = _FakeQdrant({})
+    reason = pipe._collision_reason(_paper("A brand new paper", "10.1234/new"))
+    return _check("collision: unseen DOI is not a collision", reason is None, f"got {reason!r}")
+
+
+def test_collision_guard_is_inert_without_a_doi() -> bool:
+    pipe = _make_pipeline_stub()
+    pipe.qdrant = _FakeQdrant({})
+    return _check(
+        "collision: DOI-less paper short-circuits (dispose quarantines it)",
+        pipe._collision_reason(_paper("No DOI here", None)) is None,
+    )
+
+
+def test_collision_guard_fails_open_when_qdrant_errors() -> bool:
+    """A Qdrant outage must not block ingest: the guard is a backstop, not a
+    gate. The upstream DOI guard is still in force."""
+    pipe = _make_pipeline_stub()
+    pipe.qdrant = _FakeQdrant(raises=True)
+    return _check(
+        "collision: Qdrant error fails open",
+        pipe._collision_reason(_paper("Any paper", "10.1234/x")) is None,
+    )
+
+
 TESTS = [
     test_normalize_basic,
     test_normalize_drops_stopwords,
@@ -950,6 +1128,15 @@ TESTS = [
     test_dispose_quarantine_when_paper_is_none,
     test_dispose_quarantine_null_doi_deletes_qdrant_point,
     test_dispose_watcher_pdf_already_in_place_no_move,
+    # 2026-08-18 upload-ingest repair, defect 2
+    test_recovery_accepts_confident_title_match,
+    test_recovery_rejects_weak_title_match,
+    test_recovery_handles_empty_and_error_responses,
+    test_collision_guard_refuses_a_different_paper,
+    test_collision_guard_allows_the_same_paper,
+    test_collision_guard_allows_a_new_doi,
+    test_collision_guard_is_inert_without_a_doi,
+    test_collision_guard_fails_open_when_qdrant_errors,
     # 2026-08-18 upload-ingest repair, defect 1
     test_corpus_paths_default_to_host_layout,
     test_corpus_paths_follow_container_env,

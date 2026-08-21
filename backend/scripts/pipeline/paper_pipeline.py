@@ -166,6 +166,11 @@ class Paper:
     ingest_source: str = "unknown"
     crossref_doi_rejected: Optional[str] = None
     crossref_title_rejected: Optional[str] = None
+    # Set when the DOI on this record did NOT come off the PDF but was
+    # recovered by searching Crossref for the GROBID title, after the
+    # PDF's own DOI was rejected. Worth surfacing in audits: these are
+    # papers whose identity was inferred rather than read.
+    doi_recovered_by_title: Optional[str] = None
 
 
 # Common short English words. Removed from titles before similarity
@@ -1089,6 +1094,31 @@ class PaperPipeline:
             else:
                 print("  [2/4] No DOI found, skipping CrossRef")
 
+            # Step 2.4: the merge clears the DOI when Crossref's record for it
+            # describes a different paper, which means GROBID most likely read
+            # it off the reference list. Ask Crossref what DOI actually belongs
+            # to the title on the PDF. If that comes back empty we continue
+            # with no DOI, and dispose quarantines the paper rather than
+            # filing it under a DOI we know is wrong.
+            if doi and not grobid_data.get("doi"):
+                recovered = self._fetch_crossref_by_title(
+                    grobid_data.get("title") or "", grobid_data.get("authors")
+                )
+                if recovered:
+                    grobid_data["doi"] = recovered.get("DOI")
+                    # Re-merge against the RECOVERED record so journal, year
+                    # and authors come from the paper we actually have. The
+                    # title guard runs again inside, so a bad search result
+                    # cannot sneak enrichment through.
+                    grobid_data = self._merge_metadata(grobid_data, recovered)
+                    grobid_data["_doi_recovered_by_title"] = recovered.get("DOI")
+
+            # The DOI may have been cleared or replaced above, so re-read it
+            # rather than trusting the value captured before the merge. It
+            # feeds the quality filter, the Paper object, the Qdrant point id
+            # and the on-disk filename.
+            doi = grobid_data.get("doi")
+
             # Step 2.5: Quality filter check via OpenAlex
             if doi:
                 passes_filter, filter_reason = self._check_quality_filters(doi, grobid_data, pdf_path)
@@ -1169,7 +1199,18 @@ class PaperPipeline:
                 # on the dict when the title-similarity guard fires.
                 crossref_doi_rejected=grobid_data.get("_crossref_doi_rejected"),
                 crossref_title_rejected=grobid_data.get("_crossref_title_rejected"),
+                doi_recovered_by_title=grobid_data.get("_doi_recovered_by_title"),
             )
+
+            # Step 3.5: refuse to overwrite a different paper. Runs before
+            # BOTH stores, so a rejected paper touches neither Qdrant nor the
+            # Neo4j graph -- returning None routes it to quarantine with the
+            # PDF preserved. See UPLOAD-INGEST-REPAIR-PLAN.md defect 2.
+            collision = self._collision_reason(paper)
+            if collision:
+                print(f"  [SKIP] {collision}")
+                self._log_skipped_pdf(pdf_path, collision)
+                return None
 
             # Step 4: Store in databases
             if self.qdrant and self.embedder:
@@ -1355,6 +1396,74 @@ class PaperPipeline:
             pass
         return None
 
+    def _fetch_crossref_by_title(
+        self, title: str, authors: Optional[List] = None
+    ) -> Optional[Dict]:
+        """Find a paper's real DOI from its title when the extracted DOI is
+        not trustworthy.
+
+        GROBID sometimes reads a DOI out of the reference list rather than the
+        header. Looking that DOI up returns a real, well-formed record for
+        the WRONG paper, which is far more damaging than having no DOI at all
+        (the DOI keys the Qdrant point and the Neo4j node, and names the file
+        on disk). So when the title guard rejects a DOI we come back here and
+        search by what the PDF actually says.
+
+        Accepts a candidate only when its title clears
+        `_RECOVERY_TITLE_SIM_THRESHOLD`, which is deliberately much stricter
+        than the 0.3 rejection bar: we are searching Crossref BY this title,
+        so a genuine match scores near 1.0, and anything marginal is the
+        search engine reaching. Returns the Crossref record, or None to leave
+        the paper DOI-less (and therefore quarantined) rather than guess.
+        """
+        if not title or not title.strip():
+            return None
+        try:
+            params = {
+                "query.bibliographic": title.strip()[:512],
+                "rows": 5,
+                "select": "DOI,title,container-title,published-print,author",
+            }
+            # A first-author surname measurably sharpens Crossref's ranking on
+            # short or generic titles.
+            first_author = ""
+            for a in (authors or []):
+                name = a.get("name", "") if isinstance(a, dict) else str(a)
+                if name.strip():
+                    first_author = name.strip().split()[-1]
+                    break
+            if first_author:
+                params["query.author"] = first_author
+            headers = {"User-Agent": f"MuninCluster/1.0 (mailto:{ADMIN_EMAIL})"}
+            response = requests.get(
+                "https://api.crossref.org/works",
+                params=params, headers=headers, timeout=15,
+            )
+            if response.status_code != 200:
+                return None
+            items = response.json().get("message", {}).get("items", []) or []
+        except Exception as e:
+            print(f"  [WARN] Crossref title search failed: {e}")
+            return None
+
+        best, best_sim = None, 0.0
+        for item in items:
+            cand = item.get("title")
+            if isinstance(cand, list):
+                cand = cand[0] if cand else ""
+            sim = _title_similarity(title, cand or "")
+            if sim > best_sim:
+                best, best_sim = item, sim
+        if best is None or best_sim < self._RECOVERY_TITLE_SIM_THRESHOLD:
+            print(
+                f"  [WARN] Crossref title search found no confident match "
+                f"(best sim={best_sim:.2f} < "
+                f"{self._RECOVERY_TITLE_SIM_THRESHOLD}); leaving DOI unset"
+            )
+            return None
+        print(f"  [OK] Recovered DOI by title: {best.get('DOI')} (sim={best_sim:.2f})")
+        return best
+
     def _fetch_openalex(self, doi: str) -> Optional[Dict]:
         """
         Fetch metadata from OpenAlex API.
@@ -1433,6 +1542,11 @@ class PaperPipeline:
     # Calibrated 2026-05-12 against 5 known-bad records (all 0.000) vs
     # 18 random samples (0.818-1.000); see docs/PAPER-INGEST-AUDIT.md.
     _MERGE_TITLE_SIM_THRESHOLD = 0.3
+    # Accepting a DOI recovered by title search is a much stronger claim than
+    # rejecting one, so it needs a much stronger match. We query Crossref with
+    # the paper's own title, so the right record comes back near 1.0; 0.6
+    # leaves room for markup and OCR drift while refusing near-misses.
+    _RECOVERY_TITLE_SIM_THRESHOLD = 0.6
 
     def _merge_metadata(self, grobid: Dict, crossref: Dict) -> Dict:
         """Merge CrossRef metadata into GROBID data, guarded by a
@@ -1456,7 +1570,7 @@ class PaperPipeline:
                 print(
                     f"  [WARN] GROBID/Crossref title mismatch "
                     f"(sim={sim:.2f} < {self._MERGE_TITLE_SIM_THRESHOLD}); "
-                    f"keeping GROBID metadata, dropping Crossref enrichment"
+                    f"dropping Crossref enrichment AND the DOI"
                 )
                 print(f"           grobid : {grobid_title[:90]}")
                 print(f"           crossref: {crossref_title[:90]}")
@@ -1466,6 +1580,18 @@ class PaperPipeline:
                 # _store_vectors (Stage 1.4).
                 grobid["_crossref_doi_rejected"] = grobid.get("doi")
                 grobid["_crossref_title_rejected"] = crossref_title
+                # Clear the DOI (2026-08-18). Until then this branch kept it,
+                # on the reasoning that only the ENRICHMENT was suspect. But a
+                # DOI whose Crossref record describes a different paper is
+                # itself the bad datum, and it is load-bearing: it keys the
+                # Qdrant point and the Neo4j node and names the PDF on disk.
+                # Keeping it meant an upload silently overwrote the cited
+                # paper's record and left its own PDF under the wrong name --
+                # 61 of one contributor's papers served a different paper's
+                # PDF this way. The caller retries via title search; if that
+                # fails the paper stays DOI-less and is quarantined, which is
+                # recoverable. See UPLOAD-INGEST-REPAIR-PLAN.md defect 2.
+                grobid["doi"] = None
                 return grobid
 
         if crossref_title:
@@ -1572,6 +1698,8 @@ class PaperPipeline:
             payload["_crossref_doi_rejected"] = paper.crossref_doi_rejected
         if paper.crossref_title_rejected:
             payload["_crossref_title_rejected"] = paper.crossref_title_rejected
+        if paper.doi_recovered_by_title:
+            payload["_doi_recovered_by_title"] = paper.doi_recovered_by_title
         # §15 clustering fields — only write back if they were already set
         # by the nightly embedding map; otherwise leave absent so we don't
         # pre-populate nonsense.
@@ -1585,6 +1713,65 @@ class PaperPipeline:
                 vector=embedding,
                 payload=payload,
             )]
+        )
+
+    def _existing_point_title(self, doi: str) -> Optional[str]:
+        """Title already stored under this DOI, or None if the DOI is new.
+
+        Same point-id derivation as `_store_vectors`, so the answer is
+        exactly "what would this upsert land on".
+        """
+        if not doi or not self.qdrant:
+            return None
+        point_id = int(hashlib.sha256(doi.lower().encode()).hexdigest()[:16], 16)
+        try:
+            records = self.qdrant.retrieve(
+                collection_name=COLLECTION_NAME, ids=[point_id],
+                with_payload=True, with_vectors=False,
+            )
+        except Exception as e:
+            print(f"        [WARN] collision pre-check retrieve failed: {e}")
+            return None
+        if not records:
+            return None
+        return (records[0].payload or {}).get("title")
+
+    def _collision_reason(self, paper: "Paper") -> Optional[str]:
+        """Reject an ingest that would overwrite a DIFFERENT paper's record.
+
+        The backstop for defect 2. Even with the DOI guard in
+        `_merge_metadata`, a wrong DOI can still reach this point: Crossref
+        may be unreachable so no title check ran at all, or the DOI may carry
+        no Crossref record while still colliding with something in our corpus.
+        Because the point id is derived from the DOI, an upsert in that state
+        does not add a paper, it destroys one -- and the crawler's PDF for the
+        real paper keeps the filename, so the damage is invisible from the
+        payload alone.
+
+        Refusing is cheap and reversible: the paper is quarantined with its
+        PDF intact for `paper_cleanup.py review`. Silently overwriting is
+        neither. So this refuses regardless of who contributed the stored
+        record, including the same uploader -- one contributor's batch
+        mis-attributed to a single repeated citation DOI would otherwise
+        overwrite itself paper by paper.
+
+        Returns a quarantine reason, or None when the write is safe.
+        """
+        if not paper.doi:
+            return None
+        existing_title = self._existing_point_title(paper.doi)
+        if not existing_title or not paper.title:
+            return None
+        sim = _title_similarity(paper.title, existing_title)
+        if sim >= self._MERGE_TITLE_SIM_THRESHOLD:
+            return None
+        print(f"  [WARN] DOI {paper.doi} already holds a different paper "
+              f"(sim={sim:.2f} < {self._MERGE_TITLE_SIM_THRESHOLD})")
+        print(f"           incoming: {paper.title[:90]}")
+        print(f"           stored  : {existing_title[:90]}")
+        return (
+            f"doi_collision_different_paper: {paper.doi} holds "
+            f"{existing_title[:80]!r}"
         )
 
     def _fetch_preserved_fields(self, point_id: int) -> Tuple[List[Dict], Dict]:
