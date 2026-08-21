@@ -313,10 +313,45 @@ Post-deploy checks:
   `docker exec munin-retrieval find / -xdev -name 'doi_*.pdf'` returns
   nothing.
 
+## Status
+
+Defects 1 and 3 are fixed, deployed and verified live on 2026-08-21
+(commits c77a9d4, a294c3a). Defect 2 and the whole of the data repair
+are still open.
+
+Verification evidence for defect 1: a real archived PDF was pushed
+through `paper_pipeline.py --single` inside the retrieval container,
+against a scratch collection with Neo4j disabled and a scratch corpus
+on a host-mounted path. The PDF, both sidecars and the processed marker
+all landed on the host mount, byte-identical to the source, and the
+inbox drained. `find / -xdev -name 'doi_*.pdf'` inside the container
+returns nothing.
+
+That same run reproduced defect 2 unmodified: GROBID read the DOI
+`10.1021/bi9714969` off a citation, the title guard fired
+(`sim=0.27 < 0.3`) and the wrong DOI was kept regardless. It is one of
+the 61 collisions.
+
+Verification for defect 3: `10.1017/s0033583506004306` returned 404
+before the deploy and serves its 749 KB PDF after. All 22
+case-mismatch papers were re-checked over HTTP; none still fail. Disk
+state is unchanged, as expected for a resolver-only bug.
+
+Recount after the deploy, unchanged except for class C:
+
+| Outcome | Before | After |
+|---|---|---|
+| A. No PDF on disk | 314 | 314 |
+| B. Serves a different paper | 61 | 61 |
+| C. Case mismatch, 404 | 22 | 0 |
+| D. Resolves | 230 | 252 |
+
+`munin-paper-detect` was stopped for the deploy and restarted after.
+
 ## Sequencing
 
-1. Defect 1 fix plus the startup guard. Deploy. Stops further loss.
-2. Defect 3 fix. Cheap, independent, recovers 22 records immediately.
+1. ~~Defect 1 fix plus the startup guard.~~ Done 2026-08-21.
+2. ~~Defect 3 fix.~~ Done 2026-08-21; recovered 22 records.
 3. Defect 2 fix plus tests. Deploy.
 4. R1 canary 25, verify, then the remaining Elgeti backlog.
 5. R2 repair script, dry-run, snapshot, canary, apply.
