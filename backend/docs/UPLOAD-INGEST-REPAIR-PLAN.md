@@ -315,9 +315,33 @@ Post-deploy checks:
 
 ## Status
 
-Defects 1 and 3 are fixed, deployed and verified live on 2026-08-21
-(commits c77a9d4, a294c3a). Defect 2 and the whole of the data repair
-are still open.
+All three defects are fixed and committed. Defects 1 and 3 were deployed
+and verified live on 2026-08-21 (commits c77a9d4, a294c3a). Defect 2 is
+built and verified against the running stack (commit 10d3e94) but is NOT
+yet deployed. The data repair (R1 to R4) is still open.
+
+### Deviation from the plan, defect 2 step 4
+
+The plan said the collision guard should refuse "when the stored record
+was not contributed by this uploader". That carve-out is wrong and was
+not implemented: the guard refuses unconditionally.
+
+The carve-out reopens the exact bug in the single case that produced it.
+If GROBID reads the same wrong citation DOI off several PDFs in one
+contributor's batch, the first upload takes the point, and every
+subsequent one is "contributed by this uploader" and would be allowed to
+overwrite it. The batch would eat itself paper by paper. Refusing is
+also cheap to undo: the paper is quarantined with its PDF intact for
+`paper_cleanup.py review`, whereas an overwrite is unrecoverable without
+a snapshot.
+
+### Recovery threshold
+
+`_RECOVERY_TITLE_SIM_THRESHOLD = 0.6`, deliberately double the 0.3
+rejection bar. Rejecting a DOI on weak evidence is safe (the paper gets
+quarantined); accepting one is not. Since the search query IS the
+paper's title, a genuine match returns near 1.0, so 0.6 tolerates markup
+and OCR drift while refusing the search engine's near-misses.
 
 Verification evidence for defect 1: a real archived PDF was pushed
 through `paper_pipeline.py --single` inside the retrieval container,
@@ -331,6 +355,31 @@ That same run reproduced defect 2 unmodified: GROBID read the DOI
 `10.1021/bi9714969` off a citation, the title guard fired
 (`sim=0.27 < 0.3`) and the wrong DOI was kept regardless. It is one of
 the 61 collisions.
+
+Verification for defect 2, same isolation, on that very PDF (Klink et
+al., "Pressure Dependence of the Photocycle Kinetics of
+Bacteriorhodopsin"):
+
+```
+[WARN] GROBID/Crossref title mismatch (sim=0.27 < 0.3); dropping Crossref enrichment AND the DOI
+[OK] Recovered DOI by title: 10.1016/s0006-3495(02)75348-4 (sim=1.00)
+[DISPOSE] {"state": "live", "final_pdf_path": ".../doi_10.1016_s0006-3495(02)75348-4.pdf", ...}
+```
+
+Crossref confirms `10.1016/s0006-3495(02)75348-4` is Klink, Winter,
+Engelhard, Chizhov, Biophysical Journal 2002. The paper that previously
+overwrote a record now files itself correctly.
+
+The collision backstop was then exercised by seeding that DOI with an
+unrelated title and re-ingesting:
+
+```
+[WARN] DOI 10.1016/s0006-3495(02)75348-4 already holds a different paper (sim=0.00 < 0.3)
+[DISPOSE] {"state": "quarantine", "quarantine_reasons": ["doi_collision_different_paper: ..."], ...}
+```
+
+The stored record was left byte-identical, the PDF was preserved in
+`quarantine/` with its sidecars, and the inbox drained.
 
 Verification for defect 3: `10.1017/s0033583506004306` returned 404
 before the deploy and serves its 749 KB PDF after. All 22
@@ -352,7 +401,7 @@ Recount after the deploy, unchanged except for class C:
 
 1. ~~Defect 1 fix plus the startup guard.~~ Done 2026-08-21.
 2. ~~Defect 3 fix.~~ Done 2026-08-21; recovered 22 records.
-3. Defect 2 fix plus tests. Deploy.
+3. ~~Defect 2 fix plus tests.~~ Built and verified 2026-08-21; DEPLOY STILL PENDING.
 4. R1 canary 25, verify, then the remaining Elgeti backlog.
 5. R2 repair script, dry-run, snapshot, canary, apply.
 6. R3 and R4 for the other contributors.
