@@ -1520,6 +1520,38 @@ class PaperPipeline:
             pass
         return None
 
+    def _pdf_page_count(self, pdf_path: str) -> Optional[int]:
+        """Actual page count of the PDF, or None if it cannot be determined.
+
+        The quality filter used to infer this from OpenAlex `biblio`
+        (last_page - first_page + 1), which silently discards any paper
+        published with an ARTICLE NUMBER rather than a page range: eLife,
+        PLoS, Scientific Reports, Nature Communications and modern JBC all
+        report first_page == last_page == the article id, giving a page count
+        of 1. The 2026-08-23 restore quarantined 74 real papers this way
+        (median length 13 pages, longest 42) before anyone noticed, because
+        "only 1 page" reads like a plausible rejection.
+
+        pypdf first since it is already a hard dependency of _validate_pdf;
+        pdfinfo as a fallback.
+        """
+        try:
+            from pypdf import PdfReader
+            return len(PdfReader(pdf_path).pages)
+        except Exception:
+            pass
+        try:
+            out = subprocess.run(
+                ["pdfinfo", pdf_path], capture_output=True, timeout=15, text=True
+            )
+            if out.returncode == 0:
+                for line in out.stdout.splitlines():
+                    if line.startswith("Pages:"):
+                        return int(line.split()[-1])
+        except Exception:
+            pass
+        return None
+
     def _check_quality_filters(self, doi: str, grobid_data: Dict, pdf_path: str) -> tuple[bool, str]:
         """
         Check paper against quality filters using OpenAlex metadata.
@@ -1540,17 +1572,31 @@ class PaperPipeline:
         if openalex_data.get("is_retracted"):
             return False, "Paper has been retracted"
 
-        # Check page count
-        biblio = openalex_data.get("biblio", {})
-        first_page = biblio.get("first_page")
-        last_page = biblio.get("last_page")
-        if first_page and last_page:
-            try:
-                page_count = int(last_page) - int(first_page) + 1
-                if page_count < MIN_PAGE_COUNT:
-                    return False, f"Only {page_count} page(s) (minimum: {MIN_PAGE_COUNT})"
-            except ValueError:
-                pass  # Non-numeric pages (e.g., roman numerals), allow through
+        # Check page count. The PDF in hand is the authority; OpenAlex
+        # `biblio` is only consulted when the file cannot be counted, and even
+        # then an article-number record (first_page == last_page) is treated as
+        # "unknown" rather than "one page". See _pdf_page_count.
+        actual_pages = self._pdf_page_count(pdf_path)
+        if actual_pages is not None:
+            if actual_pages < MIN_PAGE_COUNT:
+                return False, (
+                    f"Only {actual_pages} page(s) in the PDF "
+                    f"(minimum: {MIN_PAGE_COUNT})"
+                )
+        else:
+            biblio = openalex_data.get("biblio", {})
+            first_page = biblio.get("first_page")
+            last_page = biblio.get("last_page")
+            if first_page and last_page and str(first_page) != str(last_page):
+                try:
+                    page_count = int(last_page) - int(first_page) + 1
+                    if page_count < MIN_PAGE_COUNT:
+                        return False, (
+                            f"Only {page_count} page(s) per OpenAlex biblio "
+                            f"(minimum: {MIN_PAGE_COUNT}; PDF was uncountable)"
+                        )
+                except ValueError:
+                    pass  # Non-numeric pages (e.g. roman numerals), allow through
 
         # Check abstract OR references requirement
         if REQUIRE_ABSTRACT_OR_REFS:

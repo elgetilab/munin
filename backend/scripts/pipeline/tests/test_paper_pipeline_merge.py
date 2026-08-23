@@ -1196,6 +1196,65 @@ def test_process_directory_forwards_ingest_path() -> bool:
     )
 
 
+# ---------------------------------------------------------------------------
+# Page-count filter (2026-08-23). It inferred length from OpenAlex biblio as
+# last_page - first_page + 1, so any paper with an ARTICLE NUMBER instead of a
+# page range (eLife, PLoS, Sci Rep, Nature Comms, modern JBC: first_page ==
+# last_page == article id) computed to 1 page and was discarded. 74 real
+# papers, median 13 pages, were quarantined this way during the R1 restore.
+# ---------------------------------------------------------------------------
+
+def _quality_pipe(pdf_pages, openalex):
+    """Pipeline stub whose page counter and OpenAlex fetch are canned."""
+    pipe = _make_pipeline_stub()
+    pipe._pdf_page_count = lambda path: pdf_pages
+    pipe._fetch_openalex = lambda doi: openalex
+    return pipe
+
+
+def test_page_filter_accepts_article_numbered_paper() -> bool:
+    """The regression: a 13-page paper whose biblio is an article number."""
+    pipe = _quality_pipe(13, {"biblio": {"first_page": "100557", "last_page": "100557"}})
+    ok, reason = pipe._check_quality_filters("10.1/x", {"abstract": "a", "references": ["r"]}, "/tmp/x.pdf")
+    return _check(
+        "page filter: article-numbered paper is not rejected as 1 page",
+        ok, f"rejected with {reason!r}",
+    )
+
+
+def test_page_filter_still_rejects_a_genuinely_short_pdf() -> bool:
+    pipe = _quality_pipe(1, {"biblio": {"first_page": "1", "last_page": "12"}})
+    ok, reason = pipe._check_quality_filters("10.1/x", {"abstract": "a", "references": ["r"]}, "/tmp/x.pdf")
+    return _check(
+        "page filter: a real 1-page PDF is still rejected",
+        (not ok) and "1 page" in reason, f"ok={ok} reason={reason!r}",
+    )
+
+
+def test_page_filter_pdf_beats_biblio() -> bool:
+    """A long PDF wins even when biblio claims a short range."""
+    pipe = _quality_pipe(20, {"biblio": {"first_page": "5", "last_page": "6"}})
+    ok, _ = pipe._check_quality_filters("10.1/x", {"abstract": "a", "references": ["r"]}, "/tmp/x.pdf")
+    return _check("page filter: real PDF count overrides biblio", ok)
+
+
+def test_page_filter_falls_back_when_pdf_uncountable() -> bool:
+    """Uncountable PDF + a genuine page RANGE -> biblio may still reject."""
+    pipe = _quality_pipe(None, {"biblio": {"first_page": "5", "last_page": "6"}})
+    ok, reason = pipe._check_quality_filters("10.1/x", {"abstract": "a", "references": ["r"]}, "/tmp/x.pdf")
+    return _check(
+        "page filter: falls back to biblio when the PDF cannot be counted",
+        (not ok) and "OpenAlex" in reason, f"ok={ok} reason={reason!r}",
+    )
+
+
+def test_page_filter_fallback_ignores_article_numbers() -> bool:
+    """Uncountable PDF + article number -> unknown, not one page."""
+    pipe = _quality_pipe(None, {"biblio": {"first_page": "100557", "last_page": "100557"}})
+    ok, _ = pipe._check_quality_filters("10.1/x", {"abstract": "a", "references": ["r"]}, "/tmp/x.pdf")
+    return _check("page filter: equal first/last page is treated as unknown", ok)
+
+
 TESTS = [
     test_normalize_basic,
     test_normalize_drops_stopwords,
@@ -1242,6 +1301,12 @@ TESTS = [
     test_dispose_quarantine_when_paper_is_none,
     test_dispose_quarantine_null_doi_deletes_qdrant_point,
     test_dispose_watcher_pdf_already_in_place_no_move,
+    # 2026-08-23 page-count filter (R1 batch finding)
+    test_page_filter_accepts_article_numbered_paper,
+    test_page_filter_still_rejects_a_genuinely_short_pdf,
+    test_page_filter_pdf_beats_biblio,
+    test_page_filter_falls_back_when_pdf_uncountable,
+    test_page_filter_fallback_ignores_article_numbers,
     # 2026-08-23 process_directory provenance gap
     test_process_directory_defaults_to_manual,
     test_process_directory_forwards_ingest_path,
