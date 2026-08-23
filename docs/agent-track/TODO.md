@@ -391,6 +391,15 @@ scorecards `2026-07-25_toolretire-{before,after}`):
 
 Plan + full write-up: `TOOL-RETIREMENT-PLAN.md`.
 
+## 5. `edit_python`, a patch-style code edit tool  (PLAN, not built)
+The model resends a median 91-line script to change 3 lines; 56% of successive
+`run_python` pairs in a turn are >80% identical and 35% of all Python source is a
+verbatim copy of the previous call. Root-cause fix for the context-overflow work.
+Key finding driving the design: `update_artifact`'s existing unified-diff mode has
+**2% adoption** (1/66 calls), so the plan uses search/replace semantics instead and
+treats adoption, not correctness, as the main risk.
+Plan: `CODE-EDIT-TOOL-PLAN.md`.
+
 ---
 
 ## Still-current reference (kept at top level)
