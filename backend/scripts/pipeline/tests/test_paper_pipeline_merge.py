@@ -1143,6 +1143,59 @@ def test_si_does_not_reject_real_papers() -> bool:
     return _check("SI filter: leaves real papers alone", not wrong, f"wrongly rejected {wrong!r}")
 
 
+# ---------------------------------------------------------------------------
+# process_directory ingest-path provenance (2026-08-23). It hardcoded
+# "manual", so a bulk re-ingest of contributor uploads through the obvious
+# entry point would have stamped all 567 records as operator drops. The R1
+# restore had to bypass it entirely; this makes the flag reach it.
+# ---------------------------------------------------------------------------
+
+def _run_process_directory(ingest_path=None):
+    """Call process_directory over one temp PDF with _process_and_dispose
+    stubbed, and report the ingest_path it forwarded."""
+    import tempfile
+    from pathlib import Path
+
+    seen = []
+
+    def fake_dispose(pipeline, pdf_path, ip):
+        seen.append(ip)
+        return {"state": "live"}
+
+    with tempfile.TemporaryDirectory() as td:
+        (Path(td) / "a.pdf").write_bytes(b"%PDF-1.4 fake")
+        processed = Path(td) / "processed"
+        processed.mkdir()
+        orig_dispose, orig_processed = pp._process_and_dispose, pp.PROCESSED_DIR
+        pp._process_and_dispose = fake_dispose
+        pp.PROCESSED_DIR = str(processed)
+        try:
+            stub = pp.PaperPipeline.__new__(pp.PaperPipeline)
+            stub.fast_mode = False
+            stub.qdrant = None
+            kwargs = {} if ingest_path is None else {"ingest_path": ingest_path}
+            pp.process_directory(stub, td, **kwargs)
+        finally:
+            pp._process_and_dispose, pp.PROCESSED_DIR = orig_dispose, orig_processed
+    return seen
+
+
+def test_process_directory_defaults_to_manual() -> bool:
+    """Unchanged behaviour for existing operator invocations."""
+    seen = _run_process_directory()
+    return _check("process_directory: defaults to manual", seen == ["manual"], f"got {seen!r}")
+
+
+def test_process_directory_forwards_ingest_path() -> bool:
+    """The regression that forced R1 to bypass this function."""
+    seen = _run_process_directory("upload")
+    return _check(
+        "process_directory: forwards an explicit ingest_path",
+        seen == ["upload"],
+        f"got {seen!r}; bulk contributor re-ingest would be mislabelled",
+    )
+
+
 TESTS = [
     test_normalize_basic,
     test_normalize_drops_stopwords,
@@ -1189,6 +1242,9 @@ TESTS = [
     test_dispose_quarantine_when_paper_is_none,
     test_dispose_quarantine_null_doi_deletes_qdrant_point,
     test_dispose_watcher_pdf_already_in_place_no_move,
+    # 2026-08-23 process_directory provenance gap
+    test_process_directory_defaults_to_manual,
+    test_process_directory_forwards_ingest_path,
     # 2026-08-23 supporting-information filter (R1 canary finding)
     test_si_rejects_the_canary_case,
     test_si_rejects_common_variants,

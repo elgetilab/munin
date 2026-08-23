@@ -2141,8 +2141,24 @@ class PaperPipeline:
         return papers
 
 
-def process_directory(pipeline: PaperPipeline, papers_dir: str, reprocess: bool = False):
-    """Process all PDFs in a directory"""
+def process_directory(
+    pipeline: PaperPipeline,
+    papers_dir: str,
+    reprocess: bool = False,
+    ingest_path: str = "manual",
+):
+    """Process all PDFs in a directory.
+
+    `ingest_path` is stamped into every state sidecar and Qdrant payload this
+    run produces. It used to be hardcoded to "manual", which made this
+    function unusable for a bulk re-ingest: the 2026-08-23 restore of a
+    contributor's 567 archived uploads had to drive `_process_and_dispose`
+    directly to avoid labelling all of them as operator drops. Pass "upload"
+    for contributor material, "crawler" for downloader output.
+
+    Note this is provenance only. Contributor ATTRIBUTION comes from each
+    PDF's `.contributor.json` sidecar and is unaffected by this argument.
+    """
     papers_path = Path(papers_dir)
     processed_path = Path(PROCESSED_DIR)
     processed_path.mkdir(exist_ok=True)
@@ -2189,7 +2205,7 @@ def process_directory(pipeline: PaperPipeline, papers_dir: str, reprocess: bool 
                 pdf_path=paper.pdf_path,
                 paper=paper,
                 skip_reason=None,
-                ingest_path="manual",
+                ingest_path=ingest_path,
                 qdrant_client=pipeline.qdrant,
             )
         # PDFs the batch didn't return are skips; dispose them as
@@ -2201,7 +2217,7 @@ def process_directory(pipeline: PaperPipeline, papers_dir: str, reprocess: bool 
                 pdf_path=pdf_path,
                 paper=None,
                 skip_reason="batch_skipped",
-                ingest_path="manual",
+                ingest_path=ingest_path,
                 qdrant_client=pipeline.qdrant,
             )
         processed = len(papers)
@@ -2211,7 +2227,7 @@ def process_directory(pipeline: PaperPipeline, papers_dir: str, reprocess: bool 
         processed = 0
         failed = 0
         for pdf_path in pdfs_to_process:
-            result = _process_and_dispose(pipeline, pdf_path, "manual")
+            result = _process_and_dispose(pipeline, pdf_path, ingest_path)
             if result["state"] == "live":
                 processed += 1
             else:
@@ -2307,7 +2323,11 @@ def main():
     elif args.watch:
         watch_directory(pipeline, args.dir)
     else:
-        process_directory(pipeline, args.dir, reprocess=args.reprocess)
+        process_directory(
+            pipeline, args.dir,
+            reprocess=args.reprocess,
+            ingest_path=args.ingest_path,
+        )
 
 
 if __name__ == "__main__":
