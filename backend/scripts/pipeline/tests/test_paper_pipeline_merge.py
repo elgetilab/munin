@@ -1082,6 +1082,67 @@ def test_collision_guard_fails_open_when_qdrant_errors() -> bool:
     )
 
 
+# ---------------------------------------------------------------------------
+# Supporting-information rejection (2026-08-23, found by the R1 canary).
+# An SI PDF carries the PARENT paper's title after the marker, so the DOI
+# logic resolves the parent's DOI and the SI becomes the canonical record for
+# an article it is not.
+# ---------------------------------------------------------------------------
+
+def _si_rejected(title: str) -> bool:
+    """Mirror of the prefix test in process_pdf."""
+    prefixes = (
+        "supporting information", "supplementary information",
+        "supplementary material", "supplemental material",
+        "supplementary materials", "supplemental materials",
+        "supporting material", "supporting materials",
+        "electronic supplementary material", "supplementary data",
+        "supplementary figures", "supplementary tables",
+        "supplementary methods", "supplementary notes",
+        "supporting text", "supporting figures", "si appendix",
+        "appendix s1", "supplementary appendix",
+    )
+    return title.lower().lstrip().startswith(prefixes)
+
+
+def test_si_rejects_the_canary_case() -> bool:
+    """The exact title that slipped through on 2026-08-23."""
+    return _check(
+        "SI filter: rejects the jz9b01407_si_001 title",
+        _si_rejected(
+            "Supporting Information for Hybrid refinement of heterogeneous "
+            "conformational ensembles using spectroscopic data"
+        ),
+    )
+
+
+def test_si_rejects_common_variants() -> bool:
+    variants = [
+        "Supporting Information",
+        "Supplementary Information for A Study of Things",
+        "Supplementary Material",
+        "Electronic Supplementary Material (ESI) for Chem Comm",
+        "  Supporting Information with leading whitespace",
+        "SI Appendix, Materials and Methods",
+        "Supplementary Figures and Tables",
+    ]
+    bad = [v for v in variants if not _si_rejected(v)]
+    return _check("SI filter: rejects common variants", not bad, f"missed {bad!r}")
+
+
+def test_si_does_not_reject_real_papers() -> bool:
+    """Anchored at the start so ordinary papers survive, including ones whose
+    titles mention supplementary data."""
+    keep = [
+        "Supporting evidence for a two-state model of GPCR activation",
+        "A method for generating supplementary information from sparse data",
+        "Structure and dynamics of rhodopsin",
+        "Supportive care in oncology: a review",
+    ]
+    wrong = [t for t in keep if _si_rejected(t)]
+    return _check("SI filter: leaves real papers alone", not wrong, f"wrongly rejected {wrong!r}")
+
+
 TESTS = [
     test_normalize_basic,
     test_normalize_drops_stopwords,
@@ -1128,6 +1189,10 @@ TESTS = [
     test_dispose_quarantine_when_paper_is_none,
     test_dispose_quarantine_null_doi_deletes_qdrant_point,
     test_dispose_watcher_pdf_already_in_place_no_move,
+    # 2026-08-23 supporting-information filter (R1 canary finding)
+    test_si_rejects_the_canary_case,
+    test_si_rejects_common_variants,
+    test_si_does_not_reject_real_papers,
     # 2026-08-18 upload-ingest repair, defect 2
     test_recovery_accepts_confident_title_match,
     test_recovery_rejects_weak_title_match,

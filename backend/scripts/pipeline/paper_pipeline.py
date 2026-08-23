@@ -1151,6 +1151,38 @@ class PaperPipeline:
                 self._log_skipped_pdf(pdf_path, f"non_research_title: {title.lower()[:40]}")
                 return None
 
+            # Supporting-information PDFs (2026-08-23). Publishers ship these
+            # as separate downloads and contributors upload them alongside the
+            # article, so they arrive looking like ordinary papers. GROBID
+            # reads the real parent title off the header ("Supporting
+            # Information for <paper>"), the DOI logic then resolves the
+            # PARENT's DOI, and the SI lands as the canonical record for a
+            # paper it is not -- read_paper on that DOI returns figures and
+            # methods appendices instead of the article. Caught during the
+            # 2026-08-23 R1 canary on jz9b01407_si_001.pdf.
+            #
+            # Prefix rather than exact match: the whole point is that these
+            # titles carry the parent's title after the marker. Anchored at
+            # the start so a paper that merely discusses supplementary data
+            # is unaffected.
+            si_title_prefixes = (
+                "supporting information", "supplementary information",
+                "supplementary material", "supplemental material",
+                "supplementary materials", "supplemental materials",
+                "supporting material", "supporting materials",
+                "electronic supplementary material", "supplementary data",
+                "supplementary figures", "supplementary tables",
+                "supplementary methods", "supplementary notes",
+                "supporting text", "supporting figures", "si appendix",
+                "appendix s1", "supplementary appendix",
+            )
+            if title.lower().lstrip().startswith(si_title_prefixes):
+                print(f"  [SKIP] Supporting information, not the article: '{title[:60]}'")
+                self._log_skipped_pdf(
+                    pdf_path, f"supporting_information: {title.lower()[:60]}"
+                )
+                return None
+
             # Skip papers with sparse metadata + short title (likely non-research)
             abstract = grobid_data.get("abstract", "")
             authors = grobid_data.get("authors", [])
