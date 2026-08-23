@@ -41,7 +41,7 @@ from .agents import invoke_agent
 from .research import deep_research
 from .citations import export_citations
 from .calculator import calculate
-from .sandbox import run_python, sandbox_reset, sandbox_shutdown
+from .sandbox import edit_python, run_python, sandbox_reset, sandbox_shutdown
 from .latex import compile_latex
 from .clarification import (
     ask_clarification,
@@ -87,6 +87,7 @@ __all__ = [
     "export_citations",
     "calculate",
     "run_python",
+    "edit_python",
     "sandbox_reset",
     "sandbox_shutdown",
     "compile_latex",

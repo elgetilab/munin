@@ -738,10 +738,44 @@ MCP_TOOLS = {
             "required": ["question"]
         }
     },
+    "edit_python": {
+        "name": "edit_python",
+        "is_concurrency_safe": False,
+        "description": "Change part of the code you last ran, then re-run it, without re-sending the whole script. Use this whenever you have already called run_python and want to fix a bug, tweak a parameter, or add a few lines - it is the normal way to iterate on code. Each edit is a literal search-and-replace against the current source: `old` must appear EXACTLY ONCE and match character-for-character including indentation, and `new` replaces it (pass an empty string to delete). No line numbers, no diff syntax. Send several edits in one call when you are changing several places. The edited source runs in the same persistent kernel, so variables and imports from earlier calls are still live. If an `old` does not match you get an error naming the closest lines - fix the edit and retry rather than falling back to re-sending the whole script. Returns the normal run_python result plus edits_applied, lines_added, lines_removed.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "edits": {
+                    "type": "array",
+                    "description": "Replacements to apply in order.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "old": {
+                                "type": "string",
+                                "description": "Exact snippet to replace. Must occur exactly once in the current source; include surrounding lines if it would otherwise be ambiguous."
+                            },
+                            "new": {
+                                "type": "string",
+                                "description": "Replacement text. Empty string deletes the snippet."
+                            }
+                        },
+                        "required": ["old", "new"]
+                    }
+                },
+                "timeout_s": {
+                    "type": "integer",
+                    "description": "Per-execution wall clock timeout in seconds (default 30, max 120).",
+                    "default": 30
+                }
+            },
+            "required": ["edits"]
+        }
+    },
     "run_python": {
         "name": "run_python",
         "is_concurrency_safe": False,
-        "description": "Execute Python code in a sandboxed Jupyter kernel scoped to the current conversation. Use this whenever the user asks you to compute, plot, analyse data, generate a spreadsheet, or otherwise do something a Python script could do better than prose. State persists between calls in the same chat (variables, imports, dataframes), and files written to the current working directory become artifacts the user can download. The sandbox has no internet, no GPU, no host filesystem; pre-installed packages: numpy, scipy, pandas, matplotlib, seaborn, scikit-learn, sympy, networkx, openpyxl, Pillow, pyyaml, requests. Resource caps: 30 s default wall clock, 2 GB memory, 100 MB max file size. matplotlib figures created with `plt.show()` or display() are auto-captured as PNG artifacts. Do NOT call this tool for trivial arithmetic - use `calculate` instead. IMPORTANT - artifact download links: the tool result includes `display_url` and `external_url` fields on each artifact. When mentioning a produced file in your prose response, ALWAYS link to it using the `external_url` from the result. Do NOT construct URLs yourself.",
+        "description": "Execute Python code in a sandboxed Jupyter kernel scoped to the current conversation. Use this whenever the user asks you to compute, plot, analyse data, generate a spreadsheet, or otherwise do something a Python script could do better than prose. IMPORTANT - the kernel is PERSISTENT and you should iterate incrementally: variables, imports and dataframes stay live between calls, so send only new or changed code. Once you have run something, use `edit_python` to change part of it rather than re-sending the whole script. Files written to the current working directory become artifacts the user can download, and matplotlib figures created with `plt.show()` or display() are auto-captured as PNG artifacts. When mentioning a produced file in your prose, link to it using the `external_url` from the tool result; do NOT construct URLs yourself. The sandbox has no internet, no GPU, no host filesystem; pre-installed packages: numpy, scipy, pandas, matplotlib, seaborn, scikit-learn, sympy, networkx, openpyxl, Pillow, pyyaml, requests. Resource caps: 30 s default wall clock, 2 GB memory, 100 MB max file size. Do NOT call this tool for trivial arithmetic - use `calculate` instead.",
         "inputSchema": {
             "type": "object",
             "properties": {

@@ -11,6 +11,7 @@
     "min_p": 0.0,
     "presence_penalty": 0.0,
     "resident_tools": [
+      "edit_python",
       "compile_latex",
       "sandbox_reset",
       "save_artifact_to_documents"

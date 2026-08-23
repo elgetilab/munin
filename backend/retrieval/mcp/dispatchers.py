@@ -39,6 +39,7 @@ from .tools import (
     paper_lookup,
     paper_search,
     read_artifact,
+    edit_python,
     recall,
     remember,
     run_python,
@@ -380,6 +381,14 @@ async def _calculate(arguments: dict) -> dict:
 async def _run_python(arguments: dict) -> dict:
     return await run_python(
         code=arguments.get("code", ""),
+        timeout_s=arguments.get("timeout_s", 30),
+    )
+
+
+@register_tool("edit_python")
+async def _edit_python(arguments: dict) -> dict:
+    return await edit_python(
+        edits=arguments.get("edits") or [],
         timeout_s=arguments.get("timeout_s", 30),
     )
 
