@@ -1,6 +1,6 @@
 # Plan: `edit_python`, a patch-style edit tool for code
 
-Status: **PLAN, not implemented.** Root-cause follow-on to the context-budget
+Status: **BUILT + DEPLOYED 2026-08-23** (`660aaea`). Measured; see Results. Root-cause follow-on to the context-budget
 work (`../paper-track/done/CONTEXT-BUDGET-FIX-SCOPE.md`, reopened 2026-08-12).
 Supersedes the argument-elision scope (`../paper-track/TOOL-ARG-ELISION-SCOPE.md`),
 which was rejected as symptom-treatment.
@@ -169,3 +169,53 @@ and traffic-dependent indicator, so do not gate on them.
   to `update_artifact`, and if `edit_python` adoption is good that is the
   evidence to act on, but it is a separate change.
 - Trimming large user pastes, still open from the previous scope.
+
+
+---
+
+## Results (2026-08-23, `evals/eval_edit_python.py`)
+
+Deployed to prod (`deploy.sh personas` then `retrieval`; personas first because
+they are read once at startup). Resident on `code` only, 383 schema tokens on
+coding turns, nothing elsewhere.
+
+Paired A/B over real decision points, arms differing in the request rather than
+the deployment (`tools` with/without `edit_python`, plus the `edit_hint`):
+
+| run | n/arm | re-paste before | after | p | adoption | p |
+|---|---|---|---|---|---|---|
+| 1 (no hint, harness bug) | 60 | 25.0% | 21.7% | 0.83 | 1.7% | 1.00 |
+| 2 (hint) | 60 | 21.7% | 11.7% | 0.22 | 6.7% | 0.12 |
+| 3 (hint, larger) | 129 | 32.6% | 20.9% | **0.049** | **7.0%** | **0.0034** |
+| **pooled 2+3** | **189** | **29.1%** | **18.0%** | **0.015** | **6.9%** | **0.0002** |
+
+**The tool is adopted and re-pasting falls by ~38% relative.** Against the true
+production baseline of 40.6% that projects to roughly 25%, which is the
+pre-registered target. That is a projection from a reconstructed setting, not a
+production measurement.
+
+### The hint, not the tool, appears to be load-bearing
+
+Run 1 shipped the identical tool schema and measured 1.7% adoption. The only
+change in run 2 was one line added to the `run_python` RESULT, and adoption went
+to 6.7%. This is the same shape as `update_artifact`'s unified-diff mode sitting
+at 2%: the capability existed, nothing pointed at it where the model decides.
+**Applying the same treatment to `update_artifact` is the obvious next
+experiment**, and it is cheaper than any format change.
+
+### What it does not fix
+
+Adoption is 7%, not 70%, and **20.9% of after-arm cases still re-paste** with the
+tool and the hint both available. This is a dent, not a fix. By the escalation
+rule above, 7% is below the 20% threshold that would trigger the similarity
+gate. Recommendation is to hold the gate until two weeks of production data show
+whether the projected 40.6% -> ~25% holds, because the gate turns a legitimate
+near-identical re-run into a hard error and that is a real cost to pay on a
+projection.
+
+### Baseline correction
+
+The 56% re-paste figure used while scoping was inflated: it counted only
+`run_python` -> `run_python` pairs and dropped every case where the model did
+something else next. Over the full population of 399 decision points the real
+rate is **40.6%**. Success criteria should be read against that.
