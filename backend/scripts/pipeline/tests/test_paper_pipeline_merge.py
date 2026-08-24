@@ -1255,6 +1255,77 @@ def test_page_filter_fallback_ignores_article_numbers() -> bool:
     return _check("page filter: equal first/last page is treated as unknown", ok)
 
 
+# ---------------------------------------------------------------------------
+# DOI normalisation for graph keys (2026-08-25). Qdrant keys points on
+# sha256(doi.lower()); Neo4j MERGEd on the DOI verbatim, so a case variant
+# produced a SECOND node and the paper's graph was split in half -- citations
+# on one node, authors and metadata on the other. 13,053 DOIs were affected,
+# and it was user-visible: /citations returned a different paper depending on
+# the case the caller used.
+# ---------------------------------------------------------------------------
+
+def test_norm_doi_lowercases() -> bool:
+    return _check(
+        "norm_doi: lowercases",
+        pp._norm_doi("10.1017/S0033583506004306") == "10.1017/s0033583506004306",
+    )
+
+
+def test_norm_doi_agrees_with_the_qdrant_point_key() -> bool:
+    """The whole point: both stores must derive the same key from either case."""
+    import hashlib
+    a, b = "10.1016/S0959-440X(98)80158-9", "10.1016/s0959-440x(98)80158-9"
+    pid = lambda d: hashlib.sha256(d.lower().encode()).hexdigest()[:16]
+    return _check(
+        "norm_doi: graph key matches the Qdrant point key for both cases",
+        pp._norm_doi(a) == pp._norm_doi(b) == b and pid(a) == pid(b),
+    )
+
+
+def test_norm_doi_strips_and_handles_empty() -> bool:
+    return _check(
+        "norm_doi: strips whitespace, passes through empty",
+        pp._norm_doi("  10.1/X  ") == "10.1/x"
+        and pp._norm_doi("") == ""
+        and pp._norm_doi(None) is None,
+    )
+
+
+def test_store_graph_keys_every_query_on_the_normalised_doi() -> bool:
+    """Capture the parameters _store_graph sends to Neo4j and assert no query
+    is keyed on a non-normalised DOI -- including the CITES stubs, which are
+    built from GROBID reference DOIs and were the main source of duplicates."""
+    class _Sess:
+        def __init__(self, sink): self.sink = sink
+        def run(self, q, **kw): self.sink.append(kw); return None
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    class _Neo:
+        def __init__(self, sink): self.sink = sink
+        def session(self): return _Sess(self.sink)
+
+    sink = []
+    pipe = _make_pipeline_stub()
+    pipe.neo4j = _Neo(sink)
+    paper = pp.Paper(
+        id="abcd0123", title="T", abstract="A", authors=[{"name": "Ada Lovelace"}],
+        doi="10.1017/S0033583506004306", year=2007, journal="J",
+        references=["10.1073/PNAS.1017877108", "10.1021/bi9714969"],
+    )
+    pipe._store_graph(paper)
+    offenders = []
+    for kw in sink:
+        for key in ("doi", "ref"):
+            v = kw.get(key)
+            if isinstance(v, str) and v != v.lower():
+                offenders.append((key, v))
+    return _check(
+        "store_graph: every doi/ref parameter is normalised",
+        sink and not offenders,
+        f"non-normalised keys sent to Neo4j: {offenders!r}",
+    )
+
+
 TESTS = [
     test_normalize_basic,
     test_normalize_drops_stopwords,
@@ -1301,6 +1372,11 @@ TESTS = [
     test_dispose_quarantine_when_paper_is_none,
     test_dispose_quarantine_null_doi_deletes_qdrant_point,
     test_dispose_watcher_pdf_already_in_place_no_move,
+    # 2026-08-25 graph DOI normalisation
+    test_norm_doi_lowercases,
+    test_norm_doi_agrees_with_the_qdrant_point_key,
+    test_norm_doi_strips_and_handles_empty,
+    test_store_graph_keys_every_query_on_the_normalised_doi,
     # 2026-08-23 page-count filter (R1 batch finding)
     test_page_filter_accepts_article_numbered_paper,
     test_page_filter_still_rejects_a_genuinely_short_pdf,

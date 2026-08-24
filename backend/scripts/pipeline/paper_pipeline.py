@@ -230,6 +230,25 @@ def _strip_markup(s: str) -> str:
     return out
 
 
+def _norm_doi(doi: Optional[str]) -> Optional[str]:
+    """Canonical form of a DOI for use as a key: lowercased, trimmed.
+
+    Qdrant has always keyed points on `sha256(doi.lower())`, so two case
+    variants of one DOI share a point. Neo4j did NOT: `MERGE (p:Paper {doi})`
+    matches case-sensitively, so `10.1017/S0033...` and `10.1017/s0033...`
+    became two nodes holding half a paper each -- citations on one, authors
+    and metadata on the other. 13,053 DOIs were split this way before it was
+    noticed on 2026-08-25, and it was user-visible: /citations returned a
+    different paper depending on the case the caller happened to use.
+
+    DOIs are case-insensitive by specification (the DOI Handbook says so for
+    the whole string), so lowercasing loses nothing.
+    """
+    if not doi:
+        return doi
+    return doi.strip().lower()
+
+
 def _title_similarity(a: str, b: str) -> float:
     """Token-set Jaccard similarity between two titles.
 
@@ -1900,11 +1919,15 @@ class PaperPipeline:
 
     def _store_graph(self, paper: Paper):
         """Store paper and relationships in Neo4j"""
+        # Key every node on the canonical (lowercased) DOI. Qdrant already
+        # does this; Neo4j did not, which silently split 13,053 papers into
+        # two nodes each holding half the graph. See _norm_doi.
+        doi_key = _norm_doi(paper.doi)
         with self.neo4j.session() as session:
             # Create/update paper node
             # First check if a stub node exists with this DOI (created as citation target)
             # If so, update it with the full paper info; otherwise create new
-            if paper.doi:
+            if doi_key:
                 session.run("""
                     MERGE (p:Paper {doi: $doi})
                     SET p.paper_id = $paper_id,
@@ -1912,7 +1935,7 @@ class PaperPipeline:
                         p.year = $year,
                         p.journal = $journal,
                         p.abstract = $abstract
-                """, doi=paper.doi, paper_id=paper.id, title=paper.title,
+                """, doi=doi_key, paper_id=paper.id, title=paper.title,
                     year=paper.year, journal=paper.journal,
                     abstract=paper.abstract[:1000])
             else:
@@ -1933,14 +1956,14 @@ class PaperPipeline:
                 if name:
                     author_id = hashlib.sha256(name.lower().encode()).hexdigest()[:16]
                     # Match paper by DOI if available, otherwise by paper_id
-                    if paper.doi:
+                    if doi_key:
                         session.run("""
                             MERGE (a:Author {author_id: $aid})
                             SET a.name = $name
                             WITH a
                             MATCH (p:Paper {doi: $doi})
                             MERGE (a)-[:AUTHORED]->(p)
-                        """, aid=author_id, name=name, doi=paper.doi)
+                        """, aid=author_id, name=name, doi=doi_key)
                     else:
                         session.run("""
                             MERGE (a:Author {author_id: $aid})
@@ -1952,18 +1975,18 @@ class PaperPipeline:
 
             # Create citation relationships
             for ref_doi in paper.references:
-                if paper.doi:
+                if doi_key:
                     session.run("""
                         MATCH (p:Paper {doi: $doi})
                         MERGE (cited:Paper {doi: $ref})
                         MERGE (p)-[:CITES]->(cited)
-                    """, doi=paper.doi, ref=ref_doi)
+                    """, doi=doi_key, ref=_norm_doi(ref_doi))
                 else:
                     session.run("""
                         MATCH (p:Paper {paper_id: $pid})
                         MERGE (cited:Paper {doi: $ref})
                         MERGE (p)-[:CITES]->(cited)
-                    """, pid=paper.id, ref=ref_doi)
+                    """, pid=paper.id, ref=_norm_doi(ref_doi))
 
             # §28: contributor attribution. If a sidecar was present,
             # upsert the :Contributor node and link it to this paper.
@@ -1972,7 +1995,7 @@ class PaperPipeline:
             # uploader is idempotent (only upload_time is refreshed).
             if paper.contributor and paper.contributor.get("email"):
                 c = paper.contributor
-                if paper.doi:
+                if doi_key:
                     session.run("""
                         MERGE (co:Contributor {email: $email})
                         SET co.username = coalesce($username, co.username),
@@ -1989,7 +2012,7 @@ class PaperPipeline:
                         display_name=c.get("display_name"),
                         group_slug=c.get("group_slug") or "unknown",
                         group_display_name=c.get("group_display_name"),
-                        doi=paper.doi,
+                        doi=doi_key,
                         upload_time=c.get("upload_time"),
                     )
                 else:
