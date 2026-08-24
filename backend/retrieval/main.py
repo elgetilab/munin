@@ -3107,7 +3107,7 @@ async def get_citations(doi: str, limit: int = 20):
                        citing.journal as journal
                 ORDER BY citing.year DESC
                 LIMIT $limit
-            """, doi=doi, limit=limit)
+            """, dois=dois, limit=limit)
 
             citing_papers = [
                 PaperNode(
@@ -3172,7 +3172,7 @@ async def get_references(doi: str, limit: int = 50):
                        ref.journal as journal
                 ORDER BY ref.year DESC
                 LIMIT $limit
-            """, doi=doi, limit=limit)
+            """, dois=dois, limit=limit)
 
             references = [
                 PaperNode(
