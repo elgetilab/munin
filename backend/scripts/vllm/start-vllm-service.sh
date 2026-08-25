@@ -12,13 +12,17 @@
 # MUNIN VLLM SERVICE - SLURM JOB SCRIPT
 # ==============================================================================
 # Runs vLLM serving on GPU 1 for the Munin backend.
-# Model: Qwen3.6-35B-A3B-AWQ-4bit (Gated DeltaNet + MoE Hybrid)
+# Model: Qwen3.8-27B-AWQ-INT4 (Gated DeltaNet + Gated Attention, dense)
 # Personas: Chat (general), Code (programming), Research (academic)
 # Scheduled daily 6am - 2am via cron (or 24/7 via: vllm-service enable-24x7)
 #
 # GPU allocation (hugin gres.conf):
-#   - We claim the WHOLE GPU 1 via gpu:vllm:1. The 35B-A3B AWQ-4bit model
-#     plus 64k KV cache needs ~30 GB VRAM, which fills the RTX 5090.
+#   - We claim the WHOLE GPU 1 via gpu:vllm:1. The 27B AWQ-INT4 model
+#     (21 GB) plus 64k KV cache needs ~28 GB VRAM, which fills the RTX 5090.
+#     Qwen3.8 has 3.2x the per-token KV of the old MoE (16 full-attention
+#     layers x 4 KV heads x head_dim 256 = 32 KB/token at fp8), so the 2 GB
+#     saved on weights does NOT translate into 2 GB more headroom. Check
+#     `GPU KV cache size` in this job's .out after any change here.
 #   - While this job holds gpu:vllm:1, the 8 cooperative shards on GPU 1
 #     (shard:vllm:N) are unavailable. Whole GPU 0 (gpu:batch:1) and its
 #     8 shards (shard:batch:N) remain free for user / deepresearch jobs.
@@ -32,9 +36,9 @@ set -e
 # ------------------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------------------
-MODEL_ID="cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit"
-MODEL_PATH="/opt/munin/data/models/qwen3.6-35b-a3b-awq-4bit"
-MODEL_NAME="qwen3.6-35b-a3b"
+MODEL_ID="cyankiwi/Qwen3.8-27B-AWQ-INT4"
+MODEL_PATH="/opt/munin/data/models/qwen3.8-27b-awq-int4"
+MODEL_NAME="qwen3.8-27b"
 VLLM_PORT=8000
 
 COMPOSE_DIR="/opt/munin"
@@ -53,10 +57,10 @@ echo "Start Time: $(date)"
 echo "GPU:        $CUDA_VISIBLE_DEVICES"
 echo "=============================================="
 echo ""
-echo "Model: Qwen3.6-35B-A3B-AWQ-4bit"
-echo "  - Gated DeltaNet + MoE Hybrid"
-echo "  - 35B total parameters, 3B active"
-echo "  - AWQ 4-bit quantization"
+echo "Model: Qwen3.8-27B-AWQ-INT4"
+echo "  - Gated DeltaNet + Gated Attention hybrid, DENSE (not MoE)"
+echo "  - 27B parameters, all active"
+echo "  - AWQ INT4 (compressed-tensors, group 32; DeltaNet + vision at BF16)"
 echo "  - 64k context window (native 262k)"
 echo "  - Reasoning enabled (generates <think> traces)"
 echo "  - 2 concurrent requests"
@@ -110,7 +114,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 if [ ! -d "$MODEL_PATH" ]; then
     echo ""
     echo "Model not found locally. Downloading from HuggingFace..."
-    echo "This may take a while (model is ~19GB)..."
+    echo "This may take a while (model is ~21GB)..."
     hf download "$MODEL_ID" --local-dir "$MODEL_PATH"
     echo "[OK] Model downloaded to $MODEL_PATH"
 fi
@@ -150,10 +154,10 @@ for i in {1..30}; do
 done
 
 # ------------------------------------------------------------------------------
-# Start vLLM server - Qwen3.6-35B-A3B-AWQ-4bit
+# Start vLLM server - Qwen3.8-27B-AWQ-INT4
 # ------------------------------------------------------------------------------
 echo ""
-echo "Starting vLLM server (Qwen3.6-35B-A3B-AWQ-4bit)..."
+echo "Starting vLLM server (Qwen3.8-27B-AWQ-INT4)..."
 
 vllm serve "$MODEL_PATH" \
     --host 0.0.0.0 \
@@ -161,7 +165,6 @@ vllm serve "$MODEL_PATH" \
     --gpu-memory-utilization 0.90 \
     --max-model-len 65536 \
     --max-num-seqs 2 \
-    --dtype float16 \
     --quantization compressed-tensors \
     --kv-cache-dtype fp8 \
     --served-model-name "$MODEL_NAME" \
@@ -188,7 +191,7 @@ while [ $ELAPSED -lt $TIMEOUT_SECONDS ]; do
 
     # Check health endpoint
     if curl -sf http://127.0.0.1:$VLLM_PORT/health > /dev/null 2>&1; then
-        echo "[OK] Qwen3.6-35B-A3B-AWQ-4bit is ready!"
+        echo "[OK] Qwen3.8-27B-AWQ-INT4 is ready!"
         break
     fi
 
@@ -220,7 +223,7 @@ echo "Endpoints:"
 echo "  vLLM API:    http://127.0.0.1:$VLLM_PORT/v1"
 echo ""
 echo "Model:"
-echo "  - $MODEL_NAME : Qwen3.6-35B-A3B (MoE 35B/3B active, AWQ-4bit, 64k ctx)"
+echo "  - $MODEL_NAME : Qwen3.8-27B (dense, AWQ-INT4, 64k ctx)"
 echo ""
 echo "Personas (synced from persona definitions):"
 echo "  - Meitner  : Chat — general assistant (day-to-day, writing, web + paper search)"

@@ -272,7 +272,7 @@ services:
       # (resolved via the extra_hosts host-gateway entry above; must not be
       # pinned to a host LAN IP — that breaks on any subnet change)
       - VLLM_URL=${VLLM_URL:-http://host.docker.internal:8000}
-      - VLLM_MODEL_NAME=qwen3.6-35b-a3b
+      - VLLM_MODEL_NAME=qwen3.8-27b
       # Context window: the vLLM start scripts `export` these before
       # `docker compose up` to match the running mode (single-GPU 65536/60000,
       # TP=2 131072/125000) so the backend uses the right window. Compose
@@ -473,8 +473,8 @@ services:
       - ${MUNIN_ROOT:-/opt/munin}/data/models:/models
       - ${HF_CACHE_DIR:-${MUNIN_ROOT:-/opt/munin}/data/hf-cache}:/root/.cache/huggingface
     command: >
-      --model ${VLLM_SERVE_MODEL:-cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit}
-      --served-model-name ${VLLM_MODEL_NAME:-qwen3.6-35b-a3b}
+      --model ${VLLM_SERVE_MODEL:-cyankiwi/Qwen3.8-27B-AWQ-INT4}
+      --served-model-name ${VLLM_MODEL_NAME:-qwen3.8-27b}
       --host 0.0.0.0 --port 8000
       --gpu-memory-utilization ${VLLM_GPU_MEM_UTIL:-0.90}
       --max-model-len ${VLLM_MAX_MODEL_LEN:-65536}
@@ -656,7 +656,7 @@ services:
       # 2026-08-14, masked in production only by an untracked drop-in.
       - QDRANT_COLLECTION=${PAPERS_COLLECTION:-papers_bge}
       - VLLM_URL=${VLLM_URL:-http://host.docker.internal:8000}
-      - VLLM_MODEL_NAME=${VLLM_MODEL_NAME:-qwen3.6-35b-a3b}
+      - VLLM_MODEL_NAME=${VLLM_MODEL_NAME:-qwen3.8-27b}
       - EMBEDDING_MAP_PATH=/knowledge/embedding_map.json
       # Persist the numba JIT cache so the UMAP compile is paid once.
       - NUMBA_CACHE_DIR=/knowledge/numba-cache

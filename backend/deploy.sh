@@ -86,7 +86,7 @@ VLLM_VENV=/opt/munin/services/vllm/venv
 # copies just the tokenizer files into a small dedicated dir that
 # docker-compose mounts read-only. Keep VLLM_MODEL_DIR in sync with
 # MODEL_PATH in scripts/vllm/start-vllm-service.sh.
-VLLM_MODEL_DIR=$MUNIN_ROOT/data/models/qwen3.6-35b-a3b-awq-4bit
+VLLM_MODEL_DIR=$MUNIN_ROOT/data/models/qwen3.8-27b-awq-int4
 QWEN_TOKENIZER_DIR=$MUNIN_ROOT/data/models/qwen-tokenizer
 
 # Embedding models the retrieval container mounts read-only. bge-large is

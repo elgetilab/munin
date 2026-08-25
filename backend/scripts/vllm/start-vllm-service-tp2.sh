@@ -14,7 +14,7 @@
 # Same model as the single-GPU script, but SHARDED across BOTH RTX 5090s with
 # tensor parallelism (TP=2) to unlock a much larger context window.
 #
-# Model: Qwen3.6-35B-A3B-AWQ-4bit (Gated DeltaNet + MoE Hybrid, 262k native)
+# Model: Qwen3.8-27B-AWQ-INT4 (Gated DeltaNet + Gated Attention, dense, 262k native)
 #
 # Why TP=2 helps here:
 #   - The 23 GB AWQ-4bit WEIGHTS are the limiter on a single 32 GB 5090
@@ -51,9 +51,9 @@ set -e
 # ------------------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------------------
-MODEL_ID="cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit"
-MODEL_PATH="/opt/munin/data/models/qwen3.6-35b-a3b-awq-4bit"
-MODEL_NAME="qwen3.6-35b-a3b"
+MODEL_ID="cyankiwi/Qwen3.8-27B-AWQ-INT4"
+MODEL_PATH="/opt/munin/data/models/qwen3.8-27b-awq-int4"
+MODEL_NAME="qwen3.8-27b"
 VLLM_PORT=8000
 
 TENSOR_PARALLEL_SIZE=2
@@ -75,7 +75,7 @@ echo "GPUs:       $CUDA_VISIBLE_DEVICES   (tensor-parallel-size=$TENSOR_PARALLEL
 echo "Context:    $MAX_MODEL_LEN tokens"
 echo "=============================================="
 echo ""
-echo "Model: Qwen3.6-35B-A3B-AWQ-4bit"
+echo "Model: Qwen3.8-27B-AWQ-INT4"
 echo "  - Gated DeltaNet + MoE Hybrid, 35B total / 3B active, AWQ 4-bit"
 echo "  - Tensor-parallel across BOTH RTX 5090s (weights sharded ~11.5 GB/card)"
 echo "  - ${MAX_MODEL_LEN} context window (native 262144)"
@@ -179,7 +179,6 @@ vllm serve "$MODEL_PATH" \
     --gpu-memory-utilization 0.85 \
     --max-model-len $MAX_MODEL_LEN \
     --max-num-seqs 8 \
-    --dtype float16 \
     --quantization compressed-tensors \
     --kv-cache-dtype fp8 \
     --served-model-name "$MODEL_NAME" \
@@ -204,7 +203,7 @@ while [ $ELAPSED -lt $TIMEOUT_SECONDS ]; do
     fi
 
     if curl -sf http://127.0.0.1:$VLLM_PORT/health > /dev/null 2>&1; then
-        echo "[OK] Qwen3.6-35B-A3B (TP=$TENSOR_PARALLEL_SIZE, ${MAX_MODEL_LEN} ctx) is ready!"
+        echo "[OK] Qwen3.8-27B (TP=$TENSOR_PARALLEL_SIZE, ${MAX_MODEL_LEN} ctx) is ready!"
         break
     fi
 

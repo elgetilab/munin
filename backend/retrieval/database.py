@@ -60,7 +60,7 @@ SLURM_QUEUE_FILE = os.getenv("SLURM_QUEUE_FILE", "/deepresearch/slurm_queue.json
 # so the 43 call sites across 14 modules do not churn.
 # ------------------------------------------------------------------------------
 DEFAULT_LLM_BASE_URL = "http://127.0.0.1:8000"
-DEFAULT_LLM_MODEL_NAME = "qwen3.6-35b-a3b"
+DEFAULT_LLM_MODEL_NAME = "qwen3.8-27b"
 
 
 def _env_flag(name: str, default: bool, env=None) -> bool:
