@@ -1,7 +1,17 @@
 # A third backbone for the harness: candidate review
 
-Status: REVIEW, not a plan. Nothing here is approved and nothing is
+Status: **DECIDED 2026-08-25.** The third backbone is **Qwen3.5-9B**, and there
+is deliberately no second candidate for the 24 GB tier: a 24 GB card runs the
+same model with more headroom, not a different model (section 6.1). Nothing is
 implemented. Written 2026-08-25, alongside `MODEL-SWAP-QWEN38-PLAN.md`.
+
+> **Correction, same day.** Sections 4 and 6 were re-priced after the real
+> quantized checkpoints were found. The first draft estimated Qwen3.5-9B at
+> 6.3 GiB at 4 bits by scaling the production model's density; the vendor-grade
+> checkpoint is **11 GB on disk**, because a 9B model keeps proportionally much
+> more at BF16 (vision encoder, embeddings, `lm_head`, all the linear-attention
+> projections). The decision survives the correction, the unqualified "fits
+> 16 GB at the production profile on Ampere too" claim does not. See 6.2.
 
 The question: after Qwen3.6-35B-A3B (measured) and Qwen3.8-27B (about to be
 measured), what is the right **third** generation model, chosen so that a group
@@ -30,9 +40,11 @@ a reproducibility floor, and its value is that it is *cheap to run*, not that it
 is independent. Here the ideal model is the one that changes the fewest code
 paths, so a bad number is attributable to the backbone rather than to plumbing.
 
-They are not the same model, and a single run cannot serve both cleanly. The
-recommendation in section 6 names one for each and says which to run first if
-only one is affordable.
+They are not the same model, and a single run cannot serve both cleanly.
+**Resolved 2026-08-25 in favour of Experiment B** (section 6): the run is a
+hardware floor, not a cross-lab check. Section 1 is kept as written because the
+cost of that choice, which is that "One base model" stays on the limitations
+list, has to be stated in the paper rather than quietly dropped.
 
 ---
 
@@ -163,9 +175,17 @@ Weight sizes are anchored on the production checkpoint's realised density
 parameters at 4 bits, ~1.05 at 8 bits). Rows marked (est) are extrapolations,
 not measurements.
 
+**That density does not extrapolate downward, and this review got it wrong
+once.** The parts a good 4-bit recipe refuses to quantize (embeddings, `lm_head`,
+vision tower, linear-attention projections) are close to fixed in size, so they
+are a small fraction of a 27B checkpoint and a large fraction of a 9B one. The
+published Qwen3.5-9B w4a16 checkpoint is 11 GB against a 19.3 GB BF16 release,
+a 43% reduction, where the 27B recipe achieved 62%. **Price a small model from a
+published checkpoint, never from a scaled ratio.**
+
 | candidate | params | licence | weights | KV, 2x64k | 16 GiB card | 24 GiB card | parsers in build | vision |
 |---|---|---|---|---|---|---|---|---|
-| **Qwen3.5-9B** | 9B dense, GDN+attn 3:1 | Apache 2.0 | 6.3 GiB INT4 (est) / 9.4 FP8 (est) | 2.0 fp8 / 4.0 fp16 | **yes**, 8.3 of 11.4 (fp8 KV); **yes**, 10.3 (fp16 KV) | yes, large margin | `qwen3_xml`, `qwen3` | yes |
+| **Qwen3.5-9B** (CHOSEN) | 9B dense, GDN+attn 3:1 | Apache 2.0 | **10.25 GiB w4a16** (RedHat, measured) / 7.14 GiB GPTQ-INT4 (community) | 2.0 fp8 / 4.0 fp16 | **qualified yes**: see 6.2 | yes, 4.2x to 8.5x margin | `qwen3_xml`, `qwen3` | yes |
 | **gpt-oss-20b** | 21B MoE, 3.6B active | Apache 2.0 | 12.8 GiB MXFP4 | 1.5 fp8 / 3.0 fp16 | **no**, 14.3 of 11.4 | **yes**, 14.3 of 18.7 | `openai`, `openai_gptoss` | no |
 | **Gemma 4 12B** (QAT w4a16-ct) | 13B incl. towers | Apache 2.0 | ~8.5 GiB (est) | 6.3 fp8 / 12.6 fp16 | no at 64k; yes at <=24k | **yes** (fp8 KV only), 14.8 of 18.7 | `gemma4`, `gemma4` | yes + audio |
 | **Granite 4.1-8B** | 8B dense hybrid Mamba | Apache 2.0 | ~5.6 GiB INT4 (est) | ~0.3 (est) | **yes**, large margin | yes, very large margin | `granite4`, `granite` | no |
@@ -183,21 +203,41 @@ The case for it is that it changes almost nothing. It is
 `Qwen3_5ForConditionalGeneration`, the exact architecture family that has now
 been proven twice on this box; `qwen3_xml` and the `qwen3` reasoning parser
 apply unchanged; `enable_thinking` works; the vision path keeps working; and the
-Qwen-shaped fallbacks in `chat_service.py` stay valid. It is the **only**
-candidate that fits a 16 GiB card at the full 64k window **on Ampere as well as
-Ada**, which is what makes it a genuine reproducibility floor rather than a
-floor with a footnote.
+Qwen-shaped fallbacks in `chat_service.py` stay valid. Its KV layout is the
+second thinnest in the review at 16 KiB/token, half the production model's.
 
 The case against it is that it is the same lab, the same tokenizer, the same
 data recipe. It answers "how small can the backbone be", not "does the harness
 generalise". It is also a generation behind the production model (3.5 vs 3.8),
-which conflates size with generation unless stated.
+so the comparison mixes size with generation and the paper has to say so.
+
+### Checkpoints, since the 16 GB claim rests entirely on which one is used
+
+| checkpoint | on disk | loaded (est) | what stays BF16 | provenance |
+|---|---|---|---|---|
+| `Qwen/Qwen3.5-9B` | 19.3 GB | ~18 GiB | everything (BF16 release) | vendor |
+| **`RedHatAI/Qwen3.5-9B-quantized.w4a16`** | **11 GB** | ~10.25 GiB | vision encoder, token embeddings, `lm_head`, linear attention | vendor-grade, Apache 2.0, **publishes recovery vs BF16** |
+| `mssfj/Qwen3.5-9B-GPTQ-INT4` | 7.67 GB | ~7.14 GiB | not documented | community, no recovery numbers |
+
+**Recommended: the RedHat w4a16 checkpoint**, because it is the only one of the
+three that publishes accuracy recovery against BF16, which is the caveat
+`MODEL-SWAP-QWEN38-PLAN.md` §7.3 has to carry for the cyankiwi checkpoints and
+that this run can avoid carrying. Its published recovery is 97.9% to 100.1% on
+instruction following and 94% to 99% on most benchmarks, with one visible
+outlier at **80.5% on AIME 2025**. That outlier is worth knowing but is probably
+not load-bearing here: LitQA2 is multiple-choice literature QA, not competition
+maths. Its model card also documents a `--language-model-only` flag that drops
+the vision encoder and its memory, which section 6.2 uses.
+
+The 3.6 GB gap between the RedHat and community checkpoints is roughly the whole
+16 GB question, which is why the checkpoint has to be named in the scorecard
+provenance and not just the model.
 
 Open items: whether `reasoning_effort` is accepted by the 3.5 chat template
 (3.8 added it; if 3.5's template ignores unknown kwargs it is a no-op, if it
-raises it 400s every turn), and whether a group-32 AWQ-INT4 checkpoint from the
-same quantizer exists, since the production recipe identity is half the argument
-for choosing it.
+raises it 400s every turn), and whether the model card's own suggestion of
+`--tool-call-parser qwen3_coder` beats the `qwen3_xml` Munin serves. Both are
+step-1 A/Bs, not blockers.
 
 ### gpt-oss-20b (Aug 2025, `openai/gpt-oss-20b`)
 
@@ -303,11 +343,18 @@ the full *generation* suite either, because its job is to test one claim.
 | Routing regression | yes | it is the deploy gate, cheap, and a model swap is what it exists to catch |
 
 Rough cost, scaled from the committed 4.4h Track D clean run: **9 to 14 hours of
-single-GPU time** for Track D plus C1 plus routing on a 9B or 20B model (a small
-model should be *faster* per token than the 27B dense, so the 2x placeholder in
-the Qwen3.8 plan does not apply here), and **$6 to $16 of Brave credit** at the
+single-GPU time** for Track D plus C1 plus routing on the chosen 9B (a 9B dense
+hybrid reads far fewer weight bytes per decode step than the 27B dense, so the
+2x placeholder in the Qwen3.8 plan does not apply here and the run may well come
+in under the old model's wall-clock), and **$6 to $16 of Brave credit** at the
 measured 3.6 billed requests per `web_search` call. That is roughly a third of a
-full re-measurement pass, for the paper's weakest external-validity claim.
+full re-measurement pass.
+
+One caveat on the cheap-looking hours: if the 9B over-tools, wall-clock rises
+with the tool-call count rather than with the decode rate, and the
+`MAX_TOOL_CALLS_PER_MESSAGE` cap of 30 turns that into truncated turns rather
+than into a longer run. Watch calls per query against the 8.61 baseline in the
+smoke, in **both** directions.
 
 Add one gate that the Qwen3.8 plan already learned the hard way: **smoke at
 `--limit 20` first**, and compare tool calls per query against the 8.61 baseline.
@@ -315,38 +362,85 @@ A large drop is a parser problem masquerading as a behaviour change.
 
 ---
 
-## 6. Recommendation
+## 6. Decision (2026-08-25)
 
-**Primary, and the answer to the question as asked: `Qwen/Qwen3.5-9B`.**
+**The third backbone is `Qwen/Qwen3.5-9B`, served from
+`RedHatAI/Qwen3.5-9B-quantized.w4a16`. There is no second candidate for the
+24 GB tier.**
 
-It is the only candidate that fits a **16 GiB** card at the full 64k window on
-both Ada and Ampere, it keeps every harness code path identical (same
-architecture family, same tool parser, same reasoning parser, same
-`enable_thinking`, vision intact), and it is Apache 2.0 from a lab that keeps
-its old checkpoints up. For "a group should be able to check this in two years
-on whatever card they have", nothing else on the list is close.
+The question the paper will answer with it is Experiment B from section 1: a
+group can run this harness on a small self-hosted model. It keeps every harness
+code path identical (same `Qwen3_5ForConditionalGeneration` family, same
+`qwen3_xml` parser, same `qwen3` reasoning parser, same `enable_thinking`,
+vision intact), so a bad number is attributable to the backbone rather than to
+plumbing, and it is Apache 2.0 from a lab that keeps its old checkpoints
+available.
 
-**Companion, and the one that is worth more to the paper: `openai/gpt-oss-20b`
-on 24 GiB.** It is the only shortlisted model that addresses the "One base
-model" threat in `08-LIMITATIONS.md` §3 directly, it needs the least KV of
-anything here, and its reasoning-effort values already match what the backend
-sends. Its weakness relative to a 2026 model is an argument for running it, not
-against.
+### 6.1 Why no separate 24 GB model
 
-**If only one run is affordable, run gpt-oss-20b.** The paper's headline is
-"the harness is what produces the accuracy". A second Qwen makes that claim
-slightly better; a non-Qwen makes it a different and much stronger claim. The
-9B Qwen can then be added later as a hardware-floor note without re-running
-anything else.
+A 24 GB card is not a different deployment tier for this model, it is the same
+deployment with slack. Priced against the RedHat checkpoint at 10.25 GiB loaded
+and 16 KiB/token of fp8 KV:
 
-**Do not** pick a full-attention 14B (Ministral-3) for this. It looks like the
-obvious "smaller" choice by parameter count and it is the worst fit in the
-review by memory.
+| card | KV pool | worst-case seqs at 64k | or, at `max-num-seqs 2` |
+|---|---|---|---|
+| 16 GiB (Ada+) | 1.26 GiB | 1.26x | 32k window |
+| **24 GiB (Ada+)** | **8.46 GiB** | **8.46x** | 262k native window, still 3.2x |
+| 24 GiB (Ampere, fp16 KV) | 8.46 GiB | 4.23x | 128k window comfortably |
 
-Framing for the paper, in one sentence: *the harness delta was measured on three
-backbones spanning two labs, two architectures (MoE and dense hybrid) and a 3x
-parameter range, and it reproduces on a backbone that fits a single 24 GB
-consumer card.* That is a substantially better sentence than the current one.
+So the 24 GB owner spends the extra 8 GiB on `--max-num-seqs`, on
+`--max-model-len`, or on both, and gets a strictly better version of the same
+system. Adding gpt-oss-20b to occupy that tier would have bought cross-lab
+external validity (section 1, Experiment A), which is a real and separate gain,
+but it is a second full Track D run and a second set of arm-matching risks.
+**Deliberately not taken.** `08-LIMITATIONS.md` §3 therefore keeps its "One base
+model" threat, narrowed: the harness delta will have been shown across two model
+sizes and two architectures within one family, and not across labs. That
+sentence should go in Limitations rather than being left for a reviewer to
+notice.
+
+### 6.2 The 16 GB claim, stated precisely
+
+This is the one place the correction at the top of the document bites. At the
+production profile (`--max-model-len 65536`, `--max-num-seqs 2`) the RedHat
+checkpoint needs 2.0 GiB of fp8 KV against the 1.26 GiB a 16 GiB card leaves it.
+**It does not fit unmodified.** Three honest versions of the claim, in
+descending order of preference:
+
+1. **`--language-model-only` on a 16 GB Ada-or-newer card**: dropping the vision
+   encoder frees roughly 1.4 GiB, giving a ~2.65 GiB pool, i.e. **2.65x at 64k**.
+   The production profile fits. Vision is not exercised by any benchmark track,
+   so this costs the reproduction nothing. **This is the claim to make.**
+2. **Full multimodal weights on a 16 GB Ada-or-newer card**: 64k at
+   `max-num-seqs 1`, or 32k at 2. Fine for a single-user group, and concurrency
+   1 is what the cost measurement uses anyway.
+3. **16 GB Ampere (fp16 KV, e.g. RTX A4000)**: 0.63x at 64k with vision loaded,
+   1.33x with `--language-model-only`. Single sequence at 64k only, or drop to
+   32k. Do not claim the production profile here.
+
+The first draft of this document asserted the production profile fits 16 GB "on
+Ampere as well as Ada". That was an artifact of the scaled weight estimate and is
+withdrawn.
+
+**Make it measured rather than computed.** The benchmark runs on a 31.84 GiB
+5090, so a "fits 16 GB" claim derived from arithmetic is exactly the kind of
+thing a reviewer will ask about. Running the third-model Track D with
+`--gpu-memory-utilization 0.45` on the 5090 reproduces a 16 GB card's budget at
+util 0.90 to within a hundred MiB, which turns the claim into a measurement at
+zero extra cost. Recommended, and cheap.
+
+### 6.3 What holding "raise tokens or concurrency" fixed means for the numbers
+
+Raising `--max-num-seqs` is the right advice for a group running Munin, and the
+wrong thing to do while reproducing the paper. Every committed cost number is
+wall-clock at **concurrency 1**, because `slurmdbd` is not deployed and
+GPU-seconds cannot be read from `sacct` (`01-SYSTEM.md` §8). Accuracy should be
+insensitive to the served ceiling; cost is not, and the suite already has one
+run, the 2026-07-26 agentic 0.688, that was depressed by exactly this.
+
+So the reproduce instructions need to separate the two: **`--max-num-seqs 2` and
+concurrency 1 to reproduce the numbers; raise either freely for actual use.**
+That belongs in `10-REPRODUCE.md`, not just here.
 
 ---
 
@@ -379,10 +473,12 @@ consumer card.* That is a substantially better sentence than the current one.
 5. **fp8 KV on the target card.** Verified gate at compute capability 8.9. A
    result quoted as "fits a 24 GB card" is false for a 3090 unless it was priced
    with fp16 KV.
-6. **Community quantization of unknown quality.** Only Gemma 4 ships a vendor
-   QAT checkpoint among the top candidates; gpt-oss ships MXFP4 natively (also
-   vendor); Qwen3.5-9B would need a community AWQ or the official FP8. Prefer
-   vendor-quantized where it exists, and keep the step-1 quality smoke test.
+6. **Quantization quality.** Resolved by the checkpoint choice: the RedHat
+   w4a16 build publishes recovery against BF16, which is more than either
+   production checkpoint has ever had. Carry the AIME-2025 80.5% outlier into the
+   scorecard note anyway, and keep the step-1 quality smoke test: it is a
+   different quantizer from the one the other two runs used, so quant recipe is a
+   third variable alongside size and generation.
 7. **Reading a small model's abstention as calibration.** A weaker backbone
    abstains more. Track C numbers from a third model are a *different* operating
    point, not a better or worse one, and pooling them with the headline would be
@@ -390,25 +486,35 @@ consumer card.* That is a substantially better sentence than the current one.
 
 ---
 
-## 8. Open questions for the run owner
+## 8. Open questions, after the decision
 
-1. Which experiment is this for, A (cross-lab generalisation) or B (hardware
-   floor)? Section 6 recommends A first, then B for free later.
-2. 16 GiB or 24 GiB as the stated target? It changes the answer: 16 GiB admits
-   Qwen3.5-9B and Granite only; 24 GiB opens gpt-oss-20b and Gemma 4 12B.
-3. Ada-or-newer, or must the claim also hold on Ampere (3090 / A5000)? If
-   Ampere, price everything with fp16 KV and Gemma 4 12B drops out.
-4. Sampling parameters: vendor-recommended per model (recommended) or held
-   fixed?
-5. Is `--max-model-len 65536` / `--max-num-seqs 2` held fixed for the third
-   model? Holding it fixed is what makes the arms comparable; on gpt-oss it also
-   wastes most of the available headroom, which is a fine trade but should be
-   deliberate.
-6. Does Granite 4.1-8B load in the pinned build? Thirty minutes of checking
-   could produce the cheapest verification arm available.
-7. Is the reduced track set in section 5 (Track D + T11 + C1 + routing)
-   acceptable as the third model's scope, or does the paper want full parity
-   with the two Qwen runs?
+Resolved on 2026-08-25: **which experiment** (B, the hardware floor),
+**which model** (Qwen3.5-9B), **which tier** (16 GB stated, 24 GB is headroom),
+and **no second model for the 24 GB tier**. What is left:
+
+1. **Which 16 GB variant is the headline claim?** Section 6.2 recommends
+   `--language-model-only`, which fits the production profile on an Ada-or-newer
+   16 GB card. Confirm that dropping vision from the reproduction is acceptable
+   (no benchmark track sends images, so this is a presentation choice).
+2. **Does the Ampere case need to hold?** If the claim must cover an RTX A4000,
+   it is a single sequence at 64k or a 32k window, and the wording has to say so.
+3. **Emulate the 16 GB budget on the 5090** with `--gpu-memory-utilization 0.45`
+   so the fit is measured rather than computed? Recommended, near-zero cost.
+4. **Sampling parameters.** The personas carry Qwen3's recommended set. If
+   Qwen3.5-9B recommends different values, decide once before the clean run and
+   hold it fixed. Same rule as `MODEL-SWAP-QWEN38-PLAN.md` §8.4.
+5. **`reasoning_effort` on the 3.5 chat template**: no-op, or 400? One curl in
+   step 1. If it raises, set `LLM_THINKING_TOGGLE=0` or blank
+   `LLM_REASONING_EFFORT`, and record which, because it changes the arm matching
+   that `munin_bench/config.py` exists to enforce.
+6. **`qwen3_xml` vs `qwen3_coder`**: the model card suggests the latter. A/B it
+   in step 1, same as the Qwen3.8 swap does.
+7. **Track scope**: is section 5's reduced set (Track D + T11 + C1 + routing)
+   accepted, or does the paper want full parity with the two Qwen runs?
+8. **Three variables move at once** (size 27B to 9B, generation 3.8 to 3.5,
+   quantizer cyankiwi to RedHat). That is unavoidable and fine, but the paper
+   should attribute the delta to "a smaller backbone" rather than to size
+   specifically.
 
 ---
 
