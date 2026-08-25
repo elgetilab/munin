@@ -75,3 +75,46 @@ in `backend/docs/archive/CLUSTER-USAGE-TRACKING.md`)
   scanner picks up the cumulative total automatically. Module:
   `retrieval/usage_tracker.py`. Contract: `BACKEND-API.md` §5
   `done` event row.
+
+
+---
+
+## vLLM scheduling priority: chat ahead of API traffic
+
+**From:** backend
+**Date:** 2026-08-25
+**Question / decision / context:**
+
+  With the removal of the per-user requests-per-minute and
+  concurrent-request limits (gateway, 2026-08-25), nothing stops
+  API-key traffic from holding all 8 vLLM batch slots and making
+  interactive browser chat queue behind it. Measured on the TP=2
+  profile: 8 concurrent is the throughput knee (604 tok/s); at 12
+  aggregate throughput *falls* to 487 and p95 latency roughly
+  doubles. A per-user cap does not fix this, because three API
+  users at 4 each is 12.
+
+**Answer / outcome:**
+
+  PLANNED, not built. Design in
+  [`docs/SCHEDULING-PRIORITY-PLAN.md`](../../docs/SCHEDULING-PRIORITY-PLAN.md).
+
+  **No frontend change is expected.** The distinction already
+  exists structurally in the backend: API-key requests arrive with
+  no persona / conversation_id / project_id and route to
+  `main.py:_raw_chat_proxy`, while browser chat goes through the
+  persona path. Priority is set there, not in the gateway, because
+  the gateway relays request bodies byte-for-byte and injecting a
+  field would mean parsing and re-serialising every request
+  including streaming ones.
+
+  Flagged here anyway because it changes API-request latency under
+  contention, which is user-visible on `api.muninai.org`, and
+  because the docs on `docs.muninai.org` may need a line about it.
+
+  Two things the frontend side should know if it ever does get
+  involved: vLLM's `priority` is **lower = earlier** (chat keeps
+  the default 0; API is demoted with a positive number), and any
+  non-zero priority **400s** unless the server was started with
+  `--scheduling-policy priority`, so the serve flag must land
+  before anything sends the field.

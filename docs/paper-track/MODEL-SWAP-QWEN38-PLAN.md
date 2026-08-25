@@ -288,6 +288,32 @@ numbers, not in Track A. This is already the documented position.
 
 ### 4b. Model-dependent: MUST re-run
 
+**BLOCKER, fix before Track D runs.** `munin_bench/ablation/vllm_answer.py`
+drives the bare and RAG arms by calling vLLM **directly** on port 8000, so it
+bypasses both the gateway and `_raw_chat_proxy`. Two consequences, and the
+second is severe:
+
+1. It still carries `MODEL = "qwen3.6-35b-a3b"`, so it would talk to a model
+   name vLLM no longer serves.
+2. It sends no `chat_template_kwargs`, so the bare and RAG arms would run at
+   Qwen3.8's **xhigh** default while the agentic arm runs through
+   `chat_service` at **medium**. The arms would then differ by reasoning effort
+   as well as by harness, which is exactly the confound the ablation exists to
+   exclude.
+
+Worse, `vllm_answer.complete()` defaults to `max_tokens=4096`. At xhigh, one
+measured question consumed 11,374 completion tokens and returned an **empty**
+answer at an 8K cap. A 4K cap at xhigh would therefore return empty content on
+a substantial fraction of questions, which the scorer counts as
+unparseable/abstain. That would **depress the bare arm and inflate the harness
+delta** for a reason that has nothing to do with the harness. It is the same
+class of artifact as the 0.688 search-degraded run, and it would be much harder
+to spot because every individual component looks healthy.
+
+Fix both before the clean run: update `MODEL`, and send the same
+`chat_template_kwargs` the agentic path sends so all three arms share one
+reasoning effort. Record the effort in the scorecard provenance.
+
 Most of it is one command. `run_all` runs the three ablation arms, C1,
 faithfulness (with its own capture), writes one committed scorecard and
 certifies it:
