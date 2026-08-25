@@ -4,7 +4,7 @@ API Gateway — proxy, API key validation, rate limiting, usage logging.
 Sits between Caddy and the cluster tunnel. Handles:
 - Proxying requests to 127.0.0.1:18080 (cluster tunnel)
 - API key validation (sk-munin-... Bearer tokens)
-- Per-user rate limiting (tokens/month, requests/minute, concurrent)
+- Per-user monthly token quota (API-key usage only; browser chat is free)
 - Usage logging (metadata only, never message content)
 """
 
@@ -16,7 +16,6 @@ import secrets
 import sqlite3
 import time
 import uuid
-from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -69,20 +68,19 @@ log = logging.getLogger("api-gateway")
 app = FastAPI(docs_url=None, redoc_url=None)
 http_client = httpx.AsyncClient(base_url=CLUSTER_TUNNEL, timeout=300.0)
 
-# ── Rate Limiting (in-memory) ────────────────────────────────────────────────
-
-# {email: [timestamps]} for requests-per-minute tracking
-rpm_tracker: dict[str, list[float]] = defaultdict(list)
-# {email: int} for concurrent request tracking
-concurrent_tracker: dict[str, int] = defaultdict(int)
+# Requests-per-minute and concurrent-request limits were REMOVED 2026-08-25.
+# They existed because vLLM served only --max-num-seqs 2, so a single scripted
+# client could starve everyone else. The TP=2 profile serves 8 (910,222 KV
+# tokens, 13.89x worst-case at 64k), which is enough that per-user gating is no
+# longer the right place to shed load; vLLM's own scheduler queues instead.
+# The MONTHLY TOKEN QUOTA is deliberately kept - it is a cost control, not a
+# concurrency control, and nothing else enforces it.
 
 
 # ── Quotas ───────────────────────────────────────────────────────────────────
 
 DEFAULT_QUOTAS = {
     "tokens_per_month": 2_000_000,
-    "requests_per_minute": 10,
-    "concurrent_requests": 1,
 }
 
 quotas_config: dict = {"default": DEFAULT_QUOTAS, "overrides": {}}
@@ -230,36 +228,17 @@ def is_admin_email(email: str) -> bool:
 
 
 def check_rate_limits(email: str) -> dict | None:
-    """Check rate limits. Returns error dict if exceeded, None if OK.
-    Admin users bypass all rate limits."""
+    """Check the monthly token quota. Returns an error dict if exceeded, else None.
+
+    Admin users (and anyone with `unlimited: true`) bypass it. Requests/minute
+    and concurrent-request limits were removed 2026-08-25; this is now the only
+    quota, and it is a COST control rather than a load-shedding one. Keeping the
+    function name means every call site and the 429 envelope are unchanged.
+    """
     if is_admin_email(email):
         return None
 
     limits = get_user_quotas(email)
-    now = time.time()
-
-    # Requests per minute
-    rpm_limit = limits["requests_per_minute"]
-    timestamps = rpm_tracker[email]
-    timestamps[:] = [t for t in timestamps if now - t < 60]
-    if len(timestamps) >= rpm_limit:
-        wait = int(60 - (now - timestamps[0]))
-        return {
-            "code": "rate_limited",
-            "message": f"Rate limit exceeded. Please wait {wait} seconds.",
-            "type": "requests_per_minute",
-            "retry_after": max(1, wait),
-        }
-
-    # Concurrent requests
-    concurrent_limit = limits["concurrent_requests"]
-    if concurrent_tracker[email] >= concurrent_limit:
-        return {
-            "code": "rate_limited",
-            "message": "Too many concurrent requests. Please wait for a request to finish.",
-            "type": "concurrent_requests",
-            "retry_after": 5,
-        }
 
     # Monthly token limit — only API key usage counts against quota (browser chat is free)
     token_limit = limits["tokens_per_month"]
@@ -649,7 +628,7 @@ async def proxy_api(request: Request, path: str):
 
     track_activity(email, source)
 
-    # Endpoints that bypass concurrent request limiting:
+    # Endpoints that bypass the quota check entirely:
     # - Lightweight read-only GET endpoints
     # - Chat completions (forward-auth protected, not the public API)
     EXEMPT_PREFIXES = ("status", "personas", "sources", "deepresearch/queue", "announcement", "chats", "profile", "artifacts", "projects")
@@ -661,7 +640,7 @@ async def proxy_api(request: Request, path: str):
     should_log = not is_exempt or path.startswith("chat/completions")
 
     if not is_exempt:
-        # Rate limit check
+        # Monthly token quota
         rate_error = check_rate_limits(email)
         if rate_error:
             retry_after = rate_error.pop("retry_after", 30)
@@ -671,10 +650,6 @@ async def proxy_api(request: Request, path: str):
                 headers={"Retry-After": str(retry_after)},
             )
 
-    # Track concurrent requests and RPM (only for non-exempt)
-    rpm_tracker[email].append(time.time())
-    if not is_exempt:
-        concurrent_tracker[email] += 1
     start_time = time.time()
 
     try:
@@ -749,8 +724,6 @@ async def proxy_api(request: Request, path: str):
                             pass
                 finally:
                     await upstream_resp.aclose()
-                    if not is_exempt:
-                        concurrent_tracker[email] -= 1
                     duration_ms = int((time.time() - start_time) * 1000)
                     if should_log:
                         log_usage(
@@ -777,8 +750,6 @@ async def proxy_api(request: Request, path: str):
                 )
                 upstream_resp = await http_client.send(fallback_req)
 
-            if not is_exempt:
-                concurrent_tracker[email] -= 1
             duration_ms = int((time.time() - start_time) * 1000)
 
             # Extract usage from response body
@@ -807,8 +778,6 @@ async def proxy_api(request: Request, path: str):
                 headers=dict(upstream_resp.headers),
             )
     except Exception as e:
-        if not is_exempt:
-            concurrent_tracker[email] -= 1
         log.error(
             f"Proxy error: {type(e).__name__}: {e} "
             f"[{request.method} /api/{path} user={email}]",
@@ -853,8 +822,6 @@ async def proxy_v1(request: Request, path: str):
         retry_after = rate_error.pop("retry_after", 30)
         return JSONResponse(status_code=429, content={"error": rate_error}, headers={"Retry-After": str(retry_after)})
 
-    rpm_tracker[email].append(time.time())
-    concurrent_tracker[email] += 1
     start_time = time.time()
 
     # Map /v1/chat/completions → /api/chat/completions, /v1/models → /api/models
@@ -901,7 +868,6 @@ async def proxy_v1(request: Request, path: str):
                                 pass
                     finally:
                         await upstream_resp.aclose()
-                        concurrent_tracker[email] -= 1
                         log_usage(email, source, api_key_id, f"/v1/{path}", tokens_total=tokens_total,
                                   duration_ms=int((time.time() - start_time) * 1000), status_code=upstream_resp.status_code)
 
@@ -911,7 +877,6 @@ async def proxy_v1(request: Request, path: str):
                 # JSON response (raw model, no persona) — read fully
                 resp_body = await upstream_resp.aread()
                 await upstream_resp.aclose()
-                concurrent_tracker[email] -= 1
                 tokens_total = 0
                 try:
                     u = json.loads(resp_body).get("usage", {})
@@ -924,7 +889,6 @@ async def proxy_v1(request: Request, path: str):
                                 headers={k: v for k, v in upstream_resp.headers.items() if k.lower() != "transfer-encoding"})
         else:
             upstream_resp = await http_client.send(upstream_req)
-            concurrent_tracker[email] -= 1
             tokens_total = 0
             try:
                 u = upstream_resp.json().get("usage", {})
@@ -935,7 +899,6 @@ async def proxy_v1(request: Request, path: str):
                       duration_ms=int((time.time() - start_time) * 1000), status_code=upstream_resp.status_code)
             return Response(content=upstream_resp.content, status_code=upstream_resp.status_code, headers=dict(upstream_resp.headers))
     except Exception as e:
-        concurrent_tracker[email] -= 1
         log.error(
             f"V1 proxy error: {type(e).__name__}: {e} "
             f"[{request.method} /v1/{path} user={email}]",

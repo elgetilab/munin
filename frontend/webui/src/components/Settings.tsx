@@ -421,9 +421,8 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
           Use API keys to access Munin from scripts, notebooks, or any OpenAI-compatible client. Keys are tied to your email ({profile.email}).
         </p>
         <div className="text-xs text-text-secondary mb-6 flex flex-wrap gap-x-4 gap-y-1">
-          <span>3 concurrent requests</span>
-          <span>60 requests/min</span>
           <span>100M tokens/month</span>
+          <span>No request-rate or concurrency limit</span>
         </div>
 
         {/* Usage bar */}

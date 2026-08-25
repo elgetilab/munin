@@ -282,13 +282,13 @@
                 </tr>
                 <tr>
                     <td>Context Window</td>
-                    <td>32,768 tokens</td>
+                    <td>65,536 tokens</td>
                     <td>Constrained by RTX 5090 VRAM</td>
                 </tr>
                 <tr>
                     <td>Concurrent Requests</td>
-                    <td>3</td>
-                    <td>Balance between throughput and latency</td>
+                    <td>8</td>
+                    <td>vLLM batch slots across both RTX 5090s (tensor-parallel). No per-user cap.</td>
                 </tr>
                 <tr>
                     <td>Thinking Mode</td>

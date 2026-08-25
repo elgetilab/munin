@@ -315,13 +315,11 @@
             <p style="margin-bottom: 0;"><code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">done</code> — Final event with usage statistics and finish reason.</p>
         </div>
 
-        <h3>Rate limits</h3>
+        <h3>Quota</h3>
         <ul>
-            <li><strong>3</strong> concurrent requests</li>
-            <li><strong>60</strong> requests per minute</li>
             <li><strong>100,000,000</strong> tokens per month (API usage only — browser chat does not count)</li>
         </ul>
-        <p>When a limit is hit you'll receive a <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">429</code> response. Check your current usage in chat Settings.</p>
+        <p>There is no requests-per-minute limit and no cap on concurrent requests: send as many as you like and the server queues them. The monthly token quota is the only limit. When it is exhausted you'll receive a <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">429</code> response. Check your current usage in chat Settings.</p>
 
         <h3>Context window</h3>
         <p>The model has a <strong>64k token</strong> context window (65,536 tokens, shared between your prompt and the generated response). If a request's prompt plus its <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">max_tokens</code> would exceed that, Munin automatically reduces <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">max_tokens</code> to fit and retries, so long sessions keep working. If the prompt <em>alone</em> exceeds the window you'll get a clear <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">400</code> error ("maximum context length is 65536 tokens..."). Trim the conversation or start a new chat.</p>
@@ -455,7 +453,7 @@ curl -s -H "Authorization: Bearer sk-munin-..." https://api.muninai.org/v1/model
             <li>Replace <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">APIKEYHERE</code> with the <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">sk-munin-</code> key from step 2. opencode reads the key literally, so paste it in directly. If you keep <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">opencode.json</code> in a project, don't commit it &mdash; the key grants access to your quota.</li>
             <li>The <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">limit</code> block matches the current deployment: a <strong>65,536-token</strong> context window with up to <strong>16,384 tokens</strong> of output per turn. opencode uses these to manage its context and compaction.</li>
             <li>opencode uses standard OpenAI chat completions, so requests automatically hit Munin's <strong>raw mode</strong> &mdash; the underlying model with no Munin persona, no system prompt, and no Munin tools. Opencode injects its own coding agent prompt.</li>
-            <li>Munin's API rate limits apply: <strong>3 concurrent requests</strong>, <strong>60 requests/minute</strong>, <strong>100M tokens/month</strong>. Opencode can burn tokens fast on large repos &mdash; keep an eye on usage in chat Settings.</li>
+            <li>Munin's only API limit is <strong>100M tokens/month</strong> &mdash; no request-rate or concurrency cap. Opencode can burn tokens fast on large repos, so keep an eye on usage in chat Settings.</li>
         </ul>
 
         <h3>5. Run it</h3>

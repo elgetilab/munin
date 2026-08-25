@@ -1,10 +1,14 @@
+# Per-user quotas for the API gateway. Deployed to /data/quotas.yml on the VPS
+# (a volume, NOT the rsync'd copy of this file), and hot-reloaded by load_quotas().
+#
+# requests_per_minute and concurrent_requests were REMOVED 2026-08-25: vLLM now
+# serves --max-num-seqs 8 under the TP=2 profile, so per-user gating is no longer
+# the right place to shed load. The gateway ignores those keys if present.
 default:
   tokens_per_month: 100000000   # 100M tokens/month per user (api_key usage; browser chat is free)
-  requests_per_minute: 60
-  concurrent_requests: 3
 
 overrides:
-  # Admin users bypass all rate limits (unlimited: true)
+  # Admin users bypass the quota (unlimited: true)
   admin@muninai.org:
     unlimited: true
   admin@example.org:
