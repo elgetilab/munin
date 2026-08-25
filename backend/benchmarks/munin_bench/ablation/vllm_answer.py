@@ -11,8 +11,14 @@ import json
 import time
 import urllib.request
 
-VLLM_URL = "http://127.0.0.1:8000"
-MODEL = "qwen3.6-35b-a3b"
+from .. import config
+
+# Resolved from config (env-overridable) rather than hardcoded: a model swap has
+# to move ONE literal, and these arms are the easiest place in the suite to leave
+# a stale one, because they bypass the retrieval service entirely and so never
+# fail loudly when the served model changes underneath them.
+VLLM_URL = config.VLLM_URL
+MODEL = config.VLLM_MODEL_NAME
 
 _BARE_SYSTEM = (
     "You are a research assistant. Answer the question using your own knowledge. "
@@ -27,18 +33,29 @@ _RAG_SYSTEM = (
 )
 
 
-def complete(prompt: str, *, system: str, max_tokens: int = 4096,
-             temperature: float = 0.7, timeout: int = 300) -> dict:
+def complete(prompt: str, *, system: str, max_tokens: int = None,
+             temperature: float = 0.7, timeout: int = 900) -> dict:
     """One vLLM chat completion. Returns {content, prompt_tokens,
-    completion_tokens, elapsed_s}."""
+    completion_tokens, elapsed_s}.
+
+    `max_tokens` defaults to the SAME budget the agentic arm gets
+    (config.MAX_OUTPUT_TOKENS, 16384) rather than the old 4096, and the request
+    carries the SAME reasoning effort. Both are arm-matching requirements, not
+    tuning: see config.LLM_REASONING_EFFORT for what happens when they drift.
+    The timeout is 900s to match the agentic arm's deadline, so an arm is never
+    truncated by the client while the model is still producing.
+    """
     body = {
         "model": MODEL,
         "messages": [{"role": "system", "content": system},
                      {"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
+        "max_tokens": config.MAX_OUTPUT_TOKENS if max_tokens is None else max_tokens,
         "temperature": temperature,
         "stream": False,
     }
+    if config.LLM_REASONING_EFFORT:
+        body["chat_template_kwargs"] = {
+            "reasoning_effort": config.LLM_REASONING_EFFORT}
     req = urllib.request.Request(
         VLLM_URL + "/v1/chat/completions",
         data=json.dumps(body).encode(),

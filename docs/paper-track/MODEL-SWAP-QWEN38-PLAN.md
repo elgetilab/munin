@@ -288,31 +288,42 @@ numbers, not in Track A. This is already the documented position.
 
 ### 4b. Model-dependent: MUST re-run
 
-**BLOCKER, fix before Track D runs.** `munin_bench/ablation/vllm_answer.py`
-drives the bare and RAG arms by calling vLLM **directly** on port 8000, so it
-bypasses both the gateway and `_raw_chat_proxy`. Two consequences, and the
-second is severe:
+**Arm-matching (FIXED 2026-08-25, `vllm_answer.py`).** The bare and RAG arms
+call vLLM **directly** on port 8000, bypassing both the gateway and
+`_raw_chat_proxy`, so anything the backend applies to the agentic arm has to be
+restated for them or the arms differ by more than the harness. Three things had
+drifted and are now resolved:
 
-1. It still carries `MODEL = "qwen3.6-35b-a3b"`, so it would talk to a model
-   name vLLM no longer serves.
-2. It sends no `chat_template_kwargs`, so the bare and RAG arms would run at
-   Qwen3.8's **xhigh** default while the agentic arm runs through
-   `chat_service` at **medium**. The arms would then differ by reasoning effort
-   as well as by harness, which is exactly the confound the ablation exists to
-   exclude.
+| | was | now |
+|---|---|---|
+| model | `"qwen3.6-35b-a3b"` hardcoded | `config.VLLM_MODEL_NAME` (env-overridable) |
+| reasoning effort | unset, i.e. Qwen3.8's `xhigh` | `config.LLM_REASONING_EFFORT` = `medium`, matching the agentic path |
+| output budget | `max_tokens=4096` | `config.MAX_OUTPUT_TOKENS` = 16384, matching `chat_context.DEFAULT_MAX_OUTPUT_TOKENS` |
 
-Worse, `vllm_answer.complete()` defaults to `max_tokens=4096`. At xhigh, one
-measured question consumed 11,374 completion tokens and returned an **empty**
-answer at an 8K cap. A 4K cap at xhigh would therefore return empty content on
-a substantial fraction of questions, which the scorer counts as
-unparseable/abstain. That would **depress the bare arm and inflate the harness
-delta** for a reason that has nothing to do with the harness. It is the same
-class of artifact as the 0.688 search-degraded run, and it would be much harder
-to spot because every individual component looks healthy.
+The middle row was the dangerous one. At `xhigh` one measured question consumed
+11,374 completion tokens and returned an **empty** answer at an 8K cap, so a 4K
+cap at `xhigh` would have returned empty content on a substantial fraction of
+questions. The scorer counts that as unparseable/abstain, which would have
+**depressed the bare arm and inflated the headline harness delta** for a reason
+having nothing to do with the harness. Same class of artifact as the 0.688
+search-degraded run, and harder to spot because every component looks healthy in
+isolation.
 
-Fix both before the clean run: update `MODEL`, and send the same
-`chat_template_kwargs` the agentic path sends so all three arms share one
-reasoning effort. Record the effort in the scorecard provenance.
+The constants live in `munin_bench/config.py` under the same env var names the
+backend uses (`LLM_REASONING_EFFORT`, `VLLM_MAX_OUTPUT_TOKENS`), so one export
+matches both sides. The client timeout also went 300s -> 900s to match the
+agentic arm's deadline, so no arm is truncated by the client while the model is
+still producing. Record the effort in the scorecard provenance.
+
+**Still mismatched, and a judgement call for the run owner: sampling.** The
+bare/RAG arms send `temperature=0.7` and no `top_p`/`top_k`/`presence_penalty`,
+while the agentic arm inherits the research persona's `temperature 1.0,
+top_p 0.95, top_k 20, presence_penalty 1.5`. This mismatch predates the model
+swap and was present in the committed 0.839/0.302 run, so aligning it now would
+change the arms' relationship to every prior number as well. Deliberately left
+alone: decide before the clean run whether the ablation isolates *harness* (align
+sampling) or *deployed configuration* (leave as is), and state the choice in the
+scorecard either way.
 
 Most of it is one command. `run_all` runs the three ablation arms, C1,
 faithfulness (with its own capture), writes one committed scorecard and

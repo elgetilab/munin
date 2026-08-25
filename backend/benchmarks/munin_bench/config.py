@@ -70,7 +70,26 @@ ENCODER_PRESETS = {
 
 # --- vLLM (query expansion for the frozen variant set) ----------------------
 VLLM_URL = os.getenv("VLLM_URL", "http://127.0.0.1:8000")
-VLLM_MODEL_NAME = os.getenv("VLLM_MODEL_NAME", "qwen3.6-35b-a3b")
+VLLM_MODEL_NAME = os.getenv("VLLM_MODEL_NAME", "qwen3.8-27b")
+
+# --- Arm-matching constants (Track D) ---------------------------------------
+# The bare and RAG arms call vLLM DIRECTLY, bypassing the retrieval service, so
+# anything the backend applies to the agentic arm has to be restated here or the
+# arms differ by more than the harness. These three MUST track their backend
+# counterparts; they use the same env var names so one export matches both.
+#
+#   LLM_REASONING_EFFORT   <- backend database.LLM_REASONING_EFFORT
+#   VLLM_MAX_OUTPUT_TOKENS <- backend chat_context.DEFAULT_MAX_OUTPUT_TOKENS
+#
+# Why this matters concretely: Qwen3.8 defaults to reasoning_effort "xhigh",
+# where one measured question consumed 11,374 completion tokens and returned an
+# EMPTY answer at an 8K cap. Left unset, the bare/RAG arms would run at xhigh
+# against the old 4096-token default and return empty content on a substantial
+# fraction of questions, which the scorer counts as unparseable/abstain. That
+# depresses the bare arm and INFLATES the headline harness delta for a reason
+# that has nothing to do with the harness.
+LLM_REASONING_EFFORT = os.getenv("LLM_REASONING_EFFORT", "medium").strip()
+MAX_OUTPUT_TOKENS = int(os.getenv("VLLM_MAX_OUTPUT_TOKENS", "16384"))
 
 # --- Retrieval ranking constants (copied from production) -------------------
 # main.py: fetch_k = min(top_k * 3, 100)
