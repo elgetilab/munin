@@ -19,10 +19,26 @@
 # Why TP=2 helps here:
 #   - The 23 GB AWQ-4bit WEIGHTS are the limiter on a single 32 GB 5090
 #     (they leave only ~6 GB for everything else, hence the 64k cap).
-#   - TP=2 splits the weights across both cards (~11.5 GB/card), freeing room.
-#     The KV cache is tiny on this model (hybrid attention: only 10 of 40 layers
-#     are full-attention, plus 2 KV heads -> ~10 KB/token fp8), so even at the
-#     reduced footprint below, 128k context serves ~13 concurrent requests.
+#   - TP=2 splits the weights across both cards (~10 GB/card), freeing room.
+#
+#   KV BUDGET (recomputed 2026-08-25 for Qwen3.8-27B; the old MoE numbers here
+#   were NOT transferable). Qwen3.8 has 16 full-attention layers with 4 KV heads
+#   at head_dim 256, which is ~34.6 KB/token fp8 MEASURED, against ~10 KB on the
+#   old 35B-A3B. So KV is 3.2x dearer per token and the flags had to move:
+#     single-GPU  measured : 206,802 tok ->  3.16x at 65,536  (--max-num-seqs 2)
+#     TP=2        estimated : ~817,000 tok ->  6.2x at 131,072
+#   `--max-num-seqs` is 4, not the 8 inherited from the MoE. 8 would be 1.29x
+#   OVERSUBSCRIBED at 128k (8 x 131,072 = 1,048,576 tok against ~817,000), and 6
+#   sits exactly on the arithmetic limit with no margin. 4 preserves roughly the
+#   1.6x margin the MoE config had (13x available / 8 admitted).
+#
+#   AFTER THE FIRST START, read the real number and re-tune:
+#     grep "GPU KV cache size\|Maximum concurrency" /opt/munin/logs/vllm-service-<job>.out
+#   If it confirms >=6.2x at 131,072, raising to 6 is defensible. Do not raise it
+#   on the estimate alone: admission is bounded by the WORST case (every sequence
+#   at max-model-len), not by observed average usage, and preemption is costlier
+#   here than on a pure-attention model because the Gated DeltaNet recurrent
+#   state has to be recomputed rather than just re-read.
 #
 # ALLOCATION: claims the WHOLE of BOTH GPUs (gpu:vllm:1 + gpu:batch:1). While it
 # runs, ALL shards on both cards are blocked, so NO batch/deepresearch/user job
@@ -178,7 +194,7 @@ vllm serve "$MODEL_PATH" \
     --tensor-parallel-size $TENSOR_PARALLEL_SIZE \
     --gpu-memory-utilization 0.85 \
     --max-model-len $MAX_MODEL_LEN \
-    --max-num-seqs 8 \
+    --max-num-seqs 4 \
     --quantization compressed-tensors \
     --kv-cache-dtype fp8 \
     --served-model-name "$MODEL_NAME" \
