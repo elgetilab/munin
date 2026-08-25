@@ -68,11 +68,16 @@ Both files live in `shared/` because the VPS reads them too. Edit once, deploy f
 
 ## 4. vLLM model selection
 
-Three files reference the model name. Change all three together.
+For a first install, these three are enough to bring the stack up:
 
 - [ ] `backend/scripts/vllm/start-vllm-service.sh`: set `MODEL_ID`, `MODEL_PATH`, `MODEL_NAME`.
 - [ ] `backend/docker/docker-compose.yml`: set `VLLM_MODEL_NAME` to the same model name the retrieval service should request.
 - [ ] `backend/retrieval/database.py`: update the fallback model name to match.
+
+**Changing the model on a cluster that is already running is a longer
+list** (eleven places, including a tokenizer-staging step that fails
+silently). Do not use the three above for that. The canonical checklist is
+`backend/README.md` -> Common Tasks -> "Switch LLM model".
 
 ## 5. Run the deploy
 

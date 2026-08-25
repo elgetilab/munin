@@ -1,11 +1,21 @@
 # Model swap: Qwen3.6-35B-A3B -> Qwen3.8-27B (cyankiwi AWQ-INT4), and the paper re-measurement
 
-Status: PLAN, not approved. Written 2026-08-24. Revised 2026-08-24 after
-inspecting the cyankiwi quantization (see the revision note at the end of
-section 1).
+Status: PLAN, not approved. Written 2026-08-24. Revised 2026-08-25: retargeted
+to the cyankiwi checkpoint (revision note in section 1), and restructured from
+seven phases to three steps after the existing switch procedure was found (note
+below).
 
 Companion to `EVAL-SUITE-MASTER-PLAN.md` and `T2-ABLATION-REFRESH-PLAN.md`.
 Supersedes nothing until the re-run lands.
+
+> **Structure note.** The first draft laid this out as Phases 0 through 6. That
+> was plan-document inflation, not real structure: "Phase 1: config and code"
+> was re-deriving the checklist that already lives in `backend/README.md` ->
+> Common Tasks -> "Switch LLM model", "Phase 4" was one flag on a command that
+> "Phase 3" already runs, and "Phase 6" was a grep. There are three steps:
+> **switch the model**, **re-run the benchmarks that depend on it**, **update
+> the paper**. The mechanical checklist stays in the README where it belongs
+> and is not duplicated here.
 
 ---
 
@@ -23,13 +33,13 @@ the retrieval numbers.** Section 4 splits the suite on exactly that line, which
 is where most of the compute saving lives.
 
 Because the chosen checkpoint comes from the same quantizer, in the same
-format, at the same group size as the model already in production, this is much
-closer to a drop-in than a migration. Section 2 shows the existing single-GPU
-serving profile survives.
+format, at the same group size as the model already in production, the swap
+itself is close to a drop-in. Section 2 shows the existing single-GPU serving
+profile survives. **The re-measurement, not the swap, is the work.**
 
 ---
 
-## 1. Facts verified 2026-08-24 (not assumed)
+## 1. Facts verified (not assumed)
 
 **Target model.** `Qwen/Qwen3.8-27B`, released 2026-08-14, Apache 2.0.
 Dense 27B, 64 layers, hidden 5120, 24 query heads / 4 KV heads, head_dim 256,
@@ -78,8 +88,7 @@ custom Blackwell/CUDA-13 venv is not touched.
 **Tool parser.** The vLLM recipe for Qwen3.8 suggests
 `--tool-call-parser qwen3_coder`; Munin serves `qwen3_xml`. Since `qwen3_xml`
 demonstrably parses the Qwen3.5-family MoE in production, the prior is strongly
-that it also parses the dense sibling. Phase 0 still A/Bs it, but this is a
-routine check rather than the top risk.
+that it also parses the dense sibling. Step 1 still A/Bs it.
 
 **Hardware.** 2x RTX 5090, 32,607 MiB each, no NVLink, SLURM
 `ConstrainDevices=yes`. Disk has 2.1 TB free, so the 21 GB pull is a non-issue.
@@ -94,15 +103,13 @@ sensitivity and matches the recipe already validated in this system.
 `cyankiwi/Qwen3.8-27B-AWQ-FP8` (~28 GB) and
 `cyankiwi/Qwen3.8-27B-AWQ-BF16-INT4` (28.85 GB) have the same single-GPU
 problem. Neither cyankiwi nor barrydeen publishes accuracy-versus-BF16 numbers
-for any of these, so a quality sanity check stays in Phase 0 regardless; the
+for any of these, so a quality sanity check stays in step 1 regardless; the
 difference is that cyankiwi has a track record in this exact system.
 
 > **Revision note.** The first draft of this plan was costed against
 > barrydeen's 27.8 GB checkpoint and concluded that TP=2 was forced and that
 > GPU 0 would be permanently lost to batch work. That conclusion was an artifact
 > of the checkpoint, not of the model, and does not hold for the cyankiwi build.
-> Section 2 is rewritten accordingly, and the "accept the loss of GPU 0"
-> question is withdrawn.
 
 ---
 
@@ -146,35 +153,18 @@ is exactly the production setting today, and benchmarks run at concurrency 1
 regardless. Headroom is genuinely tighter than today's 4.74x, and `util 0.93`
 buys roughly another 50k tokens of KV if wanted.
 
-**The deployment architecture therefore does not change.** Keep both scripts:
+**The deployment architecture therefore does not change.** Both scripts stay:
+`start-vllm-service.sh` (single GPU, 64k) remains the default with GPU 0 free
+for batch work, and `start-vllm-service-tp2.sh` (both cards, 128k) remains the
+optional large-window profile. The ~30 hours of benchmark time in section 4
+does **not** need exclusive whole-node time.
 
-- `start-vllm-service.sh` (single GPU, `gpu:vllm:1`, 64k) stays the default.
-  GPU 0 stays free for batch, deepresearch and user jobs.
-- `start-vllm-service-tp2.sh` (both cards, 128k) stays the optional large-window
-  profile, with the same tradeoff it has today.
-
-This also means the ~30 hours of benchmark time in section 5 does **not** need
-exclusive whole-node time and can share the node with batch work, rather than
-being scheduled as a drained weekend.
-
-Proposed single-GPU serve line (a minimal edit to the existing script, not a
-new one):
-
-    vllm serve /opt/munin/data/models/qwen3.8-27b-awq-int4 \
-        --host 0.0.0.0 --port 8000 \
-        --gpu-memory-utilization 0.90 \
-        --max-model-len 65536 \
-        --max-num-seqs 2 \
-        --quantization compressed-tensors \
-        --kv-cache-dtype fp8 \
-        --served-model-name qwen3.8-27b \
-        --enable-auto-tool-choice \
-        --tool-call-parser <settled in Phase 0, prior is qwen3_xml> \
-        --reasoning-parser qwen3
-
-Note `--dtype float16` is dropped relative to the current script: the checkpoint
-carries BF16 tensors for the preserved modules, so let vLLM take the config
-dtype rather than forcing fp16 on them.
+Serve-line changes relative to the current script: new `MODEL_ID` / `MODEL_PATH`
+/ `MODEL_NAME`, and **drop `--dtype float16`**, because the checkpoint carries
+BF16 tensors for every preserved module and forcing fp16 on them is gratuitous.
+Everything else (`--quantization compressed-tensors`, `--kv-cache-dtype fp8`,
+`--max-model-len 65536`, `--max-num-seqs 2`, `--enable-auto-tool-choice`,
+`--reasoning-parser qwen3`) is unchanged.
 
 **Held back deliberately.** MTP speculative decoding
 (`--speculative-config '{"method":"mtp","num_speculative_tokens":3}'`) is
@@ -186,55 +176,58 @@ for production separately.
 
 Hold `--max-model-len` at **65536** for the whole re-measurement, matching the
 profile every existing committed number was produced under. Raising it would
-confound "new model" with "bigger window" and make the before/after diff
-uninterpretable. The 262k native headroom is future work and deserves its own
-ablation.
+confound "new model" with "bigger window". The 262k native headroom is future
+work and deserves its own ablation.
 
 ---
 
-## 3. Code and config changes
+## 3. Step 1: switch the model (half a day)
 
-112 references to `qwen3.6` / `35b-a3b` across 44 files, but only a small set is
-functional. Everything else is prose that gets a provenance sweep in Phase 6.
+**The mechanical checklist is `backend/README.md` -> Common Tasks -> "Switch
+LLM model", and is not repeated here.** It was updated on 2026-08-25 to cover
+all eleven places the model is named; the previous version named three and
+would have left a swap half-applied. `SETUP-CLUSTER.md` section 4 now points at
+it rather than carrying a competing short list.
 
-Functional, must change:
+Two items on that checklist deserve emphasis for this particular swap:
 
-| File | What |
-|---|---|
-| `backend/scripts/vllm/start-vllm-service.sh` | `MODEL_ID`, `MODEL_PATH`, `MODEL_NAME`, drop `--dtype float16`, update the banner and the ~19 GB download note |
-| `backend/scripts/vllm/start-vllm-service-tp2.sh` | same three constants; the 128k profile stays valid and roomier than single-GPU |
-| `backend/deploy.sh:89` `VLLM_MODEL_DIR` | **critical**: `stage_qwen_tokenizer` copies `tokenizer.json` out of this dir. If it is not updated, the retrieval container budgets context with the OLD tokenizer and every trim decision is silently wrong |
-| `backend/retrieval/database.py:63` `DEFAULT_LLM_MODEL_NAME` | default served-model name |
-| `backend/retrieval/main.py:1090` | `VLLM_MODEL_NAME` fallback literal |
-| `backend/docker/docker-compose.yml` (275, 477, 659) | `VLLM_MODEL_NAME`, `VLLM_SERVE_MODEL`, parser defaults. Already parameterised, so mostly a default bump |
-| `backend/docker/docker-compose.shadow.yml:87` | Track C2's shadow instance must match, or the paired arms differ by model |
-| `backend/config/munin.env.template:43`, `backend/config/munin-embedding-map.service:24` | deployed env |
-| `backend/benchmarks/munin_bench/config.py` `VLLM_MODEL_NAME` | bench default |
-| `backend/benchmarks/munin_bench/ablation/vllm_answer.py:15` `MODEL` | **the bare arm talks to vLLM directly**; miss this and the bare arm silently runs the old model while agentic runs the new one |
-| `.env.example` (129, 134, 141) | published defaults and the "results used X" note |
+- **`deploy.sh` `VLLM_MODEL_DIR`.** `stage_qwen_tokenizer` copies `tokenizer.json`
+  out of it. Miss it and the retrieval container keeps budgeting context with
+  the old tokenizer: no error, just wrong trim decisions in every long turn.
+- **Persona sampling params.** `shared/personas/*.json` carry
+  `params.temperature` (1.0 chat/research, 0.6 code), `top_p` 0.95, `top_k` 20,
+  `min_p` 0.0, `presence_penalty` (1.5 chat/research, 0.0 code). These are
+  Qwen3's recommended set. If Qwen3.8 recommends different values, changing them
+  is legitimate but it changes the system under test, so decide **before** the
+  clean run and hold it fixed throughout.
 
-Behavioural, worth a deliberate decision:
+Then, before any benchmark is trusted, in order:
 
-- `thinking_off_fields()` in `database.py:126` sends
-  `chat_template_kwargs: {"enable_thinking": false}` for mechanical sub-tasks
-  (summarise, query expansion, equation OCR). Qwen3.8 still honours
-  `enable_thinking`, and the current Qwen3.5-family model already accepts this
-  field in production. Verify in Phase 0 anyway; a 400 on this field is the
-  documented failure signature.
-- `reasoning_effort` is new. **Leave it unset (model default) for the entire
-  re-measurement.** A `reasoning_effort` sweep is an attractive follow-up
-  ablation (accuracy vs tokens vs latency) but folding it into the swap makes
-  every headline number un-attributable.
-- Vision: both the old and new checkpoints preserve the vision tower at BF16, so
-  `vision.py`'s `image_url` path should be at parity or better. Smoke-test it;
-  do not benchmark it (there is no vision claim in the paper).
+1. Read `GPU KV cache size` and `Maximum concurrency` out of the startup log.
+   **Gate:** at least ~131,000 tokens (2x at 65,536). If lower, raise
+   `--gpu-memory-utilization` to 0.93 and re-read; if still short, fall back to
+   the TP=2 profile and reinstate the whole-node scheduling assumption.
+2. `/v1/models` reports `max_model_len` 65536.
+3. A plain completion works.
+4. `chat_template_kwargs: {"enable_thinking": false}` returns 200, not 400.
+   A 400 on this field is the documented failure signature and would mean every
+   mechanical sub-task (summarise, query expansion, equation OCR) is broken while
+   plain chat looks fine.
+5. **Tool calling.** Drive one multi-tool turn through the live chat and confirm
+   parsed `tool_calls`. A/B `qwen3_xml` against `qwen3_coder`. Prior is
+   `qwen3_xml`.
+6. One vision turn through `vision.py`.
+7. Quality smoke: a handful of LitQA2 questions answered sanely, since cyankiwi
+   publishes no accuracy-versus-BF16 numbers. A smoke test, not a measurement.
+8. Single-stream decode tok/s and prefill on a realistic 20k prompt.
+   **Gate:** extrapolate Track D wall-clock before committing to step 2. A dense
+   27B reads far more weight bytes per decode step than a 3B-active MoE, so a
+   slowdown is expected; the question is whether it is 1.5x or 5x. If Track D
+   extrapolates past ~24h, evaluate MTP speculative decoding first.
 
 ---
 
-## 4. What gets re-run, and what deliberately does not
-
-This is the part that saves days of GPU time, and it is a correctness argument
-before it is a cost argument.
+## 4. Step 2: re-run the benchmarks that depend on the model (~30h GPU)
 
 ### 4a. Model-independent: DO NOT re-run
 
@@ -251,40 +244,54 @@ so plainly: **retrieval numbers carry over from the BGE-large corpus and are
 model-independent by construction; generation numbers are re-measured on
 Qwen3.8-27B.**
 
-One honest caveat to state in Limitations: in *production* the AgentRetriever
-expands queries with the live LLM, so real-world expansion quality does move
-with the model. The benchmark freezes it; that drift shows up in Track D/E
-end-to-end numbers, not in Track A. This is already the documented position.
+One honest caveat for Limitations: in *production* the AgentRetriever expands
+queries with the live LLM, so real-world expansion quality does move with the
+model. The benchmark freezes it; that drift shows up in Track D/E end-to-end
+numbers, not in Track A. This is already the documented position.
 
 ### 4b. Model-dependent: MUST re-run
 
-Ordered by dependency, because several tracks consume another track's output.
+Most of it is one command. `run_all` runs the three ablation arms, C1,
+faithfulness (with its own capture), writes one committed scorecard and
+certifies it:
 
-| # | Track | Command | n | New generation? |
-|---|---|---|---|---|
-| 1 | D: ablation, 3 arms | `munin_bench.ablation.run_arm --arm {bare,rag,agentic}` then `ablation.compare` | 199 x 3 | yes |
-| 2 | T11: tool reliability | derived from the Track D agentic telemetry | - | no, derived |
-| 3 | B: faithfulness per arm | `munin_bench.ablation.faithfulness` (MiniCheck judge unchanged) | 189 | no, scores #1's transcripts on GPU |
-| 4 | C1: fabricated papers | `munin_bench.abstention.run_c1`, `egress=full` | 100 | yes |
-| 5 | C2b: shadow pair | `munin_bench.abstention.run_c2 --arm {present,absent}`, `egress=off` | 50 x 2 | yes, needs the :8081 shadow stack on the SAME model |
-| 6 | C: risk-coverage | `munin_bench.abstention.risk_coverage` over #1, #4, #5 | - | no, derived |
-| 7 | Phase 5 LitQA2 answer | `run_litqa2 --track answer --concurrency 1` | 199 | yes, kept for continuity with the pre-agent arc |
-| 8 | Routing regression (A0-A5) | `munin_bench.routing.routing_eval` | - | yes. Not a paper number, but it is the deploy gate and a model swap is exactly what it exists to catch |
+    PYTHONPATH=$HOME/.cache/munin_bench_deps:. NEO4J_PASSWORD=... $PY \
+      -m munin_bench.pipelines.run_all --tag qwen38-27b \
+      --tracks litqa2-answer,faithfulness,abstention,ablation \
+      --limit 199 --with-reliability --certify --date <D>
 
-Then one unified certification pass:
+> **`--limit 199` is not optional.** `run_all` computes the ablation size as
+> `n = args.limit or 100`, so the default gives a **100**-question run, while
+> every committed headline number is n=199. Omitting the flag produces a
+> scorecard that looks fine and is not comparable to anything. The same value is
+> a harmless cap for the other three tracks (their pools are 189 and 100).
 
-    run_all --tag qwen38-27b --tracks litqa2-answer,faithfulness,abstention,ablation \
-            --with-reliability --certify --date <D>
+Note the deliberate omission of `beir-scifact,litqa2-retrieval` from `--tracks`,
+per 4a.
 
-`--certify` gates against `certification_thresholds.json`. Note the thresholds
-were set from the 2026-07-13 baseline with a ~15% margin and are explicitly
-provisional. **Expect to have to decide, not just read, the verdict**: if
-Qwen3.8-27B lands inside the margin the gate passes; if it exceeds the old
-baseline the thresholds should be deliberately re-based, and if it fails, that
-failure is itself a finding worth reporting rather than a reason to tune.
+Four things `run_all` does not cover, run separately:
 
-Note the deliberate omission of `beir-scifact,litqa2-retrieval` from the
-`--tracks` list, per 4a.
+| Track | Why separate | New generation? |
+|---|---|---|
+| C2b shadow pair | needs the second retrieval stack on :8081 (`docker-compose.shadow.yml`), `egress=off` | yes, 50 x 2 |
+| T11 tool reliability | `munin_bench/toolreliability/`, reads Track D agentic telemetry | no, derived |
+| Risk-coverage | `munin_bench.abstention.risk_coverage` over the ablation + C1 + C2 outputs | no, derived |
+| Routing regression A0-A5 | `munin_bench.routing.routing_eval`. Not a paper number, but it is the deploy gate and a model swap is what it exists to catch | yes |
+
+`--with-reliability` is the pong behavioural registry, **not** T11. The two are
+easy to confuse because both are called reliability; only T11 is in the paper.
+
+Smoke first: the same `run_all` line with `--limit 20` and a throwaway `--tag`.
+That confirms tool-call rate, abstention behaviour, verdict parseability and
+Brave burn per query for under $1. Compare tool calls/query against the old
+8.61: a large jump is a cost signal, a large drop is a behaviour signal.
+
+**Certification.** `--certify` gates against `certification_thresholds.json`,
+whose thresholds came from the 2026-07-13 baseline with a ~15% margin and are
+explicitly provisional. **Expect to decide, not just read, the verdict**: inside
+the margin passes; above the old baseline means the thresholds should be
+deliberately re-based; a fail is itself a finding worth reporting rather than a
+reason to tune.
 
 ### 4c. Free bonus result
 
@@ -293,72 +300,16 @@ over per-query arrays. The 199 LitQA2 questions are identical across the old and
 new runs, so old-model vs new-model is a legitimate **paired** comparison at
 zero extra compute. That gives the paper a model-sensitivity result it does not
 currently have: how much of the 0.839 agentic accuracy is the harness and how
-much is the specific backbone. Given the paper's central claim is "the harness
-is what produces the accuracy", a second backbone reproducing the harness delta
-is a genuinely strong addition, not a chore. The MoE-to-dense jump makes it a
-more informative second point than a same-family size bump would have been.
+much is the specific backbone. Given the central claim is "the harness is what
+produces the accuracy", a second backbone reproducing the harness delta is a
+genuine strengthening. The MoE-to-dense jump makes it a more informative second
+point than a same-family size bump would have been.
 
 ### 4d. Still not fillable by compute
 
-Unchanged by this plan, and the paper should keep saying so: Phase 4 local query
-pool, T3 stratum 2, T7 answer-level local pool. All three are blocked on human
-query curation and two-annotator qrels. A new model does not unblock them.
-
----
-
-## 5. Execution phases
-
-**Phase 0: serving proof (half a day, no benchmarks).**
-Pull the checkpoint. Serve it single-GPU by hand outside SLURM if the node is
-free, else via a short interactive job. Then, in order:
-1. Read `GPU KV cache size` and `Maximum concurrency` out of the startup log.
-   **Gate:** at least ~131,000 tokens, i.e. 2x at 65,536. If lower, raise
-   `--gpu-memory-utilization` to 0.93 and re-read; if still short, fall back to
-   the TP=2 profile and reinstate the whole-node scheduling assumption.
-2. `/v1/models` returns `max_model_len` 65536.
-3. A plain completion works.
-4. `chat_template_kwargs: {"enable_thinking": false}` returns 200, not 400.
-5. **Tool calling**: drive one multi-tool turn through the live chat and confirm
-   parsed `tool_calls`. A/B `qwen3_xml` against `qwen3_coder` and pick the one
-   that parses cleanly. Prior is `qwen3_xml`, since it parses the Qwen3.5-family
-   MoE today.
-6. One vision turn through `vision.py`.
-7. A quick quality sanity check against the unquantized model's published
-   behaviour, since cyankiwi publishes no accuracy-versus-BF16 numbers. A handful
-   of LitQA2 questions answered sanely is enough; this is a smoke test, not a
-   measurement.
-8. Measure single-stream decode tok/s and prefill on a realistic 20k prompt.
-   **Gate:** extrapolate Track D wall-clock from it before committing. A dense
-   27B reads roughly an order of magnitude more weight bytes per decode step
-   than a 3B-active MoE, so a slowdown is expected; the question is whether it is
-   1.5x or 5x. If the extrapolation exceeds ~24h for Track D, evaluate MTP
-   speculative decoding before the clean run rather than after.
-
-**Phase 1: config and code.** Section 3. Deploy retrieval, and confirm
-`stage_qwen_tokenizer` actually picked up the NEW `tokenizer.json`.
-
-**Phase 2: pilot.** Track D agentic at `--limit 20`, `egress=full`. Confirms
-tool-call rate, abstention behaviour, verdict parseability and Brave burn per
-query before spending the real budget. Compare tool calls/query against the old
-8.61: a large jump is a cost signal, a large drop is a behaviour signal, both
-matter.
-
-**Phase 3: the clean run.** Sequence 4b in order, concurrency 1, one
-uninterrupted window. Pre-flight: Brave balance funded and asserted (section 6),
-`X-Munin-Egress` set per track and recorded. Batch work may share the node,
-since vLLM holds only `gpu:vllm:1`.
-
-**Phase 4: derived tracks + certification.** T11, faithfulness, risk-coverage,
-`run_all --certify`, and the 4c paired old-vs-new comparison.
-
-**Phase 5: paper update.** `RESULTS.md` gets a new dated section per track (never
-edit old sections in place; the arc is the value). `PAPER.md` provenance block
-changes model, and gains an explicit sentence that retrieval numbers are on the
-old provenance by construction. `docs/paper-kit/` 04-METHODS, 05-RESULTS,
-06-ABLATIONS, 08-LIMITATIONS and the scorecard bundle all follow.
-
-**Phase 6: prose sweep.** The remaining ~100 `qwen3.6` mentions across README,
-DESIGN, DECISIONS, agent-track docs.
+Phase 4 local query pool, T3 stratum 2, T7 answer-level local pool. All three
+are blocked on human query curation and two-annotator qrels. A new model does
+not unblock them, and the paper should keep saying so.
 
 ### Time budget
 
@@ -372,17 +323,19 @@ Old-model anchors: Track D clean run was 4.4h for 199 x 3 arms at concurrency 1
 | C1 | ~2h | 4h |
 | C2 pair | ~2h | 4h |
 | Faithfulness scoring (GPU, judge only) | ~1h | 1h |
-| Pilot + Phase 0 | - | 2h |
+| Smoke + step 1 | - | 2h |
 | **Total** | | **~28 to 32h** |
 
-The 2x factor is a placeholder that **Phase 0 step 8 replaces with a
-measurement**. This is GPU 1 time only, not whole-node time, so it can run
-alongside batch work. Expect to need a second window if the first run trips
-anything.
+The 2x factor is a placeholder that **step 1 item 8 replaces with a
+measurement**. This is GPU 1 time, not whole-node time, so batch work can share
+the node. Expect a second window if the first run trips anything.
+
+Pre-flight for the clean run: Brave balance funded and asserted (section 5),
+`X-Munin-Egress` set per track and recorded.
 
 ---
 
-## 6. Brave Search API cost
+## 5. Brave Search API cost
 
 ### Pricing (checked 2026-08-24)
 
@@ -401,10 +354,10 @@ up to 3 billed Brave requests**, serialized at `BRAVE_SEARCH_QPS=1`.
 
 Observed on the 2026-07-27 clean run: 307 `web_search` calls across 199 agentic
 questions (T11 scorecard), and the Track D note records ~1,093 actual Brave
-calls for that run, i.e. **~3.6 billed requests per `web_search` call** once
-retries are included. Track C1 is much heavier per query: 528 `web_search` calls
-across 100 questions (5.28/query), which makes sense because the model is
-hunting for papers that do not exist.
+calls, i.e. **~3.6 billed requests per `web_search` call** once retries are
+included. Track C1 is much heavier per query: 528 `web_search` calls across 100
+questions (5.28/query), which makes sense because the model is hunting for
+papers that do not exist.
 
 ### Estimate for one full re-measurement pass
 
@@ -413,7 +366,7 @@ defaults to `off`, and the bare and RAG arms make no tool calls at all.
 
 | Run | Egress | Queries | web_search (old model) | Brave reqs @3.6x | Cost |
 |---|---|---|---|---|---|
-| Phase 0 + pilot (limit 20) | full | ~20 | ~35 | ~130 | $0.65 |
+| Step 1 + smoke (limit 20) | full | ~20 | ~35 | ~130 | $0.65 |
 | Track D agentic | full | 199 | 307 | ~1,105 | $5.53 |
 | Track D bare + RAG | full | 398 | 0 | 0 | $0.00 |
 | Track C1 fabricated | full | 100 | 528 | ~1,900 | $9.50 |
@@ -427,16 +380,16 @@ defaults to `off`, and the bare and RAG arms make no tool calls at all.
 - **One clean pass: ~$25.** ~$16 if the optional C2 `egress=full` pair is dropped.
 - **Realistic total: $60 to $75.** Assume one shakedown pass that trips something
   plus one clean pass, and note the new model's tool-call rate is unknown. A
-  chattier model could plausibly double `web_search` volume; the pilot in Phase 2
-  is what turns this from a guess into a number, and it costs under $1 to find out.
+  chattier model could plausibly double `web_search` volume; the smoke run turns
+  this from a guess into a number for under $1.
 - **Provision $100** on the card so a mid-run 402 is impossible.
 
 **Why the ceiling matters more than the mean.** A Brave 402 or 429 mid-run does
 not fail loudly: `web_search` degrades and the run keeps going. That is exactly
 the failure mode that produced the misleading 0.688 agentic figure on 2026-07-26
 and cost a full re-run. So: fund before starting, assert the balance in the
-Phase 3 pre-flight, and grep the run log for 402/429 before certifying, the same
-way the 07-27 run did.
+pre-flight, and grep the run log for 402/429 before certifying, as the 07-27 run
+did.
 
 **Knob, deliberately not turned.** `BRAVE_MAX_QUERIES=3 -> 1` would cut the bill
 by ~3x, but it changes the system under test. Do not touch it for the headline
@@ -448,44 +401,65 @@ a 45% error rate. Neither costs money; both are worth watching in the log.
 
 ---
 
+## 6. Step 3: update the paper
+
+`RESULTS.md` gets a new dated section per re-run track. **Never edit old
+sections in place**; the arc from SPECTER to BGE to the agent architecture is
+itself a result, and the file's own header says numbers are copied from
+scorecards rather than memory.
+
+`PAPER.md`'s shared-provenance block changes model, and gains an explicit
+sentence that the retrieval numbers are on the old provenance by construction
+(section 4a). Then `docs/paper-kit/` 04-METHODS, 05-RESULTS, 06-ABLATIONS,
+08-LIMITATIONS and the scorecard bundle follow.
+
+Last, the prose sweep: ~100 remaining `qwen3.6` / `35b-a3b` mentions across
+`README`, `DESIGN.md`, `DECISIONS.md` and the agent-track docs. A grep, not a
+phase.
+
+---
+
 ## 7. Risks, highest first
 
 1. **Throughput.** Dense 27B vs 3B-active MoE. Could turn a long weekend into a
-   week. Measured in Phase 0 step 8, mitigated by MTP if needed.
+   week. Measured in step 1 item 8, mitigated by MTP if needed.
 2. **KV headroom.** ~2.3x concurrency at 64k versus 4.74x today, on a projection
-   that assumes ~3 GB of non-KV overhead. Read the real number in Phase 0 step 1
-   before trusting it. Fallbacks: util 0.93, then TP=2.
+   assuming ~3 GB of non-KV overhead. Read the real number in step 1 item 1.
+   Fallbacks: util 0.93, then TP=2.
 3. **Quant quality unverified.** cyankiwi publishes no accuracy-versus-BF16
-   numbers. Mitigated by recipe identity with the model already in production and
-   by the Phase 0 step 7 sanity check. If accuracy craters, compare against
+   numbers. Mitigated by recipe identity with the production model and the step 1
+   item 7 sanity check. If accuracy craters, compare against
    `Qwen/Qwen3.8-27B-FP8` before concluding anything about the model itself.
-4. **Stale tokenizer.** `deploy.sh` `VLLM_MODEL_DIR` not updated means context
-   budgeting silently uses the old tokenizer. Fails quietly, corrupts trimming.
-5. **Shadow stack drift.** `docker-compose.shadow.yml` must move to the new model
-   or Track C2's paired arms differ by model as well as by corpus, which destroys
-   the pairing.
-6. **`vllm_answer.py` MODEL literal.** The bare arm bypasses the gateway. Miss it
+4. **`run_all --limit` default.** n=100 instead of 199, silently. Section 4b.
+5. **Stale tokenizer.** `deploy.sh` `VLLM_MODEL_DIR`. Fails quietly, corrupts
+   trimming.
+6. **Persona sampling params.** Part of the system under test. Decide once,
+   before the clean run, and hold fixed.
+7. **`vllm_answer.py` MODEL literal.** The bare arm bypasses the gateway. Miss it
    and the headline ablation compares two different models to each other.
-7. **Tool-call parser.** `qwen3_xml` vs `qwen3_coder`. Downgraded from top risk
-   because `qwen3_xml` parses the Qwen3.5-family MoE in production today. Still
-   gated in Phase 0 step 5, because the entire harness is tool calls.
-8. **Silent Brave exhaustion.** Section 6.
-9. **Confounding.** Context window, `reasoning_effort` and MTP all held fixed
-   through the measurement, deliberately.
+8. **Shadow stack drift.** `docker-compose.shadow.yml` must move to the new model
+   or Track C2's paired arms differ by model as well as by corpus.
+9. **Tool-call parser.** `qwen3_xml` vs `qwen3_coder`. Low, because `qwen3_xml`
+   parses the Qwen3.5-family MoE today. Still gated, because the harness is tool
+   calls.
+10. **Silent Brave exhaustion.** Section 5.
+11. **Confounding.** Context window, `reasoning_effort`, MTP and persona sampling
+    all held fixed through the measurement, deliberately.
 
 ---
 
 ## 8. Open questions before starting
 
-1. **Re-run the retrieval tracks anyway?** Recommendation is no (section 4a). Say
-   if you want them re-run for a uniform provenance line regardless.
+1. **Re-run the retrieval tracks anyway?** Recommendation is no (section 4a).
 2. **Keep the old-model results as a model-sensitivity comparison?** (Section 4c.)
    Recommendation is yes; it is free and it strengthens the central claim.
 3. **`reasoning_effort`:** leave at model default for the headline (recommended),
    or pin a value?
-4. **Brave budget:** confirm ~$100 provisioned.
-5. **Optional C2 `egress=full` pair:** run it (+$9.50) for comparability with the
+4. **Persona sampling:** keep Qwen3's current values, or adopt whatever Qwen3.8
+   recommends? Either is defensible; it has to be decided before the clean run.
+5. **Brave budget:** confirm ~$100 provisioned.
+6. **Optional C2 `egress=full` pair:** run it (+$9.50) for comparability with the
    old pair, or skip it since the headline C2 is `egress=off`?
 
 *(Withdrawn after the cyankiwi checkpoint review: "accept the permanent loss of
-GPU 0 to TP=2?" TP=2 is no longer required. See the revision note in section 1.)*
+GPU 0 to TP=2?" TP=2 is no longer required.)*

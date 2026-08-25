@@ -189,15 +189,57 @@ Notes:
 ## Common Tasks
 
 ### Switch LLM model
-1. Edit `MODEL_ID` / `MODEL_PATH` / `MODEL_NAME` in
-   `scripts/vllm/start-vllm-service.sh`.
-2. Update `VLLM_MODEL_NAME` in `docker/docker-compose.yml`.
-3. Update the fallback in `retrieval/database.py`.
-4. Update `temp` / `top_p` in `../shared/personas/*.json` if the
-   new model warrants different sampling.
-5. Deploy + restart vLLM (`sudo vllm-service stop && sudo
-   vllm-service start`) and retrieval (`sudo ./deploy.sh
-   retrieval`).
+
+Canonical checklist. Eleven places name the model; an earlier version of
+this list named three, which is how a swap ends up half-applied. Grouped
+by what breaks if you miss it.
+
+**Serving**
+1. `scripts/vllm/start-vllm-service.sh`: `MODEL_ID`, `MODEL_PATH`,
+   `MODEL_NAME`. Check `--dtype` and `--quantization` still suit the new
+   checkpoint, and re-check the VRAM headroom: after the first start, read
+   `GPU KV cache size` out of `/opt/munin/logs/vllm-service-<job>.out`.
+2. `scripts/vllm/start-vllm-service-tp2.sh`: the same three constants. Easy
+   to forget because it is the non-default profile.
+3. `deploy.sh`: `VLLM_MODEL_DIR` (near the top). **This is the trap.**
+   `stage_qwen_tokenizer` copies `tokenizer.json` out of that directory so
+   the retrieval container can budget context with the real tokenizer. Miss
+   it and the container silently keeps budgeting with the OLD model's
+   tokenizer: no error, just wrong trim decisions.
+
+**Backend**
+4. `docker/docker-compose.yml`: three occurrences, `VLLM_MODEL_NAME` (275,
+   659) and `VLLM_SERVE_MODEL` (477).
+5. `retrieval/database.py`: `DEFAULT_LLM_MODEL_NAME`.
+6. `retrieval/main.py`: the `VLLM_MODEL_NAME` fallback literal (~line 1090).
+   A second fallback, separate from the one above.
+7. `config/munin.env.template` and `config/munin-embedding-map.service`.
+8. `../.env.example`: the published defaults and the "results used X" note.
+9. `../shared/personas/*.json`: `params.temperature` / `top_p` / `top_k` /
+   `min_p` / `presence_penalty`, if the new model recommends different
+   sampling. The current values are Qwen3's recommended set. These are part
+   of the system under test, so changing them mid-benchmark invalidates the
+   comparison.
+
+**Benchmarks** (only if you intend to re-measure)
+10. `benchmarks/munin_bench/config.py`: `VLLM_MODEL_NAME`.
+11. `benchmarks/munin_bench/ablation/vllm_answer.py`: `MODEL`. The bare arm
+    calls vLLM directly, bypassing the gateway, so missing this makes the
+    headline ablation compare two different models to each other.
+12. `docker/docker-compose.shadow.yml`: the Track C2 shadow instance, or its
+    paired arms differ by model as well as by corpus.
+
+**Then**
+13. `sudo vllm-service stop && sudo vllm-service start`, and
+    `sudo ./deploy.sh retrieval`. Confirm the tokenizer actually moved:
+    the deploy prints `[OK] tokenizer staged to ...`.
+14. Smoke-test tool calling before trusting anything. If the new model
+    needs a different `--tool-call-parser`, every tool-using turn breaks
+    while plain chat keeps working, which is a confusing way to find out.
+
+A model swap also invalidates the committed benchmark numbers. See
+`../docs/paper-track/MODEL-SWAP-QWEN38-PLAN.md` for what has to be
+re-measured and what does not.
 
 ### Add MCP tool
 1. Implement in `retrieval/mcp/tools/*.py`.
