@@ -805,6 +805,10 @@ import os
 
 import httpx
 
+try:  # normal package import
+    from .. import config
+except ImportError:  # tests/test_profile_assertion.py puts munin_bench/ itself
+    import config     # on sys.path, which makes `routing` the top-level package
 from .trajectory import CapturedTrajectory, capture
 
 # A0 persona policy (KICKOFF-QUESTIONS Q7 / A0-PLAN decision A): all items
@@ -812,8 +816,10 @@ from .trajectory import CapturedTrajectory, capture
 # written against. NOT expected.profile (hard rule #3).
 A0_PERSONA = "chat"
 
-VLLM_URL = os.getenv("VLLM_URL", "http://localhost:8000")
-VLLM_MODEL_NAME = os.getenv("VLLM_MODEL_NAME", "Qwen3.6-35B-A3B")
+# Resolved from munin_bench.config so a model swap moves ONE literal; this
+# gate talks to vLLM directly and so never fails loudly on a stale name.
+VLLM_URL = os.getenv("VLLM_URL", config.VLLM_URL)
+VLLM_MODEL_NAME = config.VLLM_MODEL_NAME
 
 
 # ===========================================================================

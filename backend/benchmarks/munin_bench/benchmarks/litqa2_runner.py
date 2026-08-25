@@ -419,7 +419,7 @@ def run_answer(qc, *, base_url, email, results_root, n_resamples=1000,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "paperqa2_accuracy_published": PAPERQA2_ACCURACY,
         "caveat": ("NOT like-for-like vs PaperQA2: PaperQA2 was trained on LitQA2 "
-                   "(train+eval), Munin's model (Qwen3.6-35B) was not. A loss is "
+                   "(train+eval), Munin's model (Qwen3.8-27B) was not. A loss is "
                    "expected and informative; parity is strong; a win remarkable. "
                    "Precision excludes abstentions + unparseable; accuracy counts "
                    "them as wrong."),

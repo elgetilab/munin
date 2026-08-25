@@ -84,7 +84,7 @@ services:
       # (resolved via the extra_hosts host-gateway entry above; must not be
       # pinned to a host LAN IP — that breaks on any subnet change)
       - VLLM_URL=http://host.docker.internal:8000
-      - VLLM_MODEL_NAME=qwen3.6-35b-a3b
+      - VLLM_MODEL_NAME=${VLLM_MODEL_NAME:-qwen3.8-27b}
       # Context window: the vLLM start scripts `export` these before
       # `docker compose up` to match the running mode (single-GPU 65536/60000,
       # TP=2 131072/125000) so the backend uses the right window. Compose
