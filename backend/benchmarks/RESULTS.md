@@ -2,7 +2,19 @@
 
 Consolidated, committed record of every eval-suite run so far. The raw
 per-query artifacts live under `results/` (gitignored, regenerable); this file
-is the durable summary. Numbers are copied from the result JSONs, not memory.
+is the durable summary.
+
+> **`ablation_runs/`, `c1_runs/`, `c2_runs/` and `faithfulness_runs/` are NOT
+> regenerable**, despite being gitignored alongside `results/`. They hold the
+> per-query verdicts behind the headline numbers, the committed scorecards carry
+> only `per_arm` and `deltas` (no per-query arrays), and the model that produced
+> them is no longer deployed. `run_arm.run()` overwrites `ablation_runs/<arm>.json`
+> in place, so a single re-run destroys the only copy and with it any paired
+> old-vs-new comparison. The 2026-07-27 clean run is archived **off-machine** at
+> `varghele@<vps>:~/backups/munin-bench-artifacts/` (5.3 MB tar.gz + sha256 +
+> manifest, verified on arrival 2026-08-25), with a working copy at
+> `~/munin-bench-artifacts-2026-08-25-pre-qwen38/` on hugin. Take a fresh
+> off-machine copy before any re-run that writes these directories. Numbers are copied from the result JSONs, not memory.
 
 **Provenance shared by all runs below**
 - Generation model: `qwen3.6-35b-a3b` (Qwen3.6-35B-A3B-AWQ-4bit), vLLM.

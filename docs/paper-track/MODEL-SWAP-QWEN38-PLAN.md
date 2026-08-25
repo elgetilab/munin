@@ -369,6 +369,15 @@ reason to tune.
 
 ### 4c. Free bonus result
 
+**Back the old artifacts up off-machine first.** This comparison reads
+per-query arrays that exist ONLY in `ablation_runs/` (gitignored, untracked);
+the committed scorecard has `per_arm` and `deltas` but no per-query data, and
+`run_arm.run()` overwrites `ablation_runs/<arm>.json` in place. One re-run
+destroys the old side of the comparison permanently. The 2026-07-27 set is
+archived at `varghele@<vps>:~/backups/munin-bench-artifacts/` (sha256-verified
+2026-08-25); hugin's home directory is NOT a backup, since it shares a disk with
+the repo.
+
 `munin_bench.pipelines.compare <old>.json <new>.json` does a paired bootstrap
 over per-query arrays. The 199 LitQA2 questions are identical across the old and
 new runs, so old-model vs new-model is a legitimate **paired** comparison at
