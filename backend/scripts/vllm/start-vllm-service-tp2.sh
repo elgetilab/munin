@@ -244,11 +244,23 @@ date > /opt/munin/logs/service_started.txt
 # retrieval container is on a stale VLLM_MAX_MODEL_LEN, silently clamping long
 # answers. Non-fatal (warns loudly; never kills the live service).
 # ------------------------------------------------------------------------------
+# SLURM copies the batch script into its spool directory before running it, so
+# `dirname "${BASH_SOURCE[0]}"` resolves to the spool copy, NOT to the install
+# directory. That silently skipped this assertion on EVERY SLURM start (checked
+# jobs 919, 920, 923, 964 - all logged "not found beside this script"), which is
+# exactly the class of quiet drift the assertion exists to catch. Look in the
+# install location first, then beside the script for a direct repo-side run.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -x "$SCRIPT_DIR/check-context-window.sh" ]; then
-    "$SCRIPT_DIR/check-context-window.sh" "$MAX_MODEL_LEN" || true
+CHECK_WINDOW=""
+for _cand in /opt/cluster/scripts/llm/check-context-window.sh \
+             "$SCRIPT_DIR/check-context-window.sh"; do
+    if [ -x "$_cand" ]; then CHECK_WINDOW="$_cand"; break; fi
+done
+if [ -n "$CHECK_WINDOW" ]; then
+    "$CHECK_WINDOW" "$MAX_MODEL_LEN" || true
 else
-    echo "[WARN] check-context-window.sh not found beside this script; skipping window assertion"
+    echo "[WARN] check-context-window.sh not found in /opt/cluster/scripts/llm"
+    echo "       nor $SCRIPT_DIR; skipping window assertion"
 fi
 
 # ------------------------------------------------------------------------------
