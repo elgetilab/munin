@@ -394,6 +394,43 @@ Phase 4 local query pool, T3 stratum 2, T7 answer-level local pool. All three
 are blocked on human query curation and two-annotator qrels. A new model does
 not unblock them, and the paper should keep saying so.
 
+### Pilot measurements, 2026-08-25 (TP=2, `egress=off`, no Brave spend)
+
+Run through `run_arm`'s internals so nothing was written to `ablation_runs/`.
+
+| arm | n | accuracy | abstain | unparseable | median | extrapolated 199q |
+|---|---|---|---|---|---|---|
+| bare | **199** | **0.422** (84) | 0.050 (10) | **0** | 7.2s | **0.43h** |
+| rag | 3 | - | - | 0 | 7.3s | ~0.5h |
+| agentic | 3 | 2 of 3 | 0 | **1** | 172s | see below |
+
+**The old bare arm was under-measured, and the published harness delta is
+partly an artifact of that.** The 2026-07-27 bare arm scored 0.302 with **33
+unparseable** out of 199, at `max_tokens=4096`. Those 33 are truncations scored
+as failures, not wrong answers. With the budget raised to 16,384 (matching the
+agentic arm) the new bare arm returns **0 unparseable** and 0.422. Some of that
+gain is the new model and some is purely the budget fix, and the two cannot be
+separated from this run alone. The consequence for the paper is concrete: the
+headline `agentic - bare = +0.538` was inflated by a bare arm that was losing
+16.6% of its questions to truncation. Expect the re-run's delta to be
+materially smaller, and say why in the write-up rather than presenting it as a
+regression. **A fair old-vs-new comparison would need the old model re-scored at
+16,384 too**, which is no longer possible: that checkpoint is not deployed.
+
+**The 900s deadline is no longer reliably sufficient.** One of the three agentic
+queries hit exactly `900.2s` after **24 tool calls** and returned unparseable;
+the other two finished in 164s and 172s with 5 and 12 calls. Caveat: this pilot
+ran at `egress=off`, where `web_search` returns a deliberate tool-failure, and
+the harness spends calls working around it. That is the same mechanism behind
+the 2026-07-26 search-degraded run (11.1 calls/query, 0.688). So the deadline
+hit may be an egress artifact rather than a model property, and the agentic
+timing here is **not** a usable estimate. Resolve it with a small `egress=full`
+pilot before committing to the clean run, and budget for raising the deadline.
+
+Extrapolating from the two clean agentic queries only: ~168s x 199 = **~9.3h**,
+so Track D lands near **10-11h** total rather than the 9-13h guessed earlier.
+Treat as provisional until the `egress=full` pilot.
+
 ### Time budget
 
 Old-model anchors: Track D clean run was 4.4h for 199 x 3 arms at concurrency 1
