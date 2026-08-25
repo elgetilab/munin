@@ -1930,7 +1930,8 @@ class PaperPipeline:
             if doi_key:
                 session.run("""
                     MERGE (p:Paper {doi: $doi})
-                    SET p.paper_id = $paper_id,
+                    SET p.doi_key = $doi,
+                        p.paper_id = $paper_id,
                         p.title = $title,
                         p.year = $year,
                         p.journal = $journal,
@@ -1979,12 +1980,14 @@ class PaperPipeline:
                     session.run("""
                         MATCH (p:Paper {doi: $doi})
                         MERGE (cited:Paper {doi: $ref})
+                        SET cited.doi_key = $ref
                         MERGE (p)-[:CITES]->(cited)
                     """, doi=doi_key, ref=_norm_doi(ref_doi))
                 else:
                     session.run("""
                         MATCH (p:Paper {paper_id: $pid})
                         MERGE (cited:Paper {doi: $ref})
+                        SET cited.doi_key = $ref
                         MERGE (p)-[:CITES]->(cited)
                     """, pid=paper.id, ref=_norm_doi(ref_doi))
 

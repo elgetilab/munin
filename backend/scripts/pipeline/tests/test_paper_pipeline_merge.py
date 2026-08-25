@@ -1326,6 +1326,36 @@ def test_store_graph_keys_every_query_on_the_normalised_doi() -> bool:
     )
 
 
+def test_store_graph_stamps_doi_key_on_papers_and_citation_stubs() -> bool:
+    """Reads match on the indexed `doi_key`, so any node this method creates
+    without one is invisible to /citations and /references. Citation stubs are
+    the easy one to forget -- they are MERGEd, not SET, so they carried no
+    doi_key until 2026-08-25."""
+    class _Sess:
+        def __init__(self, sink): self.sink = sink
+        def run(self, q, **kw): self.sink.append((q, kw)); return None
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    class _Neo:
+        def __init__(self, sink): self.sink = sink
+        def session(self): return _Sess(self.sink)
+
+    sink = []
+    pipe = _make_pipeline_stub()
+    pipe.neo4j = _Neo(sink)
+    pipe._store_graph(pp.Paper(
+        id="abcd0123", title="T", abstract="A", authors=[], doi="10.1/X",
+        year=2020, journal="J", references=["10.2/Y"],
+    ))
+    creates = [q for q, _ in sink if "MERGE (p:Paper" in q or "MERGE (cited:Paper" in q]
+    missing = [q.strip().splitlines()[0].strip() for q in creates if "doi_key" not in q]
+    return _check(
+        "store_graph: every Paper node it creates carries doi_key",
+        creates and not missing,
+        f"nodes created without doi_key: {missing!r}",
+    )
+
+
 TESTS = [
     test_normalize_basic,
     test_normalize_drops_stopwords,
@@ -1377,6 +1407,7 @@ TESTS = [
     test_norm_doi_agrees_with_the_qdrant_point_key,
     test_norm_doi_strips_and_handles_empty,
     test_store_graph_keys_every_query_on_the_normalised_doi,
+    test_store_graph_stamps_doi_key_on_papers_and_citation_stubs,
     # 2026-08-23 page-count filter (R1 batch finding)
     test_page_filter_accepts_article_numbered_paper,
     test_page_filter_still_rejects_a_genuinely_short_pdf,

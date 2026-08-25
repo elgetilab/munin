@@ -172,19 +172,13 @@ def get_citation_counts(dois: list[str]) -> dict[str, dict]:
 
     try:
         with neo4j.session() as session:
-            # `variants` pairs each requested DOI with its lowercase form so a
-            # pre-2026-08-25 node written in the source's original case still
-            # matches. Counts are summed back onto the requested DOI below.
-            # See _doi_key_variants for why this is not toLower().
-            variants = []
-            for d in dois:
-                if not d:
-                    continue
-                for v in dict.fromkeys([d, d.strip().lower()]):
-                    variants.append({"want": d, "key": v})
+            # Match on the indexed doi_key so a case-variant node pair is
+            # found by one lookup; counts are summed back onto the DOI the
+            # caller asked for. See _doi_key.
+            variants = [{"want": d, "key": _doi_key(d)} for d in dois if d]
             result = session.run("""
                 UNWIND $variants AS v
-                OPTIONAL MATCH (p:Paper {doi: v.key})
+                OPTIONAL MATCH (p:Paper {doi_key: v.key})
                 OPTIONAL MATCH (citing:Paper)-[:CITES]->(p)
                 OPTIONAL MATCH (p)-[:CITES]->(referenced:Paper)
                 RETURN v.want AS doi,
@@ -3047,24 +3041,21 @@ async def retrieve(request: RetrieveRequest):
 # ==============================================================================
 # Graph DOI lookup
 # ==============================================================================
-def _doi_key_variants(doi: str) -> list[str]:
-    """DOI forms to match against `Paper.doi` in Neo4j.
+def _doi_key(doi: str) -> str:
+    """Normalised graph key for a DOI: lowercased, trimmed.
 
-    The pipeline now keys graph nodes on the lowercased DOI, but records
-    written before 2026-08-25 kept whatever case the source supplied, so one
-    paper can still exist as a case-variant pair (13,053 of them at the time
-    of writing) with citations on one node and metadata on the other.
+    Every Paper node carries `doi_key = toLower(doi)` with its own index
+    (backfilled 2026-08-25 across 733,419 nodes). Matching on it rather than
+    on `doi` makes lookups symmetric: 13,053 papers exist as case-variant node
+    pairs, and both halves share one doi_key, so a single query finds both and
+    unions their relationships.
 
-    Matching `IN` a small list keeps the `paper_doi` index in play. Using
-    `toLower(p.doi) = ...` instead would disable the index and turn each
-    lookup into a full label scan over 733k nodes -- the exact regression
-    measured on 2026-08-04 (1,437,591 db hits versus 2). Drop this helper once
-    the graph has been migrated to lowercase keys.
+    The previous approach -- matching `doi IN [asked, asked.lower()]` -- only
+    worked when the CALLER supplied the mixed-case form. From a lowercase DOI
+    there is no way to derive an arbitrary original casing, and lowercase is
+    exactly what Qdrant payloads hold, so the common path stayed broken.
     """
-    if not doi:
-        return []
-    variants = [doi, doi.strip().lower()]
-    return list(dict.fromkeys(v for v in variants if v))
+    return (doi or "").strip().lower()
 
 
 @app.get("/citations/{doi:path}", response_model=CitationsResponse)
@@ -3089,17 +3080,17 @@ async def get_citations(doi: str, limit: int = 20):
     try:
         with neo4j.session() as session:
             # First get the paper's title
-            dois = _doi_key_variants(doi)
+            key = _doi_key(doi)
             paper_result = session.run("""
-                MATCH (p:Paper) WHERE p.doi IN $dois AND p.title IS NOT NULL
+                MATCH (p:Paper) WHERE p.doi_key = $key AND p.title IS NOT NULL
                 RETURN p.title as title LIMIT 1
-            """, dois=dois).single()
+            """, key=key).single()
 
             paper_title = paper_result["title"] if paper_result else None
 
             # Get citing papers
             result = session.run("""
-                MATCH (citing:Paper)-[:CITES]->(p:Paper) WHERE p.doi IN $dois
+                MATCH (citing:Paper)-[:CITES]->(p:Paper) WHERE p.doi_key = $key
                 RETURN citing.paper_id as paper_id,
                        citing.doi as doi,
                        citing.title as title,
@@ -3107,7 +3098,7 @@ async def get_citations(doi: str, limit: int = 20):
                        citing.journal as journal
                 ORDER BY citing.year DESC
                 LIMIT $limit
-            """, dois=dois, limit=limit)
+            """, key=key, limit=limit)
 
             citing_papers = [
                 PaperNode(
@@ -3154,17 +3145,17 @@ async def get_references(doi: str, limit: int = 50):
     try:
         with neo4j.session() as session:
             # First get the paper's title
-            dois = _doi_key_variants(doi)
+            key = _doi_key(doi)
             paper_result = session.run("""
-                MATCH (p:Paper) WHERE p.doi IN $dois AND p.title IS NOT NULL
+                MATCH (p:Paper) WHERE p.doi_key = $key AND p.title IS NOT NULL
                 RETURN p.title as title LIMIT 1
-            """, dois=dois).single()
+            """, key=key).single()
 
             paper_title = paper_result["title"] if paper_result else None
 
             # Get referenced papers
             result = session.run("""
-                MATCH (p:Paper)-[:CITES]->(ref:Paper) WHERE p.doi IN $dois
+                MATCH (p:Paper)-[:CITES]->(ref:Paper) WHERE p.doi_key = $key
                 RETURN ref.paper_id as paper_id,
                        ref.doi as doi,
                        ref.title as title,
@@ -3172,7 +3163,7 @@ async def get_references(doi: str, limit: int = 50):
                        ref.journal as journal
                 ORDER BY ref.year DESC
                 LIMIT $limit
-            """, dois=dois, limit=limit)
+            """, key=key, limit=limit)
 
             references = [
                 PaperNode(
