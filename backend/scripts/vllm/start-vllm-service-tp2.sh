@@ -12,7 +12,20 @@
 # MUNIN VLLM SERVICE - MULTI-GPU (TENSOR-PARALLEL) SLURM JOB SCRIPT
 # ==============================================================================
 # Same model as the single-GPU script, but SHARDED across BOTH RTX 5090s with
-# tensor parallelism (TP=2) to unlock a much larger context window.
+# tensor parallelism (TP=2).
+#
+# WHAT THIS PROFILE IS FOR (changed 2026-08-25): CONCURRENCY at the SAME 64k
+# window, not a bigger window. The single-GPU profile is capped at
+# --max-num-seqs 2 by its KV budget, and the agentic harness fans out enough
+# that one user turn alone was observed at Running 2 / Waiting 3. TP=2 doubles
+# the KV pool, which buys ~12.5x worst-case concurrency at 65,536 and lets the
+# cap go to 8.
+#
+# The window deliberately STAYS at 65,536. Every committed benchmark number was
+# produced at 64k, so raising the window here would entangle "new model" with
+# "bigger window" and make the paper's before/after diff uninterpretable. Set
+# MAX_MODEL_LEN=131072 to get the old large-window behaviour back; it fits
+# (~6.2x concurrency), it is just not what this profile is for right now.
 #
 # Model: Qwen3.8-27B-AWQ-INT4 (Gated DeltaNet + Gated Attention, dense, 262k native)
 #
@@ -27,10 +40,10 @@
 #   old 35B-A3B. So KV is 3.2x dearer per token and the flags had to move:
 #     single-GPU  measured : 206,802 tok ->  3.16x at 65,536  (--max-num-seqs 2)
 #     TP=2        estimated : ~817,000 tok ->  6.2x at 131,072
-#   `--max-num-seqs` is 4, not the 8 inherited from the MoE. 8 would be 1.29x
-#   OVERSUBSCRIBED at 128k (8 x 131,072 = 1,048,576 tok against ~817,000), and 6
-#   sits exactly on the arithmetic limit with no margin. 4 preserves roughly the
-#   1.6x margin the MoE config had (13x available / 8 admitted).
+#   At the 65,536 default: ~817,000 / 65,536 = ~12.5x, so MAX_NUM_SEQS=8 keeps
+#   ~1.56x margin. At 131,072 the ceiling is ~6.2x, where 8 would be 1.29x
+#   OVERSUBSCRIBED and 4 is the safe value. MAX_NUM_SEQS follows the window by
+#   hand, not automatically - if you raise MAX_MODEL_LEN, lower MAX_NUM_SEQS.
 #
 #   AFTER THE FIRST START, read the real number and re-tune:
 #     grep "GPU KV cache size\|Maximum concurrency" /opt/munin/logs/vllm-service-<job>.out
@@ -73,8 +86,17 @@ MODEL_NAME="qwen3.8-27b"
 VLLM_PORT=8000
 
 TENSOR_PARALLEL_SIZE=2
-MAX_MODEL_LEN=131072          # 128k (single-GPU script uses 65536). Native cap 262144.
-BACKEND_MAX_CONTEXT=125000    # retrieval history-trim ceiling (window minus a margin)
+# Overridable so the large-window variant is one env var away:
+#   MAX_MODEL_LEN=131072 sbatch start-vllm-service-tp2.sh
+MAX_MODEL_LEN=${MAX_MODEL_LEN:-65536}       # match the single-GPU window. Native cap 262144.
+# Retrieval history-trim ceiling = window minus a margin for the answer. Derived
+# so it cannot drift out of step with the window: 65536 -> 60000, 131072 -> 125536.
+BACKEND_MAX_CONTEXT=${BACKEND_MAX_CONTEXT:-$((MAX_MODEL_LEN - 5536))}
+# Worst-case admission: vLLM must hold MAX_NUM_SEQS sequences EACH at
+# MAX_MODEL_LEN. At 64k the estimated ~817,000-token TP=2 pool gives ~12.5x, so
+# 8 keeps ~1.56x margin (the same margin the old MoE config ran). At 131072 the
+# ceiling is ~6.2x, so drop this to 4 if you raise the window.
+MAX_NUM_SEQS=${MAX_NUM_SEQS:-8}
 
 # Load environment
 if [ -f /opt/hugin/config/cluster.env ]; then
@@ -194,7 +216,7 @@ vllm serve "$MODEL_PATH" \
     --tensor-parallel-size $TENSOR_PARALLEL_SIZE \
     --gpu-memory-utilization 0.85 \
     --max-model-len $MAX_MODEL_LEN \
-    --max-num-seqs 4 \
+    --max-num-seqs $MAX_NUM_SEQS \
     --quantization compressed-tensors \
     --kv-cache-dtype fp8 \
     --served-model-name "$MODEL_NAME" \
