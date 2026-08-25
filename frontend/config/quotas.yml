@@ -1,5 +1,9 @@
-# Per-user quotas for the API gateway. Deployed to /data/quotas.yml on the VPS
-# (a volume, NOT the rsync'd copy of this file), and hot-reloaded by load_quotas().
+# Per-user quotas for the API gateway. THIS file is bind-mounted straight into
+# the container at /data/quotas.yml, so a deploy rsync updates it in place.
+# Caveat: it is a SINGLE-FILE bind mount, and rsync replaces the inode rather
+# than writing through it, so a running container keeps serving the old contents
+# until it is recreated. `docker compose up -d --build` (the documented deploy
+# step) does that; a bare `docker compose up -d` may not.
 #
 # requests_per_minute and concurrent_requests were REMOVED 2026-08-25: vLLM now
 # serves --max-num-seqs 8 under the TP=2 profile, so per-user gating is no longer
