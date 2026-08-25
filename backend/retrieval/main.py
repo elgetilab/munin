@@ -71,6 +71,7 @@ from database import (
     DEEPRESEARCH_ENABLED,
     DEEPRESEARCH_QUEUE_DIR, DEEPRESEARCH_JOBS_DIR, SLURM_QUEUE_FILE,
     VLLM_URL,
+    reasoning_effort_fields,
     get_qdrant, get_neo4j, get_specter, get_bge,
     is_specter_loaded, is_bge_loaded,
 )
@@ -1092,6 +1093,20 @@ async def _raw_chat_proxy(
     forward: dict = {k: v for k, v in body.items() if k not in _MUNIN_ONLY_FIELDS}
     if not forward.get("model"):
         forward["model"] = os.getenv("VLLM_MODEL_NAME", "qwen3.8-27b")
+    # Apply Munin's reasoning-effort default (database.LLM_REASONING_EFFORT,
+    # "medium") ONLY when the client has not sent its own chat_template_kwargs.
+    #
+    # Raw mode is deliberately "the underlying model with no Munin opinions", so
+    # this is the one opinion worth having: Qwen3.8 defaults to `xhigh`, which
+    # measured 11,374 completion tokens for a 672-character answer and returned
+    # an EMPTY response (finish_reason "length", still inside <think>) at an
+    # 8K cap. An OpenAI-compatible client that sets a modest max_tokens gets
+    # nothing back and no useful error. Clients that care keep full control by
+    # sending chat_template_kwargs themselves, which wins outright rather than
+    # being merged, so `{"enable_thinking": false}` really does disable thinking
+    # instead of silently keeping an effort key beside it.
+    if "chat_template_kwargs" not in forward:
+        forward.update(reasoning_effort_fields())
     if not isinstance(forward.get("messages"), list) or not forward["messages"]:
         raise HTTPException(
             status_code=400,
