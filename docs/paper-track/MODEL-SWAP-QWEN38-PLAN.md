@@ -136,22 +136,59 @@ minus 23 GB of weights leaves 5.9 GB, of which KV received 3.18 GB. So
 **~2.7 GB goes to activations, CUDA graphs and non-torch overhead on this box.**
 That is a measured number for this card and this vLLM build, not a guess.
 
-**Projection for the proposed checkpoint, single GPU at util 0.90:**
+**MEASURED on the live service 2026-08-25** (job 964, single GPU, util 0.90).
+The projection in the first draft was ~153,000 tokens / 2.3x; the real overhead
+was lower than assumed, so the actual figures are better:
 
-| term | value |
-|---|---|
-| effective budget | 28.9 GB |
-| weights | 21.0 GB |
-| activations / graphs / DeltaNet state | ~3.0 GB (measured 2.7 on the MoE, rounded up for a dense 27B) |
-| **KV pool** | **~4.9 GB** |
-| **KV tokens @ 32 KB** | **~153,000** |
-| **concurrency at 65,536** | **~2.3x** |
-| concurrency at 131,072 | ~1.2x |
+| term | projected | **measured** |
+|---|---|---|
+| weights | 21.0 GB | 18.91 GiB |
+| KV pool | ~4.9 GB | **6.82 GiB** |
+| KV tokens | ~153,000 | **206,802** |
+| worst-case seqs at 65,536 | ~2.3x | **3.16x** |
 
-So **single GPU at the current 64k window with `--max-num-seqs 2` fits**, which
-is exactly the production setting today, and benchmarks run at concurrency 1
-regardless. Headroom is genuinely tighter than today's 4.74x, and `util 0.93`
-buys roughly another 50k tokens of KV if wanted.
+**`--max-num-seqs` STAYS AT 2. Do not raise it.** This is the one number most
+likely to be "optimised" by someone reading the throughput table below, so the
+reasoning is recorded here in full.
+
+The admission limit is set by the WORST case, not the average, because vLLM must
+be able to hold `max_num_seqs` sequences each at `max_model_len`. Compare the two
+models on that basis:
+
+| | KV pool | worst-case seqs at 65,536 | margin at `--max-num-seqs 2` |
+|---|---|---|---|
+| old Qwen3.6-35B-A3B | 310,827 tok | 4.74x | 2.37x |
+| **new Qwen3.8-27B** | 206,802 tok | **3.16x** | **1.58x** |
+
+The new model has **less** worst-case headroom than the model that ran at 2, not
+more, because its per-token KV is 3.2x larger (16 full-attention layers x 4 KV
+heads x head_dim 256 = 32 KB/token, against ~10 KB on the old MoE). Raising the
+cap to 6 would need 6 x 65,536 = 393,216 tokens against 206,802 available, i.e.
+**1.9x oversubscribed**, which forces preemption precisely on the heavy fan-out
+turns where it costs most. Preemption is also more expensive here than on a pure
+attention model: recomputing Gated DeltaNet recurrent state is not a plain KV
+recompute. 3 is the arithmetic ceiling, with no margin.
+
+**Do not reason from average KV usage.** Sampling the engine log during live
+turns shows only ~8-9% of the pool per running request, which naively suggests
+~11 concurrent. That figure is drawn from sub-agent and tool calls with small
+prompts. Main turns measured 27,332 and 37,040 prompt tokens, and the backend
+trims to `VLLM_MAX_CONTEXT=60000`, so a worst-case turn genuinely approaches the
+full window. The average is not the constraint.
+
+**Throughput, measured** (300-token generations, thinking off): 79.2 tok/s at
+concurrency 1, **143.1 tok/s at 2** (1.81x, so batching is nearly free), and flat
+at ~143 for 4 and 8 because everything above 2 queues. Prefill runs 1,250-2,955
+tok/s. Single-stream decode is ~77 tok/s steady state.
+
+One consequence worth knowing: a SINGLE backend turn was observed at
+`Running: 2, Waiting: 3`, because the agentic harness fans out internally. The
+cap therefore throttles one user's turn, not just concurrent users. That is a
+real latency cost, and the honest answer is that it is the price of the KV
+budget rather than a misconfiguration to be tuned away. The levers that do not
+oversubscribe KV are `--enable-prefix-caching` (the agent fan-out shares a long
+system-prompt prefix), MTP speculative decoding, and the TP=2 profile.
+
 
 **The deployment architecture therefore does not change.** Both scripts stay:
 `start-vllm-service.sh` (single GPU, 64k) remains the default with GPU 0 free
