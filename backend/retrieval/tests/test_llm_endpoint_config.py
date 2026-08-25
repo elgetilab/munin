@@ -26,6 +26,7 @@ from database import (
     resolve_llm_endpoint,
     thinking_off,
     thinking_off_fields,
+    reasoning_effort_fields,
 )
 
 FIELD = {"chat_template_kwargs": {"enable_thinking": False}}
@@ -131,3 +132,35 @@ def test_module_constants_agree_with_the_resolver():
     drift apart without a failure here."""
     import database
     assert (database.VLLM_URL, database.VLLM_MODEL_NAME) == resolve_llm_endpoint()
+
+
+# --- reasoning effort -------------------------------------------------------
+# Qwen3.8's own default is "xhigh", which at the production 16K output cap spent
+# the entire budget inside <think> and returned an EMPTY answer (measured
+# 2026-08-25). These pin the parts of that fix that fail silently.
+
+def test_default_pins_medium():
+    """If this flips to xhigh, hard turns start returning empty answers."""
+    assert reasoning_effort_fields() == {
+        "chat_template_kwargs": {"reasoning_effort": "medium"}}
+
+
+def test_blank_omits_the_field_entirely():
+    """Absent, not an empty string: the chat template raises on an unknown
+    value, which surfaces as a 400 on EVERY chat turn, not a degraded one."""
+    assert reasoning_effort_fields(effort="") == {}
+    assert reasoning_effort_fields(effort="  ") == {}
+    assert reasoning_effort_fields(effort="default") == {}
+
+
+def test_rides_the_thinking_toggle():
+    """Same non-OpenAI passthrough, so an endpoint strict enough to 400 on
+    `chat_template_kwargs` must not receive this field either."""
+    assert reasoning_effort_fields(enabled=False) == {}
+
+
+def test_does_not_collide_with_the_thinking_field():
+    """Both helpers write `chat_template_kwargs`. A caller that splats both
+    into one literal would silently keep only the last, so nothing in the tree
+    may do that; these are merged, never splatted together."""
+    assert set(thinking_off_fields()) == set(reasoning_effort_fields())

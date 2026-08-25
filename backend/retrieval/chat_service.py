@@ -44,7 +44,7 @@ import plan_store
 import stream_registry
 import capabilities as capabilities_module
 import vision
-from database import VLLM_MODEL_NAME
+from database import VLLM_MODEL_NAME, reasoning_effort_fields
 from vllm_client import vllm_post_json, vllm_post_stream, VLLMRequestError
 from usage_tracker import (
     current_usage_aggregator,
@@ -841,6 +841,18 @@ async def _stream_vllm_once(
         "max_tokens": chat_context.DEFAULT_MAX_OUTPUT_TOKENS,
     }
     body.update(sampling)
+    # Pin how hard the model thinks on this user-facing turn
+    # (database.LLM_REASONING_EFFORT, default "medium"; the model's own default
+    # is xhigh, which burns most of the output budget on the <think> trace and
+    # can run out mid-thought, returning an empty answer). Merged INTO any
+    # existing chat_template_kwargs rather than assigned over them, so a persona
+    # that sets its own passthrough keeps it.
+    for _key, _value in reasoning_effort_fields().items():
+        _existing = body.get(_key)
+        if isinstance(_existing, dict) and isinstance(_value, dict):
+            _existing.update(_value)
+        else:
+            body[_key] = _value
     # Fit the output budget to the room the (current) prompt leaves. history is
     # trimmed once at turn start, BEFORE tool results accumulate in the loop, so
     # a heavy fan-out turn (deep_research + many searches) can push the prompt

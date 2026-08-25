@@ -111,6 +111,28 @@ def resolve_llm_endpoint(env=None) -> tuple:
 # while plain chat works).
 LLM_THINKING_TOGGLE = _env_flag("LLM_THINKING_TOGGLE", True)
 
+# How hard the model thinks on a USER-FACING turn.
+#
+# Qwen3.8 reads `reasoning_effort` out of `chat_template_kwargs` and accepts
+# exactly "xhigh" (its default), "medium" or "low"; anything else makes the chat
+# template raise, which surfaces as a 400 on every chat turn. It is only
+# consulted when thinking is ON, so this is a no-op for the mechanical
+# sub-tasks above, which disable thinking outright.
+#
+# Default "medium" rather than the model's "xhigh". Measured on the 2026-08-25
+# swap: at xhigh a single moderate reasoning question burned 11,374 completion
+# tokens to produce 672 characters of answer, and at an 8K cap the same question
+# ran out of budget mid-<think> and returned an EMPTY answer (finish_reason
+# "length", no content at all) - the "vLLM produced no output" signature. medium
+# is also the only setting that injects no extra instruction into the system
+# prompt; xhigh and low both prepend a nudge.
+#
+# Set to "" (or "default") to send nothing and let the model choose, which
+# restores xhigh on Qwen3.8. Gated behind LLM_THINKING_TOGGLE because it rides
+# the same non-OpenAI `chat_template_kwargs` passthrough: an endpoint strict
+# enough to 400 on that field must not receive this one either.
+LLM_REASONING_EFFORT = os.getenv("LLM_REASONING_EFFORT", "medium").strip()
+
 VLLM_URL, VLLM_MODEL_NAME = resolve_llm_endpoint()
 
 
@@ -124,6 +146,23 @@ def thinking_off_fields(enabled: bool = None) -> dict:
     if not (LLM_THINKING_TOGGLE if enabled is None else enabled):
         return {}
     return {"chat_template_kwargs": {"enable_thinking": False}}
+
+
+def reasoning_effort_fields(effort: str = None, enabled: bool = None) -> dict:
+    """Request fields pinning the reasoning budget of a user-facing turn, or `{}`.
+
+    Splat into a request-body literal: `{..., **reasoning_effort_fields()}`.
+    Returns `{}` when the passthrough is gated off or the effort is blank, so
+    the default path for a non-vLLM endpoint is byte-identical to before.
+    `effort` / `enabled` exist so a test can pin the branches without touching
+    the process environment; callers pass nothing.
+    """
+    if not (LLM_THINKING_TOGGLE if enabled is None else enabled):
+        return {}
+    value = (LLM_REASONING_EFFORT if effort is None else effort).strip()
+    if not value or value.lower() == "default":
+        return {}
+    return {"chat_template_kwargs": {"reasoning_effort": value}}
 
 
 def thinking_off(body: dict, enabled: bool = None) -> dict:
