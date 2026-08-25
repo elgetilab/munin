@@ -2,9 +2,9 @@
 
 ## Overview
 
-The retrieval service acts as the coordinator for agentic workflows. The main model (Qwen 3.5) decides when to invoke specialized sub-agents — each a constrained workflow that chains multiple tool calls and can iterate. Sub-agents run within the same request, streaming their progress via the task execution log (see CHAT-UI-TASK-LOG.md).
+The retrieval service acts as the coordinator for agentic workflows. The main model (Qwen3.8-27B) decides when to invoke specialized sub-agents — each a constrained workflow that chains multiple tool calls and can iterate. Sub-agents run within the same request, streaming their progress via the task execution log (see CHAT-UI-TASK-LOG.md).
 
-This is NOT a multi-model system. There is one model (Qwen 3.5) making all decisions. "Agents" here means predefined workflows with constrained permissions that the model can trigger, not separate LLM instances.
+This is NOT a multi-model system. There is one model (Qwen3.8-27B) making all decisions. "Agents" here means predefined workflows with constrained permissions that the model can trigger, not separate LLM instances.
 
 ## Architecture
 
@@ -283,7 +283,7 @@ These nest under the existing event stream. The frontend distinguishes between d
 
 ## Web Search Routing
 
-The model decides whether to web-search on each query. This is not a separate routing model — Qwen 3.5 itself decides:
+The model decides whether to web-search on each query. This is not a separate routing model — Qwen3.8-27B itself decides:
 
 **System prompt guidance:**
 ```

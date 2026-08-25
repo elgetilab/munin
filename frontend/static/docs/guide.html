@@ -263,7 +263,7 @@
 
         <div class="card">
             <h4>GET /v1/models</h4>
-            <p style="margin-bottom: 0;">List available models in OpenAI format. Clients that probe this on connect (Positron, Cursor, the OpenAI SDK) use it to validate the provider and populate the model picker. Returns a single model, <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">qwen3.6-35b-a3b</code>.</p>
+            <p style="margin-bottom: 0;">List available models in OpenAI format. Clients that probe this on connect (Positron, Cursor, the OpenAI SDK) use it to validate the provider and populate the model picker. Returns a single model, <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">qwen3.8-27b</code>.</p>
         </div>
 
         <h3>Two modes</h3>
@@ -286,7 +286,7 @@
         <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">{
   "id": "chatcmpl-...",
   "object": "chat.completion",
-  "model": "qwen3.6-35b-a3b",
+  "model": "qwen3.8-27b",
   "choices": [{
     "index": 0,
     "message": {
@@ -302,7 +302,7 @@
     "total_tokens": 57
   }
 }</pre>
-        <p>The <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">reasoning</code> field contains the model's chain-of-thought (always-on). The model is Qwen3.6-35B-A3B, a Mixture-of-Experts architecture with 3B active parameters per forward pass.</p>
+        <p>The <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">reasoning</code> field contains the model's chain-of-thought (always-on). The model is Qwen3.8-27B, a dense 27B model with a hybrid Gated DeltaNet + attention architecture.</p>
 
         <h3>Munin mode — custom SSE response</h3>
         <p>When using persona mode, the response is a Server-Sent Events stream with these event types:</p>
@@ -336,7 +336,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="qwen3.6-35b-a3b",
+    model="qwen3.8-27b",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 
@@ -354,7 +354,7 @@ with httpx.stream(
     f"{BASE_URL}/chat/completions",
     headers={"Authorization": f"Bearer {API_KEY}"},
     json={
-        "model": "qwen3.6-35b-a3b",
+        "model": "qwen3.8-27b",
         "persona": "research",
         "messages": [{"role": "user", "content": "Find papers on lipid rafts"}],
     },
@@ -379,7 +379,7 @@ with httpx.stream(
   -H "Authorization: Bearer sk-munin-..." \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "qwen3.6-35b-a3b",
+    "model": "qwen3.8-27b",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 
@@ -390,7 +390,7 @@ with httpx.stream(
   -H "Authorization: Bearer sk-munin-..." \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "qwen3.6-35b-a3b",
+    "model": "qwen3.8-27b",
     "persona": "research",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
@@ -418,7 +418,7 @@ npm install -g opencode-ai</pre>
         <p>
             Before wiring up opencode, confirm the key works. Paste it into a quick <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">curl</code> against the model list:
         </p>
-        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;"># should return a JSON list containing qwen3.6-35b-a3b
+        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;"># should return a JSON list containing qwen3.8-27b
 curl -s -H "Authorization: Bearer sk-munin-..." https://api.muninai.org/v1/models</pre>
         <p>
             If the model list comes back, the key is good and you'll paste it straight into <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">opencode.json</code> in the next step. A <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">401</code> means the key is wrong or expired; regenerate it before continuing, otherwise opencode will not see the model.
@@ -437,8 +437,8 @@ curl -s -H "Authorization: Bearer sk-munin-..." https://api.muninai.org/v1/model
         "apiKey": "APIKEYHERE"
       },
       "models": {
-        "qwen3.6-35b-a3b": {
-          "name": "Qwen 3.6 35B",
+        "qwen3.8-27b": {
+          "name": "Qwen 3.8 27B",
           "limit": {
             "context": 65536,
             "output": 16384
@@ -462,7 +462,7 @@ curl -s -H "Authorization: Bearer sk-munin-..." https://api.muninai.org/v1/model
         <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">cd your-project
 opencode</pre>
         <p>
-            On first launch, pick the <strong>Munin</strong> provider and the <strong>qwen3.6-35b-a3b</strong> model. You can switch model/provider any time inside the TUI with <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">/model</code>.
+            On first launch, pick the <strong>Munin</strong> provider and the <strong>qwen3.8-27b</strong> model. You can switch model/provider any time inside the TUI with <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">/model</code>.
         </p>
 
         <h2>Tips</h2>

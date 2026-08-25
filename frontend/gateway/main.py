@@ -837,7 +837,7 @@ async def proxy_v1(request: Request, path: str):
     # (kept in sync with backend start-vllm-service.sh / VLLM_MODEL_NAME).
     # Does not count against rate/quota — it's a metadata probe.
     if request.method == "GET" and path == "models":
-        model_id = os.environ.get("VLLM_MODEL_NAME", "qwen3.6-35b-a3b")
+        model_id = os.environ.get("VLLM_MODEL_NAME", "qwen3.8-27b")
         return JSONResponse(content={
             "object": "list",
             "data": [{
