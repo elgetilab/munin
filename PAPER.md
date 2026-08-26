@@ -5,8 +5,15 @@ reproduce it. Every number below is copied from
 [`backend/benchmarks/RESULTS.md`](backend/benchmarks/RESULTS.md), which is
 copied in turn from committed scorecard JSON, not from memory.
 
-**Provenance shared by all runs**: generation model `qwen3.6-35b-a3b`
-(Qwen3.6-35B-A3B-AWQ-4bit) on vLLM; retrieval encoder BGE-large-en-v1.5
+**Provenance is SPLIT by model as of 2026-08-26.** Claims 1, 2 and 5 (Track D,
+faithfulness, T11) were re-measured on `qwen3.8-27b`
+(`cyankiwi/Qwen3.8-27B-AWQ-INT4`, dense 27B, TP=2, 64k,
+`reasoning_effort=medium`), which is what production serves. Claim 3
+(abstention, C1/C2) is still on the retired `qwen3.6-35b-a3b`
+(Qwen3.6-35B-A3B-AWQ-4bit) and says so inline. Claim 4 (retrieval) is
+**model-independent by construction** and did not need re-running: no LLM is in
+its loop and AgentRetriever scores against a frozen variant set. Retrieval
+encoder throughout is BGE-large-en-v1.5
 (1024d, collection `papers_bge`) since the 2026-07 cutover, SPECTER-v1 (768d,
 `papers`) before it. **Every section of RESULTS.md states its own encoder**,
 because the two are not comparable and were never meant to be pooled.
@@ -23,42 +30,79 @@ Corpus at time of writing: 68,462 papers.
 ## 1. Headline claim: the agentic harness is what produces the accuracy
 
 Track D, three arms over the same 199 LitQA2 questions, paired.
-`RESULTS.md` "Track D — harness ablation, CLEAN RUN (headline)", git `9c476b8`,
-2026-07-27.
+`RESULTS.md` "Model swap ... Track D re-run", git `3e0bcfb`, 2026-08-26.
+**Measured on two architecturally different backbones.**
 
-| arm | accuracy | precision of attempted | abstain | unparseable | cost |
-|---|---|---|---|---|---|
-| RAG (naive top-5) | 0.171 | 0.708 | 0.749 | 2 | 9.1s, 0 tools |
-| bare (parametric) | 0.302 | 0.476 | 0.201 | 33 | 14.7s, 0 tools |
-| **agentic (harness)** | **0.839** | **0.908** | 0.075 | 0 | 79.0s, 8.6 tools |
+| arm | accuracy | precision of attempted | abstain | cost |
+|---|---|---|---|---|
+| RAG (naive top-5) | 0.211 | 0.420 | 0.498 | 8.3s, 0 tools |
+| bare (parametric) | 0.387 | 0.403 | 0.040 | 8.0s, 0 tools |
+| **agentic (harness)** | **0.874** | **0.946** | 0.075 | 157.3s, 6.9 tools |
 
-Paired bootstrap: **agentic − bare = +0.538 [0.457, 0.618], p < 0.001**;
-agentic − RAG = +0.668 [0.598, 0.734], p < 0.001; RAG − bare = −0.131
-[−0.196, −0.070], p < 0.001.
+Paired bootstrap: **agentic − bare = +0.487 [0.407, 0.568], p ≈ 0**;
+agentic − RAG = +0.663 [0.598, 0.729]; RAG − bare = −0.176 [−0.251, −0.096].
 
-Two secondary findings in the same run are worth stating explicitly because
-they cut against the obvious narrative:
+**The claim replicates across backbones.** On the retired Qwen3.6-35B-A3B MoE
+(git `9c476b8`, 2026-07-27) the same 199 questions gave RAG 0.171 / bare 0.302 /
+agentic 0.839, with agentic − bare = +0.538 [0.457, 0.618]. A dense 27B and a
+35B/3B-active MoE agree on the ordering and on the size of the effect.
 
-- **Naive RAG is worse than no retrieval at all** (−0.131 vs bare). Imperfect
-  top-5 context drives a 0.749 abstain rate.
-- **Cost is real**: ~5.4x bare wall-clock at 8.6 tool calls per query.
+**On the delta shrinking from +0.538 to +0.487.** The 07-27 bare arm ran at
+`max_tokens=4096` against its agentic arm's 16,384, and 33 of its 199 bare
+answers were **unparseable**, i.e. truncated and scored as failures rather than
+wrong answers. All arms now run at 16,384 and bare returns 0 unparseable. That
+`agentic − RAG` is essentially unchanged (+0.668 → +0.663) shows the shrinkage
+comes entirely from measuring bare properly. The old number was inflated by a
+defect; this is a correction. A like-for-like old-model figure at 16,384 is not
+obtainable, since that checkpoint is retired.
 
-Scorecards: `scorecards/2026-07-27_harness-ablation.json`.
+Two secondary findings, both of which survive the re-measurement:
+
+- **Naive RAG is worse than no retrieval at all**, and more strongly than
+  before (−0.176, against −0.131 on Qwen3.6). It now holds against a
+  correctly-budgeted bare arm.
+- **Cost is real**: ~20x bare wall-clock at 6.9 tool calls per query.
+
+A third finding is new. **Qwen3.8 abstains far less outside the harness** (bare
+0.201 → 0.040, RAG 0.749 → 0.498) and its precision of attempted falls with it
+(bare 0.476 → 0.403, RAG 0.708 → 0.420). Inside the harness abstention is
+**identical** at 0.075 and precision *rises* (0.908 → 0.946). The harness, not
+the backbone, is what keeps attempted answers trustworthy.
+
+Scorecards: `scorecards/2026-08-26_harness-ablation.json` (current),
+`scorecards/2026-07-27_harness-ablation.json` (Qwen3.6).
 Do **not** cite the 2026-07-13 pilot (n=100, 0.56/0.32/0.15); it is superseded.
 
 ## 2. Grounding does not improve with the harness
 
-Track B faithfulness, per-arm paired, n=189: RAG 0.326 vs agentic 0.340,
-delta **+0.023 [−0.043, +0.089], p = 0.496**. The 4.9x accuracy gap in claim 1
-does **not** come with a faithfulness gap. The bare arm is structurally
-unscoreable (no retrieved context to entail against).
+Track B faithfulness, per-arm paired. On `qwen3.8-27b` (n=163): RAG 0.282
+[0.248, 0.316] vs agentic 0.288 [0.246, 0.333], delta **+0.010 [−0.052, +0.069],
+p = 0.776**. The 4.1x accuracy gap in claim 1 does **not** come with a
+faithfulness gap.
 
-Scorecard: `scorecards/2026-07-27_harness-ablation-faithfulness.json`.
+**The null replicates across backbones.** On the retired Qwen3.6 (n=189) it was
+RAG 0.326 vs agentic 0.340, delta +0.023 [−0.043, +0.089], p = 0.496. Two
+different models, same conclusion. Absolute grounding is slightly lower on
+Qwen3.8 for both arms.
+
+The bare arm is structurally unscoreable (no retrieved context to entail
+against). The agentic n is 163 rather than 199 because abstentions and
+context-free answers cannot be scored.
+
+Scorecards: `scorecards/2026-08-26_harness-ablation-faithfulness.json` (current),
+`scorecards/2026-07-27_harness-ablation-faithfulness.json` (Qwen3.6).
 
 ## 3. Abstention behaviour (the novel benchmark)
 
 Track C. Prior art exists (KnowOrNot, arXiv 2505.13545), so the claim is
 narrowed to corpus-grounded abstention with a paired shadow corpus.
+
+> **These numbers are on the RETIRED `qwen3.6-35b-a3b`**, not on what production
+> serves. C1 and C2b were not re-run in the 2026-08-26 model swap. C2b in
+> particular needs the `papers_shadow` Qdrant collection rebuilt from the frozen
+> 50 questions and a second retrieval instance on :8081. Note also that claim 1
+> found Qwen3.8 abstains far less than Qwen3.6 outside the harness, so these
+> figures should **not** be assumed to carry over.
 
 - **C1, fabricated papers** (n=100): abstain 0.970 [0.930, 1.000], **0
   confabulated local citations**.
@@ -93,12 +137,21 @@ Scorecards: `2026-07-28_litsearch.json`, `2026-07-03_bge-large.json`,
 
 ## 5. Tool-use reliability
 
-T11, telemetry over the same 199-question clean run: 1,714 tool calls, mean
-**8.61 calls/query**, error rate 0.061, degraded rate 0.240, 86 queries hit at
-least one failure, and **recovery rate 1.000** — every failure was recovered
-from within the turn. Reported per tool in RESULTS.md.
+T11, telemetry over the same 199-question run. On `qwen3.8-27b`: 1,380 tool
+calls, mean **6.93 calls/query**, error rate 0.139, degraded rate 0.379, 102
+queries hit at least one failure, and **recovery rate 1.000**, i.e. every
+failure was recovered from within the turn.
 
-Scorecard: `2026-07-27_toolreliability-clean.json`.
+**Recovery 1.000 replicates** (Qwen3.6: 1,714 calls, 8.61/query, recovery
+1.000). But the error and degraded rates roughly doubled (0.061 → 0.139 and
+0.240 → 0.379). The driver is a **tool-layer regression, not a model one**:
+`web_fetch` errors on 0.678 of its 261 calls (was 0.453), `search` newly fails
+at 0.122 (was 0.000), and `update_plan_item` failed both of its 2 calls. Worth
+fixing before this is cited as a reliability result. Reported per tool in
+RESULTS.md.
+
+Scorecards: `2026-08-26_toolreliability-qwen38_toolreliability.json` (current),
+`2026-07-27_toolreliability-clean.json` (Qwen3.6).
 
 ---
 

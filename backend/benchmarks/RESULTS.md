@@ -854,6 +854,126 @@ also show **recovery 1.000**, and both show call counts rising under degradation
 (8.6 -> 13.9/16.1), i.e. the harness compensates for bad tools by working
 harder. Scorecards `2026-07-27_toolreliability-clean.json` plus the two probes.
 
+## Model swap Qwen3.6-35B-A3B -> Qwen3.8-27B, Track D re-run  · git `3e0bcfb` · 2026-08-26
+
+**Generation model for THIS section only: `qwen3.8-27b`**
+(`cyankiwi/Qwen3.8-27B-AWQ-INT4`, dense 27B, hybrid Gated DeltaNet + Gated
+Attention, pack-quantized group-32), vLLM TP=2 across both RTX 5090s, 64k
+window, `--max-num-seqs 8`, `reasoning_effort=medium`. Encoder unchanged
+(BGE-large / `papers_bge`). Same frozen 199 LitQA2 questions
+(`d_questions.json`), so every comparison below is **paired**.
+
+### Track D, both models, same 199 questions
+
+| arm | metric | Qwen3.6-35B-A3B (07-27) | **Qwen3.8-27B (08-26)** |
+|---|---|---|---|
+| bare | accuracy | 0.302 | **0.387** |
+| | abstain | 0.201 | 0.040 |
+| | precision of attempted | 0.476 | 0.403 |
+| rag | accuracy | 0.171 | **0.211** |
+| | abstain | 0.749 | 0.498 |
+| | precision of attempted | 0.708 | 0.420 |
+| agentic | accuracy | 0.839 | **0.874** |
+| | abstain | 0.075 | 0.075 |
+| | precision of attempted | 0.908 | 0.946 |
+
+Paired deltas within each run:
+
+| delta | Qwen3.6 | **Qwen3.8** |
+|---|---|---|
+| agentic - bare | +0.538 [0.457, 0.618] | **+0.487 [0.407, 0.568]** |
+| agentic - rag | +0.668 [0.598, 0.734] | **+0.663 [0.598, 0.729]** |
+| rag - bare | -0.131 [-0.196, -0.070] | **-0.176 [-0.251, -0.096]** |
+
+All p ~ 0.
+
+**The central claim replicates on a second, architecturally different backbone**
+(dense 27B against a 35B/3B-active MoE). Every arm improved and the ordering is
+unchanged.
+
+**The harness delta shrank, and that is a correction rather than a regression.**
+The 07-27 bare arm ran at `max_tokens=4096` while its agentic arm ran at 16,384;
+33 of its 199 bare answers came back **unparseable**, i.e. truncated and scored
+as failures rather than as wrong answers. All arms now run at 16,384 and the
+bare arm returns 0 unparseable. Note that `agentic - rag` is essentially
+unchanged (+0.668 -> +0.663): the entire shrinkage comes from the bare arm
+being measured properly, not from the harness doing less. A like-for-like
+old-model number at 16,384 is **not obtainable**; that checkpoint is retired.
+
+**Naive RAG is still worse than no retrieval, and more so** (-0.131 -> -0.176).
+This survives a correctly-budgeted bare arm, which is the strongest form of the
+finding so far.
+
+**Qwen3.8 abstains far less outside the harness.** bare abstain 0.201 -> 0.040
+and rag 0.749 -> 0.498, with precision of attempted falling correspondingly
+(bare 0.476 -> 0.403, rag 0.708 -> 0.420). It attempts many more questions and
+is wrong more often when it does. Inside the harness the opposite holds:
+abstain is **identical** at 0.075 and precision *rises* 0.908 -> 0.946. The
+harness, not the model, is what keeps attempted answers trustworthy.
+
+### Track B faithfulness per arm (Track B x Track D)
+
+| | Qwen3.6 (07-27) | **Qwen3.8 (08-26)** |
+|---|---|---|
+| rag, frac claims supported | 0.326 | 0.282 [0.248, 0.316] (n=199) |
+| agentic | 0.340 | 0.288 [0.246, 0.333] (n=163) |
+| paired agentic - rag | +0.023 [-0.043, +0.089] p=0.496 | **+0.010 [-0.052, +0.069] p=0.776** |
+
+**The null replicates.** The 4.1x accuracy gap still does not come with a
+faithfulness gap. Absolute grounding is slightly lower on both arms; the
+agentic n is 163 rather than 189 because abstentions and context-free answers
+are unscoreable.
+
+### T11 tool-use reliability
+
+| | Qwen3.6 (07-27) | **Qwen3.8 (08-26)** |
+|---|---|---|
+| total tool calls | 1,714 | 1,380 |
+| mean calls/query | 8.61 | **6.93** |
+| error rate | 0.061 | **0.139** |
+| degraded rate | 0.240 | **0.379** |
+| queries with >=1 failure | 86 | 102 |
+| **recovery rate** | **1.000** | **1.000** |
+
+Recovery holds at 1.000: every failure was recovered from within the turn. But
+the error and degraded rates roughly doubled. The driver is `web_fetch` at a
+**0.678** error rate (was 0.453) over 261 calls, plus `search` newly at 0.122
+(was 0.000) and `update_plan_item` failing both of its 2 calls. `web_search`
+shows degraded 1.000 as before (structural: SearXNG unresponsive while Brave
+answers). Worth investigating on its own; it is a tool-layer regression, not a
+model one.
+
+### Provenance and caveats
+
+- `egress=full` throughout; ~331 `web_search` calls, roughly 1,190 billed Brave
+  requests (~$6). No 402/429 in the run log.
+- Concurrency 1 (arms run sequentially), matching the 07-27 protocol.
+- **8 of the 199 agentic questions (indices 191-198) were re-run about four
+  hours after the rest.** The 02:00 cron cancelled the vLLM SLURM job mid-arm;
+  those 8 returned empty with 0 tool calls and were re-run at 06:02 against an
+  endpoint with identical configuration. The other 191 are from the continuous
+  pass. Recorded because it is a provenance fact, not because the numbers look
+  affected: 7 of the 8 came back correct.
+- **Run-to-run variance:** an identical-configuration bare arm one day earlier
+  scored 0.422 against this run's 0.387, so ~0.035 on a 199-question arm at
+  `temperature=0.7`. Do not read single-run differences of that size as signal.
+- **Sampling is NOT matched across arms** (bare/rag `temperature=0.7`; agentic
+  inherits the research persona's 1.0 / top_p 0.95 / top_k 20 /
+  presence_penalty 1.5). This predates the swap and was present in the 07-27
+  run too. A reviewer may reasonably ask whether sampling contributes to the
+  delta; it is not controlled for.
+- Retrieval tracks (BEIR SciFact, LitQA2-retrieval, LitSearch) were
+  deliberately **not** re-run: no LLM is in the loop and AgentRetriever scores
+  against a frozen variant set, so they are model-independent by construction.
+  Tracks C1 and C2b were not re-run either; their numbers remain attached to
+  Qwen3.6.
+
+Scorecards: `2026-08-26_harness-ablation.json`,
+`2026-08-26_harness-ablation-faithfulness.json`,
+`2026-08-26_toolreliability-qwen38_toolreliability.json`.
+
+---
+
 ## Reproduce
 
 ```bash
