@@ -134,3 +134,20 @@ rather than new plumbing.
 
 **Not the cause of the stream failures**: failure rate 0.169 with tags vs 0.134
 without, consistent with tagged conversations simply being longer.
+
+## 8. `test_background_streams.py` hangs, so it provides no coverage  [PRE-EXISTING]
+
+Verified 2026-08-27 by A/B against the pre-fix commit: the suite fails to
+complete within 180s on `3bea54d~1` and within 600s on `3bea54d`, so the hang
+predates the resume-gate fix and is not caused by it. It imports the full
+`main` dependency tree via `httpx.ASGITransport`.
+
+The practical consequence is that the background-turns HTTP surface (explicit
+cancel, `active_stream`, the `generating` flag) is **currently untested in
+practice** even though a suite exists for it. That surface is exactly where
+item 2 (grace-expiry cancellation) will be changed, so this should be fixed
+before that work, not after.
+
+Suites that do complete and are green as of `3bea54d`:
+`test_stream_resume_gate` 10/10, `test_resume_endpoint` 7/7,
+`test_stream_registry` 19/19, `test_disconnect_cleanup` 8/8.
