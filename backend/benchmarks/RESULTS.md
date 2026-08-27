@@ -935,13 +935,41 @@ are unscoreable.
 | queries with >=1 failure | 86 | 102 |
 | **recovery rate** | **1.000** | **1.000** |
 
-Recovery holds at 1.000: every failure was recovered from within the turn. But
-the error and degraded rates roughly doubled. The driver is `web_fetch` at a
-**0.678** error rate (was 0.453) over 261 calls, plus `search` newly at 0.122
-(was 0.000) and `update_plan_item` failing both of its 2 calls. `web_search`
-shows degraded 1.000 as before (structural: SearXNG unresponsive while Brave
-answers). Worth investigating on its own; it is a tool-layer regression, not a
-model one.
+Recovery holds at 1.000 and mean calls/query fell 8.61 -> 6.93. Both of those
+are clean comparisons. **The error and degraded rates are not**, and the two
+contributing tools have to be read differently.
+
+**`web_fetch` 0.453 -> 0.678 is NOT a valid comparison.** Commit `2ff9aef`
+(2026-08-03) landed BETWEEN the two runs and changed what counts as a failure:
+it added `looks_like_bot_check`, so an anti-bot interstitial is now reported as
+an error, where before it was summarised and returned as content. On 07-27
+those pages were therefore counted as **successes**. The old 0.453 understates
+the true failure rate by an unknown amount, and the rise to 0.678 mixes a real
+behavioural difference with a definition change. Do not cite the delta. The
+0.678 is a valid measurement of the new run in isolation.
+
+That has a second implication worth stating: on the 07-27 run, some web_fetch
+"successes" were interstitials summarised as though they were articles, so a
+little of that run's retrieved context was security-notice text.
+
+**`search` 0.000 -> 0.122 IS a valid comparison.** `2ff9aef` touched
+`search_agent.py` only to attach author metadata to web hits; it added no error
+path, and nothing else changed between the runs. Every one of the 11 failures
+was an argument TYPE the model emitted (`top_k="5"`, `top_k=5.0`,
+`filters="year:2023"`), so this is a genuine behavioural difference: Qwen3.8
+emits mistyped tool arguments where Qwen3.6 did not.
+
+`web_search` shows degraded 1.000 as before (structural: SearXNG unresponsive
+while Brave answers). `update_plan_item` failed both of its 2 calls, too few to
+read anything into.
+
+**Both causes are fixed as of `fd559c9` (2026-08-27)**, after this run: the
+executor coerces argument types against the declared schema, and `web_fetch`
+reads PMC through NCBI's efetch API instead of the page that blocks it (ok rate
+on 24 real search URLs 0.50 -> 0.71). These numbers therefore describe the tool
+layer **as it was during the comparison**, not as it ships. Re-running T11 on
+the fixed tools would measure the shipped system but would not be comparable to
+the Qwen3.6 arm, which cannot be re-run at all.
 
 ### Provenance and caveats
 

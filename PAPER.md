@@ -143,12 +143,20 @@ queries hit at least one failure, and **recovery rate 1.000**, i.e. every
 failure was recovered from within the turn.
 
 **Recovery 1.000 replicates** (Qwen3.6: 1,714 calls, 8.61/query, recovery
-1.000). But the error and degraded rates roughly doubled (0.061 → 0.139 and
-0.240 → 0.379). The driver is a **tool-layer regression, not a model one**:
-`web_fetch` errors on 0.678 of its 261 calls (was 0.453), `search` newly fails
-at 0.122 (was 0.000), and `update_plan_item` failed both of its 2 calls. Worth
-fixing before this is cited as a reliability result. Reported per tool in
-RESULTS.md.
+1.000), and mean calls/query fell 8.61 → 6.93. Those two are clean
+comparisons.
+
+**The error-rate deltas are not, and must not be cited as one number.**
+`web_fetch` (0.453 → 0.678) is **not comparable**: commit `2ff9aef` landed
+between the runs and changed what counts as a failure, so anti-bot
+interstitials that were previously summarised as content are now errors. The
+old figure counted those as successes. `search` (0.000 → 0.122) **is**
+comparable and is a genuine behavioural finding: every failure was an argument
+type Qwen3.8 emitted and Qwen3.6 did not.
+
+Both causes were fixed after this run (`fd559c9`), so these figures describe
+the tool layer during the comparison rather than as shipped. Reported per tool,
+with the full reasoning, in RESULTS.md.
 
 Scorecards: `2026-08-26_toolreliability-qwen38_toolreliability.json` (current),
 `2026-07-27_toolreliability-clean.json` (Qwen3.6).
