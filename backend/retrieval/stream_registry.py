@@ -126,6 +126,30 @@ class Stream:
 
     # -- log API -----------------------------------------------------------
 
+    def oldest_retained_seq(self) -> int:
+        """Lowest seq still in the replay buffer, or 0 when it is empty.
+
+        This is what decides whether a reconnect is servable. `truncated`
+        only says the buffer overflowed AT SOME POINT in the stream's life;
+        it says nothing about whether THIS client's checkpoint was lost.
+        A long turn overflows early and stays flagged forever, so gating on
+        the flag refuses reconnects the buffer could still serve perfectly.
+        """
+        return self.event_log[0][0] if self.event_log else 0
+
+    def can_resume_from(self, after_seq: int) -> bool:
+        """True when everything strictly after `after_seq` is still retained.
+
+        `after_seq == 0` means "replay from the beginning", which is only
+        honest if nothing has been dropped.
+        """
+        if not self.truncated:
+            return True
+        if after_seq <= 0:
+            return False
+        # The client has event `after_seq`; it needs after_seq+1 onward.
+        return after_seq + 1 >= self.oldest_retained_seq()
+
     def record(self, event_name: str, data_json: str) -> int:
         """Append an event with a fresh seq. Caps the log; on overflow
         marks the stream truncated."""

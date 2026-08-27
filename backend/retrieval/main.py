@@ -1544,13 +1544,12 @@ async def api_chat_completions_resume(stream_id: str, request: Request):
     the reload). P1 #10."""
     user_email = _require_user_email(request)
     stream = stream_registry_module.registry.get(stream_id)
-    if stream is None or stream.truncated:
-        # Unknown id, expired (evicted by the janitor), or buffer
-        # overflowed past the client's checkpoint. 410 is the right
-        # signal — the resource is gone, don't retry blindly.
+    if stream is None:
+        # Unknown id, or evicted by the janitor. 410 is the right signal:
+        # the resource is gone, don't retry blindly.
         raise HTTPException(
             status_code=410,
-            detail={"error": {"message": "stream is gone or has been truncated"}},
+            detail={"error": {"message": "stream is gone"}},
         )
     if stream.user_email and stream.user_email != user_email:
         # Belt-and-braces: stream_id is a UUID so guessing is infeasible,
@@ -1571,6 +1570,24 @@ async def api_chat_completions_resume(stream_id: str, request: Request):
         # replay from 0.
         if parsed_sid == stream_id:
             after_seq = parsed_seq
+
+    # Refuse ONLY when this client's checkpoint has actually fallen out of the
+    # buffer. The previous check was `stream.truncated`, a stream-level flag
+    # that latches on the first overflow and never clears, so any turn longer
+    # than MAX_LOG_EVENTS became permanently unresumable even for a client
+    # reconnecting one event behind the head. Measured 2026-08-27 on a real
+    # user: 78% of his turns exceed the cap (median ~2,061 events against a
+    # 1,000 cap), which is why he saw "stream is no longer available" on most
+    # long answers. Note the Last-Event-ID parse HAS to happen first; it used
+    # to run sixteen lines after the refusal it should have informed.
+    if not stream.can_resume_from(after_seq):
+        raise HTTPException(
+            status_code=410,
+            detail={"error": {"message": (
+                "stream is no longer resumable from that point: the replay "
+                "buffer has advanced past the requested event"
+            )}},
+        )
 
     return EventSourceResponse(
         stream_registry_module.serve_stream(stream, after_seq=after_seq),
