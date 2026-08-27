@@ -7,9 +7,9 @@
     ],
     "note": "Committed queries only; router embeds with BGE at load. DISJOINT from the routing-eval test items (no train/test leak); seed items are NOT a source.",
     "counts": {
-      "total": 229,
+      "total": 244,
       "code": 83,
-      "research": 76,
+      "research": 91,
       "chat": 70
     }
   },
@@ -397,6 +397,81 @@
     {
       "query": "tabulate and plot the buildup rates per catalyst",
       "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "what is the extinction coefficient of that protein at 280 nm",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what molar absorptivity is reported for this flavoprotein",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what is the reported quantum yield of this fluorescent protein",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what binding affinity has been measured for this ligand and receptor",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what Kd is reported in the literature for that inhibitor",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what is the published melting temperature of this mutant",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what relaxation time has been measured for that substrate",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what is the reported catalytic rate constant for this enzyme",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what absorption maximum is reported for this chromophore",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what value does the literature give for that spin-lattice relaxation time",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what is the reported isoelectric point of this protein",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what diffusion constant has been measured for this lipid in a bilayer",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what is the literature value for the hyperfine coupling in this radical",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what fluorescence lifetime is reported for that fluorophore",
+      "profile": "research",
+      "source": "curated"
+    },
+    {
+      "query": "what is the measured dissociation constant of this complex",
+      "profile": "research",
       "source": "curated"
     },
     {

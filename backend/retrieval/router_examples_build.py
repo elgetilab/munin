@@ -136,6 +136,30 @@ _CURATED: dict[str, list[str]] = {
     ],
     # -------------------------------------------------------------------
     "research": [
+        # PROPERTY / VALUE LOOKUP: "what is the <measured quantity> of <specific
+        # molecule>". Added 2026-08-27. This sub-pattern had NO research
+        # examples at all, while "coefficient" appeared only under code
+        # ("estimate the diffusion coefficient from the mean squared
+        # displacement"). With K=8 KNN over BGE embeddings, "what is the
+        # extinction coefficient of iLOV at 280nm?" therefore had no research
+        # neighbour to attract it and routed to code 4/4 in testing, landing on
+        # a profile with no research tools resident. The 15 below give the
+        # sub-pattern the local density the module docstring calls for.
+        "what is the extinction coefficient of that protein at 280 nm",
+        "what molar absorptivity is reported for this flavoprotein",
+        "what is the reported quantum yield of this fluorescent protein",
+        "what binding affinity has been measured for this ligand and receptor",
+        "what Kd is reported in the literature for that inhibitor",
+        "what is the published melting temperature of this mutant",
+        "what relaxation time has been measured for that substrate",
+        "what is the reported catalytic rate constant for this enzyme",
+        "what absorption maximum is reported for this chromophore",
+        "what value does the literature give for that spin-lattice relaxation time",
+        "what is the reported isoelectric point of this protein",
+        "what diffusion constant has been measured for this lipid in a bilayer",
+        "what is the literature value for the hyperfine coupling in this radical",
+        "what fluorescence lifetime is reported for that fluorophore",
+        "what is the measured dissociation constant of this complex",
         # find papers / literature search
         "find papers on parahydrogen-induced polarization for in-vivo imaging",
         "search for studies about SABRE catalyst lifetime",

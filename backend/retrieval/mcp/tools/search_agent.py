@@ -90,8 +90,17 @@ def _ref_of(hit: dict) -> dict:
 def _norm_corpus(rows: list[dict]) -> list[dict]:
     out = []
     for r in rows:
+        # `paper_search` emits the abstract excerpt as `excerpt`, NOT `abstract`
+        # (see papers.py::_qdrant_search_one, "Surface a short abstract excerpt").
+        # Reading only `abstract` here meant EVERY corpus hit in `search` came
+        # back with an empty snippet, so the model had a bare title and could
+        # neither judge relevance nor extract a value without a follow-up
+        # `source` read. That manufactured tool calls on every research turn.
+        # Found 2026-08-27 on the iLOV reproducer. `abstract` stays as a
+        # fallback so any other caller shape still works.
+        snippet = (r.get("excerpt") or r.get("abstract") or "")[:300]
         out.append({"source_type": TIER_CORPUS, "title": r.get("title"),
-                    "doi": r.get("doi"), "snippet": (r.get("abstract") or "")[:300],
+                    "doi": r.get("doi"), "snippet": snippet,
                     "score": r.get("score"), "year": r.get("year"),
                     "authors": (r.get("authors") or [])[:6]})
     return out
@@ -333,7 +342,8 @@ def _dedup_and_rank(hits: list[dict], top_k: int,
 
 
 async def search(query: str, filters: Optional[dict] = None,
-                 depth: str = "normal", top_k: int = 10) -> dict:
+                 depth: str = "normal", top_k: int = 10,
+                 extra_queries: Any = None) -> dict:
     """Find and rank evidence for a topic across corpus / OA / web tiers.
 
     depth: 'normal' (corpus + scholarly) | 'deep' (+ web). Web also requires
@@ -346,6 +356,22 @@ async def search(query: str, filters: Optional[dict] = None,
 
     if not query or not str(query).strip():
         return {"error": "search requires a non-empty query"}
+    # `queries` is NOT part of this tool's schema, but models send it anyway
+    # (paper_search and web_search both take one, so it is a reasonable guess).
+    # The dispatcher reads arguments by name, so it used to vanish silently: the
+    # model believed it had issued a 4-query fan-out, one query ran, and it got
+    # no signal either way. Observed on the iLOV reproducer, where the model
+    # then spent 25 further calls doing by hand what it thought it had asked
+    # for. `search` expands internally, so the right answer is to say so rather
+    # than to accept a second, conflicting expansion.
+    if extra_queries:
+        return {"error": (
+            "search does not take a 'queries' argument: it expands 'query' "
+            "internally and runs the fan-out across all tiers itself. Pass the "
+            "single best natural-language query as 'query'. (If you want to "
+            "control the exact variants, use paper_search or web_search, which "
+            "do take 'queries'.)"
+        )}
     filters = filters or {}
     year = filters.get("year", "")
     tags = filters.get("tags")  # None -> inherits current_query_tags ContextVar
@@ -429,9 +455,24 @@ async def search(query: str, filters: Optional[dict] = None,
                               "widen it to search the whole consortium corpus.")
 
     scholarly = [h for h in ranked if h["source_type"] in (TIER_CORPUS, TIER_OA)]
-    thin_evidence = len(scholarly) < THIN_EVIDENCE_MIN
+    # thin_evidence used to be a bare COUNT (`len(scholarly) < 3`), which made it
+    # assert "evidence is fine" whenever enough rows came back, regardless of
+    # whether any of them were on topic. On the iLOV reproducer it reported
+    # False while two of the ten hits were ruthenium solar-cell papers matched
+    # on the phrase "molar extinction coefficient" and none carried the answer.
+    # The model reasonably took that as "good hits found" and fanned out by hand
+    # instead of narrowing. Count the hits that clear the same relevance floor
+    # the reserved external slots use, and fall back to the count when the
+    # encoder was unavailable and no relevance was attached.
+    strong = [h for h in scholarly
+              if isinstance(h.get("relevance"), (int, float))
+              and h["relevance"] >= OA_RELEVANCE_FLOOR]
+    scored = any(isinstance(h.get("relevance"), (int, float)) for h in scholarly)
+    n_effective = len(strong) if scored else len(scholarly)
+    thin_evidence = n_effective < THIN_EVIDENCE_MIN
     if thin_evidence:
-        tr.decide("thin evidence", n_scholarly=len(scholarly))
+        tr.decide("thin evidence", n_scholarly=len(scholarly),
+                  n_above_floor=len(strong), floor=OA_RELEVANCE_FLOOR)
 
     env = {"ranked": ranked, "coverage_note": coverage_note,
            "thin_evidence": thin_evidence,
