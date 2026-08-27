@@ -15,9 +15,9 @@
       "get_citations",
       "get_references",
       "export_citations",
-      "semantic_scholar_search",
       "paper_lookup",
-      "web_fetch"
+      "web_fetch",
+      "search_user_docs"
     ]
   },
   "meta": {

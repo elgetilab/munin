@@ -21,13 +21,19 @@ CORE_TOOLS = frozenset({
     # supersedes read_paper+compare_papers (both retired as tools; source
     # covers them via mode=summary / mode=compare); `search` consolidates the
     # three search tools; `compute` is spec->verified-code.
-    # paper_search/web_search/run_python remain core for their distinct
-    # residual intents (they are also what the agents call internally).
+    # paper_search/web_search were REMOVED from core 2026-08-27. They stayed
+    # visible next to the very tool whose description says it supersedes them,
+    # so the model had four overlapping discovery tools and chained them by
+    # hand: the iLOV reproducer used search x1, paper_search x1,
+    # semantic_scholar_search x1, web_search x8, web_fetch x8, source x7 for one
+    # factual question. Both remain reachable through `tool_search`, and every
+    # internal caller (search_agent, source, research) invokes them as Python
+    # functions rather than as tools, so nothing internal changes. `web_search`
+    # is now resident on the CHAT profile only, where a light one-shot web
+    # lookup is the right primitive and a three-tier `search` is overkill.
     "source",
     "search",
     "compute",
-    "paper_search",
-    "web_search",
     "run_python",
     "create_artifact",
     "calculate",
@@ -208,7 +214,7 @@ MCP_TOOLS = {
     },
     "search": {
         "name": "search",
-        "description": "Find and rank the evidence relevant to a topic across three tiers in one call: the local curated corpus (corpus_paper), external open-access papers via Semantic Scholar (oa_paper), and the web (web). Supersedes paper_search + semantic_scholar_search + web_search for the 'find me sources' intent. Every hit carries a `source_type` so you can judge trust (a Nature paper and an SEO listicle are not comparable on score); the ranker prefers the corpus, then OA, and caps web. Deduplicates across tiers on the alias set (DOI / arXiv / title), so the preprint and the published version collapse to one. Returns {ranked: [{ref, title, snippet, score, source_type, ...}], coverage_note, thin_evidence, counts}. If a sub-corpus scope is active (e.g. a #group tag), `coverage_note` reports 'X in scope, Y consortium-wide' so a scoping gap is not misread as a missing paper. `thin_evidence: true` warns that few strong scholarly hits were found rather than padding with weak ones. Use depth='deep' to include the web tier.",
+        "description": "Find and rank the evidence relevant to a topic across three tiers in one call: the local curated corpus (corpus_paper), external open-access papers via Semantic Scholar (oa_paper), and the web (web). Supersedes paper_search + semantic_scholar_search + web_search for the 'find me sources' intent. Every hit carries a `source_type` so you can judge trust (a Nature paper and an SEO listicle are not comparable on score); the ranker prefers the corpus, then OA, and caps web. Deduplicates across tiers on the alias set (DOI / arXiv / title), so the preprint and the published version collapse to one. Returns {ranked: [{ref, title, snippet, score, source_type, ...}], coverage_note, thin_evidence, counts}. If a sub-corpus scope is active (e.g. a #group tag), `coverage_note` reports 'X in scope, Y consortium-wide' so a scoping gap is not misread as a missing paper. `thin_evidence: true` warns that few strong scholarly hits were found rather than padding with weak ones. Use depth='deep' to include the web tier. THIS IS THE PRIMARY RESEARCH TOOL: use it for any 'find sources / what does the literature say / look this up' intent. It already runs the corpus, Semantic Scholar and web tiers for you and expands your query into variants internally, so do NOT hand-chain paper_search, semantic_scholar_search or web_search after it, and do NOT pass a 'queries' list (it takes a single natural-language 'query').",
         "inputSchema": {
             "type": "object",
             "properties": {

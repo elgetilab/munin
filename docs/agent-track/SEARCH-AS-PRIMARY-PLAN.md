@@ -129,6 +129,14 @@ Schema-token cost is a wash: three tools out, `search` grows two parameters.
   relevance floor doing the gating rather than a raw count, and by
   `thin_evidence` (now relevance-aware) still telling the model when the
   evidence is weak so it can re-ask with `depth="deep"`.
+
+  **For an EXPLICIT tag this is not a risk, it is the point** (operator
+  decision, 2026-08-27): a user who types `/elgeti` has stated where the answer
+  should be. If it is not there, that absence is itself the finding and must be
+  REPORTED, not papered over by silently substituting open-web results. So on
+  an explicit-tag miss `search` says so in `coverage_note` and returns the thin
+  result rather than quietly widening. Widening stays available to the model as
+  a deliberate second call.
 - **`read` becomes the new overtooling.** A model that sets `read=3` on every
   search triples cost. Watch mean `source` calls per turn in the reproducer;
   if it climbs, gate `read` behind the query looking like a value lookup.
