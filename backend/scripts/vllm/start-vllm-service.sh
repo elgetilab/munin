@@ -2,7 +2,7 @@
 #SBATCH --job-name=vllm-service
 #SBATCH --partition=vllm-serving
 #SBATCH --gres=gpu:vllm:1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=12
 #SBATCH --mem=16G
 #SBATCH --time=20:00:00
 #SBATCH --output=/opt/munin/logs/vllm-service-%j.out
@@ -28,7 +28,15 @@
 #     8 shards (shard:batch:N) remain free for user / deepresearch jobs.
 #   - If we ever shrink vLLM's footprint, the equivalent partial claim
 #     would be `#SBATCH --gres=shard:vllm:N` (N out of 8, ~4 GB each).
-#   - vllm-serving partition is capped at MaxCPUsPerNode=4 by SLURM.
+#   - CPU: 12 cores. MEASURED 2026-08-27 at the old allocation of 4:
+#     vLLM ran at 374-387% of its 400% cap under 8 concurrent requests,
+#     i.e. 94-97% saturated, so CPU was a real ceiling and not just
+#     bookkeeping. Raising this REQUIRES the partition cap to move too
+#     (`MaxCPUsPerNode` on vllm-serving was 4); the job pends forever
+#     otherwise. Note 12 of the partition's 20 CPUs are held whenever
+#     vLLM runs, so batch partitions are squeezed accordingly.
+#     Re-measure after changing: the baseline to beat is 604 tok/s
+#     aggregate at 8 concurrent, 108 tok/s single-stream.
 # ==============================================================================
 
 set -e

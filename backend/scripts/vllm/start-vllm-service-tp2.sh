@@ -2,7 +2,7 @@
 #SBATCH --job-name=vllm-service-tp2
 #SBATCH --partition=vllm-serving
 #SBATCH --gres=gpu:vllm:1,gpu:batch:1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=12
 #SBATCH --mem=32G
 #SBATCH --time=20:00:00
 #SBATCH --output=/opt/munin/logs/vllm-service-%j.out

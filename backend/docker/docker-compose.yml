@@ -441,6 +441,16 @@ services:
       resources:
         limits:
           memory: 4G
+          # MEASURED 2026-08-27: the sandbox previously had NO cpu limit at all
+          # (NanoCpus=0, CpusetCpus="") and its processes were allowed cores
+          # 0-23, i.e. the whole host. vLLM's SLURM cgroup pins it to a narrow
+          # cpuset and it runs at 94-97% of that allocation under load, so an
+          # unbounded run_python job could contend for the very cores inference
+          # depends on and slow chat for every user. This bounds the blast
+          # radius. It is a QUOTA, not a pinning: the sandbox may still land on
+          # vLLM's cores, it just cannot consume more than 8 cores' worth. If
+          # contention still shows up, add `cpuset` disjoint from vLLM's range.
+          cpus: '8'
     profiles:
       - rag
 
