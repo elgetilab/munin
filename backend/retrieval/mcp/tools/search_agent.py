@@ -44,6 +44,17 @@ WEB_QUOTA = 3            # web caps at N regardless of volume (it wins on volume
 OA_QUOTA = 4             # OA slots reserved within top_k (see _dedup_and_rank)
 THIN_EVIDENCE_MIN = 3    # fewer than N scholarly hits => thin_evidence
 
+# Escalation thresholds for the staged fan-out. `..._TAGGED` is deliberately
+# lower: when the user pinned a corpus with a slash command, one strong in-scope
+# hit is enough to answer from it, and a miss is a finding to report rather than
+# a reason to silently widen to the open web.
+CORPUS_SUFFICIENT_MIN = int(os.getenv("CORPUS_SUFFICIENT_MIN", "3") or 3)
+CORPUS_SUFFICIENT_MIN_TAGGED = int(os.getenv("CORPUS_SUFFICIENT_MIN_TAGGED", "1") or 1)
+# Max documents `search(read=N)` will open. `source`'s single-ref modes read ONE
+# ref per call, so this is N vLLM calls; reads stop early on the first
+# non-abstained answer, so the common case costs one.
+READ_MAX = int(os.getenv("SEARCH_READ_MAX", "3") or 3)
+
 # Relevance floor for the RESERVED external slots. Calibrated 2026-07-24 over 30
 # real retrieved candidates on the capstone sub-questions (see
 # docs/paper-track/OA-RELEVANCE-PLAN.md): the clearly off-topic tail sits below 0.62
@@ -343,7 +354,7 @@ def _dedup_and_rank(hits: list[dict], top_k: int,
 
 async def search(query: str, filters: Optional[dict] = None,
                  depth: str = "normal", top_k: int = 10,
-                 extra_queries: Any = None) -> dict:
+                 read: int = 0, extra_queries: Any = None) -> dict:
     """Find and rank evidence for a topic across corpus / OA / web tiers.
 
     depth: 'normal' (corpus + scholarly) | 'deep' (+ web). Web also requires
@@ -401,26 +412,69 @@ async def search(query: str, filters: Optional[dict] = None,
     # it gets the content words. Relevance scoring below still uses the
     # natural-language variants, independent of what each tier was sent.
     oa_variants = _oa_queries(variants)
-    tasks = [paper_search(queries=variants, top_k=top_k, tags=tags)]
-    if do_oa:
-        tr.decide("oa keyword queries", n=len(oa_variants), sample=oa_variants[:1])
-        tasks.append(semantic_scholar_search(queries=oa_variants, top_k=top_k, year=year))
-    if do_web:
-        tasks.append(web_search(queries=variants, top_k=top_k))
-    results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    corpus_res = results[0] if not isinstance(results[0], Exception) else {}
-    idx = 1
-    oa_res = web_res = {}
-    if do_oa:
-        oa_res = results[idx] if not isinstance(results[idx], Exception) else {}
-        idx += 1
-    if do_web:
-        web_res = results[idx] if not isinstance(results[idx], Exception) else {}
-
+    # ESCALATING LADDER (2026-08-27). Was: one parallel gather over every
+    # permitted tier, every time, regardless of whether the corpus already
+    # answered. Now stage 1 is the corpus alone and the external tiers are only
+    # paid for if it comes up short. Rationale beyond latency: an explicit
+    # `/group` tag is a statement about WHERE the answer should be, so quietly
+    # substituting open-web results when the corpus misses hides the finding
+    # that the data is not in the corpus (operator decision, 2026-08-27).
+    corpus_res_raw = await paper_search(queries=variants, top_k=top_k, tags=tags)
+    corpus_res = corpus_res_raw if not isinstance(corpus_res_raw, Exception) else {}
     corpus_hits = _norm_corpus((corpus_res or {}).get("results", []))
+
+    # Score the corpus alone so sufficiency is judged on the same relevance axis
+    # the final ranking uses, not on a raw count.
+    await _attach_relevance(variants, corpus_hits)
+    corpus_strong = [h for h in corpus_hits
+                     if isinstance(h.get("relevance"), (int, float))
+                     and h["relevance"] >= OA_RELEVANCE_FLOOR]
+    explicit_tags = bool(tags)          # caller passed them, not inherited
+    need = (CORPUS_SUFFICIENT_MIN_TAGGED if explicit_tags
+            else CORPUS_SUFFICIENT_MIN)
+    corpus_sufficient = len(corpus_strong) >= need
+    tr.decide("stage 1 corpus", n=len(corpus_hits), n_strong=len(corpus_strong),
+              need=need, explicit_tags=explicit_tags,
+              sufficient=corpus_sufficient)
+
+    oa_res = web_res = {}
+    escalated = False
+    if not corpus_sufficient:
+        # Stage 2: widen. Web joins at depth="deep", OR when the corpus AND OA
+        # both came up short and egress permits it: "don't go deep from the
+        # get-go, escalate if you can't find it".
+        escalated = True
+        tasks = []
+        if do_oa:
+            tr.decide("oa keyword queries", n=len(oa_variants), sample=oa_variants[:1])
+            tasks.append(semantic_scholar_search(queries=oa_variants,
+                                                 top_k=top_k, year=year))
+        if do_web:
+            tasks.append(web_search(queries=variants, top_k=top_k))
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            idx = 0
+            if do_oa:
+                oa_res = results[idx] if not isinstance(results[idx], Exception) else {}
+                idx += 1
+            if do_web:
+                web_res = results[idx] if not isinstance(results[idx], Exception) else {}
+
     oa_hits = _norm_oa((oa_res or {}).get("results", []))
     web_hits = _norm_web((web_res or {}).get("results", []))
+
+    # Stage 2b: the corpus AND OA both missed and the web was not permitted by
+    # `depth`. Escalate to it anyway rather than returning nothing, unless the
+    # caller pinned an explicit corpus (where the miss is the answer).
+    if (not corpus_strong and not oa_hits and not web_hits
+            and not explicit_tags and P.may_fetch(P.NET_WEB)):
+        tr.decide("stage 2b escalate to web", reason="corpus and OA both empty")
+        w = await web_search(queries=variants, top_k=top_k)
+        if not isinstance(w, Exception):
+            web_res = w
+            web_hits = _norm_web((web_res or {}).get("results", []))
+            escalated = True
     tr.llm(0)
 
     # Put every tier on ONE relevance axis before ranking. Without this, OA is
@@ -474,8 +528,67 @@ async def search(query: str, filters: Optional[dict] = None,
         tr.decide("thin evidence", n_scholarly=len(scholarly),
                   n_above_floor=len(strong), floor=OA_RELEVANCE_FLOOR)
 
+    # ---- stage 3: READ ----------------------------------------------------
+    # `search` used to stop at snippets, which is why the model hand-rolled
+    # source/web_fetch loops: ~60% of the calls in every reproducer run were
+    # reads. A snippet cannot carry a measured value (it lives in the body), so
+    # for a specific number the read is not optional, it is the answer.
+    #
+    # SEQUENTIAL with early stop, not a parallel fan-out. `source(mode="qa")`
+    # reports `abstained` when the document does not answer, which is exactly
+    # the escalation signal: read the best candidate, and only open the next one
+    # if that abstained. The common case therefore costs ONE extra vLLM call,
+    # and reasoning tokens are cheap relative to another round of tool calls.
+    answers: list[dict] = []
+    n_read = max(0, min(int(read or 0), READ_MAX))
+    if n_read:
+        from mcp.tools.source import source as _source
+        # Corpus first: those are local full-text PDFs. Then OA hits that
+        # actually have something fetchable.
+        candidates = [h for h in ranked if h["source_type"] == TIER_CORPUS]
+        candidates += [h for h in ranked
+                       if h["source_type"] == TIER_OA and h.get("open_access_pdf")]
+        candidates += [h for h in ranked if h["source_type"] == TIER_WEB and h.get("url")]
+        for h in candidates[:n_read]:
+            ref = {k: v for k, v in (("doi", h.get("doi")), ("url", h.get("url")),
+                                     ("title", h.get("title"))) if v}
+            if not ref:
+                continue
+            try:
+                res = await _source(refs=[ref], mode="qa", question=query)
+            except Exception as e:                      # a read must never
+                logger.info("search read failed for %s: %s", ref, e)  # kill the search
+                continue
+            if not isinstance(res, dict):
+                continue
+            # GROUNDEDNESS, not merely "did it answer". `_QA_SYSTEM` tells the
+            # reader it "may also draw on your own knowledge", so `abstained`
+            # is False even when the model answered from memory about a paper
+            # that never mentions the subject (observed: a UV-microscopy paper
+            # returning an iLOV extinction coefficient with abstained=False).
+            # Stopping there would attribute a parametric number to a document
+            # that does not contain it. `quote` is the verbatim supporting
+            # sentence, or None when there is none, so it is the real signal.
+            abstained = bool(res.get("abstained"))
+            quote = res.get("quote")
+            grounded = bool(quote) and not abstained
+            answers.append({
+                "ref": ref,
+                "source_type": h.get("source_type"),
+                "answer": res.get("answer"),
+                "quote": quote,
+                "abstained": abstained,
+                "grounded": grounded,
+            })
+            tr.decide("read", ref=ref.get("doi") or ref.get("url"),
+                      abstained=abstained, grounded=grounded)
+            if grounded:
+                break      # the document really answered it; stop paying
+
     env = {"ranked": ranked, "coverage_note": coverage_note,
            "thin_evidence": thin_evidence,
+           **({"answers": answers} if answers else {}),
+           "escalated": escalated,
            "counts": {TIER_CORPUS: len(corpus_hits), TIER_OA: len(oa_hits),
                       TIER_WEB: len(web_hits)}}
     env["trace"] = tr.finish(outcome="resolved", n_ranked=len(ranked),

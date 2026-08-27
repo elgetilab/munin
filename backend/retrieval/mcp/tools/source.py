@@ -376,7 +376,19 @@ _QUOTE_RE = re.compile(r"quote:\s*\"?(.+?)\"?\s*$", re.IGNORECASE | re.MULTILINE
 
 def _parse_qa(content: str) -> dict:
     """Split the model's answer into {answer, quote, abstained}. The full
-    `content` is kept as `answer` so downstream MCQ letter-parsing still works."""
+    `content` is kept as `answer` so downstream MCQ letter-parsing still works.
+
+    An EMPTY answer counts as abstained. `_vllm_answer` runs with thinking on
+    and max_tokens=4096, so on a long full-text prompt the <think> trace can
+    consume the whole budget and vLLM returns empty content. Without this the
+    envelope reported `outcome: resolved, abstained: False` with `answer: ""`,
+    i.e. a confident non-answer, and every caller (the read path, the LitQA2
+    answering path) took it at face value. Observed 2026-08-27 on the iLOV
+    reproducer. This makes the signal honest; it does NOT recover the answer,
+    for which the budget itself has to move."""
+    if not (content or "").strip():
+        return {"answer": "", "quote": None, "abstained": True,
+                "empty_completion": True}
     abstained = bool(_INSUFFICIENT_RE.search(content))
     qm = _QUOTE_RE.search(content)
     quote = None

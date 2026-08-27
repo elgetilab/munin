@@ -13,8 +13,7 @@
     "resident_tools": [
       "web_fetch",
       "remember",
-      "recall",
-      "web_search"
+      "recall"
     ]
   },
   "meta": {

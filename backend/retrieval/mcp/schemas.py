@@ -34,6 +34,13 @@ CORE_TOOLS = frozenset({
     "source",
     "search",
     "compute",
+    # web_search was removed from core 2026-08-27 and RESTORED the same day.
+    # Removing it did not stop the model using it: across 3 reproducer runs it
+    # was still called 7, 7 and 11 times, reached through `tool_search`, so the
+    # only effect was extra discovery calls. The tool menu was never the
+    # constraint; ~60% of the calls in every run are READS (web_fetch + source),
+    # which is what `search` could not do. Escalation now lives inside `search`.
+    "web_search",
     "run_python",
     "create_artifact",
     "calculate",
@@ -225,8 +232,15 @@ MCP_TOOLS = {
                 "depth": {
                     "type": "string",
                     "enum": ["normal", "deep"],
-                    "description": "normal = local corpus + Semantic Scholar; deep = also search the web. Default normal.",
+                    "description": "normal = start local (corpus, then Semantic Scholar) and escalate to the web only if those come up short; deep = include the web from the start. Default normal, which is usually right: the tool escalates on its own.",
                     "default": "normal"
+                },
+                "read": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3,
+                    "description": "Open up to N of the best hits and answer the query FROM THEIR FULL TEXT, not just the snippet. Use read=2 whenever you need a specific value, number, measurement or property (an extinction coefficient, a Kd, a rate constant): those live in the body of a paper and are never in the snippet. Reads run one at a time and stop at the first document that actually answers, so this usually costs one extra call, not N. Returns an `answers` array alongside `ranked`. Prefer this over calling source or web_fetch yourself afterwards.",
+                    "default": 0
                 },
                 "filters": {
                     "type": "object",

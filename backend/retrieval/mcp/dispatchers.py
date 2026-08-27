@@ -119,6 +119,7 @@ async def _search(arguments: dict) -> dict:
         top_k=arguments.get("top_k", 10),
         # Forwarded ONLY so search can reject it with a useful message; it is
         # not in the schema. Dropping it here is what made the mistake silent.
+        read=arguments.get("read", 0),
         extra_queries=arguments.get("queries"),
     )
 
