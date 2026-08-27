@@ -887,9 +887,21 @@ Paired deltas within each run:
 
 All p ~ 0.
 
-**The central claim replicates on a second, architecturally different backbone**
-(dense 27B against a 35B/3B-active MoE). Every arm improved and the ordering is
-unchanged.
+**The within-run three-arm comparison is the clean measurement.** Same day,
+same code, same questions, paired. Nothing about it depends on the 07-27 run.
+
+**The cross-run comparison is suggestive, not controlled.** The ordering and
+rough effect size agree across a dense 27B and a 35B/3B-active MoE, which is
+real evidence the harness effect is not backbone-specific. But **16 commits
+touched `backend/retrieval/` between 2026-07-27 and 2026-08-26**, several
+material to the agentic arm: `5e60f2d` (07-29) min-max normalised the vector
+score before citation re-rank, `2ff9aef` (08-03) changed web_fetch failure
+semantics, `0c178d7` (08-12) fixed context budgeting that had been killing
+turns on vLLM 400s, `a294c3a` (08-18) fixed PDF resolution behind `source`, and
+three Neo4j DOI-keying fixes landed on 08-25. Deployment timing for each was
+not independently verified against the run window. So per-arm cross-run deltas
+confound the model with a month of retrieval work and **must not be reported as
+a model effect**.
 
 **The harness delta shrank, and that is a correction rather than a regression.**
 The 07-27 bare arm ran at `max_tokens=4096` while its agentic arm ran at 16,384;

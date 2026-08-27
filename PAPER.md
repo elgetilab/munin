@@ -42,10 +42,21 @@ Track D, three arms over the same 199 LitQA2 questions, paired.
 Paired bootstrap: **agentic − bare = +0.487 [0.407, 0.568], p ≈ 0**;
 agentic − RAG = +0.663 [0.598, 0.729]; RAG − bare = −0.176 [−0.251, −0.096].
 
-**The claim replicates across backbones.** On the retired Qwen3.6-35B-A3B MoE
-(git `9c476b8`, 2026-07-27) the same 199 questions gave RAG 0.171 / bare 0.302 /
-agentic 0.839, with agentic − bare = +0.538 [0.457, 0.618]. A dense 27B and a
-35B/3B-active MoE agree on the ordering and on the size of the effect.
+**What is measured cleanly here is the WITHIN-RUN comparison.** All three arms
+above ran on the same day, same code, same 199 questions, paired. That is the
+claim, and it does not depend on anything outside this run.
+
+**The cross-run comparison to Qwen3.6 is suggestive, not controlled.** On the
+retired MoE (git `9c476b8`, 2026-07-27) the same 199 questions gave RAG 0.171 /
+bare 0.302 / agentic 0.839, agentic − bare = +0.538 [0.457, 0.618]. The ordering
+and the rough magnitude agree, which is real evidence the effect is not an
+artifact of one backbone. But **16 commits touched `backend/retrieval/` between
+the two runs**, several of them material to the agentic arm: search-score
+normalisation (`5e60f2d`, 07-29), context-budget fixes that stopped turns dying
+on vLLM 400s (`0c178d7`, 08-12), web_fetch failure semantics (`2ff9aef`, 08-03)
+and PDF resolution (`a294c3a`, 08-18). The two runs therefore differ by model
+**and** by a month of retrieval fixes. Per-arm deltas across the runs
+(0.839 → 0.874, 0.302 → 0.387) must not be attributed to the model alone.
 
 **On the delta shrinking from +0.538 to +0.487.** The 07-27 bare arm ran at
 `max_tokens=4096` against its agentic arm's 16,384, and 33 of its 199 bare
