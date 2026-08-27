@@ -581,6 +581,95 @@ def looks_like_bot_check(content: str) -> bool:
     return any(marker in low for marker in _BOT_CHECK_MARKERS)
 
 
+# ---------------------------------------------------------------------------
+# PMC full text via NCBI's documented API (not by scraping the HTML page)
+# ---------------------------------------------------------------------------
+# MEASURED 2026-08-26: on 24 URLs taken from real web_search results, 5 came
+# back as anti-bot interstitials and every one of them was pmc.ncbi.nlm.nih.gov.
+# That matters more than the count suggests: PMC is the primary open-access
+# source for the biomedical literature this system is pointed at, and T11 put
+# web_fetch's error rate at 0.678.
+#
+# The page is blocked to scrapers, but NCBI publishes the same article through
+# efetch, which is the interface they ask programmatic clients to use. So this
+# is not a way around the block; it is the front door. The same PMCID that
+# returned a 131-character interstitial returns ~37k characters through efetch.
+#
+# Reuses bibref's NCBI identity and its process-wide <=3/s throttle rather than
+# opening a second unthrottled channel to the same host.
+_PMC_EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+
+
+def pmcid_from_url(url: str) -> Optional[str]:
+    """PMCID for an NCBI-hosted PMC article URL, else None.
+
+    Host-checked on purpose: a PMCxxxx substring in some other site's path must
+    not send us to efetch with an id that host never meant.
+    """
+    if not url or not isinstance(url, str):
+        return None
+    if "ncbi.nlm.nih.gov" not in url.lower():
+        return None
+    m = re.search(r"/(PMC\d+)", url, re.I)
+    return m.group(1).upper() if m else None
+
+
+def _jats_body_text(xml_text: str) -> str:
+    """Readable text from a JATS <body>, or "" when there is no body.
+
+    Abstract-only records (no <body>) return "" so the caller reports an honest
+    failure rather than passing an abstract off as the full text.
+    """
+    try:
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(xml_text)
+    except Exception:
+        return ""
+    parts = []
+    for body in root.iter():
+        if body.tag.rsplit("}", 1)[-1] != "body":
+            continue
+        for node in body.iter():
+            tag = node.tag.rsplit("}", 1)[-1]
+            if tag in ("xref", "table-wrap", "graphic", "inline-formula"):
+                continue
+            if node.text and node.text.strip():
+                parts.append(node.text.strip())
+            if node.tail and node.tail.strip():
+                parts.append(node.tail.strip())
+    return re.sub(r"\s+", " ", " ".join(parts)).strip()
+
+
+async def fetch_pmc_fulltext(pmcid: str) -> Optional[str]:
+    """Full text for a PMCID via efetch, or None when unavailable."""
+    try:
+        import bibref
+        await bibref._ncbi_throttle()
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            r = await client.get(
+                _PMC_EFETCH_URL,
+                params={"db": "pmc", "id": pmcid, "rettype": "xml",
+                        "tool": bibref._NCBI_TOOL, "email": bibref._NCBI_EMAIL},
+                headers={"User-Agent": "MuninBot/1.0 (+https://muninai.org)"},
+            )
+            r.raise_for_status()
+            text = _jats_body_text(r.text)
+            return text or None
+    except Exception as e:
+        logger.info("PMC efetch failed for %s: %s", pmcid, e)
+        return None
+
+
+# Hosts that reliably refuse automated access. We do NOT try to get around
+# that; we fail fast with an error the model can act on, instead of spending a
+# round trip to return a bare "HTTP 403" it cannot interpret. MEASURED: 7 of 24
+# real search URLs 403'd, all publisher domains.
+_HARD_BLOCKED_HINT = (
+    "This publisher blocks automated access. Do not retry this URL. "
+    "Try the open-access route instead: look the paper up by DOI with the "
+    "`source` tool, which checks Unpaywall and PMC for a readable copy."
+)
+
 async def web_fetch_content(
     url: str,
     summary_instruction: str = "Summarize the main points and key findings, focusing on factual content.",
@@ -635,31 +724,50 @@ async def web_fetch_content(
             "url": url,
         }
 
-    try:
-        import trafilatura
+    # PMC is served through NCBI's API, not scraped: the HTML page returns an
+    # anti-bot interstitial to us, while efetch returns the same article.
+    # PMC is read through NCBI's API rather than scraped: the HTML page returns
+    # an anti-bot interstitial to us, while efetch returns the same article.
+    # `html` stays empty on that path, so the meta-tag biblio step below finds
+    # nothing and falls through to bibref, which resolves a PMCID properly.
+    html = ""
+    content = None
+    pmcid = pmcid_from_url(url)
+    if pmcid:
+        content = await fetch_pmc_fulltext(pmcid)
+        # No body (abstract-only or withdrawn record) leaves content None and
+        # falls through: the landing page is often still readable.
 
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            response = await client.get(url, headers={
-                "User-Agent": "Mozilla/5.0 (compatible; MuninBot/1.0; +https://muninai.org)"
-            })
-            response.raise_for_status()
-            html = response.text
-    except httpx.TimeoutException:
-        return {"error": f"Request timed out for URL: {url}", "url": url}
-    except httpx.HTTPStatusError as e:
-        return {"error": f"HTTP {e.response.status_code} for URL: {url}", "url": url}
-    except Exception as e:
-        return {"error": f"Failed to fetch URL: {str(e)}", "url": url}
+    if content is None:
+        try:
+            import trafilatura
 
-    try:
-        content = trafilatura.extract(
-            html,
-            include_comments=False,
-            include_tables=True,
-            favor_precision=True,
-        )
-    except Exception as e:
-        return {"error": f"Content extraction failed: {str(e)}", "url": url}
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                response = await client.get(url, headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; MuninBot/1.0; +https://muninai.org)"
+                })
+                response.raise_for_status()
+                html = response.text
+        except httpx.TimeoutException:
+            return {"error": f"Request timed out for URL: {url}", "url": url}
+        except httpx.HTTPStatusError as e:
+            code = e.response.status_code
+            if code in (401, 402, 403, 451):
+                return {"error": f"HTTP {code} for URL: {url}. {_HARD_BLOCKED_HINT}",
+                        "url": url, "blocked_by_publisher": True}
+            return {"error": f"HTTP {code} for URL: {url}", "url": url}
+        except Exception as e:
+            return {"error": f"Failed to fetch URL: {str(e)}", "url": url}
+
+        try:
+            content = trafilatura.extract(
+                html,
+                include_comments=False,
+                include_tables=True,
+                favor_precision=True,
+            )
+        except Exception as e:
+            return {"error": f"Content extraction failed: {str(e)}", "url": url}
 
     if not content:
         return {"error": "Could not extract content from URL", "url": url}

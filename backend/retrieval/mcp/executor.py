@@ -18,6 +18,8 @@ Validators compile once at module import; a malformed schema in
 rather than failing the first user request that exercises it.
 """
 
+import json
+import logging
 import time
 
 from jsonschema import Draft202012Validator, ValidationError
@@ -32,6 +34,8 @@ from ._dispatch import get_dispatcher, verify_dispatch_registry  # noqa: F401
 # to catch schema/executor drift.
 from . import dispatchers  # noqa: F401
 from .schemas import MCP_TOOLS
+
+logger = logging.getLogger(__name__)
 
 
 def _build_validators() -> dict[str, Draft202012Validator]:
@@ -55,6 +59,141 @@ def _build_validators() -> dict[str, Draft202012Validator]:
 
 
 _VALIDATORS: dict[str, Draft202012Validator] = _build_validators()
+
+
+# ---------------------------------------------------------------------------
+# Argument type coercion (tool-call robustness)
+# ---------------------------------------------------------------------------
+# Models emit JSON-ish arguments, not JSON: `top_k: "5"` instead of 5,
+# `filters: "year:2023"` instead of an object, `top_k: 5.0` instead of 5. The
+# first two are rejected by the schema validator and burn a tool call; the
+# THIRD is worse, because jsonschema accepts an integral float as "integer" and
+# the call then dies deeper in with "slice indices must be integers", which
+# reaches the model as an opaque `Tool execution failed`.
+#
+# MEASURED 2026-08-26: the `search` tool went from a 0.000 error rate on
+# Qwen3.6-35B-A3B to 0.122 on Qwen3.8-27B with no code change between the runs.
+# Every failure was one of these three shapes. Model-emitted argument types are
+# a moving target, so normalise them here rather than per tool.
+#
+# Deliberately CONSERVATIVE: only widen when the schema names a scalar type and
+# the value converts losslessly and unambiguously. A string is parsed as JSON
+# for object/array targets only when it actually parses AND yields the declared
+# type, so `"year:2023"` is still rejected (it is not JSON) while
+# `'{"year":"2023"}'` is accepted. Anything ambiguous is left alone for the
+# validator to reject with its clear message.
+def _coerce_scalar(value, want: str):
+    """Return a coerced value, or None if no safe coercion applies."""
+    if want == "integer":
+        if isinstance(value, bool):
+            return None                      # bool is an int subclass; never widen
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+        if isinstance(value, str):
+            t = value.strip()
+            try:
+                return int(t)
+            except ValueError:
+                try:
+                    f = float(t)
+                except ValueError:
+                    return None
+                return int(f) if f.is_integer() else None
+        return None
+    if want == "number":
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, str):
+            try:
+                return float(value.strip())
+            except ValueError:
+                return None
+        return None
+    if want == "boolean":
+        if isinstance(value, str) and value.strip().lower() in ("true", "false"):
+            return value.strip().lower() == "true"
+        return None
+    if want == "string":
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return str(value)
+        return None
+    if want in ("object", "array"):
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except Exception:
+                return None
+            if want == "object" and isinstance(parsed, dict):
+                return parsed
+            if want == "array" and isinstance(parsed, list):
+                return parsed
+        return None
+    return None
+
+
+def _declared_types(prop_schema: dict) -> list[str]:
+    """Types a property accepts, flattening the `anyOf`/list spellings."""
+    if not isinstance(prop_schema, dict):
+        return []
+    t = prop_schema.get("type")
+    if isinstance(t, str):
+        return [t]
+    if isinstance(t, list):
+        return [x for x in t if isinstance(x, str)]
+    out = []
+    for sub in prop_schema.get("anyOf") or prop_schema.get("oneOf") or []:
+        out.extend(_declared_types(sub))
+    return out
+
+
+def coerce_argument_types(tool_name: str, arguments: dict) -> dict:
+    """Widen model-emitted argument types toward the tool's declared schema.
+
+    Returns a NEW dict when anything changed, else `arguments` unchanged, so
+    the no-coercion path stays allocation-free and behaviour-identical.
+    """
+    if not isinstance(arguments, dict) or not arguments:
+        return arguments
+    schema = (MCP_TOOLS.get(tool_name) or {}).get("inputSchema") or {}
+    props = schema.get("properties")
+    if not isinstance(props, dict):
+        return arguments
+    out = None
+    for key, value in arguments.items():
+        want = _declared_types(props.get(key) or {})
+        if not want or value is None:
+            continue
+        # Already one of the declared types: leave it completely alone.
+        if any(_matches(value, w) for w in want):
+            continue
+        for w in want:
+            coerced = _coerce_scalar(value, w)
+            if coerced is not None:
+                if out is None:
+                    out = dict(arguments)
+                out[key] = coerced
+                logger.info("coerced %s.%s from %s to %s", tool_name, key,
+                            type(value).__name__, w)
+                break
+    return out if out is not None else arguments
+
+
+def _matches(value, want: str) -> bool:
+    if want == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if want == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if want == "boolean":
+        return isinstance(value, bool)
+    if want == "string":
+        return isinstance(value, str)
+    if want == "object":
+        return isinstance(value, dict)
+    if want == "array":
+        return isinstance(value, list)
+    if want == "null":
+        return value is None
+    return False
 
 
 def partition_by_concurrency_safety(
@@ -179,6 +318,7 @@ async def _dispatch_mcp_tool(tool_name: str, arguments: dict) -> dict:
     lookup. ``verify_dispatch_registry`` runs at startup so a
     schema/executor mismatch can't reach a real request."""
     arguments = _normalize_aliases(tool_name, arguments or {})
+    arguments = coerce_argument_types(tool_name, arguments)
     validator = _VALIDATORS.get(tool_name)
     if validator is not None:
         errs = sorted(
