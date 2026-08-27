@@ -439,10 +439,16 @@ deploy_vllm() {
     run "install -m 0755 $REPO_DIR/scripts/vllm/schedule-vllm.sh $CLUSTER_SCRIPTS/schedule-vllm.sh"
     run "install -m 0755 $REPO_DIR/scripts/vllm/check-context-window.sh $CLUSTER_SCRIPTS/check-context-window.sh"
     run "ln -sf $CLUSTER_SCRIPTS/schedule-vllm.sh /usr/local/bin/vllm-service"
-    echo "[OK] vllm — single-GPU (default) + tp2 (multi-GPU) scripts installed."
-    echo "     Single-GPU cutover: sudo vllm-service stop && sudo vllm-service start"
-    echo "     TP=2 (both GPUs, 128k): sudo vllm-service stop && \\"
-    echo "       sudo sbatch $CLUSTER_SCRIPTS/start-vllm-service-tp2.sh"
+    echo "[OK] vllm - scripts installed. Takes effect on the NEXT vLLM start."
+    echo "     Profiles (the choice PERSISTS, so the nightly 6am start restores it):"
+    echo "       single : 1 GPU,  64k, --max-num-seqs 2   sudo vllm-service start single"
+    echo "       tp2    : 2 GPUs, 64k, --max-num-seqs 8   sudo vllm-service start tp2"
+    echo "     Cut over with: sudo vllm-service stop && sudo vllm-service start"
+    echo "     Do NOT sbatch the tp2 script directly: that leaves the profile"
+    echo "     unset, so the 6am cron silently brings back the single-GPU one."
+    echo "     Large-window variant (128k, drop --max-num-seqs to 4):"
+    echo "       MAX_MODEL_LEN=131072 MAX_NUM_SEQS=4 sudo -E sbatch \\"
+    echo "         $CLUSTER_SCRIPTS/start-vllm-service-tp2.sh"
 }
 
 # ------------------------------------------------------------------------------
