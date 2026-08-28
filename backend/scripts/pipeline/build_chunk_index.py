@@ -25,6 +25,9 @@ SRC = os.getenv("PAPERS_COLLECTION", "papers_bge")
 DST = os.getenv("CHUNKS_COLLECTION", "papers_chunks")
 MODEL = os.getenv("BGE_LARGE_PATH", "/opt/munin/data/models/bge-large")
 DIM = 1024
+# Points per upsert request. ~256 x (1024-d vector + ~2 KB chunk text) stays an
+# order of magnitude under Qdrant's 32 MB payload ceiling.
+UPSERT_POINTS = 256
 HOST_PDF = "/opt/munin/data/papers/pdf"
 
 # Reuse the retrieval service's chunker verbatim so chunk boundaries match what
@@ -177,7 +180,7 @@ def main() -> int:
                     points.append((pl, i, len(cs), c))
             vecs = enc.encode(texts, batch_size=64, show_progress_bar=False,
                               normalize_embeddings=True)
-            qc.upsert(DST, points=[
+            structs = [
                 models.PointStruct(
                     id=point_id(pl.get("paper_id") or pl.get("doi") or "", i),
                     vector=v.tolist(),
@@ -191,8 +194,23 @@ def main() -> int:
                         "topic_slug": pl.get("topic_slug"),
                         "chunk_index": i, "total_chunks": tot, "chunk_text": c,
                     })
-                for v, (pl, i, tot, c) in zip(vecs, points)])
-            chunks += len(points)
+                for v, (pl, i, tot, c) in zip(vecs, points)]
+            # Upsert in fixed-size POINT slices. Sizing the flush by PAPERS was
+            # the bug that killed the 2026-08-28 run 66 seconds in: 128 papers
+            # is ~2,800 points carrying chunk_text plus 1024-d vectors, and the
+            # single request came to 91.7 MB against Qdrant's 32 MB limit. The
+            # 8-paper smoke test passed precisely because it never reached the
+            # ceiling, so batch size has to be bounded in the unit that actually
+            # determines request size.
+            for j in range(0, len(structs), UPSERT_POINTS):
+                sl = structs[j:j + UPSERT_POINTS]
+                try:
+                    qc.upsert(DST, points=sl)
+                    chunks += len(sl)
+                except Exception as exc:
+                    # One bad slice must never end a multi-hour job.
+                    print(f"  upsert slice failed ({len(sl)} pts): "
+                          f"{type(exc).__name__}: {str(exc)[:120]}", flush=True)
             buf.clear()
 
         async with httpx.AsyncClient(timeout=120.0) as client_:
