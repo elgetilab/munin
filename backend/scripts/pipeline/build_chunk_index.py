@@ -29,6 +29,7 @@ DIM = 1024
 # order of magnitude under Qdrant's 32 MB payload ceiling.
 UPSERT_POINTS = 256
 HOST_PDF = "/opt/munin/data/papers/pdf"
+CACHE = os.getenv("FULLTEXT_CACHE", "/opt/munin/data/papers/fulltext")
 
 # Reuse the retrieval service's chunker verbatim so chunk boundaries match what
 # user_docs already produces (~512 tokens, ~50 overlap, paragraph-aware).
@@ -57,6 +58,32 @@ def point_id(paper_id: str, idx: int) -> int:
     """Deterministic 63-bit id so a re-run upserts in place instead of duplicating."""
     h = hashlib.sha256(f"{paper_id}:{idx}".encode()).digest()
     return int.from_bytes(h[:8], "big") >> 1
+
+
+def cache_path(paper_id: str) -> str:
+    """Mirror of extract_fulltext_cache.cache_path (two-level fan-out)."""
+    import re as _re
+    pid = _re.sub(r"[^A-Za-z0-9_.-]", "_", paper_id or "unknown")
+    return os.path.join(CACHE, pid[:2] or "__", f"{pid}.json")
+
+
+def cached_text(paper_id: str) -> str:
+    """Full text from the phase-1 cache, or "" when not cached.
+
+    Phase 1 (extract_fulltext_cache.py) runs GROBID in daylight at ~3 papers/s;
+    this phase then only chunks and embeds, which is GPU work at 564 chunks/s.
+    Splitting them is what makes the whole corpus a day plus minutes rather than
+    several nights of contended GPU time.
+    """
+    cp = cache_path(paper_id)
+    if not os.path.exists(cp):
+        return ""
+    try:
+        import json as _json
+        with open(cp, encoding="utf-8") as fh:
+            return _json.load(fh).get("text") or ""
+    except Exception:
+        return ""
 
 
 async def extract(path: str, client: httpx.AsyncClient) -> str:
@@ -153,16 +180,20 @@ def main() -> int:
         async def one(p):
             nonlocal failed
             pl = p.payload or {}
-            fp = resolve_pdf(pl.get("pdf_path") or "")
-            if not fp:
-                failed += 1
-                return None
-            async with sem:
-                try:
-                    txt = await extract(fp, client)
-                except Exception:
+            # Cache first; fall back to live GROBID only for papers phase 1
+            # has not reached yet.
+            txt = cached_text(pl.get("paper_id") or "")
+            if not txt:
+                fp = resolve_pdf(pl.get("pdf_path") or "")
+                if not fp:
                     failed += 1
                     return None
+                async with sem:
+                    try:
+                        txt = await extract(fp, client)
+                    except Exception:
+                        failed += 1
+                        return None
             if len(txt) < 200:
                 failed += 1
                 return None
