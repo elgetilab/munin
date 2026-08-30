@@ -644,6 +644,133 @@ async def _fetch_and_extract_web(url: str, tr: AgentTrace) -> dict:
             "source": {"origin": P.ORIGIN_WEB, "url": url, "extraction_method": "web_text"}}
 
 
+
+# ---------------------------------------------------------------------------
+# mode="evidence": chunk-level retrieval with citable provenance
+# ---------------------------------------------------------------------------
+# Why this exists. `papers_bge` holds ONE vector per paper, built from title +
+# abstract, so a measured value that lives in a methods section or a table is
+# unreachable by paper-level retrieval. Measured 2026-08-27 on the iLOV
+# reproducer: the model compensated by hand-fetching 11-14 documents per turn,
+# ~60% of all its tool calls. This mode retrieves CHUNKS from `papers_chunks`
+# instead, which is the missing depth axis (paper -> chunk -> scored evidence).
+#
+# It returns EVIDENCE, not prose: ranked passages, each carrying the identity
+# and locator needed to cite it. Composing an answer is the caller's job.
+
+CHUNKS_COLLECTION = os.getenv("CHUNKS_COLLECTION", "papers_chunks")
+EVIDENCE_TOP_K = int(os.getenv("EVIDENCE_TOP_K", "8") or 8)
+EVIDENCE_FETCH = int(os.getenv("EVIDENCE_FETCH", "40") or 40)
+# At most N chunks from any one paper, so a single verbose document cannot
+# occupy the whole evidence set and crowd out corroboration.
+EVIDENCE_PER_PAPER = int(os.getenv("EVIDENCE_PER_PAPER", "2") or 2)
+
+_EVIDENCE_SYSTEM = (
+    "You score passages for whether they ANSWER a question. For each numbered "
+    "passage return one line: `<n>: <0-10> <=15 word reason>`. 10 means the "
+    "passage states the answer explicitly; 5 means it is on-topic but does not "
+    "state it; 0 means irrelevant. Judge only what the passage SAYS. Never use "
+    "outside knowledge. Return nothing but the numbered lines."
+)
+
+
+def _parse_scores(content: str, n: int) -> list[float]:
+    """Scores from the judge, defaulting to -1 (unscored) on any malformed line.
+
+    Degrades to the cosine order rather than raising: a scorer failure must
+    never take out the retrieval it was only meant to reorder.
+    """
+    out = [-1.0] * n
+    for line in (content or "").splitlines():
+        m = re.match(r"\s*(\d+)\s*[:.)]\s*(\d+(?:\.\d+)?)", line)
+        if not m:
+            continue
+        i, sc = int(m.group(1)) - 1, float(m.group(2))
+        if 0 <= i < n:
+            out[i] = max(0.0, min(10.0, sc))
+    return out
+
+
+async def _mode_evidence(question: str, refs: list, tags, tr) -> dict:
+    """Retrieve and score chunks. Returns {evidence: [...], n_candidates, scored}."""
+    from qdrant_client import http as _qh  # noqa: F401  (import guard only)
+    import database as _db
+    from mcp.tools.papers import _build_tag_filter
+    from ..context import current_query_tags
+
+    qc = _db.get_qdrant()
+    try:
+        qc.get_collection(CHUNKS_COLLECTION)
+    except Exception:
+        return {"evidence": [], "n_candidates": 0,
+                "reason": (f"{CHUNKS_COLLECTION} is not built yet; "
+                           "chunk-level evidence is unavailable")}
+
+    vec = _db.get_paper_encoder().encode(_db.PAPER_QUERY_PREFIX + question).tolist()
+    eff_tags = tags if tags is not None else current_query_tags.get()
+    qfilter = _build_tag_filter(eff_tags)
+
+    # Scope to specific papers when the caller named them.
+    dois = [d for d in ((_coerce_ref(r) or {}).get("doi") for r in (refs or [])) if d]
+    if dois:
+        from qdrant_client import models as _m
+        cond = _m.FieldCondition(key="doi", match=_m.MatchAny(any=dois))
+        qfilter = (_m.Filter(must=[cond]) if qfilter is None
+                   else _m.Filter(must=list(getattr(qfilter, "must", []) or []) + [cond]))
+
+    hits = qc.query_points(collection_name=CHUNKS_COLLECTION, query=vec,
+                           limit=EVIDENCE_FETCH, query_filter=qfilter).points
+    tr.decide("chunk retrieval", n=len(hits), scoped=bool(dois), tagged=bool(eff_tags))
+    if not hits:
+        return {"evidence": [], "n_candidates": 0}
+
+    # Cap per paper BEFORE scoring so the judge's budget is spent on breadth.
+    per: dict = {}
+    cands = []
+    for h in hits:
+        pl = h.payload or {}
+        key = pl.get("paper_id") or pl.get("doi") or ""
+        if per.get(key, 0) >= EVIDENCE_PER_PAPER:
+            continue
+        per[key] = per.get(key, 0) + 1
+        cands.append((h, pl))
+    cands = cands[:EVIDENCE_FETCH]
+
+    # ONE batched judge call, not one per candidate.
+    numbered = "\n\n".join(
+        f"[{i+1}] {(pl.get('chunk_text') or '')[:900]}" for i, (_h, pl) in enumerate(cands))
+    res = await _vllm_answer(_EVIDENCE_SYSTEM,
+                             f"Question: {question}\n\nPassages:\n{numbered}",
+                             max_tokens=1200, enable_thinking=False)
+    scored = not res.get("error")
+    scores = _parse_scores(res.get("content", ""), len(cands)) if scored else [-1.0] * len(cands)
+    tr.llm(1 if scored else 0)
+
+    out = []
+    for (h, pl), sc in zip(cands, scores):
+        quote = (pl.get("chunk_text") or "").strip()
+        doi, pid = pl.get("doi"), pl.get("paper_id")
+        # Evidence with no locator is not evidence: drop rather than return it
+        # unattributed. bibref.py exists because invented attributions shipped.
+        if not quote or not (doi or pid) or pl.get("chunk_index") is None:
+            continue
+        out.append({
+            "quote": quote,                      # verbatim; never model-generated
+            "relevance": round(float(h.score), 4),
+            "score": None if sc < 0 else sc,
+            "ref": {"doi": doi, "title": pl.get("title"), "authors": pl.get("authors"),
+                    "year": pl.get("year"), "journal": pl.get("journal")},
+            "locator": {"paper_id": pid, "chunk_index": pl.get("chunk_index"),
+                        "total_chunks": pl.get("total_chunks")},
+            "origin": P.ORIGIN_LOCAL_KB,
+            "extraction_method": "grobid_chunk",
+        })
+    # Judge score first when we have one, cosine as the tie-break and fallback.
+    out.sort(key=lambda e: (-(e["score"] if e["score"] is not None else -1),
+                            -e["relevance"]))
+    return {"evidence": out[:EVIDENCE_TOP_K], "n_candidates": len(cands),
+            "scored": scored}
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -651,12 +778,24 @@ async def _fetch_and_extract_web(url: str, tr: AgentTrace) -> dict:
 async def source(refs: list, mode: str = "summary", question: Optional[str] = None,
                  focus: Optional[str] = None, schema: Optional[list] = None) -> dict:
     """Read 1..N documents and return a grounded result. See module docstring."""
-    if mode not in ("summary", "qa", "findings", "extract", "compare"):
-        return {"error": f"unknown mode {mode!r}; expected summary|qa|findings|extract|compare"}
-    if not isinstance(refs, list) or not refs:
-        return {"error": "refs must be a non-empty list"}
-    if mode in ("qa", "findings") and not question:
+    if mode not in ("summary", "qa", "findings", "extract", "compare", "evidence"):
+        return {"error": f"unknown mode {mode!r}; expected "
+                         "summary|qa|findings|extract|compare|evidence"}
+    if mode in ("qa", "findings", "evidence") and not question:
         return {"error": f"mode={mode} requires a question"}
+    # evidence searches the chunk index, so refs are OPTIONAL there (they scope
+    # the search to named papers). Every other mode reads a specific document.
+    if mode != "evidence" and (not isinstance(refs, list) or not refs):
+        return {"error": "refs must be a non-empty list"}
+
+    if mode == "evidence":
+        tr = AgentTrace("source", mode="evidence", question=question)
+        body = await _mode_evidence(question, refs if isinstance(refs, list) else [],
+                                    None, tr)
+        n = len(body.get("evidence") or [])
+        env = {"outcome": "resolved" if n else "not_found", **body}
+        env["trace"] = tr.finish(outcome=env["outcome"], n_evidence=n)
+        return env
 
     # compare fans out over source-summary + one synthesis call (folds in
     # compare_papers, now inheriting source's resolution + provenance).

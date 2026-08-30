@@ -352,6 +352,23 @@ def _dedup_and_rank(hits: list[dict], top_k: int,
     return (corpus[:corpus_budget] + reserved)[:top_k]
 
 
+# A query that wants a FACT out of the literature, as opposed to a set of
+# documents. Deliberately crude and cheap: the cost of a false positive is one
+# extra batched LLM call, the cost of a false negative is the model hand-rolling
+# a dozen reads, which is what the iLOV reproducer measured.
+_ANSWER_SHAPED = re.compile(
+    r"\b(what|which|how (?:much|many|long|fast)|when|value|values|"
+    r"coefficient|constant|affinity|kd\b|ic50|ec50|rate|yield|"
+    r"temperature|wavelength|concentration|lifetime|efficiency)\b",
+    re.IGNORECASE)
+
+
+def _wants_answer(query: str) -> bool:
+    q = (query or "").strip()
+    if not q:
+        return False
+    return bool(q.endswith("?") or _ANSWER_SHAPED.search(q))
+
 async def search(query: str, filters: Optional[dict] = None,
                  depth: str = "normal", top_k: int = 10,
                  read: int = 0, extra_queries: Any = None) -> dict:
@@ -539,9 +556,29 @@ async def search(query: str, filters: Optional[dict] = None,
     # the escalation signal: read the best candidate, and only open the next one
     # if that abstained. The common case therefore costs ONE extra vLLM call,
     # and reasoning tokens are cheap relative to another round of tool calls.
+    # ---- stage 3a: chunk-level EVIDENCE (the depth axis) -------------------
+    # Ranked papers answer "which documents are about this". A measured value
+    # lives inside one of them, so for an answer-shaped query we pull the
+    # PASSAGES via source(mode="evidence") over the chunk index. This is what
+    # the model was hand-rolling with 11-14 web_fetch/source calls per turn.
+    # One extra LLM call (the batched passage judge), not one per document.
+    evidence: list[dict] = []
+    if _wants_answer(query):
+        try:
+            from mcp.tools.source import source as _src
+            ev = await _src(refs=[], mode="evidence", question=query)
+            evidence = (ev or {}).get("evidence") or []
+            tr.decide("chunk evidence", n=len(evidence),
+                      scored=(ev or {}).get("scored"))
+        except Exception as e:                       # never break search
+            logger.info("evidence stage failed: %s", e)
+
     answers: list[dict] = []
     n_read = max(0, min(int(read or 0), READ_MAX))
-    if n_read:
+    # Whole-paper reads are the fallback, not the default: they cost ~40s each
+    # and re-parse the PDF. Skip them when chunk evidence already answered.
+    if n_read and not any(e.get("score") is not None and e["score"] >= 7
+                          for e in evidence):
         from mcp.tools.source import source as _source
         # Corpus first: those are local full-text PDFs. Then OA hits that
         # actually have something fetchable.
@@ -588,6 +625,7 @@ async def search(query: str, filters: Optional[dict] = None,
     env = {"ranked": ranked, "coverage_note": coverage_note,
            "thin_evidence": thin_evidence,
            **({"answers": answers} if answers else {}),
+           **({"evidence": evidence} if evidence else {}),
            "escalated": escalated,
            "counts": {TIER_CORPUS: len(corpus_hits), TIER_OA: len(oa_hits),
                       TIER_WEB: len(web_hits)}}
