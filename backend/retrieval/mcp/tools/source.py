@@ -701,7 +701,13 @@ def _parse_scores(content: str, n: int) -> list[float]:
 
 
 async def _mode_evidence(question: str, refs: list, tags, tr) -> dict:
-    """Retrieve and score chunks. Returns {evidence: [...], n_candidates, scored}."""
+    """Retrieve and score chunks.
+
+    Returns {evidence, n_candidates, scored, n_scored, judge}. `scored` is True
+    only when the judge's reply actually parsed, so a caller can tell a ranked
+    result from a cosine-ordered fallback; `judge` says which of the two failure
+    modes occurred. See the block above the return for why they are separate.
+    """
     from qdrant_client import http as _qh  # noqa: F401  (import guard only)
     import database as _db
     from mcp.tools.papers import _build_tag_filter
@@ -751,9 +757,28 @@ async def _mode_evidence(question: str, refs: list, tags, tr) -> dict:
     res = await _vllm_answer(_EVIDENCE_SYSTEM,
                              f"Question: {question}\n\nPassages:\n{numbered}",
                              max_tokens=1200, enable_thinking=False)
-    scored = not res.get("error")
-    scores = _parse_scores(res.get("content", ""), len(cands)) if scored else [-1.0] * len(cands)
-    tr.llm(1 if scored else 0)
+    call_ok = not res.get("error")
+    scores = _parse_scores(res.get("content", ""), len(cands)) if call_ok else [-1.0] * len(cands)
+    # Cost accounting keys on the CALL, never on the parse: an unreadable reply
+    # still cost a round trip and it must show up as one.
+    tr.llm(1 if call_ok else 0)
+
+    # `scored` reports whether the result is actually JUDGE-ranked, not whether
+    # the judge was reachable. Until 2026-08-31 it keyed on the call, so the
+    # bracketed-numbering parser bug shipped a cosine-ordered result that
+    # announced itself as scored, with every passage carrying score=null. Three
+    # outcomes, three different remedies, so keep them distinguishable:
+    #   ok       judged and ranked
+    #   unparsed judge answered but the reply could not be read -> PARSER bug
+    #   error    judge never answered                           -> vLLM problem
+    n_scored = sum(1 for s in scores if s >= 0)
+    judge = "ok" if n_scored else ("error" if not call_ok else "unparsed")
+    if call_ok and not n_scored:
+        logger.warning(
+            "evidence judge: 0/%d candidates parsed from %d reply lines; "
+            "falling back to cosine order. First line: %r",
+            len(cands), len((res.get("content") or "").splitlines()),
+            ((res.get("content") or "").splitlines() or [""])[0][:120])
 
     out = []
     for (h, pl), sc in zip(cands, scores):
@@ -778,7 +803,7 @@ async def _mode_evidence(question: str, refs: list, tags, tr) -> dict:
     out.sort(key=lambda e: (-(e["score"] if e["score"] is not None else -1),
                             -e["relevance"]))
     return {"evidence": out[:EVIDENCE_TOP_K], "n_candidates": len(cands),
-            "scored": scored}
+            "scored": bool(n_scored), "n_scored": n_scored, "judge": judge}
 
 # ---------------------------------------------------------------------------
 # Entry point

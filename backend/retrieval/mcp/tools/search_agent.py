@@ -569,7 +569,9 @@ async def search(query: str, filters: Optional[dict] = None,
             ev = await _src(refs=[], mode="evidence", question=query)
             evidence = (ev or {}).get("evidence") or []
             tr.decide("chunk evidence", n=len(evidence),
-                      scored=(ev or {}).get("scored"))
+                      scored=(ev or {}).get("scored"),
+                      n_scored=(ev or {}).get("n_scored"),
+                      judge=(ev or {}).get("judge"))
         except Exception as e:                       # never break search
             logger.info("evidence stage failed: %s", e)
 

@@ -15,6 +15,19 @@ rather than returned unattributed (bibref.py exists because invented author
 attributions reached users).
 
     docker exec munin-retrieval python /app/tests/test_source_evidence.py
+
+To run UNDEPLOYED code, mount the repo over /app, but join the compose NETWORK
+rather than the container's namespace: `--network container:munin-retrieval`
+shares the netns without the DNS that resolves `qdrant`, so every test touching
+the index silently takes the "collection is not built yet" branch and the
+envelope assertions below see None instead of failing loudly.
+
+    docker run --rm --network munin-network \
+      --add-host host.docker.internal:host-gateway \
+      -e QDRANT_HOST=qdrant -e QDRANT_PORT=6333 \
+      -e VLLM_URL=http://host.docker.internal:8000 -e VLLM_MODEL_NAME=qwen3.8-27b \
+      -v "$PWD/backend/retrieval:/app:ro" -w /app \
+      munin-retrieval:latest python tests/test_source_evidence.py
 """
 
 from __future__ import annotations
@@ -106,6 +119,52 @@ def test_bracket_tolerance_does_not_swallow_prose():
     return _check("bracket tolerance still rejects prose", got == [-1.0, -1.0], f"got {got}")
 
 
+# --- what `scored` actually reports -----------------------------------------
+# These pin the distinction the flag failed to make until 2026-08-31: it keyed
+# on whether the judge CALL succeeded, so a reply that could not be parsed came
+# back announcing scored=true with every passage carrying score=null. The result
+# was cosine-ordered and looked judged, at the call site and in the trace.
+
+def _with_stub_judge(reply=None, error=None):
+    """Run evidence mode against the live index with a canned judge reply."""
+    import asyncio
+
+    async def fake(system, user, **kw):
+        return {"error": error} if error else {"content": reply}
+
+    real = S._vllm_answer
+    S._vllm_answer = fake
+    try:
+        return asyncio.run(S.source(refs=[], mode="evidence", question="what is the transition temperature"))
+    finally:
+        S._vllm_answer = real
+
+
+def test_scored_true_only_when_scores_parsed():
+    r = _with_stub_judge(reply="\n".join(f"{i}: 7 fine" for i in range(1, 41)))
+    ok = r.get("scored") is True and r.get("judge") == "ok" and (r.get("n_scored") or 0) > 0
+    return _check("parseable judge reply -> scored/ok",
+                  ok, f"scored={r.get('scored')} judge={r.get('judge')} n={r.get('n_scored')}")
+
+
+def test_unparseable_judge_reply_is_not_scored():
+    """THE REGRESSION. The call succeeds and the reply is unreadable, which is a
+    PARSER problem, not a scorer one. Before the fix this returned scored=true."""
+    r = _with_stub_judge(reply="I have reviewed the passages and none are relevant.")
+    ok = r.get("scored") is False and r.get("judge") == "unparsed" and r.get("n_scored") == 0
+    return _check("unparseable judge reply -> scored=False, judge=unparsed",
+                  ok, f"scored={r.get('scored')} judge={r.get('judge')} n={r.get('n_scored')}")
+
+
+def test_judge_error_is_distinguishable_from_unparsed():
+    """A judge that never answered needs a different fix from one that answered
+    unreadably, so the two must not collapse into the same flag."""
+    r = _with_stub_judge(error="connection refused")
+    ok = r.get("scored") is False and r.get("judge") == "error" and r.get("n_scored") == 0
+    return _check("judge error -> judge=error, distinct from unparsed",
+                  ok, f"scored={r.get('scored')} judge={r.get('judge')} n={r.get('n_scored')}")
+
+
 # --- mode plumbing ----------------------------------------------------------
 
 def test_evidence_requires_a_question():
@@ -162,6 +221,9 @@ TESTS = [
     test_scores_parse_bracketed_numbering,
     test_scores_parse_mixed_numbering,
     test_bracket_tolerance_does_not_swallow_prose,
+    test_scored_true_only_when_scores_parsed,
+    test_unparseable_judge_reply_is_not_scored,
+    test_judge_error_is_distinguishable_from_unparsed,
     test_evidence_requires_a_question,
     test_evidence_allows_empty_refs,
     test_other_modes_still_require_refs,
