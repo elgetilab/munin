@@ -1,0 +1,15 @@
+[Unit]
+Description=Munin vLLM health check (node usable + vLLM answering)
+Documentation=file:///opt/cluster/scripts/llm/check-vllm-health.sh
+After=slurmd.service
+
+[Service]
+Type=oneshot
+# Root: the script may call schedule-vllm.sh (sbatch as root) and writes
+# /var/log/cluster-admin/.
+User=root
+ExecStart=/opt/cluster/scripts/llm/check-vllm-health.sh
+# A degraded cluster is the POINT of this unit, not a unit failure. Exit 1
+# means "reported a problem", and letting systemd mark that as failed would
+# just add noise to `systemctl --failed` on every outage.
+SuccessExitStatus=0 1

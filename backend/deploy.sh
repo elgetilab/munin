@@ -433,11 +433,15 @@ deploy_vllm() {
     need_file "$REPO_DIR/scripts/vllm/start-vllm-service-tp2.sh"
     need_file "$REPO_DIR/scripts/vllm/schedule-vllm.sh"
     need_file "$REPO_DIR/scripts/vllm/check-context-window.sh"
+    need_file "$REPO_DIR/scripts/vllm/check-vllm-health.sh"
+    need_file "$REPO_DIR/config/munin-vllm-health.service"
+    need_file "$REPO_DIR/config/munin-vllm-health.timer"
     run "install -d -m 0755 $CLUSTER_SCRIPTS"
     run "install -m 0755 $REPO_DIR/scripts/vllm/start-vllm-service.sh $CLUSTER_SCRIPTS/start-vllm-service.sh"
     run "install -m 0755 $REPO_DIR/scripts/vllm/start-vllm-service-tp2.sh $CLUSTER_SCRIPTS/start-vllm-service-tp2.sh"
     run "install -m 0755 $REPO_DIR/scripts/vllm/schedule-vllm.sh $CLUSTER_SCRIPTS/schedule-vllm.sh"
     run "install -m 0755 $REPO_DIR/scripts/vllm/check-context-window.sh $CLUSTER_SCRIPTS/check-context-window.sh"
+    run "install -m 0755 $REPO_DIR/scripts/vllm/check-vllm-health.sh $CLUSTER_SCRIPTS/check-vllm-health.sh"
     run "ln -sf $CLUSTER_SCRIPTS/schedule-vllm.sh /usr/local/bin/vllm-service"
     echo "[OK] vllm - scripts installed. Takes effect on the NEXT vLLM start."
     echo "     Profiles (the choice PERSISTS, so the nightly 6am start restores it):"
@@ -449,6 +453,24 @@ deploy_vllm() {
     echo "     Large-window variant (128k, drop --max-num-seqs to 4):"
     echo "       MAX_MODEL_LEN=131072 MAX_NUM_SEQS=4 sudo -E sbatch \\"
     echo "         $CLUSTER_SCRIPTS/start-vllm-service-tp2.sh"
+
+    # Health check. A systemd TIMER rather than a /etc/cron.d entry because the
+    # cron file is written by HuginSLURM setup/07-scheduling-setup.sh, which
+    # runs once per node and would never reach an already-provisioned cluster.
+    echo "[vllm] Installing the health-check timer..."
+    run "install -m 0644 $REPO_DIR/config/munin-vllm-health.service \
+        $SYSTEMD_DIR/munin-vllm-health.service"
+    run "install -m 0644 $REPO_DIR/config/munin-vllm-health.timer \
+        $SYSTEMD_DIR/munin-vllm-health.timer"
+    run "systemctl daemon-reload"
+    run "systemctl enable --now munin-vllm-health.timer"
+    echo "[OK] vllm-health - hourly at :15, skips the 02:00-06:00 downtime window."
+    echo "     Alerts go to /var/log/cluster-admin/vllm-health.log and wall."
+    echo "     For off-machine alerts set MUNIN_ALERT_WEBHOOK in"
+    echo "     /opt/hugin/config/cluster.env (unset = log + wall only)."
+    echo "     Pause it during planned maintenance:"
+    echo "       touch /opt/munin/logs/vllm-health.hold"
+    echo "     Dry run: sudo $CLUSTER_SCRIPTS/check-vllm-health.sh --dry-run"
 }
 
 # ------------------------------------------------------------------------------

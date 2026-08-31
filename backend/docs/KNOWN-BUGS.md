@@ -467,11 +467,17 @@ handles the timing race.
 
 ### Follow-up
 
-- [TODO] **Alerting.** Neither failure surfaced anywhere. A check that
-  the node is not `DOWN`/`NOT_RESPONDING`, and that vLLM answers after
-  the 06:00 start window, would have caught this at 06:05 rather than
-  at 10:44 when a human went looking. `shared/docs/MONITORING.md` is
-  the place for it.
+- [DONE 2026-08-31] **Alerting.** Neither failure surfaced anywhere.
+  Added `scripts/vllm/check-vllm-health.sh` plus
+  `munin-vllm-health.timer`, hourly at `:15`, installed by
+  `deploy.sh vllm`. It skips the 02:00-06:00 downtime window, refuses
+  to resubmit when the node is `DOWN` (a job would only pend, which is
+  this incident's shape), restarts once when the node is healthy and no
+  job exists, and holds a one-hour cooldown so a crashlooping vLLM is
+  not fed back to SLURM every hour. Alerts go to the log and `wall`,
+  plus `MUNIN_ALERT_WEBHOOK` from `cluster.env` when set, since `wall`
+  reaches only logged-in terminals and nobody was logged in that
+  morning. Documented in `shared/docs/MONITORING.md`.
 
 ### Update 2026-08-31: implemented in HuginSLURM
 

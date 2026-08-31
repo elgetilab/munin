@@ -1,0 +1,20 @@
+[Unit]
+Description=Hourly vLLM health check during the serving window
+
+[Timer]
+# Hourly at :15. The 06:15 run is the one that matters: vLLM is submitted by
+# cron at 06:00 and takes ~2 min to load, so :15 is comfortably after it should
+# be answering. The other runs catch a mid-day death.
+#
+# The script itself skips 02:00-06:00, when vLLM is deliberately down and the
+# GPUs belong to batch work, so a restart in that window would steal the
+# nightly slot the chunk-index embed pass runs in.
+OnCalendar=*-*-* *:15:00
+# Deliberately NOT Persistent: this runs hourly, so a missed check comes round
+# again within the hour, and replaying a stale one at boot tells us nothing.
+Persistent=false
+RandomizedDelaySec=60
+Unit=munin-vllm-health.service
+
+[Install]
+WantedBy=timers.target

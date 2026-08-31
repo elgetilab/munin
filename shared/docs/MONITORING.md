@@ -8,6 +8,73 @@
 - **No Grafana.** Dashboards live in the webui (Admin panel → Metrics
   tab) and query Prometheus via an admin-gated proxy on retrieval.
 
+## Cluster liveness (vLLM health check)
+
+Prometheus watches the *application*; this watches whether there is a
+cluster underneath it. The two do not overlap:
+`munin_vllm_request_total` only moves when chat traffic flows, so a
+vLLM that never started at 06:00 with no users online emits nothing at
+all. That is exactly what happened on 2026-08-31, when a GPU-less boot
+took chat down from 05:02 and nothing surfaced it until a human asked
+at 10:44.
+
+- **Unit**: `munin-vllm-health.timer` -> `munin-vllm-health.service`,
+  hourly at `:15`. Installed and enabled by
+  `sudo ./deploy.sh vllm`.
+- **Script**: `scripts/vllm/check-vllm-health.sh`, deployed to
+  `/opt/cluster/scripts/llm/`.
+- **Log**: `/var/log/cluster-admin/vllm-health.log`.
+
+A systemd timer rather than an `/etc/cron.d` entry on purpose: the
+cron file is written by `HuginSLURM/setup/07-scheduling-setup.sh`,
+which runs once per node, so a cron entry would never reach an
+already-provisioned cluster.
+
+### What it does
+
+1. **Skips 02:00-06:00.** vLLM is deliberately down then and the GPUs
+   belong to batch work. Restarting in that window would steal the
+   slot the chunk-index embed pass runs in.
+2. **Probes** `http://127.0.0.1:8000/v1/models`. Answering means
+   healthy; it clears the restart stamp and exits.
+3. **Diagnoses before acting.** If the SLURM node is
+   `DOWN`/`DRAIN`/`NOT_RESPONDING` it alerts and does *not* resubmit,
+   because a job would only pend. If a vLLM job already exists it
+   alerts without resubmitting, since it may still be loading (~2 min).
+4. **Restarts once** when the node is healthy and no job exists, via
+   `schedule-vllm.sh start`, then alerts regardless of outcome so the
+   event is never silent. A one-hour cooldown stamp stops a
+   crashlooping vLLM being fed back to SLURM every hour.
+
+### Alert channels
+
+Always logs, and calls `wall`. `wall` reaches only logged-in
+terminals, which is why it did not help in the incident above, so for
+anything off-machine set `MUNIN_ALERT_WEBHOOK` in
+`/opt/hugin/config/cluster.env` to an endpoint accepting a JSON POST
+of `{"text": "..."}` (Slack, Discord, ntfy, Gotify). Unset is a silent
+no-op, so other sites deploy this without inventing a notification
+stack. Note `deploy.sh config` does not overwrite an existing
+`cluster.env`, so on an existing install add the line by hand.
+
+### Operating it
+
+```bash
+# see what it would do, changing nothing
+sudo /opt/cluster/scripts/llm/check-vllm-health.sh --dry-run
+
+# pause during planned maintenance (skips check AND restart)
+touch /opt/munin/logs/vllm-health.hold
+rm    /opt/munin/logs/vllm-health.hold
+
+systemctl list-timers munin-vllm-health.timer
+journalctl -u munin-vllm-health.service --since today
+```
+
+Exit 1 means "reported a problem", and the unit sets
+`SuccessExitStatus=0 1` so a degraded cluster does not also show up as
+a failed unit in `systemctl --failed`.
+
 ## Why no Grafana
 
 Decided 2026-06-02 (see commit history). At single-cluster, ~150-user
