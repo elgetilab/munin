@@ -80,6 +80,32 @@ def test_scores_partial_and_clamped():
     return _check("partial/out-of-range/out-of-bounds handled", ok, f"got {got}")
 
 
+def test_scores_parse_bracketed_numbering():
+    """The judge is SHOWN passages as `[1] ...` and intermittently answers in
+    that shape rather than the bare `1:` the system prompt asks for. Measured
+    2026-08-31 against the live index: 2 of 4 identical calls came back
+    bracketed, every line missed the regex, and all 35 scores went to -1, so
+    the result silently degraded to cosine order with score=null. Nothing
+    raised and the passages were still correct, which is why it survived the
+    first 11 tests: they only ever fed the unbracketed form."""
+    got = S._parse_scores("[1]: 9 states the value\n[2]: 3 on topic\n[3]: 0 irrelevant", 3)
+    return _check("bracketed judge numbering parses", got == [9.0, 3.0, 0.0], f"got {got}")
+
+
+def test_scores_parse_mixed_numbering():
+    """Both shapes in one reply must parse; the judge is not consistent within
+    a single response either."""
+    got = S._parse_scores("[1]: 8 bracketed\n2: 4 bare\n[3]. 1 bracketed dot", 3)
+    return _check("mixed bracketed/bare numbering parses", got == [8.0, 4.0, 1.0], f"got {got}")
+
+
+def test_bracket_tolerance_does_not_swallow_prose():
+    """The optional bracket must not turn prose into scores. `[note] 5` has no
+    delimiter after a number, and a bare sentence must still be unscored."""
+    got = S._parse_scores("the model wrote prose\n[note] 5 not a score", 2)
+    return _check("bracket tolerance still rejects prose", got == [-1.0, -1.0], f"got {got}")
+
+
 # --- mode plumbing ----------------------------------------------------------
 
 def test_evidence_requires_a_question():
@@ -133,6 +159,9 @@ TESTS = [
     test_scores_parse,
     test_scores_degrade_on_garbage,
     test_scores_partial_and_clamped,
+    test_scores_parse_bracketed_numbering,
+    test_scores_parse_mixed_numbering,
+    test_bracket_tolerance_does_not_swallow_prose,
     test_evidence_requires_a_question,
     test_evidence_allows_empty_refs,
     test_other_modes_still_require_refs,

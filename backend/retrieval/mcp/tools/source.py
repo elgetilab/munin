@@ -679,10 +679,19 @@ def _parse_scores(content: str, n: int) -> list[float]:
 
     Degrades to the cosine order rather than raising: a scorer failure must
     never take out the retrieval it was only meant to reorder.
+
+    The leading bracket is OPTIONAL because the judge intermittently echoes the
+    `[n]` numbering it is shown in the passage block instead of the bare `n:`
+    the system prompt asks for. Measured 2026-08-31 against the live index: 2 of
+    4 identical calls came back as `[1]: 5 ...`, and because every line then
+    failed to match, the whole result silently fell back to cosine order with
+    score=null. That is the degrade path doing its job on a parser bug rather
+    than a scorer failure, which is exactly why it went unnoticed: the result
+    still looks well-formed, just unranked.
     """
     out = [-1.0] * n
     for line in (content or "").splitlines():
-        m = re.match(r"\s*(\d+)\s*[:.)]\s*(\d+(?:\.\d+)?)", line)
+        m = re.match(r"\s*\[?\s*(\d+)\s*\]?\s*[:.)]\s*(\d+(?:\.\d+)?)", line)
         if not m:
             continue
         i, sc = int(m.group(1)) - 1, float(m.group(2))
