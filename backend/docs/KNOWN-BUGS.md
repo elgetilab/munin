@@ -262,3 +262,283 @@ literal memory loss. Three gaps combined:
   instead of denying it, and (b) the divider renders at the switch point.
   Unit tests prove the marker is built/injected and the divider logic is
   correct, not that the model obeys the marker in a live turn.
+
+---
+
+## 4. NVIDIA kernel module drifts behind the kernel, GPUs vanish on the weekly reboot
+
+**Severity:** high (whole-cluster GPU outage, silent until the next reboot)
+
+### Symptom
+
+On 2026-08-31 the Monday 05:00 reboot came back with no GPUs at all.
+`nvidia-smi` reported "couldn't communicate with the NVIDIA driver",
+`lsmod | grep nvidia` was empty, and only `/dev/nvidiactl` existed
+(a stale node, no `/dev/nvidia0` or `/dev/nvidia1`). vLLM never
+restarted, so chat was down from 05:02 until the driver was repaired
+by hand at 10:55. See bug 5 for why this became a full outage rather
+than a degraded one.
+
+The failure is silent while the machine stays up: the driver keeps
+working from the already-loaded module, so nothing looks wrong until
+the next reboot, which on this box is an automated weekly cron.
+
+### Root cause
+
+The kernel moved forward and the NVIDIA kernel module did not.
+
+- 2026-08-21, `unattended-upgrade` installed `linux-image-7.0.0-30-generic`
+  and moved the `linux-generic-hwe-24.04` metapackage from `7.0.0-29`
+  to `7.0.0-30` (`/var/log/apt/history.log`).
+- `linux-modules-nvidia-580-open-generic-hwe-24.04` stayed at
+  `7.0.0-28.28~24.04.1`. After the upgrade, `find /lib/modules -name 'nvidia*.ko'`
+  had builds only for `7.0.0-28-generic` and `6.17.0-35-generic`.
+- The 05:00 reboot booted `7.0.0-30-generic`, which has no `nvidia.ko`.
+
+`/var/log/unattended-upgrades/unattended-upgrades.log` shows the whole
+nvidia-580 stack (driver, module packages, all the `libnvidia-*`) as
+"kept back because a related package is kept back or due to local
+apt_preferences(5)". The module package is version-locked to
+`nvidia-driver-580-open`, which had a pending `580.159.03 -> 580.173.02`
+upgrade, so the two move together or not at all.
+
+The exact reason apt held it back is **not** pinned down. Two candidates,
+neither confirmed:
+
+- The manual upgrade required **removing**
+  `linux-modules-nvidia-580-open-6.17.0-35-generic` ("1 to remove" in the
+  apt transaction). unattended-upgrades does not perform removals by
+  default, which would hold back the entire dependency set.
+- `Unattended-Upgrade::Allowed-Origins` in
+  `/etc/apt/apt.conf.d/50unattended-upgrades` lists `${distro_codename}`
+  and `${distro_codename}-security` but not `${distro_codename}-updates`.
+  This is weaker evidence: the driver is published to *both*
+  `noble-updates/restricted` and `noble-security/restricted`, so origin
+  filtering alone should not have blocked it.
+
+### Immediate repair (applied 2026-08-31)
+
+```
+sudo apt-get install -y linux-modules-nvidia-580-open-7.0.0-30-generic
+sudo modprobe nvidia && sudo modprobe nvidia_uvm
+sudo systemctl start nvidia-persistenced
+sudo nvidia-smi
+```
+
+21 packages upgraded, driver now 580.173.02, both RTX 5090s back. No
+reboot was needed because no old module was loaded to conflict with.
+
+### Suggested fix
+
+Prefer a guard that does not depend on diagnosing apt's behaviour,
+because the failure mode is "kernel and module disagree" regardless of
+which apt rule caused it.
+
+**Primary: refuse to reboot into a kernel with no NVIDIA module.**
+Add a pre-flight check to `/opt/hugin/scripts/maintenance/safe-reboot.sh`
+before it stops SLURM. Resolve the kernel that will actually boot (the
+newest installed `linux-image-*`, not `uname -r`, which is the *running*
+one) and confirm a module exists for it:
+
+```bash
+next_kernel=$(ls -1 /lib/modules | sort -V | tail -1)
+if ! ls /lib/modules/"$next_kernel"/kernel/nvidia-*/nvidia.ko >/dev/null 2>&1; then
+    echo "ABORT: no NVIDIA module for $next_kernel; not rebooting"
+    exit 1
+fi
+```
+
+Aborting the reboot leaves a working cluster and a loud log line, which
+is strictly better than a silent GPU-less boot. Pair it with the
+Sunday 04:00 `reboot-warning.sh` run so the warning fires a day early
+and there is time to install the module before Monday.
+
+**Secondary: stop the drift at the source.** Once the hold-back reason
+is confirmed, either allow `${distro_id}:${distro_codename}-updates` in
+`Allowed-Origins`, or add an explicit weekly
+`apt-get install linux-modules-nvidia-580-open-$(ls -1 /lib/modules | sort -V | tail -1)`
+step ahead of the reboot. The guard above is what makes the outage
+impossible; this only reduces how often the guard has to fire.
+
+### Verification
+
+`ls /lib/modules/$(uname -r)/kernel/nvidia-*/nvidia.ko` should exist,
+and `nvidia-smi` should list both cards after any reboot.
+
+---
+
+## 5. `slurmd` dies permanently when `/dev/nvidia0` is missing at boot
+
+**Severity:** high (turns a recoverable GPU problem into a whole-day cluster outage)
+
+### Symptom
+
+After the 2026-08-31 reboot, `slurmd.service` was `failed` and stayed
+failed for the next six hours. The node showed as
+`DOWN+DRAIN+NOT_RESPONDING` with `SlurmdStartTime=None`, and the 06:00
+cron-submitted vLLM job (972) sat `PENDING` with
+`Reason=PartitionConfig` because no node ever registered.
+
+Note for future triage: `PartitionConfig` here is purely the down-node
+symptom. It is easy to misread as a resource-limit problem (the
+`vllm-serving` partition has `MaxCPUsPerNode=4` while
+`start-vllm-service-tp2.sh` asks for `--cpus-per-task=12`), but that is
+a red herring. A `srun --test-only` probe at 4 CPUs with no GRES fails
+identically, and jobs 969 to 971 ran all week with 12 CPUs.
+
+### Root cause
+
+`gres.conf` declares GPUs by device file:
+
+```
+NodeName=hugin Name=gpu Type=batch File=/dev/nvidia0
+NodeName=hugin Name=gpu Type=vllm  File=/dev/nvidia1
+```
+
+With the NVIDIA driver missing (bug 4), those nodes never appear.
+`slurmd` waits about 19 seconds and then exits fatally:
+
+```
+05:02:27 slurmd: error: Waiting for gres.conf file /dev/nvidia0
+05:02:46 slurmd: fatal: can't stat gres.conf file /dev/nvidia0: No such file or directory
+05:02:46 systemd[1]: slurmd.service: Failed with result 'exit-code'.
+```
+
+`/usr/lib/systemd/system/slurmd.service` has no `Restart=` directive,
+which means `Restart=no`. One fatal exit at boot and the daemon is
+down until a human notices. Nothing retried, and nothing alerted.
+
+### Suggested fix
+
+Add a restart policy via a drop-in (not by editing the packaged unit,
+which apt will overwrite), at
+`/etc/systemd/system/slurmd.service.d/restart.conf`:
+
+```ini
+[Unit]
+After=nvidia-persistenced.service
+Wants=nvidia-persistenced.service
+StartLimitIntervalSec=600
+StartLimitBurst=10
+
+[Service]
+Restart=on-failure
+RestartSec=30
+```
+
+Then `systemctl daemon-reload`.
+
+This covers the ordinary case where the driver is present but the device
+nodes are not yet created when `slurmd` starts: ten retries over ten
+minutes is far longer than the driver needs, and the node registers on
+its own.
+
+It deliberately does **not** paper over a genuinely absent driver. With
+no module installed, `slurmd` still exhausts its burst and stops, but
+the state is then an obvious repeated-failure trail in
+`systemctl status slurmd` rather than a single fatal line hours in the
+past. Bug 4's pre-reboot guard is what prevents that case; this drop-in
+handles the timing race.
+
+### Follow-up
+
+- [TODO] **Alerting.** Neither failure surfaced anywhere. A check that
+  the node is not `DOWN`/`NOT_RESPONDING`, and that vLLM answers after
+  the 06:00 start window, would have caught this at 06:05 rather than
+  at 10:44 when a human went looking. `shared/docs/MONITORING.md` is
+  the place for it.
+
+---
+
+## 6. `build_chunk_index.py` cannot use both GPUs, so a full-corpus rebuild wastes half the box
+
+**Severity:** medium (no data risk; doubles the wall-clock of every full rebuild)
+
+### Symptom
+
+The embed phase runs on exactly one GPU. Measured during the
+2026-08-31 backfill, once the run reached the cache-hit region where
+embedding is genuinely the bottleneck:
+
+```
+0, 100 %, 4200 MiB  |  1, 0 %, 4 MiB
+0,  82 %, 4200 MiB  |  1, 0 %, 4 MiB
+```
+
+GPU 0 saturated, GPU 1 completely untouched. On a full-corpus rebuild
+the embed phase is about 44 minutes at the measured 564 chunks/s for
+~1.48M chunks, so roughly 22 minutes of a 5090 are thrown away every
+time.
+
+Note this only shows up in the cache-hit region. Where the run is
+falling back to live GROBID, or grinding through papers with
+unparseable PDFs, the GPU sits near 0% and is not the constraint at
+all. Both regimes occur inside a single run, so a single utilisation
+sample will mislead. Sample during a period when the `failed` counter
+is flat and `papers` is climbing.
+
+### Root cause
+
+`build_chunk_index.py` builds one encoder:
+
+```python
+enc = SentenceTransformer(MODEL, device=args.device)
+```
+
+and a single process walks `todo` in order. `--device cuda:1` moves the
+work to the other card but does not split it.
+
+Running two processes side by side does **not** work as a workaround.
+Each one independently rebuilds `todo` from "everything in `papers_bge`
+not already in `papers_chunks`" and then walks it in the same order, so
+both process the same papers. Point ids are deterministic
+(`point_id(paper_id, idx)`), so the second writer overwrites the first
+in place rather than duplicating rows: the index stays correct, but the
+second GPU buys nothing. It is wasted work, not corruption.
+
+### Suggested fix
+
+Add a `--shard i/n` flag and partition `todo` deterministically, after
+the existing sort and the `--limit` slice:
+
+```python
+ap.add_argument("--shard", default=None, help="i/n, process only shard i of n")
+...
+if args.shard:
+    i, n = (int(x) for x in args.shard.split("/"))
+    todo = [p for k, p in enumerate(todo) if k % n == i]
+```
+
+Partition by position rather than by hash of `paper_id`: `todo` is
+already sorted tagged-first, and striding by position keeps that
+priority spread evenly across shards, so a deadline stop leaves every
+shard having made comparable progress on the tagged papers. Hashing
+would scatter that ordering.
+
+Then run one process per card:
+
+```
+$PY build_chunk_index.py --shard 0/2 --device cuda:0 --deadline 05:30 &
+$PY build_chunk_index.py --shard 1/2 --device cuda:1 --deadline 05:30 &
+```
+
+Two caveats worth handling while in there:
+
+- **The resume scan is paid per process.** Each one scrolls the whole
+  of `papers_chunks` (1.2M points and growing) to build its `done` set,
+  which is a couple of minutes each and grows with the corpus. It is
+  tolerable at n=2. If the shard count ever goes higher, build the set
+  once and write it to a file the shards read.
+- **Both cards are only free while vLLM is down.** Under the TP=2
+  profile vLLM holds `gpu:vllm:1` and `gpu:batch:1` together, so a
+  two-shard run belongs in the nightly downtime window, which is
+  already where the embed phase is meant to run. See
+  `TP2-GPU-SHARING-EXPERIMENT.md`.
+
+### Why it was not done during the 2026-08-31 run
+
+The remaining work at the point the saturation was noticed was about
+33 minutes on one card. Adding the flag, restarting, and paying the
+resume scan twice came to roughly what it would have saved, on a job
+already finishing an hour inside its window. The cost/benefit inverts
+for a full rebuild, which is what this entry is for.
