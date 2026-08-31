@@ -46,6 +46,17 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S'): $1" | tee -a "$LOG_FILE"; }
 # this cleanly without inventing a notification stack.
 [ -f /opt/hugin/config/cluster.env ] && . /opt/hugin/config/cluster.env 2>/dev/null
 
+# Refuse to POST to a placeholder. The documented value is an example URL, and
+# an example URL pasted verbatim is a REAL destination: ntfy topics are public
+# and unauthenticated, so a guessable topic name broadcasts cluster state to
+# anyone who subscribes. Treat a placeholder as unset rather than as a target.
+case "$MUNIN_ALERT_WEBHOOK" in
+    *CHANGE-ME*|*CHANGE_ME*|*change-me*|*your-topic*|*example.com*|*EXAMPLE*)
+        MUNIN_ALERT_WEBHOOK=""
+        PLACEHOLDER_WEBHOOK=1
+        ;;
+esac
+
 alert() {
     local msg="$1"
     log "ALERT: $msg"
@@ -72,6 +83,9 @@ EOF
                  && log "  webhook notified" \
                  || log "  WARNING: webhook POST failed"
         fi
+    elif [ "$PLACEHOLDER_WEBHOOK" = "1" ]; then
+        log "  WARNING: MUNIN_ALERT_WEBHOOK still holds a PLACEHOLDER; refusing to POST."
+        log "           Set a real, unguessable destination in /opt/hugin/config/cluster.env"
     else
         log "  (MUNIN_ALERT_WEBHOOK unset; log + wall only)"
     fi

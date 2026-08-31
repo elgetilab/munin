@@ -57,6 +57,18 @@ no-op, so other sites deploy this without inventing a notification
 stack. Note `deploy.sh config` does not overwrite an existing
 `cluster.env`, so on an existing install add the line by hand.
 
+**Pick the destination carefully.** On public `ntfy.sh` there is no
+auth: the topic name IS the secret, and anyone who subscribes to it
+receives every alert. Alert bodies name the host and describe cluster
+state (`vLLM is down AND the SLURM node is DOWN+DRAIN...`), so use a
+long random topic, or prefer a Slack/Discord webhook, a self-hosted
+ntfy, or Gotify where the URL carries a real credential.
+
+The script refuses to POST when the value looks like a placeholder
+(`CHANGE-ME`, `your-topic`, `example.com`), logging a warning instead.
+An example URL pasted verbatim is a real, and in ntfy's case guessable,
+destination.
+
 ### Operating it
 
 ```bash
