@@ -365,6 +365,31 @@ impossible; this only reduces how often the guard has to fire.
 `ls /lib/modules/$(uname -r)/kernel/nvidia-*/nvidia.ko` should exist,
 and `nvidia-smi` should list both cards after any reboot.
 
+### Update 2026-08-31: the guard already existed, undeployed
+
+The "suggested fix" above was already written and committed, in the OTHER
+repo. `HuginSLURM/scripts/maintenance/lib-reboot.sh` defines
+`check_reboot_safety()`, and `safe-reboot.sh` wires it in with an abort, a
+`wall` broadcast and `exit 2`. It resolves the next-boot kernel and refuses
+to reboot when its NVIDIA modules are missing, which is this outage exactly.
+
+It never reached the machine. The live `/opt/cluster/scripts/maintenance/
+safe-reboot.sh` predates that work and `lib-reboot.sh` was not on the box at
+all, so the guard could not fire. **This was a deploy gap, not a missing
+feature.**
+
+Correcting the record: an earlier version of this entry said `slurm.conf`
+was untracked. That was wrong, and came from running `git ls-files` in munin
+only. HuginSLURM owns and tracks `slurm.conf`, `gres.conf`, `cgroup.conf` and
+the maintenance scripts, and deploys them with its own
+`deploy.sh config|scripts`.
+
+Fixed in HuginSLURM `b5f334c`, which also backports two live-only changes
+that deploying would otherwise have REVERTED (`MaxCPUsPerNode=12` and the
+tp2-aware job cancel), and switches the module probe from `dpkg-query` to
+`modinfo -k` so DKMS sites are not blocked. Still to do: run
+`HuginSLURM/deploy.sh scripts` on hugin.
+
 ---
 
 ## 5. `slurmd` dies permanently when `/dev/nvidia0` is missing at boot
@@ -447,6 +472,23 @@ handles the timing race.
   the 06:00 start window, would have caught this at 06:05 rather than
   at 10:44 when a human went looking. `shared/docs/MONITORING.md` is
   the place for it.
+
+### Update 2026-08-31: implemented in HuginSLURM
+
+`config/slurmd-restart.conf` in HuginSLURM `b5f334c`, installed by
+`deploy.sh config` to `/etc/systemd/system/slurmd.service.d/restart.conf`.
+It lives in `deploy_config` rather than `setup/03-slurm-install.sh` because
+setup runs once per node and would never reach an already-provisioned
+cluster, which is the case that actually needed it.
+
+Also worth recording here: `slurm-auto-resume.service` failed the same
+morning with `Dependency failed`, because it declares
+`Requires=slurmd.service`. So even a driver fix would have left the node
+drained until someone resumed it by hand. The restart policy addresses the
+cause; the dependency is worth revisiting if slurmd ever stays down for a
+reason the drop-in cannot retry past.
+
+Still to do: run `HuginSLURM/deploy.sh config` on hugin.
 
 ---
 
