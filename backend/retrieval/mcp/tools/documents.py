@@ -65,6 +65,91 @@ async def search_user_docs(
 
 
 # ---------------------------------------------------------------------------
+# list_documents (2026-09-01)
+# ---------------------------------------------------------------------------
+
+# Cap on documents returned in one call. A user with hundreds of uploads would
+# otherwise blow the tool-result budget, and the model only needs enough to
+# answer "what have I got" honestly. `total` always reports the real figure so
+# a truncated page can never be mistaken for the whole store.
+_LIST_LIMIT_DEFAULT = 50
+_LIST_LIMIT_MAX = 200
+
+
+async def list_documents(limit: int = _LIST_LIMIT_DEFAULT) -> dict:
+    """Enumerate the user's uploaded documents. No query, no ranking.
+
+    WHY this exists. `search_user_docs` is semantic: it needs a query and
+    returns matching chunks. Asked "how many papers did I upload?" or "list my
+    documents", the model could only guess topics and search for them, and a
+    2026-08-20 user watched it run four different searches, get zero results
+    each time, and conclude his store was probably empty. Its own summary of
+    the options was accurate and useless: vocabulary mismatch, an empty store,
+    or a different account, with no way to tell which. An inventory answers
+    that question directly, and `GET /api/documents` has served exactly this to
+    the web UI the whole time.
+    """
+    import document_store  # lazy import — avoids circular init
+
+    user_email = current_user_email.get()
+    if not user_email:
+        return {
+            "documents": [],
+            "error": "list_documents requires an authenticated user context",
+        }
+    try:
+        limit = max(1, min(_LIST_LIMIT_MAX, int(limit)))
+    except (TypeError, ValueError):
+        limit = _LIST_LIMIT_DEFAULT
+
+    docs = await document_store.list_documents(user_email=user_email)
+    total = len(docs)
+    page = docs[:limit]
+    out: dict = {
+        "documents": [
+            {
+                "document_id": d.get("document_id"),
+                "filename": d.get("filename"),
+                "chunks": d.get("chunks"),
+                # "embedded" = searchable via search_user_docs. "stored" = the
+                # file is on disk with no embeddings, which is correct for an
+                # image and a defect for anything else. Surfaced rather than
+                # flattened, because a document that exists but cannot be
+                # searched is precisely the case the model must not describe
+                # as "you have this" or as "you have nothing".
+                "status": d.get("status"),
+                "uploaded_at": d.get("upload_time"),
+            }
+            for d in page
+        ],
+        "total": total,
+        "returned": len(page),
+    }
+    n_unsearchable = sum(1 for d in page if d.get("status") != "embedded")
+    if n_unsearchable:
+        out["note_unsearchable"] = (
+            f"{n_unsearchable} of these are stored but not embedded, so "
+            f"search_user_docs cannot reach them. Images are expected here; "
+            f"a text document with status 'stored' failed extraction."
+        )
+    if total == 0:
+        # Say what an empty result MEANS. The store being genuinely empty and
+        # the tool being unable to see it are different situations, and the
+        # model has no other way to tell them apart.
+        out["note"] = (
+            "This account has no uploaded documents. This is an inventory of "
+            "the store, not a search, so an empty result means the store is "
+            "empty rather than that a query missed."
+        )
+    elif total > len(page):
+        out["note"] = (
+            f"Showing {len(page)} of {total} documents. Raise `limit` or say "
+            f"so when reporting, rather than implying this is the full list."
+        )
+    return out
+
+
+# ---------------------------------------------------------------------------
 # view_attachment (§5 deferred re-view capability)
 # ---------------------------------------------------------------------------
 

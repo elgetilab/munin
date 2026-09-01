@@ -50,6 +50,8 @@ from .tools import (
     search_past_conversations,
     search_user_docs,
     search,
+    list_documents,
+    browse_tag_papers,
     semantic_scholar_search,
     source,
     tool_search,
@@ -235,6 +237,22 @@ async def _search_user_docs(arguments: dict) -> dict:
     return await search_user_docs(
         query=arguments.get("query", ""),
         top_k=arguments.get("top_k", 5),
+    )
+
+
+@register_tool("list_documents")
+async def _list_documents(arguments: dict) -> dict:
+    return await list_documents(limit=arguments.get("limit", 50))
+
+
+@register_tool("browse_tag_papers")
+async def _browse_tag_papers(arguments: dict) -> dict:
+    return await browse_tag_papers(
+        kind=arguments.get("kind"),
+        slug=arguments.get("slug"),
+        offset=arguments.get("offset", 0),
+        limit=arguments.get("limit", 10),
+        sort=arguments.get("sort", "year_desc"),
     )
 
 

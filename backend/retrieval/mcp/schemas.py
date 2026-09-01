@@ -445,6 +445,54 @@ MCP_TOOLS = {
             "required": ["query"]
         }
     },
+    "list_documents": {
+        "name": "list_documents",
+        "description": "List, enumerate, browse or inventory ALL documents the user has uploaded, without a search query. Answers 'how many papers did I upload', 'list my documents', 'what is in my knowledge base', 'catalog my files', 'show everything I have uploaded'. Use this INSTEAD of guessing topics and running search_user_docs repeatedly: that is a semantic search, so zero results mean the query missed, whereas an empty result here means the store really is empty. Returns filename, document_id, chunk count, upload time and a `status` per document plus a `total`. status 'embedded' means search_user_docs can reach it; status 'stored' means the file exists but has no embeddings, which is normal for images and indicates failed text extraction for anything else. When `total` exceeds what is returned, say so rather than presenting the page as the complete list.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum documents to return (default: 50, max: 200). `total` always reports the true count.",
+                    "default": 50
+                }
+            }
+        }
+    },
+    "browse_tag_papers": {
+        "name": "browse_tag_papers",
+        "description": "List, enumerate, browse or catalog the papers in a corpus collection - a research group, a topic cluster, or one contributor - with no search query and no ranking. Answers 'list the first 10 papers in the Deibel group', 'what is in the attached knowledge', 'show me everything this group has contributed', 'inventory this topic'. Use this INSTEAD of paper_search whenever the user wants the CONTENTS of a collection rather than papers relevant to a question: a similarity search can only return a sample and presenting that as a list is wrong. `kind` is topic/group/contributor and `slug` is the tag value; BOTH may be omitted when exactly one #tag scope is attached to the conversation, in which case that collection is browsed. Paginate with `offset`. Returns paper stubs (title, doi, year, authors, contributors, download_url) plus `total`, the real size of the collection - always report the page size against that total rather than implying you saw everything.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": ["topic", "group", "contributor"],
+                    "description": "Which kind of collection. Omit to use the conversation's single attached scope tag."
+                },
+                "slug": {
+                    "type": "string",
+                    "description": "The tag value: a topic_slug, a research-group slug (e.g. 'deibel'), or a contributor username. Omit to use the conversation's single attached scope tag."
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Papers to skip, for paging (default: 0)",
+                    "default": 0
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Papers per page (default: 10, max: 200)",
+                    "default": 10
+                },
+                "sort": {
+                    "type": "string",
+                    "enum": ["year_desc", "year_asc", "upload_desc"],
+                    "description": "Ordering within the page (default: year_desc). Sorting applies to the page, not corpus-wide.",
+                    "default": "year_desc"
+                }
+            }
+        }
+    },
     "transcribe_equation": {
         "name": "transcribe_equation",
         "description": "Transcribe an equation from an uploaded image as LaTeX source. Use this when the user attaches a screenshot/photograph of an equation from a paper and wants it in editable LaTeX form - 'give me the LaTeX for this equation', 'transcribe this formula', 'copy this into my notes'. Pass the document_id of an image the user has uploaded in this conversation (you can find document_ids in the '[Attachments on this message: ...]' markers on earlier turns, or in the result of list_projects / list_attachments). Returns {latex: '...', image_ref: '...'}. If the image contains no mathematics, latex will be null and a message field will explain. Only image documents (png/jpeg/webp) are supported.",

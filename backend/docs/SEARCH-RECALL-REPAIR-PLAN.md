@@ -130,11 +130,11 @@ One unexplained residue, tracked as phase 4 below: user hash
 
 ## Phases
 
-### Phase 1: rank on similarity (defect 1)
+### Phase 1: rank on similarity (defect 1)  — DONE (1bff8a3)
 
 `papers.py`, `research.py`. Tests:
-`tests/test_paper_search_merge.py`, which is written and currently red
-on exactly the four assertions this phase must flip.
+`tests/test_paper_search_merge.py`, 11 passing. Written before the fix
+and red on exactly the four assertions this phase had to flip.
 
 1. `paper_search`: rank on `score`, with agreement as a bounded
    additive bonus (`+0.002` per extra variant, capped at four) that can
@@ -154,24 +154,50 @@ on exactly the four assertions this phase must flip.
    matching the existing trust order. Deep Research then inherits
    phase 1.1 automatically.
 
-Acceptance: the four red tests turn green, live recall of the named
-paper goes to 6/6 through `paper_search`, and a topical (non-title)
-query is not visibly reordered.
+Measured after: live recall of the named paper 12/18 -> 6/6, at rank 1
+in every run, and `top_k=50` from absent/36/11 -> rank 2. No
+regressions across test_search_expansion, test_search_ranking,
+test_search_relevance, test_search_agent_hygiene, test_source_evidence,
+test_dispatch_registry, test_tool_result.
 
-### Phase 2: give the model a browse path (defect 2)
+### Phase 2: give the model a browse path (defect 2)  — DONE
 
-`mcp/tools/documents.py`, a new tool module for the tag browse,
-`mcp/schemas.py`, `mcp/dispatchers.py`.
+New `tag_browse.py`, new `mcp/tools/knowledge.py`,
+`mcp/tools/documents.py`, `mcp/schemas.py`, `mcp/dispatchers.py`,
+`main.py`. Tests: `tests/test_browse_tools.py`, 17 passing.
 
-1. `list_documents`: wraps `document_store.list_documents`, reads
+1. `tag_browse.py` holds the browse implementation, extracted from the
+   `/api/tags/{kind}/{slug}/papers` route so the endpoint and the tool
+   run the same code and the UI and the model can never disagree about
+   what a collection contains. Verified byte-identical to the live
+   endpoint's response on `group/deibel` before and after.
+2. `list_documents`: wraps `document_store.list_documents`, reads
    `current_user_email` from the MCP context the way `search_user_docs`
-   does, optional `project_id`, returns filename, chunk count and
-   upload date.
-2. `browse_tag_papers`: wraps the `/api/tags` browse with
-   `offset` / `limit` / `sort`, defaulting `kind` and `slug` from the
-   active scope tags so "list the attached knowledge" resolves without
-   the user restating the tag.
-3. `BACKEND-API.md` if either wrapper changes an endpoint's contract.
+   does. Returns filename, chunk count, upload time and `status` per
+   document, plus a true `total`.
+3. `browse_tag_papers`: wraps `tag_browse` with `offset` / `limit` /
+   `sort`, defaulting `kind` and `slug` from the active scope tags, and
+   refusing to guess when two tags are attached (they AND-combine in
+   search, but a browse takes one collection).
+4. Neither goes in `CORE_TOOLS`: both are occasional-use, and the
+   schema is kept small on purpose. They are reachable through
+   `tool_search`, whose IDF scorer drops "list" as a stopword, so the
+   descriptions carry "enumerate", "browse", "catalog" and "inventory"
+   instead. A test asserts discovery for the phrasings the model in the
+   transcript actually tried and failed with.
+5. `BACKEND-API.md` unchanged: the endpoint's contract, including its
+   error shapes and statuses, is preserved exactly.
+
+Coverage honesty is the load-bearing property in both tools, not the
+listing. Each reports the collection's real `total` and says when a
+page is partial, because "here are the papers" over page one of 1572 is
+the same failure this work exists to fix, wearing a different costume.
+An empty result is self-describing for the same reason: zero hits from
+a SEARCH are ambiguous, zero from an ENUMERATION are not, and the tool
+says which it is so the model stops hedging about vocabulary mismatch.
+`list_documents` also surfaces per-document `status`, so a file that is
+stored but not embedded is never reported as searchable (that is also
+the signal phase 4 needs).
 
 ### Phase 3: tell the truth about scope (defect 3)
 

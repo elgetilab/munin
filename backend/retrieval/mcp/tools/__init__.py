@@ -5,7 +5,8 @@ Each module provides functions that implement MCP tools:
 - web.py: web_search, web_fetch
 - papers.py: paper_search, semantic_scholar_search, paper_lookup, get_citations, get_references, get_author_papers, get_paper_pdf, check_papers_availability
 - llm.py: llm_summarize
-- documents.py: search_user_docs
+- documents.py: search_user_docs, list_documents
+- knowledge.py: browse_tag_papers
 """
 
 from .web import web_search, web_fetch_content
@@ -20,7 +21,8 @@ from .papers import (
     check_papers_availability,
 )
 from .llm import llm_summarize
-from .documents import search_user_docs, view_attachment
+from .documents import search_user_docs, list_documents, view_attachment
+from .knowledge import browse_tag_papers
 from .equation import transcribe_equation
 from .faq import faq
 from .source import source
@@ -68,6 +70,8 @@ __all__ = [
     "check_papers_availability",
     "llm_summarize",
     "search_user_docs",
+    "list_documents",
+    "browse_tag_papers",
     "view_attachment",
     "transcribe_equation",
     "faq",
