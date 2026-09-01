@@ -124,9 +124,12 @@ both `main.py:604` and `document_store.py:54`, and the index holds no
 casing anomalies. His four empty searches most likely reflect an
 account with no text uploads.
 
-One unexplained residue, tracked as phase 4 below: user hash
+One residue did turn out to be a real bug, though it belongs to a
+different user and did not affect this transcript: user hash
 `d77e6cc01c9b8228` has 9 text files on disk (7 `.docx`, 1 `.md`,
-1 `.pdf`) and 3 embedded documents.
+1 `.pdf`) and 3 embedded documents. Diagnosed and fixed in phase 4
+below; the six missing files are table-shaped `.docx` that the
+paragraph-only extractor read as empty.
 
 ## Phases
 
@@ -226,10 +229,66 @@ pointer: from where the model sat, those features did not exist.
    never tag-scoped. `deploy.sh agents` already syncs this file, so no
    deploy change is needed.
 
-### Phase 4: investigate the docx indexing residue
+### Phase 4: the docx indexing residue  — DONE
 
-`document_store.py::_extract_docx`. Reproduce against the affected
-files, establish whether extraction fails silently, whether the failure
-is logged, and whether `list_documents` reports such a document as
-embedded when it is not. Fix or write up depending on what it turns
-out to be. Scoped as an investigation, not a known fix.
+`document_store.py`, new `scripts/maintenance/backfill_user_docs.py`,
+`BACKEND-API.md`, `frontend/webui/src/lib/api.ts`. Tests:
+`tests/test_docx_extraction.py`, 11 passing.
+
+It was a real parser bug, and a silent one.
+
+**Diagnosis.** All six unembedded files are valid OOXML. Every one has
+ZERO paragraph text and exactly one table carrying the whole document,
+187 to 3636 characters. The seventh, the one that worked, is
+paragraph-shaped: 358 paragraphs, no tables. `_extract_docx` read only
+`document.paragraphs`, so a table-shaped document extracted to the
+empty string, chunked to nothing, and embedded nothing. A form, a
+questionnaire or a lab record exported to Word is table-shaped more
+often than not.
+
+**Why it survived three months.** `upload_document` returns
+`status: "stored"` for a zero-chunk document, which is exactly what it
+returns for an image, and logged nothing at all. So a `.docx` the
+parser could not read was indistinguishable from a screenshot, at the
+API, in the logs, and in the UI. The user was told the upload
+succeeded.
+
+**Fix.**
+
+1. `_extract_docx` walks the body in document ORDER, collecting
+   paragraphs and table rows (cells joined with `|`, merged cells
+   deduped on the underlying XML element). Order matters so a table
+   stays next to the prose that introduces it. Still uncovered, and
+   noted in the docstring: headers/footers, text boxes, and tables
+   nested inside a cell. None appeared in the corpus.
+2. `upload_document` now returns a `reason` on a text-type `stored`
+   response (`no_text_extracted` / `no_chunks` / `index_unavailable`)
+   and logs a warning naming the file, so the next shape the parser
+   cannot read announces itself on the first upload rather than on a
+   complaint. Images still carry no reason: storing without embedding
+   is correct for them, and a reason string would read as a defect.
+3. `BACKEND-API.md` 4.9 documents the field; the frontend
+   `UploadedDocument` type carries it as optional (`tsc` clean, no UI
+   change).
+
+**Blast radius, measured corpus-wide.** Exactly 8 uploaded text
+documents on disk have no points in `user_docs`. Six are the `.docx`
+above, all one user, all now recoverable. The other two are PDFs from a
+different user, 5.7 MB and 11.5 MB, produced by "Skia/PDF" (printed
+from a browser) and "Microsoft: Print To PDF"; `pdftotext` gets zero
+characters from either. They have no text layer, so this is not a
+parser gap but a missing OCR path. The papers pipeline already OCRs
+(`PAPERS_OCR_CACHE_DIR`); user uploads do not. Wiring that up is a
+separate decision, not part of this repair. Those two now report
+`no_text_extracted` instead of a bare `stored`.
+
+**Backfill.** `scripts/maintenance/backfill_user_docs.py` re-extracts
+and embeds on-disk documents that are missing from the index.
+Idempotent, `--dry-run` first. Two inherent limits it documents rather
+than papers over: `conversation_id` and `project_id` were only ever
+written to the Qdrant payload, so a recovered document comes back
+user-global (still found, via search_user_docs' existing fallback, just
+not preferred inside its project); and a user email is recovered by
+hashing indexed emails against the one-way directory name, so a user
+whose every document failed is reported rather than guessed
+(`--email` handles that). Recovered points carry `backfilled: true`.

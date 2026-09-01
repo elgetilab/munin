@@ -150,13 +150,72 @@ async def _extract_pdf(file_bytes: bytes) -> str:
         return ""
 
 
+def _docx_table_lines(table) -> list[str]:
+    """One line per table row, cells joined with ' | '.
+
+    `row.cells` yields the SAME cell object once per grid column it spans, so a
+    horizontally merged cell would otherwise repeat its text across the row.
+    Deduped on the underlying XML element rather than on the string, because two
+    genuinely distinct cells can legitimately hold the same value.
+    """
+    lines: list[str] = []
+    for row in table.rows:
+        seen: set = set()
+        cells: list[str] = []
+        for cell in row.cells:
+            key = id(cell._tc)
+            if key in seen:
+                continue
+            seen.add(key)
+            text = (cell.text or "").strip()
+            if text:
+                cells.append(text)
+        if cells:
+            lines.append(" | ".join(cells))
+    return lines
+
+
 def _extract_docx(file_bytes: bytes) -> str:
+    """Linear text from a .docx, covering paragraphs AND tables.
+
+    Reading only `document.paragraphs` (the shape until 2026-09-01) silently
+    lost every document whose content lives in a table. Measured on one user's
+    uploads: 6 of 7 .docx files extracted to zero characters, each one a valid
+    OOXML file with no paragraph text and a single table holding 187 to 3636
+    characters. They were stored on disk, embedded nowhere, and reported as a
+    successful upload, so `search_user_docs` could never see them and nothing
+    anywhere said why. A form, a questionnaire or a lab record exported to Word
+    is table-shaped far more often than not.
+
+    Walks the body in document ORDER rather than concatenating
+    `document.paragraphs` then `document.tables`, so a table stays next to the
+    prose that introduces it and chunking does not interleave unrelated
+    material.
+
+    Still not covered, and deliberately: headers/footers, text boxes
+    (`w:txbxContent`) and tables nested inside a table cell. None appeared in
+    the observed corpus. `_supported_text_is_empty` below now warns when an
+    extraction comes back empty, so the next shape announces itself instead of
+    going quiet.
+    """
     try:
         import docx  # python-docx
+        from docx.oxml.table import CT_Tbl
+        from docx.oxml.text.paragraph import CT_P
+        from docx.table import Table
+        from docx.text.paragraph import Paragraph
+
         document = docx.Document(io.BytesIO(file_bytes))
-        parts = [p.text for p in document.paragraphs if p.text]
+        parts: list[str] = []
+        for child in document.element.body.iterchildren():
+            if isinstance(child, CT_P):
+                text = Paragraph(child, document).text.strip()
+                if text:
+                    parts.append(text)
+            elif isinstance(child, CT_Tbl):
+                parts.extend(_docx_table_lines(Table(child, document)))
         return "\n\n".join(parts).strip()
-    except Exception as e:
+    except Exception:
         logger.exception("docx extraction failed")
         return ""
 
@@ -400,11 +459,26 @@ async def upload_document(
     text = await extract_text(safe_filename, file_bytes)
     chunks = chunk_text(text)
     if not chunks:
+        # A supported TEXT type that yields nothing is a defect, not a
+        # property of the file, and it used to be indistinguishable from an
+        # image upload: both returned status "stored" with no log line. Six
+        # table-only .docx files sat unsearchable for three months that way,
+        # each reported to its user as a successful upload. Name the reason
+        # in the response AND in the log, so the next unsupported shape
+        # (a scanned PDF, a text box, a header-only document) announces
+        # itself on the first upload rather than on a complaint.
+        reason = "no_text_extracted" if not (text or "").strip() else "no_chunks"
+        logger.warning(
+            "upload produced no searchable text: file=%r ext=%s bytes=%d "
+            "extracted_chars=%d reason=%s",
+            safe_filename, ext, len(file_bytes), len((text or "")), reason,
+        )
         return {
             "document_id": document_id,
             "filename": safe_filename,
             "chunks": 0,
             "status": "stored",
+            "reason": reason,
             "upload_time": upload_time,
         }
 
@@ -412,11 +486,19 @@ async def upload_document(
     bge = get_bge()
     if qdrant is None or bge is None:
         # File is saved; embedding will be unavailable until infra is ready.
+        # Distinct from the branch above: the document is fine, the index is
+        # not, and the fix is operational rather than a parser change.
+        logger.warning(
+            "upload stored without embedding, index unavailable: file=%r "
+            "qdrant=%s bge=%s",
+            safe_filename, qdrant is not None, bge is not None,
+        )
         return {
             "document_id": document_id,
             "filename": safe_filename,
             "chunks": 0,
             "status": "stored",
+            "reason": "index_unavailable",
             "upload_time": upload_time,
         }
 

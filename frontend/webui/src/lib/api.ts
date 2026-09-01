@@ -512,6 +512,11 @@ export interface UploadedDocument {
   filename: string;
   chunks: number;
   status: 'embedded' | 'stored';
+  // Present only when a TEXT upload stored without embedding, saying why:
+  // 'no_text_extracted' (parser read nothing, e.g. a scanned PDF),
+  // 'no_chunks', or 'index_unavailable' (operational). Images store with no
+  // reason, since that is the correct outcome for them. See BACKEND-API.md 4.9.
+  reason?: 'no_text_extracted' | 'no_chunks' | 'index_unavailable';
   upload_time: string;
 }
 

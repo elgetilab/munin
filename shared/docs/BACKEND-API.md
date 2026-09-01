@@ -573,6 +573,19 @@ Multipart form upload.
   - `"stored"`, file is on disk but not embedded. This is the state for
     images, zero-chunk documents, or uploads that occurred before the BGE
     model / Qdrant was reachable.
+- `reason` (optional, added 2026-09-01) is present only on `"stored"`
+  responses for a TEXT file type, and says why nothing was embedded:
+  - `"no_text_extracted"`, the extractor read the file and got nothing. A
+    scanned PDF with no text layer, or a document shape the parser does not
+    cover. The file is intact and re-extractable once the parser handles it.
+  - `"no_chunks"`, text came out but chunked to nothing (very short input).
+  - `"index_unavailable"`, the document is fine, Qdrant or the BGE model was
+    not reachable. Operational, not a parsing problem.
+  An image upload carries NO `reason`: storing without embedding is the
+  correct outcome there, and a reason string would read as a defect. Before
+  this field, every one of these cases returned a bare `"stored"`, which is
+  also what an image returns, so a `.docx` the parser could not read was
+  indistinguishable from a screenshot and stayed silently unsearchable.
 - `chunks` reflects the number of Qdrant points written (0 for `stored`).
 
 Extraction strategy:
