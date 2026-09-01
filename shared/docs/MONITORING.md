@@ -51,11 +51,29 @@ already-provisioned cluster.
 Always logs, and calls `wall`. `wall` reaches only logged-in
 terminals, which is why it did not help in the incident above, so for
 anything off-machine set `MUNIN_ALERT_WEBHOOK` in
-`/opt/hugin/config/cluster.env` to an endpoint accepting a JSON POST
-of `{"text": "..."}` (Slack, Discord, ntfy, Gotify). Unset is a silent
-no-op, so other sites deploy this without inventing a notification
-stack. Note `deploy.sh config` does not overwrite an existing
-`cluster.env`, so on an existing install add the line by hand.
+`/opt/hugin/config/cluster.env`. Unset is a silent no-op, so other
+sites deploy this without inventing a notification stack. Note
+`deploy.sh config` does not overwrite an existing `cluster.env`, so on
+an existing install add the line by hand.
+
+Each service wants a **different payload key**, so the script detects
+the target from the URL and formats accordingly. There is no single
+body shape that works everywhere; Discord returns 400 for a payload
+without `content`.
+
+| Target  | Detected by | Sends |
+|---|---|---|
+| Slack   | `hooks.slack.com` | `{"text": "..."}` |
+| Discord | `discord.com/api/webhooks` | `{"content": "..."}` |
+| Gotify  | `gotify` or `/message?token=` | `{"title": ..., "message": ...}` |
+| ntfy    | `ntfy` | raw `text/plain` body (JSON would arrive as literal braces) |
+| other   | fallback | `{"text": "..."}` |
+
+Set `MUNIN_ALERT_FORMAT` to `slack`, `discord`, `gotify`, `ntfy` or
+`json` to override the detection, which matters for self-hosted
+instances and proxies whose hostname gives nothing away. Messages are
+prefixed `[munin/<hostname>]`, so several clusters can share one
+channel.
 
 **Pick the destination carefully.** On public `ntfy.sh` there is no
 auth: the topic name IS the secret, and anyone who subscribes to it

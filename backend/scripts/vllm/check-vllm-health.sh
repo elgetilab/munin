@@ -40,6 +40,9 @@ DRY_RUN=0
 
 mkdir -p /var/log/cluster-admin /opt/munin/logs
 
+# Alerts name the host, so this reads correctly on any node, not just hugin.
+HOST=$(hostname -s 2>/dev/null || echo unknown)
+
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S'): $1" | tee -a "$LOG_FILE"; }
 
 # Optional out-of-band alert. Unset is a silent no-op so other sites deploy
@@ -71,17 +74,50 @@ See $LOG_FILE
 =============================================================
 EOF
     if [ -n "$MUNIN_ALERT_WEBHOOK" ]; then
+        # Each target wants a DIFFERENT payload key. Slack takes {"text":...},
+        # Discord takes {"content":...} and 400s on anything else, Gotify takes
+        # {"message":...}, and ntfy treats the raw body as the message so JSON
+        # would be delivered as literal braces. Detect from the URL, with
+        # MUNIN_ALERT_FORMAT as an explicit override for proxies and self-hosted
+        # instances whose hostname gives nothing away.
+        local fmt="${MUNIN_ALERT_FORMAT:-}"
+        if [ -z "$fmt" ]; then
+            case "$MUNIN_ALERT_WEBHOOK" in
+                *hooks.slack.com*)          fmt=slack ;;
+                *discord.com/api/webhooks*|*discordapp.com/api/webhooks*)
+                                            fmt=discord ;;
+                *ntfy*)                     fmt=ntfy ;;
+                *gotify*|*/message?token=*) fmt=gotify ;;
+                *)                          fmt=json ;;
+            esac
+        fi
+
+        # Escape for JSON: backslashes, quotes, newlines.
+        local esc ctype payload
+        esc=$(printf '%s' "$msg" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' ')
+        case "$fmt" in
+            slack)   ctype='application/json'
+                     payload="{\"text\":\"[munin/$HOST] $esc\"}" ;;
+            discord) ctype='application/json'
+                     payload="{\"content\":\"[munin/$HOST] $esc\"}" ;;
+            gotify)  ctype='application/json'
+                     payload="{\"title\":\"munin/$HOST\",\"message\":\"$esc\"}" ;;
+            ntfy)    ctype='text/plain'
+                     payload="[munin/$HOST] $(printf '%s' "$msg" | tr '\n' ' ')" ;;
+            *)       ctype='application/json'
+                     payload="{\"text\":\"[munin/$HOST] $esc\"}" ;;
+        esac
+
         if [ "$DRY_RUN" = "1" ]; then
-            log "  [dry-run] would POST to \$MUNIN_ALERT_WEBHOOK"
+            log "  [dry-run] would POST ($fmt) to \$MUNIN_ALERT_WEBHOOK"
+            log "  [dry-run] Content-Type: $ctype"
+            log "  [dry-run] body: $payload"
         else
-            # Escape for JSON: backslashes, quotes, newlines.
-            local esc
-            esc=$(printf '%s' "$msg" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' ')
             curl -fsS --max-time 15 -X POST "$MUNIN_ALERT_WEBHOOK" \
-                 -H 'Content-Type: application/json' \
-                 -d "{\"text\":\"[munin/hugin] $esc\"}" >/dev/null 2>&1 \
-                 && log "  webhook notified" \
-                 || log "  WARNING: webhook POST failed"
+                 -H "Content-Type: $ctype" \
+                 -d "$payload" >/dev/null 2>&1 \
+                 && log "  webhook notified ($fmt)" \
+                 || log "  WARNING: webhook POST failed ($fmt); check the URL and MUNIN_ALERT_FORMAT"
         fi
     elif [ "$PLACEHOLDER_WEBHOOK" = "1" ]; then
         log "  WARNING: MUNIN_ALERT_WEBHOOK still holds a PLACEHOLDER; refusing to POST."
