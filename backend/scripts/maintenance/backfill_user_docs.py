@@ -29,21 +29,19 @@ TWO LIMITS, both inherent rather than incidental:
     therefore has no resolvable email and is reported, not guessed. Pass
     --email to handle that case explicitly.
 
-Run on the cluster head, or in the retrieval container which already has the
-deps and the BGE model:
+`backend/scripts/` is not baked into the image, so copy the script in and run
+it in the retrieval container, which already has the deps, the BGE model, the
+store mounted and the right QDRANT_HOST.
 
-    docker exec munin-retrieval python /app/../scripts/... # not mounted; use:
-    docker run --rm --network munin-network \\
-      -e QDRANT_HOST=qdrant -e QDRANT_PORT=6333 \\
-      -v /opt/munin/data/user_docs:/opt/munin/data/user_docs:rw \\
-      -v /opt/munin/data/models:/models:ro \\
-      -v "$PWD/backend/retrieval:/app:ro" \\
-      -v "$PWD/backend/scripts:/scripts:ro" \\
-      -w /app munin-retrieval:latest python /scripts/maintenance/backfill_user_docs.py --dry-run
+    docker cp backend/scripts/maintenance/backfill_user_docs.py \\
+      munin-retrieval:/tmp/backfill_user_docs.py
+    docker exec munin-retrieval python /tmp/backfill_user_docs.py --dry-run
+    docker exec munin-retrieval python /tmp/backfill_user_docs.py
 
 Environment:
     QDRANT_HOST / QDRANT_PORT   as the retrieval service uses
-    USER_DOCS_DIR               default /opt/munin/data/user_docs
+    USER_DOCS_DIR               inherited from document_store, so it matches
+                                the service (/data/user_docs in the container)
 
 CLI:
     --dry-run          report what would be embedded, write nothing
@@ -64,7 +62,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "retrieva
 
 import document_store as DS  # noqa: E402
 
-USER_DOCS_DIR = os.environ.get("USER_DOCS_DIR", "/opt/munin/data/user_docs")
+# Take the store location from document_store rather than re-deriving it: the
+# service reads USER_DOCS_DIR from the environment and it differs between the
+# host (/opt/munin/data/user_docs) and the container (/data/user_docs). A second
+# default here is a way to scan an empty directory and report "nothing to do".
+USER_DOCS_DIR = DS.USER_DOCS_DIR
 
 
 def _indexed_documents() -> tuple[set[str], dict[str, str]]:

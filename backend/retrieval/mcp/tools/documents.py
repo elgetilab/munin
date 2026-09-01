@@ -125,12 +125,30 @@ async def list_documents(limit: int = _LIST_LIMIT_DEFAULT) -> dict:
         "total": total,
         "returned": len(page),
     }
-    n_unsearchable = sum(1 for d in page if d.get("status") != "embedded")
-    if n_unsearchable:
+    # Split the unsearchable ones by kind rather than counting them together.
+    # An unembedded IMAGE is correct and needs no explanation; an unembedded
+    # TEXT file is a failed extraction and is worth naming. Reporting one
+    # number for both made a healthy account read as a broken one: the user
+    # whose six table-shaped .docx were recovered on 2026-09-01 still has six
+    # unembedded PNGs, and a combined count said "6 stored but not embedded"
+    # both before and after the repair.
+    image_exts = {".png", ".jpg", ".jpeg", ".webp"}
+    unsearchable = [d for d in page if d.get("status") != "embedded"]
+    stuck_text = [d for d in unsearchable
+                  if os.path.splitext(d.get("filename") or "")[1].lower()
+                  not in image_exts]
+    if stuck_text:
+        names = ", ".join(sorted(d.get("filename") or "?" for d in stuck_text)[:5])
         out["note_unsearchable"] = (
-            f"{n_unsearchable} of these are stored but not embedded, so "
-            f"search_user_docs cannot reach them. Images are expected here; "
-            f"a text document with status 'stored' failed extraction."
+            f"{len(stuck_text)} text document(s) are stored but NOT embedded, "
+            f"so search_user_docs cannot reach them ({names}). Text extraction "
+            f"failed for these: say so rather than reporting them as available."
+        )
+    elif unsearchable:
+        out["note_unsearchable"] = (
+            f"{len(unsearchable)} of these are images, stored without "
+            f"embeddings. That is expected: search_user_docs cannot reach "
+            f"image content, but view_attachment can display them."
         )
     if total == 0:
         # Say what an empty result MEANS. The store being genuinely empty and

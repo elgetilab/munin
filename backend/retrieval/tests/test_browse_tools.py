@@ -119,15 +119,34 @@ def test_limit_is_clamped_and_coerced():
                   f"big={big['returned']} junk={junk['returned']}")
 
 
-def test_unsearchable_documents_are_flagged():
-    """`status='stored'` means the file exists with no embeddings, so
-    search_user_docs cannot see it. Normal for an image, a failed extraction for
-    anything else. Flattening the two into "you have 3 documents" is how a user
-    ends up told a file is there when nothing can read it."""
-    res, _ = _run_list([_doc(1), _doc(2, status="stored"), _doc(3, status="stored")])
-    return _check("documents that exist but are not embedded are called out",
-                  "2 of these are stored but not embedded" in (res.get("note_unsearchable") or ""),
-                  f"{res.get('note_unsearchable')!r}")
+def test_unsearchable_text_documents_are_named():
+    """`status='stored'` on a TEXT file means extraction failed, so
+    search_user_docs cannot see it. Telling the user "you have 3 documents" is
+    how they end up believing a file is available when nothing can read it, so
+    the failing filenames are named."""
+    docs = [_doc(1), _doc(2, status="stored"), _doc(3, status="stored")]
+    res, _ = _run_list(docs)
+    note = res.get("note_unsearchable") or ""
+    return _check("unembedded text documents are called out by name",
+                  "2 text document(s)" in note and "paper-2.pdf" in note,
+                  f"{note!r}")
+
+
+def test_unembedded_images_are_not_reported_as_failures():
+    """An image with no embeddings is CORRECT, and counting it alongside a
+    failed extraction makes a healthy account read as a broken one. The user
+    whose six .docx were recovered on 2026-09-01 still has six unembedded PNGs;
+    a combined count said "6 stored but not embedded" before and after."""
+    docs = [_doc(1)] + [
+        {"document_id": f"img{i}", "filename": f"shot-{i}.png", "chunks": 0,
+         "status": "stored", "upload_time": "2026-08-01T10:00:00Z"}
+        for i in range(3)
+    ]
+    res, _ = _run_list(docs)
+    note = res.get("note_unsearchable") or ""
+    return _check("unembedded images are described as expected, not as failures",
+                  "3 of these are images" in note and "failed" not in note,
+                  f"{note!r}")
 
 
 # --- browse_tag_papers ------------------------------------------------------
@@ -323,7 +342,8 @@ TESTS = [
     test_empty_store_says_it_is_empty_not_unmatched,
     test_truncation_is_declared,
     test_limit_is_clamped_and_coerced,
-    test_unsearchable_documents_are_flagged,
+    test_unsearchable_text_documents_are_named,
+    test_unembedded_images_are_not_reported_as_failures,
     test_browse_passes_explicit_args_through,
     test_browse_defaults_to_the_single_active_tag,
     test_browse_refuses_to_guess_between_two_tags,
