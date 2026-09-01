@@ -575,9 +575,15 @@ Multipart form upload.
     model / Qdrant was reachable.
 - `reason` (optional, added 2026-09-01) is present only on `"stored"`
   responses for a TEXT file type, and says why nothing was embedded:
-  - `"no_text_extracted"`, the extractor read the file and got nothing. A
-    scanned PDF with no text layer, or a document shape the parser does not
-    cover. The file is intact and re-extractable once the parser handles it.
+  - `"no_text_layer"`, a PDF made of page images (a scan, or anything
+    printed to PDF). OCR has been scheduled as a background task; the
+    document flips to `embedded` a minute or so later without any further
+    request, and `GET /api/documents` reflects that. Only returned when
+    `ocrmypdf` is available in the service image.
+  - `"no_text_extracted"`, the extractor read the file and got nothing, and
+    no recovery path applies. A document shape the parser does not cover, or
+    a text-less PDF on a build without OCR. The file is intact and
+    re-extractable once the parser handles it.
   - `"no_chunks"`, text came out but chunked to nothing (very short input).
   - `"index_unavailable"`, the document is fine, Qdrant or the BGE model was
     not reachable. Operational, not a parsing problem.
@@ -1294,6 +1300,45 @@ by the build script; treat as opaque from the API contract's POV.
 
 **Errors**: 404 with `{"error": {"message": "Embedding map not yet built"}}`
 when the nightly timer hasn't run yet (first-boot state).
+
+### 4.22 Admin metrics proxy
+
+Two routes proxying Prometheus for the admin dashboard. They are the
+only routes gated on an admin ROLE rather than merely on a valid
+session: `_require_admin_email` resolves `X-Munin-Email`, looks the
+role up through the VPS auth service, and rejects a non-admin. They
+are documented here rather than treated as out-of-band because they
+are called by the frontend with session auth, unlike
+`POST /api/admin/ingest`, which is token-auth from the VPS hook
+service.
+
+**`POST /api/admin/metrics/query`** — instant query.
+
+```json
+{"query": "<promql>", "time": "<rfc3339>"}
+```
+
+`time` is optional. Returns Prometheus's raw response body verbatim,
+so the shape is Prometheus's, not ours.
+
+**`POST /api/admin/metrics/query_range`** — range query.
+
+```json
+{"query": "<promql>", "start": "<rfc3339>", "end": "<rfc3339>", "step": "15s"}
+```
+
+All four fields are required; a missing one gives **400** naming which.
+
+**Errors, both routes**:
+
+- **503** when the proxy is unconfigured (`KB_GATE_TOKEN` unset).
+  Checked FIRST, before auth, so an unconfigured deployment reports
+  that rather than an auth failure.
+- **401** when `X-Munin-Email` is absent.
+- **403** when the caller is not an admin.
+- An upstream Prometheus error is forwarded with ITS status code and
+  body (truncated to 500 chars), so the frontend can tell a PromQL
+  syntax error from an auth problem.
 
 ---
 

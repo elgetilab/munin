@@ -1,9 +1,11 @@
 # Search recall repair plan (2026-09-01)
 
-Triggered by a chat export from a user (2026-08-20, kept
-at the repo root as `Munin Chat Export - Document Listing & Sharing.md`).
-He asked whether four named papers were in the corpus and whether he
-could list his own uploads. Munin told him one paper could not be found
+Triggered by a chat export from a user (2026-08-20). The
+export itself was removed from the repo once this work landed: it is
+one user's conversation and it does not belong in a tree being prepared
+for public release. Everything it evidenced is quoted below. He asked
+whether four named papers were in the corpus and whether he could list
+his own uploads. Munin told him one paper could not be found
 "in any scholarly database or on the web". That paper is in the corpus,
 inside the very group scope he had attached.
 
@@ -277,10 +279,7 @@ above, all one user, all now recoverable. The other two are PDFs from a
 different user, 5.7 MB and 11.5 MB, produced by "Skia/PDF" (printed
 from a browser) and "Microsoft: Print To PDF"; `pdftotext` gets zero
 characters from either. They have no text layer, so this is not a
-parser gap but a missing OCR path. The papers pipeline already OCRs
-(`PAPERS_OCR_CACHE_DIR`); user uploads do not. Wiring that up is a
-separate decision, not part of this repair. Those two now report
-`no_text_extracted` instead of a bare `stored`.
+parser gap but a missing OCR path, addressed in phase 5.
 
 **Backfill.** `scripts/maintenance/backfill_user_docs.py` re-extracts
 and embeds on-disk documents that are missing from the index.
@@ -292,3 +291,48 @@ not preferred inside its project); and a user email is recovered by
 hashing indexed emails against the one-way directory name, so a user
 whose every document failed is reported rather than guessed
 (`--email` handles that). Recovered points carry `backfilled: true`.
+
+### Phase 5: OCR for uploaded PDFs with no text layer
+
+`retrieval/Dockerfile`, `document_store.py`, `main.py`,
+`scripts/maintenance/backfill_user_docs.py`, `BACKEND-API.md`,
+`frontend/webui/src/lib/api.ts`. Tests: `tests/test_pdf_ocr.py`, 11
+passing.
+
+Phase 4 found two uploads that are page images with no text layer, so
+no parser can read them. The papers pipeline had OCR'd scanned papers
+for months; user uploads had no such path.
+
+**Where OCR runs.** In the retrieval container, using the same
+`ocrmypdf --skip-text` invocation `paper_pipeline.py` already uses, so
+there is one OCR behaviour to reason about rather than two. That costs
+~360 MB on an 8.7 GB image, about 4%, which is cheaper than the
+alternative of a host-side sweep: ocrmypdf lives on the cluster head
+but the BGE encoder and the Qdrant client live in the container, so a
+host-side design has to straddle both and ends up shelling back into
+the container to embed.
+
+**When it runs.** NOT during the upload request. Measured on the two
+real documents, OCR takes 8.4 s and 38.3 s, and a 50 MB scan would take
+longer, so holding the request open is not acceptable.
+`upload_document` returns immediately with `reason="no_text_layer"` and
+an internal `ocr_pending` marker; the route turns that into a FastAPI
+`BackgroundTask` calling `ocr_and_embed`. The document flips from
+stored to embedded a minute or so later and `list_documents` reflects
+it. `ocr_and_embed` is idempotent (it checks for existing points), so a
+retry after a restart, a duplicate upload, or a concurrent sweep cannot
+double-embed.
+
+**Recovering what already exists.** `backfill_user_docs.py --ocr`
+sweeps PDFs that predate this path or whose OCR was interrupted, going
+through the same `ocr_and_embed`. Results are cached by content hash,
+so a re-run costs a disk read rather than another minute of tesseract.
+
+**Measured on the two real files:** 28,604 characters / 17 chunks in
+8.4 s, and 53,699 characters / 35 chunks in 38.3 s. Both are real
+scientific papers that were previously unreachable.
+
+**Honest limits.** Only the English tesseract pack is installed, since
+the corpus is English and each extra language is ~15 MB. An OCR pass
+that still yields nothing (a blank scan, a photograph, an unsupported
+language) is logged and left as `stored` rather than retried forever.

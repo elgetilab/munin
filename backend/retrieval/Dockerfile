@@ -24,6 +24,20 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# OCR for uploaded PDFs that carry no text layer. A PDF printed from a browser
+# or scanned to "Microsoft: Print To PDF" has images and nothing else, so GROBID
+# and pypdf both extract zero characters and the upload lands unsearchable
+# (2 such documents were sitting in the store on 2026-09-01). ocrmypdf is the
+# same tool scripts/pipeline/paper_pipeline.py already uses for scanned papers,
+# with the same --skip-text invocation, so there is one OCR behaviour to reason
+# about rather than two. Costs ~248 MB on an 8.7 GB image; the English language
+# pack alone is installed, since the corpus is English and each extra language
+# is another ~15 MB for no current gain.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ocrmypdf \
+    tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy installed packages from builder
 COPY --from=builder /root/.local /root/.local
 ENV PATH=/root/.local/bin:$PATH

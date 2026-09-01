@@ -85,7 +85,7 @@ from models import (
     DeepResearchRequest, DeepResearchSubmitResponse, DeepResearchStatus,
     SlurmQueueEntry, GpuProcess, GpuInfo, SlurmQueueResponse,
 )
-from fastapi import UploadFile, File, Form
+from fastapi import UploadFile, File, Form, BackgroundTasks
 
 from mcp.endpoints import router as mcp_router
 import chat_store
@@ -2550,6 +2550,7 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # Frontend enforces 50 MB; mirror on server
 @app.post("/api/documents/upload")
 async def api_upload_document(
     request: Request,
+    background: BackgroundTasks,
     file: UploadFile = File(...),
     conversation_id: Optional[str] = Form(None),
     project_id: Optional[str] = Form(None),
@@ -2587,13 +2588,29 @@ async def api_upload_document(
         )
 
     try:
-        return await document_store.upload_document(
+        result = await document_store.upload_document(
             filename=file.filename,
             file_bytes=contents,
             user_email=user_email,
             conversation_id=conversation_id,
             project_id=project_id,
         )
+        # A PDF with no text layer (a scan, or anything printed to PDF) needs
+        # OCR, which costs tens of seconds to minutes. Run it AFTER the
+        # response so the upload returns at its normal speed; the document
+        # flips from "stored" to "embedded" a minute or so later and
+        # list_documents reflects that. Scheduling lives here rather than in
+        # document_store so that module stays free of request-lifecycle
+        # concerns and remains callable from the maintenance sweep.
+        if result.pop("ocr_pending", False):
+            background.add_task(
+                document_store.ocr_and_embed,
+                document_id=result["document_id"],
+                user_email=user_email,
+                conversation_id=conversation_id,
+                project_id=project_id,
+            )
+        return result
     except ValueError as e:
         raise HTTPException(
             status_code=400, detail={"error": {"message": str(e)}}

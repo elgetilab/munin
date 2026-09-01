@@ -590,3 +590,65 @@ The remaining work at the point the saturation was noticed was about
 resume scan twice came to roughly what it would have saved, on a job
 already finishing an hour inside its window. The cost/benefit inverts
 for a full rebuild, which is what this entry is for.
+
+---
+
+## 7. Host-only tests crash instead of skipping inside the container
+
+**Severity:** low (test harness), but it costs review time and teaches
+the wrong lesson
+
+### Symptom
+
+Some test files under `retrieval/tests/` need repo paths that do not
+exist in the retrieval container, because the image ships `retrieval/`
+as `/app` and nothing above it. Run there, they fail in ways that look
+like product defects:
+
+```
+$ docker exec munin-retrieval python /app/tests/test_persona_prompt_split.py
+  File "/app/tests/test_persona_prompt_split.py", line 22, in <module>
+    _SHARED = Path(__file__).resolve().parents[3] / "shared" / "personas"
+IndexError: 3
+```
+
+The same suite passes 4/4 on the host. There is no product bug here at
+all: `parents[3]` from `/app/tests/` walks off the top of the
+filesystem.
+
+This actively misleads. During the 2026-09-01 search-recall work it was
+reported twice as a "pre-existing failure" on the strength of a
+container run, and only a host run showed both suites were green. A
+test that fails for environmental reasons trains a reader to skim past
+failures, which is exactly the habit that lets a real one through.
+
+### Root cause
+
+Three files resolve fixtures outside `/app` and handle it three
+different ways:
+
+- `tests/test_api_contract.py` — **correct**. Checks whether the paths
+  resolve and prints
+  `SKIP test_api_contract — BACKEND-API.md or main.py not reachable
+  from this filesystem (host-only test).`
+- `tests/test_persona_prompt_split.py` — crashes at import with
+  `IndexError` before any test runs.
+- `tests/test_config_schemas.py` — degrades to a plain `[FAIL]` when
+  `/app/personas/chat.json` is absent. Note this one passes in the REAL
+  deployed container, where compose mounts personas at `/app/personas`;
+  it only fails in an ad-hoc `docker run` that mounts `retrieval/`
+  alone. Its `_shipped_persona` helper already tries both locations,
+  it just has no third branch for "neither".
+
+### Suggested fix
+
+Give the latter two the skip that `test_api_contract` already has: a
+guard at import that prints one `SKIP` line naming the missing fixture
+and exits 0. Roughly five lines each. The fixtures genuinely cannot be
+present in a `retrieval/`-only mount, so skipping is the honest outcome
+rather than something to engineer around.
+
+Worth doing together with a short note in `retrieval/tests/README` (or
+the run instructions in each docstring) recording that a `docker run`
+mounting only `retrieval/` is not equivalent to the deployed container,
+which also has `/app/config`, `/app/personas` and `/data`.

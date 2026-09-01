@@ -150,6 +150,103 @@ async def _extract_pdf(file_bytes: bytes) -> str:
         return ""
 
 
+# ------------------------------------------------------------------ OCR ----
+# A PDF printed from a browser or scanned to "Print To PDF" has page images and
+# no text layer, so GROBID and pypdf both come back empty and the upload lands
+# unsearchable. Two such documents were sitting in the store on 2026-09-01, both
+# reported to their owner as successful uploads. The papers pipeline already
+# OCRs scanned papers with ocrmypdf; user uploads had no such path.
+#
+# OCR is NOT part of `extract_text`. It costs tens of seconds to minutes, and
+# the upload request must not block on it, so `upload_document` returns
+# immediately with reason "no_text_layer" and the endpoint schedules
+# `ocr_and_embed` as a background task. The document becomes searchable a
+# minute or so later and `list_documents` shows it flip from stored to embedded.
+OCR_CACHE_DIR = os.getenv(
+    "USER_DOCS_OCR_CACHE_DIR",
+    os.path.join(os.path.dirname(USER_DOCS_DIR.rstrip("/")) or "/data", "ocr_cache"),
+)
+OCR_TIMEOUT_SEC = int(os.getenv("USER_DOCS_OCR_TIMEOUT_SEC", "300"))
+
+
+def ocr_available() -> bool:
+    """Is ocrmypdf on PATH? False in a stripped image or a bare test env."""
+    import shutil
+    return shutil.which("ocrmypdf") is not None
+
+
+def ocr_pdf_to_text(file_bytes: bytes) -> str:
+    """OCR a PDF and return its text. BLOCKING: call from a thread.
+
+    The OCR'd PDF is cached by content hash, so a retry, a re-upload of the
+    same file, or a sweep re-run costs a disk read rather than another minute
+    of tesseract. `--skip-text` leaves pages that already carry text alone,
+    which makes this safe to run on a mixed document and is the same flag the
+    papers pipeline uses.
+    """
+    import hashlib
+    import subprocess
+    import tempfile
+
+    if not ocr_available():
+        logger.warning("ocrmypdf not installed; cannot OCR a PDF with no text layer")
+        return ""
+
+    digest = hashlib.sha256(file_bytes).hexdigest()[:16]
+    try:
+        os.makedirs(OCR_CACHE_DIR, exist_ok=True)
+    except OSError as e:
+        logger.warning("OCR cache dir %s unusable: %s", OCR_CACHE_DIR, e)
+        return ""
+    cached = os.path.join(OCR_CACHE_DIR, f"{digest}_ocr.pdf")
+
+    if not os.path.isfile(cached):
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as src:
+            src.write(file_bytes)
+            src_path = src.name
+        try:
+            proc = subprocess.run(
+                ["ocrmypdf", "--skip-text", "--optimize", "1", "--quiet",
+                 src_path, cached],
+                capture_output=True, text=True, timeout=OCR_TIMEOUT_SEC,
+            )
+            # 6 means "page already has text", which --skip-text makes unlikely
+            # but which is a success for our purposes: the input is usable.
+            if proc.returncode not in (0, 6):
+                logger.warning("ocrmypdf failed rc=%s: %s",
+                               proc.returncode, (proc.stderr or "")[:300])
+                return ""
+            if proc.returncode == 6 and not os.path.isfile(cached):
+                import shutil as _sh
+                _sh.copyfile(src_path, cached)
+        except subprocess.TimeoutExpired:
+            logger.warning("ocrmypdf timed out after %ss", OCR_TIMEOUT_SEC)
+            return ""
+        except Exception:
+            logger.exception("ocrmypdf raised")
+            return ""
+        finally:
+            try:
+                os.unlink(src_path)
+            except OSError:
+                pass
+
+    try:
+        import pypdf
+        with open(cached, "rb") as f:
+            reader = pypdf.PdfReader(f)
+            parts = []
+            for page in reader.pages:
+                try:
+                    parts.append(page.extract_text() or "")
+                except Exception:
+                    continue
+        return "\n\n".join(parts).strip()
+    except Exception:
+        logger.exception("reading OCR output failed")
+        return ""
+
+
 def _docx_table_lines(table) -> list[str]:
     """One line per table row, cells joined with ' | '.
 
@@ -467,13 +564,23 @@ async def upload_document(
         # in the response AND in the log, so the next unsupported shape
         # (a scanned PDF, a text box, a header-only document) announces
         # itself on the first upload rather than on a complaint.
-        reason = "no_text_extracted" if not (text or "").strip() else "no_chunks"
+        empty = not (text or "").strip()
+        # A PDF that extracts to nothing has page images and no text layer, and
+        # OCR is the fix rather than a parser change. Say so specifically: the
+        # caller schedules ocr_and_embed, and the user is told the document is
+        # being read rather than that it failed.
+        if empty and ext == ".pdf" and ocr_available():
+            reason = "no_text_layer"
+        elif empty:
+            reason = "no_text_extracted"
+        else:
+            reason = "no_chunks"
         logger.warning(
             "upload produced no searchable text: file=%r ext=%s bytes=%d "
             "extracted_chars=%d reason=%s",
             safe_filename, ext, len(file_bytes), len((text or "")), reason,
         )
-        return {
+        out = {
             "document_id": document_id,
             "filename": safe_filename,
             "chunks": 0,
@@ -481,6 +588,13 @@ async def upload_document(
             "reason": reason,
             "upload_time": upload_time,
         }
+        if reason == "no_text_layer":
+            # Consumed by the route, which turns it into a BackgroundTask.
+            # Kept as a flag rather than started here so document_store stays
+            # free of request-lifecycle concerns and remains callable from the
+            # maintenance sweep, which schedules nothing.
+            out["ocr_pending"] = True
+        return out
 
     qdrant = get_qdrant()
     bge = get_bge()
@@ -502,31 +616,11 @@ async def upload_document(
             "upload_time": upload_time,
         }
 
-    ensure_collection()
-
-    vectors = bge.encode(chunks, show_progress_bar=False).tolist()
-
-    from qdrant_client.http import models as qm
-    points = []
-    for i, (chunk, vec) in enumerate(zip(chunks, vectors)):
-        points.append(
-            qm.PointStruct(
-                id=str(uuid.uuid4()),
-                vector=vec,
-                payload={
-                    "user_email": user_email,
-                    "conversation_id": conversation_id,
-                    "project_id": project_id,
-                    "document_id": document_id,
-                    "filename": safe_filename,
-                    "chunk_index": i,
-                    "chunk_text": chunk,
-                    "total_chunks": len(chunks),
-                    "upload_time": upload_time,
-                },
-            )
-        )
-    qdrant.upsert(collection_name=USER_DOCS_COLLECTION, points=points)
+    _embed_chunks(
+        chunks=chunks, user_email=user_email, document_id=document_id,
+        filename=safe_filename, upload_time=upload_time,
+        conversation_id=conversation_id, project_id=project_id,
+    )
 
     return {
         "document_id": document_id,
@@ -535,6 +629,129 @@ async def upload_document(
         "status": "embedded",
         "upload_time": upload_time,
     }
+
+
+def _embed_chunks(
+    chunks: list[str],
+    user_email: str,
+    document_id: str,
+    filename: str,
+    upload_time: str,
+    conversation_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    extra_payload: Optional[dict] = None,
+) -> int:
+    """Encode and upsert one document's chunks. Returns points written.
+
+    Shared by the upload path and the OCR follow-up so the two cannot drift in
+    payload shape; a difference there is invisible until a filter stops
+    matching. BLOCKING (BGE encode + upsert), so async callers use a thread.
+    """
+    qdrant = get_qdrant()
+    bge = get_bge()
+    if qdrant is None or bge is None or not chunks:
+        return 0
+    ensure_collection()
+
+    vectors = bge.encode(chunks, show_progress_bar=False).tolist()
+
+    from qdrant_client.http import models as qm
+    points = []
+    for i, (chunk, vec) in enumerate(zip(chunks, vectors)):
+        payload = {
+            "user_email": user_email,
+            "conversation_id": conversation_id,
+            "project_id": project_id,
+            "document_id": document_id,
+            "filename": filename,
+            "chunk_index": i,
+            "chunk_text": chunk,
+            "total_chunks": len(chunks),
+            "upload_time": upload_time,
+        }
+        if extra_payload:
+            payload.update(extra_payload)
+        points.append(qm.PointStruct(id=str(uuid.uuid4()), vector=vec,
+                                     payload=payload))
+    qdrant.upsert(collection_name=USER_DOCS_COLLECTION, points=points)
+    return len(points)
+
+
+def count_document_points(document_id: str) -> int:
+    """How many chunks of this document are in the index. 0 means unsearchable."""
+    qdrant = get_qdrant()
+    if qdrant is None or not document_id:
+        return 0
+    try:
+        from qdrant_client.http import models as qm
+        res = qdrant.count(
+            collection_name=USER_DOCS_COLLECTION,
+            count_filter=qm.Filter(must=[qm.FieldCondition(
+                key="document_id", match=qm.MatchValue(value=document_id))]),
+            exact=True,
+        )
+        return int(getattr(res, "count", 0))
+    except Exception:
+        logger.warning("count_document_points failed for %s", document_id)
+        return 0
+
+
+async def ocr_and_embed(
+    document_id: str,
+    user_email: str,
+    conversation_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+) -> dict:
+    """OCR a stored PDF that has no text layer, then embed it.
+
+    Runs as a background task after the upload response has already gone out,
+    so a scan that takes a minute of tesseract does not hold the request open.
+    Idempotent: a document that already has points is left alone, which makes
+    it safe to call from both the upload path and the maintenance sweep, and
+    safe to retry after a restart mid-OCR.
+    """
+    import asyncio
+
+    path = get_document_file_path(user_email, document_id)
+    if not path or not path.lower().endswith(".pdf"):
+        return {"document_id": document_id, "ocr": "skipped",
+                "reason": "not a stored pdf"}
+    if count_document_points(document_id):
+        return {"document_id": document_id, "ocr": "skipped",
+                "reason": "already embedded"}
+
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+    except OSError as e:
+        logger.warning("OCR could not read %s: %s", document_id, e)
+        return {"document_id": document_id, "ocr": "error", "reason": str(e)}
+
+    filename = os.path.basename(path)
+    logger.info("OCR starting for %s (%s, %d bytes)", document_id, filename, len(raw))
+    text = await asyncio.to_thread(ocr_pdf_to_text, raw)
+    chunks = chunk_text(text)
+    if not chunks:
+        # OCR ran and still produced nothing: a blank scan, a photograph, or a
+        # language the installed tesseract pack does not cover. Logged so it is
+        # visible, and left as "stored" rather than retried forever.
+        logger.warning("OCR produced no text for %s (%s)", document_id, filename)
+        return {"document_id": document_id, "ocr": "empty", "chunks": 0}
+
+    try:
+        mtime = os.path.getmtime(path)
+        upload_time = (datetime.fromtimestamp(mtime, tz=timezone.utc)
+                       .isoformat().replace("+00:00", "Z"))
+    except OSError:
+        upload_time = _iso_now()
+
+    n = await asyncio.to_thread(
+        _embed_chunks,
+        chunks, user_email, document_id, filename, upload_time,
+        conversation_id, project_id, {"ocr": True},
+    )
+    logger.info("OCR embedded %s: %d chunks from %d chars", document_id, n, len(text))
+    return {"document_id": document_id, "ocr": "embedded", "chunks": n}
 
 
 def _scan_user_disk(user_email: str) -> dict[str, dict]:

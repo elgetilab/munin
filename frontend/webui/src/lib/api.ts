@@ -513,10 +513,12 @@ export interface UploadedDocument {
   chunks: number;
   status: 'embedded' | 'stored';
   // Present only when a TEXT upload stored without embedding, saying why:
-  // 'no_text_extracted' (parser read nothing, e.g. a scanned PDF),
-  // 'no_chunks', or 'index_unavailable' (operational). Images store with no
-  // reason, since that is the correct outcome for them. See BACKEND-API.md 4.9.
-  reason?: 'no_text_extracted' | 'no_chunks' | 'index_unavailable';
+  // 'no_text_layer' (a scanned/printed PDF; OCR is running in the background
+  // and the document becomes searchable shortly), 'no_text_extracted' (parser
+  // read nothing and no recovery applies), 'no_chunks', or 'index_unavailable'
+  // (operational). Images store with no reason, since that is the correct
+  // outcome for them. See BACKEND-API.md 4.9.
+  reason?: 'no_text_layer' | 'no_text_extracted' | 'no_chunks' | 'index_unavailable';
   upload_time: string;
 }
 

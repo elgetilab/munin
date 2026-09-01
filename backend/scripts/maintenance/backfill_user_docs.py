@@ -45,6 +45,11 @@ Environment:
 
 CLI:
     --dry-run          report what would be embedded, write nothing
+    --ocr              also OCR PDFs that have no text layer (needs ocrmypdf;
+                       present in the retrieval image since 2026-09-01). New
+                       uploads OCR themselves in the background, so this is for
+                       documents that predate that path, or whose OCR was
+                       interrupted by a restart.
     --email EMAIL      resolve directories for this address explicitly
                        (repeatable; needed only for users with no indexed docs)
     --user-hash HASH   restrict the run to one user directory
@@ -188,6 +193,7 @@ def _embed(row: dict, user_email: str) -> int:
 async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--ocr", action="store_true")
     ap.add_argument("--email", action="append", default=[])
     ap.add_argument("--user-hash")
     args = ap.parse_args()
@@ -208,9 +214,18 @@ async def main() -> int:
     print(f"  no resolvable user email: {len(unresolved)}")
     print(f"  still extract to nothing: {len(empty)}")
 
+    # A PDF that extracts to nothing has page images and no text layer, so OCR
+    # is the fix rather than a parser change. Split it out: an .md or .docx in
+    # this bucket means something else is wrong and OCR will not help it.
+    ocr_targets = [r for r in empty
+                   if r["ext"] == ".pdf" and r["user_hash"] in emails]
     for r in empty:
+        if r in ocr_targets and args.ocr:
+            continue
+        hint = ("no text layer; re-run with --ocr" if r["ext"] == ".pdf"
+                else "extracts to nothing and is not a PDF; OCR will not help")
         print(f"    [empty]  {r['user_hash']}/{r['document_id']} {r['ext']} "
-              f"bytes={r['bytes']} — no text layer; needs OCR, not a parser fix")
+              f"bytes={r['bytes']} — {hint}")
     for r in unresolved:
         print(f"    [no-email] {r['user_hash']}/{r['document_id']} {r['ext']} "
               f"chunks={len(r['chunks'])} — pass --email for this user")
@@ -227,10 +242,31 @@ async def main() -> int:
         written += n
         print(f"    [embedded] {label} points={n}")
 
+    ocr_written = 0
+    if args.ocr and ocr_targets:
+        if not DS.ocr_available():
+            print("\n  --ocr requested but ocrmypdf is not on PATH; run this "
+                  "inside the retrieval container, which ships it")
+        else:
+            print(f"\nOCR pass over {len(ocr_targets)} PDF(s) with no text layer:")
+            for r in ocr_targets:
+                label = f"{r['user_hash']}/{r['document_id']} bytes={r['bytes']}"
+                if args.dry_run:
+                    print(f"    [would OCR] {label}")
+                    continue
+                # ocr_and_embed re-reads the file, OCRs, chunks and embeds, and
+                # is idempotent, so this is the same path a fresh upload takes.
+                res = await DS.ocr_and_embed(
+                    document_id=r["document_id"], user_email=emails[r["user_hash"]])
+                ocr_written += int(res.get("chunks") or 0)
+                print(f"    [{res.get('ocr')}] {label} chunks={res.get('chunks', 0)}")
+
     if args.dry_run:
-        print(f"\ndry run: {len(recoverable)} documents would be embedded")
+        print(f"\ndry run: {len(recoverable)} documents would be embedded"
+              + (f", {len(ocr_targets)} would be OCR'd" if args.ocr else ""))
     else:
-        print(f"\nwrote {written} points for {len(recoverable)} documents")
+        print(f"\nwrote {written} points for {len(recoverable)} documents"
+              + (f", plus {ocr_written} points from OCR" if args.ocr else ""))
     return 0
 
 
