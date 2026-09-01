@@ -62,6 +62,10 @@ esac
 
 alert() {
     local msg="$1"
+    # Label test alerts in the LOG, not just on stdout. Yesterday's post-mortem
+    # ran entirely off these files, and an unlabelled ALERT line from someone
+    # exercising --dry-run would read as a real incident months later.
+    [ "$DRY_RUN" = "1" ] && msg="[dry-run] $msg"
     log "ALERT: $msg"
     wall <<EOF 2>/dev/null || true
 
@@ -189,7 +193,7 @@ fi
 
 if [ "$DRY_RUN" = "1" ]; then
     log "  [dry-run] would run: $SCHEDULE_VLLM start"
-    alert "[dry-run] vLLM down, node $NODE_STATE, would have restarted"
+    alert "vLLM down, node $NODE_STATE, would have restarted"
     exit 1
 fi
 
