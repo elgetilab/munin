@@ -202,7 +202,7 @@ def _merge_papers(
     """
     merged: dict[str, dict] = {}
 
-    def _add(source_label: str, paper: dict) -> None:
+    def _add(source_label: str, paper: dict, rank: int) -> None:
         key = (paper.get("doi") or "").strip().lower()
         if not key:
             key = f"notitle:{id(paper)}"
@@ -216,6 +216,9 @@ def _merge_papers(
             "abstract": paper.get("abstract"),
             "citation_count": paper.get("citation_count"),
             "matched_by": paper.get("matched_by", 1),
+            # Corpus similarity. Was dropped here, which left the ranking below
+            # with no relevance term at all for local papers (2026-09-01).
+            "score": paper.get("score"),
             "source": source_label,
             # Carry through download attribution from §13. Either field may
             # be None on any given paper; merge logic below promotes the
@@ -225,6 +228,10 @@ def _merge_papers(
             "open_access_pdf": paper.get("open_access_pdf"),
         }
         if existing is None:
+            # Position in the source's OWN ranked list, and which source that
+            # was. Both feed the ordering below.
+            enriched["_src_rank"] = rank
+            enriched["_local"] = source_label == "local"
             merged[key] = enriched
         else:
             # Prefer the version with richer metadata; merge missing fields.
@@ -240,21 +247,41 @@ def _merge_papers(
             existing["matched_by"] = max(
                 existing.get("matched_by", 1), enriched.get("matched_by", 1)
             )
+            # A paper both sources returned keeps the better position, and the
+            # corpus score if only the local copy carried one.
+            if rank < existing.get("_src_rank", rank):
+                existing["_src_rank"] = rank
+            if existing.get("score") is None and enriched.get("score") is not None:
+                existing["score"] = enriched["score"]
 
-    for p in local_res.get("results", []) or []:
-        _add("local", p)
-    for p in s2_res.get("results", []) or []:
+    for i, p in enumerate(local_res.get("results", []) or []):
+        _add("local", p, i)
+    for i, p in enumerate(s2_res.get("results", []) or []):
         # Only overwrite source to "semantic_scholar" if it wasn't already
         # in the local corpus — local wins when both have the paper.
-        _add("semantic_scholar", p)
+        _add("semantic_scholar", p, i)
 
+    # Preserve what each upstream tool already decided, rather than re-ranking
+    # on `matched_by` (2026-09-01). That frequency prior buried the papers a
+    # query matched best: `_add` never copied `score`, so local papers had no
+    # relevance term to fall back on and the order came down to how many query
+    # variants happened to agree, then raw citation count. Both inputs arrive
+    # ranked by the tool that produced them, so interleaving by position keeps
+    # `paper_search`'s similarity ordering intact all the way into Deep
+    # Research. Local wins an equal position, matching the trust order the
+    # merge already applies to metadata.
     ranked = sorted(
         merged.values(),
         key=lambda r: (
+            r.get("_src_rank", 0),
+            0 if r.get("_local") else 1,
             -(r.get("matched_by") or 0),
             -(r.get("citation_count") or 0),
         ),
     )
+    for row in ranked:
+        row.pop("_src_rank", None)
+        row.pop("_local", None)
     return ranked[:limit]
 
 

@@ -130,6 +130,64 @@ def get_citation_counts(dois: list[str]) -> dict:
 # download link 404'd. See UPLOAD-INGEST-REPAIR-PLAN.md defect 3.
 
 
+# --- fan-out merge ranking --------------------------------------------------
+#
+# A multi-query fan-out has to reconcile several ranked lists into one. The
+# obvious knob is `matched_by`, how many variants surfaced the same paper, and
+# using it as the PRIMARY sort key is what shipped until 2026-09-01. It is a
+# frequency prior, and it overrides similarity outright: a user asking for a
+# paper by its exact title matches that paper on the base query alone, while the
+# generic paraphrases the expander invents agree with each other on survey
+# papers, which then win on count. Measured on the live index, the paper a user
+# named by title carried the HIGHEST cosine of the whole candidate set (0.821)
+# and still sorted fifth, behind four lower-scoring papers, and fell out of the
+# window entirely in a third of runs of the same query. The user was told it did
+# not exist. `search_agent._dedup_and_rank` already learned this in 2026-07 and
+# demotes each tier's legacy score to a tie-break; these call sites did not.
+#
+# Agreement is still real signal, so it survives as a bounded bonus that can
+# break a near-tie and nothing more. Corpus cosines live in a narrow band
+# (~0.74-0.83 on a typical query), so the cap is deliberately smaller than the
+# spread: four extra variants buy +0.008, which cannot close the 0.017 gap in
+# the example above.
+AGREEMENT_BONUS = 0.002
+AGREEMENT_BONUS_MAX_EXTRA = 4
+
+
+def _agreement_adjusted_score(paper: dict) -> float:
+    """Similarity first, with a capped bonus for cross-variant agreement."""
+    extra = min(max(int(paper.get("matched_by", 1)) - 1, 0), AGREEMENT_BONUS_MAX_EXTRA)
+    return float(paper.get("score") or 0.0) + AGREEMENT_BONUS * extra
+
+
+def _reserve_base_query_slot(
+    merged: list[dict], batches: list[list[dict]], seen: dict[str, dict], top_k: int
+) -> list[dict]:
+    """Guarantee the top hit of the CALLER'S OWN wording a place in the window.
+
+    `expand_queries` always returns `[base, ...variants]`, so `batches[0]` is
+    the literal query the caller asked. Ranking alone is not quite enough of a
+    guarantee: the bonus above is bounded, but a genuinely close field can still
+    push the exact hit past `top_k`, and this is the one result whose absence
+    the model reports as "that paper does not exist". The expander's opinion may
+    reorder the tail; it may not evict the literal query's best hit.
+
+    The pinned row takes the LAST slot rather than the first: it has already
+    been ranked on merit, and promoting it would trade one arbitrary ordering
+    for another.
+    """
+    results = merged[:top_k]
+    if top_k <= 0 or not batches or not batches[0]:
+        return results
+    base_key = _paper_dedupe_key(batches[0][0])
+    if any(_paper_dedupe_key(r) == base_key for r in results):
+        return results
+    pinned = seen.get(base_key)
+    if pinned is None:
+        return results
+    return results[: top_k - 1] + [pinned]
+
+
 def _paper_dedupe_key(paper: dict) -> str:
     """Best-effort identifier for a paper to dedupe across queries."""
     doi = (paper.get("doi") or "").strip().lower()
@@ -309,15 +367,13 @@ async def paper_search(
                 if p.get("score", 0) > existing.get("score", 0):
                     existing["score"] = p["score"]
 
-    merged = sorted(
-        seen.values(),
-        key=lambda r: (-r.get("matched_by", 1), -r.get("score", 0)),
-    )
+    merged = sorted(seen.values(), key=_agreement_adjusted_score, reverse=True)
+    results = _reserve_base_query_slot(merged, batches, seen, top_k)
 
     response: dict = {
         "queries_executed": query_list,
         "total_hits": total_hits,
-        "results": merged[:top_k],
+        "results": results,
     }
     if effective_tags:
         # Echo the applied filter so the model can be honest about scope
@@ -472,27 +528,40 @@ async def semantic_scholar_search(
     seen: dict[str, dict] = {}
     total_hits = 0
     for hits in batches:
-        for paper in hits:
+        for rank, paper in enumerate(hits):
             total_hits += 1
             key = _paper_dedupe_key(paper)
             existing = seen.get(key)
             if existing is None:
-                seen[key] = {**paper, "matched_by": 1}
+                seen[key] = {**paper, "matched_by": 1, "_best_rank": rank}
             else:
                 existing["matched_by"] += 1
                 # Keep the higher citation count if they disagree.
                 if (paper.get("citation_count") or 0) > (existing.get("citation_count") or 0):
                     existing["citation_count"] = paper.get("citation_count", 0)
+                # Best position any variant put it in (see the ranking note).
+                if rank < existing.get("_best_rank", rank):
+                    existing["_best_rank"] = rank
 
+    # S2 attaches no similarity score, so its OWN returned position is the only
+    # relevance signal this tier has, and ranking on `matched_by` threw it away:
+    # the paper S2 put first for the user's literal question sorted behind
+    # whatever several paraphrases happened to agree on. Same defect as the
+    # corpus merge above. Position first, agreement and citations as tie-breaks.
     merged = sorted(
         seen.values(),
-        key=lambda r: (-r.get("matched_by", 1), -(r.get("citation_count") or 0)),
+        key=lambda r: (r.get("_best_rank", 0),
+                       -r.get("matched_by", 1),
+                       -(r.get("citation_count") or 0)),
     )
+    results = _reserve_base_query_slot(merged, batches, seen, top_k)
+    for row in results:
+        row.pop("_best_rank", None)
 
     return {
         "queries_executed": query_list,
         "total": total_hits,
-        "results": merged[:top_k],
+        "results": results,
     }
 
 
