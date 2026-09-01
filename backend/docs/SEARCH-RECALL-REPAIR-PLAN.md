@@ -199,12 +199,32 @@ says which it is so the model stops hedging about vocabulary mismatch.
 stored but not embedded is never reported as searchable (that is also
 the signal phase 4 needs).
 
-### Phase 3: tell the truth about scope (defect 3)
+### Phase 3: tell the truth about scope (defect 3)  — DONE
 
-`chat_service.py::build_active_tags_block`, `mcp/tools/faq.py`. Name
-the tools tags actually scope, state that uploaded documents are not
-tag-scoped, and add the Knowledge page to the FAQ so the model can
-point at a real place.
+`chat_service.py::build_active_tags_block`, `capabilities.py`,
+`config/faq.yml`. Tests: `tests/test_self_description.py` (10) and two
+new cases in `tests/test_query_tags.py`.
+
+Investigating this one moved the centre of gravity. The scope block was
+the smaller half; the six user-facing features the model recited at the
+user, almost verbatim, come from `capabilities._STATIC_FEATURES`, and
+neither the Knowledge page nor tag scoping was in that tuple. That is
+why the answer was "check your interface directly" rather than a
+pointer: from where the model sat, those features did not exist.
+
+1. `_STATIC_FEATURES` gains the two missing entries, with a comment
+   recording that this list is read out as an ANSWER, so an omission
+   tells a user a feature is absent rather than merely underdocumented.
+2. `build_active_tags_block` now says the tags apply to CORPUS SEARCH
+   ONLY, names the four tools that honour them, states that
+   `search_user_docs` is scoped by account and project and never by
+   tag, and routes listing requests to `browse_tag_papers` on the
+   grounds that a similarity search returns a sample.
+3. `faq.yml` gains a `knowledge_scope` topic covering what tags scope,
+   what they do not, and where to browse; `upload_documents` now points
+   at `list_documents` for inventory questions and says uploads are
+   never tag-scoped. `deploy.sh agents` already syncs this file, so no
+   deploy change is needed.
 
 ### Phase 4: investigate the docx indexing residue
 

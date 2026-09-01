@@ -337,6 +337,40 @@ def test_active_tags_block_tells_model_to_acknowledge_scope() -> bool:
 
 # ---------------------------------------------------------------------------
 # Runner
+def test_active_tags_block_scopes_corpus_search_only() -> bool:
+    """The block must name what the tags do NOT reach.
+
+    The earlier wording said the tags scope "every paper_search /
+    deep_research call", which was true but read as a general statement of
+    reach. On 2026-08-20 a model generalised it to the user's personal
+    uploads and told him his `#deibel` scope "should scope this
+    automatically" while running search_user_docs, which is filtered by
+    account and project and has never looked at tags. Two unrelated empty
+    results then reinforced each other into a wrong conclusion about his
+    upload store.
+    """
+    block = build_active_tags_block([{"kind": "group", "value": "deibel"}]) or ""
+    return _check(
+        "active-tags block says uploads are NOT tag-scoped",
+        "CORPUS SEARCH ONLY" in block
+        and "search_user_docs" in block
+        and "never by tag" in block,
+        f"block was: {block!r}",
+    )
+
+
+def test_active_tags_block_points_listing_at_browse() -> bool:
+    """Asked to LIST a collection, the model must reach for the browse tool.
+    A similarity search over a scoped corpus returns a sample, and offering a
+    sample as an inventory is the failure this whole repair addresses."""
+    block = build_active_tags_block([{"kind": "group", "value": "deibel"}]) or ""
+    return _check(
+        "active-tags block routes listing requests to browse_tag_papers",
+        "browse_tag_papers" in block and "sample" in block,
+        f"block was: {block!r}",
+    )
+
+
 # ---------------------------------------------------------------------------
 
 TESTS = [
@@ -357,6 +391,8 @@ TESTS = [
     test_resolve_effective_tags_both_empty_returns_none,
     test_resolve_effective_tags_never_merges,
     test_active_tags_block_tells_model_to_acknowledge_scope,
+    test_active_tags_block_scopes_corpus_search_only,
+    test_active_tags_block_points_listing_at_browse,
 ]
 
 

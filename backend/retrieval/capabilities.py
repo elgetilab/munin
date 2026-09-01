@@ -28,8 +28,19 @@ from typing import Optional
 # YAML because these are structural capabilities, not tunable
 # "explain this" answers - they change with the codebase, not with
 # admin curation.
+# Keep this list COMPLETE. A model asked "what can I do here" reads it out
+# verbatim, so an omission is not a gap in detail, it is a feature the user is
+# told does not exist. Both knowledge entries below were missing until
+# 2026-09-01, and a user who had attached a research-group scope and asked to
+# browse it was answered with this list and a suggestion to "check your
+# interface directly" - while the Knowledge page was doing exactly what he
+# asked, one click away.
 _STATIC_FEATURES = (
     "Upload documents (PDF, TXT, MD, DOCX, PNG, JPG, WEBP) via the + button",
+    "Attach knowledge scope with #tags (research group, topic, or #@contributor) "
+    "from the + menu or by typing # in the chat box - scopes corpus search only",
+    "Browse the corpus by group, topic, or contributor on the Knowledge page "
+    "at /knowledge",
     "Switch personas in the sidebar (Meitner chat / Turing code / Curie research)",
     "Organize chats into Projects with per-project instructions and docs",
     "Versioned document artifacts in the side panel (drafts, code, plots, spreadsheets)",

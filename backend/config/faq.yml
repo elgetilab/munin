@@ -27,7 +27,23 @@ topics:
       limit is 50 MB per file. If you are inside a project, the doc is
       automatically scoped to that project so searches inside the
       project return it first before falling back to the user-global
-      store.
+      store. Ask "list my documents" for an inventory rather than a
+      search - the assistant enumerates them with `list_documents`.
+      Uploads are scoped by account and project, never by #tag.
+
+  knowledge_scope:
+    question: "What is Attach knowledge, and what do the #tags scope?"
+    answer: |
+      Type `#` in the chat box, or pick "Attach knowledge" from the +
+      menu, to scope a chat to part of the shared corpus: a research
+      group (`#deibel`), a topic cluster, or a single contributor
+      (`#@username`). While tags are attached, corpus search (`search`,
+      `paper_search`, `source`, Deep Research) only returns papers
+      matching ALL of them. Tags do NOT scope your own uploaded
+      documents or web results. To browse a collection rather than
+      search it, open the Knowledge page at /knowledge, or just ask for
+      a list - the assistant uses `browse_tag_papers`, which pages
+      through the collection and tells you its true size.
 
   personas:
     question: "What's the difference between the personas?"

@@ -1751,14 +1751,22 @@ def build_active_tags_block(tags: Optional[list[dict]]) -> Optional[str]:
     "what knowledge do I have attached?" the model has no awareness
     and incorrectly reports "nothing". The block makes the scope
     visible at every turn.
+
+    It also has to say what the tags do NOT cover. The earlier wording
+    ("every paper_search / deep_research call") was true but read as a
+    general statement of reach, and a model generalised it to the
+    user's personal uploads: in a 2026-08-20 chat it told him his
+    `#deibel` scope "should scope this automatically" while running
+    `search_user_docs`, which is filtered by account and project and
+    has never looked at tags. Two empty results then reinforced each
+    other into a wrong conclusion about his upload store.
     """
     if not tags:
         return None
     lines = ["=== ACTIVE SCOPE TAGS ==="]
     lines.append(
         "The user has attached the following knowledge scope filters to "
-        "this chat. Every paper_search / deep_research call automatically "
-        "scopes Qdrant results to papers matching ALL of these filters:"
+        "this chat:"
     )
     lines.append("")
     for tag in tags:
@@ -1772,12 +1780,30 @@ def build_active_tags_block(tags: Optional[list[dict]]) -> Optional[str]:
             lines.append(f"- #{value} (topic-cluster scope)")
     lines.append("")
     lines.append(
+        "These filters apply to CORPUS SEARCH ONLY. search, paper_search, "
+        "source and deep_research scope their Qdrant queries to papers "
+        "matching ALL of the tags above, and browse_tag_papers lists that "
+        "collection when called with no arguments."
+    )
+    lines.append("")
+    lines.append(
+        "They do NOT apply to search_user_docs: the user's uploaded "
+        "documents are scoped by account and project, never by tag. An "
+        "empty result from one says nothing about the other, so do not "
+        "explain a miss in the tagged corpus by pointing at the scope "
+        "when the search you ran was over their uploads, or vice versa."
+    )
+    lines.append("")
+    lines.append(
         "When the user asks 'what knowledge do I have attached', 'what can "
         "you see', 'what am I scoped to', or similar — tell them about "
-        "these active scope tags explicitly. When citing papers surfaced "
-        "by a scoped search, mention the scope ('I searched the Zeitler "
-        "Lab corpus for...'). Do NOT silently claim corpus-wide coverage "
-        "when the scope was narrower."
+        "these active scope tags explicitly. To LIST what is in the "
+        "collection, call browse_tag_papers rather than searching: a "
+        "similarity search returns a sample, and offering a sample as an "
+        "inventory is wrong. When citing papers surfaced by a scoped "
+        "search, mention the scope ('I searched the Zeitler Lab corpus "
+        "for...'). Do NOT silently claim corpus-wide coverage when the "
+        "scope was narrower."
     )
     lines.append("=== END ACTIVE SCOPE TAGS ===")
     return "\n".join(lines)
