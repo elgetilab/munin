@@ -110,13 +110,20 @@ registry tests pass against the deployed code.
 
 ### Still open
 
-- [TODO] **Frontend not deployed.** The `stream_gone` change is
-  committed but the webui has not been rebuilt. The bundle Caddy
-  serves, `static/chat/assets/index-B6d0kZnr.js`, is dated 2026-08-25
-  and still contains the "Stream is no longer available" string, so a
-  410 that does still happen (genuinely evicted or cancelled stream)
-  is reported to the user as lost work. Needs `npm run build` in
-  `webui/` plus an rsync to the VPS.
+- [DONE 2026-09-02] **Frontend deployed.** Rebuilt
+  (`index-B6d0kZnr.js` 2026-08-25 -> `index-Cglzjdvj.js`) and rsynced.
+  Verified inside the Caddy container, which is what actually serves
+  it: the new bundle is present through the `static/` directory bind
+  mount, `index.html` points at it, the old bundle is pruned, and the
+  "Stream is no longer available" string is gone (`stream_gone`
+  present instead).
+
+  No container rebuild or `caddy reload` was needed: `static/` is a
+  DIRECTORY bind mount (`:ro`), so files resolve per request. Order
+  mattered though, and the documented procedure gets it right for a
+  reason: ship `index.html` plus the new bundle FIRST, prune stale
+  bundles SECOND. Reversed, the live `index.html` would briefly point
+  at a bundle that had just been deleted.
 - [TODO] Watch whether 8 MB per stream is right. It is a guess sized
   from token events, not a measurement of real tool-heavy turns, and
   nothing yet reports when the byte cap rather than the count cap is
