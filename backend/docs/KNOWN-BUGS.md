@@ -106,7 +106,7 @@ fix; the second guards the opposite direction, over-deletion.
 
 ## 2. SSE stream-resume endpoint failed for users in production (RESOLVED 2026-09-02)
 
-**Severity:** ~~high~~ -> **resolved**, bar one browser-side check.
+**Severity:** ~~high~~ -> **resolved**. Closed 2026-09-02.
 
 **Resume now works.** Verified against the live cluster on 2026-09-02:
 POST a turn, abort mid-stream, reconnect with `Last-Event-ID` ->
@@ -157,13 +157,27 @@ thing that rots quietly:
   checkpoint. That was redundant with the two suites above and was
   removed rather than left to pad the count.
 
-**Still open (needs a human, ~2 min):** actual rendering. Everything
-above asserts state and events, not pixels. Nobody has watched a
-resumed answer appear, nor the cross-refresh repaint where the bubble
-shows only the replayed tail. Chrome DevTools -> Network -> Offline is
-per-tab and touches no real networking, so it disrupts nobody: start a
-long answer, Offline ~5s, back online; then separately refresh
-mid-stream.
+**Rendering (2026-09-02): checked in a browser, no defect seen.** The
+operator ran the DevTools Network -> Offline round trip (per-tab, so no
+real networking involved and no users disturbed) and reported it
+successful.
+
+Weight that appropriately, and this is the last claim in this entry so
+it is worth being explicit: this is an operator report of one manual
+observation, not a measurement anyone can re-run. It is the weakest
+evidence in the entry, and deliberately so, because the alternative was
+leaving the item open forever. If a rendering defect turns up later,
+suspect this line first, not the machine-checked layers beneath it.
+
+### Closed
+
+Nothing outstanding. For a future reader, the sequence that actually
+resolved this was: read the code before trusting the entry (three of
+its four claims were stale), drive the real endpoint rather than the
+unit tests (`scripts/smoke-resume.py`), measure the windows rather than
+tune them, audit the existing frontend suites before adding to them
+(most of the "browser half" was already covered), and only then ask a
+human for the one thing that genuinely needed eyes.
 
 ### Symptom (as originally observed, June 2026)
 
