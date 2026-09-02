@@ -124,24 +124,46 @@ registry tests pass against the deployed code.
   reason: ship `index.html` plus the new bundle FIRST, prune stale
   bundles SECOND. Reversed, the live `index.html` would briefly point
   at a bundle that had just been deleted.
-- [PARTLY DONE 2026-09-02] Watch whether 8 MB per stream is right. It
-  is still a guess sized from token events rather than a measurement of
-  real tool-heavy turns, but it is no longer a SILENT guess:
-  `stream_registry.record()` now logs a WARNING the first time the byte
-  cap binds before the count cap, naming the stream, the MB held, the
-  event count and the average bytes per event.
+- [DONE 2026-09-02] **Measured, and it inverted the assumption.** The
+  byte cap was sized on a guess that tool results and evidence passages
+  would dominate memory. A heavy research turn (corpus search plus two
+  GROBID full-text extractions) measured:
 
-  Once per stream, latched. The eviction loop runs on most `record()`
-  calls after the buffer fills, so per-eviction logging would emit
-  thousands of lines a turn and get filtered, which is the same as no
-  signal. Tested both ways: fires exactly once when bytes bind, stays
-  silent when the count binds.
+  ```
+  events               11,330
+  total buffered        0.35 MB   of the 8 MB cap  (4.4%)
+  largest single event  4,824 B
+  avg bytes/event          32 B
+    thinking    0.15 MB
+    token       0.05 MB
+    tool_result 0.04 MB   <- what the cap was sized around
+  ```
 
-  What to do with it: `grep "BYTE cap" ` the retrieval logs. Recurring
-  hits mean reconnect coverage on those turns is bounded by
-  `MAX_LOG_BYTES`, not by the 20000 events the count implies, and the
-  byte cap should go up. Absence of the line is the evidence 8 MB is
-  adequate, which is what was missing before.
+  The buffer is not a few large payloads, it is a great many tiny ones.
+  At 32 B/event, 8 MB permits ~259,000 events while the COUNT permitted
+  20,000: **the count binds first by more than 10x**, so the byte
+  warning added earlier the same day reports a bound that will rarely
+  fire, and the bound that actually binds was silent.
+
+  Worse, the headroom was thin: that one heavy turn used 11,330 of
+  20,000 events (57%). A Deep Research turn would have exceeded it,
+  truncated, and started refusing reconnects again, i.e. the original
+  bug one order of magnitude up.
+
+  Changes: `MAX_LOG_EVENTS` 20000 -> **100000** (~3.2 MB at measured
+  density, still under `MAX_LOG_BYTES`, so the byte cap remains a live
+  backstop rather than dead code), plus a **symmetric warning when the
+  count binds**, naming the seq reconnects are served from so it can be
+  correlated against a client's `Last-Event-ID`.
+
+  Both warnings are latched once per stream and logged AFTER eviction,
+  so the reported seq is the one actually in effect. The regression
+  test now asserts the buffer survives a **measured** 11,330-event
+  turn rather than a made-up number.
+
+  Operationally: `grep "EVENT cap"` is the line to watch;
+  `grep "BYTE cap"` should stay quiet unless a turn's payloads are
+  unusually large.
 
 ---
 

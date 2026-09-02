@@ -75,12 +75,25 @@ KEEPALIVE_S = 15.0
 # back. Three users hit this in six minutes before it was raised.
 #
 # The byte cap exists because raising the count alone is the bug from 96921b7
-# (chunk upserts sized by paper count rather than request bytes): most events
-# are a few hundred bytes of token JSON, but a tool result or an evidence
-# passage can be orders of magnitude larger, so a pure count bound says nothing
-# about memory. ~8 MB per live stream is the real ceiling; at
-# MAX_BACKGROUND_PER_USER=2 that is bounded per user too.
-MAX_LOG_EVENTS = 20000
+# (chunk upserts sized by paper count rather than request bytes): a pure count
+# bound says nothing about memory. It stays as a backstop for a turn whose
+# payloads are unusually large.
+#
+# MEASURED 2026-09-02, and it inverted the assumption the byte cap was sized
+# on. A heavy research turn (corpus search + two GROBID full-text extractions)
+# came to 11,330 events but only 0.35 MB, i.e. **32 bytes per event**, and
+# `tool_result` was 0.04 MB of that. The buffer is not a few large payloads,
+# it is a great many tiny ones (`thinking` and `token` dominate).
+#
+# So at realistic density 8 MB permits ~259,000 events while the COUNT permits
+# far fewer: the count binds first by more than 10x, and it is the bound to
+# watch. 20000 was raised to 100000 because that single heavy turn already
+# used 11,330 (57% of 20000), leaving no room for a Deep Research turn before
+# it truncates and starts refusing reconnects again, which is the original bug
+# one order of magnitude up. 100000 is ~3.2 MB at observed density, still
+# under MAX_LOG_BYTES, so the byte cap remains a live backstop rather than
+# dead code.
+MAX_LOG_EVENTS = 100000
 MAX_LOG_BYTES = 8 * 1024 * 1024
 DONE_RETENTION_S = 60.0
 JANITOR_INTERVAL_S = 10.0
@@ -145,6 +158,7 @@ class Stream:
         # per eviction would emit thousands of lines per turn and get filtered
         # out, which is the same as having no signal at all.
         self._byte_cap_logged: bool = False
+        self._count_cap_logged: bool = False
         self.completed_ts: Optional[float] = None
         self.last_disconnect_ts: Optional[float] = None
 
@@ -196,11 +210,45 @@ class Stream:
         # therefore resumable across a far shorter window than 20000 events
         # implies. That is exactly the shape of the 2026-09-02 incident, one
         # bound too small for real turns, and it went unnoticed for months.
-        if (
+        # Decide which bound tripped BEFORE evicting, but log AFTER, so the
+        # seq reported is the one reconnects will actually be served from.
+        # Computing it pre-eviction reports a seq that is already stale by the
+        # time the line is written, which is a small lie in the one message
+        # someone will use to correlate against a client's Last-Event-ID.
+        _hit_count = (
+            not self._count_cap_logged and len(self.event_log) > MAX_LOG_EVENTS
+        )
+        _hit_bytes = (
             not self._byte_cap_logged
             and self._log_bytes > MAX_LOG_BYTES
             and len(self.event_log) <= MAX_LOG_EVENTS
+        )
+
+        while self.event_log and (
+            len(self.event_log) > MAX_LOG_EVENTS
+            or self._log_bytes > MAX_LOG_BYTES
         ):
+            _seq, _name, _data = self.event_log.pop(0)
+            self._log_bytes -= len(_data) + len(_name)
+            self.truncated = True
+
+        if _hit_count:
+            self._count_cap_logged = True
+            logger.warning(
+                "stream %s replay buffer hit the EVENT cap: %d events holding "
+                "only %.1f MB (~%d B/event). Reconnects for this turn are "
+                "served from seq %d onward, so a client that dropped earlier "
+                "gets 410. Measured density is ~32 B/event, so this is the "
+                "bound that binds in practice: raise MAX_LOG_EVENTS (%d), not "
+                "MAX_LOG_BYTES.",
+                self.stream_id,
+                len(self.event_log),
+                self._log_bytes / 1048576.0,
+                self._log_bytes // max(1, len(self.event_log)),
+                self.oldest_retained_seq(),
+                MAX_LOG_EVENTS,
+            )
+        if _hit_bytes:
             self._byte_cap_logged = True
             logger.warning(
                 "stream %s replay buffer hit the BYTE cap first: %.1f MB "
@@ -214,14 +262,6 @@ class Stream:
                 MAX_LOG_BYTES / 1048576.0,
                 MAX_LOG_EVENTS,
             )
-
-        while self.event_log and (
-            len(self.event_log) > MAX_LOG_EVENTS
-            or self._log_bytes > MAX_LOG_BYTES
-        ):
-            _seq, _name, _data = self.event_log.pop(0)
-            self._log_bytes -= len(_data) + len(_name)
-            self.truncated = True
         self._wake.set()
         return seq
 

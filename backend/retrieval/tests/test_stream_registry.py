@@ -119,11 +119,54 @@ def test_buffer_holds_a_realistic_turn() -> bool:
     410. The buffer has to outlast one turn or it is not a reconnect buffer.
     """
     s = Stream(user_email="u@x", conversation_id="c1")
-    for _ in range(3000):
+    # 11,330 is the MEASURED size of a heavy research turn (corpus search plus
+    # two GROBID full-text extractions) on 2026-09-02. A buffer that cannot
+    # hold one of those cannot serve a reconnect on the turns people most want
+    # back, which is the bug this file exists to prevent recurring.
+    for _ in range(11330):
         s.record("token", '{"content":"word "}')
     ok = not s.truncated and s.can_resume_from(5)
-    return _check("buffer survives a realistic ~3000-event turn", ok,
+    return _check("buffer survives a measured 11,330-event research turn", ok,
                   f"truncated={s.truncated} events={len(s.event_log)}")
+
+
+def test_count_cap_warns_once_when_the_count_binds() -> bool:
+    """The count is the bound that actually binds, so it must announce itself.
+
+    Measured 2026-09-02: a heavy turn averages ~32 bytes per event, so 8 MB
+    permits ~259,000 events while MAX_LOG_EVENTS permits far fewer. The byte
+    warning added earlier that day therefore reports a bound that will almost
+    never fire; without this one, the failure mode that DOES occur is silent,
+    which is how the original 1000-event bug survived months.
+    """
+    import logging
+
+    class _Capture(logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.msgs = []
+
+        def emit(self, record):
+            self.msgs.append(record.getMessage())
+
+    reg_log = logging.getLogger("stream_registry")
+    cap = _Capture()
+    reg_log.addHandler(cap)
+    old_level = reg_log.level
+    reg_log.setLevel(logging.WARNING)
+    try:
+        s = Stream(user_email="u@x", conversation_id="c1")
+        for _ in range(MAX_LOG_EVENTS + 40):
+            s.record("token", '{"c":"x"}')
+        count_warnings = [m for m in cap.msgs if "EVENT cap" in m]
+        byte_warnings = [m for m in cap.msgs if "BYTE cap" in m]
+    finally:
+        reg_log.removeHandler(cap)
+        reg_log.setLevel(old_level)
+
+    ok = len(count_warnings) == 1 and not byte_warnings and s.truncated
+    return _check("count cap warns exactly once, without a byte false-alarm",
+                  ok, f"count={len(count_warnings)} byte={len(byte_warnings)}")
 
 
 def test_byte_cap_warns_once_and_only_when_bytes_bind() -> bool:
@@ -641,6 +684,7 @@ TESTS = [
     test_buffer_holds_a_realistic_turn,
     test_bytes_tracked_exactly_across_eviction,
     test_byte_cap_warns_once_and_only_when_bytes_bind,
+    test_count_cap_warns_once_when_the_count_binds,
     test_wait_for_new_returns_immediately_when_done,
     test_serve_replays_then_streams_live,
     test_serve_after_seq_skips_replayed,
