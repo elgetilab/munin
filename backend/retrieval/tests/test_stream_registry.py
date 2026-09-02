@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import stream_registry  # noqa: E402
 from stream_registry import (  # noqa: E402
     MAX_LOG_EVENTS,
+    MAX_LOG_BYTES,
     Stream,
     StreamRegistry,
     _grace_timer,
@@ -86,6 +87,55 @@ def test_buffer_cap_marks_truncated() -> bool:
         "overflowing the buffer drops oldest and flips truncated",
         asyncio.run(go()),
     )
+
+
+def test_buffer_byte_cap_evicts_before_the_event_cap() -> bool:
+    """A few huge events must not pin megabytes just because the COUNT is low.
+
+    Raising MAX_LOG_EVENTS to 20k without a byte bound would be the 96921b7
+    mistake again: sizing a buffer in the wrong unit. Most events are a few
+    hundred bytes of token JSON, but one tool result or evidence passage can
+    be orders of magnitude larger.
+    """
+    s = Stream(user_email="u@x", conversation_id="c1")
+    big = "x" * (1024 * 1024)          # 1 MB per event
+    for _ in range(12):                # 12 MB total, well under MAX_LOG_EVENTS
+        s.record("token", big)
+    ok = (
+        len(s.event_log) < 12                       # evicted on bytes, not count
+        and s._log_bytes <= MAX_LOG_BYTES           # bound actually holds
+        and s.truncated                             # and it says so
+    )
+    return _check("byte cap evicts before the event cap", ok,
+                  f"events={len(s.event_log)} bytes={s._log_bytes}")
+
+
+def test_buffer_holds_a_realistic_turn() -> bool:
+    """The regression that let three users hit 410 in six minutes.
+
+    A ~500-word answer measures at ~2,600 SSE events. At the old cap of 1000
+    the buffer could not hold a single turn, so a client that dropped for
+    20-30s came back to a checkpoint already rolled past and got a legitimate
+    410. The buffer has to outlast one turn or it is not a reconnect buffer.
+    """
+    s = Stream(user_email="u@x", conversation_id="c1")
+    for _ in range(3000):
+        s.record("token", '{"content":"word "}')
+    ok = not s.truncated and s.can_resume_from(5)
+    return _check("buffer survives a realistic ~3000-event turn", ok,
+                  f"truncated={s.truncated} events={len(s.event_log)}")
+
+
+def test_bytes_tracked_exactly_across_eviction() -> bool:
+    """_log_bytes is maintained incrementally, so a drift bug would silently
+    shrink the buffer over a long turn until it stopped serving reconnects."""
+    s = Stream(user_email="u@x", conversation_id="c1")
+    for i in range(500):
+        s.record("token", f'{{"content":"{i}"}}')
+    expected = sum(len(d) + len(n) for _q, n, d in s.event_log)
+    return _check("byte accounting matches the retained log",
+                  s._log_bytes == expected,
+                  f"tracked={s._log_bytes} actual={expected}")
 
 
 def test_wait_for_new_returns_immediately_when_done() -> bool:
@@ -536,6 +586,9 @@ TESTS = [
     test_record_assigns_monotonic_seq,
     test_replay_after_filters_strict,
     test_buffer_cap_marks_truncated,
+    test_buffer_byte_cap_evicts_before_the_event_cap,
+    test_buffer_holds_a_realistic_turn,
+    test_bytes_tracked_exactly_across_eviction,
     test_wait_for_new_returns_immediately_when_done,
     test_serve_replays_then_streams_live,
     test_serve_after_seq_skips_replayed,

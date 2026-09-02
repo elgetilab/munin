@@ -27,12 +27,79 @@ Tests: `retrieval/tests/test_memory_proposals.py`.
 
 ---
 
-## 2. SSE stream-resume endpoint failed for users in production (RESOLVED 2026-09-02)
+## 2. SSE stream-resume: REOPENED 2026-09-02, replay buffer too small for one turn
 
-Fixed and verified end to end. Re-runnable check:
-`scripts/smoke-resume.py`. Full write-up, including the three stale
-claims the entry had accumulated, in
-[`archive/KNOWN-BUGS-resolved.md`](archive/KNOWN-BUGS-resolved.md).
+**Severity:** medium (misleading banner; no data loss)
+
+Closed earlier the same day, reopened hours later when a user reported
+`Stream is no longer available on the server`. Historical write-up in
+[`archive/KNOWN-BUGS-resolved.md`](archive/KNOWN-BUGS-resolved.md);
+this is the new defect.
+
+### What was actually wrong
+
+Two things, and neither was the endpoint being broken. The 410s were
+CORRECT refusals.
+
+**1. `MAX_LOG_EVENTS = 1000` could not hold a single turn.** Measured:
+one ~500-word answer emits **~2,600 SSE events**. So the replay buffer
+rolled past a client's checkpoint within roughly 20-30 seconds of
+disconnection, which is SHORTER than the 60s grace window. Any real
+blip on a long tool-heavy turn therefore landed past the buffer, and
+`can_resume_from()` honestly refused rather than replaying with a gap.
+
+I had marked this "largely addressed" by `3bea54d` when closing the
+entry. That was wrong: `3bea54d` helps a client still INSIDE the
+1000-event window, and on the turns people actually want back, nobody
+is.
+
+**2. `streamChat`'s mid-stream 410 raised a banner claiming the work
+was gone.** That branch predates background turns. `a27b4d2` made
+grace expiry PROMOTE the stream, so the turn finishes server-side and
+persists regardless of reconnection.
+
+The production evidence, three users in six minutes, is unambiguous:
+every 410 arrived ~59s BEFORE its stream was promoted to background,
+so the stream was alive at the time and the answer persisted in every
+case.
+
+```
+a774d5d1  resume 410 10:16:30  ->  promoted to background 10:17:28
+79e1a95b  resume 410 10:19:08  ->  promoted to background 10:20:07
+9c451761  resume 410 10:22:28  ->  promoted to background 10:23:27
+```
+
+The reporting user's answers were all in `chat_store`, including a
+6,305-char research reply saved while she was being told it was lost.
+
+### Fix
+
+- `stream_registry.py`: `MAX_LOG_EVENTS` 1000 -> 20000, **plus a new
+  `MAX_LOG_BYTES` of 8 MB**. Raising the count alone would repeat the
+  `96921b7` mistake of bounding a buffer in the wrong unit: token
+  events are a few hundred bytes, but one tool result or evidence
+  passage can be orders of magnitude larger, so a count says nothing
+  about memory. Eviction now runs until both bounds hold.
+- `webui/src/lib/api.ts`: the mid-stream 410 emits `stream_gone`
+  instead of an error, matching what `resumeChat` already did. The
+  store's handler resets streaming state and reloads the transcript,
+  and `_attemptedResumes` guards the re-attach loop.
+
+Tests: three in `tests/test_stream_registry.py` (byte cap evicts before
+the count cap, the buffer survives a realistic ~3000-event turn, byte
+accounting stays exact across eviction) and one in
+`webui/src/lib/api.backoff.test.ts` (mid-stream 410 reloads, no
+banner). `useChat.error.test.ts`'s 410 case was rewritten: it asserted
+the old banner contract, which this change deliberately inverts.
+
+### Still open
+
+- [TODO] Confirm in production that resume now succeeds on a long
+  tool-heavy turn. The buffer change is deployed-pending; until a real
+  long turn survives a real blip, this is reasoning plus unit tests,
+  not evidence.
+- [TODO] Watch whether 8 MB per stream is right. It is a guess sized
+  from token events, not a measurement of real tool-heavy turns.
 
 ---
 

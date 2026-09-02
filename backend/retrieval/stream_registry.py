@@ -39,9 +39,13 @@ Tunables:
                               cancelling.
 - ``KEEPALIVE_S``             SSE comment cadence when idle, so reverse
                               proxies don't drop the connection.
-- ``MAX_LOG_EVENTS``          per-stream replay buffer cap; on overflow
-                              the stream is marked ``truncated`` and
-                              subsequent resumes get 410.
+- ``MAX_LOG_EVENTS``          per-stream replay buffer cap in EVENTS.
+- ``MAX_LOG_BYTES``           the same buffer capped in BYTES, since one
+                              tool result can outweigh a thousand tokens.
+                              On overflow of either the stream is marked
+                              ``truncated``; a resume is then served only
+                              if the client's checkpoint is still inside
+                              the retained window (``can_resume_from``).
 - ``DONE_RETENTION_S``        how long a completed stream stays in the
                               registry for late reconnects.
 """
@@ -60,7 +64,24 @@ GRACE_S = 60.0
 BACKGROUND_MAX_S = 1800.0
 MAX_BACKGROUND_PER_USER = 2
 KEEPALIVE_S = 15.0
-MAX_LOG_EVENTS = 1000
+# Replay buffer bounds. BOTH are enforced; whichever binds first wins.
+#
+# 1000 events was far too small to be a reconnect buffer at all. Measured
+# 2026-09-02: a single ~500-word answer emits ~2,600 SSE events, so the buffer
+# could not hold even one turn, and a client that dropped for ~20-30s came back
+# to find its checkpoint rolled past. can_resume_from() then correctly refused
+# with 410 rather than silently skipping content, which is honest but meant
+# resume could not work on exactly the long tool-heavy turns people most want
+# back. Three users hit this in six minutes before it was raised.
+#
+# The byte cap exists because raising the count alone is the bug from 96921b7
+# (chunk upserts sized by paper count rather than request bytes): most events
+# are a few hundred bytes of token JSON, but a tool result or an evidence
+# passage can be orders of magnitude larger, so a pure count bound says nothing
+# about memory. ~8 MB per live stream is the real ceiling; at
+# MAX_BACKGROUND_PER_USER=2 that is bounded per user too.
+MAX_LOG_EVENTS = 20000
+MAX_LOG_BYTES = 8 * 1024 * 1024
 DONE_RETENTION_S = 60.0
 JANITOR_INTERVAL_S = 10.0
 
@@ -117,6 +138,8 @@ class Stream:
 
         self.done: bool = False
         self.truncated: bool = False
+        # Running size of event_log, kept incrementally so record() stays O(1).
+        self._log_bytes: int = 0
         self.completed_ts: Optional[float] = None
         self.last_disconnect_ts: Optional[float] = None
 
@@ -156,12 +179,17 @@ class Stream:
         seq = self._next_seq
         self._next_seq += 1
         self.event_log.append((seq, event_name, data_json))
-        if len(self.event_log) > MAX_LOG_EVENTS:
-            # Drop oldest. A reconnect with Last-Event-ID below the new
-            # head can no longer be served accurately — flip the flag
-            # so the resume endpoint returns 410 rather than silently
-            # skipping events.
-            self.event_log.pop(0)
+        self._log_bytes += len(data_json) + len(event_name)
+        # Drop oldest until BOTH bounds hold. A reconnect with Last-Event-ID
+        # below the new head can no longer be served accurately, so flip the
+        # flag; can_resume_from() then decides per client whether that
+        # particular checkpoint survived, rather than refusing everyone.
+        while self.event_log and (
+            len(self.event_log) > MAX_LOG_EVENTS
+            or self._log_bytes > MAX_LOG_BYTES
+        ):
+            _seq, _name, _data = self.event_log.pop(0)
+            self._log_bytes -= len(_data) + len(_name)
             self.truncated = True
         self._wake.set()
         return seq

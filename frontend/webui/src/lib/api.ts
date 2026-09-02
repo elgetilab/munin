@@ -994,11 +994,22 @@ export async function streamChat(
     }
     outcome = await _attemptResume(state, onEvent, signal);
     if (outcome === 'gone') {
+      // A mid-stream 410 used to mean the turn was dead, so this raised a
+      // banner. Background turns (a27b4d2) inverted that: grace expiry now
+      // PROMOTES the stream, so the turn keeps running server-side and its
+      // answer lands in chat_store regardless of whether we reconnect.
+      //
+      // Observed in production 2026-09-02: three users in six minutes, and
+      // in every case the 410 arrived ~59s BEFORE the stream was promoted to
+      // background, i.e. while it was still very much alive. The answer
+      // persisted every time. The banner was telling users their work was
+      // gone while it was being written.
+      //
+      // Same reaction as resumeChat's 410 path: reload the transcript. The
+      // store's stream_gone handler resets streaming state and calls
+      // loadConversation, and _attemptedResumes guards the re-attach loop.
       clearActiveStream();
-      onEvent({
-        type: 'error',
-        data: { message: 'Stream is no longer available on the server.' },
-      });
+      onEvent({ type: 'stream_gone', data: {} });
       return;
     }
     if (outcome === 'error') {

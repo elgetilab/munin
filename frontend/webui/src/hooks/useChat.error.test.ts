@@ -188,7 +188,17 @@ describe('useChat — mid-stream drop + reconnect', () => {
     expect(result.current.streaming.reconnecting).toBeNull();
   });
 
-  it('resume returning 410 Gone surfaces a terminal error', async () => {
+  it('resume returning 410 Gone reloads the transcript instead of erroring', async () => {
+    // CONTRACT CHANGED 2026-09-02. This used to assert a "no longer
+    // available" banner plus an interrupted partial bubble, on the premise
+    // that a mid-stream 410 meant the turn had died. Background turns
+    // (a27b4d2) made that false: grace expiry PROMOTES the stream, so the
+    // turn finishes server-side and persists whether or not we reconnect.
+    //
+    // Observed in production: three users in six minutes, and every 410
+    // arrived ~59s BEFORE the stream was promoted to background, i.e. while
+    // it was alive. Their answers all persisted. The banner was telling
+    // people their work was gone while it was being written.
     server.use(
       http.post('/api/chat/completions', () =>
         sseResponse([
@@ -199,6 +209,15 @@ describe('useChat — mid-stream drop + reconnect', () => {
       http.get('/api/chat/completions/resume', () =>
         HttpResponse.json({ error: { message: 'gone' } }, { status: 410 }),
       ),
+      // The reload the store performs on stream_gone: the finished answer.
+      http.get('/api/chats/conv-g', () => HttpResponse.json({
+        id: 'conv-g', title: 'T', persona: 'munin', created_at: 'now',
+        updated_at: 'now', summary: null, plan: null, active_stream: null,
+        messages: [
+          { id: 'm1', role: 'user', content: 'Hi', created_at: 'now' },
+          { id: 'm2', role: 'assistant', content: 'the completed answer', created_at: 'now' },
+        ],
+      })),
     );
 
     const { result } = renderHook(() => useChatStore());
@@ -207,10 +226,17 @@ describe('useChat — mid-stream drop + reconnect', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
     await act(async () => { await promise; });
 
-    expect(result.current.error).toContain('no longer available');
-    const assistant = result.current.messages.find(m => m.role === 'assistant');
-    expect(assistant!.interrupted).toBe(true);
-    expect(assistant!.content).toContain('partial');
+    // The reload is fired as a floating promise from the stream_gone
+    // handler. Fake timers are on for this file, so waitFor would spin
+    // forever; flush microtasks and the fetch instead.
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+
+    const msgs = useChatStore.getState().messages;
+    expect(msgs[msgs.length - 1]).toMatchObject({
+      role: 'assistant', content: 'the completed answer',
+    });
+    // The whole point: no banner, because nothing was lost.
+    expect(result.current.error).toBeNull();
   });
 });
 

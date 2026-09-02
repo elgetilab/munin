@@ -1,4 +1,4 @@
-import { http } from 'msw';
+import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
 import { streamChat, readActiveStream, clearActiveStream } from './api';
 import type { SSEEvent } from './types';
@@ -45,6 +45,39 @@ function sse(events: Array<{ event: string; data: unknown; id?: string }>): Resp
 beforeEach(() => {
   try { localStorage.clear(); } catch { /* ignore */ }
   clearActiveStream();
+});
+
+describe('streamChat — mid-stream 410', () => {
+  it('reloads the transcript via stream_gone instead of raising a banner', async () => {
+    vi.useFakeTimers();
+    try {
+      server.use(
+        http.post('/api/chat/completions', () => sse([
+          { id: 's3-1', event: 'conversation', data: { id: 'c3', title: 'T', is_new: true, stream_id: 's3' } },
+          { id: 's3-2', event: 'token', data: { content: 'partial' } },
+        ])),
+        // 410 mid-stream. Production 2026-09-02: this arrived ~59s BEFORE the
+        // stream was promoted to background, so the turn was alive and its
+        // answer landed in chat_store anyway. A banner claiming the work is
+        // gone is then simply false; the transcript has it.
+        http.get('/api/chat/completions/resume', () => new HttpResponse(null, { status: 410 })),
+      );
+
+      const events: SSEEvent[] = [];
+      const p = streamChat(
+        { persona: 'chat', messages: [], rag: { enabled: false }, stream: true },
+        e => events.push(e),
+      );
+      await vi.advanceTimersByTimeAsync(2000);
+      await p;
+
+      expect(events.filter(e => e.type === 'stream_gone')).toHaveLength(1);
+      expect(events.filter(e => e.type === 'error')).toHaveLength(0);
+      expect(readActiveStream()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('streamChat — backoff schedule exhaustion', () => {
