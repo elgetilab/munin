@@ -104,29 +104,35 @@ fix; the second guards the opposite direction, over-deletion.
 
 ---
 
-## 2. SSE stream-resume endpoint fails for users in production
+## 2. SSE stream-resume endpoint failed for users in production (RESOLVED 2026-09-02)
 
-**Severity:** ~~high~~ -> **low** as of 2026-09-02. Both failure modes
-that broke resume for users are fixed AND deployed. What remains is
-window tuning, a client repaint nicety, and a manual verification that
-has never been done.
+**Severity:** ~~high~~ -> **resolved**, bar one browser-side check.
 
-**Status (2026-09-02, verified):**
+**Resume now works.** Verified against the live cluster on 2026-09-02:
+POST a turn, abort mid-stream, reconnect with `Last-Event-ID` ->
+**HTTP 200** and 2634 further events through to a terminal `done`, run
+twice. That is the first recorded 200 from this endpoint; the symptom
+below documents a multi-day window with none. Repeatable via
+`scripts/smoke-resume.py`.
 
-- `500` (`NameError: EventSourceResponse`): **FIXED AND DEPLOYED.** The
-  module-scope import is present at `main.py:64` in the repo and in the
-  running container. The 2026-06-10 note below said "pending deploy +
-  commit" and was stale for three months.
-- Hard-`410` on buffer overflow: **FIXED** by commit `3bea54d`, which
-  made resume consult the client's `Last-Event-ID` checkpoint instead
-  of the latched `truncated` flag. A client still inside the retained
-  buffer now resumes after an overflow. The `[OPEN]` item about
-  `MAX_LOG_EVENTS` below is therefore largely addressed.
-- Still open: `GRACE_S` and `DONE_RETENTION_S`, both verified still
-  `60.0` in `stream_registry.py` (repo and container), the cross-refresh
-  repaint, and the manual round-trip that has never been run.
+Everything this entry raised is now closed, and **three of its four
+factual claims turned out to be stale** by the time anyone re-checked
+them. That is the durable lesson here, more than any individual fix:
 
-### Symptom
+| claim | actual state |
+|---|---|
+| `500` "fixed in tree, pending deploy" (2026-06-10) | shipped since June. `main.py:64` has the module-scope import in repo and container. Stale for three months. |
+| hard-`410` on buffer overflow | fixed by `3bea54d`: resume consults the client checkpoint, not the latched `truncated` flag |
+| `GRACE_S` "60s before the turn is cancelled" | no longer cancels. `a27b4d2` made grace expiry **promote to background**; the turn completes and persists |
+| windows "plausibly too short" | measured; neither loses work. See the follow-up table |
+
+**Still open (one item):** the browser half. No server-side probe can
+cover whether the webui renders resumed content after a real blip, or
+the cross-refresh repaint where the bubble shows only the replayed
+tail. The client was read end-to-end on 2026-06-10 and found
+contract-correct, so this is confirmation, not investigation.
+
+### Symptom (as originally observed, June 2026)
 
 `GET /api/chat/completions/resume` (the `Last-Event-ID` reconnect path,
 P1 #10) does not recover dropped streams in practice. In the production
@@ -150,11 +156,22 @@ understates the real frequency.
    - `DONE_RETENTION_S = 60.0` — a completed stream is only resumable
      for 60s before the janitor evicts it. A user who refreshes or
      returns to a tab after a minute gets a legitimate-but-useless 410.
+     **[Measured 2026-09-02: confirmed, but not data loss. The turn has
+     completed and persisted, so the 410 costs a transcript reload, and
+     `resumeChat` already reloads rather than showing a banner.]**
    - `GRACE_S = 60.0` — only 60s of disconnect grace before the turn is
      cancelled.
+     **[STALE. `a27b4d2` made grace expiry promote the stream to
+     background instead: the turn keeps running, completes and
+     persists. Cancellation now only happens at
+     `MAX_BACKGROUND_PER_USER` or past `BACKGROUND_MAX_S`. A measured
+     75s drop recovered completely.]**
    - `MAX_LOG_EVENTS = 1000` — buffer overflow flips `truncated`, after
      which resume 410s even within the time window (long tool-heavy
      turns can exceed 1000 events).
+     **[STALE. `3bea54d` made resume consult the client's checkpoint
+     rather than the latched flag, so an overflow no longer refuses a
+     client whose checkpoint is still retained.]**
 
 2. **`500`** — **ROOT-CAUSED + FIXED (2026-06-10).** `NameError: name
    'EventSourceResponse' is not defined`. The symbol was imported only
