@@ -50,6 +50,11 @@ CLI:
                        uploads OCR themselves in the background, so this is for
                        documents that predate that path, or whose OCR was
                        interrupted by a restart.
+    --prune-ocr-cache  delete OCR'd copies whose source document no longer
+                       exists. Deletion evicts the cache entry since
+                       2026-09-02; this clears what earlier deletions left
+                       behind, and each orphan is a readable copy of a
+                       document its owner already deleted.
     --email EMAIL      resolve directories for this address explicitly
                        (repeatable; needed only for users with no indexed docs)
     --user-hash HASH   restrict the run to one user directory
@@ -190,10 +195,82 @@ def _embed(row: dict, user_email: str) -> int:
     return len(points)
 
 
+def _prune_ocr_cache(dry_run: bool) -> None:
+    """Delete cached OCR output with no surviving source document.
+
+    The cache is content-addressed, so the live set is derived by hashing every
+    PDF still on disk; anything else in the cache belongs to a document that
+    was deleted, and is a readable copy of content its owner asked to remove.
+    """
+    # This script is copied into a container whose document_store may predate
+    # it. Say so plainly rather than dying on an AttributeError two hundred
+    # lines in, which is what happened the first time this was run.
+    if not hasattr(DS, "ocr_cache_path"):
+        print("\n  --prune-ocr-cache needs the eviction fix (2026-09-02) in the "
+              "running image: document_store has no ocr_cache_path. Deploy "
+              "retrieval first, or run this against a mounted repo.")
+        return
+
+    cache = DS.OCR_CACHE_DIR
+    if not os.path.isdir(cache):
+        print(f"\nOCR cache {cache} does not exist, nothing to prune")
+        return
+
+    live: set[str] = set()
+    for user_hash in os.listdir(USER_DOCS_DIR):
+        user_dir = os.path.join(USER_DOCS_DIR, user_hash)
+        if not os.path.isdir(user_dir):
+            continue
+        for doc_id in os.listdir(user_dir):
+            doc_dir = os.path.join(user_dir, doc_id)
+            if not os.path.isdir(doc_dir):
+                continue
+            for entry in os.listdir(doc_dir):
+                if not entry.lower().endswith(".pdf"):
+                    continue
+                try:
+                    with open(os.path.join(doc_dir, entry), "rb") as f:
+                        live.add(os.path.basename(DS.ocr_cache_path(f.read())))
+                except OSError:
+                    continue
+
+    orphans, freed, n_cached = [], 0, 0
+    for name in sorted(os.listdir(cache)):
+        if not name.endswith("_ocr.pdf"):
+            continue
+        n_cached += 1
+        if name in live:
+            continue
+        path = os.path.join(cache, name)
+        try:
+            freed += os.path.getsize(path)
+        except OSError:
+            pass
+        orphans.append(path)
+
+    # Three different counts, and conflating them is how a reader concludes the
+    # cache is 176 files when it holds 3. `live` is every PDF on disk, i.e.
+    # every key the cache COULD hold; most were never OCR'd because they had a
+    # text layer.
+    print(f"\nOCR cache {cache}: {n_cached} cached file(s), {len(orphans)} "
+          f"orphaned ({freed / 1e6:.1f} MB). {len(live)} PDFs on disk could "
+          f"legitimately have an entry.")
+    for path in orphans:
+        if dry_run:
+            print(f"    [would delete] {os.path.basename(path)}")
+            continue
+        try:
+            os.unlink(path)
+            print(f"    [deleted] {os.path.basename(path)}")
+        except OSError as e:
+            print(f"    [error] {os.path.basename(path)}: {e}")
+
+
 async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--ocr", action="store_true")
+    ap.add_argument("--prune-ocr-cache", action="store_true")
     ap.add_argument("--email", action="append", default=[])
     ap.add_argument("--user-hash")
     args = ap.parse_args()
@@ -260,6 +337,9 @@ async def main() -> int:
                     document_id=r["document_id"], user_email=emails[r["user_hash"]])
                 ocr_written += int(res.get("chunks") or 0)
                 print(f"    [{res.get('ocr')}] {label} chunks={res.get('chunks', 0)}")
+
+    if args.prune_ocr_cache:
+        _prune_ocr_cache(dry_run=args.dry_run)
 
     if args.dry_run:
         print(f"\ndry run: {len(recoverable)} documents would be embedded"

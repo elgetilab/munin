@@ -169,6 +169,48 @@ OCR_CACHE_DIR = os.getenv(
 OCR_TIMEOUT_SEC = int(os.getenv("USER_DOCS_OCR_TIMEOUT_SEC", "300"))
 
 
+def ocr_cache_path(file_bytes: bytes) -> str:
+    """Where this document's OCR output lives. Content-addressed, so the same
+    bytes uploaded twice OCR once.
+
+    Derived in ONE place because `delete_document` has to compute the same key
+    to evict, and a second copy of `sha256(...)[:16]` is how an eviction
+    silently stops matching the thing it is meant to remove.
+    """
+    digest = hashlib.sha256(file_bytes).hexdigest()[:16]
+    return os.path.join(OCR_CACHE_DIR, f"{digest}_ocr.pdf")
+
+
+def evict_ocr_cache(file_path: str) -> bool:
+    """Drop the OCR'd copy of a file that is being deleted. True if one went.
+
+    The cached PDF holds the document's full content as searchable text, so
+    leaving it behind means a user who deletes a document still has a readable
+    copy of it on the server. Same shape as KNOWN-BUGS #1, where deleting a
+    conversation left its proposed memories behind.
+
+    Content-addressed, so if two users uploaded identical bytes this evicts the
+    entry the other one's document would also have used. That is fine and
+    deliberate: the cache is derived data, re-derivable by re-running OCR, and
+    the surviving document is already embedded so nothing reads the cache for
+    it. Keeping a deleted user's content around to save a future minute of
+    tesseract would be the wrong trade.
+    """
+    try:
+        with open(file_path, "rb") as f:
+            path = ocr_cache_path(f.read())
+    except OSError:
+        return False
+    try:
+        if os.path.isfile(path):
+            os.unlink(path)
+            logger.info("evicted OCR cache entry for %s", os.path.basename(file_path))
+            return True
+    except OSError as e:
+        logger.warning("could not evict OCR cache entry %s: %s", path, e)
+    return False
+
+
 def ocr_available() -> bool:
     """Is ocrmypdf on PATH? False in a stripped image or a bare test env."""
     import shutil
@@ -184,7 +226,6 @@ def ocr_pdf_to_text(file_bytes: bytes) -> str:
     which makes this safe to run on a mixed document and is the same flag the
     papers pipeline uses.
     """
-    import hashlib
     import subprocess
     import tempfile
 
@@ -192,13 +233,12 @@ def ocr_pdf_to_text(file_bytes: bytes) -> str:
         logger.warning("ocrmypdf not installed; cannot OCR a PDF with no text layer")
         return ""
 
-    digest = hashlib.sha256(file_bytes).hexdigest()[:16]
     try:
         os.makedirs(OCR_CACHE_DIR, exist_ok=True)
     except OSError as e:
         logger.warning("OCR cache dir %s unusable: %s", OCR_CACHE_DIR, e)
         return ""
-    cached = os.path.join(OCR_CACHE_DIR, f"{digest}_ocr.pdf")
+    cached = ocr_cache_path(file_bytes)
 
     if not os.path.isfile(cached):
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as src:
@@ -873,6 +913,15 @@ async def delete_document(document_id: str, user_email: str) -> bool:
     doc_dir = _doc_dir(user_email, document_id)
     had_files = os.path.isdir(doc_dir)
     if had_files:
+        # Evict the OCR'd copy FIRST: its cache key is the hash of the file's
+        # bytes, so once rmtree has run there is nothing left to derive the key
+        # from and the cached copy of the user's document is orphaned forever.
+        try:
+            for entry in os.listdir(doc_dir):
+                if entry.lower().endswith(".pdf"):
+                    evict_ocr_cache(os.path.join(doc_dir, entry))
+        except OSError as e:
+            logger.warning("OCR cache eviction skipped for %s: %s", document_id, e)
         try:
             shutil.rmtree(doc_dir)
         except OSError as e:

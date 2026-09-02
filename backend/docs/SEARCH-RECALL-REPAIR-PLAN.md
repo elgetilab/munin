@@ -336,3 +336,31 @@ scientific papers that were previously unreachable.
 the corpus is English and each extra language is ~15 MB. An OCR pass
 that still yields nothing (a blank scan, a photograph, an unsupported
 language) is logged and left as `stored` rather than retried forever.
+
+### Phase 5a: deleting a document must take its OCR'd copy with it
+
+`document_store.py`, `scripts/maintenance/backfill_user_docs.py`.
+Tests: 3 more in `tests/test_pdf_ocr.py`, 14 passing.
+
+Found by smoke-testing phase 5 end to end rather than by review. A real
+scanned upload OCR'd and embedded correctly in about a second; deleting
+it through `DELETE /api/documents/{id}` removed the Qdrant points and
+the file tree and left `ocr_cache/<hash>_ocr.pdf` behind, which is the
+document's full content as a searchable-text PDF. Same shape as
+KNOWN-BUGS #1, where deleting a conversation orphans its proposed
+memories: a user who deletes a document expects the derived copy to go
+too.
+
+- `ocr_cache_path()` now derives the key in ONE place, because the
+  writer and the evictor have to agree and a second copy of
+  `sha256(...)[:16]` is how an eviction silently stops matching.
+- `delete_document` evicts BEFORE `rmtree`: the key is the hash of the
+  file's bytes, so afterwards there is nothing left to derive it from
+  and the cached copy is orphaned permanently.
+- Eviction is unconditional even though the cache is content-addressed
+  and two users could share an entry. The cache is derived data, the
+  surviving document is already embedded so nothing reads it, and
+  keeping a deleted user's content to save a future minute of tesseract
+  is the wrong trade.
+- `--prune-ocr-cache` clears what earlier deletions left behind. Run
+  live: 1 orphan found and removed, from the smoke test itself.

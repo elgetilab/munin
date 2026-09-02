@@ -277,6 +277,86 @@ def test_ocr_without_the_binary_returns_empty():
     return _check("no ocrmypdf on PATH returns empty rather than raising", out == "")
 
 
+# --- deletion must take the OCR'd copy with it ------------------------------
+
+def test_delete_evicts_the_ocr_cache():
+    """A cached OCR output is the document's full content as searchable text.
+    Leaving it after a delete means a user who removed a document still has a
+    readable copy of it on the server. Found by smoke-testing the OCR path on
+    2026-09-02: the points and the file went, the cached PDF stayed.
+    """
+    q = _FakeQdrant()
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = os.path.join(tmp, "cache")
+        os.makedirs(cache)
+        _stage(tmp, "u@example.org", "doc_1", "scan.pdf")
+        saved_cache = DS.OCR_CACHE_DIR
+        DS.OCR_CACHE_DIR = cache
+        restore = _patched(tmp, qdrant=q, bge=_FakeBGE())
+        try:
+            cached = DS.ocr_cache_path(_PDF)
+            with open(cached, "wb") as f:
+                f.write(b"pretend OCR output")
+            existed = os.path.isfile(cached)
+            asyncio.run(DS.delete_document("doc_1", "u@example.org"))
+            gone = not os.path.isfile(cached)
+        finally:
+            restore()
+            DS.OCR_CACHE_DIR = saved_cache
+    return _check("deleting a document evicts its OCR'd copy",
+                  existed and gone, f"existed={existed} gone={gone}")
+
+
+def test_delete_without_a_cache_entry_is_fine():
+    """Most documents never get OCR'd, so the common path must not care."""
+    q = _FakeQdrant()
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = os.path.join(tmp, "cache")
+        os.makedirs(cache)
+        _stage(tmp, "u@example.org", "doc_1", "notes.txt", b"plain text")
+        saved_cache = DS.OCR_CACHE_DIR
+        DS.OCR_CACHE_DIR = cache
+        restore = _patched(tmp, qdrant=q, bge=_FakeBGE())
+        try:
+            ok = asyncio.run(DS.delete_document("doc_1", "u@example.org"))
+        finally:
+            restore()
+            DS.OCR_CACHE_DIR = saved_cache
+    return _check("deleting a document with no cached OCR still succeeds", ok)
+
+
+def test_cache_key_is_derived_in_one_place():
+    """`ocr_pdf_to_text` writes the entry and `delete_document` removes it, so
+    they must agree on the key. Two copies of sha256(...)[:16] is how an
+    eviction silently stops matching what it is meant to remove."""
+    import subprocess
+    saved_run, saved_cache, saved_avail = (
+        subprocess.run, DS.OCR_CACHE_DIR, DS.ocr_available)
+
+    def fake_run(cmd, **kw):
+        with open(cmd[-1], "wb") as f:
+            f.write(_PDF)
+        class _P:
+            returncode = 0
+            stderr = ""
+        return _P()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run = fake_run
+        DS.OCR_CACHE_DIR = tmp
+        DS.ocr_available = lambda: True
+        try:
+            DS.ocr_pdf_to_text(_PDF)
+            written = [f for f in os.listdir(tmp) if f.endswith("_ocr.pdf")]
+            predicted = os.path.basename(DS.ocr_cache_path(_PDF))
+        finally:
+            subprocess.run = saved_run
+            DS.OCR_CACHE_DIR = saved_cache
+            DS.ocr_available = saved_avail
+    return _check("the writer and the evictor derive the same cache key",
+                  written == [predicted], f"wrote {written}, evictor wants {predicted}")
+
+
 TESTS = [
     test_textless_pdf_is_marked_for_ocr,
     test_without_ocrmypdf_it_is_a_plain_failure,
@@ -289,6 +369,9 @@ TESTS = [
     test_missing_file_does_not_raise,
     test_ocr_result_is_cached_by_content,
     test_ocr_without_the_binary_returns_empty,
+    test_delete_evicts_the_ocr_cache,
+    test_delete_without_a_cache_entry_is_fine,
+    test_cache_key_is_derived_in_one_place,
 ]
 
 
