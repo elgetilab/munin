@@ -126,6 +126,57 @@ def test_buffer_holds_a_realistic_turn() -> bool:
                   f"truncated={s.truncated} events={len(s.event_log)}")
 
 
+def test_byte_cap_warns_once_and_only_when_bytes_bind() -> bool:
+    """The byte cap must announce itself, exactly once, and not cry wolf.
+
+    Which bound binds is the operationally interesting question: MAX_LOG_EVENTS
+    is sized for token events, so the byte cap binding instead means the turn
+    carries large payloads and is resumable across a much shorter window than
+    20000 events suggests. Nothing reported that when the cap was introduced,
+    which is how the 2026-09-02 incident (a bound too small for real turns)
+    went unnoticed for months.
+
+    Once per stream, not per eviction: the loop runs on most record() calls
+    after the buffer fills, so per-eviction logging would emit thousands of
+    lines a turn and get filtered, which is the same as no signal.
+    """
+    import logging
+
+    class _Capture(logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.msgs = []
+
+        def emit(self, record):
+            self.msgs.append(record.getMessage())
+
+    reg_log = logging.getLogger("stream_registry")
+    cap = _Capture()
+    reg_log.addHandler(cap)
+    old_level = reg_log.level
+    reg_log.setLevel(logging.WARNING)
+    try:
+        # Bytes bind: 12 x 1 MB is far under MAX_LOG_EVENTS.
+        s_big = Stream(user_email="u@x", conversation_id="c1")
+        for _ in range(14):
+            s_big.record("token", "x" * (1024 * 1024))
+        byte_warnings = [m for m in cap.msgs if "BYTE cap" in m]
+
+        # Count binds: small events, so the byte cap must stay silent.
+        cap.msgs.clear()
+        s_many = Stream(user_email="u@x", conversation_id="c1")
+        for _ in range(MAX_LOG_EVENTS + 50):
+            s_many.record("token", '{"c":"x"}')
+        false_alarms = [m for m in cap.msgs if "BYTE cap" in m]
+    finally:
+        reg_log.removeHandler(cap)
+        reg_log.setLevel(old_level)
+
+    ok = len(byte_warnings) == 1 and not false_alarms and s_many.truncated
+    return _check("byte cap warns exactly once, and not when the count binds",
+                  ok, f"byte={len(byte_warnings)} false={len(false_alarms)}")
+
+
 def test_bytes_tracked_exactly_across_eviction() -> bool:
     """_log_bytes is maintained incrementally, so a drift bug would silently
     shrink the buffer over a long turn until it stopped serving reconnects."""
@@ -589,6 +640,7 @@ TESTS = [
     test_buffer_byte_cap_evicts_before_the_event_cap,
     test_buffer_holds_a_realistic_turn,
     test_bytes_tracked_exactly_across_eviction,
+    test_byte_cap_warns_once_and_only_when_bytes_bind,
     test_wait_for_new_returns_immediately_when_done,
     test_serve_replays_then_streams_live,
     test_serve_after_seq_skips_replayed,

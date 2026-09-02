@@ -124,10 +124,24 @@ registry tests pass against the deployed code.
   reason: ship `index.html` plus the new bundle FIRST, prune stale
   bundles SECOND. Reversed, the live `index.html` would briefly point
   at a bundle that had just been deleted.
-- [TODO] Watch whether 8 MB per stream is right. It is a guess sized
-  from token events, not a measurement of real tool-heavy turns, and
-  nothing yet reports when the byte cap rather than the count cap is
-  what evicted.
+- [PARTLY DONE 2026-09-02] Watch whether 8 MB per stream is right. It
+  is still a guess sized from token events rather than a measurement of
+  real tool-heavy turns, but it is no longer a SILENT guess:
+  `stream_registry.record()` now logs a WARNING the first time the byte
+  cap binds before the count cap, naming the stream, the MB held, the
+  event count and the average bytes per event.
+
+  Once per stream, latched. The eviction loop runs on most `record()`
+  calls after the buffer fills, so per-eviction logging would emit
+  thousands of lines a turn and get filtered, which is the same as no
+  signal. Tested both ways: fires exactly once when bytes bind, stays
+  silent when the count binds.
+
+  What to do with it: `grep "BYTE cap" ` the retrieval logs. Recurring
+  hits mean reconnect coverage on those turns is bounded by
+  `MAX_LOG_BYTES`, not by the 20000 events the count implies, and the
+  byte cap should go up. Absence of the line is the evidence 8 MB is
+  adequate, which is what was missing before.
 
 ---
 

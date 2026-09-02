@@ -140,6 +140,11 @@ class Stream:
         self.truncated: bool = False
         # Running size of event_log, kept incrementally so record() stays O(1).
         self._log_bytes: int = 0
+        # Latch so the byte-cap warning fires ONCE per stream. The eviction
+        # loop runs on most record() calls once the buffer is full, so logging
+        # per eviction would emit thousands of lines per turn and get filtered
+        # out, which is the same as having no signal at all.
+        self._byte_cap_logged: bool = False
         self.completed_ts: Optional[float] = None
         self.last_disconnect_ts: Optional[float] = None
 
@@ -184,6 +189,32 @@ class Stream:
         # below the new head can no longer be served accurately, so flip the
         # flag; can_resume_from() then decides per client whether that
         # particular checkpoint survived, rather than refusing everyone.
+        # Which bound binds is the operationally interesting question, and
+        # nothing reported it when MAX_LOG_BYTES was introduced. The count is
+        # sized for token events; the byte cap binding instead means this turn
+        # carries large payloads (tool results, evidence passages) and is
+        # therefore resumable across a far shorter window than 20000 events
+        # implies. That is exactly the shape of the 2026-09-02 incident, one
+        # bound too small for real turns, and it went unnoticed for months.
+        if (
+            not self._byte_cap_logged
+            and self._log_bytes > MAX_LOG_BYTES
+            and len(self.event_log) <= MAX_LOG_EVENTS
+        ):
+            self._byte_cap_logged = True
+            logger.warning(
+                "stream %s replay buffer hit the BYTE cap first: %.1f MB "
+                "across only %d events (~%d B/event). Reconnect coverage for "
+                "this turn is bounded by MAX_LOG_BYTES (%.0f MB), not "
+                "MAX_LOG_EVENTS (%d). Recurring = raise MAX_LOG_BYTES.",
+                self.stream_id,
+                self._log_bytes / 1048576.0,
+                len(self.event_log),
+                self._log_bytes // max(1, len(self.event_log)),
+                MAX_LOG_BYTES / 1048576.0,
+                MAX_LOG_EVENTS,
+            )
+
         while self.event_log and (
             len(self.event_log) > MAX_LOG_EVENTS
             or self._log_bytes > MAX_LOG_BYTES
