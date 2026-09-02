@@ -7,6 +7,7 @@ corresponding live operator doc or `BACKEND-API.md` instead.
 
 | Archived doc | Drove | Live reference |
 |---|---|---|
+| `KNOWN-BUGS-resolved.md` | Bugs 1-5 from `KNOWN-BUGS.md`, full write-ups kept after the fixes landed. Several were factually stale by the time anyone re-read them, which is the searchable pattern worth keeping. | Live list: `../KNOWN-BUGS.md` (stubs there point back here) |
 | `FRONTEND-TASKS.md` | Backend-side handoff list (2026-04-14, 12 items) — 13/15 shipped, 1 low-pri (FTS prefix search), 1 obsolete (slash commands). Referenced from `backend/retrieval/chat_service.py` and `backend/docs/future_features.md`. | See `BACKEND-API.md` §4 for live endpoints |
 
 Originally also held `FRONTEND-KNOWLEDGE-TAB.md` and
