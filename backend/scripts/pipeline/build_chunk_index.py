@@ -54,6 +54,17 @@ def resolve_pdf(fp: str) -> str:
     return cand if os.path.exists(cand) else ""
 
 
+def _shard_of(paper_id: str, n: int) -> int:
+    """Which shard owns this paper. Stable across processes and across time.
+
+    Keyed on paper_id, NOT on position in the work list, so two shards started
+    minutes apart still partition the corpus exactly once. See the comment at
+    the call site for why position striding silently loses papers.
+    """
+    h = hashlib.sha256(paper_id.encode()).hexdigest()[:8]
+    return int(h, 16) % n
+
+
 def point_id(paper_id: str, idx: int) -> int:
     """Deterministic 63-bit id so a re-run upserts in place instead of duplicating."""
     h = hashlib.sha256(f"{paper_id}:{idx}".encode()).digest()
@@ -108,9 +119,24 @@ def main() -> int:
     ap.add_argument("--concurrency", type=int, default=4)
     ap.add_argument("--batch", type=int, default=64, help="papers per embed+upsert flush")
     ap.add_argument("--tagged-first", action="store_true")
-    ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--limit", type=int, default=0,
+                    help="cap papers to process. PER SHARD when --shard is used")
     ap.add_argument("--device", default="cuda:0")
+    ap.add_argument("--shard", default=None, metavar="i/n",
+                    help="process only shard i of n, e.g. --shard 0/2. "
+                         "Run one process per GPU.")
     args = ap.parse_args()
+
+    shard_i = shard_n = None
+    if args.shard:
+        try:
+            shard_i, shard_n = (int(x) for x in args.shard.split("/"))
+        except ValueError:
+            print(f"bad --shard {args.shard!r}; expected i/n like 0/2", flush=True)
+            return 2
+        if shard_n < 1 or not (0 <= shard_i < shard_n):
+            print(f"bad --shard {args.shard!r}; need 0 <= i < n and n >= 1", flush=True)
+            return 2
 
     stop_at = None
     if args.deadline:
@@ -124,15 +150,27 @@ def main() -> int:
     qc = QdrantClient(host="localhost", port=6333)
     existing = {c.name for c in qc.get_collections().collections}
     if DST not in existing:
-        qc.create_collection(DST, vectors_config=models.VectorParams(
-            size=DIM, distance=models.Distance.COSINE))
+        # Tolerate a losing race. Two shards started together both see the
+        # collection missing and both POST a create; Qdrant 409s the second.
+        # Found by running the shards in parallel for the first time, which no
+        # unit test would have caught: on a real rebuild the collection IS
+        # fresh, so this would kill a shard at startup every time.
+        try:
+            qc.create_collection(DST, vectors_config=models.VectorParams(
+                size=DIM, distance=models.Distance.COSINE))
+            print(f"created {DST}", flush=True)
+        except Exception as exc:
+            if DST not in {c.name for c in qc.get_collections().collections}:
+                raise
+            print(f"{DST} created concurrently by another shard ({type(exc).__name__})",
+                  flush=True)
+        # Idempotent, and safe to attempt from either shard.
         for f in ("doi", "paper_id", "topic_slug"):
             try:
                 qc.create_payload_index(DST, field_name=f,
                                         field_schema=models.PayloadSchemaType.KEYWORD)
             except Exception:
                 pass
-        print(f"created {DST}", flush=True)
 
     # Which papers are already done (resumability).
     done: set[str] = set()
@@ -161,11 +199,40 @@ def main() -> int:
         pl = p.payload or {}
         return (0 if (pl.get("contributors") or []) else 1) if args.tagged_first else 0
     rows.sort(key=key)
+
+    # Shard BEFORE the `done` filter, and on a hash of paper_id rather than on
+    # position in `todo`.
+    #
+    # Position striding looks tempting because `todo` is already sorted
+    # tagged-first, but it is WRONG across processes: `todo` is derived from
+    # `done`, and two shards never start at the same instant. The second one
+    # scans a `done` that already contains what the first has written, so it
+    # builds a DIFFERENT todo list, and `k % n == 0` over one list is not
+    # complementary to `k % n == 1` over another. That yields silent gaps and
+    # silent duplicates, discovered weeks later as missing evidence.
+    #
+    # Hashing has no such coupling: shard membership is a property of the
+    # paper, fixed regardless of when a shard starts or what is already
+    # indexed, so coverage is disjoint and complete by construction. It also
+    # keeps the tagged-first property that position striding was chosen for,
+    # because tagged papers distribute evenly across shards and each shard
+    # still sorts its own subset tagged-first, so a deadline stop leaves every
+    # shard having done its tagged papers first.
+    if shard_n is not None:
+        rows = [p for p in rows if _shard_of((p.payload or {}).get("paper_id") or "",
+                                             shard_n) == shard_i]
+        print(f"shard {shard_i}/{shard_n}: {len(rows):,} of the corpus", flush=True)
+
     todo = [p for p in rows if (p.payload or {}).get("paper_id") not in done]
     if args.limit:
+        # PER SHARD. A global limit would need the shards to agree on one
+        # ordering, which is the cross-process coupling sharding exists to
+        # avoid. This flag is for smoke tests, so per-shard is the honest
+        # meaning rather than a footgun.
         todo = todo[:args.limit]
     n_tagged = sum(1 for p in todo if ((p.payload or {}).get("contributors") or []))
-    print(f"to process: {len(todo):,} papers ({n_tagged:,} tagged)", flush=True)
+    label = f"shard {shard_i}/{shard_n} " if shard_n is not None else ""
+    print(f"{label}to process: {len(todo):,} papers ({n_tagged:,} tagged)", flush=True)
 
     from sentence_transformers import SentenceTransformer
     enc = SentenceTransformer(MODEL, device=args.device)

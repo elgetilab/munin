@@ -65,98 +65,69 @@ Fixed by `HuginSLURM/config/slurmd-restart.conf`
 
 ---
 
-## 6. `build_chunk_index.py` cannot use both GPUs, so a full-corpus rebuild wastes half the box
+## 6. `build_chunk_index.py` could not use both GPUs (RESOLVED 2026-09-02)
 
-**Severity:** medium (no data risk; doubles the wall-clock of every full rebuild)
-
-### Symptom
-
-The embed phase runs on exactly one GPU. Measured during the
-2026-08-31 backfill, once the run reached the cache-hit region where
-embedding is genuinely the bottleneck:
-
-```
-0, 100 %, 4200 MiB  |  1, 0 %, 4 MiB
-0,  82 %, 4200 MiB  |  1, 0 %, 4 MiB
-```
-
-GPU 0 saturated, GPU 1 completely untouched. On a full-corpus rebuild
-the embed phase is about 44 minutes at the measured 564 chunks/s for
-~1.48M chunks, so roughly 22 minutes of a 5090 are thrown away every
-time.
-
-Note this only shows up in the cache-hit region. Where the run is
-falling back to live GROBID, or grinding through papers with
-unparseable PDFs, the GPU sits near 0% and is not the constraint at
-all. Both regimes occur inside a single run, so a single utilisation
-sample will mislead. Sample during a period when the `failed` counter
-is flat and `papers` is climbing.
-
-### Root cause
-
-`build_chunk_index.py` builds one encoder:
-
-```python
-enc = SentenceTransformer(MODEL, device=args.device)
-```
-
-and a single process walks `todo` in order. `--device cuda:1` moves the
-work to the other card but does not split it.
-
-Running two processes side by side does **not** work as a workaround.
-Each one independently rebuilds `todo` from "everything in `papers_bge`
-not already in `papers_chunks`" and then walks it in the same order, so
-both process the same papers. Point ids are deterministic
-(`point_id(paper_id, idx)`), so the second writer overwrites the first
-in place rather than duplicating rows: the index stays correct, but the
-second GPU buys nothing. It is wasted work, not corruption.
-
-### Suggested fix
-
-Add a `--shard i/n` flag and partition `todo` deterministically, after
-the existing sort and the `--limit` slice:
-
-```python
-ap.add_argument("--shard", default=None, help="i/n, process only shard i of n")
-...
-if args.shard:
-    i, n = (int(x) for x in args.shard.split("/"))
-    todo = [p for k, p in enumerate(todo) if k % n == i]
-```
-
-Partition by position rather than by hash of `paper_id`: `todo` is
-already sorted tagged-first, and striding by position keeps that
-priority spread evenly across shards, so a deadline stop leaves every
-shard having made comparable progress on the tagged papers. Hashing
-would scatter that ordering.
-
-Then run one process per card:
+`--shard i/n` added. One process per GPU:
 
 ```
 $PY build_chunk_index.py --shard 0/2 --device cuda:0 --deadline 05:30 &
 $PY build_chunk_index.py --shard 1/2 --device cuda:1 --deadline 05:30 &
 ```
 
-Two caveats worth handling while in there:
+### Sharding on a hash, NOT on position
 
-- **The resume scan is paid per process.** Each one scrolls the whole
-  of `papers_chunks` (1.2M points and growing) to build its `done` set,
-  which is a couple of minutes each and grows with the corpus. It is
-  tolerable at n=2. If the shard count ever goes higher, build the set
-  once and write it to a file the shards read.
-- **Both cards are only free while vLLM is down.** Under the TP=2
-  profile vLLM holds `gpu:vllm:1` and `gpu:batch:1` together, so a
-  two-shard run belongs in the nightly downtime window, which is
-  already where the embed phase is meant to run. See
-  `TP2-GPU-SHARING-EXPERIMENT.md`.
+The plan in this entry called for striding by POSITION in `todo`,
+explicitly preferring it over hashing so the tagged-first ordering
+stayed spread across shards. **That design was unsafe and was not
+implemented.**
 
-### Why it was not done during the 2026-08-31 run
+`todo` is derived from `done`, which is scrolled at startup. Two shards
+never start at the same instant, so the second one scans a `done` that
+already contains what the first has written and builds a DIFFERENT
+`todo`. `k % n == 0` over one list is not complementary to
+`k % n == 1` over another, so position striding produces silent gaps
+and silent duplicates: the run reports success and the missing papers
+surface weeks later as evidence that cannot be retrieved.
 
-The remaining work at the point the saturation was noticed was about
-33 minutes on one card. Adding the flag, restarting, and paying the
-resume scan twice came to roughly what it would have saved, on a job
-already finishing an hour inside its window. The cost/benefit inverts
-for a full rebuild, which is what this entry is for.
+Hashing `paper_id` has no such coupling. Shard membership is a property
+of the paper, fixed regardless of when a shard starts or what is
+already indexed, so coverage is disjoint and complete by construction.
+It also keeps the property position striding was chosen for, because
+tagged papers distribute evenly and each shard still sorts its own
+subset tagged-first.
+
+### A race the unit tests could not have found
+
+Running the shards in parallel for the first time killed one at
+startup: both see the collection missing and both POST a create, and
+Qdrant 409s the loser. On a real rebuild the collection IS fresh, so
+this would have fired every single time. `create_collection` now
+tolerates losing that race. Worth noting the sequence, since it is the
+argument for the live test: unit tests passed, the real corpus
+partition check passed, and only actually running two processes at
+once surfaced it.
+
+### Verification
+
+- `test_shard_partition.py`: exact partition for n=1..8, balance within
+  5%, membership is a pure function of `paper_id`, `--shard 0/1` is a
+  no-op.
+- Against the REAL 68,869-row corpus: disjoint and complete at n=2/3/4,
+  spread <= 1.6%.
+- Live, both GPUs in parallel into a scratch collection: 5 papers each,
+  zero overlap, every paper attributable to exactly one shard.
+  `papers_chunks` untouched (1,426,195 points, green).
+
+### Notes for the next rebuild
+
+- `--limit` is PER SHARD. A global limit would need shards to agree on
+  one ordering, which is the coupling sharding exists to avoid.
+- GROBID's pool caps at 10, so two shards at `--concurrency 4` is 8 and
+  fine; lower it at n=3+.
+- The `done` scan is paid per process (~1.4M points each). Tolerable at
+  n=2; build it once to a file if the shard count ever goes higher.
+- Both GPUs are only free while vLLM is down, so a sharded run belongs
+  in the nightly window it was designed for.
 
 ---
 
