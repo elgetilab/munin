@@ -11,7 +11,7 @@ Do NOT treat anything here as current. The live list is
 | # | Bug | Resolved | Why it is worth re-reading |
 |---|---|---|---|
 | 1 | Deleting a conversation orphaned its `proposed_memories` | 2026-09-02 | The rows were not inert residue: they still rendered as pills and consumed the 10-slot budget. One user sat at 10/10 from deleted chats. |
-| 2 | SSE stream-resume failed for every user | 2026-09-02 | Three of its four factual claims were stale when re-checked. Green unit tests meant "the building blocks work", not "resume works". |
+| 2 | SSE stream-resume failed for every user | 2026-09-02 (closed, reopened, closed) | Three of its four factual claims were stale when re-checked. Closed on a verified round trip, then reopened hours later by a user: the check had covered a short turn and a 3s reconnect, while the buffer could not hold one real turn. Both bounds were then MEASURED rather than guessed, and the measurement inverted the assumption twice. |
 | 3 | Persona switch dropped identity, faked memory loss | 2026-06-10 | The "I have no memory of previous conversations" line was pure confabulation, present in no prompt. |
 | 4 | NVIDIA module drifted behind the kernel, GPUs vanished on reboot | 2026-08-31 | The guard that would have prevented it already existed in HuginSLURM and had simply never been deployed. |
 | 5 | `slurmd` died permanently on a missing `/dev/nvidia0` | 2026-08-31 | No `Restart=` in the packaged unit turned a recoverable driver problem into a six-hour outage nobody was told about. |
@@ -362,6 +362,189 @@ reader, so this does not get re-investigated:
 
 - [DONE 2026-09-02] The 60s windows are now measured; see the table
   above. No change needed.
+
+---
+
+## 2 (continued). REOPENED and re-closed the same day, 2026-09-02
+
+The entry above was closed in the morning. Hours later a user reported
+`Stream is no longer available on the server`, which reopened it. This
+is that second chapter, kept with the first so the whole arc reads in
+one place: closed on evidence, reopened by a user, closed again on
+better evidence.
+
+The lesson is not that the first close was careless. The server round
+trip really had been verified. It is that "verified" answered a
+narrower question than the entry's title implied: resume worked, on a
+short turn, reconnecting after three seconds. The user's turn was four
+and a half minutes long and reconnected after a minute, and nothing
+that had been checked covered that.
+
+### The second defect: replay buffer too small for one turn
+
+**Severity:** medium (misleading banner; no data loss)
+
+Closed earlier the same day, reopened hours later when a user reported
+`Stream is no longer available on the server`. Historical write-up in
+[`archive/KNOWN-BUGS-resolved.md`](archive/KNOWN-BUGS-resolved.md);
+this is the new defect.
+
+### What was actually wrong
+
+Two things, and neither was the endpoint being broken. The 410s were
+CORRECT refusals.
+
+**1. `MAX_LOG_EVENTS = 1000` could not hold a single turn.** Measured:
+one ~500-word answer emits **~2,600 SSE events**. So the replay buffer
+rolled past a client's checkpoint within roughly 20-30 seconds of
+disconnection, which is SHORTER than the 60s grace window. Any real
+blip on a long tool-heavy turn therefore landed past the buffer, and
+`can_resume_from()` honestly refused rather than replaying with a gap.
+
+I had marked this "largely addressed" by `3bea54d` when closing the
+entry. That was wrong: `3bea54d` helps a client still INSIDE the
+1000-event window, and on the turns people actually want back, nobody
+is.
+
+**2. `streamChat`'s mid-stream 410 raised a banner claiming the work
+was gone.** That branch predates background turns. `a27b4d2` made
+grace expiry PROMOTE the stream, so the turn finishes server-side and
+persists regardless of reconnection.
+
+The production evidence, three users in six minutes, is unambiguous:
+every 410 arrived ~59s BEFORE its stream was promoted to background,
+so the stream was alive at the time and the answer persisted in every
+case.
+
+```
+a774d5d1  resume 410 10:16:30  ->  promoted to background 10:17:28
+79e1a95b  resume 410 10:19:08  ->  promoted to background 10:20:07
+9c451761  resume 410 10:22:28  ->  promoted to background 10:23:27
+```
+
+The reporting user's answers were all in `chat_store`, including a
+6,305-char research reply saved while she was being told it was lost.
+
+### Fix
+
+- `stream_registry.py`: `MAX_LOG_EVENTS` 1000 -> 20000, **plus a new
+  `MAX_LOG_BYTES` of 8 MB**. Raising the count alone would repeat the
+  `96921b7` mistake of bounding a buffer in the wrong unit: token
+  events are a few hundred bytes, but one tool result or evidence
+  passage can be orders of magnitude larger, so a count says nothing
+  about memory. Eviction now runs until both bounds hold.
+- `webui/src/lib/api.ts`: the mid-stream 410 emits `stream_gone`
+  instead of an error, matching what `resumeChat` already did. The
+  store's handler resets streaming state and reloads the transcript,
+  and `_attemptedResumes` guards the re-attach loop.
+
+Tests: three in `tests/test_stream_registry.py` (byte cap evicts before
+the count cap, the buffer survives a realistic ~3000-event turn, byte
+accounting stays exact across eviction) and one in
+`webui/src/lib/api.backoff.test.ts` (mid-stream 410 reloads, no
+banner). `useChat.error.test.ts`'s 410 case was rewritten: it asserted
+the old banner contract, which this change deliberately inverts.
+
+### Verified in production 2026-09-02
+
+Backend deployed and the reported scenario reproduced against it: drop
+at event 12, wait 90s while the turn keeps generating, then resume
+from that now-stale checkpoint.
+
+```
+resume from a 90s-stale checkpoint -> HTTP 200
+replayed 3330 events, terminal=True
+```
+
+3,330 events is more than three times the old 1000-event buffer, so
+this is precisely the case that 410'd for three users this morning.
+`MAX_LOG_EVENTS=20000` / `MAX_LOG_BYTES=8MB` confirmed live, 22/22
+registry tests pass against the deployed code.
+
+### Still open
+
+- [DONE 2026-09-02] **Frontend deployed.** Rebuilt
+  (`index-B6d0kZnr.js` 2026-08-25 -> `index-Cglzjdvj.js`) and rsynced.
+  Verified inside the Caddy container, which is what actually serves
+  it: the new bundle is present through the `static/` directory bind
+  mount, `index.html` points at it, the old bundle is pruned, and the
+  "Stream is no longer available" string is gone (`stream_gone`
+  present instead).
+
+  No container rebuild or `caddy reload` was needed: `static/` is a
+  DIRECTORY bind mount (`:ro`), so files resolve per request. Order
+  mattered though, and the documented procedure gets it right for a
+  reason: ship `index.html` plus the new bundle FIRST, prune stale
+  bundles SECOND. Reversed, the live `index.html` would briefly point
+  at a bundle that had just been deleted.
+- [DONE 2026-09-02] **Measured, and it inverted the assumption.** The
+  byte cap was sized on a guess that tool results and evidence passages
+  would dominate memory. A heavy research turn (corpus search plus two
+  GROBID full-text extractions) measured:
+
+  ```
+  events               11,330
+  total buffered        0.35 MB   of the 8 MB cap  (4.4%)
+  largest single event  4,824 B
+  avg bytes/event          32 B
+    thinking    0.15 MB
+    token       0.05 MB
+    tool_result 0.04 MB   <- what the cap was sized around
+  ```
+
+  The buffer is not a few large payloads, it is a great many tiny ones.
+  At 32 B/event, 8 MB permits ~259,000 events while the COUNT permitted
+  20,000: **the count binds first by more than 10x**, so the byte
+  warning added earlier the same day reports a bound that will rarely
+  fire, and the bound that actually binds was silent.
+
+  Worse, the headroom was thin: that one heavy turn used 11,330 of
+  20,000 events (57%). A Deep Research turn would have exceeded it,
+  truncated, and started refusing reconnects again, i.e. the original
+  bug one order of magnitude up.
+
+  Changes: `MAX_LOG_EVENTS` 20000 -> **100000** (~3.2 MB at measured
+  density, still under `MAX_LOG_BYTES`, so the byte cap remains a live
+  backstop rather than dead code), plus a **symmetric warning when the
+  count binds**, naming the seq reconnects are served from so it can be
+  correlated against a client's `Last-Event-ID`.
+
+  Both warnings are latched once per stream and logged AFTER eviction,
+  so the reported seq is the one actually in effect. The regression
+  test now asserts the buffer survives a **measured** 11,330-event
+  turn rather than a made-up number.
+
+  Operationally: `grep "EVENT cap"` is the line to watch;
+  `grep "BYTE cap"` should stay quiet unless a turn's payloads are
+  unusually large.
+
+### Final verification, 2026-09-02 (what the close rests on)
+
+All three checks re-run against the deployed change:
+
+```
+1. basic resume round trip   200, 1,571 events, terminal=True     PASS
+2. 90s-stale checkpoint      200, 3,636 events replayed           PASS
+3. heavy tool turn           12,877 events / 0.37 MB              PASS
+
+cap warnings fired: 0        probe residue in the DB: 0
+```
+
+Check 2 is the reported failure itself, recovering cleanly.
+
+Check 3 independently reproduces the sizing: 12,877 events / 0.37 MB
+against the earlier 11,330 / 0.35 MB, from a separate run. Two samples
+within ~13% means that figure is a property of the workload rather
+than a fluke, and density held at 30 B/event with `thinking` still
+dominating and `tool_result` at 0.03 MB. So the premise the byte cap
+was built on is wrong twice over, from independent measurements.
+
+Headroom after the change: 12.9% of `MAX_LOG_EVENTS`, 4.6% of
+`MAX_LOG_BYTES`. The same turn used 64% of the old 20,000 cap.
+
+Zero cap warnings, and unlike an empty log after a restart this
+absence is evidence: it comes from the heaviest turns that can be
+generated locally.
 
 ---
 
