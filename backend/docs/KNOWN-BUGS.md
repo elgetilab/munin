@@ -126,11 +126,28 @@ them. That is the durable lesson here, more than any individual fix:
 | `GRACE_S` "60s before the turn is cancelled" | no longer cancels. `a27b4d2` made grace expiry **promote to background**; the turn completes and persists |
 | windows "plausibly too short" | measured; neither loses work. See the follow-up table |
 
-**Still open (one item):** the browser half. No server-side probe can
-cover whether the webui renders resumed content after a real blip, or
-the cross-refresh repaint where the bubble shows only the replayed
-tail. The client was read end-to-end on 2026-06-10 and found
-contract-correct, so this is confirmation, not investigation.
+**Browser half (2026-09-02):** the dropped-connection round trip is now
+covered by `webui/src/lib/api.blip.test.ts`, without a network. A blip
+is just a fetch body that ends with no `done` event, which MSW can
+produce exactly, so the scenario the entry described as "drop WiFi a
+few seconds" runs on every test run instead of once by hand. It pins
+the reconnect loop that `api.reconnect.test.ts` explicitly left out:
+resume carries the right `Last-Event-ID` (the fixture 400s on a wrong
+checkpoint), the tail arrives with no gap or duplication
+(`'before after'`), and an unreachable server yields six
+`reconnecting` events then exactly one banner, not six. Verified to
+fail when the checkpoint header is removed.
+
+This matters beyond convenience: on a single-node cluster the stated
+manual check meant dropping the network every user shares, which is
+why it went undone for three months.
+
+**Still open (one item, needs a human):** rendering. The tests above
+assert the client's event stream, not pixels. Nobody has watched a
+resumed answer appear in the UI, nor the cross-refresh repaint where
+the bubble shows only the replayed tail. Chrome DevTools -> Network ->
+Offline is per-tab and touches no real networking, so this costs a
+couple of minutes and disrupts nobody.
 
 ### Symptom (as originally observed, June 2026)
 
