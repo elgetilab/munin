@@ -126,28 +126,44 @@ them. That is the durable lesson here, more than any individual fix:
 | `GRACE_S` "60s before the turn is cancelled" | no longer cancels. `a27b4d2` made grace expiry **promote to background**; the turn completes and persists |
 | windows "plausibly too short" | measured; neither loses work. See the follow-up table |
 
-**Browser half (2026-09-02):** the dropped-connection round trip is now
-covered by `webui/src/lib/api.blip.test.ts`, without a network. A blip
-is just a fetch body that ends with no `done` event, which MSW can
-produce exactly, so the scenario the entry described as "drop WiFi a
-few seconds" runs on every test run instead of once by hand. It pins
-the reconnect loop that `api.reconnect.test.ts` explicitly left out:
-resume carries the right `Last-Event-ID` (the fixture 400s on a wrong
-checkpoint), the tail arrives with no gap or duplication
-(`'before after'`), and an unreachable server yields six
-`reconnecting` events then exactly one banner, not six. Verified to
-fail when the checkpoint header is removed.
+**Browser half (2026-09-02): mostly already covered, audited rather
+than assumed.** A blip needs no network, it is a fetch body that ends
+with no `done` event, which MSW produces exactly. Auditing what that
+already exercises showed the entry was pessimistic:
 
-This matters beyond convenience: on a single-node cluster the stated
-manual check meant dropping the network every user shares, which is
-why it went undone for three months.
+| behaviour | covered by |
+|---|---|
+| reassembly after a drop (`'before after'` in one bubble) | `useChat.error.test.ts`, "drop after conversation event reconnects and stitches tokens into one bubble" |
+| the `Last-Event-ID` checkpoint | `api.reconnect.test.ts` |
+| reopen, and 410 -> transcript reload with no banner | `chatStore.background.test.ts` |
+| **give-up at the end of the backoff schedule** | **`api.backoff.test.ts` (new)** |
 
-**Still open (one item, needs a human):** rendering. The tests above
-assert the client's event stream, not pixels. Nobody has watched a
-resumed answer appear in the UI, nor the cross-refresh repaint where
-the bubble shows only the replayed tail. Chrome DevTools -> Network ->
-Offline is per-tab and touches no real networking, so this costs a
-couple of minutes and disrupts nobody.
+Only the last row was missing. Every other test advances fake timers
+by 1100ms, one backoff step, so the end of the `[1,2,4,8,16,30]s`
+schedule had never run, and it is the path a user in a tunnel actually
+hits. The new test pins that the give-up emits exactly ONE banner
+rather than one per attempt, and clears the active-stream pointer so
+the next mount does not chase a stream that is never coming back.
+Verified to fail when that path is broken.
+
+Two things worth recording from the audit, since they are the kind of
+thing that rots quietly:
+
+- The hook and store suites do **not** catch a removed `Last-Event-ID`
+  header; only `api.reconnect.test.ts` does. Their resume fixtures
+  serve the tail regardless of what is asked for, so they would pass
+  against a client that resumed from the wrong place.
+- A first draft of the new test also re-covered reassembly and the
+  checkpoint. That was redundant with the two suites above and was
+  removed rather than left to pad the count.
+
+**Still open (needs a human, ~2 min):** actual rendering. Everything
+above asserts state and events, not pixels. Nobody has watched a
+resumed answer appear, nor the cross-refresh repaint where the bubble
+shows only the replayed tail. Chrome DevTools -> Network -> Offline is
+per-tab and touches no real networking, so it disrupts nobody: start a
+long answer, Offline ~5s, back online; then separately refresh
+mid-stream.
 
 ### Symptom (as originally observed, June 2026)
 
