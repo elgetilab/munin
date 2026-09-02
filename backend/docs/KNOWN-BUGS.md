@@ -92,14 +92,35 @@ accounting stays exact across eviction) and one in
 banner). `useChat.error.test.ts`'s 410 case was rewritten: it asserted
 the old banner contract, which this change deliberately inverts.
 
+### Verified in production 2026-09-02
+
+Backend deployed and the reported scenario reproduced against it: drop
+at event 12, wait 90s while the turn keeps generating, then resume
+from that now-stale checkpoint.
+
+```
+resume from a 90s-stale checkpoint -> HTTP 200
+replayed 3330 events, terminal=True
+```
+
+3,330 events is more than three times the old 1000-event buffer, so
+this is precisely the case that 410'd for three users this morning.
+`MAX_LOG_EVENTS=20000` / `MAX_LOG_BYTES=8MB` confirmed live, 22/22
+registry tests pass against the deployed code.
+
 ### Still open
 
-- [TODO] Confirm in production that resume now succeeds on a long
-  tool-heavy turn. The buffer change is deployed-pending; until a real
-  long turn survives a real blip, this is reasoning plus unit tests,
-  not evidence.
+- [TODO] **Frontend not deployed.** The `stream_gone` change is
+  committed but the webui has not been rebuilt. The bundle Caddy
+  serves, `static/chat/assets/index-B6d0kZnr.js`, is dated 2026-08-25
+  and still contains the "Stream is no longer available" string, so a
+  410 that does still happen (genuinely evicted or cancelled stream)
+  is reported to the user as lost work. Needs `npm run build` in
+  `webui/` plus an rsync to the VPS.
 - [TODO] Watch whether 8 MB per stream is right. It is a guess sized
-  from token events, not a measurement of real tool-heavy turns.
+  from token events, not a measurement of real tool-heavy turns, and
+  nothing yet reports when the byte cap rather than the count cap is
+  what evicted.
 
 ---
 
