@@ -235,10 +235,31 @@ reader, so this does not get re-investigated:
   partial assistant text rather than showing only the replayed tail
   (the caveat above). The raw-error vs graceful-retry handling is already
   in place; this is specifically about the cross-refresh repaint.
-- [TODO] **Manual verification:** resume has never succeeded in prod, so
-  the client success branch has never run against a live server. Do one
-  manual round-trip (start a long answer, drop WiFi a few seconds, and
-  separately refresh the tab) to confirm the full loop now works.
+- [DONE 2026-09-02] **Server round-trip verified, and it passes.** Ran
+  against the live cluster: POST a turn, abort mid-stream after 12
+  events, reconnect with `Last-Event-ID`. Result **HTTP 200**, 2634
+  further events delivered through to a terminal `done`. Repeated a
+  second time with the same outcome. This is the first recorded 200
+  from this endpoint; the entry above documents a multi-day window with
+  none.
+
+  Landed as `scripts/smoke-resume.py` so it is repeatable rather than a
+  one-off. It uses a throwaway address, sends `X-Munin-Egress=off` so no
+  paid or rate-limited tier is touched, and deletes the conversation it
+  creates (verified: no residue).
+
+- [OPEN] **Browser half still unverified.** The smoke drives the HTTP
+  contract, not the webui. Two things it cannot cover and a human
+  should, once: that the UI renders resumed content after a real
+  network blip, and the cross-refresh repaint caveat above, where the
+  bubble shows only the replayed tail because in-memory partial text is
+  lost. The client was read end-to-end and found contract-correct on
+  2026-06-10, so this is confirmation rather than investigation.
+
+- [OPEN] **The 60s windows are still unmeasured.** The smoke reconnects
+  after 3s, well inside `DONE_RETENTION_S`. Nobody has characterised
+  what happens at the boundary, which is what the window-tuning item
+  above actually needs before anyone changes a constant.
 
 ---
 
