@@ -222,9 +222,37 @@ reader, so this does not get re-investigated:
   `NameError` (see failure mode 2 above), now fixed.
 - [DONE] Add an **integration test** for the end-to-end success path
   plus the 410/403/401 branches: `tests/test_resume_endpoint.py`.
-- [OPEN] Reconsider the retention/grace **windows** — `DONE_RETENTION_S`
-  and `GRACE_S` at 60s are plausibly too short for real refresh/return
-  patterns; weigh longer windows against registry memory growth.
+- [MEASURED 2026-09-02, no change needed] Reconsider the retention/grace
+  **windows**. Measured against the live server rather than reasoned
+  about, and the concern does not survive contact:
+
+  | case | result |
+  |---|---|
+  | completed turn, resume at +70s | **410** `stream is gone` (confirms `DONE_RETENTION_S`) |
+  | dropped mid-stream, resume at +75s (past `GRACE_S`) | **200**, 964 further events, answer persisted (2088 chars) |
+
+  Neither window loses work:
+
+  - **`GRACE_S` no longer cancels.** The description above is stale.
+    Commit `a27b4d2` made grace expiry *promote the stream to
+    background*, so the turn keeps running, completes and persists.
+    Cancellation now only happens at `MAX_BACKGROUND_PER_USER` or past
+    `BACKGROUND_MAX_S`. The 75s drop above recovered completely.
+  - **`DONE_RETENTION_S` expiry is not data loss.** The turn has by
+    definition completed and persisted, so the 410 costs a transcript
+    reload, not an answer. The client already treats it that way:
+    `resumeChat` maps 410 to a synthetic `stream_gone` and reloads,
+    and only `streamChat`'s mid-stream loop shows a banner, which is
+    the deliberate case of a bubble the user is watching die.
+
+  Raising either constant would buy nothing but registry memory.
+  Closing this rather than tuning it.
+
+  (A third case, resuming a completed stream from its FINAL event id,
+  returned 200 with 0 events. That is correct, nothing is newer than
+  your last event, and is an artifact of how the probe chose its
+  checkpoint rather than a finding. Replay from an earlier checkpoint
+  is covered by the 964-event case above.)
 - [DONE 2026-09-02, via `3bea54d`] Make truncation degrade gracefully
   instead of hard-410. Resume now consults the client's checkpoint
   rather than the latched `truncated` flag, so an overflow no longer
@@ -256,10 +284,8 @@ reader, so this does not get re-investigated:
   lost. The client was read end-to-end and found contract-correct on
   2026-06-10, so this is confirmation rather than investigation.
 
-- [OPEN] **The 60s windows are still unmeasured.** The smoke reconnects
-  after 3s, well inside `DONE_RETENTION_S`. Nobody has characterised
-  what happens at the boundary, which is what the window-tuning item
-  above actually needs before anyone changes a constant.
+- [DONE 2026-09-02] The 60s windows are now measured; see the table
+  above. No change needed.
 
 ---
 
