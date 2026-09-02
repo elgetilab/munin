@@ -329,6 +329,21 @@ async def init_db() -> aiosqlite.Connection:
             "ALTER TABLE messages ADD COLUMN persona TEXT"
         )
 
+    # One-off cleanup of proposals orphaned before delete_conversation started
+    # removing them. Idempotent, and a no-op on every restart after the first.
+    # This runs at startup rather than as a maintenance script because every
+    # deployment carries the same latent rows and nobody will run a script on a
+    # cluster they did not personally debug.
+    #
+    # Only rows whose parent is GONE. A NULL conversation_id is not an orphan,
+    # it is a proposal that was never tied to a conversation, and deleting those
+    # would silently discard live pending memories.
+    await _db.execute(
+        "DELETE FROM proposed_memories "
+        "WHERE conversation_id IS NOT NULL "
+        "  AND conversation_id NOT IN (SELECT id FROM conversations)"
+    )
+
     await _db.commit()
     return _db
 
@@ -688,6 +703,18 @@ async def delete_conversation(conversation_id: str, user_email: str) -> bool:
     # rely on ON DELETE CASCADE since SQLite's FK cascades don't fire the
     # per-row delete triggers on the child table consistently across versions.
     await db.execute("DELETE FROM messages WHERE conversation_id = ?", (conversation_id,))
+    # Memory proposals extracted from this conversation. `proposed_memories` has
+    # a plain conversation_id with NO foreign key, so unlike `artifacts` and
+    # `conversation_plans` nothing cleans it up implicitly. Left behind, the rows
+    # are not merely dead weight: list_pending() is USER-scoped, so proposals
+    # from a deleted conversation keep rendering as accept/reject pills and keep
+    # occupying the MAX_PENDING=10 budget. Measured 2026-09-02 before this fix,
+    # one user sat at 10/10 pending with every slot belonging to a conversation
+    # they had deleted.
+    await db.execute(
+        "DELETE FROM proposed_memories WHERE conversation_id = ? AND user_email = ?",
+        (conversation_id, user_email),
+    )
     await db.execute(
         "DELETE FROM conversations WHERE id = ? AND user_email = ?",
         (conversation_id, user_email),

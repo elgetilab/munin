@@ -4004,6 +4004,69 @@ two weeks, then decide whether to retire one. The data collection
 is the first half of the work; prompt tuning / retirement is the
 second.
 
+## 29. User-account deletion (data-retention gap)
+
+### Problem
+
+There is no path to delete a user account and its data. Every store is
+per-conversation or append-only per-user, so an account that goes away
+leaves everything behind. Split out of KNOWN-BUGS §1, which fixed the
+narrower case (a deleted CONVERSATION orphaning its
+`proposed_memories`) and surfaced this as the general one.
+
+This matters more than it sounds. The data is not incidental telemetry:
+`user_memory` and `proposed_memories` hold model-extracted personal
+facts (research topics, identity hints, local filesystem paths),
+`user_profiles` holds custom instructions, and `artifacts` holds
+documents the user wrote. For a public deployment with EU users, "I
+want my account and its data removed" has no answer today beyond hand
+SQL.
+
+### Scope
+
+Purge by `user_email` across, at least:
+
+| Table | Holds |
+|---|---|
+| `conversations` (+ `messages`, `artifacts`, `conversation_plans` via existing cascade/explicit deletes) | the chats themselves |
+| `user_memory` | accepted memories |
+| `proposed_memories` | pending extracted memories |
+| `rejected_memory_keys` | dismissal tombstones |
+| `user_profiles` | custom instructions |
+| `projects` | scoped workspaces (§21) |
+
+Enumerate against the live schema rather than this list when
+implementing; it will have drifted.
+
+Beyond `chats.db`, decide what happens to: user-uploaded documents in
+`user_docs` (Qdrant), contributor-tagged papers the user ingested into
+a group corpus (deleting those would damage a shared corpus others
+rely on, so they likely need re-attribution rather than deletion), and
+anything the VPS side holds.
+
+### Design notes
+
+- **Reuse `delete_conversation` per conversation** rather than
+  bulk-deleting `conversations`, so the FTS triggers and the explicit
+  child deletes both run. KNOWN-BUGS §1 exists precisely because a
+  child table was missed.
+- **Deletion vs anonymisation.** Contributor attribution on shared
+  corpus papers argues for anonymising the owner rather than removing
+  the papers. Worth deciding before writing code.
+- **Who can invoke it.** Admin-only, or user self-service from the
+  profile page. Self-service needs a confirmation flow and probably a
+  grace period.
+- **Auditability.** Log that a purge ran and what it touched, without
+  logging the content it removed.
+
+### Estimated effort
+
+Half a day for the `chats.db` sweep plus tests. Longer if Qdrant
+documents and contributor re-attribution are in scope, which they
+probably should be.
+
+---
+
 ### Rough grouping by "what to tackle in what order"
 
 **Sprint 1 — quick wins (1-2 days total)**: §6, §13, §26, §24, §25, §16, §17 — **DONE 2026-04-14**

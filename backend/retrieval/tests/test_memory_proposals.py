@@ -77,6 +77,62 @@ def test_create_and_list() -> bool:
     return _check("create_proposal + list_pending", asyncio.run(go()))
 
 
+def test_deleting_a_conversation_removes_its_proposals() -> bool:
+    """Deleting a conversation must take its extracted proposals with it.
+
+    Before this fix `proposed_memories` had a plain conversation_id and no
+    foreign key, so nothing cleaned it up. The rows were not inert: list_pending
+    is user-scoped, so they kept rendering as pills and kept consuming the
+    MAX_PENDING=10 budget. Measured in production on 2026-09-02, one user sat at
+    10/10 pending with every slot owned by a deleted conversation.
+    """
+    async def go():
+        await _reset_db()
+        db = await chat_store.get_db()
+        await db.execute("DELETE FROM conversations")
+        await db.commit()
+        # Real API rather than a hand-built INSERT: conversations has NOT NULL
+        # columns a literal row would have to keep in step with the schema.
+        doomed = await chat_store.create_conversation("u@x", "chat", title="doomed")
+        keep = await chat_store.create_conversation("u@x", "chat", title="keep")
+
+        await memory_proposals_store.create_proposal(
+            user_email="u@x", conversation_id=doomed["id"],
+            key="doomed", value="v", reason=None)
+        await memory_proposals_store.create_proposal(
+            user_email="u@x", conversation_id=keep["id"],
+            key="survivor", value="v", reason=None)
+        # A proposal not tied to any conversation must be untouched: NULL is
+        # not an orphan, and purging it would discard a live pending memory.
+        await memory_proposals_store.create_proposal(
+            user_email="u@x", conversation_id=None,
+            key="unattached", value="v", reason=None)
+
+        assert await chat_store.delete_conversation(doomed["id"], "u@x")
+        keys = {r["key"] for r in await memory_proposals_store.list_pending("u@x")}
+        return keys == {"survivor", "unattached"}
+    return _check("deleting a conversation removes its proposals", asyncio.run(go()))
+
+
+def test_delete_conversation_does_not_touch_another_users_proposals() -> bool:
+    """The delete is scoped by user_email as well as conversation_id, matching
+    the conversations delete beside it."""
+    async def go():
+        await _reset_db()
+        db = await chat_store.get_db()
+        await db.execute("DELETE FROM conversations")
+        await db.commit()
+        conv = await chat_store.create_conversation("owner@x", "chat", title="t")
+        # Same conversation id, different owner: the delete must not reach it.
+        await memory_proposals_store.create_proposal(
+            user_email="other@x", conversation_id=conv["id"],
+            key="theirs", value="v", reason=None)
+        await chat_store.delete_conversation(conv["id"], "owner@x")
+        keys = {r["key"] for r in await memory_proposals_store.list_pending("other@x")}
+        return keys == {"theirs"}
+    return _check("delete is scoped to the owning user", asyncio.run(go()))
+
+
 def test_get_proposal_enforces_owner() -> bool:
     async def go():
         await _reset_db()
@@ -243,6 +299,8 @@ def test_parse_output_returns_empty_on_garbage() -> bool:
 
 TESTS = [
     test_create_and_list,
+    test_deleting_a_conversation_removes_its_proposals,
+    test_delete_conversation_does_not_touch_another_users_proposals,
     test_get_proposal_enforces_owner,
     test_delete_proposal_returns_true_on_hit_false_on_miss,
     test_proposal_fifo_evicts_oldest,

@@ -7,7 +7,7 @@ fix lands; reference it from the commit.
 
 ---
 
-## 1. Deleting a conversation orphans its `proposed_memories`
+## 1. Deleting a conversation orphans its `proposed_memories` (FIXED 2026-09-02)
 
 **Severity:** medium (data retention / privacy)
 
@@ -41,46 +41,90 @@ it explicitly. The rows are therefore left behind as orphans.
 
 ### Suggested fix
 
-Add an explicit delete inside `delete_conversation()`, alongside the
-existing `messages` delete:
+### Impact was worse than first described
 
-```python
-await db.execute(
-    "DELETE FROM proposed_memories WHERE conversation_id = ?",
-    (conversation_id,),
-)
+Measured on the production database 2026-09-02, before the fix. The
+orphans are not inert residue: `list_pending()` is USER-scoped, so a
+proposal whose conversation is gone keeps rendering as an accept/reject
+pill AND keeps occupying the `MAX_PENDING = 10` FIFO budget.
+
+```
+proposed_memories: 149 rows, 11 orphaned across 2 users
+  user A: pending=10  orphaned=10   <- at cap, every slot from a deleted chat
+  user B: pending= 1  orphaned= 1
 ```
 
-Follow-ups to consider while in here:
+So one user's entire memory-proposal feature was backed by conversations
+they had deleted, and shown back to them.
 
-- **Whole-account deletion sweep.** If/when a user-account delete path
-  exists (or as a maintenance task), purge `proposed_memories`,
-  `rejected_memory_keys`, `user_profiles`, `user_memory`, `projects`,
-  and `artifacts` by `user_email`, not just per-conversation rows.
-- **One-off cleanup of existing orphans.** Rows already orphaned by
-  past deletes will not be reached by the code fix. A short migration
-  can drop `proposed_memories` whose `conversation_id` no longer
-  matches any `conversations.id`:
-  ```sql
-  DELETE FROM proposed_memories
-  WHERE conversation_id IS NOT NULL
-    AND conversation_id NOT IN (SELECT id FROM conversations);
-  ```
-- Decide whether `proposed_memories.conversation_id` should gain a
-  real `ON DELETE CASCADE` FK for defence in depth. Note the existing
-  comment in `delete_conversation()` about not relying on SQLite
-  cascades for trigger ordering, so keep the explicit delete even if a
-  FK is added.
+Scope is exactly this one table. Every other conversation-linked table
+was checked in production and had ZERO orphans: `messages` (explicit
+delete), `artifacts` and `conversation_plans` (FK cascade), and
+`artifact_versions` (cascade via `artifacts`).
+
+### Fix
+
+Explicit delete in `delete_conversation()`, scoped by `user_email` to
+match the `conversations` delete beside it. **Not** an FK cascade: the
+existing comment in that function explains the house position, that
+SQLite's cascades do not fire per-row triggers on the child table
+consistently across versions, so the explicit delete is the pattern
+here.
+
+Rows orphaned before the fix are cleaned by a one-off statement in the
+`init_db()` migration block, idempotent and a no-op after the first
+run. It lives at startup rather than in a maintenance script because
+every deployment carries the same latent rows and nobody runs a script
+on a cluster they did not personally debug. It deliberately matches
+only `conversation_id IS NOT NULL`, since a NULL is not an orphan but a
+proposal never tied to a conversation, and purging those would discard
+live pending memories.
+
+Rehearsed against a copy of the production database before deploying:
+148 -> 137 proposed_memories, orphaned 11 -> 0, with `conversations`,
+`messages`, `artifacts` and `user_memory` counts unchanged.
+
+Tests in `tests/test_memory_proposals.py`: one that a deleted
+conversation takes its proposals with it while a second conversation's
+proposal and an unattached (NULL) proposal both survive, and one that
+the delete is scoped to the owning user. The first fails without the
+fix; the second guards the opposite direction, over-deletion.
+
+### Follow-up
+
+- [MOVED] **Whole-account deletion sweep.** There is no user-account
+  delete path at all today, so this is a missing capability rather than
+  a bug in this one. Written up in `docs/future_features.md`.
+- [DONE] One-off cleanup of existing orphans, see above.
+- [WONTFIX] A real `ON DELETE CASCADE` FK on
+  `proposed_memories.conversation_id`. Adding one means rebuilding the
+  table, and the explicit delete would have to stay anyway for the
+  reason above, so the FK would buy defence in depth at the cost of a
+  migration on a table the fix already covers.
 
 ---
 
 ## 2. SSE stream-resume endpoint fails for users in production
 
-**Severity:** high (core UX / streaming reliability)
+**Severity:** ~~high~~ -> **low** as of 2026-09-02. Both failure modes
+that broke resume for users are fixed AND deployed. What remains is
+window tuning, a client repaint nicety, and a manual verification that
+has never been done.
 
-**Status (2026-06-10):** the `500` mode is ROOT-CAUSED and fixed in the
-working tree (see below); pending deploy + commit. The `410` retention-
-window concerns remain open.
+**Status (2026-09-02, verified):**
+
+- `500` (`NameError: EventSourceResponse`): **FIXED AND DEPLOYED.** The
+  module-scope import is present at `main.py:64` in the repo and in the
+  running container. The 2026-06-10 note below said "pending deploy +
+  commit" and was stale for three months.
+- Hard-`410` on buffer overflow: **FIXED** by commit `3bea54d`, which
+  made resume consult the client's `Last-Event-ID` checkpoint instead
+  of the latched `truncated` flag. A client still inside the retained
+  buffer now resumes after an overflow. The `[OPEN]` item about
+  `MAX_LOG_EVENTS` below is therefore largely addressed.
+- Still open: `GRACE_S` and `DONE_RETENTION_S`, both verified still
+  `60.0` in `stream_registry.py` (repo and container), the cross-refresh
+  repaint, and the manual round-trip that has never been run.
 
 ### Symptom
 
@@ -181,9 +225,12 @@ reader, so this does not get re-investigated:
 - [OPEN] Reconsider the retention/grace **windows** — `DONE_RETENTION_S`
   and `GRACE_S` at 60s are plausibly too short for real refresh/return
   patterns; weigh longer windows against registry memory growth.
-- [OPEN] Consider raising or removing the `MAX_LOG_EVENTS = 1000` cap for
-  long tool-heavy turns, or make truncation degrade gracefully (replay
-  from the oldest retained event) instead of hard-410.
+- [DONE 2026-09-02, via `3bea54d`] Make truncation degrade gracefully
+  instead of hard-410. Resume now consults the client's checkpoint
+  rather than the latched `truncated` flag, so an overflow no longer
+  refuses a client whose checkpoint is still retained. Raising
+  `MAX_LOG_EVENTS` itself is no longer needed for correctness; revisit
+  only if buffer memory becomes a concern.
 - [OPEN] **Client-side UX:** on a browser refresh, repaint/preserve the
   partial assistant text rather than showing only the replayed tail
   (the caveat above). The raw-error vs graceful-retry handling is already
