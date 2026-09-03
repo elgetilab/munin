@@ -131,62 +131,65 @@ once surfaced it.
 
 ---
 
-## 7. Host-only tests crash instead of skipping inside the container
+## 7. Host-only tests crash instead of skipping inside the container (RESOLVED 2026-09-03)
 
-**Severity:** low (test harness), but it costs review time and teaches
-the wrong lesson
+### One of the three was not a host-only test at all
 
-### Symptom
+The entry framed all three as host-only tests needing a skip. Running
+them in the REAL deployed container showed that is wrong for the one
+that mattered:
 
-Some test files under `retrieval/tests/` need repo paths that do not
-exist in the retrieval container, because the image ships `retrieval/`
-as `/app` and nothing above it. Run there, they fail in ways that look
-like product defects:
+| file | in the deployed container, before | should be |
+|---|---|---|
+| `test_api_contract` | `SKIP` cleanly | correct, the model |
+| `test_config_schemas` | **10 passed** | correct; only an ad-hoc mount failed |
+| `test_persona_prompt_split` | **`IndexError: 3`** | **should PASS** |
+
+`test_persona_prompt_split` is not host-only. `/app/personas` exists in
+the deployed container, `PERSONAS_DIR` defaults to exactly that, and
+all three persona JSONs are there. It crashed on
+`Path(__file__).resolve().parents[3]`, which walks off the top of the
+filesystem from `/app/tests/` (parents there is exactly
+`['/app/tests', '/app', '/']`), raising at IMPORT before the
+`is_dir()` guard meant to handle a missing repo could run.
+
+So it was not a test that could not run in the container. It was a
+test that would have passed and never got the chance, for months.
+Adding the skip the entry asked for would have papered over that and
+permanently lost container-side coverage of the prompt-split safety
+property.
+
+### Fix
+
+- `test_persona_prompt_split.py`: resolve the repo path defensively
+  (`parents[3] if len(parents) > 3`) so it falls through to the
+  `/app/personas` default instead of raising. **Plus** a skip in
+  `_main()` for the case where no persona source exists anywhere,
+  because without it the fixed version emits four failures reading
+  "chat not loaded", which is the same misleading-failure problem in a
+  new costume.
+- `test_config_schemas.py`: the missing third branch. `_shipped_persona`
+  raised `FileNotFoundError` when neither location resolved, surfacing
+  as a bare `[FAIL]`. Now one `SKIP` line.
+- Both skips live in `_main()`, not at import, so pytest collection is
+  unaffected. `test_api_contract.py` already did it there.
+- `retrieval/tests/README.md`: the root cause, which is that three
+  environments exist and only two are obvious. An ad-hoc
+  `docker run -v retrieval:/app` looks like the container and is not.
+  Also records the `--network container:` trap, which silently removes
+  the DNS that resolves `qdrant` so index-touching tests take a
+  "collection absent" branch and assert against `None`.
+
+### Verified: three files x three environments
 
 ```
-$ docker exec munin-retrieval python /app/tests/test_persona_prompt_split.py
-  File "/app/tests/test_persona_prompt_split.py", line 22, in <module>
-    _SHARED = Path(__file__).resolve().parents[3] / "shared" / "personas"
-IndexError: 3
+                             host          deployed      ad-hoc mount
+test_api_contract            OK            SKIP          SKIP
+test_persona_prompt_split    4 passed      4 passed      SKIP
+test_config_schemas          10 passed     10 passed     SKIP
 ```
 
-The same suite passes 4/4 on the host. There is no product bug here at
-all: `parents[3]` from `/app/tests/` walks off the top of the
-filesystem.
-
-This actively misleads. During the 2026-09-01 search-recall work it was
-reported twice as a "pre-existing failure" on the strength of a
-container run, and only a host run showed both suites were green. A
-test that fails for environmental reasons trains a reader to skim past
-failures, which is exactly the habit that lets a real one through.
-
-### Root cause
-
-Three files resolve fixtures outside `/app` and handle it three
-different ways:
-
-- `tests/test_api_contract.py` — **correct**. Checks whether the paths
-  resolve and prints
-  `SKIP test_api_contract — BACKEND-API.md or main.py not reachable
-  from this filesystem (host-only test).`
-- `tests/test_persona_prompt_split.py` — crashes at import with
-  `IndexError` before any test runs.
-- `tests/test_config_schemas.py` — degrades to a plain `[FAIL]` when
-  `/app/personas/chat.json` is absent. Note this one passes in the REAL
-  deployed container, where compose mounts personas at `/app/personas`;
-  it only fails in an ad-hoc `docker run` that mounts `retrieval/`
-  alone. Its `_shipped_persona` helper already tries both locations,
-  it just has no third branch for "neither".
-
-### Suggested fix
-
-Give the latter two the skip that `test_api_contract` already has: a
-guard at import that prints one `SKIP` line naming the missing fixture
-and exits 0. Roughly five lines each. The fixtures genuinely cannot be
-present in a `retrieval/`-only mount, so skipping is the honest outcome
-rather than something to engineer around.
-
-Worth doing together with a short note in `retrieval/tests/README` (or
-the run instructions in each docstring) recording that a `docker run`
-mounting only `retrieval/` is not equivalent to the deployed container,
-which also has `/app/config`, `/app/personas` and `/data`.
+No failures anywhere, and every non-run is an explicit SKIP naming the
+path it wanted. That matrix is what nobody had run: it is what turned
+this entry from "add two skips" into "one of these is a real broken
+test".

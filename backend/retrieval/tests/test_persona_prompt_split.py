@@ -12,15 +12,27 @@ Run standalone or under pytest:
 from __future__ import annotations
 
 import os
+import pathlib
 import sys
 from pathlib import Path
 
 sys.path.insert(0, "/app")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# Point at the repo's shared personas (the real chat/code/research prompts).
-_SHARED = Path(__file__).resolve().parents[3] / "shared" / "personas"
-if _SHARED.is_dir():
+# Point at the repo's shared personas (the real chat/code/research prompts)
+# when they are reachable, and otherwise leave PERSONAS_DIR alone so it falls
+# through to its /app/personas default.
+#
+# The len() guard is not defensive padding. `parents[3]` walks off the top of
+# the filesystem from /app/tests/ (parents there is exactly
+# ['/app/tests', '/app', '/']), so this line raised IndexError at IMPORT,
+# before the is_dir() check meant to handle a missing repo could run. That
+# crashed the whole file in the deployed container, where /app/personas DOES
+# exist and all four tests would otherwise pass. It read as a product defect
+# and was twice reported as a pre-existing failure; it was neither.
+_PARENTS = Path(__file__).resolve().parents
+_SHARED = _PARENTS[3] / "shared" / "personas" if len(_PARENTS) > 3 else None
+if _SHARED is not None and _SHARED.is_dir():
     os.environ["PERSONAS_DIR"] = str(_SHARED)
 
 import personas  # noqa: E402
@@ -85,7 +97,29 @@ def test_compose_fallback_when_pin_unsplittable():
     assert composed == personas.build_system_prompt(code)
 
 
+def _personas_available() -> bool:
+    """Whether a real persona source is reachable in this environment."""
+    d = pathlib.Path(os.environ.get("PERSONAS_DIR", personas.PERSONAS_DIR))
+    return (d / "chat.json").is_file()
+
+
 def _main() -> int:
+    # Skip, do not fail, when no persona JSONs exist anywhere. That is an
+    # ad-hoc `docker run` mounting only retrieval/, which is NOT the deployed
+    # container: that one has /app/personas and these tests pass there.
+    # Without this the suite emits four failures reading "chat not loaded" and
+    # "'NoneType' object has no attribute 'get'", which look like product
+    # defects and were twice reported as such.
+    #
+    # In _main() rather than at import so pytest collection is unaffected;
+    # test_api_contract.py puts its skip in the same place for the same reason.
+    if not _personas_available():
+        d = os.environ.get("PERSONAS_DIR", personas.PERSONAS_DIR)
+        print(f"SKIP test_persona_prompt_split — no persona JSONs at {d}. "
+              "Needs the repo's shared/personas (host) or the container's "
+              "/app/personas (deployed).")
+        return 0
+
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     passed = failed = 0
     for fn in fns:
