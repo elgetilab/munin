@@ -10,6 +10,42 @@ self-document (renames, refactors, bug fixes).
 
 ---
 
+## 2026-09: a multimodal turn has two texts, and they are not interchangeable
+
+When the composer sends an attachment, `messages[-1].content` is an
+OpenAI-style block list rather than a string. Two derived strings come out of
+it inside `chat_service.stream_chat_completion`, and picking the wrong one is
+a silent bug in both directions, so `content_text()` is deliberately called
+twice with different inputs:
+
+- **typed text** = `content_text(raw_content)`, taken BEFORE
+  `_resolve_user_content_images`. This is what the user actually typed. It
+  feeds the router and `generate_title`.
+- **persisted text** = `content_text(resolved_content)`, taken AFTER. This is
+  typed text PLUS any attached document's full inlined body. It goes to
+  `messages.content`, which is FTS5-indexed, so the document stays searchable
+  and survives a reload.
+
+The direction that bites is using persisted text for the router or the title.
+The resolver inlines a whole document as a text block, so a .docx turn's
+persisted text runs to tens of thousands of characters (chat b0909633:
+32,029). `chat_context.generate_title` interpolates its first argument with no
+truncation, so a large PDF would aim the title call straight at the 65,536-token
+context limit, and the router would embed the document instead of the question.
+
+The other direction is what actually shipped and stayed broken for two months:
+passing the raw list to either one raises inside a `try/except`, which
+demoted every attachment turn to the pinned profile without a trace. See
+`backend/docs/archive/KNOWN-BUGS-resolved.md` entry 8.
+
+A related consequence, in the same code: when a fallback needs a persona id,
+use the id of the persona actually being run, never `pin_id`. `pin_id` is
+`None` by design under auto-route, meaning "the user pinned nothing", and
+assigning it to `persona_id` writes NULL onto the message row and into
+`current_persona`. That NULL is what made the failure invisible.
+
+---
+
 ## 2026-08: citation grounding - supply the metadata, then audit the claim
 
 A user reported two papers attributed to authors who had nothing to do with

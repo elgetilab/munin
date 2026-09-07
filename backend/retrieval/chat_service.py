@@ -111,6 +111,70 @@ def _sse(event: str, payload: dict) -> dict:
 
 # --- Multimodal content resolution (§5) --------------------------------------
 
+def content_text(content: Any) -> str:
+    """Flatten a user message's ``content`` to plain text.
+
+    A string passes through untouched. An OpenAI-style block list contributes
+    only its ``text`` blocks, joined on newlines and stripped; image blocks and
+    unresolved document blocks contribute nothing. Anything else yields "".
+
+    Two callers pass deliberately different inputs and the difference matters:
+
+      * the RAW content, before ``_resolve_user_content_images``, is the text
+        the user actually TYPED. That is what the router routes on and what
+        names the conversation.
+      * the RESOLVED content is the typed text PLUS any attached document's
+        inlined body. That is what lands in ``messages.content``, which is
+        FTS5-indexed and must stay a flat string.
+
+    Handing the resolved form to the router or the auto-titler would mean
+    routing on, and building a title prompt out of, tens of thousands of
+    characters of somebody's PDF (chat b0909633: 32,029). ``generate_title``
+    interpolates its first argument with no truncation, so that reaches for
+    the context window.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            block.get("text", "") for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        ).strip()
+    return ""
+
+
+def replace_typed_text(content: Any, new_text: str) -> Any:
+    """Return ``content`` with the user's typed text replaced by ``new_text``.
+
+    The inverse of what ``content_text`` reads. On a plain string that is just
+    the new string. On a block list only the FIRST text block is rewritten,
+    every other block is preserved in order, and any further text blocks are
+    dropped because ``content_text`` already folded them into the value the
+    caller computed ``new_text`` from.
+
+    This exists for the slash-command strip. Replacing the whole content with
+    the stripped string (what the code did while the list case was
+    unreachable) would throw away the attachments: ``/research compare these``
+    with a pasted figure would silently lose the figure.
+    """
+    if not isinstance(content, list):
+        return new_text
+    out: list = []
+    replaced = False
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "text":
+            if replaced:
+                continue          # already folded into the first text block
+            replaced = True
+            if new_text:
+                out.append({**block, "text": new_text})
+            continue
+        out.append(block)
+    if not replaced and new_text:
+        out.insert(0, vision.text_block(new_text))
+    return out
+
+
 # Cap on the extracted text of an attached document inlined into a single
 # user turn. ~12K tokens - large enough for a CV, a paper, or a long email
 # thread, bounded so a 200-page PDF can't blow the context window on its own.
@@ -1877,18 +1941,37 @@ async def stream_chat_completion(
     stored_persona_id = persona_module.AUTO_PERSONA_ID if _auto_route else persona_id
     routing_method = "pin"
     routing_confidence = 1.0
-    if ROUTER_ENABLED:
+    # The text the user TYPED. On any turn carrying an image or a document the
+    # composer sends an OpenAI-style block list, and passing that straight to
+    # route() raised TypeError inside parse_slash. The except below swallowed
+    # it, so from the router going live (2026-07-08) to 2026-09-07 EVERY
+    # attachment turn was silently demoted to the pin: 51 such turns, none
+    # routed. Resolving the content first is not the answer: that needs the
+    # conversation id we haven't got yet, and it would inline an attached
+    # document's whole body, which is not what the user asked.
+    typed_text = content_text(user_message.get("content", ""))
+    # Nothing typed (an attachment sent with an empty composer) means nothing
+    # to route on, so skip the embed call entirely and stay on the pin.
+    if ROUTER_ENABLED and typed_text:
         try:
-            _q = (user_message or {}).get("content") or ""
-            _d = router_module.route(_q, pin_id, _get_router_index(), _bge_embed)
+            _d = router_module.route(
+                typed_text, pin_id, _get_router_index(), _bge_embed
+            )
             _routed = persona_module.get_persona(_d.profile)
             if _routed is not None:
                 persona, persona_id = _routed, _d.profile
                 routing_method, routing_confidence = _d.method, _d.confidence
                 # Slash commands strip the leading `/<profile>` token so the
                 # model never sees the command. New dict, don't mutate caller's.
+                # replace_typed_text keeps any image/document blocks alongside.
                 if _d.stripped_query is not None:
-                    user_message = {**user_message, "content": _d.stripped_query}
+                    user_message = {
+                        **user_message,
+                        "content": replace_typed_text(
+                            user_message.get("content", ""), _d.stripped_query
+                        ),
+                    }
+                    typed_text = _d.stripped_query
             else:
                 logger.warning("router picked unknown profile %r; staying on pin %r",
                                _d.profile, pin_id)
@@ -1897,7 +1980,14 @@ async def stream_chat_completion(
             # broken router under ROUTER_ENABLED=true is diagnosable, not
             # silently mistaken for the router being off.
             logger.warning("router failed, staying on pin %r: %s", pin_id, e)
-            persona, persona_id = pin_persona, pin_id
+            # persona_id, NOT pin_id. pin_id is None by design under auto-route
+            # (it means "the user pinned nothing"), but persona_id is persisted
+            # on the message row and bound to current_persona, so falling back
+            # to it wrote NULL and left no trace of which profile answered.
+            # That is why the bug above went two months without being noticed.
+            # Take the id from the persona we are actually about to run.
+            persona = pin_persona
+            persona_id = pin_persona.get("id") or persona_id
             routing_method = "error"
 
     # Bind per-request context for MCP tool dispatch (e.g. search_user_docs).
@@ -2105,13 +2195,10 @@ async def stream_chat_completion(
     # Derive the text-only form once so it can be persisted in the
     # messages.content column (which is FTS5-indexed and therefore
     # must stay a flat string). The full resolved_content goes to vLLM.
-    if isinstance(resolved_content, list):
-        persisted_text = "\n".join(
-            block.get("text", "") for block in resolved_content
-            if isinstance(block, dict) and block.get("type") == "text"
-        ).strip()
-    else:
-        persisted_text = raw_content if isinstance(raw_content, str) else ""
+    # RESOLVED, not raw: this deliberately includes an attached document's
+    # inlined body so the document stays searchable and survives a reload.
+    # `typed_text` above is the other half of the pair, see content_text().
+    persisted_text = content_text(resolved_content)
 
     # --- 4. Persist the user message ---
     if not ephemeral:
@@ -2551,8 +2638,11 @@ async def stream_chat_completion(
                         # a title that reflects the user's intent rather
                         # than the clarification questions themselves.
                         try:
+                            # typed_text, not the raw content: on an
+                            # attachment turn that is a list and generate_title
+                            # calls .strip() on it. See content_text().
                             title = await chat_context.generate_title(
-                                user_message.get("content", ""),
+                                typed_text,
                                 normalised["what_i_understood"],
                             )
                             if title:
@@ -2937,8 +3027,11 @@ async def stream_chat_completion(
         # skipped for that conversation.
         if not ephemeral and not conversation.get("title") and not _cancelled():
             try:
+                # typed_text, not the raw content (a list on an attachment
+                # turn, which generate_title .strip()s) and not persisted_text
+                # (which carries the whole inlined document). See content_text().
                 title = await chat_context.generate_title(
-                    user_message.get("content", ""), final_content
+                    typed_text, final_content
                 )
                 if title:
                     await chat_store.update_conversation(

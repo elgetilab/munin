@@ -17,6 +17,7 @@ Do NOT treat anything here as current. The live list is
 | 5 | `slurmd` died permanently on a missing `/dev/nvidia0` | 2026-08-31 | No `Restart=` in the packaged unit turned a recoverable driver problem into a six-hour outage nobody was told about. |
 | 6 | `build_chunk_index.py` could not use both GPUs | 2026-09-02 | The plan recorded in the entry was itself unsafe: position striding across processes silently loses papers. Hashing was implemented instead, and running two shards for the first time found a create-collection race no unit test could reach. |
 | 7 | Host-only tests crashed instead of skipping | 2026-09-03 | One of the three was not host-only at all: it would have PASSED in the deployed container and had been crashing at import for months on a path that walks off the top of the filesystem. |
+| 8 | Attachments silently disabled the router | 2026-09-07 | A 100% failure rate for two months that produced no user report and no error, because the exception was caught by design and the fallback wrote NULL instead of a wrong value. The evidence that proved it was a `GROUP BY persona` over turns with and without attachments, not the stack trace. |
 
 ---
 
@@ -986,3 +987,149 @@ No failures anywhere, and every non-run is an explicit SKIP naming the
 path it wanted. That matrix is what nobody had run: it is what turned
 this entry from "add two skips" into "one of these is a real broken
 test".
+
+---
+
+## 8. Attachments silently disabled the router for two months (FIXED 2026-09-07)
+
+**Severity:** medium (silent quality regression, no user-visible error)
+
+### Symptom
+
+None, from the user's side. That is the whole point of this entry.
+
+Nothing failed, nothing was slow, no error frame reached the browser, and
+no one reported it. Turns that carried an image or an attached document
+simply answered as the default `chat` profile, so a question like "read
+this figure and find me the papers it comes from" never reached the
+`research` profile's tools or scoping. The only trace was two lines in
+the service log:
+
+```
+router failed, staying on pin None: expected string or bytes-like object, got 'list'
+Auto-title failed: 'list' object has no attribute 'strip'
+```
+
+### How big it was
+
+`messages.persona` records the profile that answered each turn. Grouping
+live rows since the router went live (2026-07-08):
+
+| user turns since 2026-07-01 | chat | research | code | NULL |
+|---|---|---|---|---|
+| without an attachment | 537 | 465 | 207 | 24 |
+| **with an attachment** | 0 | 0 | 0 | **51** |
+
+51 turns, 37 conversations, 11 distinct users, and not one of them
+routed. The last attachment turn to carry a real profile was
+2026-06-24, before the router shipped. This was a 100% failure rate
+from the day the feature went live, and it was still firing while being
+investigated (a fresh row appeared at 14:54 on the day of the fix).
+
+### Root cause
+
+`webui/src/components/ChatInput.tsx` builds an OpenAI-style content
+**list** when anything is attached, and `main.py` validates and accepts
+that shape correctly. But `chat_service.stream_chat_completion` read
+`user_message["content"]` raw at three points that assume a string, all
+of them running BEFORE the multimodal resolver at step 3 turns the list
+into text:
+
+- the router query (`router.parse_slash` does a regex match, raising
+  `TypeError`),
+- `generate_title` on the clarification path,
+- `generate_title` on the normal path (`.strip()`, raising
+  `AttributeError`).
+
+### Why nobody noticed
+
+Two independent pieces of defensive code hid it.
+
+The router call is wrapped in `try/except Exception` with a comment
+explaining that a broken router should degrade to the pin rather than
+break the turn. That is the right design, and it worked: the turn
+answered fine. It just answered as the wrong profile, forever.
+
+The fallback then did `persona, persona_id = pin_persona, pin_id`.
+`pin_id` is `None` by design under auto-route, where it means "the user
+pinned nothing". Assigning it to `persona_id` wrote NULL to the message
+row and into the `current_persona` ContextVar. A wrong-but-present value
+("chat") would have shown up the first time anyone looked at a
+per-profile breakdown. NULL read as "legacy row, nothing to see".
+
+So the bug was invisible in the UI, invisible in the error rate, and
+camouflaged in the data. It was found by grepping the service log for
+warnings, and only sized afterwards by the `GROUP BY` above.
+
+### The fix
+
+`retrieval/chat_service.py`:
+
+- `content_text(content)` flattens content to plain text: a string passes
+  through, a block list contributes only its `text` blocks. It replaces
+  the inline expression that used to compute `persisted_text`, so there
+  is one implementation instead of two.
+- `typed_text = content_text(raw_content)` is hoisted above the router
+  and feeds `route()` and both `generate_title` calls.
+- `replace_typed_text(content, new_text)` rewrites only the first text
+  block for the slash-command strip, preserving image and document
+  blocks.
+- The router-failure fallback takes the id from the persona it is
+  actually about to run, never `pin_id`.
+
+### The part that is easy to get wrong
+
+The obvious fix is to move the router below the resolver, or to reuse
+`persisted_text`. Both are wrong, and the same trap catches both.
+
+`_resolve_user_content_images` inlines an attached document's entire
+extracted body as a text block. The resolved text of a .docx turn is
+therefore enormous: chat b0909633 persisted 32,029 characters.
+`chat_context.generate_title` interpolates its first argument with **no
+truncation**, so feeding it resolved text would point the title call
+straight at the 65,536-token context limit, converting this bug into the
+context-overflow class instead of fixing it. The router would likewise
+embed the document instead of the question.
+
+Hence two texts from one helper: typed text (pre-resolution) for the
+router and the title, resolved text for the FTS-indexed DB column. See
+`shared/docs/DECISIONS.md`, 2026-09.
+
+There is also a second-order trap the fix itself creates. Line 1891 used
+to do `user_message = {**user_message, "content": _d.stripped_query}`
+when a slash command fired. That path was unreachable for attachments
+only because the router threw first; repairing the router makes it live,
+and it would have replaced the whole content list with a bare string,
+silently dropping the user's image. `replace_typed_text` exists for
+that, and `test_slash_command_with_an_image_keeps_the_image` guards it.
+
+### Data
+
+The 51 rows were backfilled to `chat`, the profile those turns actually
+ran on (`pin_persona` was `get_persona(DEFAULT_PERSONA_ID)` throughout,
+so this records what happened rather than guessing). NULL was a dropped
+fact, not an unknown. Scope was exactly
+`role='user' AND attachments NOT NULL AND persona IS NULL AND
+created_at >= '2026-07-08'`; the 4 pre-router attachment rows and the 24
+NULL rows on non-attachment turns (a separate, unidentified cause,
+clustered 2026-07-22 to 2026-08-23) were left alone. `chats.db` was
+backed up first.
+
+### Tests
+
+`retrieval/tests/test_multimodal_turn_text.py`, 20 tests. The ones worth
+knowing about:
+
+- `test_router_receives_a_string_not_a_list` and
+  `test_generate_title_receives_a_string` assert on what the CALL SITES
+  pass, by spying on `route` and `generate_title` while driving the real
+  `stream_chat_completion`. Testing the helper alone would not have
+  caught the original bug.
+- `test_generate_title_gets_typed_text_not_the_document_body` is the one
+  that fails the plausible-looking `persisted_text` fix.
+- `test_persisted_row_still_carries_the_document_text` checks
+  equivalence against the expression `content_text` replaced, applied to
+  the real resolver output, rather than against a hardcoded string.
+- `test_router_exception_still_persists_a_real_profile` covers the
+  camouflage: whatever makes the router raise next time, the turn has to
+  record which profile answered.
