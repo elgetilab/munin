@@ -16,18 +16,23 @@ entries were factually WRONG by the time anyone re-read them, claiming
 work was pending that had shipped months earlier, and that pattern is
 more useful to be able to search for than the individual fixes.
 
-## Open entries: none (2026-09-03)
+## Open entries: none (2026-09-07)
 
 Every numbered entry below is a stub for a resolved bug. That is a
 statement about this file, not about the system: it means nothing is
-currently WRITTEN DOWN as broken. Bugs 2 and 6 are the reminder of what
-that is worth. Entry 2 was closed on a verified round trip and reopened
-hours later by a user whose turn was longer than anything the check had
-covered, and entry 6's own recorded plan turned out to be unsafe when
-someone finally implemented it.
+currently WRITTEN DOWN as broken. Bugs 2, 6 and 8 are the reminder of
+what that is worth. Entry 2 was closed on a verified round trip and
+reopened hours later by a user whose turn was longer than anything the
+check had covered; entry 6's own recorded plan turned out to be unsafe
+when someone finally implemented it; and entry 8 had been failing 100%
+of the time for two months while this file said there was nothing
+wrong, because the failure was caught by an `except` and written to a
+log nobody was reading.
 
 So an empty list is a good place to add to, not evidence there is
-nothing to find.
+nothing to find. Entry 8 in particular was found by grepping the
+service log for warnings, not by a user reporting it, and it is the
+kind of thing that only ever surfaces that way.
 
 ---
 
@@ -96,3 +101,16 @@ and was a genuinely broken test. See
 environment to run tests in, and
 [`archive/KNOWN-BUGS-resolved.md`](archive/KNOWN-BUGS-resolved.md) for
 the write-up.
+
+---
+
+## 8. Attachments silently disabled the router for two months (RESOLVED 2026-09-07)
+
+A turn carrying an image or a document sends a content LIST, and three
+call sites read it as a string. The router's TypeError was swallowed by
+its own `try/except`, so every such turn ran on the default profile and
+persisted `persona = NULL`. Fixed by `content_text()` /
+`replace_typed_text()` plus a persona-id fallback that no longer uses
+`pin_id`. Full write-up in
+[`archive/KNOWN-BUGS-resolved.md`](archive/KNOWN-BUGS-resolved.md).
+Tests: `retrieval/tests/test_multimodal_turn_text.py`.
