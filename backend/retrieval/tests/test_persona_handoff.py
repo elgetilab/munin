@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import shutil
 import tempfile
 import traceback
 from pathlib import Path
@@ -219,20 +220,52 @@ TESTS = [
 ]
 
 
+def _cleanup() -> None:
+    """Close the chat_store connection and drop the temp DB.
+
+    Without the close this file PASSED every test and then hung forever in
+    `threading._shutdown`: `chat_store.get_db()` caches one `aiosqlite`
+    connection, aiosqlite services it from a NON-daemon worker thread, and
+    the interpreter will not exit while that thread is alive. Nothing
+    printed after "9 passed, 0 failed", so it read as a test that never
+    finished rather than one that had already succeeded, and under a CI
+    timeout it is indistinguishable from a real failure.
+    """
+    try:
+        asyncio.run(chat_store.close_db())
+    except Exception:
+        traceback.print_exc()
+    shutil.rmtree(_TMPDIR, ignore_errors=True)
+
+
+# pytest calls this after the module's tests; `main()` calls _cleanup itself
+# for the standalone path. Both are needed and both are safe to run twice
+# (close_db no-ops on a closed connection, rmtree ignores errors). An
+# atexit hook would NOT work: CPython joins non-daemon threads before
+# running atexit callbacks, so the hook is reached only after the hang it
+# was meant to prevent. Named for pytest's xunit style so this file still
+# imports without pytest installed.
+def teardown_module(module=None) -> None:  # noqa: ARG001
+    _cleanup()
+
+
 def main() -> int:
     passed = 0
     failed = 0
-    for t in TESTS:
-        try:
-            ok = t()
-        except Exception:
-            ok = False
-            print(f"[FAIL] {t.__name__} - exception:")
-            traceback.print_exc()
-        passed += int(ok)
-        failed += int(not ok)
-    print(f"\n{passed} passed, {failed} failed")
-    return 0 if failed == 0 else 1
+    try:
+        for t in TESTS:
+            try:
+                ok = t()
+            except Exception:
+                ok = False
+                print(f"[FAIL] {t.__name__} - exception:")
+                traceback.print_exc()
+            passed += int(ok)
+            failed += int(not ok)
+        print(f"\n{passed} passed, {failed} failed")
+        return 0 if failed == 0 else 1
+    finally:
+        _cleanup()
 
 
 if __name__ == "__main__":

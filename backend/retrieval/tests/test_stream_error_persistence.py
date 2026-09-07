@@ -49,6 +49,23 @@ Three layers of coverage:
    silently lost — because the save-always finally is the
    contract.
 
+A NOTE ON THE assemble_context STUB (fixed 2026-09-07). It must return a
+TUPLE. `assemble_context` is typed `-> tuple[list[dict], Optional[dict]]`
+and the caller does `messages, compact_info = await ...`, so a stub
+returning a bare 2-element list unpacked one message dict into each
+variable. `messages` became a dict, and the single test that reaches the
+tool-call continuation died on `messages.append(...)` with
+`AttributeError: 'dict' object has no attribute 'append'`. A broken test,
+not a broken product, and it had been failing in the deployed container for
+as long as `assemble_context` has had a second return value. The other 18
+never got that far, but they were quietly emitting a `compact_boundary`
+SSE built out of the user message, because `compact_info` was a truthy
+dict instead of None.
+
+The general shape is worth remembering: a stub whose RETURN SHAPE drifts
+from the function it replaces fails somewhere far from the stub, and only
+on the paths that consume the second half of it.
+
 Runs in-process inside the retrieval container:
 
     docker exec munin-retrieval python /app/tests/test_stream_error_persistence.py
@@ -390,11 +407,22 @@ def _drive_stream_chat(
         patch.object(
             chat_service.chat_context,
             "assemble_context",
+            # A TUPLE. assemble_context is typed
+            # `-> tuple[list[dict], Optional[dict]]`, and the caller does
+            # `messages, compact_info = await ...`. Returning a bare
+            # 2-element list unpacked one message dict into each variable,
+            # so `messages` became a dict: every test reaching the tool-call
+            # continuation died on `messages.append(...)`, and the other 18
+            # quietly emitted a compact_boundary SSE built from the user
+            # message. See the module docstring.
             AsyncMock(
-                return_value=[
-                    {"role": "system", "content": "test system prompt"},
-                    {"role": "user", "content": "Try the orchestrator"},
-                ]
+                return_value=(
+                    [
+                        {"role": "system", "content": "test system prompt"},
+                        {"role": "user", "content": "Try the orchestrator"},
+                    ],
+                    None,
+                )
             ),
         ),
         patch.object(
@@ -783,11 +811,15 @@ def _drive_stream_chat_disconnect_after(
         patch.object(
             chat_service.chat_context,
             "assemble_context",
+            # Tuple, for the same reason as the stub in _drive_stream_chat.
             AsyncMock(
-                return_value=[
-                    {"role": "system", "content": "test system prompt"},
-                    {"role": "user", "content": "trigger"},
-                ]
+                return_value=(
+                    [
+                        {"role": "system", "content": "test system prompt"},
+                        {"role": "user", "content": "trigger"},
+                    ],
+                    None,
+                )
             ),
         ),
         patch.object(
@@ -1320,11 +1352,15 @@ def test_audit_exception_after_loop_still_persists() -> bool:
         patch.object(
             chat_service.chat_context,
             "assemble_context",
+            # Tuple, for the same reason as the stub in _drive_stream_chat.
             AsyncMock(
-                return_value=[
-                    {"role": "system", "content": "test system prompt"},
-                    {"role": "user", "content": "trigger"},
-                ]
+                return_value=(
+                    [
+                        {"role": "system", "content": "test system prompt"},
+                        {"role": "user", "content": "trigger"},
+                    ],
+                    None,
+                )
             ),
         ),
         patch.object(

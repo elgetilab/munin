@@ -62,3 +62,36 @@ defensively. `Path(__file__).resolve().parents[3]` raises `IndexError` from
 `/app/tests/` (there are only three parents there), which crashed
 `test_persona_prompt_split.py` at import in the deployed container for months.
 That test would otherwise have passed, since `/app/personas` is present.
+
+## Two ways a test lies about itself
+
+Both of these were live in this directory until 2026-09-07, and neither
+looked like what it was.
+
+**A stub whose return SHAPE drifts.** `chat_context.assemble_context` is typed
+`-> tuple[list[dict], Optional[dict]]` and its caller does
+`messages, compact_info = await ...`. The stub in
+`test_stream_error_persistence.py` returned a bare 2-element list, so the
+unpack put one message dict into each variable and `messages` became a dict.
+The one test that reached `messages.append(...)` died with
+`AttributeError: 'dict' object has no attribute 'append'`, a traceback
+pointing deep inside `chat_service` and nowhere near the stub. The other 18
+"passed" while quietly emitting a bogus `compact_boundary` SSE, because a
+truthy `compact_info` is what triggers that event.
+
+So: when you stub a function, copy its return shape from the annotation, not
+from what the test happens to consume. A shape error surfaces far from the
+stub and only on the paths that read the part you got wrong.
+
+**A suite that passes and then never exits.** `test_persona_handoff.py`
+printed `9 passed, 0 failed` and hung forever. `chat_store.get_db()` caches
+one `aiosqlite` connection, aiosqlite services it from a NON-daemon worker
+thread, and CPython will not exit while one of those is alive. Under a CI
+timeout that is indistinguishable from a test that failed.
+
+Any test that touches `chat_store` must call `chat_store.close_db()` when it
+finishes. Do it in a `finally` in `main()` and in a `teardown_module()` so
+both the standalone and pytest paths are covered. An `atexit` hook does NOT
+work here: CPython joins non-daemon threads *before* running atexit
+callbacks, so the hook is only reached after the hang it was meant to
+prevent.
