@@ -87,11 +87,26 @@ def test_research_persona_json() -> bool:
     deep multi-call exploration more room before the auto-continue / Continue
     fallback kicks in — rpt_20260702)."""
     import json
+    import os
 
-    path = Path(__file__).resolve().parents[3] / "shared/personas/research.json"
-    if not path.exists():
-        print("[SKIP] research.json max_turns - file not found at "
-              f"{path}")
+    # `parents[3]` raised IndexError from /app/tests, where parents is exactly
+    # ['/app/tests', '/app', '/']. It blew up BEFORE the exists() guard below
+    # could skip, so this never ran in the container. Same defect and the same
+    # repair as KNOWN-BUGS 7 / test_persona_prompt_split; see tests/README.md.
+    #
+    # Skipping would be the wrong repair anyway: the deployed container mounts
+    # the personas at /app/personas, so the assertion CAN run there and should.
+    parents = Path(__file__).resolve().parents
+    candidates = []
+    if len(parents) > 3:
+        candidates.append(parents[3] / "shared/personas/research.json")
+    candidates.append(
+        Path(os.getenv("PERSONAS_DIR", "/app/personas")) / "research.json"
+    )
+    path = next((p for p in candidates if p.exists()), None)
+    if path is None:
+        print("[SKIP] research.json max_turns - not found at any of: "
+              + ", ".join(str(p) for p in candidates))
         return True
     persona = json.load(open(path))
     return _check(

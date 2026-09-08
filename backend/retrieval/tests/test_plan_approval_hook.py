@@ -55,6 +55,51 @@ from mcp.context import (  # noqa: E402
 )
 
 
+# --- the gating fixture (repaired 2026-09-08) -------------------------------
+#
+# These tests used to gate on `delegate_to_persona`, because the research
+# persona shipped `params.plan_approval: ["delegate_to_persona"]`. Commit
+# 158e70c ("A4a delete the delegation machinery", 2026-06-25) removed BOTH:
+# the tool went out of `mcp/schemas.py` and the list went out of
+# `shared/personas/research.json`, since delegation was the only thing anyone
+# had ever gated. No persona has declared `plan_approval` since.
+#
+# That left the file asserting against a tool and a config that no longer
+# exist, and it had been failing for two and a half months. It is NOT a
+# product defect: `plan_approval_tools()` and the persona branch of
+# `_is_gated_call()` are still live code, they simply have nothing to act on
+# until an operator configures a persona again.
+#
+# Deleting the tests would drop coverage of that live branch, so instead the
+# gating persona is supplied HERE rather than read out of shipped config. Two
+# things improve as a result: the tests stop depending on what production
+# personas happen to declare, and `test_pre_non_gated_tool_returns_none`
+# becomes meaningful again. With no persona list at all it was passing
+# vacuously through the model-flag branch, which gates every non-plan tool
+# and so could never distinguish gated from non-gated.
+_GATED_TOOL = "compile_latex"        # real, present in MCP_TOOLS
+_NON_GATED_TOOL = "web_search"       # real, deliberately NOT in the gated list
+
+_real_get_persona = persona_module.get_persona
+
+
+def _get_persona_with_gating(persona_id):
+    """Give `research` a plan_approval list; leave every other persona alone.
+
+    The model-flag tests rely on `chat` having NO list, so this must not be a
+    blanket injection."""
+    p = _real_get_persona(persona_id)
+    if persona_id == "research" and isinstance(p, dict):
+        params = {**(p.get("params") or {}), "plan_approval": [_GATED_TOOL]}
+        return {**p, "params": params}
+    return p
+
+
+# The hook resolves personas through `personas.get_persona`, and imports the
+# same module object this test does, so patching the attribute reaches it.
+persona_module.get_persona = _get_persona_with_gating
+
+
 def _check(name: str, ok: bool, detail: str = "") -> bool:
     label = "PASS" if ok else "FAIL"
     print(f"[{label}] {name}{(' - ' + detail) if detail and not ok else ''}")
@@ -105,8 +150,8 @@ def test_pre_no_plan_returns_nudge_error() -> bool:
         try:
             result = await _phook.plan_approval_gate.__wrapped__(  # type: ignore[attr-defined]
                 hooks.HookContext(user_email="u@x", conversation_id="c1", persona_id="research"),
-                "delegate_to_persona", {},
-            ) if hasattr(_phook.plan_approval_gate, "__wrapped__") else await hooks.dispatch_pre_tool_use("delegate_to_persona", {})
+                _GATED_TOOL, {},
+            ) if hasattr(_phook.plan_approval_gate, "__wrapped__") else await hooks.dispatch_pre_tool_use(_GATED_TOOL, {})
         finally:
             _unbind_ctx(tokens)
         return isinstance(result, dict) and result.get("error") == "plan_approval_required"
@@ -134,7 +179,7 @@ def test_pre_unapproved_plan_short_circuits_and_emits() -> bool:
         em_token = current_sse_emitter.set(emitter)
         try:
             result = await hooks.dispatch_pre_tool_use(
-                "delegate_to_persona", {"persona_id": "code"},
+                _GATED_TOOL, {"persona_id": "code"},
             )
         finally:
             current_sse_emitter.reset(em_token)
@@ -145,7 +190,7 @@ def test_pre_unapproved_plan_short_circuits_and_emits() -> bool:
             return False
         if not (len(captured) == 1 and captured[0][0] == "plan_approval_required"):
             return False
-        return captured[0][1]["tool"] == "delegate_to_persona"
+        return captured[0][1]["tool"] == _GATED_TOOL
     return _check(
         "gated tool with unapproved plan -> short-circuit + emit",
         asyncio.run(go()),
@@ -165,7 +210,7 @@ def test_pre_approved_plan_returns_none() -> bool:
         tokens = _bind_ctx("research")
         try:
             result = await hooks.dispatch_pre_tool_use(
-                "delegate_to_persona", {},
+                _GATED_TOOL, {},
             )
         finally:
             _unbind_ctx(tokens)
@@ -185,8 +230,8 @@ def test_pre_non_gated_tool_returns_none() -> bool:
         )
         tokens = _bind_ctx("research")
         try:
-            # web_search is NOT in research's plan_approval list
-            result = await hooks.dispatch_pre_tool_use("web_search", {})
+            # _NON_GATED_TOOL is NOT in research's plan_approval list
+            result = await hooks.dispatch_pre_tool_use(_NON_GATED_TOOL, {})
         finally:
             _unbind_ctx(tokens)
         return result is None
@@ -205,7 +250,7 @@ def test_pre_no_conversation_id_returns_none() -> bool:
             current_persona.set("research"),
         )
         try:
-            result = await hooks.dispatch_pre_tool_use("delegate_to_persona", {})
+            result = await hooks.dispatch_pre_tool_use(_GATED_TOOL, {})
         finally:
             current_user_email.reset(em_tokens[0])
             current_persona.reset(em_tokens[1])
@@ -277,7 +322,7 @@ def test_post_each_mode_clears_approved_at() -> bool:
         tokens = _bind_ctx("research")
         try:
             await hooks.dispatch_post_tool_use(
-                "delegate_to_persona", {}, {"ok": True}, 50,
+                _GATED_TOOL, {}, {"ok": True}, 50,
             )
         finally:
             _unbind_ctx(tokens)
@@ -301,7 +346,7 @@ def test_post_auto_mode_preserves_approved_at() -> bool:
         tokens = _bind_ctx("research")
         try:
             await hooks.dispatch_post_tool_use(
-                "delegate_to_persona", {}, {"ok": True}, 50,
+                _GATED_TOOL, {}, {"ok": True}, 50,
             )
         finally:
             _unbind_ctx(tokens)
@@ -329,9 +374,9 @@ def test_post_short_circuit_does_not_consume_approval() -> bool:
         tokens = _bind_ctx("research")
         try:
             await hooks.dispatch_post_tool_use(
-                "delegate_to_persona",
+                _GATED_TOOL,
                 {},
-                {"status": "awaiting_user_approval", "tool": "delegate_to_persona"},
+                {"status": "awaiting_user_approval", "tool": _GATED_TOOL},
                 0,
             )
         finally:

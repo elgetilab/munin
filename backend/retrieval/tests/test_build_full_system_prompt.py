@@ -20,7 +20,10 @@ Or locally:
 from __future__ import annotations
 
 import asyncio
+import os
+import shutil
 import sys
+import tempfile
 import traceback
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,7 +31,18 @@ from types import SimpleNamespace
 sys.path.insert(0, "/app")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+# Must be set BEFORE chat_service is imported: it pulls in chat_store, which
+# reads this env var once at module import time. Without it chat_store falls
+# back to its default of /data/chats.db, so importing this test file opened
+# the PRODUCTION chat database and ran init_db() (CREATE TABLE IF NOT EXISTS,
+# the migration block, PRAGMA journal_mode=WAL) against it. Harmless in
+# practice but it has no business touching live data, and it is the reason
+# this file held an aiosqlite connection open at all.
+_DB_DIR = tempfile.mkdtemp(prefix="munin-test-sysprompt-")
+os.environ["CHATS_DB_PATH"] = os.path.join(_DB_DIR, "chats.db")
+
 import chat_service as cs  # noqa: E402
+import chat_store  # noqa: E402
 
 
 def _check(name: str, ok: bool, detail: str = "") -> bool:
@@ -272,20 +286,43 @@ TESTS = [
 ]
 
 
+def _cleanup() -> None:
+    """Close the chat_store connection and drop the throwaway DB.
+
+    Without the close this file PASSED all 3 tests and then hung forever in
+    `threading._shutdown`: aiosqlite services its connection from a
+    NON-daemon worker thread and CPython will not finalize while one is
+    alive. See tests/README.md, "Two ways a test lies about itself".
+    """
+    try:
+        asyncio.run(chat_store.close_db())
+    except Exception:
+        traceback.print_exc()
+    shutil.rmtree(_DB_DIR, ignore_errors=True)
+
+
+def teardown_module(module=None) -> None:  # noqa: ARG001
+    """pytest's hook; `main()` handles the standalone path. Safe twice."""
+    _cleanup()
+
+
 def main() -> int:
     passed = 0
     failed = 0
-    for t in TESTS:
-        try:
-            ok = t()
-        except Exception:
-            ok = False
-            print(f"[FAIL] {t.__name__} - exception:")
-            traceback.print_exc()
-        passed += int(ok)
-        failed += int(not ok)
-    print(f"\n{passed} passed, {failed} failed")
-    return 0 if failed == 0 else 1
+    try:
+        for t in TESTS:
+            try:
+                ok = t()
+            except Exception:
+                ok = False
+                print(f"[FAIL] {t.__name__} - exception:")
+                traceback.print_exc()
+            passed += int(ok)
+            failed += int(not ok)
+        print(f"\n{passed} passed, {failed} failed")
+        return 0 if failed == 0 else 1
+    finally:
+        _cleanup()
 
 
 if __name__ == "__main__":
