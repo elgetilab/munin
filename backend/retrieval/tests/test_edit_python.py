@@ -19,13 +19,61 @@ Run standalone or under pytest:
 from __future__ import annotations
 
 import asyncio
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, "/app")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+# Set before anything can import chat_store (sandbox imports it lazily inside
+# _base_source). chat_store reads this once at module import and otherwise
+# defaults to /data/chats.db, i.e. the production database.
+_DB_DIR = tempfile.mkdtemp(prefix="munin-test-editpy-")
+os.environ["CHATS_DB_PATH"] = os.path.join(_DB_DIR, "chats.db")
+
 from mcp.tools import sandbox  # noqa: E402
+
+
+def _restore_chat_store(saved) -> None:
+    """Put back whatever was in sys.modules["chat_store"] before a test
+    installed its fake.
+
+    This used to be `sys.modules.pop("chat_store", None)`, which is wrong in
+    a way that only shows up at exit. Other tests in this file import the
+    REAL chat_store, which opens an aiosqlite connection; popping the entry
+    left that module object unreachable by name while its NON-daemon worker
+    thread stayed alive, so the interpreter hung in `threading._shutdown`
+    after printing "18 tests passed". Worse, the orphan could not be closed:
+    a later `import chat_store` builds a FRESH module whose `_db` is None,
+    so calling close_db() on it closes nothing. Restoring the original entry
+    keeps the connection reachable for _cleanup() below.
+    """
+    if saved is not None:
+        sys.modules["chat_store"] = saved
+    else:
+        sys.modules.pop("chat_store", None)
+
+
+def _cleanup() -> None:
+    """Close the real chat_store connection, if one was ever opened, and drop
+    the throwaway DB. See tests/README.md, "Two ways a test lies about
+    itself"."""
+    mod = sys.modules.get("chat_store")
+    close = getattr(mod, "close_db", None) if mod is not None else None
+    if close is not None:
+        try:
+            asyncio.run(close())
+        except Exception:
+            import traceback
+            traceback.print_exc()
+    shutil.rmtree(_DB_DIR, ignore_errors=True)
+
+
+def teardown_module(module=None) -> None:  # noqa: ARG001
+    _cleanup()
 
 SCRIPT = """import numpy as np
 
@@ -150,13 +198,14 @@ def test_transcript_fallback_reads_last_run_python(monkeypatch=None):
         ]
 
     fake.get_messages_after_index = _msgs
+    _saved_chat_store = sys.modules.get("chat_store")
     sys.modules["chat_store"] = fake
     try:
         sandbox.forget_source("conv-fallback")
         got = asyncio.run(sandbox._base_source("conv-fallback"))
         assert got == "newest = 2", got
     finally:
-        sys.modules.pop("chat_store", None)
+        _restore_chat_store(_saved_chat_store)
         sandbox.forget_source("conv-fallback")
 
 
@@ -176,12 +225,13 @@ def test_fallback_chains_across_edits():
         ]
 
     fake.get_messages_after_index = _msgs
+    _saved_chat_store = sys.modules.get("chat_store")
     sys.modules["chat_store"] = fake
     try:
         sandbox.forget_source("conv-chain")
         assert asyncio.run(sandbox._base_source("conv-chain")) == "a = 2"
     finally:
-        sys.modules.pop("chat_store", None)
+        _restore_chat_store(_saved_chat_store)
         sandbox.forget_source("conv-chain")
 
 
@@ -209,11 +259,12 @@ def test_no_base_source_is_a_clear_error():
         async def _none(conv_id, index):
             return []
         fake.get_messages_after_index = _none
+        _saved_chat_store = sys.modules.get("chat_store")
         sys.modules["chat_store"] = fake
         try:
             res = asyncio.run(sandbox.edit_python([{"old": "a", "new": "b"}]))
         finally:
-            sys.modules.pop("chat_store", None)
+            _restore_chat_store(_saved_chat_store)
         assert "error" in res and "run_python first" in res["error"]
     finally:
         ctx.current_user_email.reset(t1)
@@ -288,9 +339,12 @@ def test_run_python_description_leads_with_incremental_use():
 if __name__ == "__main__":
     import types as _t
     passed = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and isinstance(fn, _t.FunctionType):
-            fn()
-            print(f"  ok  {name}")
-            passed += 1
-    print(f"{passed} tests passed")
+    try:
+        for name, fn in sorted(globals().items()):
+            if name.startswith("test_") and isinstance(fn, _t.FunctionType):
+                fn()
+                print(f"  ok  {name}")
+                passed += 1
+        print(f"{passed} tests passed")
+    finally:
+        _cleanup()

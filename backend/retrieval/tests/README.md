@@ -95,3 +95,42 @@ both the standalone and pytest paths are covered. An `atexit` hook does NOT
 work here: CPython joins non-daemon threads *before* running atexit
 callbacks, so the hook is only reached after the hang it was meant to
 prevent.
+
+## Point every test at a throwaway database
+
+`chat_store` reads `CHATS_DB_PATH` **once, at module import**, and otherwise
+defaults to `/data/chats.db`. That is the live chat database in the deployed
+container. A test that imports `chat_store` (directly, or via `chat_service`,
+or via a lazy `import chat_store` inside a tool) without setting that env var
+first therefore opens production and runs `init_db()` against it: the
+`CREATE TABLE IF NOT EXISTS` block, the migration block, and
+`PRAGMA journal_mode=WAL`. `test_build_full_system_prompt.py` was doing
+exactly this until 2026-09-08.
+
+Set it before the first import that can reach `chat_store`:
+
+```python
+_DB_DIR = tempfile.mkdtemp(prefix="munin-test-<name>-")
+os.environ["CHATS_DB_PATH"] = os.path.join(_DB_DIR, "chats.db")
+```
+
+Related trap: if a test swaps a fake in with `sys.modules["chat_store"] = fake`,
+restore the previous entry afterwards rather than `sys.modules.pop(...)`.
+Popping leaves the real module, and its open connection, unreachable by name,
+and a later `import chat_store` builds a fresh module whose `_db` is `None`,
+so `close_db()` then closes nothing and the process still hangs.
+
+## Don't assert against shipped config you don't control
+
+`test_plan_approval_hook.py` gated on `delegate_to_persona` because
+`shared/personas/research.json` declared it in `params.plan_approval`. Commit
+`158e70c` deleted the tool and that config together, and the tests failed for
+two and a half months while the code they cover was fine.
+
+Worse, one of them kept PASSING for the wrong reason. With no persona list at
+all, `_is_gated_call` falls through to the model-flag branch, which gates
+every non-plan tool, so "this tool is not gated" could not fail.
+
+Build the fixture in the test instead: supply a persona dict declaring the
+behaviour under test. The test then covers the branch rather than the current
+contents of a JSON file someone may legitimately change.

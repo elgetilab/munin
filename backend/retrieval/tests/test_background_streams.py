@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import sys
 import tempfile
 import traceback
@@ -280,20 +281,46 @@ TESTS = [
 ]
 
 
+def _cleanup() -> None:
+    """Close the chat_store connection and drop the throwaway DB.
+
+    Without the close this file PASSED every test and then hung forever in
+    `threading._shutdown`. `chat_store.get_db()` caches one `aiosqlite`
+    connection, aiosqlite services it from a NON-daemon worker thread, and
+    CPython will not finalize while such a thread is alive. Nothing printed
+    after "8 passed, 0 failed", so under a timeout a fully successful run
+    was indistinguishable from a test wedged on a real defect.
+    See tests/README.md, "Two ways a test lies about itself".
+    """
+    try:
+        asyncio.run(chat_store.close_db())
+    except Exception:
+        traceback.print_exc()
+    shutil.rmtree(_DB_DIR, ignore_errors=True)
+
+
+def teardown_module(module=None) -> None:  # noqa: ARG001
+    """pytest's hook; `main()` handles the standalone path. Safe twice."""
+    _cleanup()
+
+
 def main() -> int:
     passed = 0
     failed = 0
-    for t in TESTS:
-        try:
-            ok = t()
-        except Exception:
-            ok = False
-            print(f"[FAIL] {t.__name__} - exception:")
-            traceback.print_exc()
-        passed += int(ok)
-        failed += int(not ok)
-    print(f"\n{passed} passed, {failed} failed")
-    return 0 if failed == 0 else 1
+    try:
+        for t in TESTS:
+            try:
+                ok = t()
+            except Exception:
+                ok = False
+                print(f"[FAIL] {t.__name__} - exception:")
+                traceback.print_exc()
+            passed += int(ok)
+            failed += int(not ok)
+        print(f"\n{passed} passed, {failed} failed")
+        return 0 if failed == 0 else 1
+    finally:
+        _cleanup()
 
 
 if __name__ == "__main__":
