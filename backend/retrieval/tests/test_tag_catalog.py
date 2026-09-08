@@ -16,7 +16,27 @@ Exit code 0 = pass, non-zero = fail.
 import sys
 import traceback
 
-import main
+from pathlib import Path
+
+# Without these, running this file directly puts /app/tests on sys.path
+# but NOT /app, so the import below raises ModuleNotFoundError before any
+# test runs. The file only ever worked under pytest, which adds the rootdir.
+sys.path.insert(0, "/app")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# `import main` pulls the whole service dependency tree (sse_starlette,
+# fastapi, qdrant_client, ...), which is present in the retrieval container and
+# generally NOT on a developer host. The docstring above already says this file
+# runs in the container; say so on the way out instead of failing there.
+try:
+    import main
+except ModuleNotFoundError as exc:
+    print(
+        f"[SKIP] test_tag_catalog - `import main` needs the service deps "
+        f"({exc.name} missing). Run it in the container:\n"
+        "       docker exec munin-retrieval python /app/tests/test_tag_catalog.py"
+    )
+    raise SystemExit(0)
 
 
 def test_dedup_collapses_multi_email_person() -> bool:

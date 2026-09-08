@@ -2,6 +2,15 @@
 Pure functions only (no vLLM/network); the LLM-backed TL;DR and section prose are
 covered by live runs, not here."""
 
+import sys
+from pathlib import Path
+
+# Without these, running this file directly puts /app/tests on sys.path
+# but NOT /app, so the import below raises ModuleNotFoundError before any
+# test runs. The file only ever worked under pytest, which adds the rootdir.
+sys.path.insert(0, "/app")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import deep_research_agent as D
 
 
@@ -180,3 +189,34 @@ def test_citations_dedupe_and_keep_read_depth():
     assert len(cites) == 2
     assert {c["ref"]["doi"] for c in cites} == {"10.1/a", "10.1/b"}
     assert any(c["read_depth"] == "abstract" for c in cites)
+
+
+if __name__ == "__main__":
+    # Standalone runner, per the convention in tests/README.md: these files
+    # must print PASS/FAIL and exit non-zero under plain `python`, not only
+    # under pytest (which is not installed in the retrieval container).
+    # Functions taking parameters want a pytest fixture and are reported as
+    # skipped rather than called with nothing, which would fail misleadingly.
+    import inspect as _inspect
+    import sys as _sys
+    import traceback as _traceback
+    import types as _types
+
+    _passed = _failed = _skipped = 0
+    for _name, _fn in sorted(globals().items()):
+        if not (_name.startswith("test_") and isinstance(_fn, _types.FunctionType)):
+            continue
+        if _inspect.signature(_fn).parameters:
+            print(f"[SKIP] {_name} (needs a pytest fixture)")
+            _skipped += 1
+            continue
+        try:
+            _fn()
+            print(f"[PASS] {_name}")
+            _passed += 1
+        except Exception:
+            print(f"[FAIL] {_name}")
+            _traceback.print_exc()
+            _failed += 1
+    print(f"\n{_passed} passed, {_failed} failed, {_skipped} skipped")
+    _sys.exit(1 if _failed else 0)

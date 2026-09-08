@@ -21,9 +21,24 @@ from pathlib import Path
 sys.path.insert(0, "/app")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-_SHARED = Path(__file__).resolve().parents[3] / "shared" / "personas"
-if _SHARED.is_dir():
-    os.environ["PERSONAS_DIR"] = str(_SHARED)
+# `parents[3]` raised IndexError from /app/tests, where parents is exactly
+# ['/app/tests', '/app', '/'], and it did so BEFORE the is_dir() guard below
+# could take effect. Same defect as KNOWN-BUGS 7; see tests/README.md.
+# The deployed container mounts the personas at /app/personas, so prefer the
+# repo copy (a developer editing JSON sees it immediately) and fall back to
+# the deployed one rather than skipping.
+_parents = Path(__file__).resolve().parents
+_CANDIDATES = []
+if len(_parents) > 3:
+    _CANDIDATES.append(_parents[3] / "shared" / "personas")
+_CANDIDATES.append(Path(os.getenv("PERSONAS_DIR") or "/app/personas"))
+
+_SHARED = next((d for d in _CANDIDATES if d.is_dir()), None)
+if _SHARED is None:
+    print("[SKIP] test_munin_frame_shared - no persona dir at any of: "
+          + ", ".join(str(d) for d in _CANDIDATES))
+    raise SystemExit(0)
+os.environ["PERSONAS_DIR"] = str(_SHARED)
 
 import personas  # noqa: E402
 
