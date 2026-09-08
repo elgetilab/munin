@@ -10,7 +10,20 @@ import asyncio
 import sys
 from pathlib import Path
 
-import pytest
+# Genuinely pytest-native: every test below takes `tmp_path` / `monkeypatch`
+# and one uses `pytest.raises`, so there is no honest standalone runner for
+# this file. pytest is not installed in the retrieval container, where a bare
+# `import pytest` was a hard ModuleNotFoundError and read as a failing test.
+# One SKIP line and exit 0 instead, per tests/README.md.
+try:
+    import pytest
+except ModuleNotFoundError:
+    print(
+        "[SKIP] test_contributors_sync requires pytest, which is not installed "
+        "in this environment. Run it on the host:\n"
+        "       cd backend/retrieval && python -m pytest tests/test_contributors_sync.py"
+    )
+    raise SystemExit(0)
 
 
 # Make `import contributors_sync` work when pytest is run from backend/retrieval.
@@ -121,3 +134,12 @@ def test_start_sync_task_noop_when_url_unset(monkeypatch):
     monkeypatch.setattr(cs, "CONTRIBUTORS_SYNC_URL", "")
     # Need a running loop to create tasks; the function returns None first.
     assert cs.start_sync_task() is None
+
+
+if __name__ == "__main__":
+    # pytest-native file (fixtures / parametrize), so hand it to pytest rather
+    # than pretending to run it. Without this, plain `python <file>` imported
+    # the module, defined the tests, ran NONE of them and exited 0: a silent
+    # green, which is worse than the ModuleNotFoundError it replaced.
+    import sys as _sys
+    _sys.exit(pytest.main([__file__, "-q"]))

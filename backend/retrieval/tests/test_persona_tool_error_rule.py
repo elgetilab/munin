@@ -31,6 +31,7 @@ Exit 0 = pass, non-zero = fail.
 
 from __future__ import annotations
 
+import os
 import json
 import sys
 from pathlib import Path
@@ -41,9 +42,17 @@ from pathlib import Path
 # Preferring the repo path means a developer running these tests
 # locally after editing the persona JSON sees their change
 # immediately, without having to redeploy first.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_PERSONA_DIR_CANDIDATES = [
-    _REPO_ROOT / "shared" / "personas",
+# `parents[3]` raised IndexError from /app/tests, where parents is exactly
+# ['/app/tests', '/app', '/']. Same defect as KNOWN-BUGS 7; see tests/README.md.
+# /opt/munin/personas is the HOST path; inside the retrieval container the same
+# directory is mounted at /app/personas, so that candidate has to be listed too
+# or the file still finds nothing after the IndexError is fixed.
+_parents = Path(__file__).resolve().parents
+_PERSONA_DIR_CANDIDATES = []
+if len(_parents) > 3:
+    _PERSONA_DIR_CANDIDATES.append(_parents[3] / "shared" / "personas")
+_PERSONA_DIR_CANDIDATES += [
+    Path(os.getenv("PERSONAS_DIR") or "/app/personas"),
     Path("/opt/munin/personas"),
 ]
 

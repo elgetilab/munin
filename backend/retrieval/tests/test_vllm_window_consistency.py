@@ -30,12 +30,31 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-BACKEND = Path(__file__).resolve().parents[2]
+import sys
+
+_parents = Path(__file__).resolve().parents
+BACKEND = _parents[2] if len(_parents) > 2 else Path("/nonexistent")
 CHAT_CONTEXT = BACKEND / "retrieval" / "chat_context.py"
 MAIN = BACKEND / "retrieval" / "main.py"
 COMPOSE = BACKEND / "docker" / "docker-compose.yml"
 SINGLE = BACKEND / "scripts" / "vllm" / "start-vllm-service.sh"
 TP2 = BACKEND / "scripts" / "vllm" / "start-vllm-service-tp2.sh"
+
+# This file cross-checks REPO artifacts against each other (the SLURM launch
+# scripts, docker-compose, and the Python defaults must all name one context
+# window). None of them ship inside the retrieval image: from /app/tests,
+# parents[2] is "/", so every path above pointed at /retrieval, /docker,
+# /scripts and the first assert failed with "expected file missing". That is
+# the wrong environment, not a defect, and per tests/README.md it must be one
+# SKIP line rather than a failure.
+_REQUIRED = (CHAT_CONTEXT, MAIN, COMPOSE, SINGLE, TP2)
+if not all(p.is_file() for p in _REQUIRED):
+    _missing = [str(p) for p in _REQUIRED if not p.is_file()]
+    print(
+        "[SKIP] test_vllm_window_consistency - host-only: it compares repo "
+        "files that are not in the container. Missing: " + ", ".join(_missing)
+    )
+    raise SystemExit(0)
 
 # The model's native cap (Qwen3.6-35B-A3B). No mode may exceed it.
 NATIVE_MAX = 262144
@@ -66,8 +85,39 @@ def _compose_default(text: str, var: str) -> int:
 
 
 def _sh_int(text: str, var: str, what: str) -> int:
-    # `export VAR=65536` or `VAR=65536` (bash literal assignment)
-    return int(_find(text, rf'^(?:export\s+)?{var}=(\d+)', what))
+    """A window literal from a launch script.
+
+    Accepts the plain form (`export VAR=65536`) and the overridable form
+    (`VAR=${VAR:-65536}`). The tp2 script moved to the latter so the
+    large-window variant is one env var away, which the literal-only pattern
+    could not parse at all: it failed with "could not locate tp2
+    MAX_MODEL_LEN" rather than reporting a real disagreement."""
+    for pattern in (
+        rf'^(?:export\s+)?{var}=(\d+)',
+        rf'^(?:export\s+)?{var}=\$\{{{var}:-(\d+)\}}',
+    ):
+        m = re.search(pattern, text, re.MULTILINE)
+        if m:
+            return int(m.group(1))
+    raise AssertionError(f"could not locate {what}")
+
+
+def _sh_derived_int(text: str, var: str, base_var: str, base_value: int,
+                    what: str) -> int:
+    """A value DERIVED from another in the script, e.g.
+    `BACKEND_MAX_CONTEXT=${BACKEND_MAX_CONTEXT:-$((MAX_MODEL_LEN - 5536))}`.
+
+    Matching the derivation rather than a literal is deliberate: the script
+    comment claims the ceiling "cannot drift out of step with the window", and
+    that claim is only true while the value stays computed from it. A literal
+    reappearing here should therefore fail to parse and get noticed."""
+    m = re.search(
+        rf'^(?:export\s+)?{var}=\$\{{{var}:-\$\(\(\s*{base_var}\s*-\s*(\d+)\s*\)\)\}}',
+        text, re.MULTILINE,
+    )
+    if m:
+        return base_value - int(m.group(1))
+    return _sh_int(text, var, what)
 
 
 def _serve_window(text: str, what: str) -> str:
@@ -76,8 +126,25 @@ def _serve_window(text: str, what: str) -> str:
 
 
 def _ctxcheck_arg(text: str, what: str) -> str:
-    # `check-context-window.sh" 65536`  or  `check-context-window.sh" "$MAX_MODEL_LEN"`
-    return _find(text, r'check-context-window\.sh"?\s+"?(\$?[A-Za-z0-9_]+)"?', what)
+    """The window the launch script hands to the check-context-window probe.
+
+    Both scripts now RESOLVE the probe first (a candidate loop that sets
+    CHECK_WINDOW) and then invoke `"$CHECK_WINDOW" <window>`, so the literal
+    `check-context-window.sh` is never directly followed by the argument any
+    more. The old pattern matched the next such literal it could find, which
+    is the `[WARN] check-context-window.sh not found` message, and returned
+    the word "not". That is a stale parser, not config drift: both scripts do
+    pass the right window. Try the indirection first, then the direct form for
+    any script that still invokes the probe by name.
+    """
+    for pattern in (
+        r'"\$CHECK_WINDOW"\s+"?(\$?\{?[A-Za-z0-9_}]+)"?',
+        r'check-context-window\.sh"?\s+"?(\$?\{?[A-Za-z0-9_}]+)"?',
+    ):
+        m = re.search(pattern, text, re.MULTILINE)
+        if m:
+            return m.group(1)
+    raise AssertionError(f"could not locate {what}")
 
 
 # --- single-GPU script: internally coherent (the default mode) --------------
@@ -149,19 +216,43 @@ def test_tp2_script_wires_one_window_everywhere():
 def test_tp2_values_are_sane():
     text = _read(TP2)
     window = _sh_int(text, "MAX_MODEL_LEN", "tp2 MAX_MODEL_LEN")
-    ctx = _sh_int(text, "BACKEND_MAX_CONTEXT", "tp2 BACKEND_MAX_CONTEXT")
+    ctx = _sh_derived_int(text, "BACKEND_MAX_CONTEXT", "MAX_MODEL_LEN", window,
+                          "tp2 BACKEND_MAX_CONTEXT")
     single_window = _sh_int(_read(SINGLE), "VLLM_MAX_MODEL_LEN", "single-GPU window")
     assert ctx < window, f"tp2 trim ceiling {ctx} must be below its window {window}"
     assert window <= NATIVE_MAX
-    # tp2 exists to grow the window; if it isn't larger than single-GPU, the
-    # mode has no reason to claim both cards.
-    assert window > single_window, (
-        f"tp2 window {window} should exceed single-GPU {single_window}")
+    # This used to assert `window > single_window`, on the reasoning that tp2
+    # exists to GROW the window. That stopped being true in 2d931e2, which
+    # retargeted TP=2 at concurrency instead: the script now says the window
+    # "deliberately STAYS at 65,536", because every committed benchmark number
+    # was produced at 64k and raising it here would entangle "new model" with
+    # "bigger window" in the paper's before/after diff. The second card buys
+    # KV-cache pool (and MAX_NUM_SEQS 8), not context.
+    #
+    # So the invariant is now that the two modes agree, which is what keeps the
+    # backend's budget correct whichever profile is running.
+    assert window == single_window, (
+        f"tp2 window {window} should match single-GPU {single_window}; raising "
+        "it is an explicit MAX_MODEL_LEN override, not a default")
 
 
 if __name__ == "__main__":
+    # Run every check even after one fails. The previous runner let the first
+    # AssertionError propagate, so a single stale assertion hid every check
+    # after it: the tp2 arm below was never reached while the single-GPU arm
+    # was red.
+    import traceback as _traceback
+
+    _passed = _failed = 0
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
-            fn()
-            print(f"[OK] {name}")
-    print("all vLLM window-consistency checks passed")
+            try:
+                fn()
+                print(f"[PASS] {name}")
+                _passed += 1
+            except Exception:
+                print(f"[FAIL] {name}")
+                _traceback.print_exc()
+                _failed += 1
+    print(f"\n{_passed} passed, {_failed} failed")
+    sys.exit(1 if _failed else 0)

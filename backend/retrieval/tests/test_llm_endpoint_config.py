@@ -16,7 +16,28 @@ reliably pick the environment back up. That is a trap worth not re-laying: if
 you add a case here, extend the pure function, do not reach for reload.
 """
 
-import pytest
+import sys
+from pathlib import Path
+
+# `from database import ...` needs /app (or the repo's retrieval dir) on the
+# path; running this file directly only puts tests/ there.
+sys.path.insert(0, "/app")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# Genuinely pytest-native: the cases below are @pytest.mark.parametrize'd, so
+# there is no honest standalone runner. pytest is not installed in the
+# retrieval container, where a bare `import pytest` was a hard
+# ModuleNotFoundError and read as a failing test. One SKIP line and exit 0
+# instead, per tests/README.md.
+try:
+    import pytest
+except ModuleNotFoundError:
+    print(
+        "[SKIP] test_llm_endpoint_config requires pytest, which is not installed "
+        "in this environment. Run it on the host:\n"
+        "       cd backend/retrieval && python -m pytest tests/test_llm_endpoint_config.py"
+    )
+    raise SystemExit(0)
 
 from database import (
     DEFAULT_LLM_BASE_URL,
@@ -164,3 +185,12 @@ def test_does_not_collide_with_the_thinking_field():
     into one literal would silently keep only the last, so nothing in the tree
     may do that; these are merged, never splatted together."""
     assert set(thinking_off_fields()) == set(reasoning_effort_fields())
+
+
+if __name__ == "__main__":
+    # pytest-native file (fixtures / parametrize), so hand it to pytest rather
+    # than pretending to run it. Without this, plain `python <file>` imported
+    # the module, defined the tests, ran NONE of them and exited 0: a silent
+    # green, which is worse than the ModuleNotFoundError it replaced.
+    import sys as _sys
+    _sys.exit(pytest.main([__file__, "-q"]))

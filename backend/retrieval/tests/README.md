@@ -48,6 +48,11 @@ resolves `qdrant`, so every test touching the index silently takes a
 failing loudly. Add `-v "$PWD/shared/personas:/app/personas:ro"` when a test
 needs personas.
 
+Two files genuinely require this: `test_source_evidence.py` (17/17 with the
+network, 14/17 without) and `test_paper_search_merge.py` (11/11 with, 6/11
+without). Everything else in the directory passes with no network at all, so a
+failure in a third file is a real one, not the trap.
+
 ## Skipping, and why it matters
 
 A test that cannot find its fixtures should print one `SKIP` line and exit 0,
@@ -134,3 +139,51 @@ every non-plan tool, so "this tool is not gated" could not fail.
 Build the fixture in the test instead: supply a persona dict declaring the
 behaviour under test. The test then covers the branch rather than the current
 contents of a JSON file someone may legitimately change.
+
+## Every file must run under plain `python`, including the pytest-shaped ones
+
+Nine files in this directory could not even be imported by
+`python tests/test_x.py`, so their assertions had never executed in the
+container. Three distinct causes, all fixed 2026-09-08:
+
+**No path preamble.** Running `python tests/test_x.py` puts `/app/tests` on
+`sys.path`, NOT `/app`, so `import mcp...` / `import main` /
+`import deep_research_agent` raised `ModuleNotFoundError`. Those files only
+ever worked under pytest, which adds the rootdir itself, while their own
+docstrings documented the `docker exec ... python /app/tests/...` invocation
+that could not work. Every file needs:
+
+```python
+sys.path.insert(0, "/app")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+```
+
+**No standalone runner.** Fixing the import alone made four files exit 0
+having run nothing, which is worse than failing: a silent green. They now
+carry a `__main__` block that runs each zero-argument `test_*` and reports
+functions taking parameters as `[SKIP] ... (needs a pytest fixture)` rather
+than calling them with nothing.
+
+**Genuinely pytest-native files.** `test_contributors_sync.py` (every test
+takes `tmp_path`/`monkeypatch`) and `test_llm_endpoint_config.py`
+(`@pytest.mark.parametrize`) have no honest standalone form. pytest is not
+installed in the container, so they guard the import and print one SKIP line
+naming the host command instead of dying with `ModuleNotFoundError`.
+
+## A test that cannot run is a test that rots
+
+Two of the nine had been quietly wrong for months behind the import error.
+
+`test_vllm_window_consistency.py` parses the SLURM launch scripts. Its
+`check-context-window.sh` pattern predated a refactor that resolves the probe
+into `$CHECK_WINDOW` first, so it matched the `[WARN] check-context-window.sh
+not found` message and extracted the word `not`. And its
+`_sh_int` could not read `VAR=${VAR:-65536}`, the overridable form the tp2
+script moved to. Worst of all, its runner let the first `AssertionError`
+propagate, so the tp2 half never ran while the single-GPU half was red.
+
+Underneath all that sat a stale assertion: `tp2 window > single-GPU window`,
+on the reasoning that TP=2 exists to grow the context window. Commit `2d931e2`
+retargeted TP=2 at concurrency and fixed the window at 65,536 on purpose, so
+the correct invariant is now that the two modes AGREE. Nothing was broken in
+the product; the test had simply been unable to notice the design change.
