@@ -422,14 +422,28 @@ export const useChatStore = create<ChatState>()(
       const charsPerSec = get().charsPerSec;
       const pacerEnabled = Number.isFinite(charsPerSec) && charsPerSec > 0;
       const pacerTickMs = pacerEnabled ? 1000 / PACER_REPAINT_HZ : 0;
-      // Characters revealed per repaint tick; fractional, with a carry.
-      const charsPerTick = pacerEnabled ? charsPerSec / PACER_REPAINT_HZ : 0;
+      const nowMs = (): number =>
+        typeof performance !== 'undefined' ? performance.now() : Date.now();
       // Unrevealed buffered text + fractional-character carry.
       let pendingText = '';
       let charCarry = 0;
       let displayedContent = '';
       let pacerTimer: ReturnType<typeof setTimeout> | null = null;
       let nextEmitAt = 0;
+      // Timestamp of the last drain tick, or null when the pacer is
+      // idle (buffer empty, nothing armed). The reveal is measured
+      // against ELAPSED TIME, not tick count. Browsers clamp
+      // setTimeout in a hidden tab to >= 1000ms, and to roughly once a
+      // minute once it has been hidden five minutes, so a per-tick
+      // reveal collapses to a 60th of its rate (or far less) the
+      // moment the user switches tabs, while the SSE body keeps
+      // arriving at full speed. That read as generation stopping and
+      // only resuming on return. Measuring elapsed time makes a late
+      // tick reveal exactly the backlog the wall clock earned, so the
+      // typewriter stays true whether or not anyone is watching it.
+      let lastEmitAt: number | null = null;
+      // Detaches the visibilitychange listener; null once detached.
+      let detachVisibility: (() => void) | null = null;
       let pendingDoneEvent: SSEEvent | null = null;
       let pacerStopped = false;
       let pacerDrainedResolve: (() => void) | null = null;
@@ -452,6 +466,9 @@ export const useChatStore = create<ChatState>()(
           clearTimeout(pacerTimer);
           pacerTimer = null;
         }
+        lastEmitAt = null;
+        detachVisibility?.();
+        detachVisibility = null;
         resolvePacerDrained();
       };
 
@@ -494,8 +511,11 @@ export const useChatStore = create<ChatState>()(
           resolvePacerDrained();
           return;
         }
+        const now = nowMs();
+        const elapsedMs = lastEmitAt === null ? 0 : now - lastEmitAt;
+        lastEmitAt = now;
         if (pendingText.length > 0) {
-          charCarry += charsPerTick;
+          charCarry += (charsPerSec * elapsedMs) / 1000;
           const n = Math.min(Math.floor(charCarry), pendingText.length);
           if (n > 0) {
             displayedContent += pendingText.slice(0, n);
@@ -511,9 +531,12 @@ export const useChatStore = create<ChatState>()(
           schedulePacer();
           return;
         }
-        // Buffer drained: drop the fractional carry so a later pause
-        // can't bank a burst of characters when text resumes.
+        // Buffer drained: drop the fractional carry AND the elapsed
+        // clock so a later pause (a long tool call, say) can't bank a
+        // burst of characters when text resumes. `schedulePacer`
+        // restarts the clock when it arms again from idle.
         charCarry = 0;
+        lastEmitAt = null;
         if (pendingDoneEvent !== null) {
           const evt = pendingDoneEvent;
           pendingDoneEvent = null;
@@ -530,8 +553,10 @@ export const useChatStore = create<ChatState>()(
 
       const schedulePacer = (): void => {
         if (pacerTimer !== null || pacerStopped) return;
-        const now =
-          typeof performance !== 'undefined' ? performance.now() : Date.now();
+        const now = nowMs();
+        // Arming from idle: start the elapsed clock here so the first
+        // tick measures from the arm and not from a stale timestamp.
+        if (lastEmitAt === null) lastEmitAt = now;
         const delay = Math.max(0, nextEmitAt - now);
         nextEmitAt = now + delay + pacerTickMs;
         pacerTimer = setTimeout(drainPacer, delay);
@@ -628,6 +653,7 @@ export const useChatStore = create<ChatState>()(
             displayedContent = '';
             pendingText = '';
             charCarry = 0;
+            lastEmitAt = null;
             clarification = event.data;
             set(state => {
               state.streaming.content = '';
@@ -901,6 +927,27 @@ export const useChatStore = create<ChatState>()(
       }
 
       try {
+        // Elapsed-time pacing keeps a hidden tab honest on its own, but
+        // the tick that is already armed when the user comes back can
+        // still be up to a minute out under intensive throttling, which
+        // would leave the typewriter sitting still for a beat after the
+        // tab is visible again. Re-arm it immediately instead. The
+        // catch-up amount is unchanged, since drainPacer bases it on
+        // elapsed time either way; this only moves it earlier.
+        if (pacerEnabled && typeof document !== 'undefined') {
+          const onVisibilityChange = (): void => {
+            if (pacerStopped || document.visibilityState !== 'visible') return;
+            if (pacerTimer === null) return;
+            clearTimeout(pacerTimer);
+            pacerTimer = null;
+            nextEmitAt = 0;
+            schedulePacer();
+          };
+          document.addEventListener('visibilitychange', onVisibilityChange);
+          detachVisibility = () =>
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+        }
+
         if (resumeOpts) {
           await resumeChat(
             resumeOpts.streamId,
