@@ -196,4 +196,177 @@ describe('chatStore token pacer', () => {
     },
     10000
   );
+
+  /**
+   * Background-tab regression (the bug this pacer had since it shipped).
+   *
+   * The reveal used to be tick-COUNT based: every timer tick emitted a
+   * fixed `charsPerSec / PACER_REPAINT_HZ` characters. Browsers clamp
+   * setTimeout in a hidden tab to >= 1000ms (and to once a minute after
+   * five minutes hidden), so the visible rate collapsed by 60x or more
+   * while the SSE body kept arriving at full speed, which read to the
+   * user as generation stopping until they came back to the tab.
+   *
+   * The clamp is what makes this test discriminate: without it, tick
+   * count and elapsed time agree and the assertion passes either way.
+   */
+  it(
+    'a clamped background tick reveals the elapsed-time backlog, not one tick of characters',
+    async () => {
+      vi.useFakeTimers();
+      try {
+        const BODY = 'x'.repeat(300);
+        server.use(
+          http.post('/api/chat/completions', () =>
+            sseResponse([
+              { event: 'token', data: { content: BODY } },
+              { event: 'done', data: { finish_reason: 'stop' } },
+            ])
+          )
+        );
+
+        useChatStore.setState({ charsPerSec: 60 });
+        const { result } = renderHook(() => useChatStore());
+
+        let sendPromise: Promise<void> | null = null;
+        act(() => {
+          sendPromise = result.current.sendMessage('Hi', 'chat');
+        });
+
+        // Let the whole SSE body land in the pacer buffer and the first
+        // tick arm. `done` lands here too and is deferred.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+
+        // Background the tab. Only the pacer's own re-arm goes through
+        // this, since the response body is already fully buffered.
+        const unclamped = globalThis.setTimeout;
+        vi.stubGlobal('setTimeout', ((
+          fn: () => void,
+          ms?: number,
+          ...rest: unknown[]
+        ) => unclamped(fn, Math.max(ms ?? 0, 1000), ...rest)) as unknown as typeof setTimeout);
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5000);
+        });
+
+        // ~5s of clamped wall clock at 60 cps owes ~240 characters, but
+        // allows only ~5 ticks. Tick-count pacing reveals ~5 characters
+        // here; elapsed-time pacing reveals what the clock earned.
+        expect(result.current.streaming.content.length).toBeGreaterThan(200);
+
+        // Foreground again and let the remainder drain normally.
+        vi.unstubAllGlobals();
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(6000);
+        });
+        await act(async () => {
+          await sendPromise;
+        });
+
+        const assistant = result.current.messages.find(
+          m => m.role === 'assistant'
+        );
+        expect(assistant?.content).toBe(BODY);
+        expect(result.current.streaming.phase).toBe('idle');
+      } finally {
+        vi.unstubAllGlobals();
+        vi.useRealTimers();
+      }
+    },
+    10000
+  );
+
+  /**
+   * The hazard elapsed-time pacing introduces, and the reason
+   * `lastEmitAt` resets to null whenever the buffer empties.
+   *
+   * A turn goes quiet whenever the model runs a tool. If the pacer
+   * kept measuring across that gap, the first token after a ten-second
+   * search would be credited ten seconds of characters and the whole
+   * next paragraph would appear at once. The tick-count pacer had the
+   * same hazard in its fractional carry and dropped it on drain; this
+   * is the same guard for the clock.
+   */
+  it(
+    'a mid-stream pause does not bank a burst of characters',
+    async () => {
+      vi.useFakeTimers();
+      try {
+        const enc = new TextEncoder();
+        let ctrl: ReadableStreamDefaultController<Uint8Array> | undefined;
+        const body = new ReadableStream<Uint8Array>({
+          start(c) {
+            ctrl = c;
+          },
+        });
+        const push = (event: string, data: unknown): void => {
+          ctrl!.enqueue(
+            enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+          );
+        };
+
+        server.use(
+          http.post(
+            '/api/chat/completions',
+            () =>
+              new Response(body, {
+                headers: { 'Content-Type': 'text/event-stream' },
+              })
+          )
+        );
+
+        useChatStore.setState({ charsPerSec: 60 });
+        const { result } = renderHook(() => useChatStore());
+
+        let sendPromise: Promise<void> | null = null;
+        act(() => {
+          sendPromise = result.current.sendMessage('Hi', 'chat');
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+
+        // A short first burst, fully drained: 4 chars at 60 cps is
+        // 67ms, so the pacer goes idle well inside the second.
+        await act(async () => {
+          push('token', { content: 'AAAA' });
+          await vi.advanceTimersByTimeAsync(1000);
+        });
+        expect(result.current.streaming.content).toBe('AAAA');
+
+        // Ten seconds of silence, a tool call in production.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(10_000);
+        });
+
+        // Prose resumes. The gap must not have banked 10s x 60 cps =
+        // 600 characters of credit; 100ms earns about 6.
+        await act(async () => {
+          push('token', { content: 'B'.repeat(300) });
+          await vi.advanceTimersByTimeAsync(100);
+        });
+        expect(result.current.streaming.content.length - 4).toBeLessThan(30);
+
+        await act(async () => {
+          push('done', { finish_reason: 'stop' });
+          ctrl!.close();
+          await vi.advanceTimersByTimeAsync(10_000);
+        });
+        await act(async () => {
+          await sendPromise;
+        });
+
+        const assistant = result.current.messages.find(
+          m => m.role === 'assistant'
+        );
+        expect(assistant?.content).toBe(`AAAA${'B'.repeat(300)}`);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+    10000
+  );
 });
