@@ -53,6 +53,30 @@ network, 14/17 without) and `test_paper_search_merge.py` (11/11 with, 6/11
 without). Everything else in the directory passes with no network at all, so a
 failure in a third file is a real one, not the trap.
 
+`test_paper_search_merge.py` also needs a generous timeout: it loads BGE and
+does real Qdrant work, and takes **~100 s**. Under a 90 s per-file limit it
+gets killed and reports as a failure when it was only slow.
+
+## Read a truncated run as truncated, not as a hang
+
+Timing a suite with `printf "%-42s " "$name"` before each test and completing
+the line afterwards produces a file whose last line names a test that has
+merely STARTED. Worse, output redirected to a file is block-buffered, so
+progress arrives in bursts: polling twice inside one buffer window shows the
+same count both times and looks exactly like a wedged run. That misreading
+cost a killed suite and a bogus "test_plan_dispatchers hangs with the network"
+report; it does not, it finishes in under a second, and it already closes its
+chat_store connection properly.
+
+Print one COMPLETE line per test instead, name and result together:
+
+```bash
+for f in tests/test_*.py; do
+  s=$(date +%s); timeout 90 python "$f" >/tmp/o 2>&1; rc=$?; e=$(date +%s)
+  printf "%-42s rc=%s %ss\n" "$(basename $f .py)" "$rc" "$((e-s))"
+done
+```
+
 ## Skipping, and why it matters
 
 A test that cannot find its fixtures should print one `SKIP` line and exit 0,
