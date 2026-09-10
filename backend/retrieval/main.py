@@ -486,18 +486,132 @@ async def health_check():
 # ==============================================================================
 # Frontend Status Endpoint (/api/status)
 # ==============================================================================
-def _next_vllm_start_iso() -> str:
-    """
-    Compute the next scheduled vLLM start time (next 6 AM local time).
-    Returned as an ISO 8601 string with timezone offset.
-    """
+# --- nightly vLLM maintenance window -----------------------------------------
+#
+# The cluster stops vLLM overnight to free both GPUs (HuginSLURM cron:
+# `schedule-vllm.sh stop` at 02:00, `start` at 06:00). Those cron times are
+# CLUSTER-LOCAL, but this container runs in UTC, so the schedule has to be
+# evaluated in an explicit zone. Reading `hour=6` in container-local time
+# meant 06:00 UTC = 08:00 CEST, two hours after vLLM was actually back, and
+# wrong by a different amount in winter. `next_start` is shown to users by the
+# frontend, so that error was user-visible.
+#
+# Ground truth from the live gateway log: API requests fail through 03:xx UTC
+# and succeed from 04:00 UTC, i.e. 02:00-06:00 Europe/Berlin in summer.
+VLLM_SCHEDULE_TZ = os.getenv("VLLM_SCHEDULE_TZ", "Europe/Berlin")
+VLLM_START_HOUR = int(os.getenv("VLLM_START_HOUR", "6"))
+VLLM_STOP_HOUR = int(os.getenv("VLLM_STOP_HOUR", "2"))
+# vLLM down OUTSIDE the window is a crash or a SLURM requeue, which may clear
+# in moments. Handing such a client the hours until the next scheduled start
+# would park it until tomorrow for a fault that fixes itself.
+_VLLM_UNPLANNED_RETRY_S = 60
+
+
+def _schedule_zone():
+    """The zone the cron schedule is written in, or None to fall back to
+    container-local time (which is only correct if they happen to match)."""
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo(VLLM_SCHEDULE_TZ)
+    except Exception as exc:
+        logger.warning(
+            "vLLM schedule timezone %r unavailable (%s); falling back to "
+            "container-local time, which may shift the maintenance window",
+            VLLM_SCHEDULE_TZ, exc,
+        )
+        return None
+
+
+def _schedule_now(now: Optional[datetime] = None) -> datetime:
+    """`now` in the schedule's zone. Accepts an aware datetime for tests."""
+    zone = _schedule_zone()
+    if now is None:
+        return datetime.now(zone) if zone else datetime.now().astimezone()
+    if now.tzinfo is None:
+        now = now.astimezone()
+    return now.astimezone(zone) if zone else now.astimezone()
+
+
+def _next_vllm_start(now: Optional[datetime] = None) -> datetime:
+    """Next scheduled vLLM start, as a timezone-aware datetime."""
     from datetime import timedelta
 
-    now = datetime.now().astimezone()
-    target = now.replace(hour=6, minute=0, second=0, microsecond=0)
-    if now >= target:
+    local = _schedule_now(now)
+    target = local.replace(
+        hour=VLLM_START_HOUR, minute=0, second=0, microsecond=0
+    )
+    if local >= target:
         target = target + timedelta(days=1)
-    return target.isoformat()
+    return target
+
+
+def _in_maintenance_window(now: Optional[datetime] = None) -> bool:
+    """True while vLLM is deliberately stopped. The window normally wraps
+    midnight (stop 02:00, start 06:00 does not, but stop 22:00 / start 06:00
+    would), so both orderings are handled."""
+    if VLLM_STOP_HOUR == VLLM_START_HOUR:
+        return False
+    hour = _schedule_now(now).hour
+    if VLLM_STOP_HOUR < VLLM_START_HOUR:
+        return VLLM_STOP_HOUR <= hour < VLLM_START_HOUR
+    return hour >= VLLM_STOP_HOUR or hour < VLLM_START_HOUR
+
+
+def _vllm_unavailable_response(
+    exc: BaseException, now: Optional[datetime] = None
+) -> JSONResponse:
+    """503 + Retry-After for a vLLM we could not reach.
+
+    This used to be an uncaught `httpx.ConnectError`, which FastAPI turned
+    into a 500. Measured on the live gateway: ~105 per night from one API key,
+    every night, in a band ending exactly when vLLM comes back. A 500 tells a
+    client the service is broken and retrying is pointless; a scheduled
+    shutdown is a 503, and `Retry-After` says when to come back.
+    """
+    if _in_maintenance_window(now):
+        nxt = _next_vllm_start(now)
+        seconds = int((nxt - _schedule_now(now)).total_seconds())
+        retry_after = max(1, seconds)
+        message = (
+            "The language model is offline for its scheduled nightly "
+            f"maintenance window ({VLLM_STOP_HOUR:02d}:00-{VLLM_START_HOUR:02d}:00 "
+            f"{VLLM_SCHEDULE_TZ}). It returns at {nxt.isoformat()}."
+        )
+        next_start: Optional[str] = nxt.isoformat()
+    else:
+        retry_after = _VLLM_UNPLANNED_RETRY_S
+        message = (
+            "The language model is temporarily unreachable. This is outside "
+            "the nightly maintenance window, so it is an unplanned outage; "
+            "retry shortly."
+        )
+        next_start = None
+
+    logger.warning(
+        "vLLM unreachable (%s: %s); returning 503 Retry-After=%s",
+        type(exc).__name__, exc, retry_after,
+    )
+    error: dict = {
+        "message": message,
+        "type": "service_unavailable",
+        "code": "service_unavailable",
+    }
+    if next_start:
+        error["next_start"] = next_start
+    return JSONResponse(
+        status_code=503,
+        content={"error": error},
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+def _next_vllm_start_iso() -> str:
+    """
+    Next scheduled vLLM start as an ISO 8601 string with timezone offset.
+    Consumed by the frontend to tell users when the model returns.
+    """
+    return _next_vllm_start().isoformat()
 
 
 async def _probe_http(client: httpx.AsyncClient, url: str) -> str:
@@ -1178,6 +1292,11 @@ async def _raw_chat_proxy(
                    and _halve_for_retry(forward)):
                 retries += 1
                 r = await client.post(endpoint, json=forward)
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            # vLLM is not listening: the nightly window, or an unplanned
+            # outage. Deliberately narrow -- a ReadTimeout means vLLM IS up
+            # and merely slow, which is not a 503 and must keep its own error.
+            return _vllm_unavailable_response(exc)
         finally:
             await client.aclose()
         return Response(
@@ -1203,7 +1322,15 @@ async def _raw_chat_proxy(
             client.build_request("POST", endpoint, json=forward), stream=True
         )
 
-    upstream = await _open_upstream()
+    try:
+        upstream = await _open_upstream()
+    except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+        # Same guard as the non-streaming branch above. This one also leaked
+        # the httpx client on the way out, since nothing closed it when the
+        # connect raised.
+        await client.aclose()
+        return _vllm_unavailable_response(exc)
+
     retries = 0
     while upstream.status_code != 200:
         err_text = (await upstream.aread()).decode("utf-8", errors="replace")
