@@ -132,7 +132,12 @@ Notes:
 - `vllm.status` is one of `running` / `offline` / `starting`. When `offline`
   the frontend should render `SleepingPage`.
 - `vllm.next_start` is **only present** when `status === "offline"`. It's
-  computed as the next 6 AM local time from the cluster's clock.
+  the next scheduled start of the nightly maintenance window, evaluated in
+  the CLUSTER's timezone (`VLLM_SCHEDULE_TZ`, default `Europe/Berlin`), not
+  the container's. The retrieval container runs UTC, so reading the start
+  hour in container-local time reported 06:00 UTC = 08:00 CEST: two hours
+  after vLLM was actually back, and a different error in winter. Always an
+  ISO 8601 string with an offset; render it in the viewer's zone.
 - `services.embedding` reports whether SPECTER + BGE have already been
   loaded. On a fresh boot it will be `"unavailable"` until the first call
   that needs them (first RAG call or first document upload). This is not a
@@ -457,6 +462,26 @@ HTTP status** (e.g. `400`) with vLLM's error body for failures detected
 before the stream opens, instead of a `200` carrying an `event: error`
 frame. OpenAI clients expect HTTP-level errors, so the old 200-wrapped
 form surfaced to them as an opaque "error making request".
+
+**`503` while vLLM is stopped.** The cluster shuts vLLM down nightly to
+free the GPUs (02:00-06:00 cluster-local by default). Requests arriving in
+that window get a `503 Service Unavailable` with a `Retry-After` header in
+seconds and an OpenAI-shaped body:
+
+```json
+{"error": {"message": "The language model is offline for its scheduled
+nightly maintenance window (02:00-06:00 Europe/Berlin). It returns at
+2026-09-11T06:00:00+02:00.", "type": "service_unavailable",
+"code": "service_unavailable", "next_start": "2026-09-11T06:00:00+02:00"}}
+```
+
+`Retry-After` counts down to the scheduled start. If vLLM is unreachable
+*outside* the window it is an unplanned outage that may clear at once, so
+`Retry-After` is a short fixed interval and `next_start` is omitted.
+
+This was previously an uncaught `httpx.ConnectError`, i.e. a **`500`**,
+which tells a client the service is broken and retrying is pointless. One
+API key alone logged ~105 of those per night.
 
 Context-length handling: the served model's window is **65536 tokens**
 (prompt + `max_tokens` combined). On an overflow, the proxy refits
