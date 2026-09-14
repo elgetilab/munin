@@ -1037,7 +1037,7 @@ PY=/opt/munin/services/pipeline/venv/bin/python
 $PY -m pytest tests/                                              # Phase 1-2 unit gates
 MUNIN_BENCH_SPECTER_DEVICE=cpu $PY -m munin_bench.pipelines.run_beir --subset scifact
 $PY -m munin_bench.pipelines.run_litqa2 --track retrieval
-$PY -m munin_bench.pipelines.run_litqa2 --track answer --concurrency 1   # concurrency<=vLLM max-num-seqs
+MUNIN_EVAL_EGRESS=full $PY -m munin_bench.pipelines.run_litqa2 --track answer --concurrency 1   # concurrency<=vLLM max-num-seqs; egress defaults to off and would measure a corpus-only system
 MUNIN_BENCH_SPECTER_DEVICE=cpu $PY -m munin_bench.pipelines.run_bakeoff --subset scifact
 ```
 
