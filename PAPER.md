@@ -23,7 +23,7 @@ Corpus at time of writing: 68,462 papers.
 
 > **Drafting the paper?** [`docs/paper-kit/`](docs/paper-kit/) is a
 > self-contained bundle (system, architecture, corpus, methods, results,
-> ablations, findings, limitations, related work, reproduce, plus the 19
+> ablations, findings, limitations, related work, reproduce, plus the 20
 > headline scorecards) written to be read without repository access. This file
 > stays the short claim-to-scorecard index.
 
@@ -82,8 +82,17 @@ A third finding is new. **Qwen3.8 abstains far less outside the harness** (bare
 **identical** at 0.075 and precision *rises* (0.908 → 0.946). The harness, not
 the backbone, is what keeps attempted answers trustworthy.
 
+**Standalone LitQA2 number on the production model: 0.884 [0.839, 0.925]**,
+precision 0.926, 2026-09-14, `run_litqa2 --track answer` at 900 s and
+`egress=full` (RESULTS.md "LitQA2 answer, standalone track on Qwen3.8-27B").
+It agrees with the ablation arm's 0.874 question-paired (+0.010 [−0.035,
++0.055], p = 0.73), as 0.864 vs 0.839 did on Qwen3.6: one measurement taken
+twice. Quote 0.874 for the delta, 0.884 as the standalone result; the latter
+is on a harness two weeks newer than the ablation's.
+
 Scorecards: `scorecards/2026-08-26_harness-ablation.json` (current),
-`scorecards/2026-07-27_harness-ablation.json` (Qwen3.6).
+`scorecards/2026-07-27_harness-ablation.json` (Qwen3.6),
+`scorecards/2026-09-14_answer-qwen38-900s.json` (standalone).
 Do **not** cite the 2026-07-13 pilot (n=100, 0.56/0.32/0.15); it is superseded.
 
 ## 2. Grounding does not improve with the harness
@@ -237,7 +246,7 @@ Two operational notes that will otherwise cost you a day:
 |---|---|
 | **Paper kit** (self-contained drafting bundle, 19 scorecards) | `docs/paper-kit/` |
 | Results log (canonical numbers) | `backend/benchmarks/RESULTS.md` |
-| Scorecards (61 JSON, 47 Markdown) | `backend/benchmarks/scorecards/` |
+| Scorecards (62 JSON, 48 Markdown) | `backend/benchmarks/scorecards/` |
 | Benchmark harness | `backend/benchmarks/munin_bench/` |
 | Certification thresholds | `backend/benchmarks/certification_thresholds.json` |
 | Paper track: plans, specs, open items | `docs/paper-track/` |

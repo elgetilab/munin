@@ -1026,6 +1026,66 @@ Scorecards: `2026-08-26_harness-ablation.json`,
 
 ---
 
+## LitQA2 answer, standalone track on Qwen3.8-27B  · git `dfa823b` · 2026-09-14
+
+**Generation model: `qwen3.8-27b`** (TP=2, 64k, `--max-num-seqs 8`,
+`reasoning_effort=medium`), BGE-large, `run_litqa2 --track answer
+--concurrency 1`, `MUNIN_EVAL_EGRESS=full`, 900 s deadline. Same 199 questions
+and the same runner as the 2026-07-24 run, which was the last time the
+standalone track ran; the 2026-08-26 model swap re-measured the Track D arms
+only, so until today the production backbone had one agentic number (the
+ablation arm's 0.874) and no standalone one.
+
+| metric | 2026-07-24, Qwen3.6 (900 s) | **2026-09-14, Qwen3.8 (900 s)** |
+|---|---|---|
+| accuracy | 0.864 [0.819, 0.910] | **0.884 [0.839, 0.925]** |
+| precision (attempted) | 0.920 (n=187) | **0.926 [0.889, 0.963]** (n=190) |
+| verdicts | 172 correct / 15 wrong / 12 abstain / 0 unparse | **176 correct / 14 wrong / 9 abstain / 0 unparse** |
+| deadline truncations | 0 | 0 |
+| abstention rate | 0.060 | 0.045 |
+
+**The two protocols agree on Qwen3.8, within the noise floor, as they did on
+Qwen3.6.** Question-paired against the 2026-08-26 Track D agentic arm (0.874,
+same backbone, same questions): **+0.010 [−0.035, +0.055], p = 0.73**. 175 of
+199 verdicts identical; the 24 flips are symmetric (6 incorrect→correct against
+6 correct→incorrect, 5 abstain→correct against 3 correct→abstain, 4
+abstain→incorrect). On Qwen3.6 the pair was 0.864 vs 0.839. So the standalone
+track and the ablation arm are one measurement taken twice, on both backbones,
+and either number can stand for "the harness on LitQA2" as long as the paper
+says which protocol it is quoting. The two are **not** a clean protocol
+comparison, though: 26 commits touched `backend/retrieval/` between `3e0bcfb`
+and today, including the search escalation ladder and grounded read stage
+(`51f1d5a`), chunk-level evidence mode (`587d93a`) and two new tools
+(`3571bc9`), and the deployed container (rebuilt 04:00 today) carries all of
+them. The 0.010 is therefore protocol plus two weeks of harness work, and it
+is still inside the noise.
+
+**Cross-backbone, standalone track:** Qwen3.8 − Qwen3.6 = **+0.020 [−0.020,
++0.065], p = 0.414**, question-paired. 22 verdicts changed (9 incorrect→correct,
+6 correct→incorrect, 3 abstain→correct, 2 abstain→incorrect, 2
+correct→abstain). Suggestive only, for the same reason as the Track D
+cross-run comparison: model and seven weeks of harness commits moved together.
+
+**Published baselines, unchanged:** PaperQA2 0.660 ± 0.012 (trained on LitQA2;
+Munin's backbone was not), human experts 0.677 ± 0.119 (n=9). Same
+like-for-like caveat as the 07-24 section; a strong real result, not a clean
+"beats humans" headline.
+
+Provenance notes:
+- Launched at `497f321`; the stamped `dfa823b` is a docs-only commit that
+  landed mid-run. No harness code changed during the run.
+- Wall-clock for the whole run 09:44 to 15:48 (6 h 04 min, ~110 s/question
+  including runner overhead). **Not a cost figure**: two group members used
+  the chat during the run, so the GPU was not exclusively the benchmark's.
+  Accuracy is unaffected at `--max-num-seqs 8`; wall-clock is, so cite the
+  08-26 ablation arm (157.3 s at concurrency 1, exclusive) for cost.
+- `results/litqa2/answer.json` is overwritten by this runner; the 07-24 raw
+  run is kept as `answer.2026-07-24-qwen36-900s.json` beside it and in the
+  off-machine archive working copy.
+
+Scorecard: `2026-09-14_answer-qwen38-900s.{json,md}` (per-query arrays, so
+the paired tests above are reproducible).
+
 ## Reproduce
 
 ```bash
@@ -1049,6 +1109,8 @@ throughout. Track B: judge validated, and the **per-arm paired faithfulness is n
 re-run DONE 2026-07-27**: C1 held (0.970 abstain, 0 confabulated local cites),
 C2 correct-abstention 0.20 -> 0.67 at matched `egress=off`. **Model swap
 2026-08-26**: Tracks D, B-per-arm and T11 re-run on Qwen3.8-27B and current;
+standalone LitQA2 answer track re-run on Qwen3.8 2026-09-14 (0.884, agrees
+with the ablation arm within noise);
 Track A is model-independent and current; **Track C is still on the retired
 Qwen3.6** and needs the `papers_shadow` collection rebuilt plus the :8081
 instance to re-run C2b. Status table: `README.md`.

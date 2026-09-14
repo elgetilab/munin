@@ -358,14 +358,26 @@ generation.
 | 2026-07-24 | BGE-large | Qwen3.6 | **agent architecture**, 900 s | **0.864** | [0.819, 0.910] | **0.920** (n=187) | 12/199 (6%) |
 | 2026-07-27 | BGE-large | Qwen3.6 | agent architecture (Track D agentic arm) | 0.839 | | 0.908 | abstain 0.075, 0 unparseable |
 | 2026-08-26 | BGE-large | **Qwen3.8** | agent architecture (Track D agentic arm) | **0.874** | | **0.946** | abstain 0.075, 0 unparseable |
-| 2026-09-14 | BGE-large | **Qwen3.8** | agent architecture, standalone answer track, 900 s, `egress=full` | *(pending, run in progress)* | | | |
+| 2026-09-14 | BGE-large | **Qwen3.8** | agent architecture, standalone answer track, 900 s, `egress=full` | **0.884** | [0.839, 0.925] | **0.926** [0.889, 0.963] (n=190) | 9/199 (4.5%), 0 unparseable, 0 truncated |
 
 The 2026-07-24 and 2026-09-14 rows are the standalone `litqa2-answer` track
 (`run_litqa2 --track answer`); the 07-27 and 08-26 rows are the agentic arm of
 the R1 ablation. Same 199 questions, same research profile, same 900 s
 deadline, concurrency 1, and full egress in all four (the 07-24 run predates
 the egress guard; the later three set `egress=full` explicitly); the ablation
-arm additionally records per-arm cost. On the retired
+arm additionally records per-arm cost.
+
+**The two protocols agree on Qwen3.8 within the ±0.035 noise floor, as they
+did on Qwen3.6.** Question-paired, standalone track − ablation arm on Qwen3.8:
+**+0.010 [−0.035, +0.055], p = 0.73**, 175 of 199 verdicts identical, the 24
+flips symmetric. On Qwen3.6 the pair was 0.864 vs 0.839. Either number can
+stand for the harness on LitQA2 provided the protocol is named. Note that 26
+harness commits landed between the ablation run (`3e0bcfb`) and the standalone
+run (search ladder, grounded read stage, evidence mode, two new tools), so
+the 0.010 is protocol plus harness drift and is still inside the noise.
+Cross-backbone on the standalone track, Qwen3.8 − Qwen3.6: +0.020 [−0.020,
++0.065], p = 0.414, suggestive for the usual reason. Scorecard:
+`2026-09-14_answer-qwen38-900s.json`. On the retired
 backbone the two protocols gave 0.864 and 0.839, a gap inside the measured
 run-to-run noise (`08-LIMITATIONS.md`).
 

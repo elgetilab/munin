@@ -274,7 +274,7 @@ As of 2026-09-14:
 |---|---|
 | Canonical results log | `backend/benchmarks/RESULTS.md` |
 | Claim-to-scorecard index | `PAPER.md` |
-| Scorecards (61 JSON, 47 Markdown; the three `2026-08-26_*` files are the current headline) | `backend/benchmarks/scorecards/` |
+| Scorecards (62 JSON, 48 Markdown; the three `2026-08-26_*` files and `2026-09-14_answer-qwen38-900s` are the current headline) | `backend/benchmarks/scorecards/` |
 | Benchmark harness | `backend/benchmarks/munin_bench/` |
 | Certification thresholds | `backend/benchmarks/certification_thresholds.json` |
 | Paper track: plans, specs, open items | `docs/paper-track/` |

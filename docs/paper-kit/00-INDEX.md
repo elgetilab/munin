@@ -23,7 +23,7 @@ Refreshed 2026-09-14 to the Qwen3.8-27B provenance (headline re-measurement of
 | `08-LIMITATIONS.md` | What is explicitly not claimed, threats to validity, deferred work, the caveats that must travel with each headline number. |
 | `09-RELATED-WORK.md` | Bib-ready anchors with arXiv IDs and venues, all verified 2026-07-26, plus the novelty analysis for the abstention contribution. |
 | `10-REPRODUCE.md` | Exact commands, versions, environment, and the two operational gotchas that each cost a day. |
-| `scorecards/` | 19 raw scorecard JSONs behind the headline claims, with per-query arrays so figures and paired tests can be regenerated. |
+| `scorecards/` | 20 raw scorecard JSONs behind the headline claims, with per-query arrays so figures and paired tests can be regenerated. |
 
 ## One-paragraph summary of the work
 
