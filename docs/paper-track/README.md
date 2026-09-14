@@ -64,7 +64,7 @@ claim-to-scorecard index: [`../../PAPER.md`](../../PAPER.md).
 | `TOOL-ARG-ELISION-SCOPE.md` | Follow-on to the context-budget fix: elide tool-call ARGUMENTS, not just results. **Plan, not implemented.** Replay of the 12 Aug 11-12 overflow turns: pre-fix 12/12 over the window, deployed code 1-2/12, argument elision would close the rest. Blocked on verifying that heavy calls span loop iterations. |
 | `MIGRATION-LOOSE-ENDS.md` | Encoder-migration tail: embedding-map repoint + `papers` retirement. varghele/root. |
 | `THIRD-MODEL-REVIEW.md` | Third backbone for the harness ablation. **DECIDED 2026-08-25: Qwen3.5-9B**, nothing implemented. Would turn the two-backbone "suggestive" comparison in PAPER.md claim 1 into a three-point one. |
-| *(no plan file)* `docs/paper-kit/` refresh | The drafting bundle was generated 2026-08-04 and predates the model swap: it still names Qwen3.6 as the generation model and quotes 0.839/+0.538, +0.023 p=0.496 and 8.61 calls/query as the headlines. Needs 00/01/05/06/07/08 rewritten against RESULTS.md's 2026-08-26 section, the 02 tool table brought to 45 tools, and the three `2026-08-26_*` scorecards copied into `scorecards/`. |
+| `PAPER-KIT-REFRESH-PLAN.md` | **Plan, awaiting approval (2026-09-14).** The drafting bundle was generated 2026-08-04 and predates the model swap: it still names Qwen3.6 as the generation model and quotes 0.839/+0.538, +0.023 p=0.496 and 8.61 calls/query as the headlines. Needs 00/01/05/06/07/08 rewritten against RESULTS.md's 2026-08-26 section, the 02 tool table brought to 45 tools, and the three `2026-08-26_*` scorecards copied into `scorecards/`. |
 
 ## What's next (ordered plan, set 2026-07-06)
 
