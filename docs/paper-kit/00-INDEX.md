@@ -77,7 +77,8 @@ Terms used throughout, in the sense the repository uses them.
   `qwen3.6-35b-a3b` (Qwen3.6-35B-A3B-AWQ-4bit, MoE, retired) for everything
   dated earlier, which includes all of Track C (not re-run) and the Qwen3.6
   column kept beside every re-measured table as the second backbone. Retrieval
-  numbers have no LLM in the loop and are backbone-independent.
+  numbers are backbone-independent at scoring time, against frozen
+  Qwen3.6-era query variants generated once by the production expander.
 - **Retrieval encoder**: BGE-large-en-v1.5 (1024d, Qdrant collection `papers_bge`)
   since the 2026-07-06 production cutover; SPECTER-v1 (768d, collection `papers`)
   before it. **The two are never pooled.** Every results table states its encoder.

@@ -11,8 +11,10 @@ faithfulness, T11) were re-measured on `qwen3.8-27b`
 `reasoning_effort=medium`), which is what production serves. Claim 3
 (abstention, C1/C2) is still on the retired `qwen3.6-35b-a3b`
 (Qwen3.6-35B-A3B-AWQ-4bit) and says so inline. Claim 4 (retrieval) is
-**model-independent by construction** and did not need re-running: no LLM is in
-its loop and AgentRetriever scores against a frozen variant set. Retrieval
+**model-independent at scoring time** and was not re-run: AgentRetriever
+scores against frozen Qwen3.6-era query variants generated once by the
+production expander, and regenerating them would change the benchmark, not
+the system. Retrieval
 encoder throughout is BGE-large-en-v1.5
 (1024d, collection `papers_bge`) since the 2026-07 cutover, SPECTER-v1 (768d,
 `papers`) before it. **Every section of RESULTS.md states its own encoder**,
