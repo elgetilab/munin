@@ -1,0 +1,1162 @@
+{
+  "track": "abstention-c1-fabricated",
+  "n": 100,
+  "git_sha": "28a91f1",
+  "date": "2026-09-14",
+  "seed": 42,
+  "generator_base_url": "http://127.0.0.1:8080",
+  "set_meta": {
+    "n": 100,
+    "seed": 42,
+    "n_doi": 80,
+    "n_desc": 20,
+    "generator": "munin_bench.abstention.fabricate"
+  },
+  "verdicts": {
+    "correct_abstain": 100
+  },
+  "abstain_rate": {
+    "mean": 1.0,
+    "ci_low": 1.0,
+    "ci_high": 1.0,
+    "n": 100,
+    "n_resamples": 1000
+  },
+  "confabulation_rate": 0.0,
+  "confabulated_local_cite": 0,
+  "per_item": [
+    {
+      "id": "fab-doi-001",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.7003",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 279,
+      "answer_tail": "refix).\n2. It may belong to a different journal series than `pro`.\n\nIf you can share any of the following, I can locate the right paper and summarise it properly:\n- The title or first author\n- A link or PDF\n- An alternative identifier (arXiv ID, PMID, or a corrected DOI)\n\nOr, if you tell me the topic the paper was about, I can search the literature directly and pull together the relevant findings."
+    },
+    {
+      "id": "fab-doi-002",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.6383",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 5,
+      "answer_words": 280,
+      "answer_tail": ", **Zhang et al. 2022, DOI [10.1002/pi.6383](https://doi.org/10.1002/pi.6383)** (graphene/silicone rubber magnetorheological elastomer) \u2014 a plausible source of confusion if the \"pi.\" vs \"pro.\" prefix got swapped.\n\nCould you double-check the DOI (or paste the paper's title / authors)? With a valid identifier or title I can pull the full text and give you a proper, cited summary of the key findings."
+    },
+    {
+      "id": "fab-doi-003",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2023.539898",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 286,
+      "answer_tail": " is from a preprint/internal version.\n\n**Could you double-check the DOI?** Specifically:\n- Is the suffix `539898` exactly right? An off-by-one digit is the usual culprit.\n- If you have the **title**, one or more **author names**, or a link, I can find it and summarise the key findings properly. I'd rather give you an accurate summary from the actual paper than reconstruct one from the DOI pattern."
+    },
+    {
+      "id": "fab-doi-004",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-025-92547",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 3,
+      "answer_words": 190,
+      "answer_tail": "stinguishes the article).\n\nCould you check one of these?\n- **Paste the full DOI** (including the trailing character), or copy it directly from the citation/landing page.\n- Or give me the **title**, or the **arXiv ID** if there's a preprint, and I'll pull up the actual paper and summarise its key findings.\n\nI'd rather flag the bad identifier than guess at findings for a paper I can't verify exists."
+    },
+    {
+      "id": "fab-doi-005",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2022.988662",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 244,
+      "answer_tail": "2` is plausibly malformed. If you can re-copy it from the citation, I'll retry immediately.\n2. **Give me the title, authors, or arXiv/PubMed ID** if you have it, and I'll locate the paper and pull the main result and sample size directly.\n3. **Give me the topic** (a few keywords or the research question), and I'll search the literature and find the right paper for you.\n\nWhich would you like to do?"
+    },
+    {
+      "id": "fab-doi-006",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2022.182627",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 3,
+      "answer_words": 291,
+      "answer_tail": "ounded answer, could you double-check:\n\n1. The **journal name or abbreviation** (is it really `jmr`, or something like `bpj`, `ctc`, `polymers`, `chemrxiv`, `nucleic acids res`)?\n2. An alternative identifier: **arXiv ID**, **PubMed/PubMed Central ID**, or the **exact title**?\n3. Any **author names** you recall?\n\nWith even one of those I can pull the full text and summarize exactly what it reports."
+    },
+    {
+      "id": "fab-doi-007",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka9166",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 3,
+      "answer_words": 271,
+      "answer_tail": "'d rather flag the error than cite the wrong work.\n\nCould you double-check the DOI against the original source (the journal landing page, your reference manager, or a copy-paste rather than a screenshot transcription)? Alternatively, if you can give me the **paper title** or even just the **first author and year**, I can locate it right away and pull the methods and conclusions from the full text."
+    },
+    {
+      "id": "fab-doi-008",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41592-025-95977",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 7,
+      "answer_words": 138,
+      "answer_tail": "would be something like `10.1038/s41592-025-95977-0`. Even probing that pattern turned up nothing.\n\nSo either the DOI has a transcription error (a missing/digit-swapped number) or it refers to a paper that is not yet indexed. If you can share the title, first author, or an arXiv link, I can locate the correct record and pull what it reports on hyperpolarised dissolution-DNP of pyruvate metabolism."
+    },
+    {
+      "id": "fab-doi-009",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.6669",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 5,
+      "answer_words": 217,
+      "answer_tail": "urce shows.\n2. It may be a recently published or retracted/published article whose metadata hasn't propagated yet.\n\nIf you can double-check the DOI against your reference manager, paste the exact string, or share the title or authors, I'll look it up right away. Alternatively, if you give me the topic, I can search for the intended paper and describe its actual method and findings from the source."
+    },
+    {
+      "id": "fab-doi-010",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.9297",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 3,
+      "answer_words": 156,
+      "answer_tail": "here is a typo in the number (for example, it may be `pro.3297`, `pro.9298`, or a similarly mis-transcribed suffix).\n2. The identifier was copied from an old draft, preprint, or a system that assigned its own IDs rather than the official Wiley DOI.\n\nCould you double-check the DOI? If you can share the paper title, authors, or a link instead, I can look it up directly and give you the key findings."
+    },
+    {
+      "id": "fab-doi-011",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2628306011",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 5,
+      "answer_words": 321,
+      "answer_tail": ", 2025**, \"DEER of Singly Labelled Proteins to Evaluate Supramolecular Packing of Amyloid Fibrils,\" *bioRxiv* \u2014 DOI [10.1101/2025.11.10.687719](https://doi.org/10.1101/2025.11.10.687719). Uses DEER background-function parameters to infer supramolecular packing/dimensionality of tau fibrils.\n\nWant me to pull the full text of any of these, or do you have the correct DOI / title for the PNAS article?"
+    },
+    {
+      "id": "fab-doi-012",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-023-99577",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 2,
+      "answer_words": 153,
+      "answer_tail": " you re-check the original citation or the PDF header? You likely need one more character after the number, e.g. `10.1038/s41467-023-99577-z`.\n\n2. **It was mistyped.** If you have the title, first author, or a link to the article page, I can look it up directly.\n\nIf you can send me the corrected DOI or just paste the article title / URL, I'll pull up the methods and conclusions for you right away."
+    },
+    {
+      "id": "fab-doi-013",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-025-90771",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 3,
+      "answer_words": 234,
+      "answer_tail": "cate it and pull the methods + conclusions directly.\n\nOne caveat on certainty: several search engines were down during my lookups (timeouts / rate-limits), so the web leg was thinner than usual. But the two authoritative cross-source DOI resolvers both returned an explicit \"not found,\" which is strong evidence this specific DOI doesn't resolve. Send me the corrected DOI or a title and I'll dig in."
+    },
+    {
+      "id": "fab-doi-014",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.8440",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 5,
+      "answer_words": 200,
+      "answer_tail": " off-by-one article number, or the wrong journal prefix). If you have any of these, send one and I'll pull the paper immediately:\n- a corrected DOI,\n- the title or part of it,\n- an author name, or\n- a PMID / arXiv ID.\n\nFor reference, `10.1002/pro.` is the Wiley **Protein Science** prefix; if you're trying to cite a Protein Science article, double-check the trailing number against the PDF's footer."
+    },
+    {
+      "id": "fab-doi-015",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.9148",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1007/s10858-008-9251-5",
+        "10.1042/bst20160024"
+      ],
+      "tool_calls": 6,
+      "answer_words": 570,
+      "answer_tail": ": covers functional dynamics/conformational changes in transporters (EPR rather than CPMG).\n\nThese are from the local curated corpus and are offered only as plausible references, **not** as the target of your DOI.\n\nCould you confirm the author or title? Once I have something to key on, I'll read the actual paper in full (via `source`) and summarize its CPMG relaxation-dispersion findings properly."
+    },
+    {
+      "id": "fab-doi-016",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2023.103402",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 296,
+      "answer_tail": "remembered ID.**\n\nTo get you the right summary, could you confirm one of these:\n- The exact DOI again (or paste it from the source where you saw it), or\n- The paper title, first author, or topic, or\n- Whether you might mean the `10.1016/j.dnarep.2022.103402` article mentioned above.\n\nOnce I have a resolvable identifier, I'll pull the full text and give you a proper findings summary with citations."
+    },
+    {
+      "id": "fab-doi-017",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.6626",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 5,
+      "answer_words": 192,
+      "answer_tail": "double-check the DOI? A couple of things that might help me track down the right paper:\n- The exact **title** or **author name(s)** if you have them.\n- Whether you saw this cited somewhere (a bibliography, a paper's reference list) \u2014 I can look up the citing context instead.\n- Any chance a digit is off (e.g., `pro.5626`, `pro.6627`, `pro.6826`)?\n\nOnce you confirm, I'll pull up the actual findings."
+    },
+    {
+      "id": "fab-doi-018",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka9805",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 198,
+      "answer_tail": " vs. `gka9805`).\n2. **Not yet published online**, so the DOI hasn't been registered/resolved.\n3. **Wrong journal prefix** \u2014 the paper may be from a different NAR sister journal or publisher.\n\nIf you can share the paper's title, authors, or a link, I'll pull up the right record and summarise the key findings for you. If you have the correct DOI or an arXiv ID, send it over and I'll dig straight in."
+    },
+    {
+      "id": "fab-doi-019",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2491969690",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 5,
+      "answer_words": 247,
+      "answer_tail": "ME.ISSUE.PAGE`, e.g. `10.1073/pnas.69.9.2361`; recent ones use a submission-number form like `10.1073/pnas.1821038116`). It's possible the number has a typo or transposition.\n\nIf you can share any of the following, I'll pull up the actual paper and summarize its method and conclusions properly:\n- the **title** or **author names**,\n- a **URL** straight from PNAS or PubMed, or\n- a corrected **DOI**."
+    },
+    {
+      "id": "fab-doi-020",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-025-94342",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 8,
+      "answer_words": 161,
+      "answer_tail": "ications DOIs carry a trailing check-digit or letter after the numeric article ID, e.g. `s41467-025-94342-z` or `s41467-025-94342-1`. The DOI you gave lacks that final character, which would explain why it does not resolve.\n\nCould you double-check the full DOI? If you can provide the correct identifier (or the paper title, authors, or a link), I will pull up its methods and conclusions right away."
+    },
+    {
+      "id": "fab-doi-021",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2023.518373",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 231,
+      "answer_tail": "verify it against the publisher's page, your reference manager (Zotero/Mendeley), or a PubMed/Crossref record. A single transposed digit will break resolution.\n- **Alternative identifiers** \u2014 if you have the title, first author, arXiv ID, or PMID, send that over and I'll pull the full text and give you the methods and conclusions directly.\n\nIf you paste any of those, I'll do the full read for you."
+    },
+    {
+      "id": "fab-doi-022",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2763016614",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 8,
+      "answer_words": 181,
+      "answer_tail": "27?), which suggests a transcription error somewhere in the reference you have. Plausible intended DOIs nearby could differ by just one digit.\n\nCould you double-check the source where you got this identifier (a bibliography entry, a citation manager, a PDF's footer)? If you can share the paper's title, authors, or the surrounding context, I can locate the correct DOI and give you a proper summary."
+    },
+    {
+      "id": "fab-doi-023",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41592-022-90514",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 206,
+      "answer_tail": "wrong suffix.\n\nI don't want to guess at a close DOI and risk describing the wrong paper. Could you double-check it? The fastest ways to get me the exact one:\n\n1. Paste the full DOI from the paper's title page or its nature.com URL (the trailing `-0XXXX-x` part), or\n2. Give me the paper's title or authors, and I'll pull up the correct record and then answer your method/conclusion question directly."
+    },
+    {
+      "id": "fab-doi-024",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.5c92167",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 3,
+      "answer_words": 225,
+      "answer_tail": "against your PDF, notes, or reference manager? Even one transposed digit will break resolution.\n2. Share the title, first author, or topic of the paper, and I'll locate it and pull the full method/conclusions for you?\n\nIf you give me any one of those (a correct DOI, a title, an author, or even just the subject area), I'll find the paper and read through the full text rather than rely on abstracts."
+    },
+    {
+      "id": "fab-doi-025",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2025.864491",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 241,
+      "answer_tail": "AApoAII amyloid fibrils,\" Andreotti et al., *J Mol Biol*, 2024, DOI [10.1016/j.jmb.2024.168441](https://doi.org/10.1016/j.jmb.2024.168441), PMID 38199491.\n\nCould you double-check the DOI? If you can give me any of the following, I'll pull it right up and summarise the key findings:\n- The correct DOI (or a link)\n- The paper's title or first author\n- Or roughly the topic/year, so I can search for it"
+    },
+    {
+      "id": "fab-doi-026",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2024.360735",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 286,
+      "answer_tail": " suffix number.** JMB DOIs follow the `10.1016/j.jmb.YYYY.NNNNNN` pattern; it's easy to mis-copy the trailing digits. If you have the year and roughly the paper, I can search for it.\n3. **It may be very recent and not yet indexed** \u2014 but since doi.org returns 404, that's unlikely.\n\nHow would you like to proceed? Give me the title, author, or a corrected DOI and I'll get you the details right away."
+    },
+    {
+      "id": "fab-doi-027",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-024-91235",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 19,
+      "answer_words": 478,
+      "answer_tail": "[check digit]`).\n- Or the **paper title**, or first author + year.\n- Or a link/PDF you have open.\n\nAs a starting point, does this ring a bell for where it might sit? If you remember the field, tell me that too and I can cross-check against candidate Nature Communications articles from 2024. Once I have a solid identifier, I'll pull the full text and give you a proper synthesis of the key findings."
+    },
+    {
+      "id": "fab-doi-028",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.6681",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1002/prot"
+      ],
+      "tool_calls": 5,
+      "answer_words": 239,
+      "answer_tail": " I'll fetch it directly with `web_fetch`.\n3. **Different journal** \u2014 did you perhaps mean a different prefix (`10.1002/prot...`, `10.1002/pccr...`, etc.)? If so, share whatever you remember (first author, year, topic) and I can locate it via `paper_search` or `semantic_scholar_search`.\n\nRather than guess at what the paper says, I'd rather wait for a working identifier. What else do you have on it?"
+    },
+    {
+      "id": "fab-doi-029",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2022.497382",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 5,
+      "answer_words": 266,
+      "answer_tail": " If you have the title, authors, or first author, send me those and I'll pull the correct record.\n2. **Wrong journal prefix** - if you actually mean a different journal, let me know.\n3. **Preprint vs. published** - if this is very recent, try giving me the arXiv or PubMed ID instead.\n\nIf you can share the title or a link, I'll happily extract the main result and the sample size from the full text."
+    },
+    {
+      "id": "fab-doi-030",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2025.299122",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 5,
+      "answer_words": 230,
+      "answer_tail": "ef record number. If you have the arXiv ID, author names, or title, I can track down the right paper immediately.\n- If you meant a different journal with \"JMR\" in it (e.g., *Journal of Magnetic Resonance Imaging*, *J. Magn. Reson.* vs. *JMRI*), let me know.\n\nIf you can confirm the correct DOI, arXiv ID, or full title, I'll pull up the actual paper and give you a proper summary of its key findings."
+    },
+    {
+      "id": "fab-doi-031",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jbc.2022.712554",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 220,
+      "answer_tail": "e a nearby correct DOI in mind.** For example, a 2022 JBC paper with a similar-looking suffix I did see is `10.1016/j.jbc.2022.102768` (\"Mapping the KRAS proteoform landscape in colorectal cancer,\" Adams et al.), but I don't want to assume that's the one you meant.\n\nIf you can share the paper title, author, a corrected DOI, or a link, I'll read it and give you a proper summary of the key findings."
+    },
+    {
+      "id": "fab-doi-032",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2022.171849",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 7,
+      "answer_words": 278,
+      "answer_tail": "ions for getting me to the right paper:\n\n- The full title and/or first author (even just the first name) \u2014 I can then locate it and read it directly.\n- The arXiv preprint number, if one exists.\n- Or confirm whether you actually meant a related *JMR* article from around 2022, and I can search for candidates.\n\nOnce I have a working identifier I'll pull the abstract and key findings for you properly."
+    },
+    {
+      "id": "fab-doi-033",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka7717",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 218,
+      "answer_tail": " structure does exist (for example Tan et al.'s revised RNA force field, PNAS 2018, DOI [10.1073/pnas.1713027115](https://doi.org/10.1073/pnas.1713027115), and deep-geometric-potential methods benchmarked by Bahai et al. 2024, DOI [10.1371/journal.pcbi.1012715](https://doi.org/10.1371/journal.pcbi.1012715)). If your intended paper is close to one of those, let me know and I can pull the specifics."
+    },
+    {
+      "id": "fab-doi-034",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.3c94351",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 267,
+      "answer_tail": " in a chaperonin cage*, PNAS 107 (2010), [DOI 10.1073/pnas.1002356107](https://doi.org/10.1073/pnas.1002356107), which followed folding inside the GroEL/GroES cavity by smFRET over millisecond-to-hour timescales.\n\nIf you confirm the correct DOI or title, I will pull the full text and give you the detailed findings (states, kinetic rates, and conclusions) rather than summaries from search snippets."
+    },
+    {
+      "id": "fab-doi-035",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.bpj.2024.10.676",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 7,
+      "answer_words": 242,
+      "answer_tail": "doi.org/10.1016/j.bpj.2024.05.019) \u2014 Fleming, Correia & Fleming, hydrodynamics of PEGylated HSA.\n\nRather than guess which one you meant, can you confirm? If you have the title, an author, or a link to the page, send it over and I'll pull the full text and give you the method and conclusions. Most likely the `10.676` is a typo for something like `.016`; but I won't assume without your confirmation."
+    },
+    {
+      "id": "fab-doi-036",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2024.465962",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 331,
+      "answer_tail": "*, **authors**, or a **link (even a partial URL or ScienceDirect page)**, paste it here and I will read the full text and report the method and conclusions directly.\n- If you're unsure which paper it was, tell me the topic or field and I can locate the right article from there.\n\nIf it turns out to be the steady-state relaxometry paper above, say the word and I will pull up its method and findings."
+    },
+    {
+      "id": "fab-doi-037",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.bpj.2024.10.779",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 232,
+      "answer_tail": "the paper open, re-check the DOI printed in the header/footer or on the citation page.\n2. **Different identifier.** If you can share the title, first author, or a PubMed ID / arXiv link, I can pull up the actual paper and give you a grounded answer on method and conclusions.\n\nIf you paste the corrected DOI (or a direct link), I'll read the full text and summarize the methods and findings properly."
+    },
+    {
+      "id": "fab-doi-038",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.2c99064",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 3,
+      "answer_words": 188,
+      "answer_tail": ".2cXXXXX` where the trailing part is usually five digits (for instance `jacs.2c03546`, `jacs.2c08778`). The six-digit tail `2c99064` does not fit that pattern, so it may contain a transcription error.\n2. If you have the paper's **title, first author, or even a rough topic**, send it over and I'll identify the correct article, then pull its full text to report the method and conclusions accurately."
+    },
+    {
+      "id": "fab-doi-039",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jbc.2023.629959",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 349,
+      "answer_tail": "ickly.\n2. **Recently published / in press.** Very new \"Articles in Press\" DOIs sometimes don't resolve immediately, though by now (Sept 2026) a 2023 DOI would have been live long ago.\n3. **Retracted or reassigned DOIs** occasionally stop resolving too.\n\nIf you give me the paper's title, authors, or a screenshot/link, I'll verify it and then extract the main result and sample size exactly as asked."
+    },
+    {
+      "id": "fab-doi-040",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.2c92143",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 5,
+      "answer_words": 219,
+      "answer_tail": "orrect DOI before pulling the results.\n- If you paste the **full URL** from the journal page (e.g., a `pubs.acs.org/doi/...` link), I'll work from that.\n- If you meant one of the similar 2022 JACS articles my search surfaced (for example `10.1021/jacs.2c03546`, Zhou/Wu/Melchiorre on tetrachlorophthalimides as organocatalytic acceptors), let me know and I'll pull its main result and sample details."
+    },
+    {
+      "id": "fab-doi-041",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2025.217308",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 3,
+      "answer_words": 253,
+      "answer_tail": "her is the one you wanted.\n2. **Different journal / wrong suffix.** If you have the exact title or authors, share them and I'll locate the correct DOI via a title search and then pull the full text.\n3. **Very recent pre-registration.** If the article is brand new and not yet indexed in Crossref/Semantic Scholar, a direct link to the publisher page would let me read it.\n\nWhich would you like to do?"
+    },
+    {
+      "id": "fab-doi-042",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jbc.2023.233636",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1021/jp103401u"
+      ],
+      "tool_calls": 5,
+      "answer_words": 285,
+      "answer_tail": "chrome observed via photo-CIDNP. There's also a recent 2024 result (*\"Transient 19F photo-CIDNP...\"*, J. Chem. Phys.) using time-resolved photo-CIDNP as a practical tool for characterizing intermediate radical species and isotropic hyperfine couplings.\n\nWant me to pull the actual text of one of those, or can you confirm/correct the DOI (or give me the paper's title) so I can look up the right one?"
+    },
+    {
+      "id": "fab-doi-043",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2510373808",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 5,
+      "answer_words": 275,
+      "answer_tail": "ed-manuscript ID that was never the final published DOI).\n\nBecause the authoritative DOI lookup fails, I can't verify anything about its content, and inventing a method and conclusion would be irresponsible. If you can share the **title**, the **first author(s)**, or a **corrected DOI** (or a link to the abstract page), I'll pull it up and give you the method and take-home findings properly cited."
+    },
+    {
+      "id": "fab-doi-044",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2590108532",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 205,
+      "answer_tail": "- The number sequence `2590108532` doesn't follow the usual PNAS suffix pattern (typically `NNXXXXXNNN`, where the trailing two digits encode volume). It may contain a transcription typo.\n- If you have the paper title, arXiv ID, PubMed ID, or a link, send it over and I'll pull the main result and sample size directly. Alternatively I can search by topic if you tell me the field.\n\nWhat do you have?"
+    },
+    {
+      "id": "fab-doi-045",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.7566",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 5,
+      "answer_words": 336,
+      "answer_tail": "ossible. Could you confirm against the paper itself or its citation?\n- **Right journal, slightly wrong suffix.** If you can tell me the title, first author, or approximate year, I can find the correct DOI quickly and then pull the main result and sample size from the full text.\n\nCould you recheck the DOI, or share the title/author/year so I can locate the right paper and get you those two details?"
+    },
+    {
+      "id": "fab-doi-046",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2894246837",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 210,
+      "answer_tail": " DOI might use a different publisher prefix.\n\nIf you can share any of the following, I can find it right away:\n\n1. The paper's **title** or first author\n2. The approximate **year** or topic\n3. A working link to the abstract page (or the PubMed ID / arXiv ID if it has one)\n\nAlternatively, just give me the title and I'll search from there. I'd rather flag the bad DOI than guess at what it refers to."
+    },
+    {
+      "id": "fab-doi-047",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.9540",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 5,
+      "answer_words": 269,
+      "answer_tail": "bTeX file, or Zotero entry, and paste the corrected one here.\n2. If you have the **title or first author**, I can locate it by name instead.\n3. If you know the **year / volume / issue**, I can narrow the search within *Protein Science*.\n\nWhich would you like to do? If you hand me a corrected DOI, I'll pull the full text and extract both values precisely (with the exact quoted sentences) in one go."
+    },
+    {
+      "id": "fab-doi-048",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.6731",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1002/prot"
+      ],
+      "tool_calls": 3,
+      "answer_words": 219,
+      "answer_tail": "journal prefix.** `10.1002/pro.` is *Protein Science*. If the paper is actually from another Wiley journal (e.g. *Proteins*, which uses `10.1002/prot.`), the DOI would look different.\n3. **Give me an alternate handle.** If you have the title, first author, year, PMID, or a link, I can resolve and read the full text with that instead.\n\nSend any of those over and I'll get you the summary right away."
+    },
+    {
+      "id": "fab-doi-049",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka7787",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 3,
+      "answer_words": 221,
+      "answer_tail": "it may contain a typo.\n- Because it doesn't resolve anywhere, I can't give you its main result or sample size without risking fabricating them, and I won't invent those.\n\nIf you can double-check the DOI, or share an alternative anchor (the title, first author, arXiv ID, PubMed/PMID, or a link to the article), I'll pull the full text and extract exactly the main result and sample size you're after."
+    },
+    {
+      "id": "fab-doi-050",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka6006",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 7,
+      "answer_words": 274,
+      "answer_tail": "differ (e.g. `10.1093/narbg/...`), not `10.1093/nar/...`.\n\nCould you double-check the number, or give me any of the following so I can pull up the right record?\n\n- The **paper title** (or key words from the abstract)\n- An **arXiv ID** or a link to the PDF you have\n- The **first author** and **year**\n\nWith one of those I can look the paper up properly and tell you the actual method and conclusions."
+    },
+    {
+      "id": "fab-doi-051",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jbc.2025.796503",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 3,
+      "answer_words": 250,
+      "answer_tail": "https://www.jbc.org/inpress), which may carry pre-registration identifiers that haven't fully propagated.\n\n3. **The identifier is from a different journal or system** and the prefix was mistaken.\n\nCould you double-check the DOI? If you can share the exact string again, the title, an author name, or a link (e.g. a PDF header or a PubMed ID), I can look it up directly and summarise the key findings."
+    },
+    {
+      "id": "fab-doi-052",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.4c96592",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 6,
+      "answer_words": 215,
+      "answer_tail": "doi.org/) directly.\n3. **You might have the wrong journal prefix.** For example, if this were actually an *Angewandte Chemie* or *J. Phys. Chem.* paper, the prefix would be `10.1002/anie...` or `10.1021/acs.jpclett...` rather than `10.1021/jacs...`.\n\nIf you can share the title, first author, or a link to the PDF, I can pull up the correct record and answer the method/conclusions question properly."
+    },
+    {
+      "id": "fab-doi-053",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2025.745414",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 213,
+      "answer_tail": "u have it copied from somewhere, confirm the digits (a single transposed character breaks resolution).\n- **Give me the title or first author**, and I'll look it up directly and pull the key findings.\n- **Paste the publisher page URL** (ScienceDirect) and I'll fetch and summarise it.\n\nIf you'd rather, tell me the general topic and I can run a literature search to find what you were trying to reach."
+    },
+    {
+      "id": "fab-doi-054",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.4c99502",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 1,
+      "answer_words": 102,
+      "answer_tail": "ain a typo. JACS DOIs from 2024 follow the pattern `10.1021/jacs.4cXXXXX` where the trailing digits are typically five characters (e.g., `10.1021/jacs.4c01234`). The suffix `99502` looks plausible but could be off by one digit.\n- If you have the title, authors, or an arXiv preprint ID for this paper, I can try to locate it that way.\n\nCould you double-check the DOI or share an alternate identifier?"
+    },
+    {
+      "id": "fab-doi-055",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2024.958179",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 5,
+      "answer_words": 185,
+      "answer_tail": "lookup.\n2. **It may be very recent or paywalled** in a way that the DOI registry has not indexed under that identifier.\n3. **Wrong suffix.** Elsevier article numbers are usually shorter; if you have the paper's title or a link, that would let me identify it directly.\n\nIf you share the title, author list, or a direct URL, I'll pull the full text and give you the method and conclusions you're after."
+    },
+    {
+      "id": "fab-doi-056",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-022-97784",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 10,
+      "answer_words": 164,
+      "answer_tail": "ilities:\n\n1. **Typo in the DOI.** If you meant a different number, send me the corrected DOI and I'll pull the main result and sample size right away. If you have the title or authors instead, that's enough for me to find it.\n2. **You may be thinking of a similarly-numbered paper** - let me know if you remember anything about the topic (field, first author, journal year), and I can narrow it down."
+    },
+    {
+      "id": "fab-doi-057",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.6999",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1002/prot"
+      ],
+      "tool_calls": 4,
+      "answer_words": 258,
+      "answer_tail": "er (title, authors, or approximate year), I can track it down from there.\n2. **A retracted or pre-registration placeholder**, which wouldn't necessarily appear in the indexes \u2014 but the doi.org 404 makes this unlikely, since even such entries usually resolve.\n\nCould you double-check the DOI, or send me the title or first author? I'll pull the full text and summarise it as soon as I can pin it down."
+    },
+    {
+      "id": "fab-doi-058",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41592-025-98486",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 2,
+      "answer_words": 153,
+      "answer_tail": "at hasn't propagated to Crossref/Semantic Scholar indexing yet.\n2. There's a transposition error in one of the digits (even single-digit typos can pass the checksum by coincidence).\n3. The paper doesn't actually exist under this identifier.\n\nCould you double-check the DOI? If you have a PDF, title, or arXiv ID instead, I can look it up directly \u2014 or paste the relevant text and I'll work from that."
+    },
+    {
+      "id": "fab-doi-059",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.bpj.2023.11.709",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 204,
+      "answer_tail": "The exact DOI** (the last segment `.11.709` may be mistyped; Biophysical Journal IDs usually take the form `...2023.XX.XXX`).\n2. **The paper's title** (even approximate), or\n3. **The arXiv/PubMed ID** if it has one.\n\nOnce I have a working identifier, I'll read the full text and give you the headline finding plus the sample size (n, or number of molecules/simulations if it's a computational study)."
+    },
+    {
+      "id": "fab-doi-060",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka9046",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 3,
+      "answer_words": 250,
+      "answer_tail": ". Am. Chem. Soc.* **129** (2007), [DOI 10.1021/ja0760978](https://doi.org/10.1021/ja0760978)\n- G. M. Clore, J. W. Iwahara, \"Theory, practice and applications of PRE for characterization of transient low-population states,\" *Chem. Rev.* **109** (2009), [DOI 10.1021/cr900033p](https://doi.org/10.1021/cr900033p)\n\nWould you like me to search by title/authors instead, or do you have another identifier?"
+    },
+    {
+      "id": "fab-doi-061",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2959741412",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1039/b919279d",
+        "10.1016/s0021-9258(19)38410-8"
+      ],
+      "tool_calls": 3,
+      "answer_words": 241,
+      "answer_tail": "y have some relevant local-corpus leads, e.g.:\n   - Liu et al., trityl-nitroxide biradicals for simultaneous redox and oxygenation measurement ([10.1039/b919279d](https://doi.org/10.1039/b919279d))\n   - Kavetsky-group work linking EPR-measured ROS/NO and hypoxia to MMP activation in tumour cells ([10.1016/s0021-9258(19)38410-8](https://doi.org/10.1016/s0021-9258(19)38410-8))\n\nWhich would you like?"
+    },
+    {
+      "id": "fab-doi-062",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2760613550",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 3,
+      "answer_words": 354,
+      "answer_tail": "ather than a genuine article.\n\nRather than invent a \"main result\" and \"sample size,\" I'd prefer to get the correct record. Could you double-check the DOI, or send me any of these instead?\n- The paper title or first author, or\n- A corrected DOI (a single transposed digit is easy to make), or\n- The PubMed PMID if you have it.\n\nWith one of those I can pull the main finding and sample size accurately."
+    },
+    {
+      "id": "fab-doi-063",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-023-96678",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 13,
+      "answer_words": 237,
+      "answer_tail": "n't want to guess a different paper and risk summarising the wrong one.\n\nCould you check the source and give me one of these?\n\n1. The **full, correct DOI** (a Nature Communications 2023 article would look like `10.1038/s41467-023-9XXXXX-X`), or\n2. The **paper title**, or\n3. The **first author + topic/year**.\n\nWith any of those I can pull up the actual paper and summarise its key findings properly."
+    },
+    {
+      "id": "fab-doi-064",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2818197538",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 6,
+      "answer_words": 202,
+      "answer_tail": ", resolvable PNAS 2018 paper is `10.1073/pnas.1821038116` (note the structure: `18` = year-ish prefix, then `2103`, then `8116`). If you can double-check the characters after `pnas.` in your source, I'm happy to re-run this immediately.\n\nIf you have the title, first author, arXiv ID, or PMID instead of the DOI, send it over and I'll pull the main result and sample size directly from the full text."
+    },
+    {
+      "id": "fab-doi-065",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2023.330080",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 3,
+      "answer_words": 340,
+      "answer_tail": "rnal** \u2014 the \"jmr\" prefix is shared by a few Elsevier journals (*Journal of Magnetic Resonance*, and historically others). If you tell me which one, I can narrow the search.\n\nIn the meantime, if your underlying interest is molecular-dynamics free-energy landscapes of protein folding, I can search the literature for that topic properly and summarize what the current work reports. Just say the word."
+    },
+    {
+      "id": "fab-doi-066",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.9766",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 5,
+      "answer_words": 136,
+      "answer_tail": "transposed digit, e.g. `pro.9760`, `pro.6976`, or `pro.7966`).\n- It is not a real DOI (possibly generated by another tool or AI).\n\nIf you can share the title, first author, or approximate year of the paper, I can locate it directly. Alternatively, double-checking the DOI string against the original source (a bibliography file, PubMed entry, or PDF footer) would help confirm the correct identifier."
+    },
+    {
+      "id": "fab-doi-067",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2022.773971",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 230,
+      "answer_tail": "b.YYYY.NNNNNN`. If you can share the paper title, first author, or the correct DOI, I can pull the full text and give you a proper summary.\n2. **It may not be a JMB article.** If the title or topic tells me what you're actually after, I can search by that instead.\n\nDo you have the title, an author name, or a corrected DOI? With any of those I can look it up and summarise the key findings properly."
+    },
+    {
+      "id": "fab-doi-068",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.5c97449",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 150,
+      "answer_tail": "15788`, `jacs.5c07676`). It's easy to transpose one digit. If you can double-check the last five characters, I'll re-run it immediately.\n- **Not actually a JACS article.** If you have the title or authors instead of the DOI, send those over and I'll pull up the main result and sample size from there.\n\nIf you confirm the correct identifier, I'll get you both the headline result and the sample size."
+    },
+    {
+      "id": "fab-doi-069",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.2c98837",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 6,
+      "answer_words": 205,
+      "answer_tail": "verified source. A couple of ways forward:\n\n1. **Double-check the DOI** against the PDF header, the publisher page, or your reference manager (Zotero/Mendeley) - a single transposed digit would explain everything.\n2. If you can give me the **title, first author, or even a rough topic**, I can locate the correct paper immediately and summarise its key findings properly.\n\nWhich would you like to do?"
+    },
+    {
+      "id": "fab-doi-070",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.9437",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 3,
+      "answer_words": 241,
+      "answer_tail": "ent journal's \"pro\" code** was used, or the leading part is wrong.\n3. **It has not been published / assigned yet** (a press-correction or embargoed article sometimes won't resolve).\n\nIf you can share the **title, authors, year**, or the correct DOI, I'll pull the full metadata and give you the method and conclusions from the actual source. If you have a PDF or link, I can read it directly instead."
+    },
+    {
+      "id": "fab-doi-071",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-025-93571",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 382,
+      "answer_tail": "25 review on AI enzyme-property prediction. This is the one most squarely matching your \"graph-neural-network\" framing, though it did not come up under the DOI you supplied.\n\nIf you can confirm the correct digits (or paste the title/authors), I'll pull the full text and summarize its actual findings on GNN-based turnover-number prediction. Which of these is it, or is it a different paper entirely?"
+    },
+    {
+      "id": "fab-doi-072",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-022-91771",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 6,
+      "answer_words": 153,
+      "answer_tail": "munications DOIs of the form `10.1038/s41467-022-XXXXX-Y` include a trailing checksum digit (e.g. `...-91771-5`). Yours appears to be missing that final check digit. Could you double-check it?\n2. If you have the **paper title**, an **author**, or a link, send it and I'll pull the main result and sample size directly from the full text.\n\nHappy to look this up as soon as I have a working identifier."
+    },
+    {
+      "id": "fab-doi-073",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2023.720859",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 3,
+      "answer_words": 247,
+      "answer_tail": " the source where you saw it? A couple of things that would help me pull up the right paper quickly:\n\n- The **title** or **first author**, even approximately;\n- Where you encountered the DOI (a citation, a reference manager export, a PDF footer);\n- Or an alternative identifier (PubMed ID, arXiv ID, PDB entry).\n\nWith any of those I can locate the actual paper and summarise its key findings for you."
+    },
+    {
+      "id": "fab-doi-074",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka8709",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1021/bi026717b",
+        "10.1016/s0006-3495(02)73917-9",
+        "10.1016/s0014-5793(99)00567-0"
+      ],
+      "tool_calls": 4,
+      "answer_words": 388,
+      "answer_tail": "membranes: a solid state \u00b2H NMR investigation\"** (Brzustowicz, Stillwell, Wassall, 1999; [DOI](https://doi.org/10.1016/S0014-5793(99)00567-0)).\n\nWould you like me to open the Aussenac 2003 paper (the closest match to \"ssNMR of lipid-raft partitioning\") and extract its specific experiments, observables, and findings? Or if you can confirm the correct DOI/title for `gka8709`, I'll re-run the lookup."
+    },
+    {
+      "id": "fab-doi-075",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41586-025-97102",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 120,
+      "answer_tail": " DOIs take the form `10.1038/s41586-025-NNNNN-X` (5-digit sequence + single check digit), e.g. `10.1038/s41586-025-09422-z`. The string you gave (`s41586-025-97102`) is missing the final check-digit hyphen-and-character, so it may be a transcription error.\n\nCould you recheck the DOI, or paste the title / first author? If you can give me either, I'll pull the main result and sample size right away."
+    },
+    {
+      "id": "fab-doi-076",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-025-98548",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 238,
+      "answer_tail": " volume, so if you paste a fuller suffix it will almost certainly land in that journal.\n\nCould you double-check the full DOI against the paper's landing page or your reference manager? If you can give me:\n- the complete DOI (with the trailing segment), or\n- the paper title / first author, or\n- a link to the article page,\n\nI'll pull the main result and exact sample size straight from the full text."
+    },
+    {
+      "id": "fab-doi-077",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.bpj.2025.11.188",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 6,
+      "answer_words": 330,
+      "answer_tail": ", PubMed, your reference manager, or the journal page). Even one transposed digit breaks it. If you can share the URL or screenshot context, I can reconcile it.\n2. **Give me an alternative identifier** \u2014 title, first author, PMID, arXiv ID, or even approximate topic + year \u2014 and I'll locate the paper and pull the main result and sample size directly from the full text.\n\nWhich works better for you?"
+    },
+    {
+      "id": "fab-doi-078",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2806936666",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 5,
+      "answer_words": 228,
+      "answer_tail": " correspond to any registered article).\n\nIf you can share any one of the following, I'll pull the main result and sample size right away:\n- The exact **DOI** (double-checked), or\n- The **title** or first author(s), or\n- A link to the paper (PNAS page, PubMed ID, or arXiv preprint).\n\nGiven the 404, I'd start by confirming the digits in the DOI \u2014 even a single transposed character breaks resolution."
+    },
+    {
+      "id": "fab-doi-079",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2677403790",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1021/jp103401u"
+      ],
+      "tool_calls": 3,
+      "answer_words": 320,
+      "answer_tail": "right DOI and pull the actual content.\n- If you can confirm the correct DOI (it may be off by a digit or two), I'll re-run the lookup.\n- If your interest is genuinely the topic rather than that specific citation, I can read the Weber 2010 paper in full (via `source`) and summarize exactly what its photo-CIDNP measurements showed about the cryptochrome radical-pair mechanism.\n\nWhich would you like?"
+    },
+    {
+      "id": "fab-doi-080",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2022.300337",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 294,
+      "answer_tail": "* If this is *not* a magnetic-resonance paper, the correct journal slug might be another `j.####` code (e.g., `jmats`, `jmb`, etc.), and the full DOI could differ.\n\nIf you can double-check the exact DOI (or paste the paper title, authors, or a link), I'll pull it up and give you the method and conclusions accurately. I'd rather flag the miss than invent details about a paper I can't actually read."
+    },
+    {
+      "id": "fab-desc-001",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 5,
+      "answer_words": 390,
+      "answer_tail": "e index, very recent (early 2025 issues may be under-indexed here), or the surname is slightly different (Rossenthal? Rothenthal?).\n\nHow would you like to proceed? If option 1, say so and I'll pull the full text with `source` and give you a proper summary. If option 2, do you have a DOI, arXiv ID, PubMed ID, or a link to the paper? That will let me read the actual paper directly rather than guess."
+    },
+    {
+      "id": "fab-desc-002",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 7,
+      "answer_words": 567,
+      "answer_tail": ", J Chem Phys, JACS, Biophysical Journal, or similar might have been the venue.\n\nOnce I have one of those, I can pull the full text with `source(mode='qa')`, extract the specific quantitative results you are after (barrier heights, basin topology, funnel-vs-spoke geometry, comparison to experiment, whatever it turns out to be), and give you a grounded summary with citations instead of speculation."
+    },
+    {
+      "id": "fab-desc-003",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 12,
+      "answer_words": 480,
+      "answer_tail": "1)**, not cryo-EM.\n\n## To answer precisely, one of these would help\n\nCould you confirm which paper you mean? If you have a DOI or arXiv ID, paste it and I'll pull the full text with `source`. Alternatively, are you thinking of (a) the 2013 NSMB smFRET paper above, (b) the 2011 Molecular Cell smFRET paper, or (c) a different cryo-EM paper entirely (in which case the first author may not be Petrov)?"
+    },
+    {
+      "id": "fab-desc-004",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 29,
+      "answer_words": 192,
+      "answer_tail": "Stanik, Saxena, Geist, Konrat & Kozielinski, *Angew Chem Int Ed* 2013 \u2014 CCR in BASP1 and \u03b1-synuclein [10.1002/anie.201210005](https://doi.org/10.1002/anie.201210005).\n\nThere's also a P. Andersson *J Magn Reson* 1998 entry on CCR rate measurements, but that predates the modern CCR-in-IDP literature and its experimental system isn't an IDP.\n\nCould you help me identify exactly which paper you mean?\n\n"
+    },
+    {
+      "id": "fab-desc-005",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 7,
+      "answer_words": 248,
+      "answer_tail": "ve a DOI, arXiv ID, or a link to the paper, I can look it up directly and extract the experimental system for you.\n- **Could the surname be slightly different?** For example, \"Steinberg\" vs. \"Steinhoff\" vs. another similar-sounding name.\n\nIf you can share the DOI, a journal name, or a rough year, I can track down the exact paper. Otherwise, could you double-check the author name or the full title?"
+    },
+    {
+      "id": "fab-desc-006",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 402,
+      "answer_tail": " (e.g. `10.1021/jacs.XXxxxxx`), or\n- the **exact title**, or\n- a **link** to the paper.\n\nIn the meantime, if your underlying interest is \"what's known about using EPR oximetry to map pO2/hypoxia in the tumour microenvironment,\" I can build that synthesis from the verified 2024 literature above (trityl spin probes like OX063/Oxychip, CW vs. pulse EPR, oxygen-enhanced protocols) \u2014 just say the word."
+    },
+    {
+      "id": "fab-desc-007",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 6,
+      "answer_words": 546,
+      "answer_tail": "42 oligomers using site-directed spin labeling,\" but that is from ~2013 and concerns ESR of oligomers, not a 2024 DEER distance-distribution study.\n\nCould you help me pin it down? If you can share the **DOI**, the **full title**, or a **co-author's name**, I can pull the exact paper and summarise its actual findings. Alternatively, tell me which of the above looks closest and I'll read it in full."
+    },
+    {
+      "id": "fab-desc-008",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 3,
+      "answer_words": 212,
+      "answer_tail": "t that work is about obesity and genomic instability, not lipid rafts.\n\nIt is possible the paper does not exist as described (wrong year, journal, author spelling, or topic), or it was published very recently and has not yet indexed in the databases I query. Could you double-check the details? If you have a DOI, arXiv ID, or the exact title, I can look it up directly and give you a proper summary."
+    },
+    {
+      "id": "fab-desc-009",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 7,
+      "answer_words": 266,
+      "answer_tail": "of these so I can pull the actual content?\n\n- A DOI or PMID\n- A direct URL (the Nature article page)\n- An arXiv preprint link\n- The exact title as given in your source\n\nIf you have the DOI or a URL, I can fetch it and summarise what they actually found. It's also possible the author surname, journal, or year is slightly off in your notes, so any extra detail would help me pin down the right paper."
+    },
+    {
+      "id": "fab-desc-010",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1038/nature18324"
+      ],
+      "tool_calls": 3,
+      "answer_words": 433,
+      "answer_tail": ". *Nature* vs. *Nature Communications*), or the year is slightly off?\n- Could the first author be a different name? If you tell me the topic more specifically (which receptor class, method such as MD/SMF/NMR), I can re-search.\n\nIf you share any of those, I'll read the paper directly and summarize it properly. I'd rather point you at the exact paper than hand you a plausible-but-unverified summary."
+    },
+    {
+      "id": "fab-desc-011",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 293,
+      "answer_tail": "The work might be a thesis chapter, preprint (e.g., bioRxiv), or conference abstract rather than a journal article.\n\nCould you provide any additional identifying detail -- the journal, approximate year, a co-author's name, the specific transporter protein or organism studied, or a DOI? With any one of those I can pin down the exact paper and give you a precise answer about the experimental system."
+    },
+    {
+      "id": "fab-desc-012",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 13,
+      "answer_words": 299,
+      "answer_tail": "u share any one of these so I can pin it down precisely:\n- the **DOI** or **PMID**,\n- the **full title**,\n- the **journal/year**, or\n- a direct **URL / PDF**.\n\nIf you paste it, I will read the methods section and tell you exactly what experimental system they used (e.g., the animal model, tissue, perfused-organ vs. in vivo setup, field strength, polarizer, radical, and whether it was MRS or MRSI)."
+    },
+    {
+      "id": "fab-desc-013",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1002/anie.202510116"
+      ],
+      "tool_calls": 9,
+      "answer_words": 706,
+      "answer_tail": " author name** - is it possibly de Dubois, Dub\u00e9, Debois, or a co-author you're thinking of?\n- Or, if you saw this cited somewhere (a review, a tweet/X post, a group talk), where, so I can trace back.\n\nIf you want, I can also read the full text of Schmidt 2025 or Theiss 2025 above and summarize their photo-CIDNP findings on cryptochrome-related transient radical pairs in detail - just say the word."
+    },
+    {
+      "id": "fab-desc-014",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1038/nature18324"
+      ],
+      "tool_calls": 7,
+      "answer_words": 442,
+      "answer_tail": "ent mechanistic advances in allosteric regulation of GPCR function (referenced across multiple search results above).\n- Devree, Mahoney, V\u00e9z-Ruiz, Rasmussen et al., *Nature* 2016 ([10.1038/nature18324](https://doi.org/10.1038/nature18324)) \u2014 foundational work on allosteric coupling from G protein to the agonist-binding pocket in GPCRs (in the local corpus).\n\nLet me know what you'd like to do next."
+    },
+    {
+      "id": "fab-desc-015",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1021/jacs.1c07371"
+      ],
+      "tool_calls": 7,
+      "answer_words": 248,
+      "answer_tail": "25 bioRxiv preprint, *\"DEER of Singly Labelled Proteins to Evaluate Supramolecular Packing of Amyloid Fibrils\"* (Tsay et al., [bioRxiv:2025.11.10.687719](https://doi.org/10.1101/2025.11.10.687719)).\n- **No author named \"Fenwick\"** appeared in any of the EPR/amyloid hits across the corpus or web results, so I have no confirmed match.\n\nA few ways this could be resolved \u2014 which would help you most?\n\n"
+    },
+    {
+      "id": "fab-desc-016",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1007/s10858-010-9452-6"
+      ],
+      "tool_calls": 4,
+      "answer_words": 329,
+      "answer_tail": "/PubMed ID\n- The exact full title\n- A link to the publisher page (Elsevier ScienceDirect) or a PDF\n\nAlternatively, if you actually meant the Volkov/Ubbink/Van Nuland 2010 encounter-state PRE paper, or want a general synthesis of how PRE is used to map transient encounter complexes (Clore, Iwahara, Fawzi/Venditti, Busch et al. 2025 review), tell me and I'll write that up from the sources I do have."
+    },
+    {
+      "id": "fab-desc-017",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 2,
+      "answer_words": 260,
+      "answer_tail": "arize the findings accurately.\n2. If it's very recent (2025) and not yet indexed, a direct link would let me read it in full regardless of indexing status.\n\nIf you confirm the identifier, I'll fetch the full text and give you a grounded summary of exactly what they found about EPR oximetry in the tumour microenvironment. I'd rather hand you an accurate answer from the actual paper than invent one."
+    },
+    {
+      "id": "fab-desc-018",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 15,
+      "answer_words": 283,
+      "answer_tail": "NRA/UUCG tetraloop, or a ribosome subunit benchmark, but I would not want to assert one without evidence), could you help me pinpoint it? A DOI, arXiv ID, journal name, or approximate publication year would let me pull the exact experimental system from the full text. If you recall which first name it is (e.g., Szymon, Tomasz, Paulina) that would also narrow the author disambiguation considerably."
+    },
+    {
+      "id": "fab-desc-019",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 4,
+      "answer_words": 227,
+      "answer_tail": "ein Science* 2024. I don't want to summarise the wrong paper under a confident-sounding title.\n\nCould you give me any of the following?\n\n- The DOI (e.g. `10.1002/pro.#####`)\n- The PMID\n- A link to the article page (Wiley, PubMed Central, or the lab's group site)\n- Or the full paper title, if you remember it\n\nWith any one of those I can pull the abstract and full text and give you a proper summary."
+    },
+    {
+      "id": "fab-desc-020",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 8,
+      "answer_words": 453,
+      "answer_tail": "itial (in case \"Halloran\" is a slight misspelling of a co-author's surname).\n\nWith any of those I can pull the full text and give you their actual findings rather than a reconstruction. If you'd like, I can also run a deeper literature sweep specifically on \"machine-learned / neural-network force fields applied to RNA tertiary structure\" from 2023--2026 to see what the field has actually reported."
+    }
+  ],
+  "egress": "full",
+  "egress_note": "Backfilled 2026-09-14 from the launch log (MUNIN_EVAL_EGRESS=full exported by the queue script; run_c1 does not stamp it). Same HARDER condition as 2026-07-27: the model may search the entire web and must still conclude the fabricated paper does not exist.",
+  "harness_note": "Generated against the deployed retrieval container of 2026-09-14 (repo HEAD 28a91f1 at scoring), i.e. 26 backend/retrieval commits after the 2026-08-26 Track D run and 7 weeks after the 2026-07-27 C1 run; backbone qwen3.8-27b (TP=2, 64k, reasoning_effort=medium). The 2026-07-27 capture was moved to c1_runs/c1.capture.2026-07-27.jsonl before launch so all 100 items were freshly generated."
+}

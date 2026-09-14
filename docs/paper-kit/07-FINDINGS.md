@@ -135,7 +135,8 @@ settle this:
 
 - The **T1a null**: supplying more evidence in the retrieval result did not
   move grounding, so it is not an evidence-availability problem.
-- **C1**: 0 confabulated local citations out of 100 fabricated papers.
+- **C1**: 0 confabulated local citations out of 100 fabricated papers, on
+  both backbones (97/100 and 100/100 refusals).
 
 So the un-supported claims are faithful cross-source synthesis plus judge
 literalness (a claim entailed by two passages *jointly* scores "unsupported"
@@ -255,11 +256,23 @@ over-abstention on answerable questions moved substantially. The harness became
 about fake ones.** These are separable properties, and a system can move one
 without the other.
 
+**C1 survives the backbone swap, where it was most at risk.** Qwen3.8 is
+the backbone that guesses more freely on its own (R1: bare abstention 0.040,
+precision of attempted falling), which is the disposition under which a
+fabricated paper should be most tempting to answer. Inside the harness it
+refused all 100 (Wilson [0.963, 1.000]), 0 confabulated local citations, with
+about half the tool calls of Qwen3.6 (5.6 vs 10.8 per item): corpus, Semantic
+Scholar, Crossref 404, one web search, refuse, naming the sources checked.
+The change in behaviour is in the refusal itself: 13 refusals (4 on Qwen3.6)
+also offer the nearest real corpus paper, spot-checked as "unrelated" or
+"possibly what you meant", not as a substitute.
+
 **Caveats that must travel with this claim.** Five of 27 still answered wrong on
 removal, so this is strong calibration and not perfect. n = 27 is small, so the
 interval is wide (±0.18 around 0.667) even though it excludes the old harness
-comfortably. C1 remains the cleanest signal because it does not depend on a
-shadow-corpus construction.
+comfortably. C2b is on the retired backbone. C1 remains the cleanest signal
+because it does not depend on a shadow-corpus construction, and it is now the
+one abstention result measured on the production backbone.
 
 ---
 

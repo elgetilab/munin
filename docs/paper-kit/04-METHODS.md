@@ -13,7 +13,7 @@ Six tracks. Tracks A through E are built; F is specified only.
 |---|---|---|
 | **A** Retrieval quality | Does the retriever surface the right paper? | Built. Phases 1-3 and 5 done; Phase 4 (local query pool) deferred. |
 | **B** Answer faithfulness | Are answer claims entailed by the retrieved evidence? | Built. Judge validated; per-arm paired comparison run on both backbones (2026-07-27 Qwen3.6, 2026-08-26 Qwen3.8). |
-| **C** Abstention and calibration | Does the system know when the corpus lacks the answer? | Built. C1 and C2b run, re-run 2026-07-27 on Qwen3.6; risk-coverage derived. **Not re-run on Qwen3.8.** |
+| **C** Abstention and calibration | Does the system know when the corpus lacks the answer? | Built. C1 and C2b run, re-run 2026-07-27 on Qwen3.6; risk-coverage derived. **C1 re-run on Qwen3.8 2026-09-14 (100/100); C2b not.** |
 | **D** Harness value and cost | Does the agentic harness beat the bare model and vanilla RAG? | Built. Clean run 2026-07-27 (Qwen3.6); headline re-measurement 2026-08-26 on the production backbone Qwen3.8. |
 | **E** Regression and scorecard | Can the whole suite re-run as one command and flag regressions? | Built. `run_all`, `compare`, `certify`. |
 | **F** Follow-up | Expert benchmark, validated certification thresholds, AstaBench positioning | Specified, not built. Two cheap pieces pulled forward (see §8). |
@@ -31,8 +31,8 @@ and T11 were re-run on the same 199 questions and the Qwen3.8 figures are the
 headline; Track A is backbone-independent at scoring time, scored against
 frozen Qwen3.6-era query variants generated once by the production expander,
 and was not re-run for the model swap because regenerating the variants would
-change the benchmark, not the system; Track C was not re-run and stays on
-Qwen3.6.
+change the benchmark, not the system; C1 was re-run on Qwen3.8 on
+2026-09-14 and holds; C2b was not re-run and stays on Qwen3.6.
 Within a run every comparison is paired; across the two backbones it is
 suggestive only, because the harness code also moved between the runs.
 

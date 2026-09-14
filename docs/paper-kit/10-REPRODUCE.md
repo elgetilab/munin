@@ -179,9 +179,16 @@ Capture can run on CPU; scoring wants the GPU.
 ```bash
 $PY -m munin_bench.abstention.fabricate --n 100        # freeze the set (Crossref-verified)
 
-PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c1 \
-  --base-url http://127.0.0.1:8080 --email <eval-account> --date <D>
+# run_c1 RESUMES from c1_runs/c1.capture.jsonl. Move the previous capture aside
+# first, or the "new" scorecard re-scores the old answers under a new date.
+mv c1_runs/c1.capture.jsonl c1_runs/c1.capture.<previous-date>.jsonl
+MUNIN_EVAL_EGRESS=full PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c1 \
+  --base-url http://127.0.0.1:8080 --email <eval-account> --concurrency 1 --date <D>
 ```
+
+`egress=full` is the reported (harder) condition for C1; the runner defaults
+to `off`. `run_c1` does not stamp egress into the scorecard, so record it
+(the 07-27 and 09-14 files carry a backfilled `egress` field).
 
 ### Track C2b: paired shadow-corpus abstention
 
@@ -253,10 +260,11 @@ MUNIN_BENCH_ENTAILMENT_DEVICE=cuda:0 $PY -m munin_bench.ablation.faithfulness --
 
 As of 2026-09-14:
 
-- **Track C (C1, C2b) on the production backbone.** The 2026-08-26 swap
-  re-ran Track D, per-arm faithfulness and T11 only. Re-running C2b needs the
-  `papers_shadow` collection rebuilt from the frozen 50 questions
-  (`build_shadow --n 50`) and the second retrieval instance on :8081.
+- **Track C2b (and the risk-coverage points derived from it) on the
+  production backbone.** C1 was re-run on Qwen3.8 on 2026-09-14. Re-running
+  C2b needs the `papers_shadow` collection rebuilt from the frozen 50
+  questions (`build_shadow --n 50`) and the second retrieval instance on
+  :8081.
 
 - BEIR `nfcorpus` / `scidocs` / `trec-covid`.
 - **Phase 4 local query pool** (deferred: blocked on human query curation and
@@ -274,7 +282,7 @@ As of 2026-09-14:
 |---|---|
 | Canonical results log | `backend/benchmarks/RESULTS.md` |
 | Claim-to-scorecard index | `PAPER.md` |
-| Scorecards (62 JSON, 48 Markdown; the three `2026-08-26_*` files and `2026-09-14_answer-qwen38-900s` are the current headline) | `backend/benchmarks/scorecards/` |
+| Scorecards (63 JSON, 48 Markdown; the three `2026-08-26_*` files and the two `2026-09-14_*` files are the current headline) | `backend/benchmarks/scorecards/` |
 | Benchmark harness | `backend/benchmarks/munin_bench/` |
 | Certification thresholds | `backend/benchmarks/certification_thresholds.json` |
 | Paper track: plans, specs, open items | `docs/paper-track/` |

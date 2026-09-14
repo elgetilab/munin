@@ -9,7 +9,8 @@ copied in turn from committed scorecard JSON, not from memory.
 faithfulness, T11) were re-measured on `qwen3.8-27b`
 (`cyankiwi/Qwen3.8-27B-AWQ-INT4`, dense 27B, TP=2, 64k,
 `reasoning_effort=medium`), which is what production serves. Claim 3
-(abstention, C1/C2) is still on the retired `qwen3.6-35b-a3b`
+(abstention) is split: C1 was re-run on `qwen3.8-27b` on 2026-09-14 and
+holds; C2b is still on the retired `qwen3.6-35b-a3b`
 (Qwen3.6-35B-A3B-AWQ-4bit) and says so inline. Claim 4 (retrieval) is
 **model-independent at scoring time** and was not re-run: AgentRetriever
 scores against frozen Qwen3.6-era query variants generated once by the
@@ -23,7 +24,7 @@ Corpus at time of writing: 68,462 papers.
 
 > **Drafting the paper?** [`docs/paper-kit/`](docs/paper-kit/) is a
 > self-contained bundle (system, architecture, corpus, methods, results,
-> ablations, findings, limitations, related work, reproduce, plus the 20
+> ablations, findings, limitations, related work, reproduce, plus the 21
 > headline scorecards) written to be read without repository access. This file
 > stays the short claim-to-scorecard index.
 
@@ -119,15 +120,20 @@ Scorecards: `scorecards/2026-08-26_harness-ablation-faithfulness.json` (current)
 Track C. Prior art exists (KnowOrNot, arXiv 2505.13545), so the claim is
 narrowed to corpus-grounded abstention with a paired shadow corpus.
 
-> **These numbers are on the RETIRED `qwen3.6-35b-a3b`**, not on what production
-> serves. C1 and C2b were not re-run in the 2026-08-26 model swap. C2b in
-> particular needs the `papers_shadow` Qdrant collection rebuilt from the frozen
-> 50 questions and a second retrieval instance on :8081. Note also that claim 1
-> found Qwen3.8 abstains far less than Qwen3.6 outside the harness, so these
-> figures should **not** be assumed to carry over.
+> **C2b and risk-coverage are on the RETIRED `qwen3.6-35b-a3b`**, not on what
+> production serves. C2b was not re-run in the 2026-08-26 model swap; it needs
+> the `papers_shadow` Qdrant collection rebuilt from the frozen 50 questions
+> and a second retrieval instance on :8081. Claim 1 found Qwen3.8 abstains far
+> less than Qwen3.6 outside the harness, so the C2b figures should **not** be
+> assumed to carry over. **C1 was re-run on Qwen3.8 on 2026-09-14 and holds.**
 
-- **C1, fabricated papers** (n=100): abstain 0.970 [0.930, 1.000], **0
-  confabulated local citations**.
+- **C1, fabricated papers** (n=100), **on `qwen3.8-27b`**: abstain **1.000**
+  (Wilson [0.963, 1.000]), **0 confabulated local citations**, 100/100 correct
+  refusals at `egress=full`, mean 5.6 tool calls per item. On Qwen3.6
+  (2026-07-27): 0.970 [0.930, 1.000], 0/100, 10.8 calls. The backbone that
+  guesses more freely on its own refused every fabricated paper inside the
+  harness. 13 refusals also cite a real corpus paper as related or as the
+  likely intended target; spot-checked, none substitutes it for the asked one.
 - **C2b, paired shadow corpus** at matched `egress=off` (n=50): accuracy drops
   0.540 → 0.080 when the source paper is removed, abstain 0.400 → 0.740. On the
   answerable subset, correct abstention is **0.667 [0.481, 0.852]** (n=27), up
@@ -139,7 +145,8 @@ narrowed to corpus-grounded abstention with a paired shadow corpus.
   nearly as often (0.633) at ~5.7x the risk (0.524); RAG buys low risk only by
   refusing most questions (coverage 0.241).
 
-Scorecards: `2026-07-27_abstention-c1-fabricated.json`,
+Scorecards: `2026-09-14_abstention-c1-fabricated.json` (C1, current),
+`2026-07-27_abstention-c1-fabricated.json` (C1, Qwen3.6),
 `2026-07-27_abstention-c2-shadow.json`, `2026-07-27_risk-coverage.json`.
 
 ## 4. Retrieval
@@ -246,7 +253,7 @@ Two operational notes that will otherwise cost you a day:
 |---|---|
 | **Paper kit** (self-contained drafting bundle, 19 scorecards) | `docs/paper-kit/` |
 | Results log (canonical numbers) | `backend/benchmarks/RESULTS.md` |
-| Scorecards (62 JSON, 48 Markdown) | `backend/benchmarks/scorecards/` |
+| Scorecards (63 JSON, 48 Markdown) | `backend/benchmarks/scorecards/` |
 | Benchmark harness | `backend/benchmarks/munin_bench/` |
 | Certification thresholds | `backend/benchmarks/certification_thresholds.json` |
 | Paper track: plans, specs, open items | `docs/paper-track/` |
