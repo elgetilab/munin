@@ -11,8 +11,9 @@ comparable and were never meant to be pooled.
 from Qwen3.6-35B-A3B (MoE, retired) to Qwen3.8-27B (dense, what production
 serves). R1, R2 and R6 were re-measured on Qwen3.8 over the same 199 questions
 and carry both columns; the Qwen3.8 column is the headline. R3 (abstention)
-was **not** re-run and is on Qwen3.6. R4 (retrieval) has no LLM in the loop
-and is backbone-independent. Within a run, comparisons are paired and clean;
+was **not** re-run and is on Qwen3.6. R4 (retrieval) is backbone-independent
+at scoring time, against frozen Qwen3.6-era query variants (see R4). Within a
+run, comparisons are paired and clean;
 **across the two backbones they are suggestive, not controlled**, because 16
 commits touched `backend/retrieval/` between the runs (see `08-LIMITATIONS.md`).
 
@@ -279,9 +280,10 @@ outcome**. Scorecard: `2026-07-27_risk-coverage.{json,md}`.
 
 ## R4. Retrieval (Track A)
 
-Backbone-independent by construction: no LLM is in the loop, and
-`AgentRetriever` scores against a frozen query-variant set. Not re-run for the
-2026-08-26 model swap.
+Backbone-independent at scoring time; scored against frozen Qwen3.6-era query
+variants generated once by the production expander. Not re-run for the model
+swap because regenerating the variants would change the benchmark, not the
+system.
 
 ### R4.1 BEIR / SciFact, external validity anchor
 

@@ -28,8 +28,11 @@ run differ so much (see `06-ABLATIONS.md` §1).
 **Which backbone each number is on.** The generation model was swapped on
 2026-08-25 (Qwen3.6-35B-A3B, MoE, to Qwen3.8-27B, dense). Tracks D, B-per-arm
 and T11 were re-run on the same 199 questions and the Qwen3.8 figures are the
-headline; Track A is backbone-independent (no LLM in the loop, frozen query
-variants) and was not re-run; Track C was not re-run and stays on Qwen3.6.
+headline; Track A is backbone-independent at scoring time, scored against
+frozen Qwen3.6-era query variants generated once by the production expander,
+and was not re-run for the model swap because regenerating the variants would
+change the benchmark, not the system; Track C was not re-run and stays on
+Qwen3.6.
 Within a run every comparison is paired; across the two backbones it is
 suggestive only, because the harness code also moved between the runs.
 
