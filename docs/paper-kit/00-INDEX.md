@@ -23,7 +23,7 @@ Refreshed 2026-09-14 to the Qwen3.8-27B provenance (headline re-measurement of
 | `08-LIMITATIONS.md` | What is explicitly not claimed, threats to validity, deferred work, the caveats that must travel with each headline number. |
 | `09-RELATED-WORK.md` | Bib-ready anchors with arXiv IDs and venues, all verified 2026-07-26, plus the novelty analysis for the abstention contribution. |
 | `10-REPRODUCE.md` | Exact commands, versions, environment, and the two operational gotchas that each cost a day. |
-| `scorecards/` | 20 raw scorecard JSONs behind the headline claims, with per-query arrays so figures and paired tests can be regenerated. |
+| `scorecards/` | 21 raw scorecard JSONs behind the headline claims, with per-query arrays so figures and paired tests can be regenerated. |
 
 ## One-paragraph summary of the work
 
@@ -75,8 +75,9 @@ Terms used throughout, in the sense the repository uses them.
   `reasoning_effort=medium`) for the headline Track D, per-arm faithfulness
   and T11 numbers (2026-08-26), and it is what production serves.
   `qwen3.6-35b-a3b` (Qwen3.6-35B-A3B-AWQ-4bit, MoE, retired) for everything
-  dated earlier, which includes all of Track C (not re-run) and the Qwen3.6
-  column kept beside every re-measured table as the second backbone. Retrieval
+  dated earlier, which includes C2b and risk-coverage (not re-run; C1 was,
+  on 2026-09-14, and holds) and the Qwen3.6 column kept beside every
+  re-measured table as the second backbone. Retrieval
   numbers are backbone-independent at scoring time, against frozen
   Qwen3.6-era query variants generated once by the production expander.
 - **Retrieval encoder**: BGE-large-en-v1.5 (1024d, Qdrant collection `papers_bge`)

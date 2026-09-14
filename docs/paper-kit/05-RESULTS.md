@@ -11,7 +11,8 @@ comparable and were never meant to be pooled.
 from Qwen3.6-35B-A3B (MoE, retired) to Qwen3.8-27B (dense, what production
 serves). R1, R2 and R6 were re-measured on Qwen3.8 over the same 199 questions
 and carry both columns; the Qwen3.8 column is the headline. R3 (abstention)
-was **not** re-run and is on Qwen3.6. R4 (retrieval) is backbone-independent
+is split: C1 was re-run on Qwen3.8 (2026-09-14) and holds; C2b and
+risk-coverage are on Qwen3.6. R4 (retrieval) is backbone-independent
 at scoring time, against frozen Qwen3.6-era query variants (see R4). Within a
 run, comparisons are paired and clean;
 **across the two backbones they are suggestive, not controlled**, because 16
@@ -136,30 +137,41 @@ Scorecards: `2026-07-09_faithfulness-agentic-live` (baseline), `-t1a`, `-cap`.
 
 ## R3. Abstention (Track C)
 
-> **Backbone: Qwen3.6-35B-A3B, retired.** C1 and C2b were not re-run in the
-> 2026-08-26 model swap (C2b needs the `papers_shadow` Qdrant collection
-> rebuilt from the frozen 50 questions and a second retrieval instance on
-> :8081). R1 shows Qwen3.8 abstains far less than Qwen3.6 **outside** the
-> harness (bare 0.201 → 0.040, RAG 0.749 → 0.498) and identically inside it
-> (0.075), so the C1/C2b figures below should not be assumed to carry over
-> unchanged. They are what was measured on the same harness code with the
-> previous backbone.
+> **Backbone is split in this section.** C1 was re-run on **Qwen3.8** on
+> 2026-09-14 and is reported on both backbones. C2b and the risk-coverage
+> points are on **Qwen3.6-35B-A3B, retired**: C2b was not re-run in the
+> model swap (it needs the `papers_shadow` Qdrant collection rebuilt from the
+> frozen 50 questions and a second retrieval instance on :8081). R1 shows
+> Qwen3.8 abstains far less than Qwen3.6 **outside** the harness (bare 0.201
+> → 0.040, RAG 0.749 → 0.498) and identically inside it (0.075), so the C2b
+> figures should not be assumed to carry over unchanged; C1, the case most
+> exposed to that disposition, did carry over.
 
 ### C1: fabricated papers
 
 100 frozen items (80 Crossref-verified-nonexistent DOIs + 20
 nonexistent-paper-by-description), zero collisions with the 67,675-DOI corpus.
 
-| Metric | 2026-07-10 | 2026-07-27 (current harness) |
-|---|---|---|
-| Abstain / correct-refusal rate | 0.980 [0.950, 1.000] | **0.970 [0.930, 1.000]** |
-| **Confabulated local citations** | **0 / 100** | **0 / 100** |
-| Verdicts | 98 abstain / 1 possible-confab / 1 ambiguous | 97 / 2 / 1 |
+| Metric | 2026-07-10, Qwen3.6, flat loop | 2026-07-27, Qwen3.6, agent architecture | **2026-09-14, Qwen3.8** |
+|---|---|---|---|
+| Abstain / correct-refusal rate | 0.980 [0.950, 1.000] | 0.970 [0.930, 1.000] | **1.000** (Wilson [0.963, 1.000]; bootstrap degenerate) |
+| **Confabulated local citations** | **0 / 100** | **0 / 100** | **0 / 100** |
+| Verdicts | 98 abstain / 1 possible-confab / 1 ambiguous | 97 / 2 / 1 | **100 / 0 / 0** |
+| Abstained, by kind | | fabricated DOI 77/80, by-description 20/20 | 80/80, 20/20 |
+| Mean tool calls per item | | 10.8 (median 9) | **5.6** (median 4) |
+| Refusals that also cite a real corpus DOI | | 4 | 13 |
 
-The 2026-07-27 re-run was at `egress=full`, which is the **harder** condition:
-the model may search the entire live web and must still conclude the paper does
-not exist. Scorecards: `2026-07-10_abstention-c1-fabricated`,
-`2026-07-27_abstention-c1-fabricated`.
+The 2026-07-27 and 2026-09-14 runs were at `egress=full`, which is the
+**harder** condition: the model may search the entire live web and must still
+conclude the paper does not exist. The three 07-27 non-abstentions are correct
+refusals on 09-14. The 13 refusals citing a real corpus DOI score as
+`correct_abstain` because the not-found marker is present; four were read by
+hand and each names the real paper as unrelated or as the likely intended
+target rather than substituting it. A full manual pass over the 13 has not
+been done (`08-LIMITATIONS.md`). Scorecards: `2026-07-10_abstention-c1-fabricated`,
+`2026-07-27_abstention-c1-fabricated`, `2026-09-14_abstention-c1-fabricated`
+(the last carries `harness_note`: 26 retrieval commits newer than the 08-26
+ablation harness).
 
 ### C2b: paired shadow corpus
 

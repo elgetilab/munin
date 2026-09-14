@@ -1086,6 +1086,56 @@ Provenance notes:
 Scorecard: `2026-09-14_answer-qwen38-900s.{json,md}` (per-query arrays, so
 the paired tests above are reproducible).
 
+## Track C1 re-run on Qwen3.8-27B, fabricated-paper abstention  · git `28a91f1` · 2026-09-14
+
+**Generation model: `qwen3.8-27b`**, `egress=full` (the harder condition, as
+on 07-27), 900 s deadline, concurrency 1, the same frozen 100 items (80
+Crossref-verified-nonexistent DOIs + 20 nonexistent-paper-by-description, seed
+42). The 07-27 capture was moved aside before launch (`run_c1` resumes from
+`c1_runs/c1.capture.jsonl`, so without that it would have re-scored the
+Qwen3.6 answers under a new date); all 100 answers are freshly generated.
+
+| metric | 2026-07-10 (flat loop) | 2026-07-27, Qwen3.6 | **2026-09-14, Qwen3.8** |
+|---|---|---|---|
+| abstain / correct-refusal rate | 0.980 [0.950, 1.000] | 0.970 [0.930, 1.000] | **1.000** (bootstrap degenerate; Wilson [0.963, 1.000]) |
+| **confabulated local citations** | **0 / 100** | **0 / 100** | **0 / 100** |
+| verdicts | 98 abstain / 1 possible-confab / 1 ambiguous | 97 / 2 / 1 | **100 / 0 / 0** |
+| by kind, abstained | | fabricated DOI 77/80, by-description 20/20 | fabricated DOI 80/80, by-description 20/20 |
+| mean tool calls per item | | 10.8 (median 9, max 31) | **5.6** (median 4, max 30) |
+| mean answer length (words) | | 237 | 269 |
+
+**The claim holds on the backbone where it was most at risk.** R1 showed
+Qwen3.8 abstains far less than Qwen3.6 outside the harness (bare 0.201 →
+0.040) and is wrong more often when it attempts, which is exactly the
+disposition that should make a fabricated paper *more* tempting to answer.
+Inside the harness it refused every one of the 100, and the three 07-27
+non-abstentions (two possible-confabulation, one ambiguous, all fabricated
+DOIs) are correct refusals on 09-14. It did so with about half the tool calls:
+the typical trace is corpus lookup, Semantic Scholar, Crossref (404), one web
+search, then a refusal that says which sources were checked.
+
+**One behaviour to record, not hide.** 13 of the 100 refusals (8 fabricated
+DOI, 5 by-description) also cite a *real* corpus DOI, against 4 on 07-27. The
+classifier scores these as `correct_abstain` because the not-found marker is
+present; it would call `confabulated_local_cite` only if the refusal marker
+were absent. Four of the 13 were read by hand: each names the real paper as
+"unrelated" or "possibly what you meant", none presents it as the asked
+paper. So this is Qwen3.8 being more helpful in refusal (offering the nearest
+real work), not substitution, but it is the seam a stricter judge would probe,
+and a full manual pass over the 13 has not been done.
+
+Provenance: same harness caveat as the standalone answer track above (26
+retrieval commits after the 08-26 ablation run are deployed; this run is on
+the current harness, not the one the ablation measured). GPU shared with one
+group member's chat during the run; no cost claim is made from C1.
+
+**C2b is still on Qwen3.6.** It needs the `papers_shadow` collection rebuilt
+and the :8081 instance; the note in PAPER.md claim 3 stands for C2b only.
+
+Scorecard: `2026-09-14_abstention-c1-fabricated.json` (per-item verdicts,
+tool calls, `cited_in_corpus` lists; `egress` and `harness_note` backfilled
+from the launch log since `run_c1` does not stamp them).
+
 ## Reproduce
 
 ```bash
@@ -1110,7 +1160,8 @@ re-run DONE 2026-07-27**: C1 held (0.970 abstain, 0 confabulated local cites),
 C2 correct-abstention 0.20 -> 0.67 at matched `egress=off`. **Model swap
 2026-08-26**: Tracks D, B-per-arm and T11 re-run on Qwen3.8-27B and current;
 standalone LitQA2 answer track re-run on Qwen3.8 2026-09-14 (0.884, agrees
-with the ablation arm within noise);
+with the ablation arm within noise); **C1 re-run on Qwen3.8 2026-09-14
+(100/100 abstain, 0 confabulated local cites)**; C2b still on Qwen3.6;
 Track A is model-independent and current; **Track C is still on the retired
 Qwen3.6** and needs the `papers_shadow` collection rebuilt plus the :8081
 instance to re-run C2b. Status table: `README.md`.
@@ -1125,8 +1176,10 @@ MUNIN_BENCH_ENTAILMENT_DEVICE=cuda:0 $PY -m munin_bench.faithfulness.faithfulnes
 
 # Track C1 abstention (fabricated papers)
 $PY -m munin_bench.abstention.fabricate --n 100                       # freeze the set (Crossref-verified)
-PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c1 \
-  --base-url http://127.0.0.1:8080 --email litqa2-eval@localhost --date <YYYY-MM-DD>
+# run_c1 RESUMES from c1_runs/c1.capture.jsonl: move the previous capture aside first
+# (mv c1_runs/c1.capture.jsonl c1_runs/c1.capture.<olddate>.jsonl) or it re-scores old answers
+MUNIN_EVAL_EGRESS=full PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c1 \
+  --base-url http://127.0.0.1:8080 --email litqa2-eval@localhost --concurrency 1 --date <YYYY-MM-DD>
 
 # Track C2b paired shadow-corpus abstention
 PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.build_shadow --n 50   # build papers_shadow + freeze questions

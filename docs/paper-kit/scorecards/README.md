@@ -1,17 +1,18 @@
 # Scorecards behind the headline claims
 
-20 committed scorecard JSONs, copied verbatim from
+21 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
 
-The full set is 62 JSON plus 48 Markdown twins; the remainder are mostly the
+The full set is 63 JSON plus 48 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
 **Backbone is not stamped in the ablation-family files.** The three
-`2026-08-26_*` files are on Qwen3.8-27B (production); every earlier file is on
-the retired Qwen3.6-35B-A3B. See caution 8.
+`2026-08-26_*` files and the two `2026-09-14_*` files are on Qwen3.8-27B
+(production); every earlier file is on the retired Qwen3.6-35B-A3B. See
+caution 8.
 
 ## Schema
 
@@ -44,7 +45,8 @@ ablation files differ only in `git_sha` and `date`.
 | `2026-08-26_harness-ablation-faithfulness.json` | **Headline** per-arm paired faithfulness, RAG vs agentic, Qwen3.8 (per-question values included) | R2 |
 | `2026-07-27_harness-ablation-faithfulness.json` | Per-arm paired faithfulness on Qwen3.6 (per-question values included) | R2 |
 | `2026-07-08_faithfulness-judge-ragtruth.json` | MiniCheck judge validation on RAGTruth | R2 |
-| `2026-07-27_abstention-c1-fabricated.json` | C1, 100 fabricated papers, current harness | R3 |
+| `2026-09-14_abstention-c1-fabricated.json` | C1, 100 fabricated papers, **Qwen3.8**, current harness; `egress` and `harness_note` backfilled | R3 |
+| `2026-07-27_abstention-c1-fabricated.json` | C1, 100 fabricated papers, Qwen3.6 | R3 |
 | `2026-07-27_abstention-c2-shadow.json` | C2b paired shadow corpus at `egress=off`, with CIs and the question-paired delta against the 2026-07-10 run | R3 |
 | `2026-07-10_abstention-c2-shadow.json` | The earlier C2b pair (old flat-loop harness), rescored with the same CIs so the two are comparable | R3 |
 | `2026-07-27_abstention-c2-shadow-egressfull.json` | The same pair at `egress=full`. **A different experiment.** Do not compare across the two. | R3 |
