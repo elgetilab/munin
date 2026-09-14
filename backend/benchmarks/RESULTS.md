@@ -17,7 +17,15 @@ is the durable summary.
 > off-machine copy before any re-run that writes these directories. Numbers are copied from the result JSONs, not memory.
 
 **Provenance shared by all runs below**
-- Generation model: `qwen3.6-35b-a3b` (Qwen3.6-35B-A3B-AWQ-4bit), vLLM.
+- Generation model: this changed on 2026-08-26. Every section up to and
+  including T11 (2026-07-27) ran on `qwen3.6-35b-a3b`
+  (Qwen3.6-35B-A3B-AWQ-4bit, MoE, now retired). The final section, "Model
+  swap ... Track D re-run", is on **`qwen3.8-27b`**
+  (`cyankiwi/Qwen3.8-27B-AWQ-INT4`, dense), which is what production serves,
+  and it re-measured Track D, per-arm faithfulness and T11 on the same 199
+  questions. Track C (C1/C2b) has **not** been re-run on Qwen3.8; retrieval
+  sections are model-independent by construction. `PAPER.md` says which model
+  each headline claim is on.
 - Retrieval encoder: this changed partway. Phase 3-5 + the bake-offs used
   **SPECTER-v1** (`allenai-specter`, 768d, corpus `papers`); the encoder
   migration cut over to **BGE-large-en-v1.5** (1024d, corpus `papers_bge`) -
@@ -26,7 +34,7 @@ is the durable summary.
 - Metric = our `munin_bench.metrics`, verified bit-identical to `pytrec_eval`.
 - CIs are 95% percentile bootstrap (1000 resamples, seed 42).
 
-> **One-line story (updated 2026-07-27):** retrieval was the FIRST bottleneck
+> **One-line story (updated 2026-08-26):** retrieval was the FIRST bottleneck
 > (SPECTER answer acc 0.43 ≈ recall 0.44), fixed by the BGE-large migration
 > (Recall@10 0.44 -> 0.73, answer acc -> 0.497). The bigger lever came later: the
 > flat tool loop was replaced by named agents, and `source(mode=qa)` reading FULL
@@ -37,8 +45,12 @@ is the durable summary.
 > (distinct sources per Deep Research report). The harness ablation then closed
 > the loop on the central claim: on the finished architecture, **agentic 0.839 vs
 > bare 0.302 vs naive-RAG 0.171**, harness value **+0.538 [0.457, 0.618]
-> p<0.001** (2026-07-27, n=199 paired), with tool-failure **recovery 1.000**.
-> Full arc below.
+> p<0.001** (2026-07-27, n=199 paired, Qwen3.6), with tool-failure **recovery
+> 1.000**. **Superseded as the headline on 2026-08-26** by the same three arms
+> on the production model Qwen3.8-27B: **agentic 0.874 vs bare 0.387 vs RAG
+> 0.211**, harness value **+0.487 [0.407, 0.568]**, recovery still 1.000; the
+> shrink from +0.538 is the bare arm being measured properly at 16k tokens, not
+> the harness losing value (see the final section). Full arc below.
 
 ---
 
@@ -1035,8 +1047,11 @@ not compute) and the two P0 items that depend on it (T3 stratum 2, T7); Track F
 throughout. Track B: judge validated, and the **per-arm paired faithfulness is now DONE**
 (2026-07-27, RAG vs agentic, delta n.s.) — see the ablation section. **Track C
 re-run DONE 2026-07-27**: C1 held (0.970 abstain, 0 confabulated local cites),
-C2 correct-abstention 0.20 -> 0.67 at matched `egress=off`. Tracks A, C, D and
-T11 are all current. Status table: `README.md`.
+C2 correct-abstention 0.20 -> 0.67 at matched `egress=off`. **Model swap
+2026-08-26**: Tracks D, B-per-arm and T11 re-run on Qwen3.8-27B and current;
+Track A is model-independent and current; **Track C is still on the retired
+Qwen3.6** and needs the `papers_shadow` collection rebuilt plus the :8081
+instance to re-run C2b. Status table: `README.md`.
 
 ```bash
 # Track B faithfulness (judge validation + one live arm)
@@ -1065,7 +1080,11 @@ MUNIN_BENCH_ENTAILMENT_DEVICE=cuda:0 $PY -m munin_bench.ablation.faithfulness --
 
 # Track E — one unified re-certification run (all tracks + reliability)
 PYTHONPATH=$HOME/.cache/munin_bench_deps:. NEO4J_PASSWORD=... $PY -m munin_bench.pipelines.run_all \
-  --tag <label> --tracks beir-scifact,litqa2-retrieval,litqa2-answer,faithfulness,abstention,ablation \
+  --tag <label> --encoder bge-large \
+  --tracks litqa2-retrieval,litqa2-answer,faithfulness,abstention,ablation \
   --with-reliability --certify --date <D>   # ONE committed scorecard + re-cert PASS/FAIL vs certification_thresholds.json
+# --encoder bge-large is REQUIRED: run_all defaults to specter-v1 (the retired 768d `papers`
+# collection) and would reproduce Recall@10 0.44, not 0.73. beir-scifact is SPECTER-only
+# (run_all refuses it with any other preset) and runs separately via run_beir / run_bakeoff above.
 $PY -m munin_bench.pipelines.compare <old>.json <new>.json    # paired-bootstrap regression diff
 ```

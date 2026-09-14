@@ -238,7 +238,7 @@ by what breaks if you miss it.
     while plain chat keeps working, which is a confusing way to find out.
 
 A model swap also invalidates the committed benchmark numbers. See
-`../docs/paper-track/MODEL-SWAP-QWEN38-PLAN.md` for what has to be
+`../docs/paper-track/done/MODEL-SWAP-QWEN38-PLAN.md` for what has to be
 re-measured and what does not.
 
 ### Add MCP tool

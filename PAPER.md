@@ -202,14 +202,23 @@ PY=/opt/munin/services/pipeline/venv/bin/python
 
 $PY -m pytest tests/                           # unit gates
 $PY -m munin_bench.pipelines.run_all \
-   --tag <label> \
-   --tracks beir-scifact,litqa2-retrieval,litqa2-answer,faithfulness,abstention,ablation \
+   --tag <label> --encoder bge-large \
+   --tracks litqa2-retrieval,litqa2-answer,faithfulness,abstention,ablation \
    --with-reliability --certify --date <YYYY-MM-DD>
 ```
 
 `--certify` checks the run against `certification_thresholds.json` and emits
 PASS/FAIL; `munin_bench.pipelines.compare <old>.json <new>.json` gives a
 paired-bootstrap regression diff between two runs.
+
+**`--encoder bge-large` is not optional.** `run_all` defaults to `specter-v1`,
+the retired 768d `papers` collection, so the command without it reproduces the
+pre-migration retrieval numbers (Recall@10 0.44) rather than the ones claimed
+here (0.73). `beir-scifact` is deliberately absent from the track list: that
+track builds a 768d eval collection and `run_all` refuses it with any preset
+other than `specter-v1`, so it cannot share a run with the BGE tracks. The
+SciFact anchor is its own command, `run_beir --subset scifact` (SPECTER) and
+`run_bakeoff --subset scifact` (per-encoder), see RESULTS.md "Reproduce".
 
 Two operational notes that will otherwise cost you a day:
 

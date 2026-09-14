@@ -3,11 +3,18 @@
 The eval suite and everything that feeds the paper: retrieval benchmarks,
 the harness ablation, abstention, faithfulness, reliability. **Completed
 plans live in [`done/`](done/)**; what stays here is open work. Renamed from
-`todo_v2/` on 2026-08-04. Updated 2026-08-04.
+`todo_v2/` on 2026-08-04. Updated 2026-09-14.
 
 > **Start at [`../../PAPER.md`](../../PAPER.md)** if you want the results
 > rather than the plans: it maps every claim to its scorecard and its
 > reproduce command.
+>
+> **Model provenance is split since 2026-08-26.** Production serves
+> Qwen3.8-27B and the Track D / faithfulness / T11 headlines were re-measured
+> on it (`done/MODEL-SWAP-QWEN38-PLAN.md`). Track C is still on the retired
+> Qwen3.6-35B-A3B. Every 07-27 number quoted in the tables below is the
+> Qwen3.6 figure and is kept because the plan was closed on it; the current
+> headline is in PAPER.md.
 >
 > **The sibling track is [`../agent-track/`](../agent-track/)** (agent
 > architecture and Deep Research). Separate `done/`, separate TODO.
@@ -30,9 +37,10 @@ plans live in [`done/`](done/)**; what stays here is open work. Renamed from
 | `A4-PLAN.md`, `A5-PLAN.md` | Migration A4 (delegation deleted + allowlists retired) and A5 (routing tuning, anchor 0.95). Complete + live; soak clean 2026-07-08. |
 | `CONTEXT-BUDGET-FIX-SCOPE.md` | 3-tier context-budget fix. Deployed. |
 | `PERSONA-CONSOLIDATION-PLAN.md` | One Munin identity, 3 routing profiles. Done. |
-| `TRACK-D-PLAN.md` | Harness ablation. **Definitive clean run 2026-07-27** (n=199 paired, finished agent architecture): agentic **0.839** >> bare 0.302 >> RAG 0.171; harness value **+0.538 [0.457, 0.618] p<0.001**. The 07-13 n=100 pilot (0.56/0.32/0.15) is superseded — do not cite it. |
+| `TRACK-D-PLAN.md` | Harness ablation. Clean run 2026-07-27 on Qwen3.6 (n=199 paired, finished agent architecture): agentic **0.839** >> bare 0.302 >> RAG 0.171; harness value **+0.538 [0.457, 0.618] p<0.001**. **Re-measured 2026-08-26 on Qwen3.8-27B: 0.874 / 0.387 / 0.211, +0.487 [0.407, 0.568]**, which is the current headline. The 07-13 n=100 pilot (0.56/0.32/0.15) is superseded — do not cite it. |
 | `T2-ABLATION-REFRESH-PLAN.md` | Track D refresh. **DONE 2026-07-27**, definitive clean run (n=199 paired). |
 | `CITATIONS-VERIFIED.md` | `[VERIFY]` anchor pass 2026-07-26; every anchor checked, no markers remain. |
+| `MODEL-SWAP-QWEN38-PLAN.md` | Qwen3.6-35B-A3B -> Qwen3.8-27B swap and re-measurement. **Steps 1-2 DONE 2026-08-26** (model live on TP=2/64k; Track D, per-arm faithfulness, T11 re-run, scorecards `2026-08-26_*`). Step 3 done for RESULTS.md and PAPER.md; **`docs/paper-kit/` refresh still open** (see Remaining). Track C not re-run. |
 
 Eval-suite results writeup: `backend/benchmarks/RESULTS.md` (canonical);
 claim-to-scorecard index: [`../../PAPER.md`](../../PAPER.md).
@@ -46,7 +54,7 @@ claim-to-scorecard index: [`../../PAPER.md`](../../PAPER.md).
 | `BENCHMARK-TODO.md` | Benchmark landscape TODO. **T8 LitSearch BUILT+RUN 2026-07-28** (BGE-dense 0.485 > BM25 0.378; found a production `/search/hybrid` scale-mismatch bug — citation-rerank −0.368 nDCG@10). **T9 DROPPED** (no frontier key, unset cap, would egress eval data; local judge already human-validated at AUROC 0.95). T10 QASPER not started. P0 status 2026-07-27: T2/T4/T5/T6 done, T1 mostly done, T3 re-run done (stratum 2 still needs Phase 4), T7 deferred. **The only human-blocked P0 is Phase 4** (query curation + qrels). |
 | `T2-ABLATION-REFRESH-PLAN.md` | Reporting guidance for the Track D/T2 ablation, incl. why the 07-26 run is load-depressed and 07-27 is the headline. |
 | `CITATIONS-VERIFIED.md` | Citation verification pass — **all `[VERIFY]` anchors resolved** with arXiv IDs, plus the T3 novelty check (KnowOrNot is prior art) and the PaperArena correction. Bib-ready. |
-| `TRACK-B-PLAN.md` | Answer faithfulness (MiniCheck). B1-B4 built; judge validated (QA AUROC 0.95). **Per-arm paired faithfulness DONE 2026-07-27**: RAG 0.326 vs agentic 0.340, paired delta **+0.023 [-0.043, +0.089] p=0.496 (n=189)** — grounding does NOT improve with the harness, despite a 4.9x accuracy gap. `bare` is structurally unscoreable (retrieves nothing). |
+| `TRACK-B-PLAN.md` | Answer faithfulness (MiniCheck). B1-B4 built; judge validated (QA AUROC 0.95). **Per-arm paired faithfulness DONE 2026-07-27**: RAG 0.326 vs agentic 0.340, paired delta **+0.023 [-0.043, +0.089] p=0.496 (n=189)** — grounding does NOT improve with the harness, despite a 4.9x accuracy gap. **Null replicates on Qwen3.8 (2026-08-26)**: 0.282 vs 0.288, delta +0.010 [-0.052, +0.069], p=0.776 (n=163). `bare` is structurally unscoreable (retrieves nothing). |
 | `HARNESS-ITERATION-SCOPE.md` | Scoping for the harness-iteration phase (grounding, over-tooling, tool defs). Pre-implementation. |
 | `T2-T3-EDIT-PLAN.md` | Concrete T2 (over-tooling) + T3 (tool defs) edits; measurement + deploy constraints. Plan, not applied. |
 | `T1-GROUNDING-PLAN.md` | T1 grounding edits (paper_search excerpts, per-item truncation, structured sub-agent returns). T1a applied; T1b/c planned. |
@@ -55,6 +63,8 @@ claim-to-scorecard index: [`../../PAPER.md`](../../PAPER.md).
 | `IMPLEMENTATION-HANDOFF.md` | Overarching eval-suite handoff (reference). |
 | `TOOL-ARG-ELISION-SCOPE.md` | Follow-on to the context-budget fix: elide tool-call ARGUMENTS, not just results. **Plan, not implemented.** Replay of the 12 Aug 11-12 overflow turns: pre-fix 12/12 over the window, deployed code 1-2/12, argument elision would close the rest. Blocked on verifying that heavy calls span loop iterations. |
 | `MIGRATION-LOOSE-ENDS.md` | Encoder-migration tail: embedding-map repoint + `papers` retirement. varghele/root. |
+| `THIRD-MODEL-REVIEW.md` | Third backbone for the harness ablation. **DECIDED 2026-08-25: Qwen3.5-9B**, nothing implemented. Would turn the two-backbone "suggestive" comparison in PAPER.md claim 1 into a three-point one. |
+| *(no plan file)* `docs/paper-kit/` refresh | The drafting bundle was generated 2026-08-04 and predates the model swap: it still names Qwen3.6 as the generation model and quotes 0.839/+0.538, +0.023 p=0.496 and 8.61 calls/query as the headlines. Needs 00/01/05/06/07/08 rewritten against RESULTS.md's 2026-08-26 section, the 02 tool table brought to 45 tools, and the three `2026-08-26_*` scorecards copied into `scorecards/`. |
 
 ## What's next (ordered plan, set 2026-07-06)
 
@@ -91,6 +101,10 @@ FIX, not just a number to measure. So:
      Plan in `done/`. The empirical backbone of the harness-contribution claim.
      T11 tool reliability rides on the same run: 8.6 calls/query, **recovery
      rate 1.000** across the 86 queries that hit a tool failure.
+     ~~Re-measure on the production model~~ **DONE 2026-08-26** on Qwen3.8-27B:
+     agentic 0.874 / bare 0.387 / RAG 0.211, +0.487 [0.407, 0.568]; T11 6.93
+     calls/query, recovery 1.000. Cross-model comparison is suggestive only
+     (16 retrieval commits between the runs), see PAPER.md claim 1.
    - **Track C - corpus-grounded abstention benchmark** (over-abstention vs
      correct "not in corpus"). Master plan sec 4. C1 (fabricated papers +
      confabulation detector) and C2b (paired shadow-corpus) both BUILT and RUN
@@ -106,7 +120,9 @@ FIX, not just a number to measure. So:
      (blocked on Phase 4). ~~CI on the n=27 answerable subset~~ **DONE
      2026-08-04**: 0.667 [0.481, 0.852] bootstrap / [0.478, 0.814] Wilson, and
      the 0.20 -> 0.67 move is now a question-paired test (+0.467 [0.232,
-     0.697], p<0.001) rather than an eyeballed non-overlap.
+     0.697], p<0.001) rather than an eyeballed non-overlap. **Not re-run on
+     Qwen3.8** (2026-08-26 swap): C2b needs `papers_shadow` rebuilt and the
+     :8081 instance; the figures above are Qwen3.6 and PAPER.md says so inline.
 
 **Deferred:** Phase 4 local pool (blocked on more real usage / a synthetic-query
 track).
