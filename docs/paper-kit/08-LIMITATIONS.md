@@ -41,8 +41,9 @@ Three separate caveats, all of which must appear together:
    199 verdicts changed, and only 11 of those were recovered truncations. Six
    flipped correct → incorrect and six the other way purely from
    temperature-0.7 resampling. On Qwen3.8, two identical bare arms one day
-   apart scored 0.422 and 0.387. Roughly ±0.035 on a 199-question arm is
-   noise.
+   apart scored 0.422 and 0.387, and the agentic arm measured twice under two
+   protocols gave 0.874 and 0.884 with 24 of 199 verdicts flipping
+   symmetrically. Roughly ±0.035 on a 199-question arm is noise.
 
 **The safe framing:** a strong, real result, not a clean "beats humans"
 headline.
@@ -55,19 +56,21 @@ two backbones, and the paper must pick and justify:
 | Number | Backbone | Run | Condition |
 |---|---|---|---|
 | **0.874** | **Qwen3.8** | 2026-08-26 Track D agentic arm | The paired ablation on the production model, `egress=full`, concurrency 1, all arms 16,384 tokens |
-| *(pending)* | Qwen3.8 | 2026-09-14 standalone answer track | 900 s deadline, `egress=full`, concurrency 1, same protocol as the 07-24 run |
+| **0.884** | **Qwen3.8** | 2026-09-14 standalone answer track | 900 s deadline, `egress=full`, concurrency 1, same protocol as the 07-24 run; harness two weeks newer than the ablation arm's |
 | 0.864 | Qwen3.6 | 2026-07-24 answer track | 900 s deadline, 0 truncations, 0 unparseable |
 | 0.839 | Qwen3.6 | 2026-07-27 Track D agentic arm | The paired ablation, `egress=full`, concurrency 1 |
 | 0.814 | Qwen3.6 | 2026-07-24, 300 s | 11 answers truncated, all counted wrong |
 | 0.688 | Qwen3.6 | 2026-07-26 companion | Higher concurrency, constrained egress |
 
 Recommended: **quote 0.874 in the ablation context** (it is the paired,
-same-conditions number that the +0.487 delta is computed from) and, once the
-2026-09-14 standalone run lands, that figure as the standalone LitQA2 result
-on the production model; until then 0.874 serves both purposes. The Qwen3.6
-pair 0.864 / 0.839 shows the two protocols agree to within the measured noise
-on that backbone. Do not average across backbones, and do not quote 0.688 or
-0.814 except as sensitivity points.
+same-conditions number that the +0.487 delta is computed from) and **0.884 as
+the standalone LitQA2 result** on the production model. The two agree
+question-paired (+0.010 [−0.035, +0.055], p = 0.73), as the Qwen3.6 pair
+0.864 / 0.839 did, so they are one measurement taken twice; the 0.884 run is
+on a harness two weeks newer than the ablation's (`05-RESULTS.md` R5), which
+is a reason to keep the ablation number for the delta and the standalone one
+for the headline, not to average them. Do not average across backbones, and
+do not quote 0.688 or 0.814 except as sensitivity points.
 
 ### The abstention claim
 

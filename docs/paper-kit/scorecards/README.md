@@ -1,11 +1,11 @@
 # Scorecards behind the headline claims
 
-19 committed scorecard JSONs, copied verbatim from
+20 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
 
-The full set is 61 JSON plus 47 Markdown twins; the remainder are mostly the
+The full set is 62 JSON plus 48 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
@@ -55,7 +55,8 @@ ablation files differ only in `git_sha` and `date`.
 | `2026-07-03_bge-large.json` | LitQA2 retrieval, BGE-large full-corpus | R4.4 |
 | `2026-07-06_answer-specter-v1-v2.json` | End-to-end answer, SPECTER arm, fixed parser | R5 |
 | `2026-07-06_answer-bge-large-v2.json` | End-to-end answer, BGE arm, fixed parser | R5 |
-| `2026-07-24_answer-full-900s.json` | End-to-end answer, agent architecture, 900 s | R5 |
+| `2026-07-24_answer-full-900s.json` | End-to-end answer, agent architecture, 900 s, Qwen3.6 | R5 |
+| `2026-09-14_answer-qwen38-900s.json` | End-to-end answer, standalone track, 900 s, **Qwen3.8**; per-query arrays pair with both the 07-24 file and the 08-26 ablation arm | R5 |
 | `2026-08-26_toolreliability-qwen38_toolreliability.json` | **Headline** tool-use telemetry, Qwen3.8 | R6 |
 | `2026-07-27_toolreliability-clean.json` | Tool-use telemetry over the Qwen3.6 clean run. `web_fetch` error rate not comparable to 08-26 (failure definition changed between the runs) | R6 |
 
