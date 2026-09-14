@@ -12,9 +12,9 @@ Six tracks. Tracks A through E are built; F is specified only.
 | Track | Question it answers | Status |
 |---|---|---|
 | **A** Retrieval quality | Does the retriever surface the right paper? | Built. Phases 1-3 and 5 done; Phase 4 (local query pool) deferred. |
-| **B** Answer faithfulness | Are answer claims entailed by the retrieved evidence? | Built. Judge validated; per-arm paired comparison run. |
-| **C** Abstention and calibration | Does the system know when the corpus lacks the answer? | Built. C1 and C2b run, re-run 2026-07-27; risk-coverage derived. |
-| **D** Harness value and cost | Does the agentic harness beat the bare model and vanilla RAG? | Built. Definitive clean run 2026-07-27. |
+| **B** Answer faithfulness | Are answer claims entailed by the retrieved evidence? | Built. Judge validated; per-arm paired comparison run on both backbones (2026-07-27 Qwen3.6, 2026-08-26 Qwen3.8). |
+| **C** Abstention and calibration | Does the system know when the corpus lacks the answer? | Built. C1 and C2b run, re-run 2026-07-27 on Qwen3.6; risk-coverage derived. **Not re-run on Qwen3.8.** |
+| **D** Harness value and cost | Does the agentic harness beat the bare model and vanilla RAG? | Built. Clean run 2026-07-27 (Qwen3.6); headline re-measurement 2026-08-26 on the production backbone Qwen3.8. |
 | **E** Regression and scorecard | Can the whole suite re-run as one command and flag regressions? | Built. `run_all`, `compare`, `certify`. |
 | **F** Follow-up | Expert benchmark, validated certification thresholds, AstaBench positioning | Specified, not built. Two cheap pieces pulled forward (see §8). |
 
@@ -24,6 +24,25 @@ not while it was still being iterated on. The roughly 40% abstention rate seen
 during the encoder migration was treated as a harness-behaviour signal to fix,
 not a number to publish. This is why the Track D pilot and the Track D headline
 run differ so much (see `06-ABLATIONS.md` §1).
+
+**Which backbone each number is on.** The generation model was swapped on
+2026-08-25 (Qwen3.6-35B-A3B, MoE, to Qwen3.8-27B, dense). Tracks D, B-per-arm
+and T11 were re-run on the same 199 questions and the Qwen3.8 figures are the
+headline; Track A is backbone-independent (no LLM in the loop, frozen query
+variants) and was not re-run; Track C was not re-run and stays on Qwen3.6.
+Within a run every comparison is paired; across the two backbones it is
+suggestive only, because the harness code also moved between the runs.
+
+**Arm matching in Track D.** The bare and RAG arms call vLLM directly, so
+model name, `reasoning_effort` (medium) and `max_tokens` (16,384) are set
+explicitly to match what the backend applies to the agentic arm. The 07-27
+bare arm ran at 4,096 tokens and lost 33 answers to truncation; that is fixed,
+and it is the reason the harness delta moved between the runs. Sampling is
+not matched (bare/RAG 0.7 vs the persona's 1.0 / 0.95 / 20 / 1.5) and is
+reported as a threat rather than corrected. **Run-to-run variance** on a
+199-question arm at temperature 0.7 is ~0.035 (two identical Qwen3.8 bare
+arms a day apart: 0.422 vs 0.387); no single-run difference of that size is
+signal.
 
 ---
 
@@ -351,7 +370,8 @@ These are not choices and should be presented as constraints:
 | Constraint | Consequence for the method |
 |---|---|
 | `slurmdbd` not deployed, so no `sacct` | GPU-seconds cannot be read from job accounting. Cost = vLLM `usage` tokens + wall-clock timed at concurrency 1. |
-| vLLM `--max-num-seqs 2` | Every cost-bearing arm runs at concurrency 1. Exceeding it silently degrades quality (see `07-FINDINGS.md` §6). |
-| One vLLM instance, one model | No model-per-mode. Cost levers are caching, batching, and context length only. |
+| vLLM `--max-num-seqs` (8 on the TP=2 production profile, 2 single-GPU) | Every cost-bearing arm runs at concurrency 1. Exceeding the running profile's value silently degrades quality (see `07-FINDINGS.md` §6). |
+| One vLLM instance, one model | No model-per-mode. Cost levers are caching, batching, and context length only. The TP=2 profile takes both GPUs, so a benchmark and a batch job cannot share the node. |
+| Nightly vLLM stop at 02:00 | A 199-question agentic arm at ~157 s/query is ~9 h; a run that crosses the stop loses its tail (8 questions of the 08-26 run had to be re-run next morning). Start early. |
 | Sub-1B local judge | Faithfulness is scored by a small model, validated on RAGTruth, rather than by a frontier judge. |
 | Single scientific group as the user base | Phase 4's local query pool has only 42 real candidate queries so far, which is why it is deferred rather than merely unfinished. |

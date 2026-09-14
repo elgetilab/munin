@@ -3,6 +3,13 @@
 The agentic harness. This is the system contribution: what the harness is, why
 each piece has the shape it does, and which design principles are load-bearing.
 
+**Snapshot.** This file describes the harness as deployed at the refresh
+commit (2026-09-14). The headline measurements in `05-RESULTS.md` were taken
+at `3e0bcfb` (2026-08-26); the search escalation ladder, the grounded `read`
+stage in `search`, and the `list_documents` / `browse_tag_papers` tools
+landed after that run and are described here because the paper describes the
+shipped system, but no result in this kit was measured with them.
+
 ---
 
 ## 1. The shape, in one diagram
@@ -17,7 +24,7 @@ router.py ──── profile: chat | research | code       (before the first m
 system prompt = base[pinned persona] + fragment[routed profile]
    │
    ▼
-outer model loop (qwen3.6-35b-a3b, 60k budgeted context)
+outer model loop (qwen3.8-27b, 60k budgeted context)
    │
    ├── 4 named agents (fat tools, isolated interior context)
    │      source(refs[], mode)        read 1..N documents
@@ -176,13 +183,30 @@ then correctly abstains on.
 ### 3.2 `search` (the find-evidence agent)
 
 ```
-search(query, filters?(year, corpus), depth?, egress?)
+search(query, filters?(year, tags), depth?: normal | deep, read?: 0..3, top_k?)
   -> {ranked: [{ref, title, snippet, score, source_type}],
-      coverage_note, thin_evidence: bool, trace}
+      answers?: [...], coverage_note, thin_evidence: bool, counts, trace}
 ```
 
 Consolidates local corpus search, Semantic Scholar, and web search behind one
-call.
+call, and is the primary research tool: the plain `paper_search` /
+`semantic_scholar_search` / `web_search` tools stay callable but the model is
+told not to hand-chain them after it.
+
+**Escalation is a ladder, not a fan-out** (since 2026-08-27, after the
+headline runs). `depth=normal` starts with the local corpus, adds Semantic
+Scholar, and reaches the web only if the scholarly tiers come up short;
+`depth=deep` includes the web from the start. This replaced an unconditional
+three-tier fan-out that was measured to over-tool on questions the corpus
+already answered.
+
+**`read=N` is a grounded read stage inside the search call.** Up to N of the
+best hits are opened and the query is answered from their full text via the
+`source` agent, one at a time, stopping at the first document that actually
+answers, so it usually costs one extra read rather than N. Values, constants
+and measurements live in paper bodies and never in snippets, and this puts
+the full-text read where the model already is instead of relying on it to
+call `source` afterwards.
 
 **`source_type` is load-bearing.** Trust is not uniform across
 `corpus_paper` / `oa_paper` / `web`, so a single similarity score cannot rank
@@ -450,7 +474,7 @@ the corpus index, Neo4j stays the citation graph.
 
 ---
 
-## 5. Tool inventory (42 MCP tools)
+## 5. Tool inventory (45 MCP tools)
 
 The four agents are fat tools alongside these. Plain tools stay plain when they
 are deterministic and single-shot: wrapping them adds ceremony with no plumbing
@@ -459,22 +483,23 @@ payoff.
 | Category | Tools |
 |---|---|
 | **Agents** | `source`, `search`, `compute`, `deep_research` |
-| Retrieval | `paper_search`, `semantic_scholar_search`, `paper_lookup`, `web_search`, `web_fetch`, `search_user_docs`, `check_papers_availability`, `get_paper_pdf` |
+| Retrieval | `paper_search`, `semantic_scholar_search`, `paper_lookup`, `web_search`, `web_fetch`, `search_user_docs`, `list_documents`, `browse_tag_papers`, `check_papers_availability`, `get_paper_pdf` |
 | Citation graph | `get_citations`, `get_references`, `s2_get_citations`, `s2_get_references`, `get_author_papers`, `export_citations` |
 | LLM utility | `llm_summarize`, `transcribe_equation`, `view_attachment` |
 | Artifacts | `create_artifact`, `read_artifact`, `update_artifact`, `list_artifacts`, `save_artifact_to_documents` |
 | Memory | `remember`, `forget`, `recall`, `search_past_conversations` |
 | Projects | `list_projects`, `get_current_project` |
-| Execution | `run_python`, `sandbox_reset`, `compile_latex`, `calculate` |
+| Execution | `run_python`, `edit_python`, `sandbox_reset`, `compile_latex`, `calculate` |
 | Orchestration | `invoke_agent`, `tool_search`, `ask_clarification`, `faq` |
 | Planning | `set_plan`, `update_plan_item` |
 
-`is_concurrency_safe` defaults to **True**, with eight explicit opt-outs for the
-artifact, memory, and sandbox mutators. Default-False would force every new
+`is_concurrency_safe` defaults to **True**, with eleven explicit opt-outs for
+the artifact, memory, sandbox and plan mutators. Default-False would force every new
 tool to declare the flag and would under-parallelise anything anyone forgot to
 mark; default-True means a new mutating tool that forgets the flag
-over-parallelises until someone notices the race. With 31 genuinely read-only
-tools, explicit-only for the mutators is the smaller surface area.
+over-parallelises until someone notices the race. With 34 tools that are
+read-only or idempotent, explicit-only for the mutators is the smaller surface
+area.
 
 A separate **agent registry** (`config/agents.yml`) defines named workflows
 invocable through `invoke_agent`, each with a system prompt, a tool allowlist,

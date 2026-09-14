@@ -9,9 +9,11 @@ copied from the working reproduce block in the results log, not reconstructed.
 
 ### Trap 1: concurrency must not exceed vLLM `--max-num-seqs`
 
-The production vLLM serves with `--max-num-seqs 2`. Running an evaluation above
-that **silently degrades quality rather than erroring**. This is what produced a
-misleading 0.688 agentic figure that was very nearly published as the headline.
+Production serves with `--max-num-seqs 8` on the TP=2 profile and 2 on the
+single-GPU profile; read the value out of the running job before starting.
+Running an evaluation above it **silently degrades quality rather than
+erroring**. This is what produced a misleading 0.688 agentic figure that was
+very nearly published as the headline.
 
 All cost-bearing arms run at **concurrency 1**, which is also what makes
 wall-clock a usable cost proxy (SLURM accounting is unavailable, so there is no
@@ -60,10 +62,26 @@ On a clean machine: `python -m venv .venv && pip install -r requirements.txt`.
 A slim `requirements-ci.txt` exists so pure-function tests in CI do not pull
 torch plus the CUDA wheels.
 
-Package versions are recorded in every scorecard's provenance header
-(`numpy`, `scipy`, `sentence_transformers`, `qdrant_client`), along with the
-git SHA, the served model id read live from vLLM's `/v1/models`, the encoder,
-the corpus snapshot, and the seed (42).
+Package versions are recorded in every `run_all` scorecard's provenance
+header (`numpy`, `scipy`, `sentence_transformers`, `qdrant_client`), along
+with the git SHA, the served model id read live from vLLM's `/v1/models`, the
+encoder, the corpus snapshot, and the seed (42). **The ablation, faithfulness
+and risk-coverage scorecards do not carry that header**: they record
+`track / n_paired / git_sha / date` only, so the backbone has to be read off
+the date (before 2026-08-26 is Qwen3.6, from 2026-08-26 is Qwen3.8) or from
+`RESULTS.md`.
+
+**Backbone and serving, at the headline runs:** `qwen3.8-27b`
+(`cyankiwi/Qwen3.8-27B-AWQ-INT4`) on vLLM TP=2, 64k window, `--max-num-seqs
+8`, `reasoning_effort=medium`. The bare/RAG arms read the model name and
+reasoning effort from `VLLM_MODEL_NAME` and `LLM_REASONING_EFFORT` (defaults
+match production); set both explicitly after any model switch, or the arms
+silently diverge from the agentic path.
+
+**Cost of a full Track D pass at `egress=full`:** roughly 331 `web_search`
+calls and ~1,190 billed Brave requests (~$6) for the agentic arm; the bare and
+RAG arms make no external calls. Around 9 GPU-hours at concurrency 1 for the
+agentic arm on the dense 27B (157 s/query), minutes for the other two.
 
 ---
 
@@ -211,8 +229,12 @@ share a condition.
 ### Track D: harness ablation
 
 ```bash
+# Back up ablation_runs/ first: run_arm overwrites <arm>.json in place, and
+# the per-query verdicts behind every committed Track D number live only there.
+export VLLM_MODEL_NAME=qwen3.8-27b LLM_REASONING_EFFORT=medium   # arm matching
 for arm in bare rag agentic; do
-  PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.ablation.run_arm --arm $arm --n 199
+  MUNIN_EVAL_EGRESS=full PYTHONPATH=$HOME/.cache/munin_bench_deps:. \
+    $PY -m munin_bench.ablation.run_arm --arm $arm --n 199
 done
 
 $PY -m munin_bench.ablation.compare --date <D>
@@ -224,7 +246,12 @@ MUNIN_BENCH_ENTAILMENT_DEVICE=cuda:0 $PY -m munin_bench.ablation.faithfulness --
 
 ## 6. What has not been run
 
-As of 2026-08-04:
+As of 2026-09-14:
+
+- **Track C (C1, C2b) on the production backbone.** The 2026-08-26 swap
+  re-ran Track D, per-arm faithfulness and T11 only. Re-running C2b needs the
+  `papers_shadow` collection rebuilt from the frozen 50 questions
+  (`build_shadow --n 50`) and the second retrieval instance on :8081.
 
 - BEIR `nfcorpus` / `scidocs` / `trec-covid`.
 - **Phase 4 local query pool** (deferred: blocked on human query curation and
@@ -242,7 +269,7 @@ As of 2026-08-04:
 |---|---|
 | Canonical results log | `backend/benchmarks/RESULTS.md` |
 | Claim-to-scorecard index | `PAPER.md` |
-| Scorecards (58 JSON, 47 Markdown) | `backend/benchmarks/scorecards/` |
+| Scorecards (61 JSON, 47 Markdown; the three `2026-08-26_*` files are the current headline) | `backend/benchmarks/scorecards/` |
 | Benchmark harness | `backend/benchmarks/munin_bench/` |
 | Certification thresholds | `backend/benchmarks/certification_thresholds.json` |
 | Paper track: plans, specs, open items | `docs/paper-track/` |
@@ -254,7 +281,11 @@ As of 2026-08-04:
 
 Per-query raw artifacts live under `backend/benchmarks/results/` and are
 gitignored: they are regenerable, and the scorecards carry the per-query arrays
-that any paired test needs.
+that any paired test needs. **The exception is `ablation_runs/`, `c1_runs/`,
+`c2_runs/` and `faithfulness_runs/`**, which hold the per-query verdicts
+behind the Track C/D numbers, are not regenerable for the retired backbone,
+and are overwritten in place by a re-run. The Qwen3.6 set is archived
+off-machine (tarball with checksum and manifest, 2026-08-25).
 
 ---
 
@@ -273,5 +304,6 @@ What a third party can and cannot reproduce, stated honestly:
 |---|---|
 | LitQA2 answer runs | Require the ~68k-paper private corpus and the deployed harness |
 | The shadow-corpus experiment | Requires the private corpus and a second retrieval instance |
-| Exact wall-clock costs | Hardware-specific (single RTX 5090, `--max-num-seqs 2`) |
+| Exact wall-clock costs | Hardware-specific (2x RTX 5090 at TP=2, `--max-num-seqs 8`; the Qwen3.6 figures are on one card at `--max-num-seqs 2`) |
+| The Qwen3.6 column of any table | That checkpoint is retired. Its numbers are reproducible **from artifacts** (archived per-query verdicts, committed scorecards) but not re-runnable, so no like-for-like Qwen3.6 figure can be produced for a protocol change made after 2026-08-25. |
 | Benchmark data files | Never committed, for size and licence reasons; each dataset has a download script with a checksum so `data/` rebuilds deterministically |

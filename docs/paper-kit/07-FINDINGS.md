@@ -20,9 +20,13 @@ bottleneck. That second bottleneck was **not the model**: it was `read_paper`
 summarising and discarding the text that held the answer. Replacing it with
 full-text reading (`source(mode=qa)`) collapsed over-abstention from ~42% to 6%
 and took accuracy 0.497 → 0.864. With the architecture finished, the harness
-ablation closed the loop: agentic 0.839 vs bare 0.302 vs naive RAG 0.171,
-harness value **+0.538 [0.457, 0.618], p < 0.001**, with tool-failure recovery
-1.000.
+ablation closed the loop, on the production backbone Qwen3.8-27B: agentic
+0.874 vs bare 0.387 vs naive RAG 0.211, harness value **+0.487 [0.407, 0.568],
+p < 0.001**, with tool-failure recovery 1.000. The same three arms on the
+retired Qwen3.6-35B-A3B a month earlier gave 0.839 / 0.302 / 0.171 and +0.538,
+so the ordering and rough magnitude hold across a dense 27B and a 3B-active
+MoE (a suggestive, not controlled, replication; `08-LIMITATIONS.md`
+section 3).
 
 **The generalisable shape:** two successive bottlenecks were both diagnosed by
 measurement, and the larger of the two was in plumbing rather than in the model
@@ -67,10 +71,14 @@ ceiling.
 **Claim.** Retrieve-then-answer with a fixed top-5 context scores **below the
 bare model** on the same questions.
 
-**Evidence.** Replicated twice, independently: pilot n=100 (RAG − bare = −0.170
-[−0.26, −0.08], p ≈ 0) and the clean run n=199 (RAG − bare = **−0.131
-[−0.196, −0.070], p < 0.001**). Naive RAG abstains on **0.749** of questions
-against the bare model's 0.201.
+**Evidence.** Replicated three times, on two backbones: pilot n=100, Qwen3.6
+(RAG − bare = −0.170 [−0.26, −0.08], p ≈ 0); clean run n=199, Qwen3.6
+(−0.131 [−0.196, −0.070], p < 0.001); and the headline n=199, Qwen3.8
+(**−0.176 [−0.251, −0.096], p < 0.001**). The Qwen3.8 figure is the strongest
+form of the finding, because it holds against a correctly budgeted bare arm
+(the Qwen3.6 bare arm lost 33 answers to truncation, which if anything
+flattered RAG). Naive RAG abstains on **0.498** of questions against the bare
+model's 0.040 on Qwen3.8 (0.749 vs 0.201 on Qwen3.6).
 
 **Mechanism.** Verified from the answers themselves: imperfect top-5 retrieval
 makes the model **anchor on the retrieved abstracts** and refuse ("not enough
@@ -85,8 +93,8 @@ coverage collapse rather than increased error, so accuracy-only reporting will
 attribute it to the wrong cause.
 
 **Caveat to carry.** RAG accuracy is prompt-sensitive. The *anchoring effect*
-is robust across two runs; the exact magnitude is not a property of retrieval
-in general.
+is robust across three runs and two backbones; the exact magnitude is not a
+property of retrieval in general.
 
 **What this makes the harness's contribution.** The value is not retrieval per
 se. It is the **agentic loop's iterative, multi-source retrieval**, which can
@@ -96,16 +104,19 @@ recognise that the first context was insufficient and go get more.
 
 ## 4. Grounding does not improve with the harness
 
-**Claim.** The 4.9x accuracy gap between the agentic and RAG arms comes with
+**Claim.** The 4.1x accuracy gap between the agentic and RAG arms comes with
 **no** faithfulness gap.
 
-**Evidence.** Paired on 189 shared questions: RAG 0.326 [0.283, 0.365],
-agentic 0.340 [0.293, 0.389], **delta +0.023 [−0.043, +0.089], p = 0.496**.
-This replicates the pilot's finding (RAG 0.324, agentic ~0.33) almost exactly
-on full n, across two independent runs.
+**Evidence.** On Qwen3.8, paired on 163 shared questions: RAG 0.282 [0.248,
+0.316], agentic 0.288 [0.246, 0.333], **delta +0.010 [−0.052, +0.069],
+p = 0.776**. On Qwen3.6, paired on 189: RAG 0.326, agentic 0.340, delta +0.023
+[−0.043, +0.089], p = 0.496. The pilot (RAG 0.324, agentic ~0.33) said the
+same. **The null replicates across two backbones and three runs.**
 
-**This is a genuine null, not an underpowered one.** The CI is roughly ±0.07
-around a base of ~0.33, tight enough to exclude any meaningful effect.
+**This is a genuine null, not an underpowered one.** The CI is roughly ±0.06
+around a base of ~0.28-0.33, tight enough to exclude any meaningful effect.
+Absolute grounding is slightly lower on Qwen3.8 for both arms, which is a
+backbone property, not a harness one: the arms move together.
 
 **Mechanism, and it is sharper than the headline.** The agentic arm achieves
 the same *fraction* of supported claims against a far larger evidence set (up
@@ -285,10 +296,15 @@ tool enforces it.
 
 **Claim.** Failures in the tool layer do not become failures in the answer.
 
-**Evidence.** Over 1,714 tool calls on the clean run: error rate 0.061,
-degraded rate 0.240, 86 of 199 queries hit at least one failure, and **every one
-still produced a final answer (recovery rate 1.000)**. Two independent
-fault-injection probes also show recovery 1.000.
+**Evidence.** Over 1,380 tool calls on the Qwen3.8 headline run: error rate
+0.139, degraded rate 0.379, 102 of 199 queries hit at least one failure, and
+**every one still produced a final answer (recovery rate 1.000)**. On Qwen3.6
+(1,714 calls, 86 queries with a failure) recovery was also 1.000, and two
+independent fault-injection probes show the same. Mean calls per query fell
+8.61 → 6.93 across the swap. The error-rate rise between the runs is **not**
+a clean comparison: `web_fetch`'s failure definition changed between them
+(`05-RESULTS.md` R6), and the one genuinely comparable rise, `search` 0.000 →
+0.122, is a backbone behaviour covered in section 10.
 
 **Mechanism.** Under degradation the harness works harder rather than failing:
 call counts rise from 8.6 to 13.9 and 16.1 per query in the two probes. Combined
@@ -296,11 +312,44 @@ with the transport-level retry wrapper (exponential backoff on 5xx / 429 /
 pre-first-byte stream drops, honouring `Retry-After`), transient failures are
 recovered below the agent layer and persistent ones are compensated above it.
 
-**The weak link is named, not hidden.** `web_fetch` has a 45% error rate,
-dominated by publisher datacenter-IP walls (one major publisher is a hard block
-that is unfixable at the fetch layer) and burst rate-limiting. Retry-with-backoff
-recovers the transient share. Corpus and Semantic Scholar retrieval are
-effectively error-free (0.000 over 781 calls).
+**The weak link is named, not hidden.** `web_fetch` has a 68% error rate on
+the headline run (45% on Qwen3.6 under a looser definition that counted
+anti-bot interstitials as content), dominated by publisher datacenter-IP walls
+(one major publisher is a hard block that is unfixable at the fetch layer) and
+burst rate-limiting. Retry-with-backoff recovers the transient share; reading
+PMC through NCBI's efetch API instead of the blocking page (`fd559c9`, after
+the run) lifted the ok rate on 24 real search URLs 0.50 → 0.71. Corpus and
+Semantic Scholar retrieval are effectively error-free (0.000 over 332 calls on
+Qwen3.8, 781 on Qwen3.6).
+
+---
+
+## 8b. The harness, not the backbone, keeps attempted answers trustworthy
+
+**Claim.** Swapping the backbone changed how often the *bare* model attempts an
+answer and how often it is wrong when it does; inside the harness neither
+moved, and precision rose.
+
+**Evidence.** Outside the harness, Qwen3.8 abstains far less than Qwen3.6
+(bare 0.201 → 0.040, RAG 0.749 → 0.498) and its precision of attempted falls
+with it (bare 0.476 → 0.403, RAG 0.708 → 0.420): it attempts many more
+questions and is wrong more often when it does. Inside the harness, abstention
+is **identical** at 0.075 on both backbones and precision of attempted
+**rises** 0.908 → 0.946.
+
+**Mechanism.** The harness's abstention behaviour is a property of the loop
+(a full-text `source` read before answering, and an explicit not-in-corpus
+path), not of the backbone's disposition to answer. A backbone
+that guesses more freely on its own is held to the same evidence bar once it
+has to read before answering.
+
+**Caveat to carry.** Cross-backbone, so suggestive rather than controlled (a
+month of retrieval commits sits between the runs). The within-run contrast
+(bare/RAG precision falling while agentic precision rises, on the same
+questions on the same day) is the clean part.
+
+**Generalises to.** Any claim that agent reliability is mostly a model
+property. Here the model got more willing to guess and the system did not.
 
 ---
 
@@ -337,11 +386,19 @@ makes the failure structurally impossible or that detects it after the fact.
 
 - **Multi-query fan-out did not beat single-query dense** on LitQA2 retrieval
   (Recall@10, p = 0.71). Complexity in the retrieval loop was not what helped.
-- **The agentic arm produced zero unparseable answers** against 33 for bare, so
-  its accuracy is not inflated by lenient parsing.
-- **Cost is real and should be reported**: ~5.4x bare wall-clock at 8.6 tool
-  calls per query. But the pilot ran at 16 calls per query for a lower score,
-  so the tool-retirement work bought accuracy *and* cost.
+- **The agentic arm produced zero unparseable answers** on both backbones, so
+  its accuracy is not inflated by lenient parsing. The Qwen3.6 bare arm's 33
+  unparseable answers were a token-budget defect in the harness, since fixed;
+  on Qwen3.8 every arm returns 0.
+- **Cost is real and should be reported**: ~20x bare wall-clock at 6.9 tool
+  calls per query on Qwen3.8 (a dense 27B; ~5.4x at 8.6 calls on the 3B-active
+  MoE). But the pilot ran at 16 calls per query for a lower score, so the
+  tool-retirement work bought accuracy *and* cost.
+- **Qwen3.8 emits mistyped tool arguments where Qwen3.6 did not.** `search`
+  went from 0 errors in 90 calls to 11 in 90, every one an argument *type*
+  (`top_k="5"`, `top_k=5.0`, `filters="year:2023"`). The executor now coerces
+  arguments against the declared schema (`fd559c9`); a backbone swap is a
+  tool-contract test as much as an accuracy test.
 - **A harness bug once faked a null result.** A naive answer parser dropped
   ~17% of BGE answers and ~10% of SPECTER's as unparseable, turning a real
   +0.075 (p = 0.028) into an apparent +0.05 n.s. The recovered cases became

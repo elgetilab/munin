@@ -15,6 +15,7 @@ first-class methodological concern, not housekeeping.
 | 2026-07 (headline runs) | 68,462 | the number quoted alongside every Track C/D result |
 | 2026-08-03 (author audit) | 68,426 | pre-repair |
 | 2026-08-03 (after repair) | 68,436 | post-repair |
+| 2026-08-28 | 68,863 entries | nearest recorded count to the 2026-08-26 Track D re-measurement; the ablation scorecards do not stamp a corpus size. 1,777 of these (2.6%) had no full text on disk at the time, tracked as a coverage flag rather than deleted. |
 
 Domain: chemistry / biophysics / membrane biology, matching the host group's
 research. This is important context for external validity: the two public
