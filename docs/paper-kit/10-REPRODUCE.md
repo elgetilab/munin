@@ -33,6 +33,10 @@ the wrong corpus and looked like it worked. The defaults now match production
 (`bge-large` / `papers_bge`), and a half-flip is a boot failure. Verify with
 `/api/status` before trusting a run.
 
+The benchmark CLI has the same trap on its own side and it was **not** fixed:
+`run_all --encoder` still defaults to `specter-v1`. Pass `--encoder bge-large`
+explicitly on every retrieval-bearing run (section 4).
+
 ---
 
 ## 2. Environment
@@ -82,8 +86,8 @@ expectations.
 
 ```bash
 $PY -m munin_bench.pipelines.run_all \
-   --tag <label> \
-   --tracks beir-scifact,litqa2-retrieval,litqa2-answer,faithfulness,abstention,ablation \
+   --tag <label> --encoder bge-large \
+   --tracks litqa2-retrieval,litqa2-answer,faithfulness,abstention,ablation \
    --with-reliability --certify --date <YYYY-MM-DD>
 ```
 
@@ -91,6 +95,15 @@ Writes one committed scorecard (`scorecards/<date>_<tag>.{json,md}`).
 `--certify` checks the run against `certification_thresholds.json` and emits
 PASS/FAIL. `--with-reliability` folds the behavioural-layer PASS/FLAKY/FAIL
 summary into a separate `reliability` key that is never cited in the paper.
+
+**`--encoder bge-large` is not optional.** `run_all` defaults to `specter-v1`,
+the retired 768d `papers` collection, so the command without it reproduces the
+pre-migration retrieval numbers (Recall@10 0.44) rather than the ones claimed
+here (0.73). `beir-scifact` is deliberately absent from the track list: that
+track builds a 768d eval collection and `run_all` refuses it with any preset
+other than `specter-v1`, so it cannot share a run with the BGE tracks. The
+SciFact anchor is its own command, `run_beir --subset scifact` (SPECTER) and
+`run_bakeoff --subset scifact` (per-encoder), see section 5.
 
 Regression diff between two runs (paired bootstrap, not eyeballed CIs):
 

@@ -3,7 +3,7 @@
 Status: **DECIDED 2026-08-25.** The third backbone is **Qwen3.5-9B**, and there
 is deliberately no second candidate for the 24 GB tier: a 24 GB card runs the
 same model with more headroom, not a different model (section 6.1). Nothing is
-implemented. Written 2026-08-25, alongside `MODEL-SWAP-QWEN38-PLAN.md`.
+implemented. Written 2026-08-25, alongside `done/MODEL-SWAP-QWEN38-PLAN.md`.
 
 > **Correction, same day.** Sections 4 and 6 were re-priced after the real
 > quantized checkpoints were found. The first draft estimated Qwen3.5-9B at
@@ -163,7 +163,7 @@ no equivalent patch.
 failures and empty turns separately, and report them next to accuracy. Without
 that split, a parser mismatch reads as a model result, which is the same class
 of artifact as the `xhigh`/4096-token interaction that
-`MODEL-SWAP-QWEN38-PLAN.md` §4b caught, and the same class as the 0.688
+`done/MODEL-SWAP-QWEN38-PLAN.md` §4b caught, and the same class as the 0.688
 search-degraded run.
 
 ---
@@ -221,7 +221,7 @@ so the comparison mixes size with generation and the paper has to say so.
 
 **Recommended: the RedHat w4a16 checkpoint**, because it is the only one of the
 three that publishes accuracy recovery against BF16, which is the caveat
-`MODEL-SWAP-QWEN38-PLAN.md` §7.3 has to carry for the cyankiwi checkpoints and
+`done/MODEL-SWAP-QWEN38-PLAN.md` §7.3 has to carry for the cyankiwi checkpoints and
 that this run can avoid carrying. Its published recovery is 97.9% to 100.1% on
 instruction following and 94% to 99% on most benchmarks, with one visible
 outlier at **80.5% on AIME 2025**. That outlier is worth knowing but is probably
@@ -326,7 +326,7 @@ because if it loads, it is the cheapest possible verification arm.
 The third model does **not** need the full 30-hour suite, and this is the main
 practical argument for doing it at all.
 
-Section 4a of `MODEL-SWAP-QWEN38-PLAN.md` establishes that retrieval tracks are
+Section 4a of `done/MODEL-SWAP-QWEN38-PLAN.md` establishes that retrieval tracks are
 model-independent by construction (AgentRetriever runs against the frozen
 committed variant set). That still holds. But a third backbone does not need
 the full *generation* suite either, because its job is to test one claim.
@@ -502,7 +502,7 @@ and **no second model for the 24 GB tier**. What is left:
    so the fit is measured rather than computed? Recommended, near-zero cost.
 4. **Sampling parameters.** The personas carry Qwen3's recommended set. If
    Qwen3.5-9B recommends different values, decide once before the clean run and
-   hold it fixed. Same rule as `MODEL-SWAP-QWEN38-PLAN.md` §8.4.
+   hold it fixed. Same rule as `done/MODEL-SWAP-QWEN38-PLAN.md` §8.4.
 5. **`reasoning_effort` on the 3.5 chat template**: no-op, or 400? One curl in
    step 1. If it raises, set `LLM_THINKING_TOGGLE=0` or blank
    `LLM_REASONING_EFFORT`, and record which, because it changes the arm matching

@@ -1,9 +1,14 @@
 # Model swap: Qwen3.6-35B-A3B -> Qwen3.8-27B (cyankiwi AWQ-INT4), and the paper re-measurement
 
-Status: PLAN, not approved. Written 2026-08-24. Revised 2026-08-25: retargeted
-to the cyankiwi checkpoint (revision note in section 1), and restructured from
-seven phases to three steps after the existing switch procedure was found (note
-below).
+Status: **DONE 2026-08-26** for steps 1 and 2 (model switched, TP=2 64k
+profile live; Track D, per-arm faithfulness and T11 re-run on the same 199
+questions, git `3e0bcfb`, scorecards `2026-08-26_*`). Step 3 landed for
+`RESULTS.md` and `PAPER.md` (2026-08-27) but **not** for `docs/paper-kit/`,
+which still describes Qwen3.6; tracked in `../README.md`. Track C (C1/C2b) was
+not re-run and stays on the retired model, see PAPER.md claim 3. Written
+2026-08-24. Revised 2026-08-25: retargeted to the cyankiwi checkpoint (revision
+note in section 1), and restructured from seven phases to three steps after the
+existing switch procedure was found (note below). Moved to `done/` 2026-09-14.
 
 Companion to `EVAL-SUITE-MASTER-PLAN.md` and `T2-ABLATION-REFRESH-PLAN.md`.
 Supersedes nothing until the re-run lands.

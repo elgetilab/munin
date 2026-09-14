@@ -14,14 +14,16 @@ Neo4j (BEIR subsets get their own `eval_*` collections in Phase 3).
 | 2 | retrievers (BM25, SPECTER-dense, Agent, citation-rerank, RRF, 2-hop) | **done** |
 | 3 | BEIR runner | **done** (SciFact validated: BM25 0.652 ≈ published; SPECTER 0.479) |
 | 4 | local pool benchmark | 4a done (extractor); 4b needs varghele-curated `queries.jsonl`; only 42 candidates so far |
-| 5 | LitQA2 anchor | **done** — retrieval (agent recall@10=0.44) + answer (acc 0.43 / prec 0.82 vs PaperQA2 0.66) |
+| 5 | LitQA2 anchor | **done** — retrieval (agent recall@10 0.44 on SPECTER, **0.73 on BGE-large**) + answer (acc 0.43 SPECTER, 0.50 BGE, then 0.864 on the agent architecture; PaperQA2 0.66). Tracks B/C/D/T11 live in `RESULTS.md`; headline Track D re-measured on Qwen3.8-27B 2026-08-26 |
 | E | regression harness — `run_all` → committed `scorecards/`, `compare` paired-diff | **done** |
 | — | encoder bake-off (BGE/E5 ≫ SPECTER-v1 on SciFact + Munin pool; see `RESULTS.md`) | **done** |
 
 **Regression harness (Track E):** `python -m munin_bench.pipelines.run_all
---tag <label> --tracks beir-scifact,litqa2-retrieval[,litqa2-answer]` writes a
-provenance-stamped `scorecards/<date>_<tag>.{json,md}` (committed, with per-query
-arrays). `python -m munin_bench.pipelines.compare <old>.json <new>.json` diffs
+--tag <label> --encoder bge-large --tracks litqa2-retrieval[,litqa2-answer]`
+writes a provenance-stamped `scorecards/<date>_<tag>.{json,md}` (committed, with
+per-query arrays). `--encoder` defaults to `specter-v1`, the retired collection,
+so pass it every time; `beir-scifact` is SPECTER-only and cannot share a run
+with the BGE tracks. `python -m munin_bench.pipelines.compare <old>.json <new>.json` diffs
 two runs with a paired bootstrap — the before/after check for a model or encoder
 swap.
 
