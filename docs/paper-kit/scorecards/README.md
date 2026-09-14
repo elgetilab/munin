@@ -1,13 +1,17 @@
 # Scorecards behind the headline claims
 
-16 committed scorecard JSONs, copied verbatim from
+19 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
 
-The full set is 58 JSON plus 47 Markdown twins; the remainder are mostly the
+The full set is 61 JSON plus 47 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
+
+**Backbone is not stamped in the ablation-family files.** The three
+`2026-08-26_*` files are on Qwen3.8-27B (production); every earlier file is on
+the retired Qwen3.6-35B-A3B. See caution 8.
 
 ## Schema
 
@@ -24,12 +28,21 @@ cites.
 `per_query` is what makes a **paired** bootstrap possible between two runs over
 the same questions. It is the reason these files are large.
 
+That header is the `run_all` scorecard shape (`2026-07-03_*`, `2026-07-06_*`,
+`2026-07-24_*`, `2026-07-28_*`). The **ablation family** (`*_harness-ablation*`,
+`*_risk-coverage*`, `*_toolreliability*`, the C1/C2 files) uses a flatter
+shape, `{track, n_paired, git_sha, date, per_arm, deltas}` or the equivalent,
+with **no `meta` block, no model and no encoder field**. The two headline
+ablation files differ only in `git_sha` and `date`.
+
 ## Index
 
 | File | Backs | Section |
 |---|---|---|
-| `2026-07-27_harness-ablation.json` | Headline three-arm ablation, n=199 paired | R1 |
-| `2026-07-27_harness-ablation-faithfulness.json` | Per-arm paired faithfulness, RAG vs agentic (per-question values included) | R2 |
+| `2026-08-26_harness-ablation.json` | **Headline** three-arm ablation, n=199 paired, Qwen3.8-27B | R1 |
+| `2026-07-27_harness-ablation.json` | The same three arms on Qwen3.6-35B-A3B (second backbone; bare arm at 4,096 tokens) | R1 |
+| `2026-08-26_harness-ablation-faithfulness.json` | **Headline** per-arm paired faithfulness, RAG vs agentic, Qwen3.8 (per-question values included) | R2 |
+| `2026-07-27_harness-ablation-faithfulness.json` | Per-arm paired faithfulness on Qwen3.6 (per-question values included) | R2 |
 | `2026-07-08_faithfulness-judge-ragtruth.json` | MiniCheck judge validation on RAGTruth | R2 |
 | `2026-07-27_abstention-c1-fabricated.json` | C1, 100 fabricated papers, current harness | R3 |
 | `2026-07-27_abstention-c2-shadow.json` | C2b paired shadow corpus at `egress=off`, with CIs and the question-paired delta against the 2026-07-10 run | R3 |
@@ -43,7 +56,8 @@ the same questions. It is the reason these files are large.
 | `2026-07-06_answer-specter-v1-v2.json` | End-to-end answer, SPECTER arm, fixed parser | R5 |
 | `2026-07-06_answer-bge-large-v2.json` | End-to-end answer, BGE arm, fixed parser | R5 |
 | `2026-07-24_answer-full-900s.json` | End-to-end answer, agent architecture, 900 s | R5 |
-| `2026-07-27_toolreliability-clean.json` | Tool-use telemetry over the clean run | R6 |
+| `2026-08-26_toolreliability-qwen38_toolreliability.json` | **Headline** tool-use telemetry, Qwen3.8 | R6 |
+| `2026-07-27_toolreliability-clean.json` | Tool-use telemetry over the Qwen3.6 clean run. `web_fetch` error rate not comparable to 08-26 (failure definition changed between the runs) | R6 |
 
 ## Cautions when regenerating figures
 
@@ -71,3 +85,10 @@ the same questions. It is the reason these files are large.
    produced in different passes.** `git_sha` is the capture-time commit;
    `rescored_at_git_sha` is when the CIs were added. Nothing about the
    underlying verdicts changed.
+8. **Never pool or difference the 07-27 and 08-26 ablation files as if they
+   were two samples of one system.** They differ by backbone, by the bare
+   arm's token budget (4,096 vs 16,384; 33 unparseable vs 0) and by a month of
+   retrieval commits. Within-file deltas are paired and clean; cross-file
+   deltas are suggestive. For T11, only calls-per-query and recovery rate are
+   comparable across the two files; `web_fetch`'s failure definition changed
+   in between.

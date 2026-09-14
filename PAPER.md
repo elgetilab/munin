@@ -21,7 +21,7 @@ Corpus at time of writing: 68,462 papers.
 
 > **Drafting the paper?** [`docs/paper-kit/`](docs/paper-kit/) is a
 > self-contained bundle (system, architecture, corpus, methods, results,
-> ablations, findings, limitations, related work, reproduce, plus the 15
+> ablations, findings, limitations, related work, reproduce, plus the 19
 > headline scorecards) written to be read without repository access. This file
 > stays the short claim-to-scorecard index.
 
@@ -233,9 +233,9 @@ Two operational notes that will otherwise cost you a day:
 
 | Artifact | Path |
 |---|---|
-| **Paper kit** (self-contained drafting bundle) | `docs/paper-kit/` |
+| **Paper kit** (self-contained drafting bundle, 19 scorecards) | `docs/paper-kit/` |
 | Results log (canonical numbers) | `backend/benchmarks/RESULTS.md` |
-| Scorecards (58 JSON, 47 Markdown) | `backend/benchmarks/scorecards/` |
+| Scorecards (61 JSON, 47 Markdown) | `backend/benchmarks/scorecards/` |
 | Benchmark harness | `backend/benchmarks/munin_bench/` |
 | Certification thresholds | `backend/benchmarks/certification_thresholds.json` |
 | Paper track: plans, specs, open items | `docs/paper-track/` |

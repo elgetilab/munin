@@ -70,7 +70,8 @@ resolved by moving the VPS.
 
 | Role | Model | Details |
 |---|---|---|
-| Generation | `cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit` | Gated DeltaNet + MoE hybrid, 35B total / 3B active, AWQ 4-bit, ~19 GB on disk. Served as `qwen3.6-35b-a3b`. Reasoning enabled (emits `<think>` traces). |
+| Generation | `cyankiwi/Qwen3.8-27B-AWQ-INT4` | Dense 27B, hybrid Gated DeltaNet + Gated Attention, natively multimodal, pack-quantized group-32, ~20 GB on disk. Served as `qwen3.8-27b` since 2026-08-25. Reasoning enabled (emits `<think>` traces) at `reasoning_effort=medium`, pinned by the backend because the model's own default is `xhigh`. |
+| Generation (retired 2026-08-25) | `cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit` | Gated DeltaNet + MoE hybrid, 35B total / 3B active, AWQ 4-bit, ~19 GB. Served as `qwen3.6-35b-a3b`. The backbone for every result dated before 2026-08-26, including all of Track C. |
 | Paper embedding | BGE-large-en-v1.5 | 1024d, Qdrant collection `papers_bge`, staged at `/opt/munin/data/models/bge-large`. Production since 2026-07-06. |
 | Paper embedding (rollback only) | SPECTER-v1 (`allenai-specter`) | 768d, collection `papers`. Retained for rollback; retiring it is a tracked one-way task. |
 | User-document embedding | BGE-base | Separate collection from the paper corpus. |
@@ -107,41 +108,54 @@ completes, the defaults move; they do not stay pointing at the rollback.
 
 ## 4. vLLM serving configuration
 
-The full serve invocation, since these flags are load-bearing for the cost and
+Two profiles exist and the choice is an either/or with cluster availability.
+**Production runs the TP=2 profile** since the 2026-08-25 model swap. The full
+serve invocation, since these flags are load-bearing for the cost and
 concurrency results:
 
 ```bash
-vllm serve "$MODEL_PATH" \
+vllm serve /opt/munin/data/models/qwen3.8-27b-awq-int4 \
     --host 0.0.0.0 --port 8000 \
-    --gpu-memory-utilization 0.90 \
+    --tensor-parallel-size 2 \
+    --gpu-memory-utilization 0.85 \
     --max-model-len 65536 \
-    --max-num-seqs 2 \
-    --dtype float16 \
+    --max-num-seqs 8 \
     --quantization compressed-tensors \
     --kv-cache-dtype fp8 \
-    --served-model-name qwen3.6-35b-a3b \
+    --served-model-name qwen3.8-27b \
     --enable-auto-tool-choice \
     --tool-call-parser qwen3_xml \
     --reasoning-parser qwen3
 ```
 
-Runs as a SLURM job (`--gres=gpu:vllm:1`, `--cpus-per-task=4`, `--mem=16G`,
-`--time=20:00:00`), scheduled by cron 6am to 2am, or 24/7 via
+The single-GPU profile is the same invocation without tensor parallelism at
+`--gpu-memory-utilization 0.90 --max-num-seqs 2`; it frees the second card
+for batch jobs at the cost of concurrency. The window is 65,536 in both,
+deliberately: the TP=2 profile was retargeted at concurrency rather than at
+a larger window so that "new model" and "new window" could not be entangled
+in the measurements. A dense 27B's KV cache is ~3.2x dearer per token than the
+retired MoE's, which is why the flags moved with the model.
+
+Runs as a SLURM job (TP=2: `--gres=gpu:vllm:1,gpu:batch:1`,
+`--cpus-per-task=12`, `--mem=32G`; single-GPU: `--gres=gpu:vllm:1`,
+`--cpus-per-task=4`, `--mem=16G`; both `--time=20:00:00`), scheduled by cron
+6am to 2am, or 24/7 via
 `vllm-service enable-24x7`. The backend's context window is pinned to match
 (`VLLM_MAX_MODEL_LEN=65536`, `VLLM_MAX_CONTEXT=60000`), exported before the
 retrieval container is recreated so the two cannot drift.
 
-**`--max-num-seqs 2` is the single most important operational number in the
-kit.** The 64k window at 4-bit on a 32 GB card leaves room for two concurrent
-sequences. Any benchmark run at concurrency above 2 silently degrades, which is
-exactly what produced a misleading 0.688 agentic figure before it was caught.
-See `10-REPRODUCE.md`.
+**`--max-num-seqs` is the single most important operational number in the
+kit.** Benchmark concurrency must not exceed the running profile's value (8
+on TP=2, 2 on the single-GPU profile). A run above it silently degrades rather
+than erroring, which is exactly what produced a misleading 0.688 agentic
+figure before it was caught. Every cost-bearing arm in this kit ran at
+concurrency 1 regardless of profile. See `10-REPRODUCE.md`.
 
-A tensor-parallel TP=2 mode across both GPUs exists (131072 window,
-`gpu-memory-utilization 0.85`), documented in the repository's
-`TP2-GPU-SHARING-EXPERIMENT.md`. It cannot leave shards free for other jobs
-because SLURM's `ConstrainDevices` binds both cards, so it is a deliberate
-either/or with cluster availability rather than a free upgrade.
+TP=2 cannot leave shards free for other jobs because SLURM's
+`ConstrainDevices` binds both cards, so it is a deliberate either/or with
+cluster availability rather than a free upgrade. The earlier TP=2 experiment
+at a 131072 window (`TP2-GPU-SHARING-EXPERIMENT.md` in the repository) is
+superseded by the 64k production profile above.
 
 ---
 
@@ -241,10 +255,10 @@ right and are worth a sentence each in the paper:
 | Property | Value |
 |---|---|
 | Availability | vLLM scheduled 6am to 2am (nightly GPU release), or 24/7 on demand |
-| Concurrency ceiling | 2 sequences (vLLM `--max-num-seqs`) |
+| Concurrency ceiling | 8 sequences on the TP=2 production profile, 2 on the single-GPU profile (vLLM `--max-num-seqs`) |
 | Context window | 65,536 tokens served, 60,000 budgeted by the backend |
 | Users | One scientific group, production since 2026-04 |
-| Corpus | 68,462 papers (2026-07), 3,922 contributor uploads / 63,249 crawler downloads at the 2026-05 audit |
+| Corpus | 68,462 papers at the 2026-07 headline runs, 68,863 entries at 2026-08-28 (nearest recorded count to the 2026-08-26 re-measurement); 3,922 contributor uploads / 63,249 crawler downloads at the 2026-05 audit |
 | Repository | 511 commits since 2026-04-13; 739 backend test functions, 219 webui assertions |
 | Deploy | Two independent targets: `backend/deploy.sh` (root + systemd on the cluster), `frontend/docker-compose.yml` (VPS). No top-level deploy script, deliberately. |
 

@@ -19,6 +19,8 @@ headline number. Stating these plainly is cheaper than being asked.
 | Human-expert comparison | **Context, not a claim** | PaperQA2's 0.660 and the expert mean 0.677 are quoted from their sources, not re-measured here. |
 | Certification thresholds | **Provisional, not validated** | Current baselines with a ~15% margin. No predictive-validity evidence. The threshold file says so in its own note field. |
 | CSFCube, QASPER (T10) | Not started | |
+| Track C (C1, C2b) on the production backbone | **Not measured** | The 2026-08-26 swap re-ran Track D, per-arm faithfulness and T11 only. C2b needs `papers_shadow` rebuilt and a second retrieval instance. The abstention numbers are on the retired Qwen3.6 and say so. |
+| A controlled backbone comparison | **Not claimed** | The two Track D runs differ by backbone *and* by a month of retrieval commits. The cross-backbone agreement is reported as suggestive. |
 
 ---
 
@@ -34,33 +36,46 @@ Three separate caveats, all of which must appear together:
 2. **The human number carries a very large SD** (0.677 ± 0.119) on n = 9.
    Claiming to exceed the human mean is claiming to exceed a noisy point
    estimate.
-3. **Munin's 0.864 has measured temperature churn.** Comparing two runs of the
-   same configuration question by question, 34 of 199 verdicts changed, and
-   only 11 of those were recovered truncations. Six flipped correct → incorrect
-   and six the other way purely from temperature-0.7 resampling.
+3. **Every LitQA2 number has measured run-to-run churn.** On Qwen3.6,
+   comparing two runs of the same configuration question by question, 34 of
+   199 verdicts changed, and only 11 of those were recovered truncations. Six
+   flipped correct → incorrect and six the other way purely from
+   temperature-0.7 resampling. On Qwen3.8, two identical bare arms one day
+   apart scored 0.422 and 0.387. Roughly ±0.035 on a 199-question arm is
+   noise.
 
 **The safe framing:** a strong, real result, not a clean "beats humans"
 headline.
 
-### The 0.864 versus 0.839 versus 0.814 question
+### Which agentic number to quote
 
-Three valid numbers for the agentic arm on the same 199 questions, and the
-paper must pick and justify one:
+Several valid numbers exist for the agentic arm on the same 199 questions, on
+two backbones, and the paper must pick and justify:
 
-| Number | Run | Condition |
-|---|---|---|
-| 0.864 | 2026-07-24 answer track | 900 s deadline, 0 truncations, 0 unparseable |
-| 0.839 | 2026-07-27 Track D agentic arm | The paired ablation, `egress=full`, concurrency 1 |
-| 0.814 | 2026-07-24, 300 s | 11 answers truncated, all counted wrong |
-| 0.688 | 2026-07-26 companion | Higher concurrency, constrained egress |
+| Number | Backbone | Run | Condition |
+|---|---|---|---|
+| **0.874** | **Qwen3.8** | 2026-08-26 Track D agentic arm | The paired ablation on the production model, `egress=full`, concurrency 1, all arms 16,384 tokens |
+| *(pending)* | Qwen3.8 | 2026-09-14 standalone answer track | 900 s deadline, same protocol as the 07-24 run |
+| 0.864 | Qwen3.6 | 2026-07-24 answer track | 900 s deadline, 0 truncations, 0 unparseable |
+| 0.839 | Qwen3.6 | 2026-07-27 Track D agentic arm | The paired ablation, `egress=full`, concurrency 1 |
+| 0.814 | Qwen3.6 | 2026-07-24, 300 s | 11 answers truncated, all counted wrong |
+| 0.688 | Qwen3.6 | 2026-07-26 companion | Higher concurrency, constrained egress |
 
-Recommended: **quote 0.839 in the ablation context** (it is the paired,
-same-conditions number that the +0.538 delta is computed from) and **0.864 as
-the standalone LitQA2 result**. Do not average, and do not quote 0.688 or 0.814
-except as sensitivity points.
+Recommended: **quote 0.874 in the ablation context** (it is the paired,
+same-conditions number that the +0.487 delta is computed from) and, once the
+2026-09-14 standalone run lands, that figure as the standalone LitQA2 result
+on the production model; until then 0.874 serves both purposes. The Qwen3.6
+pair 0.864 / 0.839 shows the two protocols agree to within the measured noise
+on that backbone. Do not average across backbones, and do not quote 0.688 or
+0.814 except as sensitivity points.
 
 ### The abstention claim
 
+- **The numbers are on the retired Qwen3.6-35B-A3B**, not on what production
+  serves. Qwen3.8 abstains far less than Qwen3.6 outside the harness and
+  identically inside it (R1), so the direction of any change is not obvious
+  and the figures should be presented as "measured on the previous backbone
+  with the same harness code".
 - n = 27 on the C2 answerable subset is small. The correct-abstention rate is
   **0.667 [0.481, 0.852]** (bootstrap) / [0.478, 0.814] (Wilson), so the
   interval is roughly ±0.18 wide. Quote it with the interval, never bare. The
@@ -80,7 +95,7 @@ except as sensitivity points.
 - It is a null on the **RAG versus agentic** comparison only. The bare arm is
   structurally unscoreable, so the three-arm faithfulness comparison the plan
   originally specified can only ever be a two-arm comparison.
-- The absolute level (~0.33) is judged by a sub-1B entailment model whose
+- The absolute level (~0.28 on Qwen3.8, ~0.33 on Qwen3.6) is judged by a sub-1B entailment model whose
   literalness is a known source of false negatives: a claim entailed by two
   passages jointly scores unsupported.
 - The context union is generous (all retrieval results), which inflates
@@ -92,8 +107,16 @@ except as sensitivity points.
 
 - `web_search` degraded at 1.000 is a measurement artifact of corpus-first
   ranking reserving few web slots, not an outage.
-- Recovery rate 1.000 is over 86 queries that hit a failure. It says failures
-  were absorbed on this benchmark, not that the harness is unfailable.
+- Recovery rate 1.000 is over 102 queries that hit a failure (86 on Qwen3.6).
+  It says failures were absorbed on this benchmark, not that the harness is
+  unfailable.
+- **The aggregate error rate is not comparable across the two backbones.**
+  `web_fetch`'s failure definition changed between the runs (anti-bot
+  interstitials became errors instead of content), so 0.061 → 0.139 mixes a
+  definition change with behaviour. Only `search` (0.000 → 0.122, mistyped
+  arguments) is a clean cross-backbone delta. Both were fixed after the run,
+  so the T11 figures describe the tool layer during the comparison, not as
+  shipped.
 
 ---
 
@@ -105,15 +128,18 @@ except as sensitivity points.
 |---|---|
 | **Domain mismatch in every public benchmark** | SciFact is biomedical claim verification; LitSearch is ML/NLP; LitQA2 is biology. Munin's corpus is chemistry / biophysics / membrane biology. The benchmarks measure the *mechanism* on realistic queries, not Munin's own domain. |
 | **Single deployment, single group** | One cluster, one corpus, one user population. Nothing here establishes that the design transfers to a different group's corpus, and the encoder relevance floor is explicitly calibrated to this encoder on these candidates. |
-| **One base model** | Every result uses `qwen3.6-35b-a3b`. The briefing that motivated Track D warns explicitly that a stronger base model can *hurt* a specialised harness, and that has not been tested. |
-| **Benchmark answerability** | LitQA2 questions are multiple-choice and frequently answerable from parametric knowledge, which is exactly why the bare arm reaches 0.302 and why the C2 design needed the `egress=off` control. |
+| **Two base models, one controlled** | Track D, faithfulness and T11 are on `qwen3.8-27b` (production) with a Qwen3.6-35B-A3B run a month earlier; Track C is on Qwen3.6 only. The two backbones agree on ordering and rough magnitude, but the comparison is confounded (below), and neither is a frontier model. The briefing that motivated Track D warns that a stronger base model can *hurt* a specialised harness; the dense 27B did not, but that is one data point. |
+| **Benchmark answerability** | LitQA2 questions are multiple-choice and frequently answerable from parametric knowledge, which is exactly why the bare arm reaches 0.387 (Qwen3.8) and why the C2 design needed the `egress=off` control. |
 
 ### Internal validity
 
 | Threat | Detail |
 |---|---|
 | **Non-simultaneous arms** | The three ablation arms were captured on the same day at the same concurrency, but the abstention operating points come from several capture dates. The scorer flags this rather than hiding it. |
-| **Temperature 0.7** | The measured churn is 34 of 199 verdicts between two runs of the same configuration. Sub-3-point deltas are inside the noise floor. |
+| **Temperature 0.7** | The measured churn is 34 of 199 verdicts between two runs of the same configuration, and ~0.035 between two identical Qwen3.8 bare arms a day apart. Sub-3-point deltas are inside the noise floor. |
+| **Cross-backbone confound** | 16 commits touched `backend/retrieval/` between the Qwen3.6 (07-27) and Qwen3.8 (08-26) Track D runs, several material to the agentic arm (score normalisation before citation re-rank, web_fetch failure semantics, context-budget fixes, PDF resolution). Deployment timing of each was not independently verified against the run window. Per-arm cross-run deltas must not be attributed to the backbone. The within-run three-arm comparison is unaffected. |
+| **Sampling not matched across arms** | Bare and RAG arms sample at temperature 0.7; the agentic arm inherits the research persona's 1.0 / top_p 0.95 / top_k 20 / presence_penalty 1.5. Present in every Track D run, not controlled for. A reviewer may reasonably ask whether sampling contributes to the harness delta. |
+| **A partial re-run inside the headline** | 8 of the 199 Qwen3.8 agentic questions (indices 191-198) were re-run about four hours after the rest, after the 02:00 vLLM cron cancelled the SLURM job mid-arm. Identical configuration; 7 of 8 came back correct. Recorded as provenance, not as a concern. |
 | **Marker-based abstention detection** | Deterministic and auditable, but a curated phrase list. Mitigated by keeping raw answers in the scorecard and by manual review of residuals, not eliminated. |
 | **The eval hands over a known source** | Retrieval-of-the-wrong-paper is structurally invisible to the current suite. The tagged-ref audit makes the confabulated-DOI failure *measurable*; it does not make it go away, and it has not yet been measured. |
 | **Judge validated on RAGTruth, not on this domain** | QA AUROC 0.950 is on RAGTruth's QA split. Domain transfer to chemistry abstracts is assumed, not shown. |

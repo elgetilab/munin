@@ -7,64 +7,102 @@ caveats that must travel with each number are in `08-LIMITATIONS.md`.
 **Read the encoder column.** SPECTER-v1 and BGE-large results are never
 comparable and were never meant to be pooled.
 
+**Read the backbone column too.** The generation model changed on 2026-08-26
+from Qwen3.6-35B-A3B (MoE, retired) to Qwen3.8-27B (dense, what production
+serves). R1, R2 and R6 were re-measured on Qwen3.8 over the same 199 questions
+and carry both columns; the Qwen3.8 column is the headline. R3 (abstention)
+was **not** re-run and is on Qwen3.6. R4 (retrieval) has no LLM in the loop
+and is backbone-independent. Within a run, comparisons are paired and clean;
+**across the two backbones they are suggestive, not controlled**, because 16
+commits touched `backend/retrieval/` between the runs (see `08-LIMITATIONS.md`).
+
 All CIs are 95% percentile bootstrap, 1000 resamples, seed 42. All p-values are
 two-sided paired bootstrap unless stated.
 
 ---
 
-## R1. Headline: harness ablation (Track D, clean run)
+## R1. Headline: harness ablation (Track D)
 
 199 paired in-corpus LitQA2 questions, three arms, concurrency 1,
-`egress=full`, BGE-large encoder, finished agent architecture.
-Git `9c476b8`, 2026-07-27.
+`egress=full`, BGE-large encoder, finished agent architecture, all arms at
+`max_tokens=16,384`. **Headline run: Qwen3.8-27B, git `3e0bcfb`, 2026-08-26.**
+Second backbone: Qwen3.6-35B-A3B, git `9c476b8`, 2026-07-27, same questions.
 
-| Arm | Accuracy | Precision of attempted | Abstain | Unparseable | Wall-clock | Tool calls |
-|---|---|---|---|---|---|---|
-| RAG (naive top-5) | 0.171 | 0.708 | 0.749 | 2 | 9.1 s | 0 |
-| Bare (parametric) | 0.302 | 0.476 | 0.201 | 33 | 14.7 s | 0 |
-| **Agentic (harness)** | **0.839** | **0.908** | 0.075 | **0** | 79.0 s | 8.6 |
+| Arm | Backbone | Accuracy | Precision of attempted | Abstain | Unparseable | Wall-clock | Tool calls |
+|---|---|---|---|---|---|---|---|
+| RAG (naive top-5) | **Qwen3.8** | **0.211** | 0.420 | 0.498 | 0 | 8.3 s | 0 |
+| Bare (parametric) | **Qwen3.8** | **0.387** | 0.403 | 0.040 | 0 | 8.0 s | 0 |
+| **Agentic (harness)** | **Qwen3.8** | **0.874** | **0.946** | 0.075 | 0 | 157.3 s | 6.9 |
+| RAG (naive top-5) | Qwen3.6 | 0.171 | 0.708 | 0.749 | 2 | 9.1 s | 0 |
+| Bare (parametric) | Qwen3.6 | 0.302 | 0.476 | 0.201 | 33 | 14.7 s | 0 |
+| Agentic (harness) | Qwen3.6 | 0.839 | 0.908 | 0.075 | 0 | 79.0 s | 8.6 |
 
-Paired bootstrap deltas:
+Verdict counts, Qwen3.8: agentic 174 correct / 10 incorrect / 15 abstain; bare
+77 / 114 / 8; RAG 42 / 58 / 99. Qwen3.6: agentic 167 / 17 / 15; bare 60 / 66 /
+40 (+33 unparseable); RAG 34 / 14 / 149 (+2).
 
-| Comparison | Delta | 95% CI | p |
-|---|---|---|---|
-| **agentic − bare** | **+0.538** | [0.457, 0.618] | **< 0.001** |
-| agentic − RAG | +0.668 | [0.598, 0.734] | < 0.001 |
-| RAG − bare | **−0.131** | [−0.196, −0.070] | < 0.001 |
+Paired bootstrap deltas, within each run:
 
-Scorecard: `2026-07-27_harness-ablation.{json,md}`.
+| Comparison | Qwen3.8 (headline) | 95% CI | Qwen3.6 | 95% CI | p (both) |
+|---|---|---|---|---|---|
+| **agentic − bare** | **+0.487** | [0.407, 0.568] | +0.538 | [0.457, 0.618] | **< 0.001** |
+| agentic − RAG | +0.663 | [0.598, 0.729] | +0.668 | [0.598, 0.734] | < 0.001 |
+| RAG − bare | **−0.176** | [−0.251, −0.096] | −0.131 | [−0.196, −0.070] | < 0.001 |
+
+**Why the harness delta moved from +0.538 to +0.487.** The Qwen3.6 bare arm ran
+at `max_tokens=4096` against its agentic arm's 16,384, and 33 of its 199
+answers were truncated and scored as failures. All arms now run at 16,384 and
+bare returns 0 unparseable. `agentic − RAG` is essentially unchanged
+(+0.668 → +0.663), so the whole shrink is the bare arm being measured
+properly. The Qwen3.6 figure was inflated by a defect; +0.487 is the
+correction. A like-for-like Qwen3.6 number at 16,384 cannot be obtained, that
+checkpoint is retired.
+
+**Wall-clock is not comparable across backbones** (dense 27B vs 3B-active MoE
+on a different serving profile). Within the Qwen3.8 run, the harness costs
+~20x bare at 6.9 tool calls per query.
+
+Scorecards: `2026-08-26_harness-ablation.json` (headline),
+`2026-07-27_harness-ablation.{json,md}` (Qwen3.6).
 
 **Companion run, retained deliberately:** `2026-07-26_harness-ablation` is the
 same three arms with constrained egress and higher concurrency. The agentic arm
 scores **0.688** (abstain 0.231, 11.1 calls/query, 183.8 s). Bare and RAG are
 bit-identical across the two runs, which isolates the difference to the agentic
-arm's external-tool access and load. Use 07-27 as the headline and 07-26 as the
-load/egress sensitivity point. **Do not average them.**
+arm's external-tool access and load. Use 07-26 only as the load/egress
+sensitivity point beside the Qwen3.6 clean run. **Do not average them.**
 
 ---
 
 ## R2. Faithfulness per arm (Track B x Track D)
 
 Same MiniCheck-Flan-T5-Large judge as the validation run, scoring each arm's
-answer claims against **that arm's own contexts**, over the 2026-07-27 ablation
+answer claims against **that arm's own contexts**, over the R1 ablation
 captures. Scoring only, no new generation. BGE-large.
 
-| Arm | % claims supported | 95% CI | n |
-|---|---|---|---|
-| RAG (naive top-5) | 0.326 | [0.283, 0.365] | 195 |
-| Agentic (harness) | 0.340 | [0.293, 0.389] | 193 |
-| Bare (parametric) | **not scoreable** | | 0 / 199 |
+| Arm | Backbone | % claims supported | 95% CI | n |
+|---|---|---|---|---|
+| RAG (naive top-5) | **Qwen3.8** | 0.282 | [0.248, 0.316] | 199 |
+| Agentic (harness) | **Qwen3.8** | 0.288 | [0.246, 0.333] | 163 |
+| RAG (naive top-5) | Qwen3.6 | 0.326 | [0.283, 0.365] | 195 |
+| Agentic (harness) | Qwen3.6 | 0.340 | [0.293, 0.389] | 193 |
+| Bare (parametric) | both | **not scoreable** | | 0 / 199 |
 
-**Paired bootstrap, agentic − RAG: +0.023 [−0.043, +0.089], p = 0.496**
-(n = 189 shared questions).
+**Paired bootstrap, agentic − RAG, Qwen3.8: +0.010 [−0.052, +0.069],
+p = 0.776** (n = 163 shared questions). Qwen3.6: +0.023 [−0.043, +0.089],
+p = 0.496 (n = 189). **The null replicates across backbones.** Absolute
+grounding is slightly lower on Qwen3.8 for both arms; the agentic n is lower
+because abstentions and context-free answers cannot be scored.
 
 `bare` is **structurally** unscoreable, not merely unmeasured: a parametric arm
 retrieves nothing, so there is no evidence set to check claims against and
-faithfulness is undefined. Note the implication: the bare arm answers 30.2% of
-questions correctly with nothing whatsoever to ground against.
+faithfulness is undefined. Note the implication: the bare arm answers 38.7% of
+questions correctly (Qwen3.8) with nothing whatsoever to ground against.
 
-Scorecard: `2026-07-27_harness-ablation-faithfulness.json` (includes per-question
-values for both arms, so the paired test is reproducible without re-scoring).
+Scorecards: `2026-08-26_harness-ablation-faithfulness.json` (headline),
+`2026-07-27_harness-ablation-faithfulness.json` (Qwen3.6). Both include
+per-question values for both arms, so the paired test is reproducible without
+re-scoring.
 
 ### Faithfulness judge validation (Track B2)
 
@@ -96,6 +134,15 @@ Scorecards: `2026-07-09_faithfulness-agentic-live` (baseline), `-t1a`, `-cap`.
 ---
 
 ## R3. Abstention (Track C)
+
+> **Backbone: Qwen3.6-35B-A3B, retired.** C1 and C2b were not re-run in the
+> 2026-08-26 model swap (C2b needs the `papers_shadow` Qdrant collection
+> rebuilt from the frozen 50 questions and a second retrieval instance on
+> :8081). R1 shows Qwen3.8 abstains far less than Qwen3.6 **outside** the
+> harness (bare 0.201 → 0.040, RAG 0.749 → 0.498) and identically inside it
+> (0.075), so the C1/C2b figures below should not be assumed to carry over
+> unchanged. They are what was measured on the same harness code with the
+> previous backbone.
 
 ### C1: fabricated papers
 
@@ -232,6 +279,10 @@ outcome**. Scorecard: `2026-07-27_risk-coverage.{json,md}`.
 
 ## R4. Retrieval (Track A)
 
+Backbone-independent by construction: no LLM is in the loop, and
+`AgentRetriever` scores against a frozen query-variant set. Not re-run for the
+2026-08-26 model swap.
+
 ### R4.1 BEIR / SciFact, external validity anchor
 
 300 queries, 5,183 docs. **SPECTER-v1 era.** Git `eb1cf73`, 2026-06-29.
@@ -294,15 +345,25 @@ Scorecards: `2026-07-03_baseline-specter-v1.json`, `2026-07-03_bge-large.json`.
 
 ## R5. End-to-end answering (LitQA2, 199 questions)
 
-The full arc on one axis. Each row states its encoder and harness generation.
+The full arc on one axis. Each row states its encoder, backbone and harness
+generation.
 
-| Date | Encoder | Harness | Accuracy | 95% CI | Precision (attempted) | Withheld |
-|---|---|---|---|---|---|---|
-| 2026-07-01 | SPECTER-v1 | flat tool loop | 0.427 | [0.36, 0.50] | 0.817 [0.74, 0.89] | 74 abstain / 21 unparseable |
-| 2026-07-06 | SPECTER-v1 (rollback) | flat tool loop, fixed parser, 300 s | 0.422 | | 0.832 | 97 abstain / 17 wrong |
-| 2026-07-06 | **BGE-large** | flat tool loop, fixed parser, 300 s | **0.497** | [0.432, 0.563] | 0.853 (n=116) | 83/199 (42%) |
-| 2026-07-24 | BGE-large | **agent architecture**, 900 s | **0.864** | [0.819, 0.910] | **0.920** (n=187) | 12/199 (6%) |
-| 2026-07-27 | BGE-large | agent architecture (Track D agentic arm) | 0.839 | | 0.908 | abstain 0.075, 0 unparseable |
+| Date | Encoder | Backbone | Harness | Accuracy | 95% CI | Precision (attempted) | Withheld |
+|---|---|---|---|---|---|---|---|
+| 2026-07-01 | SPECTER-v1 | Qwen3.6 | flat tool loop | 0.427 | [0.36, 0.50] | 0.817 [0.74, 0.89] | 74 abstain / 21 unparseable |
+| 2026-07-06 | SPECTER-v1 (rollback) | Qwen3.6 | flat tool loop, fixed parser, 300 s | 0.422 | | 0.832 | 97 abstain / 17 wrong |
+| 2026-07-06 | **BGE-large** | Qwen3.6 | flat tool loop, fixed parser, 300 s | **0.497** | [0.432, 0.563] | 0.853 (n=116) | 83/199 (42%) |
+| 2026-07-24 | BGE-large | Qwen3.6 | **agent architecture**, 900 s | **0.864** | [0.819, 0.910] | **0.920** (n=187) | 12/199 (6%) |
+| 2026-07-27 | BGE-large | Qwen3.6 | agent architecture (Track D agentic arm) | 0.839 | | 0.908 | abstain 0.075, 0 unparseable |
+| 2026-08-26 | BGE-large | **Qwen3.8** | agent architecture (Track D agentic arm) | **0.874** | | **0.946** | abstain 0.075, 0 unparseable |
+| 2026-09-14 | BGE-large | **Qwen3.8** | agent architecture, standalone answer track, 900 s | *(pending, run in progress)* | | | |
+
+The 2026-07-24 and 2026-09-14 rows are the standalone `litqa2-answer` track
+(`run_litqa2 --track answer`); the 07-27 and 08-26 rows are the agentic arm of
+the R1 ablation. Same 199 questions, same research profile, same 900 s
+deadline; the ablation arm additionally records per-arm cost. On the retired
+backbone the two protocols gave 0.864 and 0.839, a gap inside the measured
+run-to-run noise (`08-LIMITATIONS.md`).
 
 **Encoder step (paired, same 199 questions, both arms re-run with a fixed
 parser):**
@@ -342,20 +403,33 @@ n=9. See `08-LIMITATIONS.md` §2.
 
 ## R6. Tool-use reliability (T11)
 
-Telemetry over the agentic arm of the 199-question clean run. `degraded` = the
-call returned but with an unusable or empty payload; `recovery_rate` = fraction
-of queries hitting a tool failure that still reached a final answer.
+Telemetry over the agentic arm of the R1 runs. `degraded` = the call returned
+but with an unusable or empty payload; `recovery_rate` = fraction of queries
+hitting a tool failure that still reached a final answer.
 
-| Metric | Value |
-|---|---|
-| Total tool calls | 1,714 |
-| Mean calls / query | 8.61 |
-| Error rate | 0.061 |
-| Degraded rate | 0.240 |
-| Queries with at least one failure | 86 |
-| **Recovery rate** | **1.000** |
+| Metric | **Qwen3.8 (08-26)** | Qwen3.6 (07-27) | Comparable? |
+|---|---|---|---|
+| Total tool calls | 1,380 | 1,714 | yes |
+| Mean calls / query | **6.93** | 8.61 | yes |
+| Error rate | 0.139 | 0.061 | **no** (see below) |
+| Degraded rate | 0.379 | 0.240 | **no** (see below) |
+| Queries with at least one failure | 102 | 86 | no |
+| **Recovery rate** | **1.000** | **1.000** | yes |
 
-Per tool:
+Per tool, Qwen3.8 (08-26):
+
+| Tool | Calls | Error rate | Degraded rate |
+|---|---|---|---|
+| source | 356 | 0.003 | 0.003 |
+| web_search | 331 | 0.000 | **1.000** |
+| web_fetch | 261 | **0.678** | 0.678 |
+| semantic_scholar_search | 175 | 0.000 | 0.000 |
+| paper_search | 157 | 0.000 | 0.000 |
+| search | 90 | **0.122** | 0.122 |
+| paper_lookup | 8 | 0.125 | 0.125 |
+| update_plan_item | 2 | 1.000 | 1.000 |
+
+Per tool, Qwen3.6 (07-27):
 
 | Tool | Calls | Error rate | Degraded rate |
 |---|---|---|---|
@@ -367,14 +441,36 @@ Per tool:
 | search | 90 | 0.000 | 0.000 |
 | paper_lookup | 49 | 0.061 | 0.061 |
 
-Two 15-query fault-injection probes are retained alongside:
+**Recovery 1.000 replicates and calls per query fell 8.61 → 6.93.** Those are
+clean comparisons. **The aggregate error and degraded rates are not**, and the
+two tools that drive them have to be read separately:
+
+- **`web_fetch` 0.453 → 0.678 is not a valid comparison.** Commit `2ff9aef`
+  (2026-08-03) landed between the runs and changed what counts as a failure:
+  an anti-bot interstitial is now an error, where before it was summarised and
+  returned as content. On 07-27 those pages were counted as successes, so
+  0.453 understates the true failure rate by an unknown amount. 0.678 is a
+  valid measurement of the 08-26 run in isolation; the delta is not.
+- **`search` 0.000 → 0.122 is a valid comparison** and a genuine behavioural
+  difference: nothing in the tool's error path changed between the runs, and
+  every one of the 11 failures was an argument *type* the model emitted
+  (`top_k="5"`, `top_k=5.0`, `filters="year:2023"`). Qwen3.8 emits mistyped
+  tool arguments where Qwen3.6 did not.
+
+Both causes were fixed after the run (`fd559c9`, 2026-08-27: schema-driven
+argument coercion in the executor; `web_fetch` reads PMC via NCBI efetch).
+These figures therefore describe the tool layer **during the comparison**, not
+as shipped. `update_plan_item` failed both of its 2 calls, too few to read.
+
+Two 15-query fault-injection probes (Qwen3.6 era) are retained alongside:
 `2026-07-26_toolreliability-degraded` (13.9 calls/query, error 0.057) and
 `2026-07-27_toolreliability-searchdegraded` (16.1 calls/query, error 0.033).
 **Both also show recovery 1.000**, and both show call counts rising under
 degradation (8.6 → 13.9 / 16.1), that is, the harness compensates for bad tools
 by working harder.
 
-Scorecard: `2026-07-27_toolreliability-clean.json`.
+Scorecards: `2026-08-26_toolreliability-qwen38_toolreliability.json`
+(headline), `2026-07-27_toolreliability-clean.json` (Qwen3.6).
 
 **`web_search` degraded at 1.000 is a measurement artifact, not an outage.**
 Every call is flagged degraded because the arm ran with corpus-first ranking
