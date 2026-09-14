@@ -55,7 +55,7 @@ two backbones, and the paper must pick and justify:
 | Number | Backbone | Run | Condition |
 |---|---|---|---|
 | **0.874** | **Qwen3.8** | 2026-08-26 Track D agentic arm | The paired ablation on the production model, `egress=full`, concurrency 1, all arms 16,384 tokens |
-| *(pending)* | Qwen3.8 | 2026-09-14 standalone answer track | 900 s deadline, same protocol as the 07-24 run |
+| *(pending)* | Qwen3.8 | 2026-09-14 standalone answer track | 900 s deadline, `egress=full`, concurrency 1, same protocol as the 07-24 run |
 | 0.864 | Qwen3.6 | 2026-07-24 answer track | 900 s deadline, 0 truncations, 0 unparseable |
 | 0.839 | Qwen3.6 | 2026-07-27 Track D agentic arm | The paired ablation, `egress=full`, concurrency 1 |
 | 0.814 | Qwen3.6 | 2026-07-24, 300 s | 11 answers truncated, all counted wrong |

@@ -149,11 +149,16 @@ $PY -m munin_bench.pipelines.run_litsearch
 ### Track A/D: end-to-end answering
 
 ```bash
-$PY -m munin_bench.pipelines.run_litqa2 --track answer --concurrency 1
+MUNIN_EVAL_EGRESS=full $PY -m munin_bench.pipelines.run_litqa2 --track answer --concurrency 1
 ```
 
-Concurrency must be <= vLLM `--max-num-seqs`. The deadline is a flag; 900 s is
-the current setting and 300 s truncates long answers (11 of 199 on the run that
+**`MUNIN_EVAL_EGRESS=full` is required to reproduce the reported numbers.**
+The runner defaults to `egress=off` (Trap 2), which measures a corpus-only
+system; the 2026-07-24 run predates the guard and therefore ran with full
+egress, and the 2026-09-14 run set it explicitly. Concurrency must be <= vLLM
+`--max-num-seqs`. The deadline is not a CLI flag: 900 s is the default of
+`_ask_chat(deadline=...)` in `litqa2_runner.py`, and 300 s truncates long
+answers (11 of 199 on the run that
 was measured).
 
 ### Track B: faithfulness

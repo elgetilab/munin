@@ -356,12 +356,14 @@ generation.
 | 2026-07-24 | BGE-large | Qwen3.6 | **agent architecture**, 900 s | **0.864** | [0.819, 0.910] | **0.920** (n=187) | 12/199 (6%) |
 | 2026-07-27 | BGE-large | Qwen3.6 | agent architecture (Track D agentic arm) | 0.839 | | 0.908 | abstain 0.075, 0 unparseable |
 | 2026-08-26 | BGE-large | **Qwen3.8** | agent architecture (Track D agentic arm) | **0.874** | | **0.946** | abstain 0.075, 0 unparseable |
-| 2026-09-14 | BGE-large | **Qwen3.8** | agent architecture, standalone answer track, 900 s | *(pending, run in progress)* | | | |
+| 2026-09-14 | BGE-large | **Qwen3.8** | agent architecture, standalone answer track, 900 s, `egress=full` | *(pending, run in progress)* | | | |
 
 The 2026-07-24 and 2026-09-14 rows are the standalone `litqa2-answer` track
 (`run_litqa2 --track answer`); the 07-27 and 08-26 rows are the agentic arm of
 the R1 ablation. Same 199 questions, same research profile, same 900 s
-deadline; the ablation arm additionally records per-arm cost. On the retired
+deadline, concurrency 1, and full egress in all four (the 07-24 run predates
+the egress guard; the later three set `egress=full` explicitly); the ablation
+arm additionally records per-arm cost. On the retired
 backbone the two protocols gave 0.864 and 0.839, a gap inside the measured
 run-to-run noise (`08-LIMITATIONS.md`).
 
