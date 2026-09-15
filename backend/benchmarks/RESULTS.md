@@ -8,9 +8,16 @@ is the durable summary.
 > regenerable**, despite being gitignored alongside `results/`. They hold the
 > per-query verdicts behind the headline numbers, the committed scorecards carry
 > only `per_arm` and `deltas` (no per-query arrays), and the model that produced
-> them is no longer deployed. `run_arm.run()` overwrites `ablation_runs/<arm>.json`
-> in place, so a single re-run destroys the only copy and with it any paired
-> old-vs-new comparison. The 2026-07-27 clean run is archived **off-machine** at
+> them is no longer deployed. Until 2026-09-15 `run_arm.run()` overwrote
+> `ablation_runs/<arm>.json` in place, so a single re-run destroyed the only copy
+> and with it any paired old-vs-new comparison. **Since 2026-09-15 every arm
+> writes to `ablation_runs/<tag>/` (`--tag` / `MUNIN_ABLATION_TAG`), resumes
+> from `<arm>.capture.jsonl`, and the flat 08-26 Qwen3.8 files live under
+> `ablation_runs/qwen38-27b/`, which is what an untagged reader resolves to.**
+> Paths written as `ablation_runs/<arm>.json` in sections dated before that
+> mean `ablation_runs/qwen38-27b/<arm>.json` today. The Qwen3.8 set is archived
+> off-machine as `munin-bench-artifacts-2026-09-15-qwen38-complete.tar.gz`
+> (sha256 `3aa5d909…bfbc`, 36 files, verified on arrival). The 2026-07-27 clean run is archived **off-machine** at
 > `varghele@<vps>:~/backups/munin-bench-artifacts/` (5.3 MB tar.gz + sha256 +
 > manifest, verified on arrival 2026-08-25), with a working copy at
 > `~/munin-bench-artifacts-2026-08-25-pre-qwen38/` on hugin. Take a fresh
@@ -1350,7 +1357,7 @@ PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.risk_co
 # Teardown: docker stop/rm munin-retrieval-shadow; snapshot papers_shadow; delete both shadow collections.
 
 # Track D harness ablation (bare / RAG / agentic)
-for arm in bare rag agentic; do MUNIN_EVAL_EGRESS=full PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.ablation.run_arm --arm $arm --n 199; done   # overwrites ablation_runs/<arm>.json: back up first
+for arm in bare rag agentic; do MUNIN_EVAL_EGRESS=full PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.ablation.run_arm --arm $arm --n 199 --tag <run-tag>; done   # writes ablation_runs/<run-tag>/, resumable; never reuse a committed run's tag
 # Corpus-only agentic arm (2026-09-15 recipe): back up ablation_runs/agentic.json; run the agentic arm with MUNIN_EVAL_EGRESS=off;
 # compare --date <D>; rename the scorecard to <D>_harness-ablation-agentic-egressoff.json; toolreliability.score ablation_runs/agentic.json
 # --tag <D>_toolreliability-qwen38-egressoff; rename agentic.json to agentic.<D>-egressoff.json and restore the headline capture.

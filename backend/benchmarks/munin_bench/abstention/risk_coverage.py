@@ -36,9 +36,12 @@ import json
 import os
 import random
 
+from ..ablation import runs_dir
+
 _HERE = os.path.dirname(__file__)
 _BENCH = os.path.join(_HERE, "..", "..")
-_ABL = os.path.join(_BENCH, "ablation_runs")
+# ablation_runs/<tag>/ via --tag / MUNIN_ABLATION_TAG (ablation.runs_dir).
+_ABL = runs_dir()
 _C2 = os.path.join(_BENCH, "c2_runs")
 _SCORECARDS = os.path.join(_BENCH, "scorecards")
 
@@ -255,8 +258,14 @@ def main() -> int:
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", default="2026-07-27")
+    ap.add_argument("--tag", default=None,
+                    help="ablation_runs/<tag>/ for the three LitQA2 arms (or MUNIN_ABLATION_TAG)")
     args = ap.parse_args()
+    global _ABL
+    if args.tag:
+        _ABL = runs_dir(args.tag)
     sc = build()
+    sc["ablation_runs_dir"] = os.path.relpath(_ABL, _BENCH)
     sc["date"] = args.date
     os.makedirs(_SCORECARDS, exist_ok=True)
     base = os.path.join(_SCORECARDS, f"{args.date}_risk-coverage")

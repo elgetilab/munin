@@ -5,7 +5,10 @@ top-k; agentic: the tool-result passages captured live). Bare has no contexts, s
 faithfulness is N/A. Reuses the Track B MiniCheck judge (extract claim mode).
 
     MUNIN_BENCH_ENTAILMENT_DEVICE=cuda:0 PYTHONPATH=... $PY \
-      -m munin_bench.ablation.faithfulness --date 2026-07-13
+      -m munin_bench.ablation.faithfulness --date 2026-07-13 --tag <run-tag>
+
+Reads ablation_runs/<tag>/ (see ablation.runs_dir). cpu is a valid device: the
+judge is <1B and a full pass over two arms is an hour or two.
 """
 
 from __future__ import annotations
@@ -16,17 +19,19 @@ import os
 
 from ..faithfulness.minicheck import MiniCheck
 from ..metrics.bootstrap import paired_bootstrap, single_bootstrap
+from . import runs_dir
 
 _HERE = os.path.dirname(__file__)
-_RUNS = os.path.join(_HERE, "..", "..", "ablation_runs")
 
 
-def run(arms=("rag", "agentic"), device=None, date: str | None = None) -> dict:
+def run(arms=("rag", "agentic"), device=None, date: str | None = None,
+        tag: str | None = None) -> dict:
+    runs = runs_dir(tag)
     mc = MiniCheck(device=device)
     out = {}
     per_q: dict[str, dict[str, float]] = {}
     for arm in arms:
-        path = os.path.join(_RUNS, f"{arm}.json")
+        path = os.path.join(runs, f"{arm}.json")
         if not os.path.exists(path):
             continue
         rows = json.load(open(path))["per_q"]
@@ -47,6 +52,7 @@ def run(arms=("rag", "agentic"), device=None, date: str | None = None) -> dict:
               f"{m['mean']:.3f} [{m['ci_low']:.3f},{m['ci_high']:.3f}] (n={m['n']})"
               if m else f"[d-faith:{arm}] no scorable answers")
     sc = {"track": "harness-ablation-faithfulness", "date": date,
+          "runs_dir": os.path.relpath(runs, os.path.join(_HERE, "..", "..")),
           "judge": "MiniCheck-Flan-T5-Large", "frac_claims_supported": out,
           "per_question": per_q}
     # Paired delta on the questions BOTH arms scored.
@@ -78,8 +84,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default=None)
     ap.add_argument("--date", default=None)
+    ap.add_argument("--tag", default=None, help="ablation_runs/<tag>/ (or MUNIN_ABLATION_TAG)")
     args = ap.parse_args()
-    run(device=args.device, date=args.date)
+    run(device=args.device, date=args.date, tag=args.tag)
     return 0
 
 

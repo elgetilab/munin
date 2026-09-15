@@ -22,7 +22,7 @@ Metrics (BENCHMARK-TODO T11):
 Usage:
     python -m munin_bench.toolreliability.score <run.json> [--tag NAME]
 where <run.json> is an ablation-arm file ({arm,n,per_q:[...]}) whose per_q
-records include `tool_events`.
+records include `tool_events`, typically ablation_runs/<run-tag>/agentic.json.
 """
 from __future__ import annotations
 

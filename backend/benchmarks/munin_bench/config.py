@@ -1,4 +1,5 @@
-"""All constants for the eval suite. No logic.
+"""All constants for the eval suite. No logic beyond the two request-field
+helpers at the bottom, which mirror the backend's byte for byte.
 
 Values mirror the production defaults in ``backend/retrieval/database.py`` and
 ``backend/retrieval/main.py``. Secrets (the Neo4j password) are read from the
@@ -90,6 +91,35 @@ VLLM_MODEL_NAME = os.getenv("VLLM_MODEL_NAME", "qwen3.8-27b")
 # that has nothing to do with the harness.
 LLM_REASONING_EFFORT = os.getenv("LLM_REASONING_EFFORT", "medium").strip()
 MAX_OUTPUT_TOKENS = int(os.getenv("VLLM_MAX_OUTPUT_TOKENS", "16384"))
+
+# How a mechanical sub-task turns reasoning OFF for the served backbone. Mirrors
+# backend database.LLM_THINKING_MODE (same env name, same values):
+#   enable_thinking  -> {"enable_thinking": false}   Qwen3 family
+#   effort_low       -> {"reasoning_effort": "low"}  gpt-oss (reasoning cannot
+#                                                     be disabled, only shortened)
+#   none             -> send nothing                  a model with no reasoning mode
+# Before 2026-09-15 four bench scripts hardcoded the Qwen form, which gpt-oss
+# silently ignores: the judge / expander / router then reasons at full length
+# and the call looks fine while costing several times more.
+LLM_THINKING_MODE = os.getenv("LLM_THINKING_MODE", "enable_thinking").strip() or "enable_thinking"
+
+
+def thinking_off_fields() -> dict:
+    """Request fields that disable (or minimise) the reasoning trace, or `{}`."""
+    if LLM_THINKING_MODE == "enable_thinking":
+        return {"chat_template_kwargs": {"enable_thinking": False}}
+    if LLM_THINKING_MODE == "effort_low":
+        return {"chat_template_kwargs": {"reasoning_effort": "low"}}
+    if LLM_THINKING_MODE == "none":
+        return {}
+    raise ValueError(f"unknown LLM_THINKING_MODE {LLM_THINKING_MODE!r}")
+
+
+def reasoning_effort_fields() -> dict:
+    """Request fields pinning a user-facing turn's reasoning budget, or `{}`."""
+    if not LLM_REASONING_EFFORT or LLM_REASONING_EFFORT.lower() == "default":
+        return {}
+    return {"chat_template_kwargs": {"reasoning_effort": LLM_REASONING_EFFORT}}
 
 # --- Retrieval ranking constants (copied from production) -------------------
 # main.py: fetch_k = min(top_k * 3, 100)

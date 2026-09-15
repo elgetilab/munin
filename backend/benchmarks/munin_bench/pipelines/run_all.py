@@ -16,6 +16,13 @@ Tracks (opt-in via --tracks; the live-chat + GPU tracks are slow):
 Writes scorecards/<date>_<tag>.{json,md} (committed). Compare two with
 `python -m munin_bench.pipelines.compare A.json B.json`. Use --limit to smoke-test
 the wiring without full re-runs.
+
+The ablation track writes its per-arm arrays to ablation_runs/<ablation-tag>/
+(default: the run --tag), never to a flat shared dir, and resumes from the
+capture there if re-invoked. --provenance k=v (repeatable) stamps run-level
+facts the runner cannot observe itself (backbone checkpoint, kernel backend,
+serving profile, egress) into the scorecard header instead of leaving them to
+be backfilled by hand.
 """
 
 from __future__ import annotations
@@ -62,7 +69,17 @@ def main() -> int:
                     help="run the backend/eval behavioral QA registry (pong, ...)")
     ap.add_argument("--certify", action="store_true",
                     help="check the written scorecard against certification_thresholds.json (re-cert gate)")
+    ap.add_argument("--ablation-tag", default=None,
+                    help="ablation_runs/<tag>/ for the ablation track (default: --tag)")
+    ap.add_argument("--provenance", action="append", default=[], metavar="KEY=VALUE",
+                    help="extra header fields, repeatable (e.g. checkpoint=..., egress=full)")
     args = ap.parse_args()
+    provenance = {}
+    for kv in args.provenance:
+        if "=" not in kv:
+            raise SystemExit(f"--provenance expects KEY=VALUE, got {kv!r}")
+        k, v = kv.split("=", 1)
+        provenance[k.strip()] = v.strip()
 
     tracks = [t.strip() for t in args.tracks.split(",") if t.strip()]
     for t in tracks:
@@ -111,9 +128,12 @@ def main() -> int:
             p["per_query"], p["qids"], p["metrics"])
     if "litqa2-answer" in tracks:
         print("=== track: litqa2-answer ===")
-        p = litqa2_runner.run_answer(qc, base_url="http://127.0.0.1:8080",
-                                     email="litqa2-eval@localhost",
-                                     results_root=args.results_root, concurrency=1)
+        # args.base_url, not a literal: a second instance on another port
+        # would otherwise silently measure production here.
+        p = litqa2_runner.run_answer(qc, base_url=args.base_url,
+                                     email=args.email,
+                                     results_root=args.results_root, concurrency=1,
+                                     limit=args.limit or 0)
         tasks["litqa2_answer"] = task_from_per_query(
             p["per_query"], p["qids"], p["sc_summary"])
 
@@ -146,15 +166,29 @@ def main() -> int:
         from ..ablation.run_arm import run as run_arm_fn
         from ..ablation.compare import compare as compare_arms
         n = args.limit or 100
+        abl_tag = args.ablation_tag or args.tag
         for arm in ("bare", "rag", "agentic"):
-            run_arm_fn(arm, n, base_url=args.base_url, email=args.email)
-        sc = compare_arms(date=None)
+            run_arm_fn(arm, n, base_url=args.base_url, email=args.email, tag=abl_tag)
+        sc = compare_arms(date=None, tag=abl_tag)
         tasks["ablation"] = {arm: {
             "metrics": {"accuracy": _metric(pa["accuracy"]),
-                        "precision": _metric(pa.get("precision_of_attempted"))},
+                        "precision": _metric(pa.get("precision_of_attempted")),
+                        "abstain_rate": _metric(pa.get("abstain_rate")),
+                        "mean_tool_calls": _metric(pa["cost"].get("mean_tool_calls")),
+                        "mean_elapsed_s": _metric(pa["cost"].get("mean_elapsed_s")),
+                        "unparseable": _metric(pa["verdicts"].get("unparseable", 0)),
+                        "tool_markup_in_content": _metric(pa.get("tool_markup_in_content", 0))},
             "per_query": {}} for arm, pa in sc["per_arm"].items()}
+        provenance.setdefault("ablation_runs_dir", sc.get("runs_dir"))
+        provenance.setdefault("ablation_deltas", sc.get("deltas"))
+        provenance.setdefault("ablation_unparseable_reasons",
+                              {a: pa.get("unparseable_reasons") for a, pa in sc["per_arm"].items()})
 
-    meta = make_run_header(qc, neo4j, encoder=args.encoder, tag=args.tag)
+    provenance.setdefault("egress", os.getenv("MUNIN_EVAL_EGRESS", "off"))
+    provenance.setdefault("base_url", args.base_url)
+    provenance.setdefault("reasoning_effort", config.LLM_REASONING_EFFORT or None)
+    provenance.setdefault("max_output_tokens", config.MAX_OUTPUT_TOKENS)
+    meta = make_run_header(qc, neo4j, encoder=args.encoder, tag=args.tag, extra=provenance)
     if args.with_reliability:
         print("=== reliability: behavioral QA registry ===")
         try:

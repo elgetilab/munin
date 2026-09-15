@@ -861,7 +861,7 @@ async def judge_abstention(
         "max_tokens": 4,
         "temperature": 0.0,
         "stream": False,
-        "chat_template_kwargs": {"enable_thinking": False},
+        **config.thinking_off_fields(),
     }
     owns_client = client is None
     client = client or httpx.AsyncClient(timeout=30.0)
