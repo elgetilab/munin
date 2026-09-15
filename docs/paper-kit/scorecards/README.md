@@ -1,18 +1,18 @@
 # Scorecards behind the headline claims
 
-21 committed scorecard JSONs, copied verbatim from
+23 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
 
-The full set is 63 JSON plus 48 Markdown twins; the remainder are mostly the
+The full set is 65 JSON plus 49 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
-**Backbone is not stamped in the ablation-family files.** The three
-`2026-08-26_*` files and the two `2026-09-14_*` files are on Qwen3.8-27B
-(production); every earlier file is on the retired Qwen3.6-35B-A3B. See
-caution 8.
+**Backbone is not stamped in most ablation-family files.** Every file dated
+2026-08-26 or later is on Qwen3.8-27B (production; the 09-15 C2b file also
+carries an explicit `backbone` field); every earlier file is on the retired
+Qwen3.6-35B-A3B. See caution 8.
 
 ## Schema
 
@@ -47,10 +47,12 @@ ablation files differ only in `git_sha` and `date`.
 | `2026-07-08_faithfulness-judge-ragtruth.json` | MiniCheck judge validation on RAGTruth | R2 |
 | `2026-09-14_abstention-c1-fabricated.json` | C1, 100 fabricated papers, **Qwen3.8**, current harness; `egress` and `harness_note` backfilled | R3 |
 | `2026-07-27_abstention-c1-fabricated.json` | C1, 100 fabricated papers, Qwen3.6 | R3 |
-| `2026-07-27_abstention-c2-shadow.json` | C2b paired shadow corpus at `egress=off`, with CIs and the question-paired delta against the 2026-07-10 run | R3 |
+| `2026-09-15_abstention-c2-shadow.json` | **Headline** C2b paired shadow corpus at `egress=off`, Qwen3.8, both `papers_bge` and `papers_chunks` shadowed; CIs and the question-paired delta against the 2026-07-27 run; `harness_note` backfilled | R3 |
+| `2026-07-27_abstention-c2-shadow.json` | C2b paired shadow corpus at `egress=off`, Qwen3.6, with CIs and the question-paired delta against the 2026-07-10 run | R3 |
 | `2026-07-10_abstention-c2-shadow.json` | The earlier C2b pair (old flat-loop harness), rescored with the same CIs so the two are comparable | R3 |
 | `2026-07-27_abstention-c2-shadow-egressfull.json` | The same pair at `egress=full`. **A different experiment.** Do not compare across the two. | R3 |
-| `2026-07-27_risk-coverage.json` | Six risk-coverage operating points, with `mixed_generations` / `mixed_egress` provenance markers | R3 |
+| `2026-09-15_risk-coverage.json` | **Headline** six risk-coverage operating points on Qwen3.8 (ablation 08-26, C1 09-14, C2b 09-15), with `mixed_generations` / `mixed_egress` provenance markers | R3 |
+| `2026-07-27_risk-coverage.json` | The same six points on Qwen3.6 | R3 |
 | `2026-07-28_litsearch.json` | LitSearch, post-fix, canonical | R4.2 |
 | `2026-07-28_litsearch-prefix.json` | LitSearch, pre-fix. The before-half of the citation-re-rank A/B. | R4.2, F5 |
 | `2026-07-03_baseline-specter-v1.json` | LitQA2 retrieval, SPECTER-v1 baseline | R4.4 |
@@ -69,9 +71,11 @@ ablation files differ only in `git_sha` and `date`.
 2. **Never plot the six risk-coverage points on one set of axes** without
    faceting or annotating by egress. The file's provenance block flags the
    mixture.
-3. **Read `c1-fabricated` risk-coverage on coverage only.** Its selective risk
-   of 1.000 is 3 answered items of which 3 were wrong, with an uninformative
-   [0.00, 1.00] CI.
+3. **Read `c1-fabricated` risk-coverage on coverage only.** On Qwen3.6 its
+   selective risk of 1.000 is 3 answered items of which 3 were wrong, with an
+   uninformative [0.00, 1.00] CI; on Qwen3.8 no item was answered and the
+   scorer reports 0, which is undefined, not good. `c2-absent` on Qwen3.8 is
+   4 answered items, same caution.
 4. **The `2026-07-26` companion ablation is not in this folder** on purpose. It
    is a load/egress sensitivity point (agentic 0.688) and averaging it with the
    headline would be wrong.

@@ -1,0 +1,141 @@
+{
+  "n_paired": 50,
+  "present": {
+    "accuracy": 0.54,
+    "abstain_rate": 0.42,
+    "accuracy_ci": {
+      "rate": 0.54,
+      "n": 50,
+      "bootstrap": {
+        "ci_low": 0.4,
+        "ci_high": 0.68,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.40398871399157477,
+        "ci_high": 0.6703034780777566
+      }
+    },
+    "abstain_rate_ci": {
+      "rate": 0.42,
+      "n": 50,
+      "bootstrap": {
+        "ci_low": 0.28,
+        "ci_high": 0.56,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.2937500335471198,
+        "ci_high": 0.5576655823142176
+      }
+    }
+  },
+  "absent": {
+    "accuracy": 0.04,
+    "abstain_rate": 0.92,
+    "accuracy_ci": {
+      "rate": 0.04,
+      "n": 50,
+      "bootstrap": {
+        "ci_low": 0.0,
+        "ci_high": 0.1,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.011038884327619798,
+        "ci_high": 0.13460090687507023
+      }
+    },
+    "abstain_rate_ci": {
+      "rate": 0.92,
+      "n": 50,
+      "bootstrap": {
+        "ci_low": 0.84,
+        "ci_high": 0.98,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.8116175308165717,
+        "ci_high": 0.968450485911407
+      }
+    }
+  },
+  "answerable_n": 27,
+  "on_answerable_when_source_removed": {
+    "correct_abstention": 24,
+    "answered_still_correct": 2,
+    "answered_now_wrong": 1,
+    "correct_abstention_rate": 0.8888888888888888,
+    "correct_abstention_rate_ci": {
+      "rate": 0.8888888888888888,
+      "n": 27,
+      "bootstrap": {
+        "ci_low": 0.7768518518518535,
+        "ci_high": 1.0,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.7194219918172018,
+        "ci_high": 0.9614796517169015
+      }
+    },
+    "answered_still_correct_rate_ci": {
+      "rate": 0.07407407407407407,
+      "n": 27,
+      "bootstrap": {
+        "ci_low": 0.0,
+        "ci_high": 0.18518518518518517,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.020554654060988622,
+        "ci_high": 0.23369592683023144
+      }
+    },
+    "answered_now_wrong_rate_ci": {
+      "rate": 0.037037037037037035,
+      "n": 27,
+      "bootstrap": {
+        "ci_low": 0.0,
+        "ci_high": 0.1111111111111111,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.006568145980785117,
+        "ci_high": 0.18283465933575843
+      }
+    },
+    "correct_abstention_rate_ci_unconditional": {
+      "ci_low": 0.75,
+      "ci_high": 1.0,
+      "n_resamples": 2000,
+      "seed": 42,
+      "empty_resamples": 0,
+      "note": "resamples the full paired set and re-derives the answerable subset each time, so it carries the uncertainty in which questions are answerable as well as in the abstention rate"
+    }
+  },
+  "date": "2026-09-15",
+  "git_sha": "cd226aa",
+  "correct_abstention_vs_2026-07-27": {
+    "old_rate": 0.6666666666666666,
+    "new_rate": 0.8888888888888888,
+    "delta": 0.2222222222222222,
+    "ci_low": 0.039983796296296226,
+    "ci_high": 0.4203869047619044,
+    "p_value_two_sided": 0.015,
+    "n_paired_questions": 50,
+    "n_resamples": 2000,
+    "seed": 42,
+    "dropped_resamples": 0
+  },
+  "egress": "off",
+  "backbone": "qwen3.8-27b",
+  "harness_note": "Both arms on the deployed retrieval image of 2026-09-15 (repo cd226aa), backbone qwen3.8-27b (TP=2, 64k, reasoning_effort=medium), MUNIN_EVAL_EGRESS=off on both arms. Absent arm ran against a second instance on :8081 with PAPERS_COLLECTION=papers_shadow (papers_bge minus the 49 frozen source papers, 68,864 vs 68,913 points, leakage 0) AND CHUNKS_COLLECTION=papers_chunks_shadow (papers_chunks minus those papers' 2,247 chunks, leakage 0). The chunk shadow is new: the chunk-level evidence layer (2026-08-30) did not exist when the 2026-07-27 pair ran, so this run closes a leak path the earlier design did not have to cover. The 26 backend/retrieval commits after the 2026-08-26 ablation run are deployed. Comparison with 2026-07-27 is therefore backbone plus seven weeks of harness, suggestive only."
+}

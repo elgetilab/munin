@@ -230,17 +230,33 @@ one of the signals is absent.
 abstain rather than fall back on what the base model happens to remember.
 
 **Evidence.** At matched `egress=off`, on the answerable subset, correct
-abstention on source removal moved from **0.200 [0.050, 0.350]** (n=20) to
-**0.667 [0.481, 0.852]** (n=27) between the old flat loop and the current
-harness. The two intervals are disjoint, and because both runs use the same 50
-frozen questions the change can be tested directly as a question-paired
-bootstrap: **delta +0.467 [0.232, 0.697], p < 0.001**. Overall accuracy drops
-0.540 → 0.080 when the source is removed (a −0.460 drop, against −0.060 for the
-old harness).
+abstention on source removal is **0.889** (Wilson [0.719, 0.961], n=27) on
+the production backbone Qwen3.8 (2026-09-15): overall accuracy drops
+**0.540 → 0.040** when the source is removed, abstention rises 0.420 → 0.920,
+and of the 27 answerable questions 24 are correctly refused, 2 still answered
+correctly, 1 answered wrong. On Qwen3.6 the same pair gave 0.667 [0.481,
+0.852] and a 0.540 → 0.080 drop, which was itself the move from the old flat
+loop's 0.200 [0.050, 0.350] (n=20): because every run uses the same 50 frozen
+questions, both steps are question-paired bootstraps, **+0.467 [0.232,
+0.697], p < 0.001** for the harness rewrite (controlled, one backbone) and
+**+0.222 [0.040, 0.420], p = 0.015** for the backbone swap (suggestive:
+backbone and seven weeks of harness moved together).
 
 **Mechanism.** The old harness answered 12 of 20 from parametric memory when
-the local source was gone. The current one answers 4 of 27 and correctly
-abstains on 18.
+the local source was gone. The agent architecture on Qwen3.6 answered 4 of 27
+and correctly abstained on 18; on Qwen3.8 it answers 3 of 27 and abstains on
+24. On the 24 questions answerable in both of the last two runs, 5 of the
+absent-arm verdicts went from wrong-answer to refusal and 2 from
+right-answer-without-the-source to refusal, against 1 the other way.
+
+**The re-run had to close a leak the original design did not face.** The
+chunk-level evidence layer (2026-08-30) reads a second collection,
+`papers_chunks`, so a shadow that removed the papers from `papers_bge` alone
+would have left their full text reachable. The 09-15 absent arm ran against
+shadows of both collections (leakage verified 0 in each). This is worth a
+sentence in the paper because it is the general form of the C2 hazard: every
+retrieval path the harness has must be shadowed, and a harness that grows a
+new path silently invalidates an old shadow.
 
 **This reverses a prior conclusion.** The 2026-07-10 reading declared the C2
 design "fatally confounded", on the grounds that LitQA2 questions are answerable
@@ -267,12 +283,14 @@ The change in behaviour is in the refusal itself: 13 refusals (4 on Qwen3.6)
 also offer the nearest real corpus paper, spot-checked as "unrelated" or
 "possibly what you meant", not as a substitute.
 
-**Caveats that must travel with this claim.** Five of 27 still answered wrong on
-removal, so this is strong calibration and not perfect. n = 27 is small, so the
-interval is wide (±0.18 around 0.667) even though it excludes the old harness
-comfortably. C2b is on the retired backbone. C1 remains the cleanest signal
-because it does not depend on a shadow-corpus construction, and it is now the
-one abstention result measured on the production backbone.
+**Caveats that must travel with this claim.** One of 27 still answered wrong
+on removal and two answered correctly without the source, so this is strong
+calibration and not perfect. n = 27 is small: quote the Wilson interval
+[0.719, 0.961], and note the bootstrap touches 1.0. The cross-backbone gain
+is suggestive only. C1 remains the cleanest signal because it does not depend
+on a shadow-corpus construction; C2b is the one that shows the harness
+declines *answerable* questions when the corpus loses the source, which C1
+cannot.
 
 ---
 

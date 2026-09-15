@@ -13,7 +13,7 @@ Six tracks. Tracks A through E are built; F is specified only.
 |---|---|---|
 | **A** Retrieval quality | Does the retriever surface the right paper? | Built. Phases 1-3 and 5 done; Phase 4 (local query pool) deferred. |
 | **B** Answer faithfulness | Are answer claims entailed by the retrieved evidence? | Built. Judge validated; per-arm paired comparison run on both backbones (2026-07-27 Qwen3.6, 2026-08-26 Qwen3.8). |
-| **C** Abstention and calibration | Does the system know when the corpus lacks the answer? | Built. C1 and C2b run, re-run 2026-07-27 on Qwen3.6; risk-coverage derived. **C1 re-run on Qwen3.8 2026-09-14 (100/100); C2b not.** |
+| **C** Abstention and calibration | Does the system know when the corpus lacks the answer? | Built. C1 and C2b run, re-run 2026-07-27 on Qwen3.6; risk-coverage derived. **Re-run on Qwen3.8: C1 2026-09-14 (100/100), C2b 2026-09-15 (correct abstention 0.889), risk-coverage re-derived.** |
 | **D** Harness value and cost | Does the agentic harness beat the bare model and vanilla RAG? | Built. Clean run 2026-07-27 (Qwen3.6); headline re-measurement 2026-08-26 on the production backbone Qwen3.8. |
 | **E** Regression and scorecard | Can the whole suite re-run as one command and flag regressions? | Built. `run_all`, `compare`, `certify`. |
 | **F** Follow-up | Expert benchmark, validated certification thresholds, AstaBench positioning | Specified, not built. Two cheap pieces pulled forward (see §8). |
@@ -32,7 +32,8 @@ headline; Track A is backbone-independent at scoring time, scored against
 frozen Qwen3.6-era query variants generated once by the production expander,
 and was not re-run for the model swap because regenerating the variants would
 change the benchmark, not the system; C1 was re-run on Qwen3.8 on
-2026-09-14 and holds; C2b was not re-run and stays on Qwen3.6.
+2026-09-14 and C2b plus risk-coverage on 2026-09-15, so every headline is on
+Qwen3.8; the Qwen3.6 figures are kept as the second backbone.
 Within a run every comparison is paired; across the two backbones it is
 suggestive only, because the harness code also moved between the runs.
 
@@ -184,7 +185,7 @@ Three strata were specified; two are built and one is blocked.
 | Stratum | Construction | Correct behaviour | Status |
 |---|---|---|---|
 | **C1 fabricated** | 100 frozen items: 80 Crossref-verified-nonexistent DOIs + 20 nonexistent-paper-by-description, in the group's fields. Zero collide with the 67,675-DOI corpus. | Refuse; never cite a local paper | **Built and run twice** |
-| **C2b paired shadow corpus** | 50 single-source-DOI LitQA2 questions asked twice: against the live corpus, and against an isolated second retrieval instance on `papers_shadow` (= `papers_bge` minus the 49 source papers). | Answer when present; abstain when absent | **Built and run twice** |
+| **C2b paired shadow corpus** | 50 single-source-DOI LitQA2 questions asked twice: against the live corpus, and against an isolated second retrieval instance on `papers_shadow` (= `papers_bge` minus the 49 source papers) and, since the chunk-level evidence layer exists, `papers_chunks_shadow` (= `papers_chunks` minus their chunks). Every collection the harness searches must be shadowed. | Answer when present; abstain when absent | **Built and run three times** (07-10, 07-27, 09-15) |
 | Stratum 2 (local query pool) | Clone of the Phase 4 local queries against a DOI-removed collection | Abstain or answer with explicit outside-corpus sourcing | **Blocked on Phase 4** |
 
 **Why C1 is the cleanest signal**: because the papers do not exist, *any*
