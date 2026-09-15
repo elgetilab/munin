@@ -1,0 +1,133 @@
+{
+  "track": "harness-ablation-agentic-egressoff",
+  "n_paired": 199,
+  "git_sha": "3be8308",
+  "date": "2026-09-15",
+  "per_arm": {
+    "bare": {
+      "accuracy": 0.3869346733668342,
+      "abstain_rate": 0.04020100502512563,
+      "precision_of_attempted": 0.4031413612565445,
+      "verdicts": {
+        "incorrect": 114,
+        "correct": 77,
+        "abstain": 8
+      },
+      "cost": {
+        "mean_prompt_tokens": 164.1,
+        "mean_completion_tokens": 866.1,
+        "mean_elapsed_s": 8.0,
+        "mean_tool_calls": 0.0
+      }
+    },
+    "rag": {
+      "accuracy": 0.21105527638190955,
+      "abstain_rate": 0.49748743718592964,
+      "precision_of_attempted": 0.42,
+      "verdicts": {
+        "incorrect": 58,
+        "abstain": 99,
+        "correct": 42
+      },
+      "cost": {
+        "mean_prompt_tokens": 1433.3,
+        "mean_completion_tokens": 872.3,
+        "mean_elapsed_s": 8.3,
+        "mean_tool_calls": 0.0
+      }
+    },
+    "agentic": {
+      "accuracy": 0.6633165829145728,
+      "abstain_rate": 0.27638190954773867,
+      "precision_of_attempted": 0.9166666666666666,
+      "verdicts": {
+        "correct": 132,
+        "abstain": 55,
+        "incorrect": 12
+      },
+      "cost": {
+        "mean_prompt_tokens": null,
+        "mean_completion_tokens": null,
+        "mean_elapsed_s": 96.0,
+        "mean_tool_calls": 5.1
+      }
+    }
+  },
+  "deltas": {
+    "rag_minus_bare": {
+      "delta": -0.1759,
+      "ci": [
+        -0.2513,
+        -0.0955
+      ],
+      "p": 0.0
+    },
+    "agentic_minus_rag": {
+      "delta": 0.4523,
+      "ci": [
+        0.3719,
+        0.5276
+      ],
+      "p": 0.0
+    },
+    "agentic_minus_bare": {
+      "delta": 0.2764,
+      "ci": [
+        0.1809,
+        0.3668
+      ],
+      "p": 0.0
+    }
+  },
+  "backbone": "qwen3.8-27b",
+  "backbone_checkpoint": "cyankiwi/Qwen3.8-27B-AWQ-INT4",
+  "serving": "vLLM TP=2 over 2x RTX 5090, max-model-len 65536, --max-num-seqs 8, reasoning_effort=medium",
+  "encoder": "bge-large-en-v1.5 / papers_bge",
+  "role": "Track D agentic arm re-run at egress=off (corpus-only harness: no web, no Semantic Scholar) on the same 199 questions. The bare and rag arms in this file are the UNCHANGED 2026-08-26 captures (0 tool calls, egress inapplicable), copied in by compare.py so the deltas are paired; only the agentic arm is new. NOT the headline: the headline agentic arm is 2026-08-26 at egress=full (0.874). This is the first and only agentic ablation arm ever run at egress=off.",
+  "egress": {
+    "bare": "n/a-no-tools",
+    "rag": "n/a-no-tools",
+    "agentic": "off"
+  },
+  "questions": "199 in-corpus LitQA2 questions (d_questions.json)",
+  "concurrency": 1,
+  "harness_git_sha": "3be8308",
+  "arm_matching": {
+    "max_tokens": {
+      "bare": 16384,
+      "rag": 16384,
+      "agentic": 16384
+    },
+    "reasoning_effort": "medium on all arms",
+    "model_name": "config.VLLM_MODEL_NAME on all arms"
+  },
+  "sampling": {
+    "bare_rag": "temperature 0.7",
+    "agentic": "research persona: temperature 1.0, top_p 0.95, top_k 20, presence_penalty 1.5",
+    "note": "not matched across arms; present in every Track D run"
+  },
+  "paired_vs_egress_full": {
+    "agentic_full_minus_agentic_off": {
+      "delta": 0.211,
+      "ci": [
+        0.151,
+        0.276
+      ],
+      "p": 0.0,
+      "n": 199,
+      "note": "question-paired against the 2026-08-26 agentic arm; same backbone, same questions; 20 retrieval commits between the runs"
+    },
+    "transitions_full_to_off": {
+      "correct->correct": 125,
+      "correct->abstain": 41,
+      "abstain->abstain": 11,
+      "correct->incorrect": 8,
+      "incorrect->correct": 4,
+      "incorrect->incorrect": 3,
+      "abstain->correct": 3,
+      "incorrect->abstain": 3,
+      "abstain->incorrect": 1
+    }
+  },
+  "provenance_note": "Provenance fields written 2026-09-15 at scoring time from the run log; the runner does not stamp them. Verdicts and statistics untouched."
+}

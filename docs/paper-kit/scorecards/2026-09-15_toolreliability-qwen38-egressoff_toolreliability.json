@@ -1,0 +1,103 @@
+{
+  "n_queries": 199,
+  "n_queries_with_tool_events": 199,
+  "total_tool_calls": 1021,
+  "mean_calls_per_query": 5.13,
+  "error_rate": 0.1077,
+  "degraded_rate": 0.2498,
+  "n_queries_with_failure": 125,
+  "recovery_rate": 1.0,
+  "per_tool": {
+    "search": {
+      "calls": 479,
+      "errors": 99,
+      "degraded": 99,
+      "error_rate": 0.2067,
+      "degraded_rate": 0.2067
+    },
+    "source": {
+      "calls": 253,
+      "errors": 0,
+      "degraded": 0,
+      "error_rate": 0.0,
+      "degraded_rate": 0.0
+    },
+    "web_search": {
+      "calls": 94,
+      "errors": 0,
+      "degraded": 94,
+      "error_rate": 0.0,
+      "degraded_rate": 1.0
+    },
+    "paper_search": {
+      "calls": 69,
+      "errors": 1,
+      "degraded": 1,
+      "error_rate": 0.0145,
+      "degraded_rate": 0.0145
+    },
+    "semantic_scholar_search": {
+      "calls": 51,
+      "errors": 0,
+      "degraded": 51,
+      "error_rate": 0.0,
+      "degraded_rate": 1.0
+    },
+    "tool_search": {
+      "calls": 49,
+      "errors": 0,
+      "degraded": 0,
+      "error_rate": 0.0,
+      "degraded_rate": 0.0
+    },
+    "search_user_docs": {
+      "calls": 10,
+      "errors": 0,
+      "degraded": 0,
+      "error_rate": 0.0,
+      "degraded_rate": 0.0
+    },
+    "web_fetch": {
+      "calls": 6,
+      "errors": 6,
+      "degraded": 6,
+      "error_rate": 1.0,
+      "degraded_rate": 1.0
+    },
+    "paper_lookup": {
+      "calls": 4,
+      "errors": 2,
+      "degraded": 2,
+      "error_rate": 0.5,
+      "degraded_rate": 0.5
+    },
+    "browse_tag_papers": {
+      "calls": 3,
+      "errors": 1,
+      "degraded": 1,
+      "error_rate": 0.3333,
+      "degraded_rate": 0.3333
+    },
+    "search_past_conversations": {
+      "calls": 2,
+      "errors": 1,
+      "degraded": 1,
+      "error_rate": 0.5,
+      "degraded_rate": 0.5
+    },
+    "deep_research": {
+      "calls": 1,
+      "errors": 0,
+      "degraded": 0,
+      "error_rate": 0.0,
+      "degraded_rate": 0.0
+    }
+  },
+  "backbone": "qwen3.8-27b",
+  "backbone_checkpoint": "cyankiwi/Qwen3.8-27B-AWQ-INT4",
+  "serving": "vLLM TP=2 over 2x RTX 5090, max-model-len 65536, --max-num-seqs 8, reasoning_effort=medium",
+  "encoder": "bge-large-en-v1.5 / papers_bge",
+  "telemetry_over": "the 2026-09-15 agentic arm at egress=off",
+  "reading": "web_search and semantic_scholar_search degraded 1.000 are the egress guard working (both tiers blocked at off); search error 0.207 (99 of 479) is the tool's deliberate argument-shape error return (a queries list or an empty query), not a failure, with no exception in the retrieval log for the run window; recovery 1.000. Not comparable to the egress=full T11 files on error or degraded rate.",
+  "provenance_note": "Provenance fields written 2026-09-15 at scoring time from the run log; the runner does not stamp them. Verdicts and statistics untouched."
+}

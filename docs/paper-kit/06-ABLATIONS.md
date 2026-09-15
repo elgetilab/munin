@@ -88,9 +88,8 @@ between the runs, several material to the agentic arm.
 ### 1.5 The load/egress sensitivity companion
 
 `2026-07-26_harness-ablation`, same three arms at higher concurrency with the
-web tier degraded (egress on, Brave unfunded; not `egress=off`, which no
-agentic ablation arm has ever run at): agentic **0.688** (abstain 0.231, 11.1
-calls/query, 183.8 s).
+web tier degraded (egress on, Brave unfunded; not `egress=off`): agentic
+**0.688** (abstain 0.231, 11.1 calls/query, 183.8 s).
 Bare and RAG are **bit-identical** across the two runs, which cleanly isolates
 the difference to the agentic arm. This is the ablation of the *measurement
 conditions* rather than the system, and it is the reason `10-REPRODUCE.md`
@@ -273,6 +272,7 @@ a headline number and each is a reproducibility lesson.
 | Bare arm `max_tokens` 4,096 vs 16,384 | 33 of 199 bare answers truncated and scored wrong vs 0; `agentic − bare` +0.538 vs +0.487 while `agentic − RAG` held (+0.668 vs +0.663). Confounded with the backbone swap, but the RAG comparison isolates it. |
 | Backbone Qwen3.6-35B-A3B vs Qwen3.8-27B | Same ordering, +0.487 vs +0.538 harness value. Suggestive only: a month of retrieval commits sits between the runs. |
 | Run-to-run resampling, same configuration | Two Qwen3.8 bare arms one day apart: 0.422 vs 0.387, i.e. ~0.035 on a 199-question arm at temperature 0.7 |
+| Agentic arm `egress=off` vs `full` (Qwen3.8) | 0.663 vs 0.874, paired +0.211 [0.151, 0.276]; the corpus-only loop alone is +0.276 over bare. A system ablation as much as a measurement one: it is what the harness is worth without the web (`05-RESULTS.md` R1). |
 | Deadline 300 s vs 900 s | Agentic accuracy 0.814 (11 truncations, all counted wrong) vs 0.864 (0 truncations, 0 unparseable), Qwen3.6 |
 | Answer parser, naive vs hardened | Dropped ~17% of BGE answers and ~10% of SPECTER's as unparseable, turning a real +0.075 (p=0.028) into an apparent +0.05 n.s. |
 | Egress off vs full (C2 absent arm) | Accuracy 0.080 vs 0.740 |

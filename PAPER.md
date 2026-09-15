@@ -25,7 +25,7 @@ Corpus at time of writing: 68,462 papers.
 
 > **Drafting the paper?** [`docs/paper-kit/`](docs/paper-kit/) is a
 > self-contained bundle (system, architecture, corpus, methods, results,
-> ablations, findings, limitations, related work, reproduce, plus the 23
+> ablations, findings, limitations, related work, reproduce, plus the 25
 > headline scorecards) written to be read without repository access. This file
 > stays the short claim-to-scorecard index.
 
@@ -83,6 +83,14 @@ A third finding is new. **Qwen3.8 abstains far less outside the harness** (bare
 (bare 0.476 → 0.403, RAG 0.708 → 0.420). Inside the harness abstention is
 **identical** at 0.075 and precision *rises* (0.908 → 0.946). The harness, not
 the backbone, is what keeps attempted answers trustworthy.
+
+**Corpus-only harness (agentic arm at `egress=off`), 2026-09-15: 0.663**,
+precision 0.917, abstain 0.276; paired +0.276 [0.181, 0.367] over bare and
++0.452 over RAG, with the web and Semantic Scholar tiers worth a further
++0.211 [0.151, 0.276] (41 of its 55 abstentions become correct at `full`).
+The only agentic ablation arm ever run at `off`; a decomposition of the
+headline, not a substitute. Scorecard
+`2026-09-15_harness-ablation-agentic-egressoff.json`.
 
 **Standalone LitQA2 number on the production model: 0.884 [0.839, 0.925]**,
 precision 0.926, 2026-09-14, `run_litqa2 --track answer` at 900 s and
@@ -259,7 +267,7 @@ Two operational notes that will otherwise cost you a day:
 |---|---|
 | **Paper kit** (self-contained drafting bundle, 19 scorecards) | `docs/paper-kit/` |
 | Results log (canonical numbers) | `backend/benchmarks/RESULTS.md` |
-| Scorecards (65 JSON, 49 Markdown) | `backend/benchmarks/scorecards/` |
+| Scorecards (67 JSON, 49 Markdown) | `backend/benchmarks/scorecards/` |
 | Benchmark harness | `backend/benchmarks/munin_bench/` |
 | Certification thresholds | `backend/benchmarks/certification_thresholds.json` |
 | Paper track: plans, specs, open items | `docs/paper-track/` |

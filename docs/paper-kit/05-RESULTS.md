@@ -64,15 +64,39 @@ checkpoint is retired.
 on a different serving profile). Within the Qwen3.8 run, the harness costs
 ~20x bare at 6.9 tool calls per query.
 
+**Corpus-only agentic arm (`egress=off`), Qwen3.8, 2026-09-15.** The one
+agentic ablation arm ever run at `egress=off`; not a headline, a decomposition
+of it. Same 199 questions, production harness with the web and Semantic
+Scholar tiers blocked, bare and RAG reused from 08-26 (they make no tool
+calls).
+
+| Arm | Egress | Accuracy | Precision of attempted | Abstain | Wall-clock | Tool calls |
+|---|---|---|---|---|---|---|
+| Agentic (harness) | **off** | **0.663** | 0.917 | 0.276 | 96.0 s | 5.1 |
+| Agentic (harness) | full (08-26) | 0.874 | 0.946 | 0.075 | 157.3 s | 6.9 |
+
+Paired, n=199, all p ≈ 0: agentic(off) − bare **+0.276** [0.181, 0.367];
+agentic(off) − RAG +0.452 [0.372, 0.528]; agentic(full) − agentic(off)
+**+0.211** [0.151, 0.276]. The external tiers convert abstentions into correct
+answers (41 of the 55 `off` abstentions are `full` corrects; 8 questions go
+correct → incorrect, 4 the reverse), so on this backbone the harness value
+splits roughly 57 / 43 between the corpus-only loop and the external tiers.
+The `full` arm is three weeks older than the `off` arm (26 retrieval commits),
+so that last delta is egress plus harness drift; the two within-day pairs are
+clean. Scorecards: `2026-09-15_harness-ablation-agentic-egressoff.json`,
+`2026-09-15_toolreliability-qwen38-egressoff_toolreliability.json` (T11 at
+`off`: 5.13 calls/query, recovery 1.000; `web_search` and
+`semantic_scholar_search` degraded 1.000 is the egress guard; `search` error
+0.207 is the tool's argument-shape return, not a failure).
+
 Scorecards: `2026-08-26_harness-ablation.json` (headline),
 `2026-07-27_harness-ablation.{json,md}` (Qwen3.6).
 
 **Companion run, retained deliberately:** `2026-07-26_harness-ablation` is the
 same three arms at concurrency above `--max-num-seqs` with the web tier
 degraded (egress was **on**, but Brave was not yet funded, so `web_search`
-returned nothing useful). **There is no agentic ablation arm at `egress=off`
-anywhere in the suite**; the only agentic captures at `off` are the C2b arms
-in R3. The 07-26 agentic arm scores **0.688** (abstain 0.231, 11.1 calls/query,
+returned nothing useful). It is not an `egress=off` arm; the only one of those
+is the 2026-09-15 corpus-only arm above. The 07-26 agentic arm scores **0.688** (abstain 0.231, 11.1 calls/query,
 183.8 s). Bare and RAG are bit-identical across the two runs, which isolates
 the difference to the agentic arm's external-tool access and load. Use 07-26 only as the load/egress
 sensitivity point beside the Qwen3.6 clean run. **Do not average them.**

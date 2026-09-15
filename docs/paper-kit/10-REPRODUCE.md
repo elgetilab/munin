@@ -278,6 +278,10 @@ share a condition.
 ```bash
 # Back up ablation_runs/ first: run_arm overwrites <arm>.json in place, and
 # the per-query verdicts behind every committed Track D number live only there.
+# For a corpus-only agentic arm: same command with MUNIN_EVAL_EGRESS=off for --arm agentic only,
+# then compare --date <D>, rename the scorecard to <D>_harness-ablation-agentic-egressoff.json,
+# toolreliability.score ablation_runs/agentic.json --tag <D>_toolreliability-qwen38-egressoff,
+# and move agentic.json aside / restore the headline capture (2026-09-15 recipe in RESULTS.md).
 export VLLM_MODEL_NAME=qwen3.8-27b LLM_REASONING_EFFORT=medium   # arm matching
 for arm in bare rag agentic; do
   MUNIN_EVAL_EGRESS=full PYTHONPATH=$HOME/.cache/munin_bench_deps:. \
@@ -312,7 +316,7 @@ As of 2026-09-14:
 |---|---|
 | Canonical results log | `backend/benchmarks/RESULTS.md` |
 | Claim-to-scorecard index | `PAPER.md` |
-| Scorecards (65 JSON, 49 Markdown; the `2026-08-26_*`, `2026-09-14_*` and `2026-09-15_*` files are the current headline) | `backend/benchmarks/scorecards/` |
+| Scorecards (67 JSON, 49 Markdown; the `2026-08-26_*`, `2026-09-14_*` and `2026-09-15_*` files are the current headline) | `backend/benchmarks/scorecards/` |
 | Benchmark harness | `backend/benchmarks/munin_bench/` |
 | Certification thresholds | `backend/benchmarks/certification_thresholds.json` |
 | Paper track: plans, specs, open items | `docs/paper-track/` |
