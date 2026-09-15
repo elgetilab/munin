@@ -60,7 +60,7 @@ two backbones, and the paper must pick and justify:
 | 0.864 | Qwen3.6 | 2026-07-24 answer track | 900 s deadline, 0 truncations, 0 unparseable |
 | 0.839 | Qwen3.6 | 2026-07-27 Track D agentic arm | The paired ablation, `egress=full`, concurrency 1 |
 | 0.814 | Qwen3.6 | 2026-07-24, 300 s | 11 answers truncated, all counted wrong |
-| 0.688 | Qwen3.6 | 2026-07-26 companion | Higher concurrency, constrained egress |
+| 0.688 | Qwen3.6 | 2026-07-26 companion | Concurrency above `--max-num-seqs`, web tier degraded (egress on, Brave unfunded); not an `egress=off` arm |
 
 Recommended: **quote 0.874 in the ablation context** (it is the paired,
 same-conditions number that the +0.487 delta is computed from) and **0.884 as
