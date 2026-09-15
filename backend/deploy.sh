@@ -23,6 +23,10 @@
 #                                     (or pass --restart-vllm to do it now).
 #   sudo ./deploy.sh model status   - active profile vs what vLLM / retrieval serve
 #   sudo ./deploy.sh model validate <slug>  - check a profile file, change nothing
+#   sudo ./deploy.sh sudoers        - passwordless deploy.sh / vllm-service /
+#                                     munin-maintenance for MUNIN_OPERATOR
+#                                     (default: the invoking sudo user), so the
+#                                     benchmark driver can run unattended
 #   sudo ./deploy.sh maintenance    - maintenance-mode toggle → munin-maintenance
 #   sudo ./deploy.sh deepresearch   - LEGACY MiroThinker path (disabled; not in `all`)
 #                                     add --with-model to fetch the 17 GB weights
@@ -52,7 +56,7 @@ fi
 MODE=${1:-}
 if [ -z "$MODE" ]; then
     echo "Usage: sudo $0 [--dry-run] <mode> [--with-model]"
-    echo "Modes: all dirs compose personas agents models vllm model maintenance deepresearch tunnel knowledge pipeline retrieval sandbox searxng monitoring verify"
+    echo "Modes: all dirs compose personas agents models vllm model sudoers maintenance deepresearch tunnel knowledge pipeline retrieval sandbox searxng monitoring verify"
     exit 1
 fi
 shift
@@ -1444,6 +1448,31 @@ deploy_model() {
     esac
 }
 
+# ------------------------------------------------------------------------------
+# sudoers: let the operator account drive the backbone lifecycle unattended
+# ------------------------------------------------------------------------------
+deploy_sudoers() {
+    local operator=${MUNIN_OPERATOR:-${SUDO_USER:-}}
+    if [ -z "$operator" ] || [ "$operator" = "root" ]; then
+        echo "[ERROR] set MUNIN_OPERATOR=<login> (the account that runs the benchmark driver)"
+        exit 1
+    fi
+    id "$operator" > /dev/null 2>&1 || { echo "[ERROR] no such user: $operator"; exit 1; }
+    need_file "$REPO_DIR/config/sudoers.d/munin-operator.template"
+    local tmp; tmp=$(mktemp)
+    sed -e "s#@REPO_DIR@#$REPO_DIR#g" -e "s#@OPERATOR@#$operator#g" \
+        "$REPO_DIR/config/sudoers.d/munin-operator.template" > "$tmp"
+    echo "[sudoers] Rendered for operator '$operator':"
+    grep -v '^#' "$tmp" | sed 's/^/    /'
+    if ! visudo -cf "$tmp" > /dev/null; then
+        echo "[ERROR] rendered sudoers file does not validate; nothing installed"; rm -f "$tmp"; exit 1
+    fi
+    run "install -m 0440 -o root -g root $tmp /etc/sudoers.d/munin-operator"
+    rm -f "$tmp"
+    echo "[OK] sudoers -> /etc/sudoers.d/munin-operator (remove with: sudo rm /etc/sudoers.d/munin-operator)"
+    echo "     Test as $operator:  sudo -n $REPO_DIR/deploy.sh model status"
+}
+
 deploy_verify() {
     echo "[verify] Smoke-testing retrieval endpoints..."
 
@@ -1564,6 +1593,7 @@ case "$MODE" in
     retrieval)    deploy_retrieval ;;
     verify)       deploy_verify ;;
     model)        deploy_model ;;
+    sudoers)      deploy_sudoers ;;
     all)
         deploy_dirs
         deploy_compose
