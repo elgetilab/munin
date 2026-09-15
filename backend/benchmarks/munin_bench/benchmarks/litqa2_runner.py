@@ -362,7 +362,15 @@ def _score_one(q, base_url, email):
 
 
 def run_answer(qc, *, base_url, email, results_root, n_resamples=1000,
-               concurrency=4, limit=0):
+               concurrency=4, limit=0, tag=None):
+    """End-to-end MCQ over the research profile.
+
+    `tag` names the run: outputs go to results/litqa2/answer.<tag>.{json,md}
+    instead of answer.{json,md}, and the per-question capture at
+    results/litqa2/answer.<tag>.capture.jsonl is RESUMED on re-invocation, so
+    a crash three hours into a concurrency-1 pass costs nothing. Without a tag
+    the historical in-place behaviour is kept (no capture).
+    """
     questions = load_litqa2()
     # answer track scores ALL questions (retrieval-in-corpus is not required to
     # answer; the model may still get it from web/S2), but we tag in-corpus.
@@ -379,20 +387,38 @@ def run_answer(qc, *, base_url, email, results_root, n_resamples=1000,
             break
     if limit:
         questions = questions[:limit]
-    print(f"[litqa2-answer] {len(questions)} questions, concurrency={concurrency}")
+    out_dir = os.path.join(results_root, "litqa2")
+    os.makedirs(out_dir, exist_ok=True)
+    stem = f"answer.{tag}" if tag else "answer"
+    captured: dict[str, dict] = {}
+    cap_path = os.path.join(out_dir, f"{stem}.capture.jsonl") if tag else None
+    if cap_path and os.path.exists(cap_path):
+        for line in open(cap_path):
+            if line.strip():
+                r = json.loads(line)
+                captured[r["qid"]] = r
+    todo = [q for q in questions if q["qid"] not in captured]
+    print(f"[litqa2-answer] {len(questions)} questions, concurrency={concurrency}"
+          + (f", {len(captured)} captured, {len(todo)} to run -> {cap_path}" if cap_path else ""))
 
     from concurrent.futures import as_completed
-    results = [None] * len(questions)
-    with ThreadPoolExecutor(max_workers=concurrency) as ex:
-        futs = {ex.submit(_score_one, q, base_url, email): i
-                for i, q in enumerate(questions)}
-        done = 0
-        for fut in as_completed(futs):
-            i = futs[fut]
-            results[i] = fut.result()
-            done += 1
-            if done % 20 == 0:
-                print(f"  [answer] {done}/{len(questions)}")
+    cap_fh = open(cap_path, "a", buffering=1) if cap_path else None
+    try:
+        with ThreadPoolExecutor(max_workers=concurrency) as ex:
+            futs = {ex.submit(_score_one, q, base_url, email): q for q in todo}
+            done = 0
+            for fut in as_completed(futs):
+                r = fut.result()
+                captured[futs[fut]["qid"]] = r
+                if cap_fh:
+                    cap_fh.write(json.dumps(r) + "\n")
+                done += 1
+                if done % 20 == 0:
+                    print(f"  [answer] {done}/{len(todo)}")
+    finally:
+        if cap_fh:
+            cap_fh.close()
+    results = [captured[q["qid"]] for q in questions]
 
     v = [r["verdict"] for r in results]
     n = len(v)
@@ -424,8 +450,6 @@ def run_answer(qc, *, base_url, email, results_root, n_resamples=1000,
                    "Precision excludes abstentions + unparseable; accuracy counts "
                    "them as wrong."),
     }
-    out_dir = os.path.join(results_root, "litqa2")
-    os.makedirs(out_dir, exist_ok=True)
     # per-query accuracy (0/1 by qid) so the scorecard/compare can pair-bootstrap
     q_ids = [r["qid"] for r in results]
     sc_summary = {"accuracy": {"munin": accuracy}}
@@ -440,9 +464,9 @@ def run_answer(qc, *, base_url, email, results_root, n_resamples=1000,
                "metric_keys": ["accuracy"],
                "sc_summary": sc_summary,
                "results": results}
-    with open(os.path.join(out_dir, "answer.json"), "w") as fh:
+    with open(os.path.join(out_dir, f"{stem}.json"), "w") as fh:
         json.dump(payload, fh, indent=2)
-    _write_answer_md(out_dir, payload)
+    _write_answer_md(out_dir, payload, stem=stem)
     # Report deadline truncations SEPARATELY. Lumping them into "unparseable"
     # hides a harness limit as if it were a model failure: in the 2026-07-24 run
     # all 11 unparseables were truncations, which reads very differently.
@@ -450,7 +474,7 @@ def run_answer(qc, *, base_url, email, results_root, n_resamples=1000,
     print(f"[litqa2-answer] accuracy={accuracy['mean']:.3f} "
           f"precision={precision['mean']:.3f} abstain={abstain}/{n} "
           f"unparseable={unparse} (deadline-truncated={n_trunc}) "
-          f"-> {out_dir}/answer.{{json,md}}")
+          f"-> {out_dir}/{stem}.{{json,md}}")
     if n_trunc:
         print(f"[litqa2-answer] WARNING: {n_trunc}/{n} responses hit the "
               f"wall-clock deadline before answering. These score as wrong. "
@@ -458,7 +482,7 @@ def run_answer(qc, *, base_url, email, results_root, n_resamples=1000,
     return payload
 
 
-def _write_answer_md(out_dir, payload):
+def _write_answer_md(out_dir, payload, stem="answer"):
     h = payload["header"]
     acc, prec = payload["accuracy"], payload["precision"]
     lines = [
@@ -478,7 +502,7 @@ def _write_answer_md(out_dir, payload):
                      f"| {PAPERQA2_PRECISION:.3f} | {LITQA2_HUMAN_PRECISION:.3f} |")
     lines += [f"| abstention rate | {payload['abstention_rate']:.3f} | n/a | n/a |",
               "", "## Caveat", "", h["caveat"]]
-    with open(os.path.join(out_dir, "answer_summary.md"), "w") as fh:
+    with open(os.path.join(out_dir, f"{stem}_summary.md"), "w") as fh:
         fh.write("\n".join(lines) + "\n")
 
 

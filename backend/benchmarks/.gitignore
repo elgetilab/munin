@@ -17,3 +17,5 @@ faithfulness_runs/
 c1_runs/
 c2_runs/
 ablation_runs/
+# run_suite.sh driver state (phase markers, logs, gate copies); per run, not regenerable, not committed
+runs/

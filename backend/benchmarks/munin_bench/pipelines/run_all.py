@@ -154,7 +154,12 @@ def main() -> int:
     if "abstention" in tracks:
         print("=== track: abstention (Track C1, fabricated papers) ===")
         from ..abstention.run_c1 import run as run_c1
-        sc = run_c1(args.base_url, args.email, limit=args.limit or 0)
+        # Per-tag capture dir: run_c1 RESUMES from its capture, so the shared
+        # default would re-score the previous backbone's answers as this run.
+        c1_dir = os.path.join(os.path.dirname(__file__), "..", "..", "c1_runs",
+                              args.ablation_tag or args.tag)
+        sc = run_c1(args.base_url, args.email, limit=args.limit or 0, out_dir=c1_dir)
+        provenance.setdefault("c1_runs_dir", os.path.relpath(c1_dir, os.path.join(os.path.dirname(__file__), "..", "..")))
         tasks["abstention_c1"] = {"agentic": {
             "metrics": {"abstain_rate": _metric(sc["abstain_rate"]),
                         "confabulation_rate": _metric(sc["confabulation_rate"])},

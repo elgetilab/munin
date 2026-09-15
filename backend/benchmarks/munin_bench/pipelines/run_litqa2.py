@@ -37,6 +37,9 @@ def main() -> int:
     ap.add_argument("--email", default="litqa2-eval@localhost")
     ap.add_argument("--concurrency", type=int, default=4)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--tag", default=None,
+                    help="answer track: name the run (results/litqa2/answer.<tag>.*) and "
+                         "resume from its capture; without it the historical in-place files are written")
     args = ap.parse_args()
 
     qc = get_qdrant()
@@ -44,7 +47,7 @@ def main() -> int:
     if args.track == "answer":
         run_answer(qc, base_url=args.base_url, email=args.email,
                    results_root=args.results_root, n_resamples=args.n_resamples,
-                   concurrency=args.concurrency, limit=args.limit)
+                   concurrency=args.concurrency, limit=args.limit, tag=args.tag)
         return 0
 
     device = os.getenv("MUNIN_BENCH_SPECTER_DEVICE", "cpu")
