@@ -309,7 +309,7 @@ eyeballing overlapping CIs. Provenance is best-effort: missing pieces degrade
 to `n/a` rather than failing a run. The served model id and max length are read
 live from vLLM's `/v1/models` at run time rather than being asserted.
 
-**Scorecards are committed to git**: 65 JSON plus 49 Markdown twins. The
+**Scorecards are committed to git**: 67 JSON plus 49 Markdown twins. The
 history across model, encoder, and harness swaps is itself data.
 
 **`compare <old>.json <new>.json`** produces a paired-bootstrap regression diff
