@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useStatus } from '../hooks/useStatus';
 import { updateProfile, fetchApiKeys, createApiKey, revokeApiKey, fetchUsageStats, fetchAnnouncement, setAnnouncement, clearAnnouncement, fetchMuninProfile, updateMuninProfile, deleteMuninProfile } from '../lib/api';
 import type { UserProfile, ApiKeyInfo, UsageStats } from '../lib/api';
 import type { MuninProfile } from '../lib/types';
@@ -36,6 +37,10 @@ const COMMON_TIMEZONES = [
 ];
 
 export function Settings({ profile, onUpdate }: SettingsProps) {
+  // The served backbone for the quick-start snippet; /api/status already
+  // carries it. Falls back to the reference model while loading.
+  const status = useStatus(300000);
+  const servedModel = status?.vllm?.model || 'qwen3.8-27b';
   const setShowSettings = useUiStore(s => s.setShowSettings);
   const onClose = () => setShowSettings(false);
   const isAdmin = useUserStore(s => s.isAdmin);
@@ -563,7 +568,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="qwen3.8-27b",
+    model="${servedModel}",
     messages=[{"role": "user", "content": "Hello!"}]
 )
 

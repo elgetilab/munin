@@ -69,7 +69,7 @@ from database import (
     PAPERS_PDF_DIR, get_pdf_path,
     DEEPRESEARCH_ENABLED,
     DEEPRESEARCH_QUEUE_DIR, DEEPRESEARCH_JOBS_DIR, SLURM_QUEUE_FILE,
-    VLLM_URL,
+    VLLM_URL, VLLM_MODEL_NAME,
     reasoning_effort_fields,
     get_qdrant, get_neo4j, get_specter, get_bge,
     is_specter_loaded, is_bge_loaded,
@@ -621,6 +621,43 @@ async def _probe_http(client: httpx.AsyncClient, url: str) -> str:
         return "ok" if 200 <= r.status_code < 300 else "error"
     except Exception:
         return "unavailable"
+
+
+@app.get("/api/models")
+async def api_models():
+    """The backbone THIS instance serves, in OpenAI `/v1/models` list shape.
+
+    The VPS gateway proxies its `/v1/models` here so OpenAI-SDK clients
+    (Positron, Cursor) see the real served model. Before 2026-09-15 the
+    gateway synthesised the entry from a `VLLM_MODEL_NAME` literal of its own
+    that no VPS deploy ever set, so a cluster-side backbone change left the
+    VPS reporting the old name. Reports the production instance only: a
+    secondary (eval) instance answers on its own port and is never routed.
+
+    Fields beyond the OpenAI shape are Munin's, read from the served vLLM
+    when it answers and from the container's environment otherwise, so the
+    route is truthful even while vLLM is down (`served: false`).
+    """
+    entry: dict = {
+        "id": VLLM_MODEL_NAME, "object": "model", "created": 0, "owned_by": "munin",
+        "served": False, "max_model_len": None, "model_path": None,
+        "context_window": int(os.getenv("VLLM_MAX_MODEL_LEN", "65536")),
+        "thinking_mode": database.LLM_THINKING_MODE,
+        "reasoning_effort": database.LLM_REASONING_EFFORT or None,
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(f"{VLLM_URL}/v1/models", timeout=3.0)
+        if r.status_code == 200:
+            for m in (r.json().get("data") or []):
+                if m.get("id") == VLLM_MODEL_NAME:
+                    entry.update({"served": True, "created": m.get("created", 0),
+                                  "max_model_len": m.get("max_model_len"),
+                                  "model_path": m.get("root")})
+                    break
+    except Exception:
+        pass
+    return {"object": "list", "data": [entry]}
 
 
 @app.get("/api/status")
@@ -1206,7 +1243,7 @@ async def _raw_chat_proxy(
     # serving if the client didn't specify one.
     forward: dict = {k: v for k, v in body.items() if k not in _MUNIN_ONLY_FIELDS}
     if not forward.get("model"):
-        forward["model"] = os.getenv("VLLM_MODEL_NAME", "qwen3.8-27b")
+        forward["model"] = VLLM_MODEL_NAME
     # Apply Munin's reasoning-effort default (database.LLM_REASONING_EFFORT,
     # "medium") ONLY when the client has not sent its own chat_template_kwargs.
     #

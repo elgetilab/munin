@@ -800,12 +800,25 @@ async def proxy_v1(request: Request, path: str):
 
     # GET /v1/models — OpenAI-compatible model list. Clients (Positron,
     # Cursor, the OpenAI SDK) probe this on connect to validate the
-    # provider and populate the model picker. The cluster has no
-    # /api/models route, so the generic /v1/{path}→/api/{path} mapping
-    # below would 404. Synthesize the list from the served model name
-    # (kept in sync with backend start-vllm-service.sh / VLLM_MODEL_NAME).
-    # Does not count against rate/quota — it's a metadata probe.
+    # provider and populate the model picker. Proxied to the cluster's
+    # /api/models (added 2026-09-15), which reports what the production
+    # backend actually serves; until then this list was synthesised from a
+    # VLLM_MODEL_NAME env that no VPS deploy ever set, so a cluster-side
+    # backbone change left the VPS reporting the old name. Falls back to the
+    # env/literal only when the cluster does not answer, so the probe still
+    # succeeds while the tunnel is down. Does not count against rate/quota.
     if request.method == "GET" and path == "models":
+        try:
+            r = await http_client.get("/api/models", timeout=5.0)
+            if r.status_code == 200:
+                d = r.json()
+                data = [{"id": m.get("id"), "object": "model",
+                         "created": m.get("created", 0), "owned_by": "munin"}
+                        for m in d.get("data", []) if m.get("id")]
+                if data:
+                    return JSONResponse(content={"object": "list", "data": data})
+        except Exception:
+            pass
         model_id = os.environ.get("VLLM_MODEL_NAME", "qwen3.8-27b")
         return JSONResponse(content={
             "object": "list",

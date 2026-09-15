@@ -62,6 +62,13 @@ class _Params(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     system: Optional[str] = None
+    # Which of the backbone's sampling sets this persona uses (database.
+    # SAMPLING_PROFILE: "default" or "code"). The five numeric keys below are
+    # now an ESCAPE HATCH that overrides the model profile key-by-key; since
+    # 2026-09-15 no shipped persona sets them, because they are model
+    # recommendations, not persona traits, and the persona directory is
+    # shared by every backbone instance.
+    sampling_class: Optional[str] = Field(default=None, pattern="^(default|code)$")
     temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     top_k: Optional[int] = Field(default=None, ge=0)
@@ -405,10 +412,18 @@ def compose_system_prompt(pin_persona: dict, routed_persona: dict) -> str:
     return prefix + routed_fragment + suffix
 
 
-def sampling_params(persona: dict) -> dict:
-    """Extract vLLM sampling parameters from a raw persona dict."""
+def sampling_params(persona: dict, profile: Optional[dict] = None) -> dict:
+    """vLLM sampling parameters for a persona: the served backbone's profile
+    for the persona's `sampling_class`, then any numeric key the persona sets
+    itself (escape hatch), then `max_tokens`.
+
+    `profile` exists so a test can pin the merge without touching the process
+    environment; callers pass nothing and get database.SAMPLING_PROFILE.
+    """
+    import database as _db  # local: personas is imported by database's consumers
     params = persona.get("params") or {}
-    out: dict[str, Any] = {}
+    out: dict[str, Any] = _db.model_sampling(params.get("sampling_class") or "default",
+                                             profile)
     for key in (
         "temperature",
         "top_p",

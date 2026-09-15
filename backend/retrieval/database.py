@@ -133,19 +133,47 @@ LLM_THINKING_TOGGLE = _env_flag("LLM_THINKING_TOGGLE", True)
 # enough to 400 on that field must not receive this one either.
 LLM_REASONING_EFFORT = os.getenv("LLM_REASONING_EFFORT", "medium").strip()
 
+# HOW a mechanical sub-task turns reasoning off, per backbone. The Qwen3
+# family exposes `enable_thinking`; gpt-oss cannot disable reasoning at all
+# and is told `reasoning_effort: low` instead; a model with no reasoning mode
+# gets nothing. Set by the model profile (config/models/<slug>.env ->
+# active-model.env -> compose). Default is the Qwen form so a container
+# without the variable behaves exactly as every deployment before 2026-09-15.
+THINKING_MODES = ("enable_thinking", "effort_low", "none")
+
+
+def resolve_thinking_mode(env=None) -> str:
+    """Pure function of `env` (see resolve_llm_endpoint for why)."""
+    env = os.environ if env is None else env
+    raw = (env.get("LLM_THINKING_MODE") or "enable_thinking").strip()
+    if raw not in THINKING_MODES:
+        raise ValueError(f"LLM_THINKING_MODE={raw!r}; expected one of {THINKING_MODES}")
+    return raw
+
+
+LLM_THINKING_MODE = resolve_thinking_mode()
+
 VLLM_URL, VLLM_MODEL_NAME = resolve_llm_endpoint()
 
 
-def thinking_off_fields(enabled: bool = None) -> dict:
-    """Request fields that disable the endpoint's reasoning trace, or `{}`.
+def thinking_off_fields(enabled: bool = None, mode: str = None) -> dict:
+    """Request fields that disable (or minimise) the endpoint's reasoning
+    trace, or `{}`.
 
     Splat into a request-body literal: `{..., **thinking_off_fields()}`.
-    `enabled` exists so a test can pin both branches without touching the
-    process environment; callers pass nothing.
+    `enabled` / `mode` exist so a test can pin every branch without touching
+    the process environment; callers pass nothing.
     """
     if not (LLM_THINKING_TOGGLE if enabled is None else enabled):
         return {}
-    return {"chat_template_kwargs": {"enable_thinking": False}}
+    mode = LLM_THINKING_MODE if mode is None else mode
+    if mode == "enable_thinking":
+        return {"chat_template_kwargs": {"enable_thinking": False}}
+    if mode == "effort_low":
+        return {"chat_template_kwargs": {"reasoning_effort": "low"}}
+    if mode == "none":
+        return {}
+    raise ValueError(f"unknown thinking mode {mode!r}")
 
 
 def reasoning_effort_fields(effort: str = None, enabled: bool = None) -> dict:
@@ -169,6 +197,71 @@ def thinking_off(body: dict, enabled: bool = None) -> dict:
     """Mutating form of `thinking_off_fields`, for a body built up in steps."""
     body.update(thinking_off_fields(enabled))
     return body
+
+
+# ------------------------------------------------------------------------------
+# Sampling profile: the backbone's recommended sampling, per persona class.
+#
+# Until 2026-09-15 the five sampling numbers lived in shared/personas/*.json,
+# which meant they were Qwen3's recommended set baked into files that are
+# shared by every backbone the stack serves. They now come from the model
+# profile (config/models/<slug>.env -> SAMPLING_DEFAULT / SAMPLING_CODE, JSON
+# objects) and a persona names only its CLASS (`params.sampling_class`,
+# "default" or "code"). Two instances on two backbones can then run off one
+# persona directory with each model sampled the way its vendor recommends.
+#
+# The built-in defaults below ARE the values the personas carried, so a
+# container with neither variable set sends byte-identical bodies to before.
+# tests/test_sampling_profile.py pins that against the persona files.
+# ------------------------------------------------------------------------------
+SAMPLING_CLASSES = ("default", "code")
+_QWEN3_SAMPLING_DEFAULT = {"temperature": 1.0, "top_p": 0.95, "top_k": 20,
+                           "min_p": 0.0, "presence_penalty": 1.5}
+_QWEN3_SAMPLING_CODE = {"temperature": 0.6, "top_p": 0.95, "top_k": 20,
+                        "min_p": 0.0, "presence_penalty": 0.0}
+_SAMPLING_KEYS = ("temperature", "top_p", "top_k", "min_p", "presence_penalty")
+
+
+def resolve_sampling_profile(env=None) -> dict:
+    """{"default": {...}, "code": {...}} from SAMPLING_DEFAULT / SAMPLING_CODE.
+
+    Pure function of `env`. Each variable is a JSON object holding any subset
+    of temperature / top_p / top_k / min_p / presence_penalty; an unset or
+    blank variable falls back to the Qwen3 set for that class, an unknown key
+    or a non-object raises at import so a typo fails the boot, not the turn.
+    """
+    import json as _json
+    env = os.environ if env is None else env
+    out = {}
+    for cls, fallback in (("default", _QWEN3_SAMPLING_DEFAULT),
+                          ("code", _QWEN3_SAMPLING_CODE)):
+        raw = (env.get(f"SAMPLING_{cls.upper()}") or "").strip()
+        if not raw:
+            out[cls] = dict(fallback)
+            continue
+        try:
+            val = _json.loads(raw)
+        except ValueError as e:
+            raise ValueError(f"SAMPLING_{cls.upper()} is not JSON: {e}") from e
+        if not isinstance(val, dict):
+            raise ValueError(f"SAMPLING_{cls.upper()} must be a JSON object")
+        bad = set(val) - set(_SAMPLING_KEYS)
+        if bad:
+            raise ValueError(f"SAMPLING_{cls.upper()}: unknown keys {sorted(bad)}")
+        out[cls] = dict(val)
+    return out
+
+
+SAMPLING_PROFILE = resolve_sampling_profile()
+
+
+def model_sampling(sampling_class: str = "default", profile: dict = None) -> dict:
+    """The backbone's sampling for one persona class. A copy, safe to mutate."""
+    profile = SAMPLING_PROFILE if profile is None else profile
+    if sampling_class not in SAMPLING_CLASSES:
+        raise ValueError(f"unknown sampling class {sampling_class!r}; "
+                         f"expected one of {SAMPLING_CLASSES}")
+    return dict(profile[sampling_class])
 
 # Lazy-loaded clients and models
 _qdrant = None

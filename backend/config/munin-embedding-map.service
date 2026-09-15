@@ -21,7 +21,12 @@ Environment="QDRANT_PORT=6333"
 # DECISIONS.md 2026-08.
 Environment="QDRANT_COLLECTION=papers_bge"
 Environment="VLLM_URL=http://127.0.0.1:8000"
+# Backbone identity from the active model profile (deploy.sh model activate),
+# so a model change never has to touch this unit. The literal below is the
+# fallback for a box without the file; the EnvironmentFile wins when present.
 Environment="VLLM_MODEL_NAME=qwen3.8-27b"
+Environment="LLM_THINKING_MODE=enable_thinking"
+EnvironmentFile=-/opt/munin/config/active-model.env
 Environment="EMBEDDING_MAP_PATH=/opt/munin/knowledge/embedding_map.json"
 # Numba (UMAP's JIT) needs a writable cache dir. ProtectSystem=strict +
 # ProtectHome=yes kill the default locations (site-packages, ~/.cache).

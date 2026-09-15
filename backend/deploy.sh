@@ -13,7 +13,16 @@
 #   sudo ./deploy.sh personas       - persona JSON + logos
 #   sudo ./deploy.sh agents         - config/agents.yml + munin.env.template
 #   sudo ./deploy.sh models         - stage embedding models (bge-large etc.)
-#   sudo ./deploy.sh vllm           - scripts/vllm/*.sh → /opt/cluster/scripts/llm/
+#   sudo ./deploy.sh vllm           - scripts/vllm/*.sh → /opt/cluster/scripts/llm/,
+#                                     config/models/*.env → /opt/munin/config/models/
+#   sudo ./deploy.sh model activate <slug>  - make config/models/<slug>.env the
+#                                     production backbone: writes active-model.env,
+#                                     stages its tokenizer, recreates retrieval.
+#                                     vLLM itself restarts on the next
+#                                     `vllm-service stop && vllm-service start`
+#                                     (or pass --restart-vllm to do it now).
+#   sudo ./deploy.sh model status   - active profile vs what vLLM / retrieval serve
+#   sudo ./deploy.sh model validate <slug>  - check a profile file, change nothing
 #   sudo ./deploy.sh maintenance    - maintenance-mode toggle → munin-maintenance
 #   sudo ./deploy.sh deepresearch   - LEGACY MiroThinker path (disabled; not in `all`)
 #                                     add --with-model to fetch the 17 GB weights
@@ -43,7 +52,7 @@ fi
 MODE=${1:-}
 if [ -z "$MODE" ]; then
     echo "Usage: sudo $0 [--dry-run] <mode> [--with-model]"
-    echo "Modes: all dirs compose personas agents models vllm maintenance deepresearch tunnel knowledge pipeline retrieval sandbox searxng monitoring verify"
+    echo "Modes: all dirs compose personas agents models vllm model maintenance deepresearch tunnel knowledge pipeline retrieval sandbox searxng monitoring verify"
     exit 1
 fi
 shift
@@ -51,12 +60,18 @@ shift
 # Opt-in to the 17 GB MiroThinker download in the legacy `deepresearch` mode.
 # Off by default because the feature is disabled (see deploy_deepresearch).
 WITH_MODEL=${DEEPRESEARCH_WITH_MODEL:-0}
-for arg in "$@"; do
-    case "$arg" in
-        --with-model) WITH_MODEL=1 ;;
-        *) echo "[ERROR] Unknown argument: $arg"; exit 1 ;;
-    esac
-done
+# `model` takes a sub-command and its own flags; everything else takes none.
+MODEL_ARGS=()
+if [ "$MODE" = "model" ]; then
+    MODEL_ARGS=("$@")
+else
+    for arg in "$@"; do
+        case "$arg" in
+            --with-model) WITH_MODEL=1 ;;
+            *) echo "[ERROR] Unknown argument: $arg"; exit 1 ;;
+        esac
+    done
+fi
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SHARED_DIR="$(cd "$REPO_DIR/../shared" && pwd)"
@@ -81,13 +96,20 @@ MIROTHINKER_MODEL_ID="cyankiwi/MiroThinker-v1.5-30B-AWQ-4bit"
 MIROTHINKER_MODEL_DIR=$MUNIN_ROOT/data/models/mirothinker-v1.5-30b
 VLLM_VENV=/opt/munin/services/vllm/venv
 
-# P1 #8 — the retrieval container counts context tokens with the real
-# Qwen3 tokenizer. Rather than mount the 19 GB vLLM model dir, deploy
-# copies just the tokenizer files into a small dedicated dir that
-# docker-compose mounts read-only. Keep VLLM_MODEL_DIR in sync with
-# MODEL_PATH in scripts/vllm/start-vllm-service.sh.
-VLLM_MODEL_DIR=$MUNIN_ROOT/data/models/qwen3.8-27b-awq-int4
-QWEN_TOKENIZER_DIR=$MUNIN_ROOT/data/models/qwen-tokenizer
+# The production backbone is named in exactly one place: the active model
+# profile (/opt/munin/config/active-model.env, a copy of config/models/<slug>.env
+# made by `deploy.sh model activate`). scripts/vllm/model-env.sh loads it and
+# exports the variables docker compose substitutes into the retrieval
+# container. Until 2026-09-15 this file carried its own VLLM_MODEL_DIR literal
+# that had to be kept in step with the SLURM script by hand; missing it left
+# the container budgeting context with the previous model's tokenizer.
+MODEL_ENV_SH=$REPO_DIR/scripts/vllm/model-env.sh
+MODEL_PROFILES_SRC=$REPO_DIR/config/models
+MODEL_PROFILES_DST=$MUNIN_ROOT/config/models
+ACTIVE_MODEL_ENV=$MUNIN_ROOT/config/active-model.env
+# The profile a box with no active-model.env yet is assumed to run: the
+# reference deployment. `model activate` replaces the assumption with a file.
+DEFAULT_MODEL_SLUG=qwen3.8-27b
 
 # Embedding models the retrieval container mounts read-only. bge-large is
 # the live paper encoder since the 2026-07 cutover; specter/papers is the
@@ -122,6 +144,9 @@ need_root() {
     # `verify` is read-only (curl only); dry-runs never mutate anything.
     if [ "$MODE" = "verify" ] || [ "$DRY_RUN" = "1" ]; then
         return 0
+    fi
+    if [ "$MODE" = "model" ] && [ "${MODEL_ARGS[0]:-}" != "activate" ]; then
+        return 0   # status / validate only read
     fi
     if [ "$EUID" -ne 0 ]; then
         echo "[ERROR] This script must be run as root (use sudo)"
@@ -236,6 +261,25 @@ print_compose_migration() {
 # be blocked -- `deploy.sh compose` is step 1 of the migration itself, so
 # refusing it here would deadlock: the file that pins the name could never be
 # installed. (It did, on 2026-08-18.)
+# Load the active model profile into this shell (exports the compose-visible
+# variables). Falls back to the repo's default profile with a warning on a box
+# that has never run `model activate`, so a first deploy still works.
+MODEL_ENV_LOADED=0
+load_model_env() {
+    [ "$MODEL_ENV_LOADED" = "1" ] && return 0
+    need_file "$MODEL_ENV_SH"
+    # shellcheck disable=SC1090
+    source "$MODEL_ENV_SH"
+    if [ -f "$ACTIVE_MODEL_ENV" ]; then
+        munin_load_model_env "$ACTIVE_MODEL_ENV" || exit 1
+    else
+        echo "[model] no $ACTIVE_MODEL_ENV yet; assuming the $DEFAULT_MODEL_SLUG profile."
+        echo "        Make it explicit with: sudo ./deploy.sh model activate $DEFAULT_MODEL_SLUG"
+        munin_load_model_env "$MODEL_PROFILES_SRC/$DEFAULT_MODEL_SLUG.env" || exit 1
+    fi
+    MODEL_ENV_LOADED=1
+}
+
 check_compose_project() {
     local running
     running=$(running_compose_project)
@@ -442,7 +486,22 @@ deploy_vllm() {
     run "install -m 0755 $REPO_DIR/scripts/vllm/schedule-vllm.sh $CLUSTER_SCRIPTS/schedule-vllm.sh"
     run "install -m 0755 $REPO_DIR/scripts/vllm/check-context-window.sh $CLUSTER_SCRIPTS/check-context-window.sh"
     run "install -m 0755 $REPO_DIR/scripts/vllm/check-vllm-health.sh $CLUSTER_SCRIPTS/check-vllm-health.sh"
+    run "install -m 0755 $REPO_DIR/scripts/vllm/model-env.sh $CLUSTER_SCRIPTS/model-env.sh"
     run "ln -sf $CLUSTER_SCRIPTS/schedule-vllm.sh /usr/local/bin/vllm-service"
+    # Model profiles. The SLURM scripts source the ACTIVE one at job start.
+    run "install -d -m 0755 $MODEL_PROFILES_DST"
+    local _prof
+    for _prof in "$MODEL_PROFILES_SRC"/*.env; do
+        source "$MODEL_ENV_SH"
+        munin_validate_model_env "$_prof" || { echo "[ERROR] bad profile $_prof"; exit 1; }
+        run "install -m 0644 $_prof $MODEL_PROFILES_DST/$(basename "$_prof")"
+    done
+    run "install -m 0644 $MODEL_PROFILES_SRC/README.md $MODEL_PROFILES_DST/README.md"
+    echo "[OK] model profiles -> $MODEL_PROFILES_DST ($(ls "$MODEL_PROFILES_SRC"/*.env | wc -l))"
+    if [ ! -f "$ACTIVE_MODEL_ENV" ]; then
+        echo "[NOTE] no active profile yet: the SLURM scripts will refuse to start until"
+        echo "       sudo ./deploy.sh model activate $DEFAULT_MODEL_SLUG   (the reference deployment)"
+    fi
     echo "[OK] vllm - scripts installed. Takes effect on the NEXT vLLM start."
     echo "     Profiles (the choice PERSISTS, so the nightly 6am start restores it):"
     echo "       single : 1 GPU,  64k, --max-num-seqs 2   sudo vllm-service start single"
@@ -927,27 +986,36 @@ deploy_sandbox() {
 # ------------------------------------------------------------------------------
 # retrieval: sync code, rebuild container, restart
 # ------------------------------------------------------------------------------
-stage_qwen_tokenizer() {
-    # Copy the Qwen3 tokenizer files out of the vLLM model dir into a
-    # small dedicated dir the retrieval container mounts read-only
-    # (P1 #8). The container budgets context tokens with the real
-    # tokenizer instead of a char heuristic. If the model has not been
-    # downloaded yet (first deploy, before vLLM's first run) this is a
-    # graceful no-op — chat_context falls back to the heuristic and
-    # picks the tokenizer up on a later deploy.
-    echo "[tokenizer] Staging Qwen tokenizer for retrieval..."
-    run "install -d -m 0755 $QWEN_TOKENIZER_DIR"
-    if [ -f "$VLLM_MODEL_DIR/tokenizer.json" ]; then
-        run "install -m 0644 $VLLM_MODEL_DIR/tokenizer.json \
-            $QWEN_TOKENIZER_DIR/tokenizer.json"
-        if [ -f "$VLLM_MODEL_DIR/tokenizer_config.json" ]; then
-            run "install -m 0644 $VLLM_MODEL_DIR/tokenizer_config.json \
-                $QWEN_TOKENIZER_DIR/tokenizer_config.json"
+stage_tokenizer() {
+    # Copy the served backbone's tokenizer files out of its checkpoint dir
+    # ($MODEL_PATH from the loaded profile) into a small dedicated dir the
+    # retrieval container mounts read-only ($TOKENIZER_HOST_DIR; P1 #8). The
+    # container budgets context tokens with the real tokenizer instead of a
+    # char heuristic. If the checkpoint has not been downloaded yet (first
+    # deploy) this is a graceful no-op: chat_context falls back to the
+    # heuristic and picks the tokenizer up on a later deploy. Prints the
+    # sha256 so a stale copy is visible in the deploy log.
+    load_model_env
+    echo "[tokenizer] Staging $MODEL_NAME tokenizer for retrieval..."
+    run "install -d -m 0755 $TOKENIZER_HOST_DIR"
+    if [ -f "$MODEL_PATH/tokenizer.json" ]; then
+        run "install -m 0644 $MODEL_PATH/tokenizer.json \
+            $TOKENIZER_HOST_DIR/tokenizer.json"
+        if [ -f "$MODEL_PATH/tokenizer_config.json" ]; then
+            run "install -m 0644 $MODEL_PATH/tokenizer_config.json \
+                $TOKENIZER_HOST_DIR/tokenizer_config.json"
         fi
-        echo "[OK] tokenizer staged to $QWEN_TOKENIZER_DIR"
+        # Some checkpoints (gpt-oss) carry a special_tokens_map.json the
+        # tokenizers library consults; harmless when absent.
+        if [ -f "$MODEL_PATH/special_tokens_map.json" ]; then
+            run "install -m 0644 $MODEL_PATH/special_tokens_map.json \
+                $TOKENIZER_HOST_DIR/special_tokens_map.json"
+        fi
+        echo "[OK] tokenizer staged to $TOKENIZER_HOST_DIR" \
+             "(sha256 $(sha256sum "$MODEL_PATH/tokenizer.json" | cut -c1-12) from $MODEL_PATH)"
     else
-        echo "[WARN] $VLLM_MODEL_DIR/tokenizer.json not found"
-        echo "       (vLLM model not downloaded yet) — retrieval will use"
+        echo "[WARN] $MODEL_PATH/tokenizer.json not found"
+        echo "       (checkpoint not downloaded yet) — retrieval will use"
         echo "       the char-heuristic fallback until a later deploy."
     fi
 }
@@ -960,8 +1028,10 @@ deploy_retrieval() {
     need_file "$REPO_DIR/retrieval"
     run "install -d -m 0755 $MUNIN_RETRIEVAL"
 
-    # Stage the Qwen tokenizer the container mounts for token budgeting.
-    stage_qwen_tokenizer
+    # Load the active backbone profile (exports VLLM_MODEL_NAME, thinking mode,
+    # sampling, ... for the compose substitution below) and stage its tokenizer.
+    load_model_env
+    stage_tokenizer
 
     # Remove stale mirror left from earlier deploys (see audit)
     if [ -d $MUNIN_DOCKER/retrieval ]; then
@@ -1178,6 +1248,202 @@ PY
     return 0
 }
 
+# ------------------------------------------------------------------------------
+# model: the production backbone, as one file
+#   activate <slug> [--download] [--restart-vllm]
+#   status
+#   validate <slug>
+# ------------------------------------------------------------------------------
+model_profile_src() {
+    # $1 = slug or path -> repo profile path, or fail loudly listing the slugs.
+    local arg=$1
+    if [ -f "$arg" ]; then echo "$arg"; return 0; fi
+    if [ -f "$MODEL_PROFILES_SRC/$arg.env" ]; then echo "$MODEL_PROFILES_SRC/$arg.env"; return 0; fi
+    echo "[ERROR] no profile '$arg'. Known: $(ls "$MODEL_PROFILES_SRC"/*.env | xargs -n1 basename | sed 's/\.env$//' | tr '\n' ' ')" >&2
+    return 1
+}
+
+model_served_by() {
+    # $1 = vLLM base URL -> served model id, or "offline".
+    curl -sf --max-time 5 "$1/v1/models" 2>/dev/null \
+        | python3 -c 'import json,sys; d=json.load(sys.stdin)["data"]; print(d[0]["id"] if d else "none")' 2>/dev/null \
+        || echo "offline"
+}
+
+deploy_model_activate() {
+    local slug=$1; shift
+    local do_download=0 do_restart=0 arg
+    for arg in "$@"; do
+        case "$arg" in
+            --download) do_download=1 ;;
+            --restart-vllm) do_restart=1 ;;
+            *) echo "[ERROR] model activate: unknown flag $arg"; exit 1 ;;
+        esac
+    done
+    local src; src=$(model_profile_src "$slug") || exit 1
+    # shellcheck disable=SC1090
+    source "$MODEL_ENV_SH"
+    echo "[model] Validating $src ..."
+    munin_validate_model_env "$src" || exit 1
+    # Load the CANDIDATE (not the active file) to learn its paths.
+    munin_load_model_env "$src" || exit 1
+    echo "[model] Candidate:"; munin_model_env_summary
+
+    # 1. Checkpoint present, or downloadable on request.
+    if [ ! -f "$MODEL_PATH/config.json" ]; then
+        local excl="" g
+        for g in $HF_EXCLUDE; do excl="$excl --exclude $g"; done
+        if [ "$do_download" = "1" ]; then
+            echo "[model] Downloading $MODEL_ID -> $MODEL_PATH ..."
+            run "$VLLM_VENV/bin/hf download $MODEL_ID --local-dir $MODEL_PATH $excl"
+        else
+            echo "[ERROR] checkpoint missing: $MODEL_PATH/config.json"
+            echo "        Download it first (or re-run with --download):"
+            echo "        sudo $VLLM_VENV/bin/hf download $MODEL_ID --local-dir $MODEL_PATH $excl"
+            exit 1
+        fi
+    fi
+    # Parsers must exist in the pinned vLLM build; a wrong name breaks every
+    # tool-using turn while plain chat keeps working (README step 14).
+    local tp_dir="$VLLM_VENV/lib/python3.12/site-packages/vllm/tool_parsers"
+    local rp_dir="$VLLM_VENV/lib/python3.12/site-packages/vllm/reasoning"
+    if [ -d "$tp_dir" ] && ! grep -rqs "\"$VLLM_TOOL_PARSER\"" "$tp_dir"; then
+        echo "[WARN] tool parser '$VLLM_TOOL_PARSER' not found by name in $tp_dir (check the registry before starting vLLM)"
+    fi
+    if [ -d "$rp_dir" ] && ! grep -rqs "\"$VLLM_REASONING_PARSER\"" "$rp_dir"; then
+        echo "[WARN] reasoning parser '$VLLM_REASONING_PARSER' not found by name in $rp_dir"
+    fi
+
+    # 2. Install the profile set (so the active file has siblings) and write
+    #    the active copy with provenance lines appended.
+    run "install -d -m 0755 $MODEL_PROFILES_DST"
+    run "install -m 0644 $src $MODEL_PROFILES_DST/$(basename "$src")"
+    local prev="none"
+    if [ -f "$ACTIVE_MODEL_ENV" ]; then
+        prev=$(bash -c ". '$ACTIVE_MODEL_ENV'; printf '%s' \"\$MODEL_SLUG\"")
+    fi
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "  [dry-run] write $ACTIVE_MODEL_ENV from $src (previous: $prev)"
+    else
+        {
+            cat "$src"
+            echo ""
+            echo "# --- written by deploy.sh model activate; do not edit, edit config/models/ ---"
+            echo "ACTIVATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "PREVIOUS_SLUG=$prev"
+            echo "ACTIVATED_FROM=$src"
+        } > "$ACTIVE_MODEL_ENV.tmp" && mv "$ACTIVE_MODEL_ENV.tmp" "$ACTIVE_MODEL_ENV"
+        chmod 0644 "$ACTIVE_MODEL_ENV"
+    fi
+    echo "[OK] active profile -> $ACTIVE_MODEL_ENV (was: $prev)"
+
+    # 3. Tokenizer + retrieval container on the new profile.
+    MODEL_ENV_LOADED=0; load_model_env
+    stage_tokenizer
+    check_compose_project || exit 1
+    run "install -m 0644 $REPO_DIR/docker/docker-compose.yml $MUNIN_DOCKER/docker-compose.yml"
+    echo "[model] Recreating the retrieval container with the new profile..."
+    run "cd $MUNIN_DOCKER && docker compose --profile rag up -d --force-recreate --no-deps retrieval"
+    local i
+    for i in $(seq 1 90); do
+        curl -sf --max-time 2 http://127.0.0.1:8080/health > /dev/null 2>&1 && break
+        [ "$DRY_RUN" = "1" ] && break
+        sleep 2
+    done
+    local api_model
+    api_model=$(curl -sf --max-time 5 http://127.0.0.1:8080/api/models 2>/dev/null \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])' 2>/dev/null || echo "?")
+    if [ "$api_model" = "$MODEL_NAME" ]; then
+        echo "[OK] retrieval /api/models reports $api_model"
+    elif [ "$DRY_RUN" != "1" ]; then
+        echo "[FAIL] retrieval /api/models reports '$api_model', expected '$MODEL_NAME'"
+        echo "       (old image without the route, or the container did not pick up the env)"
+        exit 1
+    fi
+
+    # 4. vLLM: restart now, or say what still serves.
+    local serving; serving=$(model_served_by http://127.0.0.1:8000)
+    if [ "$do_restart" = "1" ]; then
+        echo "[model] Restarting vLLM on the persisted profile ($(cat /opt/munin/logs/vllm_profile 2>/dev/null || echo single)) ..."
+        run "vllm-service stop || true"
+        run "sleep 5"
+        run "vllm-service start"
+        echo "[model] Waiting for vLLM (up to 15 min: model load + JIT) ..."
+        for i in $(seq 1 180); do
+            [ "$DRY_RUN" = "1" ] && break
+            serving=$(model_served_by http://127.0.0.1:8000)
+            [ "$serving" = "$MODEL_NAME" ] && break
+            sleep 5
+        done
+    fi
+    if [ "$serving" = "$MODEL_NAME" ]; then
+        echo "[OK] vLLM serves $serving"
+        local job; job=$(cat /opt/munin/logs/current_job.txt 2>/dev/null || echo "")
+        if [ -n "$job" ] && [ -f "/opt/munin/logs/vllm-service-$job.out" ]; then
+            grep -h "GPU KV cache size\|Maximum concurrency\|Mxfp4 MoE backend" \
+                "/opt/munin/logs/vllm-service-$job.out" | tail -3 | sed 's/^/       /'
+        fi
+        # A real ~40k-token completion against production: never in a dry run.
+        if [ "$DRY_RUN" != "1" ] && [ -x "$CLUSTER_SCRIPTS/check-context-window.sh" ]; then
+            "$CLUSTER_SCRIPTS/check-context-window.sh" "$VLLM_MAX_MODEL_LEN" || true
+        fi
+    elif [ "$serving" = "offline" ]; then
+        echo "[NOTE] vLLM is offline; it starts on $MODEL_NAME at the next vllm-service start."
+    else
+        echo "[NOTE] vLLM still serves '$serving'. The retrieval container now expects"
+        echo "       '$MODEL_NAME'; cut over with:  sudo vllm-service stop && sudo vllm-service start"
+        echo "       (or re-run with --restart-vllm). Until then chat turns will 404 on the model name."
+    fi
+}
+
+deploy_model_status() {
+    # shellcheck disable=SC1090
+    source "$MODEL_ENV_SH"
+    echo "[model] Active profile:"
+    if [ -f "$ACTIVE_MODEL_ENV" ]; then
+        munin_load_model_env "$ACTIVE_MODEL_ENV" > /dev/null && munin_model_env_summary
+        grep -E "^(ACTIVATED_AT|PREVIOUS_SLUG)=" "$ACTIVE_MODEL_ENV" | sed 's/^/  /'
+    else
+        echo "  (none) - assuming $DEFAULT_MODEL_SLUG; run: sudo ./deploy.sh model activate $DEFAULT_MODEL_SLUG"
+        munin_load_model_env "$MODEL_PROFILES_SRC/$DEFAULT_MODEL_SLUG.env" > /dev/null
+    fi
+    echo "[model] Running:"
+    echo "  vLLM :8000         serves $(model_served_by http://127.0.0.1:8000)   (profile file: $(cat /opt/munin/logs/vllm_profile 2>/dev/null || echo single), job $(cat /opt/munin/logs/current_job.txt 2>/dev/null || echo none))"
+    local api; api=$(curl -sf --max-time 5 http://127.0.0.1:8080/api/models 2>/dev/null || echo "")
+    if [ -n "$api" ]; then
+        echo "  retrieval :8080    $(printf '%s' "$api" | python3 -c 'import json,sys; d=json.load(sys.stdin)["data"][0]; print(d["id"], "| served:", d.get("served"), "| thinking:", d.get("thinking_mode"), "| effort:", d.get("reasoning_effort"))' 2>/dev/null)"
+    else
+        echo "  retrieval :8080    no /api/models (container down or pre-2026-09-15 image)"
+    fi
+    if [ -f "$TOKENIZER_HOST_DIR/tokenizer.json" ] && [ -f "$MODEL_PATH/tokenizer.json" ]; then
+        local a b
+        a=$(sha256sum "$TOKENIZER_HOST_DIR/tokenizer.json" | cut -c1-12)
+        b=$(sha256sum "$MODEL_PATH/tokenizer.json" | cut -c1-12)
+        if [ "$a" = "$b" ]; then echo "  tokenizer          staged copy matches checkpoint ($a)"
+        else echo "  tokenizer          MISMATCH: staged $a vs checkpoint $b  -> sudo ./deploy.sh model activate $MODEL_SLUG"; fi
+    else
+        echo "  tokenizer          not staged (or checkpoint missing)"
+    fi
+    echo "[model] Profiles: $(ls "$MODEL_PROFILES_SRC"/*.env | xargs -n1 basename | sed 's/\.env$//' | tr '\n' ' ')"
+}
+
+deploy_model() {
+    local sub=${MODEL_ARGS[0]:-}
+    case "$sub" in
+        activate)
+            [ -n "${MODEL_ARGS[1]:-}" ] || { echo "Usage: sudo $0 model activate <slug> [--download] [--restart-vllm]"; exit 1; }
+            deploy_model_activate "${MODEL_ARGS[@]:1}" ;;
+        status)   deploy_model_status ;;
+        validate)
+            [ -n "${MODEL_ARGS[1]:-}" ] || { echo "Usage: $0 model validate <slug>"; exit 1; }
+            # shellcheck disable=SC1090
+            source "$MODEL_ENV_SH"
+            local f; f=$(model_profile_src "${MODEL_ARGS[1]}") || exit 1
+            munin_validate_model_env "$f" && munin_load_model_env "$f" && munin_model_env_summary && echo "[OK] $f is valid" ;;
+        *) echo "Usage: sudo $0 model {activate <slug> [--download] [--restart-vllm] | status | validate <slug>}"; exit 1 ;;
+    esac
+}
+
 deploy_verify() {
     echo "[verify] Smoke-testing retrieval endpoints..."
 
@@ -1297,6 +1563,7 @@ case "$MODE" in
     monitoring)   deploy_monitoring ;;
     retrieval)    deploy_retrieval ;;
     verify)       deploy_verify ;;
+    model)        deploy_model ;;
     all)
         deploy_dirs
         deploy_compose

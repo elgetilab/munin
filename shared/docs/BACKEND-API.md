@@ -44,8 +44,8 @@ key) and attaches headers to the proxied request.
 | `X-Munin-Name` | display name, ASCII-only (see below) | No, not consumed by backend today |
 | `X-Munin-Ephemeral` | when `true`, forces ephemeral chat (no persistence); VPS gateway stamps this on every `/v1/*` API-key request | No |
 
-Every `/api/*` route except `/api/status` and `/api/personas/{id}/icon`
-requires `X-Munin-Email`; missing → **401** with
+Every `/api/*` route except `/api/status`, `/api/models` and
+`/api/personas/{id}/icon` requires `X-Munin-Email`; missing → **401** with
 `{"error": {"message": "Missing authentication header"}}`.
 
 **These header values are stripped to ASCII** by munin-auth
@@ -151,6 +151,42 @@ Notes:
   when the two widths disagree.
 - `services.grobid` may read `unavailable` in the container-DNS form; it's
   probed at `http://grobid:8070/api/isalive`.
+
+### 4.1a `GET /api/models`
+
+The backbone this backend instance serves, in OpenAI `/v1/models` list shape
+plus Munin fields. Added 2026-09-15 so the VPS gateway can proxy its
+`/v1/models` here instead of synthesising the entry from a literal that
+drifted from the cluster on every model change. Unauthenticated metadata
+probe, like `/api/status`. Reports the **production** instance only; a
+secondary (eval) backbone instance answers on its own port and is never
+routed through the gateway.
+
+```json
+{
+  "object": "list",
+  "data": [{
+    "id": "qwen3.8-27b",
+    "object": "model",
+    "created": 1789461656,
+    "owned_by": "munin",
+    "served": true,
+    "max_model_len": 65536,
+    "model_path": "/opt/munin/data/models/qwen3.8-27b-awq-int4",
+    "context_window": 65536,
+    "thinking_mode": "enable_thinking",
+    "reasoning_effort": "medium"
+  }]
+}
+```
+
+- `id` is the served model name every client must send as `model`; it comes
+  from the container's `VLLM_MODEL_NAME`, i.e. the active model profile, so
+  it is truthful even while vLLM is down (`served: false`, `max_model_len` and
+  `model_path` null).
+- `served` is true only when vLLM currently lists that id.
+- `thinking_mode` / `reasoning_effort` are the profile's sub-task reasoning
+  policy and user-turn effort; informational.
 
 ### 4.2 `GET /api/personas`
 
