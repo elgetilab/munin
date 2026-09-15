@@ -5,8 +5,8 @@ profile live; Track D, per-arm faithfulness and T11 re-run on the same 199
 questions, git `3e0bcfb`, scorecards `2026-08-26_*`). Step 3 landed for
 `RESULTS.md` and `PAPER.md` (2026-08-27) and for `docs/paper-kit/` on
 2026-09-14 (`PAPER-KIT-REFRESH-PLAN.md`, beside this file). The standalone
-answer track and C1 were re-run on Qwen3.8 on 2026-09-14; C2b and
-risk-coverage stay on the retired model, see PAPER.md claim 3. Written
+answer track and C1 were re-run on Qwen3.8 on 2026-09-14, C2b and
+risk-coverage on 2026-09-15; nothing on the retired model remains a headline. Written
 2026-08-24. Revised 2026-08-25: retargeted to the cyankiwi checkpoint (revision
 note in section 1), and restructured from seven phases to three steps after the
 existing switch procedure was found (note below). Moved to `done/` 2026-09-14.

@@ -12,8 +12,9 @@ plans live in [`done/`](done/)**; what stays here is open work. Renamed from
 > **Model provenance is split since 2026-08-26.** Production serves
 > Qwen3.8-27B and the Track D / faithfulness / T11 headlines were re-measured
 > on it (`done/MODEL-SWAP-QWEN38-PLAN.md`), with the standalone answer track
-> and C1 following on 2026-09-14 (`done/PAPER-KIT-REFRESH-PLAN.md`). C2b and
-> risk-coverage are still on the retired Qwen3.6-35B-A3B. Every 07-27 number quoted in the tables below is the
+> and C1 following on 2026-09-14 and C2b plus risk-coverage on 2026-09-15
+> (`done/PAPER-KIT-REFRESH-PLAN.md`), so every headline is on Qwen3.8 and
+> the Qwen3.6-35B-A3B figures are the second backbone. Every 07-27 number quoted in the tables below is the
 > Qwen3.6 figure and is kept because the plan was closed on it; the current
 > headline is in PAPER.md.
 >
@@ -41,8 +42,8 @@ plans live in [`done/`](done/)**; what stays here is open work. Renamed from
 | `TRACK-D-PLAN.md` | Harness ablation. Clean run 2026-07-27 on Qwen3.6 (n=199 paired, finished agent architecture): agentic **0.839** >> bare 0.302 >> RAG 0.171; harness value **+0.538 [0.457, 0.618] p<0.001**. **Re-measured 2026-08-26 on Qwen3.8-27B: 0.874 / 0.387 / 0.211, +0.487 [0.407, 0.568]**, which is the current headline. The 07-13 n=100 pilot (0.56/0.32/0.15) is superseded — do not cite it. |
 | `T2-ABLATION-REFRESH-PLAN.md` | Track D refresh. **DONE 2026-07-27**, definitive clean run (n=199 paired). |
 | `CITATIONS-VERIFIED.md` | `[VERIFY]` anchor pass 2026-07-26; every anchor checked, no markers remain. |
-| `MODEL-SWAP-QWEN38-PLAN.md` | Qwen3.6-35B-A3B -> Qwen3.8-27B swap and re-measurement. **Steps 1-2 DONE 2026-08-26** (model live on TP=2/64k; Track D, per-arm faithfulness, T11 re-run, scorecards `2026-08-26_*`). Step 3 done for RESULTS.md and PAPER.md 2026-08-27 and for the paper kit 2026-09-14 (next row). C2b not re-run. |
-| `PAPER-KIT-REFRESH-PLAN.md` | Paper kit brought to the Qwen3.8 provenance, **DONE 2026-09-14**. Same day: standalone LitQA2 answer track re-run on Qwen3.8 (**0.884 [0.839, 0.925]**, agrees with the ablation arm's 0.874 question-paired, p=0.73) and C1 re-run on Qwen3.8 (**100/100 refusals, 0 confabulated local cites**), scorecards `2026-09-14_*` in both folders. Reproduce commands fixed to pass `--encoder bge-large` and `MUNIN_EVAL_EGRESS=full`. Open: C2b + risk-coverage on Qwen3.8 (needs `papers_shadow` + :8081). |
+| `MODEL-SWAP-QWEN38-PLAN.md` | Qwen3.6-35B-A3B -> Qwen3.8-27B swap and re-measurement. **Steps 1-2 DONE 2026-08-26** (model live on TP=2/64k; Track D, per-arm faithfulness, T11 re-run, scorecards `2026-08-26_*`). Step 3 done for RESULTS.md and PAPER.md 2026-08-27 and for the paper kit 2026-09-14 (next row). Every track since re-run on Qwen3.8. |
+| `PAPER-KIT-REFRESH-PLAN.md` | Paper kit brought to the Qwen3.8 provenance, **DONE 2026-09-14**. Same day: standalone LitQA2 answer track re-run on Qwen3.8 (**0.884 [0.839, 0.925]**, agrees with the ablation arm's 0.874 question-paired, p=0.73) and C1 re-run on Qwen3.8 (**100/100 refusals, 0 confabulated local cites**), scorecards `2026-09-14_*` in both folders. Reproduce commands fixed to pass `--encoder bge-large` and `MUNIN_EVAL_EGRESS=full`. **2026-09-15: C2b re-run on Qwen3.8** (correct abstention 0.889 [0.719, 0.961] Wilson, absent-arm accuracy 0.04, paired +0.222 p=0.015 vs Qwen3.6) with the chunk index shadowed too (`papers_chunks_shadow`, a leak path the 07-27 recipe predates), risk-coverage re-derived (agentic risk 0.054), shadow compose rewritten as an `extends` of production (`cd226aa`). Nothing on the retired backbone remains a headline. |
 
 Eval-suite results writeup: `backend/benchmarks/RESULTS.md` (canonical);
 claim-to-scorecard index: [`../../PAPER.md`](../../PAPER.md).
@@ -60,7 +61,7 @@ claim-to-scorecard index: [`../../PAPER.md`](../../PAPER.md).
 | `HARNESS-ITERATION-SCOPE.md` | Scoping for the harness-iteration phase (grounding, over-tooling, tool defs). Pre-implementation. |
 | `T2-T3-EDIT-PLAN.md` | Concrete T2 (over-tooling) + T3 (tool defs) edits; measurement + deploy constraints. Plan, not applied. |
 | `T1-GROUNDING-PLAN.md` | T1 grounding edits (paper_search excerpts, per-item truncation, structured sub-agent returns). T1a applied; T1b/c planned. |
-| `TRACK-C-PLAN.md` | Corpus-grounded abstention. **RE-RUN DONE 2026-07-27 on the current harness.** C1 held (abstain 0.970, 0 confabulated local cites). C2b's 07-10 confound is GONE: at matched `egress=off`, correct-abstention on the answerable subset went **0.200 [0.050, 0.350] -> 0.667 [0.481, 0.852]** (question-paired delta **+0.467 [0.232, 0.697], p<0.001**, CIs added 2026-08-04) and accuracy drops 0.54 -> 0.08 when the source is removed. The system is genuinely corpus-grounded. Remaining: stratum 2 (needs Phase 4). |
+| `TRACK-C-PLAN.md` | Corpus-grounded abstention. **RE-RUN DONE 2026-07-27 on the current harness.** C1 held (abstain 0.970, 0 confabulated local cites). C2b's 07-10 confound is GONE: at matched `egress=off`, correct-abstention on the answerable subset went **0.200 [0.050, 0.350] -> 0.667 [0.481, 0.852]** (question-paired delta **+0.467 [0.232, 0.697], p<0.001**, CIs added 2026-08-04) and accuracy drops 0.54 -> 0.08 when the source is removed. The system is genuinely corpus-grounded. **Re-run on Qwen3.8**: C1 2026-09-14 (100/100), C2b 2026-09-15 (0.889 [0.719, 0.961] Wilson; absent-arm accuracy 0.04; chunk index shadowed too). Remaining: stratum 2 (needs Phase 4). |
 | `KICKOFF-QUESTIONS.md` | Resolved decision record (kept as a live reference cited by the spec). |
 | `IMPLEMENTATION-HANDOFF.md` | Overarching eval-suite handoff (reference). |
 | `TOOL-ARG-ELISION-SCOPE.md` | Follow-on to the context-budget fix: elide tool-call ARGUMENTS, not just results. **Plan, not implemented.** Replay of the 12 Aug 11-12 overflow turns: pre-fix 12/12 over the window, deployed code 1-2/12, argument elision would close the rest. Blocked on verifying that heavy calls span loop iterations. |
@@ -121,11 +122,13 @@ FIX, not just a number to measure. So:
      (blocked on Phase 4). ~~CI on the n=27 answerable subset~~ **DONE
      2026-08-04**: 0.667 [0.481, 0.852] bootstrap / [0.478, 0.814] Wilson, and
      the 0.20 -> 0.67 move is now a question-paired test (+0.467 [0.232,
-     0.697], p<0.001) rather than an eyeballed non-overlap. **Not re-run on
-     Qwen3.8** (2026-08-26 swap): C2b needs `papers_shadow` rebuilt and the
-     :8081 instance; the figures above are Qwen3.6 and PAPER.md says so inline.
+     0.697], p<0.001) rather than an eyeballed non-overlap. The figures above
+     are Qwen3.6; re-run on Qwen3.8 in two steps, below.
      ~~C1 on Qwen3.8~~ **DONE 2026-09-14**: 100/100 correct refusals, 0
      confabulated local cites, 5.6 tool calls per item (Qwen3.6: 10.8).
+     ~~C2b on Qwen3.8~~ **DONE 2026-09-15**: correct abstention 0.667 -> 0.889
+     (paired +0.222, p=0.015, suggestive), absent-arm accuracy 0.08 -> 0.04;
+     both `papers_bge` and `papers_chunks` shadowed. Risk-coverage re-derived.
 
 **Deferred:** Phase 4 local pool (blocked on more real usage / a synthetic-query
 track).
