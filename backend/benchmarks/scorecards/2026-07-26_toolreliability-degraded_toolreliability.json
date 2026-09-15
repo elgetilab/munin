@@ -42,5 +42,11 @@
       "errors": 1,
       "error_rate": 0.1667
     }
-  }
+  },
+  "backbone": "qwen3.6-35b-a3b",
+  "backbone_checkpoint": "cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit (retired 2026-08-25)",
+  "serving": "vLLM single GPU (RTX 5090), max-model-len 65536, --max-num-seqs 2",
+  "encoder": "bge-large-en-v1.5 / papers_bge",
+  "role": "15-query fault-injection probe (degraded tools), Qwen3.6",
+  "provenance_note": "Provenance fields backfilled 2026-09-15 from the dated section in backend/benchmarks/RESULTS.md; the runner did not stamp them. Verdicts and statistics untouched."
 }

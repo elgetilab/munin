@@ -65,11 +65,13 @@ torch plus the CUDA wheels.
 Package versions are recorded in every `run_all` scorecard's provenance
 header (`numpy`, `scipy`, `sentence_transformers`, `qdrant_client`), along
 with the git SHA, the served model id read live from vLLM's `/v1/models`, the
-encoder, the corpus snapshot, and the seed (42). **The ablation, faithfulness
-and risk-coverage scorecards do not carry that header**: they record
-`track / n_paired / git_sha / date` only, so the backbone has to be read off
-the date (before 2026-08-26 is Qwen3.6, from 2026-08-26 is Qwen3.8) or from
-`RESULTS.md`.
+encoder, the corpus snapshot, and the seed (42). **The ablation, faithfulness,
+abstention and risk-coverage scorecards do not carry that header**; their
+runners recorded `track / n_paired / git_sha / date` only, and the backbone,
+serving profile, egress per arm and arm-matching facts were backfilled into
+top-level fields on 2026-09-15 from `RESULTS.md`'s dated sections (each file
+says so in `provenance_note`). Before 2026-08-26 is Qwen3.6, from 2026-08-26
+is Qwen3.8.
 
 **Backbone and serving, at the headline runs:** `qwen3.8-27b`
 (`cyankiwi/Qwen3.8-27B-AWQ-INT4`) on vLLM TP=2, 64k window, `--max-num-seqs

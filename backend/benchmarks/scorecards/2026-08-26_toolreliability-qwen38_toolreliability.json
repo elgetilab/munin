@@ -64,5 +64,12 @@
       "error_rate": 1.0,
       "degraded_rate": 1.0
     }
-  }
+  },
+  "backbone": "qwen3.8-27b",
+  "backbone_checkpoint": "cyankiwi/Qwen3.8-27B-AWQ-INT4",
+  "serving": "vLLM TP=2 over 2x RTX 5090, max-model-len 65536, --max-num-seqs 8, reasoning_effort=medium",
+  "encoder": "bge-large-en-v1.5 / papers_bge",
+  "telemetry_over": "the 2026-08-26 ablation agentic arm, egress=full",
+  "comparability": "calls-per-query and recovery rate comparable with 2026-07-27_toolreliability-clean; error/degraded rates NOT comparable because 2ff9aef (2026-08-03) redefined web_fetch failure (anti-bot interstitials became errors); search 0.000 -> 0.122 is a valid delta (mistyped arguments). Both fixed after this run in fd559c9.",
+  "provenance_note": "Provenance fields backfilled 2026-09-15 from the dated section in backend/benchmarks/RESULTS.md; the runner did not stamp them. Verdicts and statistics untouched."
 }

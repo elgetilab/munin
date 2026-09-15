@@ -155,5 +155,9 @@
     "mixed_egress": true,
     "note": "All points must share a harness generation AND an egress setting before being plotted on shared axes. MIXED CAPTURE DATES + MIXED EGRESS SETTINGS -- DO NOT PLOT AS-IS."
   },
-  "date": "2026-09-15"
+  "date": "2026-09-15",
+  "backbone": "qwen3.8-27b",
+  "backbone_checkpoint": "cyankiwi/Qwen3.8-27B-AWQ-INT4",
+  "inputs": "ablation 2026-08-26, C1 2026-09-14, C2b 2026-09-15",
+  "provenance_note": "Provenance fields backfilled 2026-09-15 from the dated section in backend/benchmarks/RESULTS.md; the runner did not stamp them. Verdicts and statistics untouched."
 }

@@ -1158,5 +1158,8 @@
   ],
   "egress": "full",
   "egress_note": "Backfilled 2026-09-14 from the launch log (MUNIN_EVAL_EGRESS=full exported by the queue script; run_c1 does not stamp it). Same HARDER condition as 2026-07-27: the model may search the entire web and must still conclude the fabricated paper does not exist.",
-  "harness_note": "Generated against the deployed retrieval container of 2026-09-14 (repo HEAD 28a91f1 at scoring), i.e. 26 backend/retrieval commits after the 2026-08-26 Track D run and 7 weeks after the 2026-07-27 C1 run; backbone qwen3.8-27b (TP=2, 64k, reasoning_effort=medium). The 2026-07-27 capture was moved to c1_runs/c1.capture.2026-07-27.jsonl before launch so all 100 items were freshly generated."
+  "harness_note": "Generated against the deployed retrieval container of 2026-09-14 (repo HEAD 28a91f1 at scoring), i.e. 26 backend/retrieval commits after the 2026-08-26 Track D run and 7 weeks after the 2026-07-27 C1 run; backbone qwen3.8-27b (TP=2, 64k, reasoning_effort=medium). The 2026-07-27 capture was moved to c1_runs/c1.capture.2026-07-27.jsonl before launch so all 100 items were freshly generated.",
+  "backbone": "qwen3.8-27b",
+  "backbone_checkpoint": "cyankiwi/Qwen3.8-27B-AWQ-INT4",
+  "provenance_note": "Provenance fields backfilled 2026-09-15 from the dated section in backend/benchmarks/RESULTS.md; the runner did not stamp them. Verdicts and statistics untouched."
 }

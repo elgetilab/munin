@@ -9,10 +9,12 @@ The full set is 65 JSON plus 49 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
-**Backbone is not stamped in most ablation-family files.** Every file dated
-2026-08-26 or later is on Qwen3.8-27B (production; the 09-15 C2b file also
-carries an explicit `backbone` field); every earlier file is on the retired
-Qwen3.6-35B-A3B. See caution 8.
+**Backbone is now stamped in every ablation-family file** (`backbone`,
+`backbone_checkpoint`, and for Track D `serving`, `egress` per arm,
+`arm_matching` and `sampling`), backfilled 2026-09-15 from RESULTS.md's dated
+sections and marked as such by `provenance_note`; the runners never wrote
+them. Every file dated 2026-08-26 or later is on Qwen3.8-27B (production);
+every earlier file is on the retired Qwen3.6-35B-A3B. See caution 8.
 
 ## Schema
 
@@ -33,8 +35,9 @@ That header is the `run_all` scorecard shape (`2026-07-03_*`, `2026-07-06_*`,
 `2026-07-24_*`, `2026-07-28_*`). The **ablation family** (`*_harness-ablation*`,
 `*_risk-coverage*`, `*_toolreliability*`, the C1/C2 files) uses a flatter
 shape, `{track, n_paired, git_sha, date, per_arm, deltas}` or the equivalent,
-with **no `meta` block, no model and no encoder field**. The two headline
-ablation files differ only in `git_sha` and `date`.
+with no `meta` block; the model, serving profile, egress and arm-matching
+facts live in top-level fields backfilled on 2026-09-15 (see
+`provenance_note` in each file).
 
 ## Index
 

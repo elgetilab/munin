@@ -137,5 +137,10 @@
   },
   "egress": "off",
   "backbone": "qwen3.8-27b",
-  "harness_note": "Both arms on the deployed retrieval image of 2026-09-15 (repo cd226aa), backbone qwen3.8-27b (TP=2, 64k, reasoning_effort=medium), MUNIN_EVAL_EGRESS=off on both arms. Absent arm ran against a second instance on :8081 with PAPERS_COLLECTION=papers_shadow (papers_bge minus the 49 frozen source papers, 68,864 vs 68,913 points, leakage 0) AND CHUNKS_COLLECTION=papers_chunks_shadow (papers_chunks minus those papers' 2,247 chunks, leakage 0). The chunk shadow is new: the chunk-level evidence layer (2026-08-30) did not exist when the 2026-07-27 pair ran, so this run closes a leak path the earlier design did not have to cover. The 26 backend/retrieval commits after the 2026-08-26 ablation run are deployed. Comparison with 2026-07-27 is therefore backbone plus seven weeks of harness, suggestive only."
+  "harness_note": "Both arms on the deployed retrieval image of 2026-09-15 (repo cd226aa), backbone qwen3.8-27b (TP=2, 64k, reasoning_effort=medium), MUNIN_EVAL_EGRESS=off on both arms. Absent arm ran against a second instance on :8081 with PAPERS_COLLECTION=papers_shadow (papers_bge minus the 49 frozen source papers, 68,864 vs 68,913 points, leakage 0) AND CHUNKS_COLLECTION=papers_chunks_shadow (papers_chunks minus those papers' 2,247 chunks, leakage 0). The chunk shadow is new: the chunk-level evidence layer (2026-08-30) did not exist when the 2026-07-27 pair ran, so this run closes a leak path the earlier design did not have to cover. The 26 backend/retrieval commits after the 2026-08-26 ablation run are deployed. Comparison with 2026-07-27 is therefore backbone plus seven weeks of harness, suggestive only.",
+  "shadowed_collections": [
+    "papers_bge -> papers_shadow",
+    "papers_chunks -> papers_chunks_shadow"
+  ],
+  "provenance_note": "Provenance fields backfilled 2026-09-15 from the dated section in backend/benchmarks/RESULTS.md; the runner did not stamp them. Verdicts and statistics untouched."
 }
