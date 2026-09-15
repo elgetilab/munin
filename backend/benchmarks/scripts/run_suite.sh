@@ -60,6 +60,11 @@ API_PORT=8082
 SHADOW_API_PORT=8083
 TEARDOWN=1
 SMOKE=1
+# GPU 0 is not empty on hugin: the paper-pipeline watcher (~1.8 GiB) and a
+# remote-desktop session sit on it. 0.90 OOM'd during CUDA-graph warmup on the
+# second instance start (2026-09-15); 0.80 leaves ~3 GiB of slack and still
+# ~800k KV tokens for gpt-oss (12x at 64k). Recorded in provenance.
+GPU_UTIL=0.80
 while [ $# -gt 0 ]; do
     case "$1" in
         --date) DATE=$2; shift 2 ;;
@@ -71,6 +76,7 @@ while [ $# -gt 0 ]; do
         --shadow-api-port) SHADOW_API_PORT=$2; shift 2 ;;
         --no-teardown) TEARDOWN=0; shift ;;
         --no-smoke) SMOKE=0; shift ;;
+        --gpu-util) GPU_UTIL=$2; shift 2 ;;
         *) echo "unknown flag $1"; exit 1 ;;
     esac
 done
@@ -118,7 +124,7 @@ PROV=(--provenance "backbone=$MODEL_SLUG" --provenance "checkpoint=$MODEL_ID"
       --provenance "tool_parser=$VLLM_TOOL_PARSER" --provenance "reasoning_parser=$VLLM_REASONING_PARSER"
       --provenance "thinking_mode=$LLM_THINKING_MODE" --provenance "sampling_default=$SAMPLING_DEFAULT"
       --provenance "sampling_code=$SAMPLING_CODE" --provenance "serving_profile=single-gpu-instance"
-      --provenance "max_num_seqs=$VLLM_MAX_NUM_SEQS_SINGLE" --provenance "concurrency=1"
+      --provenance "max_num_seqs=$VLLM_MAX_NUM_SEQS_SINGLE" --provenance "gpu_mem_util=$GPU_UTIL" --provenance "concurrency=1"
       --provenance "deadline_s=900" --provenance "driver=run_suite.sh")
 
 gates_field() {   # $1 = gates.json, $2 = gate, $3 = field
@@ -169,7 +175,7 @@ if ! phase_done 1; then
     log "--- phase 1: instances up ---"
     if [ ! -f "/opt/munin/instances/$NAME/gates.json" ] || \
        ! curl -sf --max-time 3 "$API/health" > /dev/null 2>&1; then
-        run_logged $DEPLOY instance up "$SLUG" --name "$NAME" --vllm-port "$VLLM_PORT" --api-port "$API_PORT" \
+        run_logged $DEPLOY instance up "$SLUG" --name "$NAME" --vllm-port "$VLLM_PORT" --api-port "$API_PORT" --gpu-util "$GPU_UTIL" \
             || die "instance up $NAME failed (see /opt/munin/instances/$NAME/gates.json)"
     else
         log "instance $NAME already up and gated"
