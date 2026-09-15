@@ -721,8 +721,9 @@ p<0.001.
    pilot's 16 calls, so the tool-retirement work bought accuracy AND fewer calls.
 
 **A degraded companion run is retained deliberately.**
-`2026-07-26_harness-ablation` is the same three arms with constrained egress and
-higher concurrency: agentic scores **0.688** (abstain 0.231, 11.1 calls/query,
+`2026-07-26_harness-ablation` is the same three arms at higher concurrency with
+the web tier degraded (egress on, Brave not yet funded; no agentic ablation arm
+has ever run at `egress=off`): agentic scores **0.688** (abstain 0.231, 11.1 calls/query,
 183.8s). Bare and RAG are bit-identical across the two runs, which isolates the
 difference to the agentic arm's external-tool access. Use 07-27 as the headline
 and 07-26 as the load/egress sensitivity point. **Do not average them.**

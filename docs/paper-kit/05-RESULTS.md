@@ -68,10 +68,13 @@ Scorecards: `2026-08-26_harness-ablation.json` (headline),
 `2026-07-27_harness-ablation.{json,md}` (Qwen3.6).
 
 **Companion run, retained deliberately:** `2026-07-26_harness-ablation` is the
-same three arms with constrained egress and higher concurrency. The agentic arm
-scores **0.688** (abstain 0.231, 11.1 calls/query, 183.8 s). Bare and RAG are
-bit-identical across the two runs, which isolates the difference to the agentic
-arm's external-tool access and load. Use 07-26 only as the load/egress
+same three arms at concurrency above `--max-num-seqs` with the web tier
+degraded (egress was **on**, but Brave was not yet funded, so `web_search`
+returned nothing useful). **There is no agentic ablation arm at `egress=off`
+anywhere in the suite**; the only agentic captures at `off` are the C2b arms
+in R3. The 07-26 agentic arm scores **0.688** (abstain 0.231, 11.1 calls/query,
+183.8 s). Bare and RAG are bit-identical across the two runs, which isolates
+the difference to the agentic arm's external-tool access and load. Use 07-26 only as the load/egress
 sensitivity point beside the Qwen3.6 clean run. **Do not average them.**
 
 ---
