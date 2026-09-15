@@ -1,7 +1,17 @@
 # Paper-kit refresh: bring `docs/paper-kit/` to the 2026-08-26 provenance
 
-Status: PLAN, awaiting approval. Written 2026-09-14. This is step 3 of
-`done/MODEL-SWAP-QWEN38-PLAN.md` (section 6), the half that was never done.
+Status: **DONE 2026-09-14** (`617ea4e` kit refresh, `0bd8806` egress fix,
+`b8ce907` Track A wording, `28a91f1` standalone answer track, `38e81cb` C1).
+Q1, Q3, Q4, Q5, Q6 taken at their defaults. **Q2 went the other way:** the
+standalone answer track was confirmed never re-run and was re-run the same
+day (0.884 [0.839, 0.925], agrees with the ablation arm question-paired,
++0.010 p=0.73). Beyond the plan, C1 was re-run on Qwen3.8 at the paper
+writer's request (100/100, 0 confabulated local cites), and two reproduce
+defects found on the way were fixed (answer-track and C1 commands ran
+`egress=off` by default; `run_c1` resumes from the previous capture). C2b
+and risk-coverage remain on Qwen3.6. Moved to `done/` 2026-09-15. Written
+2026-09-14 as step 3 of `MODEL-SWAP-QWEN38-PLAN.md` (section 6), the half
+that was never done.
 No GPU, no new measurements: every number comes from `RESULTS.md`'s
 "Model swap ... Track D re-run" section and the three `2026-08-26_*`
 scorecards, which already exist.

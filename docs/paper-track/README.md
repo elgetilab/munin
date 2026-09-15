@@ -3,7 +3,7 @@
 The eval suite and everything that feeds the paper: retrieval benchmarks,
 the harness ablation, abstention, faithfulness, reliability. **Completed
 plans live in [`done/`](done/)**; what stays here is open work. Renamed from
-`todo_v2/` on 2026-08-04. Updated 2026-09-14.
+`todo_v2/` on 2026-08-04. Updated 2026-09-15.
 
 > **Start at [`../../PAPER.md`](../../PAPER.md)** if you want the results
 > rather than the plans: it maps every claim to its scorecard and its
@@ -11,8 +11,9 @@ plans live in [`done/`](done/)**; what stays here is open work. Renamed from
 >
 > **Model provenance is split since 2026-08-26.** Production serves
 > Qwen3.8-27B and the Track D / faithfulness / T11 headlines were re-measured
-> on it (`done/MODEL-SWAP-QWEN38-PLAN.md`). Track C is still on the retired
-> Qwen3.6-35B-A3B. Every 07-27 number quoted in the tables below is the
+> on it (`done/MODEL-SWAP-QWEN38-PLAN.md`), with the standalone answer track
+> and C1 following on 2026-09-14 (`done/PAPER-KIT-REFRESH-PLAN.md`). C2b and
+> risk-coverage are still on the retired Qwen3.6-35B-A3B. Every 07-27 number quoted in the tables below is the
 > Qwen3.6 figure and is kept because the plan was closed on it; the current
 > headline is in PAPER.md.
 >
@@ -40,7 +41,8 @@ plans live in [`done/`](done/)**; what stays here is open work. Renamed from
 | `TRACK-D-PLAN.md` | Harness ablation. Clean run 2026-07-27 on Qwen3.6 (n=199 paired, finished agent architecture): agentic **0.839** >> bare 0.302 >> RAG 0.171; harness value **+0.538 [0.457, 0.618] p<0.001**. **Re-measured 2026-08-26 on Qwen3.8-27B: 0.874 / 0.387 / 0.211, +0.487 [0.407, 0.568]**, which is the current headline. The 07-13 n=100 pilot (0.56/0.32/0.15) is superseded — do not cite it. |
 | `T2-ABLATION-REFRESH-PLAN.md` | Track D refresh. **DONE 2026-07-27**, definitive clean run (n=199 paired). |
 | `CITATIONS-VERIFIED.md` | `[VERIFY]` anchor pass 2026-07-26; every anchor checked, no markers remain. |
-| `MODEL-SWAP-QWEN38-PLAN.md` | Qwen3.6-35B-A3B -> Qwen3.8-27B swap and re-measurement. **Steps 1-2 DONE 2026-08-26** (model live on TP=2/64k; Track D, per-arm faithfulness, T11 re-run, scorecards `2026-08-26_*`). Step 3 done for RESULTS.md and PAPER.md; **`docs/paper-kit/` refresh still open** (see Remaining). Track C not re-run. |
+| `MODEL-SWAP-QWEN38-PLAN.md` | Qwen3.6-35B-A3B -> Qwen3.8-27B swap and re-measurement. **Steps 1-2 DONE 2026-08-26** (model live on TP=2/64k; Track D, per-arm faithfulness, T11 re-run, scorecards `2026-08-26_*`). Step 3 done for RESULTS.md and PAPER.md 2026-08-27 and for the paper kit 2026-09-14 (next row). C2b not re-run. |
+| `PAPER-KIT-REFRESH-PLAN.md` | Paper kit brought to the Qwen3.8 provenance, **DONE 2026-09-14**. Same day: standalone LitQA2 answer track re-run on Qwen3.8 (**0.884 [0.839, 0.925]**, agrees with the ablation arm's 0.874 question-paired, p=0.73) and C1 re-run on Qwen3.8 (**100/100 refusals, 0 confabulated local cites**), scorecards `2026-09-14_*` in both folders. Reproduce commands fixed to pass `--encoder bge-large` and `MUNIN_EVAL_EGRESS=full`. Open: C2b + risk-coverage on Qwen3.8 (needs `papers_shadow` + :8081). |
 
 Eval-suite results writeup: `backend/benchmarks/RESULTS.md` (canonical);
 claim-to-scorecard index: [`../../PAPER.md`](../../PAPER.md).
@@ -64,7 +66,6 @@ claim-to-scorecard index: [`../../PAPER.md`](../../PAPER.md).
 | `TOOL-ARG-ELISION-SCOPE.md` | Follow-on to the context-budget fix: elide tool-call ARGUMENTS, not just results. **Plan, not implemented.** Replay of the 12 Aug 11-12 overflow turns: pre-fix 12/12 over the window, deployed code 1-2/12, argument elision would close the rest. Blocked on verifying that heavy calls span loop iterations. |
 | `MIGRATION-LOOSE-ENDS.md` | Encoder-migration tail: embedding-map repoint + `papers` retirement. varghele/root. |
 | `THIRD-MODEL-REVIEW.md` | Third backbone for the harness ablation. **DECIDED 2026-08-25: Qwen3.5-9B**, nothing implemented. Would turn the two-backbone "suggestive" comparison in PAPER.md claim 1 into a three-point one. |
-| `PAPER-KIT-REFRESH-PLAN.md` | **Plan, awaiting approval (2026-09-14).** The drafting bundle was generated 2026-08-04 and predates the model swap: it still names Qwen3.6 as the generation model and quotes 0.839/+0.538, +0.023 p=0.496 and 8.61 calls/query as the headlines. Needs 00/01/05/06/07/08 rewritten against RESULTS.md's 2026-08-26 section, the 02 tool table brought to 45 tools, and the three `2026-08-26_*` scorecards copied into `scorecards/`. |
 
 ## What's next (ordered plan, set 2026-07-06)
 
@@ -123,6 +124,8 @@ FIX, not just a number to measure. So:
      0.697], p<0.001) rather than an eyeballed non-overlap. **Not re-run on
      Qwen3.8** (2026-08-26 swap): C2b needs `papers_shadow` rebuilt and the
      :8081 instance; the figures above are Qwen3.6 and PAPER.md says so inline.
+     ~~C1 on Qwen3.8~~ **DONE 2026-09-14**: 100/100 correct refusals, 0
+     confabulated local cites, 5.6 tool calls per item (Qwen3.6: 10.8).
 
 **Deferred:** Phase 4 local pool (blocked on more real usage / a synthetic-query
 track).
