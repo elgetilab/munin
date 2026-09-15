@@ -1222,6 +1222,67 @@ Scorecards: `2026-09-15_abstention-c2-shadow.json` (three CIs per rate,
 question-paired delta vs 07-27, `harness_note` backfilled),
 `2026-09-15_risk-coverage.{json,md}`.
 
+## Track D agentic arm at `egress=off` on Qwen3.8-27B (corpus-only harness)  · git `3be8308` · 2026-09-15
+
+The paper writer asked for an agentic ablation arm at `egress=off` and found,
+correctly, that none existed: every Track D agentic arm had run at
+`egress=full`, and the 07-26 companion's "constrained egress" was a degraded
+web tier, not `off`. This run fills that cell. **Agentic arm only**, same 199
+questions, `MUNIN_EVAL_EGRESS=off` (no web, no Semantic Scholar; corpus,
+chunk index and citation graph only), 16,384 tokens, `reasoning_effort=medium`,
+concurrency 1, production :8080. The bare and RAG arms make no tool calls, so
+egress is inapplicable and their 08-26 captures are reused for the paired
+deltas.
+
+| arm | egress | accuracy | abstain | precision of attempted | verdicts | s/query | tools/query |
+|---|---|---|---|---|---|---|---|
+| bare | n/a | 0.387 | 0.040 | 0.403 | 77 / 114 / 8 | 8.0 | 0 |
+| rag | n/a | 0.211 | 0.498 | 0.420 | 42 / 58 / 99 | 8.3 | 0 |
+| **agentic, `egress=off`** | **off** | **0.663** | 0.276 | **0.917** | **132 / 12 / 55** | 96.0 | 5.1 |
+| agentic, `egress=full` (08-26 headline) | full | 0.874 | 0.075 | 0.946 | 174 / 10 / 15 | 157.3 | 6.9 |
+
+Paired deltas (all p ~ 0, n=199):
+
+| comparison | delta | 95% CI |
+|---|---|---|
+| agentic(off) − bare | **+0.276** | [0.181, 0.367] |
+| agentic(off) − rag | +0.452 | [0.372, 0.528] |
+| **agentic(full) − agentic(off)** | **+0.211** | [0.151, 0.276] |
+
+**Reading it.** A corpus-only harness still beats the bare model by +0.276 and
+naive RAG by +0.452 on the same questions, with precision of attempted 0.917;
+the web and scholarly tiers add a further +0.211, almost entirely by
+converting abstentions into correct answers (41 of the 55 `off` abstentions
+are `full` corrects; only 8 questions go correct → incorrect and 4 the other
+way). So the harness value decomposes on this backbone into roughly 57%
+corpus-only agentic loop (+0.276 of +0.487) and 43% external tiers (+0.211).
+The corpus-only arm abstains on 27.6% of questions, which is the C2b-present
+picture (42% on that harder 50-question subset) on the full set: LitQA2's
+sources are frequently not in the 68k corpus, and without egress the harness
+says so rather than guessing (precision 0.917).
+
+**Caveat.** The `full` arm is the 08-26 capture and this is 09-15; 26
+`backend/retrieval/` commits sit between them (search ladder, grounded read
+stage, evidence mode, new tools), so agentic(full) − agentic(off) is egress
+plus three weeks of harness. Within-day pairs against bare and RAG are clean.
+
+**T11 at `egress=off`** (`2026-09-15_toolreliability-qwen38-egressoff`): 1,021
+calls, 5.13 per query, recovery 1.000. `web_search` (94 calls) and
+`semantic_scholar_search` (51) degraded 1.000 is the egress guard working.
+`search` error 0.207 (99 of 479) is the tool's deliberate argument-shape return
+(a `queries` list or an empty query, the iLOV-era Qwen3.8 habit), with no
+exception in the retrieval log for the window; each is followed by a corrected
+call. Not comparable to the `full` T11 files on error or degraded rate.
+
+Provenance: 13:04 to 18:22, GPU shared with group chat, no cost claim.
+`ablation_runs/agentic.json` was backed up before the run and restored after
+(this arm is kept as `agentic.2026-09-15-egressoff.json`), so `compare` and
+`risk_coverage` still read the 08-26 headline arm.
+
+Scorecards: `2026-09-15_harness-ablation-agentic-egressoff.json` (track
+`harness-ablation-agentic-egressoff`, per-arm + paired deltas + the full→off
+transitions), `2026-09-15_toolreliability-qwen38-egressoff_toolreliability.json`.
+
 ## Reproduce
 
 ```bash
@@ -1289,7 +1350,10 @@ PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.risk_co
 # Teardown: docker stop/rm munin-retrieval-shadow; snapshot papers_shadow; delete both shadow collections.
 
 # Track D harness ablation (bare / RAG / agentic)
-for arm in bare rag agentic; do PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.ablation.run_arm --arm $arm --n 100; done
+for arm in bare rag agentic; do MUNIN_EVAL_EGRESS=full PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.ablation.run_arm --arm $arm --n 199; done   # overwrites ablation_runs/<arm>.json: back up first
+# Corpus-only agentic arm (2026-09-15 recipe): back up ablation_runs/agentic.json; run the agentic arm with MUNIN_EVAL_EGRESS=off;
+# compare --date <D>; rename the scorecard to <D>_harness-ablation-agentic-egressoff.json; toolreliability.score ablation_runs/agentic.json
+# --tag <D>_toolreliability-qwen38-egressoff; rename agentic.json to agentic.<D>-egressoff.json and restore the headline capture.
 $PY -m munin_bench.ablation.compare --date <D>
 $PY -m munin_bench.ablation.abstain_arms --arm bare   # + --arm rag: abstention per arm on the fabricated set
 MUNIN_BENCH_ENTAILMENT_DEVICE=cuda:0 $PY -m munin_bench.ablation.faithfulness --date <D>

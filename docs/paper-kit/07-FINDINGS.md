@@ -98,7 +98,11 @@ property of retrieval in general.
 
 **What this makes the harness's contribution.** The value is not retrieval per
 se. It is the **agentic loop's iterative, multi-source retrieval**, which can
-recognise that the first context was insufficient and go get more.
+recognise that the first context was insufficient and go get more. The
+`egress=off` arm (R1) puts a number on the two halves: the corpus-only loop
+is +0.276 over bare (0.663, precision 0.917, abstaining on 28% rather than
+guessing), and letting it reach the web and Semantic Scholar adds +0.211 by
+turning 41 of those abstentions into correct answers.
 
 ---
 

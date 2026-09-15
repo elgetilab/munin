@@ -1,11 +1,11 @@
 # Scorecards behind the headline claims
 
-23 committed scorecard JSONs, copied verbatim from
+25 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
 
-The full set is 65 JSON plus 49 Markdown twins; the remainder are mostly the
+The full set is 67 JSON plus 49 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
@@ -45,6 +45,8 @@ facts live in top-level fields backfilled on 2026-09-15 (see
 |---|---|---|
 | `2026-08-26_harness-ablation.json` | **Headline** three-arm ablation, n=199 paired, Qwen3.8-27B | R1 |
 | `2026-07-27_harness-ablation.json` | The same three arms on Qwen3.6-35B-A3B (second backbone; bare arm at 4,096 tokens) | R1 |
+| `2026-09-15_harness-ablation-agentic-egressoff.json` | Agentic arm at `egress=off`, Qwen3.8; bare/rag copied from 08-26 for the paired deltas; carries the full→off verdict transitions. The only `off` agentic arm. | R1 |
+| `2026-09-15_toolreliability-qwen38-egressoff_toolreliability.json` | T11 over the `egress=off` arm; degraded web/S2 tiers are the guard, not outages | R1, R6 |
 | `2026-08-26_harness-ablation-faithfulness.json` | **Headline** per-arm paired faithfulness, RAG vs agentic, Qwen3.8 (per-question values included) | R2 |
 | `2026-07-27_harness-ablation-faithfulness.json` | Per-arm paired faithfulness on Qwen3.6 (per-question values included) | R2 |
 | `2026-07-08_faithfulness-judge-ragtruth.json` | MiniCheck judge validation on RAGTruth | R2 |
