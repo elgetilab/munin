@@ -87,7 +87,7 @@ def expand_query(base: str, n: int = config.AGENT_VARIANT_N) -> list[str]:
         "max_tokens": 250,
         "temperature": 0.5,
         "stream": False,
-        "chat_template_kwargs": {"enable_thinking": False},
+        **config.thinking_off_fields(),
     }
     req = urllib.request.Request(
         f"{config.VLLM_URL}/v1/chat/completions",

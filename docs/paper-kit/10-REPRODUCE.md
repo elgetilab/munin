@@ -276,21 +276,22 @@ share a condition.
 ### Track D: harness ablation
 
 ```bash
-# Back up ablation_runs/ first: run_arm overwrites <arm>.json in place, and
-# the per-query verdicts behind every committed Track D number live only there.
-# For a corpus-only agentic arm: same command with MUNIN_EVAL_EGRESS=off for --arm agentic only,
-# then compare --date <D>, rename the scorecard to <D>_harness-ablation-agentic-egressoff.json,
-# toolreliability.score ablation_runs/agentic.json --tag <D>_toolreliability-qwen38-egressoff,
-# and move agentic.json aside / restore the headline capture (2026-09-15 recipe in RESULTS.md).
+# Every arm writes to ablation_runs/<tag>/ and resumes from <arm>.capture.jsonl
+# there, so a crash mid-arm costs nothing and a new run can never overwrite a
+# committed run's per-query arrays (the 08-26 Qwen3.8 set is ablation_runs/qwen38-27b/).
+# Pick a fresh tag per run; compare / faithfulness / risk_coverage / toolreliability
+# take the same --tag (or MUNIN_ABLATION_TAG). For a corpus-only agentic arm run the
+# agentic arm alone under a second tag with MUNIN_EVAL_EGRESS=off (2026-09-15 recipe).
 export VLLM_MODEL_NAME=qwen3.8-27b LLM_REASONING_EFFORT=medium   # arm matching
 for arm in bare rag agentic; do
   MUNIN_EVAL_EGRESS=full PYTHONPATH=$HOME/.cache/munin_bench_deps:. \
-    $PY -m munin_bench.ablation.run_arm --arm $arm --n 199
+    $PY -m munin_bench.ablation.run_arm --arm $arm --n 199 --tag <run-tag>
 done
 
-$PY -m munin_bench.ablation.compare --date <D>
+$PY -m munin_bench.ablation.compare --date <D> --tag <run-tag>
 $PY -m munin_bench.ablation.abstain_arms --arm bare       # and --arm rag: abstention per arm on the fabricated set
-MUNIN_BENCH_ENTAILMENT_DEVICE=cuda:0 $PY -m munin_bench.ablation.faithfulness --date <D>
+MUNIN_BENCH_ENTAILMENT_DEVICE=cuda:0 $PY -m munin_bench.ablation.faithfulness --date <D> --tag <run-tag>   # cpu works too, ~1-2 h
+$PY -m munin_bench.toolreliability.score ablation_runs/<run-tag>/agentic.json --tag <D>_toolreliability-<slug>
 ```
 
 ---
@@ -330,9 +331,10 @@ Per-query raw artifacts live under `backend/benchmarks/results/` and are
 gitignored: they are regenerable, and the scorecards carry the per-query arrays
 that any paired test needs. **The exception is `ablation_runs/`, `c1_runs/`,
 `c2_runs/` and `faithfulness_runs/`**, which hold the per-query verdicts
-behind the Track C/D numbers, are not regenerable for the retired backbone,
-and are overwritten in place by a re-run. The Qwen3.6 set is archived
-off-machine (tarball with checksum and manifest, 2026-08-25).
+behind the Track C/D numbers and are not regenerable for a retired backbone.
+Since 2026-09-15 the ablation arms write to `ablation_runs/<tag>/` and resume
+from a capture, so a re-run no longer overwrites anything; the Qwen3.6 (2026-08-25)
+and Qwen3.8 (2026-09-15) sets are archived off-machine with checksums.
 
 ---
 

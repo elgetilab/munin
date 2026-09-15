@@ -68,6 +68,10 @@ def make_run_header(qc=None, neo4j=None, *, encoder="specter-v1", tag="",
             d = json.load(r)["data"][0]
         hdr["model"] = d.get("id")
         hdr["model_max_len"] = d.get("max_model_len")
+        # Checkpoint directory the server loaded; names the quantized build,
+        # which the served id alone does not (the 16 GB question for a small
+        # model is entirely which checkpoint, THIRD-MODEL-REVIEW section 4).
+        hdr["model_path"] = d.get("root")
     except Exception:
         hdr["model"] = config.VLLM_MODEL_NAME
     # corpus snapshot

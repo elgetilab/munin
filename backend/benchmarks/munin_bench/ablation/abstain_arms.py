@@ -19,13 +19,14 @@ import time
 
 from ..abstention.detect import classify
 from . import vllm_answer as V
+from . import runs_dir
 from .run_arm import _retrieve
 
 _HERE = os.path.dirname(__file__)
 _SET = os.path.join(_HERE, "..", "abstention", "fabricated_abstention.json")
 
 
-def run(arm: str, *, top_k: int = 5, limit: int = 0) -> dict:
+def run(arm: str, *, top_k: int = 5, limit: int = 0, tag: str | None = None) -> dict:
     items = json.load(open(_SET))["items"]
     if limit:
         items = items[:limit]
@@ -53,8 +54,7 @@ def run(arm: str, *, top_k: int = 5, limit: int = 0) -> dict:
     n = len(per)
     abstain = sum(1 for p in per if p["abstained"]) / n
     confab_cite = sum(1 for p in per if p["verdict"] == "confabulated_local_cite")
-    work = os.path.join(_HERE, "..", "..", "ablation_runs")
-    os.makedirs(work, exist_ok=True)
+    work = runs_dir(tag, create=True)
     json.dump({"arm": arm, "n": n, "abstain_rate": abstain,
                "confabulated_local_cite": confab_cite, "verdicts": dict(c),
                "per_item": per}, open(os.path.join(work, f"abstain_{arm}.json"), "w"), indent=2)
@@ -67,8 +67,11 @@ def main() -> int:
     ap.add_argument("--arm", required=True, choices=["bare", "rag"])
     ap.add_argument("--top-k", type=int, default=5)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--tag", default=None, help="ablation_runs/<tag>/ (or MUNIN_ABLATION_TAG)")
     args = ap.parse_args()
-    run(args.arm, top_k=args.top_k, limit=args.limit)
+    if not (args.tag or os.getenv("MUNIN_ABLATION_TAG")):
+        raise SystemExit("--tag (or MUNIN_ABLATION_TAG) is required for a write")
+    run(args.arm, top_k=args.top_k, limit=args.limit, tag=args.tag)
     return 0
 
 

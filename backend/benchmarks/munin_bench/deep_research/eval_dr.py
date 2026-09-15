@@ -32,7 +32,7 @@ import re
 import httpx
 
 import deep_research_agent as DR
-from database import VLLM_MODEL_NAME, VLLM_URL
+from database import VLLM_MODEL_NAME, VLLM_URL, thinking_off_fields
 
 _HERE = os.path.dirname(__file__)
 
@@ -76,7 +76,7 @@ async def _judge(question: str, document: str) -> dict:
             "messages": [{"role": "system", "content": _JUDGE_SYSTEM},
                          {"role": "user", "content": f"Question: {question}\n\nReport:\n{document[:8000]}"}],
             "max_tokens": 400, "temperature": 0.0, "stream": False,
-            "chat_template_kwargs": {"enable_thinking": False}}
+            **thinking_off_fields()}
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             r = await client.post(f"{VLLM_URL}/v1/chat/completions", json=body)

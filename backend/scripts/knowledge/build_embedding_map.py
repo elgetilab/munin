@@ -24,7 +24,8 @@ Environment:
     QDRANT_PORT          default 6333
     QDRANT_COLLECTION    default papers
     VLLM_URL             default http://127.0.0.1:8000
-    VLLM_MODEL_NAME      default qwen3.6-35b-a3b
+    VLLM_MODEL_NAME      default qwen3.8-27b
+    LLM_THINKING_MODE    default enable_thinking (effort_low for gpt-oss, none)
     EMBEDDING_MAP_PATH   default /opt/munin/knowledge/embedding_map.json
 
 CLI:
@@ -58,7 +59,18 @@ QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "papers")
 VLLM_URL = os.getenv("VLLM_URL", "http://127.0.0.1:8000")
-VLLM_MODEL_NAME = os.getenv("VLLM_MODEL_NAME", "qwen3.6-35b-a3b")
+VLLM_MODEL_NAME = os.getenv("VLLM_MODEL_NAME", "qwen3.8-27b")
+# Same contract as retrieval/database.py thinking_off_fields(); this script
+# runs from a systemd unit and cannot import the service, so it is restated.
+LLM_THINKING_MODE = os.getenv("LLM_THINKING_MODE", "enable_thinking").strip() or "enable_thinking"
+
+
+def _thinking_off_fields() -> dict:
+    if LLM_THINKING_MODE == "enable_thinking":
+        return {"chat_template_kwargs": {"enable_thinking": False}}
+    if LLM_THINKING_MODE == "effort_low":
+        return {"chat_template_kwargs": {"reasoning_effort": "low"}}
+    return {}
 EMBEDDING_MAP_PATH = os.getenv(
     "EMBEDDING_MAP_PATH", "/opt/munin/knowledge/embedding_map.json"
 )
@@ -318,7 +330,7 @@ def label_cluster_via_vllm(
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
         "max_tokens": 20,
-        "chat_template_kwargs": {"enable_thinking": False},
+        **_thinking_off_fields(),
     }
     try:
         r = requests.post(
