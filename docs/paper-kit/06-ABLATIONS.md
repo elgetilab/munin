@@ -87,8 +87,10 @@ between the runs, several material to the agentic arm.
 
 ### 1.5 The load/egress sensitivity companion
 
-`2026-07-26_harness-ablation`, same three arms at higher concurrency with
-constrained egress: agentic **0.688** (abstain 0.231, 11.1 calls/query, 183.8 s).
+`2026-07-26_harness-ablation`, same three arms at higher concurrency with the
+web tier degraded (egress on, Brave unfunded; not `egress=off`, which no
+agentic ablation arm has ever run at): agentic **0.688** (abstain 0.231, 11.1
+calls/query, 183.8 s).
 Bare and RAG are **bit-identical** across the two runs, which cleanly isolates
 the difference to the agentic arm. This is the ablation of the *measurement
 conditions* rather than the system, and it is the reason `10-REPRODUCE.md`
