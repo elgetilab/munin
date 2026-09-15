@@ -1656,7 +1656,8 @@ deploy_instance_up() {
 }
 
 deploy_instance_gates() {
-    local name=$1 state="$INSTANCES_DIR/$name"
+    local name=$1
+    local state="$INSTANCES_DIR/$name"   # two lines: `local a=$1 b="$a"` expands b before a is set
     [ -f "$state/profile" ] || { echo "[ERROR] no instance '$name'"; exit 1; }
     # shellcheck disable=SC1090
     source "$MODEL_ENV_SH"
@@ -1700,7 +1701,8 @@ print("MOUNTS:" + " ".join(sorted(t for t in set(pv) | set(iv) if pv.get(t) != i
 }
 
 deploy_instance_down() {
-    local name=$1 state="$INSTANCES_DIR/$name"
+    local name=$1
+    local state="$INSTANCES_DIR/$name"   # two lines: `local a=$1 b="$a"` expands b before a is set
     [ -d "$state" ] || { echo "[ERROR] no instance '$name'"; exit 1; }
     echo "[instance] down '$name' ..."
     run "docker rm -f munin-retrieval-$name 2>/dev/null || true"
