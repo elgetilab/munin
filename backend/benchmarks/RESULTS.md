@@ -380,7 +380,12 @@ Lessons (evidence-backed): over-tooling is not fixable by prompt (needs the code
 cap — shipped, routes into the existing wrap-up synthesis); grounding is not an
 evidence-availability problem (T1a null) — it is model synthesis + judge
 literalness (Track C1). Post-deploy routing anchor **0.963** (no regression; one
-`known_doi_read` S2-branch side-effect from a T3 description, fixed).
+`known_doi_read` S2-branch side-effect from a T3 description, fixed). That
+number is the tool-trajectory pass rate over 16 anchors x 5 reps, not a
+profile-routing accuracy; the router's profile pick is a non-gating diagnostic
+that stood at 0.70 in the same run, and the most recent anchor run
+(2026-07-25, after the tool consolidation) is 0.835. See
+`docs/ROUTING-EVAL-FACTS.md`.
 Scorecards: `2026-07-09_faithfulness-agentic-live-{t1a,cap}`,
 `2026-07-09_t2-postdeploy`, `2026-07-10_postcap-t3`.
 
