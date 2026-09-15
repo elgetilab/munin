@@ -1700,6 +1700,28 @@ print("MOUNTS:" + " ".join(sorted(t for t in set(pv) | set(iv) if pv.get(t) != i
     echo "[OK] instance '$name' is up and gated: vLLM :$vllm_port, API :$api_port, $MODEL_NAME"
 }
 
+deploy_instance_refresh() {
+    # Recreate an instance's retrieval container (new image or profile) without
+    # touching its vLLM job, then re-run the gates.
+    local name=$1
+    local state="$INSTANCES_DIR/$name"
+    [ -f "$state/profile" ] || { echo "[ERROR] no instance '$name'"; exit 1; }
+    # shellcheck disable=SC1090
+    source "$MODEL_ENV_SH"
+    TOKENIZER_HOST_DIR=$(cat "$state/tokenizer_dir"); munin_load_model_env "$(cat "$state/profile")" || exit 1
+    instance_render_compose "$name" "$(cat "$state/api_port")" "$(cat "$state/vllm_port")" \
+        "$(cat "$state/tokenizer_dir")" "$(cat "$state/corpus")" "$state/compose.yml"
+    check_compose_project || exit 1
+    echo "[instance] recreating retrieval-$name on the current image ..."
+    run "install -m 0644 $REPO_DIR/docker/docker-compose.yml $MUNIN_DOCKER/docker-compose.yml"
+    instance_compose "$name" up -d --force-recreate --no-deps "retrieval-$name" || exit 1
+    local i
+    for i in $(seq 1 90); do
+        curl -sf --max-time 2 "http://127.0.0.1:$(cat "$state/api_port")/health" > /dev/null 2>&1 && break; sleep 2
+    done
+    deploy_instance_gates "$name"
+}
+
 deploy_instance_down() {
     local name=$1
     local state="$INSTANCES_DIR/$name"   # two lines: `local a=$1 b="$a"` expands b before a is set
@@ -1748,10 +1770,12 @@ deploy_instance() {
                deploy_instance_down "${MODEL_ARGS[1]}" ;;
         gates) [ -n "${MODEL_ARGS[1]:-}" ] || { echo "Usage: sudo $0 instance gates <n>"; exit 1; }
                deploy_instance_gates "${MODEL_ARGS[1]}" ;;
+        refresh) [ -n "${MODEL_ARGS[1]:-}" ] || { echo "Usage: sudo $0 instance refresh <n>"; exit 1; }
+               deploy_instance_refresh "${MODEL_ARGS[1]}" ;;
         logs)  [ -n "${MODEL_ARGS[1]:-}" ] || { echo "Usage: sudo $0 instance logs <n> [docker logs args]"; exit 1; }
                docker logs "${MODEL_ARGS[@]:2}" "munin-retrieval-${MODEL_ARGS[1]}" ;;
         ls)    deploy_instance_ls ;;
-        *) echo "Usage: sudo $0 instance {up <slug> --name <n> [--vllm-port P] [--api-port P] [--corpus live|shadow] [--vllm <n>] [--gpu-util U] [--download] | down <n> | gates <n> | logs <n> | ls}"; exit 1 ;;
+        *) echo "Usage: sudo $0 instance {up <slug> --name <n> [--vllm-port P] [--api-port P] [--corpus live|shadow] [--vllm <n>] [--gpu-util U] [--download] | refresh <n> | down <n> | gates <n> | logs <n> | ls}"; exit 1 ;;
     esac
 }
 

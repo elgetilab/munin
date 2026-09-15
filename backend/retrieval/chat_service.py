@@ -837,10 +837,36 @@ class _StreamAccumulator:
             tc = self.tool_calls[idx]
             out.append({
                 "id": tc.get("id") or f"tc-{idx}",
-                "name": tc.get("name") or "",
+                "name": repair_tool_name(tc.get("name") or ""),
                 "arguments": _parse_arguments(tc.get("arguments_raw")),
             })
         return out
+
+
+# Harmony-format (gpt-oss) tool calls arrive from vLLM's `openai` tool parser
+# with the channel header occasionally glued to the recipient: the model
+# writes `to=functions.source<|channel|>commentary <|constrain|>json` and the
+# parser hands us name="source<|channel|>commentary" (49 of 1,606 calls, 3%,
+# on the 2026-09-15 gpt-oss-20b Track D run; the executor then reported an
+# unknown tool and the model retried). Cut the name at the first special token.
+# A no-op for every model whose parser emits clean names (Qwen3 never has),
+# and counted so T11 can report how often the repair fired. This is the same
+# class of accommodation as the Qwen-shaped clarification repairs below; the
+# paper reports it rather than pretending the parser was clean.
+_TOOL_NAME_TOKEN = _re.compile(r"<\|")
+TOOL_NAME_REPAIRS = 0
+
+
+def repair_tool_name(name: str) -> str:
+    """Strip a harmony special token (and everything after it) from a tool name."""
+    global TOOL_NAME_REPAIRS
+    m = _TOOL_NAME_TOKEN.search(name or "")
+    if not m:
+        return name
+    fixed = name[:m.start()].strip()
+    TOOL_NAME_REPAIRS += 1
+    logger.warning("tool name repaired: %r -> %r (harmony channel token in recipient)", name, fixed)
+    return fixed
 
 
 async def _stream_vllm_once(

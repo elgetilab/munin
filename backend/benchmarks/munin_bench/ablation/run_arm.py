@@ -52,8 +52,13 @@ def select_questions(n: int, seed: int = 7) -> list[dict]:
 
 def _questions(n: int) -> list[dict]:
     if os.path.exists(_QSET):
-        want = set(json.load(open(_QSET))["qids"])
-        return [q for q in load_litqa2() if q["qid"] in want]
+        # The frozen set, in its frozen order; the first n of it when n is
+        # smaller. Until 2026-09-15 n was ignored whenever the frozen file
+        # existed, so `run_all --limit 20` silently ran all 199 questions.
+        qids = json.load(open(_QSET))["qids"]
+        by_id = {q["qid"]: q for q in load_litqa2() if q["qid"] in set(qids)}
+        ordered = [by_id[i] for i in qids if i in by_id]
+        return ordered[:n] if n and n < len(ordered) else ordered
     sel = select_questions(n)
     json.dump({"qids": [q["qid"] for q in sel], "n": len(sel), "seed": 7},
               open(_QSET, "w"), indent=2)
@@ -198,6 +203,19 @@ def _agentic_one(q: dict, base_url: str, email: str, deadline: int = 900) -> dic
             "tool_events": tool_events}
 
 
+def _direct_extras(r: dict) -> dict:
+    """Provenance for the direct-vLLM arms: why an answer may be empty."""
+    out = {k: r[k] for k in ("finish_reason", "reasoning_tail", "tool_calls_attempted") if k in r}
+    if not (r.get("content") or "").strip():
+        if r.get("finish_reason") == "length":
+            out["empty_kind"] = "truncated"          # budget hit: a harness limit
+        elif r.get("tool_calls_attempted"):
+            out["empty_kind"] = "tool_call_instead"  # model called a tool it does not have
+        else:
+            out["empty_kind"] = "no_final_message"   # reasoned, then ended the turn
+    return out
+
+
 def _git_sha() -> str:
     try:
         return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"],
@@ -240,14 +258,15 @@ def run(arm: str, n: int, *, top_k: int = 5, base_url: str = "http://127.0.0.1:8
                 r = V.bare_answer(mcq["prompt"])
                 row = {"qid": q["qid"], **_verdict(mcq, r["content"]), "tool_calls": 0,
                        "elapsed_s": r["elapsed_s"], "prompt_tokens": r["prompt_tokens"],
-                       "completion_tokens": r["completion_tokens"], "n_contexts": 0}
+                       "completion_tokens": r["completion_tokens"], "n_contexts": 0,
+                       "answer": r["content"], **_direct_extras(r)}
             elif arm == "rag":
                 ctx = _retrieve(q["question"], top_k)
                 r = V.rag_answer(mcq["prompt"], ctx)
                 row = {"qid": q["qid"], **_verdict(mcq, r["content"]), "tool_calls": 0,
                        "elapsed_s": r["elapsed_s"], "prompt_tokens": r["prompt_tokens"],
                        "completion_tokens": r["completion_tokens"], "n_contexts": len(ctx),
-                       "answer": r["content"], "contexts": ctx}
+                       "answer": r["content"], "contexts": ctx, **_direct_extras(r)}
             elif arm == "agentic":
                 row = _agentic_one(q, base_url, email, deadline=deadline)
             else:

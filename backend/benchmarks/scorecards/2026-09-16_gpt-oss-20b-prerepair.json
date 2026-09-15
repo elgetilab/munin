@@ -1,0 +1,167 @@
+{
+  "meta": {
+    "tag": "gpt-oss-20b-smoke",
+    "generated_at": "2026-09-15T22:40:01.799158+00:00",
+    "git_sha": "a74526a",
+    "encoder": "specter-v1",
+    "seed": 42,
+    "packages": {
+      "numpy": "2.5.0",
+      "scipy": "1.17.1",
+      "sentence_transformers": "6.0.0",
+      "qdrant_client": "n/a"
+    },
+    "model": "gpt-oss-20b",
+    "model_max_len": 65536,
+    "model_path": "/opt/munin/data/models/gpt-oss-20b",
+    "corpus_papers": 68913,
+    "backbone": "gpt-oss-20b",
+    "checkpoint": "openai/gpt-oss-20b",
+    "checkpoint_dir": "/opt/munin/data/models/gpt-oss-20b",
+    "instance": "eval",
+    "tool_parser": "openai",
+    "reasoning_parser": "openai_gptoss",
+    "thinking_mode": "effort_low",
+    "sampling_default": "{\"temperature\": 1.0, \"top_p\": 1.0}",
+    "sampling_code": "{\"temperature\": 1.0, \"top_p\": 1.0}",
+    "serving_profile": "single-gpu-instance",
+    "max_num_seqs": "2",
+    "gpu_mem_util": "0.80",
+    "concurrency": "1",
+    "deadline_s": "900",
+    "driver": "run_suite.sh",
+    "moe_backend": "MARLIN",
+    "kv_tokens": "889667",
+    "decode_tok_s": "291.7",
+    "prefill_tok_s": "342662.7",
+    "thinking_off_token_ratio": "1.0",
+    "ablation_runs_dir": "ablation_runs/gpt-oss-20b-prerepair",
+    "ablation_deltas": {
+      "rag_minus_bare": {
+        "delta": -0.2412,
+        "ci": [
+          -0.3166,
+          -0.1759
+        ],
+        "p": 0.0
+      },
+      "agentic_minus_rag": {
+        "delta": 0.407,
+        "ci": [
+          0.3266,
+          0.4775
+        ],
+        "p": 0.0
+      },
+      "agentic_minus_bare": {
+        "delta": 0.1658,
+        "ci": [
+          0.0704,
+          0.2513
+        ],
+        "p": 0.0
+      }
+    },
+    "ablation_unparseable_reasons": {
+      "bare": {
+        "empty_content": 43,
+        "letter_not_found": 3
+      },
+      "rag": {
+        "empty_content": 162,
+        "letter_not_found": 3
+      },
+      "agentic": {
+        "letter_not_found": 25,
+        "empty_content": 6
+      }
+    },
+    "egress": "full",
+    "base_url": "http://127.0.0.1:8082",
+    "reasoning_effort": "medium",
+    "max_output_tokens": 16384,
+    "note": "Track D n=199 on gpt-oss-20b BEFORE the two 2026-09-15 fixes: harmony tool names with <|channel|> tokens reached the executor unrepaired (49 of 1606 calls) and the scorer did not parse bold **Answer:** letters (16 of 25 agentic letter_not_found). Kept as the unrepaired-parser comparison point; the headline run is the re-run under tag gpt-oss-20b. Was tagged -smoke because --limit 20 did not limit the frozen Track D set."
+  },
+  "tasks": {
+    "ablation": {
+      "bare": {
+        "metrics": {
+          "accuracy": {
+            "mean": 0.3015075376884422
+          },
+          "precision": {
+            "mean": 0.425531914893617
+          },
+          "abstain_rate": {
+            "mean": 0.06030150753768844
+          },
+          "mean_tool_calls": {
+            "mean": 0.0
+          },
+          "mean_elapsed_s": {
+            "mean": 1.9
+          },
+          "unparseable": {
+            "mean": 46.0
+          },
+          "tool_markup_in_content": {
+            "mean": 0.0
+          }
+        },
+        "per_query": {}
+      },
+      "rag": {
+        "metrics": {
+          "accuracy": {
+            "mean": 0.06030150753768844
+          },
+          "precision": {
+            "mean": 0.631578947368421
+          },
+          "abstain_rate": {
+            "mean": 0.07537688442211055
+          },
+          "mean_tool_calls": {
+            "mean": 0.0
+          },
+          "mean_elapsed_s": {
+            "mean": 0.9
+          },
+          "unparseable": {
+            "mean": 165.0
+          },
+          "tool_markup_in_content": {
+            "mean": 0.0
+          }
+        },
+        "per_query": {}
+      },
+      "agentic": {
+        "metrics": {
+          "accuracy": {
+            "mean": 0.46733668341708545
+          },
+          "precision": {
+            "mean": 0.8857142857142857
+          },
+          "abstain_rate": {
+            "mean": 0.3165829145728643
+          },
+          "mean_tool_calls": {
+            "mean": 8.1
+          },
+          "mean_elapsed_s": {
+            "mean": 25.3
+          },
+          "unparseable": {
+            "mean": 31.0
+          },
+          "tool_markup_in_content": {
+            "mean": 1.0
+          }
+        },
+        "per_query": {}
+      }
+    }
+  }
+}
