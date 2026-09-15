@@ -1,7 +1,19 @@
 # Backbone instances, and the gpt-oss-20b full-suite measurement
 
-Status: **PLAN, 2026-09-15, decisions closed, awaiting go.** Nothing
-implemented. Supersedes two same-day drafts (parallel stack; full swap).
+Status: **IMPLEMENTED 2026-09-15 (evening), run pending.** Commits `54d4d1d`
+(bench autonomy), `1b79887` (model profiles, sampling migration, `/api/models`),
+`9bf13c4` (sudoers), `450aa1c` (instances + gates), `9cef413` (driver, shadow
+corpus, per-track resume). What was built matches sections 2, 4 and 5 below
+with these naming differences: the driver is
+`backend/benchmarks/scripts/run_suite.sh <slug>`; instance state lives under
+`/opt/munin/instances/<name>/`; the shadow corpus is built and dropped by
+`munin_bench.abstention.shadow_corpus`; the gates are
+`scripts/vllm/backbone_gates.py`; per-backbone scorecards carry a `-<slug>`
+suffix. Awaiting: the sudoers install (one root command), the deploy of
+`1b79887` to production (`deploy.sh vllm`, `retrieval`, `model activate
+qwen3.8-27b`, `personas`), and the owner's TP=2 to single switch. Then
+`scripts/run_suite.sh gpt-oss-20b`. Supersedes two same-day drafts (parallel
+stack; full swap).
 Implements `THIRD-MODEL-REVIEW.md` Experiment A, the cross-lab check, with
 `openai/gpt-oss-20b`; the Qwen3.5-9B hardware-floor run (Experiment B) is
 deferred and its config file is not written.
