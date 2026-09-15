@@ -130,7 +130,8 @@ gates_field() {   # $1 = gates.json, $2 = gate, $3 = field
 # ==============================================================================
 if ! phase_done 0; then
     log "--- phase 0: preflight ---"
-    sudo -n true 2>/dev/null || die "passwordless sudo missing: sudo MUNIN_OPERATOR=$USER $BACKEND/deploy.sh sudoers"
+    # the sudoers rule is command-scoped, so probe with an allowed command, not `true`
+    $VLLM_SERVICE status > /dev/null 2>&1 || die "passwordless sudo for vllm-service missing: sudo MUNIN_OPERATOR=$USER $BACKEND/deploy.sh sudoers"
     # production must be on the single-GPU profile: TP=2 holds GPU 0.
     prod_job=$(squeue -h -n vllm-service -o %T 2>/dev/null | head -1)
     tp2_job=$(squeue -h -n vllm-service-tp2 -o %T 2>/dev/null | head -1)
