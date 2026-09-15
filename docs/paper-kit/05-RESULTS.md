@@ -565,7 +565,23 @@ Read it as "web results rarely consumed", not "web search broken".
 
 ## R7. Routing
 
-Routing anchor eval (used as a deploy gate for every harness change):
-post-deploy score **0.963**, against a gate of >= 0.950. Scorecards under the
-`2026-06-2x_routing-*` and `2026-06-2x_a5-*` series (24 files covering the A0
-through A5 migration).
+Routing anchor eval, used as a written deploy gate for harness changes during
+the 2026-06/07 migration and harness iteration. **The metric is a
+tool-trajectory pass rate, not a routing accuracy**: an anchor passes a rep
+when its gated tool checks hold; the router's profile pick is recorded only as
+a non-gating diagnostic.
+
+| Run | Anchors x reps | Mean pass rate | 95% CI (rough, normal over item means) | `profile_match` (diagnostic) |
+|---|---|---|---|---|
+| 2026-07-10 `postcap-t3` (after the tool-call cap) | 16 x 5 | **0.963** (77/80) | 0.911-1.000 | 7/10 labelled anchors, 0.70 |
+| 2026-07-25 `toolretire-after` (after tool consolidation, most recent) | 17 x 5 | 0.835 | | 8/11 |
+
+The `>= 0.950` gate was a procedure written in two plan documents and read
+off the scorecard by a person; no code, CI or deploy-script check enforces
+it. The KNN example set changed again on 2026-08-27 with no anchor run since,
+so 0.963 describes the 2026-07-10 deploy, not the current tree. Scorecards
+under the `2026-06-2x_routing-*` and `2026-06-2x_a5-*` series (24 files
+covering the A0 through A5 migration) plus the anchor-tier files above;
+provenance, anchor-set size (18 items, 17 runnable, 11 profile-labelled),
+disjointness from the 244-example KNN index, and the cannot-claim list are in
+`docs/ROUTING-EVAL-FACTS.md`.
