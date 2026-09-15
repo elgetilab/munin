@@ -254,6 +254,12 @@ def parse_letter(text: str, letters: list[str], options: dict | None = None) -> 
     """Extract the chosen option letter from the answer (robust to several
     formats; falls back to matching the stated answer TEXT against an option)."""
     valid = "".join(letters)
+    # Markdown emphasis is not part of an answer: `**Answer:** A`, `Answer: **A**`
+    # and `*A*` must parse like their plain forms. gpt-oss-20b writes the bold
+    # form routinely and 25 of its 31 "unparseable" agentic answers on
+    # 2026-09-15 were exactly this; re-parsing the stored Qwen3.8 answers with
+    # the strip applied changes none of their verdicts (checked before landing).
+    text = re.sub(r"[*_`]+", "", text or "")
     # 1. explicit answer phrasings, anywhere (take the LAST occurrence)
     pats = [rf"answer\s*(?:is|:|\-|=)?\s*\(?([{valid}])\)?\b",
             rf"\b(?:option|choice|select|choose|pick)\s*\(?([{valid}])\)?\b",

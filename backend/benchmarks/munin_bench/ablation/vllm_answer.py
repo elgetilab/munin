@@ -63,13 +63,24 @@ def complete(prompt: str, *, system: str, max_tokens: int = None,
     t0 = time.time()
     resp = json.load(urllib.request.urlopen(req, timeout=timeout))
     elapsed = time.time() - t0
-    content = (resp["choices"][0]["message"].get("content") or "")
+    choice = resp["choices"][0]
+    msg = choice.get("message") or {}
+    content = (msg.get("content") or "")
     usage = resp.get("usage") or {}
+    # Kept so an EMPTY content can be told apart afterwards: a budget
+    # truncation (finish_reason=length) from a model that reasoned and then
+    # ended its turn without a final message. gpt-oss-20b does the latter on
+    # 22% of bare and 81% of RAG prompts ("Use search." then stop, ~130
+    # tokens, finish=stop), which is a behaviour to report, not a harness limit.
+    reasoning = msg.get("reasoning") or msg.get("reasoning_content") or ""
     return {
         "content": content,
         "prompt_tokens": usage.get("prompt_tokens", 0),
         "completion_tokens": usage.get("completion_tokens", 0),
         "elapsed_s": round(elapsed, 2),
+        "finish_reason": choice.get("finish_reason"),
+        "reasoning_tail": reasoning[-240:],
+        "tool_calls_attempted": len(msg.get("tool_calls") or []),
     }
 
 

@@ -74,6 +74,10 @@ def compare(arms=("bare", "rag", "agentic"), date: str | None = None,
             # Parser-vs-model split. Pre-2026-09-15 captures carry no reason
             # and report "unrecorded" rather than a guessed bucket.
             "unparseable_reasons": dict(reasons),
+            # direct-vLLM arms only: why content was empty (truncated vs the
+            # model ending its turn without a final message). Pre-2026-09-15
+            # captures carry no kind.
+            "empty_kinds": dict(Counter(r["empty_kind"] for r in rows if r.get("empty_kind"))),
             "tool_markup_in_content": sum(1 for r in rows if r.get("tool_markup_in_content")),
             "deadline_hits": sum(1 for r in rows if r.get("deadline_hit")),
             "cost": _cost(rows),
