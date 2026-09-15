@@ -5,13 +5,14 @@ reproduce it. Every number below is copied from
 [`backend/benchmarks/RESULTS.md`](backend/benchmarks/RESULTS.md), which is
 copied in turn from committed scorecard JSON, not from memory.
 
-**Provenance is SPLIT by model as of 2026-08-26.** Claims 1, 2 and 5 (Track D,
+**Provenance moved to the production model between 2026-08-26 and 2026-09-15.** Claims 1, 2 and 5 (Track D,
 faithfulness, T11) were re-measured on `qwen3.8-27b`
 (`cyankiwi/Qwen3.8-27B-AWQ-INT4`, dense 27B, TP=2, 64k,
 `reasoning_effort=medium`), which is what production serves. Claim 3
-(abstention) is split: C1 was re-run on `qwen3.8-27b` on 2026-09-14 and
-holds; C2b is still on the retired `qwen3.6-35b-a3b`
-(Qwen3.6-35B-A3B-AWQ-4bit) and says so inline. Claim 4 (retrieval) is
+(abstention) was re-run on `qwen3.8-27b` on 2026-09-14 (C1) and 2026-09-15
+(C2b, risk-coverage), so **every headline is now on the production backbone**;
+the retired `qwen3.6-35b-a3b` (Qwen3.6-35B-A3B-AWQ-4bit) figures are kept
+beside each as the second backbone. Claim 4 (retrieval) is
 **model-independent at scoring time** and was not re-run: AgentRetriever
 scores against frozen Qwen3.6-era query variants generated once by the
 production expander, and regenerating them would change the benchmark, not
@@ -24,7 +25,7 @@ Corpus at time of writing: 68,462 papers.
 
 > **Drafting the paper?** [`docs/paper-kit/`](docs/paper-kit/) is a
 > self-contained bundle (system, architecture, corpus, methods, results,
-> ablations, findings, limitations, related work, reproduce, plus the 21
+> ablations, findings, limitations, related work, reproduce, plus the 23
 > headline scorecards) written to be read without repository access. This file
 > stays the short claim-to-scorecard index.
 
@@ -120,12 +121,10 @@ Scorecards: `scorecards/2026-08-26_harness-ablation-faithfulness.json` (current)
 Track C. Prior art exists (KnowOrNot, arXiv 2505.13545), so the claim is
 narrowed to corpus-grounded abstention with a paired shadow corpus.
 
-> **C2b and risk-coverage are on the RETIRED `qwen3.6-35b-a3b`**, not on what
-> production serves. C2b was not re-run in the 2026-08-26 model swap; it needs
-> the `papers_shadow` Qdrant collection rebuilt from the frozen 50 questions
-> and a second retrieval instance on :8081. Claim 1 found Qwen3.8 abstains far
-> less than Qwen3.6 outside the harness, so the C2b figures should **not** be
-> assumed to carry over. **C1 was re-run on Qwen3.8 on 2026-09-14 and holds.**
+> All three Track C results are now on **`qwen3.8-27b`** (C1 2026-09-14, C2b
+> and risk-coverage 2026-09-15), with the Qwen3.6 figures kept for comparison.
+> The C2b re-run also had to shadow the chunk index (`papers_chunks_shadow`),
+> a leak path that did not exist when the 07-27 pair ran; see RESULTS.md.
 
 - **C1, fabricated papers** (n=100), **on `qwen3.8-27b`**: abstain **1.000**
   (Wilson [0.963, 1.000]), **0 confabulated local citations**, 100/100 correct
@@ -134,19 +133,26 @@ narrowed to corpus-grounded abstention with a paired shadow corpus.
   guesses more freely on its own refused every fabricated paper inside the
   harness. 13 refusals also cite a real corpus paper as related or as the
   likely intended target; spot-checked, none substitutes it for the asked one.
-- **C2b, paired shadow corpus** at matched `egress=off` (n=50): accuracy drops
-  0.540 → 0.080 when the source paper is removed, abstain 0.400 → 0.740. On the
-  answerable subset, correct abstention is **0.667 [0.481, 0.852]** (n=27), up
-  from 0.200 [0.050, 0.350] on the 2026-07-10 harness: question-paired delta
-  **+0.467 [0.232, 0.697], p < 0.001**. The 2026-07-10 reading of this pair was
-  confounded by egress; the 2026-07-27 re-run at matched egress reverses it.
-- **Risk-coverage**, litqa2-answerable, n=199: agentic reaches coverage
-  **0.925 [0.88, 0.96]** at selective risk **0.092 [0.05, 0.14]**; bare answers
-  nearly as often (0.633) at ~5.7x the risk (0.524); RAG buys low risk only by
-  refusing most questions (coverage 0.241).
+- **C2b, paired shadow corpus** at matched `egress=off` (n=50), **on
+  `qwen3.8-27b`**: accuracy drops **0.540 → 0.040** when the source paper is
+  removed, abstain 0.420 → 0.920. On the answerable subset (n=27), correct
+  abstention is **0.889** (bootstrap [0.777, 1.000], Wilson [0.719, 0.961]);
+  2 answered still correct, 1 wrong. On Qwen3.6 (2026-07-27) the same pair
+  gave 0.540 → 0.080, correct abstention 0.667 [0.481, 0.852]; question-paired
+  delta Qwen3.8 − Qwen3.6 **+0.222 [0.040, 0.420], p = 0.015**, suggestive
+  since backbone and seven weeks of harness moved together. The 2026-07-10
+  reading (0.200) was confounded by egress; every pair since runs both arms
+  at `off`.
+- **Risk-coverage**, litqa2-answerable, n=199, **on `qwen3.8-27b`**: agentic
+  reaches coverage **0.925 [0.88, 0.96]** at selective risk **0.054 [0.02,
+  0.09]**; bare answers more often (0.960) at ~11x the risk (0.597); RAG
+  answers half (0.502) at 0.580. Qwen3.6: agentic 0.925 / 0.092, bare 0.633 /
+  0.524, RAG 0.241 / 0.292. The harness keeps coverage and halves risk across
+  the swap while both baselines got riskier.
 
-Scorecards: `2026-09-14_abstention-c1-fabricated.json` (C1, current),
-`2026-07-27_abstention-c1-fabricated.json` (C1, Qwen3.6),
+Scorecards (current): `2026-09-14_abstention-c1-fabricated.json`,
+`2026-09-15_abstention-c2-shadow.json`, `2026-09-15_risk-coverage.json`.
+Qwen3.6: `2026-07-27_abstention-c1-fabricated.json`,
 `2026-07-27_abstention-c2-shadow.json`, `2026-07-27_risk-coverage.json`.
 
 ## 4. Retrieval
@@ -253,7 +259,7 @@ Two operational notes that will otherwise cost you a day:
 |---|---|
 | **Paper kit** (self-contained drafting bundle, 19 scorecards) | `docs/paper-kit/` |
 | Results log (canonical numbers) | `backend/benchmarks/RESULTS.md` |
-| Scorecards (63 JSON, 48 Markdown) | `backend/benchmarks/scorecards/` |
+| Scorecards (65 JSON, 49 Markdown) | `backend/benchmarks/scorecards/` |
 | Benchmark harness | `backend/benchmarks/munin_bench/` |
 | Certification thresholds | `backend/benchmarks/certification_thresholds.json` |
 | Paper track: plans, specs, open items | `docs/paper-track/` |

@@ -11,8 +11,8 @@ comparable and were never meant to be pooled.
 from Qwen3.6-35B-A3B (MoE, retired) to Qwen3.8-27B (dense, what production
 serves). R1, R2 and R6 were re-measured on Qwen3.8 over the same 199 questions
 and carry both columns; the Qwen3.8 column is the headline. R3 (abstention)
-is split: C1 was re-run on Qwen3.8 (2026-09-14) and holds; C2b and
-risk-coverage are on Qwen3.6. R4 (retrieval) is backbone-independent
+was re-run on Qwen3.8 in two steps (C1 2026-09-14, C2b and risk-coverage
+2026-09-15) and holds on both counts. R4 (retrieval) is backbone-independent
 at scoring time, against frozen Qwen3.6-era query variants (see R4). Within a
 run, comparisons are paired and clean;
 **across the two backbones they are suggestive, not controlled**, because 16
@@ -137,15 +137,15 @@ Scorecards: `2026-07-09_faithfulness-agentic-live` (baseline), `-t1a`, `-cap`.
 
 ## R3. Abstention (Track C)
 
-> **Backbone is split in this section.** C1 was re-run on **Qwen3.8** on
-> 2026-09-14 and is reported on both backbones. C2b and the risk-coverage
-> points are on **Qwen3.6-35B-A3B, retired**: C2b was not re-run in the
-> model swap (it needs the `papers_shadow` Qdrant collection rebuilt from the
-> frozen 50 questions and a second retrieval instance on :8081). R1 shows
-> Qwen3.8 abstains far less than Qwen3.6 **outside** the harness (bare 0.201
-> → 0.040, RAG 0.749 → 0.498) and identically inside it (0.075), so the C2b
-> figures should not be assumed to carry over unchanged; C1, the case most
-> exposed to that disposition, did carry over.
+> **All three Track C results are on Qwen3.8 as the headline** (C1
+> 2026-09-14; C2b and risk-coverage 2026-09-15), with the Qwen3.6 figures
+> kept beside them. R1 shows Qwen3.8 abstains far less than Qwen3.6
+> **outside** the harness (bare 0.201 → 0.040, RAG 0.749 → 0.498) and
+> identically inside it (0.075); Track C is where that disposition would
+> show up as confabulation or as answering without the source, and on both
+> counts the harness result held or improved. The C2b re-run needed a second
+> shadow, of the chunk index, because the evidence layer that reads it did
+> not exist when the 07-27 pair ran; see the C2b block.
 
 ### C1: fabricated papers
 
@@ -177,36 +177,55 @@ ablation harness).
 
 50 single-source-DOI LitQA2 questions asked twice: against the live corpus, and
 against an isolated retrieval instance on `papers_shadow` (= `papers_bge` minus
-the 49 source papers). Shadow verified: 49/49 present in `papers_bge`, **0/49**
-in `papers_shadow`. **Both arms at `egress=off`.**
+the 49 source papers). Shadow verified each time: 49/49 present in
+`papers_bge`, **0/49** in `papers_shadow`. **Both arms at `egress=off`.**
+The 2026-09-15 run additionally shadowed the chunk index
+(`papers_chunks_shadow` = `papers_chunks` minus those papers' 2,247 chunks,
+leakage 0): the chunk-level evidence layer (2026-08-30) post-dates the 07-27
+design, and without it the absent arm could have read the removed papers'
+chunks. The shadow instance is an `extends` of the production service with
+only the two collection variables overridden, verified with `docker compose
+config`.
 
-| | 07-10 present | 07-10 absent | **07-27 present** | **07-27 absent** |
-|---|---|---|---|---|
-| Accuracy | 0.400 | 0.340 | **0.540** | **0.080** |
-| Abstain rate | 0.480 | 0.500 | **0.400** | **0.740** |
-| Unparseable | 3 | n/a | **0** | **0** |
-| Accuracy drop on source removal | −0.060 | | **−0.460** | |
+| | 07-10 present | 07-10 absent | 07-27 present | 07-27 absent | **09-15 present** | **09-15 absent** |
+|---|---|---|---|---|---|---|
+| Backbone | Qwen3.6 | Qwen3.6 | Qwen3.6 | Qwen3.6 | **Qwen3.8** | **Qwen3.8** |
+| Accuracy | 0.400 | 0.340 | 0.540 | 0.080 | **0.540** | **0.040** |
+| Abstain rate | 0.480 | 0.500 | 0.400 | 0.740 | **0.420** | **0.920** |
+| Unparseable | 3 | n/a | 0 | 0 | **0** | **0** |
+| Accuracy drop on source removal | −0.060 | | −0.460 | | **−0.500** | |
 
 On the answerable subset (questions the present arm answered correctly), when
 the source is removed:
 
-| | 07-10 (n=20) | 07-27 (n=27) |
-|---|---|---|
-| **Correct abstention** (desired) | 4 (**0.200**) | 18 (**0.667**) |
-| Answered, still correct (from memory or web) | 12 (0.600) | 4 (0.148) |
-| Answered, now wrong (over-confident) | 4 (0.200) | 5 (0.185) |
+| | 07-10 (n=20) | 07-27 (n=27) | **09-15 (n=27)** |
+|---|---|---|---|
+| **Correct abstention** (desired) | 4 (**0.200**) | 18 (**0.667**) | **24 (0.889)** |
+| Answered, still correct (from memory or adjacent corpus papers) | 12 (0.600) | 4 (0.148) | 2 (0.074) |
+| Answered, now wrong (over-confident) | 4 (0.200) | 5 (0.185) | 1 (0.037) |
+
+The present arm is stable across the backbones (27 correct both times, 24 the
+same questions), so the answerable population is the same and the comparison
+is on the absent arm. On the 24 questions answerable in both runs, the
+absent-arm verdict moved 07-27 → 09-15 as 14 abstain → abstain, 5 incorrect →
+abstain, 2 correct → abstain, 1 correct → correct, 1 abstain → correct, 1
+correct → incorrect: the gain is wrong-answers-without-the-source becoming
+refusals.
 
 **Confidence intervals on correct abstention** (added 2026-08-04 by re-scoring
 the existing captures; verdicts unchanged). Percentile bootstrap, 2000
 resamples, seed 42, with the Wilson score interval alongside because at
 n = 20-27 the bootstrap can only land on multiples of 1/n:
 
-| Run | n | Rate | Bootstrap | Wilson |
-|---|---|---|---|---|
-| 2026-07-10 | 20 | 0.200 | [0.050, 0.350] | [0.081, 0.416] |
-| **2026-07-27** | **27** | **0.667** | **[0.481, 0.852]** | **[0.478, 0.814]** |
+| Run | Backbone | n | Rate | Bootstrap | Wilson |
+|---|---|---|---|---|---|
+| 2026-07-10 | Qwen3.6, flat loop | 20 | 0.200 | [0.050, 0.350] | [0.081, 0.416] |
+| 2026-07-27 | Qwen3.6 | 27 | 0.667 | [0.481, 0.852] | [0.478, 0.814] |
+| **2026-09-15** | **Qwen3.8** | **27** | **0.889** | **[0.777, 1.000]** | **[0.719, 0.961]** |
 
-**The two intervals are disjoint on both methods.**
+**The 07-10 and 07-27 intervals are disjoint on both methods.** The 09-15
+interval overlaps the 07-27 one; the question-paired test below is what
+settles that comparison, not the overlap.
 
 **The move is a tested delta, not an inference from non-overlap.** Both runs
 use the same 50 frozen questions, so the comparison is paired at the question
@@ -214,10 +233,19 @@ level: one resample of question ids drives both arms, and each arm derives its
 own answerable subset inside that resample.
 
 **correct abstention 0.200 → 0.667: delta +0.467 [0.232, 0.697], p < 0.001**
-(n = 50 paired questions, 2000 resamples, seed 42).
+(n = 50 paired questions, 2000 resamples, seed 42). That is the harness
+rewrite on one backbone, and it is the controlled comparison.
 
-A third interval is stored in the scorecard: an **unconditional** bootstrap
-that also resamples *which* questions are answerable, giving [0.481, 0.833]. It
+**correct abstention 0.667 → 0.889 (Qwen3.6 → Qwen3.8): delta +0.222 [0.040,
+0.420], p = 0.015**, same pairing. This one is **suggestive, not
+controlled**: backbone and seven weeks of harness commits moved together,
+and the chunk shadow closes a leak the 07-27 design did not face. The
+within-pair numbers on 09-15 (present vs absent, same day, same code, same
+questions) are clean and are the claim.
+
+A third interval is stored in each scorecard: an **unconditional** bootstrap
+that also resamples *which* questions are answerable, giving [0.481, 0.833] on
+07-27 and [0.750, 1.000] on 09-15. It
 is marginally **narrower** than the conditional interval, not wider, because
 the rate is a ratio estimator whose numerator and denominator co-vary, so the
 membership variance largely cancels. Its role is a robustness check that
@@ -227,14 +255,19 @@ consistency with every other CI in the suite.
 
 The other two cells of the answerable subset (they are a **multinomial** over
 the same 27 items, so these marginals are not independent and cannot move
-separately): answered-still-correct 0.148 [0.037, 0.296], answered-now-wrong
+separately): on 09-15 answered-still-correct 0.074 [0.000, 0.185],
+answered-now-wrong 0.037 [0.000, 0.111]; on 07-27 0.148 [0.037, 0.296] and
 0.185 [0.037, 0.333].
 
-The remaining rates on the full n = 50 pair, for completeness: present accuracy
-0.540 [0.400, 0.680], present abstain 0.400 [0.260, 0.540], absent accuracy
-0.080 [0.020, 0.160], absent abstain 0.740 [0.620, 0.840].
+The remaining rates on the full n = 50 pair, for completeness. 09-15: present
+accuracy 0.540 [0.400, 0.680], present abstain 0.420 [0.280, 0.560], absent
+accuracy 0.040 [0.000, 0.100], absent abstain 0.920 [0.840, 0.980]. 07-27:
+0.540 [0.400, 0.680], 0.400 [0.260, 0.540], 0.080 [0.020, 0.160], 0.740
+[0.620, 0.840].
 
-Scorecard: `2026-07-27_abstention-c2-shadow`.
+Scorecards: `2026-09-15_abstention-c2-shadow` (headline; carries the
+question-paired delta vs 07-27 and a `harness_note`),
+`2026-07-27_abstention-c2-shadow` (Qwen3.6).
 
 ### C2b at `egress=full` (a different experiment, not comparable)
 
@@ -266,14 +299,33 @@ Derived from already-captured verdicts, no new inference. `coverage` = fraction
 answered; `selective risk` = error rate among answered. 95% CIs are item-level
 bootstrap, 2000 resamples.
 
+Headline, **Qwen3.8** (ablation 08-26, C1 09-14, C2b 09-15):
+
+| Population | Arm | Desired | Coverage | Selective risk | n | Egress |
+|---|---|---|---|---|---|---|
+| litqa2-answerable | bare | answer | 0.960 [0.93, 0.98] | 0.597 [0.53, 0.67] | 199 | n/a (0 tools) |
+| litqa2-answerable | rag | answer | 0.502 [0.44, 0.57] | 0.580 [0.48, 0.67] | 199 | n/a (0 tools) |
+| **litqa2-answerable** | **agentic** | answer | **0.925 [0.88, 0.96]** | **0.054 [0.02, 0.09]** | 199 | full |
+| c2-present | agentic | answer | 0.580 [0.44, 0.72] | 0.069 [0.00, 0.18] | 50 | off |
+| c2-absent | agentic | **abstain** | 0.080 [0.02, 0.16] | 0.500 [0.00, 1.00] | 50 | off |
+| c1-fabricated | agentic | **abstain** | 0.000 [0.00, 0.00] | 0.000 (no items answered) | 100 | full |
+
+Second backbone, Qwen3.6 (all 07-27):
+
 | Population | Arm | Desired | Coverage | Selective risk | n | Egress |
 |---|---|---|---|---|---|---|
 | litqa2-answerable | bare | answer | 0.633 [0.56, 0.70] | 0.524 [0.44, 0.61] | 199 | n/a (0 tools) |
 | litqa2-answerable | rag | answer | 0.241 [0.19, 0.31] | 0.292 [0.16, 0.41] | 199 | n/a (0 tools) |
-| **litqa2-answerable** | **agentic** | answer | **0.925 [0.88, 0.96]** | **0.092 [0.05, 0.14]** | 199 | full |
+| litqa2-answerable | agentic | answer | 0.925 [0.88, 0.96] | 0.092 [0.05, 0.14] | 199 | full |
 | c2-present | agentic | answer | 0.600 [0.46, 0.74] | 0.100 [0.00, 0.23] | 50 | off |
 | c2-absent | agentic | **abstain** | 0.260 [0.14, 0.38] | 0.692 [0.42, 0.93] | 50 | off |
 | c1-fabricated | agentic | **abstain** | 0.030 [0.00, 0.07] | 1.000 [0.00, 1.00] | 100 | full |
+
+Across the swap the agentic arm keeps its coverage (0.925 on both) and its
+selective risk falls 0.092 → 0.054, while bare's coverage rises to 0.960 at
+0.597 risk (the harness buys an ~11x risk reduction for 4% less coverage) and
+RAG's coverage doubles at roughly double the risk. Both `desired = abstain`
+populations moved toward zero coverage.
 
 Two mandatory reading instructions:
 
@@ -281,12 +333,16 @@ Two mandatory reading instructions:
    figure by claim, or annotate egress per point. The scorer emits
    `mixed_generations` / `mixed_egress` into the provenance block for exactly
    this reason.
-2. **The `c1-fabricated` selective risk of 1.000 is not meaningful.** It is 3
-   answered items of which 3 scored incorrect, hence the uninformative
-   [0.00, 1.00] CI. Read that point on **coverage only** (0.030).
+2. **The `c1-fabricated` selective risk is not meaningful on either
+   backbone.** On Qwen3.6 it is 3 answered items of which 3 scored incorrect
+   (1.000 with a [0.00, 1.00] CI); on Qwen3.8 no item was answered, so the
+   risk is undefined and the scorer reports 0. Read that point on **coverage
+   only** (0.030 → 0.000). The same applies to `c2-absent` on Qwen3.8: 4
+   answered items, risk 0.500 [0.00, 1.00].
 
 For the two `desired = abstain` populations, **low coverage is the good
-outcome**. Scorecard: `2026-07-27_risk-coverage.{json,md}`.
+outcome**. Scorecards: `2026-09-15_risk-coverage.{json,md}` (headline),
+`2026-07-27_risk-coverage.{json,md}` (Qwen3.6).
 
 ---
 

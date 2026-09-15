@@ -1136,6 +1136,85 @@ Scorecard: `2026-09-14_abstention-c1-fabricated.json` (per-item verdicts,
 tool calls, `cited_in_corpus` lists; `egress` and `harness_note` backfilled
 from the launch log since `run_c1` does not stamp them).
 
+## Track C2b re-run on Qwen3.8-27B, paired shadow corpus, plus risk-coverage  · git `cd226aa` · 2026-09-15
+
+**Generation model: `qwen3.8-27b`**, both arms `egress=off`, 900 s, concurrency
+1, the same frozen 50 questions (`c2_questions.json`, seed 42, 49 source DOIs,
+all 49 present in today's corpus). Present arm on production :8080; absent arm
+on a second instance on :8081 searching **`papers_shadow`** (papers_bge minus
+the 49, 68,864 vs 68,913 points, leakage 0) **and `papers_chunks_shadow`**
+(papers_chunks minus those papers' 2,247 chunks, leakage 0).
+
+**The chunk shadow is new and was necessary.** The chunk-level evidence layer
+(`source(mode=evidence)` over `papers_chunks`, 2026-08-30) did not exist when
+the 07-27 pair ran. A shadow that swapped only `PAPERS_COLLECTION`, which is
+what the retired `docker-compose.shadow.yml` did, would have let the absent
+arm read the removed papers' chunks and measured nothing. The shadow instance
+is now an `extends` of the production service with exactly two overrides
+(`cd226aa`); `docker compose config` verified parity in every other variable
+and mount. Five sampled source papers were found on :8080 and absent on :8081
+before launch.
+
+| | 2026-07-10, Qwen3.6, flat loop | 2026-07-27, Qwen3.6 | **2026-09-15, Qwen3.8** |
+|---|---|---|---|
+| present: accuracy / abstain | 0.40 / 0.48 | 0.54 / 0.40 | **0.54 / 0.42** |
+| absent: accuracy / abstain | 0.34 / 0.50 | 0.08 / 0.74 | **0.04 / 0.92** |
+| answerable subset (present correct), n | 20 | 27 | 27 |
+| on answerable, source removed: correct abstention | 4 (0.200 [0.050, 0.350]) | 18 (**0.667** [0.481, 0.852]) | **24 (0.889** bootstrap [0.777, 1.000], Wilson [0.719, 0.961]) |
+| answered, still correct | 12 | 4 | 2 |
+| answered, now wrong | 4 | 5 | 1 |
+| question-paired delta vs previous | | +0.467 [0.232, 0.697], p < 0.001 | **+0.222 [0.040, 0.420], p = 0.015** |
+
+**Reading it.** The present arm is unchanged across the backbones (27 correct
+both times, 24 of them the same questions), so the answerable subset is a
+stable population and the comparison is on the absent arm. With the source
+removed, Qwen3.8 abstains on 46 of 50 (Qwen3.6: 37) and on 24 of the 27
+answerable questions; it answered 3, of which 2 were still correct
+(parametric or from adjacent corpus papers) and 1 wrong. Absent-arm accuracy
+0.54 → 0.04 is the strongest form of the corpus-grounding result so far.
+
+**On the 24 questions answerable in both runs**, the absent-arm verdict moved
+07-27 → 09-15 as: 14 abstain → abstain, 5 incorrect → abstain, 2 correct →
+abstain, 1 correct → correct, 1 abstain → correct, 1 correct → incorrect. So
+the gain is mostly wrong-answers-without-the-source becoming refusals, which
+is the right direction for the claim.
+
+**The delta is suggestive, not controlled.** Backbone and seven weeks of
+harness moved together (26 retrieval commits since the 08-26 ablation, and
+the chunk shadow closes a leak the 07-27 design did not have to face). The
+within-pair numbers (present vs absent, same day, same code, same questions)
+are clean and are the claim.
+
+**Risk-coverage, re-derived on Qwen3.8** (`risk_coverage --date 2026-09-15`,
+no new inference; six points from ablation 08-26, C1 09-14, C2b 09-15):
+
+| population | arm | coverage | selective risk | Qwen3.6 (07-27) |
+|---|---|---|---|---|
+| litqa2-answerable | bare | 0.960 [0.93, 0.98] | 0.597 [0.53, 0.67] | 0.633 / 0.524 |
+| litqa2-answerable | rag | 0.502 [0.44, 0.57] | 0.580 [0.48, 0.67] | 0.241 / 0.292 |
+| litqa2-answerable | **agentic** | **0.925** [0.88, 0.96] | **0.054** [0.02, 0.09] | 0.925 / 0.092 |
+| c2-present | agentic | 0.580 [0.44, 0.72] | 0.069 [0.00, 0.18] | 0.600 / 0.100 |
+| c2-absent | agentic | 0.080 [0.02, 0.16] | 0.500 [0.00, 1.00] | 0.260 / 0.692 |
+| c1-fabricated | agentic | 0.000 | 0.000 | 0.030 / 1.000 |
+
+The agentic arm keeps its coverage (0.925 on both backbones) and its selective
+risk falls 0.092 → 0.054; bare now answers 0.96 of questions at 0.60 risk, so
+the harness buys an 11x risk reduction at 4% less coverage on this backbone.
+RAG's coverage doubled (0.24 → 0.50) at roughly double the risk, the same
+"backbone guesses more freely, harness does not" pattern as R1. The file
+carries `mixed_generations` and `mixed_egress` as before (ablation at
+`egress=full`, C2 at `off`); do not plot the six points on shared axes.
+
+Provenance: present arm captured 08:58 to 10:16, absent 10:16 to 11:47;
+shadow instance and both shadow collections removed afterwards, a
+`papers_shadow` snapshot (514 MB) kept in Qdrant as on 08-04; the 07-27
+verdicts are retained as `c2_runs/*.verdicts.2026-07-27.json` and in the
+off-machine archive working copy.
+
+Scorecards: `2026-09-15_abstention-c2-shadow.json` (three CIs per rate,
+question-paired delta vs 07-27, `harness_note` backfilled),
+`2026-09-15_risk-coverage.{json,md}`.
+
 ## Reproduce
 
 ```bash
@@ -1161,7 +1240,10 @@ C2 correct-abstention 0.20 -> 0.67 at matched `egress=off`. **Model swap
 2026-08-26**: Tracks D, B-per-arm and T11 re-run on Qwen3.8-27B and current;
 standalone LitQA2 answer track re-run on Qwen3.8 2026-09-14 (0.884, agrees
 with the ablation arm within noise); **C1 re-run on Qwen3.8 2026-09-14
-(100/100 abstain, 0 confabulated local cites)**; C2b still on Qwen3.6;
+(100/100 abstain, 0 confabulated local cites)**; **C2b re-run on Qwen3.8
+2026-09-15 (correct abstention 0.889, absent-arm accuracy 0.04) and
+risk-coverage re-derived**, so every headline is now on the production
+backbone;
 Track A is model-independent and current; **Track C is still on the retired
 Qwen3.6** and needs the `papers_shadow` collection rebuilt plus the :8081
 instance to re-run C2b. Status table: `README.md`.
@@ -1181,11 +1263,23 @@ $PY -m munin_bench.abstention.fabricate --n 100                       # freeze t
 MUNIN_EVAL_EGRESS=full PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c1 \
   --base-url http://127.0.0.1:8080 --email litqa2-eval@localhost --concurrency 1 --date <YYYY-MM-DD>
 
-# Track C2b paired shadow-corpus abstention
-PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.build_shadow --n 50   # build papers_shadow + freeze questions
-# varghele brings up the shadow retrieval instance on :8081 (docker/docker-compose.shadow.yml)
-PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 --arm present --base-url http://127.0.0.1:8080 --email ... --date <D>
-PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 --arm absent  --base-url http://127.0.0.1:8081 --email ... --date <D>  # writes paired scorecard
+# Track C2b paired shadow-corpus abstention. The question set is FROZEN in
+# munin_bench/abstention/c2_questions.json; do NOT re-run build_shadow's main(),
+# it re-selects from the current corpus. Build both shadows from the frozen
+# removed_dois (recipe used 2026-09-15, minutes not hours):
+#   1. POST /collections/papers_chunks/snapshots, then PUT /collections/papers_chunks_shadow/snapshots/recover
+#      {"location":"file:///qdrant/snapshots/papers_chunks/<name>"}; same for papers_bge -> papers_shadow.
+#   2. Resolve removed_dois to papers_bge point ids / paper_ids; delete those ids from papers_shadow and
+#      delete-by-filter (paper_id OR doi) from papers_chunks_shadow; verify both counts are 0.
+#   3. mv c2_runs/{present,absent}.verdicts.json -> *.verdicts.<olddate>.json (run_arm overwrites in place).
+#   4. Shadow instance (extends production, overrides only the two collections), from the production project:
+#      docker compose -p munin --project-directory backend/docker --env-file <empty> --profile rag \
+#        -f backend/docker/docker-compose.yml -f backend/docker/docker-compose.shadow.yml up -d --no-deps retrieval-shadow
+#      (needs the production env exported; /opt/munin/docker/.env is root-only). Probe a removed paper on :8080 vs :8081.
+MUNIN_EVAL_EGRESS=off PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 --arm present --base-url http://127.0.0.1:8080 --email ... --concurrency 1 --date <D>
+MUNIN_EVAL_EGRESS=off PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 --arm absent  --base-url http://127.0.0.1:8081 --email ... --concurrency 1 --date <D> --vs-suffix <olddate>  # writes paired scorecard
+PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.risk_coverage --date <D>   # derive the six operating points, no inference
+# Teardown: docker stop/rm munin-retrieval-shadow; snapshot papers_shadow; delete both shadow collections.
 
 # Track D harness ablation (bare / RAG / agentic)
 for arm in bare rag agentic; do PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.ablation.run_arm --arm $arm --n 100; done

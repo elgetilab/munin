@@ -19,7 +19,6 @@ headline number. Stating these plainly is cheaper than being asked.
 | Human-expert comparison | **Context, not a claim** | PaperQA2's 0.660 and the expert mean 0.677 are quoted from their sources, not re-measured here. |
 | Certification thresholds | **Provisional, not validated** | Current baselines with a ~15% margin. No predictive-validity evidence. The threshold file says so in its own note field. |
 | CSFCube, QASPER (T10) | Not started | |
-| Track C2b and risk-coverage on the production backbone | **Not measured** | C1 was re-run on Qwen3.8 (2026-09-14, 100/100). C2b needs `papers_shadow` rebuilt and a second retrieval instance; it and the risk-coverage points derived from it are on the retired Qwen3.6 and say so. |
 | A controlled backbone comparison | **Not claimed** | The two Track D runs differ by backbone *and* by a month of retrieval commits. The cross-backbone agreement is reported as suggestive. |
 
 ---
@@ -74,12 +73,17 @@ do not quote 0.688 or 0.814 except as sensitivity points.
 
 ### The abstention claim
 
-- **C2b and risk-coverage are on the retired Qwen3.6-35B-A3B**, not on what
-  production serves. Qwen3.8 abstains far less than Qwen3.6 outside the
-  harness and identically inside it (R1), so the direction of any change is
-  not obvious and the C2b figures should be presented as "measured on the
-  previous backbone with the same harness code". C1 *was* re-run on Qwen3.8
-  and holds (100/100).
+- **Every Track C headline is on the production backbone** (C1 09-14, C2b and
+  risk-coverage 09-15). The cross-backbone deltas (C2b correct abstention
+  +0.222, p = 0.015) are suggestive: backbone and seven weeks of harness
+  commits moved together, and the 09-15 shadow covers a chunk-index leak path
+  the 07-27 design did not have. Within-pair numbers are the claim.
+- **The shadow is only as complete as the list of retrieval paths.** The C2b
+  design removes the source from every collection the harness searches. A
+  retrieval path added after the shadow recipe was written (the chunk index,
+  2026-08-30) silently invalidated the recipe until it was noticed on
+  2026-09-15. Any future path (a new index, a cache, a citation-graph text
+  field) needs the same treatment or the absent arm measures nothing.
 - **C1's 1.000 is a 100-item ceiling, not a rate.** Quote it with the Wilson
   interval [0.963, 1.000]; the bootstrap CI is degenerate at a boundary.
 - **The C1 classifier is marker-based and the substitution seam is only
@@ -88,14 +92,15 @@ do not quote 0.688 or 0.814 except as sensitivity points.
   is present; a stricter judge would ask whether the real paper is offered as
   related work or passed off as the asked paper. Four of 13 were read by hand
   and all are the former; the remaining nine are not audited.
-- n = 27 on the C2 answerable subset is small. The correct-abstention rate is
-  **0.667 [0.481, 0.852]** (bootstrap) / [0.478, 0.814] (Wilson), so the
-  interval is roughly ±0.18 wide. Quote it with the interval, never bare. The
-  *change* from the old harness is on firmer ground than the level is:
-  **+0.467 [0.232, 0.697], p < 0.001**, question-paired over the same 50 frozen
-  questions.
-- Five of 27 still answered wrong when the source was removed. Strong
-  calibration, not perfect.
+- n = 27 on the C2 answerable subset is small. The correct-abstention rate on
+  Qwen3.8 is **0.889**, bootstrap [0.777, 1.000] / Wilson [0.719, 0.961]; the
+  bootstrap touches the boundary, so quote Wilson, and never the rate bare.
+  On Qwen3.6 it was 0.667 [0.481, 0.852] / [0.478, 0.814]. The *change* from
+  the old flat loop (+0.467 [0.232, 0.697], p < 0.001, one backbone) is the
+  controlled comparison; the backbone step (+0.222 [0.040, 0.420], p = 0.015)
+  is not.
+- One of 27 still answered wrong when the source was removed, and two
+  answered correctly without it. Strong calibration, not perfect.
 - C1 remains the cleaner of the two signals because it does not depend on the
   shadow-corpus construction.
 - Reading anything across the `egress=off` and `egress=full` C2 pairs is
@@ -140,7 +145,7 @@ do not quote 0.688 or 0.814 except as sensitivity points.
 |---|---|
 | **Domain mismatch in every public benchmark** | SciFact is biomedical claim verification; LitSearch is ML/NLP; LitQA2 is biology. Munin's corpus is chemistry / biophysics / membrane biology. The benchmarks measure the *mechanism* on realistic queries, not Munin's own domain. |
 | **Single deployment, single group** | One cluster, one corpus, one user population. Nothing here establishes that the design transfers to a different group's corpus, and the encoder relevance floor is explicitly calibrated to this encoder on these candidates. |
-| **Two base models, one controlled** | Track D, faithfulness, T11 and C1 are on `qwen3.8-27b` (production) with Qwen3.6-35B-A3B runs earlier; C2b is on Qwen3.6 only. The two backbones agree on ordering and rough magnitude, but the comparison is confounded (below), and neither is a frontier model. The briefing that motivated Track D warns that a stronger base model can *hurt* a specialised harness; the dense 27B did not, but that is one data point. |
+| **Two base models, one controlled** | Every headline (Track D, faithfulness, T11, C1, C2b, risk-coverage, standalone LitQA2) is on `qwen3.8-27b` (production) with the Qwen3.6-35B-A3B run kept beside it. The two backbones agree on ordering and rough magnitude, but the comparison is confounded (below), and neither is a frontier model. The briefing that motivated Track D warns that a stronger base model can *hurt* a specialised harness; the dense 27B did not, but that is one data point. |
 | **Benchmark answerability** | LitQA2 questions are multiple-choice and frequently answerable from parametric knowledge, which is exactly why the bare arm reaches 0.387 (Qwen3.8) and why the C2 design needed the `egress=off` control. |
 
 ### Internal validity

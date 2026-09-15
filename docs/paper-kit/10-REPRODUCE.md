@@ -192,21 +192,54 @@ to `off`. `run_c1` does not stamp egress into the scorecard, so record it
 
 ### Track C2b: paired shadow-corpus abstention
 
+The question set is **frozen** in `munin_bench/abstention/c2_questions.json`
+(50 questions, 49 source DOIs, seed 42). Do not re-run `build_shadow`'s
+`main()` against a grown corpus: it re-selects the questions. Build the
+shadows from the frozen `removed_dois`.
+
 ```bash
-# Build papers_shadow (= papers_bge minus the source papers) and freeze the questions
-PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.build_shadow --n 50
+# 1. Shadow BOTH collections the harness searches. Snapshot-recover clones
+#    1.43M chunk points in seconds; a scroll copy takes hours.
+#    POST /collections/papers_chunks/snapshots
+#    PUT  /collections/papers_chunks_shadow/snapshots/recover {"location":"file:///qdrant/snapshots/papers_chunks/<name>"}
+#    (same for papers_bge -> papers_shadow)
+#    Resolve removed_dois to papers_bge point ids and paper_ids; delete those ids from
+#    papers_shadow; delete-by-filter (paper_id OR doi) from papers_chunks_shadow.
+#    Verify: 0 removed DOIs in papers_shadow, 0 chunks of them in papers_chunks_shadow.
 
-# Bring up the shadow retrieval instance on :8081 (docker/docker-compose.shadow.yml)
+# 2. run_arm overwrites c2_runs/{present,absent}.verdicts.json in place: move the previous pair aside.
+mv c2_runs/present.verdicts.json c2_runs/present.verdicts.<olddate>.json   # and absent, and both .meta.json
 
-PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 \
-  --arm present --base-url http://127.0.0.1:8080 --email <eval-account> --date <D>
-PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 \
-  --arm absent  --base-url http://127.0.0.1:8081 --email <eval-account> --date <D>   # writes the paired scorecard
+# 3. Shadow instance on :8081. docker-compose.shadow.yml extends the production
+#    retrieval service and overrides only PAPERS_COLLECTION and CHUNKS_COLLECTION.
+#    Run from the production project name with --no-deps so nothing else is touched;
+#    /opt/munin/docker/.env is root-only, so export the production container's env
+#    (docker inspect munin-retrieval) and pass an empty --env-file.
+docker compose -p munin --project-directory backend/docker --env-file /dev/null --profile rag \
+  -f backend/docker/docker-compose.yml -f backend/docker/docker-compose.shadow.yml \
+  up -d --no-deps --no-build retrieval-shadow
+#    Probe: a removed paper's title on /search/hybrid must be FOUND on :8080 and absent on :8081.
+
+# 4. Both arms at egress=off (the runner defaults to off; say it anyway).
+MUNIN_EVAL_EGRESS=off PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 \
+  --arm present --base-url http://127.0.0.1:8080 --email <eval-account> --concurrency 1 --date <D>
+MUNIN_EVAL_EGRESS=off PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 \
+  --arm absent  --base-url http://127.0.0.1:8081 --email <eval-account> --concurrency 1 --date <D> \
+  --vs-suffix <olddate>   # writes the paired scorecard with the question-paired delta vs the previous pair
+
+# 5. Teardown: docker stop munin-retrieval-shadow && docker rm munin-retrieval-shadow;
+#    snapshot papers_shadow (kept, ~0.5 GB); delete papers_shadow and papers_chunks_shadow.
 ```
 
-**Both arms must run at the same egress setting.** The shadow build verifies
-that the removed DOIs are present in the live collection and absent from the
-shadow, and reports the counts.
+**Both arms must run at the same egress setting.** ~70 s per question at
+`egress=off` on the present arm, ~120 s on the absent arm; about 3 h for the
+pair on the dense 27B.
+
+**Every retrieval path must be shadowed.** The 07-27 recipe shadowed
+`papers_bge` only; the chunk-level evidence layer added on 2026-08-30 reads
+`papers_chunks`, and a shadow that missed it would have let the absent arm
+read the removed papers' full text. When a new retrieval path is added to
+the harness, the shadow recipe is out of date until it covers that path too.
 
 Re-score existing captures without regenerating anything (this is how the CIs
 were added to the 2026-07-27 scorecards, and the cheap path whenever scoring
@@ -260,11 +293,6 @@ MUNIN_BENCH_ENTAILMENT_DEVICE=cuda:0 $PY -m munin_bench.ablation.faithfulness --
 
 As of 2026-09-14:
 
-- **Track C2b (and the risk-coverage points derived from it) on the
-  production backbone.** C1 was re-run on Qwen3.8 on 2026-09-14. Re-running
-  C2b needs the `papers_shadow` collection rebuilt from the frozen 50
-  questions (`build_shadow --n 50`) and the second retrieval instance on
-  :8081.
 
 - BEIR `nfcorpus` / `scidocs` / `trec-covid`.
 - **Phase 4 local query pool** (deferred: blocked on human query curation and
@@ -282,7 +310,7 @@ As of 2026-09-14:
 |---|---|
 | Canonical results log | `backend/benchmarks/RESULTS.md` |
 | Claim-to-scorecard index | `PAPER.md` |
-| Scorecards (63 JSON, 48 Markdown; the three `2026-08-26_*` files and the two `2026-09-14_*` files are the current headline) | `backend/benchmarks/scorecards/` |
+| Scorecards (65 JSON, 49 Markdown; the `2026-08-26_*`, `2026-09-14_*` and `2026-09-15_*` files are the current headline) | `backend/benchmarks/scorecards/` |
 | Benchmark harness | `backend/benchmarks/munin_bench/` |
 | Certification thresholds | `backend/benchmarks/certification_thresholds.json` |
 | Paper track: plans, specs, open items | `docs/paper-track/` |

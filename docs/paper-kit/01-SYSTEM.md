@@ -71,7 +71,7 @@ resolved by moving the VPS.
 | Role | Model | Details |
 |---|---|---|
 | Generation | `cyankiwi/Qwen3.8-27B-AWQ-INT4` | Dense 27B, hybrid Gated DeltaNet + Gated Attention, natively multimodal, pack-quantized group-32, ~20 GB on disk. Served as `qwen3.8-27b` since 2026-08-25. Reasoning enabled (emits `<think>` traces) at `reasoning_effort=medium`, pinned by the backend because the model's own default is `xhigh`. |
-| Generation (retired 2026-08-25) | `cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit` | Gated DeltaNet + MoE hybrid, 35B total / 3B active, AWQ 4-bit, ~19 GB. Served as `qwen3.6-35b-a3b`. The backbone for every result dated before 2026-08-26, including C2b and risk-coverage (C1 was re-run on Qwen3.8 on 2026-09-14). |
+| Generation (retired 2026-08-25) | `cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit` | Gated DeltaNet + MoE hybrid, 35B total / 3B active, AWQ 4-bit, ~19 GB. Served as `qwen3.6-35b-a3b`. The backbone for every result dated before 2026-08-26; every headline has since been re-measured on Qwen3.8 and the Qwen3.6 figure is kept beside it. |
 | Paper embedding | BGE-large-en-v1.5 | 1024d, Qdrant collection `papers_bge`, staged at `/opt/munin/data/models/bge-large`. Production since 2026-07-06. |
 | Paper embedding (rollback only) | SPECTER-v1 (`allenai-specter`) | 768d, collection `papers`. Retained for rollback; retiring it is a tracked one-way task. |
 | User-document embedding | BGE-base | Separate collection from the paper corpus. |
