@@ -10,6 +10,39 @@ self-document (renames, refactors, bug fixes).
 
 ---
 
+## 2026-09: the backbone is one file; sampling belongs to the model, not the persona
+
+**Decision.** Everything model-specific lives in
+`backend/config/models/<slug>.env` (checkpoint, served name, quantization,
+both vLLM parsers, `LLM_THINKING_MODE`, `LLM_REASONING_EFFORT`, and the
+sampling profile `SAMPLING_DEFAULT` / `SAMPLING_CODE`). `deploy.sh model
+activate <slug>` copies it to `/opt/munin/config/active-model.env`, which the
+SLURM scripts, `deploy.sh retrieval` and the embedding-map unit all read.
+`shared/personas/*.json` name only a `sampling_class` (`default` or `code`)
+and no longer carry the five sampling numbers.
+
+**Why.** The README's "Switch LLM model" checklist named twelve places and the
+2026-09-15 audit found eighteen; two of them (the tokenizer staging dir in
+`deploy.sh`, and a `VLLM_MODEL_NAME` hardcoded rather than substituted in
+compose) failed silently. The gpt-oss-20b cross-lab run needed two more
+per-model facts that had no home at all: how a sub-task turns reasoning off
+(Qwen `enable_thinking: false`; gpt-oss cannot disable reasoning and takes
+`reasoning_effort: low`) and the vendor's recommended sampling (OpenAI:
+`temperature 1.0, top_p 1.0`, none of Qwen's `top_k 20 / presence 1.5`).
+Sampling had lived in the personas, which are shared by every backbone the
+stack serves at once; leaving it there would have meant two instances on two
+models sampling one of them wrong. The built-in fallbacks reproduce the
+Qwen3 set exactly (`retrieval/tests/test_sampling_profile.py` pins each
+shipped persona against its pre-migration numbers), so the reference
+deployment's request bodies did not change.
+
+**Consequences.** A model change is `deploy.sh model activate` plus a vLLM
+restart; a new model is a new profile file. The bench reads the same env
+names. Sampling is part of the system under test: every committed number for
+a backbone was produced under that backbone's profile, and editing a profile
+invalidates its numbers. The VPS gateway proxies `/v1/models` to the
+backend's `/api/models` instead of carrying its own literal.
+
 ## 2026-09: a multimodal turn has two texts, and they are not interchangeable
 
 When the composer sends an attachment, `messages[-1].content` is an

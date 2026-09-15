@@ -78,17 +78,31 @@
 set -e
 
 # ------------------------------------------------------------------------------
-# Configuration
+# Model profile. Everything model-specific (checkpoint, served name, parsers,
+# quantization, thinking mode, sampling) comes from the ACTIVE profile written
+# by `deploy.sh model activate <slug>` from config/models/<slug>.env. SLURM
+# copies this script into its spool dir, so look for the loader in the install
+# location first, then beside the script for a direct repo-side run.
 # ------------------------------------------------------------------------------
-MODEL_ID="cyankiwi/Qwen3.8-27B-AWQ-INT4"
-MODEL_PATH="/opt/munin/data/models/qwen3.8-27b-awq-int4"
-MODEL_NAME="qwen3.8-27b"
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for _cand in /opt/cluster/scripts/llm/model-env.sh "$_SCRIPT_DIR/model-env.sh"; do
+    if [ -f "$_cand" ]; then source "$_cand"; break; fi
+done
+if ! declare -F munin_load_model_env > /dev/null; then
+    echo "[ERROR] model-env.sh not found in /opt/cluster/scripts/llm nor $_SCRIPT_DIR"
+    echo "        Run: sudo ./deploy.sh vllm"
+    exit 1
+fi
+# MUNIN_MODEL_PROFILE lets an operator start ONE job on a non-active profile
+# (a test start); the persisted default is the active profile.
+munin_load_model_env "${MUNIN_MODEL_PROFILE:-}" || exit 1
+
 VLLM_PORT=8000
 
 TENSOR_PARALLEL_SIZE=2
 # Overridable so the large-window variant is one env var away:
 #   MAX_MODEL_LEN=131072 sbatch start-vllm-service-tp2.sh
-MAX_MODEL_LEN=${MAX_MODEL_LEN:-65536}       # match the single-GPU window. Native cap 262144.
+MAX_MODEL_LEN=${MAX_MODEL_LEN:-$VLLM_MAX_MODEL_LEN}   # profile window (65536). Native cap 262144 on Qwen3.8.
 # Retrieval history-trim ceiling = window minus a margin for the answer. Derived
 # so it cannot drift out of step with the window: 65536 -> 60000, 131072 -> 125536.
 BACKEND_MAX_CONTEXT=${BACKEND_MAX_CONTEXT:-$((MAX_MODEL_LEN - 5536))}
@@ -96,7 +110,7 @@ BACKEND_MAX_CONTEXT=${BACKEND_MAX_CONTEXT:-$((MAX_MODEL_LEN - 5536))}
 # MAX_MODEL_LEN. At 64k the estimated ~817,000-token TP=2 pool gives ~12.5x, so
 # 8 keeps ~1.56x margin (the same margin the old MoE config ran). At 131072 the
 # ceiling is ~6.2x, so drop this to 4 if you raise the window.
-MAX_NUM_SEQS=${MAX_NUM_SEQS:-8}
+MAX_NUM_SEQS=${MAX_NUM_SEQS:-$VLLM_MAX_NUM_SEQS_TP2}
 
 # Load environment
 if [ -f /opt/hugin/config/cluster.env ]; then
@@ -113,11 +127,13 @@ echo "GPUs:       $CUDA_VISIBLE_DEVICES   (tensor-parallel-size=$TENSOR_PARALLEL
 echo "Context:    $MAX_MODEL_LEN tokens"
 echo "=============================================="
 echo ""
-echo "Model: Qwen3.8-27B-AWQ-INT4"
-echo "  - Gated DeltaNet + MoE Hybrid, 35B total / 3B active, AWQ 4-bit"
-echo "  - Tensor-parallel across BOTH RTX 5090s (weights sharded ~11.5 GB/card)"
-echo "  - ${MAX_MODEL_LEN} context window (native 262144)"
-echo "  - Reasoning enabled (generates <think> traces)"
+echo "Model: $MODEL_NAME"
+echo "  - $MODEL_DESC"
+echo "  - Tensor-parallel across BOTH RTX 5090s (weights sharded across the cards)"
+echo "  - ${MAX_MODEL_LEN} context window, ${MAX_NUM_SEQS} concurrent requests"
+echo "  - parsers: tool=$VLLM_TOOL_PARSER reasoning=$VLLM_REASONING_PARSER"
+echo "  - thinking mode: $LLM_THINKING_MODE  effort: ${LLM_REASONING_EFFORT:-none}"
+echo "  - profile: $MODEL_PROFILE_FILE"
 echo ""
 echo "NOTE: claims BOTH whole GPUs (all shards blocked). No batch jobs can run"
 echo "      alongside. Default is start-vllm-service.sh (single-GPU, 64k)."
@@ -164,7 +180,10 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 if [ ! -d "$MODEL_PATH" ]; then
     echo ""
     echo "Model not found locally. Downloading from HuggingFace (~23 GB)..."
-    hf download "$MODEL_ID" --local-dir "$MODEL_PATH"
+    _excl=""
+    for _g in $HF_EXCLUDE; do _excl="$_excl --exclude $_g"; done
+    # shellcheck disable=SC2086
+    hf download "$MODEL_ID" --local-dir "$MODEL_PATH" $_excl
     echo "[OK] Model downloaded to $MODEL_PATH"
 fi
 
@@ -210,19 +229,24 @@ done
 echo ""
 echo "Starting vLLM server (TP=$TENSOR_PARALLEL_SIZE, ${MAX_MODEL_LEN} ctx)..."
 
+# 0.85 rather than the profile's single-GPU utilisation: TP=2 leaves the extra
+# per-rank headroom for NCCL buffers (measured on this box). Override with
+# GPU_MEM_UTIL if a profile needs more.
+# shellcheck disable=SC2086  # VLLM_QUANT_ARGS / VLLM_EXTRA_ARGS are word lists
 vllm serve "$MODEL_PATH" \
     --host 0.0.0.0 \
     --port $VLLM_PORT \
     --tensor-parallel-size $TENSOR_PARALLEL_SIZE \
-    --gpu-memory-utilization 0.85 \
+    --gpu-memory-utilization ${GPU_MEM_UTIL:-0.85} \
     --max-model-len $MAX_MODEL_LEN \
     --max-num-seqs $MAX_NUM_SEQS \
-    --quantization compressed-tensors \
-    --kv-cache-dtype fp8 \
+    $VLLM_QUANT_ARGS \
+    --kv-cache-dtype $VLLM_KV_CACHE_DTYPE \
     --served-model-name "$MODEL_NAME" \
     --enable-auto-tool-choice \
-    --tool-call-parser qwen3_xml \
-    --reasoning-parser qwen3 &
+    --tool-call-parser $VLLM_TOOL_PARSER \
+    --reasoning-parser $VLLM_REASONING_PARSER \
+    $VLLM_EXTRA_ARGS &
 
 VLLM_PID=$!
 echo "vLLM PID: $VLLM_PID"
@@ -241,7 +265,7 @@ while [ $ELAPSED -lt $TIMEOUT_SECONDS ]; do
     fi
 
     if curl -sf http://127.0.0.1:$VLLM_PORT/health > /dev/null 2>&1; then
-        echo "[OK] Qwen3.8-27B (TP=$TENSOR_PARALLEL_SIZE, ${MAX_MODEL_LEN} ctx) is ready!"
+        echo "[OK] $MODEL_NAME (TP=$TENSOR_PARALLEL_SIZE, ${MAX_MODEL_LEN} ctx) is ready!"
         break
     fi
 

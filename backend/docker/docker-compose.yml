@@ -198,12 +198,14 @@ services:
       # BGE-large paper encoder (encoder migration). Empty/missing is fine until
       # PAPER_ENCODER=bge-large is set. See docs/paper-track/done/ENCODER-MIGRATION-PLAN.md.
       - ${MUNIN_ROOT:-/opt/munin}/data/models/bge-large:/models/bge-large:ro
-      # Qwen3 tokenizer for exact context-budget token counting (P1 #8).
-      # Only the ~7 MB tokenizer files, copied out of the vLLM model dir
-      # by deploy.sh — the container never needs the full weights.
-      # Empty/missing dir is fine: chat_context falls back to a char
-      # heuristic. See DECISIONS.md 2026-05-21.
-      - ${MUNIN_ROOT:-/opt/munin}/data/models/qwen-tokenizer:/models/qwen:ro
+      # The served backbone's tokenizer for exact context-budget token
+      # counting (P1 #8). Only the tokenizer files, staged out of the vLLM
+      # model dir by `deploy.sh model activate` (into qwen-tokenizer/, the
+      # historical name kept so nothing else moves); the container never
+      # needs the weights. Empty/missing dir is fine: chat_context falls back
+      # to a char heuristic. See DECISIONS.md 2026-05-21. A secondary instance
+      # overrides TOKENIZER_HOST_DIR to its own staged copy.
+      - ${TOKENIZER_HOST_DIR:-${MUNIN_ROOT:-/opt/munin}/data/models/qwen-tokenizer}:/models/qwen:ro
       # :rw because /api/admin/ingest writes PDFs into pdf/inbox/ and
       # moves them to pdf/{doi_hash}.pdf after the pipeline succeeds (§28).
       - ${MUNIN_ROOT:-/opt/munin}/data/papers/pdf:/papers:rw
@@ -272,7 +274,21 @@ services:
       # (resolved via the extra_hosts host-gateway entry above; must not be
       # pinned to a host LAN IP — that breaks on any subnet change)
       - VLLM_URL=${VLLM_URL:-http://host.docker.internal:8000}
-      - VLLM_MODEL_NAME=qwen3.8-27b
+      # Backbone identity and behaviour. Sourced from the model profile
+      # (/opt/munin/config/active-model.env, written by `deploy.sh model
+      # activate <slug>` from config/models/<slug>.env) and exported by the
+      # vLLM start scripts and deploy.sh before `docker compose up`, the same
+      # way the window variables below travel. Until 2026-09-15 the model
+      # name was a literal here and the thinking/effort knobs were not passed
+      # at all, so the container could only ever run its Python defaults.
+      # Defaults = the Qwen3.8 reference deployment.
+      - VLLM_MODEL_NAME=${VLLM_MODEL_NAME:-qwen3.8-27b}
+      - LLM_THINKING_TOGGLE=${LLM_THINKING_TOGGLE:-1}
+      - LLM_THINKING_MODE=${LLM_THINKING_MODE:-enable_thinking}
+      - LLM_REASONING_EFFORT=${LLM_REASONING_EFFORT:-medium}
+      # Sampling profile per persona class (JSON objects; blank = Qwen3 set).
+      - SAMPLING_DEFAULT=${SAMPLING_DEFAULT:-}
+      - SAMPLING_CODE=${SAMPLING_CODE:-}
       # Context window: the vLLM start scripts `export` these before
       # `docker compose up` to match the running mode (single-GPU 65536/60000,
       # TP=2 131072/125000) so the backend uses the right window. Compose
@@ -493,6 +509,7 @@ services:
       --enable-auto-tool-choice
       --tool-call-parser ${VLLM_TOOL_PARSER:-qwen3_xml}
       --reasoning-parser ${VLLM_REASONING_PARSER:-qwen3}
+      ${VLLM_EXTRA_ARGS:-}
     deploy:
       resources:
         reservations:
@@ -667,6 +684,7 @@ services:
       - QDRANT_COLLECTION=${PAPERS_COLLECTION:-papers_bge}
       - VLLM_URL=${VLLM_URL:-http://host.docker.internal:8000}
       - VLLM_MODEL_NAME=${VLLM_MODEL_NAME:-qwen3.8-27b}
+      - LLM_THINKING_MODE=${LLM_THINKING_MODE:-enable_thinking}
       - EMBEDDING_MAP_PATH=/knowledge/embedding_map.json
       # Persist the numba JIT cache so the UMAP compile is paid once.
       - NUMBA_CACHE_DIR=/knowledge/numba-cache

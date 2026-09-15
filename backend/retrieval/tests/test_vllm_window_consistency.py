@@ -1,10 +1,13 @@
 """Static consistency guard for the vLLM context-window configuration.
 
-The served window (and the backend's budget against it) is spelled out in FIVE
-places that must agree, but nothing links them:
+The served window (and the backend's budget against it) is spelled out in
+several places that must agree, but nothing links them:
 
-  * backend/scripts/vllm/start-vllm-service.sh      (single-GPU / 64k, the default)
-  * backend/scripts/vllm/start-vllm-service-tp2.sh  (2-GPU tensor-parallel / 128k)
+  * backend/config/models/*.env                     (VLLM_MAX_MODEL_LEN per backbone
+                                                     profile; since 2026-09-15 the
+                                                     launch scripts read it from here)
+  * backend/scripts/vllm/start-vllm-service.sh      (single-GPU, the default)
+  * backend/scripts/vllm/start-vllm-service-tp2.sh  (2-GPU tensor-parallel)
   * backend/docker/docker-compose.yml               (retrieval container env defaults)
   * backend/retrieval/chat_context.py               (budgeting defaults)
   * backend/retrieval/main.py                        (raw-mode passthrough default)
@@ -39,6 +42,7 @@ MAIN = BACKEND / "retrieval" / "main.py"
 COMPOSE = BACKEND / "docker" / "docker-compose.yml"
 SINGLE = BACKEND / "scripts" / "vllm" / "start-vllm-service.sh"
 TP2 = BACKEND / "scripts" / "vllm" / "start-vllm-service-tp2.sh"
+PROFILES_DIR = BACKEND / "config" / "models"
 
 # This file cross-checks REPO artifacts against each other (the SLURM launch
 # scripts, docker-compose, and the Python defaults must all name one context
@@ -48,16 +52,19 @@ TP2 = BACKEND / "scripts" / "vllm" / "start-vllm-service-tp2.sh"
 # the wrong environment, not a defect, and per tests/README.md it must be one
 # SKIP line rather than a failure.
 _REQUIRED = (CHAT_CONTEXT, MAIN, COMPOSE, SINGLE, TP2)
-if not all(p.is_file() for p in _REQUIRED):
+if not all(p.is_file() for p in _REQUIRED) or not PROFILES_DIR.is_dir():
     _missing = [str(p) for p in _REQUIRED if not p.is_file()]
+    if not PROFILES_DIR.is_dir():
+        _missing.append(str(PROFILES_DIR))
     print(
         "[SKIP] test_vllm_window_consistency - host-only: it compares repo "
         "files that are not in the container. Missing: " + ", ".join(_missing)
     )
     raise SystemExit(0)
 
-# The model's native cap (Qwen3.6-35B-A3B). No mode may exceed it.
-NATIVE_MAX = 262144
+# The smallest native cap among the shipped profiles (gpt-oss-20b: 131072).
+# No profile's window may exceed it.
+NATIVE_MAX = 131072
 
 
 def _read(path: Path) -> str:
@@ -93,8 +100,8 @@ def _sh_int(text: str, var: str, what: str) -> int:
     could not parse at all: it failed with "could not locate tp2
     MAX_MODEL_LEN" rather than reporting a real disagreement."""
     for pattern in (
-        rf'^(?:export\s+)?{var}=(\d+)',
-        rf'^(?:export\s+)?{var}=\$\{{{var}:-(\d+)\}}',
+        rf'^\s*(?:export\s+)?{var}=(\d+)',
+        rf'^\s*(?:export\s+)?{var}=\$\{{{var}:-(\d+)\}}',
     ):
         m = re.search(pattern, text, re.MULTILINE)
         if m:
@@ -147,38 +154,64 @@ def _ctxcheck_arg(text: str, what: str) -> str:
     raise AssertionError(f"could not locate {what}")
 
 
-# --- single-GPU script: internally coherent (the default mode) --------------
+# --- the profiles: one window, shared by every shipped backbone --------------
+
+def _profile_windows() -> dict[str, int]:
+    out = {}
+    for prof in sorted(PROFILES_DIR.glob("*.env")):
+        out[prof.stem] = int(_find(_read(prof), r'^VLLM_MAX_MODEL_LEN=(\d+)',
+                                   f"{prof.name} VLLM_MAX_MODEL_LEN"))
+    assert out, f"no profiles under {PROFILES_DIR}"
+    return out
+
+
+def test_every_profile_serves_the_same_window():
+    """Every committed benchmark number was produced at 64k. A profile with a
+    different window would entangle "new backbone" with "bigger window" in
+    the paper's comparison, so the profiles agree until that is a decision."""
+    windows = _profile_windows()
+    assert len(set(windows.values())) == 1, f"profiles disagree on the window: {windows}"
+    window = next(iter(windows.values()))
+    assert window <= NATIVE_MAX
+
+
+# --- single-GPU script: wires the profile's window everywhere ---------------
 
 def test_single_gpu_script_window_is_self_consistent():
     text = _read(SINGLE)
-    exported = _sh_int(text, "VLLM_MAX_MODEL_LEN", "single-GPU exported VLLM_MAX_MODEL_LEN")
+    # The script no longer carries a window literal: it sources the active
+    # profile and must feed THE SAME variable to the backend export, to
+    # `vllm serve`, and to the probe. A literal in any of the three would let
+    # them drift again.
+    assert re.search(r'^export VLLM_MAX_MODEL_LEN\s*$', text, re.MULTILINE), \
+        "single-GPU script must re-export the profile's VLLM_MAX_MODEL_LEN (bare `export VLLM_MAX_MODEL_LEN`)"
     served = _serve_window(text, "single-GPU --max-model-len")
     checked = _ctxcheck_arg(text, "single-GPU check-context-window.sh arg")
-    # All three are hardcoded literals here; they must be the same number, or the
-    # backend budgets against a window vLLM doesn't serve / the probe checks the
-    # wrong one.
-    assert served == str(exported), f"--max-model-len {served} != exported {exported}"
-    assert checked == str(exported), f"check-context-window.sh {checked} != exported {exported}"
+    assert served == "$VLLM_MAX_MODEL_LEN", f"--max-model-len {served} is not the profile variable"
+    assert checked == "$VLLM_MAX_MODEL_LEN", f"check-context-window.sh {checked} is not the profile variable"
 
 
 def test_single_gpu_context_leaves_output_room():
     text = _read(SINGLE)
-    window = _sh_int(text, "VLLM_MAX_MODEL_LEN", "single-GPU VLLM_MAX_MODEL_LEN")
-    ctx = _sh_int(text, "VLLM_MAX_CONTEXT", "single-GPU VLLM_MAX_CONTEXT")
+    window = next(iter(_profile_windows().values()))
+    # 65536 -> 60000 is pinned as a literal branch so the historical trim
+    # ceiling stays exact; any other window derives the ceiling.
+    ctx = _sh_int(text, "VLLM_MAX_CONTEXT", "single-GPU VLLM_MAX_CONTEXT (65536 branch)")
     assert ctx < window, f"history-trim ceiling {ctx} must be below the served window {window}"
-    assert window <= NATIVE_MAX
+    assert re.search(r'VLLM_MAX_CONTEXT=\$\(\(VLLM_MAX_MODEL_LEN - \d+\)\)', text), \
+        "non-65536 windows must derive VLLM_MAX_CONTEXT from the window"
 
 
-# --- compose defaults are the single-GPU (default-mode) window --------------
+# --- compose defaults are the profiles' window ------------------------------
 
 def test_compose_defaults_match_single_gpu_window():
     single = _read(SINGLE)
     compose = _read(COMPOSE)
+    window = next(iter(_profile_windows().values()))
     # If `docker compose up` runs without a launch script having exported these
-    # (the :- fallback path), the container must still land on the default mode's
+    # (the :- fallback path), the container must still land on the served
     # window, not some other number.
-    assert _compose_default(compose, "VLLM_MAX_MODEL_LEN") == _sh_int(
-        single, "VLLM_MAX_MODEL_LEN", "single-GPU VLLM_MAX_MODEL_LEN")
+    assert _compose_default(compose, "VLLM_MAX_MODEL_LEN") == window
     assert _compose_default(compose, "VLLM_MAX_CONTEXT") == _sh_int(
         single, "VLLM_MAX_CONTEXT", "single-GPU VLLM_MAX_CONTEXT")
 
@@ -215,10 +248,13 @@ def test_tp2_script_wires_one_window_everywhere():
 
 def test_tp2_values_are_sane():
     text = _read(TP2)
-    window = _sh_int(text, "MAX_MODEL_LEN", "tp2 MAX_MODEL_LEN")
+    # The tp2 default window is the PROFILE's window (an operator can still
+    # override MAX_MODEL_LEN for the large-window variant).
+    assert re.search(r'^MAX_MODEL_LEN=\$\{MAX_MODEL_LEN:-\$VLLM_MAX_MODEL_LEN\}', text, re.MULTILINE), \
+        "tp2 MAX_MODEL_LEN must default to the profile's VLLM_MAX_MODEL_LEN"
+    single_window = window = next(iter(_profile_windows().values()))
     ctx = _sh_derived_int(text, "BACKEND_MAX_CONTEXT", "MAX_MODEL_LEN", window,
                           "tp2 BACKEND_MAX_CONTEXT")
-    single_window = _sh_int(_read(SINGLE), "VLLM_MAX_MODEL_LEN", "single-GPU window")
     assert ctx < window, f"tp2 trim ceiling {ctx} must be below its window {window}"
     assert window <= NATIVE_MAX
     # This used to assert `window > single_window`, on the reasoning that tp2

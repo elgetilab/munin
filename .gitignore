@@ -42,6 +42,9 @@ Thumbs.db
 !*.env.template
 !*.env.example
 !secrets.env.example
+# Backbone model profiles carry no secrets (checkpoint ids, parsers, sampling)
+# and MUST be committed: deploy.sh model activate reads them from the repo.
+!backend/config/models/*.env
 
 # --- Local artifacts ---
 *.local

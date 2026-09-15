@@ -12,17 +12,19 @@
 # MUNIN VLLM SERVICE - SLURM JOB SCRIPT
 # ==============================================================================
 # Runs vLLM serving on GPU 1 for the Munin backend.
-# Model: Qwen3.8-27B-AWQ-INT4 (Gated DeltaNet + Gated Attention, dense)
+# Model: whatever /opt/munin/config/active-model.env names (deploy.sh model
+#        activate <slug>; profiles in config/models/). Qwen3.8-27B since 2026-08-26.
 # Personas: Chat (general), Code (programming), Research (academic)
 # Scheduled daily 6am - 2am via cron (or 24/7 via: vllm-service enable-24x7)
 #
 # GPU allocation (hugin gres.conf):
-#   - We claim the WHOLE GPU 1 via gpu:vllm:1. The 27B AWQ-INT4 model
-#     (21 GB) plus 64k KV cache needs ~28 GB VRAM, which fills the RTX 5090.
-#     Qwen3.8 has 3.2x the per-token KV of the old MoE (16 full-attention
-#     layers x 4 KV heads x head_dim 256 = 32 KB/token at fp8), so the 2 GB
-#     saved on weights does NOT translate into 2 GB more headroom. Check
-#     `GPU KV cache size` in this job's .out after any change here.
+#   - We claim the WHOLE GPU 1 via gpu:vllm:1. On Qwen3.8 the 27B AWQ-INT4
+#     model (21 GB) plus 64k KV cache needs ~28 GB VRAM, which fills the
+#     RTX 5090. Qwen3.8 has 3.2x the per-token KV of the old MoE (16
+#     full-attention layers x 4 KV heads x head_dim 256 = 32 KB/token at
+#     fp8), so the 2 GB saved on weights did NOT translate into headroom.
+#     Check `GPU KV cache size` in this job's .out after any profile change;
+#     the profile's VLLM_MAX_NUM_SEQS_SINGLE must be covered by the pool.
 #   - While this job holds gpu:vllm:1, the 8 cooperative shards on GPU 1
 #     (shard:vllm:N) are unavailable. Whole GPU 0 (gpu:batch:1) and its
 #     8 shards (shard:batch:N) remain free for user / deepresearch jobs.
@@ -42,13 +44,26 @@
 set -e
 
 # ------------------------------------------------------------------------------
-# Configuration
+# Model profile. Everything model-specific (checkpoint, served name, parsers,
+# quantization, thinking mode, sampling) comes from the ACTIVE profile written
+# by `deploy.sh model activate <slug>` from config/models/<slug>.env. SLURM
+# copies this script into its spool dir, so look for the loader in the install
+# location first, then beside the script for a direct repo-side run.
 # ------------------------------------------------------------------------------
-MODEL_ID="cyankiwi/Qwen3.8-27B-AWQ-INT4"
-MODEL_PATH="/opt/munin/data/models/qwen3.8-27b-awq-int4"
-MODEL_NAME="qwen3.8-27b"
-VLLM_PORT=8000
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for _cand in /opt/cluster/scripts/llm/model-env.sh "$_SCRIPT_DIR/model-env.sh"; do
+    if [ -f "$_cand" ]; then source "$_cand"; break; fi
+done
+if ! declare -F munin_load_model_env > /dev/null; then
+    echo "[ERROR] model-env.sh not found in /opt/cluster/scripts/llm nor $_SCRIPT_DIR"
+    echo "        Run: sudo ./deploy.sh vllm"
+    exit 1
+fi
+# MUNIN_MODEL_PROFILE lets an operator start ONE job on a non-active profile
+# (a test start); the persisted default is the active profile.
+munin_load_model_env "${MUNIN_MODEL_PROFILE:-}" || exit 1
 
+VLLM_PORT=8000
 COMPOSE_DIR="/opt/munin"
 
 # Load environment
@@ -65,13 +80,12 @@ echo "Start Time: $(date)"
 echo "GPU:        $CUDA_VISIBLE_DEVICES"
 echo "=============================================="
 echo ""
-echo "Model: Qwen3.8-27B-AWQ-INT4"
-echo "  - Gated DeltaNet + Gated Attention hybrid, DENSE (not MoE)"
-echo "  - 27B parameters, all active"
-echo "  - AWQ INT4 (compressed-tensors, group 32; DeltaNet + vision at BF16)"
-echo "  - 64k context window (native 262k)"
-echo "  - Reasoning enabled (generates <think> traces)"
-echo "  - 2 concurrent requests"
+echo "Model: $MODEL_NAME"
+echo "  - $MODEL_DESC"
+echo "  - ${VLLM_MAX_MODEL_LEN} context window, ${VLLM_MAX_NUM_SEQS_SINGLE} concurrent requests"
+echo "  - parsers: tool=$VLLM_TOOL_PARSER reasoning=$VLLM_REASONING_PARSER"
+echo "  - thinking mode: $LLM_THINKING_MODE  effort: ${LLM_REASONING_EFFORT:-none}"
+echo "  - profile: $MODEL_PROFILE_FILE"
 echo ""
 echo "Personas (synced automatically from persona definitions):"
 echo "  - Meitner  : Chat — general assistant (day-to-day, writing, web + paper search)"
@@ -121,21 +135,30 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # Check if model needs to be downloaded
 if [ ! -d "$MODEL_PATH" ]; then
     echo ""
-    echo "Model not found locally. Downloading from HuggingFace..."
-    echo "This may take a while (model is ~21GB)..."
-    hf download "$MODEL_ID" --local-dir "$MODEL_PATH"
+    echo "Model not found locally. Downloading $MODEL_ID from HuggingFace..."
+    _excl=""
+    for _g in $HF_EXCLUDE; do _excl="$_excl --exclude $_g"; done
+    # shellcheck disable=SC2086
+    hf download "$MODEL_ID" --local-dir "$MODEL_PATH" $_excl
     echo "[OK] Model downloaded to $MODEL_PATH"
 fi
 
 # ------------------------------------------------------------------------------
-# Pin the backend context window to the single-GPU window (65536). The retrieval
-# container reads these via compose ${VLLM_MAX_MODEL_LEN}/${VLLM_MAX_CONTEXT}
-# substitution at create time, so exporting them here (before `docker compose
-# up`) makes the backend trim to the 64k window this mode actually serves.
-# Switching back from the TP=2 script (which exports 131072) restores the cap.
+# Pin the backend context window to the window this job serves (the profile's
+# VLLM_MAX_MODEL_LEN, 65536 for every committed number). The retrieval container
+# reads these via compose ${VLLM_MAX_MODEL_LEN}/${VLLM_MAX_CONTEXT} substitution
+# at create time, so exporting them here (before `docker compose up`) makes the
+# backend trim to the window this mode actually serves. The model variables
+# (VLLM_MODEL_NAME, LLM_THINKING_MODE, SAMPLING_*, ...) were exported by
+# munin_load_model_env above and travel the same way.
+# 65536 -> 60000 keeps the historical trim ceiling exactly.
 # ------------------------------------------------------------------------------
-export VLLM_MAX_MODEL_LEN=65536
-export VLLM_MAX_CONTEXT=60000
+export VLLM_MAX_MODEL_LEN
+if [ "$VLLM_MAX_MODEL_LEN" = "65536" ]; then
+    export VLLM_MAX_CONTEXT=60000
+else
+    export VLLM_MAX_CONTEXT=$((VLLM_MAX_MODEL_LEN - 5536))
+fi
 
 # ------------------------------------------------------------------------------
 # Start Retrieval Service (for knowledge base tools)
@@ -162,23 +185,25 @@ for i in {1..30}; do
 done
 
 # ------------------------------------------------------------------------------
-# Start vLLM server - Qwen3.8-27B-AWQ-INT4
+# Start vLLM server on the active profile
 # ------------------------------------------------------------------------------
 echo ""
-echo "Starting vLLM server (Qwen3.8-27B-AWQ-INT4)..."
+echo "Starting vLLM server ($MODEL_NAME from $MODEL_PATH)..."
 
+# shellcheck disable=SC2086  # VLLM_QUANT_ARGS / VLLM_EXTRA_ARGS are word lists
 vllm serve "$MODEL_PATH" \
     --host 0.0.0.0 \
     --port $VLLM_PORT \
-    --gpu-memory-utilization 0.90 \
-    --max-model-len 65536 \
-    --max-num-seqs 2 \
-    --quantization compressed-tensors \
-    --kv-cache-dtype fp8 \
+    --gpu-memory-utilization $VLLM_GPU_MEM_UTIL \
+    --max-model-len $VLLM_MAX_MODEL_LEN \
+    --max-num-seqs $VLLM_MAX_NUM_SEQS_SINGLE \
+    $VLLM_QUANT_ARGS \
+    --kv-cache-dtype $VLLM_KV_CACHE_DTYPE \
     --served-model-name "$MODEL_NAME" \
     --enable-auto-tool-choice \
-    --tool-call-parser qwen3_xml \
-    --reasoning-parser qwen3 &
+    --tool-call-parser $VLLM_TOOL_PARSER \
+    --reasoning-parser $VLLM_REASONING_PARSER \
+    $VLLM_EXTRA_ARGS &
 
 VLLM_PID=$!
 echo "vLLM PID: $VLLM_PID"
@@ -199,7 +224,7 @@ while [ $ELAPSED -lt $TIMEOUT_SECONDS ]; do
 
     # Check health endpoint
     if curl -sf http://127.0.0.1:$VLLM_PORT/health > /dev/null 2>&1; then
-        echo "[OK] Qwen3.8-27B-AWQ-INT4 is ready!"
+        echo "[OK] $MODEL_NAME is ready!"
         break
     fi
 
@@ -231,7 +256,7 @@ echo "Endpoints:"
 echo "  vLLM API:    http://127.0.0.1:$VLLM_PORT/v1"
 echo ""
 echo "Model:"
-echo "  - $MODEL_NAME : Qwen3.8-27B (dense, AWQ-INT4, 64k ctx)"
+echo "  - $MODEL_NAME : $MODEL_DESC"
 echo ""
 echo "Personas (synced from persona definitions):"
 echo "  - Meitner  : Chat — general assistant (day-to-day, writing, web + paper search)"
@@ -268,7 +293,7 @@ for _cand in /opt/cluster/scripts/llm/check-context-window.sh \
     if [ -x "$_cand" ]; then CHECK_WINDOW="$_cand"; break; fi
 done
 if [ -n "$CHECK_WINDOW" ]; then
-    "$CHECK_WINDOW" 65536 || true
+    "$CHECK_WINDOW" "$VLLM_MAX_MODEL_LEN" || true
 else
     echo "[WARN] check-context-window.sh not found in /opt/cluster/scripts/llm"
     echo "       nor $SCRIPT_DIR; skipping window assertion"
