@@ -188,8 +188,9 @@ than a property of the signal.
 
 ## 4. Harness-iteration ablation (three deploy-measured levers)
 
-Each lever was gated on the routing anchor eval (>= 0.950) plus a Track B
-faithfulness arm. **Two nulls or negatives and one win**, reported with equal
+Each lever was gated on the routing anchor eval (a written `>= 0.950` bar,
+read off the scorecard by hand; it is a tool-trajectory pass rate, see R7)
+plus a Track B faithfulness arm. **Two nulls or negatives and one win**, reported with equal
 weight.
 
 | Lever | Type | Result |
@@ -199,7 +200,10 @@ weight.
 | **T1a**: `paper_search` abstract excerpts | Code | **Null for grounding** (0.356 → 0.303, CIs overlap) and null for over-tooling. |
 | **Over-tooling code cap** (`CHAT_MAX_TOOL_CALLS=30`) | Code | **Worked.** Tool calls per answer: max 43 → 31, p90 40 → 30, tail above 30 calls 9/40 → 2/40. Grounding held (0.331). Zero failures. |
 
-Post-deploy routing anchor: **0.963**, no regression.
+Post-deploy routing anchor (2026-07-10, after the cap): **0.963** tool-trajectory
+pass rate, no item regressed. The later tool consolidation (2026-07-25) took
+it to 0.835 on a 17-item set, called "within noise" at the time; there has
+been no anchor run since the KNN set changed on 2026-08-27.
 
 **Two evidence-backed lessons:**
 

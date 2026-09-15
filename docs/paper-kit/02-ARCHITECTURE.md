@@ -69,9 +69,22 @@ turn to another mid-conversation (`delegate_to_persona`).
 | 3 | **Fallback** | The pin if explicitly pinned, else `chat`. |
 
 Parameters: `KNN_K = 8`, `MARGIN_THRESHOLD = 0.10`, `OOD_SIM_THRESHOLD = 0.45`,
-`PIN_PRIOR = 0.5`. A tier-3 LLM classifier was specified but deliberately not
-built: the KNN tier reached a routing anchor score of **0.963** and the extra
-model call was not justified.
+`PIN_PRIOR = 0.5`. These are the 2026-06-24 initial values; the code still
+labels them "NOT final" and they were never tuned against the eval. A tier-3
+LLM classifier was specified but deliberately not built, on latency grounds
+with a "build only if tiers 1+2 underperform" clause (A3 plan, 2026-06-24/25).
+
+**What the routing anchor eval measures, stated carefully.** The number the
+project quotes for it, **0.963**, is a **tool-trajectory pass rate**, not a
+profile-routing accuracy: an anchor passes a rep when its gated tool checks
+(first tool, required, forbidden, solo, no-tool, abstain routing) all hold,
+and 0.963 is the mean over 16 anchors x 5 reps (77/80 turns) on 2026-07-10
+under a `chat` pin. The router's profile choice is logged as a non-gating
+diagnostic; it agreed with the gold profile on 7 of the 10 labelled anchors
+(0.70) in that run, and the eval pins `chat` where the UI sends the unpinned
+`munin` identity. The KNN tier is therefore covered by the eval but not
+scored by it. Full derivation, anchor-set provenance and the cannot-claim list
+are in `docs/ROUTING-EVAL-FACTS.md`.
 
 The embedder is injected as a function, so the router is unit-testable without
 loading BGE. This matters for the paper's reproducibility story: routing
