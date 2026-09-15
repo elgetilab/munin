@@ -1,0 +1,19 @@
+# /etc/sudoers.d/munin-operator  (installed by: sudo ./deploy.sh sudoers)
+#
+# Lets ONE operator account drive the backbone lifecycle without a password,
+# so the benchmark driver (backend/benchmarks/scripts/run_suite.sh) can bring
+# a second vLLM instance up, run a 15-hour suite, tear it down and restore the
+# production profile with nobody at the keyboard. Everything else the driver
+# does (the bench itself) runs as the operator.
+#
+# Scope, stated plainly: deploy.sh is a file the operator can edit, so this
+# grant is root-equivalent for that account. It is deliberately a named
+# operator on a single-tenant research box, not a group, and it is installed
+# by hand after `visudo -cf` so the file is read before it takes effect.
+# Remove it with: sudo rm /etc/sudoers.d/munin-operator
+#
+Cmnd_Alias MUNIN_DEPLOY = @REPO_DIR@/deploy.sh
+Cmnd_Alias MUNIN_VLLM   = /usr/local/bin/vllm-service
+Cmnd_Alias MUNIN_MAINT  = /usr/local/bin/munin-maintenance
+Defaults!MUNIN_DEPLOY, MUNIN_VLLM, MUNIN_MAINT env_keep += "MUNIN_MODEL_PROFILE MUNIN_EVAL_EGRESS"
+@OPERATOR@ ALL=(root) NOPASSWD: MUNIN_DEPLOY, MUNIN_VLLM, MUNIN_MAINT
