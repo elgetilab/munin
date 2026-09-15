@@ -296,6 +296,44 @@ $PY -m munin_bench.toolreliability.score ablation_runs/<run-tag>/agentic.json --
 
 ---
 
+## 5a. A second backbone beside production (2026-09-15)
+
+The whole generation suite can be run on another model without swapping
+production. The model is one profile file, `backend/config/models/<slug>.env`
+(checkpoint, served name, vLLM parsers, quantization, how sub-tasks turn
+reasoning off, and the vendor's recommended sampling); three ship:
+`qwen3.8-27b`, `gpt-oss-20b`, `qwen3.6-35b-a3b`.
+
+```bash
+# one-time: passwordless deploy.sh / vllm-service for the operator (root-equivalent, read the template)
+sudo MUNIN_OPERATOR=$USER backend/deploy.sh sudoers
+# production must be on the single-GPU profile so GPU 0 is free:
+sudo vllm-service stop && sudo vllm-service start single
+
+# everything else, unattended (phases resume; re-run the same command after any failure):
+backend/benchmarks/scripts/run_suite.sh gpt-oss-20b --date <D>
+```
+
+The driver brings the backbone up as `deploy.sh instance up <slug> --name eval`
+(its own SLURM job on GPU 0, vLLM :8001, a retrieval container on :8082 that
+`extends` production and differs in exactly the model variables and the
+tokenizer mount) plus a shadow-corpus instance on :8083 for the C2b absent
+arm, gates both (`scripts/vllm/backbone_gates.py`: KV pool, served id,
+tokenizer sha, thinking-off ratio, `reasoning_effort` accepted, one
+tool-calling turn, decode/prefill tok/s), smokes 20 questions against the
+Qwen3.8 arm, then runs Track D (n=199), C1 (100), the standalone answer
+track (199), the C2b pair (2x50), faithfulness per arm (CPU judge), T11,
+risk-coverage and the routing anchor tier, all at concurrency 1, and finally
+tears the instances down, drops the shadow collections (snapshot kept) and
+returns production to TP=2. Outputs: `scorecards/<D>_*-<slug>.json`,
+`ablation_runs/<tag>/`, `c1_runs/<tag>/`, `c2_runs/<tag>/`,
+`results/litqa2/answer.<tag>.*`, and `runs/<tag>/driver.log` with every gate.
+
+Cost columns from such a run are clean because the instance owns its GPU;
+user traffic stays on production. Sampling is the profile's, so gpt-oss runs
+at OpenAI's `temperature 1.0, top_p 1.0` while the Qwen numbers were produced
+under Qwen's set; the scorecards record both.
+
 ## 6. What has not been run
 
 As of 2026-09-14:
