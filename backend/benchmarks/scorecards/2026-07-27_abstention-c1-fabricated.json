@@ -1138,5 +1138,8 @@
     }
   ],
   "egress": "full",
-  "egress_note": "Backfilled 2026-07-27. run_trackc_rerun.sh exports MUNIN_EVAL_EGRESS=full. For C1 this is the HARDER condition: the model may search the entire web and must still conclude the fabricated paper does not exist."
+  "egress_note": "Backfilled 2026-07-27. run_trackc_rerun.sh exports MUNIN_EVAL_EGRESS=full. For C1 this is the HARDER condition: the model may search the entire web and must still conclude the fabricated paper does not exist.",
+  "backbone": "qwen3.6-35b-a3b",
+  "backbone_checkpoint": "cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit (retired 2026-08-25)",
+  "provenance_note": "Provenance fields backfilled 2026-09-15 from the dated section in backend/benchmarks/RESULTS.md; the runner did not stamp them. Verdicts and statistics untouched."
 }

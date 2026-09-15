@@ -136,5 +136,13 @@
     "n_resamples": 2000,
     "seed": 42,
     "dropped_resamples": 0
-  }
+  },
+  "backbone": "qwen3.6-35b-a3b",
+  "backbone_checkpoint": "cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit (retired 2026-08-25)",
+  "egress": "off",
+  "shadowed_collections": [
+    "papers_bge -> papers_shadow"
+  ],
+  "note": "papers_chunks did not exist yet (chunk index added 2026-08-30)",
+  "provenance_note": "Provenance fields backfilled 2026-09-15 from the dated section in backend/benchmarks/RESULTS.md; the runner did not stamp them. Verdicts and statistics untouched."
 }

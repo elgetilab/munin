@@ -78,5 +78,35 @@
       ],
       "p": 0.0
     }
-  }
+  },
+  "backbone": "qwen3.8-27b",
+  "backbone_checkpoint": "cyankiwi/Qwen3.8-27B-AWQ-INT4",
+  "serving": "vLLM TP=2 over 2x RTX 5090, max-model-len 65536, --max-num-seqs 8, reasoning_effort=medium",
+  "encoder": "bge-large-en-v1.5 / papers_bge",
+  "questions": "199 in-corpus LitQA2 questions (d_questions.json), same set in every Track D run",
+  "concurrency": 1,
+  "egress": {
+    "bare": "n/a-no-tools",
+    "rag": "n/a-no-tools",
+    "agentic": "full"
+  },
+  "sampling": {
+    "bare_rag": "temperature 0.7",
+    "agentic": "research persona: temperature 1.0, top_p 0.95, top_k 20, presence_penalty 1.5",
+    "note": "not matched across arms; present in every Track D run, reported as a threat in 08-LIMITATIONS"
+  },
+  "harness_git_sha": "3e0bcfb",
+  "arm_matching": {
+    "max_tokens": {
+      "bare": 16384,
+      "rag": 16384,
+      "agentic": 16384
+    },
+    "reasoning_effort": "medium on all arms",
+    "model_name": "config.VLLM_MODEL_NAME on all arms"
+  },
+  "partial_rerun": "8 of 199 agentic questions (indices 191-198) re-run ~4 h after the rest, after the 02:00 cron cancelled the vLLM job mid-arm; identical configuration; 7 of 8 correct.",
+  "run_to_run_variance": "an identical-configuration bare arm one day earlier scored 0.422 vs 0.387 here (~0.035 on n=199 at temperature 0.7)",
+  "brave_spend": "~331 web_search calls, ~1,190 billed Brave requests (~$6), no 402/429",
+  "provenance_note": "Provenance fields backfilled 2026-09-15 from the dated section in backend/benchmarks/RESULTS.md; the runner did not stamp them. Verdicts and statistics untouched."
 }

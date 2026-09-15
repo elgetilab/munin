@@ -399,5 +399,15 @@
   "bare": {
     "scoreable": false,
     "reason": "no retrieved contexts (0/199 answers carry any); faithfulness is undefined, not merely unmeasured"
-  }
+  },
+  "backbone": "qwen3.8-27b",
+  "backbone_checkpoint": "cyankiwi/Qwen3.8-27B-AWQ-INT4",
+  "serving": "vLLM TP=2 over 2x RTX 5090, max-model-len 65536, --max-num-seqs 8, reasoning_effort=medium",
+  "encoder": "bge-large-en-v1.5 / papers_bge",
+  "scored_over": "the 2026-08-26 ablation captures (scoring only, no new generation)",
+  "egress": {
+    "rag": "n/a-no-tools",
+    "agentic": "full"
+  },
+  "provenance_note": "Provenance fields backfilled 2026-09-15 from the dated section in backend/benchmarks/RESULTS.md; the runner did not stamp them. Verdicts and statistics untouched."
 }
