@@ -217,15 +217,38 @@ _SUMMARISE_TEXT = (
 ) * 3
 
 
+_REASONING_PROMPT = (
+    "A lab has 3 sequencers. Each run takes 6 hours and processes 48 samples. "
+    "Runs cannot overlap on one machine and each machine needs 1 hour of cleaning "
+    "between runs. How many samples can the lab process in 5 days of continuous "
+    "operation? Reply with just the number.")
+
+
 def gate_thinking_off(vllm: str, model: str, mode: str) -> None:
+    """Does the profile's thinking-off form actually shorten generation?
+
+    enable_thinking: an off-switch; compared against the model default on a
+    summarise prompt, expected < 0.5x, FAIL if not shorter at all.
+    effort_low: a dial, not a switch. Compared against reasoning_effort=high
+    on a reasoning-heavy prompt, where the dial has something to shorten; a
+    summarise prompt at low vs medium is noise (measured 200 vs 354, then 292
+    vs 278 on the same model). WARN, not FAIL, if it does not shorten: the
+    model still answers, the cost column just gets reported as-is.
+    """
     fields = thinking_off_fields(mode)
     if not fields:
         _report("thinking_off", "SKIP", f"mode={mode}: nothing to send")
         return
-    prompt = "Summarise the following in two sentences:\n\n" + _SUMMARISE_TEXT
-    code_on, d_on, dt_on = _chat(vllm, model, prompt, max_tokens=4096, system=_SUMMARISE_SYSTEM)
-    code_off, d_off, dt_off = _chat(vllm, model, prompt, max_tokens=4096, system=_SUMMARISE_SYSTEM,
-                                    extra=fields)
+    if mode == "effort_low":
+        prompt, system = _REASONING_PROMPT, None
+        baseline = {"chat_template_kwargs": {"reasoning_effort": "high"}}
+        hard_fail = False
+    else:
+        prompt, system = "Summarise the following in two sentences:\n\n" + _SUMMARISE_TEXT, _SUMMARISE_SYSTEM
+        baseline = None
+        hard_fail = True
+    code_on, d_on, dt_on = _chat(vllm, model, prompt, max_tokens=8192, system=system, extra=baseline)
+    code_off, d_off, dt_off = _chat(vllm, model, prompt, max_tokens=8192, system=system, extra=fields)
     if code_on != 200 or code_off != 200:
         _report("thinking_off", "FAIL", f"HTTP on={code_on} off={code_off}: {json.dumps(d_off)[:160]}")
         return
@@ -235,14 +258,16 @@ def gate_thinking_off(vllm: str, model: str, mode: str) -> None:
         _report("thinking_off", "FAIL", f"no usage in response (on={on} off={off})")
         return
     ratio = off / on if on else None
+    vs = json.dumps(baseline["chat_template_kwargs"]) if baseline else "model default"
     if off < on:
         status = "PASS" if ratio < 0.5 else "WARN"
         detail = (f"completion tokens with {json.dumps(fields['chat_template_kwargs'])}: {off} "
-                  f"vs without: {on} (ratio {ratio:.2f}"
+                  f"vs {vs}: {on} (ratio {ratio:.2f}"
                   + ("" if ratio < 0.5 else ", expected < 0.5 for a real off-switch") + ")")
     else:
-        status = "FAIL"
-        detail = f"thinking-off fields did not reduce output: {off} vs {on} tokens (mode {mode} inert?)"
+        status = "FAIL" if hard_fail else "WARN"
+        detail = (f"thinking-off fields did not reduce output: {off} vs {on} tokens against {vs} "
+                  f"(mode {mode}{' inert?' if hard_fail else ': a dial, not a switch; cost reported as-is'})")
     _report("thinking_off", status, detail, tokens_with_fields=off, tokens_without=on,
             ratio=round(ratio, 3) if ratio is not None else None, mode=mode)
 
