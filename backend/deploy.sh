@@ -23,6 +23,14 @@
 #                                     (or pass --restart-vllm to do it now).
 #   sudo ./deploy.sh model status   - active profile vs what vLLM / retrieval serve
 #   sudo ./deploy.sh model validate <slug>  - check a profile file, change nothing
+#   sudo ./deploy.sh instance up <slug> --name <n> [--vllm-port 8001] [--api-port 8082]
+#                                     [--corpus shadow] [--vllm <other-instance>]
+#                                     [--gpu-util 0.90] [--download]
+#                                   - a SECOND backbone beside production: its own
+#                                     vLLM job on GPU 0 (or another instance's vLLM)
+#                                     and its own retrieval container, gated, never
+#                                     routed to users. Eval only.
+#   sudo ./deploy.sh instance down <n> | ls | gates <n> | logs <n> [docker-logs args]
 #   sudo ./deploy.sh sudoers        - passwordless deploy.sh / vllm-service /
 #                                     munin-maintenance for MUNIN_OPERATOR
 #                                     (default: the invoking sudo user), so the
@@ -56,7 +64,7 @@ fi
 MODE=${1:-}
 if [ -z "$MODE" ]; then
     echo "Usage: sudo $0 [--dry-run] <mode> [--with-model]"
-    echo "Modes: all dirs compose personas agents models vllm model sudoers maintenance deepresearch tunnel knowledge pipeline retrieval sandbox searxng monitoring verify"
+    echo "Modes: all dirs compose personas agents models vllm model instance sudoers maintenance deepresearch tunnel knowledge pipeline retrieval sandbox searxng monitoring verify"
     exit 1
 fi
 shift
@@ -66,7 +74,7 @@ shift
 WITH_MODEL=${DEEPRESEARCH_WITH_MODEL:-0}
 # `model` takes a sub-command and its own flags; everything else takes none.
 MODEL_ARGS=()
-if [ "$MODE" = "model" ]; then
+if [ "$MODE" = "model" ] || [ "$MODE" = "instance" ]; then
     MODEL_ARGS=("$@")
 else
     for arg in "$@"; do
@@ -110,6 +118,9 @@ VLLM_VENV=/opt/munin/services/vllm/venv
 MODEL_ENV_SH=$REPO_DIR/scripts/vllm/model-env.sh
 MODEL_PROFILES_SRC=$REPO_DIR/config/models
 MODEL_PROFILES_DST=$MUNIN_ROOT/config/models
+INSTANCES_DIR=$MUNIN_ROOT/instances
+INSTANCE_SCRIPT=$CLUSTER_SCRIPTS/start-vllm-instance.sh
+GATES_PY=$CLUSTER_SCRIPTS/backbone_gates.py
 ACTIVE_MODEL_ENV=$MUNIN_ROOT/config/active-model.env
 # The profile a box with no active-model.env yet is assumed to run: the
 # reference deployment. `model activate` replaces the assumption with a file.
@@ -151,6 +162,9 @@ need_root() {
     fi
     if [ "$MODE" = "model" ] && [ "${MODEL_ARGS[0]:-}" != "activate" ]; then
         return 0   # status / validate only read
+    fi
+    if [ "$MODE" = "instance" ] && [ "${MODEL_ARGS[0]:-}" = "ls" ]; then
+        return 0
     fi
     if [ "$EUID" -ne 0 ]; then
         echo "[ERROR] This script must be run as root (use sudo)"
@@ -261,10 +275,6 @@ print_compose_migration() {
     echo ""
 }
 
-# Blocks a mode that STARTS containers. Installing files is safe and must not
-# be blocked -- `deploy.sh compose` is step 1 of the migration itself, so
-# refusing it here would deadlock: the file that pins the name could never be
-# installed. (It did, on 2026-08-18.)
 # Load the active model profile into this shell (exports the compose-visible
 # variables). Falls back to the repo's default profile with a warning on a box
 # that has never run `model activate`, so a first deploy still works.
@@ -284,6 +294,10 @@ load_model_env() {
     MODEL_ENV_LOADED=1
 }
 
+# Blocks a mode that STARTS containers. Installing files is safe and must not
+# be blocked -- `deploy.sh compose` is step 1 of the migration itself, so
+# refusing it here would deadlock: the file that pins the name could never be
+# installed. (It did, on 2026-08-18.)
 check_compose_project() {
     local running
     running=$(running_compose_project)
@@ -491,6 +505,8 @@ deploy_vllm() {
     run "install -m 0755 $REPO_DIR/scripts/vllm/check-context-window.sh $CLUSTER_SCRIPTS/check-context-window.sh"
     run "install -m 0755 $REPO_DIR/scripts/vllm/check-vllm-health.sh $CLUSTER_SCRIPTS/check-vllm-health.sh"
     run "install -m 0755 $REPO_DIR/scripts/vllm/model-env.sh $CLUSTER_SCRIPTS/model-env.sh"
+    run "install -m 0755 $REPO_DIR/scripts/vllm/start-vllm-instance.sh $CLUSTER_SCRIPTS/start-vllm-instance.sh"
+    run "install -m 0755 $REPO_DIR/scripts/vllm/backbone_gates.py $CLUSTER_SCRIPTS/backbone_gates.py"
     run "ln -sf $CLUSTER_SCRIPTS/schedule-vllm.sh /usr/local/bin/vllm-service"
     # Model profiles. The SLURM scripts source the ACTIVE one at job start.
     run "install -d -m 0755 $MODEL_PROFILES_DST"
@@ -1449,6 +1465,295 @@ deploy_model() {
 }
 
 # ------------------------------------------------------------------------------
+# instance: a second backbone beside production (eval only)
+#
+# State per instance under $INSTANCES_DIR/<name>/: profile, vllm_port, api_port,
+# job_id (or vllm_of when it shares another instance's vLLM), compose.yml (the
+# rendered override), gates.json. The container is munin-retrieval-<name>, an
+# `extends` of the production retrieval service that differs in exactly: name,
+# port, VLLM_URL, the model variables, the tokenizer mount and, with
+# --corpus shadow, the two collection names. Verified by `instance gates`.
+# ------------------------------------------------------------------------------
+_yaml_sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/''/g")"; }
+
+instance_render_compose() {
+    # $1 name, $2 api_port, $3 vllm_port, $4 tokenizer_dir, $5 corpus (live|shadow), $6 out
+    local name=$1 api_port=$2 vllm_port=$3 tok=$4 corpus=$5 out=$6
+    {
+        echo "# Rendered by deploy.sh instance up on $(date -u +%Y-%m-%dT%H:%M:%SZ). Do not edit; re-run instance up."
+        echo "# extends the production retrieval service; only the keys below differ."
+        echo "services:"
+        echo "  retrieval-$name:"
+        echo "    extends:"
+        echo "      file: docker-compose.yml"
+        echo "      service: retrieval"
+        echo "    container_name: munin-retrieval-$name"
+        echo "    build: !reset null"
+        echo "    restart: \"no\""
+        echo "    ports: !override"
+        echo "      - \"127.0.0.1:$api_port:8080\""
+        echo "    volumes:"
+        echo "      - $tok:/models/qwen:ro"
+        echo "    environment:"
+        echo "      - VLLM_URL=http://host.docker.internal:$vllm_port"
+        echo "      - $(_yaml_sq "VLLM_MODEL_NAME=$MODEL_NAME")"
+        echo "      - $(_yaml_sq "LLM_THINKING_MODE=$LLM_THINKING_MODE")"
+        echo "      - $(_yaml_sq "LLM_REASONING_EFFORT=$LLM_REASONING_EFFORT")"
+        echo "      - $(_yaml_sq "SAMPLING_DEFAULT=$SAMPLING_DEFAULT")"
+        echo "      - $(_yaml_sq "SAMPLING_CODE=$SAMPLING_CODE")"
+        echo "      - MUNIN_INSTANCE=$name"
+        if [ "$corpus" = "shadow" ]; then
+            echo "      - PAPERS_COLLECTION=papers_shadow"
+            echo "      - CHUNKS_COLLECTION=papers_chunks_shadow"
+        fi
+        echo "    profiles:"
+        echo "      - rag"
+    } > "$out"
+}
+
+instance_compose() {
+    # docker compose invocation for one instance's service, from the production
+    # project dir so the .env symlink (cluster.env secrets) applies. Never touches
+    # other services (--no-deps at the call sites).
+    local name=$1; shift
+    (cd "$MUNIN_DOCKER" && docker compose -p munin --profile rag \
+        -f docker-compose.yml -f "$INSTANCES_DIR/$name/compose.yml" "$@")
+}
+
+deploy_instance_up() {
+    local slug=$1; shift
+    local name="" vllm_port=8001 api_port=8082 corpus=live vllm_of="" gpu_util="" do_download=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --name) name=$2; shift 2 ;;
+            --vllm-port) vllm_port=$2; shift 2 ;;
+            --api-port) api_port=$2; shift 2 ;;
+            --corpus) corpus=$2; shift 2 ;;
+            --vllm) vllm_of=$2; shift 2 ;;
+            --gpu-util) gpu_util=$2; shift 2 ;;
+            --download) do_download=1; shift ;;
+            *) echo "[ERROR] instance up: unknown flag $1"; exit 1 ;;
+        esac
+    done
+    [ -n "$name" ] || { echo "[ERROR] instance up needs --name <n>"; exit 1; }
+    case "$name" in *[!a-z0-9-]*) echo "[ERROR] --name: lowercase letters, digits, dashes"; exit 1 ;; esac
+    case "$corpus" in live|shadow) ;; *) echo "[ERROR] --corpus live|shadow"; exit 1 ;; esac
+    if [ "$name" = "prod" ] || [ "$api_port" = "8080" ] || [ "$vllm_port" = "8000" ]; then
+        echo "[ERROR] :8080 / :8000 / 'prod' are production; an instance never takes them"; exit 1
+    fi
+    local src; src=$(model_profile_src "$slug") || exit 1
+    if [ "$DRY_RUN" != "1" ]; then
+        need_file "$INSTANCE_SCRIPT"; need_file "$GATES_PY"   # installed by deploy.sh vllm
+    fi
+    # shellcheck disable=SC1090
+    source "$MODEL_ENV_SH"
+    munin_validate_model_env "$src" || exit 1
+    TOKENIZER_HOST_DIR=""; munin_load_model_env "$src" || exit 1
+    local tok_dir="$MUNIN_ROOT/data/models/tokenizer-$MODEL_SLUG"
+    local state="$INSTANCES_DIR/$name"
+    # A dry run renders into a scratch dir so nothing under /opt/munin is touched.
+    [ "$DRY_RUN" = "1" ] && state=$(mktemp -d) && echo "  [dry-run] state dir -> $state"
+    echo "[instance] '$name' <- $MODEL_SLUG ($MODEL_NAME) vllm=:$vllm_port api=:$api_port corpus=$corpus"
+    munin_model_env_summary | sed 's/^/  /'
+
+    # checkpoint
+    if [ ! -f "$MODEL_PATH/config.json" ]; then
+        local excl="" g; for g in $HF_EXCLUDE; do excl="$excl --exclude $g"; done
+        if [ "$do_download" = "1" ]; then
+            run "$VLLM_VENV/bin/hf download $MODEL_ID --local-dir $MODEL_PATH $excl"
+        else
+            echo "[ERROR] checkpoint missing: $MODEL_PATH (re-run with --download)"; exit 1
+        fi
+    fi
+    if [ "$corpus" = "shadow" ]; then
+        local n
+        for c in papers_shadow papers_chunks_shadow; do
+            n=$(curl -sf "http://127.0.0.1:6333/collections/$c" 2>/dev/null \
+                | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["points_count"])' 2>/dev/null || echo "")
+            if [ -z "$n" ] || [ "$n" = "0" ]; then
+                echo "[ERROR] shadow corpus: collection $c missing or empty. Build both first"
+                echo "        (snapshot-recover + removed_dois delete; RESULTS.md 2026-09-15 recipe)."
+                exit 1
+            fi
+            echo "  shadow collection $c: $n points"
+        done
+    fi
+
+    run "install -d -m 0755 $state $INSTANCES_DIR"
+    run "install -d -m 0755 $tok_dir"
+    # tokenizer for THIS model, never production's dir
+    for f in tokenizer.json tokenizer_config.json special_tokens_map.json; do
+        [ -f "$MODEL_PATH/$f" ] && run "install -m 0644 $MODEL_PATH/$f $tok_dir/$f"
+    done
+    echo "[OK] tokenizer -> $tok_dir ($(sha256sum "$MODEL_PATH/tokenizer.json" | cut -c1-12))"
+
+    # vLLM: own job, or another instance's
+    local job_out=""
+    if [ -n "$vllm_of" ]; then
+        [ -f "$INSTANCES_DIR/$vllm_of/vllm_port" ] || { echo "[ERROR] no instance '$vllm_of' to share vLLM with"; exit 1; }
+        vllm_port=$(cat "$INSTANCES_DIR/$vllm_of/vllm_port")
+        [ "$(cat "$INSTANCES_DIR/$vllm_of/model_name" 2>/dev/null)" = "$MODEL_NAME" ] \
+            || { echo "[ERROR] instance '$vllm_of' serves $(cat "$INSTANCES_DIR/$vllm_of/model_name"), not $MODEL_NAME"; exit 1; }
+        run "echo $vllm_of > $state/vllm_of"
+        echo "[instance] sharing vLLM of '$vllm_of' on :$vllm_port"
+    else
+        if curl -sf --max-time 3 "http://127.0.0.1:$vllm_port/health" > /dev/null 2>&1; then
+            echo "[ERROR] something already answers on :$vllm_port"; exit 1
+        fi
+        local jobname="vllm-inst-$name"
+        if squeue -h -n "$jobname" -o %i | grep -q .; then
+            echo "[ERROR] SLURM job $jobname already exists: $(squeue -h -n "$jobname" -o '%i %T')"; exit 1
+        fi
+        echo "[instance] sbatch $INSTANCE_SCRIPT as $jobname (gpu:batch:1) ..."
+        local export_vars="ALL,MUNIN_MODEL_PROFILE=$MODEL_PROFILES_DST/$MODEL_SLUG.env,INSTANCE_NAME=$name,INSTANCE_PORT=$vllm_port,INSTANCE_STATE_DIR=$state,TOKENIZER_HOST_DIR=$tok_dir"
+        [ -n "$gpu_util" ] && export_vars="$export_vars,INSTANCE_GPU_UTIL=$gpu_util"
+        run "install -m 0644 $src $MODEL_PROFILES_DST/$MODEL_SLUG.env"
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "  [dry-run] sbatch --job-name=$jobname --export=$export_vars $INSTANCE_SCRIPT"
+        else
+            local jid
+            jid=$(sbatch --parsable --job-name="$jobname" --export="$export_vars" "$INSTANCE_SCRIPT") \
+                || { echo "[ERROR] sbatch failed"; exit 1; }
+            echo "$jid" > "$state/job_id"
+            job_out="/opt/munin/logs/vllm-inst-$jobname-$jid.out"
+            echo "[instance] job $jid submitted; log $job_out"
+            echo "[instance] waiting for vLLM on :$vllm_port (up to 20 min) ..."
+            local i
+            for i in $(seq 1 240); do
+                if curl -sf --max-time 3 "http://127.0.0.1:$vllm_port/health" > /dev/null 2>&1; then break; fi
+                if ! squeue -h -j "$jid" -o %T | grep -q .; then
+                    echo "[ERROR] job $jid left the queue before vLLM answered; see $job_out"
+                    tail -30 "$job_out" 2>/dev/null; exit 1
+                fi
+                sleep 5
+            done
+            curl -sf --max-time 3 "http://127.0.0.1:$vllm_port/health" > /dev/null 2>&1 \
+                || { echo "[ERROR] vLLM not healthy after 20 min; see $job_out"; exit 1; }
+        fi
+    fi
+    echo "$vllm_port" > "$state/vllm_port"; echo "$api_port" > "$state/api_port"
+    echo "$MODEL_NAME" > "$state/model_name"; echo "$MODEL_PROFILES_DST/$MODEL_SLUG.env" > "$state/profile"
+    echo "$corpus" > "$state/corpus"; echo "$tok_dir" > "$state/tokenizer_dir"
+    [ -n "$job_out" ] && echo "$job_out" > "$state/job_out"
+
+    # retrieval container
+    instance_render_compose "$name" "$api_port" "$vllm_port" "$tok_dir" "$corpus" "$state/compose.yml"
+    check_compose_project || exit 1
+    echo "[instance] docker compose up retrieval-$name (:$api_port) ..."
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "  [dry-run] compose up -d --no-deps retrieval-$name with $state/compose.yml"; cat "$state/compose.yml"
+    else
+        instance_compose "$name" up -d --no-deps "retrieval-$name" || exit 1
+        local i
+        for i in $(seq 1 90); do
+            curl -sf --max-time 2 "http://127.0.0.1:$api_port/health" > /dev/null 2>&1 && break; sleep 2
+        done
+    fi
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "  [dry-run] would run: deploy.sh instance gates $name"; rm -rf "$state"; return 0
+    fi
+    deploy_instance_gates "$name"
+}
+
+deploy_instance_gates() {
+    local name=$1 state="$INSTANCES_DIR/$name"
+    [ -f "$state/profile" ] || { echo "[ERROR] no instance '$name'"; exit 1; }
+    # shellcheck disable=SC1090
+    source "$MODEL_ENV_SH"
+    TOKENIZER_HOST_DIR=$(cat "$state/tokenizer_dir"); munin_load_model_env "$(cat "$state/profile")" || exit 1
+    local vllm_port api_port job_out=""
+    vllm_port=$(cat "$state/vllm_port"); api_port=$(cat "$state/api_port")
+    [ -f "$state/job_out" ] && job_out=$(cat "$state/job_out")
+    [ -z "$job_out" ] && [ -f "$state/vllm_of" ] && [ -f "$INSTANCES_DIR/$(cat "$state/vllm_of")/job_out" ] \
+        && job_out=$(cat "$INSTANCES_DIR/$(cat "$state/vllm_of")/job_out")
+    # compose diff: exactly the intended keys
+    echo "[instance] compose diff vs production (env keys that differ):"
+    local diffkeys
+    diffkeys=$(instance_compose "$name" config 2>/dev/null | python3 -c '
+import sys, yaml
+name = sys.argv[1]
+d = yaml.safe_load(sys.stdin)["services"]
+def env(svc):
+    e = d[svc].get("environment") or {}
+    return e if isinstance(e, dict) else dict(kv.split("=", 1) for kv in e)
+p, i = env("retrieval"), env("retrieval-" + name)
+keys = sorted(k for k in set(p) | set(i) if p.get(k) != i.get(k))
+print(" ".join(keys))
+pv = {m["target"]: m["source"] for m in d["retrieval"].get("volumes", [])}
+iv = {m["target"]: m["source"] for m in d["retrieval-" + name].get("volumes", [])}
+print("MOUNTS:" + " ".join(sorted(t for t in set(pv) | set(iv) if pv.get(t) != iv.get(t))))
+' "$name" 2>/dev/null) || diffkeys="(compose config failed)"
+    echo "  $diffkeys"
+    local allowed="VLLM_URL VLLM_MODEL_NAME LLM_THINKING_MODE LLM_REASONING_EFFORT SAMPLING_DEFAULT SAMPLING_CODE MUNIN_INSTANCE PAPERS_COLLECTION CHUNKS_COLLECTION"
+    local k bad=""
+    for k in $(printf '%s' "$diffkeys" | head -1); do
+        case " $allowed " in *" $k "*) ;; *) bad="$bad $k" ;; esac
+    done
+    if [ -n "$bad" ]; then echo "[FAIL] unexpected env differences:$bad"; [ "$DRY_RUN" = "1" ] || exit 1; fi
+    [ "$DRY_RUN" = "1" ] && return 0
+    python3 "$GATES_PY" --vllm "http://127.0.0.1:$vllm_port" --api "http://127.0.0.1:$api_port" \
+        --model "$MODEL_NAME" --thinking-mode "$LLM_THINKING_MODE" --reasoning-effort "$LLM_REASONING_EFFORT" \
+        --max-num-seqs "${INSTANCE_MAX_NUM_SEQS:-$VLLM_MAX_NUM_SEQS_SINGLE}" --max-model-len "$VLLM_MAX_MODEL_LEN" \
+        ${job_out:+--job-out "$job_out"} --tokenizer "$TOKENIZER_HOST_DIR/tokenizer.json" --checkpoint "$MODEL_PATH" \
+        --out "$state/gates.json" || { echo "[FAIL] gates failed for instance '$name' (see $state/gates.json)"; exit 1; }
+    echo "[OK] instance '$name' is up and gated: vLLM :$vllm_port, API :$api_port, $MODEL_NAME"
+}
+
+deploy_instance_down() {
+    local name=$1 state="$INSTANCES_DIR/$name"
+    [ -d "$state" ] || { echo "[ERROR] no instance '$name'"; exit 1; }
+    echo "[instance] down '$name' ..."
+    run "docker rm -f munin-retrieval-$name 2>/dev/null || true"
+    if [ -f "$state/job_id" ]; then
+        local jid; jid=$(cat "$state/job_id")
+        # refuse if another instance still shares this vLLM
+        local other
+        for other in "$INSTANCES_DIR"/*/vllm_of; do
+            [ -f "$other" ] && [ "$(cat "$other")" = "$name" ] && [ -f "$(dirname "$other")/api_port" ] \
+                && docker ps --format '{{.Names}}' | grep -q "^munin-retrieval-$(basename "$(dirname "$other")")$" \
+                && { echo "[ERROR] instance '$(basename "$(dirname "$other")")' still uses this vLLM; down it first"; exit 1; }
+        done
+        run "scancel $jid || true"
+        run "rm -f $state/job_id"
+    fi
+    run "echo offline > $state/status"
+    echo "[OK] instance '$name' down (state kept in $state; remove the dir to forget it)"
+}
+
+deploy_instance_ls() {
+    [ -d "$INSTANCES_DIR" ] || { echo "(no instances)"; return 0; }
+    printf "%-12s %-16s %-6s %-6s %-8s %-10s %-10s %s\n" NAME MODEL VLLM API CORPUS JOB CONTAINER STATUS
+    local d name jid jstate cstate
+    for d in "$INSTANCES_DIR"/*/; do
+        [ -f "$d/profile" ] || continue
+        name=$(basename "$d")
+        jid=$(cat "$d/job_id" 2>/dev/null || cat "$d/vllm_of" 2>/dev/null | sed 's/^/via:/')
+        jstate=""; [ -n "$jid" ] && [ "${jid#via:}" = "$jid" ] && jstate=$(squeue -h -j "$jid" -o %T 2>/dev/null)
+        cstate=$(docker inspect -f '{{.State.Health.Status}}' "munin-retrieval-$name" 2>/dev/null || echo "absent")
+        printf "%-12s %-16s %-6s %-6s %-8s %-10s %-10s %s\n" "$name" "$(cat "$d/model_name")" \
+            "$(cat "$d/vllm_port")" "$(cat "$d/api_port")" "$(cat "$d/corpus" 2>/dev/null)" \
+            "${jid:-none}${jstate:+ ($jstate)}" "$cstate" "$(cat "$d/status" 2>/dev/null || echo "")"
+    done
+}
+
+deploy_instance() {
+    local sub=${MODEL_ARGS[0]:-}
+    case "$sub" in
+        up)
+            [ -n "${MODEL_ARGS[1]:-}" ] || { echo "Usage: sudo $0 instance up <slug> --name <n> [flags]"; exit 1; }
+            deploy_instance_up "${MODEL_ARGS[@]:1}" ;;
+        down)  [ -n "${MODEL_ARGS[1]:-}" ] || { echo "Usage: sudo $0 instance down <n>"; exit 1; }
+               deploy_instance_down "${MODEL_ARGS[1]}" ;;
+        gates) [ -n "${MODEL_ARGS[1]:-}" ] || { echo "Usage: sudo $0 instance gates <n>"; exit 1; }
+               deploy_instance_gates "${MODEL_ARGS[1]}" ;;
+        logs)  [ -n "${MODEL_ARGS[1]:-}" ] || { echo "Usage: sudo $0 instance logs <n> [docker logs args]"; exit 1; }
+               docker logs "${MODEL_ARGS[@]:2}" "munin-retrieval-${MODEL_ARGS[1]}" ;;
+        ls)    deploy_instance_ls ;;
+        *) echo "Usage: sudo $0 instance {up <slug> --name <n> [--vllm-port P] [--api-port P] [--corpus live|shadow] [--vllm <n>] [--gpu-util U] [--download] | down <n> | gates <n> | logs <n> | ls}"; exit 1 ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
 # sudoers: let the operator account drive the backbone lifecycle unattended
 # ------------------------------------------------------------------------------
 deploy_sudoers() {
@@ -1594,6 +1899,7 @@ case "$MODE" in
     verify)       deploy_verify ;;
     model)        deploy_model ;;
     sudoers)      deploy_sudoers ;;
+    instance)     deploy_instance ;;
     all)
         deploy_dirs
         deploy_compose

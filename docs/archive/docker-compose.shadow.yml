@@ -1,0 +1,46 @@
+# Track C2b - shadow retrieval instance (EVAL ONLY, temporary).
+#
+# A second retrieval service on 127.0.0.1:8081 that is IDENTICAL to production
+# except that it searches the shadow collections: `papers_shadow` (papers_bge
+# minus the frozen C2 source papers) and `papers_chunks_shadow` (papers_chunks
+# minus those papers' chunks). Non-destructive: reuses the production image,
+# papers_bge / papers_chunks / prod :8080 are untouched.
+#
+# History. First used 2026-07-10 and 2026-07-27 as a hand-maintained copy of
+# the retrieval service; retired 2026-08-04. Reused 2026-09-15 for the Qwen3.8
+# re-run, at which point the copy had drifted from production by 27
+# environment variables and the chunk-level evidence layer (papers_chunks,
+# 2026-08-30) had opened a second leak path the copy did not cover. It is now
+# an `extends` of the production service, so it inherits every mount and
+# variable and overrides only what makes it a shadow. `docker compose config`
+# shows the merged result.
+#
+# Build the collections first (both must exist or the instance answers from
+# production data):
+#   munin_bench.abstention.build_shadow --n 50   # papers_shadow (or the snapshot
+#                                                 # recipe in RESULTS.md 2026-09-15)
+#   papers_chunks_shadow: snapshot papers_chunks, recover under the new name,
+#   delete points whose paper_id / doi is in c2_questions.json removed_dois.
+#
+# Up (from the production project so nothing else in the stack is touched):
+#   cd /opt/munin/docker && docker compose -p munin --profile rag \
+#     -f docker-compose.yml -f <repo>/backend/docker/docker-compose.shadow.yml \
+#     up -d --no-deps retrieval-shadow
+# Down:
+#   docker stop munin-retrieval-shadow && docker rm munin-retrieval-shadow
+# Nothing deploys this file; deploy.sh never installed it.
+services:
+  retrieval-shadow:
+    extends:
+      file: docker-compose.yml
+      service: retrieval
+    container_name: munin-retrieval-shadow
+    # Never rebuild from here; use the image production is running.
+    build: !reset null
+    ports: !override
+      - "127.0.0.1:8081:8080"
+    environment:
+      - PAPERS_COLLECTION=papers_shadow
+      - CHUNKS_COLLECTION=papers_chunks_shadow
+    profiles:
+      - rag
