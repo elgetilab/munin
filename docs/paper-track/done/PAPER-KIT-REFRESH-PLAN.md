@@ -9,7 +9,8 @@ day (0.884 [0.839, 0.925], agrees with the ablation arm question-paired,
 writer's request (100/100, 0 confabulated local cites), and two reproduce
 defects found on the way were fixed (answer-track and C1 commands ran
 `egress=off` by default; `run_c1` resumes from the previous capture). C2b
-and risk-coverage remain on Qwen3.6. Moved to `done/` 2026-09-15. Written
+and risk-coverage followed on 2026-09-15 (`e05bd8d`). Moved to `done/`
+2026-09-15. Written
 2026-09-14 as step 3 of `MODEL-SWAP-QWEN38-PLAN.md` (section 6), the half
 that was never done.
 No GPU, no new measurements: every number comes from `RESULTS.md`'s

@@ -1017,8 +1017,9 @@ the Qwen3.6 arm, which cannot be re-run at all.
 - Retrieval tracks (BEIR SciFact, LitQA2-retrieval, LitSearch) were
   deliberately **not** re-run: no LLM is in the loop and AgentRetriever scores
   against a frozen variant set, so they are model-independent by construction.
-  Tracks C1 and C2b were not re-run either; their numbers remain attached to
-  Qwen3.6.
+  Tracks C1 and C2b were not re-run either at the time; their numbers
+  remained attached to Qwen3.6 until the 2026-09-14 (C1) and 2026-09-15 (C2b,
+  risk-coverage) sections below.
 
 Scorecards: `2026-08-26_harness-ablation.json`,
 `2026-08-26_harness-ablation-faithfulness.json`,
@@ -1129,8 +1130,8 @@ retrieval commits after the 08-26 ablation run are deployed; this run is on
 the current harness, not the one the ablation measured). GPU shared with one
 group member's chat during the run; no cost claim is made from C1.
 
-**C2b is still on Qwen3.6.** It needs the `papers_shadow` collection rebuilt
-and the :8081 instance; the note in PAPER.md claim 3 stands for C2b only.
+**C2b followed on 2026-09-15**, next section, which also needed a second
+shadow of the chunk index.
 
 Scorecard: `2026-09-14_abstention-c1-fabricated.json` (per-item verdicts,
 tool calls, `cited_in_corpus` lists; `egress` and `harness_note` backfilled
