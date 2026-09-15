@@ -98,7 +98,8 @@ def _git_sha() -> str:
 
 def run(base_url: str, email: str, *, limit: int = 0, concurrency: int = 1,
         deadline: int = 900,
-        date: str | None = None, out_dir: str | None = None) -> dict:
+        date: str | None = None, out_dir: str | None = None,
+        out_suffix: str = "") -> dict:
     payload = json.load(open(_SET))
     items = payload["items"]
     if limit:
@@ -149,6 +150,11 @@ def run(base_url: str, email: str, *, limit: int = 0, concurrency: int = 1,
         "track": "abstention-c1-fabricated",
         "n": n, "git_sha": _git_sha(), "date": date, "seed": 42,
         "generator_base_url": base_url,
+        # Stamped at run time since 2026-09-15; the 09-14 scorecard had these
+        # backfilled by hand from the launch log.
+        "egress": os.getenv("MUNIN_EVAL_EGRESS", "off"),
+        "deadline_s": deadline, "concurrency": concurrency,
+        "capture_dir": os.path.relpath(work, os.path.join(_HERE, "..", "..")),
         "set_meta": payload["meta"],
         "verdicts": dict(verdicts),
         "abstain_rate": abstain,
@@ -158,7 +164,7 @@ def run(base_url: str, email: str, *, limit: int = 0, concurrency: int = 1,
     }
     if date:
         out = os.path.join(_HERE, "..", "..", "scorecards",
-                           f"{date}_abstention-c1-fabricated.json")
+                           f"{date}_abstention-c1-fabricated{out_suffix}.json")
         os.makedirs(os.path.dirname(out), exist_ok=True)
         json.dump(sc, open(out, "w"), indent=2)
         print(f"[c1] scorecard -> {os.path.abspath(out)}")
@@ -182,9 +188,16 @@ def main() -> int:
     ap.add_argument("--deadline", type=int, default=900,
                     help="wall-clock cap per question (s); 900 matches litqa2_runner")
     ap.add_argument("--date", default=None)
+    ap.add_argument("--out-suffix", default="",
+                    help="scorecard basename suffix, e.g. '-gpt-oss-20b'")
+    ap.add_argument("--out-dir", default=None,
+                    help="capture dir (default c1_runs/). Use c1_runs/<tag>/ for a new backbone: "
+                         "the capture is RESUMED, so reusing the default dir re-scores the previous "
+                         "backbone's answers under a new date")
     args = ap.parse_args()
     run(args.base_url, args.email, limit=args.limit,
-        concurrency=args.concurrency, date=args.date, deadline=args.deadline)
+        concurrency=args.concurrency, date=args.date, deadline=args.deadline,
+        out_dir=args.out_dir, out_suffix=args.out_suffix)
     return 0
 
 

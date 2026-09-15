@@ -260,15 +260,27 @@ def main() -> int:
     ap.add_argument("--date", default="2026-07-27")
     ap.add_argument("--tag", default=None,
                     help="ablation_runs/<tag>/ for the three LitQA2 arms (or MUNIN_ABLATION_TAG)")
+    ap.add_argument("--c2-dir", default=None,
+                    help="dir holding present/absent.verdicts.json (default c2_runs/; use c2_runs/<tag>/ for a new backbone)")
+    ap.add_argument("--c1-scorecard", default=None,
+                    help="a specific *_abstention-c1-fabricated.json (default: the newest by date)")
+    ap.add_argument("--out-suffix", default="",
+                    help="scorecard basename suffix, e.g. '-gpt-oss-20b' -> <date>_risk-coverage-gpt-oss-20b")
     args = ap.parse_args()
-    global _ABL
+    global _ABL, _C2, _latest_c1
     if args.tag:
         _ABL = runs_dir(args.tag)
+    if args.c2_dir:
+        _C2 = args.c2_dir
+    if args.c1_scorecard:
+        _fixed = os.path.abspath(args.c1_scorecard)
+        _latest_c1 = lambda: _fixed  # noqa: E731
     sc = build()
     sc["ablation_runs_dir"] = os.path.relpath(_ABL, _BENCH)
+    sc["c2_runs_dir"] = os.path.relpath(_C2, _BENCH)
     sc["date"] = args.date
     os.makedirs(_SCORECARDS, exist_ok=True)
-    base = os.path.join(_SCORECARDS, f"{args.date}_risk-coverage")
+    base = os.path.join(_SCORECARDS, f"{args.date}_risk-coverage{args.out_suffix}")
     json.dump(sc, open(base + ".json", "w"), indent=2)
     open(base + ".md", "w").write(to_md(sc))
     print(to_md(sc))

@@ -281,14 +281,19 @@ def main() -> int:
     ap.add_argument("--vs-suffix", default=None,
                     help="verdict-file suffix of an EARLIER run to compare against; "
                          "adds a question-paired bootstrap on the correct-abstention delta")
+    ap.add_argument("--work-dir", default=None,
+                    help="verdict dir (default c2_runs/). Use c2_runs/<tag>/ for a new backbone; "
+                         "run_arm writes <arm>.verdicts.json IN PLACE")
+    ap.add_argument("--vs-dir", default=None,
+                    help="dir holding the --vs-suffix files (default: --work-dir)")
     args = ap.parse_args()
 
+    work = args.work_dir or os.path.join(_HERE, "..", "..", "c2_runs")
     if not args.rescore:
         if not args.arm or not args.base_url:
             ap.error("--arm and --base-url are required unless --rescore is given")
-        run_arm(args.arm, args.base_url, args.email, concurrency=args.concurrency)
+        run_arm(args.arm, args.base_url, args.email, concurrency=args.concurrency, work=work)
 
-    work = os.path.join(_HERE, "..", "..", "c2_runs")
     sfx = f".{args.suffix}" if args.suffix else ""
     pp = os.path.join(work, f"present.verdicts{sfx}.json")
     ap_ = os.path.join(work, f"absent.verdicts{sfx}.json")
@@ -301,17 +306,18 @@ def main() -> int:
             # the whole scorecard was produced in one pass.
             sc["rescored_by"] = "munin_bench.abstention.run_c2 --rescore"
             sc["rescored_at_git_sha"] = _git_sha()
-        if args.vs_suffix:
-            vsfx = f".{args.vs_suffix}"
-            op = os.path.join(work, f"present.verdicts{vsfx}.json")
-            oa = os.path.join(work, f"absent.verdicts{vsfx}.json")
+        if args.vs_suffix is not None:
+            vsfx = f".{args.vs_suffix}" if args.vs_suffix else ""
+            vsdir = args.vs_dir or work
+            op = os.path.join(vsdir, f"present.verdicts{vsfx}.json")
+            oa = os.path.join(vsdir, f"absent.verdicts{vsfx}.json")
             if os.path.exists(op) and os.path.exists(oa):
-                sc["correct_abstention_vs_" + args.vs_suffix] = _correct_abstention_delta(
+                sc["correct_abstention_vs_" + (args.vs_suffix or os.path.basename(os.path.normpath(vsdir)))] = _correct_abstention_delta(
                     (json.load(open(op)), json.load(open(oa))),
                     (json.load(open(pp)), json.load(open(ap_))),
                 )
             else:
-                print(f"[c2] --vs-suffix {args.vs_suffix}: verdict files not found, skipping delta")
+                print(f"[c2] --vs-suffix {args.vs_suffix!r} in {vsdir}: verdict files not found, skipping delta")
         print("\n=== Track C2b paired abstention ===")
         print(json.dumps(sc, indent=2))
         if args.date:
