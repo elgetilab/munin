@@ -113,8 +113,11 @@ echo "starting" > "$INSTANCE_STATE_DIR/status"
 echo ""
 echo "Starting vLLM ($MODEL_NAME from $MODEL_PATH) on :$INSTANCE_PORT ..."
 # shellcheck disable=SC2086  # VLLM_QUANT_ARGS / VLLM_EXTRA_ARGS are word lists
+# 0.0.0.0, not 127.0.0.1: the retrieval container reaches the host through
+# host.docker.internal (the docker bridge gateway), which a loopback-only bind
+# does not answer. Found on the first instance start (gates: served=False).
 vllm serve "$MODEL_PATH" \
-    --host 127.0.0.1 \
+    --host 0.0.0.0 \
     --port "$INSTANCE_PORT" \
     --gpu-memory-utilization "$INSTANCE_GPU_UTIL" \
     --max-model-len "$VLLM_MAX_MODEL_LEN" \
