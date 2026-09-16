@@ -13,8 +13,8 @@ Six tracks. Tracks A through E are built; F is specified only.
 |---|---|---|
 | **A** Retrieval quality | Does the retriever surface the right paper? | Built. Phases 1-3 and 5 done; Phase 4 (local query pool) deferred. |
 | **B** Answer faithfulness | Are answer claims entailed by the retrieved evidence? | Built. Judge validated; per-arm paired comparison run on both backbones (2026-07-27 Qwen3.6, 2026-08-26 Qwen3.8). |
-| **C** Abstention and calibration | Does the system know when the corpus lacks the answer? | Built. C1 and C2b run, re-run 2026-07-27 on Qwen3.6; risk-coverage derived. **Re-run on Qwen3.8: C1 2026-09-14 (100/100), C2b 2026-09-15 (correct abstention 0.889), risk-coverage re-derived.** |
-| **D** Harness value and cost | Does the agentic harness beat the bare model and vanilla RAG? | Built. Clean run 2026-07-27 (Qwen3.6); headline re-measurement 2026-08-26 on the production backbone Qwen3.8. |
+| **C** Abstention and calibration | Does the system know when the corpus lacks the answer? | Built. C1 and C2b run, re-run 2026-07-27 on Qwen3.6; risk-coverage derived. **Re-run on Qwen3.8: C1 2026-09-14 (100/100), C2b 2026-09-15 (correct abstention 0.889), risk-coverage re-derived.** On gpt-oss-20b 2026-09-16: C1 0.72 (a floor; 20 empty answers), 0 confabulated local cites, C2b correct abstention 0.80. |
+| **D** Harness value and cost | Does the agentic harness beat the bare model and vanilla RAG? | Built. Clean run 2026-07-27 (Qwen3.6); headline re-measurement 2026-08-26 on the production backbone Qwen3.8; third backbone gpt-oss-20b 2026-09-16 (+0.156, replicates in kind at a third of the size). |
 | **E** Regression and scorecard | Can the whole suite re-run as one command and flag regressions? | Built. `run_all`, `compare`, `certify`. |
 | **F** Follow-up | Expert benchmark, validated certification thresholds, AstaBench positioning | Specified, not built. Two cheap pieces pulled forward (see §8). |
 
@@ -37,6 +37,29 @@ Qwen3.8; the Qwen3.6 figures are kept as the second backbone.
 Within a run every comparison is paired; across the two backbones it is
 suggestive only, because the harness code also moved between the runs.
 
+**A third backbone from a different lab, 2026-09-16.** `gpt-oss-20b`
+(`openai/gpt-oss-20b`, 21B MoE with 3.6B active, native MXFP4, harmony chat
+format, text only) ran the whole generation suite (Tracks D, C1, C2b,
+risk-coverage, standalone LitQA2, T11, routing) as an **eval-only instance
+beside production**: its own vLLM job on the second GPU (Marlin MXFP4 kernel,
+`--max-model-len 65536 --max-num-seqs 2`, `--tool-call-parser openai
+--reasoning-parser openai_gptoss`), its own retrieval container that
+`extends` the production service and differs only in the model variables and
+the tokenizer mount, plus a shadow-corpus instance for the C2b absent arm.
+Every track at concurrency 1 on a GPU nothing else used, so the cost columns
+are clean; production kept serving Qwen3.8 to users throughout. The
+backbone is described by one profile file (`backend/config/models/<slug>.env`:
+checkpoint, served name, parsers, quantization, how sub-tasks turn reasoning
+off, the vendor's recommended sampling), and the run is one command
+(`scripts/run_suite.sh gpt-oss-20b`, `10-REPRODUCE.md` §5a). Two per-model
+facts had no home before and are now part of the profile: gpt-oss cannot
+switch reasoning off, so mechanical sub-tasks send `reasoning_effort: low`
+where Qwen sends `enable_thinking: false`; and sampling follows the vendor
+(OpenAI: `temperature 1.0, top_p 1.0`; Qwen: `1.0 / 0.95 / top_k 20 /
+presence 1.5`), which until 2026-09-15 lived in the persona files. The
+Qwen numbers are unchanged by that move (the built-in fallback is the Qwen
+set, pinned by test).
+
 **Arm matching in Track D.** The bare and RAG arms call vLLM directly, so
 model name, `reasoning_effort` (medium) and `max_tokens` (16,384) are set
 explicitly to match what the backend applies to the agentic arm. The 07-27
@@ -46,7 +69,18 @@ not matched (bare/RAG 0.7 vs the persona's 1.0 / 0.95 / 20 / 1.5) and is
 reported as a threat rather than corrected. **Run-to-run variance** on a
 199-question arm at temperature 0.7 is ~0.035 (two identical Qwen3.8 bare
 arms a day apart: 0.422 vs 0.387); no single-run difference of that size is
-signal.
+signal. **Empty answers are classified, not lumped.** Since 2026-09-16 the
+direct-vLLM arms record `finish_reason`, the reasoning tail and any tool
+calls attempted, and an empty answer carries an `empty_kind`: `truncated`
+(budget hit, a harness limit), `tool_call_instead`, or `no_final_message` (the
+model reasoned and ended its turn without answering). gpt-oss-20b produced
+the third kind on 25 bare and 162 RAG prompts and no truncations; the
+agentic captures likewise split `unparseable` into `empty_content`,
+`deadline_hit` and `letter_not_found`, and count answers carrying raw
+tool-call markup, so a parser problem on a new backbone reads as a parser
+problem. The letter parser strips markdown emphasis before matching (added
+for gpt-oss's `**Answer:** A`; changes none of the 398 stored Qwen3.8
+verdicts).
 
 ---
 

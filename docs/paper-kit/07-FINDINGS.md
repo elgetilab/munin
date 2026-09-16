@@ -386,6 +386,63 @@ questions on the same day) is the clean part.
 **Generalises to.** Any claim that agent reliability is mostly a model
 property. Here the model got more willing to guess and the system did not.
 
+**Third backbone, same reading, different magnitude (gpt-oss-20b,
+2026-09-16).** A model from a different lab behaves the same way in kind:
+bare precision 0.482, agentic precision 0.896; the harness again raises
+precision of attempted by holding the model to the evidence bar. What differs
+is how much it holds back: the agentic arm abstains on 0.342 of answerable
+questions (Qwen: 0.075), so the harness value is +0.156 rather than +0.487.
+The harness keeps attempted answers trustworthy on three backbones; how many
+answers it attempts is a backbone property. See 8c.
+
+---
+
+## 8c. The harness effect replicates across labs, and its size is a backbone property
+
+**Claim.** The arm ordering, the sign of every paired delta and the
+significance of the harness value hold on a backbone from a different lab
+with a different tokenizer, architecture and training recipe; the size of the
+effect does not.
+
+**Evidence.** gpt-oss-20b (21B MoE, 3.6B active, native MXFP4), same 199
+questions, arms, budgets and deadline, run as an instance beside production on
+its own GPU: agentic **0.563** vs bare 0.407 vs RAG 0.101, agentic − bare
+**+0.156 [0.075, 0.241], p = 0.004**, agentic − RAG +0.462, RAG − bare −0.306.
+On Qwen3.8 the same three numbers are +0.487, +0.663, −0.176. The bare arms
+are within 0.02 of each other; the agentic arms are 0.31 apart; the abstention
+rates inside the harness are 0.342 and 0.075.
+
+**Mechanism.** Two behaviours of this model, neither seen on the Qwen family.
+First, inside the harness it declines a third of answerable questions after
+reading, at high precision when it does answer: the harness makes it careful
+rather than correct. Second, **without tools it frequently ends its turn
+without answering**: on 25 of 199 bare and 162 of 199 RAG prompts it reasons
+"we need to search" and stops with no final message, no tool call and no
+truncation. The frozen protocol scores that as wrong, so RAG's 0.101 is
+mostly refusal by silence, not the anchoring failure of finding 3, and the
+bare/RAG precision-of-attempted numbers (0.48, 0.80) are the fairer read of
+what the model knows. The same behaviour appears as 20 empty answers in C1
+and 11 in the standalone answer track.
+
+**What it cost to find out.** The first pass at this run scored agentic 0.467.
+vLLM's harmony parser had glued channel tokens to 3% of tool names, which the
+executor rejected as unknown tools, and the scorer did not read this model's
+habitual `**Answer:** A`. Both were repaired before the headline re-run (the
+repairs change none of the stored Qwen verdicts) and the pre-repair number is
+kept. A new model family costs the harness something before it costs the
+model anything; the harness now carries one gpt-oss-shaped accommodation
+beside its three Qwen-shaped ones, and says so.
+
+**Caveat to carry.** One non-Qwen point, three variables moving at once (lab,
+size class, sampling), no faithfulness number (finding 4's capture caveat),
+and the routing deploy gate at 0.647 saying this backbone would not ship
+behind the router as-is. The claim is "replicates in kind, not in size", and
+the paper should resist drawing a curve through two labs.
+
+**Generalises to.** Any harness paper measured on one model family: the
+ordering may survive the swap while the headline number halves, and the
+place to look for the reason is the abstention column, not accuracy.
+
 ---
 
 ## 9. Harness improvements are not prompt improvements
@@ -421,10 +478,21 @@ makes the failure structurally impossible or that detects it after the fact.
 
 - **Multi-query fan-out did not beat single-query dense** on LitQA2 retrieval
   (Recall@10, p = 0.71). Complexity in the retrieval loop was not what helped.
-- **The agentic arm produced zero unparseable answers** on both backbones, so
-  its accuracy is not inflated by lenient parsing. The Qwen3.6 bare arm's 33
-  unparseable answers were a token-budget defect in the harness, since fixed;
-  on Qwen3.8 every arm returns 0.
+- **The agentic arm produced zero unparseable answers** on both Qwen
+  backbones, so its accuracy is not inflated by lenient parsing. The Qwen3.6
+  bare arm's 33 unparseable answers were a token-budget defect in the harness,
+  since fixed; on Qwen3.8 every arm returns 0. On gpt-oss-20b the agentic arm
+  returns 6 (3 empty, 3 without a letter) and the bare/RAG arms 25 and 162,
+  all of the no-final-message kind, none truncated (finding 8c).
+- **A tool-trained model without tools may simply not answer.** gpt-oss-20b
+  reasons "use search" and ends its turn on 13% of bare and 81% of RAG
+  prompts. Report precision of attempted beside accuracy whenever the bare
+  arm is a model trained for tool use, and record `finish_reason` and the
+  reasoning tail per row so the two failure kinds can be told apart.
+- **The tool mix is a backbone fingerprint.** gpt-oss-20b made 85% of its
+  1,742 calls through the corpus `search` ladder and left the corpus 17 times
+  in 199 questions; Qwen3.8 made 331 web searches and 175 Semantic Scholar
+  calls. Recovery from tool failure was 1.000 on all three backbones.
 - **Cost is real and should be reported**: ~20x bare wall-clock at 6.9 tool
   calls per query on Qwen3.8 (a dense 27B; ~5.4x at 8.6 calls on the 3B-active
   MoE). But the pilot ran at 16 calls per query for a lower score, so the
