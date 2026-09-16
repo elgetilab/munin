@@ -359,13 +359,26 @@ if [ "$TEARDOWN" = "1" ] && ! phase_done 4; then
     fi
     log "restoring production to the TP=2 profile ..."
     run_logged $VLLM_SERVICE stop || true
-    sleep 10
-    run_logged $VLLM_SERVICE start tp2 || die "vllm-service start tp2 failed; production is DOWN"
-    for i in $(seq 1 180); do
-        curl -sf --max-time 3 http://127.0.0.1:8000/health > /dev/null 2>&1 && break; sleep 5
+    # Wait for the old job to LEAVE the queue. `vllm-service start` refuses while
+    # a production job is still COMPLETING ("already running"), and the dying
+    # job keeps answering /health for a while, so the first version of this
+    # step declared victory over a job that was on its way out and production
+    # stayed down from 06:03 until a human noticed at 08:03 on 2026-09-16.
+    for i in $(seq 1 60); do
+        squeue -h -n vllm-service,vllm-service-tp2 -o %i | grep -q . || break; sleep 5
     done
-    curl -sf --max-time 3 http://127.0.0.1:8000/health > /dev/null 2>&1 && log "production vLLM healthy on TP=2" \
-        || log "WARNING: production vLLM not healthy after 15 min; check squeue / vllm-service status"
+    squeue -h -n vllm-service,vllm-service-tp2 -o %i | grep -q . && die "old production job still in the queue after 5 min; start TP=2 by hand: sudo vllm-service start tp2"
+    run_logged $VLLM_SERVICE start tp2 || die "vllm-service start tp2 failed; production is DOWN"
+    newjob=$(squeue -h -n vllm-service-tp2 -o %i | head -1)
+    [ -n "$newjob" ] || die "no vllm-service-tp2 job after start; production is DOWN: sudo vllm-service start tp2"
+    log "production job $newjob submitted; waiting for vLLM (up to 20 min) ..."
+    for i in $(seq 1 240); do
+        curl -sf --max-time 3 http://127.0.0.1:8000/health > /dev/null 2>&1 && break
+        squeue -h -j "$newjob" -o %T | grep -q . || die "production job $newjob left the queue before serving; see /opt/munin/logs/vllm-service-$newjob.out"
+        sleep 5
+    done
+    curl -sf --max-time 3 http://127.0.0.1:8000/health > /dev/null 2>&1 && log "production vLLM healthy on TP=2 (job $newjob)" \
+        || die "production vLLM not healthy after 20 min; check squeue / vllm-service status"
     mark_done 4
 fi
 
