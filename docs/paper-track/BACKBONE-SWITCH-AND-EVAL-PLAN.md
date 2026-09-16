@@ -1,6 +1,12 @@
 # Backbone instances, and the gpt-oss-20b full-suite measurement
 
-Status: **IMPLEMENTED 2026-09-15 (evening), run pending.** Commits `54d4d1d`
+Status: **RUN COMPLETE 2026-09-16** (suite 23:22 to 06:02 UTC unattended;
+results in RESULTS.md "Third backbone", PAPER.md and the paper kit). Two
+field fixes landed during the run: instance vLLM binds 0.0.0.0 and needs a
+ufw allow from 172.16.0.0/12 to its port; instances run at util 0.80 because
+GPU 0 carries 2.3 GiB of other processes. One post-run fix: the TP=2 restore
+raced `vllm-service start` against the completing job (production down
+06:03 to 08:03). Implemented 2026-09-15 (evening). Commits `54d4d1d`
 (bench autonomy), `1b79887` (model profiles, sampling migration, `/api/models`),
 `9bf13c4` (sudoers), `450aa1c` (instances + gates), `9cef413` (driver, shadow
 corpus, per-track resume). What was built matches sections 2, 4 and 5 below
