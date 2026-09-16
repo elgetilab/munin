@@ -180,10 +180,12 @@ questions correctly (Qwen3.8) with nothing whatsoever to ground against.
 **Capture caveat (found 2026-09-16; travels with every number in this
 section).** The capture's list of retrieval tools predated the search ladder
 and the grounded read stage, so `search` and `source` results were never
-counted as grounding contexts. The Qwen3.8 agentic n=163 was therefore scored
-against web, Semantic Scholar and `paper_search` evidence only, not against
-the full-text passages the harness actually read on those turns; the null
-stands on that evidence set. gpt-oss-20b made 97% of its calls through
+counted as grounding contexts. The Qwen3.8 agentic n=163 and the Qwen3.6
+agentic n=193 were therefore scored against web, Semantic Scholar and
+`paper_search` evidence only, not against the full-text passages the harness
+actually read on those turns; both nulls stand on that evidence set, and the
+missing evidence can only have understated the agentic arm (the RAG arm's
+top-5 abstracts were fully captured). gpt-oss-20b made 97% of its calls through
 `search` and `source`, leaving 13 scoreable agentic rows, so no faithfulness
 number is reported for it. Fixed for future captures; neither existing run
 can be re-scored because contexts are extracted at capture time.

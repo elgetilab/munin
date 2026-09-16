@@ -192,9 +192,11 @@ context-free answers cannot be scored.
 **Caveat found 2026-09-16, and it belongs in Limitations.** The capture's
 list of retrieval tools predated the search ladder and the grounded read
 stage, so `search` and `source` results were never counted as grounding
-contexts. The 08-26 agentic n=163 was therefore scored against web, Semantic
-Scholar and `paper_search` evidence only, not against the full-text passages
-the harness actually read; the null stands on that evidence set. On
+contexts. The 08-26 agentic n=163 (and the 07-27 Qwen3.6 n=193) were
+therefore scored against web, Semantic Scholar and `paper_search` evidence
+only, not against the full-text passages the harness actually read; both
+nulls stand on that evidence set, and since the RAG arm's abstracts were fully
+captured, the gap can only have understated the agentic arm's grounding. On
 gpt-oss-20b, which made 97% of its tool calls through `search` and `source`,
 only 13 agentic rows were scoreable and **no faithfulness number is reported
 for the third backbone**. Fixed for future captures; neither existing run can

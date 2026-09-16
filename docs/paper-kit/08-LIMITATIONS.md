@@ -117,12 +117,17 @@ do not quote 0.688 or 0.814 except as sensitivity points.
 - **The grounding contexts were incomplete (found 2026-09-16).** The capture's
   list of retrieval tools predated the search ladder and the grounded read
   stage, so `search` and `source` results were never counted as contexts. The
-  Qwen3.8 agentic n=163 was scored against web, Semantic Scholar and
-  `paper_search` evidence, not against the full-text passages the harness
-  read on those turns. The null therefore holds on that evidence set; whether
-  it holds on the full set is unmeasured. Contexts are extracted at capture
-  time, so the existing runs cannot be re-scored; the fix is in place for the
-  next capture. On gpt-oss-20b, which made 97% of its calls through the two
+  Qwen3.8 agentic n=163 and the Qwen3.6 agentic n=193 were both scored
+  against web, Semantic Scholar and `paper_search` evidence, not against the
+  full-text `source` passages the harness read on those turns (Qwen3.6 made
+  fewer of those and more web calls, so less of its evidence is missing). The
+  bias is asymmetric: the RAG arm's contexts (top-5 abstracts) are complete,
+  the agentic arm's are not, so the missing evidence can only have
+  understated the agentic arm's grounding. The null therefore holds on that
+  evidence set; whether it holds on the full set is unmeasured. Contexts are
+  extracted at capture time, so no existing run can be re-scored; the fix is
+  in place for the next capture, and only the Qwen3.8 and gpt-oss agentic
+  arms can be re-captured (Qwen3.6 is retired). On gpt-oss-20b, which made 97% of its calls through the two
   missing tools, only 13 agentic rows were scoreable and no number is
   reported.
 - It is a null on the **RAG versus agentic** comparison only. The bare arm is
