@@ -1386,7 +1386,13 @@ deploy_model_activate() {
     if [ "$do_restart" = "1" ]; then
         echo "[model] Restarting vLLM on the persisted profile ($(cat /opt/munin/logs/vllm_profile 2>/dev/null || echo single)) ..."
         run "vllm-service stop || true"
-        run "sleep 5"
+        # `start` refuses while the old job is still COMPLETING, and the dying
+        # job keeps answering /health: wait for the queue to clear first.
+        if [ "$DRY_RUN" != "1" ]; then
+            for i in $(seq 1 60); do
+                squeue -h -n vllm-service,vllm-service-tp2 -o %i | grep -q . || break; sleep 5
+            done
+        fi
         run "vllm-service start"
         echo "[model] Waiting for vLLM (up to 15 min: model load + JIT) ..."
         for i in $(seq 1 180); do
