@@ -66,7 +66,8 @@ claim-to-scorecard index: [`../../PAPER.md`](../../PAPER.md).
 | `IMPLEMENTATION-HANDOFF.md` | Overarching eval-suite handoff (reference). |
 | `TOOL-ARG-ELISION-SCOPE.md` | Follow-on to the context-budget fix: elide tool-call ARGUMENTS, not just results. **Plan, not implemented.** Replay of the 12 Aug 11-12 overflow turns: pre-fix 12/12 over the window, deployed code 1-2/12, argument elision would close the rest. Blocked on verifying that heavy calls span loop iterations. |
 | `MIGRATION-LOOSE-ENDS.md` | Encoder-migration tail: embedding-map repoint + `papers` retirement. varghele/root. |
-| `THIRD-MODEL-REVIEW.md` | Third backbone for the harness ablation. **DECIDED 2026-08-25: Qwen3.5-9B**, nothing implemented. Would turn the two-backbone "suggestive" comparison in PAPER.md claim 1 into a three-point one. |
+| `THIRD-MODEL-REVIEW.md` | Third backbone candidate review. Decided 2026-08-25 for Qwen3.5-9B (Experiment B, the 16 GB floor), then **superseded 2026-09-15**: Experiment A (a different lab) was run instead with gpt-oss-20b, see the plan below; the 9B is deferred. Its Granite 4.1 row is wrong (dense attention, 80 KiB/token, not hybrid Mamba; verified 2026-09-15). |
+| `BACKBONE-SWITCH-AND-EVAL-PLAN.md` | Model profiles (`backend/config/models/`), `deploy.sh model activate` / `instance up`, `run_suite.sh`, and the gpt-oss-20b full suite. **RUN COMPLETE 2026-09-16**: agentic 0.563 vs bare 0.407, +0.156 [0.075, 0.241] p=0.004; replicates in kind at a third of Qwen3.8's size. |
 
 ## What's next (ordered plan, set 2026-07-06)
 
