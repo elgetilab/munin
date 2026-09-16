@@ -295,7 +295,7 @@ if ! phase_done 3; then
     if ! phase_done 3b; then
         log "3b C1 fabricated, n=100, egress=full (resumable)"
         run_logged $PY -m munin_bench.abstention.run_c1 --base-url "$API" --email "$EMAIL" --concurrency 1 \
-            --deadline 900 --date "$DATE" --out-dir "$BENCH/c1_runs/$TAG" --out-suffix "-$SLUG" || die "C1 failed"
+            --deadline 900 --date "$DATE" --out-dir "$BENCH/c1_runs/$TAG" "--out-suffix=-$SLUG" || die "C1 failed"
         mark_done 3b
     fi
     if ! phase_done 3c; then
@@ -328,7 +328,7 @@ if ! phase_done 3; then
             --tag "${DATE}_toolreliability-$SLUG" || die "T11 failed"
         run_logged $PY -m munin_bench.abstention.risk_coverage --date "$DATE" --tag "$TAG" \
             --c2-dir "$BENCH/c2_runs/$TAG" --c1-scorecard "$BENCH/scorecards/${DATE}_abstention-c1-fabricated-$SLUG.json" \
-            --out-suffix "-$SLUG" || die "risk-coverage failed"
+            "--out-suffix=-$SLUG" || die "risk-coverage failed"
         run_logged $PY -m munin_bench.routing.run --base "$API" --email "routing-eval@munin.local" \
             --tag "routing-$SLUG-$DATE" --tier anchor || log "WARN: routing eval failed (not a paper number; continuing)"
         old_abl=$(ls "$BENCH"/scorecards/2026-08-26_harness-ablation.json 2>/dev/null | head -1)
