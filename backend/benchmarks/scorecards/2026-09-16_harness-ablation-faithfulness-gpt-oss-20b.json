@@ -1,0 +1,88 @@
+{
+  "track": "harness-ablation-faithfulness",
+  "date": "2026-09-16",
+  "runs_dir": "ablation_runs/gpt-oss-20b",
+  "judge": "MiniCheck-Flan-T5-Large",
+  "frac_claims_supported": {
+    "rag": {
+      "mean": 0.35119047619047616,
+      "ci_low": 0.20818452380952393,
+      "ci_high": 0.5120535714285713,
+      "n": 28,
+      "n_resamples": 1000
+    },
+    "agentic": {
+      "mean": 0.33930652680652673,
+      "ci_low": 0.1518065268065268,
+      "ci_high": 0.530448717948718,
+      "n": 13,
+      "n_resamples": 1000
+    }
+  },
+  "per_question": {
+    "rag": {
+      "720e20c2-9ad1-4d98-9f01-8b7fb3782a46": 0.5,
+      "a43e5166-d0e8-48f8-a113-648acac7ed59": 0.0,
+      "ca4c9d21-b842-4875-9a6a-bcb9f6c55073": 1.0,
+      "cdc80639-dc21-4337-bccc-d61d9aec6560": 0.5,
+      "400786c1-e6c6-4f46-a501-86fdd048ed88": 0.0,
+      "8ade3e3a-4792-4965-b9d9-05e528ebbfa0": 0.5,
+      "7a42c784-7ae0-48fe-a71f-0a547b8fabb3": 0.0,
+      "c33446f6-fbff-4186-8a51-28a17f68bd40": 0.0,
+      "3d40f373-59d3-4666-87bd-6db64fd7b4fb": 1.0,
+      "28ebecdf-949e-4d20-aca9-5989b7a9d6e9": 1.0,
+      "0b1d5537-db47-420c-984b-9b56d38e6d98": 0.0,
+      "f5a4b449-e647-4ae0-8419-c221792482c9": 0.5,
+      "5b3b7d05-9e54-445c-b374-d4c6b60923b4": 1.0,
+      "8d61a14b-60ef-43b0-8003-b60cb6657428": 0.0,
+      "bca1be77-208b-4d57-ac29-05aa6d58bdbf": 1.0,
+      "20980744-f9ff-4e39-a08d-106eada6900c": 0.3333333333333333,
+      "d7833c0f-2a16-40d2-b6a0-6764aa3003a6": 1.0,
+      "634f6745-f3b3-4cb1-9859-96ffb954b98a": 0.0,
+      "fca26d7c-05cf-40b0-9fd6-a63ed7950909": 1.0,
+      "22306bd7-7e84-415d-aebb-11c6312eb081": 0.0,
+      "d1307e50-3c03-4c76-81ee-2decb5de5f14": 0.5,
+      "f7346ea0-5f1b-45e9-a1d6-493c754159c1": 0.0,
+      "e90ea0fc-4659-4b20-acae-75dc4b97a101": 0.0,
+      "d2860d38-dfb9-4b80-905f-812c32573915": 0.0,
+      "12321eab-6ad6-4218-8815-18bc51c14544": 0.0,
+      "cff68274-4bbe-4fa0-a181-36a9af3cc0f1": 0.0,
+      "49d2630e-9d26-4e12-89a3-3050a609abf5": 0.0,
+      "0bac8974-554c-439a-a9a2-22fa509c8d5d": 0.0
+    },
+    "agentic": {
+      "517e7cf8-c5d2-4391-9e2a-235b79d93050": 1.0,
+      "623a831f-41ee-4e0e-936a-87f93d96369e": 0.3333333333333333,
+      "6fff0994-6d02-470a-9d61-8e35420412b6": 0.3333333333333333,
+      "5a2128ad-3127-4595-b810-db128d1a2335": 0.3333333333333333,
+      "cbe93a43-09cd-4cb4-9edd-f22fe8c28415": 0.0625,
+      "7a42c784-7ae0-48fe-a71f-0a547b8fabb3": 0.0,
+      "983f1ef5-fc7d-4f4a-8f48-e704641eae12": 0.0,
+      "b2a0249b-2850-4576-8b78-8408c1e47324": 0.18181818181818182,
+      "8266ac61-92d6-423d-8e7a-fe47b3a7e885": 0.0,
+      "58b39fab-337b-452d-b74f-84f9a188ce88": 0.0,
+      "f5a84803-3917-43eb-801b-8dc0c5400da1": 0.5,
+      "7d71dffb-b591-4b88-b0c6-e125a1b083b4": 0.6666666666666666,
+      "9f797d29-9f3a-481d-b2fe-326cbc686273": 1.0
+    }
+  },
+  "paired_agentic_minus_rag": {
+    "mean_a": 0.0,
+    "mean_b": 0.0,
+    "mean_diff": 0.0,
+    "ci_low": 0.0,
+    "ci_high": 0.0,
+    "p_value_two_sided": 1.0,
+    "n": 1,
+    "n_resamples": 1000
+  },
+  "bare": {
+    "scoreable": false,
+    "reason": "no retrieved contexts (0/199 answers carry any); faithfulness is undefined, not merely unmeasured"
+  },
+  "backbone": "gpt-oss-20b",
+  "backbone_checkpoint": "openai/gpt-oss-20b (native MXFP4, Marlin kernel on RTX 5090)",
+  "serving": "eval instance on GPU 0: vLLM 0.20.2rc1.dev221, --max-model-len 65536 --max-num-seqs 2 --gpu-memory-utilization 0.80, --tool-call-parser openai --reasoning-parser openai_gptoss, reasoning_effort medium, sub-tasks reasoning_effort low, sampling temperature 1.0 top_p 1.0",
+  "harness_note": "chat_service.repair_tool_name (cuts harmony channel tokens from tool names) and parse_letter markdown-emphasis strip landed 2026-09-15 between the prerepair run and this one; retrieval image otherwise identical to production",
+  "provenance_note": "backbone/serving/harness_note stamped by the 2026-09-16 run_suite.sh driver commit, from the run's gates.json and profile; the runners wrote the rest"
+}

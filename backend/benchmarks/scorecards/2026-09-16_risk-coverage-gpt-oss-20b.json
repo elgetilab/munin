@@ -1,0 +1,163 @@
+{
+  "track": "risk-coverage",
+  "points": [
+    {
+      "n": 199,
+      "coverage": 0.8442,
+      "coverage_ci": [
+        0.7889,
+        0.8894
+      ],
+      "selective_risk": 0.5179,
+      "selective_risk_ci": [
+        0.4444,
+        0.5951
+      ],
+      "abstain": 6,
+      "unparseable": 25,
+      "correct": 81,
+      "incorrect": 87,
+      "population": "litqa2-answerable",
+      "arm": "bare",
+      "desired": "answer",
+      "source": "ablation_runs/gpt-oss-20b/bare.json",
+      "captured": "2026-09-16",
+      "egress": "n/a-no-tools"
+    },
+    {
+      "n": 199,
+      "coverage": 0.1256,
+      "coverage_ci": [
+        0.0804,
+        0.1709
+      ],
+      "selective_risk": 0.2,
+      "selective_risk_ci": [
+        0.0476,
+        0.375
+      ],
+      "abstain": 12,
+      "unparseable": 162,
+      "correct": 20,
+      "incorrect": 5,
+      "population": "litqa2-answerable",
+      "arm": "rag",
+      "desired": "answer",
+      "source": "ablation_runs/gpt-oss-20b/rag.json",
+      "captured": "2026-09-16",
+      "egress": "n/a-no-tools"
+    },
+    {
+      "n": 199,
+      "coverage": 0.6281,
+      "coverage_ci": [
+        0.5628,
+        0.6935
+      ],
+      "selective_risk": 0.104,
+      "selective_risk_ci": [
+        0.0526,
+        0.1615
+      ],
+      "abstain": 68,
+      "unparseable": 6,
+      "correct": 112,
+      "incorrect": 13,
+      "population": "litqa2-answerable",
+      "arm": "agentic",
+      "desired": "answer",
+      "source": "ablation_runs/gpt-oss-20b/agentic.json",
+      "captured": "2026-09-16",
+      "egress": "full"
+    },
+    {
+      "n": 50,
+      "coverage": 0.5,
+      "coverage_ci": [
+        0.36,
+        0.64
+      ],
+      "selective_risk": 0.2,
+      "selective_risk_ci": [
+        0.0476,
+        0.3636
+      ],
+      "abstain": 17,
+      "unparseable": 8,
+      "correct": 20,
+      "incorrect": 5,
+      "population": "c2-present",
+      "arm": "agentic",
+      "desired": "answer",
+      "source": "c2_runs/gpt-oss-20b/present.verdicts.json",
+      "captured": "2026-09-16",
+      "egress": "off"
+    },
+    {
+      "n": 50,
+      "coverage": 0.06,
+      "coverage_ci": [
+        0.0,
+        0.14
+      ],
+      "selective_risk": 0.3333,
+      "selective_risk_ci": [
+        0.0,
+        1.0
+      ],
+      "abstain": 40,
+      "unparseable": 7,
+      "correct": 2,
+      "incorrect": 1,
+      "population": "c2-absent",
+      "arm": "agentic",
+      "desired": "abstain",
+      "source": "c2_runs/gpt-oss-20b/absent.verdicts.json",
+      "captured": "2026-09-16",
+      "egress": "off"
+    },
+    {
+      "n": 100,
+      "coverage": 0.28,
+      "coverage_ci": [
+        0.19,
+        0.37
+      ],
+      "selective_risk": 1.0,
+      "selective_risk_ci": [
+        1.0,
+        1.0
+      ],
+      "abstain": 72,
+      "unparseable": 0,
+      "correct": 0,
+      "incorrect": 28,
+      "population": "c1-fabricated",
+      "arm": "agentic",
+      "desired": "abstain",
+      "source": "scorecards/2026-09-16_abstention-c1-fabricated-gpt-oss-20b.json",
+      "captured": "2026-09-16",
+      "egress": "full"
+    }
+  ],
+  "provenance": {
+    "capture_dates": [
+      "2026-09-16"
+    ],
+    "egress_settings": [
+      "full",
+      "off"
+    ],
+    "mixed_generations": false,
+    "mixed_egress": true,
+    "note": "All points must share a harness generation AND an egress setting before being plotted on shared axes. MIXED EGRESS SETTINGS -- DO NOT PLOT AS-IS."
+  },
+  "ablation_runs_dir": "ablation_runs/gpt-oss-20b",
+  "c2_runs_dir": "c2_runs/gpt-oss-20b",
+  "date": "2026-09-16",
+  "backbone": "gpt-oss-20b",
+  "backbone_checkpoint": "openai/gpt-oss-20b (native MXFP4, Marlin kernel on RTX 5090)",
+  "serving": "eval instance on GPU 0: vLLM 0.20.2rc1.dev221, --max-model-len 65536 --max-num-seqs 2 --gpu-memory-utilization 0.80, --tool-call-parser openai --reasoning-parser openai_gptoss, reasoning_effort medium, sub-tasks reasoning_effort low, sampling temperature 1.0 top_p 1.0",
+  "harness_note": "chat_service.repair_tool_name (cuts harmony channel tokens from tool names) and parse_letter markdown-emphasis strip landed 2026-09-15 between the prerepair run and this one; retrieval image otherwise identical to production",
+  "provenance_note": "backbone/serving/harness_note stamped by the 2026-09-16 run_suite.sh driver commit, from the run's gates.json and profile; the runners wrote the rest"
+}
