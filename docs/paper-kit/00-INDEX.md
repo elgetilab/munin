@@ -8,6 +8,8 @@ a committed scorecard file.
 Generated 2026-08-04 from the `munin` monorepo at commit `5441a13`.
 Refreshed 2026-09-14 to the Qwen3.8-27B provenance (headline re-measurement of
 2026-08-26, git `3e0bcfb`); see "Provenance" below for which numbers moved.
+Extended 2026-09-16 with a third backbone from a different lab, gpt-oss-20b
+(git `c6c56a7`), reported beside the Qwen numbers in every affected table.
 
 ## Reading order
 
@@ -23,7 +25,7 @@ Refreshed 2026-09-14 to the Qwen3.8-27B provenance (headline re-measurement of
 | `08-LIMITATIONS.md` | What is explicitly not claimed, threats to validity, deferred work, the caveats that must travel with each headline number. |
 | `09-RELATED-WORK.md` | Bib-ready anchors with arXiv IDs and venues, all verified 2026-07-26, plus the novelty analysis for the abstention contribution. |
 | `10-REPRODUCE.md` | Exact commands, versions, environment, and the two operational gotchas that each cost a day. |
-| `scorecards/` | 25 raw scorecard JSONs behind the headline claims, with per-query arrays so figures and paired tests can be regenerated. |
+| `scorecards/` | 35 raw scorecard JSONs behind the headline claims, with per-query arrays so figures and paired tests can be regenerated. |
 
 ## One-paragraph summary of the work
 
@@ -46,6 +48,11 @@ naive top-5 RAG is **worse than no retrieval at all** (−0.176 [−0.251,
 delta +0.010, p = 0.776) despite the 4.1x accuracy gap. A third, new with the
 swap: the backbone that guesses more freely on its own is held to the same
 abstention rate (0.075) inside the harness, with higher precision (0.946).
+A third backbone from a different lab, gpt-oss-20b, replicates the ordering
+and the sign of every delta at a third of the harness value (+0.156 [0.075,
+0.241], p = 0.004): its bare arm matches Qwen3.8's, but inside the harness it
+abstains on a third of answerable questions, so the size of the effect is a
+backbone property and one non-Qwen point is not a curve.
 
 ## Glossary
 
@@ -77,7 +84,10 @@ Terms used throughout, in the sense the repository uses them.
   `qwen3.6-35b-a3b` (Qwen3.6-35B-A3B-AWQ-4bit, MoE, retired) for everything
   dated earlier, kept beside every re-measured table as the second backbone.
   Track C followed on 2026-09-14 (C1) and 2026-09-15 (C2b, risk-coverage), so
-  every headline is on Qwen3.8. Retrieval
+  every headline is on Qwen3.8. `gpt-oss-20b` (`openai/gpt-oss-20b`, 21B MoE,
+  3.6B active, native MXFP4) for the 2026-09-16 rows: the third backbone, from
+  a different lab, run as an eval-only instance beside production and never
+  what production served. Retrieval
   numbers are backbone-independent at scoring time, against frozen
   Qwen3.6-era query variants generated once by the production expander.
 - **Retrieval encoder**: BGE-large-en-v1.5 (1024d, Qdrant collection `papers_bge`)

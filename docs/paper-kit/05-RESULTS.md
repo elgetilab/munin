@@ -18,6 +18,16 @@ run, comparisons are paired and clean;
 **across the two backbones they are suggestive, not controlled**, because 16
 commits touched `backend/retrieval/` between the runs (see `08-LIMITATIONS.md`).
 
+**A third backbone from a different lab, gpt-oss-20b, was measured on
+2026-09-16** (R1, R3, R5, R6, R7) as an eval-only instance beside production:
+same 199 questions, same arms, same budgets and deadline, concurrency 1 on a
+GPU nothing else used. It is reported in its own rows and tables, never
+pooled. Three variables move against Qwen3.8 at once (lab, size class, the
+model's own recommended sampling); attribute its deltas to "a different
+backbone". Bare and RAG on this model are dominated by a behaviour the Qwen
+runs did not show, a turn that ends with **no final message**; the rows say
+so. R2 has no gpt-oss number (see R2).
+
 All CIs are 95% percentile bootstrap, 1000 resamples, seed 42. All p-values are
 two-sided paired bootstrap unless stated.
 
@@ -50,6 +60,44 @@ Paired bootstrap deltas, within each run:
 | **agentic − bare** | **+0.487** | [0.407, 0.568] | +0.538 | [0.457, 0.618] | **< 0.001** |
 | agentic − RAG | +0.663 | [0.598, 0.729] | +0.668 | [0.598, 0.734] | < 0.001 |
 | RAG − bare | **−0.176** | [−0.251, −0.096] | −0.131 | [−0.196, −0.070] | < 0.001 |
+
+**Third backbone, gpt-oss-20b (`openai/gpt-oss-20b`, 21B MoE, 3.6B active,
+native MXFP4), 2026-09-16, git `c6c56a7`.** Same 199 questions and arms,
+`max_tokens=16,384`, 900 s, `egress=full`, concurrency 1; served on its own
+GPU (Marlin MXFP4 kernel, `--max-num-seqs 2`, `reasoning_effort=medium`,
+sampling `temperature 1.0, top_p 1.0` per OpenAI's recommendation).
+
+| Arm | Backbone | Accuracy | Precision of attempted | Abstain | Unparseable | Wall-clock | Tool calls |
+|---|---|---|---|---|---|---|---|
+| RAG (naive top-5) | gpt-oss-20b | 0.101 | 0.800 | 0.060 | 162 (all no final message) | 1.0 s | 0 |
+| Bare (parametric) | gpt-oss-20b | 0.407 | 0.482 | 0.030 | 25 (all no final message) | 2.4 s | 0 |
+| **Agentic (harness)** | gpt-oss-20b | **0.563** | **0.896** | **0.342** | 6 | 29.3 s | 8.8 |
+
+Verdict counts: agentic 112 correct / 13 incorrect / 68 abstain / 6
+unparseable; bare 81 / 87 / 6 / 25; RAG 20 / 5 / 12 / 162.
+
+| Comparison | gpt-oss-20b | 95% CI | p |
+|---|---|---|---|
+| **agentic − bare** | **+0.156** | [0.075, 0.241] | **0.004** |
+| agentic − RAG | +0.462 | [0.387, 0.538] | < 0.001 |
+| RAG − bare | −0.306 | [−0.377, −0.231] | < 0.001 |
+
+The arm ordering and the direction replicate outside the Qwen family; the
+size of the harness effect is a third of Qwen3.8's. The bare arm is not the
+difference (0.407 vs 0.387); the agentic arm abstains on a third of answerable
+questions (0.342 vs 0.075) while keeping precision of attempted at 0.896. The
+25 bare and 162 RAG "unparseable" rows are a distinct failure: the model
+reasons "we need to search" and ends its turn with no final message
+(`finish_reason=stop`, ~130 tokens, no tool call, zero budget truncations),
+recorded per row as `empty_kind=no_final_message`. The protocol scores it as
+wrong, for every backbone alike; precision of attempted (0.48 bare, 0.80 RAG)
+is the fairer read of what the model knows. Certification gate PASS. A first
+pass at this run, before a tool-name repair and a scorer fix (see R6 and
+`08-LIMITATIONS.md`), scored agentic 0.467 and is kept as
+`2026-09-16_gpt-oss-20b-prerepair.json`. Scorecards:
+`2026-09-16_gpt-oss-20b.json` (run header with serving provenance),
+`2026-09-16_harness-ablation-gpt-oss-20b.json` (per arm, with
+`unparseable_reasons` and `empty_kinds`).
 
 **Why the harness delta moved from +0.538 to +0.487.** The Qwen3.6 bare arm ran
 at `max_tokens=4096` against its agentic arm's 16,384, and 33 of its 199
@@ -116,6 +164,7 @@ captures. Scoring only, no new generation. BGE-large.
 | RAG (naive top-5) | Qwen3.6 | 0.326 | [0.283, 0.365] | 195 |
 | Agentic (harness) | Qwen3.6 | 0.340 | [0.293, 0.389] | 193 |
 | Bare (parametric) | both | **not scoreable** | | 0 / 199 |
+| RAG / Agentic | gpt-oss-20b | **not reported** | | 28 / 13 |
 
 **Paired bootstrap, agentic − RAG, Qwen3.8: +0.010 [−0.052, +0.069],
 p = 0.776** (n = 163 shared questions). Qwen3.6: +0.023 [−0.043, +0.089],
@@ -128,10 +177,22 @@ retrieves nothing, so there is no evidence set to check claims against and
 faithfulness is undefined. Note the implication: the bare arm answers 38.7% of
 questions correctly (Qwen3.8) with nothing whatsoever to ground against.
 
+**Capture caveat (found 2026-09-16; travels with every number in this
+section).** The capture's list of retrieval tools predated the search ladder
+and the grounded read stage, so `search` and `source` results were never
+counted as grounding contexts. The Qwen3.8 agentic n=163 was therefore scored
+against web, Semantic Scholar and `paper_search` evidence only, not against
+the full-text passages the harness actually read on those turns; the null
+stands on that evidence set. gpt-oss-20b made 97% of its calls through
+`search` and `source`, leaving 13 scoreable agentic rows, so no faithfulness
+number is reported for it. Fixed for future captures; neither existing run
+can be re-scored because contexts are extracted at capture time.
+
 Scorecards: `2026-08-26_harness-ablation-faithfulness.json` (headline),
 `2026-07-27_harness-ablation-faithfulness.json` (Qwen3.6). Both include
 per-question values for both arms, so the paired test is reproducible without
-re-scoring.
+re-scoring. `2026-09-16_harness-ablation-faithfulness-gpt-oss-20b.json` is a
+placeholder and must not be quoted.
 
 ### Faithfulness judge validation (Track B2)
 
@@ -172,21 +233,22 @@ Scorecards: `2026-07-09_faithfulness-agentic-live` (baseline), `-t1a`, `-cap`.
 > show up as confabulation or as answering without the source, and on both
 > counts the harness result held or improved. The C2b re-run needed a second
 > shadow, of the chunk index, because the evidence layer that reads it did
-> not exist when the 07-27 pair ran; see the C2b block.
+> not exist when the 07-27 pair ran; see the C2b block. The third backbone,
+> gpt-oss-20b (2026-09-16), is added to each table in its own column.
 
 ### C1: fabricated papers
 
 100 frozen items (80 Crossref-verified-nonexistent DOIs + 20
 nonexistent-paper-by-description), zero collisions with the 67,675-DOI corpus.
 
-| Metric | 2026-07-10, Qwen3.6, flat loop | 2026-07-27, Qwen3.6, agent architecture | **2026-09-14, Qwen3.8** |
-|---|---|---|---|
-| Abstain / correct-refusal rate | 0.980 [0.950, 1.000] | 0.970 [0.930, 1.000] | **1.000** (Wilson [0.963, 1.000]; bootstrap degenerate) |
-| **Confabulated local citations** | **0 / 100** | **0 / 100** | **0 / 100** |
-| Verdicts | 98 abstain / 1 possible-confab / 1 ambiguous | 97 / 2 / 1 | **100 / 0 / 0** |
-| Abstained, by kind | | fabricated DOI 77/80, by-description 20/20 | 80/80, 20/20 |
-| Mean tool calls per item | | 10.8 (median 9) | **5.6** (median 4) |
-| Refusals that also cite a real corpus DOI | | 4 | 13 |
+| Metric | 2026-07-10, Qwen3.6, flat loop | 2026-07-27, Qwen3.6, agent architecture | **2026-09-14, Qwen3.8** | 2026-09-16, gpt-oss-20b |
+|---|---|---|---|---|
+| Abstain / correct-refusal rate | 0.980 [0.950, 1.000] | 0.970 [0.930, 1.000] | **1.000** (Wilson [0.963, 1.000]; bootstrap degenerate) | 0.720 [0.640, 0.810] (a floor, see below) |
+| **Confabulated local citations** | **0 / 100** | **0 / 100** | **0 / 100** | **0 / 100** |
+| Verdicts | 98 abstain / 1 possible-confab / 1 ambiguous | 97 / 2 / 1 | **100 / 0 / 0** | 72 / 4 / 24 |
+| Abstained, by kind | | fabricated DOI 77/80, by-description 20/20 | 80/80, 20/20 | |
+| Mean tool calls per item | | 10.8 (median 9) | **5.6** (median 4) | 9.2 |
+| Refusals that also cite a real corpus DOI | | 4 | 13 | 1 |
 
 The 2026-07-27 and 2026-09-14 runs were at `egress=full`, which is the
 **harder** condition: the model may search the entire live web and must still
@@ -198,7 +260,15 @@ target rather than substituting it. A full manual pass over the 13 has not
 been done (`08-LIMITATIONS.md`). Scorecards: `2026-07-10_abstention-c1-fabricated`,
 `2026-07-27_abstention-c1-fabricated`, `2026-09-14_abstention-c1-fabricated`
 (the last carries `harness_note`: 26 retrieval commits newer than the 08-26
-ablation harness).
+ablation harness), `2026-09-16_abstention-c1-fabricated-gpt-oss-20b`.
+
+On gpt-oss-20b, 20 of the 24 "ambiguous" items are **empty answers**: the
+model ended its turn after a mean of 10 tool calls with no final message (the
+same behaviour as its bare and RAG arms in R1). The classifier cannot call an
+empty answer a refusal, so 0.720 is a floor on correct refusal, not an
+estimate of it; the 4 possible confabulations are the ceiling on the failure
+side. The number that holds on all three backbones without qualification is
+**zero confabulated local citations**.
 
 ### C2b: paired shadow corpus
 
@@ -214,22 +284,22 @@ chunks. The shadow instance is an `extends` of the production service with
 only the two collection variables overridden, verified with `docker compose
 config`.
 
-| | 07-10 present | 07-10 absent | 07-27 present | 07-27 absent | **09-15 present** | **09-15 absent** |
-|---|---|---|---|---|---|---|
-| Backbone | Qwen3.6 | Qwen3.6 | Qwen3.6 | Qwen3.6 | **Qwen3.8** | **Qwen3.8** |
-| Accuracy | 0.400 | 0.340 | 0.540 | 0.080 | **0.540** | **0.040** |
-| Abstain rate | 0.480 | 0.500 | 0.400 | 0.740 | **0.420** | **0.920** |
-| Unparseable | 3 | n/a | 0 | 0 | **0** | **0** |
-| Accuracy drop on source removal | −0.060 | | −0.460 | | **−0.500** | |
+| | 07-10 present | 07-10 absent | 07-27 present | 07-27 absent | **09-15 present** | **09-15 absent** | 09-16 present | 09-16 absent |
+|---|---|---|---|---|---|---|---|---|
+| Backbone | Qwen3.6 | Qwen3.6 | Qwen3.6 | Qwen3.6 | **Qwen3.8** | **Qwen3.8** | gpt-oss-20b | gpt-oss-20b |
+| Accuracy | 0.400 | 0.340 | 0.540 | 0.080 | **0.540** | **0.040** | 0.400 | 0.040 |
+| Abstain rate | 0.480 | 0.500 | 0.400 | 0.740 | **0.420** | **0.920** | 0.340 | 0.800 |
+| Unparseable | 3 | n/a | 0 | 0 | **0** | **0** | see note | see note |
+| Accuracy drop on source removal | −0.060 | | −0.460 | | **−0.500** | | −0.360 | |
 
 On the answerable subset (questions the present arm answered correctly), when
 the source is removed:
 
-| | 07-10 (n=20) | 07-27 (n=27) | **09-15 (n=27)** |
-|---|---|---|---|
-| **Correct abstention** (desired) | 4 (**0.200**) | 18 (**0.667**) | **24 (0.889)** |
-| Answered, still correct (from memory or adjacent corpus papers) | 12 (0.600) | 4 (0.148) | 2 (0.074) |
-| Answered, now wrong (over-confident) | 4 (0.200) | 5 (0.185) | 1 (0.037) |
+| | 07-10 (n=20) | 07-27 (n=27) | **09-15 (n=27)** | 09-16 gpt-oss-20b (n=20) |
+|---|---|---|---|---|
+| **Correct abstention** (desired) | 4 (**0.200**) | 18 (**0.667**) | **24 (0.889)** | 16 (0.800) |
+| Answered, still correct (from memory or adjacent corpus papers) | 12 (0.600) | 4 (0.148) | 2 (0.074) | 2 (0.100) |
+| Answered, now wrong (over-confident) | 4 (0.200) | 5 (0.185) | 1 (0.037) | **0** |
 
 The present arm is stable across the backbones (27 correct both times, 24 the
 same questions), so the answerable population is the same and the comparison
@@ -249,6 +319,7 @@ n = 20-27 the bootstrap can only land on multiples of 1/n:
 | 2026-07-10 | Qwen3.6, flat loop | 20 | 0.200 | [0.050, 0.350] | [0.081, 0.416] |
 | 2026-07-27 | Qwen3.6 | 27 | 0.667 | [0.481, 0.852] | [0.478, 0.814] |
 | **2026-09-15** | **Qwen3.8** | **27** | **0.889** | **[0.777, 1.000]** | **[0.719, 0.961]** |
+| 2026-09-16 | gpt-oss-20b | 20 | 0.800 | [0.600, 0.950] | [0.584, 0.919] |
 
 **The 07-10 and 07-27 intervals are disjoint on both methods.** The 09-15
 interval overlaps the 07-27 one; the question-paired test below is what
@@ -269,6 +340,17 @@ controlled**: backbone and seven weeks of harness commits moved together,
 and the chunk shadow closes a leak the 07-27 design did not face. The
 within-pair numbers on 09-15 (present vs absent, same day, same code, same
 questions) are clean and are the claim.
+
+**Third backbone, gpt-oss-20b (2026-09-16), same 50 frozen questions, both
+arms at `egress=off`, both shadows rebuilt from the frozen DOIs (leakage 0):**
+present 0.400 [0.26, 0.54] / absent 0.040 [0.00, 0.10]; abstain 0.34 → 0.80.
+The present arm answered 20 correctly (Qwen3.8: 27), so the answerable base
+is smaller. Correct abstention **0.800** (bootstrap [0.600, 0.950], Wilson
+[0.584, 0.919]), 2 still correct, **0 newly wrong**. Question-paired against
+the 09-15 Qwen3.8 pair: **−0.089 [−0.292, +0.092], p = 0.37**, within noise.
+The corpus-grounded abstention behaviour therefore holds on a backbone from a
+different lab, at a smaller answerable base. Scorecard:
+`2026-09-16_abstention-c2-shadow-gpt-oss-20b.json`.
 
 A third interval is stored in each scorecard: an **unconditional** bootstrap
 that also resamples *which* questions are answerable, giving [0.481, 0.833] on
@@ -348,6 +430,24 @@ Second backbone, Qwen3.6 (all 07-27):
 | c2-absent | agentic | **abstain** | 0.260 [0.14, 0.38] | 0.692 [0.42, 0.93] | 50 | off |
 | c1-fabricated | agentic | **abstain** | 0.030 [0.00, 0.07] | 1.000 [0.00, 1.00] | 100 | full |
 
+Third backbone, gpt-oss-20b (all 2026-09-16):
+
+| Population | Arm | Desired | Coverage | Selective risk | n | Egress |
+|---|---|---|---|---|---|---|
+| litqa2-answerable | bare | answer | 0.844 [0.79, 0.89] | 0.518 [0.44, 0.60] | 199 | n/a (0 tools) |
+| litqa2-answerable | rag | answer | 0.126 [0.08, 0.17] | 0.200 [0.05, 0.38] | 199 | n/a (0 tools) |
+| litqa2-answerable | agentic | answer | 0.628 [0.56, 0.69] | 0.104 [0.05, 0.16] | 199 | full |
+| c2-present | agentic | answer | 0.500 [0.36, 0.64] | 0.200 [0.05, 0.36] | 50 | off |
+| c2-absent | agentic | **abstain** | 0.060 [0.00, 0.14] | 0.333 [0.00, 1.00] | 50 | off |
+| c1-fabricated | agentic | **abstain** | 0.280 [0.19, 0.37] | 1.000 [1.00, 1.00] | 100 | full |
+
+On gpt-oss-20b the harness cuts selective risk ~5x against bare (0.518 →
+0.104) by answering a third less often (0.844 → 0.628), where on the Qwen
+backbones it kept coverage. Bare and RAG coverage here count the
+no-final-message rows as not answered (R1); the `c1-fabricated` coverage of
+0.280 is 28 items answered, of which 20 are those empty turns and 4 possible
+confabulations, so read it on coverage only as before.
+
 Across the swap the agentic arm keeps its coverage (0.925 on both) and its
 selective risk falls 0.092 → 0.054, while bare's coverage rises to 0.960 at
 0.597 risk (the harness buys an ~11x risk reduction for 4% less coverage) and
@@ -369,7 +469,8 @@ Two mandatory reading instructions:
 
 For the two `desired = abstain` populations, **low coverage is the good
 outcome**. Scorecards: `2026-09-15_risk-coverage.{json,md}` (headline),
-`2026-07-27_risk-coverage.{json,md}` (Qwen3.6).
+`2026-07-27_risk-coverage.{json,md}` (Qwen3.6),
+`2026-09-16_risk-coverage-gpt-oss-20b.{json,md}` (third backbone).
 
 ---
 
@@ -454,6 +555,8 @@ generation.
 | 2026-07-27 | BGE-large | Qwen3.6 | agent architecture (Track D agentic arm) | 0.839 | | 0.908 | abstain 0.075, 0 unparseable |
 | 2026-08-26 | BGE-large | **Qwen3.8** | agent architecture (Track D agentic arm) | **0.874** | | **0.946** | abstain 0.075, 0 unparseable |
 | 2026-09-14 | BGE-large | **Qwen3.8** | agent architecture, standalone answer track, 900 s, `egress=full` | **0.884** | [0.839, 0.925] | **0.926** [0.889, 0.963] (n=190) | 9/199 (4.5%), 0 unparseable, 0 truncated |
+| 2026-09-16 | BGE-large | gpt-oss-20b | agent architecture (Track D agentic arm) | 0.563 | | 0.896 | abstain 0.342, 6 unparseable |
+| 2026-09-16 | BGE-large | gpt-oss-20b | agent architecture, standalone answer track, 900 s, `egress=full` | 0.528 | [0.462, 0.593] | 0.847 [0.774, 0.911] (n=124) | 64 abstain (32%), 11 unparseable (all empty), 0 truncated |
 
 The 2026-07-24 and 2026-09-14 rows are the standalone `litqa2-answer` track
 (`run_litqa2 --track answer`); the 07-27 and 08-26 rows are the agentic arm of
@@ -474,7 +577,10 @@ Cross-backbone on the standalone track, Qwen3.8 − Qwen3.6: +0.020 [−0.020,
 +0.065], p = 0.414, suggestive for the usual reason. Scorecard:
 `2026-09-14_answer-qwen38-900s.json`. On the retired
 backbone the two protocols gave 0.864 and 0.839, a gap inside the measured
-run-to-run noise (`08-LIMITATIONS.md`).
+run-to-run noise (`08-LIMITATIONS.md`). On gpt-oss-20b the two protocols give
+0.528 and 0.563, the same agreement on a third backbone; the 11 unparseable
+standalone answers are the no-final-message behaviour of R1. Scorecard:
+`2026-09-16_answer-gpt-oss-20b-900s.json`.
 
 **Encoder step (paired, same 199 questions, both arms re-run with a fixed
 parser):**
@@ -518,14 +624,27 @@ Telemetry over the agentic arm of the R1 runs. `degraded` = the call returned
 but with an unusable or empty payload; `recovery_rate` = fraction of queries
 hitting a tool failure that still reached a final answer.
 
-| Metric | **Qwen3.8 (08-26)** | Qwen3.6 (07-27) | Comparable? |
-|---|---|---|---|
-| Total tool calls | 1,380 | 1,714 | yes |
-| Mean calls / query | **6.93** | 8.61 | yes |
-| Error rate | 0.139 | 0.061 | **no** (see below) |
-| Degraded rate | 0.379 | 0.240 | **no** (see below) |
-| Queries with at least one failure | 102 | 86 | no |
-| **Recovery rate** | **1.000** | **1.000** | yes |
+| Metric | **Qwen3.8 (08-26)** | Qwen3.6 (07-27) | Comparable? | gpt-oss-20b (09-16) |
+|---|---|---|---|---|
+| Total tool calls | 1,380 | 1,714 | yes | 1,742 |
+| Mean calls / query | **6.93** | 8.61 | yes | 8.75 |
+| Error rate | 0.139 | 0.061 | **no** (see below) | 0.049 |
+| Degraded rate | 0.379 | 0.240 | **no** (see below) | 0.059 |
+| Queries with at least one failure | 102 | 86 | no | 58 |
+| **Recovery rate** | **1.000** | **1.000** | yes | **1.000** |
+
+Per tool, gpt-oss-20b (09-16): `search` 1,481 calls (85%, error 0.038),
+`source` 214 (0.061), `web_fetch` 25 (**0.560**, same failure definition as
+08-26), `web_search` 17 (degraded 1.000, the SearXNG-unresponsive marker as
+before), `paper_lookup` 3. The mix is unlike either Qwen run: this backbone
+stays inside the corpus search ladder and left it 17 times in 199 questions
+(Qwen3.8: 331 web searches, 175 Semantic Scholar). Before a tool-name repair
+landed, 49 of its 1,606 first-pass calls (3%) arrived with a harmony channel
+token glued to the recipient (`source<|channel|>commentary`) and were
+rejected as unknown tools; that is a serving-stack (parser) property, fixed at
+the parser boundary and counted, and the pre-repair run is kept
+(`2026-09-16_gpt-oss-20b-prerepair.json`). Scorecard:
+`2026-09-16_toolreliability-gpt-oss-20b_toolreliability.json`.
 
 Per tool, Qwen3.8 (08-26):
 
@@ -601,10 +720,13 @@ a non-gating diagnostic.
 | Run | Anchors x reps | Mean pass rate | 95% CI (rough, normal over item means) | `profile_match` (diagnostic) |
 |---|---|---|---|---|
 | 2026-07-10 `postcap-t3` (after the tool-call cap) | 16 x 5 | **0.963** (77/80) | 0.911-1.000 | 7/10 labelled anchors, 0.70 |
-| 2026-07-25 `toolretire-after` (after tool consolidation, most recent) | 17 x 5 | 0.835 | | 8/11 |
+| 2026-07-25 `toolretire-after` (after tool consolidation, most recent on Qwen) | 17 x 5 | 0.835 | | 8/11 |
+| 2026-09-16 `routing-gpt-oss-20b` (third backbone, eval instance) | 17 x 8 | 0.647 | 0.452-0.842 | |
 
-The `>= 0.950` gate was a procedure written in two plan documents and read
-off the scorecard by a person; no code, CI or deploy-script check enforces
+The gpt-oss-20b row is the deploy gate read against a backbone that never
+was production: at 0.647 it says that backbone would not ship behind the
+router as-is, and nothing more. The `>= 0.950` gate was a procedure written
+in two plan documents and read off the scorecard by a person; no code, CI or deploy-script check enforces
 it. The KNN example set changed again on 2026-08-27 with no anchor run since,
 so 0.963 describes the 2026-07-10 deploy, not the current tree. Scorecards
 under the `2026-06-2x_routing-*` and `2026-06-2x_a5-*` series (24 files

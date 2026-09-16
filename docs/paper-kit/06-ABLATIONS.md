@@ -57,17 +57,29 @@ Same 199 questions, same arm code, all arms at 16,384 tokens, git `3e0bcfb`.
 Agentic **0.874** vs bare 0.387 vs RAG 0.211; harness value **+0.487 [0.407,
 0.568], p < 0.001**; agentic − RAG +0.663; RAG − bare **−0.176**.
 
-### 1.4 What the three runs together show
+### 1.3a Third backbone from a different lab, 2026-09-16, n=199, gpt-oss-20b
 
-| Quantity | Pilot (Qwen3.6) | Clean run (Qwen3.6) | **Headline (Qwen3.8)** |
-|---|---|---|---|
-| Harness value (agentic − bare) | +0.240 | +0.538 | **+0.487** |
-| agentic − RAG | +0.410 | +0.668 | +0.663 |
-| Agentic accuracy | 0.560 | 0.839 | **0.874** |
-| Agentic abstention | 0.31 | 0.075 | 0.075 |
-| Agentic precision | 0.86 | 0.908 | **0.946** |
-| Agentic tool calls / query | 16 | 8.6 | 6.9 |
-| Bare unparseable | n/a | 33 | 0 |
+Same 199 questions, same arm code, all arms at 16,384 tokens, 900 s,
+`egress=full`, git `c6c56a7`; run as an eval-only instance beside production
+(`10-REPRODUCE.md` §5a). Agentic **0.563** vs bare 0.407 vs RAG 0.101; harness
+value **+0.156 [0.075, 0.241], p = 0.004**; agentic − RAG +0.462; RAG − bare
+−0.306. Agentic abstention 0.342, precision of attempted 0.896, 8.8 tool calls
+and 29 s per query. The bare and RAG arms carry 25 and 162 rows in which the
+model ended its turn with **no final message** (see 1.4 and `05-RESULTS.md`
+R1); none are truncations.
+
+### 1.4 What the four runs together show
+
+| Quantity | Pilot (Qwen3.6) | Clean run (Qwen3.6) | **Headline (Qwen3.8)** | Third backbone (gpt-oss-20b) |
+|---|---|---|---|---|
+| Harness value (agentic − bare) | +0.240 | +0.538 | **+0.487** | +0.156 |
+| agentic − RAG | +0.410 | +0.668 | +0.663 | +0.462 |
+| Agentic accuracy | 0.560 | 0.839 | **0.874** | 0.563 |
+| Agentic abstention | 0.31 | 0.075 | 0.075 | 0.342 |
+| Agentic precision | 0.86 | 0.908 | **0.946** | 0.896 |
+| Agentic tool calls / query | 16 | 8.6 | 6.9 | 8.8 |
+| Bare accuracy | 0.32 | 0.302 | 0.387 | 0.407 |
+| Bare unparseable | n/a | 33 (truncated) | 0 | 25 (no final message) |
 
 Pilot → clean run: the arm design did not change. The agent architecture and
 `source(mode=qa)` full-text reading account for the entire gap. The harness
@@ -84,6 +96,30 @@ holding across a dense 27B and a 35B/3B-active MoE is real evidence the
 effect is not backbone-specific, but the cross-run comparison is
 **suggestive, not controlled**: 16 commits touched `backend/retrieval/`
 between the runs, several material to the agentic arm.
+
+Headline → third backbone: the lab, the size class (3.6B active vs 27B dense)
+and the model's own recommended sampling move at once, so the delta is
+attributed to "a different backbone" and nothing finer. What the row
+establishes is that the arm ordering, the sign of every paired delta, and the
+harness value's significance **replicate outside the Qwen family**, and that
+its **size is backbone-dependent**: a third of Qwen3.8's. The mechanism is in
+the abstention column. gpt-oss-20b's bare arm matches Qwen3.8's, so the
+model is not weaker at the questions; inside the harness it abstains on a
+third of them, keeping attempted-answer precision at 0.896. The harness makes
+this backbone careful rather than correct. Its bare and RAG arms also show a
+failure the Qwen runs never did: without tools the model reasons "we need to
+search" and ends the turn with no final message on 25 bare and 162 RAG
+prompts, scored as wrong by the frozen protocol. Precision of attempted (0.48
+bare, 0.80 RAG) is the fairer read of what it knows; RAG's 0.101 is mostly
+refusal by silence rather than the anchoring failure of section 3 in
+`07-FINDINGS.md`.
+
+A first pass at this run, before a tool-name repair (vLLM's harmony parser
+glued channel tokens to 3% of tool names) and a scorer fix (`**Answer:** A`
+was not parsed; changes none of the 398 stored Qwen3.8 verdicts), scored
+agentic 0.467 and is kept as `2026-09-16_gpt-oss-20b-prerepair.json`. That
+0.10 is what a new model family cost the harness before it cost the model
+anything, and it is reported as such.
 
 ### 1.5 The load/egress sensitivity companion
 

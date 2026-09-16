@@ -19,7 +19,11 @@ headline number. Stating these plainly is cheaper than being asked.
 | Human-expert comparison | **Context, not a claim** | PaperQA2's 0.660 and the expert mean 0.677 are quoted from their sources, not re-measured here. |
 | Certification thresholds | **Provisional, not validated** | Current baselines with a ~15% margin. No predictive-validity evidence. The threshold file says so in its own note field. |
 | CSFCube, QASPER (T10) | Not started | |
-| A controlled backbone comparison | **Not claimed** | The two Track D runs differ by backbone *and* by a month of retrieval commits. The cross-backbone agreement is reported as suggestive. |
+| A controlled backbone comparison | **Not claimed** | The two Qwen Track D runs differ by backbone *and* by a month of retrieval commits; the gpt-oss-20b run differs from Qwen3.8 by lab, size class and sampling at once. Cross-backbone agreement is reported as suggestive. |
+| Cross-lab generalisation beyond one point | **Not claimed** | gpt-oss-20b is the only non-Qwen backbone measured. The harness effect replicated there at a third of the size (+0.156 vs +0.487). One point is not a curve, and "the harness works on any model" is not claimed. |
+| A 16 GB reproduction | **Not measured** | The Qwen3.5-9B hardware-floor run was deferred. gpt-oss-20b needs a 24 GB card at the production profile (12.8 GiB weights, 1.5 GiB KV at 64k x 2), on Ada or Ampere alike since its MXFP4 experts run on the Marlin kernel. |
+| Faithfulness on gpt-oss-20b | **Not measured** | 13 scoreable agentic rows; see the capture caveat under "The faithfulness null". |
+| Routing on gpt-oss-20b | **Deploy gate only** | Anchor-tier pass rate 0.647 [0.45, 0.84] against 0.963 on Qwen3.8. It says the backbone would not ship behind the router as-is; it is not a paper number. |
 
 ---
 
@@ -110,6 +114,17 @@ do not quote 0.688 or 0.814 except as sensitivity points.
 
 ### The faithfulness null
 
+- **The grounding contexts were incomplete (found 2026-09-16).** The capture's
+  list of retrieval tools predated the search ladder and the grounded read
+  stage, so `search` and `source` results were never counted as contexts. The
+  Qwen3.8 agentic n=163 was scored against web, Semantic Scholar and
+  `paper_search` evidence, not against the full-text passages the harness
+  read on those turns. The null therefore holds on that evidence set; whether
+  it holds on the full set is unmeasured. Contexts are extracted at capture
+  time, so the existing runs cannot be re-scored; the fix is in place for the
+  next capture. On gpt-oss-20b, which made 97% of its calls through the two
+  missing tools, only 13 agentic rows were scoreable and no number is
+  reported.
 - It is a null on the **RAG versus agentic** comparison only. The bare arm is
   structurally unscoreable, so the three-arm faithfulness comparison the plan
   originally specified can only ever be a two-arm comparison.
@@ -146,7 +161,8 @@ do not quote 0.688 or 0.814 except as sensitivity points.
 |---|---|
 | **Domain mismatch in every public benchmark** | SciFact is biomedical claim verification; LitSearch is ML/NLP; LitQA2 is biology. Munin's corpus is chemistry / biophysics / membrane biology. The benchmarks measure the *mechanism* on realistic queries, not Munin's own domain. |
 | **Single deployment, single group** | One cluster, one corpus, one user population. Nothing here establishes that the design transfers to a different group's corpus, and the encoder relevance floor is explicitly calibrated to this encoder on these candidates. |
-| **Two base models, one controlled** | Every headline (Track D, faithfulness, T11, C1, C2b, risk-coverage, standalone LitQA2) is on `qwen3.8-27b` (production) with the Qwen3.6-35B-A3B run kept beside it. The two backbones agree on ordering and rough magnitude, but the comparison is confounded (below), and neither is a frontier model. The briefing that motivated Track D warns that a stronger base model can *hurt* a specialised harness; the dense 27B did not, but that is one data point. |
+| **Three base models from two labs, none controlled** | Every headline (Track D, faithfulness, T11, C1, C2b, risk-coverage, standalone LitQA2) is on `qwen3.8-27b` (production) with the Qwen3.6-35B-A3B run kept beside it, and since 2026-09-16 a third backbone from a different lab, `gpt-oss-20b`, beside both (Track D, C1, C2b, risk-coverage, standalone LitQA2, T11; not faithfulness). The Qwen pair agrees on ordering and rough magnitude; gpt-oss-20b agrees on ordering and sign, with a harness value a third the size and an agentic abstention rate five times higher. None of the comparisons is controlled (below) and none of the models is a frontier model. The harness carries model-shaped accommodations for both families it has met (three Qwen-shaped clarification repairs; one gpt-oss-shaped tool-name repair), so "the harness generalises" is bounded by the fact that it was adapted, slightly and reportedly, to each. |
+| **The frozen bare/RAG protocol penalises a tool-trained model** | gpt-oss-20b without tools ends its turn with no final message on 13% of bare and 81% of RAG prompts (it reasons "we need to search" and stops). The protocol scores that as wrong, for every backbone alike, and the prompts were deliberately not changed. Precision of attempted is reported beside accuracy for that reason; a reader comparing bare arms across labs should use it. |
 | **Benchmark answerability** | LitQA2 questions are multiple-choice and frequently answerable from parametric knowledge, which is exactly why the bare arm reaches 0.387 (Qwen3.8) and why the C2 design needed the `egress=off` control. |
 
 ### Internal validity

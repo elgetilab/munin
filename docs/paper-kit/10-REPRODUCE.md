@@ -336,8 +336,13 @@ under Qwen's set; the scorecards record both.
 
 ## 6. What has not been run
 
-As of 2026-09-14:
+As of 2026-09-16:
 
+- **Faithfulness per arm on gpt-oss-20b** (13 scoreable agentic rows: the
+  capture's retrieval-tool list lacked `search` and `source` until
+  2026-09-16; the next capture on any backbone will count them).
+- **The Qwen3.5-9B hardware-floor run** (16 GB claim), deferred; its profile
+  file is not written.
 
 - BEIR `nfcorpus` / `scidocs` / `trec-covid`.
 - **Phase 4 local query pool** (deferred: blocked on human query curation and
