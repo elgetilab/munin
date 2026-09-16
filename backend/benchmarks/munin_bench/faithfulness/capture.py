@@ -39,8 +39,12 @@ RETRIEVAL_TOOLS = {
 # Result keys that carry groundable text (title kept as a short label).
 # "excerpt" is paper_search's T1a abstract snippet - it IS retrieved evidence, so
 # it must count toward the grounding contexts or faithfulness is understated.
+# "quote" is the verbatim chunk text source(mode=evidence) and source(mode=qa)
+# return (never model-generated; findings[].claim is and stays excluded). Added
+# 2026-09-16 with `search`/`source` in RETRIEVAL_TOOLS: without it the recapture
+# would have grounded against the tool's digests but not the paper text itself.
 _TEXT_KEYS = {"content", "text", "abstract", "snippet", "passage", "summary",
-              "body", "tldr", "answer", "excerpt"}
+              "body", "tldr", "answer", "excerpt", "quote"}
 _MIN_LEN = 20
 
 
