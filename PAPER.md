@@ -23,9 +23,19 @@ encoder throughout is BGE-large-en-v1.5
 because the two are not comparable and were never meant to be pooled.
 Corpus at time of writing: 68,462 papers.
 
+**A third backbone from a different lab was measured on 2026-09-16:**
+`gpt-oss-20b` (`openai/gpt-oss-20b`, 21B MoE with 3.6B active, native
+MXFP4, text only), run as an eval-only instance beside production with the
+whole generation suite at concurrency 1 on its own GPU (RESULTS.md "Third
+backbone"). It is the cross-lab check on claims 1, 3 and 5; it is **not**
+what production serves, and its numbers are reported beside the Qwen ones,
+never pooled with them. Three variables move at once against Qwen3.8 (lab,
+size class, the model's own recommended sampling), so its deltas are
+attributed to "a different backbone", not to any one of them.
+
 > **Drafting the paper?** [`docs/paper-kit/`](docs/paper-kit/) is a
 > self-contained bundle (system, architecture, corpus, methods, results,
-> ablations, findings, limitations, related work, reproduce, plus the 25
+> ablations, findings, limitations, related work, reproduce, plus the 35
 > headline scorecards) written to be read without repository access. This file
 > stays the short claim-to-scorecard index.
 
@@ -35,7 +45,8 @@ Corpus at time of writing: 68,462 papers.
 
 Track D, three arms over the same 199 LitQA2 questions, paired.
 `RESULTS.md` "Model swap ... Track D re-run", git `3e0bcfb`, 2026-08-26.
-**Measured on two architecturally different backbones.**
+**Measured on three backbones from two labs** (Qwen3.6-35B-A3B, Qwen3.8-27B,
+gpt-oss-20b); the table is the production model.
 
 | arm | accuracy | precision of attempted | abstain | cost |
 |---|---|---|---|---|
@@ -100,9 +111,66 @@ It agrees with the ablation arm's 0.874 question-paired (+0.010 [−0.035,
 twice. Quote 0.874 for the delta, 0.884 as the standalone result; the latter
 is on a harness two weeks newer than the ablation's.
 
+**Third backbone, a different lab: gpt-oss-20b, 2026-09-16** (RESULTS.md
+"Third backbone", git `c6c56a7`). Same 199 questions, same arms, same
+16,384-token budget, same 900 s deadline, `egress=full`, concurrency 1:
+
+| arm | accuracy | precision of attempted | abstain | cost |
+|---|---|---|---|---|
+| RAG (naive top-5) | 0.101 | 0.800 | 0.060 | 1.0s, 0 tools; 162 no final message |
+| bare (parametric) | 0.407 | 0.482 | 0.030 | 2.4s, 0 tools; 25 no final message |
+| **agentic (harness)** | **0.563** | **0.896** | **0.342** | 29.3s, 8.8 tools |
+
+Paired bootstrap: **agentic − bare = +0.156 [0.075, 0.241], p = 0.004**;
+agentic − RAG = +0.462 [0.387, 0.538]; RAG − bare = −0.306 [−0.377, −0.231].
+Certification gate PASS.
+
+Three things to say, in this order:
+
+- **The harness effect replicates outside the Qwen family, at a third of
+  the size.** +0.156 against +0.487 (Qwen3.8) and +0.538 (Qwen3.6). The
+  ordering of the arms is the same, RAG is again below bare, and the
+  direction is not in doubt (p = 0.004). What differs is the agentic
+  ceiling, not the floor: gpt-oss-20b's bare arm matches Qwen3.8's (0.407
+  vs 0.387), while inside the harness it **abstains on a third of answerable
+  questions** (0.342 vs 0.075) and keeps attempted-answer precision high
+  (0.896 vs 0.946). The harness makes this backbone careful rather than
+  correct. The paper should say that the size of the harness effect is
+  backbone-dependent and that one non-Qwen point is not a generalisation
+  curve.
+- **Without tools, gpt-oss-20b frequently does not answer at all.** On 25
+  bare and 162 RAG prompts it reasons "we need to search" and ends its turn
+  with no final message (`finish_reason=stop`, ~130 tokens, no tool call,
+  not one budget truncation). The protocol scores that as unparseable, i.e.
+  wrong, for every backbone alike, and the prompts are frozen, so the RAG
+  0.101 is mostly refusal by silence rather than the retrieval-anchoring
+  failure the Qwen runs showed. `precision_of_attempted` (bare 0.48, RAG
+  0.80) is the fairer read of what the model knows; both numbers belong in
+  the paper. `empty_kinds` in the scorecard separates the two failure modes.
+- **A new model family costs the harness something before it costs the
+  model anything.** The first pass at this run is kept as
+  `2026-09-16_gpt-oss-20b-prerepair.json` (agentic 0.467): vLLM's harmony
+  tool parser glued channel tokens to 3% of tool names
+  (`source<|channel|>commentary`), which the executor rejected, and the
+  scorer did not read `**Answer:** A`, which this model writes routinely.
+  Both were repaired before the headline re-run (a tool-name repair in
+  `chat_service`, counted and logged; emphasis stripped before letter
+  parsing, verified to change none of the 398 stored Qwen3.8 verdicts). The
+  harness therefore carries one gpt-oss-shaped accommodation beside its
+  Qwen-shaped ones, and the paper reports the pre-repair number as the
+  price of that.
+
+The **standalone answer track** on gpt-oss-20b gives 0.528 [0.462, 0.593],
+precision 0.847, 64 abstentions, 0 truncations, agreeing with the ablation
+arm's 0.563 within noise as it did on both Qwen backbones.
+
 Scorecards: `scorecards/2026-08-26_harness-ablation.json` (current),
 `scorecards/2026-07-27_harness-ablation.json` (Qwen3.6),
-`scorecards/2026-09-14_answer-qwen38-900s.json` (standalone).
+`scorecards/2026-09-14_answer-qwen38-900s.json` (standalone),
+`scorecards/2026-09-16_gpt-oss-20b.json` and
+`scorecards/2026-09-16_harness-ablation-gpt-oss-20b.json` (third backbone),
+`scorecards/2026-09-16_gpt-oss-20b-prerepair.json` (parser-cost point),
+`scorecards/2026-09-16_answer-gpt-oss-20b-900s.json` (third-backbone standalone).
 Do **not** cite the 2026-07-13 pilot (n=100, 0.56/0.32/0.15); it is superseded.
 
 ## 2. Grounding does not improve with the harness
@@ -120,6 +188,17 @@ Qwen3.8 for both arms.
 The bare arm is structurally unscoreable (no retrieved context to entail
 against). The agentic n is 163 rather than 199 because abstentions and
 context-free answers cannot be scored.
+
+**Caveat found 2026-09-16, and it belongs in Limitations.** The capture's
+list of retrieval tools predated the search ladder and the grounded read
+stage, so `search` and `source` results were never counted as grounding
+contexts. The 08-26 agentic n=163 was therefore scored against web, Semantic
+Scholar and `paper_search` evidence only, not against the full-text passages
+the harness actually read; the null stands on that evidence set. On
+gpt-oss-20b, which made 97% of its tool calls through `search` and `source`,
+only 13 agentic rows were scoreable and **no faithfulness number is reported
+for the third backbone**. Fixed for future captures; neither existing run can
+be re-scored because contexts are extracted at capture time.
 
 Scorecards: `scorecards/2026-08-26_harness-ablation-faithfulness.json` (current),
 `scorecards/2026-07-27_harness-ablation-faithfulness.json` (Qwen3.6).
@@ -158,8 +237,29 @@ narrowed to corpus-grounded abstention with a paired shadow corpus.
   0.524, RAG 0.241 / 0.292. The harness keeps coverage and halves risk across
   the swap while both baselines got riskier.
 
+**On the third backbone, gpt-oss-20b (2026-09-16):**
+
+- **C1**: correct refusal **0.72 [0.64, 0.81]**, **0 confabulated local
+  citations**, 4 possible confabulations, and 24 "ambiguous" of which 20 are
+  empty answers (the same no-final-message behaviour as claim 1, after a mean
+  of 10 tool calls). The classifier cannot call an empty answer a refusal, so
+  0.72 is a floor; the number to lean on is the zero confabulated local
+  citations, which holds on all three backbones.
+- **C2b** at `egress=off`: present 0.40 → absent 0.04, abstain 0.34 → 0.80; on
+  the 20 answerable questions, correct abstention **0.80 [0.60, 0.95]**
+  (Wilson [0.58, 0.92]), 2 still correct, **0 newly wrong**. Question-paired
+  against the Qwen3.8 pair: −0.09 [−0.29, +0.09], p = 0.37, within noise. The
+  corpus-grounded abstention claim holds across labs; the answerable base is
+  smaller because the present arm is weaker.
+- **Risk-coverage**: agentic coverage 0.628 at selective risk 0.104; bare
+  0.844 / 0.518; RAG 0.126 / 0.200. The harness again cuts risk by ~5x
+  against bare, here by answering less rather than by being right more.
+
 Scorecards (current): `2026-09-14_abstention-c1-fabricated.json`,
 `2026-09-15_abstention-c2-shadow.json`, `2026-09-15_risk-coverage.json`.
+Third backbone: `2026-09-16_abstention-c1-fabricated-gpt-oss-20b.json`,
+`2026-09-16_abstention-c2-shadow-gpt-oss-20b.json`,
+`2026-09-16_risk-coverage-gpt-oss-20b.json`.
 Qwen3.6: `2026-07-27_abstention-c1-fabricated.json`,
 `2026-07-27_abstention-c2-shadow.json`, `2026-07-27_risk-coverage.json`.
 
@@ -201,8 +301,19 @@ Both causes were fixed after this run (`fd559c9`), so these figures describe
 the tool layer during the comparison rather than as shipped. Reported per tool,
 with the full reasoning, in RESULTS.md.
 
+**On gpt-oss-20b (2026-09-16, after the tool-name repair):** 1,742 calls,
+**8.75 calls/query**, error rate 0.049, degraded rate 0.059, **recovery
+1.000**. Recovery 1.000 now holds on three backbones. The tool mix is very
+different: 85% of calls go through the corpus `search` ladder, 12% through
+`source`, and the model left the corpus 17 times in 199 questions (Qwen3.8:
+331 web searches, 175 Semantic Scholar). `web_fetch`'s 0.56 error rate matches
+Qwen3.8's under the current failure definition. Before the repair, 3% of tool
+names arrived with a harmony channel token attached and were rejected as
+unknown tools; that is a serving-stack (parser) property, reported as such.
+
 Scorecards: `2026-08-26_toolreliability-qwen38_toolreliability.json` (current),
-`2026-07-27_toolreliability-clean.json` (Qwen3.6).
+`2026-07-27_toolreliability-clean.json` (Qwen3.6),
+`2026-09-16_toolreliability-gpt-oss-20b_toolreliability.json` (third backbone).
 
 ---
 
@@ -219,6 +330,10 @@ Stating these plainly is cheaper than being asked.
 | Track F | not run | follow-up proposal scope |
 | BEIR nfcorpus / scidocs / trec-covid | not run | SciFact only |
 | Human-expert comparison | context, not a claim | PaperQA2 0.660 and expert mean 0.677 are quoted from their sources, not re-measured here |
+| Cross-lab generalisation beyond one model | one point, not a curve | gpt-oss-20b is the only non-Qwen backbone measured; the harness effect replicated at a third of the size. "The harness works on any model" is not claimed |
+| A 16 GB reproduction | not measured | the Qwen3.5-9B hardware-floor run (THIRD-MODEL-REVIEW Experiment B) was deferred; gpt-oss-20b needs a 24 GB card at the production profile (12.8 GiB weights + 1.5 GiB KV) |
+| Faithfulness on gpt-oss-20b | not measured | 13 scoreable agentic rows; see claim 2's capture caveat |
+| Routing on gpt-oss-20b as a paper number | deploy gate only | anchor-tier pass rate 0.647 [0.45, 0.84] vs 0.963 on Qwen3.8; it says the backbone would not ship behind the router as-is, nothing more |
 
 ## Reproducing
 
@@ -238,6 +353,10 @@ $PY -m munin_bench.pipelines.run_all \
    --tracks litqa2-retrieval,litqa2-answer,faithfulness,abstention,ablation \
    --with-reliability --certify --date <YYYY-MM-DD>
 ```
+
+A second backbone beside production, whole generation suite, unattended:
+`scripts/run_suite.sh <slug>` with a profile in `backend/config/models/`
+(RESULTS.md "Third backbone"; `docs/paper-kit/10-REPRODUCE.md` §5a).
 
 `--certify` checks the run against `certification_thresholds.json` and emits
 PASS/FAIL; `munin_bench.pipelines.compare <old>.json <new>.json` gives a
@@ -265,9 +384,11 @@ Two operational notes that will otherwise cost you a day:
 
 | Artifact | Path |
 |---|---|
-| **Paper kit** (self-contained drafting bundle, 19 scorecards) | `docs/paper-kit/` |
+| **Paper kit** (self-contained drafting bundle, 35 scorecards) | `docs/paper-kit/` |
 | Results log (canonical numbers) | `backend/benchmarks/RESULTS.md` |
-| Scorecards (67 JSON, 49 Markdown) | `backend/benchmarks/scorecards/` |
+| Scorecards (77 JSON, 53 Markdown) | `backend/benchmarks/scorecards/` |
+| Backbone profiles (one file per model: checkpoint, parsers, thinking mode, sampling) | `backend/config/models/` |
+| Second-backbone driver and instance machinery | `backend/benchmarks/scripts/run_suite.sh`, `backend/deploy.sh instance` |
 | Benchmark harness | `backend/benchmarks/munin_bench/` |
 | Certification thresholds | `backend/benchmarks/certification_thresholds.json` |
 | Paper track: plans, specs, open items | `docs/paper-track/` |
