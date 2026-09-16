@@ -1290,6 +1290,153 @@ Scorecards: `2026-09-15_harness-ablation-agentic-egressoff.json` (track
 `harness-ablation-agentic-egressoff`, per-arm + paired deltas + the full→off
 transitions), `2026-09-15_toolreliability-qwen38-egressoff_toolreliability.json`.
 
+## Third backbone: gpt-oss-20b, full generation suite on an eval-only instance  · git `c6c56a7` · 2026-09-16
+
+**Why.** Every number in this file was on one model family, and the paper's
+central claim is about the harness, not the backbone. `openai/gpt-oss-20b`
+(21B MoE, 3.6B active, native MXFP4, a different lab, tokenizer, architecture
+and data) is the cross-lab check (`docs/paper-track/THIRD-MODEL-REVIEW.md`
+Experiment A). It ran as a **second instance beside production**: its own vLLM
+job on GPU 0 (`--max-num-seqs 2`, util 0.80, Marlin MXFP4 kernel on the RTX
+5090, 292 tok/s decode, 17.5k tok/s prefill, KV pool 890k tokens), its own
+retrieval container on :8082 that `extends` production and differs only in
+the model variables and the tokenizer mount, plus a shadow-corpus instance on
+:8083 for the C2b absent arm. Production stayed on Qwen3.8 for the users.
+Every track at concurrency 1 on a GPU nobody else used, so the cost columns
+are clean. Driven end to end by `scripts/run_suite.sh gpt-oss-20b` (plan:
+`docs/paper-track/BACKBONE-SWITCH-AND-EVAL-PLAN.md`). Model profile
+`backend/config/models/gpt-oss-20b.env`: `--tool-call-parser openai`,
+`--reasoning-parser openai_gptoss`, main turns `reasoning_effort=medium`,
+sub-tasks `reasoning_effort=low` (this model cannot switch reasoning off),
+sampling `temperature 1.0, top_p 1.0` (OpenAI's recommendation; the Qwen runs
+used Qwen's set, which the personas carried until 2026-09-15).
+
+### Track D harness ablation (n=199, paired, `egress=full`)
+
+| arm | accuracy | precision of attempted | abstain | unparseable | mean s/q | calls/q |
+|---|---|---|---|---|---|---|
+| bare | 0.407 | 0.482 | 0.030 | 25 (all `no_final_message`) | 2.4 | 0 |
+| RAG top-5 | 0.101 | 0.800 | 0.060 | 162 (all `no_final_message`) | 1.0 | 0 |
+| agentic | **0.563** | **0.896** | **0.342** | 6 | 29.3 | 8.8 |
+
+Paired bootstrap: **agentic − bare +0.156 [0.075, 0.241] p=0.004**;
+agentic − RAG +0.462 [0.387, 0.538]; RAG − bare −0.306 [−0.377, −0.231].
+Certification gate PASS. Zero deadline hits (Qwen3.8 needed 900 s; the
+agentic mean here is 29 s).
+
+**Findings.**
+1. **The harness effect replicates on a non-Qwen backbone, at a third of the
+   size.** +0.156 against +0.487 on Qwen3.8 and +0.538 on Qwen3.6. The bare
+   arm is not the difference (0.407 vs Qwen3.8's 0.387); the agentic ceiling
+   is. gpt-oss-20b inside the harness abstains on 34% of answerable questions
+   (Qwen3.8: 7.5%) while keeping attempted-answer precision at 0.896 (Qwen3.8:
+   0.946). The harness makes this model careful rather than correct.
+2. **Without tools, gpt-oss-20b often does not answer at all.** On 25 bare
+   and 162 RAG prompts the model reasons "We need to search. Use search." and
+   ends its turn with **no final message**: `finish_reason=stop`, ~130
+   completion tokens, no tool call, nothing in `content`. Recorded per row as
+   `empty_kind=no_final_message` (the runners now capture `finish_reason`, the
+   reasoning tail and `tool_calls_attempted`); not one row was a budget
+   truncation. These score as unparseable, i.e. wrong for accuracy, which is
+   the protocol every backbone was scored under; `precision_of_attempted`
+   (0.48 bare, 0.80 RAG) is the fairer read of what this model knows. RAG at
+   0.101 is therefore mostly refusal-by-silence, not the anchoring failure the
+   Qwen runs showed. The bare/RAG prompts were not changed: they are frozen
+   across backbones, and telling the model it has no tools would be a protocol
+   change.
+3. **The parser cost 3% of tool calls before repair, and the scorer cost 16
+   answers.** The first pass at this run is kept as
+   `2026-09-16_gpt-oss-20b-prerepair.json` (agentic 0.467, bare 0.302, RAG
+   0.060, delta +0.166). vLLM's harmony parser glued the channel header to the
+   recipient on 49 of 1,606 calls (`source<|channel|>commentary`,
+   `search<|channel|>json`), which the executor rejected as unknown tools and
+   the model retried; and `parse_letter` did not read `**Answer:** A`, which
+   this model writes routinely (16 of its 25 letter-not-found answers).
+   Both fixed 2026-09-15 (`chat_service.repair_tool_name`, counted and
+   logged; emphasis stripped before parsing, verified to change none of the
+   398 stored Qwen3.8 verdicts). The repaired re-run is the headline; the
+   pre-repair file is the price of running a new model family against a
+   harness that had only ever seen one, which is a result in itself.
+
+### Standalone LitQA2 answer track (n=199, 900 s, `egress=full`)
+
+**0.528 [0.462, 0.593]**, precision of attempted 0.847 [0.774, 0.911]; 105
+correct / 19 wrong / 64 abstain / 11 unparseable (all 11 empty) / 0 errors /
+0 truncations. Agrees with the ablation agentic arm (0.563) within noise, as
+the two protocols did on both Qwen backbones. Qwen3.8: 0.884.
+
+### Track C1 fabricated papers (n=100, `egress=full`)
+
+Correct refusal **0.72 [0.64, 0.81]**, 0 confabulated local citations, 4
+possible confabulations, **24 ambiguous of which 20 are empty answers**: the
+no-final-message behaviour again, this time after a mean of 10 tool calls. The
+classifier cannot call an empty answer a refusal, so 0.72 is a floor; read
+with the 24. Qwen3.8: 1.000 with 0 ambiguous. Mean 9.2 calls per item.
+
+### Track C2b paired shadow corpus (n=50 x 2, `egress=off`)
+
+present arm 0.40 [0.26, 0.54] accuracy, abstain 0.34; absent arm 0.04
+[0.00, 0.10], abstain 0.80. On the **20** questions the present arm answered
+correctly, removing the source produced 16 correct abstentions, 2 still
+correct without the source, 0 newly wrong: **correct abstention 0.80
+[0.60, 0.95]** (Wilson [0.58, 0.92]). Question-paired against the 09-15
+Qwen3.8 pair (0.889 on 27 answerable): delta −0.09 [−0.29, +0.09] p=0.37,
+within noise. The abstention-side claim holds on the second family; the
+answerable base is smaller because the present arm is weaker.
+
+### Derived
+
+- **T11**: 8.75 calls/q over 1,742 calls; error 0.049, degraded 0.059,
+  recovery 1.000. After the repair, 0 tool names carried channel tokens.
+  `search` 1,481 calls (85%), `source` 214, `web_fetch` 25 (error 0.56, as
+  on Qwen3.8), `web_search` 17. The tool mix is very different from Qwen3.8's
+  (`source` 356, `web_search` 331, `semantic_scholar_search` 175): gpt-oss
+  leans on the corpus search ladder and rarely leaves the corpus, which is
+  consistent with its 17 web searches and $0.30 of Brave spend for the whole
+  agentic arm.
+- **Risk-coverage** (six points, `2026-09-16_risk-coverage-gpt-oss-20b`):
+  agentic coverage 0.628 / selective risk 0.104 (Qwen3.8: 0.925 / 0.054);
+  bare 0.844 / 0.518; RAG 0.126 / 0.200. Same mixed-egress caveat as before.
+- **Routing anchor tier**: pass rate **0.647 [0.45, 0.84]** over 17 items
+  (Qwen3.8: 0.963). Not a paper number; it is the deploy gate, and it says
+  this backbone would not ship behind the router as-is.
+- **Faithfulness per arm: not reportable.** 13 agentic / 28 RAG scoreable
+  rows (paired n=1). Cause: the capture's `RETRIEVAL_TOOLS` predated the
+  search ladder and the grounded read stage, so `search` and `source`
+  results were never counted as grounding contexts, and this model made
+  1,695 of 1,741 calls through them. Fixed for future captures (2026-09-16).
+  The same gap means the 08-26 Qwen3.8 per-arm faithfulness (n=163) was
+  scored on web/S2/paper_search contexts only, a caveat that now belongs in
+  the paper.
+
+### Provenance and caveats
+
+- Scorecards: `2026-09-16_gpt-oss-20b.json` (run_all header with the
+  driver's provenance), `2026-09-16_harness-ablation-gpt-oss-20b.json`,
+  `..._gpt-oss-20b-prerepair.json`, `..._answer-gpt-oss-20b-900s.json`,
+  `..._abstention-c1-fabricated-gpt-oss-20b.json`,
+  `..._abstention-c2-shadow-gpt-oss-20b.json`,
+  `..._risk-coverage-gpt-oss-20b.json`,
+  `..._toolreliability-gpt-oss-20b_toolreliability.json`,
+  `..._routing-gpt-oss-20b-2026-09-16.json`,
+  `..._harness-ablation-faithfulness-gpt-oss-20b.json` (placeholder). All
+  in both scorecard folders. Per-query arrays: `ablation_runs/gpt-oss-20b/`
+  and `ablation_runs/gpt-oss-20b-prerepair/`, `c1_runs/gpt-oss-20b/`,
+  `c2_runs/gpt-oss-20b/`, `results/litqa2/answer.gpt-oss-20b.*`; driver log
+  with every gate in `runs/gpt-oss-20b/driver.log`.
+- Three variables move against the Qwen3.8 numbers at once: lab, size class
+  (3.6B active vs 27B dense) and the model's own sampling. Attribute the delta
+  to "a different backbone", not to any one of them.
+- 0 Brave 402/429 responses during the suite (status-code grep; the first
+  version of the check matched a DOI containing `103402`).
+- Wall-clock for the whole suite, smoke to teardown: 6 h 40 min, of which
+  Track D 1 h 50, C1 1 h 05, answer track 1 h 40, C2b 1 h 12, faithfulness on
+  CPU 5 min, derived 48 min. One human intervention: the driver's TP=2
+  restore raced `vllm-service start` against the completing single-GPU job and
+  production was down from 06:03 until 08:03; fixed in `c6c56a7`.
+- The harness carries one gpt-oss-shaped repair (`repair_tool_name`) beside
+  its Qwen-shaped ones. The paper says so.
+
 ## Reproduce
 
 ```bash
@@ -1355,6 +1502,10 @@ MUNIN_EVAL_EGRESS=off PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_be
 MUNIN_EVAL_EGRESS=off PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 --arm absent  --base-url http://127.0.0.1:8081 --email ... --concurrency 1 --date <D> --vs-suffix <olddate>  # writes paired scorecard
 PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.risk_coverage --date <D>   # derive the six operating points, no inference
 # Teardown: docker stop/rm munin-retrieval-shadow; snapshot papers_shadow; delete both shadow collections.
+
+# A second backbone beside production, whole generation suite, unattended (2026-09-16 recipe; needs
+# `sudo ./deploy.sh sudoers` once and production on the single-GPU profile so GPU 0 is free):
+scripts/run_suite.sh gpt-oss-20b --date <D>     # profile: backend/config/models/<slug>.env; log: runs/<slug>/driver.log
 
 # Track D harness ablation (bare / RAG / agentic)
 for arm in bare rag agentic; do MUNIN_EVAL_EGRESS=full PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.ablation.run_arm --arm $arm --n 199 --tag <run-tag>; done   # writes ablation_runs/<run-tag>/, resumable; never reuse a committed run's tag

@@ -1,0 +1,155 @@
+{
+  "track": "harness-ablation",
+  "n_paired": 199,
+  "git_sha": "6ad5c26",
+  "date": "2026-09-16",
+  "runs_dir": "ablation_runs/gpt-oss-20b",
+  "arm_meta": {
+    "bare": {
+      "arm": "bare",
+      "n": 199,
+      "tag": "gpt-oss-20b",
+      "base_url": "http://127.0.0.1:8001",
+      "egress": "n/a-no-tools",
+      "model": "gpt-oss-20b",
+      "git_sha": "6ad5c26",
+      "deadline_s": null,
+      "reasoning_effort": "medium",
+      "max_output_tokens": 16384,
+      "finished_at": "2026-09-15T23:30:50Z"
+    },
+    "rag": {
+      "arm": "rag",
+      "n": 199,
+      "tag": "gpt-oss-20b",
+      "base_url": "http://127.0.0.1:8001",
+      "egress": "n/a-no-tools",
+      "model": "gpt-oss-20b",
+      "git_sha": "6ad5c26",
+      "deadline_s": null,
+      "reasoning_effort": "medium",
+      "max_output_tokens": 16384,
+      "finished_at": "2026-09-15T23:34:38Z"
+    },
+    "agentic": {
+      "arm": "agentic",
+      "n": 199,
+      "tag": "gpt-oss-20b",
+      "base_url": "http://127.0.0.1:8082",
+      "egress": "full",
+      "model": "gpt-oss-20b",
+      "git_sha": "6ad5c26",
+      "deadline_s": 900,
+      "reasoning_effort": "medium",
+      "max_output_tokens": 16384,
+      "finished_at": "2026-09-16T01:11:56Z"
+    }
+  },
+  "per_arm": {
+    "bare": {
+      "accuracy": 0.40703517587939697,
+      "abstain_rate": 0.03015075376884422,
+      "precision_of_attempted": 0.48214285714285715,
+      "verdicts": {
+        "incorrect": 87,
+        "unparseable": 25,
+        "correct": 81,
+        "abstain": 6
+      },
+      "unparseable_reasons": {
+        "empty_content": 25
+      },
+      "empty_kinds": {
+        "no_final_message": 25
+      },
+      "tool_markup_in_content": 0,
+      "deadline_hits": 0,
+      "cost": {
+        "mean_prompt_tokens": 213.1,
+        "mean_completion_tokens": 683.5,
+        "mean_elapsed_s": 2.4,
+        "mean_tool_calls": 0.0
+      }
+    },
+    "rag": {
+      "accuracy": 0.10050251256281408,
+      "abstain_rate": 0.06030150753768844,
+      "precision_of_attempted": 0.8,
+      "verdicts": {
+        "unparseable": 162,
+        "correct": 20,
+        "abstain": 12,
+        "incorrect": 5
+      },
+      "unparseable_reasons": {
+        "empty_content": 162
+      },
+      "empty_kinds": {
+        "no_final_message": 162
+      },
+      "tool_markup_in_content": 0,
+      "deadline_hits": 0,
+      "cost": {
+        "mean_prompt_tokens": 1439.7,
+        "mean_completion_tokens": 265.7,
+        "mean_elapsed_s": 1.0,
+        "mean_tool_calls": 0.0
+      }
+    },
+    "agentic": {
+      "accuracy": 0.5628140703517588,
+      "abstain_rate": 0.3417085427135678,
+      "precision_of_attempted": 0.896,
+      "verdicts": {
+        "correct": 112,
+        "abstain": 68,
+        "incorrect": 13,
+        "unparseable": 6
+      },
+      "unparseable_reasons": {
+        "empty_content": 3,
+        "letter_not_found": 3
+      },
+      "empty_kinds": {},
+      "tool_markup_in_content": 0,
+      "deadline_hits": 0,
+      "cost": {
+        "mean_prompt_tokens": null,
+        "mean_completion_tokens": null,
+        "mean_elapsed_s": 29.3,
+        "mean_tool_calls": 8.8
+      }
+    }
+  },
+  "deltas": {
+    "rag_minus_bare": {
+      "delta": -0.3065,
+      "ci": [
+        -0.3769,
+        -0.2312
+      ],
+      "p": 0.0
+    },
+    "agentic_minus_rag": {
+      "delta": 0.4623,
+      "ci": [
+        0.3869,
+        0.5377
+      ],
+      "p": 0.0
+    },
+    "agentic_minus_bare": {
+      "delta": 0.1558,
+      "ci": [
+        0.0754,
+        0.2412
+      ],
+      "p": 0.004
+    }
+  },
+  "backbone": "gpt-oss-20b",
+  "backbone_checkpoint": "openai/gpt-oss-20b (native MXFP4, Marlin kernel on RTX 5090)",
+  "serving": "eval instance on GPU 0: vLLM 0.20.2rc1.dev221, --max-model-len 65536 --max-num-seqs 2 --gpu-memory-utilization 0.80, --tool-call-parser openai --reasoning-parser openai_gptoss, reasoning_effort medium, sub-tasks reasoning_effort low, sampling temperature 1.0 top_p 1.0",
+  "harness_note": "chat_service.repair_tool_name (cuts harmony channel tokens from tool names) and parse_letter markdown-emphasis strip landed 2026-09-15 between the prerepair run and this one; retrieval image otherwise identical to production",
+  "provenance_note": "backbone/serving/harness_note stamped by the 2026-09-16 run_suite.sh driver commit, from the run's gates.json and profile; the runners wrote the rest"
+}

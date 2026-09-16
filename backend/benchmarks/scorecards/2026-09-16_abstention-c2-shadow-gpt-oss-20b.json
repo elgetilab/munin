@@ -1,0 +1,143 @@
+{
+  "n_paired": 50,
+  "present": {
+    "accuracy": 0.4,
+    "abstain_rate": 0.34,
+    "accuracy_ci": {
+      "rate": 0.4,
+      "n": 50,
+      "bootstrap": {
+        "ci_low": 0.26,
+        "ci_high": 0.54,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.27608389730256544,
+        "ci_high": 0.5381856225241064
+      }
+    },
+    "abstain_rate_ci": {
+      "rate": 0.34,
+      "n": 50,
+      "bootstrap": {
+        "ci_low": 0.22,
+        "ci_high": 0.48,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.2243694922250009,
+        "ci_high": 0.478461739497674
+      }
+    }
+  },
+  "absent": {
+    "accuracy": 0.04,
+    "abstain_rate": 0.8,
+    "accuracy_ci": {
+      "rate": 0.04,
+      "n": 50,
+      "bootstrap": {
+        "ci_low": 0.0,
+        "ci_high": 0.1,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.011038884327619798,
+        "ci_high": 0.13460090687507023
+      }
+    },
+    "abstain_rate_ci": {
+      "rate": 0.8,
+      "n": 50,
+      "bootstrap": {
+        "ci_low": 0.68,
+        "ci_high": 0.9,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.6696289406777459,
+        "ci_high": 0.887562499842239
+      }
+    }
+  },
+  "answerable_n": 20,
+  "on_answerable_when_source_removed": {
+    "correct_abstention": 16,
+    "answered_still_correct": 2,
+    "answered_now_wrong": 0,
+    "correct_abstention_rate": 0.8,
+    "correct_abstention_rate_ci": {
+      "rate": 0.8,
+      "n": 20,
+      "bootstrap": {
+        "ci_low": 0.6,
+        "ci_high": 0.95,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.5839825677481065,
+        "ci_high": 0.9193423374202019
+      }
+    },
+    "answered_still_correct_rate_ci": {
+      "rate": 0.1,
+      "n": 20,
+      "bootstrap": {
+        "ci_low": 0.0,
+        "ci_high": 0.25,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.027866481213768224,
+        "ci_high": 0.3010336452284873
+      }
+    },
+    "answered_now_wrong_rate_ci": {
+      "rate": 0.0,
+      "n": 20,
+      "bootstrap": {
+        "ci_low": 0.0,
+        "ci_high": 0.0,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.0,
+        "ci_high": 0.16112515805281938
+      }
+    },
+    "correct_abstention_rate_ci_unconditional": {
+      "ci_low": 0.6,
+      "ci_high": 0.9523809523809523,
+      "n_resamples": 2000,
+      "seed": 42,
+      "empty_resamples": 0,
+      "note": "resamples the full paired set and re-derives the answerable subset each time, so it carries the uncertainty in which questions are answerable as well as in the abstention rate"
+    }
+  },
+  "date": "2026-09-16",
+  "git_sha": "6e3aa53",
+  "correct_abstention_vs_c2_runs": {
+    "old_rate": 0.8888888888888888,
+    "new_rate": 0.8,
+    "delta": -0.0888888888888888,
+    "ci_low": -0.29166666666666674,
+    "ci_high": 0.09239633655394519,
+    "p_value_two_sided": 0.369,
+    "n_paired_questions": 50,
+    "n_resamples": 2000,
+    "seed": 42,
+    "dropped_resamples": 0
+  },
+  "backbone": "gpt-oss-20b",
+  "backbone_checkpoint": "openai/gpt-oss-20b (native MXFP4, Marlin kernel on RTX 5090)",
+  "serving": "eval instance on GPU 0: vLLM 0.20.2rc1.dev221, --max-model-len 65536 --max-num-seqs 2 --gpu-memory-utilization 0.80, --tool-call-parser openai --reasoning-parser openai_gptoss, reasoning_effort medium, sub-tasks reasoning_effort low, sampling temperature 1.0 top_p 1.0",
+  "harness_note": "chat_service.repair_tool_name (cuts harmony channel tokens from tool names) and parse_letter markdown-emphasis strip landed 2026-09-15 between the prerepair run and this one; retrieval image otherwise identical to production",
+  "provenance_note": "backbone/serving/harness_note stamped by the 2026-09-16 run_suite.sh driver commit, from the run's gates.json and profile; the runners wrote the rest"
+}

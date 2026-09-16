@@ -26,6 +26,14 @@ RETRIEVAL_TOOLS = {
     "web_search", "web_fetch", "get_citations", "get_references",
     "read_paper", "paper_lookup", "compare_papers", "deep_research",
     "s2_get_citations", "s2_get_references", "get_paper_pdf",
+    # The search ladder and the grounded read stage (2026-08) were missing
+    # here until 2026-09-16, so their results never became grounding contexts:
+    # the 08-26 Qwen3.8 per-arm faithfulness (agentic n=163) was scored on
+    # web/S2/paper_search evidence only, and the gpt-oss-20b run, which made
+    # 1,695 of its 1,741 calls through `search` and `source`, left 13 scoreable
+    # agentic rows. Contexts are extracted at capture time, so neither run can
+    # be re-scored; the next capture will count them.
+    "search", "source",
 }
 
 # Result keys that carry groundable text (title kept as a short label).

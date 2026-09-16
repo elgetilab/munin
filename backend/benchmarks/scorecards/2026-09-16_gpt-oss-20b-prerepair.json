@@ -80,7 +80,11 @@
     "base_url": "http://127.0.0.1:8082",
     "reasoning_effort": "medium",
     "max_output_tokens": 16384,
-    "note": "Track D n=199 on gpt-oss-20b BEFORE the two 2026-09-15 fixes: harmony tool names with <|channel|> tokens reached the executor unrepaired (49 of 1606 calls) and the scorer did not parse bold **Answer:** letters (16 of 25 agentic letter_not_found). Kept as the unrepaired-parser comparison point; the headline run is the re-run under tag gpt-oss-20b. Was tagged -smoke because --limit 20 did not limit the frozen Track D set."
+    "note": "Track D n=199 on gpt-oss-20b BEFORE the two 2026-09-15 fixes: harmony tool names with <|channel|> tokens reached the executor unrepaired (49 of 1606 calls) and the scorer did not parse bold **Answer:** letters (16 of 25 agentic letter_not_found). Kept as the unrepaired-parser comparison point; the headline run is the re-run under tag gpt-oss-20b. Was tagged -smoke because --limit 20 did not limit the frozen Track D set.",
+    "backbone_checkpoint": "openai/gpt-oss-20b (native MXFP4, Marlin kernel on RTX 5090)",
+    "serving": "eval instance on GPU 0: vLLM 0.20.2rc1.dev221, --max-model-len 65536 --max-num-seqs 2 --gpu-memory-utilization 0.80, --tool-call-parser openai --reasoning-parser openai_gptoss, reasoning_effort medium, sub-tasks reasoning_effort low, sampling temperature 1.0 top_p 1.0",
+    "harness_note": "chat_service.repair_tool_name (cuts harmony channel tokens from tool names) and parse_letter markdown-emphasis strip landed 2026-09-15 between the prerepair run and this one; retrieval image otherwise identical to production",
+    "provenance_note": "backbone/serving/harness_note stamped by the 2026-09-16 run_suite.sh driver commit, from the run's gates.json and profile; the runners wrote the rest"
   },
   "tasks": {
     "ablation": {
