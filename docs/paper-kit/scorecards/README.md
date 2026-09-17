@@ -1,11 +1,11 @@
 # Scorecards behind the headline claims
 
-35 committed scorecard JSONs, copied verbatim from
+41 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
 
-The full set is 77 JSON plus 53 Markdown twins; the remainder are mostly the
+The full set is 83 JSON plus 53 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
@@ -50,7 +50,11 @@ facts live in top-level fields backfilled on 2026-09-15 (see
 | `2026-07-27_harness-ablation.json` | The same three arms on Qwen3.6-35B-A3B (second backbone; bare arm at 4,096 tokens) | R1 |
 | `2026-09-15_harness-ablation-agentic-egressoff.json` | Agentic arm at `egress=off`, Qwen3.8; bare/rag copied from 08-26 for the paired deltas; carries the full→off verdict transitions. The only `off` agentic arm. | R1 |
 | `2026-09-15_toolreliability-qwen38-egressoff_toolreliability.json` | T11 over the `egress=off` arm; degraded web/S2 tiers are the guard, not outages | R1, R6 |
-| `2026-08-26_harness-ablation-faithfulness.json` | **Headline** per-arm paired faithfulness, RAG vs agentic, Qwen3.8 (per-question values included) | R2 |
+| `2026-09-16_harness-ablation-faithfulness-qwen38-recapture.json` | **Headline** per-arm paired faithfulness, RAG vs agentic, Qwen3.8, agentic arm re-captured with the complete retrieval-tool set (n=199 both arms): agentic 0.540 vs RAG 0.282, +0.258 p<0.001 | R2 |
+| `2026-08-26_harness-ablation-faithfulness.json` | The superseded per-arm faithfulness on Qwen3.8 (agentic n=163, contexts missing `search`/`source`; the "null"). Kept to show what the capture gap did | R2 |
+| `2026-09-16_harness-ablation-faithfulness-gpt-oss-20b-recapture.json` | Per-arm faithfulness on gpt-oss-20b with the complete tool set: agentic 0.392 (n=159), paired vs RAG +0.253 p=0.056 on n=21 | R2, R7 |
+| `2026-09-16_harness-ablation-qwen38-27b-recapture.json`, `..._gpt-oss-20b-recapture.json` | Accuracy of the recaptured agentic arms against the copied RAG arms (Qwen3.8 0.869, gpt-oss 0.583) | R1 |
+| `2026-09-16_toolreliability-qwen38-recapture_toolreliability.json`, `..._gpt-oss-20b-recapture_toolreliability.json` | T11 over the recaptured arms (Qwen3.8 4.82 calls/q on the newer search ladder) | R6 |
 | `2026-07-27_harness-ablation-faithfulness.json` | Per-arm paired faithfulness on Qwen3.6 (per-question values included) | R2 |
 | `2026-07-08_faithfulness-judge-ragtruth.json` | MiniCheck judge validation on RAGTruth | R2 |
 | `2026-09-14_abstention-c1-fabricated.json` | C1, 100 fabricated papers, **Qwen3.8**, current harness; `egress` and `harness_note` backfilled | R3 |
@@ -79,7 +83,7 @@ facts live in top-level fields backfilled on 2026-09-15 (see
 | `2026-09-16_risk-coverage-gpt-oss-20b.json` | Six operating points on gpt-oss-20b (ablation, C1, C2b of 09-16) | R3, R7 |
 | `2026-09-16_toolreliability-gpt-oss-20b_toolreliability.json` | T11 on gpt-oss-20b after the tool-name repair: 8.75 calls/q, error 0.049, recovery 1.000 | R6, R7 |
 | `2026-09-16_routing-gpt-oss-20b-2026-09-16.json` | Routing anchor tier on gpt-oss-20b: pass rate 0.647 [0.45, 0.84]. The deploy gate; not a paper number | R7 |
-| `2026-09-16_harness-ablation-faithfulness-gpt-oss-20b.json` | Per-arm faithfulness on gpt-oss-20b, **not reportable**: 13 agentic / 28 RAG scoreable rows (see caution 9) | R7 |
+| `2026-09-16_harness-ablation-faithfulness-gpt-oss-20b.json` | The 13-row placeholder from before the recapture; superseded by `..._gpt-oss-20b-recapture.json`, kept for the record | R7 |
 | `2026-07-27_toolreliability-clean.json` | Tool-use telemetry over the Qwen3.6 clean run. `web_fetch` error rate not comparable to 08-26 (failure definition changed between the runs) | R6 |
 
 ## Cautions when regenerating figures
@@ -118,14 +122,14 @@ facts live in top-level fields backfilled on 2026-09-15 (see
    comparable across the two files; `web_fetch`'s failure definition changed
    in between.
 
-9. **The gpt-oss-20b faithfulness file is a placeholder.** The capture's
-   `RETRIEVAL_TOOLS` set predated the search ladder and the grounded read
-   stage, so `search` and `source` results never became grounding contexts;
-   gpt-oss made 1,695 of its 1,741 tool calls through those two tools and
-   left 13 scoreable agentic rows (paired n=1). The same gap means the 08-26
-   Qwen3.8 per-arm faithfulness (n=163) was scored on web/S2/paper_search
-   evidence only. Fixed for future captures on 2026-09-16; neither existing
-   run can be re-scored because contexts are extracted at capture time.
+9. **Two generations of faithfulness files.** Every `*faithfulness*` file
+   dated before 2026-09-16, and the 13-row gpt-oss placeholder, scored the
+   agentic arm WITHOUT its `search`/`source` contexts (the capture's tool list
+   predated those tools) while the RAG arm's abstracts were complete; their
+   nulls are artifacts of that gap. The `*-recapture` files are the agentic
+   arm re-captured with the complete set and judged against the same RAG arm.
+   Quote only the recapture files for claim 2; the Qwen3.6 file cannot be
+   recaptured (checkpoint retired).
 10. **Bare and RAG arms on gpt-oss-20b are dominated by `no_final_message`.**
    Without tools the model reasons "Use search." and ends its turn with no
    final message (finish `stop`, ~130 tokens, no tool call) on 25 of 199 bare

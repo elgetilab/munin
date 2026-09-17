@@ -1437,6 +1437,67 @@ answerable base is smaller because the present arm is weaker.
 - The harness carries one gpt-oss-shaped repair (`repair_tool_name`) beside
   its Qwen-shaped ones. The paper says so.
 
+## Faithfulness recapture with the complete evidence set, Qwen3.8 and gpt-oss-20b  · git `1380524` · 2026-09-16/17
+
+**Why.** The Track B capture's `RETRIEVAL_TOOLS` predated the search ladder
+and the grounded read stage, so `search` and `source` results (and the
+verbatim `quote` passages the evidence mode returns) never became grounding
+contexts. Every per-arm faithfulness number before this section judged the
+agentic arm against web / Semantic Scholar / `paper_search` snippets only,
+while the RAG arm's top-5 abstracts were complete. Contexts are extracted at
+capture time, so the fix needed a fresh agentic capture. `scripts/run_faith_recapture.sh`
+re-ran the agentic arm only (same 199 questions, 900 s, `egress=full`,
+concurrency 1), copied each original run's RAG arm into the new tag dir so
+the paired test compares against the same RAG arm, and re-scored with the same
+MiniCheck judge on CPU. Qwen3.8 ran on production (TP=2, users sharing the
+GPU: no cost claims), gpt-oss-20b on the eval instance.
+
+| backbone | arm | % claims supported (08-26 / 09-16 capture) | n scoreable | paired agentic − RAG |
+|---|---|---|---|---|
+| Qwen3.8 | RAG | 0.282 [0.248, 0.316] (unchanged, same arm) | 199 | |
+| Qwen3.8 | agentic, incomplete contexts | 0.288 [0.246, 0.333] | 163 | +0.010 [−0.052, +0.069] p = 0.776 |
+| **Qwen3.8** | **agentic, complete contexts** | **0.540 [0.503, 0.578]** | **199** | **+0.258 [0.206, 0.311] p < 0.001** |
+| gpt-oss-20b | RAG | 0.351 [0.208, 0.512] | 28 (162 RAG answers are empty) | |
+| gpt-oss-20b | agentic, complete contexts | **0.392 [0.330, 0.448]** | 159 | +0.253 [−0.009, +0.502] p = 0.056 (n = 21) |
+
+**Findings.**
+1. **The faithfulness null was a capture artifact.** With the passages the
+   model actually read in the judge's evidence set, the harness roughly
+   doubles the fraction of supportable answer claims on Qwen3.8 (0.282 →
+   0.540, paired +0.258, p < 0.001, n = 199, every agentic row now
+   scoreable). The direction was predictable from the gap (only the agentic
+   arm lost evidence) and the size was not. Claim 2 of PAPER.md reverses.
+2. **gpt-oss-20b grounds less well in absolute terms** (0.392 vs 0.540) and
+   its RAG comparison is underpowered: the RAG arm answers 37 of 199
+   questions, so only 21 questions are scoreable in both arms. The paired
+   delta has the same sign and size as Qwen3.8's but does not reach
+   significance. Report it as consistent with, not as a replication.
+3. **The recaptured agentic arms reproduce their originals.** Qwen3.8
+   0.869 (173 / 9 / 17 abstain / 0 unparseable, 4.8 calls/q, 108 s/q on
+   TP=2 with users) against 0.874 on 08-26: paired −0.005 [−0.050, +0.040],
+   p = 0.89, on a harness 26+ commits newer, a clean run-to-run and
+   harness-drift datapoint. gpt-oss-20b 0.583 (116 / 16 / 53 / 14) against
+   0.563 the day before: +0.020 [−0.045, +0.095], p = 0.60. Calls per query
+   fell on Qwen3.8 from 6.93 to 4.82 with the newer search ladder
+   (`search` 350, `source` 255, `web_search` 220, `web_fetch` 103; T11 error
+   0.133, degraded 0.363, recovery 1.000).
+4. **Grounding contexts per question went from a handful to 26 (Qwen3.8) and
+   38 (gpt-oss)** passages, which is why the CPU judge took 5 h and 3.7 h
+   respectively. Budget for that or use a GPU.
+
+Scorecards (both folders): `2026-09-16_harness-ablation-faithfulness-qwen38-recapture.json`
+(supersedes `2026-08-26_harness-ablation-faithfulness.json` for claim 2),
+`2026-09-16_harness-ablation-faithfulness-gpt-oss-20b-recapture.json`
+(supersedes the 13-row placeholder), `2026-09-16_harness-ablation-qwen38-27b-recapture.json`
+and `..._harness-ablation-gpt-oss-20b-recapture.json` (per-arm accuracy of the
+recaptured arms against the copied RAG arms), `2026-09-16_toolreliability-qwen38-recapture_toolreliability.json`,
+`2026-09-16_toolreliability-gpt-oss-20b-recapture_toolreliability.json`.
+Per-query: `ablation_runs/qwen38-27b-recapture/`, `ablation_runs/gpt-oss-20b-recapture/`
+(each with a README naming the copied RAG arm). The Qwen3.6 per-arm
+faithfulness (07-27) cannot be recaptured (checkpoint retired) and keeps its
+caveat. Wall-clock: Qwen3.8 arm 6 h, judge 5 h; gpt-oss arm 1 h 40, judge
+3 h 45; two production restarts (single at 18:34 UTC, TP=2 back at 00:04).
+
 ## Reproduce
 
 ```bash
@@ -1506,6 +1567,8 @@ PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.risk_co
 # A second backbone beside production, whole generation suite, unattended (2026-09-16 recipe; needs
 # `sudo ./deploy.sh sudoers` once and production on the single-GPU profile so GPU 0 is free):
 scripts/run_suite.sh gpt-oss-20b --date <D>     # profile: backend/config/models/<slug>.env; log: runs/<slug>/driver.log
+# Faithfulness recapture of the agentic arm only (Qwen3.8 on production, then gpt-oss on an instance), judge on CPU:
+scripts/run_faith_recapture.sh --date <D> [--skip-qwen] [--skip-gptoss]
 
 # Track D harness ablation (bare / RAG / agentic)
 for arm in bare rag agentic; do MUNIN_EVAL_EGRESS=full PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.ablation.run_arm --arm $arm --n 199 --tag <run-tag>; done   # writes ablation_runs/<run-tag>/, resumable; never reuse a committed run's tag
