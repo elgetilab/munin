@@ -278,7 +278,7 @@ gate("agentic_unparseable", ver["unparseable"] <= 0.25 * n, f"{ver['unparseable'
 gate("agentic_empty_content", reasons.get("empty_content", 0) <= 0.10 * n, f"{reasons.get('empty_content', 0)}/{n} empty (<= 10%)")
 gate("tool_markup_leaks", leaks <= max(1, 0.02 * n), f"{leaks} answers with raw tool markup (<= 2%; the model may quote a token it saw)")
 gate("tool_error_rate", err <= max(2 * base_err, 0.05), f"{err:.3f} vs Qwen3.8 {base_err:.3f} (<= 2x)")
-gate("bare_truncated", bare_trunc == 0, f"{bare_trunc} bare answers hit the output budget (== 0); {bare_unp} unparseable in total, empty kinds {dict(bare_kinds)} (a model that ends its turn without answering is a finding, not a gate)")
+gate("bare_truncated", bare_trunc <= 0.10 * len(bare), f"{bare_trunc}/{len(bare)} bare answers hit the 16,384-token budget (<= 10%; a model without a reasoning-effort dial, Qwen3.6, truncates ~5% and that is reported per arm as empty_kind=truncated, not gated away); {bare_unp} unparseable in total, empty kinds {dict(bare_kinds)}")
 gate("tool_name_tokens", leak_names == 0, f"{leak_names} tool calls with a channel token in the name (== 0; the executor repair should have caught them)")
 gate("brave_402_429", brave == 0, f"{brave} Brave 402/429 lines in the instance log")
 print(f"[INFO] smoke/agentic: acc={ver['correct']/n:.2f} abstain={ver['abstain']/n:.2f} mean {mean_s:.0f}s/q; "
