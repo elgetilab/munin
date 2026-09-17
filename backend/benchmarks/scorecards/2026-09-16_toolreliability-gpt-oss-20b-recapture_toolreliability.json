@@ -1,0 +1,106 @@
+{
+  "n_queries": 199,
+  "n_queries_with_tool_events": 194,
+  "total_tool_calls": 1668,
+  "mean_calls_per_query": 8.38,
+  "error_rate": 0.0689,
+  "degraded_rate": 0.1061,
+  "n_queries_with_failure": 70,
+  "recovery_rate": 1.0,
+  "per_tool": {
+    "search": {
+      "calls": 1306,
+      "errors": 65,
+      "degraded": 65,
+      "error_rate": 0.0498,
+      "degraded_rate": 0.0498
+    },
+    "source": {
+      "calls": 235,
+      "errors": 9,
+      "degraded": 9,
+      "error_rate": 0.0383,
+      "degraded_rate": 0.0383
+    },
+    "web_search": {
+      "calls": 62,
+      "errors": 0,
+      "degraded": 62,
+      "error_rate": 0.0,
+      "degraded_rate": 1.0
+    },
+    "web_fetch": {
+      "calls": 52,
+      "errors": 32,
+      "degraded": 32,
+      "error_rate": 0.6154,
+      "degraded_rate": 0.6154
+    },
+    "searchjson": {
+      "calls": 3,
+      "errors": 3,
+      "degraded": 3,
+      "error_rate": 1.0,
+      "degraded_rate": 1.0
+    },
+    "paper_lookup": {
+      "calls": 3,
+      "errors": 0,
+      "degraded": 0,
+      "error_rate": 0.0,
+      "degraded_rate": 0.0
+    },
+    "wave_search???": {
+      "calls": 1,
+      "errors": 1,
+      "degraded": 1,
+      "error_rate": 1.0,
+      "degraded_rate": 1.0
+    },
+    "print_output": {
+      "calls": 1,
+      "errors": 1,
+      "degraded": 1,
+      "error_rate": 1.0,
+      "degraded_rate": 1.0
+    },
+    "export_citations": {
+      "calls": 1,
+      "errors": 0,
+      "degraded": 0,
+      "error_rate": 0.0,
+      "degraded_rate": 0.0
+    },
+    "create_artifact": {
+      "calls": 1,
+      "errors": 1,
+      "degraded": 1,
+      "error_rate": 1.0,
+      "degraded_rate": 1.0
+    },
+    "fetch": {
+      "calls": 1,
+      "errors": 1,
+      "degraded": 1,
+      "error_rate": 1.0,
+      "degraded_rate": 1.0
+    },
+    "update_plan_item": {
+      "calls": 1,
+      "errors": 1,
+      "degraded": 1,
+      "error_rate": 1.0,
+      "degraded_rate": 1.0
+    },
+    "search><json": {
+      "calls": 1,
+      "errors": 1,
+      "degraded": 1,
+      "error_rate": 1.0,
+      "degraded_rate": 1.0
+    }
+  },
+  "backbone": "gpt-oss-20b",
+  "serving": "eval instance",
+  "harness_note": "recapture arm, same harness as the 09-16 headline (8.75 calls/q)"
+}

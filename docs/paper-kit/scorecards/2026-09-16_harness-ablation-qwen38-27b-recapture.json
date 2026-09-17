@@ -1,0 +1,80 @@
+{
+  "track": "harness-ablation",
+  "n_paired": 199,
+  "git_sha": "1380524",
+  "date": "2026-09-16",
+  "runs_dir": "ablation_runs/qwen38-27b-recapture",
+  "arm_meta": {
+    "rag": {
+      "arm": "rag",
+      "egress": "n/a-no-tools",
+      "mean_tool_calls": 0.0,
+      "note": "rag arm makes 0.0 tool calls, so egress is inapplicable"
+    },
+    "agentic": {
+      "arm": "agentic",
+      "n": 199,
+      "tag": "qwen38-27b-recapture",
+      "base_url": "http://127.0.0.1:8080",
+      "egress": "full",
+      "model": "qwen3.8-27b",
+      "git_sha": "1380524",
+      "deadline_s": 900,
+      "reasoning_effort": "medium",
+      "max_output_tokens": 16384,
+      "finished_at": "2026-09-16T13:15:10Z"
+    }
+  },
+  "per_arm": {
+    "rag": {
+      "accuracy": 0.21105527638190955,
+      "abstain_rate": 0.49748743718592964,
+      "precision_of_attempted": 0.42,
+      "verdicts": {
+        "incorrect": 58,
+        "abstain": 99,
+        "correct": 42
+      },
+      "unparseable_reasons": {},
+      "empty_kinds": {},
+      "tool_markup_in_content": 0,
+      "deadline_hits": 0,
+      "cost": {
+        "mean_prompt_tokens": 1433.3,
+        "mean_completion_tokens": 872.3,
+        "mean_elapsed_s": 8.3,
+        "mean_tool_calls": 0.0
+      }
+    },
+    "agentic": {
+      "accuracy": 0.8693467336683417,
+      "abstain_rate": 0.08542713567839195,
+      "precision_of_attempted": 0.9505494505494505,
+      "verdicts": {
+        "correct": 173,
+        "incorrect": 9,
+        "abstain": 17
+      },
+      "unparseable_reasons": {},
+      "empty_kinds": {},
+      "tool_markup_in_content": 0,
+      "deadline_hits": 0,
+      "cost": {
+        "mean_prompt_tokens": null,
+        "mean_completion_tokens": null,
+        "mean_elapsed_s": 108.3,
+        "mean_tool_calls": 4.8
+      }
+    }
+  },
+  "deltas": {
+    "agentic_minus_rag": {
+      "delta": 0.6583,
+      "ci": [
+        0.5829,
+        0.7236
+      ],
+      "p": 0.0
+    }
+  }
+}

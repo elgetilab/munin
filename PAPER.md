@@ -35,7 +35,7 @@ attributed to "a different backbone", not to any one of them.
 
 > **Drafting the paper?** [`docs/paper-kit/`](docs/paper-kit/) is a
 > self-contained bundle (system, architecture, corpus, methods, results,
-> ablations, findings, limitations, related work, reproduce, plus the 35
+> ablations, findings, limitations, related work, reproduce, plus the 41
 > headline scorecards) written to be read without repository access. This file
 > stays the short claim-to-scorecard index.
 
@@ -173,37 +173,51 @@ Scorecards: `scorecards/2026-08-26_harness-ablation.json` (current),
 `scorecards/2026-09-16_answer-gpt-oss-20b-900s.json` (third-backbone standalone).
 Do **not** cite the 2026-07-13 pilot (n=100, 0.56/0.32/0.15); it is superseded.
 
-## 2. Grounding does not improve with the harness
+## 2. Grounding improves with the harness (revised 2026-09-17)
 
-Track B faithfulness, per-arm paired. On `qwen3.8-27b` (n=163): RAG 0.282
-[0.248, 0.316] vs agentic 0.288 [0.246, 0.333], delta **+0.010 [−0.052, +0.069],
-p = 0.776**. The 4.1x accuracy gap in claim 1 does **not** come with a
-faithfulness gap.
+Track B faithfulness, per-arm paired, same MiniCheck-Flan-T5-Large judge,
+each arm's answer claims scored against **that arm's own retrieved
+contexts**. `RESULTS.md` "Faithfulness recapture", git `1380524`.
 
-**The null replicates across backbones.** On the retired Qwen3.6 (n=189) it was
-RAG 0.326 vs agentic 0.340, delta +0.023 [−0.043, +0.089], p = 0.496. Two
-different models, same conclusion. Absolute grounding is slightly lower on
-Qwen3.8 for both arms.
+**On `qwen3.8-27b`, with the complete evidence set (n=199): RAG 0.282
+[0.248, 0.316] vs agentic 0.540 [0.503, 0.578], paired delta +0.258 [0.206,
+0.311], p < 0.001.** The harness roughly doubles the fraction of answer
+claims the judge can support.
+
+**This reverses the null reported until 2026-09-16, and the reason is a
+measurement defect, not a model change.** The capture's list of retrieval
+tools predated the search ladder and the grounded read stage, so the
+`search` and `source` results (the full-text passages the harness reads
+before answering) were never counted as grounding contexts, while the RAG
+arm's top-5 abstracts were captured completely. The 08-26 agentic arm was
+therefore judged against web, Semantic Scholar and `paper_search` snippets
+only (n=163, 36 rows with no context at all), and the "null" (+0.010,
+p = 0.776) was the agentic arm being scored without most of its evidence.
+Contexts are extracted at capture time, so the arm was re-captured on
+2026-09-16 with the complete tool set (Qwen3.8 on production, 0.869
+accuracy, paired −0.005 against the 08-26 arm's 0.874, p = 0.89) and judged
+against the same RAG arm as before. Both the pre- and post-fix scorecards are
+kept; the paper reports the corrected number and says why it moved.
+
+**On the third backbone, gpt-oss-20b**: agentic 0.392 [0.330, 0.448] (n=159);
+RAG 0.351 [0.208, 0.512] on the 28 questions its RAG arm answered at all;
+paired +0.253 [−0.009, +0.502], p = 0.056 on the 21 questions both arms
+answered. Same direction and size as Qwen3.8, underpowered by the RAG arm's
+silence (claim 1). Consistent with, not a replication.
+
+**On the retired Qwen3.6**: the 07-27 per-arm numbers (RAG 0.326, agentic
+0.340, null) have the same capture gap and cannot be re-captured. Keep them
+only with that caveat, or drop them from the faithfulness table.
 
 The bare arm is structurally unscoreable (no retrieved context to entail
-against). The agentic n is 163 rather than 199 because abstentions and
-context-free answers cannot be scored.
+against). Absolute levels are judged by a sub-1B entailment model whose
+literalness under-counts claims supported by two passages jointly
+(`08-LIMITATIONS.md`).
 
-**Caveat found 2026-09-16, and it belongs in Limitations.** The capture's
-list of retrieval tools predated the search ladder and the grounded read
-stage, so `search` and `source` results were never counted as grounding
-contexts. The 08-26 agentic n=163 (and the 07-27 Qwen3.6 n=193) were
-therefore scored against web, Semantic Scholar and `paper_search` evidence
-only, not against the full-text passages the harness actually read; both
-nulls stand on that evidence set, and since the RAG arm's abstracts were fully
-captured, the gap can only have understated the agentic arm's grounding. On
-gpt-oss-20b, which made 97% of its tool calls through `search` and `source`,
-only 13 agentic rows were scoreable and **no faithfulness number is reported
-for the third backbone**. Fixed for future captures; neither existing run can
-be re-scored because contexts are extracted at capture time.
-
-Scorecards: `scorecards/2026-08-26_harness-ablation-faithfulness.json` (current),
-`scorecards/2026-07-27_harness-ablation-faithfulness.json` (Qwen3.6).
+Scorecards: `scorecards/2026-09-16_harness-ablation-faithfulness-qwen38-recapture.json`
+(current), `scorecards/2026-09-16_harness-ablation-faithfulness-gpt-oss-20b-recapture.json`,
+`scorecards/2026-08-26_harness-ablation-faithfulness.json` (superseded, incomplete
+contexts), `scorecards/2026-07-27_harness-ablation-faithfulness.json` (Qwen3.6, same gap).
 
 ## 3. Abstention behaviour (the novel benchmark)
 
@@ -334,7 +348,7 @@ Stating these plainly is cheaper than being asked.
 | Human-expert comparison | context, not a claim | PaperQA2 0.660 and expert mean 0.677 are quoted from their sources, not re-measured here |
 | Cross-lab generalisation beyond one model | one point, not a curve | gpt-oss-20b is the only non-Qwen backbone measured; the harness effect replicated at a third of the size. "The harness works on any model" is not claimed |
 | A 16 GB reproduction | not measured | the Qwen3.5-9B hardware-floor run (THIRD-MODEL-REVIEW Experiment B) was deferred; gpt-oss-20b needs a 24 GB card at the production profile (12.8 GiB weights + 1.5 GiB KV) |
-| Faithfulness on gpt-oss-20b | not measured | 13 scoreable agentic rows; see claim 2's capture caveat |
+| Faithfulness on gpt-oss-20b as a replication | measured, underpowered | agentic 0.392 (n=159); the paired RAG comparison has n=21 because the RAG arm answers 37 of 199. Consistent with claim 2, not a replication of it |
 | Routing on gpt-oss-20b as a paper number | deploy gate only | anchor-tier pass rate 0.647 [0.45, 0.84] vs 0.963 on Qwen3.8; it says the backbone would not ship behind the router as-is, nothing more |
 
 ## Reproducing
@@ -386,9 +400,9 @@ Two operational notes that will otherwise cost you a day:
 
 | Artifact | Path |
 |---|---|
-| **Paper kit** (self-contained drafting bundle, 35 scorecards) | `docs/paper-kit/` |
+| **Paper kit** (self-contained drafting bundle, 41 scorecards) | `docs/paper-kit/` |
 | Results log (canonical numbers) | `backend/benchmarks/RESULTS.md` |
-| Scorecards (77 JSON, 53 Markdown) | `backend/benchmarks/scorecards/` |
+| Scorecards (83 JSON, 53 Markdown) | `backend/benchmarks/scorecards/` |
 | Backbone profiles (one file per model: checkpoint, parsers, thinking mode, sampling) | `backend/config/models/` |
 | Second-backbone driver and instance machinery | `backend/benchmarks/scripts/run_suite.sh`, `backend/deploy.sh instance` |
 | Benchmark harness | `backend/benchmarks/munin_bench/` |
