@@ -179,8 +179,13 @@ def _chat(vllm: str, model: str, prompt: str, *, max_tokens: int, extra: dict | 
     return code, d, time.time() - t0
 
 
-def gate_completion(vllm: str, model: str) -> None:
-    code, d, dt = _chat(vllm, model, "Reply with the single word: ready", max_tokens=64)
+def gate_completion(vllm: str, model: str, mode: str = "none") -> None:
+    # Thinking off (in the profile's form) and a real budget: with reasoning
+    # on and 64 tokens, Qwen3.6 spent the whole budget inside <think> and
+    # returned empty content, failing a gate that was meant to catch a dead
+    # server, not a chatty model (first Qwen3.6 instance start, 2026-09-17).
+    code, d, dt = _chat(vllm, model, "Reply with the single word: ready", max_tokens=512,
+                        extra=thinking_off_fields(mode))
     content = ((d.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
     if code != 200:
         _report("completion", "FAIL", f"HTTP {code}: {json.dumps(d)[:200]}")
@@ -427,7 +432,7 @@ def main() -> int:
         if want("served_model"):
             gate_served_model(args.vllm, args.model, args.max_model_len)
         if want("completion"):
-            gate_completion(args.vllm, args.model)
+            gate_completion(args.vllm, args.model, args.thinking_mode)
         if want("reasoning_effort"):
             gate_reasoning_effort(args.vllm, args.model, args.reasoning_effort)
         if want("thinking_off"):
