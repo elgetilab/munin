@@ -12,7 +12,7 @@ Six tracks. Tracks A through E are built; F is specified only.
 | Track | Question it answers | Status |
 |---|---|---|
 | **A** Retrieval quality | Does the retriever surface the right paper? | Built. Phases 1-3 and 5 done; Phase 4 (local query pool) deferred. |
-| **B** Answer faithfulness | Are answer claims entailed by the retrieved evidence? | Built. Judge validated; per-arm paired comparison run on both backbones (2026-07-27 Qwen3.6, 2026-08-26 Qwen3.8). |
+| **B** Answer faithfulness | Are answer claims entailed by the retrieved evidence? | Built. Judge validated; per-arm paired comparison run on Qwen3.6 (07-27), Qwen3.8 (08-26) and gpt-oss-20b (09-16). **The pre-2026-09-16 captures lacked the `search`/`source` contexts; the agentic arm was re-captured on Qwen3.8 and gpt-oss-20b with the complete set and the headline moved from a null to +0.258.** |
 | **C** Abstention and calibration | Does the system know when the corpus lacks the answer? | Built. C1 and C2b run, re-run 2026-07-27 on Qwen3.6; risk-coverage derived. **Re-run on Qwen3.8: C1 2026-09-14 (100/100), C2b 2026-09-15 (correct abstention 0.889), risk-coverage re-derived.** On gpt-oss-20b 2026-09-16: C1 0.72 (a floor; 20 empty answers), 0 confabulated local cites, C2b correct abstention 0.80. |
 | **D** Harness value and cost | Does the agentic harness beat the bare model and vanilla RAG? | Built. Clean run 2026-07-27 (Qwen3.6); headline re-measurement 2026-08-26 on the production backbone Qwen3.8; third backbone gpt-oss-20b 2026-09-16 (+0.156, replicates in kind at a third of the size). |
 | **E** Regression and scorecard | Can the whole suite re-run as one command and flag regressions? | Built. `run_all`, `compare`, `certify`. |

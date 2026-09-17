@@ -9,7 +9,11 @@ Generated 2026-08-04 from the `munin` monorepo at commit `5441a13`.
 Refreshed 2026-09-14 to the Qwen3.8-27B provenance (headline re-measurement of
 2026-08-26, git `3e0bcfb`); see "Provenance" below for which numbers moved.
 Extended 2026-09-16 with a third backbone from a different lab, gpt-oss-20b
-(git `c6c56a7`), reported beside the Qwen numbers in every affected table.
+(git `c6c56a7`), reported beside the Qwen numbers in every affected table, and
+revised 2026-09-17 for the faithfulness recapture (git `1380524`), which
+reversed the per-arm faithfulness null: the accuracy headline stays on the
+08-26 capture, the faithfulness headline moves to the 09-16 recapture of the
+same arm.
 
 ## Reading order
 
@@ -25,7 +29,7 @@ Extended 2026-09-16 with a third backbone from a different lab, gpt-oss-20b
 | `08-LIMITATIONS.md` | What is explicitly not claimed, threats to validity, deferred work, the caveats that must travel with each headline number. |
 | `09-RELATED-WORK.md` | Bib-ready anchors with arXiv IDs and venues, all verified 2026-07-26, plus the novelty analysis for the abstention contribution. |
 | `10-REPRODUCE.md` | Exact commands, versions, environment, and the two operational gotchas that each cost a day. |
-| `scorecards/` | 35 raw scorecard JSONs behind the headline claims, with per-query arrays so figures and paired tests can be regenerated. |
+| `scorecards/` | 41 raw scorecard JSONs behind the headline claims, with per-query arrays so figures and paired tests can be regenerated. |
 
 ## One-paragraph summary of the work
 
@@ -41,11 +45,15 @@ the bare model and 0.211 for naive RAG, a harness value of +0.487 [0.407,
 0.568] at p < 0.001. The same ablation on the previous backbone, a 35B/3B-active
 MoE, gave the same ordering and a similar magnitude (+0.538), which is
 suggestive rather than controlled evidence that the effect is not
-backbone-specific. Two findings cut against the obvious narrative and are
-reported as first-class results, and both replicate across the two backbones:
-naive top-5 RAG is **worse than no retrieval at all** (−0.176 [−0.251,
-−0.096]), and answer faithfulness does **not** improve with the harness (paired
-delta +0.010, p = 0.776) despite the 4.1x accuracy gap. A third, new with the
+backbone-specific. One finding cuts against the obvious narrative and is
+reported as a first-class result, replicating on three backbones: naive top-5
+RAG is **worse than no retrieval at all** (−0.176 [−0.251, −0.096] on
+Qwen3.8). A second, that answer faithfulness did **not** improve with the
+harness, held on two backbones and three runs until 2026-09-16 and turned out
+to be a capture defect: the judge never saw the full-text passages the
+harness read. Re-captured with the complete evidence set, the harness roughly
+**doubles** supported claims (RAG 0.282 vs agentic 0.540, paired +0.258
+[0.206, 0.311], p < 0.001); both generations of the number are reported. A third, new with the
 swap: the backbone that guesses more freely on its own is held to the same
 abstention rate (0.075) inside the harness, with higher precision (0.946).
 A third backbone from a different lab, gpt-oss-20b, replicates the ordering
