@@ -26,7 +26,12 @@ p < 0.001**, with tool-failure recovery 1.000. The same three arms on the
 retired Qwen3.6-35B-A3B a month earlier gave 0.839 / 0.302 / 0.171 and +0.538,
 so the ordering and rough magnitude hold across a dense 27B and a 3B-active
 MoE (a suggestive, not controlled, replication; `08-LIMITATIONS.md`
-section 3).
+section 3), and a third backbone from a different lab, gpt-oss-20b, gave
+0.563 / 0.407 / 0.101 and +0.156, replicating the ordering at a third of the
+size (finding 8c). Faithfulness closed last: a null that had held on two
+backbones turned out to be the judge never seeing the passages the harness
+read, and the corrected measurement has the harness roughly doubling
+supported claims (finding 4).
 
 **The generalisable shape:** two successive bottlenecks were both diagnosed by
 measurement, and the larger of the two was in plumbing rather than in the model
@@ -106,47 +111,59 @@ turning 41 of those abstentions into correct answers.
 
 ---
 
-## 4. Grounding does not improve with the harness
+## 4. Grounding roughly doubles with the harness, and a two-backbone null hid it for seven weeks
 
-**Claim.** The 4.1x accuracy gap between the agentic and RAG arms comes with
-**no** faithfulness gap.
+**Claim.** The agentic arm's answer claims are supported by its own retrieved
+evidence about twice as often as the RAG arm's, once the evidence the model
+actually read is in the judge's context. Until 2026-09-16 the same
+measurement read as a null on two backbones and three runs, and the null was
+a capture defect.
 
-**Evidence.** On Qwen3.8, paired on 163 shared questions: RAG 0.282 [0.248,
-0.316], agentic 0.288 [0.246, 0.333], **delta +0.010 [−0.052, +0.069],
-p = 0.776**. On Qwen3.6, paired on 189: RAG 0.326, agentic 0.340, delta +0.023
-[−0.043, +0.089], p = 0.496. The pilot (RAG 0.324, agentic ~0.33) said the
-same. **The null replicates across two backbones and three runs.**
+**Evidence.** On Qwen3.8, paired on all 199 questions, agentic arm
+re-captured 2026-09-16 with the complete retrieval-tool set and judged against
+the same RAG arm as before: RAG **0.282 [0.248, 0.316]**, agentic **0.540
+[0.503, 0.578]**, **delta +0.258 [0.206, 0.311], p < 0.001**. The recaptured
+arm's accuracy is the 08-26 arm's within noise (0.869 vs 0.874, paired
+−0.005, p = 0.89), so this is the same system measured properly, not a
+different one. On gpt-oss-20b, agentic 0.392 [0.330, 0.448] (n=159); the RAG
+arm answers 37 of 199 questions, so the paired comparison has n=21: +0.253
+[−0.009, +0.502], p = 0.056. Same sign and size, underpowered.
 
-**This is a genuine null, not an underpowered one.** The CI is roughly ±0.06
-around a base of ~0.28-0.33, tight enough to exclude any meaningful effect.
-Absolute grounding is slightly lower on Qwen3.8 for both arms, which is a
-backbone property, not a harness one: the arms move together.
+**What the null was.** The faithfulness capture listened for a fixed list of
+retrieval tools and extracted grounding text from their results. The list
+predated the corpus search ladder (`search`) and the grounded read stage
+(`source`), the two tools through which the agentic arm reads full-text
+passages before answering; on Qwen3.8 they were 446 of its 1,380 calls, on
+gpt-oss 97% of all calls. Their results never became contexts. The RAG arm's
+evidence (top-5 abstracts) was captured completely. So the agentic arm was
+judged against web, Semantic Scholar and abstract snippets while its answers
+drew on passages the judge never saw, and 36 of 199 rows were unscoreable
+(15 abstentions, 21 answers with no captured context at all). The bias could only run one way, and the previous text's "genuine null,
+not an underpowered one" was true of the numbers and false of the
+measurement. Contexts are extracted at capture time, so the arm had to be
+re-captured; both scorecards are kept.
 
-**Mechanism, and it is sharper than the headline.** The agentic arm achieves
-the same *fraction* of supported claims against a far larger evidence set (up
-to 217 contexts versus RAG's fixed 5). Per unit of retrieved evidence it
-converts **less** of it into supported claims. **Retrieving more is not the
-same as grounding more.**
+**Mechanism, revised.** The earlier reading ("retrieving more is not the same
+as grounding more; the harness buys correctness, not literal grounding") does
+not survive. With 26 passages per question in the evidence set, the agentic
+arm's claims are supported at 0.54; the RAG arm's, against 5 abstracts, at
+0.28. The harness reads the paragraph it cites. What remains true from the
+earlier reading: the un-supported ~46% is not fabrication (C1: 0 confabulated
+local citations on three backbones), and a sentence-level entailment judge
+under-counts claims supported by two passages jointly, so 0.54 is a floor on
+grounding rather than an estimate of it.
 
-**What the harness actually buys, stated plainly:** correctness, abstention,
-and calibration, **not** literal grounding. This boundary should be stated
-prominently rather than buried, and it is consistent with Track C, where the
-system reliably knows when it lacks a source (correct abstention 0.67) without
-its answered claims being more textually entailed by retrieved context.
+**What it cost.** A null that "replicated" across two backbones and three
+runs. The replication was real: every run had the same gap. Replication
+across backbones does not protect against a shared measurement defect, and
+the thing that exposed it was a *third* backbone whose tool mix left 13
+scoreable rows, which was too few to ignore. `08-LIMITATIONS.md` carries the
+lesson; `05-RESULTS.md` R2 carries both generations of the number.
 
-**The un-grounded ~65% is not hallucination**, and two independent results
-settle this:
-
-- The **T1a null**: supplying more evidence in the retrieval result did not
-  move grounding, so it is not an evidence-availability problem.
-- **C1**: 0 confabulated local citations out of 100 fabricated papers, on
-  both backbones (97/100 and 100/100 refusals).
-
-So the un-supported claims are faithful cross-source synthesis plus judge
-literalness (a claim entailed by two passages *jointly* scores "unsupported"
-under a sentence-level entailment judge), not fabrication. The generous context
-union, if anything, inflates support, so the direction of the residual bias is
-known.
+**Generalises to.** Any RAG-style faithfulness evaluation whose retrieval
+surface grows after the capture code is written. The capture should derive
+its tool list from the tool registry, not from a hand-written set; ours still
+does not (`08-LIMITATIONS.md`).
 
 ---
 
@@ -434,7 +451,7 @@ model anything; the harness now carries one gpt-oss-shaped accommodation
 beside its three Qwen-shaped ones, and says so.
 
 **Caveat to carry.** One non-Qwen point, three variables moving at once (lab,
-size class, sampling), no faithfulness number (finding 4's capture caveat),
+size class, sampling), an underpowered faithfulness comparison (finding 4),
 and the routing deploy gate at 0.647 saying this backbone would not ship
 behind the router as-is. The claim is "replicates in kind, not in size", and
 the paper should resist drawing a curve through two labs.

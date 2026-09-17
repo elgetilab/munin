@@ -26,7 +26,7 @@ pooled. Three variables move against Qwen3.8 at once (lab, size class, the
 model's own recommended sampling); attribute its deltas to "a different
 backbone". Bare and RAG on this model are dominated by a behaviour the Qwen
 runs did not show, a turn that ends with **no final message**; the rows say
-so. R2 has no gpt-oss number (see R2).
+so. R2's gpt-oss number is underpowered on the RAG side (see R2).
 
 All CIs are 95% percentile bootstrap, 1000 resamples, seed 42. All p-values are
 two-sided paired bootstrap unless stated.
@@ -138,7 +138,12 @@ clean. Scorecards: `2026-09-15_harness-ablation-agentic-egressoff.json`,
 0.207 is the tool's argument-shape return, not a failure).
 
 Scorecards: `2026-08-26_harness-ablation.json` (headline),
-`2026-07-27_harness-ablation.{json,md}` (Qwen3.6).
+`2026-07-27_harness-ablation.{json,md}` (Qwen3.6). The agentic arm was
+re-captured on 2026-09-16 for R2 on a harness 26+ commits newer (0.869,
+17 abstain, 4.8 calls/q; `2026-09-16_harness-ablation-qwen38-27b-recapture.json`);
+paired against 08-26 it is −0.005 [−0.050, +0.040], p = 0.89, the cleanest
+run-to-run and harness-drift point in the file. The 08-26 arm remains the
+accuracy headline.
 
 **Companion run, retained deliberately:** `2026-07-26_harness-ablation` is the
 same three arms at concurrency above `--max-num-seqs` with the web tier
@@ -154,47 +159,59 @@ sensitivity point beside the Qwen3.6 clean run. **Do not average them.**
 ## R2. Faithfulness per arm (Track B x Track D)
 
 Same MiniCheck-Flan-T5-Large judge as the validation run, scoring each arm's
-answer claims against **that arm's own contexts**, over the R1 ablation
-captures. Scoring only, no new generation. BGE-large.
+answer claims against **that arm's own contexts**. Scoring only, no new
+generation, except that the agentic arm was **re-captured on 2026-09-16 with
+the complete retrieval-tool set** (see the caveat block) and is the headline
+here; the RAG arm is the 08-26 capture (its top-5 abstracts were always
+complete). The accuracy headline (R1) stays on the 08-26 arm; the two arms
+agree on accuracy within noise (0.869 vs 0.874, paired −0.005, p = 0.89).
+BGE-large.
 
-| Arm | Backbone | % claims supported | 95% CI | n |
-|---|---|---|---|---|
-| RAG (naive top-5) | **Qwen3.8** | 0.282 | [0.248, 0.316] | 199 |
-| Agentic (harness) | **Qwen3.8** | 0.288 | [0.246, 0.333] | 163 |
-| RAG (naive top-5) | Qwen3.6 | 0.326 | [0.283, 0.365] | 195 |
-| Agentic (harness) | Qwen3.6 | 0.340 | [0.293, 0.389] | 193 |
-| Bare (parametric) | both | **not scoreable** | | 0 / 199 |
-| RAG / Agentic | gpt-oss-20b | **not reported** | | 28 / 13 |
+| Arm | Backbone | Capture | % claims supported | 95% CI | n |
+|---|---|---|---|---|---|
+| RAG (naive top-5) | **Qwen3.8** | 08-26 (complete) | 0.282 | [0.248, 0.316] | 199 |
+| **Agentic (harness)** | **Qwen3.8** | **09-16 recapture (complete)** | **0.540** | **[0.503, 0.578]** | **199** |
+| Agentic (harness) | Qwen3.8 | 08-26 (incomplete: no `search`/`source` contexts) | 0.288 | [0.246, 0.333] | 163 |
+| RAG (naive top-5) | gpt-oss-20b | 09-16 | 0.351 | [0.208, 0.512] | 28 (162 RAG answers empty) |
+| Agentic (harness) | gpt-oss-20b | 09-16 recapture (complete) | 0.392 | [0.330, 0.448] | 159 |
+| RAG / Agentic | Qwen3.6 | 07-27 (incomplete) | 0.326 / 0.340 | | 195 / 193 |
+| Bare (parametric) | all | | **not scoreable** | | 0 / 199 |
 
-**Paired bootstrap, agentic − RAG, Qwen3.8: +0.010 [−0.052, +0.069],
-p = 0.776** (n = 163 shared questions). Qwen3.6: +0.023 [−0.043, +0.089],
-p = 0.496 (n = 189). **The null replicates across backbones.** Absolute
-grounding is slightly lower on Qwen3.8 for both arms; the agentic n is lower
-because abstentions and context-free answers cannot be scored.
+**Paired bootstrap, agentic − RAG, Qwen3.8, complete contexts: +0.258
+[0.206, 0.311], p < 0.001** (n = 199). On the incomplete 08-26 capture the
+same comparison read +0.010 [−0.052, +0.069], p = 0.776 (n = 163); on
+Qwen3.6 (07-27, same gap) +0.023 [−0.043, +0.089], p = 0.496. On gpt-oss-20b
+(complete): +0.253 [−0.009, +0.502], p = 0.056 on the 21 questions both arms
+answered.
+
+**Capture caveat, and why the null reversed.** The capture's list of
+retrieval tools predated the corpus search ladder (`search`) and the grounded
+read stage (`source`), the two tools through which the agentic arm reads
+full-text passages before answering (446 of Qwen3.8's 1,380 calls on 08-26;
+97% of gpt-oss's). Their results, including the verbatim `quote` passages of
+the evidence mode, never became grounding contexts, while the RAG arm's
+top-5 abstracts were captured completely. The agentic arm was therefore
+judged against web, Semantic Scholar and abstract snippets only; 36 of its
+199 rows were unscoreable (15 abstentions, 21 answers with no context), and
+the bias could only understate it. Contexts are extracted at capture time,
+so the arm was re-captured (Qwen3.8 on production, 108 s/q with users
+sharing the GPU, so no cost claim; gpt-oss on its instance) with the tool
+list and `quote` key fixed, giving 26 (Qwen3.8) and 38 (gpt-oss) grounding
+passages per question. **Quote only the recapture rows for claim 2.** The
+07-27 Qwen3.6 numbers cannot be recaptured (checkpoint retired) and are kept
+with this caveat only.
 
 `bare` is **structurally** unscoreable, not merely unmeasured: a parametric arm
 retrieves nothing, so there is no evidence set to check claims against and
 faithfulness is undefined. Note the implication: the bare arm answers 38.7% of
 questions correctly (Qwen3.8) with nothing whatsoever to ground against.
 
-**Capture caveat (found 2026-09-16; travels with every number in this
-section).** The capture's list of retrieval tools predated the search ladder
-and the grounded read stage, so `search` and `source` results were never
-counted as grounding contexts. The Qwen3.8 agentic n=163 and the Qwen3.6
-agentic n=193 were therefore scored against web, Semantic Scholar and
-`paper_search` evidence only, not against the full-text passages the harness
-actually read on those turns; both nulls stand on that evidence set, and the
-missing evidence can only have understated the agentic arm (the RAG arm's
-top-5 abstracts were fully captured). gpt-oss-20b made 97% of its calls through
-`search` and `source`, leaving 13 scoreable agentic rows, so no faithfulness
-number is reported for it. Fixed for future captures; neither existing run
-can be re-scored because contexts are extracted at capture time.
-
-Scorecards: `2026-08-26_harness-ablation-faithfulness.json` (headline),
-`2026-07-27_harness-ablation-faithfulness.json` (Qwen3.6). Both include
-per-question values for both arms, so the paired test is reproducible without
-re-scoring. `2026-09-16_harness-ablation-faithfulness-gpt-oss-20b.json` is a
-placeholder and must not be quoted.
+Scorecards: `2026-09-16_harness-ablation-faithfulness-qwen38-recapture.json`
+(headline), `2026-09-16_harness-ablation-faithfulness-gpt-oss-20b-recapture.json`,
+`2026-08-26_harness-ablation-faithfulness.json` (superseded, incomplete),
+`2026-07-27_harness-ablation-faithfulness.json` (Qwen3.6, incomplete). All
+include per-question values for both arms, so each paired test is reproducible
+without re-scoring.
 
 ### Faithfulness judge validation (Track B2)
 

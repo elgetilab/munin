@@ -22,7 +22,7 @@ headline number. Stating these plainly is cheaper than being asked.
 | A controlled backbone comparison | **Not claimed** | The two Qwen Track D runs differ by backbone *and* by a month of retrieval commits; the gpt-oss-20b run differs from Qwen3.8 by lab, size class and sampling at once. Cross-backbone agreement is reported as suggestive. |
 | Cross-lab generalisation beyond one point | **Not claimed** | gpt-oss-20b is the only non-Qwen backbone measured. The harness effect replicated there at a third of the size (+0.156 vs +0.487). One point is not a curve, and "the harness works on any model" is not claimed. |
 | A 16 GB reproduction | **Not measured** | The Qwen3.5-9B hardware-floor run was deferred. gpt-oss-20b needs a 24 GB card at the production profile (12.8 GiB weights, 1.5 GiB KV at 64k x 2), on Ada or Ampere alike since its MXFP4 experts run on the Marlin kernel. |
-| Faithfulness on gpt-oss-20b | **Not measured** | 13 scoreable agentic rows; see the capture caveat under "The faithfulness null". |
+| Faithfulness on gpt-oss-20b as a replication | **Measured, underpowered** | Agentic 0.392 (n=159) after the recapture; the paired RAG comparison has n=21 because the RAG arm answers 37 of 199. Consistent with claim 2, not a replication of it. |
 | Routing on gpt-oss-20b | **Deploy gate only** | Anchor-tier pass rate 0.647 [0.45, 0.84] against 0.963 on Qwen3.8. It says the backbone would not ship behind the router as-is; it is not a paper number. |
 
 ---
@@ -112,34 +112,47 @@ do not quote 0.688 or 0.814 except as sensitivity points.
   invalid. The `egress=full` pair is a robustness result, not an abstention
   measurement.
 
-### The faithfulness null
+### The faithfulness result (formerly "the faithfulness null")
 
-- **The grounding contexts were incomplete (found 2026-09-16).** The capture's
-  list of retrieval tools predated the search ladder and the grounded read
-  stage, so `search` and `source` results were never counted as contexts. The
-  Qwen3.8 agentic n=163 and the Qwen3.6 agentic n=193 were both scored
-  against web, Semantic Scholar and `paper_search` evidence, not against the
-  full-text `source` passages the harness read on those turns (Qwen3.6 made
-  fewer of those and more web calls, so less of its evidence is missing). The
-  bias is asymmetric: the RAG arm's contexts (top-5 abstracts) are complete,
-  the agentic arm's are not, so the missing evidence can only have
-  understated the agentic arm's grounding. The null therefore holds on that
-  evidence set; whether it holds on the full set is unmeasured. Contexts are
-  extracted at capture time, so no existing run can be re-scored; the fix is
-  in place for the next capture, and only the Qwen3.8 and gpt-oss agentic
-  arms can be re-captured (Qwen3.6 is retired). On gpt-oss-20b, which made 97% of its calls through the two
-  missing tools, only 13 agentic rows were scoreable and no number is
-  reported.
-- It is a null on the **RAG versus agentic** comparison only. The bare arm is
+- **The headline changed on 2026-09-16, and the paper must say so.** Until
+  then the per-arm comparison read as a null on two backbones and three
+  runs. The capture's retrieval-tool list predated `search` and `source`, so
+  the agentic arm was judged without the full-text passages it read while the
+  RAG arm's abstracts were complete; the bias could only understate the
+  agentic arm. Re-captured with the complete set, agentic − RAG is +0.258
+  [0.206, 0.311], p < 0.001 on Qwen3.8. Both generations of the number are
+  in the scorecard folder and R2 names which is which. Do not quote a
+  pre-2026-09-16 faithfulness file for claim 2.
+- **The faithfulness headline and the accuracy headline are different
+  captures of the same arm.** Accuracy stays on 08-26 (0.874); faithfulness
+  is on the 09-16 recapture (0.869 accuracy, paired −0.005, p = 0.89), 26+
+  harness commits later and with users sharing the GPU. They are one system
+  measured twice, and the text says so wherever both appear.
+- It is a comparison on the **RAG versus agentic** arms only. The bare arm is
   structurally unscoreable, so the three-arm faithfulness comparison the plan
   originally specified can only ever be a two-arm comparison.
-- The absolute level (~0.28 on Qwen3.8, ~0.33 on Qwen3.6) is judged by a sub-1B entailment model whose
-  literalness is a known source of false negatives: a claim entailed by two
-  passages jointly scores unsupported.
-- The context union is generous (all retrieval results), which inflates
-  support. The direction of the bias is known but not corrected.
+- **On gpt-oss-20b the comparison is underpowered by the RAG arm**, which
+  answers 37 of 199 questions; the paired n is 21 (+0.253, p = 0.056). The
+  agentic level (0.392, n=159) is reportable, the delta is consistent with
+  Qwen3.8's, not a replication.
+- **Qwen3.6 cannot be recaptured** (checkpoint retired); its 07-27 per-arm
+  numbers carry the same gap and should be dropped from the faithfulness
+  table or kept only with the caveat.
+- The absolute level (0.54 agentic, 0.28 RAG on Qwen3.8) is judged by a
+  sub-1B entailment model whose literalness is a known source of false
+  negatives: a claim entailed by two passages jointly scores unsupported. The
+  levels are floors on grounding, not estimates of it.
+- The context union is generous (all retrieval results, now including every
+  passage read), which inflates support. The direction of the bias is known
+  but not corrected.
 - `% answers fully supported` is approximately zero for arithmetic reasons on
   long answers. It is not a finding and should not be quoted alone.
+- **A replication across backbones did not protect against this.** Every run
+  shared the capture code, so every run shared the defect. The tool list is
+  still hand-written (`munin_bench/faithfulness/capture.py::RETRIEVAL_TOOLS`);
+  every retrieval tool the harness gains must be added there before the next
+  faithfulness capture, or the same gap reopens. Deriving it from the tool
+  registry is the right fix and has not been done.
 
 ### Tool reliability
 
