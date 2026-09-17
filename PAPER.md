@@ -191,7 +191,8 @@ tools predated the search ladder and the grounded read stage, so the
 before answering) were never counted as grounding contexts, while the RAG
 arm's top-5 abstracts were captured completely. The 08-26 agentic arm was
 therefore judged against web, Semantic Scholar and `paper_search` snippets
-only (n=163, 36 rows with no context at all), and the "null" (+0.010,
+only (n=163; 36 rows unscoreable, 15 abstentions and 21 answers with no
+captured context), and the "null" (+0.010,
 p = 0.776) was the agentic arm being scored without most of its evidence.
 Contexts are extracted at capture time, so the arm was re-captured on
 2026-09-16 with the complete tool set (Qwen3.8 on production, 0.869
