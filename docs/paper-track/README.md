@@ -3,7 +3,7 @@
 The eval suite and everything that feeds the paper: retrieval benchmarks,
 the harness ablation, abstention, faithfulness, reliability. **Completed
 plans live in [`done/`](done/)**; what stays here is open work. Renamed from
-`todo_v2/` on 2026-08-04. Updated 2026-09-15.
+`todo_v2/` on 2026-08-04. Updated 2026-09-17.
 
 > **Start at [`../../PAPER.md`](../../PAPER.md)** if you want the results
 > rather than the plans: it maps every claim to its scorecard and its
@@ -17,6 +17,16 @@ plans live in [`done/`](done/)**; what stays here is open work. Renamed from
 > the Qwen3.6-35B-A3B figures are the second backbone. Every 07-27 number quoted in the tables below is the
 > Qwen3.6 figure and is kept because the plan was closed on it; the current
 > headline is in PAPER.md.
+>
+> **A third backbone from a different lab, gpt-oss-20b, was measured on
+> 2026-09-16** as an eval-only instance beside production
+> (`done/BACKBONE-SWITCH-AND-EVAL-PLAN.md`): the harness effect replicates in
+> kind at a third of the size (+0.156 vs +0.487). **The faithfulness null was
+> reversed on 2026-09-16/17**: the capture had never counted `search` and
+> `source` passages as evidence; re-captured, the harness roughly doubles
+> supported claims (+0.258, p < 0.001). The TRACK-B-PLAN row below quotes the
+> old null because the plan closed on it; PAPER.md claim 2 has the corrected
+> number.
 >
 > **The sibling track is [`../agent-track/`](../agent-track/)** (agent
 > architecture and Deep Research). Separate `done/`, separate TODO.
@@ -44,6 +54,8 @@ plans live in [`done/`](done/)**; what stays here is open work. Renamed from
 | `CITATIONS-VERIFIED.md` | Citation verification pass 2026-07-26: every `[VERIFY]` anchor resolved with arXiv IDs, plus the T3 novelty check (KnowOrNot is prior art) and the PaperArena correction. Bib-ready. |
 | `BACKGROUND-TURNS-PLAN.md` | Background turn completion (closed tab, answer still lands). Deployed + live-verified 2026-07-25. Product work that the eval harness relies on for long agentic turns; not a paper result. |
 | `MODEL-SWAP-QWEN38-PLAN.md` | Qwen3.6-35B-A3B -> Qwen3.8-27B swap and re-measurement. **Steps 1-2 DONE 2026-08-26** (model live on TP=2/64k; Track D, per-arm faithfulness, T11 re-run, scorecards `2026-08-26_*`). Step 3 done for RESULTS.md and PAPER.md 2026-08-27 and for the paper kit 2026-09-14 (next row). Every track since re-run on Qwen3.8. |
+| `THIRD-MODEL-REVIEW.md` | Third backbone candidate review. Decided 2026-08-25 for Qwen3.5-9B (Experiment B, the 16 GB floor), then **superseded 2026-09-15**: Experiment A (a different lab) was run instead with gpt-oss-20b (next row); the 9B is deferred. Its Granite 4.1 row is wrong (dense attention, 80 KiB/token, not hybrid Mamba; corrected in a header note). |
+| `BACKBONE-SWITCH-AND-EVAL-PLAN.md` | Model profiles (`backend/config/models/`), `deploy.sh model activate` / `instance up|down|refresh`, `run_suite.sh`, and the gpt-oss-20b full suite as an eval-only instance beside production. **RUN COMPLETE 2026-09-16**: agentic 0.563 vs bare 0.407 vs RAG 0.101, +0.156 [0.075, 0.241] p=0.004, abstain 0.342; C1 0.72 (floor, 20 empty answers) with 0 confabulated local cites; C2b correct abstention 0.80; T11 recovery 1.000; routing 0.647. **2026-09-16/17: faithfulness recapture** (`run_faith_recapture.sh`) on Qwen3.8 and gpt-oss with the complete evidence set reversed the Track B null (Qwen3.8 RAG 0.282 vs agentic 0.540, +0.258 p<0.001; gpt-oss agentic 0.392, paired n=21). Scorecards `2026-09-16_*`. |
 | `PAPER-KIT-REFRESH-PLAN.md` | Paper kit brought to the Qwen3.8 provenance, **DONE 2026-09-14**. Same day: standalone LitQA2 answer track re-run on Qwen3.8 (**0.884 [0.839, 0.925]**, agrees with the ablation arm's 0.874 question-paired, p=0.73) and C1 re-run on Qwen3.8 (**100/100 refusals, 0 confabulated local cites**), scorecards `2026-09-14_*` in both folders. Reproduce commands fixed to pass `--encoder bge-large` and `MUNIN_EVAL_EGRESS=full`. **2026-09-15: C2b re-run on Qwen3.8** (correct abstention 0.889 [0.719, 0.961] Wilson, absent-arm accuracy 0.04, paired +0.222 p=0.015 vs Qwen3.6) with the chunk index shadowed too (`papers_chunks_shadow`, a leak path the 07-27 recipe predates), risk-coverage re-derived (agentic risk 0.054), shadow compose rewritten as an `extends` of production (`cd226aa`). Nothing on the retired backbone remains a headline. |
 
 Eval-suite results writeup: `backend/benchmarks/RESULTS.md` (canonical);
@@ -56,7 +68,7 @@ claim-to-scorecard index: [`../../PAPER.md`](../../PAPER.md).
 | `EVAL-SUITE-MASTER-PLAN.md` | Suite spec. Tracks A/D built; B has a validated judge + one interim arm; C built and re-run 2026-07-27; F not built. See "What's next". |
 | `RETRIEVAL-EVAL-SPEC.md` | Phases 1-3,5 done; **Phase 4 (local pool) deferred** (needs more usage / synthetic queries). Canonical retrieval spec. |
 | `BENCHMARK-TODO.md` | Benchmark landscape TODO. **T8 LitSearch BUILT+RUN 2026-07-28** (BGE-dense 0.485 > BM25 0.378; found a production `/search/hybrid` scale-mismatch bug — citation-rerank −0.368 nDCG@10). **T9 DROPPED** (no frontier key, unset cap, would egress eval data; local judge already human-validated at AUROC 0.95). T10 QASPER not started. P0 status 2026-07-27: T2/T4/T5/T6 done, T1 mostly done, T3 re-run done (stratum 2 still needs Phase 4), T7 deferred. **The only human-blocked P0 is Phase 4** (query curation + qrels). |
-| `TRACK-B-PLAN.md` | Answer faithfulness (MiniCheck). B1-B4 built; judge validated (QA AUROC 0.95). **Per-arm paired faithfulness DONE 2026-07-27**: RAG 0.326 vs agentic 0.340, paired delta **+0.023 [-0.043, +0.089] p=0.496 (n=189)** — grounding does NOT improve with the harness, despite a 4.9x accuracy gap. **Null replicates on Qwen3.8 (2026-08-26)**: 0.282 vs 0.288, delta +0.010 [-0.052, +0.069], p=0.776 (n=163). `bare` is structurally unscoreable (retrieves nothing). |
+| `TRACK-B-PLAN.md` | Answer faithfulness (MiniCheck). B1-B4 built; judge validated (QA AUROC 0.95). **Per-arm paired faithfulness DONE 2026-07-27**: RAG 0.326 vs agentic 0.340, paired delta **+0.023 [-0.043, +0.089] p=0.496 (n=189)** — grounding does NOT improve with the harness, despite a 4.9x accuracy gap. **Null replicates on Qwen3.8 (2026-08-26)**: 0.282 vs 0.288, delta +0.010 [-0.052, +0.069], p=0.776 (n=163). `bare` is structurally unscoreable (retrieves nothing). **REVERSED 2026-09-16/17** (`done/BACKBONE-SWITCH-AND-EVAL-PLAN.md`): both nulls were scored without the `search`/`source` passages; re-captured, Qwen3.8 gives RAG 0.282 vs agentic **0.540**, paired **+0.258 [0.206, 0.311] p<0.001** (n=199). |
 | `HARNESS-ITERATION-SCOPE.md` | Scoping for the harness-iteration phase (grounding, over-tooling, tool defs). Pre-implementation. |
 | `T2-T3-EDIT-PLAN.md` | Concrete T2 (over-tooling) + T3 (tool defs) edits; measurement + deploy constraints. Plan, not applied. |
 | `T1-GROUNDING-PLAN.md` | T1 grounding edits (paper_search excerpts, per-item truncation, structured sub-agent returns). T1a applied; T1b/c planned. |
@@ -66,8 +78,6 @@ claim-to-scorecard index: [`../../PAPER.md`](../../PAPER.md).
 | `IMPLEMENTATION-HANDOFF.md` | Overarching eval-suite handoff (reference). |
 | `TOOL-ARG-ELISION-SCOPE.md` | Follow-on to the context-budget fix: elide tool-call ARGUMENTS, not just results. **Plan, not implemented.** Replay of the 12 Aug 11-12 overflow turns: pre-fix 12/12 over the window, deployed code 1-2/12, argument elision would close the rest. Blocked on verifying that heavy calls span loop iterations. |
 | `MIGRATION-LOOSE-ENDS.md` | Encoder-migration tail: embedding-map repoint + `papers` retirement. varghele/root. |
-| `THIRD-MODEL-REVIEW.md` | Third backbone candidate review. Decided 2026-08-25 for Qwen3.5-9B (Experiment B, the 16 GB floor), then **superseded 2026-09-15**: Experiment A (a different lab) was run instead with gpt-oss-20b, see the plan below; the 9B is deferred. Its Granite 4.1 row is wrong (dense attention, 80 KiB/token, not hybrid Mamba; verified 2026-09-15). |
-| `BACKBONE-SWITCH-AND-EVAL-PLAN.md` | Model profiles (`backend/config/models/`), `deploy.sh model activate` / `instance up`, `run_suite.sh`, and the gpt-oss-20b full suite. **RUN COMPLETE 2026-09-16**: agentic 0.563 vs bare 0.407, +0.156 [0.075, 0.241] p=0.004; replicates in kind at a third of Qwen3.8's size. |
 
 ## What's next (ordered plan, set 2026-07-06)
 
@@ -79,9 +89,11 @@ FIX, not just a number to measure. So:
 **1. Cleanups first**
    - ~~**Track B - answer faithfulness**~~ DONE. Judge validated (QA AUROC 0.95);
      per-arm paired comparison run 2026-07-27: RAG 0.326 vs agentic 0.340,
-     paired delta **+0.023 [-0.043, +0.089] p=0.496**. The harness buys
-     correctness/abstention/calibration, NOT literal grounding — state that
-     boundary plainly in the paper. `bare` cannot be scored at all (no contexts).
+     paired delta **+0.023 [-0.043, +0.089] p=0.496**. ~~The harness buys
+     correctness/abstention/calibration, NOT literal grounding~~ **Reversed
+     2026-09-17**: that null was the capture missing `search`/`source`
+     passages; with them, agentic 0.540 vs RAG 0.282 on Qwen3.8 (+0.258,
+     p<0.001). `bare` cannot be scored at all (no contexts).
    - ~~**Router A4/A5**~~ DONE 2026-07-08. A4a (delegation deleted), A4b
      (allowlists retired + soft bias, post-soak dead-code cleanup
      `c4e9ce6..45916e6`), A5 (routing tuning) all complete + live; frontend
@@ -108,6 +120,10 @@ FIX, not just a number to measure. So:
      agentic 0.874 / bare 0.387 / RAG 0.211, +0.487 [0.407, 0.568]; T11 6.93
      calls/query, recovery 1.000. Cross-model comparison is suggestive only
      (16 retrieval commits between the runs), see PAPER.md claim 1.
+     ~~Third backbone from a different lab~~ **DONE 2026-09-16** on
+     gpt-oss-20b as an eval instance: 0.563 / 0.407 / 0.101, +0.156 [0.075,
+     0.241] p=0.004; replicates in kind at a third of the size, the agentic
+     arm abstaining on 34%. Still open: the Qwen3.5-9B 16 GB floor (deferred).
    - **Track C - corpus-grounded abstention benchmark** (over-abstention vs
      correct "not in corpus"). Master plan sec 4. C1 (fabricated papers +
      confabulation detector) and C2b (paired shadow-corpus) both BUILT and RUN

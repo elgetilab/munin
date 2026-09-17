@@ -1,6 +1,22 @@
 # A third backbone for the harness: candidate review
 
-Status: **DECIDED 2026-08-25.** The third backbone is **Qwen3.5-9B**, and there
+Status: **SUPERSEDED 2026-09-15; moved to `done/` 2026-09-17.** Decided
+2026-08-25 for Qwen3.5-9B (Experiment B, the 16 GB floor). The reviewer
+question ("would you mind only Qwen models?") re-opened section 1 and
+Experiment A was run instead, with **gpt-oss-20b**, on 2026-09-16
+(`BACKBONE-SWITCH-AND-EVAL-PLAN.md`, beside this file): +0.156 harness value
+against Qwen3.8's +0.487. The Qwen3.5-9B run and its profile are deferred.
+Two corrections found while re-checking candidates on 2026-09-15: **the
+Granite 4.1 row in section 4 is wrong**, Granite 4.1-8B is `GraniteForCausalLM`,
+40 layers of full attention, 8 KV heads at head_dim 128, i.e. 80 KiB/token at
+fp8, the most KV-hostile layout here, not a hybrid Mamba with near-free KV
+(only 16 GB at one sequence, like Gemma); and **every Gemma 4 12B checkpoint
+now declares `Gemma4UnifiedForConditionalGeneration`**, which the pinned vLLM
+does not register, so Gemma would have needed a vLLM change to load at all.
+gpt-oss-20b loaded on the pinned build via the Marlin MXFP4 kernel with no
+serving-stack change. Original text follows unchanged.
+
+Status as written 2026-08-25: **DECIDED.** The third backbone is **Qwen3.5-9B**, and there
 is deliberately no second candidate for the 24 GB tier: a 24 GB card runs the
 same model with more headroom, not a different model (section 6.1). Nothing is
 implemented. Written 2026-08-25, alongside `done/MODEL-SWAP-QWEN38-PLAN.md`.

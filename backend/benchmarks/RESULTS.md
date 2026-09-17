@@ -1295,7 +1295,7 @@ transitions), `2026-09-15_toolreliability-qwen38-egressoff_toolreliability.json`
 **Why.** Every number in this file was on one model family, and the paper's
 central claim is about the harness, not the backbone. `openai/gpt-oss-20b`
 (21B MoE, 3.6B active, native MXFP4, a different lab, tokenizer, architecture
-and data) is the cross-lab check (`docs/paper-track/THIRD-MODEL-REVIEW.md`
+and data) is the cross-lab check (`docs/paper-track/done/THIRD-MODEL-REVIEW.md`
 Experiment A). It ran as a **second instance beside production**: its own vLLM
 job on GPU 0 (`--max-num-seqs 2`, util 0.80, Marlin MXFP4 kernel on the RTX
 5090, 292 tok/s decode, 17.5k tok/s prefill, KV pool 890k tokens), its own
@@ -1304,7 +1304,7 @@ the model variables and the tokenizer mount, plus a shadow-corpus instance on
 :8083 for the C2b absent arm. Production stayed on Qwen3.8 for the users.
 Every track at concurrency 1 on a GPU nobody else used, so the cost columns
 are clean. Driven end to end by `scripts/run_suite.sh gpt-oss-20b` (plan:
-`docs/paper-track/BACKBONE-SWITCH-AND-EVAL-PLAN.md`). Model profile
+`docs/paper-track/done/BACKBONE-SWITCH-AND-EVAL-PLAN.md`). Model profile
 `backend/config/models/gpt-oss-20b.env`: `--tool-call-parser openai`,
 `--reasoning-parser openai_gptoss`, main turns `reasoning_effort=medium`,
 sub-tasks `reasoning_effort=low` (this model cannot switch reasoning off),

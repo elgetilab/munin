@@ -54,12 +54,15 @@ headline.
 ### Which agentic number to quote
 
 Several valid numbers exist for the agentic arm on the same 199 questions, on
-two backbones, and the paper must pick and justify:
+three backbones, and the paper must pick and justify:
 
 | Number | Backbone | Run | Condition |
 |---|---|---|---|
 | **0.874** | **Qwen3.8** | 2026-08-26 Track D agentic arm | The paired ablation on the production model, `egress=full`, concurrency 1, all arms 16,384 tokens |
 | 0.663 | Qwen3.8 | 2026-09-15 Track D agentic arm, `egress=off` | Corpus-only harness; a decomposition of the headline, never a substitute for it |
+| 0.869 | Qwen3.8 | 2026-09-16 agentic arm recaptured for faithfulness | Same protocol as 08-26 on a harness 26+ commits newer, users sharing the GPU; paired −0.005 vs 0.874, p = 0.89. **The faithfulness headline's arm; not the accuracy headline** |
+| 0.563 | gpt-oss-20b | 2026-09-16 Track D agentic arm | The paired ablation on the third backbone, `egress=full`, concurrency 1, eval instance; the +0.156 delta is computed from it |
+| 0.528 | gpt-oss-20b | 2026-09-16 standalone answer track | 900 s, `egress=full`; agrees with 0.563 within noise |
 | **0.884** | **Qwen3.8** | 2026-09-14 standalone answer track | 900 s deadline, `egress=full`, concurrency 1, same protocol as the 07-24 run; harness two weeks newer than the ablation arm's |
 | 0.864 | Qwen3.6 | 2026-07-24 answer track | 900 s deadline, 0 truncations, 0 unparseable |
 | 0.839 | Qwen3.6 | 2026-07-27 Track D agentic arm | The paired ablation, `egress=full`, concurrency 1 |

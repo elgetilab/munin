@@ -232,7 +232,7 @@ every tool-using turn while plain chat keeps working.
 A model swap invalidates the committed benchmark numbers. See
 `../docs/paper-track/done/MODEL-SWAP-QWEN38-PLAN.md` for what has to be
 re-measured and what does not, and
-`../docs/paper-track/BACKBONE-SWITCH-AND-EVAL-PLAN.md` for running a second
+`../docs/paper-track/done/BACKBONE-SWITCH-AND-EVAL-PLAN.md` for running a second
 backbone beside production instead of swapping.
 
 ### Add MCP tool
