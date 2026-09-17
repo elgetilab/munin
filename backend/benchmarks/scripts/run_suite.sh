@@ -12,6 +12,11 @@
 #   scripts/run_suite.sh gpt-oss-20b [--date YYYY-MM-DD] [--tag T] [--until PHASE]
 #                                    [--api-port 8082] [--shadow-api-port 8083]
 #                                    [--vllm-port 8001] [--no-teardown] [--no-smoke]
+#                                    [--gpu-util U] [--tracks trackd,egressoff,c1,answer,c2b,faith,derived]
+#                                    [--copy-arms-from TAG] [--ablation-tag TAG]
+#   --tag names the run (runs/<tag>/ markers and log); --ablation-tag names the
+#   ablation_runs/<tag>/ arm dir (default: the run tag), so one track can be
+#   re-run later under a fresh run tag against the original arms.
 #
 # Re-entrant: every phase writes runs/<tag>/phase-N.done and a re-invocation
 # skips completed phases; the tracks themselves resume from their captures.
@@ -28,9 +33,16 @@
 #                  checkpoint present; disk; shadow corpus built + leak-free
 #   1 instances    instance up <slug> --name eval; instance up ... --corpus shadow
 #   2 smoke        run_all --limit 20 on :8082, gated against the Qwen3.8 arm
-#   3 suite        Track D (3 arms, n=199) + C1 (100) + standalone answer (199)
-#                  + C2b pair (2x50) + faithfulness per arm (CPU judge) + T11 +
-#                  risk-coverage + routing anchor tier + paired compares
+#   3 suite        Track D (3 arms, n=199) + agentic arm at egress=off (the
+#                  corpus-only decomposition, standard since 2026-09-17) + C1
+#                  (100) + standalone answer (199) + C2b pair (2x50) +
+#                  faithfulness per arm (CPU judge; the Track D capture carries
+#                  complete contexts since 2026-09-16) + T11 + risk-coverage +
+#                  routing anchor tier + paired compares.
+#                  --tracks a,b,... restricts phase 3 to those sub-phases
+#                  (3a trackd, 3a2 egressoff, 3b c1, 3c answer, 3d c2b,
+#                  3e faith, 3f derived); --copy-arms-from <tag> supplies the
+#                  bare/rag arms for egressoff when 3a is not in the run.
 #   4 teardown     instances down, shadow dropped, 24x7 restored, production
 #                  back on TP=2
 # ==============================================================================
@@ -65,6 +77,9 @@ SMOKE=1
 # second instance start (2026-09-15); 0.80 leaves ~3 GiB of slack and still
 # ~800k KV tokens for gpt-oss (12x at 64k). Recorded in provenance.
 GPU_UTIL=0.80
+TRACKS="trackd,egressoff,c1,answer,c2b,faith,derived"
+COPY_ARMS_FROM=""
+ABL_TAG=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --date) DATE=$2; shift 2 ;;
@@ -77,10 +92,14 @@ while [ $# -gt 0 ]; do
         --no-teardown) TEARDOWN=0; shift ;;
         --no-smoke) SMOKE=0; shift ;;
         --gpu-util) GPU_UTIL=$2; shift 2 ;;
+        --tracks) TRACKS=$2; shift 2 ;;
+        --copy-arms-from) COPY_ARMS_FROM=$2; shift 2 ;;
+        --ablation-tag) ABL_TAG=$2; shift 2 ;;
         *) echo "unknown flag $1"; exit 1 ;;
     esac
 done
 TAG=${TAG:-$SLUG}
+ABL_TAG=${ABL_TAG:-$TAG}
 SHADOW_NAME="$NAME-shadow"
 RUNS="$BENCH/runs/$TAG"
 mkdir -p "$RUNS"
@@ -90,6 +109,7 @@ SHADOW_API="http://127.0.0.1:$SHADOW_API_PORT"
 VLLM="http://127.0.0.1:$VLLM_PORT"
 
 # --- helpers --------------------------------------------------------------------
+want() { case ",$TRACKS," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 log() { echo "[$(ts)] $*" | tee -a "$LOG"; }
 die() { log "FAIL: $*"; log "stopped. Fix and re-run the same command; completed phases are skipped."; exit 1; }
@@ -113,7 +133,7 @@ munin_load_model_env "$SLUG" || exit 1
 export VLLM_URL="$VLLM" VLLM_MODEL_NAME="$MODEL_NAME" LLM_THINKING_MODE LLM_REASONING_EFFORT
 export MUNIN_EVAL_EGRESS=full
 export MUNIN_BENCH_ENTAILMENT_DEVICE=${MUNIN_BENCH_ENTAILMENT_DEVICE:-cpu}
-export MUNIN_ABLATION_TAG="$TAG"
+export MUNIN_ABLATION_TAG="$ABL_TAG"
 
 log "=== run_suite $SLUG  tag=$TAG date=$DATE  vllm=$VLLM api=$API shadow=$SHADOW_API ==="
 log "model=$MODEL_NAME profile=$MODEL_PROFILE_FILE thinking=$LLM_THINKING_MODE effort=${LLM_REASONING_EFFORT:-none} egress=$MUNIN_EVAL_EGRESS judge=$MUNIN_BENCH_ENTAILMENT_DEVICE"
@@ -279,33 +299,69 @@ stop_if_until 2
 # Phase 3: the suite, concurrency 1 throughout
 # ==============================================================================
 if ! phase_done 3; then
-    log "--- phase 3: suite ---"
+    log "--- phase 3: suite (tracks: $TRACKS) ---"
     suite_start=$(cat "$RUNS/suite-start" 2>/dev/null || { ts | tee "$RUNS/suite-start"; })
 
-    if ! phase_done 3a; then
+    if want trackd && ! phase_done 3a; then
         log "3a Track D, 3 arms, n=199 (resumable), egress=full"
-        run_logged $PY -m munin_bench.pipelines.run_all --tag "$TAG" --tracks ablation --limit 199 \
+        run_logged $PY -m munin_bench.pipelines.run_all --tag "$TAG" --ablation-tag "$ABL_TAG" --tracks ablation --limit 199 \
             --with-reliability --certify --base-url "$API" --email "$EMAIL" --date "$DATE" "${PROV[@]}"
         rc=$?; [ $rc -le 1 ] || die "run_all ablation failed (rc=$rc)"   # rc 1 = certification FAIL, a finding
         [ $rc -eq 1 ] && log "NOTE: certification gate FAIL on this backbone (thresholds are Qwen3.6-derived); recorded, not acted on"
-        run_logged $PY -m munin_bench.ablation.compare --date "$DATE" --tag "$TAG" || die "ablation compare failed"
+        run_logged $PY -m munin_bench.ablation.compare --date "$DATE" --tag "$ABL_TAG" || die "ablation compare failed"
         mv "$BENCH/scorecards/${DATE}_harness-ablation.json" "$BENCH/scorecards/${DATE}_harness-ablation-$SLUG.json" 2>/dev/null || true
         mark_done 3a
     fi
-    if ! phase_done 3b; then
+    if want egressoff && ! phase_done 3a2; then
+        log "3a2 agentic arm at egress=off (corpus-only decomposition), n=199, resumable"
+        src=${COPY_ARMS_FROM:-$ABL_TAG}
+        [ -f "$BENCH/ablation_runs/$src/bare.json" ] || die "egressoff needs bare/rag arms to pair against; none under ablation_runs/$src (use --copy-arms-from)"
+        mkdir -p "$BENCH/ablation_runs/$ABL_TAG-egressoff"
+        for f in bare.json bare.meta.json rag.json rag.meta.json; do
+            [ -f "$BENCH/ablation_runs/$src/$f" ] && cp -n "$BENCH/ablation_runs/$src/$f" "$BENCH/ablation_runs/$ABL_TAG-egressoff/$f"
+        done
+        echo "bare/rag copied from ablation_runs/$src (they make no tool calls, so egress does not touch them); agentic captured at MUNIN_EVAL_EGRESS=off $(ts)" \
+            > "$BENCH/ablation_runs/$ABL_TAG-egressoff/README"
+        MUNIN_EVAL_EGRESS=off run_logged $PY -m munin_bench.ablation.run_arm --arm agentic --n 199 --tag "$ABL_TAG-egressoff" \
+            --base-url "$API" --email "$EMAIL" || die "egress=off agentic arm failed"
+        run_logged $PY -m munin_bench.ablation.compare --date "$DATE" --tag "$ABL_TAG-egressoff" || die "egressoff compare failed"
+        mv "$BENCH/scorecards/${DATE}_harness-ablation.json" "$BENCH/scorecards/${DATE}_harness-ablation-agentic-egressoff-$SLUG.json" 2>/dev/null || true
+        run_logged $PY -m munin_bench.toolreliability.score "$BENCH/ablation_runs/$ABL_TAG-egressoff/agentic.json" \
+            --tag "${DATE}_toolreliability-$SLUG-egressoff" || true
+        # full vs off, question-paired, from the two agentic arrays
+        $PY - "$BENCH/ablation_runs/$src/agentic.json" "$BENCH/ablation_runs/$ABL_TAG-egressoff/agentic.json" "$RUNS/egress-full-vs-off.json" <<'PYEOF' 2>&1 | tee -a "$LOG"
+import json, sys
+from collections import Counter
+from munin_bench.metrics.bootstrap import paired_bootstrap
+full = {r["qid"]: r for r in json.load(open(sys.argv[1]))["per_q"]}
+off = {r["qid"]: r for r in json.load(open(sys.argv[2]))["per_q"]}
+ids = sorted(set(full) & set(off))
+d = paired_bootstrap([1.0 if full[i]["verdict"] == "correct" else 0.0 for i in ids],
+                     [1.0 if off[i]["verdict"] == "correct" else 0.0 for i in ids])
+trans = Counter(f"{full[i]['verdict']}->{off[i]['verdict']}" for i in ids)
+out = {"n": len(ids), "full_minus_off": {k: d[k] for k in ("mean_diff", "ci_low", "ci_high", "p_value_two_sided")},
+       "transitions_full_to_off": dict(trans),
+       "acc_full": sum(1 for i in ids if full[i]["verdict"] == "correct") / len(ids),
+       "acc_off": sum(1 for i in ids if off[i]["verdict"] == "correct") / len(ids)}
+json.dump(out, open(sys.argv[3], "w"), indent=2)
+print(f"[egress] full {out['acc_full']:.3f} vs off {out['acc_off']:.3f}: full-off {d['mean_diff']:+.3f} [{d['ci_low']:+.3f},{d['ci_high']:+.3f}] p={d['p_value_two_sided']:.3f}; transitions {dict(trans)}")
+PYEOF
+        mark_done 3a2
+    fi
+    if want c1 && ! phase_done 3b; then
         log "3b C1 fabricated, n=100, egress=full (resumable)"
         run_logged $PY -m munin_bench.abstention.run_c1 --base-url "$API" --email "$EMAIL" --concurrency 1 \
             --deadline 900 --date "$DATE" --out-dir "$BENCH/c1_runs/$TAG" "--out-suffix=-$SLUG" || die "C1 failed"
         mark_done 3b
     fi
-    if ! phase_done 3c; then
+    if want answer && ! phase_done 3c; then
         log "3c LitQA2 standalone answer track, n=199, egress=full (resumable)"
         run_logged $PY -m munin_bench.pipelines.run_litqa2 --track answer --base-url "$API" --email "$EMAIL" \
             --concurrency 1 --tag "$TAG" || die "answer track failed"
         cp "$BENCH/results/litqa2/answer.$TAG.json" "$BENCH/scorecards/${DATE}_answer-$SLUG-900s.json"
         mark_done 3c
     fi
-    if ! phase_done 3d; then
+    if want c2b && ! phase_done 3d; then
         log "3d C2b pair, n=50 x 2, egress=off (present :$API_PORT, absent :$SHADOW_API_PORT)"
         MUNIN_EVAL_EGRESS=off run_logged $PY -m munin_bench.abstention.run_c2 --arm present --base-url "$API" \
             --email "$EMAIL" --concurrency 1 --work-dir "$BENCH/c2_runs/$TAG" || die "C2 present failed"
@@ -314,19 +370,19 @@ if ! phase_done 3; then
             --out-tag "abstention-c2-shadow-$SLUG" --vs-dir "$BENCH/c2_runs" --vs-suffix "" || die "C2 absent failed"
         mark_done 3d
     fi
-    if ! phase_done 3e; then
+    if want faith && ! phase_done 3e; then
         log "3e faithfulness per arm (MiniCheck on $MUNIN_BENCH_ENTAILMENT_DEVICE)"
-        run_logged $PY -m munin_bench.ablation.faithfulness --date "$DATE" --tag "$TAG" \
+        run_logged $PY -m munin_bench.ablation.faithfulness --date "$DATE" --tag "$ABL_TAG" \
             --device "$MUNIN_BENCH_ENTAILMENT_DEVICE" || die "faithfulness failed"
         mv "$BENCH/scorecards/${DATE}_harness-ablation-faithfulness.json" \
            "$BENCH/scorecards/${DATE}_harness-ablation-faithfulness-$SLUG.json" 2>/dev/null || true
         mark_done 3e
     fi
-    if ! phase_done 3f; then
+    if want derived && ! phase_done 3f; then
         log "3f derived: T11, risk-coverage, routing anchor tier, paired compares"
-        run_logged $PY -m munin_bench.toolreliability.score "$BENCH/ablation_runs/$TAG/agentic.json" \
+        run_logged $PY -m munin_bench.toolreliability.score "$BENCH/ablation_runs/$ABL_TAG/agentic.json" \
             --tag "${DATE}_toolreliability-$SLUG" || die "T11 failed"
-        run_logged $PY -m munin_bench.abstention.risk_coverage --date "$DATE" --tag "$TAG" \
+        run_logged $PY -m munin_bench.abstention.risk_coverage --date "$DATE" --tag "$ABL_TAG" \
             --c2-dir "$BENCH/c2_runs/$TAG" --c1-scorecard "$BENCH/scorecards/${DATE}_abstention-c1-fabricated-$SLUG.json" \
             "--out-suffix=-$SLUG" || die "risk-coverage failed"
         run_logged $PY -m munin_bench.routing.run --base "$API" --email "routing-eval@munin.local" \
