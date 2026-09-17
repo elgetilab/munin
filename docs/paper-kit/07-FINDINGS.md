@@ -98,8 +98,12 @@ coverage collapse rather than increased error, so accuracy-only reporting will
 attribute it to the wrong cause.
 
 **Caveat to carry.** RAG accuracy is prompt-sensitive. The *anchoring effect*
-is robust across three runs and two backbones; the exact magnitude is not a
-property of retrieval in general.
+is robust across three runs and two Qwen backbones; the exact magnitude is not
+a property of retrieval in general. On gpt-oss-20b RAG is again far below bare
+(0.101 vs 0.407, −0.306 [−0.377, −0.231]), but the mechanism there is
+different: 162 of 199 RAG turns end with no final message rather than an
+explicit refusal (finding 8c), so the ordering replicates on a third
+backbone while the anchoring mechanism is only shown on the two Qwen ones.
 
 **What this makes the harness's contribution.** The value is not retrieval per
 se. It is the **agentic loop's iterative, multi-source retrieval**, which can

@@ -330,17 +330,27 @@ returns production to TP=2. Outputs: `scorecards/<D>_*-<slug>.json`,
 `results/litqa2/answer.<tag>.*`, and `runs/<tag>/driver.log` with every gate.
 
 Cost columns from such a run are clean because the instance owns its GPU;
-user traffic stays on production. Sampling is the profile's, so gpt-oss runs
+user traffic stays on production.
+
+`backend/benchmarks/scripts/run_faith_recapture.sh` re-captures the agentic
+arm alone with the complete retrieval-tool set and re-scores per-arm
+faithfulness (Qwen3.8 on production, then gpt-oss-20b on an instance),
+copying each run's RAG arm into the new tag dir so the paired test is against
+the same RAG arm. Budget 5 h for the CPU judge at ~26 passages per question,
+or give it a GPU (`MUNIN_BENCH_ENTAILMENT_DEVICE=cuda:0`). Sampling is the profile's, so gpt-oss runs
 at OpenAI's `temperature 1.0, top_p 1.0` while the Qwen numbers were produced
 under Qwen's set; the scorecards record both.
 
 ## 6. What has not been run
 
-As of 2026-09-16:
+As of 2026-09-17:
 
-- **Faithfulness per arm on gpt-oss-20b** (13 scoreable agentic rows: the
-  capture's retrieval-tool list lacked `search` and `source` until
-  2026-09-16; the next capture on any backbone will count them).
+- **A powered faithfulness comparison on gpt-oss-20b.** The agentic arm was
+  re-captured (0.392, n=159) but its RAG arm answers 37 of 199 questions, so
+  the paired test has n=21; a powered comparison needs a RAG protocol this
+  model will answer under, which would be a protocol change.
+- **Faithfulness on Qwen3.6 with complete contexts**: impossible, the
+  checkpoint is retired.
 - **The Qwen3.5-9B hardware-floor run** (16 GB claim), deferred; its profile
   file is not written.
 
