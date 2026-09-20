@@ -70,7 +70,7 @@ Terms used throughout, in the sense the repository uses them.
 |---|---|
 | **Track A–F** | The six evaluation tracks. A = retrieval quality, B = answer faithfulness, C = abstention and calibration, D = harness value and cost, E = regression harness and scorecards, F = follow-up scope (specified, not built). |
 | **Arm** | One system configuration in the Track D ablation: `bare` (direct vLLM, no tools), `rag` (BGE top-5 into the prompt, one completion), `agentic` (the production harness). |
-| **Backbone** | The generation model under the harness. Qwen3.8-27B (dense) since 2026-08-25; Qwen3.6-35B-A3B (MoE) before it, retired. Results tables state which. |
+| **Backbone** | The generation model under the harness. Qwen3.8-27B (dense) since 2026-08-25; Qwen3.6-35B-A3B (MoE) before it, retired from production but re-run on the current protocol on 2026-09-17 as an eval instance; gpt-oss-20b, never production, an eval instance. Results tables state which. |
 | **Profile** | The per-turn routing target: `chat`, `research`, or `code`. Chosen before the first model call by `router.py`. Replaced the older persona-delegation mechanism. |
 | **Persona** | The user-facing identity pin. After the 2026-06 consolidation there is one Munin identity with three routing profiles, not three separate assistants. |
 | **Egress** | A first-class experimental control on outbound network access: `off` (local corpus only), `oa_only` (+ scholarly APIs), `full` (+ web). Set via the `X-Munin-Egress` header. Benchmarks default to `off`. |
@@ -89,8 +89,11 @@ Terms used throughout, in the sense the repository uses them.
   (`cyankiwi/Qwen3.8-27B-AWQ-INT4`, dense, vLLM TP=2, 64k,
   `reasoning_effort=medium`) for the headline Track D, per-arm faithfulness
   and T11 numbers (2026-08-26), and it is what production serves.
-  `qwen3.6-35b-a3b` (Qwen3.6-35B-A3B-AWQ-4bit, MoE, retired) for everything
-  dated earlier, kept beside every re-measured table as the second backbone.
+  `qwen3.6-35b-a3b` (Qwen3.6-35B-A3B-AWQ-4bit, MoE, retired from production
+  2026-08-25) for everything dated earlier, and for the 2026-09-17 rows, where
+  the retired checkpoint was brought back as an eval-only instance and run
+  through every track on the current protocol; those are the Qwen3.6 numbers
+  to quote, kept beside every table as the second backbone.
   Track C followed on 2026-09-14 (C1) and 2026-09-15 (C2b, risk-coverage), so
   every headline is on Qwen3.8. `gpt-oss-20b` (`openai/gpt-oss-20b`, 21B MoE,
   3.6B active, native MXFP4) for the 2026-09-16 rows: the third backbone, from

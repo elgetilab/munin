@@ -12,9 +12,9 @@ Six tracks. Tracks A through E are built; F is specified only.
 | Track | Question it answers | Status |
 |---|---|---|
 | **A** Retrieval quality | Does the retriever surface the right paper? | Built. Phases 1-3 and 5 done; Phase 4 (local query pool) deferred. |
-| **B** Answer faithfulness | Are answer claims entailed by the retrieved evidence? | Built. Judge validated; per-arm paired comparison run on Qwen3.6 (07-27), Qwen3.8 (08-26) and gpt-oss-20b (09-16). **The pre-2026-09-16 captures lacked the `search`/`source` contexts; the agentic arm was re-captured on Qwen3.8 and gpt-oss-20b with the complete set and the headline moved from a null to +0.258.** |
-| **C** Abstention and calibration | Does the system know when the corpus lacks the answer? | Built. C1 and C2b run, re-run 2026-07-27 on Qwen3.6; risk-coverage derived. **Re-run on Qwen3.8: C1 2026-09-14 (100/100), C2b 2026-09-15 (correct abstention 0.889), risk-coverage re-derived.** On gpt-oss-20b 2026-09-16: C1 0.72 (a floor; 20 empty answers), 0 confabulated local cites, C2b correct abstention 0.80. |
-| **D** Harness value and cost | Does the agentic harness beat the bare model and vanilla RAG? | Built. Clean run 2026-07-27 (Qwen3.6); headline re-measurement 2026-08-26 on the production backbone Qwen3.8; third backbone gpt-oss-20b 2026-09-16 (+0.156, replicates in kind at a third of the size). |
+| **B** Answer faithfulness | Are answer claims entailed by the retrieved evidence? | Built. Judge validated; per-arm paired comparison run on Qwen3.6 (07-27, then 09-17), Qwen3.8 (08-26) and gpt-oss-20b (09-16). **The pre-2026-09-16 captures lacked the `search`/`source` contexts; the agentic arm was re-captured on Qwen3.8 and gpt-oss-20b with the complete set and the headline moved from a null to +0.258; Qwen3.6, brought back on an eval instance on 09-17 and captured complete, gives +0.336.** |
+| **C** Abstention and calibration | Does the system know when the corpus lacks the answer? | Built. C1 and C2b run, re-run 2026-07-27 on Qwen3.6; risk-coverage derived. **Re-run on Qwen3.8: C1 2026-09-14 (100/100), C2b 2026-09-15 (correct abstention 0.889), risk-coverage re-derived.** On gpt-oss-20b 2026-09-16: C1 0.72 (a floor; 20 empty answers), 0 confabulated local cites, C2b correct abstention 0.80. On Qwen3.6 under the current harness 2026-09-17: C1 0.98, 0 confabulated local cites, C2b correct abstention 0.875 (paired vs Qwen3.8 −0.014, p = 0.85). |
+| **D** Harness value and cost | Does the agentic harness beat the bare model and vanilla RAG? | Built. Clean run 2026-07-27 (Qwen3.6, July harness); headline re-measurement 2026-08-26 on the production backbone Qwen3.8; third backbone gpt-oss-20b 2026-09-16 (+0.156, replicates in kind at a third of the size); Qwen3.6 re-run on the current protocol 2026-09-17 (+0.533, agentic equal to Qwen3.8's question-paired); an `egress=off` agentic arm on all three. |
 | **E** Regression and scorecard | Can the whole suite re-run as one command and flag regressions? | Built. `run_all`, `compare`, `certify`. |
 | **F** Follow-up | Expert benchmark, validated certification thresholds, AstaBench positioning | Specified, not built. Two cheap pieces pulled forward (see §8). |
 
@@ -33,9 +33,14 @@ frozen Qwen3.6-era query variants generated once by the production expander,
 and was not re-run for the model swap because regenerating the variants would
 change the benchmark, not the system; C1 was re-run on Qwen3.8 on
 2026-09-14 and C2b plus risk-coverage on 2026-09-15, so every headline is on
-Qwen3.8; the Qwen3.6 figures are kept as the second backbone.
-Within a run every comparison is paired; across the two backbones it is
-suggestive only, because the harness code also moved between the runs.
+Qwen3.8. The Qwen3.6 figures are kept as the second backbone, and since
+2026-09-17 they are the retired checkpoint re-run on the current protocol as
+an eval-only instance (every track), not the July numbers: the two Qwen
+backbones are compared on one harness, question-paired, and the comparison
+is controlled (the bare and RAG arms bypass the harness; the agentic arm
+pairs against the 09-16 Qwen3.8 recapture one day apart). The July-vs-August
+comparison stays suggestive because the harness code moved between those
+runs.
 
 **A third backbone from a different lab, 2026-09-16.** `gpt-oss-20b`
 (`openai/gpt-oss-20b`, 21B MoE with 3.6B active, native MXFP4, harmony chat
@@ -64,7 +69,9 @@ set, pinned by test).
 model name, `reasoning_effort` (medium) and `max_tokens` (16,384) are set
 explicitly to match what the backend applies to the agentic arm. The 07-27
 bare arm ran at 4,096 tokens and lost 33 answers to truncation; that is fixed,
-and it is the reason the harness delta moved between the runs. Sampling is
+and the 09-17 re-run of the same checkpoint at 16,384 measured it at about
+0.035 on the bare arm with the harness delta unchanged (+0.538 → +0.533).
+Sampling is
 not matched (bare/RAG 0.7 vs the persona's 1.0 / 0.95 / 20 / 1.5) and is
 reported as a threat rather than corrected. **Run-to-run variance** on a
 199-question arm at temperature 0.7 is ~0.035 (two identical Qwen3.8 bare
