@@ -1,11 +1,11 @@
 # Scorecards behind the headline claims
 
-41 committed scorecard JSONs, copied verbatim from
+54 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
 
-The full set is 83 JSON plus 53 Markdown twins; the remainder are mostly the
+The full set is 97 JSON plus 57 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
@@ -17,7 +17,11 @@ them. Every file dated 2026-08-26 to 2026-09-15 is on Qwen3.8-27B
 (production); every earlier file is on the retired Qwen3.6-35B-A3B; every
 file dated 2026-09-16 with `gpt-oss-20b` in its name is the third backbone,
 run as an eval-only instance beside production (`backbone` and `serving` are
-stamped by the driver). See cautions 8 and 9.
+stamped by the driver); every file dated 2026-09-17/18 with `qwen3.6-35b-a3b`
+in its name is the retired Qwen3.6 checkpoint brought back the same way and
+run through the full suite on the current harness, and the two
+`2026-09-17_*egressoff-gpt-oss-20b*` files are gpt-oss-20b's corpus-only arm
+from the same chain. See cautions 8, 9 and 10.
 
 ## Schema
 
@@ -84,6 +88,18 @@ facts live in top-level fields backfilled on 2026-09-15 (see
 | `2026-09-16_toolreliability-gpt-oss-20b_toolreliability.json` | T11 on gpt-oss-20b after the tool-name repair: 8.75 calls/q, error 0.049, recovery 1.000 | R6, R7 |
 | `2026-09-16_routing-gpt-oss-20b-2026-09-16.json` | Routing anchor tier on gpt-oss-20b: pass rate 0.647 [0.45, 0.84]. The deploy gate; not a paper number | R7 |
 | `2026-09-16_harness-ablation-faithfulness-gpt-oss-20b.json` | The 13-row placeholder from before the recapture; superseded by `..._gpt-oss-20b-recapture.json`, kept for the record | R7 |
+| `2026-09-17_qwen3.6-35b-a3b.json` | **Retired backbone re-run**, Qwen3.6-35B-A3B on an eval instance, current harness: `run_all` header with the driver's provenance (AWQ-4bit checkpoint, `qwen3_xml` parser, thinking on, Qwen sampling, decode/prefill tok/s, KV pool, egress) and the certification verdict (FAIL on the `pong` probe only: empty final message) | R1, R7 |
+| `2026-09-17_harness-ablation-qwen3.6-35b-a3b.json` | Three-arm ablation on Qwen3.6, n=199 paired, current harness, bare at 16,384 tokens: agentic 0.869, agentic − bare +0.533 (07-27: +0.538). Question-paired against Qwen3.8's 08-26 arm: −0.005, p=0.93 | R1, R7 |
+| `2026-09-17_harness-ablation-agentic-egressoff-qwen3.6-35b-a3b.json` | Agentic arm at `egress=off` on Qwen3.6 (0.704), same day and commit as the `full` arm, so full − off (+0.166) is egress alone; bare/rag copied for the paired deltas | R1 |
+| `2026-09-17_harness-ablation-agentic-egressoff-gpt-oss-20b.json` | Agentic arm at `egress=off` on gpt-oss-20b (0.482): full − off +0.080 p=0.02, and agentic(off) − bare +0.075 [−0.010, +0.161] p=0.10, the corpus-only harness effect not distinguishable from zero on this backbone | R1, R7 |
+| `2026-09-17_toolreliability-qwen3.6-35b-a3b-egressoff_toolreliability.json`, `..._gpt-oss-20b-egressoff_toolreliability.json` | T11 over the two `off` arms (Qwen3.6 10.5 calls/q recovery 1.000; gpt-oss 7.4 calls/q recovery 0.965, the first sub-1.000 recovery, with 5 unrepaired tool names) | R1, R6 |
+| `2026-09-17_harness-ablation-faithfulness-qwen3.6-35b-a3b.json` | Per-arm paired faithfulness on Qwen3.6 with complete contexts (n=199 agentic, 198 RAG): agentic 0.627 vs RAG 0.290, +0.336 p<0.001. Supersedes the 07-27 file for claim 2 on this backbone; paired against the Qwen3.8 recapture +0.088 p<0.001 | R2, R7 |
+| `2026-09-17_answer-qwen3.6-35b-a3b-900s.json` | Standalone answer track on Qwen3.6, current harness, 900 s: 0.874, 174/9/16/0; per-query arrays pair with the 07-24, 09-14 and 09-16 files | R5, R7 |
+| `2026-09-17_abstention-c1-fabricated-qwen3.6-35b-a3b.json` | C1 on Qwen3.6, current harness: 98 correct abstentions, 2 possible confabulations, 0 confabulated local cites, 10.3 calls/item | R3, R7 |
+| `2026-09-17_abstention-c2-shadow-qwen3.6-35b-a3b.json` | C2b paired shadow pair on Qwen3.6 at `egress=off`, current harness with the chunk shadow: correct abstention 0.875 on 32 answerable (the largest base of any pair), question-paired against the 09-15 Qwen3.8 pair −0.014 p=0.85 | R3, R7 |
+| `2026-09-17_risk-coverage-qwen3.6-35b-a3b.json` | Six operating points on Qwen3.6, all from one run on one harness commit (ablation, C1, C2b of 09-17) | R3, R7 |
+| `2026-09-17_toolreliability-qwen3.6-35b-a3b_toolreliability.json` | T11 on Qwen3.6 at `egress=full`, current harness: 7.33 calls/q, error 0.065, recovery 1.000, web-heavy mix like Qwen3.8's | R6, R7 |
+| `2026-09-18_routing-qwen3.6-35b-a3b-2026-09-17.json` | Routing anchor tier on Qwen3.6: pass rate 0.816 [0.65, 0.98]. The deploy gate; not a paper number | R7 |
 | `2026-07-27_toolreliability-clean.json` | Tool-use telemetry over the Qwen3.6 clean run. `web_fetch` error rate not comparable to 08-26 (failure definition changed between the runs) | R6 |
 
 ## Cautions when regenerating figures
@@ -128,6 +144,18 @@ facts live in top-level fields backfilled on 2026-09-15 (see
    predated those tools) while the RAG arm's abstracts were complete; their
    nulls are artifacts of that gap. The `*-recapture` files are the agentic
    arm re-captured with the complete set and judged against the same RAG arm.
+   The `2026-09-17_harness-ablation-faithfulness-qwen3.6-35b-a3b.json` file is
+   a complete-context capture from the start (the tool list was fixed before
+   that run), so it belongs with the recapture generation, not the first.
+
+10. **The 07-27 and 09-17 Qwen3.6 files are the same checkpoint on two
+   harnesses two months apart**, the reverse of caution 8's pair (same harness
+   date, two backbones). Within-file deltas are paired and clean; the 07-27
+   per-question verdicts for the agentic arm no longer exist (overwritten by
+   the 08-26 run before the per-tag layout), so any 07-27 vs 09-17 comparison
+   is of marginals. Prefer the 09-17 files for every Qwen3.6 number: they are
+   under the protocol the other two backbones ran under, with the bare arm at
+   16,384 tokens and the chunk-level shadow.
    Quote only the recapture files for claim 2; the Qwen3.6 file cannot be
    recaptured (checkpoint retired).
 10. **Bare and RAG arms on gpt-oss-20b are dominated by `no_final_message`.**

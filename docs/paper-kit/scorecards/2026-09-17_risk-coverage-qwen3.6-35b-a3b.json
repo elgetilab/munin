@@ -1,0 +1,159 @@
+{
+  "track": "risk-coverage",
+  "points": [
+    {
+      "n": 199,
+      "coverage": 0.7337,
+      "coverage_ci": [
+        0.6734,
+        0.799
+      ],
+      "selective_risk": 0.5411,
+      "selective_risk_ci": [
+        0.4595,
+        0.6207
+      ],
+      "abstain": 45,
+      "unparseable": 8,
+      "correct": 67,
+      "incorrect": 79,
+      "population": "litqa2-answerable",
+      "arm": "bare",
+      "desired": "answer",
+      "source": "ablation_runs/qwen3.6-35b-a3b/bare.json",
+      "captured": "2026-09-17",
+      "egress": "n/a-no-tools"
+    },
+    {
+      "n": 199,
+      "coverage": 0.2513,
+      "coverage_ci": [
+        0.191,
+        0.3166
+      ],
+      "selective_risk": 0.5,
+      "selective_risk_ci": [
+        0.3621,
+        0.6415
+      ],
+      "abstain": 149,
+      "unparseable": 0,
+      "correct": 25,
+      "incorrect": 25,
+      "population": "litqa2-answerable",
+      "arm": "rag",
+      "desired": "answer",
+      "source": "ablation_runs/qwen3.6-35b-a3b/rag.json",
+      "captured": "2026-09-17",
+      "egress": "n/a-no-tools"
+    },
+    {
+      "n": 199,
+      "coverage": 0.9347,
+      "coverage_ci": [
+        0.8995,
+        0.9648
+      ],
+      "selective_risk": 0.0699,
+      "selective_risk_ci": [
+        0.037,
+        0.1075
+      ],
+      "abstain": 13,
+      "unparseable": 0,
+      "correct": 173,
+      "incorrect": 13,
+      "population": "litqa2-answerable",
+      "arm": "agentic",
+      "desired": "answer",
+      "source": "ablation_runs/qwen3.6-35b-a3b/agentic.json",
+      "captured": "2026-09-17",
+      "egress": "full"
+    },
+    {
+      "n": 50,
+      "coverage": 0.7,
+      "coverage_ci": [
+        0.58,
+        0.82
+      ],
+      "selective_risk": 0.0857,
+      "selective_risk_ci": [
+        0.0,
+        0.1935
+      ],
+      "abstain": 15,
+      "unparseable": 0,
+      "correct": 32,
+      "incorrect": 3,
+      "population": "c2-present",
+      "arm": "agentic",
+      "desired": "answer",
+      "source": "c2_runs/qwen3.6-35b-a3b/present.verdicts.json",
+      "captured": "2026-09-18",
+      "egress": "off"
+    },
+    {
+      "n": 50,
+      "coverage": 0.14,
+      "coverage_ci": [
+        0.06,
+        0.24
+      ],
+      "selective_risk": 0.7143,
+      "selective_risk_ci": [
+        0.3333,
+        1.0
+      ],
+      "abstain": 43,
+      "unparseable": 0,
+      "correct": 2,
+      "incorrect": 5,
+      "population": "c2-absent",
+      "arm": "agentic",
+      "desired": "abstain",
+      "source": "c2_runs/qwen3.6-35b-a3b/absent.verdicts.json",
+      "captured": "2026-09-18",
+      "egress": "off"
+    },
+    {
+      "n": 100,
+      "coverage": 0.02,
+      "coverage_ci": [
+        0.0,
+        0.05
+      ],
+      "selective_risk": 1.0,
+      "selective_risk_ci": [
+        0.0,
+        1.0
+      ],
+      "abstain": 98,
+      "unparseable": 0,
+      "correct": 0,
+      "incorrect": 2,
+      "population": "c1-fabricated",
+      "arm": "agentic",
+      "desired": "abstain",
+      "source": "scorecards/2026-09-17_abstention-c1-fabricated-qwen3.6-35b-a3b.json",
+      "captured": "2026-09-18",
+      "egress": "full"
+    }
+  ],
+  "provenance": {
+    "capture_dates": [
+      "2026-09-17",
+      "2026-09-18"
+    ],
+    "egress_settings": [
+      "full",
+      "off"
+    ],
+    "mixed_generations": true,
+    "mixed_egress": true,
+    "note": "All points must share a harness generation AND an egress setting before being plotted on shared axes. MIXED CAPTURE DATES + MIXED EGRESS SETTINGS -- DO NOT PLOT AS-IS."
+  },
+  "ablation_runs_dir": "ablation_runs/qwen3.6-35b-a3b",
+  "c2_runs_dir": "c2_runs/qwen3.6-35b-a3b",
+  "date": "2026-09-17"
+}

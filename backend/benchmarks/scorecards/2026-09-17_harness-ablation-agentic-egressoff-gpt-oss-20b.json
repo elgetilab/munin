@@ -1,0 +1,150 @@
+{
+  "track": "harness-ablation",
+  "n_paired": 199,
+  "git_sha": "cb8faa5",
+  "date": "2026-09-17",
+  "runs_dir": "ablation_runs/gpt-oss-20b-egressoff",
+  "arm_meta": {
+    "bare": {
+      "arm": "bare",
+      "n": 199,
+      "tag": "gpt-oss-20b",
+      "base_url": "http://127.0.0.1:8001",
+      "egress": "n/a-no-tools",
+      "model": "gpt-oss-20b",
+      "git_sha": "6ad5c26",
+      "deadline_s": null,
+      "reasoning_effort": "medium",
+      "max_output_tokens": 16384,
+      "finished_at": "2026-09-15T23:30:50Z"
+    },
+    "rag": {
+      "arm": "rag",
+      "n": 199,
+      "tag": "gpt-oss-20b",
+      "base_url": "http://127.0.0.1:8001",
+      "egress": "n/a-no-tools",
+      "model": "gpt-oss-20b",
+      "git_sha": "6ad5c26",
+      "deadline_s": null,
+      "reasoning_effort": "medium",
+      "max_output_tokens": 16384,
+      "finished_at": "2026-09-15T23:34:38Z"
+    },
+    "agentic": {
+      "arm": "agentic",
+      "n": 199,
+      "tag": "gpt-oss-20b-egressoff",
+      "base_url": "http://127.0.0.1:8082",
+      "egress": "off",
+      "model": "gpt-oss-20b",
+      "git_sha": "cb8faa5",
+      "deadline_s": 900,
+      "reasoning_effort": "medium",
+      "max_output_tokens": 16384,
+      "finished_at": "2026-09-17T10:35:47Z"
+    }
+  },
+  "per_arm": {
+    "bare": {
+      "accuracy": 0.40703517587939697,
+      "abstain_rate": 0.03015075376884422,
+      "precision_of_attempted": 0.48214285714285715,
+      "verdicts": {
+        "incorrect": 87,
+        "unparseable": 25,
+        "correct": 81,
+        "abstain": 6
+      },
+      "unparseable_reasons": {
+        "empty_content": 25
+      },
+      "empty_kinds": {
+        "no_final_message": 25
+      },
+      "tool_markup_in_content": 0,
+      "deadline_hits": 0,
+      "cost": {
+        "mean_prompt_tokens": 213.1,
+        "mean_completion_tokens": 683.5,
+        "mean_elapsed_s": 2.4,
+        "mean_tool_calls": 0.0
+      }
+    },
+    "rag": {
+      "accuracy": 0.10050251256281408,
+      "abstain_rate": 0.06030150753768844,
+      "precision_of_attempted": 0.8,
+      "verdicts": {
+        "unparseable": 162,
+        "correct": 20,
+        "abstain": 12,
+        "incorrect": 5
+      },
+      "unparseable_reasons": {
+        "empty_content": 162
+      },
+      "empty_kinds": {
+        "no_final_message": 162
+      },
+      "tool_markup_in_content": 0,
+      "deadline_hits": 0,
+      "cost": {
+        "mean_prompt_tokens": 1439.7,
+        "mean_completion_tokens": 265.7,
+        "mean_elapsed_s": 1.0,
+        "mean_tool_calls": 0.0
+      }
+    },
+    "agentic": {
+      "accuracy": 0.4824120603015075,
+      "abstain_rate": 0.38190954773869346,
+      "precision_of_attempted": 0.8275862068965517,
+      "verdicts": {
+        "correct": 96,
+        "abstain": 76,
+        "incorrect": 20,
+        "unparseable": 7
+      },
+      "unparseable_reasons": {
+        "empty_content": 2,
+        "letter_not_found": 5
+      },
+      "empty_kinds": {},
+      "tool_markup_in_content": 0,
+      "deadline_hits": 0,
+      "cost": {
+        "mean_prompt_tokens": null,
+        "mean_completion_tokens": null,
+        "mean_elapsed_s": 21.3,
+        "mean_tool_calls": 7.4
+      }
+    }
+  },
+  "deltas": {
+    "rag_minus_bare": {
+      "delta": -0.3065,
+      "ci": [
+        -0.3769,
+        -0.2312
+      ],
+      "p": 0.0
+    },
+    "agentic_minus_rag": {
+      "delta": 0.3819,
+      "ci": [
+        0.3114,
+        0.4573
+      ],
+      "p": 0.0
+    },
+    "agentic_minus_bare": {
+      "delta": 0.0754,
+      "ci": [
+        -0.0101,
+        0.1608
+      ],
+      "p": 0.1
+    }
+  }
+}

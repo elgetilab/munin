@@ -1,0 +1,75 @@
+{
+  "n_queries": 199,
+  "n_queries_with_tool_events": 196,
+  "total_tool_calls": 1465,
+  "mean_calls_per_query": 7.36,
+  "error_rate": 0.0471,
+  "degraded_rate": 0.0608,
+  "n_queries_with_failure": 57,
+  "recovery_rate": 0.9649,
+  "per_tool": {
+    "search": {
+      "calls": 1251,
+      "errors": 55,
+      "degraded": 55,
+      "error_rate": 0.044,
+      "degraded_rate": 0.044
+    },
+    "source": {
+      "calls": 183,
+      "errors": 6,
+      "degraded": 6,
+      "error_rate": 0.0328,
+      "degraded_rate": 0.0328
+    },
+    "web_search": {
+      "calls": 20,
+      "errors": 0,
+      "degraded": 20,
+      "error_rate": 0.0,
+      "degraded_rate": 1.0
+    },
+    "searchjson": {
+      "calls": 3,
+      "errors": 3,
+      "degraded": 3,
+      "error_rate": 1.0,
+      "degraded_rate": 1.0
+    },
+    "web_fetch": {
+      "calls": 3,
+      "errors": 3,
+      "degraded": 3,
+      "error_rate": 1.0,
+      "degraded_rate": 1.0
+    },
+    "paper_lookup": {
+      "calls": 2,
+      "errors": 0,
+      "degraded": 0,
+      "error_rate": 0.0,
+      "degraded_rate": 0.0
+    },
+    "finish_output": {
+      "calls": 1,
+      "errors": 1,
+      "degraded": 1,
+      "error_rate": 1.0,
+      "degraded_rate": 1.0
+    },
+    "export_citations": {
+      "calls": 1,
+      "errors": 0,
+      "degraded": 0,
+      "error_rate": 0.0,
+      "degraded_rate": 0.0
+    },
+    "search.json": {
+      "calls": 1,
+      "errors": 1,
+      "degraded": 1,
+      "error_rate": 1.0,
+      "degraded_rate": 1.0
+    }
+  }
+}

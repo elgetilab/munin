@@ -370,7 +370,7 @@ As of 2026-09-17:
 |---|---|
 | Canonical results log | `backend/benchmarks/RESULTS.md` |
 | Claim-to-scorecard index | `PAPER.md` |
-| Scorecards (67 JSON, 49 Markdown; the `2026-08-26_*`, `2026-09-14_*` and `2026-09-15_*` files are the current headline) | `backend/benchmarks/scorecards/` |
+| Scorecards (97 JSON, 57 Markdown; the `2026-08-26_*`, `2026-09-14_*` and `2026-09-15_*` files are the current headline, the `2026-09-16_*gpt-oss*` and `2026-09-17_*qwen3.6*` files the other two backbones on the same protocol) | `backend/benchmarks/scorecards/` |
 | Benchmark harness | `backend/benchmarks/munin_bench/` |
 | Certification thresholds | `backend/benchmarks/certification_thresholds.json` |
 | Paper track: plans, specs, open items | `docs/paper-track/` |
@@ -407,5 +407,5 @@ What a third party can and cannot reproduce, stated honestly:
 | LitQA2 answer runs | Require the ~68k-paper private corpus and the deployed harness |
 | The shadow-corpus experiment | Requires the private corpus and a second retrieval instance |
 | Exact wall-clock costs | Hardware-specific (2x RTX 5090 at TP=2, `--max-num-seqs 8`; the Qwen3.6 figures are on one card at `--max-num-seqs 2`) |
-| The Qwen3.6 column of any table | That checkpoint is retired. Its numbers are reproducible **from artifacts** (archived per-query verdicts, committed scorecards) but not re-runnable, so no like-for-like Qwen3.6 figure can be produced for a protocol change made after 2026-08-25. |
+| The Qwen3.6 column of any table, without the eval-instance method | The checkpoint is retired from production but not gone: `scripts/run_suite.sh qwen3.6-35b-a3b` brought it back as an eval-only instance on 2026-09-17 and re-ran every track under the current protocol (`2026-09-17_*qwen3.6-35b-a3b*`). The 07-27 numbers remain reproducible from artifacts only; quote the 09-17 files for a like-for-like figure. |
 | Benchmark data files | Never committed, for size and licence reasons; each dataset has a download script with a checksum so `data/` rebuilds deterministically |

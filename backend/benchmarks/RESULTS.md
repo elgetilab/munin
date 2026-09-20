@@ -1006,7 +1006,7 @@ reads PMC through NCBI's efetch API instead of the page that blocks it (ok rate
 on 24 real search URLs 0.50 -> 0.71). These numbers therefore describe the tool
 layer **as it was during the comparison**, not as it ships. Re-running T11 on
 the fixed tools would measure the shipped system but would not be comparable to
-the Qwen3.6 arm, which cannot be re-run at all.
+the Qwen3.6 arm (which was, in the end, re-run on 2026-09-17: see that section).
 
 ### Provenance and caveats
 
@@ -1494,9 +1494,291 @@ recaptured arms against the copied RAG arms), `2026-09-16_toolreliability-qwen38
 `2026-09-16_toolreliability-gpt-oss-20b-recapture_toolreliability.json`.
 Per-query: `ablation_runs/qwen38-27b-recapture/`, `ablation_runs/gpt-oss-20b-recapture/`
 (each with a README naming the copied RAG arm). The Qwen3.6 per-arm
-faithfulness (07-27) cannot be recaptured (checkpoint retired) and keeps its
-caveat. Wall-clock: Qwen3.8 arm 6 h, judge 5 h; gpt-oss arm 1 h 40, judge
+faithfulness (07-27) was thought unrecapturable (checkpoint retired); the
+next section brings that checkpoint back on an eval instance and gives it a
+complete-context number (agentic 0.627). Wall-clock: Qwen3.8 arm 6 h, judge 5 h; gpt-oss arm 1 h 40, judge
 3 h 45; two production restarts (single at 18:34 UTC, TP=2 back at 00:04).
+
+## Retired backbone re-run: Qwen3.6-35B-A3B, full generation suite on an eval-only instance  · git `556b305` · 2026-09-17/18
+
+**Why.** Every Qwen3.6 number above is from July: a harness two months older
+(16 `backend/retrieval/` commits before 08-26 alone, then the search ladder,
+the grounded read stage, evidence mode and the new tools), a bare arm at
+4,096 tokens with 33 truncations, a faithfulness capture that never saw the
+`search`/`source` passages, no agentic arm at `egress=off`, and a
+reproduction table that said the checkpoint was retired and "no like-for-like
+Qwen3.6 figure can be produced for a protocol change made after 2026-08-25".
+The eval-instance method built for gpt-oss-20b removes that constraint: the
+same AWQ-4bit checkpoint (`cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit`, the one
+production served until 08-25) came up as `instance eval` on GPU 0 beside
+production, and `scripts/run_suite.sh qwen3.6-35b-a3b` ran every track under
+the protocol the other two backbones ran under. So the original backbone now
+has the full suite on the current harness, including the two cells it never
+had (complete-context faithfulness, corpus-only agentic arm), and the paper
+can put three backbones in one table without the July caveats.
+
+Instance: vLLM `--max-num-seqs 2`, util 0.88, `--tool-call-parser qwen3_xml`,
+`--reasoning-parser qwen3`, thinking on (`enable_thinking`; this model has no
+reasoning-effort dial), Qwen's sampling set (`temperature 1.0, top_p 0.95,
+top_k 20, min_p 0, presence_penalty 1.5`; code set `0.6 / 0.95 / 20 / 0 / 0`),
+64k window; gates recorded 204.9 tok/s decode, 20.7k tok/s prefill, KV pool
+252,781 tokens (3.86x the 2 x 65,536 needed), thinking-off token ratio 0.064.
+Retrieval container on :8082 `extends` production and differs only in the
+model variables and the tokenizer mount; shadow-corpus instance on :8083 for
+the C2b absent arm. Production stayed on Qwen3.8 (single-GPU profile for the
+window). Profile: `backend/config/models/qwen3.6-35b-a3b.env`.
+
+**What the harness needed before this model would run.** Two gates, both
+about thinking. The instance `completion` gate probed with 64 tokens and
+reasoning on; Qwen3.6 spent all 64 inside `<think>` and returned empty
+content, failing a gate meant to catch a dead server (`8dcf66d`: probe with
+the profile's thinking-off form and 512 tokens). The smoke gate failed on one
+bare answer in 20 that ran the 16,384-token budget out: with no effort dial
+this model truncates about 5% of bare prompts in smoke (2 of 199 in the full
+run), which is a per-arm finding (`empty_kind=truncated`) rather than a
+harness defect (`556b305`: the gate fails above 10%, not at one). No parser
+or scorer repair was needed: `qwen3_xml` produced 0 malformed tool names and
+0 markup leaks across the 3,549 calls of the two agentic arms.
+
+### Track D harness ablation (n=199, paired, `egress=full`)
+
+| arm | accuracy | precision of attempted | abstain | unparseable | mean s/q | calls/q |
+|---|---|---|---|---|---|---|
+| bare | 0.337 | 0.459 | 0.226 | 8 (6 `letter_not_found`, 2 truncated) | 15.7 | 0 |
+| RAG top-5 | 0.126 | 0.500 | 0.749 | 0 | 8.4 | 0 |
+| agentic | **0.869** | **0.930** | **0.065** | 0 | 67.0 | 7.3 |
+
+Paired bootstrap: **agentic − bare +0.533 [0.452, 0.613]**, agentic − RAG
++0.744 [0.683, 0.804], RAG − bare −0.211 [−0.281, −0.141], all p < 0.001.
+Zero deadline hits. Certification gate: the four LitQA2/C1/faithfulness
+thresholds skipped (run_all's own tracks were not in this call), the three
+ablation thresholds PASS, and one FAIL on `reliability/pong`: the behavioural
+probe routed to code and produced the HTML game 3/3 but the final assistant
+message was empty 3/3 (`non-empty final assistant content 0/3`). Recorded as
+the certification verdict; not a paper number, but it is the ship-blocker for
+this backbone behind the router (see the routing tier below).
+
+**Findings.**
+1. **The harness effect on this backbone reproduces to the third decimal
+   place on a harness two months newer.** agentic − bare +0.533 now against
+   +0.538 on 07-27, with the bare arm corrected (16,384 tokens, 8 unparseable
+   against 33) and the agentic arm making fewer calls (7.3 against 8.6) in
+   less time (67 s against 79 s). Agentic 0.869 (173 / 13 / 13 abstain)
+   against 0.839 (167 / 17 / 15): 6 more questions right, at abstain 0.065
+   against 0.075 and precision 0.930 against 0.908. The 07-27 per-question
+   verdicts were overwritten by the 08-26 run (same directory, before the
+   per-tag layout), so the run-to-run comparison is unpaired; the size of the
+   move is one CI half-width.
+2. **The two Qwen backbones are indistinguishable on accuracy, question-paired.**
+   Qwen3.6 0.869 against Qwen3.8's 08-26 headline 0.874: −0.005 [−0.050,
+   +0.040], p = 0.93; against the 09-16 Qwen3.8 recapture 0.869: +0.000
+   [−0.040, +0.040], p = 1.00. Against gpt-oss-20b's 0.563: +0.307 [+0.236,
+   +0.387]. The MoE with 3B active parameters and the 27B dense model reach
+   the same ceiling inside the harness; the harness, not the backbone, sets
+   it, and the July "Qwen3.6 vs Qwen3.8" gap (0.839 vs 0.874) was harness
+   drift plus the bare-arm budget, not the model.
+3. **Naive RAG hurts more on the current harness than it did in July**, 0.126
+   against 0.171: the same 149 abstentions, but the 50 attempted answers split
+   25 / 25 where the 07-27 run's 48 split 34 / 14. RAG − bare widens from
+   −0.131 to −0.211. The RAG prompt is frozen; the retrieval behind it is the
+   BGE-large top-5 either way. Unpaired, nine questions, and within the two
+   marginal CIs; recorded, not read.
+
+### Agentic arm at `egress=off` (corpus-only harness), n=199
+
+| arm | accuracy | abstain | precision of attempted | verdicts | s/q | calls/q |
+|---|---|---|---|---|---|---|
+| agentic, `egress=full` | 0.869 | 0.065 | 0.930 | 173 / 13 / 13 | 67.0 | 7.3 |
+| **agentic, `egress=off`** | **0.704** | 0.246 | **0.933** | **140 / 10 / 49** | 54.1 | 10.5 |
+
+Paired: agentic(off) − bare **+0.367 [0.271, 0.457]**, agentic(off) − RAG
++0.578 [0.508, 0.648], **agentic(full) − agentic(off) +0.166 [+0.101,
++0.226]**, all p < 0.001. Transitions full → off: 134 correct both ways, 34
+correct → abstain, 5 correct → incorrect, 6 the other way (4 incorrect →
+correct, 2 abstain → correct), 9 abstain both. Same day, same commit, so
+unlike the Qwen3.8 pair (08-26 full vs 09-15 off, 26 commits apart) this
+full − off delta is egress alone.
+
+The decomposition on Qwen3.6: 69% corpus-only agentic loop (+0.367 of
++0.533) and 31% external tiers (+0.166); on Qwen3.8 it was 57% / 43% (+0.276
+/ +0.211 of +0.487). The corpus-only arm abstains on a quarter of the
+questions at precision 0.933, the same "say so rather than guess" behaviour
+as Qwen3.8's `off` arm (0.276, precision 0.917). T11 at `off`
+(`2026-09-17_toolreliability-qwen3.6-35b-a3b-egressoff`): 2,091 calls, 10.5
+per query, error 0.016, recovery 1.000; `web_search` (171) and
+`semantic_scholar_search` (48) degraded 1.000 is the egress guard; `search`
+1,329 calls with 9 errors, `paper_search` 178, `source` 255, `paper_lookup`
+47 with 10 errors. Without the web the model searches the corpus about twice
+as hard (1,329 `search` against 597 at `full`).
+
+### The gpt-oss-20b arm at `egress=off`, n=199  · git `cb8faa5` · 2026-09-17
+
+Run in the same chain, before the Qwen3.6 suite, to fill the same cell on the
+third backbone (`ablation_runs/gpt-oss-20b-egressoff/`; bare and RAG copied
+from the 09-16 run).
+
+| arm | accuracy | abstain | precision of attempted | verdicts | s/q | calls/q |
+|---|---|---|---|---|---|---|
+| agentic, `egress=full` (09-16) | 0.563 | 0.342 | 0.896 | 112 / 13 / 68 / 6 unparseable | 29.3 | 8.8 |
+| **agentic, `egress=off`** | **0.482** | 0.382 | 0.828 | **96 / 20 / 76 / 7 unparseable** | 21.3 | 7.4 |
+
+Paired: agentic(full) − agentic(off) **+0.080 [+0.015, +0.146], p = 0.02**;
+agentic(off) − RAG +0.382 [0.311, 0.457]; **agentic(off) − bare +0.075
+[−0.010, +0.161], p = 0.10**. Transitions full → off: 82 correct both, 47
+abstain both, 20 correct → abstain, 8 correct → incorrect, 2 correct →
+unparseable; 9 abstain → correct, 3 incorrect → correct, 2 unparseable →
+correct.
+
+**Reading it.** On gpt-oss-20b the corpus-only harness is **not
+distinguishable from the bare model** on accuracy (+0.075, CI crosses zero);
+what it changes is the error mode (bare: 87 wrong / 6 abstain; off: 20 wrong
+/ 76 abstain, precision 0.48 → 0.83). The external tiers add +0.080, half of
+what they add on Qwen3.6 (+0.166) and Qwen3.8 (+0.211). So the third
+backbone's smaller harness effect (+0.156 at `full`) is smaller in both
+halves, and the corpus-only half is the one that vanishes. T11 at `off`:
+1,465 calls, 7.36 per query, error 0.047, degraded 0.061, **recovery 0.965**
+(2 of 57 failing queries not recovered, the first sub-1.000 recovery on any
+arm); `search` 1,251 calls with 55 errors, and 5 calls to tool names the
+repair did not catch (`searchjson` x3, `search.json`, `finish_output`). The
+full − off delta here pairs the 09-16 `full` arm (git `6ad5c26`) with a
+09-17 `off` arm one day and one driver commit later; clean enough.
+
+### Standalone LitQA2 answer track (n=199, 900 s, `egress=full`)
+
+**0.874 [0.824, 0.920]**, precision of attempted 0.951 [0.918, 0.978];
+174 correct / 9 wrong / 16 abstain / 0 unparseable / 0 errors / 0
+truncations. Agrees with the ablation agentic arm (0.869) within noise, as it
+did on every backbone so far. Qwen3.6 on 07-24: 0.864 (172 / 15 / 12);
+Qwen3.8 on 09-14: 0.884; gpt-oss: 0.528. The scorecard header's caveat
+string names Qwen3.8 (it is hard-coded in the runner); the `model` field and
+the provenance block are correct.
+
+### Track C1 fabricated papers (n=100, `egress=full`)
+
+Correct refusal **0.98 [0.95, 1.00]**, 2 possible confabulations, 0
+ambiguous, **0 confabulated local citations**. Fabricated DOI 79/80 refused,
+by-description 19/20. Mean 10.3 tool calls per item (Qwen3.8: 5.6; gpt-oss:
+9.2). 07-27, same backbone: 0.97 with 2 possible confabulations and 1
+ambiguous, 10.8 calls. Qwen3.8: 1.000 with 0. Every backbone: 0 confabulated
+local citations.
+
+### Track C2b paired shadow corpus (n=50 x 2, `egress=off`)
+
+present arm 0.64 [0.50, 0.76] accuracy, abstain 0.30; absent arm 0.04 [0.00,
+0.10], abstain 0.86. On the **32** questions the present arm answered
+correctly (the largest answerable base of any pair: Qwen3.8 27, gpt-oss 20),
+removing the source produced 28 correct abstentions, 1 still correct without
+the source, 3 newly wrong: **correct abstention 0.875 [0.75, 0.97]** (Wilson
+[0.72, 0.95]). Question-paired against the 09-15 Qwen3.8 pair (0.889): delta
+−0.014 [−0.154, +0.134], p = 0.85, within noise. On 07-27 the same backbone
+gave 0.667 on 27 answerable (18 / 4 / 5) on the July harness with only the
+paper-level shadow, so the +0.208 to 0.875 is the harness (the chunk-level
+shadow and the grounded read stage, as the Qwen3.8 09-15 re-run also found),
+not the model: both Qwen backbones now sit at 0.88 to 0.89 on the current
+harness, gpt-oss at 0.80.
+
+### Faithfulness per arm (MiniCheck, complete contexts), n=199
+
+| arm | % claims supported | n scoreable |
+|---|---|---|
+| RAG top-5 | 0.290 [0.252, 0.328] | 198 |
+| **agentic** | **0.627 [0.589, 0.660]** | 199 |
+
+**Paired agentic − RAG +0.336 [+0.280, +0.388], p < 0.001** (n = 198). This
+is the first complete-context faithfulness number on Qwen3.6; the 07-27 file
+(RAG 0.326 / agentic 0.340, "null") judged the agentic arm without its
+`search`/`source` passages and is superseded by this one for claim 2, the
+same way the 08-26 Qwen3.8 file was superseded by the 09-16 recapture. The
+three backbones on complete contexts: Qwen3.6 **0.627**, Qwen3.8 0.540,
+gpt-oss 0.392 (agentic); question-paired against the Qwen3.8 recapture, the
+Qwen3.6 agentic arm is more grounded by **+0.088 [+0.037, +0.137], p <
+0.001**, the one place the two Qwen backbones separate: same accuracy, more
+of the claims traceable to a passage the model read. The RAG arms agree
+(0.290 vs 0.282). Cost: 1,028 agentic claims against 7,531 context chunks
+(51,700 claim-chunk pairs, the most of any capture; Qwen3.8 recapture
+39,500), 5 h 47 min on CPU.
+
+### Derived
+
+- **T11 at `egress=full`** (`2026-09-17_toolreliability-qwen3.6-35b-a3b`):
+  1,458 calls, 7.33 per query, error 0.065, degraded 0.312, **recovery
+  1.000**. `search` 597 (3 errors), `web_search` 362 (degraded 1.000 is the
+  telemetry marking every Brave call; 0 402/429 in the instance log),
+  `source` 224, `web_fetch` 208 with 83 errors (0.40; Qwen3.8 0.56, gpt-oss
+  0.56: the paywall rate of the pages the models pick), `paper_lookup` 46,
+  `semantic_scholar_search` 12; 2 `set_plan` and 2 `update_plan_item` calls
+  errored (the planning tools, in a headless eval chat; not chased). The tool mix is
+  Qwen3.8's (web-heavy: 362 `web_search` against gpt-oss's 17), not
+  gpt-oss's. Brave spend for the agentic arm about $6.5.
+- **Risk-coverage** (six points, `2026-09-17_risk-coverage-qwen3.6-35b-a3b`):
+  agentic coverage 0.935 / selective risk 0.070 (07-27 same backbone: 0.925
+  / 0.092; Qwen3.8: 0.925 / 0.054; gpt-oss: 0.628 / 0.104); bare 0.734 /
+  0.541; RAG 0.251 / 0.500; c2-present 0.700 / 0.086; c2-absent 0.140 /
+  0.714 (7 answered); c1 0.020 / 1.000 (2 answered, both wrong; read on
+  coverage only). Same mixed-egress caveat as every other risk-coverage
+  file, but for the first time all six points come from one run on one
+  harness commit.
+- **Routing anchor tier**: pass rate **0.816 [0.65, 0.98]** over 17 items, 8
+  reps (Qwen3.8: 0.963; gpt-oss: 0.647). Failures: `group_corpus_qa` 0/8
+  (first tool `search`, expected `paper_search`), `compare_known_dois` 2/8
+  and `known_doi_read` 6/8 (does not call `source` on a given DOI),
+  `deep_research` 0/8. The deploy gate, not a paper number; with the `pong`
+  empty-final-message failure it says this backbone would need its persona
+  re-tuned before shipping behind the router again.
+- The driver's `compare` step against the 08-26 file fails
+  (`KeyError: 'tasks'`: that file is an ablation scorecard, not a `run_all`
+  header) and is `|| true`; the question-paired numbers in finding 2 above
+  were computed from the per-question arrays directly.
+
+### Provenance and caveats
+
+- Scorecards: `2026-09-17_qwen3.6-35b-a3b.json` (run_all header with the
+  driver's provenance and the certification verdict),
+  `2026-09-17_harness-ablation-qwen3.6-35b-a3b.json`,
+  `..._harness-ablation-agentic-egressoff-qwen3.6-35b-a3b.json`,
+  `..._harness-ablation-agentic-egressoff-gpt-oss-20b.json`,
+  `..._harness-ablation-faithfulness-qwen3.6-35b-a3b.json`,
+  `..._answer-qwen3.6-35b-a3b-900s.json`,
+  `..._abstention-c1-fabricated-qwen3.6-35b-a3b.json`,
+  `..._abstention-c2-shadow-qwen3.6-35b-a3b.json`,
+  `..._risk-coverage-qwen3.6-35b-a3b.json`,
+  `..._toolreliability-qwen3.6-35b-a3b_toolreliability.json`,
+  `..._toolreliability-qwen3.6-35b-a3b-egressoff_toolreliability.json`,
+  `..._toolreliability-gpt-oss-20b-egressoff_toolreliability.json`,
+  `2026-09-18_routing-qwen3.6-35b-a3b-2026-09-17.json`. All in both scorecard
+  folders; the smoke scorecard (`2026-09-17_qwen3.6-35b-a3b-smoke.json`,
+  20 questions, gate only) stays in `backend/benchmarks/scorecards/`.
+  Per-query arrays: `ablation_runs/qwen3.6-35b-a3b/`,
+  `ablation_runs/qwen3.6-35b-a3b-egressoff/`,
+  `ablation_runs/gpt-oss-20b-egressoff/`, `c1_runs/qwen3.6-35b-a3b/`,
+  `c2_runs/qwen3.6-35b-a3b/`, `results/litqa2/answer.qwen3.6-35b-a3b.*`;
+  every gate and every step in `runs/qwen3.6-35b-a3b/driver.log`, the
+  full-vs-off tests in `runs/*/egress-full-vs-off.json`.
+- This is the July checkpoint on the September harness; against the 07-27
+  numbers the backbone is held fixed and the harness moves, the reverse of
+  the 08-26 comparison. Against Qwen3.8 and gpt-oss the harness commit is
+  within a day (`556b305` vs `cb8faa5` for the gpt-oss `off` arm; the
+  Qwen3.8 09-16 recapture is `1380524`).
+- Every track at concurrency 1 on a GPU nobody else used; the cost columns
+  are clean. 0 Brave 402/429 responses during the suite.
+- Wall-clock: smoke 1 h (the first pass failed the bare-truncation gate and
+  is what produced `556b305`), Track D 5 h 02 (bare 52 min, RAG 29 min,
+  agentic 3 h 42), `egress=off` arm 3 h 00, C1 3 h 06, answer track 4 h 02,
+  C2b 2 h 25, faithfulness on CPU 5 h 47, derived 1 h 20 (the routing tier
+  is 136 chats), teardown 2 min: about 26 h of instance time. **One
+  interruption**: the host reset at 07:38 on 09-18, 17 min into the
+  faithfulness phase. The vLLM jobs came back under SLURM; the two retrieval
+  containers did not (`restart: "no"`, by design) and were recreated with
+  `deploy.sh instance refresh eval` / `refresh eval-shadow` (all gates PASS
+  on both); re-running the same driver command skipped phases 0 to 3d on
+  their markers, re-scored the smoke phase from its captures (now PASS under
+  `556b305`) and ran 3e, 3f and the teardown. The re-scored smoke scorecard
+  picked up the driver's default `gpu_mem_util=0.80` in its provenance;
+  corrected by hand to the 0.88 the instance ran at. Production was back on
+  TP=2 at 19:13 (job 1009).
+- Two harness variables moved between this and the 07-27 run beside the
+  commits: the bare arm's token budget (4,096 → 16,384) and the chunk-level
+  shadow for C2b. Neither affects the within-run paired deltas.
 
 ## Reproduce
 
@@ -1526,7 +1808,10 @@ with the ablation arm within noise); **C1 re-run on Qwen3.8 2026-09-14
 (100/100 abstain, 0 confabulated local cites)**; **C2b re-run on Qwen3.8
 2026-09-15 (correct abstention 0.889, absent-arm accuracy 0.04) and
 risk-coverage re-derived**, so every headline is now on the production
-backbone;
+backbone; **Qwen3.6 full suite re-run 2026-09-17/18** on an eval
+instance under the current protocol (every track, incl. complete-context
+faithfulness 0.627 and an `egress=off` arm), so the retired backbone is no
+longer frozen at its July numbers;
 Track A is model-independent and current; **Track C is still on the retired
 Qwen3.6** and needs the `papers_shadow` collection rebuilt plus the :8081
 instance to re-run C2b. Status table: `README.md`.

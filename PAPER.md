@@ -207,8 +207,12 @@ answered. Same direction and size as Qwen3.8, underpowered by the RAG arm's
 silence (claim 1). Consistent with, not a replication.
 
 **On the retired Qwen3.6**: the 07-27 per-arm numbers (RAG 0.326, agentic
-0.340, null) have the same capture gap and cannot be re-captured. Keep them
-only with that caveat, or drop them from the faithfulness table.
+0.340, null) have the same capture gap. The checkpoint was brought back on an
+eval instance on 2026-09-17 and re-captured with the complete tool set:
+**agentic 0.627 [0.589, 0.660] vs RAG 0.290 [0.252, 0.328], paired +0.336
+[+0.280, +0.388], p < 0.001** (n = 198). The most grounded of the three
+backbones, and question-paired against the Qwen3.8 recapture +0.088 [+0.037,
++0.137], p < 0.001. Drop the 07-27 file from the faithfulness table.
 
 The bare arm is structurally unscoreable (no retrieved context to entail
 against). Absolute levels are judged by a sub-1B entailment model whose
@@ -218,7 +222,8 @@ literalness under-counts claims supported by two passages jointly
 Scorecards: `scorecards/2026-09-16_harness-ablation-faithfulness-qwen38-recapture.json`
 (current), `scorecards/2026-09-16_harness-ablation-faithfulness-gpt-oss-20b-recapture.json`,
 `scorecards/2026-08-26_harness-ablation-faithfulness.json` (superseded, incomplete
-contexts), `scorecards/2026-07-27_harness-ablation-faithfulness.json` (Qwen3.6, same gap).
+contexts), `scorecards/2026-09-17_harness-ablation-faithfulness-qwen3.6-35b-a3b.json`
+(Qwen3.6, complete contexts, supersedes `2026-07-27_harness-ablation-faithfulness.json`).
 
 ## 3. Abstention behaviour (the novel benchmark)
 

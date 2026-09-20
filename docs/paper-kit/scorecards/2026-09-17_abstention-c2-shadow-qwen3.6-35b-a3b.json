@@ -1,0 +1,138 @@
+{
+  "n_paired": 50,
+  "present": {
+    "accuracy": 0.64,
+    "abstain_rate": 0.3,
+    "accuracy_ci": {
+      "rate": 0.64,
+      "n": 50,
+      "bootstrap": {
+        "ci_low": 0.5,
+        "ci_high": 0.76,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.5014101687611269,
+        "ci_high": 0.7586125034815326
+      }
+    },
+    "abstain_rate_ci": {
+      "rate": 0.3,
+      "n": 50,
+      "bootstrap": {
+        "ci_low": 0.18,
+        "ci_high": 0.44,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.19103553500880951,
+        "ci_high": 0.437503504644534
+      }
+    }
+  },
+  "absent": {
+    "accuracy": 0.04,
+    "abstain_rate": 0.86,
+    "accuracy_ci": {
+      "rate": 0.04,
+      "n": 50,
+      "bootstrap": {
+        "ci_low": 0.0,
+        "ci_high": 0.1,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.011038884327619798,
+        "ci_high": 0.13460090687507023
+      }
+    },
+    "abstain_rate_ci": {
+      "rate": 0.86,
+      "n": 50,
+      "bootstrap": {
+        "ci_low": 0.76,
+        "ci_high": 0.94,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.7381380628941446,
+        "ci_high": 0.9304916657298371
+      }
+    }
+  },
+  "answerable_n": 32,
+  "on_answerable_when_source_removed": {
+    "correct_abstention": 28,
+    "answered_still_correct": 1,
+    "answered_now_wrong": 3,
+    "correct_abstention_rate": 0.875,
+    "correct_abstention_rate_ci": {
+      "rate": 0.875,
+      "n": 32,
+      "bootstrap": {
+        "ci_low": 0.75,
+        "ci_high": 0.96875,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.7193169451834978,
+        "ci_high": 0.9502986561251991
+      }
+    },
+    "answered_still_correct_rate_ci": {
+      "rate": 0.03125,
+      "n": 32,
+      "bootstrap": {
+        "ci_low": 0.0,
+        "ci_high": 0.09375,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.005537860164003122,
+        "ci_high": 0.15744263820012558
+      }
+    },
+    "answered_now_wrong_rate_ci": {
+      "rate": 0.09375,
+      "n": 32,
+      "bootstrap": {
+        "ci_low": 0.0,
+        "ci_high": 0.21875,
+        "n_resamples": 2000,
+        "seed": 42
+      },
+      "wilson": {
+        "ci_low": 0.032401551298366194,
+        "ci_high": 0.24218154728387864
+      }
+    },
+    "correct_abstention_rate_ci_unconditional": {
+      "ci_low": 0.75,
+      "ci_high": 0.9706092436974789,
+      "n_resamples": 2000,
+      "seed": 42,
+      "empty_resamples": 0,
+      "note": "resamples the full paired set and re-derives the answerable subset each time, so it carries the uncertainty in which questions are answerable as well as in the abstention rate"
+    }
+  },
+  "date": "2026-09-17",
+  "git_sha": "556b305",
+  "correct_abstention_vs_c2_runs": {
+    "old_rate": 0.8888888888888888,
+    "new_rate": 0.875,
+    "delta": -0.01388888888888884,
+    "ci_low": -0.1538771712158809,
+    "ci_high": 0.1339619565217388,
+    "p_value_two_sided": 0.849,
+    "n_paired_questions": 50,
+    "n_resamples": 2000,
+    "seed": 42,
+    "dropped_resamples": 0
+  }
+}

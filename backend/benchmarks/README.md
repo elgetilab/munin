@@ -14,7 +14,7 @@ Neo4j (BEIR subsets get their own `eval_*` collections in Phase 3).
 | 2 | retrievers (BM25, SPECTER-dense, Agent, citation-rerank, RRF, 2-hop) | **done** |
 | 3 | BEIR runner | **done** (SciFact validated: BM25 0.652 ≈ published; SPECTER 0.479) |
 | 4 | local pool benchmark | 4a done (extractor); 4b needs varghele-curated `queries.jsonl`; only 42 candidates so far |
-| 5 | LitQA2 anchor | **done** — retrieval (agent recall@10 0.44 on SPECTER, **0.73 on BGE-large**) + answer (acc 0.43 SPECTER, 0.50 BGE, then 0.864 on the agent architecture; PaperQA2 0.66). Tracks B/C/D/T11 live in `RESULTS.md`; headline Track D re-measured on Qwen3.8-27B 2026-08-26 |
+| 5 | LitQA2 anchor | **done** — retrieval (agent recall@10 0.44 on SPECTER, **0.73 on BGE-large**) + answer (acc 0.43 SPECTER, 0.50 BGE, then 0.864 on the agent architecture; PaperQA2 0.66). Tracks B/C/D/T11 live in `RESULTS.md`; headline Track D re-measured on Qwen3.8-27B 2026-08-26; third backbone gpt-oss-20b 2026-09-16 and the retired Qwen3.6 re-run 2026-09-17/18, both as eval-only instances via `scripts/run_suite.sh` |
 | E | regression harness — `run_all` → committed `scorecards/`, `compare` paired-diff | **done** |
 | — | encoder bake-off (BGE/E5 ≫ SPECTER-v1 on SciFact + Munin pool; see `RESULTS.md`) | **done** |
 
