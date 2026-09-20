@@ -1,0 +1,177 @@
+{
+  "meta": {
+    "tag": "qwen3.6-35b-a3b",
+    "generated_at": "2026-09-17T16:49:22.736563+00:00",
+    "git_sha": "556b305",
+    "encoder": "specter-v1",
+    "seed": 42,
+    "packages": {
+      "numpy": "2.5.0",
+      "scipy": "1.17.1",
+      "sentence_transformers": "6.0.0",
+      "qdrant_client": "n/a"
+    },
+    "model": "qwen3.6-35b-a3b",
+    "model_max_len": 65536,
+    "model_path": "/opt/munin/data/models/qwen3.6-35b-a3b-awq-4bit",
+    "corpus_papers": 68913,
+    "backbone": "qwen3.6-35b-a3b",
+    "checkpoint": "cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit",
+    "checkpoint_dir": "/opt/munin/data/models/qwen3.6-35b-a3b-awq-4bit",
+    "instance": "eval",
+    "tool_parser": "qwen3_xml",
+    "reasoning_parser": "qwen3",
+    "thinking_mode": "enable_thinking",
+    "sampling_default": "{\"temperature\": 1.0, \"top_p\": 0.95, \"top_k\": 20, \"min_p\": 0.0, \"presence_penalty\": 1.5}",
+    "sampling_code": "{\"temperature\": 0.6, \"top_p\": 0.95, \"top_k\": 20, \"min_p\": 0.0, \"presence_penalty\": 0.0}",
+    "serving_profile": "single-gpu-instance",
+    "max_num_seqs": "2",
+    "gpu_mem_util": "0.88",
+    "concurrency": "1",
+    "deadline_s": "900",
+    "driver": "run_suite.sh",
+    "moe_backend": "n/a",
+    "kv_tokens": "252781",
+    "decode_tok_s": "204.9",
+    "prefill_tok_s": "20699.7",
+    "thinking_off_token_ratio": "0.064",
+    "ablation_runs_dir": "ablation_runs/qwen3.6-35b-a3b",
+    "ablation_deltas": {
+      "rag_minus_bare": {
+        "delta": -0.2111,
+        "ci": [
+          -0.2814,
+          -0.1407
+        ],
+        "p": 0.0
+      },
+      "agentic_minus_rag": {
+        "delta": 0.7437,
+        "ci": [
+          0.6834,
+          0.804
+        ],
+        "p": 0.0
+      },
+      "agentic_minus_bare": {
+        "delta": 0.5327,
+        "ci": [
+          0.4523,
+          0.6132
+        ],
+        "p": 0.0
+      }
+    },
+    "ablation_unparseable_reasons": {
+      "bare": {
+        "letter_not_found": 6,
+        "empty_content": 2
+      },
+      "rag": {},
+      "agentic": {}
+    },
+    "egress": "full",
+    "base_url": "http://127.0.0.1:8082",
+    "reasoning_effort": null,
+    "max_output_tokens": 16384,
+    "reliability": {
+      "pong": {
+        "status": "FAIL",
+        "runs": 3,
+        "checks": {
+          "artifacts <= 1": "3/3 (PASS)",
+          "every artifact is text/html": "3/3 (PASS)",
+          "no phantom-URL warning": "3/3 (PASS)",
+          "clarify-before-work (no artifact before a clarification)": "3/3 (PASS)",
+          "routed to code OR produced an html game": "3/3 (PASS)",
+          "every tool_call is a real registered tool": "3/3 (PASS)",
+          "no error SSE": "3/3 (PASS)",
+          "non-empty final assistant content": "0/3 (FAIL)",
+          "no duplicated answer block  (fuzzy)": "3/3 (PASS)"
+        }
+      }
+    }
+  },
+  "tasks": {
+    "ablation": {
+      "bare": {
+        "metrics": {
+          "accuracy": {
+            "mean": 0.33668341708542715
+          },
+          "precision": {
+            "mean": 0.4589041095890411
+          },
+          "abstain_rate": {
+            "mean": 0.22613065326633167
+          },
+          "mean_tool_calls": {
+            "mean": 0.0
+          },
+          "mean_elapsed_s": {
+            "mean": 15.7
+          },
+          "unparseable": {
+            "mean": 8.0
+          },
+          "tool_markup_in_content": {
+            "mean": 0.0
+          }
+        },
+        "per_query": {}
+      },
+      "rag": {
+        "metrics": {
+          "accuracy": {
+            "mean": 0.12562814070351758
+          },
+          "precision": {
+            "mean": 0.5
+          },
+          "abstain_rate": {
+            "mean": 0.7487437185929648
+          },
+          "mean_tool_calls": {
+            "mean": 0.0
+          },
+          "mean_elapsed_s": {
+            "mean": 8.4
+          },
+          "unparseable": {
+            "mean": 0.0
+          },
+          "tool_markup_in_content": {
+            "mean": 0.0
+          }
+        },
+        "per_query": {}
+      },
+      "agentic": {
+        "metrics": {
+          "accuracy": {
+            "mean": 0.8693467336683417
+          },
+          "precision": {
+            "mean": 0.9301075268817204
+          },
+          "abstain_rate": {
+            "mean": 0.06532663316582915
+          },
+          "mean_tool_calls": {
+            "mean": 7.3
+          },
+          "mean_elapsed_s": {
+            "mean": 67.0
+          },
+          "unparseable": {
+            "mean": 0.0
+          },
+          "tool_markup_in_content": {
+            "mean": 0.0
+          }
+        },
+        "per_query": {}
+      }
+    }
+  }
+}

@@ -1,0 +1,161 @@
+{
+  "meta": {
+    "tag": "qwen3.6-35b-a3b-smoke",
+    "generated_at": "2026-09-18T10:03:45.793694+00:00",
+    "git_sha": "556b305",
+    "encoder": "specter-v1",
+    "seed": 42,
+    "packages": {
+      "numpy": "2.5.0",
+      "scipy": "1.17.1",
+      "sentence_transformers": "6.0.0",
+      "qdrant_client": "n/a"
+    },
+    "model": "qwen3.6-35b-a3b",
+    "model_max_len": 65536,
+    "model_path": "/opt/munin/data/models/qwen3.6-35b-a3b-awq-4bit",
+    "corpus_papers": 68913,
+    "backbone": "qwen3.6-35b-a3b",
+    "checkpoint": "cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit",
+    "checkpoint_dir": "/opt/munin/data/models/qwen3.6-35b-a3b-awq-4bit",
+    "instance": "eval",
+    "tool_parser": "qwen3_xml",
+    "reasoning_parser": "qwen3",
+    "thinking_mode": "enable_thinking",
+    "sampling_default": "{\"temperature\": 1.0, \"top_p\": 0.95, \"top_k\": 20, \"min_p\": 0.0, \"presence_penalty\": 1.5}",
+    "sampling_code": "{\"temperature\": 0.6, \"top_p\": 0.95, \"top_k\": 20, \"min_p\": 0.0, \"presence_penalty\": 0.0}",
+    "serving_profile": "single-gpu-instance",
+    "max_num_seqs": "2",
+    "gpu_mem_util": "0.88",
+    "concurrency": "1",
+    "deadline_s": "900",
+    "driver": "run_suite.sh",
+    "moe_backend": "n/a",
+    "kv_tokens": "252781",
+    "decode_tok_s": "204.9",
+    "prefill_tok_s": "20699.7",
+    "thinking_off_token_ratio": "0.064",
+    "ablation_runs_dir": "ablation_runs/qwen3.6-35b-a3b-smoke",
+    "ablation_deltas": {
+      "rag_minus_bare": {
+        "delta": -0.2,
+        "ci": [
+          -0.45,
+          0.0
+        ],
+        "p": 0.098
+      },
+      "agentic_minus_rag": {
+        "delta": 0.6,
+        "ci": [
+          0.4,
+          0.8
+        ],
+        "p": 0.0
+      },
+      "agentic_minus_bare": {
+        "delta": 0.4,
+        "ci": [
+          0.1,
+          0.65
+        ],
+        "p": 0.016
+      }
+    },
+    "ablation_unparseable_reasons": {
+      "bare": {
+        "empty_content": 1
+      },
+      "rag": {},
+      "agentic": {
+        "empty_content": 1
+      }
+    },
+    "egress": "full",
+    "base_url": "http://127.0.0.1:8082",
+    "reasoning_effort": null,
+    "max_output_tokens": 16384
+  },
+  "tasks": {
+    "ablation": {
+      "bare": {
+        "metrics": {
+          "accuracy": {
+            "mean": 0.4
+          },
+          "precision": {
+            "mean": 0.5714285714285714
+          },
+          "abstain_rate": {
+            "mean": 0.25
+          },
+          "mean_tool_calls": {
+            "mean": 0.0
+          },
+          "mean_elapsed_s": {
+            "mean": 18.3
+          },
+          "unparseable": {
+            "mean": 1.0
+          },
+          "tool_markup_in_content": {
+            "mean": 0.0
+          }
+        },
+        "per_query": {}
+      },
+      "rag": {
+        "metrics": {
+          "accuracy": {
+            "mean": 0.2
+          },
+          "precision": {
+            "mean": 0.8
+          },
+          "abstain_rate": {
+            "mean": 0.75
+          },
+          "mean_tool_calls": {
+            "mean": 0.0
+          },
+          "mean_elapsed_s": {
+            "mean": 8.4
+          },
+          "unparseable": {
+            "mean": 0.0
+          },
+          "tool_markup_in_content": {
+            "mean": 0.0
+          }
+        },
+        "per_query": {}
+      },
+      "agentic": {
+        "metrics": {
+          "accuracy": {
+            "mean": 0.8
+          },
+          "precision": {
+            "mean": 0.9411764705882353
+          },
+          "abstain_rate": {
+            "mean": 0.1
+          },
+          "mean_tool_calls": {
+            "mean": 7.2
+          },
+          "mean_elapsed_s": {
+            "mean": 61.5
+          },
+          "unparseable": {
+            "mean": 1.0
+          },
+          "tool_markup_in_content": {
+            "mean": 0.0
+          }
+        },
+        "per_query": {}
+      }
+    }
+  }
+}

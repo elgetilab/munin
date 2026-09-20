@@ -138,9 +138,11 @@ do not quote 0.688 or 0.814 except as sensitivity points.
   answers 37 of 199 questions; the paired n is 21 (+0.253, p = 0.056). The
   agentic level (0.392, n=159) is reportable, the delta is consistent with
   Qwen3.8's, not a replication.
-- **Qwen3.6 cannot be recaptured** (checkpoint retired); its 07-27 per-arm
-  numbers carry the same gap and should be dropped from the faithfulness
-  table or kept only with the caveat.
+- **The 07-27 Qwen3.6 per-arm numbers carry the same gap**; the checkpoint
+  was brought back on an eval instance on 2026-09-17 and re-captured with
+  the complete tool set (agentic 0.627, RAG 0.290, +0.336 p < 0.001), so the
+  07-27 faithfulness file should be dropped from the table in favour of the
+  09-17 one, not kept with a caveat.
 - The absolute level (0.54 agentic, 0.28 RAG on Qwen3.8) is judged by a
   sub-1B entailment model whose literalness is a known source of false
   negatives: a claim entailed by two passages jointly scores unsupported. The

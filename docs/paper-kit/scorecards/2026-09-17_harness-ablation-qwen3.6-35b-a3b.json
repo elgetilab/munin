@@ -1,0 +1,142 @@
+{
+  "track": "harness-ablation",
+  "n_paired": 199,
+  "git_sha": "556b305",
+  "date": "2026-09-17",
+  "runs_dir": "ablation_runs/qwen3.6-35b-a3b",
+  "arm_meta": {
+    "bare": {
+      "arm": "bare",
+      "n": 199,
+      "tag": "qwen3.6-35b-a3b",
+      "base_url": "http://127.0.0.1:8001",
+      "egress": "n/a-no-tools",
+      "model": "qwen3.6-35b-a3b",
+      "git_sha": "556b305",
+      "deadline_s": null,
+      "reasoning_effort": null,
+      "max_output_tokens": 16384,
+      "finished_at": "2026-09-17T12:38:51Z"
+    },
+    "rag": {
+      "arm": "rag",
+      "n": 199,
+      "tag": "qwen3.6-35b-a3b",
+      "base_url": "http://127.0.0.1:8001",
+      "egress": "n/a-no-tools",
+      "model": "qwen3.6-35b-a3b",
+      "git_sha": "556b305",
+      "deadline_s": null,
+      "reasoning_effort": null,
+      "max_output_tokens": 16384,
+      "finished_at": "2026-09-17T13:07:16Z"
+    },
+    "agentic": {
+      "arm": "agentic",
+      "n": 199,
+      "tag": "qwen3.6-35b-a3b",
+      "base_url": "http://127.0.0.1:8082",
+      "egress": "full",
+      "model": "qwen3.6-35b-a3b",
+      "git_sha": "556b305",
+      "deadline_s": 900,
+      "reasoning_effort": null,
+      "max_output_tokens": 16384,
+      "finished_at": "2026-09-17T16:49:22Z"
+    }
+  },
+  "per_arm": {
+    "bare": {
+      "accuracy": 0.33668341708542715,
+      "abstain_rate": 0.22613065326633167,
+      "precision_of_attempted": 0.4589041095890411,
+      "verdicts": {
+        "abstain": 45,
+        "incorrect": 79,
+        "correct": 67,
+        "unparseable": 8
+      },
+      "unparseable_reasons": {
+        "letter_not_found": 6,
+        "empty_content": 2
+      },
+      "empty_kinds": {
+        "truncated": 2
+      },
+      "tool_markup_in_content": 0,
+      "deadline_hits": 0,
+      "cost": {
+        "mean_prompt_tokens": 164.1,
+        "mean_completion_tokens": 3257.6,
+        "mean_elapsed_s": 15.7,
+        "mean_tool_calls": 0.0
+      }
+    },
+    "rag": {
+      "accuracy": 0.12562814070351758,
+      "abstain_rate": 0.7487437185929648,
+      "precision_of_attempted": 0.5,
+      "verdicts": {
+        "abstain": 149,
+        "correct": 25,
+        "incorrect": 25
+      },
+      "unparseable_reasons": {},
+      "empty_kinds": {},
+      "tool_markup_in_content": 0,
+      "deadline_hits": 0,
+      "cost": {
+        "mean_prompt_tokens": 1433.4,
+        "mean_completion_tokens": 1794.2,
+        "mean_elapsed_s": 8.4,
+        "mean_tool_calls": 0.0
+      }
+    },
+    "agentic": {
+      "accuracy": 0.8693467336683417,
+      "abstain_rate": 0.06532663316582915,
+      "precision_of_attempted": 0.9301075268817204,
+      "verdicts": {
+        "correct": 173,
+        "abstain": 13,
+        "incorrect": 13
+      },
+      "unparseable_reasons": {},
+      "empty_kinds": {},
+      "tool_markup_in_content": 0,
+      "deadline_hits": 0,
+      "cost": {
+        "mean_prompt_tokens": null,
+        "mean_completion_tokens": null,
+        "mean_elapsed_s": 67.0,
+        "mean_tool_calls": 7.3
+      }
+    }
+  },
+  "deltas": {
+    "rag_minus_bare": {
+      "delta": -0.2111,
+      "ci": [
+        -0.2814,
+        -0.1407
+      ],
+      "p": 0.0
+    },
+    "agentic_minus_rag": {
+      "delta": 0.7437,
+      "ci": [
+        0.6834,
+        0.804
+      ],
+      "p": 0.0
+    },
+    "agentic_minus_bare": {
+      "delta": 0.5327,
+      "ci": [
+        0.4523,
+        0.6132
+      ],
+      "p": 0.0
+    }
+  }
+}

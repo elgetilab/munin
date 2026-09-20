@@ -198,8 +198,11 @@ so the arm was re-captured (Qwen3.8 on production, 108 s/q with users
 sharing the GPU, so no cost claim; gpt-oss on its instance) with the tool
 list and `quote` key fixed, giving 26 (Qwen3.8) and 38 (gpt-oss) grounding
 passages per question. **Quote only the recapture rows for claim 2.** The
-07-27 Qwen3.6 numbers cannot be recaptured (checkpoint retired) and are kept
-with this caveat only.
+07-27 Qwen3.6 numbers carry the same gap; the checkpoint was brought back on
+an eval instance on 2026-09-17 and re-captured with the complete tool set
+(agentic 0.627 [0.589, 0.660] vs RAG 0.290, paired +0.336 p < 0.001, n = 198;
+`2026-09-17_harness-ablation-faithfulness-qwen3.6-35b-a3b.json`), which
+supersedes the 07-27 file for this backbone.
 
 `bare` is **structurally** unscoreable, not merely unmeasured: a parametric arm
 retrieves nothing, so there is no evidence set to check claims against and
