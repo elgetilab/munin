@@ -134,9 +134,25 @@ facts live in top-level fields backfilled on 2026-09-15 (see
    were two samples of one system.** They differ by backbone, by the bare
    arm's token budget (4,096 vs 16,384; 33 unparseable vs 0) and by a month of
    retrieval commits. Within-file deltas are paired and clean; cross-file
-   deltas are suggestive. For T11, only calls-per-query and recovery rate are
-   comparable across the two files; `web_fetch`'s failure definition changed
-   in between.
+   deltas between those two are suggestive. For T11, only calls-per-query
+   and recovery rate are comparable across the two files; `web_fetch`'s
+   failure definition changed in between. **The cross-backbone comparison to
+   make is `2026-09-17_harness-ablation-qwen3.6-35b-a3b.json` against
+   `2026-08-26_harness-ablation.json`** (and, for the agentic arm, against
+   `2026-09-16_harness-ablation-qwen38-27b-recapture.json`): same protocol,
+   same 199 questions; the bare and RAG arms bypass the harness, so those
+   two compare cleanly whatever the date, and the agentic arm pairs against
+   the recapture one day of harness apart. That comparison gives agentic
+   −0.005 (p = 0.93), bare −0.050 (p = 0.25), RAG −0.085 (p = 0.002): the
+   two backbones share a ceiling and differ on the floor, so the harness
+   value is +0.533 on Qwen3.6 and +0.487 on Qwen3.8. Do not describe the
+   +0.538 → +0.487 move as a correction of an inflated July figure; the
+   09-17 file shows the bare-arm budget was worth ~0.035 on the bare arm and
+   the harness value held. For T11 the same pair
+   (`2026-09-17_toolreliability-qwen3.6-35b-a3b_toolreliability.json`,
+   `2026-09-16_toolreliability-qwen38-recapture_toolreliability.json`) is
+   under one failure definition and one coercion layer and compares on every
+   row.
 
 9. **Two generations of faithfulness files.** Every `*faithfulness*` file
    dated before 2026-09-16, and the 13-row gpt-oss placeholder, scored the
