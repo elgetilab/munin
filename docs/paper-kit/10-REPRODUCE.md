@@ -71,7 +71,9 @@ runners recorded `track / n_paired / git_sha / date` only, and the backbone,
 serving profile, egress per arm and arm-matching facts were backfilled into
 top-level fields on 2026-09-15 from `RESULTS.md`'s dated sections (each file
 says so in `provenance_note`). Before 2026-08-26 is Qwen3.6, from 2026-08-26
-is Qwen3.8.
+is Qwen3.8; the 2026-09-16 `gpt-oss-20b` and 2026-09-17 `qwen3.6-35b-a3b`
+files are eval-instance runs whose drivers stamped the backbone and serving
+themselves.
 
 **Backbone and serving, at the headline runs:** `qwen3.8-27b`
 (`cyankiwi/Qwen3.8-27B-AWQ-INT4`) on vLLM TP=2, 64k window, `--max-num-seqs
@@ -322,12 +324,20 @@ arm, gates both (`scripts/vllm/backbone_gates.py`: KV pool, served id,
 tokenizer sha, thinking-off ratio, `reasoning_effort` accepted, one
 tool-calling turn, decode/prefill tok/s), smokes 20 questions against the
 Qwen3.8 arm, then runs Track D (n=199), C1 (100), the standalone answer
-track (199), the C2b pair (2x50), faithfulness per arm (CPU judge), T11,
-risk-coverage and the routing anchor tier, all at concurrency 1, and finally
-tears the instances down, drops the shadow collections (snapshot kept) and
-returns production to TP=2. Outputs: `scorecards/<D>_*-<slug>.json`,
-`ablation_runs/<tag>/`, `c1_runs/<tag>/`, `c2_runs/<tag>/`,
+track (199), the C2b pair (2x50), the agentic arm again at `egress=off`
+(standard since 2026-09-17, with a question-paired full-vs-off test),
+faithfulness per arm (CPU judge), T11, risk-coverage and the routing anchor
+tier, all at concurrency 1, and finally tears the instances down, drops the
+shadow collections (snapshot kept) and returns production to TP=2. Outputs:
+`scorecards/<D>_*-<slug>.json`, `ablation_runs/<tag>/` and
+`ablation_runs/<tag>-egressoff/`, `c1_runs/<tag>/`, `c2_runs/<tag>/`,
 `results/litqa2/answer.<tag>.*`, and `runs/<tag>/driver.log` with every gate.
+The same command re-ran the retired `qwen3.6-35b-a3b` on 2026-09-17 (about
+26 h of instance time, of which the CPU faithfulness judge was 5 h 47 min at
+1,028 claims against 7,531 context chunks); a host reset mid-run cost
+nothing but a `deploy.sh instance refresh eval` / `refresh eval-shadow` to
+recreate the retrieval containers, since every phase resumes from its
+marker.
 
 Cost columns from such a run are clean because the instance owns its GPU;
 user traffic stays on production.
@@ -349,8 +359,9 @@ As of 2026-09-17:
   re-captured (0.392, n=159) but its RAG arm answers 37 of 199 questions, so
   the paired test has n=21; a powered comparison needs a RAG protocol this
   model will answer under, which would be a protocol change.
-- **Faithfulness on Qwen3.6 with complete contexts**: impossible, the
-  checkpoint is retired.
+- **Faithfulness on Qwen3.6 with complete contexts**: done on 2026-09-17
+  (agentic 0.627, RAG 0.290, +0.336) by bringing the retired checkpoint back
+  as an eval instance; it is no longer on this list.
 - **The Qwen3.5-9B hardware-floor run** (16 GB claim), deferred; its profile
   file is not written.
 
@@ -384,10 +395,15 @@ Per-query raw artifacts live under `backend/benchmarks/results/` and are
 gitignored: they are regenerable, and the scorecards carry the per-query arrays
 that any paired test needs. **The exception is `ablation_runs/`, `c1_runs/`,
 `c2_runs/` and `faithfulness_runs/`**, which hold the per-query verdicts
-behind the Track C/D numbers and are not regenerable for a retired backbone.
-Since 2026-09-15 the ablation arms write to `ablation_runs/<tag>/` and resume
-from a capture, so a re-run no longer overwrites anything; the Qwen3.6 (2026-08-25)
-and Qwen3.8 (2026-09-15) sets are archived off-machine with checksums.
+behind the Track C/D numbers and are regenerable only by re-running the
+backbone (an eval instance, §5a). Since 2026-09-15 the ablation arms write to
+`ablation_runs/<tag>/` and resume from a capture, so a re-run no longer
+overwrites anything; before that the 07-27 Qwen3.6 agentic array was
+overwritten by the 08-26 run, which is why the July-vs-September Qwen3.6
+comparison is unpaired. The Qwen3.6 (2026-08-25) and Qwen3.8 (2026-09-15)
+sets are archived off-machine with checksums; the 09-17 Qwen3.6 set lives
+under `ablation_runs/qwen3.6-35b-a3b*/`, `c1_runs/qwen3.6-35b-a3b/` and
+`c2_runs/qwen3.6-35b-a3b/`.
 
 ---
 

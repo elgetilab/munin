@@ -24,8 +24,8 @@ hygiene and the shape a future InspectAI bridge needs.
 so anything the backend applies to the agentic arm has to be restated for
 them. Since 2026-08-25 all three arms share the model name
 (`config.VLLM_MODEL_NAME`), `reasoning_effort=medium` and
-`max_tokens=16,384`. Before that the bare arm ran at 4,096 tokens, which is
-the defect behind the Qwen3.6 harness delta (section 1.4). Sampling is
+`max_tokens=16,384`. Before that the bare arm ran at 4,096 tokens, which
+cost the July Qwen3.6 bare arm 33 answers (section 1.4). Sampling is
 **not** matched: bare/rag use temperature 0.7, the agentic arm inherits the
 research persona's 1.0 / top_p 0.95 / top_k 20 / presence_penalty 1.5. This
 predates the swap, was present in every run, and is not controlled for.
@@ -44,12 +44,24 @@ Paired deltas (p ≈ 0): agentic − bare +0.240 [0.11, 0.37]; agentic − RAG +
 Kept only for the arm-design rationale and because the naive-RAG-hurts finding
 reproduced. Predates the agent-architecture rewrite.
 
-### 1.2 Clean run, 2026-07-27, n=199, Qwen3.6-35B-A3B (second backbone)
+### 1.2 Clean run, 2026-07-27, n=199, Qwen3.6-35B-A3B (second backbone, July harness)
 
 Full numbers in `05-RESULTS.md` R1. Summary: agentic **0.839** vs bare 0.302 vs
 RAG 0.171; harness value **+0.538 [0.457, 0.618], p < 0.001**. The bare arm
 in this run was budget-limited (33 of 199 answers truncated at 4,096 tokens
-and scored as failures), which inflates the delta; see 1.4.
+and scored as failures); section 1.2a measures what that was worth.
+
+### 1.2a The same checkpoint on the current harness, 2026-09-17, n=199, Qwen3.6-35B-A3B
+
+The retired checkpoint brought back as an eval-only instance
+(`10-REPRODUCE.md` §5a) and run under the protocol of 1.3 and 1.3a: all arms
+at 16,384 tokens, 900 s, `egress=full`, concurrency 1, git `556b305`.
+Agentic **0.869** vs bare 0.337 vs RAG 0.126; harness value **+0.533 [0.452,
+0.613], p < 0.001**; agentic − RAG +0.744; RAG − bare −0.211. Agentic
+abstention 0.065, precision of attempted 0.930, 7.3 tool calls and 67 s per
+query, 0 unparseable; bare 8 unparseable (6 without a letter, 2 truncated at
+16,384). Question-paired against the Qwen3.8 headline arm: −0.005 [−0.050,
++0.040], p = 0.93. This is the Qwen3.6 row to quote; 1.2 is the July harness.
 
 ### 1.3 Re-measurement on the production backbone, 2026-08-26, n=199, Qwen3.8-27B (the headline)
 
@@ -68,18 +80,19 @@ and 29 s per query. The bare and RAG arms carry 25 and 162 rows in which the
 model ended its turn with **no final message** (see 1.4 and `05-RESULTS.md`
 R1); none are truncations.
 
-### 1.4 What the four runs together show
+### 1.4 What the five runs together show
 
-| Quantity | Pilot (Qwen3.6) | Clean run (Qwen3.6) | **Headline (Qwen3.8)** | Third backbone (gpt-oss-20b) |
-|---|---|---|---|---|
-| Harness value (agentic − bare) | +0.240 | +0.538 | **+0.487** | +0.156 |
-| agentic − RAG | +0.410 | +0.668 | +0.663 | +0.462 |
-| Agentic accuracy | 0.560 | 0.839 | **0.874** | 0.563 |
-| Agentic abstention | 0.31 | 0.075 | 0.075 | 0.342 |
-| Agentic precision | 0.86 | 0.908 | **0.946** | 0.896 |
-| Agentic tool calls / query | 16 | 8.6 | 6.9 | 8.8 |
-| Bare accuracy | 0.32 | 0.302 | 0.387 | 0.407 |
-| Bare unparseable | n/a | 33 (truncated) | 0 | 25 (no final message) |
+| Quantity | Pilot (Qwen3.6) | Clean run (Qwen3.6, July) | Qwen3.6, current harness | **Headline (Qwen3.8)** | Third backbone (gpt-oss-20b) |
+|---|---|---|---|---|---|
+| Harness value (agentic − bare) | +0.240 | +0.538 | **+0.533** | **+0.487** | +0.156 |
+| agentic − RAG | +0.410 | +0.668 | +0.744 | +0.663 | +0.462 |
+| Agentic accuracy | 0.560 | 0.839 | **0.869** | **0.874** | 0.563 |
+| Agentic abstention | 0.31 | 0.075 | 0.065 | 0.075 | 0.342 |
+| Agentic precision | 0.86 | 0.908 | 0.930 | **0.946** | 0.896 |
+| Agentic tool calls / query | 16 | 8.6 | 7.3 | 6.9 | 8.8 |
+| Bare accuracy | 0.32 | 0.302 | 0.337 | 0.387 | 0.407 |
+| Bare unparseable | n/a | 33 (truncated) | 8 (2 truncated) | 0 | 25 (no final message) |
+| Corpus-only harness value (agentic at `egress=off` − bare) | | | +0.367 | +0.276 | +0.075 (n.s.) |
 
 Pilot → clean run: the arm design did not change. The agent architecture and
 `source(mode=qa)` full-text reading account for the entire gap. The harness
@@ -87,15 +100,26 @@ Pilot → clean run: the arm design did not change. The agent architecture and
 coverage/precision trade-off, and it does so with **fewer** tool calls, so the
 tool-retirement work bought accuracy and cost together.
 
-Clean run → headline: two things changed at once, the backbone and the bare
-arm's token budget, and only the second can be attributed. `agentic − RAG`
-is essentially unchanged (+0.668 → +0.663) while `agentic − bare` moved
-(+0.538 → +0.487), so the whole shrink is the bare arm being measured
-properly; the harness did not lose value. The ordering and rough magnitude
-holding across a dense 27B and a 35B/3B-active MoE is real evidence the
-effect is not backbone-specific, but the cross-run comparison is
-**suggestive, not controlled**: 16 commits touched `backend/retrieval/`
-between the runs, several material to the agentic arm.
+Clean run → current harness, same checkpoint: the harness value held
+(+0.538 → +0.533) across two months of harness commits and the bare-arm
+budget correction. The 4,096-token budget was worth about 0.035 on the bare
+arm (0.302 → 0.337, 33 → 8 unparseable), and the agentic arm gained the same
+amount (0.839 → 0.869, unpaired: the July per-question array was overwritten),
+so the delta did not move. The earlier reading, that the July delta was
+inflated by the truncations and +0.487 was the corrected figure, does not
+survive: neither figure was inflated.
+
+Current harness → headline, two backbones on one protocol: `agentic` is the
+same (0.869 vs 0.874, paired −0.005, p = 0.93; against the 09-16 Qwen3.8
+recapture, +0.000), `bare` differs by −0.050 (p = 0.25) and `RAG` by −0.085
+(p = 0.002), Qwen3.8 stronger on both. The bare and RAG arms bypass the
+harness, so those comparisons are controlled; the agentic one is controlled
+against the recapture and one day of harness. So the harness value is larger
+on Qwen3.6 (+0.533 vs +0.487) because its floor is lower and its ceiling is
+the same. The ordering and the magnitude holding across a dense 27B and a
+35B/3B-active MoE is now a controlled finding within the Qwen family, not a
+suggestive one; only the July-vs-August comparison (1.2 vs 1.3) keeps the
+old caveat, and it is no longer needed for anything.
 
 Headline → third backbone: the lab, the size class (3.6B active vs 27B dense)
 and the model's own recommended sampling move at once, so the delta is
@@ -305,10 +329,11 @@ a headline number and each is a reproducibility lesson.
 | Condition | Effect |
 |---|---|
 | Concurrency 1 vs above `--max-num-seqs` | Agentic accuracy 0.839 vs 0.688 (Qwen3.6) |
-| Bare arm `max_tokens` 4,096 vs 16,384 | 33 of 199 bare answers truncated and scored wrong vs 0; `agentic − bare` +0.538 vs +0.487 while `agentic − RAG` held (+0.668 vs +0.663). Confounded with the backbone swap, but the RAG comparison isolates it. |
-| Backbone Qwen3.6-35B-A3B vs Qwen3.8-27B | Same ordering, +0.487 vs +0.538 harness value. Suggestive only: a month of retrieval commits sits between the runs. |
+| Bare arm `max_tokens` 4,096 vs 16,384 | 33 of 199 bare answers truncated and scored wrong vs 8 on the same checkpoint (Qwen3.6, 07-27 vs 09-17); bare accuracy 0.302 vs 0.337. Worth about 0.035 on the bare arm; `agentic − bare` unchanged (+0.538 vs +0.533) because the agentic arm moved by the same amount. |
+| Backbone Qwen3.6-35B-A3B vs Qwen3.8-27B, same protocol | Same ordering; agentic equal (0.869 vs 0.874, paired p = 0.93), bare −0.050 (p = 0.25), RAG −0.085 (p = 0.002); harness value +0.533 vs +0.487. Controlled for the bare/RAG arms (they bypass the harness) and against the 09-16 recapture for the agentic arm. |
+| Same checkpoint, harness two months apart (Qwen3.6, 07-24/07-27 vs 09-17) | Standalone track 0.864 vs 0.874, paired +0.010 [−0.035, +0.055], p = 0.70, 179 of 199 identical; ablation agentic 0.839 vs 0.869 (unpaired). The harness-drift floor. |
 | Run-to-run resampling, same configuration | Two Qwen3.8 bare arms one day apart: 0.422 vs 0.387, i.e. ~0.035 on a 199-question arm at temperature 0.7 |
-| Agentic arm `egress=off` vs `full` (Qwen3.8) | 0.663 vs 0.874, paired +0.211 [0.151, 0.276]; the corpus-only loop alone is +0.276 over bare. A system ablation as much as a measurement one: it is what the harness is worth without the web (`05-RESULTS.md` R1). |
+| Agentic arm `egress=off` vs `full` (three backbones) | Qwen3.8 0.663 vs 0.874, paired +0.211 [0.151, 0.276], corpus-only loop +0.276 over bare; Qwen3.6 0.704 vs 0.869, +0.166 [0.101, 0.226] (same day, egress alone), corpus-only +0.367; gpt-oss-20b 0.482 vs 0.563, +0.080 [0.015, 0.146], corpus-only **+0.075 [−0.010, +0.161], p = 0.10**. A system ablation as much as a measurement one: it is what the harness is worth without the web, and on the third backbone that is not distinguishable from zero on accuracy (`05-RESULTS.md` R1). |
 | Deadline 300 s vs 900 s | Agentic accuracy 0.814 (11 truncations, all counted wrong) vs 0.864 (0 truncations, 0 unparseable), Qwen3.6 |
 | Answer parser, naive vs hardened | Dropped ~17% of BGE answers and ~10% of SPECTER's as unparseable, turning a real +0.075 (p=0.028) into an apparent +0.05 n.s. |
 | Egress off vs full (C2 absent arm) | Accuracy 0.080 vs 0.740 |
