@@ -35,9 +35,13 @@ claim, the measurement behind it, the scorecard filename, what is explicitly
 live in [`backend/benchmarks/RESULTS.md`](backend/benchmarks/RESULTS.md),
 with committed per-run scorecards under `backend/benchmarks/scorecards/`.
 
-Headline: the agentic harness scores **0.839** on LitQA2 against **0.302**
-bare and **0.171** naive RAG (n=199 paired, harness value +0.538 [0.457,
-0.618], p<0.001).
+Headline: on the production backbone (Qwen3.8-27B) the agentic harness
+scores **0.874** on LitQA2 against **0.387** bare and **0.211** naive RAG
+(n=199 paired, harness value +0.487 [0.407, 0.568], p<0.001). The same
+three arms on Qwen3.6-35B-A3B under the same protocol give 0.869 / 0.337 /
+0.126 and +0.533 [0.452, 0.613]: the two backbones reach the same accuracy
+inside the harness (question-paired −0.005, p=0.93) and differ only outside
+it. On gpt-oss-20b, from a different lab, 0.563 / 0.407 / 0.101 and +0.156.
 
 ## Architecture
 

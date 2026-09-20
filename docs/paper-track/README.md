@@ -118,8 +118,13 @@ FIX, not just a number to measure. So:
      rate 1.000** across the 86 queries that hit a tool failure.
      ~~Re-measure on the production model~~ **DONE 2026-08-26** on Qwen3.8-27B:
      agentic 0.874 / bare 0.387 / RAG 0.211, +0.487 [0.407, 0.568]; T11 6.93
-     calls/query, recovery 1.000. Cross-model comparison is suggestive only
-     (16 retrieval commits between the runs), see PAPER.md claim 1.
+     calls/query, recovery 1.000. ~~Cross-model comparison is suggestive
+     only (16 retrieval commits between the runs)~~ **Controlled since
+     2026-09-17**: the retired Qwen3.6 checkpoint re-run as an eval instance
+     on the current protocol gives 0.869 / 0.337 / 0.126, +0.533 [0.452,
+     0.613]; agentic equal to Qwen3.8's question-paired (−0.005, p=0.93),
+     the bare-arm budget defect worth ~0.035 on the bare arm with the harness
+     value unchanged. See PAPER.md claim 1.
      ~~Third backbone from a different lab~~ **DONE 2026-09-16** on
      gpt-oss-20b as an eval instance: 0.563 / 0.407 / 0.101, +0.156 [0.075,
      0.241] p=0.004; replicates in kind at a third of the size, the agentic
@@ -146,6 +151,10 @@ FIX, not just a number to measure. So:
      ~~C2b on Qwen3.8~~ **DONE 2026-09-15**: correct abstention 0.667 -> 0.889
      (paired +0.222, p=0.015, suggestive), absent-arm accuracy 0.08 -> 0.04;
      both `papers_bge` and `papers_chunks` shadowed. Risk-coverage re-derived.
+     ~~Qwen3.6 on the current protocol~~ **DONE 2026-09-17**, full suite as an
+     eval instance: C1 0.98, C2b 0.875 (paired vs Qwen3.8 −0.014, p=0.85, so
+     the +0.222 was the harness), faithfulness 0.627 (+0.336), egress=off
+     0.704; every Qwen3.6 caveat in PAPER.md retired.
 
 **Deferred:** Phase 4 local pool (blocked on more real usage / a synthetic-query
 track).
