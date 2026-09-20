@@ -12,7 +12,13 @@ faithfulness, T11) were re-measured on `qwen3.8-27b`
 (abstention) was re-run on `qwen3.8-27b` on 2026-09-14 (C1) and 2026-09-15
 (C2b, risk-coverage), so **every headline is now on the production backbone**;
 the retired `qwen3.6-35b-a3b` (Qwen3.6-35B-A3B-AWQ-4bit) figures are kept
-beside each as the second backbone. Claim 4 (retrieval) is
+beside each as the second backbone, and **since 2026-09-17 those are
+same-protocol figures**: the retired checkpoint was brought back as an
+eval-only instance and run through every track on the current harness
+(RESULTS.md "Retired backbone re-run"), so the Qwen3.6-vs-Qwen3.8
+comparison is question-paired and controlled rather than suggestive. The
+July Qwen3.6 numbers stay in the scorecard folder as the July harness.
+Claim 4 (retrieval) is
 **model-independent at scoring time** and was not re-run: AgentRetriever
 scores against frozen Qwen3.6-era query variants generated once by the
 production expander, and regenerating them would change the benchmark, not
@@ -35,7 +41,7 @@ attributed to "a different backbone", not to any one of them.
 
 > **Drafting the paper?** [`docs/paper-kit/`](docs/paper-kit/) is a
 > self-contained bundle (system, architecture, corpus, methods, results,
-> ablations, findings, limitations, related work, reproduce, plus the 41
+> ablations, findings, limitations, related work, reproduce, plus the 54
 > headline scorecards) written to be read without repository access. This file
 > stays the short claim-to-scorecard index.
 
@@ -61,55 +67,92 @@ agentic − RAG = +0.663 [0.598, 0.729]; RAG − bare = −0.176 [−0.251, −0
 above ran on the same day, same code, same 199 questions, paired. That is the
 claim, and it does not depend on anything outside this run.
 
-**The cross-run comparison to Qwen3.6 is suggestive, not controlled.** On the
-retired MoE (git `9c476b8`, 2026-07-27) the same 199 questions gave RAG 0.171 /
-bare 0.302 / agentic 0.839, agentic − bare = +0.538 [0.457, 0.618]. The ordering
-and the rough magnitude agree, which is real evidence the effect is not an
-artifact of one backbone. But **16 commits touched `backend/retrieval/` between
-the two runs**, several of them material to the agentic arm: search-score
-normalisation (`5e60f2d`, 07-29), context-budget fixes that stopped turns dying
-on vLLM 400s (`0c178d7`, 08-12), web_fetch failure semantics (`2ff9aef`, 08-03)
-and PDF resolution (`a294c3a`, 08-18). The two runs therefore differ by model
-**and** by a month of retrieval fixes. Per-arm deltas across the runs
-(0.839 → 0.874, 0.302 → 0.387) must not be attributed to the model alone.
+**The same three arms on Qwen3.6, same protocol (git `556b305`,
+2026-09-17; RESULTS.md "Retired backbone re-run").** The retired MoE brought
+back as an eval-only instance, all arms at 16,384 tokens, 900 s,
+`egress=full`, concurrency 1:
 
-**On the delta shrinking from +0.538 to +0.487.** The 07-27 bare arm ran at
-`max_tokens=4096` against its agentic arm's 16,384, and 33 of its 199 bare
-answers were **unparseable**, i.e. truncated and scored as failures rather than
-wrong answers. All arms now run at 16,384 and bare returns 0 unparseable. That
-`agentic − RAG` is essentially unchanged (+0.668 → +0.663) shows the shrinkage
-comes entirely from measuring bare properly. The old number was inflated by a
-defect; this is a correction. A like-for-like old-model figure at 16,384 is not
-obtainable, since that checkpoint is retired.
+| arm | accuracy | precision of attempted | abstain | cost |
+|---|---|---|---|---|
+| RAG (naive top-5) | 0.126 | 0.500 | 0.749 | 8.4s, 0 tools |
+| bare (parametric) | 0.337 | 0.459 | 0.226 | 15.7s, 0 tools; 8 unparseable (2 truncated) |
+| **agentic (harness)** | **0.869** | **0.930** | 0.065 | 67.0s, 7.3 tools |
 
-Two secondary findings, both of which survive the re-measurement:
+Paired bootstrap: **agentic − bare = +0.533 [0.452, 0.613], p ≈ 0**;
+agentic − RAG = +0.744 [0.683, 0.804]; RAG − bare = −0.211 [−0.281, −0.141].
 
-- **Naive RAG is worse than no retrieval at all**, and more strongly than
-  before (−0.176, against −0.131 on Qwen3.6). It now holds against a
-  correctly-budgeted bare arm.
-- **Cost is real**: ~20x bare wall-clock at 6.9 tool calls per query.
+**The two Qwen backbones are a controlled comparison, question-paired.**
+Agentic: Qwen3.6 − Qwen3.8 = **−0.005 [−0.050, +0.040], p = 0.93** (and
++0.000, p = 1.00, against the 09-16 Qwen3.8 recapture, one day of harness
+apart). Bare: −0.050 [−0.126, +0.030], p = 0.25. RAG: **−0.085 [−0.141,
+−0.035], p = 0.002**. The bare and RAG arms bypass the harness (frozen
+prompts, same budget, temperature 0.7 on both), so nothing but the model
+moves in those two; the agentic arm pairs against the recapture. The
+sentence the paper can now say: **a dense 27B and a 35B/3B-active MoE from
+the same lab reach the same accuracy inside the harness and differ only
+outside it**, so the harness value is larger on Qwen3.6 (+0.533 vs +0.487)
+because its floor is lower, not because its ceiling is higher. The July
+version of this comparison (git `9c476b8`, 2026-07-27: RAG 0.171 / bare
+0.302 / agentic 0.839, +0.538 [0.457, 0.618]) stays suggestive, since 16
+`backend/retrieval/` commits sat between it and the 08-26 run; it is no
+longer needed for the claim.
 
-A third finding is new. **Qwen3.8 abstains far less outside the harness** (bare
-0.201 → 0.040, RAG 0.749 → 0.498) and its precision of attempted falls with it
-(bare 0.476 → 0.403, RAG 0.708 → 0.420). Inside the harness abstention is
-**identical** at 0.075 and precision *rises* (0.908 → 0.946). The harness, not
-the backbone, is what keeps attempted answers trustworthy.
+**On the delta, +0.538 → +0.533 → +0.487, revised.** The earlier reading here
+was that the July Qwen3.6 bare arm's 4,096-token budget (33 truncated
+answers) had inflated +0.538 and that +0.487 was the correction. The same
+checkpoint at 16,384 tokens measures the budget at about 0.035 on the bare
+arm (0.302 → 0.337, 33 → 8 unparseable) and leaves the harness value at
++0.533: the delta did not shrink when the defect was fixed, and neither
+figure was inflated. The gap to Qwen3.8's +0.487 is the bare floor, inside
+the noise.
 
-**Corpus-only harness (agentic arm at `egress=off`), 2026-09-15: 0.663**,
-precision 0.917, abstain 0.276; paired +0.276 [0.181, 0.367] over bare and
-+0.452 over RAG, with the web and Semantic Scholar tiers worth a further
-+0.211 [0.151, 0.276] (41 of its 55 abstentions become correct at `full`).
-The only agentic ablation arm ever run at `off`; a decomposition of the
-headline, not a substitute. Scorecard
-`2026-09-15_harness-ablation-agentic-egressoff.json`.
+Two secondary findings, both of which survive on both backbones:
+
+- **Naive RAG is worse than no retrieval at all**: −0.176 on Qwen3.8,
+  −0.211 on Qwen3.6 under the same protocol (−0.131 in July, against the
+  under-budgeted bare arm), −0.306 on gpt-oss-20b. Five runs, three
+  backbones, every one p < 0.001.
+- **Cost is real**: ~20x bare wall-clock at 6.9 tool calls per query on
+  Qwen3.8 (TP=2, users sharing); ~4.3x at 7.3 calls on Qwen3.6 alone on one
+  card.
+
+A third finding, now controlled. **Qwen3.8 abstains far less outside the
+harness** (bare 0.226 → 0.040, RAG 0.749 → 0.498) and its precision of
+attempted falls with it (bare 0.459 → 0.403, RAG 0.500 → 0.420). Inside the
+harness abstention is 0.065 and 0.075, precision 0.930 and 0.946, accuracy
+the same. The harness, not the backbone, is what keeps attempted answers
+trustworthy.
+
+**Corpus-only harness (agentic arm at `egress=off`), three backbones.** A
+decomposition of the headline, not a substitute for it: Qwen3.8 (2026-09-15)
+**0.663**, precision 0.917, abstain 0.276, +0.276 [0.181, 0.367] over bare,
+with the web and Semantic Scholar tiers worth a further +0.211 [0.151, 0.276]
+(41 of its 55 abstentions become correct at `full`; the `full` arm is three
+weeks older, so that delta is egress plus drift). Qwen3.6 (2026-09-17, same
+day as its `full` arm, so egress alone) **0.704**, precision 0.933, abstain
+0.246, +0.367 [0.271, 0.457] over bare, external tiers +0.166 [0.101,
+0.226]. gpt-oss-20b (2026-09-17) **0.482**, precision 0.828, abstain 0.382,
+**+0.075 [−0.010, +0.161] over bare, p = 0.10**, external tiers +0.080
+[0.015, 0.146]. The split between the corpus-only loop and the external
+tiers is 57 / 43, 69 / 31 and 48 / 52; on the third backbone the corpus-only
+harness is not distinguishable from bare on accuracy and changes only the
+error mode (87 wrong / 6 abstain → 20 / 76). Scorecards
+`2026-09-15_harness-ablation-agentic-egressoff.json`,
+`2026-09-17_harness-ablation-agentic-egressoff-qwen3.6-35b-a3b.json`,
+`2026-09-17_harness-ablation-agentic-egressoff-gpt-oss-20b.json`.
 
 **Standalone LitQA2 number on the production model: 0.884 [0.839, 0.925]**,
 precision 0.926, 2026-09-14, `run_litqa2 --track answer` at 900 s and
 `egress=full` (RESULTS.md "LitQA2 answer, standalone track on Qwen3.8-27B").
 It agrees with the ablation arm's 0.874 question-paired (+0.010 [−0.035,
-+0.055], p = 0.73), as 0.864 vs 0.839 did on Qwen3.6: one measurement taken
-twice. Quote 0.874 for the delta, 0.884 as the standalone result; the latter
-is on a harness two weeks newer than the ablation's.
++0.055], p = 0.73): one measurement taken twice. Quote 0.874 for the delta,
+0.884 as the standalone result; the latter is on a harness two weeks newer
+than the ablation's. **On Qwen3.6, same protocol: 0.874 [0.824, 0.920]**,
+precision 0.951, 174 / 9 / 16 abstain, 2026-09-17; agrees with its ablation
+arm's 0.869 (+0.005, p = 0.85) and with Qwen3.8's 0.884 question-paired
+(+0.010 [−0.030, +0.050], p = 0.78). The same checkpoint on this track two
+months of harness apart (07-24: 0.864) is +0.010, p = 0.70, the harness-drift
+floor.
 
 **Third backbone, a different lab: gpt-oss-20b, 2026-09-16** (RESULTS.md
 "Third backbone", git `c6c56a7`). Same 199 questions, same arms, same
@@ -128,7 +171,7 @@ Certification gate PASS.
 Three things to say, in this order:
 
 - **The harness effect replicates outside the Qwen family, at a third of
-  the size.** +0.156 against +0.487 (Qwen3.8) and +0.538 (Qwen3.6). The
+  the size.** +0.156 against +0.487 (Qwen3.8) and +0.533 (Qwen3.6). The
   ordering of the arms is the same, RAG is again below bare, and the
   direction is not in doubt (p = 0.004). What differs is the agentic
   ceiling, not the floor: gpt-oss-20b's bare arm matches Qwen3.8's (0.407
@@ -165,8 +208,11 @@ precision 0.847, 64 abstentions, 0 truncations, agreeing with the ablation
 arm's 0.563 within noise as it did on both Qwen backbones.
 
 Scorecards: `scorecards/2026-08-26_harness-ablation.json` (current),
-`scorecards/2026-07-27_harness-ablation.json` (Qwen3.6),
+`scorecards/2026-09-17_harness-ablation-qwen3.6-35b-a3b.json` (Qwen3.6,
+same protocol; `2026-09-17_qwen3.6-35b-a3b.json` is its run header),
+`scorecards/2026-07-27_harness-ablation.json` (Qwen3.6, July harness),
 `scorecards/2026-09-14_answer-qwen38-900s.json` (standalone),
+`scorecards/2026-09-17_answer-qwen3.6-35b-a3b-900s.json` (Qwen3.6 standalone),
 `scorecards/2026-09-16_gpt-oss-20b.json` and
 `scorecards/2026-09-16_harness-ablation-gpt-oss-20b.json` (third backbone),
 `scorecards/2026-09-16_gpt-oss-20b-prerepair.json` (parser-cost point),
@@ -231,33 +277,48 @@ Track C. Prior art exists (KnowOrNot, arXiv 2505.13545), so the claim is
 narrowed to corpus-grounded abstention with a paired shadow corpus.
 
 > All three Track C results are now on **`qwen3.8-27b`** (C1 2026-09-14, C2b
-> and risk-coverage 2026-09-15), with the Qwen3.6 figures kept for comparison.
-> The C2b re-run also had to shadow the chunk index (`papers_chunks_shadow`),
-> a leak path that did not exist when the 07-27 pair ran; see RESULTS.md.
+> and risk-coverage 2026-09-15), with the Qwen3.6 figures beside them from
+> the 2026-09-17 re-run on the same harness and the same shadows (the July
+> figures are kept in the scorecard folder). The C2b re-run had to shadow the
+> chunk index (`papers_chunks_shadow`), a leak path that did not exist when
+> the 07-27 pair ran; see RESULTS.md.
 
 - **C1, fabricated papers** (n=100), **on `qwen3.8-27b`**: abstain **1.000**
   (Wilson [0.963, 1.000]), **0 confabulated local citations**, 100/100 correct
-  refusals at `egress=full`, mean 5.6 tool calls per item. On Qwen3.6
-  (2026-07-27): 0.970 [0.930, 1.000], 0/100, 10.8 calls. The backbone that
-  guesses more freely on its own refused every fabricated paper inside the
-  harness. 13 refusals also cite a real corpus paper as related or as the
-  likely intended target; spot-checked, none substitutes it for the asked one.
+  refusals at `egress=full`, mean 5.6 tool calls per item. On Qwen3.6, same
+  harness (2026-09-17): **0.980 [0.950, 1.000]**, 0/100 confabulated local
+  citations, 2 possible confabulations, 10.3 calls (July: 0.970, 0/100, 10.8
+  calls, so this result on this backbone is unchanged by two months of
+  harness, and the halving of tool calls on Qwen3.8 is the backbone). The
+  backbone that guesses more freely on its own refused every fabricated
+  paper inside the harness. 13 refusals also cite a real corpus paper as
+  related or as the likely intended target; spot-checked, none substitutes
+  it for the asked one.
 - **C2b, paired shadow corpus** at matched `egress=off` (n=50), **on
   `qwen3.8-27b`**: accuracy drops **0.540 → 0.040** when the source paper is
   removed, abstain 0.420 → 0.920. On the answerable subset (n=27), correct
   abstention is **0.889** (bootstrap [0.777, 1.000], Wilson [0.719, 0.961]);
-  2 answered still correct, 1 wrong. On Qwen3.6 (2026-07-27) the same pair
-  gave 0.540 → 0.080, correct abstention 0.667 [0.481, 0.852]; question-paired
-  delta Qwen3.8 − Qwen3.6 **+0.222 [0.040, 0.420], p = 0.015**, suggestive
-  since backbone and seven weeks of harness moved together. The 2026-07-10
-  reading (0.200) was confounded by egress; every pair since runs both arms
-  at `off`.
+  2 answered still correct, 1 wrong. On Qwen3.6, same harness and shadows
+  (2026-09-17): **0.640 → 0.040**, abstain 0.30 → 0.86; on the answerable
+  subset (n=32, the largest of any pair) correct abstention **0.875**
+  (bootstrap [0.750, 0.969], Wilson [0.719, 0.950]), 1 still correct, 3
+  wrong; question-paired against the Qwen3.8 pair **−0.014 [−0.154, +0.134],
+  p = 0.85**. The two backbones are indistinguishable on this behaviour. The
+  July pair on Qwen3.6 (2026-07-27, paper-level shadow only) gave 0.540 →
+  0.080 and 0.667 [0.481, 0.852]; the +0.222 [0.040, 0.420], p = 0.015 step
+  from there to Qwen3.8 read at the time as suggestive (backbone and seven
+  weeks of harness moved together) and is now attributed to the harness (the
+  grounded read stage and the chunk shadow), since the same backbone on the
+  current harness lands at 0.875. The 2026-07-10 reading (0.200) was
+  confounded by egress; every pair since runs both arms at `off`.
 - **Risk-coverage**, litqa2-answerable, n=199, **on `qwen3.8-27b`**: agentic
   reaches coverage **0.925 [0.88, 0.96]** at selective risk **0.054 [0.02,
   0.09]**; bare answers more often (0.960) at ~11x the risk (0.597); RAG
-  answers half (0.502) at 0.580. Qwen3.6: agentic 0.925 / 0.092, bare 0.633 /
-  0.524, RAG 0.241 / 0.292. The harness keeps coverage and halves risk across
-  the swap while both baselines got riskier.
+  answers half (0.502) at 0.580. Qwen3.6, same harness: agentic **0.935 /
+  0.070**, bare 0.734 / 0.541, RAG 0.251 / 0.500, all six points from one run
+  on one commit (July: 0.925 / 0.092, 0.633 / 0.524, 0.241 / 0.292). The
+  harness keeps coverage and cuts risk on both backbones while both
+  baselines answer more often at ~0.55 risk.
 
 **On the third backbone, gpt-oss-20b (2026-09-16):**
 
@@ -279,10 +340,13 @@ narrowed to corpus-grounded abstention with a paired shadow corpus.
 
 Scorecards (current): `2026-09-14_abstention-c1-fabricated.json`,
 `2026-09-15_abstention-c2-shadow.json`, `2026-09-15_risk-coverage.json`.
+Qwen3.6, same harness: `2026-09-17_abstention-c1-fabricated-qwen3.6-35b-a3b.json`,
+`2026-09-17_abstention-c2-shadow-qwen3.6-35b-a3b.json`,
+`2026-09-17_risk-coverage-qwen3.6-35b-a3b.json`.
 Third backbone: `2026-09-16_abstention-c1-fabricated-gpt-oss-20b.json`,
 `2026-09-16_abstention-c2-shadow-gpt-oss-20b.json`,
 `2026-09-16_risk-coverage-gpt-oss-20b.json`.
-Qwen3.6: `2026-07-27_abstention-c1-fabricated.json`,
+Qwen3.6, July harness: `2026-07-27_abstention-c1-fabricated.json`,
 `2026-07-27_abstention-c2-shadow.json`, `2026-07-27_risk-coverage.json`.
 
 ## 4. Retrieval
@@ -307,9 +371,14 @@ calls, mean **6.93 calls/query**, error rate 0.139, degraded rate 0.379, 102
 queries hit at least one failure, and **recovery rate 1.000**, i.e. every
 failure was recovered from within the turn.
 
-**Recovery 1.000 replicates** (Qwen3.6: 1,714 calls, 8.61/query, recovery
-1.000), and mean calls/query fell 8.61 → 6.93. Those two are clean
-comparisons.
+**Recovery 1.000 replicates** (Qwen3.6, July: 1,714 calls, 8.61/query;
+Qwen3.6 on the current harness, 2026-09-17: 1,458 calls, 7.33/query, 84
+queries with a failure, recovery 1.000), and mean calls/query fell 8.61 →
+6.93 across the swap. Those are clean comparisons. On the current harness,
+one day apart under one failure definition, the two Qwen backbones differ on
+`search` alone: Qwen3.8 (09-16 recapture) 0.231, a `queries` list or an
+empty query each followed by a corrected call, against Qwen3.6's 0.005 in
+597 calls; `web_fetch` is 0.44 and 0.40, the same paywall rate.
 
 **The error-rate deltas are not, and must not be cited as one number.**
 `web_fetch` (0.453 → 0.678) is **not comparable**: commit `2ff9aef` landed
@@ -334,7 +403,8 @@ names arrived with a harmony channel token attached and were rejected as
 unknown tools; that is a serving-stack (parser) property, reported as such.
 
 Scorecards: `2026-08-26_toolreliability-qwen38_toolreliability.json` (current),
-`2026-07-27_toolreliability-clean.json` (Qwen3.6),
+`2026-09-17_toolreliability-qwen3.6-35b-a3b_toolreliability.json` (Qwen3.6,
+current harness), `2026-07-27_toolreliability-clean.json` (Qwen3.6, July),
 `2026-09-16_toolreliability-gpt-oss-20b_toolreliability.json` (third backbone).
 
 ---
@@ -352,6 +422,7 @@ Stating these plainly is cheaper than being asked.
 | Track F | not run | follow-up proposal scope |
 | BEIR nfcorpus / scidocs / trec-covid | not run | SciFact only |
 | Human-expert comparison | context, not a claim | PaperQA2 0.660 and expert mean 0.677 are quoted from their sources, not re-measured here |
+| A controlled backbone comparison beyond the Qwen pair | Qwen pair only | since 2026-09-17 the Qwen3.6-vs-Qwen3.8 comparison is controlled (same protocol, question-paired; bare/RAG bypass the harness, agentic pairs against the 09-16 recapture); the July-vs-August version stays suggestive, and the cross-lab comparison moves lab, size class and sampling at once |
 | Cross-lab generalisation beyond one model | one point, not a curve | gpt-oss-20b is the only non-Qwen backbone measured; the harness effect replicated at a third of the size. "The harness works on any model" is not claimed |
 | A 16 GB reproduction | not measured | the Qwen3.5-9B hardware-floor run (THIRD-MODEL-REVIEW Experiment B) was deferred; gpt-oss-20b needs a 24 GB card at the production profile (12.8 GiB weights + 1.5 GiB KV) |
 | Faithfulness on gpt-oss-20b as a replication | measured, underpowered | agentic 0.392 (n=159); the paired RAG comparison has n=21 because the RAG arm answers 37 of 199. Consistent with claim 2, not a replication of it |
@@ -406,7 +477,7 @@ Two operational notes that will otherwise cost you a day:
 
 | Artifact | Path |
 |---|---|
-| **Paper kit** (self-contained drafting bundle, 41 scorecards) | `docs/paper-kit/` |
+| **Paper kit** (self-contained drafting bundle, 54 scorecards) | `docs/paper-kit/` |
 | Results log (canonical numbers) | `backend/benchmarks/RESULTS.md` |
 | Scorecards (83 JSON, 53 Markdown) | `backend/benchmarks/scorecards/` |
 | Backbone profiles (one file per model: checkpoint, parsers, thinking mode, sampling) | `backend/config/models/` |
