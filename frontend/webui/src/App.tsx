@@ -25,6 +25,7 @@ import { KnowledgePanel } from './components/KnowledgePanel';
 import { KnowledgePage } from './components/KnowledgePage';
 import type { Project } from './lib/types';
 import { CHAT_URL, DOCS_URL, SEARCH_URL, SITE_HOME, UPLOAD_URL } from './lib/urls';
+import { isModifiedClick } from './lib/nav';
 
 export default function App() {
   const status = useStatus();
@@ -192,6 +193,17 @@ export default function App() {
     const persona = params.get('persona');
     if (persona) {
       setSelectedPersona(persona);
+    }
+    // `?project=<id>` is what the sidebar's "New chat in project" link
+    // carries, so opening it in a new tab lands in the same project
+    // context an in-tab click would have set. Mirrors
+    // handleNewChatInProject: project active, incognito off.
+    const project = params.get('project');
+    if (project) {
+      setActiveProjectId(project);
+      setIsEphemeral(false);
+    }
+    if (persona || project) {
       // Clean the URL
       window.history.replaceState(null, '', window.location.pathname);
     }
@@ -530,10 +542,16 @@ export default function App() {
             <a href={SEARCH_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Search</a>
             <a href={DOCS_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Docs</a>
             <span className="text-accent">Knowledge</span>
-            <button
-              onClick={() => { setShowKnowledgePage(false); window.history.pushState(null, '', '/'); }}
-              className="text-text-secondary hover:text-accent no-underline transition-colors cursor-pointer bg-transparent border-none p-0 text-sm"
-            >Chat</button>
+            <a
+              href="/"
+              onClick={(e) => {
+                if (isModifiedClick(e)) return;
+                e.preventDefault();
+                setShowKnowledgePage(false);
+                window.history.pushState(null, '', '/');
+              }}
+              className="text-text-secondary hover:text-accent no-underline transition-colors cursor-pointer text-sm"
+            >Chat</a>
             <a href={UPLOAD_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Upload</a>
           </nav>
         </header>
@@ -664,16 +682,19 @@ export default function App() {
             <a href={SITE_HOME} className="text-text-secondary hover:text-accent no-underline transition-colors">Home</a>
             <a href={SEARCH_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Search</a>
             <a href={DOCS_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Docs</a>
-            <button
-              onClick={() => {
+            <a
+              href="/knowledge"
+              onClick={(e) => {
+                if (isModifiedClick(e)) return;
+                e.preventDefault();
                 setShowKnowledgePage(true);
                 setShowSettings(false);
                 setShowAdmin(false);
                 setEditingProject(null);
                 window.history.pushState(null, '', '/knowledge');
               }}
-              className={`${showKnowledgePage ? 'text-accent' : 'text-text-secondary hover:text-accent'} no-underline transition-colors cursor-pointer bg-transparent border-none p-0 text-sm`}
-            >Knowledge</button>
+              className={`${showKnowledgePage ? 'text-accent' : 'text-text-secondary hover:text-accent'} no-underline transition-colors cursor-pointer text-sm`}
+            >Knowledge</a>
             <a href={CHAT_URL} className={`${!showKnowledgePage ? 'text-accent' : 'text-text-secondary hover:text-accent'} no-underline transition-colors`}>Chat</a>
             <a href={UPLOAD_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Upload</a>
           </nav>

@@ -4,6 +4,7 @@ import type { ConversationSummary, Project } from '../lib/types';
 import { useUserStore } from '../stores/userStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { DOCS_URL, SITE_HOME } from '../lib/urls';
+import { conversationPath, isModifiedClick, newChatPath } from '../lib/nav';
 
 // P2 #26 commit 3: user identity slots (userEmail / userName /
 // userAvatar / isAdmin) and activeProjectId pulled from stores
@@ -351,16 +352,26 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       {/* New chat + Search row */}
       <div className="px-3 pb-3 flex flex-col gap-1">
         {/* New chat */}
-        <button
-          onClick={onNewChat}
-          className="flex items-center gap-3 px-2 py-2 rounded-lg text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors cursor-pointer w-full text-left"
+        <a
+          href={newChatPath()}
+          onClick={(e) => {
+            // Ctrl/cmd/shift-click and middle-click belong to the
+            // browser: it opens "/" in a new tab or window and this
+            // one stays where it is. Right-click gets the same two
+            // options from the context menu, for free, because this
+            // is a real link rather than a button.
+            if (isModifiedClick(e)) return;
+            e.preventDefault();
+            onNewChat();
+          }}
+          className="flex items-center gap-3 px-2 py-2 rounded-lg text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors cursor-pointer w-full text-left no-underline"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
           <span className="text-sm">New chat</span>
-        </button>
+        </a>
 
         {/* Search */}
         <button
@@ -457,16 +468,23 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                   {projectActionMenuId === proj.id && (
                     <div className="sidebar-row-menu absolute right-0 top-full z-50 w-48 bg-bg-secondary border border-border rounded-lg shadow-lg overflow-hidden mt-1">
                       {onNewChatInProject && (
-                        <button
+                        <a
+                          href={newChatPath(proj.id)}
                           onClick={(e) => {
                             e.stopPropagation();
+                            // Modified click: let the browser open the
+                            // link, which carries ?project so the new
+                            // tab files its first message into this
+                            // project too. Close the menu either way.
                             setProjectActionMenuId(null);
+                            if (isModifiedClick(e)) return;
+                            e.preventDefault();
                             onNewChatInProject(proj.id);
                           }}
-                          className="w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary cursor-pointer"
+                          className="block w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary cursor-pointer no-underline"
                         >
                           New chat in project
-                        </button>
+                        </a>
                       )}
                       {onOpenProjectSettings && (
                         <button
@@ -725,10 +743,18 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                       </div>
                     )}
                     {group.chats.map(chat => (
-                      <button
+                      <a
                         key={chat.id}
-                        onClick={() => handleSearchSelect(chat.id)}
-                        className={`w-full text-left px-4 py-3 hover:bg-bg-tertiary transition-colors cursor-pointer ${
+                        href={conversationPath(chat.id)}
+                        onClick={(e) => {
+                          // Modified click opens the conversation in a
+                          // new tab and leaves this overlay up, so a
+                          // search can spawn several tabs in one pass.
+                          if (isModifiedClick(e)) return;
+                          e.preventDefault();
+                          handleSearchSelect(chat.id);
+                        }}
+                        className={`block w-full text-left px-4 py-3 hover:bg-bg-tertiary transition-colors cursor-pointer no-underline ${
                           chat.id === currentId ? 'bg-bg-tertiary' : ''
                         }`}
                       >
@@ -740,7 +766,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                             {chat.preview}
                           </div>
                         )}
-                      </button>
+                      </a>
                     ))}
                   </div>
                 ))
@@ -792,7 +818,16 @@ function ChatRow({
     <div className="relative">
       <div
         data-testid="chat-row"
-        onClick={() => onSelect(chat.id)}
+        onClick={(e) => {
+          // Hand modified clicks to the browser so it can open the
+          // title link in a new tab or window WITHOUT this tab also
+          // switching conversations underneath.
+          if (isModifiedClick(e)) return;
+          // Cancels the title link's navigation as the click bubbles
+          // up from it; a no-op for clicks elsewhere on the row.
+          e.preventDefault();
+          onSelect(chat.id);
+        }}
         className={`group flex items-center gap-2 px-2 py-2 rounded-md cursor-pointer text-sm transition-colors ${
           isCurrent
             ? 'bg-bg-tertiary text-text-primary'
@@ -818,7 +853,10 @@ function ChatRow({
             className="flex-1 bg-bg-primary border border-accent rounded px-1 py-0.5 text-xs text-text-primary outline-none"
           />
         ) : (
-          <span className="flex-1 truncate">{chat.title || 'Untitled'}</span>
+          <a
+            href={conversationPath(chat.id)}
+            className="flex-1 truncate no-underline text-inherit"
+          >{chat.title || 'Untitled'}</a>
         )}
 
         {/* Pin */}

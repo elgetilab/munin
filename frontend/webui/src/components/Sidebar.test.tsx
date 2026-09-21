@@ -271,3 +271,123 @@ describe('Sidebar', () => {
     expect(within(projectRow).queryByText('Project settings')).not.toBeInTheDocument();
   });
 });
+
+// ── Open-in-new-tab affordances (2026-09-21) ────────────────────────────────
+//
+// The sidebar entries used to be <button>s and <div onClick>s, which gave the
+// browser nothing to work with: right-click offered no "Open link in new tab"
+// or "... new window", and ctrl/cmd/middle-click did nothing at all. They are
+// real anchors now. The contract under test is the split of responsibility:
+// a plain left click is the app's (preventDefault, then the callback), and a
+// modified click is the browser's (default action left intact, and crucially
+// NO callback, so the current tab doesn't follow along).
+//
+// Right-click itself needs no test: the context menu is the browser's, and it
+// appears for any element carrying an href. Asserting the href is the whole
+// of what we control.
+//
+// jsdom logs "Not implemented: navigation to another Document" while these
+// run. That is the pass condition, not a failure: it means a modified click
+// reached jsdom's link-activation with its default action intact.
+
+describe('Sidebar open-in-new-tab links', () => {
+  // Dispatched natively rather than via userEvent so the test can read
+  // `defaultPrevented` back off the event afterwards.
+  function clickWith(el: Element, init: MouseEventInit = {}): MouseEvent {
+    const ev = new MouseEvent('click', { bubbles: true, cancelable: true, ...init });
+    el.dispatchEvent(ev);
+    return ev;
+  }
+
+  const linkFor = (text: string): HTMLAnchorElement => {
+    const anchor = screen.getByText(text).closest('a');
+    if (!anchor) throw new Error(`"${text}" is not inside a link`);
+    return anchor as HTMLAnchorElement;
+  };
+
+  it('"New chat" is a link to /', () => {
+    renderSidebar();
+    expect(linkFor('New chat')).toHaveAttribute('href', '/');
+  });
+
+  it('plain click on "New chat" starts a chat in place, without navigating', () => {
+    const { props } = renderSidebar();
+    const ev = clickWith(linkFor('New chat'));
+    expect(props.onNewChat).toHaveBeenCalledTimes(1);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it.each([
+    ['ctrl', { ctrlKey: true }],
+    ['meta', { metaKey: true }],
+    ['shift', { shiftKey: true }],
+    ['middle', { button: 1 }],
+  ])('%s-click on "New chat" is left to the browser', (_label, init) => {
+    const { props } = renderSidebar();
+    const ev = clickWith(linkFor('New chat'), init);
+    expect(props.onNewChat).not.toHaveBeenCalled();
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
+  it('chat row titles are links to /c/<id>', async () => {
+    renderSidebar();
+    await waitFor(() => expect(screen.getByText('Test Chat 1')).toBeInTheDocument());
+    expect(linkFor('Test Chat 1')).toHaveAttribute('href', '/c/c1');
+  });
+
+  it('plain click on a chat row selects it in place', async () => {
+    const { props } = renderSidebar();
+    await waitFor(() => expect(screen.getByText('Test Chat 1')).toBeInTheDocument());
+    const ev = clickWith(linkFor('Test Chat 1'));
+    expect(props.onSelect).toHaveBeenCalledWith('c1');
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it('modified click on a chat row does not switch the current conversation', async () => {
+    const { props } = renderSidebar();
+    await waitFor(() => expect(screen.getByText('Test Chat 1')).toBeInTheDocument());
+    const ev = clickWith(linkFor('Test Chat 1'), { ctrlKey: true });
+    expect(props.onSelect).not.toHaveBeenCalled();
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
+  it('a modified click on the row outside the title is inert', async () => {
+    const { props } = renderSidebar();
+    await waitFor(() => expect(screen.getByText('Test Chat 1')).toBeInTheDocument());
+    const row = linkFor('Test Chat 1').closest('[data-testid="chat-row"]')!;
+    clickWith(row, { ctrlKey: true });
+    expect(props.onSelect).not.toHaveBeenCalled();
+  });
+
+  it('search results are links to their conversation', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    await user.click(screen.getByText('Search'));
+
+    // "Hello" is c1's preview, rendered only inside the search overlay,
+    // so it identifies the overlay row without colliding with the
+    // sidebar row of the same title.
+    await waitFor(() => expect(screen.getByText('Hello')).toBeInTheDocument());
+    expect(linkFor('Hello')).toHaveAttribute('href', '/c/c1');
+  });
+
+  it('"New chat in project" links to /?project=<id>', async () => {
+    const user = userEvent.setup();
+    const onNewChatInProject = vi.fn();
+    renderSidebar({ onNewChatInProject });
+
+    await waitFor(() => expect(screen.getByText('ML Research')).toBeInTheDocument());
+    const projectRow = screen.getByText('ML Research').closest('.relative')!;
+    await user.click(within(projectRow as HTMLElement).getByTitle('More'));
+    await waitFor(() => expect(screen.getByText('New chat in project')).toBeInTheDocument());
+
+    const link = linkFor('New chat in project');
+    expect(link).toHaveAttribute('href', '/?project=p1');
+
+    // Modified click: the browser opens the link, which carries the
+    // project, and this tab stays put.
+    const ev = clickWith(link, { ctrlKey: true });
+    expect(onNewChatInProject).not.toHaveBeenCalled();
+    expect(ev.defaultPrevented).toBe(false);
+  });
+});
