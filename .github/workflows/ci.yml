@@ -23,8 +23,8 @@ jobs:
       run:
         working-directory: frontend/webui
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -41,7 +41,7 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: E2E tests (Playwright, mocked)
         run: npm run e2e
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: failure()
         with:
           name: playwright-report
@@ -52,8 +52,8 @@ jobs:
     name: python services (pytest)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: auth service tests
@@ -75,7 +75,7 @@ jobs:
     name: compose invariants (single-host + cluster)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Compose config resolves, and the invariants hold
         # Cheap (no images pulled) and guards the properties the whole
         # single-host setup rests on: cluster defaults stay production, local
@@ -122,7 +122,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Reclaim runner disk
         # The retrieval image alone is larger than the free space a stock
