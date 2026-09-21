@@ -263,7 +263,7 @@ describe('Markdown — KaTeX math', () => {
 // dollar-sign forms BEFORE remark-math sees them, except inside code
 // blocks where we want the literal characters preserved.
 
-import { normalizeMathDelimiters } from './Markdown';
+import { normalizeMathDelimiters } from '../lib/mathDelimiters';
 
 describe('normalizeMathDelimiters', () => {
   it('rewrites `\\(x\\)` to `$x$`', () => {

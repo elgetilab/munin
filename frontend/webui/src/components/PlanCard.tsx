@@ -104,8 +104,17 @@ export function PlanCard({
 
   const handleSaveEdit = async () => {
     if (!conversationId || busy) return;
+    // Built field by field rather than spreading the draft: the spread
+    // produced a fresh object literal, which excess-property checking
+    // rejected against editPlan's narrower parameter, and the `as any`
+    // that silenced it also switched off every other check on this call.
     const items = draft
-      .map(d => ({ ...d, title: d.title.trim(), notes: d.notes.trim() || null }))
+      .map(d => ({
+        id: d.id,
+        title: d.title.trim(),
+        status: d.status,
+        notes: d.notes.trim() || null,
+      }))
       .filter(d => d.title.length > 0);
     if (items.length === 0) {
       setEditing(false);
@@ -113,7 +122,7 @@ export function PlanCard({
     }
     setBusy('edit');
     try {
-      await editPlan(conversationId, items as any, 'each');
+      await editPlan(conversationId, items, 'each');
       onAfterEdit?.();
       setEditing(false);
     } catch {

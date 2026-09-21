@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { detectPhase, MessageList } from './MessageList';
+import { MessageList } from './MessageList';
+import { detectPhase } from '../lib/streamPhase';
 import type { Message } from '../lib/types';
 
 // Mock heavy child components to keep tests focused on MessageList logic
