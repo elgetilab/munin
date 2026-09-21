@@ -466,7 +466,14 @@ services:
           # radius. It is a QUOTA, not a pinning: the sandbox may still land on
           # vLLM's cores, it just cannot consume more than 8 cores' worth. If
           # contention still shows up, add `cpuset` disjoint from vLLM's range.
-          cpus: '8'
+          #
+          # Overridable because the limit has to fit the host: Docker's daemon
+          # rejects a container whose cpu quota exceeds the machine's core
+          # count, so a 2-core CI runner cannot create this container at all
+          # while the number is hard-coded at 8 (it broke the weekly
+          # single-host smoke from 2026-09-07 on). Unset means 8, so the
+          # cluster keeps the measured production value.
+          cpus: '${SANDBOX_CPUS:-8}'
     profiles:
       - rag
 
