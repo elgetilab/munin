@@ -5,6 +5,7 @@ import { useUserStore } from '../stores/userStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { DOCS_URL, SITE_HOME } from '../lib/urls';
 import { conversationPath, isModifiedClick, newChatPath } from '../lib/nav';
+import { groupByTime } from '../lib/chatGrouping';
 
 // P2 #26 commit 3: user identity slots (userEmail / userName /
 // userAvatar / isAdmin) and activeProjectId pulled from stores
@@ -43,37 +44,6 @@ async function migrateStarredToPinned() {
 
 // ── Grouping ────────────────────────────────────────────────────────────────
 
-export function groupByTime(chats: ConversationSummary[]) {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterday = new Date(today.getTime() - 86400000);
-  const weekAgo = new Date(today.getTime() - 7 * 86400000);
-  const monthAgo = new Date(today.getTime() - 30 * 86400000);
-
-  const groups: { label: string; chats: ConversationSummary[] }[] = [
-    { label: 'Pinned', chats: [] },
-    { label: 'Today', chats: [] },
-    { label: 'Yesterday', chats: [] },
-    { label: 'This week', chats: [] },
-    { label: 'This month', chats: [] },
-    { label: 'Older', chats: [] },
-  ];
-
-  for (const chat of chats) {
-    if (chat.pinned) {
-      groups[0].chats.push(chat);
-      continue;
-    }
-    const d = new Date(chat.updated_at);
-    if (d >= today) groups[1].chats.push(chat);
-    else if (d >= yesterday) groups[2].chats.push(chat);
-    else if (d >= weekAgo) groups[3].chats.push(chat);
-    else if (d >= monthAgo) groups[4].chats.push(chat);
-    else groups[5].chats.push(chat);
-  }
-
-  return groups.filter(g => g.chats.length > 0);
-}
 
 export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, onOpenProjectSettings, refreshKey, onOpenSettings, onOpenAdmin }: SidebarProps) {
   const userProfile = useUserStore(s => s.userProfile);

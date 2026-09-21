@@ -1,5 +1,5 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { http, HttpResponse } from 'msw';
+import { http } from 'msw';
 import { server } from '../test/msw-server';
 import { MOCK_CONVERSATION } from '../test/msw-handlers';
 import { useChatStore, _resetChatStoreForTests } from '../stores/chatStore';

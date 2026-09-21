@@ -2,7 +2,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../../test/msw-server';
-import { MetricsTab, _testables } from './MetricsTab';
+import { MetricsTab } from './MetricsTab';
+import { rateWindowFor, seriesToRows } from '../../lib/metricsSeries';
 
 /**
  * MetricsTab tests cover the pure transforms (seriesToRows,
@@ -18,7 +19,6 @@ import { MetricsTab, _testables } from './MetricsTab';
  *   - "No data in this window" shows when the response has no series.
  */
 
-const { seriesToRows, rateWindowFor } = _testables;
 
 describe('rateWindowFor', () => {
   it('returns 5m for short ranges, 1h for medium, 1d for very long', () => {

@@ -1,10 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { fetchStatus } from '../lib/api';
 import type { SystemStatus } from '../lib/types';
 
 export function useStatus(pollInterval = 60000) {
   const [status, setStatus] = useState<SystemStatus | null>(null);
-  const failCountRef = { current: 0 };
+  // A real ref: the previous `{ current: 0 }` object literal was rebuilt on
+  // every render and only worked because the effect happened to close over
+  // the first one. Any re-run of the effect silently reset the counter, and
+  // the 3-strikes-before-offline rule with it.
+  const failCountRef = useRef(0);
 
   useEffect(() => {
     let mounted = true;

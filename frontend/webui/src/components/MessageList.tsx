@@ -7,6 +7,7 @@ import { ClarificationCard } from './ClarificationCard';
 import { MemoryProposalPill } from './MemoryProposalPill';
 import { CompactBoundaryDivider } from './CompactBoundaryDivider';
 import { PlanCard } from './PlanCard';
+import { detectPhase } from '../lib/streamPhase';
 
 interface RetryingState {
   attempt: number;
@@ -80,20 +81,6 @@ function cleanContent(raw: string): string {
     .trim();
 }
 
-export function detectPhase(streaming: StreamingState): string {
-  if (streaming.toolCalls.length > 0) {
-    const last = streaming.toolCalls[streaming.toolCalls.length - 1];
-    if (last.name === 'invoke_agent') return 'deep_research';
-    if (['paper_search', 'semantic_scholar_search', 'paper_lookup', 'get_citations', 'get_references', 'get_author_papers', 'check_papers_availability'].includes(last.name)) {
-      return 'paper_search';
-    }
-    if (['web_search', 'web_fetch'].includes(last.name)) return 'web_search';
-    if (['run_python', 'sandbox_reset', 'compile_latex'].includes(last.name)) return 'code';
-    if (['create_artifact', 'update_artifact'].includes(last.name)) return 'code';
-    if (last.name === 'llm_summarize') return 'processing';
-  }
-  return 'thinking';
-}
 
 // Distance (in CSS pixels) from the scroll-container bottom within which
 // the floating "jump to bottom" button stays hidden. The user is close

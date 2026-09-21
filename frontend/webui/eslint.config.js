@@ -19,5 +19,18 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // The codebase marks a deliberately-unused binding with a leading
+      // underscore: props destructured to document the component's
+      // contract but not read, catch bindings kept for shape. That is a
+      // convention the default rule cannot see, so it reported three
+      // intentional markers as errors. Teach it the convention rather
+      // than deleting the markers.
+      '@typescript-eslint/no-unused-vars': ['error', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+        caughtErrorsIgnorePattern: '^_',
+      }],
+    },
   },
 ])

@@ -2,7 +2,8 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
-import { groupByTime, Sidebar } from './Sidebar';
+import { Sidebar } from './Sidebar';
+import { groupByTime } from '../lib/chatGrouping';
 import type { ConversationSummary } from '../lib/types';
 
 // ── groupByTime tests ───────────────────────────────────────────────────────

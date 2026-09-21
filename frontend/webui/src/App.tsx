@@ -70,6 +70,11 @@ export default function App() {
   const setIsEphemeral = useWorkspaceStore(s => s.setIsEphemeral);
   const toggleEphemeral = useWorkspaceStore(s => s.toggleEphemeral);
   const deferredPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
+  // Mirrors "we hold a live beforeinstallprompt event" into state. The banner
+  // used to read deferredPromptRef.current during render, which does not
+  // re-render when the ref changes: after a dismissed install prompt cleared
+  // the ref, the banner kept offering an Install button that did nothing.
+  const [canInstall, setCanInstall] = useState(false);
   // P2 #26 commit 4: chat slices now consumed via per-field
   // selectors directly from useChatStore — the transitional
   // useChat() wrapper has been retired. Selector form means a
@@ -430,6 +435,7 @@ export default function App() {
     const handler = (e: Event) => {
       e.preventDefault();
       deferredPromptRef.current = e as BeforeInstallPromptEvent;
+      setCanInstall(true);
       setShowInstallBanner(true);
     };
     window.addEventListener('beforeinstallprompt', handler);
@@ -456,6 +462,7 @@ export default function App() {
         setShowInstallBanner(false);
       }
       deferredPromptRef.current = null;
+      setCanInstall(false);
     }
   };
 
@@ -742,13 +749,13 @@ export default function App() {
         {showInstallBanner && (
           <div className="mx-4 mt-3 px-4 py-3 bg-accent/10 border border-accent rounded-lg text-sm flex items-center gap-3 text-accent">
             <span className="flex-1">
-              {deferredPromptRef.current
+              {canInstall
                 ? 'Install Munin as an app for quick access.'
                 : isIOSDevice
                 ? 'Install Munin: tap Share, then "Add to Home Screen".'
                 : 'Install Munin: open browser menu, then "Add to Home Screen".'}
             </span>
-            {deferredPromptRef.current && (
+            {canInstall && (
               <button
                 onClick={handleInstall}
                 className="flex-shrink-0 px-3 py-1 bg-accent text-bg-primary rounded-md text-xs font-medium cursor-pointer hover:bg-accent-hover transition-colors"
