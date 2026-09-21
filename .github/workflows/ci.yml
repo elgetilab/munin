@@ -142,6 +142,11 @@ jobs:
           # exercised by the compose job's config check, not booted here.
           sed -i 's|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=rag|' .env
           sed -i 's|^COMPOSE_FILE=.*|COMPOSE_FILE=backend/docker/docker-compose.yml|' .env
+          # The sandbox's cpu quota is sized for the cluster (8 cores). The
+          # daemon refuses to create a container asking for more cores than
+          # the host has, so size it to this runner instead of pinning a
+          # number that a future runner resize could invalidate again.
+          echo "SANDBOX_CPUS=$(nproc)" >> .env
 
       - name: Start the stub LLM
         run: |
