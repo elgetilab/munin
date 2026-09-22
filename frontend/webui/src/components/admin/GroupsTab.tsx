@@ -20,18 +20,40 @@ export function GroupsTab() {
   const [editing, setEditing] = useState<AdminGroup | null>(null);
   const [adding, setAdding] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setGroups(await fetchAdminGroups());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load groups');
-    }
-    setLoading(false);
-  }, []);
+  // The fetch lives in the effect rather than in a callback the effect calls.
+  // Three things come out of that:
+  //
+  //   - No setState runs synchronously when the effect fires, so mounting no
+  //     longer schedules a render before the request has gone out
+  //     (react-hooks/set-state-in-effect).
+  //   - The response is discarded if the component unmounted or a newer load
+  //     started, which the previous version could not do: a slow first
+  //     request could land after a refresh and overwrite it.
+  //   - A refresh no longer blanks the table back to "Loading groups...",
+  //     because `loading` is only ever turned off here, never back on.
+  //
+  // `load` becomes "ask for another read" rather than "do a read", which is
+  // all its call sites (the edit and create modals) ever wanted.
+  const [reloadKey, setReloadKey] = useState(0);
+  const load = useCallback(() => setReloadKey(k => k + 1), []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const next = await fetchAdminGroups();
+        if (cancelled) return;
+        setGroups(next);
+        setError(null);
+      } catch (e) {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : 'Failed to load groups');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [reloadKey]);
 
   if (loading) return <div className="text-text-secondary text-sm py-12 text-center">Loading groups...</div>;
   if (error) return <div className="text-error text-sm py-12 text-center">{error}</div>;

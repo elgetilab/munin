@@ -78,50 +78,58 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
   const [announcementSaving, setAnnouncementSaving] = useState(false);
   const [announcementStatus, setAnnouncementStatus] = useState('');
 
-  const loadKeys = useCallback(async () => {
-    try {
-      const res = await fetchApiKeys();
-      setApiKeys(res.keys);
-    } catch {
-      // silently fail
-    }
-  }, []);
-
-  const loadUsage = useCallback(async () => {
-    try {
-      const res = await fetchUsageStats();
-      setUsage(res);
-    } catch {
-      // silently fail
-    }
-  }, []);
-
-  const loadMuninProfile = useCallback(async () => {
-    try {
-      const p = await fetchMuninProfile();
-      setMuninProfile(p);
-      setAboutMe(p.about_me || '');
-      setResponseFormat(p.response_format || '');
-      setDefaultPersona(p.default_persona || '');
-      setTimezone(p.timezone || '');
-    } catch {
-      // Profile may not exist yet — that's fine
-    }
-  }, []);
+  // Four independent reads, each owning its own failure so one server
+  // problem cannot blank the whole page. They live in the effects rather
+  // than in callbacks the effects call, which means no setState runs
+  // synchronously when an effect fires (react-hooks/set-state-in-effect)
+  // and a response arriving after unmount is dropped instead of warned
+  // about.
+  //
+  // The key list is the only read anything repeats, after a key is created
+  // or revoked, so it gets a reload key of its own. `loadKeys` keeps its
+  // name and its call sites: it now asks for another read rather than
+  // performing one.
+  const [keysReloadKey, setKeysReloadKey] = useState(0);
+  const loadKeys = useCallback(() => setKeysReloadKey(k => k + 1), []);
 
   useEffect(() => {
-    loadKeys();
-    loadUsage();
-    loadMuninProfile();
+    let cancelled = false;
+    fetchApiKeys()
+      .then(res => { if (!cancelled) setApiKeys(res.keys); })
+      .catch(() => { /* silently fail */ });
+    return () => { cancelled = true; };
+  }, [keysReloadKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchUsageStats()
+      .then(res => { if (!cancelled) setUsage(res); })
+      .catch(() => { /* silently fail */ });
+
+    fetchMuninProfile()
+      .then(p => {
+        if (cancelled) return;
+        setMuninProfile(p);
+        setAboutMe(p.about_me || '');
+        setResponseFormat(p.response_format || '');
+        setDefaultPersona(p.default_persona || '');
+        setTimezone(p.timezone || '');
+      })
+      .catch(() => { /* profile may not exist yet, which is fine */ });
+
     if (isAdmin) {
-      fetchAnnouncement().then(a => {
-        if (a) {
+      fetchAnnouncement()
+        .then(a => {
+          if (cancelled || !a) return;
           setAnnouncementText(a.message);
           setAnnouncementLevel(a.level);
-        }
-      }).catch(() => {});
+        })
+        .catch(() => {});
     }
-  }, [loadKeys, loadUsage, loadMuninProfile, isAdmin]);
+
+    return () => { cancelled = true; };
+  }, [isAdmin]);
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

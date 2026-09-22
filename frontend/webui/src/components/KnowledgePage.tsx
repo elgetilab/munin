@@ -15,27 +15,28 @@ type View =
   | { type: 'browse'; kind: string; slug: string };
 
 export function KnowledgePage({ initialRoute, tagCatalog, onChatWithTag }: KnowledgePageProps) {
-  const [catalog, setCatalog] = useState<TagCatalog | null>(tagCatalog);
+  // The catalog reaches this page two ways: as a prop once App's /api/tags
+  // call lands, or from this page's own fetch when that has not happened
+  // yet. Deriving it from both rather than copying the prop into state is
+  // what removes the old "sync from prop when it arrives" effect: there is
+  // one value, the prop wins whenever it is present, and nothing has to
+  // watch for it changing.
+  const [fetchedCatalog, setFetchedCatalog] = useState<TagCatalog | null>(null);
+  const catalog = tagCatalog ?? fetchedCatalog;
   const [loadError, setLoadError] = useState<string | null>(null);
   const [mapStats, setMapStats] = useState<{ paper_count: number; cluster_count: number } | null>(null);
   const [view, setView] = useState<View>(
     initialRoute ? { type: 'browse', kind: initialRoute.split('/')[0], slug: initialRoute.split('/').slice(1).join('/') } : { type: 'overview' }
   );
 
-  // Sync from prop when it arrives (App-level fetch may complete after mount)
+  // Fetch ourselves if the prop is still null.
   useEffect(() => {
-    if (tagCatalog && !catalog) {
-      setCatalog(tagCatalog);
-    }
-  }, [tagCatalog, catalog]);
-
-  // Fetch ourselves if prop is null
-  useEffect(() => {
-    if (!catalog && !loadError) {
-      fetchTags()
-        .then(setCatalog)
-        .catch(e => setLoadError(e instanceof Error ? e.message : 'Failed to load'));
-    }
+    if (catalog || loadError) return;
+    let cancelled = false;
+    fetchTags()
+      .then(c => { if (!cancelled) setFetchedCatalog(c); })
+      .catch(e => { if (!cancelled) setLoadError(e instanceof Error ? e.message : 'Failed to load'); });
+    return () => { cancelled = true; };
   }, [catalog, loadError]);
 
   // Fetch embedding map stats for accurate paper count

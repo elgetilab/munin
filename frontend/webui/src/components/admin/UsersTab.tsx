@@ -85,20 +85,32 @@ export function UsersTab() {
     }
   };
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [u, g] = await Promise.all([fetchAdminUsers(), fetchAdminGroups()]);
-      setUsers(u);
-      setGroups(g);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load users');
-    }
-    setLoading(false);
-  }, []);
+  // Effect-owned read, same shape as GroupsTab: nothing is set synchronously
+  // when the effect fires, a response that arrives after unmount or after a
+  // newer read started is discarded, and `load` is now "ask for another
+  // read" rather than "do a read". Both requests still go out together,
+  // because the table needs the group list to render a user's group.
+  const [reloadKey, setReloadKey] = useState(0);
+  const load = useCallback(() => setReloadKey(k => k + 1), []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [u, g] = await Promise.all([fetchAdminUsers(), fetchAdminGroups()]);
+        if (cancelled) return;
+        setUsers(u);
+        setGroups(g);
+        setError(null);
+      } catch (e) {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : 'Failed to load users');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [reloadKey]);
 
   const filtered = users.filter(u => {
     // "Unassigned" = no primary group. A multi-group member still has a

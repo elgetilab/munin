@@ -724,6 +724,14 @@ export async function unfileConversation(projectId: string, conversationId: stri
 // ── Knowledge / Tags ────────────────────────────────────────────────────────
 
 let tagCatalogCache: { data: TagCatalog; fetchedAt: number } | null = null;
+
+/** Test helper, same pattern as the stores' _reset*ForTests. The catalog
+ *  cache is module-level and vitest isolates modules per file, not per test,
+ *  so without this one test's successful fetch silently answers the next
+ *  test's request and the handler under test never runs. */
+export function _resetTagCacheForTests(): void {
+  tagCatalogCache = null;
+}
 const TAG_CACHE_TTL = 120_000; // 2 minutes
 
 export async function fetchTags(): Promise<TagCatalog> {
