@@ -136,7 +136,7 @@ export default function App() {
       .catch(() => {
         setGreeting(getGreeting(null));
       });
-  }, []);
+  }, [setGreeting, setUserProfile]);
 
   // Load announcement and admin status on mount
   useEffect(() => {
@@ -146,14 +146,14 @@ export default function App() {
     fetchUsageStats()
       .then(stats => { if (stats.is_admin) setIsAdmin(true); })
       .catch(() => {});
-  }, []);
+  }, [setAnnouncement, setIsAdmin]);
 
   // Load tag catalog on mount
   useEffect(() => {
     fetchTags()
       .then(setTagCatalog)
       .catch(() => {});
-  }, []);
+  }, [setTagCatalog]);
 
   // Load personas on mount
   useEffect(() => {
@@ -180,7 +180,7 @@ export default function App() {
         ]);
         setSelectedPersona('munin');
       });
-  }, []);
+  }, [setPersonas, setSelectedPersona]);
 
   // URL routing: read conversation ID, persona, and knowledge route from URL on mount
   useEffect(() => {
@@ -212,7 +212,7 @@ export default function App() {
       // Clean the URL
       window.history.replaceState(null, '', window.location.pathname);
     }
-  }, [loadConversation]);
+  }, [loadConversation, setActiveProjectId, setIsEphemeral, setSelectedPersona, setShowKnowledgePage]);
 
   // Update URL when conversation changes
   useEffect(() => {
@@ -254,6 +254,9 @@ export default function App() {
       .then(({ job }) => { if (mounted && job) drSetJob(job); else if (mounted && drJob?.conversationId !== conversationId) drClear(); })
       .catch(() => {});
     return () => { mounted = false; };
+    // drJob is read but deliberately not a dependency: it is what this
+    // effect ultimately writes, so listing it would refetch on every job
+    // update. The conversation id is the real trigger.
   }, [conversationId, isEphemeral, drSetJob, drClear]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll the active job's event log.
@@ -282,7 +285,7 @@ export default function App() {
       setArtifactPanelOpen(true);
       setSelectedArtifactId(lastArtifactEvent.id);
     }
-  }, [lastArtifactEvent]);
+  }, [lastArtifactEvent, setArtifactPanelOpen, setSelectedArtifactId]);
 
   // Sync the persona indicator to the conversation's persona on
   // conversation load (the persisted persona is authoritative).
@@ -290,7 +293,7 @@ export default function App() {
     if (conversationPersona && conversationPersona !== selectedPersona) {
       setSelectedPersona(conversationPersona);
     }
-  }, [conversationPersona, selectedPersona]);
+  }, [conversationPersona, selectedPersona, setSelectedPersona]);
 
   // Refresh sidebar when a stream completes (new messages) — skip for ephemeral
   // Also clear activeProjectId once the conversation is created (filed by backend)
@@ -301,7 +304,7 @@ export default function App() {
         setActiveProjectId(null);
       }
     }
-  }, [streaming.phase, messages.length, isEphemeral, activeProjectId, conversationId]);
+  }, [streaming.phase, messages.length, isEphemeral, activeProjectId, conversationId, bumpSidebarRefresh, setActiveProjectId]);
 
   const handleSelectChat = useCallback((id: string) => {
     setIsEphemeral(false);
@@ -309,7 +312,7 @@ export default function App() {
     setEditingProject(null);
     setShowAdmin(false);
     loadConversation(id);
-  }, [loadConversation]);
+  }, [loadConversation, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin]);
 
   const handleNewChat = useCallback(() => {
     setIsEphemeral(false);
@@ -318,7 +321,7 @@ export default function App() {
     setShowAdmin(false);
     clearConversation();
     window.history.pushState(null, '', '/');
-  }, [clearConversation]);
+  }, [clearConversation, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin]);
 
   const handleNewChatInProject = useCallback((projectId: string) => {
     setIsEphemeral(false);
@@ -326,17 +329,17 @@ export default function App() {
     setEditingProject(null);
     clearConversation();
     window.history.pushState(null, '', '/');
-  }, [clearConversation]);
+  }, [clearConversation, setActiveProjectId, setEditingProject, setIsEphemeral]);
 
   const handleOpenProjectSettings = useCallback((project: Project) => {
     setEditingProject(project);
     setShowSettings(false);
-  }, []);
+  }, [setEditingProject, setShowSettings]);
 
   const handleProjectUpdated = useCallback((updated: Project) => {
     setEditingProject(updated);
     bumpSidebarRefresh();
-  }, []);
+  }, [bumpSidebarRefresh, setEditingProject]);
 
   const handleToggleEphemeral = useCallback(() => {
     const nowEphemeral = toggleEphemeral();
@@ -350,7 +353,7 @@ export default function App() {
   const handleProfileUpdate = useCallback((updated: UserProfile) => {
     setUserProfile(updated);
     setGreeting(getGreeting(updated.name));
-  }, []);
+  }, [setGreeting, setUserProfile]);
 
   // Only send project_id when creating a new conversation (no existing conversationId)
   const projectIdForNewChat = !conversationId && activeProjectId ? activeProjectId : undefined;
@@ -420,7 +423,7 @@ export default function App() {
     };
     window.addEventListener('popstate', handler);
     return () => window.removeEventListener('popstate', handler);
-  }, [loadConversation, clearConversation]);
+  }, [loadConversation, clearConversation, setShowKnowledgePage]);
 
   // PWA install prompt
   useEffect(() => {
@@ -452,7 +455,7 @@ export default function App() {
       window.removeEventListener('beforeinstallprompt', handler);
       clearTimeout(timeout);
     };
-  }, []);
+  }, [setShowInstallBanner]);
 
   const handleInstall = async () => {
     if (deferredPromptRef.current) {
