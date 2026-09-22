@@ -77,6 +77,74 @@ export const MOCK_PROFILE = {
   updated_at: new Date().toISOString(),
 };
 
+export const MOCK_API_KEYS = [
+  { id: 'k1', key_prefix: 'sk-munin-abc', name: 'laptop', created_at: new Date().toISOString(),
+    last_used_at: null, revoked: false },
+];
+
+// ── Admin: users + groups (auth service, not the chat API) ──────────────────
+// Admin requests go to `${AUTH_BASE}/admin`, i.e. a different origin from the
+// relative /api handlers above, so these are absolute URLs.
+
+function adminUser(over: Partial<Record<string, unknown>> = {}) {
+  const base = {
+    id: 1,
+    first_name: 'Ada',
+    last_name: 'Lovelace',
+    name: 'Ada Lovelace',
+    role: 'user',
+    group: 'ml-research',
+    username: 'ada',
+    primary_email: 'ada@test.com',
+    emails: ['ada@test.com'],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  return { ...base, ...over };
+}
+
+export const MOCK_ADMIN_USERS = [
+  adminUser({}),
+  adminUser({ id: 2, first_name: 'Grace', last_name: 'Hopper', name: 'Grace Hopper',
+              role: 'group_leader', username: 'grace', primary_email: 'grace@test.com',
+              emails: ['grace@test.com'] }),
+  adminUser({ id: 3, first_name: 'Alan', last_name: 'Turing', name: 'Alan Turing',
+              role: 'admin', group: null, username: 'alan', primary_email: 'alan@test.com',
+              emails: ['alan@test.com'] }),
+];
+
+export const MOCK_ADMIN_GROUPS = [
+  { slug: 'ml-research', display_name: 'ML Research', member_count: 2,
+    created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { slug: 'bio-lab', display_name: 'Bio Lab', member_count: 0,
+    created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+];
+
+const ADMIN = 'https://auth.muninai.org/admin';
+
+export const MOCK_ADMIN_ACTIVITY = {
+  online: [{ email: 'ada@test.com', last_seen_at: new Date().toISOString(), source: 'chat' }],
+  recent: [{ email: 'grace@test.com', last_seen_at: new Date().toISOString(), source: 'api' }],
+  all_users: [
+    { email: 'ada@test.com', last_seen_at: new Date().toISOString(), source: 'chat' },
+    { email: 'grace@test.com', last_seen_at: new Date().toISOString(), source: 'api' },
+  ],
+  total: 2,
+};
+
+export const MOCK_ADMIN_USAGE = {
+  period: '2026-09',
+  total_tokens: 1234567,
+  total_requests: 890,
+  active_users: 2,
+  top_users: [
+    { email: 'ada@test.com', tokens: 1000000, requests: 700, by_source: { chat: { tokens: 1000000, requests: 700 } } },
+    { email: 'grace@test.com', tokens: 234567, requests: 190, by_source: { api: { tokens: 234567, requests: 190 } } },
+  ],
+  tools_usage: { paper_search: 42, web_search: 17 },
+};
+
+
 export const handlers = [
   http.get('/api/personas', () => HttpResponse.json(MOCK_PERSONAS)),
   http.get('/api/chats', () => HttpResponse.json(MOCK_CHATS)),
@@ -89,6 +157,12 @@ export const handlers = [
   http.post('/api/chats/:id/pin', () => new HttpResponse(null, { status: 200 })),
   http.delete('/api/chats/:id/pin', () => new HttpResponse(null, { status: 200 })),
   http.get('/api/status', () => HttpResponse.json(MOCK_STATUS)),
+  http.get('/api/keys', () => HttpResponse.json({ keys: MOCK_API_KEYS })),
+  http.post('/api/keys', async ({ request }) => {
+    const body = await request.json() as Record<string, unknown>;
+    return HttpResponse.json({ key: 'sk-munin-secret-value', ...body });
+  }),
+  http.delete('/api/keys/:id', () => new HttpResponse(null, { status: 204 })),
   http.get('/api/profile', () => HttpResponse.json(MOCK_PROFILE)),
   http.put('/api/profile', () => HttpResponse.json(MOCK_PROFILE)),
   http.get('/api/projects', () => HttpResponse.json(MOCK_PROJECTS)),
@@ -117,4 +191,33 @@ export const handlers = [
   http.get('https://auth.muninai.org/auth/me', () => HttpResponse.json({ email: 'test@test.com', name: 'Test User', full_name: 'Test User', nickname: 'tester', avatar: '' })),
   http.get('/api/announcement', () => HttpResponse.json({ announcement: null })),
   http.get('/api/usage/me', () => HttpResponse.json({ current_month: { tokens_used: 0, tokens_limit: 1000000, tokens_remaining: 1000000, requests: 0, tools_used: {} }, api_keys: [] })),
+
+  http.get('/api/usage/admin/activity', () => HttpResponse.json(MOCK_ADMIN_ACTIVITY)),
+  http.get('/api/usage/admin', () => HttpResponse.json(MOCK_ADMIN_USAGE)),
+
+  http.get(`${ADMIN}/users`, () => HttpResponse.json({ users: MOCK_ADMIN_USERS })),
+  http.post(`${ADMIN}/users`, async ({ request }) => {
+    const body = await request.json() as Record<string, unknown>;
+    return HttpResponse.json({ user: { ...adminUser({ id: 99 }), ...body } });
+  }),
+  http.patch(`${ADMIN}/users/:id`, async ({ request, params }) => {
+    const body = await request.json() as Record<string, unknown>;
+    return HttpResponse.json({ user: { ...adminUser({ id: Number(params.id) }), ...body } });
+  }),
+  http.delete(`${ADMIN}/users/:id`, () => new HttpResponse(null, { status: 204 })),
+
+  http.get(`${ADMIN}/groups`, () => HttpResponse.json({ groups: MOCK_ADMIN_GROUPS })),
+  http.post(`${ADMIN}/groups`, async ({ request }) => {
+    const body = await request.json() as Record<string, unknown>;
+    return HttpResponse.json({ group: { slug: 'new-group', display_name: 'New Group', member_count: 0,
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(), ...body } });
+  }),
+  http.patch(`${ADMIN}/groups/:slug`, async ({ request, params }) => {
+    const body = await request.json() as Record<string, unknown>;
+    return HttpResponse.json({ group: { ...MOCK_ADMIN_GROUPS[0], slug: String(params.slug), ...body } });
+  }),
+  http.delete(`${ADMIN}/groups/:slug`, () => new HttpResponse(null, { status: 204 })),
+  http.get(`${ADMIN}/groups/:slug/members`, () => HttpResponse.json({ members: [MOCK_ADMIN_USERS[0]] })),
+  http.post(`${ADMIN}/groups/:slug/members`, () => HttpResponse.json({ members: MOCK_ADMIN_USERS.slice(0, 2) })),
+  http.delete(`${ADMIN}/groups/:slug/members/:userId`, () => HttpResponse.json({ members: [] })),
 ];

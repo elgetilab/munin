@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { fetchAdminActivity, fetchAdminUsage } from '../lib/api';
 import type { AdminActivity, AdminUsage } from '../lib/api';
 import { useUiStore } from '../stores/uiStore';
@@ -43,30 +43,41 @@ export function AdminPanel() {
   // own tab mount because they're rarely-changing CRUD lists.
   const needsLiveData = tab === 'activity' || tab === 'usage';
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [act, usg] = await Promise.all([fetchAdminActivity(), fetchAdminUsage()]);
-      setActivity(act);
-      setUsage(usg);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load admin data');
-    }
-    setLoading(false);
-  }, []);
+  // The read lives in the effect and the timer only asks for another one.
+  // That split fixes a visible defect as well as the lint rule: the old
+  // loadData raised `loading` on every 30s refresh, and the summary cards
+  // below render behind `!loading`, so the dashboard blanked and came back
+  // twice a minute while an admin was reading it. Here `loading` is only
+  // ever turned off, so a refresh swaps the numbers in place.
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    if (needsLiveData) loadData();
-  }, [loadData, needsLiveData]);
+    if (!needsLiveData) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [act, usg] = await Promise.all([fetchAdminActivity(), fetchAdminUsage()]);
+        if (cancelled) return;
+        setActivity(act);
+        setUsage(usg);
+        setError(null);
+      } catch (e) {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : 'Failed to load admin data');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [needsLiveData, reloadKey]);
 
   // Auto-refresh every 30 seconds (only while the user is looking at
   // a tab that consumes the live data).
   useEffect(() => {
     if (!needsLiveData) return;
-    const timer = setInterval(loadData, 30_000);
+    const timer = setInterval(() => setReloadKey(k => k + 1), 30_000);
     return () => clearInterval(timer);
-  }, [loadData, needsLiveData]);
+  }, [needsLiveData]);
 
   return (
     <div className="flex-1 overflow-y-auto">
