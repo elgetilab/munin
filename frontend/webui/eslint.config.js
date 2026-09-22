@@ -31,24 +31,22 @@ export default defineConfig([
         varsIgnorePattern: '^_',
         caughtErrorsIgnorePattern: '^_',
       }],
-      // Two React Compiler rules, arrived with eslint-plugin-react-hooks v7,
-      // that flag deliberate long-standing patterns rather than accidents:
-      //
-      //   set-state-in-effect        13 sites, 8 components. The ordinary
-      //     fetch-on-mount shape, `useEffect(() => { load(); }, [load])`,
-      //     where load() sets a loading flag before its await.
-      //   preserve-manual-memoization  App.tsx. The compiler declines to
-      //     optimise callbacks whose dependency arrays were hand-trimmed;
-      //     the same debt the exhaustive-deps warnings describe.
-      //
-      // Clearing them means restructuring data loading across those
-      // components and re-deriving every dependency array in App.tsx, which
-      // is scheduled work rather than a lint pass. Warn keeps both visible
-      // in CI's annotations without gating the job on debt we already know
-      // about. Revisit once the restructure lands: these should go back to
-      // error so new instances cannot creep in.
+      // A React Compiler rule (eslint-plugin-react-hooks v7) that flags a
+      // deliberate long-standing pattern rather than an accident: 13 sites
+      // across 8 components use the ordinary fetch-on-mount shape,
+      // `useEffect(() => { load(); }, [load])`, where load() sets a loading
+      // flag before its first await. Clearing it means restructuring data
+      // loading in each of those components, which is scheduled work rather
+      // than a lint pass, and six of them have no tests yet. Warn keeps
+      // every site in CI's annotations without gating the job on debt we
+      // already know about. This goes back to error once that restructure
+      // lands, so new instances cannot creep in.
       'react-hooks/set-state-in-effect': 'warn',
-      'react-hooks/preserve-manual-memoization': 'warn',
+      // preserve-manual-memoization was warn alongside it until App.tsx's
+      // dependency arrays were completed (2026-09-22). At zero occurrences
+      // it is an error again: that is what keeps hand-trimmed arrays, and
+      // the skipped compilation they cause, from coming back.
+      'react-hooks/preserve-manual-memoization': 'error',
     },
   },
 ])
