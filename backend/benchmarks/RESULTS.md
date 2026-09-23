@@ -1632,8 +1632,8 @@ Paired: agentic(off) − bare **+0.367 [0.271, 0.457]**, agentic(off) − RAG
 +0.226]**, all p < 0.001. Transitions full → off: 134 correct both ways, 34
 correct → abstain, 5 correct → incorrect, 6 the other way (4 incorrect →
 correct, 2 abstain → correct), 9 abstain both. Same day, same commit, so
-unlike the Qwen3.8 pair (08-26 full vs 09-15 off, 26 commits apart) this
-full − off delta is egress alone.
+unlike the Qwen3.8 pair (08-26 full vs 09-15 off, 75 commits apart, 26 of
+them touching `backend/retrieval/`) this full − off delta is egress alone.
 
 The decomposition on Qwen3.6: 69% corpus-only agentic loop (+0.367 of
 +0.533) and 31% external tiers (+0.166); on Qwen3.8 it was 57% / 43% (+0.276
