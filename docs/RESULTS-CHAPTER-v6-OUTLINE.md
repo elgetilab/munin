@@ -136,7 +136,7 @@ Prose bullets:
   → 20 / 76). Transitions full → off on Qwen3.8: 125 stay correct, 41
   correct → abstain, 8 correct → wrong, 4 the reverse; on Qwen3.6: 134, 34,
   5, 6. With the web gone the Qwen harness abstains rather than guesses.
-  The Qwen3.8 +0.211 is egress plus 26 commits of harness drift; the
+  The Qwen3.8 +0.211 is egress plus 75 commits of harness drift; the
   Qwen3.6 +0.166 is egress alone.
 - gpt-oss RAG 0.101 is mostly refusal by silence (162 empty turns), not the
   anchoring effect below; precision of attempted 0.80 is what it knows.
@@ -335,7 +335,7 @@ Prose bullets:
   over-answers a withheld source; its corpus-only half of the harness value
   is not distinguishable from zero. Where to look for the reason when a
   swap halves the headline: the abstention column, not accuracy.
-- Run-to-run and drift floor: the Qwen3.8 recapture, 26 commits newer, is
+- Run-to-run and drift floor: the Qwen3.8 recapture, 96 commits newer, is
   −0.005 [−0.050, +0.040], p = 0.89 against the headline; the same Qwen3.6
   checkpoint on the standalone track two months of harness apart is +0.010,
   p = 0.70 (179 of 199 verdicts identical); two identical bare arms a day
