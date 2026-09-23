@@ -31,21 +31,26 @@ export default defineConfig([
         varsIgnorePattern: '^_',
         caughtErrorsIgnorePattern: '^_',
       }],
-      // A React Compiler rule (eslint-plugin-react-hooks v7) that flags a
-      // deliberate long-standing pattern rather than an accident: 13 sites
-      // across 8 components use the ordinary fetch-on-mount shape,
-      // `useEffect(() => { load(); }, [load])`, where load() sets a loading
-      // flag before its first await. Clearing it means restructuring data
-      // loading in each of those components, which is scheduled work rather
-      // than a lint pass, and six of them have no tests yet. Warn keeps
-      // every site in CI's annotations without gating the job on debt we
-      // already know about. This goes back to error once that restructure
-      // lands, so new instances cannot creep in.
-      'react-hooks/set-state-in-effect': 'warn',
-      // preserve-manual-memoization was warn alongside it until App.tsx's
-      // dependency arrays were completed (2026-09-22). At zero occurrences
-      // it is an error again: that is what keeps hand-trimmed arrays, and
-      // the skipped compilation they cause, from coming back.
+      // Both React Compiler rules (eslint-plugin-react-hooks v7) were warn
+      // for a while because they flagged deliberate long-standing patterns
+      // rather than accidents, and clearing them was a restructure rather
+      // than a lint pass. That restructure landed over 2026-09-22/23:
+      //
+      //   preserve-manual-memoization  17 sites, all App.tsx dependency
+      //     arrays that had been hand-trimmed to omit (stable) store
+      //     actions.
+      //   set-state-in-effect  13 sites across 8 components, the
+      //     fetch-on-mount shape `useEffect(() => { load(); }, [load])`.
+      //     Each component's read now lives in the effect that owns it,
+      //     with cancellation, and callers ask for a re-read instead of
+      //     performing one. Five of those components had no tests before
+      //     the work started and have them now.
+      //
+      // Both are back at error, which is the point of having done it: the
+      // shapes cannot creep back in unnoticed. Note the rule does not
+      // reason about `await`, so moving a setState after one does not
+      // satisfy it; the read has to be inside the effect.
+      'react-hooks/set-state-in-effect': 'error',
       'react-hooks/preserve-manual-memoization': 'error',
     },
   },
