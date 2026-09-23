@@ -2,6 +2,8 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
+import { MOCK_CHATS } from '../test/msw-handlers';
+import { useWorkspaceStore, _resetWorkspaceStoreForTests } from '../stores/workspaceStore';
 import { Sidebar } from './Sidebar';
 import { groupByTime } from '../lib/chatGrouping';
 import type { ConversationSummary } from '../lib/types';
@@ -390,5 +392,130 @@ describe('Sidebar open-in-new-tab links', () => {
     const ev = clickWith(link, { ctrlKey: true });
     expect(onNewChatInProject).not.toHaveBeenCalled();
     expect(ev.defaultPrevented).toBe(false);
+  });
+});
+
+// ── Behaviours the fetch-on-mount restructure touches (2026-09-23) ──────────
+//
+// None of the tests above cover project expansion, the auto-expand of an
+// active project, what the search overlay shows for an empty query, or the
+// refresh after a mutation. Those are exactly the four things Phase 3 moves
+// around, so they get pinned here first.
+
+describe('Sidebar data loading', () => {
+  const ADMIN_CHATS = '/api/chats';
+
+  // The workspace store is module state shared by every test in this file.
+  // Without this reset the auto-expand test below leaves activeProjectId set
+  // and the later search tests render an expanded project they never asked
+  // for.
+  beforeEach(() => _resetWorkspaceStoreForTests());
+  afterEach(() => vi.restoreAllMocks());
+
+  it('loads a project\'s chats when it is expanded', async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(ADMIN_CHATS, ({ request }) => {
+        const pid = new URL(request.url).searchParams.get('project_id');
+        if (pid === 'p1') {
+          return HttpResponse.json({
+            conversations: [makeChat({ id: 'pc1', title: 'Filed Chat' })],
+            total: 1,
+          });
+        }
+        return HttpResponse.json(MOCK_CHATS);
+      }),
+    );
+
+    renderSidebar();
+    await waitFor(() => expect(screen.getByText('ML Research')).toBeInTheDocument());
+    expect(screen.queryByText('Filed Chat')).not.toBeInTheDocument();
+
+    await user.click(screen.getByText('ML Research'));
+    await waitFor(() => expect(screen.getByText('Filed Chat')).toBeInTheDocument());
+  });
+
+  it('auto-expands the project the active conversation belongs to', async () => {
+    useWorkspaceStore.setState({ activeProjectId: 'p1' });
+    server.use(
+      http.get(ADMIN_CHATS, ({ request }) => {
+        const pid = new URL(request.url).searchParams.get('project_id');
+        return pid === 'p1'
+          ? HttpResponse.json({ conversations: [makeChat({ id: 'pc1', title: 'Filed Chat' })], total: 1 })
+          : HttpResponse.json(MOCK_CHATS);
+      }),
+    );
+
+    renderSidebar();
+    // No click: the store's active project drives the expansion.
+    await waitFor(() => expect(screen.getByText('Filed Chat')).toBeInTheDocument());
+  });
+
+  it('shows recent chats when the search box is empty, and server hits once typed', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    await waitFor(() => expect(screen.getByText('Test Chat 1')).toBeInTheDocument());
+
+    await user.click(screen.getByText('Search'));
+    const overlay = await screen.findByPlaceholderText('Search conversations...');
+    // Empty query lists the recent conversations under a "Recent" heading.
+    await waitFor(() => expect(screen.getByText('Recent')).toBeInTheDocument());
+
+    server.use(http.get(ADMIN_CHATS, ({ request }) => {
+      const q = new URL(request.url).searchParams.get('search');
+      return q
+        ? HttpResponse.json({ conversations: [makeChat({ id: 'sr', title: 'Search Hit' })], total: 1 })
+        : HttpResponse.json(MOCK_CHATS);
+    }));
+
+    await user.type(overlay, 'hit');
+    await waitFor(() => expect(screen.getByText('Search Hit')).toBeInTheDocument(), { timeout: 2000 });
+    expect(screen.queryByText('Recent')).not.toBeInTheDocument();
+  });
+
+  it('forgets the query when the overlay is closed and reopened', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    await waitFor(() => expect(screen.getByText('Test Chat 1')).toBeInTheDocument());
+
+    await user.click(screen.getByText('Search'));
+    await user.type(await screen.findByPlaceholderText('Search conversations...'), 'abc');
+    await user.click(screen.getByText('Esc'));
+
+    await waitFor(() =>
+      expect(screen.queryByPlaceholderText('Search conversations...')).not.toBeInTheDocument());
+
+    await user.click(screen.getByText('Search'));
+    const reopened = await screen.findByPlaceholderText('Search conversations...');
+    expect(reopened).toHaveValue('');
+  });
+
+  it('re-reads the chat list after a conversation is deleted', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    let deleted = false;
+    server.use(
+      http.get(ADMIN_CHATS, ({ request }) => {
+        if (new URL(request.url).searchParams.get('project_id')) {
+          return HttpResponse.json({ conversations: [], total: 0 });
+        }
+        return HttpResponse.json({
+          conversations: deleted
+            ? MOCK_CHATS.conversations.filter(c => c.id !== 'c1')
+            : MOCK_CHATS.conversations,
+          total: deleted ? 2 : 3,
+        });
+      }),
+      http.delete('/api/chats/:id', () => { deleted = true; return new HttpResponse(null, { status: 204 }); }),
+    );
+
+    renderSidebar();
+    await waitFor(() => expect(screen.getByText('Test Chat 1')).toBeInTheDocument());
+
+    const row = screen.getByText('Test Chat 1').closest('.relative')!;
+    await user.click(within(row as HTMLElement).getByTitle('More'));
+    await user.click(within(row as HTMLElement).getByText('Delete'));
+
+    await waitFor(() => expect(screen.queryByText('Test Chat 1')).not.toBeInTheDocument());
   });
 });
