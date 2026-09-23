@@ -55,55 +55,75 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
   const onSelectArtifact = useUiStore(s => s.setSelectedArtifactId);
   const setArtifactPanelOpen = useUiStore(s => s.setArtifactPanelOpen);
   const onClose = () => setArtifactPanelOpen(false);
-  const [loadedArtifact, setLoadedArtifact] = useState<ArtifactFull | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
-  const [editing, setEditing] = useState(false);
+  // Everything below is scoped to the artifact it belongs to and then
+  // derived, rather than stored loose and reset by an effect when the
+  // selection changes. The old version needed three synchronous setStates in
+  // its selection effect to keep these honest; tying each one to an id means
+  // switching artifacts invalidates them on its own.
+  const [fetched, setFetched] = useState<ArtifactFull | null>(null);
+  const loadedArtifact = fetched && fetched.id === selectedArtifactId ? fetched : null;
+
+  // The version picked from the dropdown. Absent means "whatever is latest".
+  const [pinnedVersion, setPinnedVersion] = useState<{ id: string; version: number } | null>(null);
+  const wantVersion = pinnedVersion && pinnedVersion.id === selectedArtifactId
+    ? pinnedVersion.version
+    : undefined;
+  const selectedVersion = loadedArtifact?.version ?? null;
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editing = editingId !== null && editingId === selectedArtifactId;
   const [editContent, setEditContent] = useState('');
   const [editSummary, setEditSummary] = useState('');
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Failures carry the artifact they happened on, so selecting a different
+  // one clears the message instead of showing the previous artifact's error
+  // against the new one.
+  const [failure, setFailure] = useState<{ id: string; message: string } | null>(null);
+  const error = failure && failure.id === selectedArtifactId ? failure.message : null;
+  const setError = useCallback((message: string | null) => {
+    setFailure(message && selectedArtifactId ? { id: selectedArtifactId, message } : null);
+  }, [selectedArtifactId]);
   // The rendered-content node, read by "Save as PDF" so the print output
   // carries the same formatting (headings, tables, math) the user sees.
   const contentRef = useRef<HTMLDivElement>(null);
 
-  const loadArtifact = useCallback(async (id: string, version?: number) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const full = await fetchArtifact(conversationId, id, version);
-      setLoadedArtifact(full);
-      setSelectedVersion(full.version);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load artifact');
-    }
-    setLoading(false);
-  }, [conversationId]);
+  const summary = artifacts.find(a => a.id === selectedArtifactId);
 
-  // Load artifact when selection changes
+  // One read, owned by the effect. It covers what used to be two effects:
+  // the selection changing, and a newer version arriving over SSE, which now
+  // shows up as summary.latest_version moving and re-running this. Nothing
+  // is set synchronously, and a response for an artifact the user has since
+  // navigated away from is dropped.
+  //
+  // `editing` is a dependency AND a guard: entering the editor stops the
+  // panel pulling content out from under the textarea, and leaving it picks
+  // up whatever is current, which is also what makes handleSave's explicit
+  // reload unnecessary.
+  const latestVersion = summary?.latest_version;
   useEffect(() => {
-    if (selectedArtifactId) {
-      loadArtifact(selectedArtifactId);
-      setEditing(false);
-    } else {
-      setLoadedArtifact(null);
-    }
-  }, [selectedArtifactId, loadArtifact]);
+    if (!selectedArtifactId || editing) return;
+    const id = selectedArtifactId;
+    let cancelled = false;
+    fetchArtifact(conversationId, id, wantVersion)
+      .then(full => {
+        if (cancelled) return;
+        setFetched(full);
+        setFailure(null);
+      })
+      .catch(e => {
+        if (cancelled) return;
+        setFailure({ id, message: e instanceof Error ? e.message : 'Failed to load artifact' });
+      });
+    return () => { cancelled = true; };
+  }, [conversationId, selectedArtifactId, wantVersion, latestVersion, editing]);
 
-  // Reload when artifacts list updates (new version from SSE)
-  useEffect(() => {
-    if (selectedArtifactId && loadedArtifact) {
-      const current = artifacts.find(a => a.id === selectedArtifactId);
-      if (current && current.latest_version > loadedArtifact.version && !editing) {
-        loadArtifact(selectedArtifactId);
-      }
-    }
-  }, [artifacts, selectedArtifactId, loadedArtifact, loadArtifact, editing]);
+  // True while something is selected but its content has not arrived yet.
+  const loading = !!selectedArtifactId && !loadedArtifact && !error;
 
   const handleVersionChange = (version: number) => {
     if (selectedArtifactId) {
-      loadArtifact(selectedArtifactId, version);
+      setPinnedVersion({ id: selectedArtifactId, version });
     }
   };
 
@@ -137,7 +157,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
     if (loadedArtifact) {
       setEditContent(loadedArtifact.content);
       setEditSummary('');
-      setEditing(true);
+      setEditingId(selectedArtifactId);
     }
   };
 
@@ -147,8 +167,9 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
     setError(null);
     try {
       await updateArtifact(conversationId, selectedArtifactId, editContent, editSummary || 'User edit');
-      setEditing(false);
-      loadArtifact(selectedArtifactId);
+      // Leaving edit mode re-runs the read effect, which fetches the version
+      // the save just created.
+      setEditingId(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save');
     }
@@ -156,12 +177,11 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
   };
 
   const handleCancelEdit = () => {
-    setEditing(false);
+    setEditingId(null);
     setEditContent('');
     setEditSummary('');
   };
 
-  const summary = artifacts.find(a => a.id === selectedArtifactId);
   const isLatest = loadedArtifact && summary && loadedArtifact.version === summary.latest_version;
   const canEdit = isLatest && summary?.source === 'model_written';
   // "Save as PDF" applies to rendered text artifacts (reports, notes, code).
@@ -339,8 +359,6 @@ function PdfViewer({ url, title }: { url: string; title: string }) {
   useEffect(() => {
     let cancelled = false;
     let createdUrl: string | null = null;
-    setBlobUrl(null);
-    setError(null);
     fetch(url, { credentials: 'include' })
       .then(r => {
         if (!r.ok) throw new Error(`Failed to load PDF (${r.status})`);
@@ -402,7 +420,10 @@ function ArtifactContent({ artifact }: { artifact: ArtifactFull }) {
   if (ct === 'application/pdf') {
     const url = getBinaryArtifactUrl(artifact);
     if (url) {
-      return <PdfViewer url={url} title={artifact.title} />;
+      // key={url}: a different PDF is a different viewer, so React discards
+      // the old blob URL and error with the old instance. That is what the
+      // effect below used to do by hand, by clearing both before fetching.
+      return <PdfViewer key={url} url={url} title={artifact.title} />;
     }
   }
 
