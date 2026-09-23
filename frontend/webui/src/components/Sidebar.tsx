@@ -60,7 +60,13 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   const [searchResults, setSearchResults] = useState<ConversationSummary[]>([]);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [expandedProject, setExpandedProject] = useState<string | null>(null);
+  // Which project folder is open. `undefined` means the user has not touched
+  // it, in which case the active project (if any) is shown expanded; `null`
+  // means they collapsed it deliberately and we must not re-open it. That
+  // sentinel is what replaces the old "auto-expand" effect, which could not
+  // tell "never opened" from "closed on purpose".
+  const [userExpandedProject, setUserExpandedProject] = useState<string | null | undefined>(undefined);
+  const expandedProject = userExpandedProject === undefined ? activeProjectId : userExpandedProject;
   const [projectChats, setProjectChats] = useState<Record<string, ConversationSummary[]>>({});
   const [showNewProject, setShowNewProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
@@ -77,56 +83,44 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchOverlayRef = useRef<HTMLDivElement>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const result = await fetchChats({ limit: 50 });
-      setChats(result.conversations);
-    } catch {
-      // silently fail
-    }
-  }, []);
-
-  const loadProjects = useCallback(async () => {
-    try {
-      const result = await fetchProjects();
-      setProjects(result.projects);
-    } catch {
-      // silently fail
-    }
-  }, []);
-
-  // Load project chats when expanding
-  const loadProjectChats = useCallback(async (projectId: string) => {
-    try {
-      const result = await fetchChats({ limit: 50, project_id: projectId });
-      setProjectChats(prev => ({ ...prev, [projectId]: result.conversations }));
-    } catch {
-      // silently fail
-    }
-  }, []);
+  // Reads live in the effects that own them rather than in callbacks the
+  // effects call, so nothing sets state synchronously when an effect fires
+  // and a response arriving after unmount is dropped. `load` is what the
+  // mutation handlers below call; it asks for another read instead of
+  // performing one, and `refreshKey` (the prop App bumps) feeds the same
+  // effects.
+  const [reloadKey, setReloadKey] = useState(0);
+  const load = useCallback(() => setReloadKey(k => k + 1), []);
 
   useEffect(() => {
-    load();
-    loadProjects();
-    // Refresh expanded project's chat list too
-    if (expandedProject) loadProjectChats(expandedProject);
-  }, [load, loadProjects, loadProjectChats, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    fetchChats({ limit: 50 })
+      .then(r => { if (!cancelled) setChats(r.conversations); })
+      .catch(() => { /* silently fail */ });
+    fetchProjects()
+      .then(r => { if (!cancelled) setProjects(r.projects); })
+      .catch(() => { /* silently fail */ });
+    return () => { cancelled = true; };
+  }, [reloadKey, refreshKey]);
 
   // One-time migration from localStorage starring to backend pinning
   useEffect(() => { migrateStarredToPinned().then(load); }, [load]);
 
+  // The expanded project's chats. Keyed on the project itself, so expanding
+  // one always fetches a fresh list: the previous version only fetched when
+  // the project had no cached entry, which meant a list could go stale after
+  // a chat was filed elsewhere and never be re-read.
   useEffect(() => {
-    if (expandedProject && !projectChats[expandedProject]) {
-      loadProjectChats(expandedProject);
-    }
-  }, [expandedProject, projectChats, loadProjectChats]);
-
-  // Auto-expand project if active conversation is in one
-  useEffect(() => {
-    if (activeProjectId && !expandedProject) {
-      setExpandedProject(activeProjectId);
-    }
-  }, [activeProjectId, expandedProject]);
+    if (!expandedProject) return;
+    const projectId = expandedProject;
+    let cancelled = false;
+    fetchChats({ limit: 50, project_id: projectId })
+      .then(r => {
+        if (!cancelled) setProjectChats(prev => ({ ...prev, [projectId]: r.conversations }));
+      })
+      .catch(() => { /* silently fail */ });
+    return () => { cancelled = true; };
+  }, [expandedProject, reloadKey, refreshKey]);
 
   // Close the row-action menu + move-to menu on any click outside a
   // `.sidebar-row-menu` element. The toggle buttons live inside the
@@ -147,13 +141,18 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, [actionMenuId, moveMenuId, projectActionMenuId]);
 
-  // Search when query changes — server-side with FTS5 prefix matching
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery('');
+  }, []);
+
+  // Search when query changes — server-side with FTS5 prefix matching.
+  // An empty query is not a search: the overlay's "Recent" list is just the
+  // first few conversations, so it is derived at the bottom of this
+  // component instead of being copied into state here.
   useEffect(() => {
     if (!searchOpen) return;
-    if (!searchQuery.trim()) {
-      setSearchResults(chats.slice(0, 10));
-      return;
-    }
+    if (!searchQuery.trim()) return;
     const q = searchQuery.trim();
     const timer = setTimeout(async () => {
       try {
@@ -174,13 +173,14 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     return () => clearTimeout(timer);
   }, [searchQuery, searchOpen, chats]);
 
-  // Focus search input when overlay opens
+  // Focus the search input when the overlay opens. Clearing the query moved
+  // into closeSearch(), because "the box empties when you close it" is a
+  // consequence of closing, not something to re-derive from the flag having
+  // changed.
   useEffect(() => {
-    if (searchOpen) {
-      setTimeout(() => searchInputRef.current?.focus(), 50);
-    } else {
-      setSearchQuery('');
-    }
+    if (!searchOpen) return;
+    const timer = setTimeout(() => searchInputRef.current?.focus(), 50);
+    return () => clearTimeout(timer);
   }, [searchOpen]);
 
   // Close search on outside click
@@ -188,22 +188,22 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     if (!searchOpen) return;
     const handler = (e: MouseEvent) => {
       if (searchOverlayRef.current && !searchOverlayRef.current.contains(e.target as Node)) {
-        setSearchOpen(false);
+        closeSearch();
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [searchOpen]);
+  }, [searchOpen, closeSearch]);
 
   // Close search on Escape
   useEffect(() => {
     if (!searchOpen) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSearchOpen(false);
+      if (e.key === 'Escape') closeSearch();
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [searchOpen]);
+  }, [searchOpen, closeSearch]);
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -223,7 +223,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
 
   const handleSearchSelect = (id: string) => {
     onSelect(id);
-    setSearchOpen(false);
+    closeSearch();
   };
 
   const handleCreateProject = async () => {
@@ -232,7 +232,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       await createProject({ name: newProjectName.trim() });
       setNewProjectName('');
       setShowNewProject(false);
-      loadProjects();
+      load();
     } catch {
       // silently fail
     }
@@ -243,8 +243,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     if (!confirm('Delete this project? Conversations will be moved to Unfiled.')) return;
     try {
       await deleteProject(id);
-      loadProjects();
-      load(); // refresh chats as they become unfiled
+      load(); // chats too: they become unfiled
     } catch {
       // silently fail
     }
@@ -255,8 +254,6 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       await fileConversation(projectId, chatId);
       setMoveMenuId(null);
       load();
-      loadProjects();
-      if (projectChats[projectId]) loadProjectChats(projectId);
     } catch {
       // silently fail
     }
@@ -267,8 +264,6 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       await unfileConversation(projectId, chatId);
       setMoveMenuId(null);
       load();
-      loadProjects();
-      if (projectChats[projectId]) loadProjectChats(projectId);
     } catch {
       // silently fail
     }
@@ -303,7 +298,9 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   }, [profileMenuOpen]);
 
   const groups = groupByTime(chats);
-  const searchGroups = groupByTime(searchResults);
+  // With no query typed the overlay lists recent conversations; with one it
+  // lists what the last search returned.
+  const searchGroups = groupByTime(searchQuery.trim() ? searchResults : chats.slice(0, 10));
 
   return (
     <aside className="w-64 flex-shrink-0 bg-bg-secondary border-r border-border flex flex-col h-full relative">
@@ -392,7 +389,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                     children below. */}
                 <div className="relative">
                   <div
-                    onClick={() => setExpandedProject(expandedProject === proj.id ? null : proj.id)}
+                    onClick={() => setUserExpandedProject(expandedProject === proj.id ? null : proj.id)}
                     className={`group flex items-center gap-2 px-2 py-2 rounded-md cursor-pointer text-sm transition-colors ${
                       activeProjectId === proj.id
                         ? 'bg-bg-tertiary text-text-primary'
@@ -671,7 +668,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       {searchOpen && (
         <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
           {/* Backdrop */}
-          <div className="absolute inset-0 bg-bg-primary/70 backdrop-blur-sm" onClick={() => setSearchOpen(false)} />
+          <div className="absolute inset-0 bg-bg-primary/70 backdrop-blur-sm" onClick={() => closeSearch()} />
 
           {/* Search panel */}
           <div ref={searchOverlayRef} className="relative w-full max-w-xl mx-4 bg-bg-secondary border border-border rounded-xl shadow-2xl overflow-hidden max-h-[60vh] flex flex-col">
@@ -690,7 +687,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                 className="flex-1 bg-transparent text-sm text-text-primary placeholder-text-secondary outline-none"
               />
               <button
-                onClick={() => setSearchOpen(false)}
+                onClick={() => closeSearch()}
                 className="text-text-secondary hover:text-text-primary text-xs cursor-pointer"
               >
                 Esc
