@@ -21,21 +21,28 @@ const CONFIG = {
 export function FeatherVortex({ size = 'inline', phase = 'thinking', className = '' }: FeatherVortexProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const messageRef = useRef<HTMLSpanElement>(null);
-  const cleanupRef = useRef<{ stopVortex?: () => void; stopMessages?: () => void }>({});
 
   const config = CONFIG[size];
   const showMessages = size === 'large' || size === 'inline';
 
   useEffect(() => {
+    // Locals, not a ref: each run of this effect owns the stop functions it
+    // created, so its cleanup closes over exactly the pair it started. The
+    // previous version parked both on one mutable ref shared by every run,
+    // which only worked because React happens to run a cleanup before the
+    // next effect. That is what exhaustive-deps was warning about when it
+    // said the ref value would likely have changed by cleanup time.
+    let stopVortex: (() => void) | undefined;
+    let stopMessages: (() => void) | undefined;
     if (canvasRef.current && typeof createVortex === 'function') {
-      cleanupRef.current.stopVortex = createVortex(canvasRef.current, config.feathers, config.multiplier, config.speed);
+      stopVortex = createVortex(canvasRef.current, config.feathers, config.multiplier, config.speed);
     }
     if (showMessages && messageRef.current && typeof createRotatingMessage === 'function') {
-      cleanupRef.current.stopMessages = createRotatingMessage(messageRef.current, phase);
+      stopMessages = createRotatingMessage(messageRef.current, phase);
     }
     return () => {
-      cleanupRef.current.stopVortex?.();
-      cleanupRef.current.stopMessages?.();
+      stopVortex?.();
+      stopMessages?.();
     };
   }, [config.feathers, config.multiplier, config.speed, phase, showMessages]);
 
