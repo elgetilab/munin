@@ -20,7 +20,7 @@ same arm.
 | File | What it gives you |
 |---|---|
 | `01-SYSTEM.md` | Hardware, models, serving configuration, every service and port, the two-target deployment topology, operational envelope. The Implementation section. |
-| `02-ARCHITECTURE.md` | The per-turn router, the four named agents and their contracts, the 42-tool inventory, the design principles (handles-not-payloads, four-way outcomes, config-not-inference). The Methods/System-design section. |
+| `02-ARCHITECTURE.md` | The per-turn router, the four named agents and their contracts, the 45-tool inventory, the design principles (handles-not-payloads, four-way outcomes, config-not-inference). The Methods/System-design section. |
 | `03-CORPUS.md` | How 68k papers got into the corpus: ingest pipeline, GROBID, crawler, quarantine, metadata repair, quality audits with numbers. |
 | `04-METHODS.md` | Evaluation harness design, metric implementations, bootstrap protocol, judge validation, egress as a controlled variable, scorecard provenance, certification gate. |
 | `05-RESULTS.md` | Every result table with CIs and p-values, stripped of narrative, ready to become LaTeX. |
@@ -29,6 +29,7 @@ same arm.
 | `08-LIMITATIONS.md` | What is explicitly not claimed, threats to validity, deferred work, the caveats that must travel with each headline number. |
 | `09-RELATED-WORK.md` | Bib-ready anchors with arXiv IDs and venues, all verified 2026-07-26, plus the novelty analysis for the abstention contribution. |
 | `10-REPRODUCE.md` | Exact commands, versions, environment, and the two operational gotchas that each cost a day. |
+| `figures/` | Figure scripts and their rendered PDF/PNG/SVG. `fig_architecture.py` draws the deployment boundary and one turn through the harness, reading its counts and thresholds from the code; see `figures/README.md` for provenance and a draft caption. |
 | `scorecards/` | 54 raw scorecard JSONs behind the headline claims, with per-query arrays so figures and paired tests can be regenerated. |
 
 ## One-paragraph summary of the work
