@@ -45,7 +45,7 @@ it. On gpt-oss-20b, from a different lab, 0.563 / 0.407 / 0.101 and +0.156.
 
 ## Architecture
 
-![Munin architecture: (a) the deployment boundary between a rented VPS and the on-premise cluster, with a per-request egress gate; (b) one turn through the router, the outer model loop and its agents, with a real benchmark turn as a worked example](docs/paper-kit/figures/fig_architecture.png)
+![Munin architecture: (a) the deployment boundary between a rented VPS and the on-premise cluster, with a per-request egress gate; (b) one turn through the router, the outer model loop and its agents](docs/paper-kit/figures/fig_architecture.png)
 
 **(a)** The VPS (`frontend/`) terminates TLS, authenticates and meters; the
 cluster (`backend/`) runs inference, retrieval and the harness, and dials an
@@ -53,8 +53,7 @@ autossh reverse tunnel out to the VPS (VPS `:18080` to cluster `:8080`), so
 nothing connects in. Outbound access is a per-request egress level, not the
 model's choice. **(b)** A router fixes the profile before the first model
 call; the outer loop calls four agents and 41 plain MCP tools; a post-turn
-audit flags ungrounded citations. The strip underneath is a real LitQA2 turn.
-The figure is generated from the code by
+audit flags ungrounded citations. The figure is generated from the code by
 [`docs/paper-kit/figures/fig_architecture.py`](docs/paper-kit/figures/), so its
 counts and thresholds track the source.
 

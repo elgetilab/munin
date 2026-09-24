@@ -1,5 +1,5 @@
 """Architecture figure: (a) the deployment boundary, (b) one turn through the
-harness, with a real turn from the benchmark drawn underneath.
+harness.
 
 Every number that exists in the code is read from the code, not typed here:
 tool counts from the MCP registry, router thresholds from router.py, the
@@ -7,8 +7,7 @@ tool-call cap from chat_service.py, egress levels from provenance.py, and the
 backbone from its profile in backend/config/models/. The source files are
 parsed with `ast`, never imported, so this needs matplotlib and nothing from
 the service's own dependencies. Facts that live outside the repo (hardware,
-corpus size) are in HARDWARE below. The worked example comes from
-data/architecture_trace.json (see extract_architecture_trace.py).
+corpus size) are in HARDWARE below.
 
     python3 docs/paper-kit/figures/fig_architecture.py            # pdf + png + svg
     python3 docs/paper-kit/figures/fig_architecture.py --facts    # print what was read
@@ -20,7 +19,6 @@ import argparse
 import ast
 import json
 import sys
-import textwrap
 from pathlib import Path
 
 import matplotlib
@@ -36,7 +34,6 @@ import _style as S  # noqa: E402
 REPO = HERE.parents[2]
 RETRIEVAL = REPO / "backend/retrieval"
 PRODUCTION_PROFILE = REPO / "backend/config/models/qwen3.8-27b.env"
-TRACE = HERE / "data/architecture_trace.json"
 AGENTS = ("search", "source", "compute", "deep_research")
 
 # Not in the repo as code. Source: docs/paper-kit/01-SYSTEM.md and 03-CORPUS.md.
@@ -162,12 +159,6 @@ def label(ax, x, y, text, *, size=6.0, color=S.MUTED, ha="center", va="center",
             bbox=None if bg is None else dict(fc=bg, ec="none", pad=0.6))
 
 
-def badge(ax, x, y, n, *, color=S.AMBER):
-    ax.add_patch(plt.Circle((x, y), 0.075, fc=color, ec="none", zorder=6))
-    ax.text(x, y - 0.004, str(n), ha="center", va="center", fontsize=5.8,
-            fontweight="bold", color=S.WHITE, zorder=7)
-
-
 # -------------------------------------------------------------- panel a ----
 
 def panel_a(ax, f, y0):
@@ -264,9 +255,9 @@ def panel_a(ax, f, y0):
 
 # -------------------------------------------------------------- panel b ----
 
-def panel_b(ax, f, trace, y0):
-    """One turn. y0 is the bottom of the panel (the worked-example strip)."""
-    row_y, row_h = y0 + 2.84, 0.7
+def panel_b(ax, f, y0):
+    """One turn. y0 is the bottom of the panel."""
+    row_y, row_h = y0 + 1.5, 0.7
     top = row_y + row_h
     ax.text(0.02, top + 0.26, "b", fontsize=10, fontweight="bold", va="center")
     ax.text(0.2, top + 0.26, "One turn through the harness", fontsize=8,
@@ -297,7 +288,7 @@ def panel_b(ax, f, trace, y0):
         arrow(ax, (a + aw_, cy), (b, cy))
 
     # Tool layer
-    tool_y, tool_h = y0 + 1.54, 0.86
+    tool_y, tool_h = y0 + 0.2, 0.86
     bus_y = tool_y + tool_h + 0.2
     ax.plot([0.5, 6.5], [bus_y, bus_y], color=S.BLUE, lw=0.8, zorder=3)
     arrow(ax, (lx + lw_ * 0.4, bus_y), (lx + lw_ * 0.4, row_y), color=S.BLUE, head=5)
@@ -359,83 +350,19 @@ def panel_b(ax, f, trace, y0):
     ax.text(0.1, tool_y + 0.1, "then chunk evidence; read=N via source", fontsize=5.6,
             va="center", color=S.INK, zorder=4)
 
-    badge(ax, 0.04 + 1.86 - 0.12, tool_y + tool_h - 0.1, 1)
-    badge(ax, 2.0 + 1.5 - 0.12, tool_y + tool_h - 0.1, 2)
-    badge(ax, lx + lw_ - 0.12, top - 0.1, 3)
-
-    worked_example(ax, trace, y0)
-
-
-def worked_example(ax, t, y0):
-    p = t["provenance"]
-    s1, s2 = t["steps"]
-    fin = t["final"]
-    # Only draw what the logs support.
-    assert s1["tool"] == "search" and s2["tool"] == "source" and s2["mode"] == "qa"
-    assert fin["verdict"] == "correct" and "8,080" in fin["answer_tail"]
-    first_author = s2["resolved"]["first_author"].split()[-1]
-    year = "2023"  # Guo et al., Nat. Commun. 14 (2023); the DOI's journal year
-    quote = s2["returned"].split("Quote:", 1)[1].strip().strip('"')
-    q_short = "…" + quote[quote.index("we identified"):quote.index(", termed")] + "…"
-    skipped = [n for n, on in (("Semantic Scholar", s1["tiers_enabled"]["oa"]),) if on]
-
-    h = 1.34
-    ax.add_patch(FancyBboxPatch((0.02, y0), 6.96, h, boxstyle="round,pad=0,rounding_size=0.06",
-                                fc=S.AMBER_FILL, ec=S.AMBER, lw=0.7, zorder=0))
-    ax.text(0.1, y0 + h - 0.13, "Worked example", fontsize=7, fontweight="bold",
-            va="center", color="#8A5A00")
-    ax.text(1.04, y0 + h - 0.13,
-            f"a real turn: LitQA2 question {p['qid'][:8]}, {p['model']}, egress={p['egress']}, "
-            f"persona pinned to {p['persona_pinned']}, benchmark run of {p['captured']}",
-            fontsize=5.6, va="center", color=S.MUTED)
-    ax.text(0.1, y0 + h - 0.32, f"Q: \u201c{t['question']}\u201d", fontsize=6.2,
-            va="center", style="italic")
-    ax.text(6.9, y0 + h - 0.32, "options include " + ", ".join(
-        f"{int(d):,}" if d.isdigit() else d for d in t["distractors"]) + ", 48",
-        fontsize=5.6, va="center", ha="right", color=S.MUTED)
-
-    wrap = textwrap.TextWrapper(width=50, break_long_words=False)
-    cols = [
-        (0.1, 2.2, 1, f"search, {s1['elapsed_s']:.1f} s",
-         wrap.wrap(f"query \u201c{s1['query']}\u201d") + [
-             f"{s1['n_query_variants']} variants; corpus: {s1['corpus_hits']} hits, sufficient",
-             f"ladder stops: {', '.join(skipped) or 'no tier'} not queried",
-             f"top hit: {first_author} et al. {year}",
-         ]),
-        (2.46, 2.4, 2, f"source(mode=qa), {s2['elapsed_s']:.1f} s, "
-                       f"{s2['n_llm_calls']} LLM call",
-         [f"reads {first_author} et al. {year} in full \u2192 \u201cAnswer: {t['ideal']}\u201d"]
-         + wrap.wrap(f"with the quote \u201c{q_short}\u201d")),
-        (5.02, 1.9, 3, "final answer, " + fin["verdict"], [
-            f"{t['ideal']} (option {fin['letter']}), citing",
-            f"doi {fin['cited_doi']}",
-            "tells 48 cell types from the 8,080",
-            "seed cells, which is a distractor",
-            f"{fin['tool_calls']} tool calls, {fin['elapsed_s']:.1f} s end to end",
-        ]),
-    ]
-    for x, w, n, head, lines in cols:
-        yy = y0 + h - 0.54
-        badge(ax, x + 0.075, yy, n)
-        ax.text(x + 0.2, yy, head, fontsize=6.3, fontweight="bold", va="center")
-        for i, line in enumerate(lines):
-            ax.text(x + 0.2, yy - 0.15 - i * 0.12, line, fontsize=5.7, va="center")
-    for xa in (2.3, 4.86):
-        arrow(ax, (xa, y0 + h - 0.54), (xa + 0.1, y0 + h - 0.54), head=4, color="#8A5A00")
-
 
 # ----------------------------------------------------------------- main ----
 
-def build(f, trace):
-    width, height = S.FULL_WIDTH, 7.0
+def build(f):
+    width, height = S.FULL_WIDTH, 5.66
     fig = plt.figure(figsize=(width, height))
     ax = fig.add_axes([0, 0, 1, 1])
     ax.set_xlim(0, width)
     ax.set_ylim(0, height)
     ax.set_aspect("equal")
     ax.axis("off")
-    panel_a(ax, f, y0=4.32)
-    panel_b(ax, f, trace, y0=0.04)
+    panel_a(ax, f, y0=2.98)
+    panel_b(ax, f, y0=0.04)
     return fig
 
 
@@ -452,8 +379,7 @@ def main() -> None:
     if args.facts:
         print(json.dumps(facts, indent=2))
         return
-    trace = json.loads(TRACE.read_text())
-    fig = build(facts, trace)
+    fig = build(facts)
     for ext in args.formats.split(","):
         fig.savefig(f"{args.out}.{ext}", metadata={"CreationDate": None}
                     if ext == "pdf" else ({"Date": None} if ext == "svg" else None))

@@ -29,8 +29,6 @@ VERMILION_FILL = "#FBEBDF"
 GREEN = "#009E73"       # on-premise
 GREEN_FILL = "#E6F4EF"
 GREY_FILL = "#F1F3F5"   # rented / neutral
-AMBER = "#E69F00"       # worked example
-AMBER_FILL = "#FDF5E3"
 WHITE = "#FFFFFF"
 
 
