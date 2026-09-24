@@ -19,8 +19,6 @@ Debian/Ubuntu) is metric-compatible and is what the committed files use.
 |---|---|
 | `_style.py` | Shared fonts, widths (7.0 in full, 3.4 in column), Okabe-Ito colours |
 | `fig_architecture.py` | Figure 1, the architecture |
-| `data/architecture_trace.json` | The worked example in panel (b), extracted from benchmark logs |
-| `extract_architecture_trace.py` | Regenerates that JSON; cluster-only (the logs are not public) |
 
 ## fig_architecture
 
@@ -34,21 +32,10 @@ the corpus size are typed in, in `HARDWARE` at the top of the script, sourced
 from `01-SYSTEM.md` and `03-CORPUS.md`. If the code changes, re-run the script
 and the figure follows.
 
-**The worked example is one real turn**, not an illustration: LitQA2 question
-`ca4c9d21` from the 2026-09-16 Qwen3.8-27B agentic recapture (git `1380524`,
-egress `full`). Its trajectory, `search` then `source`, is the modal one in
-that run (58 of 199 questions). The capture log records tool names and
-durations but not arguments, and the agent trace log records arguments but
-not question ids, so the extractor joins them on question text and on
-per-tool durations, which must agree to the millisecond (1,096 ms and
-13,421 ms). The quote is the `source` agent's returned context, verified
-present in the capture, not text from the model's answer.
-
 **What the figure shows as current but the measurements predate.** Panel (b)
 draws the shipped system. The headline results (`05-RESULTS.md`, git
 `3e0bcfb`, 2026-08-26) were measured before the search ladder and the
-grounded `read=N` stage landed (2026-08-27). The worked example postdates
-both.
+grounded `read=N` stage landed (2026-08-27).
 
 ### Draft caption
 
@@ -68,8 +55,4 @@ both.
 > envelopes and handles; `search` widens from the corpus to Semantic Scholar
 > to the web only when a tier comes up short, within the egress level. A
 > post-turn audit annotates, but never rewrites, citations and URLs absent
-> from every tool result. *Worked example:* a LitQA2 question answered on
-> Qwen3.8-27B in two tool calls. The corpus tier alone was sufficient, so no
-> external tier was queried; `source` read the retrieved paper in full and
-> returned the answer with its supporting sentence, which also separates the
-> correct option (48 cell types) from a distractor (8,080 seed cells).
+> from every tool result.
