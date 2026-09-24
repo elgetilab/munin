@@ -27,6 +27,15 @@ with the BGE tracks. `python -m munin_bench.pipelines.compare <old>.json <new>.j
 two runs with a paired bootstrap — the before/after check for a model or encoder
 swap.
 
+**Corpus provenance:** every arm stamps the collections it searched and their
+point counts into its `*.meta.json` sidecar at capture time, and `compare`
+hoists them to the scorecard's `corpus` field when the arms agree. Counting at
+capture matters because `papers_bge` grows with ingest and `papers_chunks` was
+built mid-2026-08, so a count taken at scoring time can name a different corpus
+than the arm read. An arm that does not search production overrides the names:
+`MUNIN_EVAL_PAPERS_COLLECTION` / `MUNIN_EVAL_CHUNKS_COLLECTION`, which is how
+`run_suite.sh` stamps the Track C2b absent arm with its shadow pair.
+
 `AgentRetriever` is THE production retriever (the chat agent's `paper_search`
 path). `CitationRerankRetriever` is the search-page config, reported alongside.
 

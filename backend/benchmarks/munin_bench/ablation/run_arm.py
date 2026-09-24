@@ -35,6 +35,7 @@ import time
 from ..benchmarks.litqa2_runner import load_litqa2, build_mcq, parse_letter
 from ..abstention.corpus import in_corpus
 from .. import config
+from ..scorecard import corpus_snapshot
 from . import runs_dir
 from . import vllm_answer as V
 
@@ -291,6 +292,10 @@ def run(arm: str, n: int, *, top_k: int = 5, base_url: str = "http://127.0.0.1:8
             "deadline_s": deadline if arm == "agentic" else None,
             "reasoning_effort": config.LLM_REASONING_EFFORT or None,
             "max_output_tokens": config.MAX_OUTPUT_TOKENS,
+            # Which corpus this arm actually searched, counted now rather than
+            # at scoring time. The bare arm makes no tool calls and reads no
+            # collection, so it is stamped for the record but means nothing there.
+            "corpus": corpus_snapshot(),
             "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     json.dump(meta, open(os.path.join(work, f"{arm}.meta.json"), "w"), indent=2)
     from collections import Counter

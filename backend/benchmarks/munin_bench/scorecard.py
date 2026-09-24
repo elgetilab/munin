@@ -49,6 +49,50 @@ def _pkg_versions():
     return out
 
 
+def corpus_collections() -> tuple[str, str]:
+    """(papers, chunks) collection names this arm searches.
+
+    Defaults to the production pair, overridable per arm because an arm does
+    not always search production: the Track C2b ABSENT arm runs against a
+    shadow instance on `papers_shadow` / `papers_chunks_shadow`, and stamping
+    it with the production counts would name the one corpus it deliberately
+    does not search.
+    """
+    return (os.getenv("MUNIN_EVAL_PAPERS_COLLECTION", config.PAPERS_COLLECTION),
+            os.getenv("MUNIN_EVAL_CHUNKS_COLLECTION", config.CHUNKS_COLLECTION))
+
+
+def corpus_snapshot(qc=None) -> dict:
+    """Point counts for the collections an arm searched, for the run sidecar.
+
+    Stamped at CAPTURE time, not at scoring time: `papers_bge` grows with the
+    ingest pipeline and `papers_chunks` was built mid-2026-08, so a count taken
+    when a scorecard is written can be a different corpus from the one the arm
+    read. The 2026-08-26 / 2026-09-15 egress pair is exactly this gap: neither
+    scorecard recorded a count, so whether the two arms searched the same corpus
+    is not answerable after the fact (docs/EGRESS-PAIR-COMMIT-AUDIT.md).
+
+    Best-effort, like the rest of the header: a count that cannot be taken is
+    recorded as None rather than failing a ten-hour arm.
+    """
+    papers, chunks = corpus_collections()
+    snap = {"papers_collection": papers, "chunks_collection": chunks,
+            "papers_points": None, "chunks_points": None,
+            "counted_at": datetime.now(timezone.utc).isoformat()}
+    if qc is None:
+        try:
+            from .clients import get_qdrant
+            qc = get_qdrant()
+        except Exception:
+            return snap
+    for key, name in (("papers_points", papers), ("chunks_points", chunks)):
+        try:
+            snap[key] = qc.count(name).count
+        except Exception:
+            pass          # absent collection (chunks pre-08-30) stays None
+    return snap
+
+
 def make_run_header(qc=None, neo4j=None, *, encoder="specter-v1", tag="",
                     extra=None) -> dict:
     """Provenance stamped on every scorecard: model, encoder, git SHA, corpus
@@ -76,10 +120,13 @@ def make_run_header(qc=None, neo4j=None, *, encoder="specter-v1", tag="",
         hdr["model"] = config.VLLM_MODEL_NAME
     # corpus snapshot
     if qc is not None:
-        try:
-            hdr["corpus_papers"] = qc.count(config.PAPERS_COLLECTION).count
-        except Exception:
-            hdr["corpus_papers"] = "n/a"
+        papers, chunks = corpus_collections()
+        hdr["corpus_collections"] = {"papers": papers, "chunks": chunks}
+        for key, name in (("corpus_papers", papers), ("corpus_chunks", chunks)):
+            try:
+                hdr[key] = qc.count(name).count
+            except Exception:
+                hdr[key] = "n/a"
     if neo4j is not None:
         try:
             with neo4j.session() as s:
@@ -134,6 +181,7 @@ def _write_md(path, card):
              f"- model `{m.get('model')}` | encoder `{m.get('encoder')}` "
              f"| git `{m.get('git_sha')}`",
              f"- corpus papers {m.get('corpus_papers','n/a')} | "
+             f"chunks {m.get('corpus_chunks','n/a')} | "
              f"graph CITES {m.get('graph_cites_edges','n/a')} | seed {m.get('seed')}",
              f"- {m.get('generated_at')}", ""]
     for task, systems in card["tasks"].items():

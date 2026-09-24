@@ -30,6 +30,12 @@ PAPERS_BGE_COLLECTION = "papers_bge"
 # reads it (as the copy source and the rollback target); no arm searches it.
 PAPERS_LEGACY_COLLECTION = "papers"
 
+# Chunk-level collection behind source(mode=evidence) (2026-08-30). The agentic
+# arm reads it at every egress setting, so it is half the corpus an arm actually
+# searched and belongs in the provenance stamp next to PAPERS_COLLECTION. Name
+# mirrors the backend's own default (mcp/tools/source.py: CHUNKS_COLLECTION).
+CHUNKS_COLLECTION = "papers_chunks"
+
 # --- Neo4j ------------------------------------------------------------------
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")

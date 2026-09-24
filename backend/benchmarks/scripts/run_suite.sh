@@ -365,7 +365,13 @@ PYEOF
         log "3d C2b pair, n=50 x 2, egress=off (present :$API_PORT, absent :$SHADOW_API_PORT)"
         MUNIN_EVAL_EGRESS=off run_logged $PY -m munin_bench.abstention.run_c2 --arm present --base-url "$API" \
             --email "$EMAIL" --concurrency 1 --work-dir "$BENCH/c2_runs/$TAG" || die "C2 present failed"
-        MUNIN_EVAL_EGRESS=off run_logged $PY -m munin_bench.abstention.run_c2 --arm absent --base-url "$SHADOW_API" \
+        # The absent arm searches the shadow pair, so its corpus stamp must name
+        # those collections; without the override it would record the production
+        # counts for the one arm defined by NOT searching production.
+        MUNIN_EVAL_EGRESS=off \
+        MUNIN_EVAL_PAPERS_COLLECTION=papers_shadow \
+        MUNIN_EVAL_CHUNKS_COLLECTION=papers_chunks_shadow \
+        run_logged $PY -m munin_bench.abstention.run_c2 --arm absent --base-url "$SHADOW_API" \
             --email "$EMAIL" --concurrency 1 --work-dir "$BENCH/c2_runs/$TAG" --date "$DATE" \
             --out-tag "abstention-c2-shadow-$SLUG" --vs-dir "$BENCH/c2_runs" --vs-suffix "" || die "C2 absent failed"
         mark_done 3d

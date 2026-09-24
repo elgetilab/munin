@@ -29,6 +29,7 @@ import numpy as np
 
 from ..benchmarks.litqa2_runner import load_litqa2, _score_one
 from ..metrics.bootstrap import single_bootstrap
+from ..scorecard import corpus_snapshot
 
 _HERE = os.path.dirname(__file__)
 _QSET = os.path.join(_HERE, "c2_questions.json")
@@ -78,8 +79,13 @@ def run_arm(arm: str, base_url: str, email: str, *, concurrency: int = 1,
     # corpus-grounded abstention (measured 2026-07-27: 17 of 49 removed sources
     # were pulled back in over the web). Hold it constant across the pair, and
     # use egress=off for any corpus-grounded claim.
+    # `corpus` is the other first-class variable here: the ABSENT arm is defined
+    # by searching a corpus with the source papers removed, so the pair is only
+    # interpretable if each arm records which collections it read and how many
+    # points they held. run_suite.sh passes the shadow names for the absent arm.
     meta = {"arm": arm, "base_url": base_url, "n": len(results),
             "egress": os.getenv("MUNIN_EVAL_EGRESS", "off"),
+            "corpus": corpus_snapshot(),
             "git_sha": _git_sha()}
     json.dump(meta, open(os.path.join(work, f"{arm}.meta.json"), "w"), indent=2)
     print(f"[c2:{arm}] verdicts -> {path}  (egress={meta['egress']})")

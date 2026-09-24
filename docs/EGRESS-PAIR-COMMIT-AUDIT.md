@@ -222,9 +222,19 @@ headline (`3e0bcfb`) is **96** commits, not 26 and not 75, so it now says 96.
 `backend/retrieval/` over its range too (`3e0bcfb..dfa823b`), and it states the
 scope explicitly.
 
-Still worth doing: the runner stamps serving config into `arm_matching` but not
-corpus point counts. Neither egress scorecard records a paper or chunk count,
-which is why section 3 above cannot answer the corpus question directly.
+**Corpus stamp, added 2026-09-24.** The gap section 3 ran into is closed going
+forward: every arm now records the collections it searched and their point
+counts in its `*.meta.json` at capture time, and `compare` hoists them to the
+scorecard's `corpus` field when the arms agree (`munin_bench/scorecard.py`,
+`corpus_snapshot`). Arms that search a non-production corpus override the names
+through `MUNIN_EVAL_PAPERS_COLLECTION` / `MUNIN_EVAL_CHUNKS_COLLECTION`, so the
+Track C2b absent arm stamps `papers_shadow` / `papers_chunks_shadow` rather than
+the corpus it deliberately does not read. Live counts at the time of writing:
+**68,913 papers / 1,426,195 chunks**.
+
+This does **not** recover the missing numbers for the 08-26 and 09-15 runs. The
+08-26 corpus is unrecoverable, and counting today would stamp a corpus neither
+arm read, so neither scorecard is backfilled.
 
 ---
 
