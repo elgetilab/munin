@@ -9,7 +9,7 @@ This repository is meant to be self-hostable. If you run a scientific group with
 - Chat UI with persona switching, SSE streaming, task execution log, PWA install.
 - Retrieval over your own paper collection (Qdrant vector DB + Neo4j citation graph) and per-user uploaded documents.
 - vLLM-served LLMs of your choice, scheduled on cluster GPUs.
-- Deep-research daemon (long-running multi-step research as SLURM jobs).
+- Deep Research: a long-running, plan-driven research agent that runs inside the retrieval service against the live vLLM, streams its progress, and delivers a cited report as an artifact.
 - MCP tool server: web search, paper search, `run_python` sandbox, agentic orchestration.
 - Email-OTP authentication, API keys with rate limits and usage logging, resumable uploads.
 
