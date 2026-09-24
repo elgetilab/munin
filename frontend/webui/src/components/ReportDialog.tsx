@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { reportChat } from '../lib/api';
 import { useUiStore } from '../stores/uiStore';
 
@@ -12,7 +12,11 @@ const MAX_REASON = 2000;
 
 export function ReportDialog({ conversationId, onReported }: ReportDialogProps) {
   const setShowReportDialog = useUiStore(s => s.setShowReportDialog);
-  const onClose = () => setShowReportDialog(false);
+  // Memoised because the two document-listener effects below depend on it:
+  // a fresh identity every render had them removing and re-adding the
+  // mousedown and keydown handlers on each keystroke in the textarea. The
+  // store action is stable, so this is too.
+  const onClose = useCallback(() => setShowReportDialog(false), [setShowReportDialog]);
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);

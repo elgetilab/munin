@@ -182,6 +182,7 @@ export const handlers = [
   http.delete('/api/projects/:id', () => new HttpResponse(null, { status: 204 })),
   http.post('/api/projects/:pid/conversations/:cid', () => new HttpResponse(null, { status: 200 })),
   http.delete('/api/projects/:pid/conversations/:cid', () => new HttpResponse(null, { status: 200 })),
+  http.post('/api/chats/:id/report', () => HttpResponse.json({ reported: true, report_id: 'rpt_1' })),
   http.get('/api/chats/:cid/artifacts', () => HttpResponse.json(MOCK_ARTIFACTS)),
   http.get('/api/chats/:cid/artifacts/:aid', () => HttpResponse.json(MOCK_ARTIFACT_FULL)),
   http.patch('/api/chats/:cid/artifacts/:aid', async ({ request }) => {
