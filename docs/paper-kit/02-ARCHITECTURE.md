@@ -32,7 +32,7 @@ outer model loop (qwen3.8-27b, 60k budgeted context)
    │      compute(spec, data_handle?) spec + data -> verified code + artifacts
    │      deep_research(question)     long-running, job-shaped
    │
-   ├── ~38 plain MCP tools (deterministic, single-shot)
+   ├── 41 plain MCP tools (deterministic, single-shot)
    │
    └── hooks: plan approval, audit log, memory extraction
    │
