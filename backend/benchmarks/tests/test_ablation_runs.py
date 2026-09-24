@@ -98,6 +98,11 @@ def test_run_resumes_from_capture_and_writes_meta(tmp_path, monkeypatch):
     assert res["accuracy"] == 1.0 and res["runs_dir"] == work
     meta = json.load(open(os.path.join(work, "bare.meta.json")))
     assert meta["egress"] == "n/a-no-tools" and meta["tag"] == "t" and meta["model"] == "stub-model"
+    # Corpus provenance is part of the sidecar contract. Names are asserted,
+    # not point counts: those need a live Qdrant and are None without one.
+    assert meta["corpus"]["papers_collection"] == "papers_bge"
+    assert meta["corpus"]["chunks_collection"] == "papers_chunks"
+    assert "papers_points" in meta["corpus"] and "counted_at" in meta["corpus"]
     # Second invocation: nothing left to run, artifacts rewritten identically.
     calls.clear()
     run_arm.run("bare", 5, tag="t")

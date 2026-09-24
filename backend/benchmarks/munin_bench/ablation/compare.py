@@ -37,6 +37,28 @@ def _git_sha() -> str:
         return "unknown"
 
 
+def corpus_of(meta: dict) -> dict | None:
+    """Hoist the per-arm corpus stamps to one scorecard-level field.
+
+    Returns the shared stamp when every arm that recorded one agrees, so a
+    reader does not have to dig through arm_meta to answer "same corpus?".
+    Disagreement is legitimate rather than an error: the egress-off runs copy
+    the bare and rag arms in from an earlier capture, and a C2b-style pair
+    searches different corpora BY DESIGN. That case keeps both stamps and says
+    so instead of silently picking one. `counted_at` is excluded from the
+    comparison because two arms of the same run are counted minutes apart.
+    """
+    stamps = {a: m["corpus"] for a, m in meta.items() if m.get("corpus")}
+    if not stamps:
+        return None
+    uniq = {json.dumps({k: v for k, v in c.items() if k != "counted_at"},
+                       sort_keys=True) for c in stamps.values()}
+    if len(uniq) == 1:
+        return next(iter(stamps.values()))
+    return {"note": "arms searched different corpora; see arm_meta",
+            "per_arm": stamps}
+
+
 def _cost(rows: list[dict]) -> dict:
     def mean(key):
         vals = [r[key] for r in rows if r.get(key) is not None]
@@ -108,6 +130,9 @@ def compare(arms=("bare", "rag", "agentic"), date: str | None = None,
     sc = {"track": "harness-ablation", "n_paired": len(qids), "git_sha": _git_sha(),
           "date": date, "runs_dir": os.path.relpath(runs, os.path.join(_HERE, "..", "..")),
           "arm_meta": meta, "per_arm": per_arm, "deltas": deltas}
+    corpus = corpus_of(meta)
+    if corpus:
+        sc["corpus"] = corpus
     if date:
         out = os.path.join(_HERE, "..", "..", "scorecards", f"{date}_harness-ablation.json")
         json.dump(sc, open(out, "w"), indent=2)
