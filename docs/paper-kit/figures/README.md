@@ -10,49 +10,69 @@ python3 docs/paper-kit/figures/fig_architecture.py            # writes .pdf .png
 python3 docs/paper-kit/figures/fig_architecture.py --facts    # prints the facts read from code
 ```
 
-Needs Python 3.10+ and matplotlib (tested on 3.9). Nothing from the service's
+Needs Python 3.10+ and matplotlib (tested on 3.9 and 3.11). Nothing from the service's
 own dependencies: the source files a figure reads are parsed, never imported.
 Layout is fixed to Arial metrics; Liberation Sans (`fonts-liberation` on
-Debian/Ubuntu) is metric-compatible and is what the committed files use.
+Debian/Ubuntu) is metric-compatible, so it gives the same layout; the committed
+files were rendered with Arial, so a re-run with Liberation Sans differs in the
+embedded font bytes only.
 
 | File | What |
 |---|---|
 | `_style.py` | Shared fonts, widths (7.0 in full, 3.4 in column), Okabe-Ito colours |
 | `fig_architecture.py` | Figure 1, the architecture |
+| `fig_c4_containers.py` | C4 container diagram (level 2); a candidate alternative to Figure 1 panel (a), not in the paper yet |
 
 ## fig_architecture
 
-**Where the numbers come from.** Tool counts (`45` MCP tools, `4` agents, `41`
-plain, `11` core and `34` deferred behind `tool_search`) from
-`backend/retrieval/mcp/schemas.py`; router constants and profiles from
-`router.py`; the per-answer tool-call cap from `chat_service.py`; egress levels
-from `provenance.py`; the backbone and context length from
-`backend/config/models/qwen3.8-27b.env`. Only the hardware, the VPS model and
-the corpus size are typed in, in `HARDWARE` at the top of the script, sourced
-from `01-SYSTEM.md` and `03-CORPUS.md`. If the code changes, re-run the script
-and the figure follows.
+**Deliberately general.** The figure draws the architecture pattern, not one
+installation: no model, GPU, context length, hosting product or tool count
+appears, so it stays true when the backbone, the hardware or the tool set
+changes. Those specifics belong in the caption and the text (`01-SYSTEM.md`).
+Each box carries at most one line.
+
+**Where the labels and numbers come from.** The figure draws no numbers. The
+routing profiles come from `router.py` and the egress levels from
+`provenance.py`, so those labels follow the code. The counts quoted in the
+caption (`45` MCP tools, `4` agents, `41` plain, `11` core and `34` deferred
+behind `tool_search`) come from `backend/retrieval/mcp/schemas.py`; the script
+is the check for them, since `--facts` prints what the code says today. If a
+count changes, update the caption from that output.
 
 **What the figure shows as current but the measurements predate.** Panel (b)
 draws the shipped system. The headline results (`05-RESULTS.md`, git
-`3e0bcfb`, 2026-08-26) were measured before the search ladder and the
-grounded `read=N` stage landed (2026-08-27).
+`3e0bcfb`, 2026-08-26) were measured before the search ladder (the
+corpus → scholarly → web chips in `search`) landed (2026-08-27).
 
 ### Draft caption
 
 > **Figure 1. Munin's deployment boundary and one turn through the harness.**
-> **(a)** A rented VPS terminates TLS, authenticates users by email OTP and
-> meters API keys; the on-premise cluster runs inference, retrieval and the
-> harness. The cluster dials a reverse SSH tunnel out to the VPS, so there is
-> no inbound path to it, and it receives the user's identity as a header,
-> never credentials. Chat messages transit the VPS; the corpus, model
-> weights, chats and traces stay on the cluster. Outbound access is an
-> explicit per-request egress level (`off`: corpus only; `oa_only`: plus
-> scholarly APIs; `full`: plus the open web), set by the caller and not by
-> the model; the code sandbox has no network. **(b)** A rule-then-KNN router
-> fixes the profile before the first model call. The outer loop sees 11 core
-> tools and reaches 34 more through `tool_search`. Four agents (blue) do their
-> reading, ranking and execution in their own context and return compact
-> envelopes and handles; `search` widens from the corpus to Semantic Scholar
-> to the web only when a tier comes up short, within the egress level. A
-> post-turn audit annotates, but never rewrites, citations and URLs absent
-> from every tool result.
+> **(a)** Dashed outlines are trust boundaries. A rented gateway server
+> terminates TLS, authenticates users and meters API keys; the on-premise
+> cluster runs inference, retrieval and the harness. The cluster opens a
+> reverse SSH tunnel out to the gateway (1) and requests travel back in
+> through it (2); a direct inbound connection is refused, so the cluster
+> exposes no port, and it receives the user's identity, never credentials. The
+> corpus, model weights, chats and traces stay on the cluster. Outbound access
+> is an explicit per-request egress level (`off`: corpus only; `oa_only`: plus
+> scholarly APIs; `full`: plus the open web), set by the caller and not by the
+> model; the code sandbox has no network. **(b)** A router fixes the profile
+> (chat, research or code) before the first model call. The harness exposes
+> 45 MCP tools: four agents (blue) and 41 plain tools. The model loop sees 11
+> core tools and reaches the other 34 on demand through `tool_search`. The
+> agents do their reading, ranking and execution in their own context and
+> return a compact result rather than raw text; `search` widens from the
+> corpus to scholarly APIs to the web only when a tier comes up short, within
+> the egress level (orange bar). A post-turn audit flags, but never rewrites,
+> citations absent from every tool result.
+
+## fig_c4_containers
+
+Munin as a C4 container diagram in the classic C4 notation: typed boxes
+(`[Person]`, `[Container: technology]`, `[Software System]`), cylinders for
+data stores, one-way relationships labelled with a verb and a protocol, a
+dashed system boundary and a key. It shows what exists and how it connects;
+it cannot show who opens a connection or the egress gate, which is what
+Figure 1 panel (a) is for. Being C4, it names the technologies, typed in the
+script rather than read from the code. Kept as an option while the content of
+Figure 1 is decided.

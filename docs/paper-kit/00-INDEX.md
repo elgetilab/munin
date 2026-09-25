@@ -29,7 +29,7 @@ same arm.
 | `08-LIMITATIONS.md` | What is explicitly not claimed, threats to validity, deferred work, the caveats that must travel with each headline number. |
 | `09-RELATED-WORK.md` | Bib-ready anchors with arXiv IDs and venues, all verified 2026-07-26, plus the novelty analysis for the abstention contribution. |
 | `10-REPRODUCE.md` | Exact commands, versions, environment, and the two operational gotchas that each cost a day. |
-| `figures/` | Figure scripts and their rendered PDF/PNG/SVG. `fig_architecture.py` draws the deployment boundary and one turn through the harness, reading its counts and thresholds from the code; see `figures/README.md` for provenance and a draft caption. |
+| `figures/` | Figure scripts and their rendered PDF/PNG/SVG. `fig_architecture.py` draws the deployment boundary and one turn through the harness, reading its profile and egress labels from the code (the tool counts go in the caption); see `figures/README.md` for provenance and a draft caption. |
 | `scorecards/` | 54 raw scorecard JSONs behind the headline claims, with per-query arrays so figures and paired tests can be regenerated. |
 
 ## One-paragraph summary of the work
