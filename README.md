@@ -55,7 +55,7 @@ model's choice. **(b)** A router fixes the profile before the first model
 call; the outer loop calls four agents and 41 plain MCP tools; a post-turn
 audit flags ungrounded citations. The figure is generated from the code by
 [`docs/paper-kit/figures/fig_architecture.py`](docs/paper-kit/figures/), so its
-counts and thresholds track the source.
+labels track the source.
 
 The two sides share three contracts: the HTTP API surface
 ([`shared/docs/BACKEND-API.md`](shared/docs/BACKEND-API.md), canonical),
