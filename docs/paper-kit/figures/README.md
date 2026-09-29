@@ -22,6 +22,8 @@ embedded font bytes only.
 | `_style.py` | Shared fonts, widths (7.0 in full, 3.4 in column), Okabe-Ito colours |
 | `fig_architecture.py` | Figure 1, the architecture |
 | `fig_c4_containers.py` | C4 container diagram (level 2); a candidate alternative to Figure 1 panel (a), not in the paper yet |
+| `fig_architecture_v2.py` | Panel (a) and the C4 diagram side by side (14.3 in wide), for choosing between them; not a paper layout |
+| `fig_architecture_v3.py` | The C4 diagram with panel (a)'s trust boundaries, reverse-tunnel direction and egress gate merged in; a candidate for Figure 1 panel (a) |
 
 ## fig_architecture
 

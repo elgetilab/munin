@@ -30,6 +30,7 @@ import _style as S  # noqa: E402
 
 # Classic C4 palette
 PERSON, CONT, EXT, INK = "#08427B", "#438DD5", "#8A8A8A", "#333333"
+HEIGHT = 4.7
 
 
 def text3(ax, x, y, name, kind, desc, color="white"):
@@ -57,8 +58,8 @@ def db(ax, x, y, w, h, name, kind, desc):
     return (x, y, w, h)
 
 
-def rel(ax, p0, p1, lab, tech, lx=None, ly=None, rad=0.0):
-    ax.add_patch(FancyArrowPatch(p0, p1, arrowstyle="-|>", mutation_scale=6, color="#707070",
+def rel(ax, p0, p1, lab, tech, lx=None, ly=None, rad=0.0, color="#707070"):
+    ax.add_patch(FancyArrowPatch(p0, p1, arrowstyle="-|>", mutation_scale=6, color=color,
                                  lw=0.7, ls=(0, (3, 2)), shrinkA=1, shrinkB=1,
                                  connectionstyle=f"arc3,rad={rad}", zorder=1))
     lx = (p0[0] + p1[0]) / 2 if lx is None else lx
@@ -67,15 +68,8 @@ def rel(ax, p0, p1, lab, tech, lx=None, ly=None, rad=0.0):
             linespacing=1.1, bbox=dict(fc="white", ec="none", pad=0.4), zorder=3)
 
 
-def build():
-    """Draw the diagram; returns the figure."""
-    fig = plt.figure(figsize=(S.FULL_WIDTH, 4.7))
-    ax = fig.add_axes([0, 0, 1, 1])
-    ax.set_xlim(0, S.FULL_WIDTH)
-    ax.set_ylim(0, 4.7)
-    ax.set_aspect("equal")
-    ax.axis("off")
-
+def draw(ax):
+    """Draw the diagram into ax, in inches over a FULL_WIDTH x HEIGHT area."""
     # Person
     px, py = 0.95, 3.85
     ax.add_patch(Circle((px, py + 0.52), 0.13, fc=PERSON, ec="none"))
@@ -137,6 +131,17 @@ def build():
     ax.add_patch(FancyArrowPatch((kx + 1.3, ky - 0.24), (kx + 1.55, ky - 0.24), arrowstyle="-|>",
                                  mutation_scale=6, color="#707070", lw=0.7, ls=(0, (3, 2))))
     ax.text(kx + 1.6, ky - 0.24, "relationship  [protocol]", fontsize=5.6, color=INK, va="center")
+
+
+def build():
+    """Draw the diagram; returns the figure."""
+    fig = plt.figure(figsize=(S.FULL_WIDTH, HEIGHT))
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(0, S.FULL_WIDTH)
+    ax.set_ylim(0, HEIGHT)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    draw(ax)
     return fig
 
 
