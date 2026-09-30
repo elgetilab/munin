@@ -43,6 +43,7 @@ import httpx
 
 import provenance as P
 from agent_trace import AgentTrace
+from url_guard import BlockedURL, guarded_client, read_text_capped
 from database import VLLM_MODEL_NAME, VLLM_URL, thinking_off
 
 logger = logging.getLogger(__name__)
@@ -119,8 +120,8 @@ async def _download_valid_pdf(url: str) -> Optional[bytes]:
     with a 200, which would otherwise be 'extracted' into garbage and abstained
     on; validating the magic bytes lets the caller skip to the next candidate."""
     try:
-        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True,
-                                     headers={"User-Agent": _PDF_UA}) as client:
+        async with guarded_client(timeout=60.0, follow_redirects=True,
+                                  headers={"User-Agent": _PDF_UA}) as client:
             async with client.stream("GET", url) as resp:
                 if resp.status_code != 200:
                     return None
@@ -583,17 +584,22 @@ async def _fetch_web_text(url: str) -> tuple[Optional[str], Optional[str], str]:
     status = "error"
     for attempt in range(_WEB_FETCH_ATTEMPTS):
         try:
-            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True,
-                                         headers=_WEB_HEADERS) as client:
-                r = await client.get(url)
+            async with guarded_client(timeout=30.0, follow_redirects=True,
+                                      headers=_WEB_HEADERS) as client:
+                async with client.stream("GET", url) as r:
+                    body = await read_text_capped(r) if r.status_code == 200 else ""
+        except BlockedURL as exc:  # internal/non-http target: never retry
+            logger.info("web fetch %s refused: %s", url, exc)
+            status = "error"
+            break
         except Exception as exc:  # noqa: BLE001
             logger.info("web fetch %s attempt %d error: %s", url, attempt, exc)
             status = "error"
             if attempt < _WEB_FETCH_ATTEMPTS - 1:
                 await asyncio.sleep(_web_backoff(attempt, None))
             continue
-        if r.status_code == 200 and r.text:
-            html = r.text
+        if r.status_code == 200 and body:
+            html = body
             status = "ok"
             break
         status = "blocked" if r.status_code in (401, 403, 429) else "error"

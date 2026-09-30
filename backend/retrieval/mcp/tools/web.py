@@ -17,6 +17,7 @@ from typing import Optional
 import httpx
 
 from database import SEARXNG_URL
+from url_guard import BlockedURL, guarded_client, read_text_capped
 from mcp.context import current_search_urls
 from .llm import llm_summarize
 from .query_expansion import expand_queries
@@ -559,8 +560,18 @@ _CANONICAL_REF_HOSTS = (
 def _is_canonical_reference_url(url: str) -> bool:
     if not url or not isinstance(url, str):
         return False
-    low = url.lower()
-    if not any(f"//{h}" in low or f"//www.{h}" in low for h in _CANONICAL_REF_HOSTS):
+    # Match the parsed host, not a substring: "http://127.0.0.1:6333/?x=//doi.org/10.1/x"
+    # contains "//doi.org" and once passed this gate.
+    try:
+        parsed = httpx.URL(url)
+    except Exception:
+        return False
+    host = (parsed.host or "").lower()
+    path = parsed.path.lstrip("/").lower()
+    if parsed.scheme not in ("http", "https"):
+        return False
+    if not any(host in (h_host, f"www.{h_host}") and path.startswith(h_path)
+               for h_host, _, h_path in (h.partition("/") for h in _CANONICAL_REF_HOSTS)):
         return False
     try:
         import bibref
@@ -742,12 +753,14 @@ async def web_fetch_content(
         try:
             import trafilatura
 
-            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-                response = await client.get(url, headers={
+            async with guarded_client(timeout=30.0, follow_redirects=True) as client:
+                async with client.stream("GET", url, headers={
                     "User-Agent": "Mozilla/5.0 (compatible; MuninBot/1.0; +https://muninai.org)"
-                })
-                response.raise_for_status()
-                html = response.text
+                }) as response:
+                    response.raise_for_status()
+                    html = await read_text_capped(response)
+        except BlockedURL as e:
+            return {"error": f"URL not allowed: {e}", "url": url}
         except httpx.TimeoutException:
             return {"error": f"Request timed out for URL: {url}", "url": url}
         except httpx.HTTPStatusError as e:
