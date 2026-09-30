@@ -48,6 +48,8 @@ from typing import Optional
 
 import httpx
 
+from url_guard import guarded_client
+
 logger = logging.getLogger(__name__)
 
 # Lazy imports for paper_lookup / document_store / llm_summarize are done
@@ -141,7 +143,7 @@ async def _download_pdf(url: str) -> Optional[bytes]:
     """Download a PDF URL with a 50 MB cap. Streaming so a pathological
     huge URL can't OOM the container."""
     try:
-        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+        async with guarded_client(timeout=60.0, follow_redirects=True) as client:
             async with client.stream("GET", url) as response:
                 if response.status_code != 200:
                     return None

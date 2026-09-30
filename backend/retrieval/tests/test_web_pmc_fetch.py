@@ -110,19 +110,12 @@ def test_blocked_publisher_error_is_actionable() -> bool:
     The replacement names the open-access route and flags the response."""
     import httpx
 
-    class _Resp:
-        status_code = 403
-
-    class _Client:
-        async def __aenter__(self):
-            return self
-        async def __aexit__(self, *a):
-            return False
-        async def get(self, *a, **k):
-            raise httpx.HTTPStatusError("blocked", request=None, response=_Resp())
+    def _Client(*a, **k):
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda req: httpx.Response(403)), **k)
 
     async def run():
-        with patch.object(web.httpx, "AsyncClient", lambda *a, **k: _Client()):
+        with patch.object(web, "guarded_client", _Client):
             with patch.object(web, "pmcid_from_url", lambda u: None):
                 return await web.web_fetch_content("https://www.sciencedirect.com/science/article/pii/S1")
 
@@ -139,19 +132,12 @@ def test_other_http_errors_keep_plain_message() -> bool:
     publisher block or the model would wrongly abandon the URL."""
     import httpx
 
-    class _Resp:
-        status_code = 500
-
-    class _Client:
-        async def __aenter__(self):
-            return self
-        async def __aexit__(self, *a):
-            return False
-        async def get(self, *a, **k):
-            raise httpx.HTTPStatusError("boom", request=None, response=_Resp())
+    def _Client(*a, **k):
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda req: httpx.Response(500)), **k)
 
     async def run():
-        with patch.object(web.httpx, "AsyncClient", lambda *a, **k: _Client()):
+        with patch.object(web, "guarded_client", _Client):
             with patch.object(web, "pmcid_from_url", lambda u: None):
                 return await web.web_fetch_content("https://example.com/x")
 

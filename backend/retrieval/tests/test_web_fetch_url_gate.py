@@ -53,6 +53,18 @@ def _check(name: str, ok: bool, detail: str = "") -> bool:
 # ─── _extract_urls / _seed_search_urls ────────────────────────────────────
 
 
+
+def _mock_client(fetched: list, html: str):
+    """Stands in for url_guard.guarded_client: a real httpx client on a
+    MockTransport, so the genuine stream/raise_for_status path runs."""
+    import httpx
+
+    def handler(request):
+        fetched.append(str(request.url))
+        return httpx.Response(200, text=html)
+
+    return lambda *a, **k: httpx.AsyncClient(transport=httpx.MockTransport(handler), **k)
+
 def test_extract_urls_from_string() -> bool:
     text = (
         "I found two pages: https://example.com/page-a and "
@@ -203,29 +215,11 @@ def test_web_fetch_allows_url_added_by_web_search() -> bool:
     token = current_search_urls.set(bucket)
     fetched: list[str] = []
 
-    class _StubResponse:
-        text = "<html><body><p>hello world</p></body></html>"
-
-        def raise_for_status(self) -> None:
-            return None
-
-    class _StubClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def get(self, url, headers=None):
-            fetched.append(url)
-            return _StubResponse()
+    _StubClient = _mock_client(fetched, "<html><body><p>hello world</p></body></html>")
 
     try:
         with (
-            patch.object(web_module.httpx, "AsyncClient", _StubClient),
+            patch.object(web_module, "guarded_client", _StubClient),
             patch.object(
                 web_module,
                 "llm_summarize",
@@ -252,30 +246,12 @@ def test_web_fetch_open_mode_when_bucket_unbound() -> bool:
     fully open (back-compat). The fetch reaches httpx and runs."""
     fetched: list[str] = []
 
-    class _StubResponse:
-        text = "<html><body><p>open</p></body></html>"
-
-        def raise_for_status(self) -> None:
-            return None
-
-    class _StubClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def get(self, url, headers=None):
-            fetched.append(url)
-            return _StubResponse()
+    _StubClient = _mock_client(fetched, "<html><body><p>open</p></body></html>")
 
     # Ensure the ContextVar is at its default (None) for this test.
     # No `current_search_urls.set(...)` call here.
     with (
-        patch.object(web_module.httpx, "AsyncClient", _StubClient),
+        patch.object(web_module, "guarded_client", _StubClient),
         patch.object(
             web_module,
             "llm_summarize",
