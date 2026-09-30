@@ -35,6 +35,10 @@ _sem: Optional[asyncio.Semaphore] = None
 _tasks: dict[str, asyncio.Task] = {}
 
 
+class ResumeRejected(ValueError):
+    """A client-supplied resume_job_id that may not be resumed by this caller."""
+
+
 def _get_sem() -> asyncio.Semaphore:
     global _sem
     if _sem is None:  # lazily bound to the running loop, not import-time
@@ -42,10 +46,28 @@ def _get_sem() -> asyncio.Semaphore:
     return _sem
 
 
+async def check_resumable(job_id: Any, user_email: Optional[str]) -> None:
+    """A resume_job_id comes from the client, so it must be in the shape this
+    module mints, be the caller's own job, and not still be running here:
+    create_job replaces the row, which would otherwise hand another user's job
+    (and its event log) to the caller or start a second task on a live one. A
+    job left 'running' by a restart has no task, so it can still be resumed."""
+    if not isinstance(job_id, str) or not _dr._JOB_ID_RE.fullmatch(job_id):
+        raise ResumeRejected("invalid resume_job_id")
+    # get_job skips the ownership check for user_email=None, so require one
+    if not user_email or await research_store.get_job(job_id, user_email=user_email) is None:
+        raise ResumeRejected("unknown or unauthorized job")
+    if job_id in _tasks:
+        raise ResumeRejected("job is still running")
+
+
 async def start_job(question: str, *, conversation_id: Optional[str] = None,
                     user_email: Optional[str] = None, depth: str = "normal",
                     resume_job_id: Optional[str] = None, **kw: Any) -> str:
-    """Create a durable job and kick off its detached task; return the job_id."""
+    """Create a durable job and kick off its detached task; return the job_id.
+    Raises ResumeRejected for a resume_job_id the caller may not resume."""
+    if resume_job_id is not None:
+        await check_resumable(resume_job_id, user_email)
     job_id = resume_job_id or ("dr_" + uuid.uuid4().hex[:16])
     await research_store.create_job(job_id, conversation_id, user_email, question)
     _tasks[job_id] = asyncio.create_task(

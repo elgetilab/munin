@@ -458,10 +458,24 @@ def _citations(plan: list[dict]) -> list[dict]:
     return out
 
 
+# Job ids name checkpoint files, so only the shape the manager mints is ever
+# turned into a path: a client-supplied resume id like "../../app/x" once wrote
+# and read arbitrary .json files as root.
+_JOB_ID_RE = re.compile(r"dr_[0-9a-f]{16}")
+
+
+def _checkpoint_path(job_id: str) -> Optional[str]:
+    if not isinstance(job_id, str) or not _JOB_ID_RE.fullmatch(job_id):
+        return None
+    return os.path.join(CHECKPOINT_DIR, f"{job_id}.json")
+
+
 def _checkpoint(job_id: str, question: str, plan: list[dict]) -> None:
+    path = _checkpoint_path(job_id)
+    if path is None:
+        return
     try:
         os.makedirs(CHECKPOINT_DIR, exist_ok=True)
-        path = os.path.join(CHECKPOINT_DIR, f"{job_id}.json")
         tmp = path + ".tmp"
         with open(tmp, "w") as f:
             json.dump({"job_id": job_id, "question": question, "plan": plan}, f)
@@ -471,8 +485,11 @@ def _checkpoint(job_id: str, question: str, plan: list[dict]) -> None:
 
 
 def _load_checkpoint(job_id: str) -> Optional[list[dict]]:
+    path = _checkpoint_path(job_id)
+    if path is None:
+        return None
     try:
-        blob = json.load(open(os.path.join(CHECKPOINT_DIR, f"{job_id}.json")))
+        blob = json.load(open(path))
         return blob.get("plan")
     except Exception:
         return None

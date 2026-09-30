@@ -41,11 +41,25 @@ async def start(request: Request) -> dict:
     if not question:
         raise HTTPException(status_code=400,
                             detail={"error": {"message": "question is required"}})
+    # Both ids come from the client, so check them before anything is written:
+    # a resume id must be the caller's own idle job, and an existing
+    # conversation must be the caller's, or the question (and later the report
+    # message) lands in someone else's chat.
+    resume_job_id = body.get("resume_job_id")
+    if resume_job_id is not None:
+        try:
+            await manager.check_resumable(resume_job_id, email)
+        except manager.ResumeRejected as exc:
+            raise HTTPException(status_code=400,
+                                detail={"error": {"message": str(exc)}})
+    import chat_store
+    conv = body.get("conversation_id")
+    if conv and await chat_store._get_conversation_meta(conv, email) is None:
+        raise HTTPException(status_code=404,
+                            detail={"error": {"message": "unknown or unauthorized conversation"}})
     # A brand-new chat has no conversation yet. Create one so Deep Research can be
     # launched as the FIRST action in a fresh chat; the report is delivered there
     # as an artifact. The client switches to the returned conversation_id.
-    import chat_store
-    conv = body.get("conversation_id")
     created_conversation = False
     if not conv:
         c = await chat_store.create_conversation(
@@ -61,10 +75,14 @@ async def start(request: Request) -> dict:
         pass
     kw = {k: body[k] for k in ("max_subq", "screen_keep", "read_cap")
           if isinstance(body.get(k), int)}
-    job_id = await manager.start_job(
-        question, conversation_id=conv, user_email=email,
-        depth=body.get("depth", "deep"),  # include the web tier (lever 1)
-        resume_job_id=body.get("resume_job_id"), **kw)
+    try:
+        job_id = await manager.start_job(
+            question, conversation_id=conv, user_email=email,
+            depth=body.get("depth", "deep"),  # include the web tier (lever 1)
+            resume_job_id=resume_job_id, **kw)
+    except manager.ResumeRejected as exc:  # lost a race with a concurrent resume
+        raise HTTPException(status_code=400,
+                            detail={"error": {"message": str(exc)}})
     return {"job_id": job_id, "conversation_id": conv,
             "created_conversation": created_conversation, "status": "queued"}
 
