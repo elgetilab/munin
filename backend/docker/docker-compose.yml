@@ -442,8 +442,6 @@ services:
       # 2026-09-30). They were unconfined for firejail, which never sandboxed
       # anything inside the container.
       - SYS_ADMIN
-    # Bounds a fork bomb from user code across all kernels.
-    pids_limit: 2048
     environment:
       - SANDBOX_SCRATCH_DIR=/scratch
       - SANDBOX_IDLE_TTL_S=900
@@ -472,6 +470,10 @@ services:
           # single-host smoke from 2026-09-07 on). Unset means 8, so the
           # cluster keeps the measured production value.
           cpus: '${SANDBOX_CPUS:-8}'
+          # Bounds a fork bomb from user code across all kernels. Here and
+          # not as `pids_limit:`, which compose rejects next to a
+          # deploy.resources.limits block.
+          pids: 2048
     profiles:
       - rag
 
