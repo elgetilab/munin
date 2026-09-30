@@ -1,7 +1,7 @@
 """
 Regression guard for chat 56b39f33 (2026-06-03).
 
-The firejail kernel runs under RLIMIT_NPROC. When numpy / scipy / sklearn
+The isolated kernel runs under RLIMIT_NPROC. When numpy / scipy / sklearn
 import OpenBLAS, OpenMP, MKL, or numexpr without thread caps, they each
 detect the host's core count and try to spin up that many worker
 threads. On a multi-core host this immediately exceeds the process
@@ -65,7 +65,7 @@ def test_dockerfile_caps_blas_threads():
     assert not missing, (
         "Dockerfile is missing thread caps required to prevent "
         "OpenBLAS / OpenMP / MKL / numexpr from spawning a thread per "
-        "host core inside the firejail kernel (chat 56b39f33). "
+        "host core inside the isolated kernel (chat 56b39f33). "
         "Missing or wrong:\n  " + "\n  ".join(missing)
     )
 

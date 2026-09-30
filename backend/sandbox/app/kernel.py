@@ -3,12 +3,12 @@ KernelHandle - one Jupyter kernel, one conversation.
 
 Wraps jupyter_client.AsyncKernelManager so that:
 
-- The kernel is launched under ``firejail --net=none --seccomp --private-tmp``
-  with rlimit caps on address space, file size, and open files. firejail
-  puts the kernel in its own network namespace (loopback only) and applies
-  seccomp; the resource caps are declared once on the firejail command line
-  rather than via ``preexec_fn`` so they live alongside the rest of the
-  isolation in one place.
+- The kernel is launched through ``isolation.jail_prefix``: its own network
+  namespace (loopback only), a uid leased to this conversation alone, no
+  capabilities, no_new_privs and hard rlimits. jupyter_client reaches it over
+  Unix sockets (``transport="ipc"``) in a runtime dir only that uid and the
+  service can enter, since TCP cannot cross the namespace. firejail was used
+  before 2026-09-30 and silently did nothing inside the container.
 - Execution is async with a per-call wall-clock timeout. On timeout we
   interrupt the kernel cleanly (SIGINT-equivalent) so the next call
   succeeds, instead of killing the kernel entirely.
@@ -35,12 +35,13 @@ from typing import Optional
 
 from jupyter_client.manager import AsyncKernelManager
 
+from . import isolation
 from .output_cap import CappedBuffer
 
 
-# Files the kernel uses internally that should never be served as artifacts.
+# The manifest lives in isolation.META_ROOT, out of the kernel's reach: in the
+# scratch dir the kernel could rewrite it and point entries at other files.
 _ARTIFACT_MANIFEST_FILENAME = "_artifacts.json"
-_INTERNAL_FILES = {_ARTIFACT_MANIFEST_FILENAME}
 
 
 # Stock mimetypes.guess_type misses a lot of formats common in scientific
@@ -82,64 +83,24 @@ _register_extra_mimetypes()
 
 
 # ----------------------------------------------------------------------------
-# firejail launch wrapper
+# Isolated launch
 # ----------------------------------------------------------------------------
 
-# 2 GB address space, 100 MB max file size, 256 open files. Tuned against the
-# package set we ship: pandas + matplotlib + scipy fit comfortably under 2 GB,
-# and 100 MB is enough for any reasonable .csv / .png / .xlsx the model would
-# write while small enough that a runaway loop can't fill the container disk.
-_RLIMIT_AS = 2 * 1024 * 1024 * 1024
-_RLIMIT_FSIZE = 100 * 1024 * 1024
-_RLIMIT_NOFILE = 256
+class IsolatedKernelManager(AsyncKernelManager):
+    """AsyncKernelManager that launches the kernel through the isolation
+    wrapper as `jail_uid`, and hands that uid the connection file (written
+    0600 as root by jupyter_client, which the kernel could not read)."""
 
-_FIREJAIL_PREFIX: list[str] = [
-    "firejail",
-    "--quiet",
-    "--noprofile",
-    # --net=none is the load-bearing flag: it puts the kernel in a fresh
-    # network namespace with only loopback. The rlimits below are declared
-    # alongside it so all the kernel-level isolation lives in one place.
-    "--net=none",
-    f"--rlimit-as={_RLIMIT_AS}",
-    f"--rlimit-fsize={_RLIMIT_FSIZE}",
-    f"--rlimit-nofile={_RLIMIT_NOFILE}",
-    # We deliberately do NOT set --private-tmp or --seccomp here:
-    #   * --private-tmp would break jupyter_client, which writes the kernel
-    #     connection file to a path the kernel itself needs to read back.
-    #   * --seccomp can block syscalls scipy/matplotlib rely on. Filesystem
-    #     isolation is already provided by the surrounding container (which
-    #     has no host bind mounts pointing at sensitive paths), so seccomp
-    #     here would be defence-in-depth at the cost of correctness risk.
-    "--",
-]
-
-
-def _firejail_available() -> bool:
-    """Detect firejail at import time so tests can run on hosts without it."""
-    for path in os.environ.get("PATH", "").split(":"):
-        if path and os.path.exists(os.path.join(path, "firejail")):
-            return True
-    return False
-
-
-FIREJAIL_AVAILABLE = _firejail_available()
-
-
-class FirejailKernelManager(AsyncKernelManager):
-    """
-    AsyncKernelManager that prepends firejail to the kernel launch command.
-
-    If firejail is missing (e.g. a developer running the service outside its
-    container) we fall back to launching the kernel raw. The fallback is
-    flagged loudly in the response so it isn't mistaken for a hardened run.
-    """
+    jail_uid: int = 0
 
     def format_kernel_cmd(self, extra_arguments=None):  # type: ignore[override]
         cmd = super().format_kernel_cmd(extra_arguments=extra_arguments)
-        if not FIREJAIL_AVAILABLE:
-            return cmd
-        return list(_FIREJAIL_PREFIX) + cmd
+        return isolation.jail_prefix(self.jail_uid, isolation.KERNEL_LIMITS) + cmd
+
+    def write_connection_file(self, **kwargs):  # type: ignore[override]
+        result = super().write_connection_file(**kwargs)
+        os.chown(self.connection_file, self.jail_uid, self.jail_uid)
+        return result
 
 
 # ----------------------------------------------------------------------------
@@ -174,7 +135,8 @@ class KernelHandle:
         self.conversation_id = conversation_id
         self.scratch_dir = os.path.join(scratch_root, conversation_id)
         os.makedirs(self.scratch_dir, exist_ok=True)
-        self._km: Optional[FirejailKernelManager] = None
+        self._km: Optional[IsolatedKernelManager] = None
+        self._uid: Optional[int] = None
         self._kc = None  # AsyncKernelClient
         self._lock = asyncio.Lock()
         self.created_at: float = time.time()
@@ -184,7 +146,7 @@ class KernelHandle:
         # set is a fast lookup so the post-execute scan doesn't re-emit files
         # that were already turned into artifacts on a previous turn.
         self._manifest_path = os.path.join(
-            self.scratch_dir, _ARTIFACT_MANIFEST_FILENAME
+            isolation.meta_dir(conversation_id), _ARTIFACT_MANIFEST_FILENAME
         )
         self._manifest: list[dict] = self._load_manifest()
         self._known_files: set[str] = {
@@ -196,18 +158,27 @@ class KernelHandle:
     async def start(self) -> None:
         if self._km is not None:
             return
-        km = FirejailKernelManager()
-        # Cwd inside the kernel: the conversation's scratch directory. Any
-        # `open('foo.csv')` ends up under /scratch/{cid}/, which is the only
-        # place the kernel is supposed to write.
-        await km.start_kernel(cwd=self.scratch_dir)
-        kc = km.client()
-        kc.start_channels()
+        uid = await isolation.pool.acquire(self.conversation_id)
         try:
-            await kc.wait_for_ready(timeout=30)
-        except RuntimeError:
-            await km.shutdown_kernel(now=True)
+            home = isolation.fresh_runtime_dir(uid)
+            km = IsolatedKernelManager(transport="ipc", ip=os.path.join(home, "kernel"))
+            km.jail_uid = uid
+            km.connection_file = os.path.join(home, "kernel.json")
+            # Cwd inside the kernel: the conversation's scratch directory. Any
+            # `open('foo.csv')` ends up under /scratch/{cid}/, the only place
+            # this uid can write besides its own home.
+            await km.start_kernel(cwd=self.scratch_dir, env=isolation.user_env(home))
+            kc = km.client()
+            kc.start_channels()
+            try:
+                await kc.wait_for_ready(timeout=30)
+            except RuntimeError:
+                await km.shutdown_kernel(now=True)
+                raise
+        except BaseException:
+            await isolation.pool.release(self.conversation_id)
             raise
+        self._uid = uid
         self._km = km
         self._kc = kc
         # Configure matplotlib to use the inline backend so every plt.show()
@@ -219,16 +190,6 @@ class KernelHandle:
         await self._silent_setup(
             "import matplotlib\n"
             "matplotlib.use('module://matplotlib_inline.backend_inline')\n"
-            # Belt-and-suspenders rlimits: firejail --rlimit-as does not
-            # always propagate through its namespace setup inside an
-            # unprivileged Docker container, so the kernel was observed
-            # to run without an address-space cap. Setting the rlimit
-            # from inside the kernel process itself is unconditional and
-            # cannot be bypassed by user code (we set hard==soft so user
-            # code can't raise it back up).
-            "import resource\n"
-            f"resource.setrlimit(resource.RLIMIT_AS, ({_RLIMIT_AS}, {_RLIMIT_AS}))\n"
-            f"resource.setrlimit(resource.RLIMIT_FSIZE, ({_RLIMIT_FSIZE}, {_RLIMIT_FSIZE}))\n"
         )
 
     async def _silent_setup(self, code: str) -> None:
@@ -265,6 +226,9 @@ class KernelHandle:
             except Exception:
                 pass
             self._km = None
+        if self._uid is not None:
+            self._uid = None
+            await isolation.pool.release(self.conversation_id)
 
     async def reset(self) -> None:
         """Restart the kernel, wiping all in-memory state."""
@@ -427,9 +391,10 @@ class KernelHandle:
             return
         artifact_id = uuid.uuid4().hex
         filename = f"{artifact_id}.png"
-        path = os.path.join(self.scratch_dir, filename)
-        with open(path, "wb") as f:
-            f.write(png_bytes)
+        try:
+            isolation.write_new_file(os.path.join(self.scratch_dir, filename), png_bytes)
+        except OSError:
+            return
         entry = {
             "id": artifact_id,
             "filename": filename,
@@ -478,15 +443,14 @@ class KernelHandle:
         except OSError:
             return
         for fname in sorted(entries):
-            if fname in _INTERNAL_FILES:
-                continue
             if fname in self._known_files:
                 continue
             full = os.path.join(self.scratch_dir, fname)
-            if not os.path.isfile(full):
+            # lstat: a symlink the kernel planted is never surfaced
+            if not isolation.is_regular_nofollow(full):
                 continue
             try:
-                size = os.path.getsize(full)
+                size = os.lstat(full).st_size
             except OSError:
                 continue
             ctype, _ = mimetypes.guess_type(fname)

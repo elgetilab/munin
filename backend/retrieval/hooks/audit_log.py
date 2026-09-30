@@ -3,7 +3,7 @@ Demo hook (P2 #23): structured audit-log line for sensitive tools.
 
 Targets ``run_python``, ``compile_latex``, and ``deep_research`` —
 the three tools that either execute user code (run_python),
-compile arbitrary LaTeX in firejail (compile_latex), or burn the
+compile arbitrary LaTeX in the isolated sandbox (compile_latex), or burn the
 most vLLM time + external HTTP calls (deep_research). Emits one
 structured log line per invocation that operators can grep:
 

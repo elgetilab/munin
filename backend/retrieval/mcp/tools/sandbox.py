@@ -3,7 +3,7 @@ MCP tools: run_python, edit_python and sandbox_reset.
 
 Thin proxies in front of the sandbox sidecar service. The sidecar lives in
 its own docker container on a private internal network and runs Jupyter
-kernels under firejail. We do not run any user code in this process.
+kernels in isolated namespaces as unprivileged uids. We do not run any user code in this process.
 
 Per-conversation kernel binding:
   - The sidecar keys kernels by ``conversation_id`` so variables, imports,

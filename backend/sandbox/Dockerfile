@@ -3,8 +3,9 @@
 # ==============================================================================
 # A small FastAPI service that wraps Jupyter kernels and exposes them as a
 # REST API to the retrieval container. Each kernel runs the user's Python
-# code in isolation: firejail --net=none for network blocking, setrlimit for
-# resource caps, no host filesystem mounts. The retrieval service calls
+# code in isolation (app/isolation.py): `unshare --net` for a loopback-only
+# network namespace, a uid leased to that conversation alone with no
+# capabilities, hard rlimits, no host filesystem mounts. The retrieval service calls
 # /exec/{conversation_id} via the internal docker network only - the host
 # never reaches this container directly.
 # ==============================================================================
@@ -38,11 +39,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         biber \
     && rm -rf /var/lib/apt/lists/*
 
-# System dependencies: firejail for kernel network/fs sandboxing, build tools
-# for the few wheels that compile from source on slim, plus tini for proper
-# child-process reaping (matplotlib subprocesses, dead kernels, etc.).
+# System dependencies: build tools for the few wheels that compile from
+# source on slim, plus tini for proper child-process reaping (matplotlib
+# subprocesses, dead kernels, etc.). No firejail: inside a container it
+# detects "an existing sandbox" and runs commands with no sandboxing at all,
+# which is what the sandbox relied on until 2026-09-30. `unshare` ships in
+# util-linux, already in the base image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        firejail \
         tini \
         build-essential \
         gfortran \
@@ -62,10 +65,13 @@ RUN apt-get purge -y --auto-remove build-essential gfortran libopenblas-dev \
 # Application code.
 COPY app /app/app/
 
-# Writable scratch directory the kernels will use. Container overlay only:
-# files survive restart but die on `docker rm`. Matches the throwaway-by-
-# design intent.
-RUN mkdir -p /scratch && chmod 1777 /scratch
+# Scratch root the kernels work under. Container overlay only: files survive
+# restart but die on `docker rm`. Matches the throwaway-by-design intent.
+# 0711: kernels can enter their own 0700 conversation dir but not list the
+# others. Manifests and per-uid runtime dirs are root-owned and closed to
+# kernels; isolation.ensure_roots() re-asserts all three at startup.
+RUN mkdir -p /scratch /scratch-meta /run/munin-sandbox \
+    && chmod 0711 /scratch /run/munin-sandbox && chmod 0700 /scratch-meta
 
 # Configure matplotlib to never need a display. The kernel still emits PNGs
 # via display_data; this just stops it from trying to spin up Tk.
@@ -73,7 +79,7 @@ RUN mkdir -p /scratch && chmod 1777 /scratch
 # Cap numerical-library thread pools at 1 (chat 56b39f33, 2026-06-03).
 # OpenBLAS, OpenMP, MKL, and numexpr all detect the host's core count and
 # eagerly spin up that many worker threads on first numpy/scipy use. The
-# firejail kernel runs under RLIMIT_NPROC; on a multi-core host this means
+# isolated kernel runs under RLIMIT_NPROC; on a multi-core host this means
 # `pthread_create failed for thread 11 of 24: Resource temporarily
 # unavailable` cascades during numpy's BLAS init, which also breaks any
 # downstream import that touches numpy (e.g. matplotlib, sklearn). The

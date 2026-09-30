@@ -434,18 +434,16 @@ services:
     # No host port. Reachable only from the retrieval container over the
     # internal docker network at http://sandbox:8090.
     cap_add:
-      # firejail needs SYS_ADMIN inside an unprivileged container so it can
-      # set up user/network namespaces for each kernel. This is the smallest
-      # capability that lets the in-container firejail spawn work; without
-      # it firejail falls back to a much weaker "no-namespace" mode and our
-      # network isolation gets lost.
+      # The service (root in the container) runs `unshare --net` to give each
+      # kernel a loopback-only network namespace, which needs SYS_ADMIN. User
+      # code never holds it: jail.py drops to an unprivileged uid with no
+      # capabilities and no_new_privs before exec. Docker's default seccomp
+      # and AppArmor profiles stay on; unshare works under both (checked
+      # 2026-09-30). They were unconfined for firejail, which never sandboxed
+      # anything inside the container.
       - SYS_ADMIN
-    security_opt:
-      # firejail applies its own seccomp + AppArmor. Docker's defaults
-      # conflict with firejail's namespace setup, so we let firejail manage
-      # both rather than stacking them.
-      - seccomp=unconfined
-      - apparmor=unconfined
+    # Bounds a fork bomb from user code across all kernels.
+    pids_limit: 2048
     environment:
       - SANDBOX_SCRATCH_DIR=/scratch
       - SANDBOX_IDLE_TTL_S=900
