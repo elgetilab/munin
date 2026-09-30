@@ -118,6 +118,11 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# run_python kernels live in the sandbox container, which shares sandbox-net
+# with us; refuse its address so a kernel cannot call this API as any user.
+from sandbox_peer_guard import SandboxPeerGuard  # noqa: E402
+app.add_middleware(SandboxPeerGuard)
+
 # Include MCP router
 app.include_router(mcp_router)
 
