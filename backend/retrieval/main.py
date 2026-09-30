@@ -3890,14 +3890,26 @@ async def get_enriched_paper(doi: str):
 # ==============================================================================
 # Deep Research Endpoints
 # ==============================================================================
+# Legacy MiroThinker queue (retired 2026-07, kept for the parity eval). Its jobs
+# never recorded who submitted them, so no per-user ownership check is
+# possible: every route is admin-only. The gateway's /api/X -> /X fallback made
+# them reachable by any logged-in user, listing and serving everyone's reports.
+def _legacy_dr_request_id(request_id: str) -> str:
+    try:
+        return str(uuid.UUID(request_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail={"error": {"message": "Job not found"}})
+
+
 @app.post("/deepresearch/submit", response_model=DeepResearchSubmitResponse)
-async def submit_deepresearch(request: DeepResearchRequest):
+async def submit_deepresearch(request: DeepResearchRequest, http_request: Request):
     """
     Submit a deep research question for processing.
 
     The question will be queued for processing by a 30B thinking model
     running on the cluster GPU. Results will be available as Markdown and PDF.
     """
+    await _require_admin_email(http_request)
     if not DEEPRESEARCH_ENABLED:
         raise HTTPException(
             status_code=503,
@@ -3945,10 +3957,12 @@ async def submit_deepresearch(request: DeepResearchRequest):
 
 
 @app.get("/deepresearch/status/{request_id}", response_model=DeepResearchStatus)
-async def get_deepresearch_status(request_id: str):
+async def get_deepresearch_status(request_id: str, request: Request):
     """
     Get the status of a deep research job.
     """
+    await _require_admin_email(request)
+    request_id = _legacy_dr_request_id(request_id)
     # First check if still in queue (not yet picked up by daemon)
     queue_file = os.path.join(DEEPRESEARCH_QUEUE_DIR, f"{request_id}.json")
     if os.path.exists(queue_file):
@@ -4000,7 +4014,8 @@ async def get_deepresearch_status(request_id: str):
 
 
 @app.get("/deepresearch/output/{request_id}")
-async def get_deepresearch_output(request_id: str, format: str = Query("md", regex="^(md|pdf)$")):
+async def get_deepresearch_output(request_id: str, request: Request,
+                                  format: str = Query("md", regex="^(md|pdf)$")):
     """
     Get the output of a completed deep research job.
 
@@ -4008,6 +4023,8 @@ async def get_deepresearch_output(request_id: str, format: str = Query("md", reg
         request_id: The job request ID
         format: Output format - 'md' for Markdown or 'pdf' for PDF
     """
+    await _require_admin_email(request)
+    request_id = _legacy_dr_request_id(request_id)
     job_dir = os.path.join(DEEPRESEARCH_JOBS_DIR, request_id)
 
     if not os.path.exists(job_dir):
@@ -4032,13 +4049,14 @@ async def get_deepresearch_output(request_id: str, format: str = Query("md", reg
 
 
 @app.get("/deepresearch/queue", response_model=SlurmQueueResponse)
-async def get_slurm_queue():
+async def get_slurm_queue(request: Request):
     """
     Get the current SLURM queue status and GPU information.
 
     This shows all jobs in the cluster queue and GPU usage,
     helping users understand wait times for their deep research jobs.
     """
+    await _require_admin_email(request)
     if not os.path.exists(SLURM_QUEUE_FILE):
         return SlurmQueueResponse(
             total_jobs=0,
@@ -4106,12 +4124,13 @@ async def get_slurm_queue():
 
 
 @app.get("/deepresearch/jobs")
-async def list_deepresearch_jobs(limit: int = Query(20, ge=1, le=100)):
+async def list_deepresearch_jobs(request: Request, limit: int = Query(20, ge=1, le=100)):
     """
     List recent deep research jobs.
 
     Returns a summary of recent jobs with their status.
     """
+    await _require_admin_email(request)
     jobs = []
 
     # Check queue directory for pending jobs
