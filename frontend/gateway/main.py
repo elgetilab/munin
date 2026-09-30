@@ -611,6 +611,11 @@ async def clear_announcement(request: Request):
 
 PUBLIC_API_PREFIXES = ("tags", "embedding_map")
 
+# Root-level cluster routes (no /api/ prefix) reachable as /api/<route>, all
+# called by static/search. Anything else answers the cluster's /api/ 404.
+ROOT_FALLBACK_PREFIXES = ("search/", "retrieve", "author/", "sources")
+
+
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def proxy_api(request: Request, path: str):
     # Allow public endpoints without auth
@@ -746,8 +751,11 @@ async def proxy_api(request: Request, path: str):
         else:
             upstream_resp = await http_client.send(upstream_req)
 
-            # Fallback: if /api/{path} returns 404, retry as /{path}
-            if upstream_resp.status_code == 404:
+            # Fallback: if /api/{path} returns 404, retry as /{path}, only for
+            # the root-level routes the search page calls. Unrestricted, it
+            # exposed every cluster route to any logged-in user, including
+            # the legacy /deepresearch/* reports and /mcp/call.
+            if upstream_resp.status_code == 404 and path.startswith(ROOT_FALLBACK_PREFIXES):
                 fallback_url = f"/{path}{query_string}"
                 fallback_req = http_client.build_request(
                     method=request.method, url=fallback_url,
