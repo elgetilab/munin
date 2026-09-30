@@ -58,7 +58,20 @@ def _user_dir(email: str) -> str:
     return os.path.join(USER_DOCS_DIR, _email_hash(email))
 
 
+# Document ids reach here from URLs and chat content blocks, and name a
+# directory that delete_document rmtree's, so only the shape upload_document
+# mints is ever joined into a path: "..", "." or "../<hash>/<id>" once reached
+# every user's tree (DELETE /api/documents/%2e%2e) or another user's files.
+_DOC_ID_RE = re.compile(r"doc_[0-9a-f]{12}")
+
+
+def _valid_doc_id(doc_id: Any) -> bool:
+    return isinstance(doc_id, str) and bool(_DOC_ID_RE.fullmatch(doc_id))
+
+
 def _doc_dir(email: str, doc_id: str) -> str:
+    if not _valid_doc_id(doc_id):
+        raise ValueError(f"invalid document id: {doc_id!r}")
     return os.path.join(_user_dir(email), doc_id)
 
 
@@ -523,7 +536,7 @@ def get_document_file_path(user_email: str, document_id: str) -> Optional[str]:
     Convention: upload_document writes exactly one file per doc_dir, so
     we return the first regular file we find.
     """
-    if not document_id or not user_email:
+    if not _valid_doc_id(document_id) or not user_email:
         return None
     target = _doc_dir(user_email, document_id)
     if not os.path.isdir(target):
@@ -907,7 +920,7 @@ async def list_documents(
 
 async def delete_document(document_id: str, user_email: str) -> bool:
     """Remove a document's file tree and all of its Qdrant points."""
-    if not document_id or not user_email:
+    if not _valid_doc_id(document_id) or not user_email:
         return False
 
     doc_dir = _doc_dir(user_email, document_id)

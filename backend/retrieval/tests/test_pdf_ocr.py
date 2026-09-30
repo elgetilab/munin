@@ -160,18 +160,18 @@ def _stage(tmp, email, doc_id, filename, data=_PDF):
 def test_ocr_and_embed_writes_chunks():
     q = _FakeQdrant()
     with tempfile.TemporaryDirectory() as tmp:
-        _stage(tmp, "u@example.org", "doc_1", "scan.pdf")
+        _stage(tmp, "u@example.org", "doc_0000000000a1", "scan.pdf")
         restore = _patched(tmp, qdrant=q, bge=_FakeBGE(),
                            ocr_text="Recovered OCR text. " * 40)
         try:
-            res = asyncio.run(DS.ocr_and_embed("doc_1", "u@example.org"))
+            res = asyncio.run(DS.ocr_and_embed("doc_0000000000a1", "u@example.org"))
         finally:
             restore()
     payload = q.points[0].payload if q.points else {}
     return _check("OCR text is embedded and flagged as OCR-derived",
                   res["ocr"] == "embedded" and res["chunks"] >= 1
                   and payload.get("ocr") is True
-                  and payload.get("document_id") == "doc_1", f"{res} {payload!r}")
+                  and payload.get("document_id") == "doc_0000000000a1", f"{res} {payload!r}")
 
 
 def test_ocr_and_embed_is_idempotent():
@@ -179,10 +179,10 @@ def test_ocr_and_embed_is_idempotent():
     path and the sweep, because the two can race on the same document."""
     q = _FakeQdrant(existing=7)  # already has points
     with tempfile.TemporaryDirectory() as tmp:
-        _stage(tmp, "u@example.org", "doc_1", "scan.pdf")
+        _stage(tmp, "u@example.org", "doc_0000000000a1", "scan.pdf")
         restore = _patched(tmp, qdrant=q, bge=_FakeBGE(), ocr_text="text " * 200)
         try:
-            res = asyncio.run(DS.ocr_and_embed("doc_1", "u@example.org"))
+            res = asyncio.run(DS.ocr_and_embed("doc_0000000000a1", "u@example.org"))
         finally:
             restore()
     return _check("an already-embedded document is skipped, not duplicated",
@@ -192,10 +192,10 @@ def test_ocr_and_embed_is_idempotent():
 def test_ocr_and_embed_skips_non_pdf():
     q = _FakeQdrant()
     with tempfile.TemporaryDirectory() as tmp:
-        _stage(tmp, "u@example.org", "doc_1", "notes.docx", b"PK\x03\x04")
+        _stage(tmp, "u@example.org", "doc_0000000000a1", "notes.docx", b"PK\x03\x04")
         restore = _patched(tmp, qdrant=q, bge=_FakeBGE(), ocr_text="x " * 200)
         try:
-            res = asyncio.run(DS.ocr_and_embed("doc_1", "u@example.org"))
+            res = asyncio.run(DS.ocr_and_embed("doc_0000000000a1", "u@example.org"))
         finally:
             restore()
     return _check("a non-PDF is skipped", res["ocr"] == "skipped" and not q.points,
@@ -207,10 +207,10 @@ def test_ocr_that_finds_nothing_is_reported_not_retried():
     nothing. It must be visible in the logs and left alone, not looped on."""
     q = _FakeQdrant()
     with tempfile.TemporaryDirectory() as tmp:
-        _stage(tmp, "u@example.org", "doc_1", "blank.pdf")
+        _stage(tmp, "u@example.org", "doc_0000000000a1", "blank.pdf")
         restore = _patched(tmp, qdrant=q, bge=_FakeBGE(), ocr_text="")
         try:
-            res = asyncio.run(DS.ocr_and_embed("doc_1", "u@example.org"))
+            res = asyncio.run(DS.ocr_and_embed("doc_0000000000a1", "u@example.org"))
         finally:
             restore()
     return _check("an empty OCR result is reported as empty",
@@ -289,7 +289,7 @@ def test_delete_evicts_the_ocr_cache():
     with tempfile.TemporaryDirectory() as tmp:
         cache = os.path.join(tmp, "cache")
         os.makedirs(cache)
-        _stage(tmp, "u@example.org", "doc_1", "scan.pdf")
+        _stage(tmp, "u@example.org", "doc_0000000000a1", "scan.pdf")
         saved_cache = DS.OCR_CACHE_DIR
         DS.OCR_CACHE_DIR = cache
         restore = _patched(tmp, qdrant=q, bge=_FakeBGE())
@@ -298,7 +298,7 @@ def test_delete_evicts_the_ocr_cache():
             with open(cached, "wb") as f:
                 f.write(b"pretend OCR output")
             existed = os.path.isfile(cached)
-            asyncio.run(DS.delete_document("doc_1", "u@example.org"))
+            asyncio.run(DS.delete_document("doc_0000000000a1", "u@example.org"))
             gone = not os.path.isfile(cached)
         finally:
             restore()
@@ -313,12 +313,12 @@ def test_delete_without_a_cache_entry_is_fine():
     with tempfile.TemporaryDirectory() as tmp:
         cache = os.path.join(tmp, "cache")
         os.makedirs(cache)
-        _stage(tmp, "u@example.org", "doc_1", "notes.txt", b"plain text")
+        _stage(tmp, "u@example.org", "doc_0000000000a1", "notes.txt", b"plain text")
         saved_cache = DS.OCR_CACHE_DIR
         DS.OCR_CACHE_DIR = cache
         restore = _patched(tmp, qdrant=q, bge=_FakeBGE())
         try:
-            ok = asyncio.run(DS.delete_document("doc_1", "u@example.org"))
+            ok = asyncio.run(DS.delete_document("doc_0000000000a1", "u@example.org"))
         finally:
             restore()
             DS.OCR_CACHE_DIR = saved_cache
