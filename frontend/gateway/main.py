@@ -201,18 +201,23 @@ def resolve_auth(request: Request) -> tuple[str | None, str, str | None]:
     Resolve the user from the request.
     Returns (email, source, api_key_id) or (None, ..., ...) if unauthorized.
     """
-    # Check for X-Munin-Email (set by munin-auth via forward-auth)
+    # A Bearer token decides identity whenever one is sent, valid or not, and
+    # is checked first: api.muninai.org has no forward-auth, so an
+    # X-Munin-Email there comes from the client, not from munin-auth. Caddy
+    # strips it on that host; this keeps a spoofed header from winning if a
+    # request ever reaches the gateway without that strip. Browsers never
+    # send a Bearer token.
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        key_info = validate_api_key(auth_header[7:].strip())
+        if key_info:
+            return key_info["email"], "api_key", key_info["id"]
+        return None, "unknown", None
+
+    # X-Munin-Email, set by munin-auth via forward-auth on the browser hosts
     email = request.headers.get("X-Munin-Email")
     if email:
         return email, "browser", None
-
-    # Check for Bearer token
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        token = auth_header[7:].strip()
-        key_info = validate_api_key(token)
-        if key_info:
-            return key_info["email"], "api_key", key_info["id"]
 
     return None, "unknown", None
 
