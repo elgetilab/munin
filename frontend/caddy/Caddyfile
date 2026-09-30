@@ -37,7 +37,17 @@ auth.muninai.org {
 }
 
 # ── API Endpoint (CLI tools, Bearer token auth, no browser forward-auth) ────
+# No forward_auth here, so nothing overwrites client-sent identity headers:
+# strip them, or a request carrying X-Munin-Email is taken at its word by the
+# gateway. The browser sites need no strip, since copy_headers already
+# replaces them, and request_header must not go into the (auth) snippet:
+# Caddy orders it after forward_auth, so it would delete the headers
+# forward_auth just copied in.
 api.muninai.org {
+	request_header -X-Munin-Email
+	request_header -X-Munin-Name
+	request_header -X-Munin-Role
+	request_header -X-Munin-Group
 	reverse_proxy 127.0.0.1:8070
 }
 
