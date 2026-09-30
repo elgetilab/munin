@@ -3,7 +3,8 @@ sandbox-svc: tiny FastAPI service that wraps Jupyter kernels.
 
 Lives in its own container on a private docker network reachable only
 from the retrieval container. There is no auth on the HTTP surface; the
-docker network is the trust boundary.
+docker network is the trust boundary, which is why user code must never
+share the service's network namespace (see isolation.py).
 
 Endpoints:
 
@@ -29,10 +30,11 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Path
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from .kernel import FIREJAIL_AVAILABLE, KernelHandle
+from . import isolation
+from .kernel import KernelHandle
 from . import latex as latex_compiler
 
 
@@ -44,6 +46,20 @@ SCRATCH_ROOT = os.environ.get("SANDBOX_SCRATCH_DIR", "/scratch")
 IDLE_TTL_S = float(os.environ.get("SANDBOX_IDLE_TTL_S", "900"))  # 15 min
 REAPER_INTERVAL_S = float(os.environ.get("SANDBOX_REAPER_INTERVAL_S", "60"))
 MAX_TIMEOUT_S = float(os.environ.get("SANDBOX_MAX_TIMEOUT_S", "120"))
+# Local development only: run code even when the isolation self-test fails.
+ALLOW_UNISOLATED = os.environ.get("SANDBOX_ALLOW_UNISOLATED") == "1"
+
+# Result of isolation.self_test() at startup; exec and latex refuse to run
+# user code unless it is ok.
+ISOLATION: dict = {"ok": False, "error": "self-test has not run"}
+
+
+def _require_runnable(conversation_id: str) -> None:
+    if not isolation.valid_conversation_id(conversation_id):
+        raise HTTPException(status_code=400, detail="bad conversation id")
+    if not ISOLATION.get("ok") and not ALLOW_UNISOLATED:
+        raise HTTPException(status_code=503,
+                            detail="sandbox isolation self-test failed; refusing to run code")
 
 logger = logging.getLogger("sandbox-svc")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -65,7 +81,12 @@ class KernelRegistry:
                 handle = KernelHandle(conversation_id, SCRATCH_ROOT)
                 self._kernels[conversation_id] = handle
         if handle._km is None:  # type: ignore[attr-defined]
-            await handle.start()
+            try:
+                await handle.start()
+            except isolation.SandboxBusy as exc:
+                async with self._lock:
+                    self._kernels.pop(conversation_id, None)
+                raise HTTPException(status_code=503, detail=str(exc))
         return handle
 
     async def get(self, conversation_id: str) -> Optional[KernelHandle]:
@@ -128,11 +149,13 @@ async def _reaper_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info(
-        "sandbox-svc starting (firejail=%s, scratch=%s, idle_ttl=%.0fs)",
-        FIREJAIL_AVAILABLE, SCRATCH_ROOT, IDLE_TTL_S,
+    isolation.ensure_roots()
+    ISOLATION.clear()
+    ISOLATION.update(await isolation.self_test())
+    (logger.info if ISOLATION.get("ok") else logger.error)(
+        "sandbox-svc starting (isolation=%s, scratch=%s, idle_ttl=%.0fs)",
+        ISOLATION, SCRATCH_ROOT, IDLE_TTL_S,
     )
-    os.makedirs(SCRATCH_ROOT, exist_ok=True)
     reaper_task = asyncio.create_task(_reaper_loop())
     try:
         yield
@@ -167,7 +190,7 @@ class ExecResponse(BaseModel):
     truncated_stdout: bool
     truncated_stderr: bool
     timed_out: bool
-    firejail: bool
+    isolated: bool
 
 
 class LatexRequest(BaseModel):
@@ -204,7 +227,7 @@ class LatexResponse(BaseModel):
     duration_ms: int
     timed_out: bool
     error_message: Optional[str]
-    firejail: bool
+    isolated: bool
 
 
 # ----------------------------------------------------------------------------
@@ -212,14 +235,16 @@ class LatexResponse(BaseModel):
 # ----------------------------------------------------------------------------
 
 @app.get("/healthz")
-async def healthz() -> dict:
-    return {
-        "status": "ok",
+async def healthz():
+    body = {
+        "status": "ok" if ISOLATION.get("ok") else "unisolated",
         "kernels": len(registry.snapshot()),
-        "firejail": FIREJAIL_AVAILABLE,
+        "isolation": ISOLATION,
         "scratch": SCRATCH_ROOT,
         "idle_ttl_s": IDLE_TTL_S,
     }
+    # Unhealthy without isolation, so docker and deploy.sh surface it.
+    return JSONResponse(body, status_code=200 if ISOLATION.get("ok") else 503)
 
 
 @app.post("/exec/{conversation_id}", response_model=ExecResponse)
@@ -227,6 +252,7 @@ async def exec_code(
     body: ExecRequest,
     conversation_id: str = Path(..., min_length=1),
 ) -> ExecResponse:
+    _require_runnable(conversation_id)
     handle = await registry.get_or_start(conversation_id)
     result = await handle.execute(body.code, timeout_s=body.timeout_s)
     return ExecResponse(
@@ -239,7 +265,7 @@ async def exec_code(
         truncated_stdout=result.truncated_stdout,
         truncated_stderr=result.truncated_stderr,
         timed_out=result.timed_out,
-        firejail=FIREJAIL_AVAILABLE,
+        isolated=bool(ISOLATION.get("ok")),
     )
 
 
@@ -256,6 +282,7 @@ async def compile_latex_route(
     directory so the compiled .tex and .pdf live alongside any other
     files the kernel has produced in the same conversation.
     """
+    _require_runnable(conversation_id)
     result = await latex_compiler.compile_latex(
         scratch_root=SCRATCH_ROOT,
         conversation_id=conversation_id,
@@ -263,7 +290,6 @@ async def compile_latex_route(
         bibliography=body.bibliography,
         extra_files=body.extra_files,
         timeout_s=body.timeout_s,
-        firejail_available=FIREJAIL_AVAILABLE,
     )
     return LatexResponse(
         success=result.success,
@@ -282,12 +308,13 @@ async def compile_latex_route(
         duration_ms=result.duration_ms,
         timed_out=result.timed_out,
         error_message=result.error_message,
-        firejail=FIREJAIL_AVAILABLE,
+        isolated=bool(ISOLATION.get("ok")),
     )
 
 
 @app.post("/reset/{conversation_id}")
 async def reset_kernel(conversation_id: str) -> dict:
+    _require_runnable(conversation_id)
     handle = await registry.get(conversation_id)
     if handle is None:
         return {"reset": False, "reason": "no kernel running"}
@@ -308,12 +335,13 @@ async def get_artifact(conversation_id: str, artifact_id: str):
     # the URL is user-influenced, so we validate the shape here.
     if not artifact_id.replace("-", "").isalnum() or "/" in artifact_id:
         raise HTTPException(status_code=400, detail="bad artifact id")
-    if not conversation_id.replace("-", "").isalnum() or "/" in conversation_id:
+    if not isolation.valid_conversation_id(conversation_id):
         raise HTTPException(status_code=400, detail="bad conversation id")
 
     conv_dir = os.path.join(SCRATCH_ROOT, conversation_id)
     if not os.path.isdir(conv_dir):
         raise HTTPException(status_code=404, detail="artifact not found")
+    manifest_dir = os.path.join(isolation.META_ROOT, conversation_id)
 
     # Look up the artifact through the manifest written by KernelHandle.
     # The manifest preserves the original filename and the sniffed content
@@ -326,7 +354,7 @@ async def get_artifact(conversation_id: str, artifact_id: str):
     import json as _json
     manifest: list[dict] = []
     for mfname in ("_artifacts.json", "_latex_artifacts.json"):
-        mpath = os.path.join(conv_dir, mfname)
+        mpath = os.path.join(manifest_dir, mfname)
         try:
             with open(mpath) as f:
                 data = _json.load(f)
@@ -345,11 +373,27 @@ async def get_artifact(conversation_id: str, artifact_id: str):
     fname = entry.get("filename") or ""
     if not fname or "/" in fname or fname.startswith(".."):
         raise HTTPException(status_code=400, detail="bad manifest entry")
-    full = os.path.join(conv_dir, fname)
-    if not os.path.isfile(full):
+    # The conversation's uid owns the dir and could have replaced the file
+    # with a link to anything this root process can read; only a regular
+    # file, opened without following links, is served.
+    fd = isolation.open_regular_nofollow(conv_dir, fname)
+    if fd is None:
         raise HTTPException(status_code=404, detail="artifact file missing")
-    return FileResponse(
-        full,
-        filename=fname,
+    size = os.fstat(fd).st_size
+    fh = os.fdopen(fd, "rb")
+
+    def _chunks():
+        with fh:
+            while chunk := fh.read(1 << 16):
+                yield chunk
+
+    # Same Content-Disposition as the FileResponse this replaced
+    from urllib.parse import quote
+    quoted = quote(fname)
+    disposition = (f'attachment; filename="{fname}"' if quoted == fname
+                   else f"attachment; filename*=utf-8''{quoted}")
+    return StreamingResponse(
+        _chunks(),
         media_type=entry.get("content_type") or "application/octet-stream",
+        headers={"Content-Length": str(size), "Content-Disposition": disposition},
     )
