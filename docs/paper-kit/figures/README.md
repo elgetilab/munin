@@ -78,3 +78,71 @@ longer apply.
 > corpus to scholarly APIs to the web only when a tier comes up short, within
 > the egress level (orange bar). A post-turn audit flags, but never rewrites,
 > citations absent from every tool result.
+
+## fig2_arms_by_backbone
+
+**Sources.** Six harness-ablation scorecards in `backend/benchmarks/scorecards/`,
+the ones 05-RESULTS cites: per backbone a full-egress scorecard (bare model,
+naive RAG and harness arms) and an egress-off scorecard (harness arm only).
+
+| Backbone | Full egress | Egress off |
+|---|---|---|
+| Qwen3.6-35B-A3B | `2026-09-17_harness-ablation-qwen3.6-35b-a3b.json` | `2026-09-17_harness-ablation-agentic-egressoff-qwen3.6-35b-a3b.json` |
+| Qwen3.8-27B | `2026-08-26_harness-ablation.json` | `2026-09-15_harness-ablation-agentic-egressoff.json` |
+| gpt-oss-20b | `2026-09-16_harness-ablation-gpt-oss-20b.json` | `2026-09-17_harness-ablation-agentic-egressoff-gpt-oss-20b.json` |
+
+The script stops if a file stops having 199 paired questions, if an accuracy
+disagrees with its verdict counts, or if the bare/RAG copies in an egress-off
+file differ from the full-egress file. `--facts` prints the twelve values with
+their intervals.
+
+### Draft caption
+
+> **Figure 2. LitQA2 accuracy of four arms on three backbones.** Each point is
+> accuracy on the same 199 LitQA2 questions (correct over all; abstentions and
+> unparseable answers count as not correct), with a 95 % Wilson interval.
+> *Bare model*: the backbone alone. *Naive RAG*: one call with the top-5
+> title-and-abstract snippets from the corpus. *Harness*: Munin's chat harness
+> with egress off (no web, scholarly API or open-access download; papers
+> already in the local open-access cache stay readable) or full. On
+> gpt-oss-20b, 162 of 199 naive-RAG and 25 of 199 bare answers were empty and
+> are scored wrong. The arms are not sampled identically (bare and naive RAG at
+> temperature 0.7, the harness at its persona's settings), and on Qwen3.8-27B
+> the full and egress-off harness runs are three weeks apart. The dotted line
+> is PaperQA2's published LitQA2 accuracy (Skarlinski et al., 2024), quoted,
+> not re-measured: PaperQA2 was trained on LitQA2 and reported on 248
+> questions, and here every source paper is in Munin's corpus.
+
+## fig3_faithfulness_distribution
+
+**Sources.** The three faithfulness scorecards 05-RESULTS cites, in
+`backend/benchmarks/scorecards/`: Qwen3.6-35B-A3B
+`2026-09-17_harness-ablation-faithfulness-qwen3.6-35b-a3b.json`, Qwen3.8-27B
+`2026-09-16_harness-ablation-faithfulness-qwen38-recapture.json`, gpt-oss-20b
+`2026-09-16_harness-ablation-faithfulness-gpt-oss-20b-recapture.json`. Judge:
+MiniCheck-Flan-T5-Large. Each column uses the questions both arms had scored,
+the set of the scorecard's `paired_agentic_minus_rag`; the script stops if its
+paired n or means disagree with it. `--facts` prints the means, the paired
+difference with its interval and the bin counts.
+
+**gpt-oss-20b is underpowered.** Its naive RAG arm returned 162 of 199
+answers empty, so 21 questions are scored in both arms, and the paired means
+(0.28 naive RAG, 0.53 harness) differ from the full-set means 05-RESULTS
+quotes (0.351 on 28 answers, 0.392 on 159). The column is hatched and marked.
+
+### Draft caption
+
+> **Figure 3. Per-answer faithfulness, naive RAG (top) against the harness
+> (bottom).** A score is the fraction of an answer's claims that MiniCheck
+> finds supported by the evidence that arm retrieved: five title-and-abstract
+> snippets for naive RAG, every retrieval-tool result for the harness. Only
+> answers the judge could score are included (non-empty, with captured
+> context and at least one claim); abstentions are scored like other answers.
+> Each column keeps the questions scored in both arms. Exactly 0 and exactly 1
+> have their own bars, the other bins are right-closed; short answers (naive
+> RAG answers have one to three claims) land on 0 or 1 more easily. Dashed
+> lines are means. The harness is more faithful on both Qwen backbones
+> (paired difference +0.34 and +0.26, 95 % CI excluding zero). gpt-oss-20b
+> (hatched) is underpowered: its naive RAG arm left 162 of 199 answers empty,
+> so only 21 questions are paired (difference +0.25, CI −0.01 to +0.50), and
+> its paired means differ from the full-set means in the text.
