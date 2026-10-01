@@ -78,6 +78,7 @@ claim-to-scorecard index: [`../../PAPER.md`](../../PAPER.md).
 | `IMPLEMENTATION-HANDOFF.md` | Overarching eval-suite handoff (reference). |
 | `TOOL-ARG-ELISION-SCOPE.md` | Follow-on to the context-budget fix: elide tool-call ARGUMENTS, not just results. **Plan, not implemented.** Replay of the 12 Aug 11-12 overflow turns: pre-fix 12/12 over the window, deployed code 1-2/12, argument elision would close the rest. Blocked on verifying that heavy calls span loop iterations. |
 | `MIGRATION-LOOSE-ENDS.md` | Encoder-migration tail: embedding-map repoint + `papers` retirement. varghele/root. |
+| 05-RESULTS p-value check (no plan file) | **Open, needs the cluster.** `docs/paper-kit/05-RESULTS.md` reports the identical paired delta and CI, **−0.005 [−0.050, +0.040]**, for two different comparisons: Qwen3.6 (09-17) − Qwen3.8 (08-26) at **p = 0.93** (line 83) and the Qwen3.8 09-16 recapture − 08-26 at **p = 0.89** (line 216). Either a coincidence or a copy slip. Neither comparison is stored in a scorecard, so re-run both from the per-question run files (`ablation_runs/`, gitignored, cluster only) and correct whichever is wrong. Found 2026-10-01 while checking Figures 2 and 3. |
 
 ## What's next (ordered plan, set 2026-07-06)
 
