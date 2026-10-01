@@ -90,18 +90,14 @@ def read_values() -> dict:
 
 
 def build(values: dict):
+    pct = 100                             # plotted in percent; the data stay fractions
     fig = plt.figure(figsize=(S.COLUMN_WIDTH, 2.6))
-    ax = fig.add_axes([0.14, 0.2, 0.84, 0.77])
-    for side in ("top", "right"):
-        ax.spines[side].set_visible(False)
-    for side in ("left", "bottom"):
-        ax.spines[side].set_linewidth(0.6)
-        ax.spines[side].set_color(S.MUTED)
-    ax.tick_params(length=2.5, width=0.6, color=S.MUTED, labelsize=6.2)
+    ax = fig.add_axes([0.13, 0.215, 0.84, 0.765])
+    S.box_axes(ax, labelsize=6.2)
 
-    ax.axhline(PAPERQA2_ACCURACY, color=S.RULE, ls=(0, (1, 1.5)), lw=0.8, zorder=1)
-    ax.text(-0.42, PAPERQA2_ACCURACY + 0.012,
-            f"PaperQA2, published ({PAPERQA2_ACCURACY:.3f}):\n"
+    ax.axhline(PAPERQA2_ACCURACY * pct, color=S.RULE, ls=(0, (1, 1.5)), lw=0.8, zorder=1)
+    ax.text(-0.42, PAPERQA2_ACCURACY * pct + 1.2,
+            f"PaperQA2, published ({PAPERQA2_ACCURACY * pct:.1f}%):\n"
             "trained on LitQA2, not re-measured",
             ha="left", va="bottom", fontsize=5.6, color=S.MUTED, linespacing=1.15)
 
@@ -111,8 +107,8 @@ def build(values: dict):
         for i, v in enumerate(arms):
             x = i + offsets[name]
             lo, hi = v["ci"]
-            ax.plot([x, x], [lo, hi], color=c, lw=0.9, solid_capstyle="butt", zorder=2)
-            ax.plot(x, v["acc"], "o", ms=3.8, mew=0.9, color=c, zorder=3,
+            ax.plot([x, x], [lo * pct, hi * pct], color=c, lw=0.9, solid_capstyle="butt", zorder=2)
+            ax.plot(x, v["acc"] * pct, "o", ms=3.8, mew=0.9, color=c, zorder=3,
                     mfc=S.WHITE if name in HOLLOW else c,
                     label=name if i == 0 else None)
 
@@ -120,8 +116,8 @@ def build(values: dict):
     rag = values["gpt-oss-20b"][1]
     if rag["empty"]:
         ax.annotate(f"{rag['empty']}/{N_QUESTIONS} empty,\nscored wrong",
-                    xy=(1 + offsets["gpt-oss-20b"], rag["acc"]),
-                    xytext=(1.3, 0.035), fontsize=5.6, color=S.MUTED, ha="left",
+                    xy=(1 + offsets["gpt-oss-20b"], rag["acc"] * pct),
+                    xytext=(1.3, 3.5), fontsize=5.6, color=S.MUTED, ha="left",
                     va="bottom", linespacing=1.15,
                     arrowprops=dict(arrowstyle="-", color=S.RULE, lw=0.5,
                                     shrinkA=1, shrinkB=2.5))
@@ -129,9 +125,10 @@ def build(values: dict):
     ax.set_xlim(-0.5, len(ARMS) - 0.5)
     ax.set_xticks(range(len(ARMS)))
     ax.set_xticklabels([a[0] for a in ARMS], linespacing=1.1)
-    ax.set_ylim(0, 1.0)
-    ax.set_yticks([0, 0.2, 0.4, 0.6, 0.8, 1.0])
-    ax.set_ylabel(f"Accuracy ({N_QUESTIONS} LitQA2 questions)", fontsize=6.6)
+    ax.set_ylim(0, 100)
+    ax.set_yticks(range(0, 101, 20))
+    ax.set_ylabel("Accuracy [%]", fontsize=6.6, fontweight="bold")
+    ax.set_xlabel("Configuration", fontsize=6.6, fontweight="bold", labelpad=3)
     ax.legend(loc="upper left", frameon=False, fontsize=6.0, handletextpad=0.3,
               borderaxespad=0.2, labelspacing=0.3)
     return fig

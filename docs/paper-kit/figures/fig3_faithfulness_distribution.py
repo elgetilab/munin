@@ -10,8 +10,9 @@ script checks its means against that delta. Bins: exactly 0, five right-closed
 bins over (0, 1), exactly 1; scores are binned on the nearest fifth's exact
 edge, so a score of 0.2 is in (0, .2] whatever its float rounding.
 
-gpt-oss-20b is drawn but marked underpowered: its naive RAG arm left 162 of
-199 answers empty, so only 21 questions are scored in both arms.
+gpt-oss-20b is drawn hatched and lighter, as underpowered (the caption says
+why): its naive RAG arm left 162 of 199 answers empty, so only 21 questions
+are scored in both arms.
 
     python3 docs/paper-kit/figures/fig3_faithfulness_distribution.py          # pdf + png + svg
     python3 docs/paper-kit/figures/fig3_faithfulness_distribution.py --facts  # print the values
@@ -44,7 +45,7 @@ BACKBONES = {
 }
 UNDERPOWERED = {"gpt-oss-20b"}
 ARMS = {"rag": ("naive RAG", S.RULE, S.MUTED), "agentic": ("harness", S.BLUE, S.BLUE)}
-BIN_LABELS = ["0", "(0,.2]", "(.2,.4]", "(.4,.6]", "(.6,.8]", "(.8,1)", "1"]
+BIN_LABELS = ["0", "(0,20]", "(20,40]", "(40,60]", "(60,80]", "(80,100)", "100"]
 YMAX = 0.72
 
 
@@ -97,51 +98,43 @@ def _share(s: float) -> str:
 
 
 def build(values: dict):
-    fig, axes = plt.subplots(2, 3, figsize=(S.FULL_WIDTH, 3.3), sharex=True, sharey=True)
-    fig.subplots_adjust(left=0.075, right=0.995, top=0.88, bottom=0.15,
-                        wspace=0.08, hspace=0.12)
+    pct = 100                             # plotted in percent; the data stay fractions
+    fig, axes = plt.subplots(2, 3, figsize=(S.FULL_WIDTH, 4.1), sharex=True, sharey=True)
+    fig.subplots_adjust(left=0.065, right=0.995, top=0.945, bottom=0.115,
+                        wspace=0.22, hspace=0.5)
     for col, (name, v) in enumerate(values.items()):
         weak = name in UNDERPOWERED
         for row, arm in enumerate(("rag", "agentic")):
             label, bar_colour, text_colour = ARMS[arm]
             a = v["arms"][arm]
             ax = axes[row, col]
-            for side in ("top", "right"):
-                ax.spines[side].set_visible(False)
-            for side in ("left", "bottom"):
-                ax.spines[side].set_linewidth(0.6)
-                ax.spines[side].set_color(S.MUTED)
-            ax.tick_params(length=2.5, width=0.6, color=S.MUTED, labelsize=6.0)
-            ax.bar(range(7), a["shares"], width=0.8, color=bar_colour,
+            S.box_axes(ax, labelsize=5.8)
+            ax.tick_params(labelleft=True, labelbottom=True)
+            shares = [x * pct for x in a["shares"]]
+            ax.bar(range(7), shares, width=0.8, color=bar_colour,
                    alpha=0.5 if weak else 1.0, hatch="////" if weak else None,
                    edgecolor=S.WHITE if weak else "none", linewidth=0, zorder=2)
             for k, s in enumerate(a["shares"]):
                 if a["counts"][k]:
-                    ax.text(k, s + 0.015, _share(s), ha="center", va="bottom",
+                    ax.text(k, s * pct + 1.5, _share(s), ha="center", va="bottom",
                             fontsize=5.4, color=S.INK, zorder=4,
                             bbox=dict(boxstyle="square,pad=0.1", fc=S.WHITE, ec="none"))
             ax.axvline(bin_position(a["mean"]), color=text_colour, ls=(0, (3, 2)),
                        lw=0.9, zorder=1)
-            ax.text(0.98, 0.95, f"{label}\nmean {a['mean']:.2f}", transform=ax.transAxes,
-                    ha="right", va="top", fontsize=6.2, color=text_colour,
-                    linespacing=1.15)
-            ax.set_ylim(0, YMAX)
-            ax.set_yticks([0, 0.2, 0.4, 0.6])
-            ax.set_yticklabels(["0%", "20%", "40%", "60%"])
-            if col == 0:
-                ax.set_ylabel("Share of answers", fontsize=6.4)
-        top = axes[0, col]
-        top.set_title(f"{name}  (paired n = {v['n']})", fontsize=6.8, loc="left",
-                      fontweight="bold", pad=10 if weak else 4)
-        if weak:
-            top.text(0, 1.02, f"underpowered: one answer is {1 / v['n']:.0%} of a bar",
-                     transform=top.transAxes, fontsize=5.8, color=S.VERMILION,
-                     style="italic", ha="left", va="bottom")
-    for ax in axes[1]:
-        ax.set_xticks(range(7))
-        ax.set_xticklabels(BIN_LABELS, fontsize=5.6)
-    fig.text(0.535, 0.03, "Fraction of the answer's claims supported by its own arm's "
-             "retrieved evidence", ha="center", fontsize=6.4)
+            ax.text(0.97, 0.94, f"{label}\nmean {a['mean'] * pct:.0f}%",
+                    transform=ax.transAxes, ha="right", va="top", fontsize=6.2,
+                    color=text_colour, linespacing=1.15)
+            ax.set_ylim(0, YMAX * pct)
+            ax.set_yticks([0, 20, 40, 60])
+            ax.set_xticks(range(7))
+            ax.set_xticklabels(BIN_LABELS, fontsize=5.4, rotation=35, ha="right",
+                               rotation_mode="anchor")
+            ax.set_ylabel("Share of answers [%]", fontsize=6.2, fontweight="bold", labelpad=2)
+            ax.set_xlabel("Claims supported [%]", fontsize=6.2, fontweight="bold", labelpad=2)
+            ax.text(-0.2, 1.04, "abcdef"[row * 3 + col], transform=ax.transAxes,
+                    fontsize=8, fontweight="bold", ha="left", va="bottom")
+        axes[0, col].set_title(f"{name}  (paired n = {v['n']})", fontsize=6.8,
+                               loc="left", fontweight="bold", pad=4)
     return fig
 
 
