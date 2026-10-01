@@ -716,7 +716,7 @@ z
     <text style="fill: #0072b2; font: 5.25px 'Arial', sans-serif; text-anchor: start" x="311.25" y="61.357207" transform="rotate(-0 311.25 61.357207)">compact result + outcome</text>
    </g>
    <g id="text_21">
-    <text style="fill: #0072b2; font: 5.25px 'Arial', sans-serif; text-anchor: start" x="311.25" y="67.733437" transform="rotate(-0 311.25 67.733437)">not_found | grounded | thin_evidence</text>
+    <text style="fill: #0072b2; font: 5.25px 'Arial', sans-serif; text-anchor: start" x="311.25" y="67.733437" transform="rotate(-0 311.25 67.733437)">resolved | not_found | thin_evidence</text>
    </g>
    <g id="text_22">
     <text style="fill: #1f2328; font: 700 5.8125px 'Arial', sans-serif; text-anchor: middle" x="161.55" y="102.006709" transform="rotate(-0 161.55 102.006709)">other tools</text>

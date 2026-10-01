@@ -257,7 +257,7 @@ def draw(ax, f):
     route(ax, [(820, lane_bus), (820, 193.5)], color=S.BLUE)
     text(ax, 692, 222, "call", size=14, color=S.BLUE, ha="right")
     text(ax, 830, 210, "compact result + outcome", size=14, color=S.BLUE, ha="left")
-    text(ax, 830, 227, "not_found | grounded | thin_evidence", size=14, color=S.BLUE,
+    text(ax, 830, 227, "resolved | not_found | thin_evidence", size=14, color=S.BLUE,
          ha="left")
 
     # ------------------------------------------------------ agents row ----
