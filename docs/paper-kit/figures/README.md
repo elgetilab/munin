@@ -55,29 +55,36 @@ and from past the egress gate, grey is an answer on its way back.
 
 ### Draft caption
 
-Needs rewriting for the current figure; the caption below was written for
-`archive/fig_architecture_v1.py` (two panels) and its panel references no
-longer apply.
-
-> **Figure 1. Munin's deployment boundary and one turn through the harness.**
-> **(a)** Dashed outlines are trust boundaries. A rented gateway server
-> terminates TLS, authenticates users and meters API keys; the on-premise
-> cluster runs inference, retrieval and the harness. The cluster opens a
-> reverse SSH tunnel out to the gateway (1) and requests travel back in
-> through it (2); a direct inbound connection is refused, so the cluster
+> **Figure 1. Munin's trust boundaries and the paths a request takes through
+> them.** Dashed outlines are trust boundaries. A rented gateway terminates
+> TLS, authenticates users and meters API keys; the on-premise cluster runs
+> inference, retrieval and the harness. The cluster dials a reverse SSH tunnel
+> out to the gateway and requests travel back in through it, so the cluster
 > exposes no port, and it receives the user's identity, never credentials. The
-> corpus, model weights, chats and traces stay on the cluster. Outbound access
-> is an explicit per-request egress level (`off`: corpus only; `oa_only`: plus
-> scholarly APIs; `full`: plus the open web), set by the caller and not by the
-> model; the code sandbox has no network. **(b)** A router fixes the profile
-> (chat, research or code) before the first model call. The harness exposes
-> 45 MCP tools: four agents (blue) and 41 plain tools. The model loop sees 11
-> core tools and reaches the other 34 on demand through `tool_search`. The
-> agents do their reading, ranking and execution in their own context and
-> return a compact result rather than raw text; `search` widens from the
-> corpus to scholarly APIs to the web only when a tier comes up short, within
-> the egress level (orange bar). A post-turn audit flags, but never rewrites,
-> citations absent from every tool result.
+> corpus, model weights, chats and traces stay on the cluster. A request takes
+> one of three paths: through a router, which fixes the profile (chat,
+> research or code) before the first model call, into the model harness;
+> straight to the bare LLM; or, with the per-request deep research toggle on,
+> to a detached research job that works through the `search` and `source`
+> agents and saves its report as an artifact in the conversation. The harness
+> exposes 45 MCP tools: the `compute`, `source` and `search` agents (blue), a
+> one-call `deep_research` tool and 41 plain tools; the model sees 11 core
+> tools and reaches the other 34 through `tool_search`. The agents read, rank
+> and execute in their own context and return a compact result that states
+> what it guarantees (an outcome such as `resolved` or `not_found`, and flags
+> such as `grounded` and `thin_evidence`). `source` and `search` read the
+> corpus and, past the egress gate, scholarly APIs and the web (green and
+> orange dashes). The egress level is set per request by the caller, not by
+> the model: `off` lets nothing leave, `oa_only` opens the scholarly APIs,
+> `full` adds the web. The code sandbox has no network. Answers stream back as
+> they are generated; once the turn is over, a citation audit flags, but never
+> rewrites, citations absent from every tool result, and its warning is stored
+> on the saved answer.
+
+The counts (45, 41, 11, 34) are what `--facts` prints today; the agent count
+it prints (4) includes the one-call `deep_research` tool, which the figure does
+not draw as an agent: the `deep_research` box is the toggle-started research
+job.
 
 ## fig2_arms_by_backbone
 
