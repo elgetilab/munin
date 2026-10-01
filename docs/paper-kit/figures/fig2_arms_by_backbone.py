@@ -10,7 +10,7 @@ The naive RAG and bare-model arms come from each backbone's full-egress
 scorecard; the egress-off scorecard carries copies of them, which the script
 checks are identical, and contributes only its harness arm.
 
-    python3 docs/paper-kit/figures/fig2_arms_by_backbone.py          # pdf + png + svg
+    python3 docs/paper-kit/figures/fig2_arms_by_backbone.py          # pdf + png + svg + tiff
     python3 docs/paper-kit/figures/fig2_arms_by_backbone.py --facts  # print the values
 """
 
@@ -138,7 +138,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out", default=str(HERE / "fig2_arms_by_backbone"),
                     help="output path without extension")
-    ap.add_argument("--formats", default="pdf,png,svg")
+    ap.add_argument("--formats", default=S.FORMATS)
     ap.add_argument("--facts", action="store_true", help="print the values and exit")
     args = ap.parse_args()
 
@@ -152,10 +152,8 @@ def main() -> None:
                       f"  [{lo:.3f}, {hi:.3f}]  empty {v['empty']}")
         return
     fig = build(values)
-    for ext in args.formats.split(","):
-        fig.savefig(f"{args.out}.{ext}", metadata={"CreationDate": None}
-                    if ext == "pdf" else ({"Date": None} if ext == "svg" else None))
-        print(f"wrote {args.out}.{ext}  (font: {font})")
+    for path in S.save(fig, args.out, args.formats):
+        print(f"wrote {path}  (font: {font})")
 
 
 if __name__ == "__main__":

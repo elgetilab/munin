@@ -14,7 +14,7 @@ gpt-oss-20b is drawn hatched and lighter, as underpowered (the caption says
 why): its naive RAG arm left 162 of 199 answers empty, so only 21 questions
 are scored in both arms.
 
-    python3 docs/paper-kit/figures/fig3_faithfulness_distribution.py          # pdf + png + svg
+    python3 docs/paper-kit/figures/fig3_faithfulness_distribution.py          # pdf + png + svg + tiff
     python3 docs/paper-kit/figures/fig3_faithfulness_distribution.py --facts  # print the values
 """
 
@@ -142,7 +142,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out", default=str(HERE / "fig3_faithfulness_distribution"),
                     help="output path without extension")
-    ap.add_argument("--formats", default="pdf,png,svg")
+    ap.add_argument("--formats", default=S.FORMATS)
     ap.add_argument("--facts", action="store_true", help="print the values and exit")
     args = ap.parse_args()
 
@@ -159,10 +159,8 @@ def main() -> None:
                 print(f"{'':16} {arm:8} bins {v['arms'][arm]['counts']}")
         return
     fig = build(values)
-    for ext in args.formats.split(","):
-        fig.savefig(f"{args.out}.{ext}", metadata={"CreationDate": None}
-                    if ext == "pdf" else ({"Date": None} if ext == "svg" else None))
-        print(f"wrote {args.out}.{ext}  (font: {font})")
+    for path in S.save(fig, args.out, args.formats):
+        print(f"wrote {path}  (font: {font})")
 
 
 if __name__ == "__main__":

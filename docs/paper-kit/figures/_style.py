@@ -12,9 +12,13 @@ import warnings
 import matplotlib as mpl
 from matplotlib import font_manager
 
-# Widths in inches: a two-column paper's full text width and one column.
-FULL_WIDTH = 7.0
-COLUMN_WIDTH = 3.4
+# Widths in inches: the RSC (Digital Discovery) double column, 17.1 cm, and
+# single column, 8.3 cm.
+CM = 1 / 2.54
+FULL_WIDTH = 17.1 * CM
+COLUMN_WIDTH = 8.3 * CM
+FORMATS = "pdf,png,svg,tiff"           # RSC takes TIFF at 600 dpi or more
+TIFF_DPI = 600
 
 FONT_CANDIDATES = ["Arial", "Liberation Sans", "Helvetica", "DejaVu Sans"]
 
@@ -54,6 +58,25 @@ def box_axes(ax, *, labelsize: float = 6.0) -> None:
         ax.spines[side].set_color(INK)
     ax.tick_params(which="both", direction="in", top=True, right=True, length=2.5,
                    width=0.6, color=INK, labelsize=labelsize)
+
+
+def save(fig, out: str, formats: str = FORMATS) -> list[str]:
+    """Write fig to out.<ext> for each format, without timestamps, so a re-run
+    is byte-identical when nothing it reads has changed."""
+    written = []
+    for ext in formats.split(","):
+        kw = {}
+        if ext == "pdf":
+            kw["metadata"] = {"CreationDate": None}
+        elif ext == "svg":
+            kw["metadata"] = {"Date": None}
+        elif ext == "tiff":
+            kw["dpi"] = TIFF_DPI
+            kw["pil_kwargs"] = {"compression": "tiff_lzw"}
+        path = f"{out}.{ext}"
+        fig.savefig(path, **kw)
+        written.append(path)
+    return written
 
 
 def apply() -> str:

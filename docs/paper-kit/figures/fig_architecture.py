@@ -5,7 +5,7 @@ The layout started as the Google Drawings sketch (archive/munin_fig1_v5.svg) and
 still placed in that drawing's own pixel space (1344 x 553, y down); the axes
 map it onto the full text width and crop the empty band above y = TOP, which
 makes the figure about 2.6 in tall. Strokes and type are scaled by the same
-factor (PT pt per px); no label is set below 14 px (5.25 pt) at print size.
+factor (PT pt per px); no label is set below 14 px (about 5 pt) at print size.
 
 The labels it takes from the code are read, not typed here: routing profiles
 from router.py and egress levels from provenance.py. The tool and agent counts
@@ -14,7 +14,7 @@ source files are parsed with `ast`, never imported, so this needs matplotlib
 and nothing from the service's own dependencies. Earlier versions are in
 archive/.
 
-    python3 docs/paper-kit/figures/fig_architecture.py            # pdf + png + svg
+    python3 docs/paper-kit/figures/fig_architecture.py            # pdf + png + svg + tiff
     python3 docs/paper-kit/figures/fig_architecture.py --facts    # print what was read
 """
 
@@ -344,7 +344,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out", default=str(HERE / "fig_architecture"),
                     help="output path without extension")
-    ap.add_argument("--formats", default="pdf,png,svg")
+    ap.add_argument("--formats", default=S.FORMATS)
     ap.add_argument("--facts", action="store_true", help="print the facts read and exit")
     args = ap.parse_args()
 
@@ -354,10 +354,8 @@ def main() -> None:
         print(json.dumps(facts, indent=2))
         return
     fig = build(facts)
-    for ext in args.formats.split(","):
-        fig.savefig(f"{args.out}.{ext}", metadata={"CreationDate": None}
-                    if ext == "pdf" else ({"Date": None} if ext == "svg" else None))
-        print(f"wrote {args.out}.{ext}  (font: {font})")
+    for path in S.save(fig, args.out, args.formats):
+        print(f"wrote {path}  (font: {font})")
 
 
 if __name__ == "__main__":
