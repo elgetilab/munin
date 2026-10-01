@@ -46,6 +46,16 @@ def _pick_font() -> str:
     return "sans-serif"
 
 
+def box_axes(ax, *, labelsize: float = 6.0) -> None:
+    """The house plot frame: a full box, ticks inward on all four sides."""
+    for side in ("top", "right", "bottom", "left"):
+        ax.spines[side].set_visible(True)
+        ax.spines[side].set_linewidth(0.6)
+        ax.spines[side].set_color(INK)
+    ax.tick_params(which="both", direction="in", top=True, right=True, length=2.5,
+                   width=0.6, color=INK, labelsize=labelsize)
+
+
 def apply() -> str:
     """Set rcParams for publication output. Returns the font in use."""
     font = _pick_font()

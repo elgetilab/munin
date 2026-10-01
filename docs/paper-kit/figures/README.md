@@ -19,7 +19,8 @@ embedded font bytes only.
 
 | File | What |
 |---|---|
-| `_style.py` | Shared fonts, widths (7.0 in full, 3.4 in column), Okabe-Ito colours |
+| `_style.py` | Shared fonts, widths (7.0 in full, 3.4 in column), Okabe-Ito colours, the plot frame (full box, ticks inward) |
+| `captions.txt` | The three figure captions, plain text for the manuscript |
 | `fig_architecture.py` | Figure 1, the architecture |
 | `fig2_arms_by_backbone.py` | Figure 2 |
 | `fig3_faithfulness_distribution.py` | Figure 3 |
@@ -53,33 +54,9 @@ set below 5.25 pt at the 7.0 in width. Line colours carry meaning: blue is
 the harness and its agents, the green/orange dashes are data from the corpus
 and from past the egress gate, grey is an answer on its way back.
 
-### Draft caption
+### Caption
 
-> **Figure 1. Munin's trust boundaries and the paths a request takes through
-> them.** Dashed outlines are trust boundaries. A rented gateway terminates
-> TLS, authenticates users and meters API keys; the on-premise cluster runs
-> inference, retrieval and the harness. The cluster dials a reverse SSH tunnel
-> out to the gateway and requests travel back in through it, so the cluster
-> exposes no port, and it receives the user's identity, never credentials. The
-> corpus, model weights, chats and traces stay on the cluster. A request takes
-> one of three paths: through a router, which fixes the profile (chat,
-> research or code) before the first model call, into the model harness;
-> straight to the bare LLM; or, with the per-request deep research toggle on,
-> to a detached research job that works through the `search` and `source`
-> agents and saves its report as an artifact in the conversation. The harness
-> exposes 45 MCP tools: the `compute`, `source` and `search` agents (blue), a
-> one-call `deep_research` tool and 41 plain tools; the model sees 11 core
-> tools and reaches the other 34 through `tool_search`. The agents read, rank
-> and execute in their own context and return a compact result that states
-> what it guarantees (an outcome such as `resolved` or `not_found`, and flags
-> such as `grounded` and `thin_evidence`). `source` and `search` read the
-> corpus and, past the egress gate, scholarly APIs and the web (green and
-> orange dashes). The egress level is set per request by the caller, not by
-> the model: `off` lets nothing leave, `oa_only` opens the scholarly APIs,
-> `full` adds the web. The code sandbox has no network. Answers stream back as
-> they are generated; once the turn is over, a citation audit flags, but never
-> rewrites, citations absent from every tool result, and its warning is stored
-> on the saved answer.
+In `captions.txt` (plain text, for pasting into the manuscript).
 
 The counts (45, 41, 11, 34) are what `--facts` prints today; the agent count
 it prints (4) includes the one-call `deep_research` tool, which the figure does
@@ -103,22 +80,9 @@ disagrees with its verdict counts, or if the bare/RAG copies in an egress-off
 file differ from the full-egress file. `--facts` prints the twelve values with
 their intervals.
 
-### Draft caption
+### Caption
 
-> **Figure 2. LitQA2 accuracy of four arms on three backbones.** Each point is
-> accuracy on the same 199 LitQA2 questions (correct over all; abstentions and
-> unparseable answers count as not correct), with a 95 % Wilson interval.
-> *Bare model*: the backbone alone. *Naive RAG*: one call with the top-5
-> title-and-abstract snippets from the corpus. *Harness*: Munin's chat harness
-> with egress off (no web, scholarly API or open-access download; papers
-> already in the local open-access cache stay readable) or full. On
-> gpt-oss-20b, 162 of 199 naive-RAG and 25 of 199 bare answers were empty and
-> are scored wrong. The arms are not sampled identically (bare and naive RAG at
-> temperature 0.7, the harness at its persona's settings), and on Qwen3.8-27B
-> the full and egress-off harness runs are three weeks apart. The dotted line
-> is PaperQA2's published LitQA2 accuracy (Skarlinski et al., 2024), quoted,
-> not re-measured: PaperQA2 was trained on LitQA2 and reported on 248
-> questions, and here every source paper is in Munin's corpus.
+In `captions.txt` (plain text, for pasting into the manuscript).
 
 ## fig3_faithfulness_distribution
 
@@ -135,21 +99,8 @@ difference with its interval and the bin counts.
 **gpt-oss-20b is underpowered.** Its naive RAG arm returned 162 of 199
 answers empty, so 21 questions are scored in both arms, and the paired means
 (0.28 naive RAG, 0.53 harness) differ from the full-set means 05-RESULTS
-quotes (0.351 on 28 answers, 0.392 on 159). The column is hatched and marked.
+quotes (0.351 on 28 answers, 0.392 on 159). The column is hatched and lighter; the caption says why.
 
-### Draft caption
+### Caption
 
-> **Figure 3. Per-answer faithfulness, naive RAG (top) against the harness
-> (bottom).** A score is the fraction of an answer's claims that MiniCheck
-> finds supported by the evidence that arm retrieved: five title-and-abstract
-> snippets for naive RAG, every retrieval-tool result for the harness. Only
-> answers the judge could score are included (non-empty, with captured
-> context and at least one claim); abstentions are scored like other answers.
-> Each column keeps the questions scored in both arms. Exactly 0 and exactly 1
-> have their own bars, the other bins are right-closed; short answers (naive
-> RAG answers have one to three claims) land on 0 or 1 more easily. Dashed
-> lines are means. The harness is more faithful on both Qwen backbones
-> (paired difference +0.34 and +0.26, 95 % CI excluding zero). gpt-oss-20b
-> (hatched) is underpowered: its naive RAG arm left 162 of 199 answers empty,
-> so only 21 questions are paired (difference +0.25, CI −0.01 to +0.50), and
-> its paired means differ from the full-set means in the text.
+In `captions.txt` (plain text, for pasting into the manuscript).
