@@ -9,7 +9,7 @@ inbound connection, and the egress gate with the level each outside system
 needs. The egress levels are read from provenance.py; the technologies are
 typed in, as in the C4 script.
 
-    python3 docs/paper-kit/figures/fig_architecture_v3.py         # pdf + png + svg
+    python3 docs/paper-kit/figures/archive/fig_architecture_v3.py         # pdf + png + svg
 """
 
 from __future__ import annotations
@@ -26,8 +26,9 @@ from matplotlib.patches import Circle, FancyArrowPatch, FancyBboxPatch  # noqa: 
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent))     # _style
 import _style as S  # noqa: E402
-import fig_architecture as A  # noqa: E402
+import fig_architecture_v1 as A  # noqa: E402
 import fig_c4_containers as C  # noqa: E402
 
 HEIGHT = 5.75

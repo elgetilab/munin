@@ -6,7 +6,7 @@ widths wide: a side-by-side view for choosing between them, not a layout for
 the paper. The drawing code is the two scripts' own, so this cannot drift from
 either.
 
-    python3 docs/paper-kit/figures/fig_architecture_v2.py         # pdf + png + svg
+    python3 docs/paper-kit/figures/archive/fig_architecture_v2.py         # pdf + png + svg
 """
 
 from __future__ import annotations
@@ -22,8 +22,9 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent))     # _style
 import _style as S  # noqa: E402
-import fig_architecture as A  # noqa: E402
+import fig_architecture_v1 as A  # noqa: E402
 import fig_c4_containers as C  # noqa: E402
 
 GAP = 0.3                    # between the two panels, in inches

@@ -8,7 +8,7 @@ trust boundary and who opens which connection. Not in the paper yet.
 Unlike fig_architecture this names the technologies, as C4 does; they are
 typed in below, not read from the code.
 
-    python3 docs/paper-kit/figures/fig_c4_containers.py            # pdf + png + svg
+    python3 docs/paper-kit/figures/archive/fig_c4_containers.py            # pdf + png + svg
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from matplotlib.patches import (Circle, Ellipse, FancyArrowPatch,  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent))     # _style
 import _style as S  # noqa: E402
 
 # Classic C4 palette

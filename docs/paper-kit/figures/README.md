@@ -21,9 +21,9 @@ embedded font bytes only.
 |---|---|
 | `_style.py` | Shared fonts, widths (7.0 in full, 3.4 in column), Okabe-Ito colours |
 | `fig_architecture.py` | Figure 1, the architecture |
-| `fig_c4_containers.py` | C4 container diagram (level 2); a candidate alternative to Figure 1 panel (a), not in the paper yet |
-| `fig_architecture_v2.py` | Panel (a) and the C4 diagram side by side (14.3 in wide), for choosing between them; not a paper layout |
-| `fig_architecture_v3.py` | The C4 diagram with panel (a)'s trust boundaries, reverse-tunnel direction and egress gate merged in; a candidate for Figure 1 panel (a) |
+| `fig2_arms_by_backbone.py` | Figure 2 |
+| `fig3_faithfulness_distribution.py` | Figure 3 |
+| `archive/` | Earlier Figure 1 candidates, kept runnable: `fig_architecture_v1.py` (two panels, the deployment boundary and one turn through the harness), `fig_c4_containers.py` (C4 container diagram), `fig_architecture_v2.py` (v1 panel (a) beside the C4 diagram), `fig_architecture_v3.py` (C4 with the trust boundaries merged in), `fig_architecture_v4.py` (one turn inside the boundaries), and `munin_fig1_v5.svg`, the Google Drawings sketch the current figure was redrawn from |
 
 ## fig_architecture
 
@@ -41,12 +41,23 @@ behind `tool_search`) come from `backend/retrieval/mcp/schemas.py`; the script
 is the check for them, since `--facts` prints what the code says today. If a
 count changes, update the caption from that output.
 
-**What the figure shows as current but the measurements predate.** Panel (b)
+**What the figure shows as current but the measurements predate.** The figure
 draws the shipped system. The headline results (`05-RESULTS.md`, git
 `3e0bcfb`, 2026-08-26) were measured before the search ladder (the
 corpus → scholarly → web chips in `search`) landed (2026-08-27).
 
+**Layout.** The figure was sketched in Google Drawings
+(`archive/munin_fig1_v5.svg`) and redrawn in code in that sketch's pixel
+space, so a position in the script is a position in the sketch. No label is
+set below 5.25 pt at the 7.0 in width. Line colours carry meaning: blue is
+the harness and its agents, the green/orange dashes are data from the corpus
+and from past the egress gate, grey is an answer on its way back.
+
 ### Draft caption
+
+Needs rewriting for the current figure; the caption below was written for
+`archive/fig_architecture_v1.py` (two panels) and its panel references no
+longer apply.
 
 > **Figure 1. Munin's deployment boundary and one turn through the harness.**
 > **(a)** Dashed outlines are trust boundaries. A rented gateway server
@@ -67,14 +78,3 @@ corpus → scholarly → web chips in `search`) landed (2026-08-27).
 > corpus to scholarly APIs to the web only when a tier comes up short, within
 > the egress level (orange bar). A post-turn audit flags, but never rewrites,
 > citations absent from every tool result.
-
-## fig_c4_containers
-
-Munin as a C4 container diagram in the classic C4 notation: typed boxes
-(`[Person]`, `[Container: technology]`, `[Software System]`), cylinders for
-data stores, one-way relationships labelled with a verb and a protocol, a
-dashed system boundary and a key. It shows what exists and how it connects;
-it cannot show who opens a connection or the egress gate, which is what
-Figure 1 panel (a) is for. Being C4, it names the technologies, typed in the
-script rather than read from the code. Kept as an option while the content of
-Figure 1 is decided.

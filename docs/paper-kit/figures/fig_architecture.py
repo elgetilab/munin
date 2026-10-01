@@ -1,13 +1,18 @@
-"""Architecture figure: (a) the deployment boundary, (b) one turn through the
-harness.
+"""Figure 1, the architecture: one panel, the trust boundaries with every path a
+request can take through them.
 
-Drawn as the general pattern, not one installation: no model, GPU, hosting
-product or tool count appears, so the figure stays true when those change. The
-labels it takes from the code are read, not typed here: routing profiles from
-router.py and egress levels from provenance.py. The tool and agent counts from
-the MCP registry are not drawn; --facts prints them for the caption. The
+The layout started as the Google Drawings sketch (archive/munin_fig1_v5.svg) and is
+still placed in that drawing's own pixel space (1344 x 553, y down); the axes
+map it onto the full text width and crop the empty band above y = TOP, which
+makes the figure about 2.6 in tall. Strokes and type are scaled by the same
+factor (PT pt per px); no label is set below 14 px (5.25 pt) at print size.
+
+The labels it takes from the code are read, not typed here: routing profiles
+from router.py and egress levels from provenance.py. The tool and agent counts
+from the MCP registry are not drawn; --facts prints them for the caption. The
 source files are parsed with `ast`, never imported, so this needs matplotlib
-and nothing from the service's own dependencies.
+and nothing from the service's own dependencies. Earlier versions are in
+archive/.
 
     python3 docs/paper-kit/figures/fig_architecture.py            # pdf + png + svg
     python3 docs/paper-kit/figures/fig_architecture.py --facts    # print what was read
@@ -25,7 +30,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.patches import Circle, FancyArrowPatch, FancyBboxPatch  # noqa: E402
+from matplotlib.patches import Circle, FancyArrowPatch, FancyBboxPatch, Polygon  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -34,6 +39,15 @@ import _style as S  # noqa: E402
 REPO = HERE.parents[2]
 RETRIEVAL = REPO / "backend/retrieval"
 AGENTS = ("search", "source", "compute", "deep_research")
+
+# The sketch's canvas, in its pixels; everything above TOP is cropped.
+W, H, TOP = 1344.0, 552.958, 50.0
+PT = S.FULL_WIDTH * 72 / W                # points per sketch pixel (0.375)
+HEIGHT = S.FULL_WIDTH * (H - TOP) / W
+
+DASH = (4, 3)                             # trust boundaries, in units of lw
+HEAD = "-|>,head_length=0.4,head_width=0.15"
+HEAD_SCALE = 5.5
 
 
 # ---------------------------------------------------------------- facts ----
@@ -82,253 +96,247 @@ def read_facts() -> dict:
     }
 
 
-# ----------------------------------------------------------- primitives ----
+# ------------------------------------------------------------- drawing ----
 
-def box(ax, x, y, w, h, title=None, lines=(), *, fc=S.WHITE, ec=S.RULE, lw=0.6,
-        title_color=S.INK, size=6.2, title_size=7.0, radius=0.05, z=2):
+def px(v):
+    """A stroke width or font size given in sketch pixels, in points."""
+    return v * PT
+
+
+def rect(ax, x0, y0, x1, y1, *, fc=S.WHITE, ec=S.RULE, lw=1.6, r=3.84, ls="-", z=2):
     ax.add_patch(FancyBboxPatch(
-        (x, y), w, h, boxstyle=f"round,pad=0,rounding_size={radius}",
-        fc=fc, ec=ec, lw=lw, zorder=z))
-    n = len(lines) + (1 if title else 0)
-    gap = 0.125
-    top = y + h / 2 + (n - 1) * gap / 2
-    k = 0
-    if title:
-        ax.text(x + w / 2, top, title, ha="center", va="center", fontsize=title_size,
-                fontweight="bold", color=title_color, zorder=z + 1)
-        k = 1
-    for i, line in enumerate(lines):
-        ax.text(x + w / 2, top - (k + i) * gap, line, ha="center", va="center",
-                fontsize=size, color=S.MUTED if title else S.INK, zorder=z + 1)
+        (x0, y0), x1 - x0, y1 - y0, boxstyle=f"round,pad=0,rounding_size={r}",
+        fc=fc, ec=ec, lw=px(lw), ls=ls, zorder=z))
 
 
-def zone(ax, x, y, w, h, text, *, fc, ec):
-    """A trust boundary: dashed outline, as in data-flow diagrams."""
-    ax.add_patch(FancyBboxPatch(
-        (x, y), w, h, boxstyle="round,pad=0,rounding_size=0.08",
-        fc=fc, ec=ec, lw=0.9, ls=(0, (4, 2)), zorder=0))
-    ax.text(x + 0.08, y + h - 0.1, text, ha="left", va="top", fontsize=7.4,
-            fontweight="bold", color=ec)
+def text(ax, x, y, s, *, size=14, color=S.INK, ha="center", weight="normal",
+         style="normal", family=None, z=5):
+    ax.text(x, y, s, ha=ha, va="center", fontsize=px(size), color=color,
+            fontweight=weight, fontstyle=style, family=family, zorder=z)
 
 
-def badge(ax, x, y, n):
-    """A numbered step marker."""
-    ax.add_patch(Circle((x, y), 0.055, fc=S.INK, ec="none", zorder=6))
-    ax.text(x, y - 0.004, str(n), ha="center", va="center", fontsize=5.2,
-            fontweight="bold", color=S.WHITE, zorder=7)
+def node(ax, box, title, body=None, *, title_y=None, body_y=None, title_color=S.INK,
+         title_size=18, body_size=14, mono=False, **kw):
+    """A box with a bold title and an optional muted line under it."""
+    x0, y0, x1, y1 = box
+    rect(ax, *box, **kw)
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    text(ax, cx, title_y if title_y is not None else (cy - 11 if body else cy), title,
+         size=title_size, color=title_color, weight="bold",
+         family="monospace" if mono else None)
+    if body:
+        text(ax, cx, body_y if body_y is not None else cy + 12, body, size=body_size,
+             color=S.MUTED)
 
 
-def cross(ax, x, y, r=0.05, color=S.VERMILION):
-    for dx in (r, -r):
-        ax.plot([x - dx, x + dx], [y - r, y + r], color=color, lw=1.3, zorder=6,
-                solid_capstyle="round")
+def head(ax, p0, p1, *, color=S.INK, lw=2.0, both=False, z=4):
+    """A straight arrow from p0 to p1 (or an arrowhead alone, laid over a line)."""
+    style = HEAD.replace("-|>", "<|-|>") if both else HEAD
+    ax.add_patch(FancyArrowPatch(p0, p1, arrowstyle=style, mutation_scale=HEAD_SCALE,
+                                 color=color, lw=px(lw), shrinkA=0, shrinkB=0, zorder=z))
 
 
-def arrow(ax, p0, p1, *, color=S.INK, lw=0.8, ls="-", style="-|>", rad=0.0,
-          z=4, head=5):
-    ax.add_patch(FancyArrowPatch(
-        p0, p1, arrowstyle=style, mutation_scale=head, color=color, lw=lw,
-        linestyle=ls, shrinkA=0, shrinkB=0, zorder=z,
-        connectionstyle=f"arc3,rad={rad}"))
+def route(ax, pts, *, color=S.INK, lw=2.0, arrow=True, both=False, z=4):
+    """A right-angled polyline through pts, with an arrowhead at pts[-1] (and at
+    pts[0] too when both, for a single segment)."""
+    xs, ys = zip(*pts)
+    n = len(pts) if not arrow else len(pts) - 1
+    if n > 1:
+        ax.plot(xs[:n], ys[:n], color=color, lw=px(lw), zorder=z,
+                solid_joinstyle="miter", solid_capstyle="butt")
+    if arrow:
+        head(ax, pts[-2], pts[-1], color=color, lw=lw, both=both, z=z)
 
 
-def label(ax, x, y, text, *, size=6.0, color=S.MUTED, ha="center", va="center",
-          weight="normal", style="normal", z=5):
-    ax.text(x, y, text, ha=ha, va=va, fontsize=size, color=color,
-            fontweight=weight, fontstyle=style, zorder=z)
+def hop(ax, x, y, *, vertical=False, bg=S.GREEN_FILL, r=5):
+    """Cut the line running under a crossing, so the crossing line reads as passing
+    over it. Drawn between the two (z 3.5): the under line must sit at z <= 3."""
+    seg = ([x, x], [y - r, y + r]) if vertical else ([x - r, x + r], [y, y])
+    ax.plot(*seg, color=bg, lw=px(6), zorder=3.5, solid_capstyle="butt")
 
 
-def heading(ax, y, letter, text):
-    ax.text(0.02, y, letter, fontsize=10, fontweight="bold", va="center")
-    ax.text(0.2, y, text, fontsize=8, fontweight="bold", va="center")
+def mixed(ax, xs, ys, *, lw=2.4, z=4):
+    """Green and vermilion dashes in turn: a line fed by the corpus and by egress."""
+    for color, offset in ((S.GREEN, 0), (S.VERMILION, 3)):
+        ax.plot(xs, ys, color=color, lw=px(lw), ls=(offset, (3, 3)), zorder=z,
+                solid_capstyle="butt", dash_capstyle="butt")
 
 
-# -------------------------------------------------------------- panel a ----
+def mixed_head(ax, x, tip, *, length=6.5, half=2.8, z=5):
+    """An upward arrowhead split down the middle, green on the left, vermilion on
+    the right, to end a mixed() line."""
+    base = tip + length
+    for color, side in ((S.GREEN, -1), (S.VERMILION, 1)):
+        ax.add_patch(Polygon([(x, tip), (x + side * half, base), (x, base)],
+                             closed=True, fc=color, ec="none", zorder=z))
 
-def panel_a(ax, f, y0):
-    """Deployment boundary. y0 is the bottom of the panel's zones."""
-    H = 1.5
-    heading(ax, y0 + H + 0.24, "a", "Deployment boundary")
-    rh = 0.42
-    r1, r2 = y0 + 0.8, y0 + 0.16            # main row, lower row
-    mid1 = r1 + rh / 2
 
-    # Users
-    box(ax, 0.04, r1, 0.76, rh, "Users", ["browser, API"])
+def toggle(ax, x, y):
+    """A switch in the on position."""
+    rect(ax, x - 13, y - 6.5, x + 13, y + 6.5, ec=S.INK, lw=1.6, r=6.5, z=5)
+    ax.add_patch(Circle((x + 6.5, y), 4.2, fc=S.INK, ec="none", zorder=6))
 
-    # Gateway: the only public entry point. One box, so its zone spans one row.
-    vx, vw = 0.94, 1.5
-    zone(ax, vx, r1 - 0.1, vw, y0 + H - (r1 - 0.1), "Gateway",
-         fc=S.GREY_FILL, ec=S.MUTED)
-    gx, gw = vx + 0.08, vw - 0.16
-    box(ax, gx, r1, gw, rh, "Proxy", ["TLS, login, API keys"])
-    arrow(ax, (0.8, mid1), (gx, mid1))
 
-    # Cluster
-    cx, cw = 3.5, 2.24
-    zone(ax, cx, y0, cw, H, "Cluster", fc=S.GREEN_FILL, ec=S.GREEN)
-    ix, iw = cx + 0.08, cw - 0.16
-    box(ax, ix, r1, iw, rh, "Harness",
-        ["router · agents · tools"],
-        fc=S.BLUE_FILL, ec=S.BLUE, lw=0.9, title_color=S.BLUE)
-    sw = (iw - 0.16) / 3
-    for i, (name, line) in enumerate([("LLM", "inference"),
-                                      ("Corpus", "vectors, graph"),
-                                      ("Sandbox", "no network")]):
-        bx = ix + i * (sw + 0.08)
-        box(ax, bx, r2, sw, rh, name, [line])
-        arrow(ax, (bx + sw / 2, r1), (bx + sw / 2, r2 + rh), head=4)
-
-    # Reverse tunnel, drawn as a pipe through the boundary. (1) the cluster opens
-    # the connection outward; (2) requests travel back in through it; a direct
-    # inbound connection is refused.
-    x_from, x_to = gx + gw, ix
-    mid = (x_from + x_to) / 2
-    ax.add_patch(FancyBboxPatch((x_from, mid1 - 0.065), x_to - x_from, 0.13,
-                                boxstyle="round,pad=0,rounding_size=0.065",
-                                fc=S.WHITE, ec=S.INK, lw=0.6, zorder=3))
-    arrow(ax, (x_from + 0.06, mid1), (x_to - 0.03, mid1), lw=0.8, head=4)
-    label(ax, mid, mid1 + 0.38, "reverse SSH tunnel", size=6.4, color=S.INK,
-          weight="bold")
-    badge(ax, x_from + 0.14, mid1 + 0.18, 2)
-    label(ax, x_from + 0.23, mid1 + 0.18, "requests + identity in", size=5.8, ha="left")
-    arrow(ax, (x_to - 0.04, mid1 - 0.17), (x_from + 0.06, mid1 - 0.17), lw=0.6,
-          ls=(0, (2, 1.5)), head=4, color=S.MUTED)
-    badge(ax, x_from + 0.14, mid1 - 0.3, 1)
-    label(ax, x_from + 0.23, mid1 - 0.3, "cluster dials out", size=5.8, ha="left")
-    yb = r2 + rh / 2
-    arrow(ax, (x_from, yb), (cx - 0.1, yb), lw=0.6, head=4, color=S.RULE)
-    cross(ax, cx - 0.02, yb)
-    label(ax, mid - 0.04, yb - 0.13, "inbound refused", size=5.8, color=S.VERMILION)
-
-    # Key, in the free corner under Users
-    kx, ky = 0.06, r1 - 0.28
-    rows = [
-        ("request", lambda y: arrow(ax, (kx, y), (kx + 0.22, y), head=4)),
-        ("connection opened", lambda y: arrow(ax, (kx, y), (kx + 0.22, y), lw=0.6,
-                                               ls=(0, (2, 1.5)), head=4, color=S.MUTED)),
-        ("trust boundary", lambda y: ax.add_patch(FancyBboxPatch(
-            (kx, y - 0.045), 0.22, 0.09, boxstyle="round,pad=0,rounding_size=0.02",
-            fc="none", ec=S.MUTED, lw=0.8, ls=(0, (3, 1.5)), zorder=3))),
-        ("egress gate", lambda y: ax.add_patch(FancyBboxPatch(
-            (kx + 0.08, y - 0.06), 0.05, 0.12, boxstyle="round,pad=0,rounding_size=0.02",
-            fc=S.VERMILION, ec="none", zorder=3))),
-    ]
-    for i, (text, draw) in enumerate(rows):
-        y = ky - i * 0.15
-        draw(y)
-        label(ax, kx + 0.28, y, text, size=5.6, ha="left")
-
-    # Egress gate and the outside world
-    gate_x = cx + cw + 0.16
-    ex = gate_x + 0.18
-    ew = S.FULL_WIDTH - ex - 0.04
-    ax.add_patch(FancyBboxPatch((gate_x, r2), 0.06, r1 + rh - r2,
-                                boxstyle="round,pad=0,rounding_size=0.03",
-                                fc=S.VERMILION, ec="none", zorder=3))
-    label(ax, gate_x + 0.03, r2 - 0.08, "egress", size=6.0, color=S.VERMILION,
-          weight="bold")
-    box(ax, ex, r1, ew, rh, "Scholarly", ["APIs"], fc=S.VERMILION_FILL, ec=S.VERMILION)
-    box(ax, ex, r2, ew, rh, "Web", ["search, fetch"], fc=S.VERMILION_FILL, ec=S.VERMILION)
+def draw(ax, f):
     off, oa, full = f["egress"]
-    arrow(ax, (ix + iw, mid1), (ex, mid1), color=S.VERMILION, head=4)
-    ax.plot([ix + iw, gate_x + 0.03], [r1 + 0.1] * 2, color=S.VERMILION, lw=0.8, zorder=4)
-    arrow(ax, (gate_x + 0.03, r1 + 0.1), (ex, r2 + rh / 2), color=S.VERMILION, head=4)
-    label(ax, ex + ew / 2, r1 - 0.08, f"{oa}, {full}", size=5.4, color=S.VERMILION)
-    label(ax, ex + ew / 2, r2 - 0.08, full, size=5.4, color=S.VERMILION)
+    top = TOP + 8                         # zone tops, under the crop
 
+    # ------------------------------------------------------------ zones --
+    rect(ax, 8.0, top, 234.7, 229.4, fc=S.GREY_FILL, ec=S.MUTED, lw=2.4, r=0,
+         ls=(0, DASH), z=0)
+    text(ax, 23.5, 80, "Gateway", size=19.5, color=S.MUTED, ha="left", weight="bold")
+    rect(ax, 357.3, top, 1122.7, 549.3, fc=S.GREEN_FILL, ec=S.GREEN, lw=2.4, r=0,
+         ls=(0, DASH), z=0)
+    text(ax, 373, 530, "Cluster", size=19.5, color=S.GREEN, ha="left", weight="bold")
 
-# -------------------------------------------------------------- panel b ----
+    # reverse tunnel between them, around the two lanes that cross it
+    rect(ax, 245.7, 96, 346.3, 196, ec=S.INK, lw=1.6, r=14, z=1)
+    text(ax, 296, 112, "reverse SSH", size=14, weight="bold")
+    text(ax, 296, 128, "tunnel", size=14, weight="bold")
 
-def panel_b(ax, f, y0):
-    """One turn. y0 is the bottom of the panel."""
-    row_y, row_h = y0 + 1.06, 0.44
-    heading(ax, row_y + row_h + 0.26, "b", "One turn through the harness")
+    # ---------------------------------------------- gateway and user ----
+    node(ax, (34.7, 106.7, 208.0, 194.7), "Proxy", "TLS, login, API keys",
+         title_y=129.7, body_y=162.6, r=2)
+    node(ax, (24.0, 296.0, 218.7, 381.3), "Researcher", "browser or API",
+         title_y=324.6, body_y=348.8, r=2)
+    route(ax, [(96.0, 296.0), (96.0, 197.7)], lw=1.87)
+    route(ax, [(146.7, 194.7), (146.7, 293.0)], color=S.MUTED, lw=1.87)
 
-    # Main row, left to right
-    gap = 0.18
-    steps = [
-        (0.9, "Question", [], {}),
-        (1.3, "Router", [" | ".join(f["profiles"])], {}),
-        (1.9, "Model loop", ["calls tools as needed"],
-         dict(fc=S.BLUE_FILL, ec=S.BLUE, lw=0.9, title_color=S.BLUE)),
-        (1.2, "Citation audit", ["flags, never rewrites"], {}),
-        (0.9, "Answer", ["streamed"], {}),
-    ]
-    x, spans = 0.04, []
-    for w, title, lines, kw in steps:
-        box(ax, x, row_y, w, row_h, title, lines, **kw)
-        spans.append((x, w))
-        x += w + gap
-    cy = row_y + row_h / 2
-    for (a, aw), (b, _) in zip(spans, spans[1:]):
-        arrow(ax, (a + aw, cy), (b, cy))
+    # ------------------------------------------------------- turn row ----
+    node(ax, (402.7, 119.3, 584.0, 182.0), "Router", " | ".join(f["profiles"]),
+         title_y=141.8, body_y=162.6, body_size=15, r=2.74)
+    node(ax, (402.7, 191.5, 584.0, 234.2), "Bare LLM", r=1.86)
+    node(ax, (622.7, 109.5, 881.3, 191.5), "Model harness", "core tools + tool_search",
+         title_y=139, body_y=162, title_color=S.BLUE, body_size=15,
+         fc=S.BLUE_FILL, ec=S.BLUE, lw=2.4, r=3.58)
+    node(ax, (946.5, 134.0, 1114.5, 169.6), "Citation audit", r=1.55)
 
-    # Tool layer, reached from the model loop over one bus
-    lx, lw_ = spans[2]
-    tool_y, tool_h = y0 + 0.04, 0.5
-    bus_y = tool_y + tool_h + 0.16
-    ax.plot([0.5, 6.5], [bus_y, bus_y], color=S.BLUE, lw=0.8, zorder=3)
-    arrow(ax, (lx + lw_ * 0.4, bus_y), (lx + lw_ * 0.4, row_y), color=S.BLUE, head=5)
-    arrow(ax, (lx + lw_ * 0.6, row_y), (lx + lw_ * 0.6, bus_y), color=S.BLUE, head=5)
-    label(ax, lx + lw_ * 0.4 - 0.05, (bus_y + row_y) / 2, "compact result", size=5.8,
-          ha="right", color=S.BLUE)
-    label(ax, lx + lw_ * 0.6 + 0.05, (bus_y + row_y) / 2, "call", size=5.8,
-          ha="left", color=S.BLUE)
+    # question in: proxy -> router, with a trunk down to the bare LLM
+    trunk = 385
+    route(ax, [(208.0, 150.7), (399.7, 150.7)])
+    route(ax, [(trunk, 150.7), (trunk, 212.8), (399.7, 212.8)])
+    route(ax, [(584.0, 150.6), (619.7, 150.6)])
+    route(ax, [(881.3, 150.5), (943.5, 150.5)])
 
-    tools = [
-        (1.9, "search", None),
-        (1.2, "source", "reads full text"),
-        (1.2, "compute", "runs code"),
-        (1.3, "deep_research", "long reports"),
-        (1.08, "more tools", "graph, files, memory"),
-    ]
-    x = 0.04
-    for w, name, line in tools:
-        agent = name in AGENTS
-        box(ax, x, tool_y, w, tool_h, None, (), fc=S.WHITE if agent else S.GREY_FILL,
-            ec=S.BLUE if agent else S.RULE, lw=0.8 if agent else 0.6)
-        ax.text(x + w / 2, tool_y + tool_h - 0.15, name, fontsize=7, fontweight="bold",
-                ha="center", va="center", color=S.BLUE if agent else S.INK, zorder=4,
-                family="monospace" if agent else None)
-        if line:
-            ax.text(x + w / 2, tool_y + 0.15, line, fontsize=6.2, ha="center",
-                    va="center", color=S.MUTED, zorder=4)
-        arrow(ax, (x + w / 2, bus_y), (x + w / 2, tool_y + tool_h), color=S.BLUE,
-              style="<|-|>", head=4, lw=0.6)
-        x += w + 0.06
+    # answers back: streamed from the harness, branching off before the audit
+    ret_x, ret_y = 368, 84.5
+    route(ax, [(906.3, 150.5), (906.3, ret_y), (ret_x, ret_y), (ret_x, 141.1),
+               (212.0, 141.1)], color=S.MUTED)
+    text(ax, 906, 74.5, "streamed answer", size=14, color=S.MUTED, ha="right",
+         weight="bold")
+    # the bare LLM streams back the same way
+    route(ax, [(584.0, 222.0), (603, 222.0), (603, ret_y)], color=S.MUTED, arrow=False,
+          z=3)
+    head(ax, (603, 100), (603, ret_y + 2), color=S.MUTED)
+    hop(ax, 603, 150.6, vertical=True)
+    # the audit runs once the turn is over; what it flags lands on the saved answer
+    route(ax, [(1100, 134.0), (1100, ret_y), (909.3, ret_y)], color=S.MUTED)
+    text(ax, 914, 100, "after the turn:", size=14, color=S.MUTED, ha="left")
+    text(ax, 914, 116, "warning on saved answer", size=14, color=S.MUTED, ha="left")
 
-    # search widens corpus -> scholarly -> web; the bar marks the egress gate.
-    chips = [("corpus", S.WHITE, S.GREEN, 0.48),
-             ("scholarly", S.VERMILION_FILL, S.VERMILION, 0.58),
-             ("web", S.VERMILION_FILL, S.VERMILION, 0.36)]
-    step = 0.1
-    x = 0.04 + (1.9 - sum(c[3] for c in chips) - step * 2) / 2
-    sy = tool_y + 0.07
-    for i, (name, fc, ec, w) in enumerate(chips):
-        box(ax, x, sy, w, 0.17, None, [name], fc=fc, ec=ec, size=5.6, radius=0.03, z=5)
-        if i < len(chips) - 1:
-            arrow(ax, (x + w + 0.012, sy + 0.085), (x + w + step - 0.012, sy + 0.085),
-                  head=3.5, lw=0.6, z=6)
-        if i == 0:
-            gx_ = x + w + step / 2
-            ax.plot([gx_] * 2, [sy - 0.03, sy + 0.2], color=S.VERMILION, lw=1.4,
-                    zorder=7, solid_capstyle="butt")
-        x += w + step
+    # Three lanes run between the turn row and the agents row, top to bottom:
+    # other tools (black), the agent bus (blue), the deep research toggle.
+    lane_tools, lane_bus, lane_toggle = 244, 256, 268
 
+    # deep research: a third branch off the trunk, past router and harness
+    dr_x = 606.7
+    route(ax, [(trunk, 212.8), (trunk, lane_toggle), (dr_x, lane_toggle), (dr_x, 293)],
+          z=3)
+    toggle(ax, 412, lane_toggle)
+    text(ax, 412, 284, "toggle", size=14)
 
-# ----------------------------------------------------------------- main ----
+    # other tools -> harness
+    route(ax, [(455, 295.9), (455, lane_tools), (645, lane_tools), (645, 194.5)])
+    hop(ax, 455, lane_toggle)
+
+    # agent bus: one call down, one compact result up
+    ax.plot([700, 1042.7], [lane_bus, lane_bus], color=S.BLUE, lw=px(2.0), zorder=4)
+    for x in (760.1, 900.0, 1042.7):
+        route(ax, [(x, lane_bus), (x, 294.0)], color=S.BLUE, both=True)
+    route(ax, [(700, 191.5), (700, lane_bus)], color=S.BLUE)
+    route(ax, [(820, lane_bus), (820, 193.5)], color=S.BLUE)
+    text(ax, 692, 222, "call", size=14, color=S.BLUE, ha="right")
+    text(ax, 830, 210, "compact result + outcome", size=14, color=S.BLUE, ha="left")
+    text(ax, 830, 227, "not_found | grounded | thin_evidence", size=14, color=S.BLUE,
+         ha="left")
+
+    # ------------------------------------------------------ agents row ----
+    node(ax, (379.0, 295.9, 482.6, 381.2), "other tools", "citations,", title_y=318,
+         body_y=345, title_size=15.5, fc=S.GREY_FILL)
+    text(ax, 430.8, 362, "files", size=14, color=S.MUTED)
+    rect(ax, 491.3, 278.8, 1115.1, 426.6, fc=S.BLUE_FILL, ec=S.BLUE, lw=1.6, r=8.19, z=1)
+    text(ax, 504.7, 407, "Agents", size=19.5, color=S.BLUE, ha="left", weight="bold")
+    agents = [((528.0, 685.3), "deep_research", "research reports"),
+              ((698.7, 821.4), "compute", "runs code"),
+              ((834.7, 965.3), "source", "reads papers"),
+              ((978.7, 1106.7), "search", "grounded read")]
+    for (x0, x1), name, line in agents:
+        node(ax, (x0, 296.0, x1, 381.3), name, line, title_y=322.5, body_y=355,
+             title_color=S.BLUE, title_size=15, mono=True, ec=S.BLUE, lw=2.13)
+    # deep research works through search and source, under the row
+    dr_lane = 400
+    route(ax, [(650, 381.3), (650, dr_lane), (1010, dr_lane), (1010, 383.3)],
+          color=S.BLUE, z=3)
+    route(ax, [(880, dr_lane), (880, 383.3)], color=S.BLUE, z=3)
+    # its report comes back as an artifact in the conversation, up the left side
+    rep_y = 442
+    route(ax, [(600, 381.3), (600, rep_y), (ret_x, rep_y), (ret_x, 141.1)],
+          color=S.MUTED, arrow=False, z=3)
+    head(ax, (ret_x, 190), (ret_x, 176), color=S.MUTED)
+    hop(ax, ret_x, 150.7, vertical=True)
+    text(ax, 378, 458, "report, saved as artifact", size=14, color=S.MUTED, ha="left")
+
+    # ---------------------------------------------------- resources row ----
+    node(ax, (698.7, 471.2, 821.4, 540.5), "Sandbox", "no network",
+         title_y=492, body_y=516)
+    route(ax, [(760.1, 381.3), (760.1, 468.3)])
+    hop(ax, 760.1, dr_lane, bg=S.BLUE_FILL)
+    node(ax, (834.7, 469.3, 1106.7, 538.7), "Corpus", "vector database, citation graph",
+         title_y=490.6, body_y=514.8, ec=S.GREEN)
+
+    # data lane: source and search read from the corpus or, past the gate, outside
+    data, gate_x = 448, 1122.7
+    mixed(ax, [930, gate_x], [data, data])
+    for x in (930, 1075):
+        mixed(ax, [x, x], [data, 388])
+        mixed_head(ax, x, 382.3)
+    hop(ax, 930, dr_lane, bg=S.BLUE_FILL)
+    ax.plot([1000, 1000], [469.3, data], color=S.GREEN, lw=px(2.0), zorder=4)
+
+    # --------------------------------------------------------- egress ----
+    ex0, ex1, ecx = 1157.7, 1341.7, 1249.7
+    rect(ax, ex0, top, ex1, 314.0, fc=S.GREY_FILL, ec=S.VERMILION, lw=1.6, r=8.03, z=1)
+    text(ax, ecx, 77, "egress level", size=16, color=S.VERMILION, weight="bold")
+    text(ax, ecx, 95, "set per request", size=14, color=S.VERMILION, style="italic")
+    sch, web = (112.0, 200.0), (214.0, 302.0)
+    node(ax, (1168.0, sch[0], 1336.0, sch[1]), "Scholarly", "APIs",
+         title_y=sch[0] + 30, body_y=sch[0] + 53, fc=S.VERMILION_FILL, ec=S.VERMILION)
+    text(ax, ecx, sch[0] + 73, f"open at {oa}, {full}", size=14, color=S.VERMILION)
+    node(ax, (1168.0, web[0], 1336.0, web[1]), "Web", "search, fetch",
+         title_y=web[0] + 30, body_y=web[0] + 53, fc=S.VERMILION_FILL, ec=S.VERMILION)
+    text(ax, ecx, web[0] + 73, f"open at {full} only", size=14, color=S.VERMILION)
+
+    # the gate sits on the cluster boundary; behind it the lane forks
+    fork = 1145
+    mids = [sum(sch) / 2, sum(web) / 2]
+    ax.plot([gate_x, fork, fork], [data, data, mids[0]], color=S.VERMILION, lw=px(2.0),
+            zorder=4, solid_joinstyle="miter")
+    for y in mids:
+        route(ax, [(fork, y), (1165, y)], color=S.VERMILION)
+    rect(ax, gate_x - 4, data - 14, gate_x + 4, data + 14, fc=S.VERMILION,
+         ec=S.VERMILION, lw=1.0, r=2, z=5)
+    text(ax, ecx, 440, "egress gate", size=14, color=S.VERMILION, weight="bold")
+    text(ax, ecx, 458, f"{off}: closed, nothing leaves", size=14, color=S.VERMILION)
+
 
 def build(f):
-    width, height = S.FULL_WIDTH, 4.08
-    fig = plt.figure(figsize=(width, height))
+    fig = plt.figure(figsize=(S.FULL_WIDTH, HEIGHT))
     ax = fig.add_axes([0, 0, 1, 1])
-    ax.set_xlim(0, width)
-    ax.set_ylim(0, height)
+    ax.set_xlim(0, W)
+    ax.set_ylim(H, TOP)                   # the sketch's y runs down
     ax.set_aspect("equal")
     ax.axis("off")
-    panel_a(ax, f, y0=2.1)
-    panel_b(ax, f, y0=0.04)
+    draw(ax, f)
     return fig
 
 
