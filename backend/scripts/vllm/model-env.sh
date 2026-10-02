@@ -119,6 +119,11 @@ munin_load_model_env() {
     else
         VLLM_QUANT_ARGS=""
     fi
+    # The name retrieval asks vLLM for. Profiles define MODEL_NAME only; this
+    # was exported but never set, so compose fell back to its literal default
+    # and `model activate` of any other backbone left retrieval requesting a
+    # model vLLM no longer served (every chat turn 404s).
+    VLLM_MODEL_NAME=$MODEL_NAME
     export MODEL_PROFILE_FILE MODEL_PATH TOKENIZER_HOST_DIR VLLM_QUANT_ARGS
     local key
     for key in $MUNIN_MODEL_COMPOSE_EXPORTS; do
