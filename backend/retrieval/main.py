@@ -2098,11 +2098,16 @@ def _doi_from_upload_filename(name: Optional[str]) -> Optional[str]:
     """Extract a DOI from the uploader's original filename when it
     follows the `doi_<doi>.pdf` convention used by the crawler.
 
-    Mirrors paper_pipeline._extract_doi_from_filename so uploaded
-    PDFs whose user named them that way can feed the same
+    Mirrors paper_pipeline._extract_doi_from_filename (doi_filename.decode)
+    so uploaded PDFs whose user named them that way can feed the same
     filename-DOI-authoritative path that protects crawler downloads
     against GROBID picking up a citation DOI. Returns None when the
-    filename doesn't match the convention.
+    filename doesn't match the convention, and also when it is ambiguous:
+    the name maps `/` (and `:`) to `_`, so with more than one `_` after
+    the prefix the original DOI cannot be read back. The old decode
+    restored only the first `_` and handed the pipeline a DOI that does
+    not exist; those uploads now take the GROBID path and its title-based
+    DOI recovery instead.
     """
     if not name:
         return None
@@ -2118,7 +2123,9 @@ def _doi_from_upload_filename(name: Optional[str]) -> Optional[str]:
     while idx < len(doi_part) and doi_part[idx].isdigit():
         idx += 1
     if idx < len(doi_part) and doi_part[idx] == "_":
-        return doi_part[:idx] + "/" + doi_part[idx + 1:]
+        suffix = doi_part[idx + 1:]
+        if suffix and "_" not in suffix:
+            return doi_part[:idx] + "/" + suffix
     return None
 
 

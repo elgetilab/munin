@@ -681,6 +681,11 @@ deploy_pipeline() {
     need_file "$REPO_DIR/scripts/pipeline/repair_authors.py"
     run "install -m 0644 $REPO_DIR/scripts/pipeline/author_names.py \
         $PIPELINE_DIR/author_names.py"
+    # doi_filename.py: imported by paper_pipeline.py (verified decode of
+    # ambiguous doi_*.pdf names) and by audit_doi_filenames.py.
+    need_file "$REPO_DIR/scripts/pipeline/doi_filename.py"
+    run "install -m 0644 $REPO_DIR/scripts/pipeline/doi_filename.py \
+        $PIPELINE_DIR/doi_filename.py"
     run "install -m 0755 $REPO_DIR/scripts/pipeline/audit_authors.py \
         $PIPELINE_DIR/audit_authors.py"
     # repair_authors.py is the one-way backfill (Qdrant payload writes).
