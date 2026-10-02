@@ -273,7 +273,10 @@ services:
       # Uses host.docker.internal to reach vLLM running on host
       # (resolved via the extra_hosts host-gateway entry above; must not be
       # pinned to a host LAN IP — that breaks on any subnet change)
-      - VLLM_URL=${VLLM_URL:-http://host.docker.internal:8000}
+      # LLM_BASE_URL / LLM_MODEL_NAME (the documented names) win over the
+      # VLLM_* aliases the cluster sets. They used to reach no container at
+      # all, so a single-host .env pointing at Ollama was silently ignored.
+      - VLLM_URL=${LLM_BASE_URL:-${VLLM_URL:-http://host.docker.internal:8000}}
       # Backbone identity and behaviour. Sourced from the model profile
       # (/opt/munin/config/active-model.env, written by `deploy.sh model
       # activate <slug>` from config/models/<slug>.env) and exported by the
@@ -282,7 +285,7 @@ services:
       # name was a literal here and the thinking/effort knobs were not passed
       # at all, so the container could only ever run its Python defaults.
       # Defaults = the Qwen3.8 reference deployment.
-      - VLLM_MODEL_NAME=${VLLM_MODEL_NAME:-qwen3.8-27b}
+      - VLLM_MODEL_NAME=${LLM_MODEL_NAME:-${VLLM_MODEL_NAME:-qwen3.8-27b}}
       - LLM_THINKING_TOGGLE=${LLM_THINKING_TOGGLE:-1}
       - LLM_THINKING_MODE=${LLM_THINKING_MODE:-enable_thinking}
       - LLM_REASONING_EFFORT=${LLM_REASONING_EFFORT:-medium}
@@ -507,7 +510,7 @@ services:
       - ${HF_CACHE_DIR:-${MUNIN_ROOT:-/opt/munin}/data/hf-cache}:/root/.cache/huggingface
     command: >
       --model ${VLLM_SERVE_MODEL:-cyankiwi/Qwen3.8-27B-AWQ-INT4}
-      --served-model-name ${VLLM_MODEL_NAME:-qwen3.8-27b}
+      --served-model-name ${LLM_MODEL_NAME:-${VLLM_MODEL_NAME:-qwen3.8-27b}}
       --host 0.0.0.0 --port 8000
       --gpu-memory-utilization ${VLLM_GPU_MEM_UTIL:-0.90}
       --max-model-len ${VLLM_MAX_MODEL_LEN:-65536}
@@ -689,8 +692,8 @@ services:
       # The repo's systemd unit carried the stale `papers` default until
       # 2026-08-14, masked in production only by an untracked drop-in.
       - QDRANT_COLLECTION=${PAPERS_COLLECTION:-papers_bge}
-      - VLLM_URL=${VLLM_URL:-http://host.docker.internal:8000}
-      - VLLM_MODEL_NAME=${VLLM_MODEL_NAME:-qwen3.8-27b}
+      - VLLM_URL=${LLM_BASE_URL:-${VLLM_URL:-http://host.docker.internal:8000}}
+      - VLLM_MODEL_NAME=${LLM_MODEL_NAME:-${VLLM_MODEL_NAME:-qwen3.8-27b}}
       - LLM_THINKING_MODE=${LLM_THINKING_MODE:-enable_thinking}
       - EMBEDDING_MAP_PATH=/knowledge/embedding_map.json
       # Persist the numba JIT cache so the UMAP compile is paid once.

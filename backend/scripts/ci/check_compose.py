@@ -122,6 +122,55 @@ def main() -> int:
           all(s.startswith(root) for s in srcs),
           f"outside: {[s for s in srcs if not s.startswith(root)][:4]}")
 
+    # --- 5. a fresh clone has every file the stack mounts --------------------
+    # A bind-mounted file that only exists in someone's working copy (it was
+    # gitignored, or never committed) makes Docker create an empty DIRECTORY
+    # in its place, and the service fails in a way that names neither. Every
+    # repo-side file source must be tracked, or have a tracked `.example`
+    # sibling that the setup docs tell you to copy.
+    print("\nfresh-clone completeness")
+    tracked = set(subprocess.run(["git", "ls-files"], cwd=root, capture_output=True,
+                                 text=True).stdout.split("\n"))
+    runtime = os.path.join(root, ".runtime")
+    # Generated, not committed: the webui profile builds the chat UI here.
+    built = {"frontend/static/chat"}
+    missing = []
+    for src in srcs:
+        if src.startswith(runtime) or not src.startswith(root):
+            continue
+        rel = os.path.relpath(src, root)
+        if rel in built or rel in tracked or rel + ".example" in tracked:
+            continue
+        if any(t.startswith(rel + "/") for t in tracked):  # a tracked directory
+            continue
+        missing.append(rel)
+    check("every mounted repo path is tracked (or has a .example)", not missing,
+          f"untracked: {missing[:4]}")
+    caddy = next((c for svc in cfg["services"].values()
+                  for c in (svc.get("command") or [])
+                  if isinstance(c, str) and "Caddyfile" in c), "")
+    check("the Caddyfile .env.example selects is tracked",
+          f"frontend/caddy/{os.path.basename(caddy)}" in tracked, f"got {caddy!r}")
+
+    # --- 6. the documented LLM names reach the containers -------------------
+    print("\nLLM endpoint override")
+    probe = os.path.join(root, ".check_compose_llm.env")
+    with open(probe, "w") as f:
+        f.write("LLM_BASE_URL=http://llm-probe:1234\nLLM_MODEL_NAME=probe-model\n")
+    try:
+        llm = compose_config([BACKEND], probe, cwd=root,
+                             profiles=["rag", "pipeline", "gpu"])
+    finally:
+        os.remove(probe)
+    envs = {k: (v.get("environment") or {}) for k, v in llm["services"].items()}
+    users = {k: e for k, e in envs.items() if "VLLM_URL" in e}
+    check("LLM_BASE_URL reaches every service that calls the model",
+          bool(users) and all(e["VLLM_URL"] == "http://llm-probe:1234"
+                              for e in users.values()),
+          f"got {({k: e.get('VLLM_URL') for k, e in users.items()})}")
+    check("LLM_MODEL_NAME reaches every service that names the model",
+          all(e.get("VLLM_MODEL_NAME") == "probe-model" for e in users.values()))
+
     # --- 4. frontend paths survive being the SECOND file -------------------
     print("\nfrontend paths with backend first in COMPOSE_FILE")
     fe = [s for s in srcs if "/frontend/" in s or s.endswith("/frontend")]

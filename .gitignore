@@ -48,6 +48,8 @@ Thumbs.db
 
 # --- Local artifacts ---
 *.local
+# The single-host Caddyfile is source, not local state.
+!/frontend/caddy/Caddyfile.local
 *.bak
 
 # Runtime state for a single-host `docker compose up` from a clone: vector DB,
