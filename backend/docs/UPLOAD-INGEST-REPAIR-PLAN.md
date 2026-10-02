@@ -414,7 +414,7 @@ write to the live corpus and each needs a Qdrant snapshot first.
 - Should re-ingest run against the live collection or a shadow one with
   a swap at the end? `docker-compose.shadow.yml` exists; a shadow run
   costs disk but makes the whole repair reversible in one step.
-- Tell Matthias before or after the repair? The corpus is visibly wrong
+- Tell the contributor before or after the repair? The corpus is visibly wrong
   today, and R1 plus R2 is not a same-day job.
 - Should the detect sweep (`munin-paper-detect.service`) be paused for
   the duration? It auto-quarantines, and a large re-ingest will look
