@@ -855,13 +855,13 @@ deploy_tunnel() {
         rm -f "$rendered"
     fi
     run "systemctl daemon-reload"
-    if systemctl list-unit-files munin-tunnel.service >/dev/null 2>&1; then
-        run "systemctl restart munin-tunnel.service"
-        echo "[OK] tunnel — restarted"
-    else
-        run "systemctl enable --now munin-tunnel.service"
-        echo "[OK] tunnel — enabled + started"
-    fi
+    # Always enable: the unit file was installed just above, so a
+    # list-unit-files check could never take the enable branch, and a fresh
+    # cluster's tunnel did not come back after a reboot. enable is a no-op
+    # when already enabled; restart picks up the new unit either way.
+    run "systemctl enable munin-tunnel.service"
+    run "systemctl restart munin-tunnel.service"
+    echo "[OK] tunnel — enabled + restarted"
 }
 
 # ------------------------------------------------------------------------------
