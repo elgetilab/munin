@@ -1,0 +1,57 @@
+# Copy to contributors.yml and edit. The real file is gitignored: it lists
+# real people and stays on your hosts.
+#
+# Munin contributor allowlist (§28).
+#
+# Users listed here are permitted to ingest their curated corpus into
+# the shared `papers` collection with contributor attribution. Files
+# that arrive via the upload host for emails NOT in this list are
+# still ingested, but stamped as {group_slug: "unknown"}.
+#
+# Re-deploy with:  sudo ./deploy.sh agents
+# (the endpoint auto-reloads on file mtime change — no container
+# restart needed)
+#
+# Fields:
+#   email             - lowercase exact match. Use this when a single
+#                       person uploads to a group.
+#   emails            - list of lowercase emails. Use this INSTEAD of
+#                       `email` when multiple people upload on behalf
+#                       of one shared identity (e.g. a lab service
+#                       account). All emails resolve to the same
+#                       contributor entry.
+#   username          - short handle, used for the optional `#@username`
+#                       shortcut.
+#   display_name      - shown in citations ("paper contributed by X")
+#   research_group    - slug for the `#group` tag (must be lowercase,
+#                       no spaces; hyphen-separated if compound)
+#   research_group_display_name - human-readable group name
+#
+# IMPORTANT: multiple PEOPLE who share a research group should be
+# separate entries with the SAME `research_group` value. That way each
+# upload keeps individual attribution (display_name, username) AND
+# `#group` tag filtering still finds all of them. Example below:
+# Ada Example and Grace Sample are separate entries, both pointing at
+# research_group: example-lab.
+
+contributors:
+  - email: ada@example.org
+    username: ada
+    display_name: Ada Example
+    research_group: example-lab
+    research_group_display_name: Example Lab (Exampletown)
+
+  - email: grace@example.org
+    username: grace
+    display_name: Grace Sample
+    research_group: example-lab
+    research_group_display_name: Example Lab (Exampletown)
+
+  # A shared lab service account: several addresses, one contributor.
+  - emails:
+      - lab-scanner@example.org
+      - lab-office@example.org
+    username: examplelab
+    display_name: Example Lab
+    research_group: example-lab
+    research_group_display_name: Example Lab (Exampletown)

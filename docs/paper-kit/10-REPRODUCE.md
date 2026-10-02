@@ -387,7 +387,7 @@ As of 2026-09-17:
 | Paper track: plans, specs, open items | `docs/paper-track/` |
 | Agent track: architecture, deep research | `docs/agent-track/` |
 | Design decisions (the *why*) | `shared/docs/DECISIONS.md` |
-| Corpus quality evidence | `backend/docs/corpus-quality/` |
+| Corpus quality evidence | `backend/docs/corpus-quality/` (aggregate summaries; the per-record outputs stay with the deployment) |
 | Harness audit | `docs/architecture/HARNESS-AUDIT-2026-05.md` |
 | This kit | `docs/paper-kit/` |
 

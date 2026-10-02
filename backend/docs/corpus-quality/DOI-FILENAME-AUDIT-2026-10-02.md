@@ -40,8 +40,9 @@ PDFs has a state sidecar (they predate them), and PDFs keep their names
 of the plan (rename vs merge into an existing stub node) needs the dry run with
 `NEO4J_PASSWORD`, which this one did not have.
 
-The merge and review rows are in `DOI-FILENAME-REVIEW-2026-10-02.csv`; the full
-audit (the repair's input) is `DOI-FILENAME-AUDIT-2026-10-02.json`.
+The merge and review rows (`DOI-FILENAME-REVIEW-2026-10-02.csv`) and the full
+audit, which is the repair's input (`DOI-FILENAME-AUDIT-2026-10-02.json`), are
+per-record outputs and are kept with the deployment, not in the repository.
 
 ## Applying (not done; needs approval)
 

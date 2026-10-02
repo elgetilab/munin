@@ -1,0 +1,3 @@
+email,first_name,last_name,role
+admin@example.org,Admin,,admin
+ada@example.org,Ada,Example,user

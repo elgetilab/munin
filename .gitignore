@@ -66,3 +66,15 @@ CLAUDE.md
 **/CLAUDE.md
 .claude/
 **/.claude/
+
+# Real people: seed files that stay on the hosts. Commit the .example files.
+/frontend/auth/whitelist.csv
+/shared/config/contributors.yml
+# Per-record corpus audit outputs (paper ids, uploader records). Only the
+# aggregate summaries in backend/docs/corpus-quality/ are committed.
+/backend/docs/corpus-quality/*.csv
+/backend/docs/corpus-quality/*.txt
+/backend/docs/corpus-quality/*-AUDIT-*.json
+/backend/docs/corpus-quality/*-REPAIR-*.json
+/backend/docs/corpus-quality/R2-*.json
+/backend/docs/corpus-quality/DOI-SPOTCHECK-????-??-??.md
