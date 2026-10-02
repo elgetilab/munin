@@ -115,7 +115,7 @@
       ],
       "p": 0.0,
       "n": 199,
-      "note": "question-paired against the 2026-08-26 agentic arm; same backbone, same questions; 20 retrieval commits between the runs"
+      "note": "question-paired against the 2026-08-26 agentic arm; same backbone, same questions; 26 retrieval commits between the runs (3e0bcfb..3be8308, backend/retrieval)"
     },
     "transitions_full_to_off": {
       "correct->correct": 125,
