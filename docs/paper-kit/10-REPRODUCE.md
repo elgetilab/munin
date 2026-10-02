@@ -197,7 +197,10 @@ to `off`. `run_c1` does not stamp egress into the scorecard, so record it
 ### Track C2b: paired shadow-corpus abstention
 
 The question set is **frozen** in `munin_bench/abstention/c2_questions.json`
-(50 questions, 49 source DOIs, seed 42). Do not re-run `build_shadow`'s
+(50 questions, 49 source DOIs, seed 42). The file holds the LitQA2 qids and
+source DOIs only; the question text is loaded from the dataset by qid at the
+pinned revision (`LITQA2_REVISION` in `litqa2_runner.py`), because LitQA2 is
+not ours to redistribute. Do not re-run `build_shadow`'s
 `main()` against a grown corpus: it re-selects the questions. Build the
 shadows from the frozen `removed_dois`.
 
@@ -425,3 +428,4 @@ What a third party can and cannot reproduce, stated honestly:
 | Exact wall-clock costs | Hardware-specific (2x RTX 5090 at TP=2, `--max-num-seqs 8`; the Qwen3.6 figures are on one card at `--max-num-seqs 2`) |
 | The Qwen3.6 column of any table, without the eval-instance method | The checkpoint is retired from production but not gone: `scripts/run_suite.sh qwen3.6-35b-a3b` brought it back as an eval-only instance on 2026-09-17 and re-ran every track under the current protocol (`2026-09-17_*qwen3.6-35b-a3b*`). The 07-27 numbers remain reproducible from artifacts only; quote the 09-17 files for a like-for-like figure. |
 | Benchmark data files | Never committed, for size and licence reasons; each dataset has a download script with a checksum so `data/` rebuilds deterministically |
+| LitQA2 items and model answers | Not redistributed. LitQA2 (LAB-Bench, CC BY-SA 4.0) is loaded from Hugging Face at the pinned revision `5c77cec6`; the answer scorecards keep each item's qid, verdict, letter and length but not the answer text, which quoted the source papers |
