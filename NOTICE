@@ -1,0 +1,59 @@
+Munin
+Copyright 2026 The Munin authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+------------------------------------------------------------------------------
+Third-party material in this repository
+------------------------------------------------------------------------------
+
+backend/docker/grobid/grobid.yaml
+  Modified from the default configuration of GROBID
+  (https://github.com/kermitt2/grobid), Apache License 2.0.
+
+frontend/webui/src/components/Markdown.tsx (safeUrlTransform)
+  Adapted from react-markdown's defaultUrlTransform
+  (https://github.com/remarkjs/react-markdown), MIT License.
+
+backend/benchmarks/munin_bench/faithfulness/minicheck.py
+  Reimplements the inference procedure of MiniCheck
+  (Tang et al. 2024, https://github.com/Liyan06/MiniCheck), MIT License.
+
+LitQA2 / LAB-Bench (FutureHouse, https://huggingface.co/datasets/futurehouse/lab-bench)
+  CC BY-SA 4.0. This repository commits only LitQA2 question identifiers and
+  source DOIs, and per-question scores. The questions themselves are loaded
+  from the dataset at run time and are not redistributed here.
+
+------------------------------------------------------------------------------
+Software and models fetched at build or run time (not distributed here)
+------------------------------------------------------------------------------
+
+Munin's Dockerfiles and compose files pull the components below when you
+build or start the stack. Each stays under its own license. Munin uses them
+unmodified, as separate programs, unless noted.
+
+  Neo4j Community Edition          GPL-3.0     graph database (Bolt client only)
+  SearXNG                          AGPL-3.0    metasearch; only our settings.yml is mounted
+  Ghostscript, jbig2dec            AGPL-3.0    pulled in by ocrmypdf in the retrieval image
+  TeX Live, biber                  LPPL / GPL / Artistic, mixed   sandbox image
+  GROBID (incl. pdfalto)           Apache-2.0 (pdfalto GPL-2.0)
+  Qdrant, vLLM, Prometheus, Caddy  Apache-2.0
+  tusd                             MIT
+  Uppy                             MIT         loaded from a CDN by the upload page
+  Python and npm dependencies      see backend/*/requirements*.txt and
+                                   frontend/webui/package-lock.json
+
+  Model weights, downloaded on first use:
+  BAAI/bge-large-en-v1.5, bge-base-en-v1.5               MIT
+  sentence-transformers/allenai-specter                  Apache-2.0
+  Qwen3.x checkpoints (third-party AWQ quantisations)    Apache-2.0
+  openai/gpt-oss-20b                                     Apache-2.0 plus OpenAI's usage policy
+  lytang/MiniCheck-Flan-T5-Large, intfloat/e5-large-v2   MIT (evaluation only)
+
+  Evaluation material with non-commercial terms, downloaded by the benchmark
+  scripts: the SciFact dataset (CC BY-NC 2.0) and the Bespoke-MiniCheck-7B
+  model. Use them for research only.
+
+If you publish container images built from this repository, the copyleft
+components above (notably the AGPL-3.0 and GPL-3.0 ones) bring source-offer
+obligations of their own.
