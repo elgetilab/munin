@@ -43,6 +43,10 @@ Safety:
     state (payload, vector, chunk ids, the graph relationships it moves) is
     appended to --journal, so any paper can be restored from the journal.
   - --snapshot takes Qdrant snapshots of both collections first.
+  - --apply requires --allow-ids: the point ids spotcheck_doi_repair.py
+    accepted (PDF text, Crossref, OpenAlex, authors and year in agreement,
+    with a negative control proving the layers reject wrong pairings).
+    Planned repairs not on the list are left alone and reported.
 
 Usage (pipeline venv, on hugin; Neo4j needs NEO4J_PASSWORD from cluster.env):
     ./repair_doi_filenames.py --audit AUDIT.json --report dry.json     # dry run
@@ -308,13 +312,20 @@ def main() -> int:
     ap.add_argument("--apply", action="store_true", help="write (default: dry run)")
     ap.add_argument("--snapshot", action="store_true", help="snapshot both collections first")
     ap.add_argument("--journal", help="append-only restore journal (required with --apply)")
+    ap.add_argument("--allow-ids", help="file of point ids the spot check accepted "
+                                        "(required with --apply); others are not repaired")
     args = ap.parse_args()
-    if args.apply and (args.no_graph or not args.journal):
-        ap.error("--apply needs Neo4j (no --no-graph) and --journal")
+    if args.apply and (args.no_graph or not args.journal or not args.allow_ids):
+        ap.error("--apply needs Neo4j (no --no-graph), --journal and --allow-ids")
 
     rows = json.loads(Path(args.audit).read_text())["rows"]
     graph = None if args.no_graph else Graph()
     plans = plan(rows, args.min_sim, graph)
+    if args.allow_ids:
+        allowed = {int(x) for x in Path(args.allow_ids).read_text().split()}
+        for p in plans:
+            if p["action"] == "repair" and p["point_id"] not in allowed:
+                p.update(action="review", why="not accepted by the spot check")
     summary = {"generated_at": now(), "mode": "apply" if args.apply else "dry-run",
                "audit": args.audit, "min_sim": args.min_sim,
                "by_action": dict(Counter(p["action"] for p in plans)),

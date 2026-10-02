@@ -120,8 +120,18 @@ check("dry run writes nothing",
       and R.q_get("test_papers", pid(A_OLD)) is not None)
 
 # --- apply ---------------------------------------------------------------------------
-rep = run("--apply", "--journal", str(tmp / "j.jsonl"))
-check("apply: 2 repaired, 0 failed", rep["summary"].get("repaired") == 2 and rep["summary"].get("failed") == 0,
+out = subprocess.run([sys.executable, str(SCRIPT), "--audit", str(tmp / "audit.json"), "--apply",
+                      "--journal", str(tmp / "j.jsonl")], capture_output=True, text=True, env=os.environ)
+check("apply refuses without --allow-ids", out.returncode == 2 and "--allow-ids" in out.stderr
+      and R.q_get("test_papers", pid(A_OLD)) is not None)
+(tmp / "allow-b.txt").write_text(f"{pid(B_OLD)}\n")
+rep = run("--apply", "--journal", str(tmp / "j.jsonl"), "--allow-ids", str(tmp / "allow-b.txt"))
+check("allow-list: only B is repaired, A is left for review",
+      rep["summary"].get("repaired") == 1 and R.q_get("test_papers", pid(A_OLD)) is not None
+      and R.q_get("test_papers", pid(B_NEW)) is not None)
+(tmp / "allow.txt").write_text(f"{pid(A_OLD)}\n{pid(B_OLD)}\n")
+rep = run("--apply", "--journal", str(tmp / "j.jsonl"), "--allow-ids", str(tmp / "allow.txt"))
+check("apply: A repaired (B already done), 0 failed", rep["summary"].get("repaired") == 1 and rep["summary"].get("failed") == 0,
       rep["summary"])
 a_new = R.q_get("test_papers", pid(A_NEW), vector=True)
 check("papers: A moved to the corrected id with its vector, payload and provenance",
@@ -149,10 +159,10 @@ check("sidecar: doi updated, previous kept", sc["doi"] == A_NEW and sc["doi_befo
 journal = [json.loads(l) for l in (tmp / "j.jsonl").read_text().splitlines()]
 check("journal: one restorable entry per repair (payload, vector, chunks, graph)",
       len(journal) == 2 and all(j["vector"] and j["payload"] and "graph_rels" in j for j in journal)
-      and len(journal[0]["chunk_ids"]) == 3)
+      and len(next(j for j in journal if j["old_doi"] == A_OLD)["chunk_ids"]) == 3)
 
 # --- idempotent re-run -------------------------------------------------------------
-rep = run("--apply", "--journal", str(tmp / "j.jsonl"))
+rep = run("--apply", "--journal", str(tmp / "j.jsonl"), "--allow-ids", str(tmp / "allow.txt"))
 plans = {p["old_doi"]: p for p in rep["plans"]}
 check("re-run: repaired rows report done, nothing written twice",
       plans[A_OLD]["action"] == "done" and plans[B_OLD]["action"] == "done"
