@@ -223,7 +223,7 @@ Per-engine probe: all four general engines fail from the cluster's datacenter IP
 duckduckgo `CAPTCHA`, startpage `Suspended: CAPTCHA`, qwant/mojeek `Suspended:
 access denied`. Inherent to scraper engines from a datacenter IP; not tunable.
 Science engines (arxiv/biorxiv/S2) work because they're APIs. Full analysis +
-industry context in **`RESUME-2026-07-23.md`**.
+industry context in an operator resume note (not published).
 
 ## Brave Search API integration  [IMPLEMENTED — awaiting deploy]
 
