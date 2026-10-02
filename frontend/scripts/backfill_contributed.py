@@ -36,6 +36,7 @@ Config knobs (environment variables):
     PIPELINE_TIMEOUT     per-paper HTTP timeout in seconds, default 900
     COMPLETE_DIR         default /mnt/uploads/complete
     PROCESSED_DIR        default /mnt/uploads/processed
+    REJECTED_DIR         default /mnt/uploads/rejected
     LOG_PATH             default /var/log/backfill-uploads.log
 
 CLI flags:
@@ -58,9 +59,13 @@ Design decisions (agreed 2026-04-20):
     - Resume: on 200 OK the PDF moves to /mnt/uploads/processed/.
       Re-running the script only sees what's still in complete/, so
       interruption + restart is safe and idempotent.
-    - Failure policy: skip-and-log. Timeouts, non-2xx, and network
-      errors leave the file in complete/ and log the reason. Fix
-      the underlying issue (usually a bad PDF) and re-run.
+    - Failure policy: skip-and-log. Timeouts, 5xx, auth errors and
+      network errors leave the file in complete/ for the next run.
+    - Permanent rejections (400/413/415/422, e.g. "File is empty or not
+      a PDF") move the file to /mnt/uploads/rejected/<email>/ with a
+      .reason.txt beside it. Until 2026-10 they stayed in complete/ and
+      were re-POSTed every 30 minutes forever: 12 uploads (empty files,
+      saved HTML pages, a JPEG) had failed every run since April.
 """
 
 from __future__ import annotations
@@ -83,6 +88,9 @@ import requests
 
 COMPLETE_DIR = pathlib.Path(os.getenv("COMPLETE_DIR", "/mnt/uploads/complete"))
 PROCESSED_DIR = pathlib.Path(os.getenv("PROCESSED_DIR", "/mnt/uploads/processed"))
+REJECTED_DIR = pathlib.Path(os.getenv("REJECTED_DIR", "/mnt/uploads/rejected"))
+# Client errors the cluster will give again for the same file.
+PERMANENT_REJECT_CODES = {400, 413, 415, 422}
 CLUSTER_INGEST_URL = os.getenv(
     "CLUSTER_INGEST_URL", "http://127.0.0.1:18080/api/admin/ingest"
 )
@@ -206,6 +214,8 @@ def post_paper(
     if r.status_code != 200:
         tail = r.text[:300].replace("\n", " ")
         log.warning("HTTP %d for %s: %s", r.status_code, pdf.name, tail)
+        if r.status_code in PERMANENT_REJECT_CODES:
+            return False, f"REJECTED:HTTP{r.status_code}", {"detail": tail}
         return False, f"HTTP{r.status_code}", None
 
     try:
@@ -219,11 +229,33 @@ def post_paper(
     return status in {"ingested", "skipped"}, status, body
 
 
+def unique_dest(dest_dir: pathlib.Path, filename: str) -> pathlib.Path:
+    """A non-colliding path in dest_dir: a second upload with the same name
+    must not overwrite the first one already moved there."""
+    dest = dest_dir / filename
+    stem, suffix = pathlib.Path(filename).stem, pathlib.Path(filename).suffix
+    counter = 1
+    while dest.exists():
+        dest = dest_dir / f"{stem}_{counter}{suffix}"
+        counter += 1
+    return dest
+
+
 def move_to_processed(pdf: pathlib.Path, email: str) -> pathlib.Path:
     dst_dir = PROCESSED_DIR / email
     dst_dir.mkdir(parents=True, exist_ok=True)
-    dst = dst_dir / pdf.name
+    dst = unique_dest(dst_dir, pdf.name)
     shutil.move(str(pdf), str(dst))
+    return dst
+
+
+def move_to_rejected(pdf: pathlib.Path, email: str, reason: str) -> pathlib.Path:
+    dst_dir = REJECTED_DIR / email
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    dst = unique_dest(dst_dir, pdf.name)
+    shutil.move(str(pdf), str(dst))
+    dst.with_name(dst.name + ".reason.txt").write_text(
+        f"{datetime.now(timezone.utc).isoformat()} {reason}\n")
     return dst
 
 
@@ -259,6 +291,7 @@ def run(email_filter: str | None, dry_run: bool, limit: int | None) -> int:
     ok = 0
     skipped = 0
     failed = 0
+    rejected = 0
     started = time.time()
 
     for i, (pdf, email) in enumerate(iter_pending(email_filter), start=1):
@@ -296,6 +329,14 @@ def run(email_filter: str | None, dry_run: bool, limit: int | None) -> int:
                 move_to_processed(pdf, email)
             except OSError as e:
                 log.error("move to processed failed for %s: %s", pdf.name, e)
+        elif status.startswith("REJECTED:"):
+            rejected += 1
+            try:
+                dst = move_to_rejected(pdf, email, f"{status} {(body or {}).get('detail', '')}")
+                log.warning("%s REJECT %s <- %s (%s) -> %s", prefix, email, pdf.name, status, dst)
+            except OSError as e:
+                failed += 1
+                log.error("move to rejected failed for %s: %s", pdf.name, e)
         else:
             failed += 1
             log.warning(
@@ -309,8 +350,8 @@ def run(email_filter: str | None, dry_run: bool, limit: int | None) -> int:
 
     elapsed = time.time() - started
     log.info(
-        "done. ingested=%d skipped=%d failed=%d elapsed=%.1fmin",
-        ok, skipped, failed, elapsed / 60.0,
+        "done. ingested=%d skipped=%d rejected=%d failed=%d elapsed=%.1fmin",
+        ok, skipped, rejected, failed, elapsed / 60.0,
     )
     return 0 if failed == 0 else 1
 

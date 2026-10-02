@@ -42,7 +42,9 @@ chmod 664 "$LOG"
 cat > "$CRON_FILE" <<'EOF'
 # Retry failed/pending cluster ingests every 30 minutes
 SHELL=/bin/bash
-*/30 * * * * root . /root/.backfill.env && /usr/local/bin/backfill_contributed.py --all >> /var/log/backfill-uploads.log 2>&1
+# set -a: export what the env file sets, whether or not it says `export`.
+# flock -n: a run can outlast 30 min (900 s per paper); never overlap one.
+*/30 * * * * root set -a && . /root/.backfill.env && set +a && flock -n /run/munin-backfill.lock /usr/local/bin/backfill_contributed.py --all >> /var/log/backfill-uploads.log 2>&1
 EOF
 
 chmod 644 "$CRON_FILE"
