@@ -1,13 +1,13 @@
 # Paper-ingest audit (2026-05-12)
 
 Triggered by a chat where the
-assistant mixed up Contributor D and
-a scientist with the same surname while answering a question
+assistant mixed up the group's contributor
+and a different scientist with the same surname while answering a question
 scoped to the `#elgeti` research-group tag.
 
 Two layers contributed to the failure: a model-side regression that
 ignored scoped tool results in favour of pretraining priors (fixed by
-the Qwen 3.6 upgrade — replay reproduces "Matthias only" on every
+the Qwen 3.6 upgrade — replay reproduces "the contributor only" on every
 rep), and a corpus-side ingest issue where multiple papers' metadata
 have been spliced together on the same Qdrant point. This document
 covers the second layer.
