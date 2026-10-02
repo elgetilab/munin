@@ -45,17 +45,21 @@ it. On gpt-oss-20b, from a different lab, 0.563 / 0.407 / 0.101 and +0.156.
 
 ## Architecture
 
-![Munin architecture: (a) the deployment boundary between a rented VPS and the on-premise cluster, with a per-request egress gate; (b) one turn through the router, the outer model loop and its agents](docs/paper-kit/figures/fig_architecture.png)
+![Munin architecture: the rented gateway and the on-premise cluster as trust boundaries with the reverse SSH tunnel between them; a request goes through the router into the model harness, to the bare LLM, or with the deep research toggle to a research job; the harness calls the agents, and source and search read the corpus and, past a per-request egress gate, scholarly APIs and the web](docs/paper-kit/figures/fig_architecture.png)
 
-**(a)** The VPS (`frontend/`) terminates TLS, authenticates and meters; the
+The gateway (`frontend/`) terminates TLS, authenticates and meters; the
 cluster (`backend/`) runs inference, retrieval and the harness, and dials an
-autossh reverse tunnel out to the VPS (VPS `:18080` to cluster `:8080`), so
-nothing connects in. Outbound access is a per-request egress level, not the
-model's choice. **(b)** A router fixes the profile before the first model
-call; the outer loop calls four agents and 41 plain MCP tools; a post-turn
-audit flags ungrounded citations. The figure is generated from the code by
+autossh reverse tunnel out to the gateway (VPS `:18080` to cluster `:8080`), so
+nothing connects in. A request goes through the router into the model harness,
+straight to the bare LLM, or, with the deep research toggle on, to a detached
+research job whose report is saved as an artifact. The harness calls the
+`compute`, `source` and `search` agents and the plain MCP tools; `source` and
+`search` read the corpus and, past a per-request egress gate that is not the
+model's choice, scholarly APIs and the web. A citation audit runs after the
+turn and flags ungrounded citations on the saved answer. The figure is
+generated from the code by
 [`docs/paper-kit/figures/fig_architecture.py`](docs/paper-kit/figures/), so its
-counts and thresholds track the source.
+labels track the source.
 
 The two sides share three contracts: the HTTP API surface
 ([`shared/docs/BACKEND-API.md`](shared/docs/BACKEND-API.md), canonical),
