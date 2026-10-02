@@ -45,7 +45,7 @@ output token, plus tool events):
 | 2,061 | 3,806 | 6,554 | 28,255 |
 
 **78% of their turns exceed the cap**, so they are permanently unresumable. Their
-turns are long (manuscript polishing, multi-step plotting), which is why he sees
+turns are long (manuscript polishing, multi-step plotting), which is why they see
 this constantly and lighter users do not.
 
 **Fix:** move the truncation test after `Last-Event-ID` parsing and 410 only
