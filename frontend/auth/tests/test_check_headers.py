@@ -8,7 +8,7 @@ boundaries sit between a user's profile name and the cluster:
      out of every protected route.
   2. httpx encodes request headers as ASCII -> a latin-1 accent clears
      boundary 1 but kills the gateway proxy one hop later (the 2026-08
-     "Person115" outage).
+     accented-name outage).
 
 Stripping to ASCII here clears both. Display fidelity is unaffected:
 the UI reads names from /auth/me as JSON, which is UTF-8.
@@ -29,13 +29,13 @@ def test_ascii_name_forwarded_verbatim(client, auth_env):
 
 
 def test_umlaut_name_is_stripped_not_fatal(client, auth_env):
-    make_user(auth_env, "klaus@e.org", "Klaus", last_name="Völkel")
-    _profile(auth_env, "klaus@e.org", full_name="Person115")
-    cookies = {"munin_session": session_cookie(auth_env, "klaus@e.org", "Person115")}
+    make_user(auth_env, "erika@e.org", "Erika", last_name="Mösermann")
+    _profile(auth_env, "erika@e.org", full_name="Erika Mösermann")
+    cookies = {"munin_session": session_cookie(auth_env, "erika@e.org", "Erika Mösermann")}
     r = client.get("/auth/check", cookies=cookies)
     assert r.status_code == 200
-    assert r.headers["X-Munin-Name"] == "Person115"
-    assert r.headers["X-Munin-Email"] == "klaus@e.org"
+    assert r.headers["X-Munin-Name"] == "Erika Msermann"
+    assert r.headers["X-Munin-Email"] == "erika@e.org"
 
 
 def test_name_beyond_latin1_does_not_500(client, auth_env):
@@ -80,9 +80,9 @@ def test_non_ascii_group_is_stripped(client, auth_env):
 def test_profile_name_still_reads_back_intact_over_json(client, auth_env):
     """The strip is transport-only. /auth/me must keep the real spelling,
     otherwise we would be silently renaming people in the UI."""
-    make_user(auth_env, "klaus@e.org", "Klaus", last_name="Völkel")
-    _profile(auth_env, "klaus@e.org", full_name="Person115")
-    cookies = {"munin_session": session_cookie(auth_env, "klaus@e.org", "Person115")}
+    make_user(auth_env, "erika@e.org", "Erika", last_name="Mösermann")
+    _profile(auth_env, "erika@e.org", full_name="Erika Mösermann")
+    cookies = {"munin_session": session_cookie(auth_env, "erika@e.org", "Erika Mösermann")}
     r = client.get("/auth/me", cookies=cookies)
     assert r.status_code == 200
-    assert r.json()["name"] == "Person115"
+    assert r.json()["name"] == "Erika Mösermann"

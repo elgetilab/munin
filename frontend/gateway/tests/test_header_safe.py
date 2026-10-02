@@ -2,10 +2,10 @@
 
 Regression for the 2026-08 outage: munin-auth forwards X-Munin-Name from
 the user's profile, and httpx encodes request headers as ASCII. A user
-named "Person115" therefore hit UnicodeEncodeError inside every
+with an accented name (say "Erika Mösermann") hit UnicodeEncodeError inside every
 authenticated /api/* proxy call, which the blanket handler reported as
 502 "Backend unavailable.", including on /api/status, so the entire UI
-read as down for him while every ASCII-named user was fine.
+read as down for that user while every ASCII-named user was fine.
 """
 import httpx
 import pytest
@@ -14,12 +14,12 @@ import pytest
 # ── header_safe() ────────────────────────────────────────────────────────────
 
 def test_ascii_passes_through_unchanged(gw_env):
-    assert gw_env.header_safe("Person115") == "Person115"
+    assert gw_env.header_safe("Erika Moesermann") == "Erika Moesermann"
 
 
 def test_latin1_accent_is_stripped(gw_env):
     # The character that caused the outage (U+00F6).
-    assert gw_env.header_safe("Person115") == "Person115"
+    assert gw_env.header_safe("Erika Mösermann") == "Erika Msermann"
 
 
 def test_beyond_latin1_is_stripped(gw_env):
@@ -32,7 +32,7 @@ def test_empty_string_is_safe(gw_env):
     assert gw_env.header_safe("") == ""
 
 
-@pytest.mark.parametrize("value", ["Person115", "Łukasz", "大変", "Jiří"])
+@pytest.mark.parametrize("value", ["Erika Mösermann", "Łukasz", "大変", "Jiří"])
 def test_result_is_always_httpx_encodable(gw_env, value):
     """The property that actually matters: whatever comes back must survive
     httpx's header normalisation, which is where the original crash was."""
@@ -70,14 +70,14 @@ def test_umlaut_name_does_not_502(client, gw_env, monkeypatch):
     r = client.get(
         "/api/status",
         headers=[
-            (b"X-Munin-Email", b"user089@example.org"),
-            (b"X-Munin-Name", "Person115".encode("latin-1")),
+            (b"X-Munin-Email", b"erika.moesermann@example.org"),
+            (b"X-Munin-Name", "Erika Mösermann".encode("latin-1")),
         ],
     )
     assert r.status_code == 200, "umlaut in display name must not surface as a 502"
-    assert seen["headers"]["X-Munin-Name"] == "Person115"
+    assert seen["headers"]["X-Munin-Name"] == "Erika Msermann"
     # The identity that upstream actually keys on must arrive intact.
-    assert seen["headers"]["X-Munin-Email"] == "user089@example.org"
+    assert seen["headers"]["X-Munin-Email"] == "erika.moesermann@example.org"
 
 
 def test_ascii_name_still_forwarded_verbatim(client, gw_env, monkeypatch):

@@ -6,19 +6,19 @@ from tests.conftest import make_user, session_cookie
 
 SAMPLE_YAML = textwrap.dedent("""\
     contributors:
-      - email: contributor-a@example.org
-        username: corzilius
-        display_name: Contributor A
-        research_group: corzilius
-        research_group_display_name: Corzilius Lab (Rostock)
+      - email: lead-a@example.org
+        username: laba
+        display_name: Ada Example
+        research_group: laba
+        research_group_display_name: Lab A (Exampletown)
 
       - emails:
-          - user038@example.org
-          - user037@example.org
-        username: elgeti
-        display_name: Contributor D
-        research_group: elgeti
-        research_group_display_name: Elgeti Lab (Leipzig)
+          - lead-b@example.org
+          - lead-b@alias.example
+        username: labb
+        display_name: Grace Sample
+        research_group: labb
+        research_group_display_name: Lab B (Exampletown)
 """)
 
 
@@ -35,45 +35,45 @@ def test_seed_creates_new_users_when_emails_absent(auth_env):
     summary = auth_env.seed_contributors_from_yaml()
     assert summary["created"] == 2
     assert summary["groups"] == 2
-    assert auth_env.lookup_user("contributor-a@example.org")["role"] == "group_leader"
-    elgeti = auth_env.lookup_user("user038@example.org")
-    assert elgeti["role"] == "group_leader"
-    assert elgeti["group"] == "elgeti"
-    assert elgeti["username"] == "elgeti"
+    assert auth_env.lookup_user("lead-a@example.org")["role"] == "group_leader"
+    labb = auth_env.lookup_user("lead-b@example.org")
+    assert labb["role"] == "group_leader"
+    assert labb["group"] == "labb"
+    assert labb["username"] == "labb"
     # Multi-email entry: both emails resolve to the same user.
-    assert auth_env.lookup_user("user037@example.org")["id"] == elgeti["id"]
+    assert auth_env.lookup_user("lead-b@alias.example")["id"] == labb["id"]
 
 
 def test_seed_promotes_existing_user_to_group_leader(auth_env):
     _write_csv(auth_env.WHITELIST_PATH, [
-        ("contributor-a@example.org", "Bjoern", "user"),
+        ("lead-a@example.org", "Ada", "user"),
     ])
     auth_env.CONTRIBUTORS_PATH.write_text(SAMPLE_YAML, encoding="utf-8")
     auth_env.init_db()
     auth_env.seed_users_from_whitelist()
     summary = auth_env.seed_contributors_from_yaml()
     assert summary["promoted"] == 1
-    assert summary["created"] == 1  # elgeti is new
+    assert summary["created"] == 1  # labb is new
 
-    user = auth_env.lookup_user("contributor-a@example.org")
+    user = auth_env.lookup_user("lead-a@example.org")
     assert user["role"] == "group_leader"
-    assert user["group"] == "corzilius"
-    assert user["username"] == "corzilius"
+    assert user["group"] == "laba"
+    assert user["username"] == "laba"
 
 
 def test_seed_does_not_overwrite_admin_role(auth_env):
     _write_csv(auth_env.WHITELIST_PATH, [
-        ("contributor-a@example.org", "Bjoern", "admin"),
+        ("lead-a@example.org", "Ada", "admin"),
     ])
     auth_env.CONTRIBUTORS_PATH.write_text(SAMPLE_YAML, encoding="utf-8")
     auth_env.init_db()
     auth_env.seed_users_from_whitelist()
     auth_env.seed_contributors_from_yaml()
-    user = auth_env.lookup_user("contributor-a@example.org")
+    user = auth_env.lookup_user("lead-a@example.org")
     assert user["role"] == "admin"  # NOT demoted to group_leader
     # But research_group + username still backfilled (they were empty)
-    assert user["group"] == "corzilius"
-    assert user["username"] == "corzilius"
+    assert user["group"] == "laba"
+    assert user["username"] == "laba"
 
 
 def test_seed_is_idempotent(auth_env):
@@ -125,9 +125,9 @@ def test_admin_contributors_yaml_bearer_token(auth_env, monkeypatch):
         assert r.status_code == 200
         body = r.text
         assert "contributors:" in body
-        assert "contributor-a@example.org" in body
-        assert "user038@example.org" in body
-        assert "user037@example.org" in body
+        assert "lead-a@example.org" in body
+        assert "lead-b@example.org" in body
+        assert "lead-b@alias.example" in body
 
 
 def test_admin_contributors_yaml_admin_session(client, auth_env):
@@ -137,7 +137,7 @@ def test_admin_contributors_yaml_admin_session(client, auth_env):
     cookies = {"munin_session": session_cookie(auth_env, "admin@e.org", "Admin")}
     r = client.get("/admin/contributors.yaml", cookies=cookies)
     assert r.status_code == 200
-    assert "research_group: corzilius" in r.text
+    assert "research_group: laba" in r.text
 
 
 def test_contributors_yaml_round_trips_through_loader(auth_env):
@@ -158,9 +158,9 @@ def test_contributors_yaml_round_trips_through_loader(auth_env):
             emails_in_entries.append(e["email"])
         if "emails" in e:
             emails_in_entries.extend(e["emails"])
-    assert "contributor-a@example.org" in emails_in_entries
-    assert "user038@example.org" in emails_in_entries
-    assert "user037@example.org" in emails_in_entries
+    assert "lead-a@example.org" in emails_in_entries
+    assert "lead-b@example.org" in emails_in_entries
+    assert "lead-b@alias.example" in emails_in_entries
 
 
 def test_emit_excludes_users_without_group(auth_env):

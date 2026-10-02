@@ -64,7 +64,7 @@ def test_rejects_affiliation_as_person() -> bool:
 
 
 def test_rejects_email_and_conjunction() -> bool:
-    got = [sanitize_author("user096@example.org"),
+    got = [sanitize_author("jdoe@example.edu"),
            sanitize_author("Tohru Ueda,' And")]
     return _check("emails and joined names rejected", got == [None, None],
                   str(got))

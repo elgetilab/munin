@@ -52,7 +52,7 @@ Every `/api/*` route except `/api/status`, `/api/models` and
 (`_header_safe`) and again by the gateway (`header_safe`). Two encoders
 sit in the path and neither accepts arbitrary Unicode: Starlette writes
 response headers as latin-1, and httpx writes request headers as ASCII.
-A user named "Person115" therefore 502'd on every authenticated
+A user with a name like "Erika Mösermann" therefore 502'd on every authenticated
 `/api/*` call until 2026-08. So `X-Munin-Name` may arrive with accents
 missing, or empty for a wholly non-Latin name. Don't use it for display
 or identity; the real spelling is served as UTF-8 JSON by `/auth/me`,
