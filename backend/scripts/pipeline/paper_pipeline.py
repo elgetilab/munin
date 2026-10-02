@@ -64,6 +64,7 @@ import requests
 # plain module import works both from the repo and from the install dir.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from author_names import best_author_list  # noqa: E402
+import doi_filename  # noqa: E402
 
 # ==============================================================================
 # Configuration
@@ -826,36 +827,28 @@ class PaperPipeline:
             self.embedder = None
 
     def _extract_doi_from_filename(self, filename: str) -> Optional[str]:
-        """
-        Extract DOI from filename if present.
+        """The DOI a `doi_*.pdf` filename stands for, when it stands for
+        exactly one. Ambiguous names (more than one `_` after the prefix)
+        return None here; _verified_filename_doi() checks their candidates
+        against Crossref and the PDF's title. See doi_filename.py."""
+        return doi_filename.decode(filename)[0]
 
-        Filenames from the paper crawler use format: doi_10.1234_example.pdf
-        where underscores in the DOI are preserved and the first underscore after 'doi_'
-        separates the prefix from the rest.
-        """
-        if not filename.startswith("doi_"):
-            return None
-
-        # Remove 'doi_' prefix and '.pdf' suffix
-        doi_part = filename[4:]  # Remove 'doi_'
-        if doi_part.endswith(".pdf"):
-            doi_part = doi_part[:-4]
-
-        # The DOI format is: 10.xxxx/yyyy where / was replaced with _
-        # We need to restore the first _ after the prefix to /
-        # DOI prefixes are like: 10.1234, 10.12345, etc.
-        # Find the first underscore that comes after "10." and some digits
-        if doi_part.startswith("10."):
-            # Find position after "10." and the registrant code (digits)
-            idx = 3  # Start after "10."
-            while idx < len(doi_part) and doi_part[idx].isdigit():
-                idx += 1
-            # Now idx points to the first underscore (which should become /)
-            if idx < len(doi_part) and doi_part[idx] == '_':
-                doi = doi_part[:idx] + '/' + doi_part[idx+1:]
-                return doi
-
-        return None
+    def _verified_filename_doi(self, filename: str, pdf_title: str) -> Optional[str]:
+        """Resolve an ambiguous `doi_*.pdf` filename, or None. The old
+        decoder restored only the first `_` and the result overrode GROBID,
+        re-keying multi-slash and colon DOIs to DOIs that do not exist."""
+        exact, cands = doi_filename.decode(filename)
+        if exact or not cands:
+            return exact
+        doi, trace = doi_filename.verify(
+            cands, pdf_title, self._fetch_crossref, _title_similarity,
+            threshold=self._MERGE_TITLE_SIM_THRESHOLD)
+        if doi:
+            print(f"  [INFO] ambiguous filename {filename} verified as {doi}")
+        else:
+            print(f"  [WARN] ambiguous filename {filename}: no candidate confirmed by "
+                  f"Crossref + title ({trace}); not overriding GROBID")
+        return doi
 
     def _check_ocrmypdf_available(self) -> bool:
         """Check if ocrmypdf is installed and available"""
@@ -1092,6 +1085,11 @@ class PaperPipeline:
             # can spot upstream metadata splices.
             grobid_title_raw = (grobid_data.get("title") or "").strip() or None
             grobid_doi_raw = grobid_data.get("doi")
+
+            # An ambiguous doi_*.pdf name is only trusted once Crossref and
+            # the parsed title confirm one of its candidate DOIs.
+            if not filename_doi and filename.startswith("doi_"):
+                filename_doi = self._verified_filename_doi(filename, grobid_title_raw or "")
 
             # Use filename DOI as authoritative source if available
             # GROBID can mistakenly extract DOIs from citations instead of the paper itself
@@ -2094,8 +2092,11 @@ class PaperPipeline:
         for pdf_path, grobid_data in grobid_results.items():
             filename = Path(pdf_path).name
 
-            # Extract DOI from filename
+            # Extract DOI from filename (ambiguous names only once verified)
             filename_doi = self._extract_doi_from_filename(filename)
+            if not filename_doi and filename.startswith("doi_"):
+                filename_doi = self._verified_filename_doi(
+                    filename, (grobid_data.get("title") or "").strip())
             if filename_doi:
                 grobid_doi = grobid_data.get("doi")
                 if grobid_doi and grobid_doi != filename_doi:
