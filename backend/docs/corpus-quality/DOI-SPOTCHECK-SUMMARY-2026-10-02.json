@@ -1,0 +1,40 @@
+{
+  "rows": 872,
+  "by_verdict": {
+    "accept": 824,
+    "review": 21,
+    "reject": 27
+  },
+  "negative_control": {
+    "pairings": 40,
+    "by_verdict": {
+      "reject": 40
+    },
+    "accepted_wrong_pairings": 0,
+    "trustworthy": true
+  },
+  "reject_reasons": {
+    "year": 24,
+    "crossref, openalex": 1,
+    "authors": 2
+  },
+  "pdf": {
+    "agree": 853,
+    "none": 19
+  },
+  "openalex": {
+    "agree": 864,
+    "none": 7,
+    "contradict": 1
+  },
+  "authors": {
+    "agree": 867,
+    "none": 3,
+    "contradict": 2
+  },
+  "year": {
+    "none": 691,
+    "agree": 157,
+    "contradict": 24
+  }
+}
