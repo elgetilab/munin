@@ -22,9 +22,10 @@ Environment="QDRANT_PORT=6333"
 Environment="QDRANT_COLLECTION=papers_bge"
 Environment="VLLM_URL=http://127.0.0.1:8000"
 # Backbone identity from the active model profile (deploy.sh model activate),
-# so a model change never has to touch this unit. The literal below is the
-# fallback for a box without the file; the EnvironmentFile wins when present.
-Environment="VLLM_MODEL_NAME=qwen3.8-27b"
+# so a model change never has to touch this unit: the profile's MODEL_NAME is
+# what build_embedding_map.py asks vLLM for, and it falls back to its own
+# default on a box without the file. Do not pin a model name here; a pinned
+# qwen3.6-35b-a3b failed every nightly run after the 2026-08 backbone change.
 Environment="LLM_THINKING_MODE=enable_thinking"
 EnvironmentFile=-/opt/munin/config/active-model.env
 Environment="EMBEDDING_MAP_PATH=/opt/munin/knowledge/embedding_map.json"

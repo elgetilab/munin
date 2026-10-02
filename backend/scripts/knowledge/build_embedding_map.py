@@ -24,7 +24,8 @@ Environment:
     QDRANT_PORT          default 6333
     QDRANT_COLLECTION    default papers
     VLLM_URL             default http://127.0.0.1:8000
-    VLLM_MODEL_NAME      default qwen3.8-27b
+    MODEL_NAME           from the active model profile (preferred)
+    VLLM_MODEL_NAME      fallback, default qwen3.8-27b
     LLM_THINKING_MODE    default enable_thinking (effort_low for gpt-oss, none)
     EMBEDDING_MAP_PATH   default /opt/munin/knowledge/embedding_map.json
 
@@ -59,7 +60,11 @@ QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "papers")
 VLLM_URL = os.getenv("VLLM_URL", "http://127.0.0.1:8000")
-VLLM_MODEL_NAME = os.getenv("VLLM_MODEL_NAME", "qwen3.8-27b")
+# MODEL_NAME first: the unit loads it from the active model profile
+# (/opt/munin/config/active-model.env), which names what vLLM actually
+# serves. A literal VLLM_MODEL_NAME in the unit went stale on the 2026-08
+# backbone change and every nightly run since failed its vLLM check.
+VLLM_MODEL_NAME = os.getenv("MODEL_NAME") or os.getenv("VLLM_MODEL_NAME", "qwen3.8-27b")
 # Same contract as retrieval/database.py thinking_off_fields(); this script
 # runs from a systemd unit and cannot import the service, so it is restated.
 LLM_THINKING_MODE = os.getenv("LLM_THINKING_MODE", "enable_thinking").strip() or "enable_thinking"
