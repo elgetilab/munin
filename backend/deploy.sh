@@ -763,7 +763,11 @@ deploy_pipeline() {
     # continuously, the timer fires at its OnCalendar.
     run "systemctl enable munin-paper-pipeline.service"
     run "systemctl restart munin-paper-pipeline.service"
-    run "systemctl enable --now munin-paper-detect.service"
+    # restart, not enable --now: the sweep is a long-running loop that only
+    # reads paper_cleanup.py at start, so --now on a running unit kept the
+    # old code in memory after every pipeline deploy.
+    run "systemctl enable munin-paper-detect.service"
+    run "systemctl restart munin-paper-detect.service"
     run "systemctl enable --now munin-paper-reattribute.timer"
 
     echo "[OK] pipeline — watcher + detect daemons running, reattribute timer armed"
