@@ -1,7 +1,8 @@
 # Public release: assessment and plan
 
-Status: **PLAN, nothing implemented.** Written 2026-10-02 for the publication
-release. Decisions taken are in §2; open questions, each with a default, in §5.
+Status: **APPROVED 2026-10-02, Phase 1 starting.** Written 2026-10-02 for the
+publication release. Decisions taken are in §2; the §5 questions were resolved
+with their defaults, except the version (§5 Q6).
 
 Goal: another research group can install Munin as **frontend only, backend
 only, or both**, on their own hardware, with their own domain and model, by
@@ -101,6 +102,8 @@ profiles booting.
 | Compose defaults | **Neutral defaults.** The reference deployment's values move into its own `cluster.env` and VPS `.env`. Reverses the DECISIONS.md 2026-08 rule; record the reversal there. |
 | `backend/deploy.sh` | **Stays in the repo** as the reference deployment's tooling, referenced from the docs as an example, not documented as the install path. |
 | Images | **Users build their own** (`docker compose build`). No registry publishing. |
+| First release | **`v0.9.0`.** `v1.0.0` comes after further hardening. |
+| §5 questions | **Defaults accepted** for Q1 to Q5. |
 
 Consequence of building locally: the web UI's `VITE_*` URLs can stay
 build-time. Compose passes them as build args derived from `MUNIN_DOMAIN`, so
@@ -258,7 +261,7 @@ dependency versions.
 1. Clean VM per mode, following only INSTALL.md, ideally by someone outside
    the project. Covers the SINGLE-HOST-PLAN gaps: containerised ingest end to
    end, frontend compose on a fresh host, `seed` and `webui` profiles.
-2. Tag `v1.0.0`, GitHub release notes from CHANGELOG, Zenodo archive for a DOI
+2. Tag `v0.9.0`, GitHub release notes from CHANGELOG, Zenodo archive for a DOI
    to cite in the paper. Flip the repo public.
 
 ### 4.7 Protecting the reference deployment
@@ -289,4 +292,5 @@ behaviour.
    corpus text or third-party dataset content we may not redistribute (LitQA2,
    SciFact, LitSearch items)? [Audit in Phase 1; keep scorecards and code,
    fetch datasets at run time.]
-6. **Version number:** [`v1.0.0`, matching the paper.]
+6. **Version number:** **`v0.9.0`** (decided 2026-10-02). `v1.0.0` follows after the
+   hardening work still in progress.
