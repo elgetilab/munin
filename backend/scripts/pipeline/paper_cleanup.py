@@ -52,6 +52,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 import xml.etree.ElementTree as ET
@@ -3277,12 +3278,19 @@ def sweep(
         cycle += 1
         cycle_started = time.time()
         print(f"\n[cycle {cycle}] start {_utcnow_iso()}")
+        # The per-kind CSV is only the handoff from detection to the
+        # auto-quarantine post-pass, so each cycle writes it to a temp dir
+        # that is removed afterwards. With report_out=None detect() wrote
+        # it relative to the cwd, which is / under the unit's
+        # ProtectSystem=strict: every kind failed with EROFS from May 2026
+        # on and nothing was ever auto-quarantined.
+        report_dir = tempfile.TemporaryDirectory(prefix="detect-")
         try:
             detect(
                 kinds=kinds,
                 limit=per_cycle_limit,
                 source="all",
-                report_out=None,
+                report_out=os.path.join(report_dir.name, "detect.csv"),
                 auto_quarantine=not no_quarantine,
                 dry_run=dry_run,
                 grobid_pace_secs=grobid_pace_secs,
@@ -3301,6 +3309,8 @@ def sweep(
             print(f"[cycle {cycle}] [ERROR] {type(e).__name__}: {e}")
             import traceback
             traceback.print_exc()
+        finally:
+            report_dir.cleanup()
         elapsed = time.time() - cycle_started
         print(f"[cycle {cycle}] done in {elapsed:.1f}s")
 
