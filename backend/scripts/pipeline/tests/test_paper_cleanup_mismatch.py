@@ -370,6 +370,40 @@ def test_sweep_once_runs_a_single_cycle() -> bool:
     )
 
 
+def test_sweep_writes_reports_outside_a_readonly_cwd() -> bool:
+    """Regression: with report_out=None detect() wrote its handoff CSV
+    relative to the cwd, which is / under the unit's ProtectSystem=strict,
+    so every kind failed with EROFS (May-Oct 2026) and nothing was ever
+    auto-quarantined. sweep must hand detect a writable absolute path and
+    clean it up after the cycle."""
+    import os as _os
+    seen = {}
+
+    def fake_detect(**kwargs):
+        path = kwargs["report_out"]
+        seen["path"] = path
+        with open(path, "w") as f:  # what the per-kind runners do
+            f.write("doi\n")
+        seen["written"] = _os.path.isfile(path)
+        return 0
+
+    orig_detect, orig_cwd = pc.detect, _os.getcwd()
+    pc.detect = fake_detect
+    _os.chdir("/")  # read-only for a non-root test runner, like the unit
+    try:
+        pc.sweep(kinds=["short"], per_cycle_limit=1, cycle_pace_secs=900,
+                 grobid_pace_secs=30, once=True)
+    finally:
+        pc.detect = orig_detect
+        _os.chdir(orig_cwd)
+    path = seen.get("path") or ""
+    return _check(
+        "sweep: report goes to a writable absolute temp path, removed after the cycle",
+        _os.path.isabs(path) and seen.get("written") is True
+        and not _os.path.exists(_os.path.dirname(path)),
+    )
+
+
 def test_sweep_no_quarantine_disables_auto_action() -> bool:
     """--no-quarantine forwards auto_quarantine=False to detect."""
     calls = []
@@ -915,6 +949,7 @@ TESTS = [
     test_review_skips_already_rejected,
     # Phase F
     test_sweep_once_runs_a_single_cycle,
+    test_sweep_writes_reports_outside_a_readonly_cwd,
     test_sweep_no_quarantine_disables_auto_action,
     test_sweep_default_kinds_match_DEFAULT_SWEEP_KINDS,
     test_sweep_reads_env_vars_when_args_not_given,
