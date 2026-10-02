@@ -2,7 +2,7 @@
 
 Opened 2026-08-27 after a user reported persistent stream failures. Evidence is
 from that user's production conversations (89 conversations, 169 assistant
-turns) plus his 11 filed error reports.
+turns) plus their 11 filed error reports.
 
 > Sibling: [`TODO.md`](TODO.md) (agent architecture, Deep Research).
 
@@ -10,14 +10,12 @@ turns) plus his 11 filed error reports.
 
 ## What the user sees
 
-His own report, verbatim:
+The report, paraphrased: the "stream is no longer available on this server"
+message kept appearing while they were only waiting for the answer.
 
-> "the (stream is no longer available on this server) message keeps popping up
-> even without me doing anything. I am just waiting for the output..."
-
-Behavioural signature in the data: **26 of his 169 user turns (15%) are followed
+Behavioural signature in the data: **26 of their 169 user turns (15%) are followed
 by another user turn with no assistant reply persisted in between**, and the
-retry is him typing "resume" 35 to 175 seconds later.
+retry is them typing "resume" 35 to 175 seconds later.
 
 ---
 
@@ -39,14 +37,14 @@ above the raise claims the buffer "overflowed past the client's checkpoint", but
 the checkpoint is not read. A client reconnecting with a seq still comfortably
 inside the retained 1000 events is refused anyway.
 
-**Exposure.** Estimated SSE events per turn over his 169 turns (~1 event per
+**Exposure.** Estimated SSE events per turn over their 169 turns (~1 event per
 output token, plus tool events):
 
 | median | p75 | p90 | max |
 |---|---|---|---|
 | 2,061 | 3,806 | 6,554 | 28,255 |
 
-**78% of his turns exceed the cap**, so they are permanently unresumable. His
+**78% of their turns exceed the cap**, so they are permanently unresumable. Their
 turns are long (manuscript polishing, multi-step plotting), which is why he sees
 this constantly and lighter users do not.
 
@@ -105,7 +103,7 @@ change, different risk profile.
 
 ## 5. Model chains small tools instead of the unified `search`  [BEHAVIOUR]
 
-Across his recent turns: `search` used **58** times against **145** calls to the
+Across their recent turns: `search` used **58** times against **145** calls to the
 three tools it is documented to supersede (`web_search` 78,
 `semantic_scholar_search` 35, `paper_search` 32), a 2.5:1 preference for
 chaining.
@@ -117,7 +115,7 @@ with no research tools, so a misrouted research question must discover them via
 
 ## 6. Router sends research questions to the `code` profile  [BEHAVIOUR]
 
-Routed profiles on his turns: chat 69, research 58, **code 31**. Most code
+Routed profiles on their turns: chat 69, research 58, **code 31**. Most code
 routings are legitimate (plotting, figure work). One is unambiguously wrong: a
 **bare DOI, `10.1039/c9pp00328b`, routed to `code`**. That is a paper lookup.
 
@@ -126,7 +124,7 @@ research.
 
 ## 7. Attached knowledge base should be searched first  [FEATURE, user request]
 
-Currently in his tagged conversations the first tool call is corpus-first 27
+Currently in their tagged conversations the first tool call is corpus-first 27
 times vs external-first 8, so it usually does the right thing but not reliably.
 Tags already flow through the `current_query_tags` ContextVar into
 `paper_search`, so enforcing "attached KB is searched first" is a small change

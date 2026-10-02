@@ -2329,8 +2329,8 @@ async def stream_chat_completion(
         # doing deep multi-call exploration want more than a chat
         # persona. personas.max_turns clamps to [1, 30].
         MAX_TURNS = persona_module.max_turns(persona)
-        # Exhaustion strategy (reported: "der stream bricht immer ab und ich
-        # muss ihn neu starten" — rpt_20260702). A long agentic task that
+        # Exhaustion strategy (reported 2026-07-02 as "the stream keeps
+        # breaking off and I have to restart it"). A long agentic task that
         # runs out of turns used to force a wrap-up and stop, and because the
         # `done` event looked identical to a clean finish, the user assumed
         # the stream broke and nudged it with "keep going". We now grant ONE
