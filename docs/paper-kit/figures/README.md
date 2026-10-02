@@ -20,7 +20,7 @@ embedded font bytes only.
 | File | What |
 |---|---|
 | `_style.py` | Shared fonts, widths (RSC: 17.1 cm double column, 8.3 cm single), Okabe-Ito colours, the plot frame (full box, ticks inward), and `save()`, which writes pdf/png/svg and a 600 dpi TIFF without timestamps |
-| `fig_toc.py` | Table-of-contents graphic (graphical abstract) for Digital Discovery, 8 x 4 cm: the open-source harness inside the lab boundary, and the Qwen3.8-27B accuracy from Figure 2's scorecards |
+| `fig_toc.py` | Table-of-contents graphic (graphical abstract) for Digital Discovery, 8 x 4 cm, for a lab head who has not read the paper, in plain words: Munin, the open-source LLM harness, on the lab's servers (question, the group's papers, cited answer, web only if allowed), and the Qwen3.8-27B accuracy alone and inside Munin with the web off and on, from Figure 2's scorecards |
 | `captions.txt` | The three figure captions and the table-of-contents text (max 250 characters), plain text for the manuscript |
 | `fig_architecture.py` | Figure 1, the architecture |
 | `fig2_arms_by_backbone.py` | Figure 2 |
