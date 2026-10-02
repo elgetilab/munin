@@ -37,8 +37,9 @@ def select_questions(n: int, seed: int = 42) -> list[dict]:
     for q in qs:
         sd = [d for d in q.get("source_dois", []) if d]
         if len(sd) == 1 and in_corpus(sd[0]):
-            single.append({"qid": q["qid"], "source_doi": normalize_doi(sd[0]),
-                           "question": q["question"]})
+            # qid and DOI only: LitQA2 text is not redistributed, and
+            # run_c2 reloads it from the dataset by qid.
+            single.append({"qid": q["qid"], "source_doi": normalize_doi(sd[0])})
     rng = random.Random(seed)
     rng.shuffle(single)
     return single[:n]

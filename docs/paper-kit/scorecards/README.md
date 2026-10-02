@@ -9,6 +9,12 @@ The full set is 97 JSON plus 57 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
+**Answer text is withheld.** The four `*_answer-*-900s.json` files used to
+carry `text_tail`, the last 600 characters of each model answer. Those tails
+quoted the source papers and gave away LitQA2 answers, so the field was
+removed for the public release (2026-10). No metric reads it; every verdict,
+letter and per-query array is unchanged.
+
 **Backbone is now stamped in every ablation-family file** (`backbone`,
 `backbone_checkpoint`, and for Track D `serving`, `egress` per arm,
 `arm_matching` and `sampling`), backfilled 2026-09-15 from RESULTS.md's dated

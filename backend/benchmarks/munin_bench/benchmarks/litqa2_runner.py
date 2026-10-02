@@ -38,6 +38,10 @@ from ..retrievers import (
 
 LAB_BENCH_REPO = "futurehouse/lab-bench"
 LITQA2_PARQUET = "LitQA2/train-00000-of-00001.parquet"
+# The dataset revision every published LitQA2 number was measured on. Pinned
+# so a later upstream edit cannot silently change the questions.
+LITQA2_REVISION = os.environ.get(
+    "LITQA2_REVISION", "5c77cec648430f30611808808861eb86f81d5eaa")
 RETRIEVE_DEPTH = 20
 DOI_PREFIX_RE = None
 
@@ -54,7 +58,8 @@ def load_litqa2() -> list[dict]:
     from huggingface_hub import hf_hub_download
     import pyarrow.parquet as pq
 
-    path = hf_hub_download(LAB_BENCH_REPO, LITQA2_PARQUET, repo_type="dataset")
+    path = hf_hub_download(LAB_BENCH_REPO, LITQA2_PARQUET, repo_type="dataset",
+                           revision=LITQA2_REVISION)
     tbl = pq.read_table(
         path, columns=["id", "question", "ideal", "distractors", "sources"]
     ).to_pylist()
@@ -364,7 +369,7 @@ def _score_one(q, base_url, email):
         verdict = "incorrect"
     return {"qid": q["qid"], "verdict": verdict, "letter": letter,
             "correct": mcq["correct"], "truncated": truncated,
-            "text_len": len(text), "text_tail": text[-600:]}
+            "text_len": len(text)}
 
 
 def run_answer(qc, *, base_url, email, results_root, n_resamples=1000,
