@@ -1,0 +1,133 @@
+# ==============================================================================
+# MUNIN - single-host Caddyfile (development / demo)
+# ==============================================================================
+# The production Caddyfile routes seven *.muninai.org subdomains and gets real
+# certificates from Let's Encrypt. Neither works on a laptop: there is no public
+# DNS and no reachable port 80 for the ACME challenge.
+#
+# This file serves the whole stack from ONE origin, http://localhost, splitting
+# by path instead of by subdomain. That is not just a convenience:
+#
+#   * Same origin means the session cookie set by the auth service is sent on
+#     every chat request with no cross-site cookie rules to satisfy. The
+#     subdomain layout relies on a cookie scoped to `.muninai.org`, which has
+#     no equivalent for `localhost`.
+#   * It removes the redirect to a second hostname during login, which would
+#     otherwise need its own certificate.
+#
+# Use it with:  MUNIN_CADDYFILE=./caddy/Caddyfile.local
+# and build the chat UI with VITE_AUTH_BASE=http://localhost so the SPA calls
+# this origin rather than the production auth service.
+#
+# The subdomain sites that have no path here (search, research, docs, landing)
+# are reachable on their own ports at the bottom of this file.
+# ==============================================================================
+
+{
+	# No ACME: plain HTTP on a hostname that can never have a public
+	# certificate. `auto_https off` stops Caddy trying and failing on boot.
+	auto_https off
+	admin off
+}
+
+(shared-assets) {
+	handle_path /shared/* {
+		root * /srv/static/shared
+		file_server
+	}
+}
+
+# Forward-auth against the local auth service. Identical to production except
+# the unauthorized redirect stays on this origin.
+(local-auth) {
+	forward_auth 127.0.0.1:8090 {
+		uri /auth/check
+		copy_headers X-Munin-Email X-Munin-Name X-Munin-Role X-Munin-Group
+
+		@unauthorized status 401
+		handle_response @unauthorized {
+			redir http://{host}/login?redirect=http://{host}{http.request.uri} 302
+		}
+	}
+}
+
+# ── Everything, on one origin ────────────────────────────────────────────────
+:80 {
+	import shared-assets
+
+	# Auth service. Must come BEFORE the forward-auth'd catch-all, or logging
+	# in would require already being logged in.
+	handle /login* {
+		reverse_proxy 127.0.0.1:8090
+	}
+	handle /auth/* {
+		reverse_proxy 127.0.0.1:8090
+	}
+	handle /admin/* {
+		reverse_proxy 127.0.0.1:8090
+	}
+
+	# API gateway (API keys, rate limits) and the cluster's paper endpoints.
+	handle /api/* {
+		import local-auth
+		reverse_proxy 127.0.0.1:8070
+	}
+	handle /paper/* {
+		import local-auth
+		reverse_proxy 127.0.0.1:{$MUNIN_RETRIEVAL_PORT:8080}
+	}
+
+	# Resumable uploads.
+	handle /files/* {
+		import local-auth
+		reverse_proxy 127.0.0.1:11080
+	}
+
+	# Static maintenance page, same as production: a plain page that reads
+	# /api/status, so it works even when the SPA build is stale.
+	handle /maintenance* {
+		root * /srv/static/maintenance
+		try_files {path} /index.html
+		file_server
+	}
+
+	# The chat SPA, last, as the catch-all.
+	handle {
+		import local-auth
+		root * /srv/static/chat
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# ── The other UIs, on their own ports ────────────────────────────────────────
+# These are separate sites in production. Ports keep them reachable without
+# inventing path prefixes their static assets do not expect.
+
+:8081 {
+	import shared-assets
+	import local-auth
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8070
+	}
+	handle /paper/* {
+		reverse_proxy 127.0.0.1:{$MUNIN_RETRIEVAL_PORT:8080}
+	}
+	handle {
+		root * /srv/static/search
+		file_server
+	}
+}
+
+:8082 {
+	import shared-assets
+	root * /srv/static/docs
+	file_server
+}
+
+:8083 {
+	# Public landing page, no auth, same as production.
+	import shared-assets
+	root * /srv/static/landing
+	file_server
+}

@@ -79,8 +79,15 @@ or demonstrating it. **Not** how the production deployment runs.
 git clone <this repo> && cd munin
 cp .env.example .env
 $EDITOR .env          # at minimum: LLM_BASE_URL, AUTH_SECRET_KEY, ADMIN_EMAILS
+cp frontend/auth/whitelist.csv.example frontend/auth/whitelist.csv
+$EDITOR frontend/auth/whitelist.csv   # put your own email in the admin row
+cp shared/config/contributors.yml.example shared/config/contributors.yml
 docker compose up -d
 ```
+
+Only addresses in `whitelist.csv` can log in, so put yours there before the
+first `up`. After the first boot the auth database is the source of truth and
+users are managed in the admin panel.
 
 Then open <http://localhost>. Your login code is printed to the auth log
 (`docker compose logs munin-auth | grep "login code"`), because
