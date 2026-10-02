@@ -13,7 +13,7 @@ turn and `chat_store.add_message` was never called, so the agent
 invocation that the user just watched scroll by vanished from the
 saved transcript on reload.
 
-Save-always extension (chat 3951063c, 2026-05-08): Contributor D
+Save-always extension (2026-05-08): a user
 hit "Error in input stream" twice. Each conversation has the user
 message persisted but ZERO assistant rows in the DB and the
 retrieval service log shows HTTP 200 with no traceback. The only

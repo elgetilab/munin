@@ -58,10 +58,10 @@ def test_document_text_is_inlined_as_text_block():
         {"type": "text", "text": "translate this"},
         {"type": "document", "document_id": "doc_abc", "filename": "CV.pdf"},
     ]
-    blocks, attachments = _resolve(content, "Person083\nCurriculum Vitae\n...")
+    blocks, attachments = _resolve(content, "Erika Mustermann\nCurriculum Vitae\n...")
     joined = _text_of(blocks)
     assert "translate this" in joined
-    assert "Person083" in joined          # the actual file contents reached the model
+    assert "Erika Mustermann" in joined          # the actual file contents reached the model
     assert "[Attached document: CV.pdf]" in joined
     assert attachments == [
         {

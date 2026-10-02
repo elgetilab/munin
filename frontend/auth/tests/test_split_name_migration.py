@@ -79,7 +79,7 @@ def _write_whitelist(auth_env, rows: list[dict]) -> None:
 def test_migration_adds_columns_and_drops_name(auth_env):
     auth_env.init_db()
     _create_legacy_users_table(auth_env)
-    _insert_legacy_user(auth_env, "Person124", email="user014@example.org")
+    _insert_legacy_user(auth_env, "Max Mustermann", email="max.mustermann@x.org")
 
     summary = auth_env.migrate_split_name_v1()
 
@@ -97,9 +97,9 @@ def test_migration_adds_columns_and_drops_name(auth_env):
 def test_migration_splits_existing_single_name_on_whitespace(auth_env):
     auth_env.init_db()
     _create_legacy_users_table(auth_env)
-    _insert_legacy_user(auth_env, "Person124", email="user014@example.org")
-    _insert_legacy_user(auth_env, "Carsten", email="user017@example.org")
-    _insert_legacy_user(auth_env, "  Jean-Philippe  Ansermet", email="jp@x.org")
+    _insert_legacy_user(auth_env, "Max Mustermann", email="max.mustermann@x.org")
+    _insert_legacy_user(auth_env, "Erika", email="erika@x.org")
+    _insert_legacy_user(auth_env, "  Jean-Luc  Exemple", email="jp@x.org")
 
     auth_env.migrate_split_name_v1()
 
@@ -109,10 +109,10 @@ def test_migration_splits_existing_single_name_on_whitespace(auth_env):
         "FROM users u JOIN user_emails ue ON ue.user_id = u.id"
     ).fetchall()
     by_email = {r["email"]: (r["first_name"], r["last_name"]) for r in rows}
-    assert by_email["user014@example.org"] == ("Bernd", "Abel")
-    assert by_email["user017@example.org"] == ("Carsten", None)
+    assert by_email["max.mustermann@x.org"] == ("Max", "Mustermann")
+    assert by_email["erika@x.org"] == ("Erika", None)
     # Multi-space + leading whitespace are normalised by .strip()/.partition().
-    assert by_email["jp@x.org"] == ("Jean-Philippe", "Ansermet")
+    assert by_email["jp@x.org"] == ("Jean-Luc", "Exemple")
     conn.close()
 
 
@@ -122,11 +122,11 @@ def test_migration_overwrites_from_whitelist(auth_env):
     whitelist's values, not derived-from-old-name values."""
     auth_env.init_db()
     _create_legacy_users_table(auth_env)
-    _insert_legacy_user(auth_env, "Wrong", email="user014@example.org")
+    _insert_legacy_user(auth_env, "Wrong", email="max.mustermann@x.org")
 
     _write_whitelist(auth_env, [
-        {"email": "user014@example.org", "first_name": "Bernd",
-         "last_name": "Abel", "role": "user"},
+        {"email": "max.mustermann@x.org", "first_name": "Max",
+         "last_name": "Mustermann", "role": "user"},
     ])
 
     summary = auth_env.migrate_split_name_v1()
@@ -136,8 +136,8 @@ def test_migration_overwrites_from_whitelist(auth_env):
     row = conn.execute(
         "SELECT first_name, last_name FROM users LIMIT 1"
     ).fetchone()
-    assert row["first_name"] == "Bernd"
-    assert row["last_name"] == "Abel"
+    assert row["first_name"] == "Max"
+    assert row["last_name"] == "Mustermann"
     conn.close()
 
 
@@ -147,10 +147,10 @@ def test_migration_handles_blank_last_name_in_whitelist(auth_env):
     value in place."""
     auth_env.init_db()
     _create_legacy_users_table(auth_env)
-    _insert_legacy_user(auth_env, "Wrong Tail", email="user017@example.org")
+    _insert_legacy_user(auth_env, "Wrong Tail", email="erika@x.org")
 
     _write_whitelist(auth_env, [
-        {"email": "user017@example.org", "first_name": "Carsten",
+        {"email": "erika@x.org", "first_name": "Erika",
          "last_name": "", "role": "user"},
     ])
 
@@ -160,7 +160,7 @@ def test_migration_handles_blank_last_name_in_whitelist(auth_env):
     row = conn.execute(
         "SELECT first_name, last_name FROM users LIMIT 1"
     ).fetchone()
-    assert row["first_name"] == "Carsten"
+    assert row["first_name"] == "Erika"
     assert row["last_name"] is None
     conn.close()
 
@@ -168,7 +168,7 @@ def test_migration_handles_blank_last_name_in_whitelist(auth_env):
 def test_migration_is_idempotent(auth_env):
     auth_env.init_db()
     _create_legacy_users_table(auth_env)
-    _insert_legacy_user(auth_env, "Person124", email="user014@example.org")
+    _insert_legacy_user(auth_env, "Max Mustermann", email="max.mustermann@x.org")
 
     first = auth_env.migrate_split_name_v1()
     second = auth_env.migrate_split_name_v1()
@@ -181,7 +181,7 @@ def test_migration_no_whitelist_file_still_runs(auth_env):
     whitespace split and still completes."""
     auth_env.init_db()
     _create_legacy_users_table(auth_env)
-    _insert_legacy_user(auth_env, "Carsten", email="user017@example.org")
+    _insert_legacy_user(auth_env, "Erika", email="erika@x.org")
 
     # WHITELIST_PATH is set by the fixture but the file isn't written.
     summary = auth_env.migrate_split_name_v1()
@@ -190,7 +190,7 @@ def test_migration_no_whitelist_file_still_runs(auth_env):
     assert summary["rows_overwritten_from_whitelist"] == 0
     conn = auth_env.get_db()
     row = conn.execute("SELECT first_name, last_name FROM users LIMIT 1").fetchone()
-    assert row["first_name"] == "Carsten"
+    assert row["first_name"] == "Erika"
     conn.close()
 
 

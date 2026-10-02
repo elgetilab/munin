@@ -430,7 +430,7 @@ def test_sidecar_loads_filename_doi_hint() -> bool:
         open(pdf, "w").write("fake")
         with open(os.path.join(td, "abc.contributor.json"), "w") as f:
             json.dump({
-                "contributor_email": "contributor-d@example.org",
+                "contributor_email": "lead-b@example.org",
                 "research_group": "elgeti",
                 "filename_doi_hint": "10.7554/eLife.57264",
             }, f)
@@ -438,7 +438,7 @@ def test_sidecar_loads_filename_doi_hint() -> bool:
     return _check(
         "sidecar: filename_doi_hint propagated",
         loaded["filename_doi_hint"] == "10.7554/eLife.57264"
-        and loaded["email"] == "contributor-d@example.org"
+        and loaded["email"] == "lead-b@example.org"
         and loaded["group_slug"] == "elgeti",
     )
 

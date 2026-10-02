@@ -50,7 +50,7 @@ def header_safe(value: str) -> str:
     non-ASCII character raises UnicodeEncodeError. That exception used to
     surface as a blanket 502 "Backend unavailable." on EVERY authenticated
     /api/* request for any user whose display name carried an accent:
-    "Person115" broke his whole session, /api/status included.
+    a name like "Erika Mösermann" broke the whole session, /api/status included.
 
     Non-ASCII characters are dropped rather than transliterated: the only
     header this applies to is X-Munin-Name, which no upstream code reads
