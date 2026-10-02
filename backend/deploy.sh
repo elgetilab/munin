@@ -693,6 +693,15 @@ deploy_pipeline() {
     # dry-run by default, and needs --apply.
     run "install -m 0755 $REPO_DIR/scripts/pipeline/repair_authors.py \
         $PIPELINE_DIR/repair_authors.py"
+    # DOI filename mangling (2026-10): the read-only audit and the dry-run-
+    # by-default repair (Qdrant + chunks + Neo4j re-key). Report and plan in
+    # docs/corpus-quality/DOI-FILENAME-AUDIT-2026-10-02.md.
+    need_file "$REPO_DIR/scripts/pipeline/audit_doi_filenames.py"
+    need_file "$REPO_DIR/scripts/pipeline/repair_doi_filenames.py"
+    run "install -m 0755 $REPO_DIR/scripts/pipeline/audit_doi_filenames.py \
+        $PIPELINE_DIR/audit_doi_filenames.py"
+    run "install -m 0755 $REPO_DIR/scripts/pipeline/repair_doi_filenames.py \
+        $PIPELINE_DIR/repair_doi_filenames.py"
     # repair_author_graph.py reconciles the Neo4j author graph with the
     # (already repaired) Qdrant payloads. Same rules: operator-invoked,
     # dry-run by default, and --apply refuses to run without --backup.
