@@ -18,6 +18,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 import deep_research_manager as manager
+from maintenance import read_maintenance
 
 # Prefix MUST start with /api/: the frontend Caddy only forwards /api/* and
 # /paper/* to the cluster, and the gateway proxies /api/{path} -> cluster
@@ -36,6 +37,11 @@ def _require_email(request: Request) -> str:
 @router.post("/start")
 async def start(request: Request) -> dict:
     email = _require_email(request)
+    # Maintenance mode stops vLLM, so a job started now could only fail at
+    # its first model call. Same flag /api/status reports to the UI.
+    if read_maintenance().get("active"):
+        raise HTTPException(status_code=503, detail={"error": {
+            "message": "Munin is in maintenance; Deep Research is unavailable until it ends."}})
     body = await request.json()
     question = (body.get("question") or "").strip()
     if not question:

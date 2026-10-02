@@ -118,6 +118,17 @@ async def test_fresh_start_still_works(_bob_conv) -> bool:
                   r.status_code == 200 and r.json()["job_id"].startswith("dr_"), r.text)
 
 
+async def test_maintenance_refuses_new_jobs(_bob_conv) -> bool:
+    import research_routes
+    orig = research_routes.read_maintenance
+    research_routes.read_maintenance = lambda: {"active": True, "message": "", "since": ""}
+    try:
+        r = await _start(ALICE)
+    finally:
+        research_routes.read_maintenance = orig
+    return _check("start during maintenance -> 503", r.status_code == 503, r.text)
+
+
 def test_checkpoint_path_guard() -> bool:
     return (_check("checkpoint path refuses traversal", dr._checkpoint_path("../x") is None)
             and _check("checkpoint path refuses non-minted ids", dr._checkpoint_path("dr_x") is None)
@@ -132,7 +143,7 @@ async def _main() -> int:
         for t in (test_checkpoint_path_guard, test_traversal_id_rejected,
                   test_other_users_job_not_taken, test_running_job_not_restarted,
                   test_owner_can_resume, test_foreign_conversation_rejected,
-                  test_fresh_start_still_works):
+                  test_fresh_start_still_works, test_maintenance_refuses_new_jobs):
             try:
                 r = t() if t is test_checkpoint_path_guard else await t(bob_conv)
                 results.append(r)
