@@ -479,7 +479,7 @@ Two operational notes that will otherwise cost you a day:
 |---|---|
 | **Paper kit** (self-contained drafting bundle, 54 scorecards) | `docs/paper-kit/` |
 | Results log (canonical numbers) | `backend/benchmarks/RESULTS.md` |
-| Scorecards (83 JSON, 53 Markdown) | `backend/benchmarks/scorecards/` |
+| Scorecards (97 JSON, 57 Markdown) | `backend/benchmarks/scorecards/` |
 | Backbone profiles (one file per model: checkpoint, parsers, thinking mode, sampling) | `backend/config/models/` |
 | Second-backbone driver and instance machinery | `backend/benchmarks/scripts/run_suite.sh`, `backend/deploy.sh instance` |
 | Benchmark harness | `backend/benchmarks/munin_bench/` |
