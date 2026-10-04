@@ -18,8 +18,13 @@ Group=root
 # Environment= block below — the operator can adjust cadence /
 # batch size without touching code, then `systemctl restart
 # munin-paper-detect`.
+# Detection only (--no-quarantine) since 2026-10-04. Auto-quarantine deletes
+# a paper's Qdrant point, and the metadata-unverifiable check flags exactly the
+# papers the old doi_*.pdf decoder keyed to nonexistent DOIs, which the pending
+# DOI repair (repair_doi_filenames.py) needs in place to re-key. Drop the flag
+# once that repair has been applied.
 ExecStart=/opt/munin/services/pipeline/venv/bin/python3 \
-    /opt/cluster/scripts/pipeline/paper_cleanup.py sweep
+    /opt/cluster/scripts/pipeline/paper_cleanup.py sweep --no-quarantine
 
 # Connection targets (containers exposed on 127.0.0.1).
 Environment="QDRANT_HOST=127.0.0.1"
