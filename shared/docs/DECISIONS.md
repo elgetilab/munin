@@ -10,6 +10,46 @@ self-document (renames, refactors, bug fixes).
 
 ---
 
+## 2026-10: behaviour defaults are production; identity has no default
+
+For the public release (docs/RELEASE-PLAN.md, Phase 2), the 2026-08 rule
+below is narrowed rather than reversed. It is about *behaviour*: the paper
+encoder, the collection, the context window. Those still default to what
+production runs, because a fresh install should behave like the measured
+system.
+
+*Identity* is the opposite case. The domain, the public URLs, the cookie
+scope, the CORS origins, the contact and sender addresses, the cluster's name
+in the system prompt, and the database secrets used to default to the
+reference deployment's values (`muninai.org` in about forty places). A second
+group that forgot one variable got a stack that quietly linked to, logged in
+against, or identified itself as someone else's instance, and nothing failed.
+
+So identity has no default:
+
+- `MUNIN_DOMAIN` is required. Compose (both files) refuses to start without
+  it and `deploy.sh` refuses to deploy; every URL derives from it
+  (`backend/retrieval/site_config.py`, the auth service, `{$MUNIN_DOMAIN}` in
+  the Caddyfile, `{{env "MUNIN_URL_*"}}` in the static pages). The chat UI
+  derives its sibling URLs at runtime from the host it is served on.
+- `NEO4J_PASSWORD` and `SEARXNG_SECRET` lost their fallback values.
+- A contact address is never invented: the polite-pool `mailto` is omitted
+  when `MUNIN_CONTACT_EMAIL` is unset.
+- The personas carry placeholders. With the reference env they render the
+  measured prompts byte for byte (`tests/test_persona_render.py`), so the
+  paper's configuration is unchanged; `deploy.sh` also requires
+  `MUNIN_CLUSTER_NAME`, because an unset one would change that prompt.
+
+The reference deployment states its values explicitly in cluster.env and the
+VPS `.env`. `check_compose.py` pins both directions: the reference values
+resolve exactly as production did, and with any other domain no `muninai.org`
+survives in the resolved config.
+
+Two bugs the inventory turned up, both silent: the citation audit's
+phantom-link pattern was the literal `search.muninai.org` (a no-op on any
+other domain), and the post-login redirect accepted any URL starting with
+`http` (an open redirect). Both now follow the configured domain.
+
 ## 2026-09: the backbone is one file; sampling belongs to the model, not the persona
 
 **Decision.** Everything model-specific lives in
