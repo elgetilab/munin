@@ -115,17 +115,17 @@
 <body>
     <header>
         <div class="container header-content">
-            <a href="https://muninai.org" class="logo">
+            <a href="{{env "MUNIN_URL_HOME"}}" class="logo">
                 <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="logo-img">
                 <span class="logo-text">Munin</span>
             </a>
             <nav>
-                <a href="https://muninai.org">Home</a>
-                <a href="https://search.muninai.org">Search</a>
-                <a href="https://docs.muninai.org">Docs</a>
-                <a href="https://chat.muninai.org/knowledge">Knowledge</a>
-                <a href="https://chat.muninai.org">Chat</a>
-                <a href="https://upload.muninai.org" class="active">Upload</a>
+                <a href="{{env "MUNIN_URL_HOME"}}">Home</a>
+                <a href="{{env "MUNIN_URL_SEARCH"}}">Search</a>
+                <a href="{{env "MUNIN_URL_DOCS"}}">Docs</a>
+                <a href="{{env "MUNIN_URL_CHAT"}}/knowledge">Knowledge</a>
+                <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a>
+                <a href="{{env "MUNIN_URL_UPLOAD"}}" class="active">Upload</a>
             </nav>
         </div>
     </header>
@@ -143,7 +143,7 @@
 
             <p class="notice">
                 Only research group leaders can contribute to the knowledge base.
-                If you need upload access, contact <a href="mailto:support@muninai.org">support@muninai.org</a>.
+                If you need upload access, contact <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">{{env "MUNIN_SUPPORT_EMAIL"}}</a>.
             </p>
 
             <div id="uppy-dashboard"></div>
@@ -153,7 +153,7 @@
     <footer>
         <div class="container">
             <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/" style="color: var(--accent);">Elgeti Lab</a></p>
-            <p style="margin-top: 8px;"><a href="https://search.muninai.org">Search</a> | <a href="https://chat.muninai.org">Chat</a> | <a href="https://upload.muninai.org">Upload</a> | <a href="mailto:support@muninai.org">Get Access</a> | <a href="mailto:support@muninai.org">Support</a></p>
+            <p style="margin-top: 8px;"><a href="{{env "MUNIN_URL_SEARCH"}}">Search</a> | <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a> | <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Get Access</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Support</a></p>
         </div>
     </footer>
 
@@ -212,7 +212,7 @@
                   'contribute to the knowledge base.'
             document.getElementById('uppy-dashboard').innerHTML =
                 '<div class="no-access">' + msg + '<br>Contact ' +
-                '<a href="mailto:support@muninai.org" style="color:var(--accent)">support@muninai.org</a> ' +
+                '<a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}" style="color:var(--accent)">{{env "MUNIN_SUPPORT_EMAIL"}}</a> ' +
                 'if you need upload access.</div>'
         }
 

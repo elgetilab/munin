@@ -8,17 +8,17 @@
  *
  *   <header>
  *     <div class="container header-content">
- *       <a href="https://muninai.org" class="logo">
+ *       <a href="https://example.org" class="logo">
  *         <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="logo-img">
  *         <span class="logo-text">Munin</span>
  *       </a>
  *       <nav>
- *         <a href="https://muninai.org">Home</a>
- *         <a href="https://search.muninai.org">Search</a>
- *         <a href="https://research.muninai.org">Research</a>
- *         <a href="https://docs.muninai.org">Docs</a>
- *         <a href="https://chat.muninai.org">Chat</a>
- *         <a href="https://upload.muninai.org">Upload</a>
+ *         <a href="https://example.org">Home</a>
+ *         <a href="https://search.example.org">Search</a>
+ *         <a href="https://research.example.org">Research</a>
+ *         <a href="https://docs.example.org">Docs</a>
+ *         <a href="https://chat.example.org">Chat</a>
+ *         <a href="https://upload.example.org">Upload</a>
  *       </nav>
  *     </div>
  *   </header>
@@ -29,10 +29,10 @@
  *     <div class="container">
  *       <p>Munin Research Assistant | Powered by Hugin Cluster</p>
  *       <p style="margin-top: 8px;">
- *         <a href="https://search.muninai.org">Paper Search</a> |
- *         <a href="https://research.muninai.org">Deep Research</a> |
- *         <a href="https://chat.muninai.org">Chat</a> |
- *         <a href="https://upload.muninai.org">Upload</a>
+ *         <a href="https://search.example.org">Paper Search</a> |
+ *         <a href="https://research.example.org">Deep Research</a> |
+ *         <a href="https://chat.example.org">Chat</a> |
+ *         <a href="https://upload.example.org">Upload</a>
  *       </p>
  *     </div>
  *   </footer>

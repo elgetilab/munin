@@ -141,6 +141,7 @@ jobs:
           cp .env.example .env
           cp frontend/auth/whitelist.csv.example frontend/auth/whitelist.csv
           cp shared/config/contributors.yml.example shared/config/contributors.yml
+          cp frontend/config/quotas.yml.example frontend/config/quotas.yml
           # No GPU and no model on a CI runner: point at the stub on the host.
           # Port 8001, NOT the compose default 8000: on the default port this
           # job passed even while LLM_BASE_URL never reached the container.

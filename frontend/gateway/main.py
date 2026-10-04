@@ -31,7 +31,8 @@ from models import CreateKeyRequest, CreateKeyResponse, KeyInfo
 CLUSTER_TUNNEL = os.environ.get("CLUSTER_TUNNEL", "http://127.0.0.1:18080")
 # Admin detection is now via X-Munin-Role header from munin-auth (whitelist.csv role column)
 # ADMIN_EMAILS kept as fallback for API key auth (no forward-auth headers)
-ADMIN_EMAILS = set(os.environ.get("ADMIN_EMAILS", "admin@muninai.org").split(","))
+ADMIN_EMAILS = {e.strip() for e in os.environ.get("ADMIN_EMAILS", "").split(",")
+                if e.strip()}
 DB_PATH = Path(os.environ.get("DB_PATH", "/data/gateway.db"))
 QUOTAS_PATH = Path(os.environ.get("QUOTAS_PATH", "/data/quotas.yml"))
 
@@ -202,7 +203,7 @@ def resolve_auth(request: Request) -> tuple[str | None, str, str | None]:
     Returns (email, source, api_key_id) or (None, ..., ...) if unauthorized.
     """
     # A Bearer token decides identity whenever one is sent, valid or not, and
-    # is checked first: api.muninai.org has no forward-auth, so an
+    # is checked first: api.<domain> has no forward-auth, so an
     # X-Munin-Email there comes from the client, not from munin-auth. Caddy
     # strips it on that host; this keeps a spoofed header from winning if a
     # request ever reaches the gateway without that strip. Browsers never
@@ -800,7 +801,7 @@ async def proxy_api(request: Request, path: str):
 
 
 
-# ── OpenAI-compatible /v1 endpoints (for api.muninai.org) ────────────────────
+# ── OpenAI-compatible /v1 endpoints (for api.<domain>) ───────────────────────
 
 @app.api_route("/v1/{path:path}", methods=["GET", "POST"])
 async def proxy_v1(request: Request, path: str):

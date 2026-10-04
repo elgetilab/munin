@@ -197,8 +197,8 @@ def main() -> int:
                              profiles=["rag", "pipeline", "gpu"])
     finally:
         os.remove(probe)
-    envs = {k: (v.get("environment") or {}) for k, v in llm["services"].items()}
-    users = {k: e for k, e in envs.items() if "VLLM_URL" in e}
+    svc_env = {k: (v.get("environment") or {}) for k, v in llm["services"].items()}
+    users = {k: e for k, e in svc_env.items() if "VLLM_URL" in e}
     check("LLM_BASE_URL reaches every service that calls the model",
           bool(users) and all(e["VLLM_URL"] == "http://llm-probe:1234"
                               for e in users.values()),
@@ -220,8 +220,28 @@ def main() -> int:
 
     # --- frontend standalone, as the VPS runs it ---------------------------
     print("\nfrontend standalone (as the VPS runs it)")
-    cfg = compose_config(["docker-compose.yml"], None,
-                         cwd=os.path.join(root, "frontend"))
+    try:
+        compose_config(["docker-compose.yml"], None, cwd=os.path.join(root, "frontend"))
+        check("frontend refuses to start without MUNIN_DOMAIN", False,
+              "it resolved with no domain set")
+    except RuntimeError as e:
+        check("frontend refuses to start without MUNIN_DOMAIN",
+              "MUNIN_DOMAIN" in str(e), str(e)[:200])
+    fe_other = compose_config(["docker-compose.yml"], envs["other"],
+                              cwd=os.path.join(root, "frontend"), profiles=["webui"])
+    check("no reference-deployment value in the frontend for another domain",
+          "muninai" not in json.dumps(fe_other))
+    fe_ref = compose_config(["docker-compose.yml"], envs["reference"],
+                            cwd=os.path.join(root, "frontend"))
+    auth_env = fe_ref["services"]["munin-auth"]["environment"]
+    caddy_env = fe_ref["services"]["caddy"]["environment"]
+    check("the reference domain resolves as production did",
+          auth_env.get("COOKIE_DOMAIN") == ".muninai.org"
+          and auth_env.get("SMTP_SENDER") == "noreply@muninai.org"
+          and caddy_env.get("ACME_EMAIL") == "info@muninai.org"
+          and caddy_env.get("MUNIN_URL_CHAT") == "https://chat.muninai.org",
+          f"auth {auth_env.get('COOKIE_DOMAIN')!r}, caddy {caddy_env.get('ACME_EMAIL')!r}")
+    cfg = fe_ref
     srcs = sources(cfg)
     fe_root = os.path.join(root, "frontend")
     ok = all(s.startswith((fe_root, os.path.join(root, "shared"), "/mnt/uploads"))

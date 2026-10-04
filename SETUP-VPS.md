@@ -87,7 +87,8 @@ Wait for DNS to propagate before deploying. Caddy needs the A records to resolve
     the regenerated `contributors.yaml` from `/admin/contributors.yaml`.
 - [ ] Copy `auth/whitelist.csv.example` to `auth/whitelist.csv` and edit it
   (the real file is gitignored), and do the same for
-  `../shared/config/contributors.yml.example`. One row per seed user, format
+  `../shared/config/contributors.yml.example` and `config/quotas.yml.example`.
+  One row per seed user, format
   `email,name,role`. This file is now a **first-boot seed only**: the
   auth DB inside the `auth_data` volume is the source of truth after
   first start. To add / edit / remove users after deploy, sign in as

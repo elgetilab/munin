@@ -1,4 +1,5 @@
-# Per-user quotas for the API gateway. THIS file is bind-mounted straight into
+# Copy to quotas.yml and edit; the real file is gitignored because it names
+# people. Per-user quotas for the API gateway. THIS file is bind-mounted straight into
 # the container at /data/quotas.yml, so a deploy rsync updates it in place.
 # Caveat: it is a SINGLE-FILE bind mount, and rsync replaces the inode rather
 # than writing through it, so a running container keeps serving the old contents
@@ -13,7 +14,5 @@ default:
 
 overrides:
   # Admin users bypass the quota (unlimited: true)
-  admin@muninai.org:
-    unlimited: true
   admin@example.org:
     unlimited: true

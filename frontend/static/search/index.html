@@ -277,17 +277,17 @@
 <body>
     <header>
         <div class="container header-content">
-            <a href="https://muninai.org" class="logo">
+            <a href="{{env "MUNIN_URL_HOME"}}" class="logo">
                 <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="logo-img">
                 <span class="logo-text">Munin</span>
             </a>
             <nav>
-                <a href="https://muninai.org">Home</a>
-                <a href="https://search.muninai.org" class="active">Search</a>
-                <a href="https://docs.muninai.org">Docs</a>
-                <a href="https://chat.muninai.org/knowledge">Knowledge</a>
-                <a href="https://chat.muninai.org">Chat</a>
-                <a href="https://upload.muninai.org">Upload</a>
+                <a href="{{env "MUNIN_URL_HOME"}}">Home</a>
+                <a href="{{env "MUNIN_URL_SEARCH"}}" class="active">Search</a>
+                <a href="{{env "MUNIN_URL_DOCS"}}">Docs</a>
+                <a href="{{env "MUNIN_URL_CHAT"}}/knowledge">Knowledge</a>
+                <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a>
+                <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload</a>
             </nav>
         </div>
     </header>
@@ -339,7 +339,7 @@
     <footer>
         <div class="container">
             <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/" style="color: var(--accent);">Elgeti Lab</a></p>
-            <p style="margin-top: 8px;"><a href="https://search.muninai.org">Search</a> | <a href="https://chat.muninai.org">Chat</a> | <a href="https://upload.muninai.org">Upload</a> | <a href="mailto:support@muninai.org">Get Access</a> | <a href="mailto:support@muninai.org">Support</a></p>
+            <p style="margin-top: 8px;"><a href="{{env "MUNIN_URL_SEARCH"}}">Search</a> | <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a> | <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Get Access</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Support</a></p>
         </div>
     </footer>
 
