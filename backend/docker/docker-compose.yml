@@ -192,7 +192,10 @@ services:
     container_name: ${MUNIN_PREFIX:-munin}-retrieval
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${RETRIEVAL_HOST_PORT:-8080}:8080"
+      # Loopback only, unless a split install reaches retrieval over a VPN or
+      # private network: then the VPN address. Never 0.0.0.0, never a network
+      # other people are on (retrieval trusts the gateway's identity headers).
+      - "${RETRIEVAL_BIND_ADDR:-127.0.0.1}:${RETRIEVAL_HOST_PORT:-8080}:8080"
     extra_hosts:
       - "host.docker.internal:host-gateway"  # Allows container to reach host services
     volumes:
