@@ -751,6 +751,56 @@ services:
     profiles:
       - monitoring
 
+  # ── Reverse SSH tunnel to the frontend (profile: tunnel) ──────────────────
+  # Dials the VPS and exposes retrieval there as 127.0.0.1:18080, the
+  # frontend's default BACKEND_URL, so nothing has to connect IN to this
+  # host. For hosts where installing a systemd unit is not an option; the
+  # reference deployment runs the same autossh as munin-tunnel.service.
+  #
+  # Needs, on this host: a key at MUNIN_TUNNEL_KEY (mode 600; its .pub goes in
+  # the VPS tunnel user's authorized_keys, restricted to port forwarding), and
+  # MUNIN_VPS_HOST. The VPS host key is pinned on first connect into the
+  # tunnel directory (accept-new, like the systemd unit).
+  tunnel:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM alpine:3.20
+        RUN apk add --no-cache autossh openssh-client
+    image: ${MUNIN_PREFIX:-munin}-tunnel:latest
+    container_name: ${MUNIN_PREFIX:-munin}-tunnel
+    restart: unless-stopped
+    environment:
+      - AUTOSSH_GATETIME=0
+      - AUTOSSH_POLL=30
+      - MUNIN_VPS_HOST=${MUNIN_VPS_HOST:-}
+      - MUNIN_TUNNEL_USER=${MUNIN_TUNNEL_USER:-tunnel}
+    volumes:
+      - ${MUNIN_TUNNEL_KEY:-${MUNIN_ROOT:-/opt/munin}/config/tunnel/id_ed25519}:/tunnel/key:ro
+      - ${MUNIN_ROOT:-/opt/munin}/config/tunnel:/tunnel/state
+    # Compose cannot require these only for one profile, so check at start.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        [ -n "$$MUNIN_VPS_HOST" ] || { echo "tunnel: set MUNIN_VPS_HOST"; exit 1; }
+        [ -s /tunnel/key ] || { echo "tunnel: no key at MUNIN_TUNNEL_KEY"; exit 1; }
+        exec autossh -M 0 -N \
+          -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+          -o ExitOnForwardFailure=yes \
+          -o StrictHostKeyChecking=accept-new \
+          -o UserKnownHostsFile=/tunnel/state/known_hosts \
+          -i /tunnel/key \
+          -R 127.0.0.1:18080:retrieval:8080 \
+          "$$MUNIN_TUNNEL_USER@$$MUNIN_VPS_HOST"
+    # No depends_on: retrieval sits in the `rag` profile, and a dependency on
+    # a profiled service breaks a backend that runs this profile alone. The
+    # VPS end only connects to retrieval per request, and autossh retries.
+    networks:
+      - default
+    profiles:
+      - tunnel
+
 volumes:
   prometheus_data:
     # Pinned explicitly. Compose would otherwise derive it from the project
