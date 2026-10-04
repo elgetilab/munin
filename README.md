@@ -77,23 +77,22 @@ or demonstrating it. **Not** how the production deployment runs.
 
 ```bash
 git clone <this repo> && cd munin
-cp .env.example .env
-$EDITOR .env          # at minimum: LLM_BASE_URL, AUTH_SECRET_KEY, ADMIN_EMAILS
-cp frontend/auth/whitelist.csv.example frontend/auth/whitelist.csv
-$EDITOR frontend/auth/whitelist.csv   # put your own email in the admin row
-cp shared/config/contributors.yml.example shared/config/contributors.yml
-cp frontend/config/quotas.yml.example frontend/config/quotas.yml
-docker compose up -d
+scripts/configure.sh --mode all --domain localhost --admin-email you@example.org \
+    --llm-url http://host.docker.internal:11434 --llm-model qwen3:32b
+docker compose up -d --build
 ```
 
-Only addresses in `whitelist.csv` can log in, so put yours there before the
-first `up`. After the first boot the auth database is the source of truth and
-users are managed in the admin panel.
+`configure.sh` writes `.env` (every secret generated, paths filled in), puts
+your address in the login whitelist and copies the other seed files from their
+`.example`. Run it without flags to be asked instead. Only whitelisted
+addresses can log in; after the first boot the auth database is the source of
+truth and users are managed in the admin panel. Every other knob is documented
+in [`.env.example`](.env.example).
 
 Then open <http://localhost>. Your login code is printed to the auth log
 (`docker compose logs munin-auth | grep "login code"`), because
-`AUTH_DEV_ECHO_OTP=1` is set in the example config so you do not need a mail
-server to get in.
+`configure.sh --domain localhost` sets `AUTH_DEV_ECHO_OTP=1`, so you do not
+need a mail server to get in. It never does that for a real domain.
 
 **You must supply a language model.** Munin speaks OpenAI-compatible HTTP and
 does not host one. Point `LLM_BASE_URL` at Ollama, llama.cpp, a vLLM you run,
@@ -112,6 +111,27 @@ will ingest them.
 
 Details, every knob, and the things that will trip you up are in
 [`.env.example`](.env.example) and [`docs/SINGLE-HOST-PLAN.md`](docs/SINGLE-HOST-PLAN.md).
+The same command with a real `--domain` (and `--smtp-host`) sets up both
+halves on one public server instead.
+
+### Split: backend and frontend on different machines
+
+The same script, once per machine. The backend writes `munin-peer.env` with
+the tokens both halves must share; copy it to the frontend machine.
+
+```bash
+# GPU / cluster side. --vps-host also sets up the reverse SSH tunnel.
+scripts/configure.sh --mode backend --domain lab.example.edu --admin-email you@lab.example.edu \
+    --llm-url http://gpu01:8000 --llm-model <served-name> --vps-host vps.lab.example.edu
+# public side
+scripts/configure.sh --mode frontend --domain lab.example.edu --admin-email you@lab.example.edu \
+    --smtp-host smtp.lab.example.edu --peer-env munin-peer.env
+```
+
+The frontend reaches the backend at `BACKEND_URL` (default `127.0.0.1:18080`,
+the tunnel's end). Keep that path private: a tunnel, a VPN, or a network nobody
+else is on. `MUNIN_GATEWAY_TOKEN` makes retrieval refuse forwarded identity
+that did not come through the gateway, but it is a second line, not the first.
 
 ### B. Deploy it for a group
 
