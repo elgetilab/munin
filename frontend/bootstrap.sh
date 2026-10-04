@@ -100,7 +100,9 @@ if [[ -n "$TUNNEL_PUBKEY" ]]; then
     fi
 
     mkdir -p /home/tunnel/.ssh
-    echo "restrict,port-forwarding,command=\"/bin/false\" $TUNNEL_PUBKEY" \
+    # Forwarding only, and only the one listen address the frontend expects
+    # (BACKEND_URL=http://127.0.0.1:18080). Same line configure.sh prints.
+    echo "restrict,port-forwarding,permitlisten=\"127.0.0.1:18080\",command=\"/bin/false\" $TUNNEL_PUBKEY" \
         > /home/tunnel/.ssh/authorized_keys
     chown -R tunnel:nogroup /home/tunnel/.ssh
     chmod 700 /home/tunnel/.ssh
