@@ -21,6 +21,7 @@ from urllib.parse import quote
 import httpx
 
 import database
+import site_config
 from database import (
     get_qdrant, get_neo4j, get_paper_encoder,
     PAPER_QUERY_PREFIX, get_pdf_path,
@@ -86,7 +87,7 @@ SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
 SEMANTIC_SCHOLAR_BASE_URL = "https://api.semanticscholar.org/graph/v1"
 
 # Public URL for download links (accessible from outside the cluster)
-PUBLIC_URL = os.getenv("MUNIN_PUBLIC_URL", "https://search.muninai.org")
+PUBLIC_URL = site_config.PUBLIC_URL
 
 
 def get_citation_counts(dois: list[str]) -> dict:
@@ -695,9 +696,7 @@ async def _paper_lookup_crossref(doi: str) -> Optional[dict]:
     import re
 
     headers = {
-        "User-Agent": (
-            "MuninBot/1.0 (https://muninai.org; mailto:research@muninai.org)"
-        )
+        "User-Agent": site_config.bot_user_agent()
     }
 
     try:

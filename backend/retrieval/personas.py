@@ -13,8 +13,11 @@ import json
 import logging
 import os
 from typing import Any, Optional, Union
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+import site_config
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +158,29 @@ def _public_view(raw: dict) -> dict:
     }
 
 
+# Instance-specific text in the persona files is a placeholder, filled here
+# from the environment (site_config), so one persona directory serves any
+# deployment. With the reference env the rendered prompt is byte-identical to
+# the one every published number was measured with
+# (tests/test_persona_render.py pins that).
+def persona_placeholders(cfg: Optional[dict] = None) -> dict[str, str]:
+    cfg = cfg or site_config.resolve()
+    public = cfg["public_url"] or "https://search.<your-domain>"
+    return {
+        "{{MUNIN_CLUSTER_NAME}}": cfg["cluster_name"],
+        "{{MUNIN_PUBLIC_URL}}": public,
+        "{{MUNIN_PUBLIC_HOST}}": urlparse(public).netloc,
+    }
+
+
+def render_persona_text(text: str, placeholders: Optional[dict] = None) -> str:
+    """Fill the placeholders in raw persona JSON text. Values are JSON-escaped,
+    because they land inside JSON string literals."""
+    for key, value in (placeholders or persona_placeholders()).items():
+        text = text.replace(key, json.dumps(value)[1:-1])
+    return text
+
+
 def load_personas() -> dict[str, dict]:
     """(Re)load all persona JSON files from disk. Returns the internal map."""
     global _personas
@@ -169,8 +195,8 @@ def load_personas() -> dict[str, dict]:
             continue
         path = os.path.join(PERSONAS_DIR, entry)
         try:
-            with open(path, "r") as f:
-                data = json.load(f)
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.loads(render_persona_text(f.read()))
         except Exception as e:
             logger.warning("Failed to load persona %s: %s", entry, e)
             continue

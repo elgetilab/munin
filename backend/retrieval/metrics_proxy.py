@@ -13,7 +13,7 @@ Surface:
 
 Both take the same query body as Prometheus expects, plus a leading
 admin-role check. The retrieval service verifies the caller is an
-admin by calling auth.muninai.org/admin/check-role with the shared
+admin by calling auth.<domain>/admin/check-role with the shared
 KB_GATE_TOKEN (the same lookup the tusd hook-service uses).
 
 Role-check responses are cached per email for a few seconds so a
@@ -32,10 +32,15 @@ from typing import Optional
 
 import httpx
 
+import site_config
 
-_AUTH_CHECK_ROLE_URL = os.getenv(
-    "AUTH_CHECK_ROLE_URL", "https://auth.muninai.org/admin/check-role"
-)
+
+# Unset: derived from MUNIN_DOMAIN. Set but empty: the role check (and so the
+# Metrics tab) is off, which is what a single host without a reachable auth
+# service wants.
+_AUTH_CHECK_ROLE_URL = os.environ.get("AUTH_CHECK_ROLE_URL")
+if _AUTH_CHECK_ROLE_URL is None:
+    _AUTH_CHECK_ROLE_URL = site_config.auth_url("/admin/check-role")
 _KB_GATE_TOKEN = os.getenv("KB_GATE_TOKEN", "").strip()
 _PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://prometheus:9090").rstrip("/")
 

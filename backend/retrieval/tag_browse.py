@@ -23,6 +23,7 @@ from typing import Any, Optional
 from urllib.parse import quote
 
 import database
+import site_config
 from database import get_qdrant, get_pdf_path
 
 TAG_KIND_TO_FILTER_KEY = {
@@ -35,7 +36,7 @@ SORTS = ("year_desc", "year_asc", "upload_desc")
 
 # Public host used to build `download_url` fields on browse results.
 # Same convention as retrieval/mcp/tools/papers.py.
-PUBLIC_MUNIN_URL = os.getenv("MUNIN_PUBLIC_URL", "https://search.muninai.org")
+PUBLIC_MUNIN_URL = site_config.PUBLIC_URL
 
 # One page of a scroll. The walk below is O(offset) in pages, which is cheap at
 # corpus scale; a >100k corpus would want a DB-side ordering column instead.

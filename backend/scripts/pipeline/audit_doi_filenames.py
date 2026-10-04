@@ -54,7 +54,12 @@ from paper_pipeline import _title_similarity  # noqa: E402
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 PAPERS_COLLECTION = os.getenv("PAPERS_COLLECTION", "papers_bge")
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "research@muninai.org")
+# Crossref and OpenAlex ask for a contact address. Taken from the deployment's
+# env (ADMIN_EMAIL, else MUNIN_CONTACT_EMAIL); never a hardcoded one.
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL") or os.getenv("MUNIN_CONTACT_EMAIL", "")
+_UA_ID = "; ".join(x for x in (
+    f"https://{os.getenv('MUNIN_DOMAIN')}" if os.getenv("MUNIN_DOMAIN") else "",
+    f"mailto:{ADMIN_EMAIL}" if ADMIN_EMAIL else "") if x)
 
 TITLE_THRESHOLD = 0.3       # the pipeline's _MERGE_TITLE_SIM_THRESHOLD
 _PAGE = 4096
@@ -94,7 +99,7 @@ def crossref(doi: str) -> dict | None:
         return _cache[key]
     url = "https://api.crossref.org/works/" + urllib.parse.quote(doi, safe="")
     req = urllib.request.Request(url, headers={
-        "User-Agent": f"MuninBot/1.0 (https://muninai.org; mailto:{ADMIN_EMAIL})"})
+        "User-Agent": f"MuninBot/1.0 ({_UA_ID})"})
     for attempt in range(_RETRIES):
         time.sleep(_PACE_S)
         try:

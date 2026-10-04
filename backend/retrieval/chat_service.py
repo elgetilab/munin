@@ -44,6 +44,7 @@ import plan_store
 import stream_registry
 import capabilities as capabilities_module
 import vision
+import site_config
 from database import VLLM_MODEL_NAME, reasoning_effort_fields
 from vllm_client import vllm_post_json, vllm_post_stream, VLLMRequestError
 from usage_tracker import (
@@ -1422,24 +1423,24 @@ def audit_artifact_urls_in_content(
 # --- Phantom-paper-URL audit (regression guard for chat a42384f0) ---
 #
 # Reported chat a42384f0 (2026-05-05): on a vLLM/SLURM infra question,
-# the model fabricated `[HPCS 2005](https://search.muninai.org/paper/
+# the model fabricated `[HPCS 2005](https://search.<domain>/paper/
 # 10.1109%2Fhpcs.2005.55/pdf)` to support a load-bearing technical
 # claim. No paper_search / paper_lookup / semantic_scholar_search /
 # deep_research call ran on that turn, so the URL was invented from
-# whole cloth and the citation was fabricated. The `search.muninai.org/
+# whole cloth and the citation was fabricated. The `<MUNIN_PUBLIC_URL>/
 # paper/<encoded_doi>/...` pattern is exclusively constructed by the
 # paper tools (see mcp/tools/papers.py PUBLIC_URL); the model has no
 # legitimate reason to type one without a tool result. Same backstop
 # shape as the artifact audit above.
 
-_PAPER_URL_RE = _re.compile(
-    r"https?://(?:www\.)?search\.muninai\.org/paper/[^\s)>\"\]]+"
-)
+# Built from MUNIN_PUBLIC_URL. Until 2026-10 this was the literal
+# search.muninai.org, so on any other domain the audit matched nothing.
+_PAPER_URL_RE = site_config.paper_url_pattern()
 
 
 def _collect_paper_urls(obj) -> set:
     """Walk a tool result (string / dict / list) and collect every
-    `search.muninai.org/paper/...` URL it contains, anywhere in the
+    `<MUNIN_PUBLIC_URL>/paper/...` URL it contains, anywhere in the
     structure. Mirrors `_collect_artifact_urls`."""
     found: set = set()
     if isinstance(obj, str):
@@ -1459,7 +1460,7 @@ def audit_paper_urls_in_content(
 ) -> tuple:
     """Return (content, phantom_urls).
 
-    `phantom_urls` lists every `https://search.muninai.org/paper/...`
+    `phantom_urls` lists every `<MUNIN_PUBLIC_URL>/paper/...`
     URL that appears in `content` but does NOT appear in any of
     `tool_calls`' result payloads from this turn. When non-empty, the
     returned content is prepended with a [backend warning] marker so

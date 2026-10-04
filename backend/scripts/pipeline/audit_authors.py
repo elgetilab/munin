@@ -46,7 +46,12 @@ from author_names import is_damaged, sanitize_authors, best_author_list  # noqa:
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 PAPERS_COLLECTION = os.getenv("PAPERS_COLLECTION", "papers_bge")
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "research@muninai.org")
+# Crossref and OpenAlex ask for a contact address. Taken from the deployment's
+# env (ADMIN_EMAIL, else MUNIN_CONTACT_EMAIL); never a hardcoded one.
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL") or os.getenv("MUNIN_CONTACT_EMAIL", "")
+_UA_ID = "; ".join(x for x in (
+    f"https://{os.getenv('MUNIN_DOMAIN')}" if os.getenv("MUNIN_DOMAIN") else "",
+    f"mailto:{ADMIN_EMAIL}" if ADMIN_EMAIL else "") if x)
 
 _PAGE = 4096
 _CROSSREF_PACE_S = 0.6      # polite pool; the audit is never in a hurry
@@ -86,7 +91,7 @@ def _crossref_authors(doi: str) -> list[str] | None:
     """Author list for a DOI, or None on any failure. Never raises."""
     url = "https://api.crossref.org/works/" + urllib.parse.quote(doi, safe="")
     req = urllib.request.Request(url, headers={
-        "User-Agent": f"MuninBot/1.0 (https://muninai.org; mailto:{ADMIN_EMAIL})"})
+        "User-Agent": f"MuninBot/1.0 ({_UA_ID})"})
     try:
         msg = json.load(urllib.request.urlopen(req, timeout=20))["message"]
     except Exception:

@@ -124,7 +124,7 @@ EMBED_DIM = 1024 if PAPER_ENCODER == "bge-large" else 768
 STATE_SCHEMA_VERSION = 1
 
 # User agent email for API requests
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@example.com")
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL") or os.getenv("MUNIN_CONTACT_EMAIL") or "admin@example.com"
 
 # Quality filtering configuration
 MIN_PAGE_COUNT = int(os.getenv("MIN_PAGE_COUNT", "3"))

@@ -77,7 +77,7 @@ QUEUE_DB = PAPERS_DIR / "crawler_queue.db"
 DEFAULT_DELAY = 5
 
 # User agent for requests (polite crawling with contact email)
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@example.com")
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL") or os.getenv("MUNIN_CONTACT_EMAIL") or "admin@example.com"
 USER_AGENT = f"MuninCrawler/1.0 (Research Cluster; mailto:{ADMIN_EMAIL})"
 
 # Sci-Hub mirrors (use responsibly, check legal status in your jurisdiction)

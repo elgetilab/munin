@@ -39,6 +39,8 @@ import time
 from typing import Optional
 from urllib.parse import quote, unquote
 
+import site_config
+
 import httpx
 
 import provenance
@@ -49,7 +51,7 @@ EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 # NCBI asks every automated client to identify itself. Same identity the
 # Crossref client in papers.py uses.
 _NCBI_TOOL = "munin"
-_NCBI_EMAIL = "research@muninai.org"
+_NCBI_EMAIL = site_config.CONTACT_EMAIL
 _NCBI_MIN_INTERVAL_S = 0.34        # <= 3 req/s, the keyless NCBI ceiling
 _HTTP_TIMEOUT_S = 12.0
 

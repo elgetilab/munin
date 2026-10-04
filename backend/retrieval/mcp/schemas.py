@@ -7,6 +7,14 @@ Each tool has:
 - inputSchema: JSON Schema for parameters
 """
 
+from urllib.parse import urlparse
+
+import site_config
+
+# The paper host the model is told never to construct links on. Rendered from
+# MUNIN_PUBLIC_URL so the reference deployment's text is unchanged.
+_PAPER_HOST = urlparse(site_config.PUBLIC_URL).netloc or "search.<your-domain>"
+
 # P1 #7 — deferred tool schema. Only CORE_TOOLS ship in the vLLM `tools`
 # array by default; everything else is discoverable at runtime via
 # `tool_search`, which unlocks matches into the per-request schema. This
@@ -931,7 +939,7 @@ MCP_TOOLS = {
             "response, you MUST use this `external_url` value as the "
             "link target. Format: `[Download PDF](EXTERNAL_URL)`. "
             "Do NOT construct URLs yourself - do NOT use "
-            "`search.muninai.org/paper/...` or any other URL pattern. "
+            f"`{_PAPER_HOST}/paper/...` or any other URL pattern. "
             "The `external_url` is the ONLY correct path to the file."
         ),
         "inputSchema": {

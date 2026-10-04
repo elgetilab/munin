@@ -6,10 +6,12 @@ Compose invariant checks
 The single-host setup rests on a few properties that are easy to break with a
 careless edit and produce no error when broken, only wrong behaviour:
 
-  1. THE CLUSTER DEFAULTS ARE PRODUCTION. `docker compose config` with no env
-     at all must resolve to /opt/munin, because that is what the deployed file
-     runs on and `deploy.sh` supplies no overrides. If a default drifts to a
-     repo-relative path, the next cluster deploy quietly points at nothing.
+  1. THE CLUSTER PATH DEFAULTS ARE PRODUCTION, BUT NOTHING ELSE IS. Paths
+     still default to /opt/munin, because that is what the deployed file runs
+     on. The instance's identity does not: MUNIN_DOMAIN and the secrets are
+     required, compose refuses to start without them, the reference values
+     resolve exactly as production ran before (2026-10), and with any other
+     domain no `muninai.org` survives anywhere in the resolved config.
 
   2. THE LOCAL OVERRIDES REACH THE WORKING TREE. With .env.example, no path may
      still point at /opt, or a clone would depend on a machine it is not on.
@@ -34,6 +36,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 
 BACKEND = "backend/docker/docker-compose.yml"
 FRONTEND = "frontend/docker-compose.yml"
@@ -88,11 +91,42 @@ def main() -> int:
         print(f"run me from the repo root (no {BACKEND})", file=sys.stderr)
         return 2
 
-    # --- 1. cluster defaults are production --------------------------------
-    print("\ncluster defaults (no env, as deploy.sh runs it)")
-    cfg = compose_config(["docker-compose.yml"], None,
+    # --- 1. paths default to production; identity is required ---------------
+    print("\ncluster defaults (the reference env, as deploy.sh runs it)")
+    tmp = tempfile.mkdtemp()
+    secrets = "NEO4J_PASSWORD=x\nSEARXNG_SECRET=x\n"
+    envs = {}
+    for name, body in (("none", secrets),
+                       ("reference", secrets + "MUNIN_DOMAIN=muninai.org\n"),
+                       ("other", secrets + "MUNIN_DOMAIN=lab.example.edu\n")):
+        envs[name] = os.path.join(tmp, name + ".env")
+        with open(envs[name], "w") as f:
+            f.write(body)
+    try:
+        compose_config(["docker-compose.yml"], envs["none"],
+                       cwd=os.path.join(root, "backend/docker"), profiles=["rag"])
+        check("compose refuses to start without MUNIN_DOMAIN", False,
+              "it resolved with no domain set")
+    except RuntimeError as e:
+        check("compose refuses to start without MUNIN_DOMAIN",
+              "MUNIN_DOMAIN" in str(e), str(e)[:200])
+    other = compose_config(["docker-compose.yml"], envs["other"],
+                           cwd=os.path.join(root, "backend/docker"),
+                           profiles=["rag", "pipeline", "monitoring", "gpu"])
+    leaked = "muninai" in json.dumps(other)
+    check("no reference-deployment value survives another domain", not leaked,
+          "grep the resolved config for muninai")
+    cfg = compose_config(["docker-compose.yml"], envs["reference"],
                          cwd=os.path.join(root, "backend/docker"),
                          profiles=["rag", "monitoring"])
+    renv = cfg["services"]["retrieval"]["environment"]
+    check("the reference domain resolves as production did",
+          renv.get("MUNIN_PUBLIC_URL") == "https://search.muninai.org"
+          and renv.get("CONTRIBUTORS_SYNC_URL")
+          == "https://auth.muninai.org/admin/contributors.yaml"
+          and renv.get("AUTH_CHECK_ROLE_URL")
+          == "https://auth.muninai.org/admin/check-role",
+          f"got {renv.get('MUNIN_PUBLIC_URL')!r}")
     srcs = sources(cfg)
     stray = [s for s in srcs if not s.startswith(("/opt/munin", "/opt/cluster"))]
     check("every path resolves under /opt", not stray, f"stray: {stray[:4]}")
@@ -105,7 +139,7 @@ def main() -> int:
     # A repo checkout and /opt/munin/docker are both basename `docker`, so
     # without `name:` they would share a project and adopt each other.
     print("\nproject isolation")
-    local_cfg = compose_config(["docker-compose.yml"], None,
+    local_cfg = compose_config(["docker-compose.yml"], envs["other"],
                                cwd=os.path.join(root, "backend/docker"))
     check("clone and cluster cannot share a project",
           local_cfg.get("name") == "munin",
@@ -156,7 +190,8 @@ def main() -> int:
     print("\nLLM endpoint override")
     probe = os.path.join(root, ".check_compose_llm.env")
     with open(probe, "w") as f:
-        f.write("LLM_BASE_URL=http://llm-probe:1234\nLLM_MODEL_NAME=probe-model\n")
+        f.write("LLM_BASE_URL=http://llm-probe:1234\nLLM_MODEL_NAME=probe-model\n"
+                "MUNIN_DOMAIN=x.org\nNEO4J_PASSWORD=x\nSEARXNG_SECRET=x\n")
     try:
         llm = compose_config([BACKEND], probe, cwd=root,
                              profiles=["rag", "pipeline", "gpu"])
