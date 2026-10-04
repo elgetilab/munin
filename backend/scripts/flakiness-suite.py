@@ -61,6 +61,16 @@ import zlib
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
+# The instance's paper-link host, which the citation checks below look for.
+# Same derivation as retrieval's site_config: MUNIN_PUBLIC_URL, else
+# search.<MUNIN_DOMAIN>. Was the literal search.muninai.org.
+from urllib.parse import urlparse  # noqa: E402
+PAPER_HOST = urlparse(
+    os.environ.get("MUNIN_PUBLIC_URL")
+    or (f"https://search.{os.environ['MUNIN_DOMAIN']}"
+        if os.environ.get("MUNIN_DOMAIN") else "")
+).netloc
+
 import httpx
 
 # ----------------------------------------------------------------------------
@@ -806,11 +816,11 @@ def _no_hallucinated_artifact_urls(res: dict, state: dict) -> TurnOutcome:
         clarifications=len(res.get("clarifications") or []),
         content_preview=_content_preview(res),
     )
-    if "search.muninai.org/paper/" in content:
+    if f"{PAPER_HOST}/paper/" in content:
         t.passed = False
         t.reason = (
             "hallucinated paper-download URL for a sandbox artifact; "
-            "model used search.muninai.org/paper/... instead of "
+            f"model used {PAPER_HOST}/paper/... instead of "
             "the external_url from the tool result"
         )
     return t
@@ -882,11 +892,11 @@ def _no_fabricated_paper_citation(res: dict, state: dict) -> TurnOutcome:
         t.passed = False
         t.reason = (
             "phantom-paper-URL audit fired: response cites a "
-            "search.muninai.org/paper/... URL that no tool call "
+            f"{PAPER_HOST}/paper/... URL that no tool call "
             "produced this turn. Fabricated citation."
         )
         return t
-    if "search.muninai.org/paper/" in content.lower():
+    if f"{PAPER_HOST}/paper/" in content.lower():
         paper_tools = {
             "paper_search",
             "paper_lookup",
@@ -896,7 +906,7 @@ def _no_fabricated_paper_citation(res: dict, state: dict) -> TurnOutcome:
         if not any(name in paper_tools for name in tool_calls):
             t.passed = False
             t.reason = (
-                "response contains a search.muninai.org/paper/... URL "
+                f"response contains a {PAPER_HOST}/paper/... URL "
                 "but no paper-fetching tool was called this turn; "
                 "audit may have missed it"
             )
@@ -1813,7 +1823,7 @@ def _paper_citation_grounding_scenario() -> Scenario:
         name="paper_citation_grounding",
         description=(
             "§N No fabricated paper citations: model must not emit "
-            "search.muninai.org/paper/... URLs without a backing "
+            f"{PAPER_HOST}/paper/... URLs without a backing "
             "paper-tool call (chat a42384f0, 2026-05-05)."
         ),
         variants=[
@@ -1960,6 +1970,11 @@ async def main() -> int:
         ),
     )
     args = parser.parse_args()
+    if not PAPER_HOST:
+        print("set MUNIN_DOMAIN (or MUNIN_PUBLIC_URL): the citation checks look "
+              "for the instance's own paper links and would pass vacuously",
+              file=sys.stderr)
+        return 2
 
     print(f"Flakiness suite -> {BASE}")
     print(f"Default reps: {args.reps}")
