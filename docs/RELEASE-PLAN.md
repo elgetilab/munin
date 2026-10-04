@@ -218,6 +218,21 @@ step-1 baseline on both sides; all `deploy.sh --dry-run` modes unchanged;
 `git grep muninai.org` outside docs and the reference env templates returns
 nothing; a frontend deploy, then login and the admin panel, work in production.
 
+**Phase 2 design decisions (2026-10-04):**
+
+- `MUNIN_DOMAIN` is **required**: compose fails with a message naming it, and
+  `deploy.sh` refuses to deploy without it. No silent `example.org` fallback,
+  because a cookie on the wrong domain is a broken login that is hard to see.
+- **Personas are templated** (`{{MUNIN_PUBLIC_URL}}`, `{{MUNIN_CLUSTER_NAME}}`),
+  rendered at load. With the reference env the rendered prompt is
+  byte-identical to the measured one, pinned by a test.
+- **The web UI derives its URLs at runtime** from its own hostname when no
+  `VITE_*` is set, so the production build needs no configuration. `VITE_*`
+  still override (the single-host layout uses them).
+- Found while inventorying: the citation audit's phantom-link regex was the
+  literal `search.muninai.org`, a silent no-op on any other domain. It now
+  follows `MUNIN_PUBLIC_URL`.
+
 ### Phase 3: install modes
 
 1. Mode presets and `scripts/configure.sh`.
