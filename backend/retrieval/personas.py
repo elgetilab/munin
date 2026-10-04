@@ -196,7 +196,15 @@ def load_personas() -> dict[str, dict]:
         path = os.path.join(PERSONAS_DIR, entry)
         try:
             with open(path, "r", encoding="utf-8") as f:
-                data = json.loads(render_persona_text(f.read()))
+                rendered = render_persona_text(f.read())
+            if "{{MUNIN_" in rendered:
+                # A placeholder this code does not know: the persona files are
+                # newer than the service. Load it anyway, but say so, since
+                # the model would otherwise see the raw placeholder.
+                logger.error("Persona %s has an unrendered {{MUNIN_...}} "
+                             "placeholder; deploy retrieval with the personas",
+                             entry)
+            data = json.loads(rendered)
         except Exception as e:
             logger.warning("Failed to load persona %s: %s", entry, e)
             continue
