@@ -29,6 +29,14 @@
 	}
 }
 
+# The backend: BACKEND_URL (default the tunnel's VPS end, 127.0.0.1:18080),
+# with the shared token retrieval checks on forwarded identity.
+(backend) {
+	reverse_proxy {$BACKEND_URL} {
+		header_up X-Munin-Gateway-Token "{$MUNIN_GATEWAY_TOKEN}"
+	}
+}
+
 (shared-assets) {
 	handle_path /shared/* {
 		root * /srv/static/shared
@@ -83,7 +91,7 @@ chat.{$MUNIN_DOMAIN} {
 		reverse_proxy 127.0.0.1:8070
 	}
 	handle /paper/* {
-		reverse_proxy 127.0.0.1:18080
+		import backend
 	}
 	# Static maintenance page. Reachable at chat.<domain>/maintenance;
 	# it fetches /api/status (same origin) and renders the operator's
@@ -110,7 +118,7 @@ search.{$MUNIN_DOMAIN} {
 		reverse_proxy 127.0.0.1:8070
 	}
 	handle /paper/* {
-		reverse_proxy 127.0.0.1:18080
+		import backend
 	}
 	handle {
 		root * /srv/static/search

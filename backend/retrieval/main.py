@@ -123,6 +123,11 @@ app = FastAPI(
 from sandbox_peer_guard import SandboxPeerGuard  # noqa: E402
 app.add_middleware(SandboxPeerGuard)
 
+# Forwarded identity must come with the gateway's token when one is configured
+# (MUNIN_GATEWAY_TOKEN); see gateway_token_guard.py.
+from gateway_token_guard import GatewayTokenGuard  # noqa: E402
+app.add_middleware(GatewayTokenGuard)
+
 # Include MCP router
 app.include_router(mcp_router)
 

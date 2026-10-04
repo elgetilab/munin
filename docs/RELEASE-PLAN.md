@@ -266,6 +266,30 @@ nothing; a frontend deploy, then login and the admin panel, work in production.
 job runs per mode; a split install on two VMs completes a login and a chat
 turn over the tunnel.
 
+**Phase 3 design (2026-10-04).** Item 3 landed in Phase 2.
+
+- `BACKEND_URL` is the one address the frontend uses for the backend: the
+  gateway, the upload hook's ingest call and Caddy's `/paper/*` proxy.
+  `CLUSTER_TUNNEL` stays as an alias. Default `http://127.0.0.1:18080`, the
+  tunnel's VPS end, so the reference VPS needs nothing.
+- `MUNIN_GATEWAY_TOKEN` is the shared secret. When set, retrieval answers 401
+  to any request that carries a forwarded identity header (`X-Munin-Email`,
+  `-Role`, `-Group`, `-Name`) without the matching `X-Munin-Gateway-Token`; the
+  gateway and Caddy send it. Unset means today's behaviour, so the reference
+  deployment is unchanged until both sides are given one, and the cluster-side
+  scripts that call retrieval directly with an identity header keep working.
+  `configure.sh` generates it for every new install. It protects against a
+  misconfigured bind; the transport must still be private.
+- Modes are written by `scripts/configure.sh`: `COMPOSE_FILE`,
+  `COMPOSE_PROFILES` and absolute source paths for the chosen mode, every
+  secret generated, the admin address put into the whitelist seed, and for a
+  split install the tokens the other side needs printed as one block (and read
+  back with `--peer-env`).
+- The tunnel gets a `tunnel` compose profile: a small autossh container that
+  dials the VPS and forwards its `127.0.0.1:18080` to `retrieval:8080`, for
+  hosts where installing a systemd unit is not an option. The reference
+  deployment keeps its systemd unit.
+
 ### Phase 4: build reproducibility
 
 1. Pin every third-party image to a version (and record the digest in a

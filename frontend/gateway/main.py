@@ -67,7 +67,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("api-gateway")
 
 app = FastAPI(docs_url=None, redoc_url=None)
-http_client = httpx.AsyncClient(base_url=CLUSTER_TUNNEL, timeout=300.0)
+# Shared secret the backend checks on every request that carries a forwarded
+# identity header (backend/retrieval/gateway_token_guard.py). Unset: not sent.
+MUNIN_GATEWAY_TOKEN = os.environ.get("MUNIN_GATEWAY_TOKEN", "").strip()
+http_client = httpx.AsyncClient(
+    base_url=CLUSTER_TUNNEL, timeout=300.0,
+    headers={"X-Munin-Gateway-Token": MUNIN_GATEWAY_TOKEN} if MUNIN_GATEWAY_TOKEN else None,
+)
 
 # Requests-per-minute and concurrent-request limits were REMOVED 2026-08-25.
 # They existed because vLLM served only --max-num-seqs 2, so a single scripted
