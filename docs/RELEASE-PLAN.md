@@ -335,6 +335,15 @@ dependency versions.
 3. Remove stale content (SPECTER2, MiroThinker, `deepresearch-daemon`, "three
    files").
 
+> **Phase 5 DONE 2026-10-04** (9862b46 and after). `INSTALL.md` plus
+> `docs/install/tunnel.md` and `docs/install/reference-deployment.md`; the
+> SETUP files and the old tunnel runbook archived with stubs; READMEs, the
+> cluster template, bootstrap's closing steps and the webui notes corrected
+> against the code. Writing the guide turned up three gaps, fixed: upload
+> directories root-owned on a fresh install (tusd needs uid 1000), no
+> configurable retrieval bind address for the VPN option
+> (`RETRIEVAL_BIND_ADDR`), and bootstrap's tunnel key allowed any listen port.
+
 ### Phase 6: verification and release
 
 1. Clean VM per mode, following only INSTALL.md, ideally by someone outside
