@@ -10,7 +10,7 @@
 # never reaches this container directly.
 # ==============================================================================
 
-FROM python:3.11-slim
+FROM python:3.11.14-slim
 
 WORKDIR /app
 
@@ -53,8 +53,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install the pre-baked package set the kernels will see.
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt constraints.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
 # Drop build deps once the wheels are installed - shaves ~300 MB from the
 # final image and removes a meaningful chunk of attack surface inside the

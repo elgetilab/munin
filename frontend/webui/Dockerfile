@@ -15,7 +15,7 @@
 # host filesystem and expects the chat build to sit alongside the other UIs.
 # ==============================================================================
 
-FROM node:22-alpine AS build
+FROM node:22.23.3-alpine AS build
 
 WORKDIR /app
 
@@ -39,7 +39,7 @@ ARG VITE_API_PUBLIC_URL
 RUN npm run build -- --outDir /dist --emptyOutDir
 
 # ==============================================================================
-FROM alpine:3.20
+FROM alpine:3.20.10
 
 COPY --from=build /dist /dist
 

@@ -740,7 +740,8 @@ deploy_pipeline() {
             python3 -m venv "$PIPELINE_VENV"
         fi
         if "$PIPELINE_VENV/bin/python3" -m pip install --quiet --upgrade \
-                -r "$REPO_DIR/scripts/pipeline/requirements.txt"; then
+                -r "$REPO_DIR/scripts/pipeline/requirements.txt" \
+                -c "$REPO_DIR/scripts/pipeline/constraints.txt"; then
             echo "[OK] pipeline — deps installed into $PIPELINE_VENV"
         else
             echo "[WARN] pipeline — pip install into venv failed; install manually:"
@@ -819,7 +820,8 @@ deploy_knowledge() {
             python3 -m venv "$KNOWLEDGE_VENV"
         fi
         if "$KNOWLEDGE_VENV/bin/python3" -m pip install --quiet --upgrade \
-                -r "$REPO_DIR/scripts/knowledge/requirements.txt"; then
+                -r "$REPO_DIR/scripts/knowledge/requirements.txt" \
+                -c "$REPO_DIR/scripts/knowledge/constraints.txt"; then
             echo "[OK] knowledge — deps installed into $KNOWLEDGE_VENV"
         else
             echo "[WARN] knowledge — pip install into venv failed; install manually:"

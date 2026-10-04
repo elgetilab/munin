@@ -1,0 +1,36 @@
+# Exact versions the reference deployment runs (the knowledge venv on the cluster, 2026-10-04), applied with
+# `pip install -r requirements.txt -c constraints.txt`. requirements.txt says
+# what is needed; this says which versions. Regenerate from the running image
+# (`pip freeze`) when you deliberately upgrade, and commit both together.
+annotated-types==0.7.0
+anyio==4.13.0
+certifi==2026.2.25
+charset-normalizer==3.4.7
+grpcio==1.80.0
+h11==0.16.0
+h2==4.3.0
+hdbscan==0.8.43
+hpack==4.1.0
+httpcore==1.0.9
+httpx==0.28.1
+hyperframe==6.1.0
+idna==3.11
+joblib==1.5.3
+llvmlite==0.47.0
+numba==0.65.0
+numpy==2.4.6
+portalocker==3.2.0
+protobuf==7.34.1
+pydantic==2.13.2
+pydantic_core==2.46.2
+pynndescent==0.6.0
+qdrant-client==1.18.0
+requests==2.34.2
+scikit-learn==1.8.0
+scipy==1.17.1
+threadpoolctl==3.6.0
+tqdm==4.67.3
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+umap-learn==0.5.12
+urllib3==2.6.3
