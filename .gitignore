@@ -38,6 +38,8 @@ Thumbs.db
 # --- Secrets / local config ---
 .env
 .env.local
+# configure.sh backs up a replaced .env next to it; secrets.
+.env.bak-*
 *.env
 !*.env.template
 !*.env.example
