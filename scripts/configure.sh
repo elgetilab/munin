@@ -35,6 +35,7 @@ PEER_FILE="$ROOT/munin-peer.env"
 
 MODE="" DOMAIN="" ADMIN_EMAIL="" LLM_URL="" LLM_MODEL="" CLUSTER_NAME=""
 CONTACT_EMAIL="" PEER_ENV="" VPS_HOST="" BACKEND_URL="" FORCE=0 INTERACTIVE=1
+UPLOADS_DIR=""
 SMTP_HOST="" SMTP_PORT="587" SMTP_USERNAME="" SMTP_PASSWORD="" SMTP_SENDER=""
 
 usage() { sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
@@ -52,6 +53,7 @@ while [ $# -gt 0 ]; do
         --peer-env) PEER_ENV=$2; shift 2 ;;
         --vps-host) VPS_HOST=$2; shift 2 ;;
         --backend-url) BACKEND_URL=$2; shift 2 ;;
+        --uploads-dir) UPLOADS_DIR=$2; shift 2 ;;
         --smtp-host) SMTP_HOST=$2; shift 2 ;;
         --smtp-port) SMTP_PORT=$2; shift 2 ;;
         --smtp-user) SMTP_USERNAME=$2; shift 2 ;;
@@ -171,6 +173,17 @@ seed shared/config/contributors.yml || true
 # The chat UI is built into this directory (webui profile). Create it as you,
 # or Docker creates it as root when it bind-mounts it.
 [ "$MODE" = backend ] || mkdir -p "$ROOT/frontend/static/chat"
+# Uploads: tusd runs as uid 1000 and writes staging/. A directory Docker
+# creates for it is root's, and every upload then fails.
+UPLOADS_DIR=${UPLOADS_DIR:-$ROOT/.runtime/uploads}
+if [ "$MODE" != backend ]; then
+    mkdir -p "$UPLOADS_DIR/staging" "$UPLOADS_DIR/complete" 2>/dev/null \
+        || echo "  could not create $UPLOADS_DIR (run: sudo mkdir -p $UPLOADS_DIR/{staging,complete})"
+    if [ "$(stat -c %u "$UPLOADS_DIR/staging" 2>/dev/null)" != 1000 ]; then
+        echo "  NOTE: uploads need uid 1000 (tusd) to own $UPLOADS_DIR:"
+        echo "        sudo chown -R 1000:1000 $UPLOADS_DIR"
+    fi
+fi
 
 # ------------------------------------------------------------------------------
 # Compose files, profiles and paths for the mode. Paths are absolute, so it
@@ -256,7 +269,7 @@ cat <<EOF
 # ---- frontend ----------------------------------------------------------------
 MUNIN_FRONTEND_SRC=$F
 MUNIN_SHARED_SRC=$ROOT/shared
-MUNIN_UPLOADS_DIR=$RT/uploads
+MUNIN_UPLOADS_DIR=$UPLOADS_DIR
 AUTH_SECRET_KEY=$(secret)
 ADMIN_EMAILS=$ADMIN_EMAIL
 EOF
@@ -323,7 +336,7 @@ case "$MODE:$LOCAL" in
         echo "  docker compose up -d --build"
         if [ -n "$VPS_HOST" ]; then
             echo "  on the VPS, append this line to the tunnel user's ~/.ssh/authorized_keys:"
-            echo "    restrict,port-forwarding,permitlisten=\"127.0.0.1:18080\" $(cat "$TUNNEL_KEY.pub")"
+            echo "    restrict,port-forwarding,permitlisten=\"127.0.0.1:18080\",command=\"/bin/false\" $(cat "$TUNNEL_KEY.pub")"
         else
             echo "  the frontend reaches retrieval on 127.0.0.1:8080 of this machine: give it a"
             echo "  private path (re-run with --vps-host for the reverse SSH tunnel)"
