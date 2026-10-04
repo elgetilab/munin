@@ -839,7 +839,7 @@ deploy_knowledge() {
 
     run "systemctl enable munin-embedding-map.timer"
     run "systemctl restart munin-embedding-map.timer"
-    echo "[OK] knowledge — nightly timer enabled (03:00 local)"
+    echo "[OK] knowledge — nightly timer enabled (01:30 local, see munin-embedding-map.timer)"
     echo "      First run manually with:  systemctl start munin-embedding-map.service"
     echo "      Watch progress with:       journalctl -fu munin-embedding-map.service"
 }

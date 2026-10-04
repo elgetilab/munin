@@ -3,11 +3,15 @@
 Cluster-side of the [Munin](https://muninai.org) AI research
 monorepo. Everything that runs on the SLURM cluster: vLLM,
 retrieval API, MCP tooling, knowledge bases (Qdrant, Neo4j),
-paper pipeline, deep research daemon, agentic orchestration.
+paper pipeline, in-process Deep Research, agentic orchestration.
 
-For first-time setup on a new cluster, follow the top-level
-[SETUP-CLUSTER.md](../SETUP-CLUSTER.md). This README is the
-operating reference once the deploy is in place.
+To install Munin, start at the top-level [INSTALL.md](../INSTALL.md)
+(`scripts/configure.sh --mode backend` plus `docker compose`). The
+reference deployment (muninai.org on a SLURM cluster named `hugin`)
+is walked through in
+[`docs/install/reference-deployment.md`](../docs/install/reference-deployment.md).
+This README is the internals and operations reference for that
+deployment and for developers.
 
 VPS-side code is in `../frontend/`; cross-cut artifacts in
 `../shared/`. See the top-level `README.md` for monorepo rules.
@@ -21,32 +25,48 @@ VPS-side code is in `../frontend/`; cross-cut artifacts in
 | **Neo4j** | 7474/7687 | Citation graph |
 | **GROBID** | 8070 | PDF parsing (Crossref polite-pool configured) |
 | **SearXNG** | 8888 | Web search |
-| **vLLM** | 8000 | LLM inference (GPU 1, SLURM job, scheduled 6am to 2am) |
+| **vLLM** | 8000 | LLM inference (SLURM job on the reference cluster, scheduled 6am to 2am) |
 | **Sandbox** | internal | Jupyter-kernel sidecar for `run_python` tool |
+| **Prometheus** | 9090 | Metrics, read by the admin Metrics tab (`monitoring` profile) |
 
-The retrieval API is the only externally reachable piece. It is
-exposed to the VPS over an autossh reverse tunnel
-(`config/munin-tunnel.service`) on port 18080. Everything else is
-bound to `127.0.0.1`.
+The retrieval API is the only piece the frontend talks to. On the
+reference deployment it is exposed to the VPS over an autossh reverse
+tunnel (`config/munin-tunnel.service`) on port 18080; hosts that
+cannot install a systemd unit can use the compose `tunnel` profile
+(an autossh container doing the same thing). The tunnel recipe is in
+[`docs/install/tunnel.md`](../docs/install/tunnel.md). Every port is
+bound to `127.0.0.1` (retrieval's is configurable with
+`RETRIEVAL_BIND_ADDR`). If retrieval is reachable by anything other
+than the gateway, set the same `MUNIN_GATEWAY_TOKEN` on both sides:
+requests carrying identity headers without it are refused
+(`retrieval/gateway_token_guard.py`).
+
+On a single host without SLURM, vLLM is either an external
+OpenAI-compatible endpoint (`LLM_BASE_URL`) or the compose `vllm`
+service (`gpu` profile).
 
 ## Cluster GPU layout
 
-The hugin node has 2x RTX 5090 (32 GB each). Both GPUs are exposed
-two ways via SLURM (config lives in `HuginSLURM/config/gres.conf` (HuginSLURM, not public)):
+This section describes the reference cluster only. The hugin node
+has 2x RTX 5090 (32 GB each). Both GPUs are exposed two ways via SLURM
+(config lives in `HuginSLURM/config/gres.conf` (HuginSLURM, not public)):
 
 | Resource         | What it grants                                     | Who uses it (munin) |
 |------------------|----------------------------------------------------|---------------------|
-| `gpu:batch:1`    | Whole GPU 0                                        | deepresearch SLURM job (30B MiroThinker) |
-| `gpu:vllm:1`     | Whole GPU 1                                        | vLLM service (35B-A3B, 6am to 2am) |
+| `gpu:vllm:1`     | Whole GPU 1                                        | vLLM, `single` profile (`start-vllm-service.sh`) |
+| `gpu:vllm:1,gpu:batch:1` | Both GPUs                                  | vLLM, `tp2` profile (`start-vllm-service-tp2.sh`, production) |
+| `gpu:batch:1`    | Whole GPU 0                                        | free for batch jobs while vLLM runs `single` |
 | `shard:N`        | N/8 of any free GPU (~4 GB VRAM per shard)         | (unused, available for future ephemeral jobs) |
 | `shard:batch:N`  | N/8 of GPU 0 specifically                          | (unused) |
 | `shard:vllm:N`   | N/8 of GPU 1 specifically (only when vLLM is down) | (unused) |
 
-SLURM refuses to mix whole-GPU and shard allocations on the same
-physical GPU. While vLLM holds GPU 1 (typical 6am to 2am window), the
-8 `shard:vllm` slots are blocked; shard jobs land on GPU 0 instead.
-Partitions: `vllm-serving` (this service), `llm-batch` (deepresearch),
-`standard` / `quickdirty` / `gputraining` (users).
+Production runs `qwen3.8-27b` on the `tp2` profile (tensor parallel
+across both GPUs), so between 6am and 2am no GPU is free. SLURM
+refuses to mix whole-GPU and shard allocations on the same physical
+GPU, so shard jobs only fit when vLLM is down or on `single` (then on
+GPU 0). The profile is chosen with `vllm-service start single|tp2`
+and persists, so the 6am cron restores it. Partitions: `vllm-serving`
+(vLLM), `standard` / `quickdirty` / `gputraining` (users).
 
 ## Architecture
 
@@ -60,16 +80,24 @@ Retrieval Service (FastAPI, :8080) ← CENTRAL API
     ├── SearXNG (:8888)      web search
     ├── GROBID (:8070)       PDF parsing
     ├── SQLite               chat persistence
-    └── vLLM (:8000)         LLM inference (GPU 1, SLURM job)
+    ├── Sandbox              run_python kernels (internal network only)
+    └── vLLM (:8000)         LLM inference (SLURM job)
 
-Deep Research Daemon (systemd) → SLURM jobs on GPU 0
+Deep Research runs inside the retrieval service (/api/research/*).
+Paper pipeline, detect sweep, reattribution and the embedding map
+run as systemd units on the host (compose `pipeline` profile on a
+single host).
 ```
 
 ## Repository Structure
 
 This is the layout of the `backend/` directory. Persona definitions
 and the contributor allowlist are cross-cut and live in
-`../shared/` (the deploy script propagates them).
+`../shared/` (the deploy script propagates them). The allowlist
+itself, `shared/config/contributors.yml`, is gitignored: copy it from
+`contributors.yml.example` (`scripts/configure.sh` does this).
+Every Python image and venv installs against the `constraints.txt`
+next to its `requirements.txt`, frozen from the reference deployment.
 
 ```
 backend/
@@ -77,15 +105,23 @@ backend/
 ├── DESIGN.md                 # Original design intent (mostly historical)
 ├── deploy.sh
 ├── config/
-│   ├── munin.env.template
+│   ├── munin.env.template    # cluster.env keys, with what each one means
 │   ├── agents.yml            # Agent registry
-│   ├── deepresearch-daemon.service
+│   ├── faq.yml               # Curated answers for the faq tool
+│   ├── models/               # One <slug>.env per backbone (see models/README.md)
+│   ├── sudoers.d/            # Operator sudoers template (deploy.sh sudoers)
 │   ├── munin-tunnel.service
-│   ├── munin-paper-pipeline.service
-│   └── munin-paper-cleanup.{service,timer}
+│   ├── munin-paper-pipeline.service        # upload watcher
+│   ├── munin-paper-detect.service          # continuous detect sweep
+│   ├── munin-paper-reattribute.{service,timer}  # 04:30 attribution backfill
+│   ├── munin-embedding-map.{service,timer} # nightly knowledge map
+│   ├── munin-vllm-health.{service,timer}   # hourly vLLM health check
+│   └── deepresearch-daemon.service         # LEGACY (deploy.sh deepresearch only)
 ├── docker/
-│   ├── docker-compose.yml    # Qdrant, Neo4j, GROBID, SearXNG, retrieval, sandbox
+│   ├── docker-compose.yml    # Qdrant, Neo4j, GROBID, SearXNG, retrieval, sandbox,
+│   │                         #   plus profiles gpu, pipeline, seed, monitoring, tunnel
 │   ├── grobid/grobid.yaml    # Crossref polite-pool mailto override
+│   ├── prometheus/prometheus.yml
 │   └── searxng/settings.yml
 ├── retrieval/                # THE MAIN API SERVICE
 │   ├── main.py               # FastAPI, all routes
@@ -99,16 +135,22 @@ backend/
 │   ├── vllm_client.py        # Transport-retry wrapper for vLLM calls
 │   │                         #   (vllm_post_json / vllm_post_stream)
 │   ├── usage_tracker.py      # Per-purpose token aggregation (ContextVar)
-│   ├── Dockerfile, requirements.txt
+│   ├── deep_research_manager.py  # In-process Deep Research (/api/research/*)
+│   ├── site_config.py        # Public URLs + instance name, derived from MUNIN_DOMAIN
+│   ├── gateway_token_guard.py    # MUNIN_GATEWAY_TOKEN check on identity headers
+│   ├── Dockerfile, requirements.txt, constraints.txt
 │   ├── mcp/                  # MCP server (schemas, executor with input
-│   │                         #   validation, tools/{web,papers,llm,agents}.py)
+│   │                         #   validation, dispatchers, tools/*.py)
 │   ├── agents/               # Agentic orchestration (registry, executor, parallel)
 │   └── tests/
 ├── sandbox/                  # Jupyter-kernel sandbox sidecar (run_python tool)
 ├── scripts/
-│   ├── vllm/                 # start-vllm-service.sh, schedule-vllm.sh
-│   ├── deepresearch/         # daemon + SLURM job
+│   ├── vllm/                 # start-vllm-service{,-tp2}.sh, schedule-vllm.sh,
+│   │                         #   model-env.sh, check-vllm-health.sh
+│   ├── maintenance/          # maintenance.sh (munin-maintenance)
+│   ├── deepresearch/         # LEGACY MiroThinker daemon + SLURM job
 │   ├── knowledge/            # build_embedding_map.py
+│   ├── seed/                 # seed_corpus.py (compose `seed` profile)
 │   └── pipeline/             # paper_pipeline.py, paper_cleanup.py,
 │                             #   paper_crawler.py. INGEST.md is the
 │                             #   operator entry point for this dir.
@@ -123,8 +165,13 @@ The canonical API contract lives at
 
 After `deploy.sh all`, expect:
 
-- `/opt/munin/config/munin.env`: secrets (symlinked from `/opt/hugin/config/cluster.env`).
-- `/opt/munin/docker/`: installed compose file + grobid override.
+- `/opt/hugin/config/cluster.env`: secrets and settings (see
+  `config/munin.env.template`). `/opt/munin/docker/.env` is a symlink
+  to it.
+- `/opt/munin/config/`: `agents.yml`, `faq.yml`, `models/` (profile
+  copies) and `active-model.env` (the active backbone).
+- `/opt/munin/docker/`: installed compose file + grobid and
+  Prometheus config.
 - `/opt/munin/services/retrieval/`: deployed retrieval source.
 - `/opt/munin/knowledge/qdrant_storage/`: Qdrant data.
 - `/opt/munin/knowledge/neo4j_data/`: Neo4j data.
@@ -140,39 +187,66 @@ After `deploy.sh all`, expect:
   source-extraction records.
 - `/opt/munin/deepresearch/`: LEGACY MiroThinker job queue + results,
   kept so old reports stay downloadable.
-- `/opt/munin/logs/`: service status files.
+- `/opt/munin/logs/`: service status files and vLLM job logs
+  (`vllm-service-<jobid>.{out,err}`).
 
-The `/opt/hugin/...` path is hardcoded in `deploy.sh` from the
-reference cluster (named `hugin`). If your cluster uses a different
-layout, edit `deploy.sh` to match.
+The env file path comes from the reference cluster (named `hugin`).
+For another layout, override it per run:
+`sudo HUGIN_ENV=/etc/munin/cluster.env ./deploy.sh all`.
 
 ## Deployment
 
+`deploy.sh` is the reference deployment's installer (systemd units,
+SLURM scripts, `/opt` layout). A plain Docker install does not use
+it; see [INSTALL.md](../INSTALL.md).
+
 Runs directly on the cluster head. Targets:
-`/opt/munin/`, `/opt/cluster/scripts/llm/`,
+`/opt/munin/`, `/opt/cluster/scripts/`,
 `/etc/systemd/system/`. Prepend any mode with `--dry-run` to see
-what would change.
+what would change (`sudo ./deploy.sh --dry-run all`).
 
 ```bash
 sudo ./deploy.sh all            # Full deploy: dirs → compose → personas →
-                                #   agents → models → vllm → tunnel →
-                                #   sandbox → retrieval (rebuilds both
-                                #   containers)
-sudo ./deploy.sh sandbox        # Sync sandbox/, rebuild + restart sandbox container
-sudo ./deploy.sh retrieval      # Sync retrieval/, rebuild + restart container
+                                #   agents → models → vllm → maintenance →
+                                #   tunnel → knowledge → pipeline → searxng →
+                                #   sandbox → retrieval (ends in verify)
+sudo ./deploy.sh dirs           # Create filesystem layout (idempotent)
 sudo ./deploy.sh compose        # docker-compose.yml + grobid.yaml only (no restart)
 sudo ./deploy.sh personas       # Persona JSON + logos (mounted; no restart)
-sudo ./deploy.sh agents         # config/agents.yml + munin.env.template
+sudo ./deploy.sh agents         # agents.yml, faq.yml, munin.env.template; seeds contributors.yml
 sudo ./deploy.sh models         # Stage embedding models (downloads bge-large)
-sudo ./deploy.sh vllm           # vLLM SLURM + cron scripts → /opt/cluster/scripts/llm/
+sudo ./deploy.sh vllm           # vLLM SLURM scripts, model profiles, health timer
+sudo ./deploy.sh model ...      # Backbone status / validate / activate (below)
+sudo ./deploy.sh maintenance    # Install the munin-maintenance toggle
+sudo ./deploy.sh tunnel         # Render + install munin-tunnel.service, restart it
+sudo ./deploy.sh knowledge      # Embedding-map script, venv, nightly timer
+sudo ./deploy.sh pipeline       # Pipeline scripts, venv, paper-* units
+sudo ./deploy.sh searxng        # settings.yml, restart searxng
+sudo ./deploy.sh sandbox        # Sync sandbox/, rebuild + restart sandbox container
+sudo ./deploy.sh retrieval      # Sync retrieval/, rebuild + restart container, then verify
+sudo ./deploy.sh verify         # Smoke-test retrieval endpoints + paper encoder pair
+sudo ./deploy.sh monitoring     # Prometheus config + container (not in `all`)
+sudo ./deploy.sh instance ...   # Side-by-side backbone instances (up/down/gates/ls)
+sudo MUNIN_OPERATOR=<login> ./deploy.sh sudoers  # Operator sudoers drop-in (not in `all`)
 sudo ./deploy.sh deepresearch   # LEGACY MiroThinker path (disabled; not in `all`)
-sudo ./deploy.sh tunnel         # munin-tunnel.service install + restart
-sudo ./deploy.sh dirs           # Create filesystem layout (idempotent)
 ```
 
 Notes:
+- **Required env**: `all`, `compose`, `retrieval` and the other
+  container modes refuse to run unless `cluster.env` sets
+  `MUNIN_DOMAIN`, `MUNIN_CLUSTER_NAME`, `NEO4J_PASSWORD` and
+  `SEARXNG_SECRET`. `tunnel` (and therefore `all`) also needs
+  `MUNIN_VPS_HOST`.
+- **Not started by `all`**: GROBID is not a dependency of retrieval,
+  so a fresh cluster needs `docker compose up -d grobid` once in
+  `/opt/munin/docker`; Prometheus comes up with `deploy.sh monitoring`.
+- **Model**: the SLURM scripts refuse to start until a backbone is
+  active. On a fresh cluster run
+  `sudo ./deploy.sh model activate qwen3.8-27b` (see below).
 - **vLLM**: `deploy vllm` only stages the scripts. Cut over with
-  `sudo vllm-service stop && sudo vllm-service start`.
+  `sudo vllm-service stop && sudo vllm-service start`. For round the
+  clock serving use `sudo vllm-service enable-24x7` (undo with
+  `disable-24x7`).
 - **Env vars**: `/opt/munin/docker/.env` is a symlink to
   `/opt/hugin/config/cluster.env`, which Docker Compose auto-loads.
   Which variables actually reach the container, and which only have
@@ -185,6 +259,10 @@ Notes:
   retrieval and needs no deploy step of its own. `deploy deepresearch`
   provisions the retired MiroThinker daemon only, is excluded from
   `all`, and downloads the 17 GB weights solely with `--with-model`.
+- **Paper detect**: `munin-paper-detect.service` runs
+  `paper_cleanup.py sweep --no-quarantine` (detection only) until the
+  DOI filename repair (`scripts/pipeline/repair_doi_filenames.py`) has
+  been applied; drop the flag after that.
 
 ## Common Tasks
 
@@ -237,21 +315,26 @@ backbone beside production instead of swapping.
 
 ### Add MCP tool
 1. Implement in `retrieval/mcp/tools/*.py`.
-2. Register in `retrieval/mcp/schemas.py`.
-3. Map in `retrieval/mcp/executor.py`.
+2. Declare its schema in `retrieval/mcp/schemas.py`.
+3. Add a dispatcher with `@register_tool("<name>")` in
+   `retrieval/mcp/dispatchers.py`. Startup fails if a schema and a
+   dispatcher do not pair up.
 4. Redeploy retrieval.
 
-### Add persona
-1. Create `../shared/personas/<id>.json`.
-2. Optionally add `../shared/personas/logos/<name>-<id>-inverted.svg`.
-3. `sudo ./deploy.sh personas` rsyncs into `/opt/munin/personas/`.
-   No container restart needed; retrieval reads the directory at
-   request time.
+### Personas (router profiles)
+`/api/personas` returns a single user-facing identity, "Munin". The
+three files in `../shared/personas/` (`chat`, `code`, `research`) are
+internal profiles the router picks per turn; users can force one for
+a turn with `/chat`, `/code` or `/research`. A new JSON file there
+does not appear in the UI. To change a profile's prompt or tools,
+edit its JSON and run `sudo ./deploy.sh personas`, which installs into
+`/opt/munin/personas/`. No container restart needed; retrieval reads
+the directory at request time.
 
 ### Maintenance mode
 
 Use this when Munin needs to go down deliberately (e.g. freeing the
-GPU for other experiments) — as opposed to the nightly 2-6 AM sleep.
+GPU for other experiments), as opposed to the nightly 2-6 AM sleep.
 Installed by `sudo ./deploy.sh maintenance` (or `deploy.sh all`),
 which puts the toggle on `PATH` as `munin-maintenance`.
 
@@ -263,22 +346,25 @@ sudo munin-maintenance off
 
 `on` (the message argument is optional):
 - writes the flag file `/opt/munin/data/maintenance.json`, which
-  `/api/status` reports — the chat UI then shows a maintenance screen
+  `/api/status` reports: the chat UI then shows a maintenance screen
   with your message instead of the "resting" sleeping page, and the
-  static page at `chat.muninai.org/maintenance` shows the same;
+  static page at `chat.<domain>/maintenance` shows the same;
 - disables the vLLM start/stop cron so vLLM does not auto-boot, and
   stops a running vLLM job;
-- stops the Deep Research (MiroThinker) daemon so no new jobs launch
-  — jobs already on SLURM are left to finish.
+- places the vLLM health check's hold file, so
+  `munin-vllm-health.timer` does not restart vLLM;
+- makes `/api/research/start` refuse new Deep Research jobs. Deep
+  Research runs in-process against vLLM, so a job already running
+  fails at its next model call.
 
-`off` removes the flag, restores the normal 6am/2am vLLM schedule
-(run `sudo vllm-service start` if you want it up immediately, or
-`sudo vllm-service enable-24x7` if you were running 24/7), and
-restarts the Deep Research daemon.
+`off` removes the flag and its own hold file, and restores the normal
+6am/2am vLLM schedule (run `sudo vllm-service start` if you want it
+up immediately, or `sudo vllm-service enable-24x7` if you were
+running 24/7).
 
 The flag file is the single source of truth; both the React chat app
 and the static page read it via `/api/status`. No deploy or container
-restart is needed to toggle — the flag takes effect on the next
+restart is needed to toggle: the flag takes effect on the next
 `/api/status` poll (~60s in the UI).
 
 ## Related
