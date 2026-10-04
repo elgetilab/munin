@@ -136,29 +136,22 @@ jobs:
                       /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
           df -h /
 
-      - name: Configure for a single host
+      - name: Configure for a single host (scripts/configure.sh, as a user would)
         run: |
-          cp .env.example .env
-          cp frontend/auth/whitelist.csv.example frontend/auth/whitelist.csv
-          cp shared/config/contributors.yml.example shared/config/contributors.yml
-          cp frontend/config/quotas.yml.example frontend/config/quotas.yml
           # No GPU and no model on a CI runner: point at the stub on the host.
           # Port 8001, NOT the compose default 8000: on the default port this
           # job passed even while LLM_BASE_URL never reached the container.
-          sed -i 's|^LLM_BASE_URL=.*|LLM_BASE_URL=http://host.docker.internal:8001|' .env
-          # Only what the smoke needs. Pipeline/webui/seed/monitoring are
-          # exercised by the compose job's config check, not booted here.
+          scripts/configure.sh --non-interactive --mode all --domain localhost \
+            --admin-email ci@example.org \
+            --llm-url http://host.docker.internal:8001 --llm-model stub
+          # Only what the smoke needs. The other profiles and modes are
+          # resolved by the compose job, not booted here.
           sed -i 's|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=rag|' .env
           sed -i 's|^COMPOSE_FILE=.*|COMPOSE_FILE=backend/docker/docker-compose.yml|' .env
-          # The sandbox's cpu quota is sized for the cluster (8 cores). The
-          # daemon refuses to create a container asking for more cores than
-          # the host has, so size it to this runner instead of pinning a
-          # number that a future runner resize could invalidate again.
-          echo "SANDBOX_CPUS=$(nproc)" >> .env
 
       - name: Start the stub LLM
         run: |
-          nohup python3 backend/scripts/ci/stub_llm.py --port 8001 \
+          nohup python3 backend/scripts/ci/stub_llm.py --port 8001 --model stub \
             > /tmp/stub-llm.log 2>&1 &
           for i in $(seq 1 20); do
             curl -sf http://127.0.0.1:8001/v1/models >/dev/null && break

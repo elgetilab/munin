@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -83,6 +84,89 @@ def sources(cfg: dict) -> list:
         if isinstance(b, dict) and b.get("context"):
             out.append(b["context"])
     return out
+
+
+MODES = {
+    "all (laptop)": ["--mode", "all", "--domain", "localhost",
+                     "--llm-url", "http://host.docker.internal:11434", "--llm-model", "m"],
+    "all (server)": ["--mode", "all", "--domain", "lab.example.edu",
+                     "--llm-url", "http://gpu:8000", "--llm-model", "m",
+                     "--smtp-host", "smtp.example.edu"],
+    "backend": ["--mode", "backend", "--domain", "lab.example.edu",
+                "--llm-url", "http://gpu:8000", "--llm-model", "m",
+                "--vps-host", "vps.lab.example.edu"],
+    "frontend": ["--mode", "frontend", "--domain", "lab.example.edu",
+                 "--smtp-host", "smtp.example.edu"],
+}
+EXPECT = {  # services each mode must bring up, and ones it must not
+    "all (laptop)": ({"retrieval", "caddy", "munin-auth", "webui-build"}, set()),
+    "all (server)": ({"retrieval", "caddy", "munin-auth"}, set()),
+    "backend": ({"retrieval", "qdrant", "tunnel"}, {"caddy", "munin-auth"}),
+    "frontend": ({"caddy", "munin-auth", "api-gateway"}, {"retrieval", "qdrant"}),
+}
+SHARED = ("ADMIN_INGEST_TOKEN", "KB_GATE_TOKEN", "CONTRIBUTORS_SYNC_TOKEN",
+          "MUNIN_GATEWAY_TOKEN")
+
+
+def _env_values(path: str) -> dict:
+    out = {}
+    for line in open(path):
+        if "=" in line and not line.lstrip().startswith("#"):
+            k, v = line.rstrip("\n").split("=", 1)
+            out[k] = v
+    return out
+
+
+def check_modes(root: str) -> None:
+    """Run configure.sh for each mode in a copy of the tracked tree (so
+    gitignored local files cannot hide a missing one), then resolve it."""
+    files = subprocess.run(["git", "ls-files"], cwd=root, capture_output=True,
+                           text=True).stdout.split()
+    files.append("scripts/configure.sh")
+    peer = None
+    scratch = tempfile.mkdtemp(prefix="munin-modes-")
+    try:
+        _check_modes(root, files, scratch)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def _check_modes(root: str, files: list, scratch: str) -> None:
+    peer = None
+    for name, args in MODES.items():
+        work = tempfile.mkdtemp(prefix="mode-", dir=scratch)
+        subprocess.run(["rsync", "-a", "--files-from=-", root + "/", work + "/"],
+                       input="\n".join(files), text=True, check=True)
+        extra = ["--peer-env", peer] if name == "frontend" and peer else []
+        r = subprocess.run(["bash", "scripts/configure.sh", "--non-interactive",
+                            "--admin-email", "me@lab.example.edu", *args, *extra],
+                           cwd=work, capture_output=True, text=True)
+        if r.returncode != 0:
+            check(f"{name}: configure.sh succeeds", False, r.stderr[-300:])
+            continue
+        if name == "backend":
+            peer = os.path.join(scratch, "peer.env")
+            subprocess.run(["cp", os.path.join(work, "munin-peer.env"), peer], check=True)
+        c = subprocess.run(["docker", "compose", "config", "--format", "json"],
+                           cwd=work, capture_output=True, text=True)
+        if c.returncode != 0:
+            check(f"{name}: the written .env resolves", False, c.stderr[-300:])
+            continue
+        cfg = json.loads(c.stdout)
+        svcs = set(cfg["services"])
+        need, avoid = EXPECT[name]
+        missing = [s for s in sources(cfg)
+                   if s.startswith(work) and not s.startswith(work + "/.runtime")
+                   and not os.path.exists(s)]
+        check(f"{name}: resolves, right services, every mounted file present",
+              need <= svcs and not (avoid & svcs) and not missing
+              and "muninai" not in c.stdout,
+              f"services {sorted(svcs)}, missing {missing[:3]}")
+        if name == "frontend" and peer:
+            a = _env_values(peer)
+            b = _env_values(os.path.join(work, ".env"))
+            check("split install: both halves share the same tokens",
+                  all(a.get(k) and a.get(k) == b.get(k) for k in SHARED))
 
 
 def main() -> int:
@@ -253,6 +337,10 @@ def main() -> int:
                       if isinstance(c, str) and "Caddyfile" in c), None)
     check("defaults to the production Caddyfile",
           caddyfile == "/etc/caddy/Caddyfile", f"got {caddyfile!r}")
+
+    # --- 7. scripts/configure.sh, every mode, from a fresh copy -------------
+    print("\ninstall modes (scripts/configure.sh in a fresh copy of the tree)")
+    check_modes(root)
 
     print(f"\n{checks - len(failures)}/{checks} checks passed")
     if failures:
