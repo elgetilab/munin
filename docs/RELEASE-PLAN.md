@@ -290,6 +290,16 @@ turn over the tunnel.
   hosts where installing a systemd unit is not an option. The reference
   deployment keeps its systemd unit.
 
+> **Phase 3 DONE 2026-10-04** (336847c, 2e0ec3f, 8ea7a6b, 1bb0841), not
+> deployed (nothing in it changes the reference deployment: `BACKEND_URL` and
+> `MUNIN_GATEWAY_TOKEN` default to today's behaviour, verified against
+> production with `deploy.sh verify` and the adapted Caddyfile). The tunnel
+> profile was tested end to end against a throwaway sshd with a
+> forwarding-only key; `configure.sh` for all four mode shapes resolves from a
+> fresh copy of the tree in CI (25/25) and a split pair shares its tokens.
+> Owed to Phase 6: booting a real split install on two clean machines (on
+> hugin it would collide with production's project and ports).
+
 ### Phase 4: build reproducibility
 
 1. Pin every third-party image to a version (and record the digest in a
