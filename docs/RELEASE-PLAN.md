@@ -312,6 +312,18 @@ turn over the tunnel.
 **Verify:** two builds a week apart from the same tag produce the same
 dependency versions.
 
+> **Phase 4 DONE 2026-10-04** (b15fb3f). Pinned to what production runs, so
+> pinning reproduces the measured system rather than moving it: exact image
+> tags (vLLM, which production serves from a 0.20.2rc1 venv, gets the nearest
+> release image v0.20.2), and a `constraints.txt` per Python environment frozen
+> from its running image or venv. Verified by building all six images under
+> throwaway tags: each image's `pip freeze` equals its constraints file. The
+> webui swap from `deck.gl` to `@deck.gl/core` + `@deck.gl/layers` moved one
+> unused transitive package (`@mapbox/tiny-sdf` 2.1.0 to 2.2.0). Measured
+> sizes for Phase 5: retrieval 10.1 GB, sandbox 2.84 GB, knowledge 916 MB,
+> auth/gateway/upload about 230 MB each. Not deployed; nothing changes until
+> the next rebuild, which now reproduces today's versions instead of floating.
+
 ### Phase 5: docs
 
 1. Replace SETUP-PREREQUISITES/CLUSTER/VPS/VERIFY with one `INSTALL.md`
