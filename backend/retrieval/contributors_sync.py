@@ -1,6 +1,6 @@
 """Periodic sync of contributors.yml from the VPS auth service.
 
-The auth service (auth.muninai.org) owns the user/contributor database. This
+The auth service (auth.<domain>) owns the user/contributor database. This
 module fetches its YAML projection every N seconds and writes the result to a
 local file path that the rest of retrieval already watches via mtime.
 

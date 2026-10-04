@@ -45,6 +45,7 @@ import provenance as P
 from agent_trace import AgentTrace
 from url_guard import BlockedURL, guarded_client, read_text_capped
 from database import VLLM_MODEL_NAME, VLLM_URL, thinking_off
+import site_config
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ logger = logging.getLogger(__name__)
 # the OA full-text lever: without it, OA papers not in the local corpus fall back
 # to abstract-only, which qa mode then abstains on. Requires a contact email per
 # their API policy.
-UNPAYWALL_EMAIL = os.getenv("UNPAYWALL_EMAIL", "munin@muninai.org")
+UNPAYWALL_EMAIL = os.getenv("UNPAYWALL_EMAIL") or site_config.CONTACT_EMAIL
 
 
 _PDF_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"

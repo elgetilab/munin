@@ -16,6 +16,7 @@ from typing import Optional
 
 import httpx
 
+import site_config
 from database import SEARXNG_URL
 from url_guard import BlockedURL, guarded_client, read_text_capped
 from mcp.context import current_search_urls
@@ -661,7 +662,7 @@ async def fetch_pmc_fulltext(pmcid: str) -> Optional[str]:
                 _PMC_EFETCH_URL,
                 params={"db": "pmc", "id": pmcid, "rettype": "xml",
                         "tool": bibref._NCBI_TOOL, "email": bibref._NCBI_EMAIL},
-                headers={"User-Agent": "MuninBot/1.0 (+https://muninai.org)"},
+                headers={"User-Agent": site_config.bot_user_agent(kind="web")},
             )
             r.raise_for_status()
             text = _jats_body_text(r.text)
@@ -755,7 +756,7 @@ async def web_fetch_content(
 
             async with guarded_client(timeout=30.0, follow_redirects=True) as client:
                 async with client.stream("GET", url, headers={
-                    "User-Agent": "Mozilla/5.0 (compatible; MuninBot/1.0; +https://muninai.org)"
+                    "User-Agent": site_config.bot_user_agent(kind="browser")
                 }) as response:
                     response.raise_for_status()
                     html = await read_text_capped(response)

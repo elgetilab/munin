@@ -23,10 +23,15 @@ scripts/flakiness-suite.py paper_citation_grounding.
 
 from __future__ import annotations
 
+import os
 import sys
 import traceback
 
 sys.path.insert(0, "/app")
+
+# The audit pattern is built from the instance's public URL at import time,
+# and every fixture below uses the reference deployment's host.
+os.environ.setdefault("MUNIN_DOMAIN", "muninai.org")
 
 from chat_service import audit_paper_urls_in_content  # noqa: E402
 

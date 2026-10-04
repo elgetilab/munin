@@ -102,7 +102,9 @@ MUNIN_SANDBOX=$MUNIN_ROOT/services/sandbox
 
 CLUSTER_SCRIPTS=/opt/cluster/scripts/llm
 SYSTEMD_DIR=/etc/systemd/system
-HUGIN_ENV=/opt/hugin/config/cluster.env
+# The reference cluster's env file. Override for another layout:
+#   sudo HUGIN_ENV=/etc/munin/cluster.env ./deploy.sh all
+HUGIN_ENV=${HUGIN_ENV:-/opt/hugin/config/cluster.env}
 
 MIROTHINKER_MODEL_ID="cyankiwi/MiroThinker-v1.5-30B-AWQ-4bit"
 MIROTHINKER_MODEL_DIR=$MUNIN_ROOT/data/models/mirothinker-v1.5-30b
@@ -1929,6 +1931,34 @@ deploy_verify() {
 # Main
 # ------------------------------------------------------------------------------
 need_root
+
+# Keys the compose file and units need from cluster.env. Compose refuses to
+# start without MUNIN_DOMAIN, NEO4J_PASSWORD and SEARXNG_SECRET; this says so
+# before anything is touched rather than halfway through. MUNIN_CLUSTER_NAME is
+# required here (not in compose) because the system prompt names the cluster:
+# leaving it unset on a running deployment would silently change the prompt.
+REQUIRED_CLUSTER_KEYS="MUNIN_DOMAIN MUNIN_CLUSTER_NAME NEO4J_PASSWORD SEARXNG_SECRET"
+
+preflight_cluster_env() {
+    if [ ! -r "$HUGIN_ENV" ]; then
+        echo "[WARN] cannot read $HUGIN_ENV (not root?); skipping the env preflight"
+        return 0
+    fi
+    local k missing=""
+    for k in $REQUIRED_CLUSTER_KEYS; do
+        [ -n "$(clusterenv_get "$k")" ] || missing="$missing $k"
+    done
+    [ -z "$missing" ] && return 0
+    echo "[ERROR] $HUGIN_ENV is missing:$missing"
+    echo "        See backend/config/munin.env.template for what each one means."
+    [ "$DRY_RUN" = "1" ] && { echo "        (dry run: continuing to show the plan)"; return 0; }
+    exit 1
+}
+
+case "$MODE" in
+    all|compose|retrieval|searxng|sandbox|monitoring|knowledge|pipeline|instance)
+        preflight_cluster_env ;;
+esac
 
 case "$MODE" in
     dirs)         deploy_dirs ;;

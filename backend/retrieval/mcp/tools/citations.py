@@ -18,6 +18,8 @@ from urllib.parse import quote
 
 import httpx
 
+import site_config
+
 # Map from frontend-friendly format names → HTTP Accept header values.
 # Anything in this dict is a valid `format` parameter for the tool.
 _FORMAT_ACCEPT: dict[str, str] = {
@@ -31,9 +33,7 @@ _FORMAT_ACCEPT: dict[str, str] = {
     "vancouver": "text/x-bibliography; style=vancouver",
 }
 
-_USER_AGENT = (
-    "MuninBot/1.0 (https://muninai.org; mailto:research@muninai.org)"
-)
+_USER_AGENT = site_config.bot_user_agent()
 _PER_DOI_TIMEOUT = 15.0
 _MAX_DOIS_PER_CALL = 50
 

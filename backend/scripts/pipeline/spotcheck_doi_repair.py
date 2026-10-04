@@ -69,8 +69,13 @@ QDRANT_URL = os.getenv("QDRANT_URL") or (
     f"http://{os.getenv('QDRANT_HOST', 'localhost')}:{os.getenv('QDRANT_PORT', '6333')}")
 PAPERS_COLLECTION = os.getenv("PAPERS_COLLECTION", "papers_bge")
 PDF_DIR = os.getenv("PAPERS_PDF_DIR", "/opt/munin/data/papers/pdf")
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "research@muninai.org")
-UA = f"MuninBot/1.0 (https://muninai.org; mailto:{ADMIN_EMAIL})"
+# Crossref and OpenAlex ask for a contact address. Taken from the deployment's
+# env (ADMIN_EMAIL, else MUNIN_CONTACT_EMAIL); never a hardcoded one.
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL") or os.getenv("MUNIN_CONTACT_EMAIL", "")
+_UA_ID = "; ".join(x for x in (
+    f"https://{os.getenv('MUNIN_DOMAIN')}" if os.getenv("MUNIN_DOMAIN") else "",
+    f"mailto:{ADMIN_EMAIL}" if ADMIN_EMAIL else "") if x)
+UA = f"MuninBot/1.0 ({_UA_ID})"
 PACE_S = 0.3
 
 TITLE_AGREE, TITLE_CONTRADICT = 0.5, 0.3

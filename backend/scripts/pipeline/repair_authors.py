@@ -75,7 +75,12 @@ from paper_pipeline import _title_similarity  # noqa: E402
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 PAPERS_COLLECTION = os.getenv("PAPERS_COLLECTION", "papers_bge")
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "research@muninai.org")
+# Crossref and OpenAlex ask for a contact address. Taken from the deployment's
+# env (ADMIN_EMAIL, else MUNIN_CONTACT_EMAIL); never a hardcoded one.
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL") or os.getenv("MUNIN_CONTACT_EMAIL", "")
+_UA_ID = "; ".join(x for x in (
+    f"https://{os.getenv('MUNIN_DOMAIN')}" if os.getenv("MUNIN_DOMAIN") else "",
+    f"mailto:{ADMIN_EMAIL}" if ADMIN_EMAIL else "") if x)
 SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
 
 # Same threshold as the ingest-time guard (paper_pipeline
@@ -160,7 +165,7 @@ def crossref_record(doi: str) -> dict | None:
     """Title + authors for a DOI. None on any failure (never raises)."""
     url = "https://api.crossref.org/works/" + urllib.parse.quote(doi, safe="")
     req = urllib.request.Request(url, headers={
-        "User-Agent": f"MuninBot/1.0 (https://muninai.org; mailto:{ADMIN_EMAIL})"})
+        "User-Agent": f"MuninBot/1.0 ({_UA_ID})"})
     try:
         msg = json.load(urllib.request.urlopen(req, timeout=25))["message"]
     except Exception:
@@ -194,7 +199,7 @@ def s2_record(doi: str) -> dict | None:
     """
     url = ("https://api.semanticscholar.org/graph/v1/paper/DOI:"
            + urllib.parse.quote(doi, safe="") + "?fields=title,authors")
-    headers = {"User-Agent": f"MuninBot/1.0 (mailto:{ADMIN_EMAIL})"}
+    headers = {"User-Agent": f"MuninBot/1.0 ({_UA_ID})"}
     if SEMANTIC_SCHOLAR_API_KEY:
         headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
     try:

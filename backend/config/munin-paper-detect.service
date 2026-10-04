@@ -27,7 +27,8 @@ Environment="QDRANT_PORT=6333"
 Environment="NEO4J_URI=bolt://127.0.0.1:7687"
 Environment="NEO4J_USER=neo4j"
 Environment="GROBID_URL=http://127.0.0.1:8070"
-Environment="ADMIN_EMAIL=admin@muninai.org"
+# ADMIN_EMAIL (Crossref polite-pool contact) comes from cluster.env below,
+# falling back to MUNIN_CONTACT_EMAIL.
 
 # Sweep tunables. Defaults: 4 detection kinds, 5 records/kind/cycle,
 # 15-min cycles, 30s GROBID pacing.

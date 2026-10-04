@@ -31,7 +31,7 @@ from qdrant_client import QdrantClient
 SRC = os.getenv("PAPERS_COLLECTION", "papers_bge")
 HOST_PDF = "/opt/munin/data/papers/pdf"
 CACHE = os.getenv("FULLTEXT_CACHE", "/opt/munin/data/papers/fulltext")
-UNPAYWALL_EMAIL = os.getenv("UNPAYWALL_EMAIL", "research@muninai.org")
+UNPAYWALL_EMAIL = os.getenv("UNPAYWALL_EMAIL") or os.getenv("MUNIN_CONTACT_EMAIL", "")
 BATCH = 512
 
 

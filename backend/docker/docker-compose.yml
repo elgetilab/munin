@@ -111,7 +111,7 @@ services:
       - ${MUNIN_ROOT:-/opt/munin}/knowledge/neo4j_data:/data
       - ${MUNIN_ROOT:-/opt/munin}/knowledge/neo4j_logs:/logs
     environment:
-      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-munin-neo4j-password}
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set (any value; it is the graph DB password)}
       - NEO4J_PLUGINS=["apoc"]
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*
       - NEO4J_dbms_memory_heap_initial__size=512m
@@ -170,7 +170,7 @@ services:
       - ${MUNIN_SEARXNG_CONFIG:-/opt/munin/services/searxng}:/etc/searxng:rw
     environment:
       - SEARXNG_BASE_URL=http://localhost:8888
-      - SEARXNG_SECRET=${SEARXNG_SECRET:-munin-searxng-secret-key}
+      - SEARXNG_SECRET=${SEARXNG_SECRET:?SEARXNG_SECRET must be set (openssl rand -hex 32)}
     cap_drop:
       - ALL
     cap_add:
@@ -234,7 +234,7 @@ services:
       - QDRANT_PORT=6333
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=neo4j
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-munin-neo4j-password}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set}
       - SEARXNG_URL=http://searxng:8080
       - SPECTER_MODEL_PATH=/models/specter
       - BGE_MODEL_PATH=/models/bge-base
@@ -267,8 +267,17 @@ services:
       # research jobs share vLLM with interactive chat.
       - DEEP_RESEARCH_DIR=${DEEP_RESEARCH_DIR:-/data/deep_research}
       - DEEP_RESEARCH_MAX_CONCURRENT=${DEEP_RESEARCH_MAX_CONCURRENT:-1}
+      # Where this instance lives. REQUIRED: there is deliberately no
+      # fallback domain, since a wrong one breaks login and paper links in
+      # ways that are hard to see. Every URL below derives from it unless set
+      # explicitly. MUNIN_CLUSTER_NAME is how the system prompt names the
+      # cluster; MUNIN_CONTACT_EMAIL is the mailto Crossref, NCBI and
+      # Unpaywall ask for (left out when empty, never invented).
+      - MUNIN_DOMAIN=${MUNIN_DOMAIN:?MUNIN_DOMAIN must be set, e.g. MUNIN_DOMAIN=lab.example.edu (see .env.example)}
+      - MUNIN_CLUSTER_NAME=${MUNIN_CLUSTER_NAME:-}
+      - MUNIN_CONTACT_EMAIL=${MUNIN_CONTACT_EMAIL:-}
       # Base URL used when a report links back to a Munin page.
-      - MUNIN_PUBLIC_URL=${MUNIN_PUBLIC_URL:-https://search.muninai.org}
+      - MUNIN_PUBLIC_URL=${MUNIN_PUBLIC_URL:-https://search.${MUNIN_DOMAIN}}
       # vLLM for MCP tools (llm_summarize, web_fetch with summarize)
       # Uses host.docker.internal to reach vLLM running on host
       # (resolved via the extra_hosts host-gateway entry above; must not be
@@ -312,13 +321,13 @@ services:
       - SANDBOX_URL=http://sandbox:8090
       # §28 contributor ingest (VPS hook → POST /api/admin/ingest)
       - ADMIN_INGEST_TOKEN=${ADMIN_INGEST_TOKEN:-}
-      # P1 #11: contributors.yml is now pulled from auth.muninai.org
+      # P1 #11: contributors.yml is now pulled from auth.<MUNIN_DOMAIN>
       # on a 5-minute timer. CONTRIBUTORS_CONFIG points at the writable
       # /data mount because /app/config is read-only. The deploy script
       # seeds /opt/munin/data/contributors.yml (= /data inside) the
       # first time so ingest works before the first sync completes.
       - CONTRIBUTORS_CONFIG=/data/contributors.yml
-      - CONTRIBUTORS_SYNC_URL=${CONTRIBUTORS_SYNC_URL:-https://auth.muninai.org/admin/contributors.yaml}
+      - CONTRIBUTORS_SYNC_URL=${CONTRIBUTORS_SYNC_URL-https://auth.${MUNIN_DOMAIN}/admin/contributors.yaml}
       - CONTRIBUTORS_SYNC_TOKEN=${CONTRIBUTORS_SYNC_TOKEN:-}
       # Admin metrics proxy (in-house dashboards under webui Admin
       # panel -> Metrics tab). URL points at the auth service's
@@ -326,7 +335,7 @@ services:
       # the tusd hook-service uses, since the lookup is identical
       # (read-only role check). When the token is unset, the metrics
       # proxy returns 503 so the panel surfaces "not configured".
-      - AUTH_CHECK_ROLE_URL=${AUTH_CHECK_ROLE_URL:-https://auth.muninai.org/admin/check-role}
+      - AUTH_CHECK_ROLE_URL=${AUTH_CHECK_ROLE_URL-https://auth.${MUNIN_DOMAIN}/admin/check-role}
       - KB_GATE_TOKEN=${KB_GATE_TOKEN:-}
       # Prometheus URL for the metrics proxy. Inside the docker network
       # the prometheus container is reachable by service name.
@@ -373,7 +382,7 @@ services:
       - CHAT_MAX_TOOL_CALLS=${CHAT_MAX_TOOL_CALLS:-30}
       - SANDBOX_HTTP_TIMEOUT_S=${SANDBOX_HTTP_TIMEOUT_S:-180}
       # Polite-pool identity for Unpaywall OA lookups.
-      - UNPAYWALL_EMAIL=${UNPAYWALL_EMAIL:-munin@muninai.org}
+      - UNPAYWALL_EMAIL=${UNPAYWALL_EMAIL:-${MUNIN_CONTACT_EMAIL:-}}
       # Personas. The two ids pick which profile a turn starts from; the
       # three paths must match the read-only mounts above, so change them
       # only alongside the corresponding volume.
@@ -578,7 +587,7 @@ services:
       - QDRANT_PORT=6333
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=neo4j
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-munin-neo4j-password}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set}
       - GROBID_URL=http://grobid:8070
       # Encoder/collection pair. MUST match what retrieval serves or ingest
       # writes vectors the search path cannot read. Same pairing rule as
@@ -589,7 +598,7 @@ services:
       - SPECTER_MODEL_PATH=/models/specter
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
       - CONTRIBUTORS_CONFIG_PATH=/data/contributors.yml
-      - ADMIN_EMAIL=${PIPELINE_ADMIN_EMAIL:-admin@example.org}
+      - ADMIN_EMAIL=${PIPELINE_ADMIN_EMAIL:-${MUNIN_CONTACT_EMAIL:-}}
       - WATCH_POLL_SECS=${WATCH_POLL_SECS:-60}
     depends_on:
       - qdrant
