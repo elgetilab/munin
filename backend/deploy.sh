@@ -427,7 +427,7 @@ deploy_agents() {
 #
 # specter + bge-base are checked but never downloaded: specter is the
 # rollback encoder and bge-base serves user docs, both provisioned during
-# initial cluster setup (SETUP-CLUSTER.md).
+# initial cluster setup (docs/install/reference-deployment.md).
 hf_cli() {
     # The HF CLI was renamed huggingface-cli -> hf. Both spellings exist in
     # the wild depending on when the venv was built; prefer the new one.
@@ -451,7 +451,7 @@ deploy_models() {
         else
             echo "  [warn] $what MISSING at $path"
             echo "         retrieval falls back to a HuggingFace pull at runtime;"
-            echo "         see SETUP-CLUSTER.md for the intended provisioning."
+            echo "         see docs/install/reference-deployment.md for the intended provisioning."
         fi
     done
 

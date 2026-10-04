@@ -149,8 +149,8 @@ services:
       context: ${MUNIN_FRONTEND_SRC:-.}/webui
       dockerfile: Dockerfile
       args:
-        # Empty means "use the production default" (see src/lib/urls.ts), so a
-        # build with none of these set is the production bundle.
+        # Empty means "derive at runtime from the host the UI is served on"
+        # (src/lib/urls.ts); only the single-host layout needs these set.
         VITE_AUTH_BASE: ${VITE_AUTH_BASE:-}
         VITE_SITE_HOME: ${VITE_SITE_HOME:-}
         VITE_CHAT_URL: ${VITE_CHAT_URL:-}

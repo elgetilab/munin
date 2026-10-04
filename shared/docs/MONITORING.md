@@ -157,11 +157,11 @@ repo and is picked up by `deploy.sh`.
 
 ### One-time setup (fresh deploy)
 
-The standard cluster + VPS bootstrap (`SETUP-CLUSTER.md`,
-`SETUP-VPS.md`) already covers generating `KB_GATE_TOKEN` and
-declaring it on both sides. If you followed those, you're done --
+`scripts/configure.sh` generates `KB_GATE_TOKEN` and, for a split install,
+carries the same value to both sides through `munin-peer.env` (see
+[INSTALL.md](../../INSTALL.md)). On the reference deployment,
 `sudo ./backend/deploy.sh monitoring && sudo ./backend/deploy.sh retrieval`
-on hugin brings up Prometheus + the metrics proxy.
+on hugin brings up Prometheus and the metrics proxy.
 
 ### Existing deploys: adding KB_GATE_TOKEN on the cluster side
 

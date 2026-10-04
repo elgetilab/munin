@@ -68,12 +68,16 @@ contributor allowlist ([`shared/config/contributors.yml`](shared/config/contribu
 
 ## Running it
 
-There are two paths, and they are genuinely different. Pick one.
+The full guide is [INSTALL.md](INSTALL.md). Munin runs in three shapes, all
+plain Docker Compose configured by `scripts/configure.sh`:
 
-### A. Try it on one machine
+| Mode | Where |
+|---|---|
+| one machine, local | everything on `http://localhost` (trying it, developing) |
+| one server | everything on one public server with your domain |
+| split | backend on your GPU server or cluster, frontend on a small public VM, joined by a reverse SSH tunnel |
 
-Everything in Docker on a single host. For evaluating Munin, developing on it,
-or demonstrating it. **Not** how the production deployment runs.
+### Try it on one machine
 
 ```bash
 git clone <this repo> && cd munin
@@ -98,8 +102,8 @@ need a mail server to get in. It never does that for a real domain.
 does not host one. Point `LLM_BASE_URL` at Ollama, llama.cpp, a vLLM you run,
 or a hosted API. Nothing answers without it.
 
-**Be ready for the download.** Roughly **17 GB of images** with every profile
-enabled, dominated by the retrieval service (8.7 GB, mostly PyTorch) and the
+**Be ready for the download.** Roughly **18 GB of images** with every profile
+enabled, dominated by the retrieval service (10.1 GB, mostly PyTorch) and the
 `run_python` sandbox (2.8 GB, mostly TeX Live). Trim it by removing profiles
 from `COMPOSE_PROFILES` in `.env`. The paper encoder (~1.3 GB) is fetched from
 HuggingFace on first start, on top of that.
@@ -133,25 +137,20 @@ the tunnel's end). Keep that path private: a tunnel, a VPN, or a network nobody
 else is on. `MUNIN_GATEWAY_TOKEN` makes retrieval refuse forwarded identity
 that did not come through the gateway, but it is a second line, not the first.
 
-### B. Deploy it for a group
+### The reference deployment
 
-The production topology: a SLURM cluster for inference, retrieval and the paper
-pipeline, plus a small VPS for auth, the gateway and the web UI. This is what
-the reference deployment runs and what the paper measures.
+The instance the paper measures runs the backend on a SLURM cluster, with vLLM
+as a scheduled SLURM job and the paper pipeline under systemd, managed by
+`backend/deploy.sh`. None of that is needed to run Munin; it is documented as a
+worked example in
+[docs/install/reference-deployment.md](docs/install/reference-deployment.md).
+For per-side internals see [`backend/README.md`](backend/README.md) and
+[`frontend/README.md`](frontend/README.md).
 
-Four documents, in order; each works as a checklist.
+### What no install gives you
 
-1. [SETUP-PREREQUISITES.md](SETUP-PREREQUISITES.md): hardware, accounts, software, models, and secrets to gather before you start.
-2. [SETUP-CLUSTER.md](SETUP-CLUSTER.md): provisioning the SLURM cluster side (vLLM, retrieval API, knowledge bases, paper pipeline, tunnel).
-3. [SETUP-VPS.md](SETUP-VPS.md): provisioning the VPS side (Caddy, auth, gateway, uploads, web UI, DNS).
-4. [SETUP-VERIFY.md](SETUP-VERIFY.md): end-to-end smoke tests.
-
-For per-side internals after you are running, see [`backend/README.md`](backend/README.md) and [`frontend/README.md`](frontend/README.md).
-
-### What path A does not give you
-
-It will not reproduce the paper's numbers. Those need the 68k-paper corpus and
-a specific GPU. [`docs/paper-kit/10-REPRODUCE.md`](docs/paper-kit/10-REPRODUCE.md)
+A fresh install will not reproduce the paper's numbers. Those need the
+68k-paper corpus and a specific GPU. [`docs/paper-kit/10-REPRODUCE.md`](docs/paper-kit/10-REPRODUCE.md)
 states plainly which results are externally reproducible (the metric code, BEIR
 and SciFact, LitSearch, the abstention items) and which are not.
 
