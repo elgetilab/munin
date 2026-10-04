@@ -4,7 +4,7 @@
 # Multi-stage build for the RAG retrieval service
 # ==============================================================================
 
-FROM python:3.11-slim as builder
+FROM python:3.11.14-slim as builder
 
 WORKDIR /build
 
@@ -14,13 +14,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+# constraints.txt pins every package, transitive ones included, to the versions
+# the reference deployment runs; requirements.txt only says what is needed.
+COPY requirements.txt constraints.txt ./
+RUN pip install --no-cache-dir --user -r requirements.txt -c constraints.txt
 
 # ==============================================================================
 # Final image
 # ==============================================================================
-FROM python:3.11-slim
+FROM python:3.11.14-slim
 
 WORKDIR /app
 

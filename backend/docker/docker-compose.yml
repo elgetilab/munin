@@ -86,7 +86,8 @@ services:
   # QDRANT - Vector database for paper embeddings
   # ============================================================================
   qdrant:
-    image: qdrant/qdrant:latest
+    # Pinned to the version the reference deployment runs (2026-10-04).
+    image: qdrant/qdrant:v1.16.3
     container_name: ${MUNIN_PREFIX:-munin}-qdrant
     restart: unless-stopped
     ports:
@@ -101,7 +102,8 @@ services:
   # NEO4J - Graph database for citations and author networks
   # ============================================================================
   neo4j:
-    image: neo4j:5-community
+    # Pinned to the version the reference deployment runs (2026-10-04).
+    image: neo4j:5.26.19-community
     container_name: ${MUNIN_PREFIX:-munin}-neo4j
     restart: unless-stopped
     ports:
@@ -161,7 +163,8 @@ services:
   # SEARXNG - Self-hosted meta-search engine (free web search)
   # ============================================================================
   searxng:
-    image: searxng/searxng:latest
+    # Pinned to the version the reference deployment runs (2026-10-04).
+    image: searxng/searxng:2026.1.2-3d88876a3
     container_name: ${MUNIN_PREFIX:-munin}-searxng
     restart: unless-stopped
     ports:
@@ -512,7 +515,9 @@ services:
   #
   # Set LLM_BASE_URL=http://vllm:8000 to point retrieval at it.
   vllm:
-    image: ${VLLM_IMAGE:-vllm/vllm-openai:latest}
+    # The reference deployment serves vLLM 0.20.2rc1 from a venv on SLURM;
+    # v0.20.2 is the nearest release image.
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.20.2}
     container_name: ${MUNIN_PREFIX:-munin}-vllm
     restart: unless-stopped
     ports:
@@ -765,7 +770,7 @@ services:
     build:
       context: .
       dockerfile_inline: |
-        FROM alpine:3.20
+        FROM alpine:3.20.10
         RUN apk add --no-cache autossh openssh-client
     image: ${MUNIN_PREFIX:-munin}-tunnel:latest
     container_name: ${MUNIN_PREFIX:-munin}-tunnel

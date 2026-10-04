@@ -1,0 +1,22 @@
+# Exact versions the reference deployment runs (frontend-api-gateway-1 on the VPS, 2026-10-04), applied with
+# `pip install -r requirements.txt -c constraints.txt`. requirements.txt says
+# what is needed; this says which versions. Regenerate from the running image
+# (`pip freeze`) when you deliberately upgrade, and commit both together.
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+certifi==2026.7.22
+click==8.5.0
+fastapi==0.142.2
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.20
+opentelemetry-api==1.45.0
+pydantic==2.13.5
+pydantic_core==2.46.5
+PyYAML==6.0.3
+starlette==1.7.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+uvicorn==0.54.0
