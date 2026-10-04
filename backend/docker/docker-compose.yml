@@ -276,6 +276,11 @@ services:
       - MUNIN_DOMAIN=${MUNIN_DOMAIN:?MUNIN_DOMAIN must be set, e.g. MUNIN_DOMAIN=lab.example.edu (see .env.example)}
       - MUNIN_CLUSTER_NAME=${MUNIN_CLUSTER_NAME:-}
       - MUNIN_CONTACT_EMAIL=${MUNIN_CONTACT_EMAIL:-}
+      # Shared secret with the frontend. When set, a request carrying a
+      # forwarded identity header (X-Munin-Email, ...) must also carry this
+      # token, so a retrieval port reachable by others is not an
+      # impersonation hole. Empty: identity headers are trusted as before.
+      - MUNIN_GATEWAY_TOKEN=${MUNIN_GATEWAY_TOKEN:-}
       # Base URL used when a report links back to a Munin page.
       - MUNIN_PUBLIC_URL=${MUNIN_PUBLIC_URL:-https://search.${MUNIN_DOMAIN}}
       # vLLM for MCP tools (llm_summarize, web_fetch with summarize)

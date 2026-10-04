@@ -38,6 +38,13 @@
 	}
 }
 
+# The retrieval service, with the shared token it checks on forwarded identity.
+(backend) {
+	reverse_proxy {$BACKEND_URL} {
+		header_up X-Munin-Gateway-Token "{$MUNIN_GATEWAY_TOKEN}"
+	}
+}
+
 (shared-assets) {
 	handle_path /shared/* {
 		root * /srv/static/shared
@@ -83,7 +90,7 @@
 	}
 	handle /paper/* {
 		import local-auth
-		reverse_proxy 127.0.0.1:{$MUNIN_RETRIEVAL_PORT:8080}
+		import backend
 	}
 
 	# Resumable uploads.
@@ -121,7 +128,7 @@
 		reverse_proxy 127.0.0.1:8070
 	}
 	handle /paper/* {
-		reverse_proxy 127.0.0.1:{$MUNIN_RETRIEVAL_PORT:8080}
+		import backend
 	}
 	handle {
 		root * /srv/static/search

@@ -35,6 +35,9 @@ services:
       MUNIN_URL_RESEARCH: ${MUNIN_URL_RESEARCH:-https://research.${MUNIN_DOMAIN}}
       MUNIN_URL_API: ${VITE_API_PUBLIC_URL:-https://api.${MUNIN_DOMAIN}/v1}
       MUNIN_SUPPORT_EMAIL: ${SUPPORT_EMAIL:-support@${MUNIN_DOMAIN}}
+      # Where the backend answers, and the token it expects (see api-gateway).
+      BACKEND_URL: ${BACKEND_URL:-${CLUSTER_TUNNEL:-http://127.0.0.1:18080}}
+      MUNIN_GATEWAY_TOKEN: ${MUNIN_GATEWAY_TOKEN:-}
 
   # ── munin-auth — email OTP authentication ─────────────────────────────────
   munin-auth:
@@ -103,7 +106,7 @@ services:
       - ${MUNIN_UPLOADS_DIR:-/mnt/uploads}:/mnt/uploads
     environment:
       ADMIN_INGEST_TOKEN: ${ADMIN_INGEST_TOKEN:-}
-      CLUSTER_INGEST_URL: http://127.0.0.1:18080/api/admin/ingest
+      CLUSTER_INGEST_URL: ${BACKEND_URL:-${CLUSTER_TUNNEL:-http://127.0.0.1:18080}}/api/admin/ingest
       # P1 #11 commit 4: KB-contribution gate. On every tusd
       # pre-create the hook calls the auth service's /admin/check-role
       # over loopback to confirm the uploader is a group_leader/admin.
@@ -123,7 +126,10 @@ services:
       - ${MUNIN_FRONTEND_SRC:-.}/config/quotas.yml:/data/quotas.yml:ro
     environment:
       SECRET_KEY: ${AUTH_SECRET_KEY}
-      CLUSTER_TUNNEL: ${CLUSTER_TUNNEL:-http://127.0.0.1:18080}
+      # The backend's address. Default: the VPS end of the reverse SSH tunnel.
+      # CLUSTER_TUNNEL is the old name and still works.
+      CLUSTER_TUNNEL: ${BACKEND_URL:-${CLUSTER_TUNNEL:-http://127.0.0.1:18080}}
+      MUNIN_GATEWAY_TOKEN: ${MUNIN_GATEWAY_TOKEN:-}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
 
   # ── webui-build — build the chat SPA without a host Node toolchain ─────────

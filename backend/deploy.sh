@@ -1886,7 +1886,12 @@ deploy_verify() {
 
     # 3. /api/personas — must return 200 with a non-empty personas array.
     local personas_body
-    personas_body=$(curl -fsS -m 5 -H "X-Munin-Email: $VERIFY_EMAIL" "$RETRIEVAL_BASE/api/personas" 2>/dev/null || true)
+    # With MUNIN_GATEWAY_TOKEN set, retrieval refuses identity headers that
+    # do not carry it (gateway_token_guard.py), so verify sends it too.
+    local gw_token gw_hdr=()
+    gw_token=$(clusterenv_get MUNIN_GATEWAY_TOKEN | tr -d '"')
+    [ -n "$gw_token" ] && gw_hdr=(-H "X-Munin-Gateway-Token: $gw_token")
+    personas_body=$(curl -fsS -m 5 "${gw_hdr[@]}" -H "X-Munin-Email: $VERIFY_EMAIL" "$RETRIEVAL_BASE/api/personas" 2>/dev/null || true)
     if [ -z "$personas_body" ]; then
         echo "[FAIL] /api/personas returned no body"
         return 1
@@ -1906,7 +1911,7 @@ deploy_verify() {
     #    invisible until a user starts a report, so probe it here.
     local research_code
     research_code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 \
-        -H "X-Munin-Email: $VERIFY_EMAIL" "$RETRIEVAL_BASE/api/research/jobs" \
+        "${gw_hdr[@]}" -H "X-Munin-Email: $VERIFY_EMAIL" "$RETRIEVAL_BASE/api/research/jobs" \
         2>/dev/null || true)
     if [ "$research_code" = "200" ]; then
         echo "  [OK] /api/research/jobs — deep research router mounted"
