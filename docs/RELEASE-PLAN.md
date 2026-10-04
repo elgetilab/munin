@@ -241,9 +241,15 @@ nothing; a frontend deploy, then login and the admin panel, work in production.
 > production Caddyfile differs only by the added `templates` handlers, all
 > nine templated static pages render byte-identical under the reference
 > values, and the personas render the measured prompts byte for byte.
-> Retrieval suite: no new failures against the pre-change baseline. Still
-> owed: the env lines on both production hosts, then a frontend and a
-> retrieval deploy with login, admin panel and a chat turn checked.
+> Retrieval suite: no new failures against the pre-change baseline.
+>
+> **Deployed 2026-10-04.** Env lines added on both hosts. Frontend: all eight
+> sites serve, the templated pages are byte-identical live, cookie domain and
+> CORS unchanged. Backend: `deploy.sh personas && deploy.sh retrieval`,
+> `deploy.sh pipeline`, `verify` green; inside the running container the three
+> persona prompts hash to the measured ones, every derived URL and User-Agent
+> equals the old literal, the contributor sync pulled from the new auth, and an
+> LLM round-trip completed. Still owed: a human login + admin panel check.
 
 ### Phase 3: install modes
 
