@@ -233,6 +233,18 @@ nothing; a frontend deploy, then login and the admin panel, work in production.
   literal `search.muninai.org`, a silent no-op on any other domain. It now
   follows `MUNIN_PUBLIC_URL`.
 
+> **Phase 2 code DONE 2026-10-04** (ec3c6ad, b2ac1f3, 6c7f457). Verified
+> without deploying: the reference env reproduces production's resolved
+> compose config (backend: identical plus three new variables; frontend:
+> identical plus the derived ones, every value equal to the literal it
+> replaces), all `deploy.sh --dry-run` modes unchanged, the adapted
+> production Caddyfile differs only by the added `templates` handlers, all
+> nine templated static pages render byte-identical under the reference
+> values, and the personas render the measured prompts byte for byte.
+> Retrieval suite: no new failures against the pre-change baseline. Still
+> owed: the env lines on both production hosts, then a frontend and a
+> retrieval deploy with login, admin panel and a chat turn checked.
+
 ### Phase 3: install modes
 
 1. Mode presets and `scripts/configure.sh`.
