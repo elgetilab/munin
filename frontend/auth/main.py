@@ -36,7 +36,7 @@ from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlparse
 
 import aiosmtplib
 from fastapi import FastAPI, Form, Request, Response
@@ -47,11 +47,19 @@ from jinja2 import Environment, FileSystemLoader
 # ── Configuration ────────────────────────────────────────────────────────────
 
 SECRET_KEY = os.environ["SECRET_KEY"]
-SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.hosteurope.de")
+# Where this instance lives. Compose requires MUNIN_DOMAIN; the session cookie,
+# the CORS origins, the post-login fallback and the default sender/support
+# addresses all derive from it. Until 2026-10 each was a muninai.org literal.
+MUNIN_DOMAIN = os.environ.get("MUNIN_DOMAIN", "").strip()
+SITE_URL = (os.environ.get("MUNIN_SITE_URL", "").strip().rstrip("/")
+            or (f"https://{MUNIN_DOMAIN}" if MUNIN_DOMAIN else ""))
+
+SMTP_HOST = os.environ.get("SMTP_HOST", "")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USERNAME = os.environ.get("SMTP_USERNAME", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
-SMTP_SENDER = os.environ.get("SMTP_SENDER", "noreply@muninai.org")
+SMTP_SENDER = (os.environ.get("SMTP_SENDER")
+               or (f"noreply@{MUNIN_DOMAIN}" if MUNIN_DOMAIN else ""))
 # The relay (GoDaddy's smtpout.secureserver.net:587) intermittently drops the
 # connection on connect; a retry lands on a healthy node. Failures are fast,
 # so a few attempts with short backoff cost little.
@@ -77,7 +85,12 @@ OTP_EXPIRY = int(os.environ.get("OTP_EXPIRY", "600"))  # 10 minutes
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("munin-auth")
-COOKIE_DOMAIN = os.environ.get("COOKIE_DOMAIN", ".muninai.org")
+# Unset: `.<MUNIN_DOMAIN>`, so one login covers every subdomain. Set but empty:
+# a host-only cookie, which is what a single host on localhost needs.
+_cookie_domain = os.environ.get("COOKIE_DOMAIN")
+if _cookie_domain is None:
+    _cookie_domain = f".{MUNIN_DOMAIN}" if MUNIN_DOMAIN else ""
+COOKIE_DOMAIN = _cookie_domain.strip() or None
 WHITELIST_PATH = Path(os.environ.get("WHITELIST_PATH", "/data/whitelist.csv"))
 CONTRIBUTORS_PATH = Path(os.environ.get("CONTRIBUTORS_PATH", "/data/contributors.yml"))
 CONTRIBUTORS_SYNC_TOKEN = os.environ.get("CONTRIBUTORS_SYNC_TOKEN", "")
@@ -87,6 +100,27 @@ CONTRIBUTORS_SYNC_TOKEN = os.environ.get("CONTRIBUTORS_SYNC_TOKEN", "")
 KB_GATE_TOKEN = os.environ.get("KB_GATE_TOKEN", "")
 DB_PATH = Path(os.environ.get("DB_PATH", "/data/db/sessions.db"))
 
+def is_own_url(url: str | None) -> bool:
+    """True for an absolute http(s) URL on this instance: MUNIN_DOMAIN or one
+    of its subdomains, or the host SITE_URL names. Anything else is refused as
+    a post-login redirect, which used to accept any URL starting with "http"
+    (an open redirect)."""
+    if not url:
+        return False
+    try:
+        u = urlparse(url)
+    except ValueError:
+        return False
+    host = (u.hostname or "").lower()
+    if u.scheme not in ("http", "https") or not host:
+        return False
+    own = {MUNIN_DOMAIN.lower()} if MUNIN_DOMAIN else set()
+    if SITE_URL:
+        own.add((urlparse(SITE_URL).hostname or "").lower())
+    own.discard("")
+    return any(host == d or host.endswith("." + d) for d in own)
+
+
 # ── App Setup ────────────────────────────────────────────────────────────────
 
 app = FastAPI(docs_url=None, redoc_url=None)
@@ -95,13 +129,9 @@ from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://muninai.org",
-        "https://chat.muninai.org",
-        "https://search.muninai.org",
-        "https://research.muninai.org",
-        "https://docs.muninai.org",
-        "https://upload.muninai.org",
-    ],
+        f"https://{h}{MUNIN_DOMAIN}" for h in
+        ("", "chat.", "search.", "research.", "docs.", "upload.")
+    ] if MUNIN_DOMAIN else [],
     allow_credentials=True,
     allow_methods=["GET", "PATCH", "POST", "PUT", "DELETE"],
     allow_headers=["Content-Type"],
@@ -118,6 +148,8 @@ templates = Environment(
                                          "templates")),
     autoescape=True,
 )
+# Templates link back to the instance's landing page and load its logo.
+templates.globals["site_url"] = SITE_URL
 
 # In-memory stores (transient state only — user data lives in SQLite)
 otp_store: dict[str, dict] = {}  # email -> {code, expires, attempts}
@@ -1061,7 +1093,7 @@ async def verify_submit(
     name = user["name"] if user else email
     signed_token = create_session(email, name)
 
-    dest = redirect if redirect and redirect.startswith("http") else "https://muninai.org"
+    dest = redirect if is_own_url(redirect) else (SITE_URL or "/")
     response = RedirectResponse(url=dest, status_code=303)
     response.set_cookie(
         key="munin_session",
@@ -1190,7 +1222,8 @@ async def logout(request: Request):
 
 # ── Support Contact ──────────────────────────────────────────────────────
 
-SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "support@muninai.org")
+SUPPORT_EMAIL = (os.environ.get("SUPPORT_EMAIL")
+                 or (f"support@{MUNIN_DOMAIN}" if MUNIN_DOMAIN else ""))
 SUPPORT_RATE_LIMIT = 3  # max 3 support messages per hour
 
 @app.post("/support/contact")

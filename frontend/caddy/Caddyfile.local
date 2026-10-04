@@ -1,7 +1,7 @@
 # ==============================================================================
 # MUNIN - single-host Caddyfile (development / demo)
 # ==============================================================================
-# The production Caddyfile routes seven *.muninai.org subdomains and gets real
+# The production Caddyfile routes seven *.<domain> subdomains and gets real
 # certificates from Let's Encrypt. Neither works on a laptop: there is no public
 # DNS and no reachable port 80 for the ACME challenge.
 #
@@ -10,7 +10,7 @@
 #
 #   * Same origin means the session cookie set by the auth service is sent on
 #     every chat request with no cross-site cookie rules to satisfy. The
-#     subdomain layout relies on a cookie scoped to `.muninai.org`, which has
+#     subdomain layout relies on a cookie scoped to `.<domain>`, which has
 #     no equivalent for `localhost`.
 #   * It removes the redirect to a second hostname during login, which would
 #     otherwise need its own certificate.
@@ -30,9 +30,18 @@
 	admin off
 }
 
+# Same as production: the static pages' cross-links are {{env "MUNIN_URL_*"}},
+# which compose points at the local ports below via the VITE_* overrides.
+(static-templates) {
+	templates {
+		mime text/html text/javascript application/javascript
+	}
+}
+
 (shared-assets) {
 	handle_path /shared/* {
 		root * /srv/static/shared
+		import static-templates
 		file_server
 	}
 }
@@ -88,6 +97,7 @@
 	handle /maintenance* {
 		root * /srv/static/maintenance
 		try_files {path} /index.html
+		import static-templates
 		file_server
 	}
 
@@ -115,6 +125,7 @@
 	}
 	handle {
 		root * /srv/static/search
+		import static-templates
 		file_server
 	}
 }
@@ -122,6 +133,7 @@
 :8082 {
 	import shared-assets
 	root * /srv/static/docs
+	import static-templates
 	file_server
 }
 
@@ -129,5 +141,6 @@
 	# Public landing page, no auth, same as production.
 	import shared-assets
 	root * /srv/static/landing
+	import static-templates
 	file_server
 }

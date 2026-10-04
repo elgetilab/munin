@@ -82,6 +82,7 @@ $EDITOR .env          # at minimum: LLM_BASE_URL, AUTH_SECRET_KEY, ADMIN_EMAILS
 cp frontend/auth/whitelist.csv.example frontend/auth/whitelist.csv
 $EDITOR frontend/auth/whitelist.csv   # put your own email in the admin row
 cp shared/config/contributors.yml.example shared/config/contributors.yml
+cp frontend/config/quotas.yml.example frontend/config/quotas.yml
 docker compose up -d
 ```
 

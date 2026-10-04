@@ -110,17 +110,17 @@
 <body>
     <header>
         <div class="container header-content">
-            <a href="https://muninai.org" class="logo">
+            <a href="{{env "MUNIN_URL_HOME"}}" class="logo">
                 <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="logo-img">
                 <span class="logo-text">Munin</span>
             </a>
             <nav>
-                <a href="https://muninai.org">Home</a>
-                <a href="https://search.muninai.org">Search</a>
-                <a href="https://docs.muninai.org" class="active">Docs</a>
-                <a href="https://chat.muninai.org/knowledge">Knowledge</a>
-                <a href="https://chat.muninai.org">Chat</a>
-                <a href="https://upload.muninai.org">Upload</a>
+                <a href="{{env "MUNIN_URL_HOME"}}">Home</a>
+                <a href="{{env "MUNIN_URL_SEARCH"}}">Search</a>
+                <a href="{{env "MUNIN_URL_DOCS"}}" class="active">Docs</a>
+                <a href="{{env "MUNIN_URL_CHAT"}}/knowledge">Knowledge</a>
+                <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a>
+                <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload</a>
             </nav>
         </div>
     </header>
@@ -131,7 +131,7 @@
 
         <h2>Chat</h2>
         <p>
-            The <a href="https://chat.muninai.org">chat interface</a> is the main way to interact with Munin.
+            The <a href="{{env "MUNIN_URL_CHAT"}}">chat interface</a> is the main way to interact with Munin.
             Type a question, and the assistant will respond with a streamed answer. Your conversations are saved automatically and accessible from the sidebar.
         </p>
 
@@ -167,7 +167,7 @@
 
         <h2>Paper Search</h2>
         <p>
-            <a href="https://search.muninai.org">Paper Search</a> is a fast, interactive search tool for finding scientific papers in our database.
+            <a href="{{env "MUNIN_URL_SEARCH"}}">Paper Search</a> is a fast, interactive search tool for finding scientific papers in our database.
         </p>
         <ul>
             <li>Type a topic, author name, or DOI into the search bar.</li>
@@ -178,7 +178,7 @@
 
         <h2>Knowledge Browser</h2>
         <p>
-            The <a href="https://chat.muninai.org/knowledge">Knowledge Browser</a> gives you a visual overview of everything in the internal paper database — organized by research group, topic cluster, and contributor.
+            The <a href="{{env "MUNIN_URL_CHAT"}}/knowledge">Knowledge Browser</a> gives you a visual overview of everything in the internal paper database — organized by research group, topic cluster, and contributor.
         </p>
 
         <h3>Overview page</h3>
@@ -230,7 +230,7 @@
 
         <h2>Contributing to the Knowledge Base</h2>
         <p>
-            You can grow the internal paper database by uploading PDFs on the <a href="https://upload.muninai.org">Upload page</a>.
+            You can grow the internal paper database by uploading PDFs on the <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload page</a>.
         </p>
         <ul>
             <li>Drag and drop PDFs (or click to browse). You can upload up to 1,000 files at once.</li>
@@ -241,12 +241,12 @@
 
         <h2 id="api-access">API Access</h2>
         <p>
-            Munin provides an API at <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">https://api.muninai.org/v1</code>. The API supports two modes: a <strong>raw mode</strong> that is fully OpenAI-compatible, and a <strong>persona mode</strong> that uses Munin's research assistants with custom SSE streaming.
+            Munin provides an API at <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">{{env "MUNIN_URL_API"}}</code>. The API supports two modes: a <strong>raw mode</strong> that is fully OpenAI-compatible, and a <strong>persona mode</strong> that uses Munin's research assistants with custom SSE streaming.
         </p>
 
         <h3>Getting an API key</h3>
         <p>
-            Open <a href="https://chat.muninai.org">Chat</a> → click your name (bottom of the sidebar) → <strong>Settings</strong> → scroll to <strong>API Keys</strong>. Create a key — it starts with <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">sk-munin-</code>. Copy it immediately; it won't be shown again.
+            Open <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a> → click your name (bottom of the sidebar) → <strong>Settings</strong> → scroll to <strong>API Keys</strong>. Create a key — it starts with <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">sk-munin-</code>. Copy it immediately; it won't be shown again.
         </p>
 
         <h3>Authentication</h3>
@@ -330,7 +330,7 @@
 
 client = OpenAI(
     api_key="sk-munin-...",
-    base_url="https://api.muninai.org/v1",
+    base_url="{{env "MUNIN_URL_API"}}",
 )
 
 response = client.chat.completions.create(
@@ -345,7 +345,7 @@ print(f"Tokens used: {response.usage.total_tokens}")</pre>
         <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">import httpx, json
 
 API_KEY = "sk-munin-..."
-BASE_URL = "https://api.muninai.org/v1"
+BASE_URL = "{{env "MUNIN_URL_API"}}"
 
 with httpx.stream(
     "POST",
@@ -373,7 +373,7 @@ with httpx.stream(
     print(reply)</pre>
 
         <h3>curl example — raw mode</h3>
-        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">curl https://api.muninai.org/v1/chat/completions \
+        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">curl {{env "MUNIN_URL_API"}}/chat/completions \
   -H "Authorization: Bearer sk-munin-..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -384,7 +384,7 @@ with httpx.stream(
 # Returns standard OpenAI JSON response</pre>
 
         <h3>curl example — Munin mode</h3>
-        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">curl -N https://api.muninai.org/v1/chat/completions \
+        <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;">curl -N {{env "MUNIN_URL_API"}}/chat/completions \
   -H "Authorization: Bearer sk-munin-..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -409,7 +409,7 @@ npm install -g opencode-ai</pre>
 
         <h3>2. Create an API key</h3>
         <p>
-            Open <a href="https://chat.muninai.org">Chat</a> &rarr; click your name &rarr; <strong>Settings</strong> &rarr; <strong>API Keys</strong>. Create a key (it starts with <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">sk-munin-</code>) and copy it &mdash; it won't be shown again.
+            Open <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a> &rarr; click your name &rarr; <strong>Settings</strong> &rarr; <strong>API Keys</strong>. Create a key (it starts with <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">sk-munin-</code>) and copy it &mdash; it won't be shown again.
         </p>
 
         <h3>3. Verify your key</h3>
@@ -417,7 +417,7 @@ npm install -g opencode-ai</pre>
             Before wiring up opencode, confirm the key works. Paste it into a quick <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">curl</code> against the model list:
         </p>
         <pre class="card" style="font-size: 13px; overflow-x: auto; white-space: pre;"># should return a JSON list containing qwen3.8-27b
-curl -s -H "Authorization: Bearer sk-munin-..." https://api.muninai.org/v1/models</pre>
+curl -s -H "Authorization: Bearer sk-munin-..." {{env "MUNIN_URL_API"}}/models</pre>
         <p>
             If the model list comes back, the key is good and you'll paste it straight into <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">opencode.json</code> in the next step. A <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">401</code> means the key is wrong or expired; regenerate it before continuing, otherwise opencode will not see the model.
         </p>
@@ -431,7 +431,7 @@ curl -s -H "Authorization: Bearer sk-munin-..." https://api.muninai.org/v1/model
       "npm": "@ai-sdk/openai-compatible",
       "name": "Munin",
       "options": {
-        "baseURL": "https://api.muninai.org/v1",
+        "baseURL": "{{env "MUNIN_URL_API"}}",
         "apiKey": "APIKEYHERE"
       },
       "models": {
@@ -475,7 +475,7 @@ opencode</pre>
     <footer>
         <div class="container">
             <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/" style="color: var(--accent);">Elgeti Lab</a></p>
-            <p style="margin-top: 8px;"><a href="https://search.muninai.org">Search</a> | <a href="https://chat.muninai.org">Chat</a> | <a href="https://upload.muninai.org">Upload</a> | <a href="mailto:support@muninai.org">Get Access</a> | <a href="mailto:support@muninai.org">Support</a></p>
+            <p style="margin-top: 8px;"><a href="{{env "MUNIN_URL_SEARCH"}}">Search</a> | <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a> | <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Get Access</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Support</a></p>
         </div>
     </footer>
 <script src="/shared/support-widget.js"></script>

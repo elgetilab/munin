@@ -9,7 +9,7 @@
 #   2. SSH in as root: ssh -i munin_admin root@VPS_IP
 #   3. Copy this script to the VPS and run it:
 #      bash bootstrap.sh \
-#        --admin-user varghele \
+#        --admin-user <your-admin-user> \
 #        --tunnel-pubkey "ssh-ed25519 AAAA... munin-tunnel" \
 #        --volume-id HC_Volume_XXXXXXXX
 #
@@ -27,7 +27,7 @@
 # What it does NOT do (still manual):
 #   - Generate secrets (openssl rand -hex 32 for AUTH_SECRET_KEY)
 #   - Transfer project files (rsync from local machine)
-#   - DNS configuration (HostEurope dashboard)
+#   - DNS configuration (your DNS provider)
 #   - docker compose up (run after transferring files)
 #   - Cluster tunnel setup (done on the cluster side)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -49,7 +49,7 @@ done
 
 if [[ -z "$ADMIN_USER" ]]; then
     echo "Error: --admin-user is required"
-    echo "Usage: bash bootstrap.sh --admin-user varghele --tunnel-pubkey 'ssh-ed25519 ...' --volume-id HC_Volume_XXXXXXXX"
+    echo "Usage: bash bootstrap.sh --admin-user <your-admin-user> --tunnel-pubkey 'ssh-ed25519 ...' --volume-id HC_Volume_XXXXXXXX"
     exit 1
 fi
 
@@ -222,7 +222,7 @@ echo ""
 echo "  3. Start the stack (4 services: Caddy, munin-auth, tusd, hook-service):"
 echo "     cd ~/munin && docker compose up -d"
 echo ""
-echo "  4. Configure DNS in HostEurope (A records for *.muninai.org → VPS IP)"
+echo "  4. Configure DNS: A records for <domain> and its subdomains → VPS IP"
 echo ""
 echo "  5. Set up the cluster tunnel (update IP in munin-tunnel.service)"
 echo ""

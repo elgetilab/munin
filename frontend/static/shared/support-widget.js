@@ -4,8 +4,8 @@
  * Include on any page: <script src="/shared/support-widget.js"></script>
  */
 (function () {
-  const AUTH_URL = 'https://auth.muninai.org';
-  const SUPPORT_EMAIL = 'support@muninai.org';
+  const AUTH_URL = '{{env "MUNIN_URL_AUTH"}}';
+  const SUPPORT_EMAIL = '{{env "MUNIN_SUPPORT_EMAIL"}}';
 
   // Don't double-init
   if (document.getElementById('munin-support-btn')) return;

@@ -69,7 +69,7 @@ CLAUDE.md
 .claude/
 **/.claude/
 
-# Real people: seed files that stay on the hosts. Commit the .example files.
+# Real people: seed and quota files that stay on the hosts. Commit the .example files.
 /frontend/auth/whitelist.csv
 /shared/config/contributors.yml
 # Per-record corpus audit outputs (paper ids, uploader records). Only the
@@ -80,3 +80,4 @@ CLAUDE.md
 /backend/docs/corpus-quality/*-REPAIR-*.json
 /backend/docs/corpus-quality/R2-*.json
 /backend/docs/corpus-quality/DOI-SPOTCHECK-????-??-??.md
+/frontend/config/quotas.yml

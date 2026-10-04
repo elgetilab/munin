@@ -294,12 +294,12 @@
                 <span class="logo-text">Munin</span>
             </a>
             <nav>
-                <a href="https://muninai.org" class="active">Home</a>
-                <a href="https://search.muninai.org">Search</a>
-                <a href="https://docs.muninai.org">Docs</a>
-                <a href="https://chat.muninai.org/knowledge">Knowledge</a>
-                <a href="https://chat.muninai.org">Chat</a>
-                <a href="https://upload.muninai.org">Upload</a>
+                <a href="{{env "MUNIN_URL_HOME"}}" class="active">Home</a>
+                <a href="{{env "MUNIN_URL_SEARCH"}}">Search</a>
+                <a href="{{env "MUNIN_URL_DOCS"}}">Docs</a>
+                <a href="{{env "MUNIN_URL_CHAT"}}/knowledge">Knowledge</a>
+                <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a>
+                <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload</a>
             </nav>
         </div>
     </header>
@@ -309,8 +309,8 @@
             <h1>Munin Research Assistant</h1>
             <p>AI-powered research assistant with access to your papers and the web. Munin automatically routes each question to the right mode: chat, coding, or research.</p>
             <div class="hero-buttons">
-                <a href="https://chat.muninai.org" class="btn btn-primary">Open Chat</a>
-                <a href="https://search.muninai.org" class="btn btn-secondary">Search Papers</a>
+                <a href="{{env "MUNIN_URL_CHAT"}}" class="btn btn-primary">Open Chat</a>
+                <a href="{{env "MUNIN_URL_SEARCH"}}" class="btn btn-secondary">Search Papers</a>
             </div>
         </div>
     </section>
@@ -319,7 +319,7 @@
         <div class="container">
             <h2>What You Can Do</h2>
             <div class="howto-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
-                <a href="https://chat.muninai.org" class="howto-card" style="text-decoration: none; color: inherit;">
+                <a href="{{env "MUNIN_URL_CHAT"}}" class="howto-card" style="text-decoration: none; color: inherit;">
                     <div class="howto-step">1</div>
                     <h3>Chat with AI</h3>
                     <p>Ask questions, write text, get help with code, or explore research topics. Munin automatically routes each turn to the right mode, or steer it yourself with /research, /code, or /chat.</p>
@@ -329,7 +329,7 @@
                         <li>Literature search and analysis</li>
                     </ul>
                 </a>
-                <a href="https://search.muninai.org" class="howto-card" style="text-decoration: none; color: inherit;">
+                <a href="{{env "MUNIN_URL_SEARCH"}}" class="howto-card" style="text-decoration: none; color: inherit;">
                     <div class="howto-step">2</div>
                     <h3>Search Papers</h3>
                     <p>Search our paper database by topic, author, year, or DOI. Results are ranked by meaning, not just keywords, so you find conceptually related work.</p>
@@ -339,7 +339,7 @@
                         <li>DOI lookup and PDF download</li>
                     </ul>
                 </a>
-                <a href="https://upload.muninai.org" class="howto-card" style="text-decoration: none; color: inherit;">
+                <a href="{{env "MUNIN_URL_UPLOAD"}}" class="howto-card" style="text-decoration: none; color: inherit;">
                     <div class="howto-step">3</div>
                     <h3>Upload Papers</h3>
                     <p>Contribute papers to the shared database. Uploaded PDFs are indexed and become searchable for everyone. Supports large batches with resumable uploads.</p>
@@ -377,7 +377,7 @@
     <section id="knowledge" class="knowledge">
         <div class="container">
             <p style="text-align: center; color: var(--text-secondary); max-width: 700px; margin: 0 auto; font-size: 15px;">
-                All assistants draw from <strong style="color: var(--text-primary);">web search</strong>, <strong style="color: var(--text-primary);">academic databases</strong> (Semantic Scholar, OpenAlex), and our <strong style="color: var(--text-primary);"><a href="https://upload.muninai.org" style="color: var(--accent);">internal paper collection</a></strong>, searchable by meaning, not just keywords.
+                All assistants draw from <strong style="color: var(--text-primary);">web search</strong>, <strong style="color: var(--text-primary);">academic databases</strong> (Semantic Scholar, OpenAlex), and our <strong style="color: var(--text-primary);"><a href="{{env "MUNIN_URL_UPLOAD"}}" style="color: var(--accent);">internal paper collection</a></strong>, searchable by meaning, not just keywords.
             </p>
         </div>
     </section>
@@ -385,7 +385,7 @@
     <footer>
         <div class="container">
             <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/" style="color: var(--accent);">Elgeti Lab</a></p>
-            <p style="margin-top: 8px;"><a href="https://search.muninai.org">Search</a> | <a href="https://chat.muninai.org">Chat</a> | <a href="https://upload.muninai.org">Upload</a> | <a href="mailto:support@muninai.org">Get Access</a> | <a href="mailto:support@muninai.org">Support</a></p>
+            <p style="margin-top: 8px;"><a href="{{env "MUNIN_URL_SEARCH"}}">Search</a> | <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a> | <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Get Access</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Support</a></p>
         </div>
     </footer>
 <script src="/shared/support-widget.js"></script>

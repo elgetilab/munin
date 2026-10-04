@@ -19,6 +19,22 @@ services:
     # (subdomains + ACME); the local one serves everything from
     # http://localhost with no TLS. See caddy/Caddyfile.local.
     command: caddy run --config /etc/caddy/${MUNIN_CADDYFILE:-Caddyfile} --adapter caddyfile
+    # The Caddyfile names its sites {$MUNIN_DOMAIN}; the static pages link to
+    # each other through the MUNIN_URL_* values (Caddy `templates`). Each URL
+    # derives from the domain; the VITE_* overrides the single-host .env sets
+    # for the chat UI apply to the static pages too, so there is one set.
+    environment:
+      MUNIN_DOMAIN: ${MUNIN_DOMAIN:?MUNIN_DOMAIN must be set, e.g. MUNIN_DOMAIN=lab.example.edu (see .env.example)}
+      ACME_EMAIL: ${ACME_EMAIL:-info@${MUNIN_DOMAIN}}
+      MUNIN_URL_HOME: ${VITE_SITE_HOME:-https://${MUNIN_DOMAIN}}
+      MUNIN_URL_AUTH: ${VITE_AUTH_BASE:-https://auth.${MUNIN_DOMAIN}}
+      MUNIN_URL_CHAT: ${VITE_CHAT_URL:-https://chat.${MUNIN_DOMAIN}}
+      MUNIN_URL_SEARCH: ${VITE_SEARCH_URL:-https://search.${MUNIN_DOMAIN}}
+      MUNIN_URL_DOCS: ${VITE_DOCS_URL:-https://docs.${MUNIN_DOMAIN}}
+      MUNIN_URL_UPLOAD: ${VITE_UPLOAD_URL:-https://upload.${MUNIN_DOMAIN}}
+      MUNIN_URL_RESEARCH: ${MUNIN_URL_RESEARCH:-https://research.${MUNIN_DOMAIN}}
+      MUNIN_URL_API: ${VITE_API_PUBLIC_URL:-https://api.${MUNIN_DOMAIN}/v1}
+      MUNIN_SUPPORT_EMAIL: ${SUPPORT_EMAIL:-support@${MUNIN_DOMAIN}}
 
   # ── munin-auth — email OTP authentication ─────────────────────────────────
   munin-auth:
@@ -39,7 +55,14 @@ services:
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_SENDER: ${SMTP_SENDER:-noreply@muninai.org}
+      SMTP_SENDER: ${SMTP_SENDER:-noreply@${MUNIN_DOMAIN}}
+      # Cookie scope, CORS origins and the post-login redirect allow-list all
+      # derive from the domain. COOKIE_DOMAIN unset: .<domain> (one login for
+      # every subdomain); set but empty: host-only, for a single host.
+      MUNIN_DOMAIN: ${MUNIN_DOMAIN:?MUNIN_DOMAIN must be set}
+      MUNIN_SITE_URL: ${VITE_SITE_HOME:-https://${MUNIN_DOMAIN}}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN-.${MUNIN_DOMAIN}}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:-support@${MUNIN_DOMAIN}}
       SESSION_MAX_AGE: 2592000
       OTP_EXPIRY: 600
       # P1 #11: bearer token the cluster uses to fetch
@@ -82,7 +105,7 @@ services:
       ADMIN_INGEST_TOKEN: ${ADMIN_INGEST_TOKEN:-}
       CLUSTER_INGEST_URL: http://127.0.0.1:18080/api/admin/ingest
       # P1 #11 commit 4: KB-contribution gate. On every tusd
-      # pre-create the hook calls auth.muninai.org/admin/check-role
+      # pre-create the hook calls the auth service's /admin/check-role
       # over loopback to confirm the uploader is a group_leader/admin.
       # Default fails closed (no token = reject) so misconfiguration
       # is loud, not silent.
@@ -101,7 +124,7 @@ services:
     environment:
       SECRET_KEY: ${AUTH_SECRET_KEY}
       CLUSTER_TUNNEL: ${CLUSTER_TUNNEL:-http://127.0.0.1:18080}
-      ADMIN_EMAILS: ${ADMIN_EMAILS:-admin@muninai.org}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
 
   # ── webui-build — build the chat SPA without a host Node toolchain ─────────
   # Profile `webui`, so it never runs on the VPS, where the UI is built with
