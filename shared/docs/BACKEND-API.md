@@ -1,10 +1,9 @@
 # Munin Backend: API Reference
 
-Hand-off document for the frontend / gateway repo. Describes what the
-`munin-retrieval` FastAPI service actually delivers today (Streams 1–5 are
-all live as of the first deploy on `hugin`). This is the counterpart to
-`FRONTEND-REFERENCE.md`, the frontend expresses the *intent*, this file
-describes the *implementation*. Where they disagree, this file wins.
+Hand-off document for the frontend / gateway side. Describes what the
+`munin-retrieval` FastAPI service actually delivers today. This is the
+canonical contract: the frontend implementation (`frontend/webui/`) is
+expected to track it, and where the two disagree, this file wins.
 
 ## 1. Overview
 
@@ -15,7 +14,7 @@ describes the *implementation*. Where they disagree, this file wins.
 | How the VPS reaches it | Reverse SSH tunnel: VPS `127.0.0.1:18080` ↔ cluster `127.0.0.1:8080` (`config/munin-tunnel.service`) |
 | Framing | JSON everywhere except `/api/chat/completions`, which uses SSE (`sse-starlette`) |
 | Python side | 3.11; async throughout; lazy-loaded Qdrant/Neo4j/SPECTER/BGE singletons |
-| Persistence | SQLite at `/data/chats.db` (chat history), Qdrant `user_docs` collection (user files), Qdrant `papers` (papers) |
+| Persistence | SQLite at `/data/chats.db` (chat history), Qdrant `user_docs` collection (user files), Qdrant `papers_bge` (paper vectors, BGE-large 1024d; `PAPERS_COLLECTION`) and `papers_chunks` (full-text chunks, used by `source`) |
 
 The service also exposes the legacy `/retrieve`, `/search/hybrid`,
 `/citations/{doi}`, `/mcp/*`, `/deepresearch/*`, etc. routes, those are
@@ -23,7 +22,9 @@ The service also exposes the legacy `/retrieve`, `/search/hybrid`,
 (`POST /deepresearch/submit` is additionally disabled since 2026-07:
 returns 503 unless the service runs with `DEEPRESEARCH_ENABLED=1`;
 the read-only `/deepresearch/*` routes still serve past reports.
-See DECISIONS.md "Deep Research (MiroThinker) disabled".)
+See DECISIONS.md "Deep Research (MiroThinker) disabled".) The Deep
+Research users see today is the in-process agent under `/api/research/*`,
+which **is** part of the contract (§4.23).
 
 Two more routes exist but are out-of-band for the UI:
 
@@ -35,18 +36,49 @@ Two more routes exist but are out-of-band for the UI:
 
 ## 2. Authentication
 
-Forward-auth pattern: Caddy on the VPS validates the session (or API
-key) and attaches headers to the proxied request.
+Forward-auth pattern: the backend never sees a session cookie or API key.
+Caddy's forward-auth (munin-auth) validates the browser session, the
+api-gateway validates API keys, and they attach identity headers to the
+request they proxy to this service. The backend trusts those headers as
+given, so it must only be reachable through that path (the reference
+deployment binds loopback and arrives over the SSH tunnel).
 
 | Header | Purpose | Required |
 |---|---|---|
 | `X-Munin-Email` | user identity | Yes |
 | `X-Munin-Name` | display name, ASCII-only (see below) | No, not consumed by backend today |
+| `X-Munin-Role` / `X-Munin-Group` | role and research group, copied from forward-auth alongside the email | No |
 | `X-Munin-Ephemeral` | when `true`, forces ephemeral chat (no persistence); VPS gateway stamps this on every `/v1/*` API-key request | No |
+| `X-Munin-Gateway-Token` | shared secret proving the identity headers came from the gateway/Caddy; see below | Only when `MUNIN_GATEWAY_TOKEN` is set |
 
-Every `/api/*` route except `/api/status`, `/api/models` and
-`/api/personas/{id}/icon` requires `X-Munin-Email`; missing → **401** with
-`{"error": {"message": "Missing authentication header"}}`.
+**Optional gateway token.** When the retrieval service runs with
+`MUNIN_GATEWAY_TOKEN` set, any request that carries `X-Munin-Email`,
+`X-Munin-Role`, `X-Munin-Group` or `X-Munin-Name` must also carry
+`X-Munin-Gateway-Token` with the same value, or it is refused with
+**401** `{"error": {"message": "gateway token required"}}` before
+routing (`retrieval/gateway_token_guard.py`). Requests with no identity
+header pass through untouched. Unset (the default) keeps the old
+behaviour of trusting the headers from any caller that can reach the
+port. Once it is set, cluster-side scripts that call the API directly
+with an identity header (benchmarks, smoke tests, `deploy.sh` verify)
+must send the token too.
+
+Routes that do **not** check `X-Munin-Email`:
+
+- `GET /api/status`
+- `GET /api/models`
+- `GET /api/personas`
+- `GET /api/personas/{id}/icon`
+- `GET /api/tags`
+- `GET /api/tags/{kind}/{slug}/papers`
+- `GET /api/embedding_map`
+- `POST /api/admin/ingest` (token auth instead, see §1)
+
+Every other `/api/*` route requires `X-Munin-Email`; missing gives
+**401** with the error envelope (§3) and the message
+`"Missing authentication header"` (`"Missing X-Munin-Email header"` on
+the `/api/research/*` routes). The two admin metrics routes (§4.22)
+additionally require the admin role.
 
 **These header values are stripped to ASCII** by munin-auth
 (`_header_safe`) and again by the gateway (`header_safe`). Two encoders
@@ -75,7 +107,14 @@ Uniform across every endpoint:
 {"error": {"message": "Human-readable description"}}
 ```
 
-FastAPI `HTTPException` is serialised into this exact shape. HTTP status
+Routes raise `HTTPException(detail={"error": {...}})`, and there is no
+custom exception handler, so FastAPI's default handler nests that under
+`detail` on the wire: `{"detail": {"error": {"message": "..."}}}`. A few
+responses built directly as JSON (the gateway-token 401, raw-mode
+"prompt is too long" 400, the vLLM-offline 503) carry the bare
+`{"error": {...}}` shape. Clients should read `body.detail ?? body`
+before looking for `error.message` (the backend tests do exactly this).
+HTTP status
 codes follow the usual convention (400 / 401 / 404 / 413 / 500). Streaming
 errors come through the SSE stream as `event: error` instead of a HTTP
 status flip.
@@ -97,7 +136,7 @@ Polled by the frontend's `useStatus` hook every 60 s.
   },
   "vllm": {
     "status": "running",
-    "model": "qwen3.6-35b-a3b",
+    "model": "qwen3.8-27b",
     "next_start": "2026-04-14T06:00:00+02:00"
   },
   "services": {
@@ -196,31 +235,41 @@ routed through the gateway.
 {
   "personas": [
     {
-      "id": "chat",
-      "name": "Meitner - Chat",
-      "description": "General-purpose assistant ...",
-      "icon_url": "/api/personas/chat/icon",
-      "tags": ["general", "writing"],
-      "capabilities": {"web_search": true, "code_interpreter": false, "image_generation": false},
+      "id": "munin",
+      "name": "Munin",
+      "description": "Munin routes each question automatically. Use /research, /code, or /chat to steer a single turn explicitly.",
+      "icon_url": null,
+      "tags": [],
+      "capabilities": {},
       "prompt_suggestions": [
         {"title": "Search the web", "subtitle": "for current information", "content": "Search the web for ..."}
       ]
-    },
-    {"id": "code",     "name": "Turing - Code",     "...": "..."},
-    {"id": "research", "name": "Curie - Research",  "...": "..."}
+    }
   ],
-  "default_persona": "chat"
+  "default_persona": "munin"
 }
 ```
 
-Three personas are currently loaded: `chat`, `code`, `research` (from
-`personas/*.json`). Icon URLs are served by the next endpoint.
+No auth needed. The list always holds exactly **one** user-facing
+identity, `munin` (`AUTO_PERSONA_ID`, env `AUTO_PERSONA`). It is not a
+loaded persona file: sending it (or omitting a persona, see §4.8) means
+"let the router decide this turn". `icon_url` is `null` because the
+frontend supplies the Munin logo. `prompt_suggestions` are merged across
+the three internal profiles, deduplicated, and capped at 8.
+
+`chat`, `code` and `research` (from `personas/*.json`) still exist, but
+as **internal router profiles**, not user-pickable models. The router
+selects one per turn (§5 `routing` event). A user steers a single turn
+by starting the message with `/chat`, `/code` or `/research`; a client
+that sends one of those ids as `persona` pins it for the turn. Their
+icons remain available from the next endpoint.
 
 ### 4.3 `GET /api/personas/{id}/icon`
 
 Returns `image/svg+xml`. Files come from `personas/logos/`, resolved in
 this order: `{name}-{id}-inverted.svg` → `{name}-{id}.svg` → `logo-{id}.svg`.
-Missing persona or missing file → **404**.
+Missing persona or missing file → **404** (this includes `munin`, which
+is not a loaded persona).
 
 ### 4.4 `GET /api/chats`
 
@@ -324,7 +373,9 @@ Loads a full conversation with messages in order.
 - **404** if the conversation doesn't exist or belongs to another user.
 - `tool_calls` and `rag_context` are parsed from the stored JSON columns
   back into Python objects, frontend receives them as structured JSON,
-  not strings.
+  not strings. `rag_context` is only populated on older messages from the
+  retired pre-turn RAG step; new turns store `null` (retrieval now shows
+  up in `tool_calls`).
 - `thinking` is the accumulated `reasoning_content` from the vLLM stream.
 - Ownership is enforced by `WHERE user_email = ?`; we don't leak 403 vs 404.
 - The response also carries `active_stream` (background turns): the
@@ -389,24 +440,41 @@ Unpins a conversation. Idempotent.
 
 ```json
 {
-  "persona": "chat",
+  "persona": "munin",
   "conversation_id": null,
   "messages": [{"role": "user", "content": "What is polymer crystallization?"}],
-  "rag": {"enabled": true, "sources": ["papers", "web"]},
   "ephemeral": false,
   "stream": true
 }
 ```
 
-- `persona` defaults to `chat` if omitted.
+- `persona` resolution, in order:
+  1. An explicit `persona` in the body always wins.
+  2. Otherwise, for an existing `conversation_id`, the conversation's
+     stored persona (or `munin` if none was stored).
+  3. Otherwise (a new conversation, which without a persona is only
+     possible with a `project_id`, see raw mode below):
+     `project.default_persona` > `profile.default_persona` > `munin`
+     (`AUTO_PERSONA_ID`).
+
+  A request with **no** `persona`, **no** `conversation_id` and **no**
+  `project_id` is not a Munin chat at all: it takes the raw-mode
+  passthrough described below. `munin` (or `"auto"`) means auto-route:
+  the router picks `chat`/`code`/`research` per turn, using
+  `DEFAULT_PERSONA_ID` (env
+  `DEFAULT_PERSONA`, default `chat`) only as the base frame and
+  fallback. A profile id (`chat`/`code`/`research`) pins it.
+  Auto-routed conversations are stored with persona `munin`, so
+  reopening them keeps re-routing per turn.
 - `conversation_id: null` → backend creates a new conversation.
 - `messages` must be a non-empty list; the **last** element must be
   `role: "user"`. Prior messages are ignored in the **persistent** mode -
   the backend loads persisted history for `conversation_id` and uses that
   as context. Only the trailing new user turn is read from the request.
-- `rag.enabled: true` triggers parallel `paper_search` + `web_search` via
-  the MCP executor. Supported `rag.sources`: `papers`, `web`. If unset,
-  defaults to `["papers"]`. Omit `rag` entirely to disable retrieval.
+- `rag` is **accepted and ignored** (kept for backwards compatibility;
+  `chat_service` discards it). Retrieval is model-driven: the model
+  calls `search`, `source`, `web_search` and the other retrieval tools
+  itself (§9). There is no request-level switch to force or disable it.
 - `project_id` (optional, §21) - when creating a **new** conversation
   (i.e. `conversation_id` is null), pass a project id to auto-file
   the new conversation into that project at creation time and have
@@ -474,8 +542,9 @@ Unpins a conversation. Idempotent.
 **Response**: `Content-Type: text/event-stream`, frames are
 `event: <name>\ndata: <json>\n\n`. See §5 for the full event catalogue.
 
-**On success** the stream contains one `conversation` event at the start,
-optional `rag_context`, the generation events, and a terminal `done`. On
+**On success** the stream opens with a `routing` event, then one
+`conversation` event, then the generation events and a terminal `done`.
+There is no `rag_context` event. On
 **brand-new conversations** a second `conversation` event is emitted near
 the end once the auto-generated title is ready (re-use the same `id`, just
 update the title in the UI).
@@ -488,7 +557,7 @@ terminated after any `error` event.
 `persona`, no `conversation_id`, and no `project_id` (or `persona` is the
 literal `"raw"`/`"none"`), the endpoint skips the persona/RAG/tool/
 chat-store machinery and proxies straight to vLLM. This is the shape of
-every external `api.muninai.org/v1/*` call (Cursor, aider, Positron, the
+every external `api.<domain>/v1/*` call (Cursor, aider, Positron, the
 OpenAI SDK). The response is vLLM's own OpenAI payload: SSE
 `chat.completion.chunk`s terminated by `data: [DONE]` when `stream: true`,
 or a single `chat.completion` JSON object otherwise.
@@ -520,12 +589,18 @@ which tells a client the service is broken and retrying is pointless. One
 API key alone logged ~105 of those per night.
 
 Context-length handling: the served model's window is **65536 tokens**
-(prompt + `max_tokens` combined). On an overflow, the proxy refits
-`max_tokens` down to the room the prompt leaves and retries once, so a
-growing session keeps working rather than hard-failing once it crosses
-the line. If the prompt **alone** exceeds the window, the `400` ("This
-model's maximum context length is 65536 tokens...") passes through
-unchanged so the client can trim and retry.
+(`VLLM_MAX_MODEL_LEN`, prompt + `max_tokens` combined). The proxy fits
+`max_tokens` **before** calling vLLM: it counts the prompt with the real
+Qwen tokenizer and, if an explicit `max_tokens` exceeds the room left
+(window minus prompt minus a 512-token margin), clamps it to that room,
+so a growing session keeps working rather than hard-failing once it
+crosses the line. An unset `max_tokens` is left for vLLM to cap. If the
+prompt leaves less than 256 tokens of room, the proxy answers `400`
+itself (`"type": "context_length_exceeded"`, "Prompt is too long: ...")
+without calling vLLM. As a safety net, if vLLM still rejects for context
+length (the local count under-estimated), the proxy halves `max_tokens`
+and retries, up to 3 times (`_RAW_MAX_REFIT_RETRIES`); any other vLLM
+error passes through with its own status and body.
 
 **`id:` framing and reconnect (P1 #10).** Every SSE event carries an
 `id: <stream_id>-<seq>` line where `seq` is a monotonic per-stream
@@ -569,9 +644,10 @@ nothing.
 
 - `200` with an SSE body — same wire format as the POST. Replayed
   events arrive in `seq` order, then live events follow.
-- `410 Gone` — the stream is unknown, evicted (kept ~60 s after
-  completion), or its log overflowed (>1000 events) past the
-  client's checkpoint. Because the turn's outcome is persisted
+- `410 Gone`: the stream is unknown, evicted (kept ~60 s after
+  completion), or its replay log overflowed past the client's
+  checkpoint (the per-stream log is capped at 100000 events or 8 MiB,
+  `MAX_LOG_EVENTS` / `MAX_LOG_BYTES` in `stream_registry.py`). Because the turn's outcome is persisted
   regardless, the webui treats this as "reload the transcript"
   (synthetic `stream_gone` event, §5), not as an error.
 - `403 Forbidden` — `X-Munin-Email` does not match the stream's
@@ -1125,11 +1201,12 @@ project must be owned by the requesting user (**404** otherwise).
 request is `ephemeral: true` AND references a conversation that
 belongs to a project, the backend returns **400**.
 
-**Persona precedence**: when the request body has no `persona` field,
-the backend resolves the persona in this order:
-`project.default_persona` > `profile.default_persona` >
-`DEFAULT_PERSONA_ID`. An explicit `persona` in the request body always
-wins.
+**Persona precedence**: when the request body has no `persona` field
+and creates a new conversation, the backend resolves the persona in
+this order: `project.default_persona` > `profile.default_persona` >
+`AUTO_PERSONA_ID` (`munin`, i.e. auto-route). An existing conversation
+keeps its stored persona. An explicit `persona` in the request body
+always wins. Full rule in §4.8.
 
 **Project context injection**: when a conversation has a `project_id`,
 `chat_service` prepends a `=== PROJECT CONTEXT === ... === END
@@ -1296,7 +1373,7 @@ KB; this is what the knowledge overview's "Contributors" stat shows.
 
 ### 4.20 `GET /api/tags/{kind}/{slug}/papers`
 
-Paginated paper list for a tag. Browse view, no ranking, no SPECTER
+Paginated paper list for a tag. Browse view, no ranking, no vector
 query, ordered by metadata. Used by the knowledge browser page to
 drill down from a tag pill.
 
@@ -1335,7 +1412,7 @@ drill down from a tag pill.
       "contributors": [{"display_name": "Alice", "group_slug": "varghela-lab",
                         "group_display_name": "Varghela Lab", "upload_time": "2026-04-12T..."}],
       "topic": {"label": "Machine Learning", "slug": "machine-learning"},
-      "download_url": "https://search.muninai.org/paper/.../pdf"
+      "download_url": "https://search.<domain>/paper/.../pdf"
     }
   ]
 }
@@ -1401,6 +1478,128 @@ All four fields are required; a missing one gives **400** naming which.
   body (truncated to 500 chars), so the frontend can tell a PromQL
   syntax error from an auth problem.
 
+
+### 4.23 Deep Research (in-process agent): `/api/research/*`
+
+The Deep Research users see. A long-running agent that runs **inside the
+retrieval service** as a detached asyncio task (not a chat turn and not
+a SLURM job), so it survives the client disconnecting. Delivery is
+poll-based: `start` returns a `job_id` at once, the job writes an
+ordered, durable event log, and the finished report lands in the
+conversation as a markdown artifact plus a short assistant message.
+Defined in `retrieval/research_routes.py` (lifecycle in
+`deep_research_manager.py`, storage in `research_store.py`). Not to be
+confused with the disabled legacy `/deepresearch/*` routes (§1).
+
+**Auth**: every route requires `X-Munin-Email` (missing gives **401**,
+message `"Missing X-Munin-Email header"`) and only ever returns the
+caller's own jobs. Errors use the §3 envelope.
+
+**Concurrency**: at most `DEEP_RESEARCH_MAX_CONCURRENT` jobs (default 1)
+run at once; further jobs stay `queued` until a slot frees.
+
+**Job status values**: `queued` → `running` → `done` | `error` |
+`cancelled`. Job ids have the form `dr_<16 hex>`.
+
+#### `POST /api/research/start`
+
+**Body**:
+
+```json
+{
+  "question": "How does membrane curvature affect protein sorting?",
+  "conversation_id": "550e8400-...",
+  "depth": "deep",
+  "resume_job_id": null,
+  "max_subq": 6,
+  "screen_keep": 20,
+  "read_cap": 8
+}
+```
+
+- `question` (required, non-empty after trimming), else **400**.
+- `conversation_id` (optional). Must be the caller's conversation, else
+  **404**. When omitted, the backend creates a new conversation (persona
+  `munin`, title = the first 80 chars of the question), so Deep Research
+  can be the first action in a fresh chat.
+- The question is recorded as a user message in the conversation.
+- `depth` (optional, default `"deep"`, which includes the web tier).
+- `resume_job_id` (optional): re-run one of the caller's own earlier
+  jobs that is not currently running, reusing its checkpointed plan.
+  A malformed, foreign, or still-running id gives **400**.
+- `max_subq`, `screen_keep`, `read_cap` (optional integers): agent
+  budget overrides (sub-questions, candidates kept per sub-question,
+  full reads per sub-question; defaults 6 / 20 / 8 in
+  `deep_research_agent.py`). Non-integers are ignored.
+- **503** while maintenance mode is on (§4.1).
+
+**Response (200)**:
+
+```json
+{"job_id": "dr_0123456789abcdef", "conversation_id": "550e8400-...",
+ "created_conversation": false, "status": "queued"}
+```
+
+When `created_conversation` is `true`, the client switches to the
+returned `conversation_id`.
+
+#### `GET /api/research/status/{job_id}`
+
+Full job record plus the ordered event log. Every read is a full
+replay, so a client that reconnects just reads again.
+
+```json
+{
+  "job_id": "dr_0123456789abcdef",
+  "conversation_id": "550e8400-...",
+  "user_email": "alice@example.org",
+  "question": "...",
+  "status": "running",
+  "artifact_id": null,
+  "error": null,
+  "created_at": 1789461656.2,
+  "updated_at": 1789461702.9,
+  "events": [
+    {"t": 0.4, "type": "plan", "items": [...]},
+    {"t": 3.1, "type": "tool_call", "id": "...", "name": "search", "...": "..."},
+    {"t": 9.8, "type": "tool_result", "id": "...", "...": "..."}
+  ]
+}
+```
+
+- `created_at` / `updated_at` are Unix epoch seconds (floats).
+- Each event carries `t` (seconds since the job started) and `type`:
+  `plan`, `plan_update`, `tool_call`, `tool_result`, `note`,
+  `synthesising`, then `artifact` (with `artifact_id`, `title`,
+  `n_resolved`, `n_sub_questions`, `n_citations`) and `done` on
+  success, or `error` (with `message`) on failure. The tool events
+  mirror chat `tool_call` / `tool_result` so the UI can render them the
+  same way.
+- **404** for an unknown job or one owned by another user.
+
+#### `GET /api/research/for-conversation/{conversation_id}`
+
+The conversation's most recent job (same shape as `status`), used to
+re-render the inline research view when a chat is reopened:
+`{"job": {...}}`, or `{"job": null}` when there is none (also for a
+conversation the caller does not own).
+
+#### `GET /api/research/jobs`
+
+The caller's jobs, newest first, at most 50:
+`{"jobs": [{"job_id", "conversation_id", "question", "status",
+"created_at", "updated_at"}, ...]}` (no event log).
+
+#### `POST /api/research/cancel/{job_id}`
+
+Cancels a `queued` or `running` job: `{"cancelled": true}`. A job that
+has already finished gives `{"cancelled": false}`; an unknown or foreign
+job gives **404**.
+
+**What the web UI calls**: `start`, `status` (polled) and
+`for-conversation` (`frontend/webui/src/lib/api.ts`). `jobs` and
+`cancel` are served but not used by the web UI today.
+
 ---
 
 ## 5. SSE event catalogue for `/api/chat/completions`
@@ -1415,8 +1614,8 @@ data: <minified json>
 
 | Event | Payload | Emitted when |
 |---|---|---|
-| `conversation` | `{"id": "...", "title": "..." \| null, "is_new": true \| false, "ephemeral": true \| false, "stream_id": "..."}` | At stream start; again after auto-title for new conversations. `ephemeral: true` means the id has the `ephemeral-` prefix and was never persisted; the auto-title follow-up event is skipped. `stream_id` (P1 #10) is the server-assigned id for this SSE stream — the frontend persists it (localStorage since background turns, so the pointer survives a closed tab) along with the latest `Last-Event-ID`, and latches it in-memory so Stop can hit §4.8b. Resume via the `/resume` endpoint |
-| `routing` | `{"profile": "chat"\|"research"\|"code", "pin": "chat"\|..., "method": "rule"\|"knn"\|"fallback"\|"pin", "confidence": 0.0}` | **A3** (persona→router migration). Fires once at stream start, before the first model call. `profile` is the per-turn routed profile (drives the layered system prompt, sampling, and tools); `pin` is the user's selected persona. `method` is how the profile was decided (`rule`=slash command, `knn`=example-set match, `fallback`=pin/chat default, `pin`=router disabled). When `ROUTER_ENABLED` is false, `profile == pin` and `method == "pin"`. Replaces the retired `persona_changed`/`delegated` events (the delegation machinery is removed at A4). |
+| `conversation` | `{"id": "...", "title": "..." \| null, "is_new": true \| false, "ephemeral": true \| false, "stream_id": "..."}` | At stream start (right after `routing`); again after auto-title for new conversations. `ephemeral: true` means the id has the `ephemeral-` prefix and was never persisted; the auto-title follow-up event is skipped. `stream_id` (P1 #10) is the server-assigned id for this SSE stream; the frontend persists it (localStorage since background turns, so the pointer survives a closed tab) along with the latest `Last-Event-ID`, and latches it in-memory so Stop can hit §4.8b. Resume via the `/resume` endpoint |
+| `routing` | `{"profile": "chat"\|"research"\|"code", "pin": "chat"\|..., "method": "rule"\|"knn"\|"fallback"\|"pin", "confidence": 0.0}` | **A3** (persona→router migration). Fires once as the first event of the stream (before `conversation` and before the first model call). `profile` is the per-turn routed profile (drives the layered system prompt, sampling, and tools); `pin` is the pinned profile id, or `null` when the turn is auto-routed (`munin`). `method` is how the profile was decided (`rule`=slash command, `knn`=example-set match, `fallback`=pin/chat default, `pin`=router disabled). When `ROUTER_ENABLED` is false, `profile == pin` and `method == "pin"`. Replaces the retired `persona_changed`/`delegated` events (the delegation machinery is removed at A4). |
 | `thinking` | `{"content": "partial reasoning text"}` | Multiple. Accumulate client-side. Sourced from vLLM `delta.reasoning_content` (qwen3 reasoning parser) |
 | `tool_call` | `{"id": "tc-1", "name": "paper_search", "arguments": {...}}` | Once per finalized tool call the main model asks for. Emitted after the vLLM delta for that turn finishes, not mid-arguments |
 | `tool_result` | `{"id": "tc-1", "name": "paper_search", "result": {...}, "duration_ms": 800}` | After the tool actually finishes. Matches `tool_call.id` |
@@ -1440,17 +1639,17 @@ data: <minified json>
 | `compact_boundary` | `{"summary_through_index": N, "dropped_messages": K, "summary": "...", "is_fresh": true \| false}` | **P2 #22**. Fires at most once per turn, immediately after the initial assembly step in `assemble_context` (before any `thinking`/`token` event), when the model's view of the conversation has been compressed to fit the context budget. `is_fresh: true` means the summary was generated this turn (blocking vLLM call ~1-3s); `is_fresh: false` means a prior turn's opportunistic prefetch had already populated it (no cost this turn). Frontend renders a thin "earlier N messages summarised" divider above the assistant bubble with the full summary text revealed on click. The backend schedules a fire-and-forget background task at end-of-turn that pre-summarises whenever history exceeds 70% of the budget, so subsequent turns generally land in the `is_fresh: false` path |
 | `error` | `{"message": "Human-readable error"}` | On failure. Stream terminates after this |
 
-Ordering for a normal RAG-enabled chat with one tool call:
+Ordering for a normal chat with one tool call:
 
 ```
-conversation → rag_context → thinking* → tool_call → tool_result
+routing → conversation → thinking* → tool_call → tool_result
              → thinking* → token* → done
 ```
 
 Ordering when the model invokes an agent:
 
 ```
-conversation → tool_call(invoke_agent)
+routing → conversation → tool_call(invoke_agent)
              → agent_start → agent_thinking* → agent_tool_call → agent_tool_result
              → agent_done → tool_result(invoke_agent)
              → token* → done
@@ -1462,23 +1661,40 @@ or as a single tool entry, both views are supported by the stream.
 
 ## 6. Persona context injection
 
-Every chat completion assembles its system prompt as:
+Every chat completion assembles its system prompt in layers
+(`chat_service`, `build_system_prompt` and `compose_system_prompt` in
+`personas.py`). The persona text is layered by the router: each profile
+prompt splits at its `=== END OUTPUT STYLE ===` and `=== TASK PLANNING ===`
+markers, and the turn uses `prefix(pin) + fragment(routed) + suffix(pin)`,
+i.e. the pinned (or base, when auto-routed) profile's voice and rules
+around the routed profile's task guidance. When pin and routed profile
+are the same this is just that profile's `params.system`. Around it,
+top to bottom:
 
 ```
-{persona.params.system}
-
-{agent summaries, one bullet per registered agent, with invocation hint}
+{project context}        (conversation filed in a project, §21)
+{active artifacts}       (persistent chats with a conversation)
+{plan}                   (persistent chats with a conversation)
+{user memory}            (persistent chats)
+{user profile}           (persistent chats, §4.13)
+{layered persona prompt}
+{current date}
+{agent summaries}        (one bullet per agent in config/agents.yml, invoke_agent hint)
+{capabilities}           (persistent chats)
+{active #tag scope}      (when the request carries tags)
 ```
 
-The agent summaries are injected automatically so the main model knows it
-can delegate to `research_orchestrator`, `code_checker`, or `writing_agent`.
-The summaries come from `config/agents.yml` and re-load on every service
-restart. Frontend does not need to touch this.
+Ephemeral chats skip the profile, memory, artifact, plan, project and
+capabilities blocks. The agent summaries come from `config/agents.yml`
+and re-load on every service restart. Frontend does not need to touch
+this.
 
 ## 7. Context budgeting & summarization
 
-- Budget: `MAX_CONTEXT = 60000`, `GENERATION_RESERVE = 8000` (overridable
-  via env). Tokens are counted with the real Qwen3 tokenizer (its
+- Budget: `MAX_CONTEXT = 60000` (env `VLLM_MAX_CONTEXT`) and
+  `GENERATION_RESERVE`, which defaults to the real per-turn output cap
+  `VLLM_MAX_OUTPUT_TOKENS` = 16384 (env `VLLM_GENERATION_RESERVE`
+  overrides it). Tokens are counted with the real Qwen3 tokenizer (its
   `tokenizer.json` is mounted into the retrieval container); if that
   file is unreachable the count falls back to a ~4-chars/token
   heuristic, which undercounts code / LaTeX / JSON.
@@ -1507,44 +1723,74 @@ update the title in place without creating a new tab or reloading.
 
 ## 9. MCP tool registry
 
-Tools available to the main model and agents (see `retrieval/mcp/schemas.py`):
+`retrieval/mcp/schemas.py` is the **authoritative registry**: `MCP_TOOLS`
+holds every tool the main model can call (name, description,
+`inputSchema`, concurrency flag) and `CORE_TOOLS` the always-visible
+subset. This section describes the shape of the set rather than copying
+it; read `MCP_TOOLS` for the current list and arguments.
 
-| Tool | What it does |
+**Primary surface: the agent tools.** Most work goes through four
+agent-style tools, each running its own multi-step loop and returning
+a grounded result:
+
+- `source`: read one or more documents and answer from their full text
+  (`mode` is `summary`, `qa`, `findings`, `extract` or `compare`). It supersedes the retired
+  `read_paper` and `compare_papers` tools.
+- `search`: find and rank evidence across three tiers in one call (the
+  local corpus, open-access papers via Semantic Scholar, the web), each
+  hit tagged with its `source_type`.
+- `compute`: turn a natural-language spec into code, run it in the
+  network-off sandbox and return a reproducible bundle.
+- `deep_research`: a one-shot composite tool (decompose, fan out across
+  corpus, Semantic Scholar and the web, summarise). Deferred, so it is
+  reached through `tool_search`. It is distinct from the long-running
+  Deep Research agent behind `/api/research/*` (§4.23).
+
+**The rest, by category** (deferred unless listed in `CORE_TOOLS`):
+
+| Category | Examples |
 |---|---|
-| `web_search` | SearXNG web search |
-| `web_fetch` | Fetch a URL and optionally summarise with vLLM |
-| `paper_search` | SPECTER semantic search over the local papers corpus |
-| `semantic_scholar_search` | Semantic Scholar API |
-| `paper_lookup` | Paper metadata by DOI |
-| `get_citations` / `get_references` | Neo4j citation graph traversal |
-| `get_author_papers` | Author-indexed lookup |
-| `get_paper_pdf` | Local PDF availability by DOI |
-| `check_papers_availability` | Bulk DOI availability check |
-| `llm_summarize` | vLLM summarisation helper |
-| `search_user_docs` | Semantic search over the current user's uploaded docs (auto-filters by `X-Munin-Email` via contextvar, never pass a user id) |
-| `invoke_agent` | Delegate to an agent workflow. Input: `{"agent": "...", "query": "..."}` |
-| `tool_search` | Discover deferred tools. Input: `{"query": "..."}`. See "Deferred tool schema" below |
+| Papers and citation graph | `paper_search` (local corpus, active paper encoder, BGE-large by default), `semantic_scholar_search`, `paper_lookup`, `get_citations` / `get_references` (Neo4j), `s2_get_citations` / `s2_get_references`, `get_author_papers`, `get_paper_pdf`, `check_papers_availability`, `browse_tag_papers`, `export_citations` |
+| Web | `web_search` (Brave Search API first when `BRAVE_API_KEY` is set, SearXNG multi-query fan-out as supplement), `web_fetch` |
+| User documents and attachments | `search_user_docs` (auto-filters by `X-Munin-Email` via contextvar, never pass a user id), `list_documents`, `view_attachment`, `transcribe_equation` |
+| Artifacts | `create_artifact`, `read_artifact`, `update_artifact`, `list_artifacts`, `save_artifact_to_documents` |
+| Memory, projects, history | `remember`, `forget`, `recall`, `list_projects`, `get_current_project`, `search_past_conversations` |
+| Code and sandbox | `run_python`, `edit_python`, `sandbox_reset`, `compile_latex`, `calculate` |
+| Control flow and planning | `ask_clarification`, `tool_search`, `set_plan`, `update_plan_item`, `invoke_agent` |
+| Helpers | `llm_summarize`, `faq` (admin-curated answers about the Munin UI) |
 
-Agents themselves (`research_orchestrator`, `code_checker`, `writing_agent`)
-are defined in `config/agents.yml` with their own tool allowlists, iteration
-limits, and wall-clock timeouts. Agents cannot invoke each other.
+**`invoke_agent` workflows.** `invoke_agent` (input
+`{"agent": "...", "query": "..."}`) delegates to the older named
+workflows `research_orchestrator`, `code_checker` and `writing_agent`,
+defined in `config/agents.yml` and run by `mcp/tools/agents.py` with
+their own tool lists, iteration limits, and wall-clock timeouts. Agents
+cannot invoke each other. These are what the `agent_*` SSE events (§5)
+report; the four agent tools above report through ordinary
+`tool_call` / `tool_result` pairs.
 
 **Deferred tool schema (P1 #7).** The `tools` array sent to vLLM does
-**not** carry every registered tool. It carries only a small core set
-(`source`, `search`, `compute`, `paper_search`, `web_search`,
-`run_python`, `create_artifact`, `calculate`, `ask_clarification`,
-`tool_search`, `set_plan`, `update_plan_item`), intersected with the
-persona's allowlist. (`read_paper` and `compare_papers` were retired and
-folded into the `source` agent — `source` with `mode='summary'` /
-`mode='compare'` covers them.) Every other tool is hidden until the model calls
-`tool_search` with a natural-language query; the executor returns the
-matching tools' schemas (top 8 by relevance, scoped to the persona's
-allowlist) and unlocks them into the schema for the rest of that
-request. This keeps prefill ~15K tokens lighter and well clear of the
-hang cliff. Authorization is unchanged — the persona allowlist is still
-the gate; deferral only governs schema *visibility*. Unlocked tools
-reset per request. Frontend implication: none — `tool_search` appears
-as an ordinary `tool_call` / `tool_result` pair.
+**not** carry every registered tool. It carries the core set, exactly
+`CORE_TOOLS` in `mcp/schemas.py`:
+
+```
+source, search, compute, web_search, run_python, create_artifact,
+calculate, ask_clarification, tool_search, set_plan, update_plan_item
+```
+
+plus the routed profile's `params.resident_tools` (a soft per-profile
+bias, e.g. citation tools on `research`, `edit_python` and
+`compile_latex` on `code`) and whatever `tool_search` has unlocked in
+this request. (`paper_search` was removed from the core set on
+2026-08-27 and is reached through `tool_search` or `search`.) Every
+other tool is hidden until the model calls `tool_search` with a
+natural-language query; the executor returns the matching tools'
+schemas (top 10 by relevance, across all registered tools) and unlocks
+them into the schema for the rest of that request. This keeps prefill
+lighter and well clear of the hang cliff. Deferral only governs schema
+*visibility*: every profile can call every tool, and nothing is
+rejected at dispatch for being outside a profile. Unlocked tools reset
+per request. Frontend implication: none, `tool_search` appears as an
+ordinary `tool_call` / `tool_result` pair.
 
 The executor validates every tool call's `arguments` against the tool's
 `inputSchema` before dispatch (`mcp/executor.py`). Schema mismatches
@@ -1586,7 +1832,7 @@ match-by-id rendering keeps working unchanged.
 6. **Document upload returns synchronously.** There's no `"processing"`
    status from the backend today, either `"embedded"` or `"stored"`.
    If you see `"processing"` in the frontend code, that's a leftover from
-   the original FRONTEND-REFERENCE draft; the backend never emits it.
+   an early frontend draft; the backend never emits it.
 7. **`persona` filter on `/api/chats` is exact-match** on the id. Passing
    `persona=Chat` won't find conversations created with `persona: "chat"`.
 8. **FTS search is not fuzzy.** `polymer` matches; `polym` doesn't. Use
@@ -1602,8 +1848,8 @@ match-by-id rendering keeps working unchanged.
     https://...` instead. Bare URLs are valid markdown content; making
     them clickable is the renderer's job. Enable a markdown auto-linkify
     plugin (e.g. `remark-gfm` for `react-markdown`) so both `[text](url)`
-    AND bare URLs become clickable. See `docs/FRONTEND-TASKS.md` for
-    the full handoff. Don't try to fix this on the backend, three rounds
+    AND bare URLs become clickable. See
+    `backend/docs/archive/FRONTEND-TASKS.md` for the original handoff. Don't try to fix this on the backend, three rounds
     of prompt strengthening did not move the needle.
 
 ## 11. Quick curl recipes
@@ -1613,28 +1859,30 @@ match-by-id rendering keeps working unchanged.
 curl -s http://127.0.0.1:8080/api/status | python3 -m json.tool
 
 # List personas
-curl -s -H "X-Munin-Email: you@muninai.org" \
-    http://127.0.0.1:8080/api/personas | python3 -m json.tool
+curl -s http://127.0.0.1:8080/api/personas | python3 -m json.tool
 
 # Send a chat message (streaming)
-curl -N -H "X-Munin-Email: you@muninai.org" \
+curl -N -H "X-Munin-Email: you@example.org" \
     -H "Content-Type: application/json" \
-    -d '{"persona":"chat","messages":[{"role":"user","content":"hi"}],"rag":{"enabled":false}}' \
+    -d '{"persona":"munin","messages":[{"role":"user","content":"hi"}]}' \
     http://127.0.0.1:8080/api/chat/completions
 
 # Upload a document
-curl -H "X-Munin-Email: you@muninai.org" \
+curl -H "X-Munin-Email: you@example.org" \
     -F "file=@/path/to/paper.pdf" \
     http://127.0.0.1:8080/api/documents/upload
 
 # List + delete
-curl -s -H "X-Munin-Email: you@muninai.org" http://127.0.0.1:8080/api/documents
-curl -X DELETE -H "X-Munin-Email: you@muninai.org" \
+curl -s -H "X-Munin-Email: you@example.org" http://127.0.0.1:8080/api/documents
+curl -X DELETE -H "X-Munin-Email: you@example.org" \
     http://127.0.0.1:8080/api/documents/doc_abc123
 ```
 
-For a full end-to-end sanity run, see `scripts/smoke-test.sh` at the repo
-root, 16 checks covering every endpoint in this doc.
+For an end-to-end sanity run, see `backend/scripts/smoke-test.sh`: about
+16 checks over `/health`, `/api/status`, `/api/personas`, a streamed chat,
+the `/api/chats` CRUD routes and document upload/list/delete. When
+`MUNIN_GATEWAY_TOKEN` is set, add `-H "X-Munin-Gateway-Token: ..."` to
+these curls (§2).
 
 ## 12. Prometheus `/metrics`
 
@@ -1657,6 +1905,7 @@ end in `_total`, histograms end in `_seconds`. The default
 | `munin_mcp_tool_duration_seconds` | Histogram | `name` | Wall time of a single tool dispatch (success and failure both observed). |
 | `munin_chat_turns_total` | Counter | `persona`, `terminal_reason` | One increment per call to `stream_chat_completion`, regardless of success. `terminal_reason` is one of `done` / `max_turns` / `stream_error` / `cancelled` / `error`. |
 | `munin_phantom_url_total` | Counter | `kind` | Phantom-URL audit hits in assistant content. `kind` is `artifact` or `paper`. |
+| `munin_citation_claims_total` | Counter | `outcome` | Author attributions in assistant answers, from the post-turn citation audit. `outcome` is `grounded` (a tool result from the same turn supports it) or `ungrounded`. |
 
 The helpers in `retrieval/metrics.py` are the single import surface for
 call sites; if you add a new vLLM call site, pass a fresh `purpose` tag
