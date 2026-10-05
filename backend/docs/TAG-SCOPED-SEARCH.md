@@ -66,7 +66,7 @@ request body → ContextVar → tool.
     "label": "NMR studies of lipid bilayers",
     "slug": "nmr-studies-of-lipid-bilayers"
   },
-  "download_url": "https://search.muninai.org/paper/..."
+  "download_url": "https://search.<domain>/paper/..."
 }
 ```
 
