@@ -137,8 +137,8 @@ jobs:
           done
 
   single-host-smoke:
-    name: single-host smoke (builds retrieval, boots against a stub LLM)
-    # Not on PRs: builds the ~8.7 GB retrieval image. Weekly + on demand.
+    name: single-host smoke (one machine, both halves, against a stub LLM)
+    # Not on PRs: builds the ~10 GB retrieval image. Weekly + on demand.
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -162,10 +162,10 @@ jobs:
           scripts/configure.sh --non-interactive --mode all --domain localhost \
             --admin-email ci@example.org \
             --llm-url http://host.docker.internal:8001 --llm-model stub
-          # Only what the smoke needs. The other profiles and modes are
-          # resolved by the compose job, not booted here.
+          # Both compose files, as the one-machine install runs them; only the
+          # rag profile, to stay inside the runner's disk. The other profiles
+          # and modes are resolved by the compose job, not booted here.
           sed -i 's|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=rag|' .env
-          sed -i 's|^COMPOSE_FILE=.*|COMPOSE_FILE=backend/docker/docker-compose.yml|' .env
 
       - name: Start the stub LLM
         run: |
@@ -177,8 +177,8 @@ jobs:
           done
           curl -sf http://127.0.0.1:8001/v1/models
 
-      - name: Bring the stack up
-        run: docker compose up -d --build qdrant neo4j retrieval
+      - name: Bring the stack up (retrieval and its databases, plus the frontend's caddy, auth and gateway)
+        run: docker compose up -d --build qdrant neo4j grobid retrieval caddy munin-auth api-gateway
 
       - name: Retrieval becomes healthy
         run: |
@@ -211,11 +211,65 @@ jobs:
           assert 'error' not in r, r
           print('llm_summarize ok:', str(r)[:100])"
 
+      - name: The encoders load on a fresh install (no weights staged)
+        # The model directories are empty bind mounts here, as on any fresh
+        # install. Until 2026-10-05 an empty directory counted as a model and
+        # nothing fell back to Hugging Face, so no encoder ever loaded.
+        run: |
+          docker compose exec -T retrieval python -c "
+          import sys; sys.path.insert(0, '/app')
+          import database
+          assert len(database.encode_paper_query('membrane proteins')) == 1024
+          assert database.get_bge() is not None
+          print('paper encoder and document encoder load')"
+          curl -sf http://127.0.0.1:8080/api/status | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          assert d['services']['embedding'] == 'ok', d['services']
+          print('status: embedding ok')"
+
+      - name: GROBID and the API gateway both run (they used to fight over port 8070)
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8071/api/isalive >/dev/null && break
+            sleep 5
+          done
+          curl -sf http://127.0.0.1:8071/api/isalive
+          test "$(docker compose ps --format '{{.Service}} {{.State}}' api-gateway)" = "api-gateway running"
+
+      - name: Log in through Caddy and reach retrieval through the gateway
+        # The whole browser path: Caddy, munin-auth (code echoed to its log
+        # on localhost), the session cookie, forward-auth, the gateway, and
+        # retrieval behind it.
+        run: |
+          for i in $(seq 1 30); do
+            curl -s -o /dev/null http://localhost/login && break
+            sleep 2
+          done
+          curl -sf -o /dev/null -X POST http://localhost/login -d email=ci@example.org
+          code=$(docker compose logs munin-auth 2>&1 \
+                 | grep -o 'login code for ci@example.org is [0-9]*' | tail -n1 | awk '{print $NF}')
+          test -n "$code" || { echo "no login code in the auth log"; exit 1; }
+          # The session cookie is Secure. Browsers send it to http://localhost,
+          # curl does not, so carry it by hand.
+          cookie=$(curl -s -o /dev/null -D - -X POST http://localhost/verify \
+                   -d email=ci@example.org -d code=$code \
+                   | grep -io 'munin_session=[^;]*' | head -n1)
+          test -n "$cookie" || { echo "verify did not set a session cookie"; exit 1; }
+          curl -sf -H "Cookie: $cookie" http://localhost/auth/me | python3 -m json.tool
+          curl -sf -H "Cookie: $cookie" http://localhost/api/status | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          assert d['services']['retrieval'] == 'ok', d
+          print('logged in; /api/status through caddy and the gateway: ok')"
+
       - name: Logs on failure
         if: failure()
         run: |
           echo '--- stub ---'; cat /tmp/stub-llm.log || true
-          echo '--- retrieval ---'; docker compose logs --tail 200 retrieval || true
+          for s in retrieval munin-auth api-gateway caddy grobid; do
+            echo "--- $s ---"; docker compose logs --tail 100 $s || true
+          done
 
       - name: Tear down
         if: always()
