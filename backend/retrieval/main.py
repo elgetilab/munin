@@ -69,7 +69,7 @@ from database import (
     PAPERS_PDF_DIR, get_pdf_path,
     DEEPRESEARCH_ENABLED,
     DEEPRESEARCH_QUEUE_DIR, DEEPRESEARCH_JOBS_DIR, SLURM_QUEUE_FILE,
-    VLLM_URL, VLLM_MODEL_NAME,
+    VLLM_URL, VLLM_MODEL_NAME, LLM_HEADERS,
     reasoning_effort_fields,
     get_qdrant, get_neo4j, get_specter, get_bge,
     is_specter_loaded, is_bge_loaded,
@@ -657,7 +657,8 @@ async def api_models():
     }
     try:
         async with httpx.AsyncClient() as client:
-            r = await client.get(f"{VLLM_URL}/v1/models", timeout=3.0)
+            r = await client.get(f"{VLLM_URL}/v1/models", timeout=3.0,
+                                 headers=LLM_HEADERS)
         if r.status_code == 200:
             for m in (r.json().get("data") or []):
                 if m.get("id") == VLLM_MODEL_NAME:
@@ -694,7 +695,8 @@ async def api_status():
     async with httpx.AsyncClient() as client:
         # vLLM
         try:
-            r = await client.get(f"{VLLM_URL}/v1/models", timeout=3.0)
+            r = await client.get(f"{VLLM_URL}/v1/models", timeout=3.0,
+                                 headers=LLM_HEADERS)
             if r.status_code == 200:
                 data = r.json()
                 vllm_status = "running"
@@ -1305,7 +1307,7 @@ async def _raw_chat_proxy(
             )
         forward["max_tokens"] = room
 
-    vllm_url = os.getenv("VLLM_URL", "http://127.0.0.1:8000").rstrip("/")
+    vllm_url = VLLM_URL.rstrip("/")
     endpoint = f"{vllm_url}/v1/chat/completions"
 
     wants_stream = bool(forward.get("stream", False))
@@ -1329,7 +1331,7 @@ async def _raw_chat_proxy(
     if not wants_stream:
         # Simple JSON round-trip; external client didn't ask to stream.
         try:
-            r = await client.post(endpoint, json=forward)
+            r = await client.post(endpoint, json=forward, headers=LLM_HEADERS)
             # Safety net: if vLLM still rejects for context length despite the
             # preemptive clamp, halve max_tokens and retry. Any other error
             # passes straight through with vLLM's message and status intact.
@@ -1338,7 +1340,7 @@ async def _raw_chat_proxy(
                    and retries < _RAW_MAX_REFIT_RETRIES
                    and _halve_for_retry(forward)):
                 retries += 1
-                r = await client.post(endpoint, json=forward)
+                r = await client.post(endpoint, json=forward, headers=LLM_HEADERS)
         except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
             # vLLM is not listening: the nightly window, or an unplanned
             # outage. Deliberately narrow -- a ReadTimeout means vLLM IS up
@@ -1366,7 +1368,8 @@ async def _raw_chat_proxy(
     # max_tokens (safety net); any other error surfaces immediately.
     async def _open_upstream():
         return await client.send(
-            client.build_request("POST", endpoint, json=forward), stream=True
+            client.build_request("POST", endpoint, json=forward, headers=LLM_HEADERS),
+            stream=True
         )
 
     try:

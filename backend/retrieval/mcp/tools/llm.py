@@ -7,7 +7,7 @@ Provides:
 
 import httpx
 
-from database import VLLM_URL, VLLM_MODEL_NAME, thinking_off_fields
+from database import VLLM_URL, VLLM_MODEL_NAME, thinking_off_fields, LLM_HEADERS
 
 
 async def llm_summarize(text: str, instruction: str, max_tokens: int = 1200) -> dict:
@@ -50,6 +50,7 @@ async def llm_summarize(text: str, instruction: str, max_tokens: int = 1200) -> 
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
                 f"{VLLM_URL}/v1/chat/completions",
+                headers=LLM_HEADERS,
                 json={
                     "model": VLLM_MODEL_NAME,
                     "messages": messages,

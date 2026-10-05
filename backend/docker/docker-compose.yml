@@ -312,6 +312,8 @@ services:
       # VLLM_* aliases the cluster sets. They used to reach no container at
       # all, so a single-host .env pointing at Ollama was silently ignored.
       - VLLM_URL=${LLM_BASE_URL:-${VLLM_URL:-http://host.docker.internal:8000}}
+      # Key for a hosted OpenAI-compatible endpoint (sent as a Bearer token).
+      - LLM_API_KEY=${LLM_API_KEY:-}
       # Backbone identity and behaviour. Sourced from the model profile
       # (/opt/munin/config/active-model.env, written by `deploy.sh model
       # activate <slug>` from config/models/<slug>.env) and exported by the
@@ -736,6 +738,8 @@ services:
       # 2026-08-14, masked in production only by an untracked drop-in.
       - QDRANT_COLLECTION=${PAPERS_COLLECTION:-papers_bge}
       - VLLM_URL=${LLM_BASE_URL:-${VLLM_URL:-http://host.docker.internal:8000}}
+      # Key for a hosted OpenAI-compatible endpoint (sent as a Bearer token).
+      - LLM_API_KEY=${LLM_API_KEY:-}
       - VLLM_MODEL_NAME=${LLM_MODEL_NAME:-${VLLM_MODEL_NAME:-qwen3.8-27b}}
       - LLM_THINKING_MODE=${LLM_THINKING_MODE:-enable_thinking}
       - EMBEDDING_MAP_PATH=/knowledge/embedding_map.json

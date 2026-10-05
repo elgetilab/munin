@@ -18,7 +18,7 @@ from typing import Optional
 
 import httpx
 
-from database import VLLM_URL, VLLM_MODEL_NAME, thinking_off_fields
+from database import VLLM_URL, VLLM_MODEL_NAME, thinking_off_fields, LLM_HEADERS
 
 EXPANSION_SYSTEM_PROMPT = (
     "You are a search query expansion helper. Given one base query, return a "
@@ -123,6 +123,7 @@ async def expand_queries(
         async with httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.post(
                 f"{VLLM_URL}/v1/chat/completions",
+                headers=LLM_HEADERS,
                 json={
                     "model": VLLM_MODEL_NAME,
                     "messages": messages,

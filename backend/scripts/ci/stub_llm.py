@@ -63,7 +63,19 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _authorized(self) -> bool:
+        """With --api-key, behave like a hosted API: 401 without the key."""
+        if not ARGS.api_key:
+            return True
+        if self.headers.get("Authorization") == f"Bearer {ARGS.api_key}":
+            return True
+        self._send(401, {"error": {"message": "invalid api key"}})
+        self.close_connection = True
+        return False
+
     def do_GET(self):
+        if not self._authorized():
+            return
         if self.path.rstrip("/") in ("/v1/models", "/models"):
             self._send(200, {"object": "list", "data": [{
                 "id": ARGS.model, "object": "model", "owned_by": "stub",
@@ -75,6 +87,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": {"message": f"no route {self.path}"}})
 
     def do_POST(self):
+        if not self._authorized():
+            return
         if self.path.rstrip("/") not in ("/v1/chat/completions", "/chat/completions"):
             self._send(404, {"error": {"message": f"no route {self.path}"}})
             return
@@ -143,6 +157,8 @@ def main() -> int:
     ap.add_argument("--model", default="qwen3.6-35b-a3b")
     ap.add_argument("--max-model-len", type=int, default=65536)
     ap.add_argument("--reply", default="This is a stub response.")
+    ap.add_argument("--api-key", default="",
+                    help="require 'Authorization: Bearer <key>', like a hosted API")
     ap.add_argument("--strict", action="store_true",
                     help="reject non-OpenAI request fields with 400")
     ARGS = ap.parse_args()

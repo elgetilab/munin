@@ -35,7 +35,7 @@ PEER_FILE="$ROOT/munin-peer.env"
 
 MODE="" DOMAIN="" ADMIN_EMAIL="" LLM_URL="" LLM_MODEL="" CLUSTER_NAME=""
 CONTACT_EMAIL="" PEER_ENV="" VPS_HOST="" BACKEND_URL="" FORCE=0 INTERACTIVE=1
-UPLOADS_DIR=""
+UPLOADS_DIR="" LLM_API_KEY=""
 SMTP_HOST="" SMTP_PORT="587" SMTP_USERNAME="" SMTP_PASSWORD="" SMTP_SENDER=""
 
 usage() { sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
@@ -48,6 +48,7 @@ while [ $# -gt 0 ]; do
         --admin-email) ADMIN_EMAIL=$2; shift 2 ;;
         --llm-url) LLM_URL=$2; shift 2 ;;
         --llm-model) LLM_MODEL=$2; shift 2 ;;
+        --llm-api-key) LLM_API_KEY=$2; shift 2 ;;
         --cluster-name) CLUSTER_NAME=$2; shift 2 ;;
         --contact-email) CONTACT_EMAIL=$2; shift 2 ;;
         --peer-env) PEER_ENV=$2; shift 2 ;;
@@ -244,6 +245,7 @@ MUNIN_CLUSTER_NAME="${CLUSTER_NAME}"
 MUNIN_CONTACT_EMAIL=${CONTACT_EMAIL}
 LLM_BASE_URL=$LLM_URL
 LLM_MODEL_NAME=$LLM_MODEL
+LLM_API_KEY=$(env_quote "$LLM_API_KEY")
 NEO4J_PASSWORD=$(secret)
 SEARXNG_SECRET=$(secret)
 # A single host has smaller RAM than a cluster node.
