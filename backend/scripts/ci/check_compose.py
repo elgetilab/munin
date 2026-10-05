@@ -108,6 +108,7 @@ EXPECT = {  # services each mode must bring up, and ones it must not
 # Dockerfiles or commands, invisible to `compose config`).
 HOST_NETWORK_PORTS = {80: "caddy", 443: "caddy", 8081: "caddy (local)",
                       8082: "caddy (local)", 8083: "caddy (local)",
+                      8084: "caddy (local)", 8085: "caddy (local)",
                       8070: "api-gateway", 11080: "tusd", 18088: "hook-service"}
 SHARED = ("ADMIN_INGEST_TOKEN", "KB_GATE_TOKEN", "CONTRIBUTORS_SYNC_TOKEN",
           "MUNIN_GATEWAY_TOKEN")
