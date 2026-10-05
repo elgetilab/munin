@@ -89,9 +89,21 @@ def paper_url_pattern(cfg: dict | None = None) -> re.Pattern:
     return re.compile(r"https?://(?:www\.)?" + host + r"/paper/[^\s)>\"\]]+")
 
 
+def scihub_enabled(env=None) -> bool:
+    """Whether paper tools may point at Sci-Hub when a PDF is not in the corpus.
+
+    Off unless SCIHUB_ENABLED is set: whether that is legal, and acceptable to
+    the institution running the instance, is the operator's call, not a
+    default.
+    """
+    env = os.environ if env is None else env
+    return (env.get("SCIHUB_ENABLED") or "").strip().lower() in ("1", "true", "yes")
+
+
 _CFG = resolve()
 DOMAIN = _CFG["domain"]
 PUBLIC_URL = _CFG["public_url"]
 SITE_URL = _CFG["site_url"]
 CONTACT_EMAIL = _CFG["contact_email"]
 CLUSTER_NAME = _CFG["cluster_name"]
+SCIHUB_ENABLED = scihub_enabled()

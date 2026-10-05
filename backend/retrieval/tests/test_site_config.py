@@ -53,3 +53,25 @@ def test_paper_url_pattern_follows_the_domain():
 def test_unconfigured_pattern_matches_nothing():
     assert not sc.paper_url_pattern(sc.resolve({})).findall(
         "https://search.anything.org/paper/x")
+
+
+def test_scihub_is_off_unless_enabled():
+    assert sc.scihub_enabled({}) is False
+    assert sc.scihub_enabled({"SCIHUB_ENABLED": "0"}) is False
+    assert sc.scihub_enabled({"SCIHUB_ENABLED": "1"}) is True
+
+
+def test_scihub_flag_controls_the_tool_text_and_links(monkeypatch):
+    import importlib
+    import mcp.schemas as schemas
+    import mcp.tools.papers as papers
+    for flag, want in (("0", False), ("1", True)):
+        monkeypatch.setattr(sc, "SCIHUB_ENABLED", flag == "1")
+        importlib.reload(schemas)
+        desc = schemas.MCP_TOOLS["get_paper_pdf"]["description"]
+        assert ("Sci-Hub" in desc) is want
+        if want:  # the text every published number used
+            assert desc == ("Check if a PDF is available for a paper and get the download URL. "
+                            "If not available, provides alternative sources like Sci-Hub.")
+    monkeypatch.setattr(sc, "SCIHUB_ENABLED", False)
+    importlib.reload(schemas)

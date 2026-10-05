@@ -930,7 +930,7 @@ async def get_paper_pdf(doi: str) -> dict:
         "pdf_available": False,
         "message": "PDF not available in local knowledge base",
         "suggestions": {
-            "sci_hub": f"https://sci-hub.st/{doi}",
+            **({"sci_hub": f"https://sci-hub.st/{doi}"} if site_config.SCIHUB_ENABLED else {}),
             "google_scholar": f"https://scholar.google.com/scholar?q={encoded_doi}"
         }
     }
@@ -971,7 +971,7 @@ async def check_papers_availability(dois: list[str]) -> dict:
         else:
             not_available.append({
                 "doi": doi,
-                "sci_hub": f"https://sci-hub.st/{doi}"
+                **({"sci_hub": f"https://sci-hub.st/{doi}"} if site_config.SCIHUB_ENABLED else {}),
             })
 
     return {
