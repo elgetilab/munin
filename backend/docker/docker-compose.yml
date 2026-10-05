@@ -204,6 +204,9 @@ services:
       # BGE-large paper encoder (encoder migration). Empty/missing is fine until
       # PAPER_ENCODER=bge-large is set. See docs/paper-track/done/ENCODER-MIGRATION-PLAN.md.
       - ${MUNIN_ROOT:-/opt/munin}/data/models/bge-large:/models/bge-large:ro
+      # Hugging Face cache: when no weights were staged under data/models,
+      # the encoders download once into here instead of on every recreate.
+      - ${HF_CACHE_DIR:-${MUNIN_ROOT:-/opt/munin}/data/hf-cache}:/root/.cache/huggingface
       # The served backbone's tokenizer for exact context-budget token
       # counting (P1 #8). Only the tokenizer files, staged out of the vLLM
       # model dir by `deploy.sh model activate` (into qwen-tokenizer/, the
@@ -591,6 +594,9 @@ services:
       - ${MUNIN_ROOT:-/opt/munin}/data/papers/processed:/papers-processed:rw
       - ${MUNIN_ROOT:-/opt/munin}/data:/data:rw
       - ${MUNIN_ROOT:-/opt/munin}/data/models/bge-large:/models/bge-large:ro
+      # Hugging Face cache: when no weights were staged under data/models,
+      # the encoders download once into here instead of on every recreate.
+      - ${HF_CACHE_DIR:-${MUNIN_ROOT:-/opt/munin}/data/hf-cache}:/root/.cache/huggingface
       - ${MUNIN_ROOT:-/opt/munin}/data/models/specter:/models/specter:ro
     environment: &pipeline_env
       # Service names, not 127.0.0.1: the systemd units use loopback because
@@ -633,6 +639,9 @@ services:
       - ${MUNIN_ROOT:-/opt/munin}/data/papers/pdf:/papers:rw
       - ${MUNIN_ROOT:-/opt/munin}/data:/data:rw
       - ${MUNIN_ROOT:-/opt/munin}/data/models/bge-large:/models/bge-large:ro
+      # Hugging Face cache: when no weights were staged under data/models,
+      # the encoders download once into here instead of on every recreate.
+      - ${HF_CACHE_DIR:-${MUNIN_ROOT:-/opt/munin}/data/hf-cache}:/root/.cache/huggingface
       - ${MUNIN_ROOT:-/opt/munin}/data/models/specter:/models/specter:ro
     environment: *pipeline_env
     depends_on:

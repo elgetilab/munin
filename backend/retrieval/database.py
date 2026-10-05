@@ -289,8 +289,9 @@ def get_specter():
         ]
 
         for model_path, description in model_options:
-            if model_path == SPECTER_MODEL_PATH and not os.path.exists(model_path):
-                continue  # Skip if local path doesn't exist
+            if (model_path == SPECTER_MODEL_PATH
+                    and local_model_or_hub(model_path, "") != model_path):
+                continue  # no model in the local directory (or no directory)
             try:
                 logger.info("Trying to load SPECTER from %s...", description)
                 _specter = SentenceTransformer(model_path)
@@ -304,6 +305,22 @@ def get_specter():
     return _specter
 
 
+def local_model_or_hub(path: str, hub_name: str) -> str:
+    """The local model directory if it really holds a model, else the hub name.
+
+    `os.path.exists` is not enough: compose bind-mounts a models directory for
+    every encoder, and Docker creates a missing source as an EMPTY directory.
+    That directory exists, SentenceTransformer refuses it ("Unrecognized
+    model"), and on a fresh install the Hugging Face fallback never ran, so
+    paper search and document embedding were dead until someone staged the
+    weights by hand. A sentence-transformers export has modules.json; a plain
+    transformers one has config.json.
+    """
+    if any(os.path.isfile(os.path.join(path, f)) for f in ("modules.json", "config.json")):
+        return path
+    return hub_name
+
+
 def get_paper_encoder():
     """Encoder for the PAPERS corpus, selected by PAPER_ENCODER (specter |
     bge-large). Kept DISTINCT from get_specter(), which also serves the 768d
@@ -312,8 +329,7 @@ def get_paper_encoder():
     if _paper_encoder is None:
         if PAPER_ENCODER == "bge-large":
             from sentence_transformers import SentenceTransformer
-            model = (BGE_LARGE_MODEL_PATH if os.path.exists(BGE_LARGE_MODEL_PATH)
-                     else "BAAI/bge-large-en-v1.5")
+            model = local_model_or_hub(BGE_LARGE_MODEL_PATH, "BAAI/bge-large-en-v1.5")
             _paper_encoder = SentenceTransformer(model)   # 1024d
             logger.info("Paper encoder: BGE-large (%s)", model)
         else:
@@ -340,10 +356,8 @@ def get_bge():
     if _bge is None:
         try:
             from sentence_transformers import SentenceTransformer
-            if os.path.exists(BGE_MODEL_PATH):
-                _bge = SentenceTransformer(BGE_MODEL_PATH)
-            else:
-                _bge = SentenceTransformer("BAAI/bge-base-en-v1.5")
+            _bge = SentenceTransformer(
+                local_model_or_hub(BGE_MODEL_PATH, "BAAI/bge-base-en-v1.5"))
             logger.info("BGE model loaded")
         except Exception:
             logger.exception("Failed to load BGE")

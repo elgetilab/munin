@@ -104,6 +104,11 @@ EXPECT = {  # services each mode must bring up, and ones it must not
     "backend": ({"retrieval", "qdrant", "tunnel"}, {"caddy", "munin-auth"}),
     "frontend": ({"caddy", "munin-auth", "api-gateway"}, {"retrieval", "qdrant"}),
 }
+# Ports the frontend's host-network services listen on (set in their
+# Dockerfiles or commands, invisible to `compose config`).
+HOST_NETWORK_PORTS = {80: "caddy", 443: "caddy", 8081: "caddy (local)",
+                      8082: "caddy (local)", 8083: "caddy (local)",
+                      8070: "api-gateway", 11080: "tusd", 18088: "hook-service"}
 SHARED = ("ADMIN_INGEST_TOKEN", "KB_GATE_TOKEN", "CONTRIBUTORS_SYNC_TOKEN",
           "MUNIN_GATEWAY_TOKEN")
 
@@ -162,6 +167,16 @@ def _check_modes(root: str, files: list, scratch: str) -> None:
               need <= svcs and not (avoid & svcs) and not missing
               and "muninai" not in c.stdout,
               f"services {sorted(svcs)}, missing {missing[:3]}")
+        if name.startswith("all"):
+            # Frontend services on the host network listen on fixed host
+            # ports that compose does not publish, so it cannot see a clash
+            # with a backend port. GROBID's 8070 against the gateway's 8070
+            # broke every one-machine install until 2026-10-05.
+            published = {int(p["published"]) for svc in cfg["services"].values()
+                         for p in svc.get("ports") or [] if p.get("published")}
+            clash = published & set(HOST_NETWORK_PORTS)
+            check(f"{name}: no published port collides with a host-network listener",
+                  not clash, f"{sorted(clash)}: {[HOST_NETWORK_PORTS[p] for p in clash]}")
         if name == "frontend" and peer:
             a = _env_values(peer)
             b = _env_values(os.path.join(work, ".env"))
