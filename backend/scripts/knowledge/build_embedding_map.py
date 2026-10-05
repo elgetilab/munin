@@ -22,7 +22,7 @@ Run on the cluster head. Install deps:
 Environment:
     QDRANT_HOST          default localhost
     QDRANT_PORT          default 6333
-    QDRANT_COLLECTION    default papers
+    QDRANT_COLLECTION    default papers_bge
     VLLM_URL             default http://127.0.0.1:8000
     MODEL_NAME           from the active model profile (preferred)
     VLLM_MODEL_NAME      fallback, default qwen3.8-27b
@@ -58,7 +58,7 @@ import requests
 
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
-QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "papers")
+QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "papers_bge")  # the live corpus; `papers` is the retired SPECTER rollback
 VLLM_URL = os.getenv("VLLM_URL", "http://127.0.0.1:8000")
 # A hosted OpenAI-compatible endpoint needs its key (same as retrieval).
 _LLM_KEY = (os.getenv("LLM_API_KEY") or "").strip()
