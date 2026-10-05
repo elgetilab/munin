@@ -151,3 +151,32 @@
 	import static-templates
 	file_server
 }
+
+:8084 {
+	# Upload UI, same as production's upload site.
+	import shared-assets
+	import local-auth
+	handle /whoami {
+		header Content-Type application/json
+		header Cache-Control "no-store"
+		respond `{"email":"{http.request.header.X-Munin-Email}","role":"{http.request.header.X-Munin-Role}","group":"{http.request.header.X-Munin-Group}"}` 200
+	}
+	handle /files/* {
+		reverse_proxy 127.0.0.1:11080
+	}
+	handle {
+		root * /srv/static/upload
+		import static-templates
+		file_server
+	}
+}
+
+:8085 {
+	# API endpoint for API-key clients, same as production's api site: no
+	# forward-auth, so client-sent identity headers are stripped here.
+	request_header -X-Munin-Email
+	request_header -X-Munin-Name
+	request_header -X-Munin-Role
+	request_header -X-Munin-Group
+	reverse_proxy 127.0.0.1:8070
+}

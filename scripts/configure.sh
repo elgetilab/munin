@@ -38,7 +38,30 @@ CONTACT_EMAIL="" PEER_ENV="" VPS_HOST="" BACKEND_URL="" FORCE=0 INTERACTIVE=1
 UPLOADS_DIR="" LLM_API_KEY=""
 SMTP_HOST="" SMTP_PORT="587" SMTP_USERNAME="" SMTP_PASSWORD="" SMTP_SENDER=""
 
-usage() { sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() {
+    sed -n '3,27p' "$0" | sed 's/^# \{0,1\}//'
+    cat <<'HELP'
+
+Options:
+  --mode all|backend|frontend   what this machine runs
+  --domain D                    base domain (localhost for a laptop demo)
+  --admin-email E               first admin; the only address that can log in at first
+  --llm-url URL                 OpenAI-compatible endpoint, base URL without /v1 (backend, all)
+  --llm-model NAME              model name as the endpoint's /v1/models lists it
+  --llm-api-key KEY             key for a hosted endpoint (sent as Bearer)
+  --cluster-name N              how the system prompt names your cluster
+  --contact-email E             mailto for Crossref, NCBI, Unpaywall and GROBID
+  --vps-host H                  backend: set up the reverse SSH tunnel to H
+  --backend-url URL             frontend: where the backend answers (default the tunnel's end)
+  --peer-env FILE               frontend: munin-peer.env written by the backend
+  --uploads-dir DIR             frontend: upload storage (default .runtime/uploads)
+  --smtp-host H, --smtp-port P, --smtp-user U, --smtp-password P, --smtp-sender E
+                                mail for login codes (real domains)
+  --non-interactive             fail instead of asking for anything missing
+  --force                       replace an existing .env (it is backed up first)
+HELP
+    exit "${1:-0}"
+}
 die() { echo "configure: $*" >&2; exit 1; }
 
 while [ $# -gt 0 ]; do
@@ -294,6 +317,10 @@ VITE_SITE_HOME=http://localhost:8083
 VITE_CHAT_URL=http://localhost
 VITE_SEARCH_URL=http://localhost:8081
 VITE_DOCS_URL=http://localhost:8082
+VITE_UPLOAD_URL=http://localhost:8084
+VITE_API_PUBLIC_URL=http://localhost:8085/v1
+# The standalone research page is retired; Deep Research lives in the chat.
+MUNIN_URL_RESEARCH=http://localhost
 EOF
 else
 cat <<EOF
@@ -303,6 +330,8 @@ SMTP_PORT=$SMTP_PORT
 SMTP_USERNAME=$SMTP_USERNAME
 SMTP_PASSWORD=$(env_quote "$SMTP_PASSWORD")
 SMTP_SENDER=$SMTP_SENDER
+# Let's Encrypt account address (expiry warnings go here).
+ACME_EMAIL=$ADMIN_EMAIL
 EOF
 fi
 fi
