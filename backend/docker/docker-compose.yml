@@ -164,8 +164,14 @@ services:
       # JAVA_TOOL_OPTIONS (always honored by the JVM regardless of
       # wrapper). Belt + suspenders so the heap actually grows.
       # Restart GROBID with `up -d --force-recreate` after editing.
-      - JAVA_OPTS=${GROBID_JAVA_OPTS:--Xmx12g -Xms2g}
-      - JAVA_TOOL_OPTIONS=${GROBID_JAVA_OPTS:--Xmx12g -Xms2g}
+      #
+      # -XX:-UseContainerSupport: the JDK in this image throws a
+      # NullPointerException at startup (CgroupV2Subsystem, "anyController is
+      # null") on hosts whose cgroup v2 hierarchy exposes no controllers to
+      # the container, GitHub's runners among them. The heap is always set
+      # explicitly above, so the JVM's container detection is not needed.
+      - JAVA_OPTS=${GROBID_JAVA_OPTS:--Xmx12g -Xms2g} -XX:-UseContainerSupport
+      - JAVA_TOOL_OPTIONS=${GROBID_JAVA_OPTS:--Xmx12g -Xms2g} -XX:-UseContainerSupport
     deploy:
       resources:
         limits:
