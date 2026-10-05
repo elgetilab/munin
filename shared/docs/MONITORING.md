@@ -219,20 +219,23 @@ copy one side's value to the other.
 
 ### Optional overrides
 
-- `AUTH_CHECK_ROLE_URL` — only set if your auth service hostname
-  isn't `auth.muninai.org`. Default (`docker-compose.yml`) is
-  `https://auth.muninai.org/admin/check-role`.
+- `AUTH_CHECK_ROLE_URL`: only set if your auth service is not at
+  `auth.<MUNIN_DOMAIN>`. Left unset, it is derived from `MUNIN_DOMAIN`
+  as `https://auth.${MUNIN_DOMAIN}/admin/check-role` (compose and
+  `metrics_proxy.py` via `site_config.py`). Set but empty, the role
+  check, and with it the Metrics tab, is off.
 - `PROMETHEUS_URL` — only set if you've moved Prometheus off its
   default docker service name. Default is `http://prometheus:9090`.
 
-No site-specific values are hardcoded in checked-in files. The
-defaults in `metrics_proxy.py` are valid for this site; everything
-overridable lives in `.env`.
+No site-specific values are hardcoded in checked-in files: every
+URL derives from `MUNIN_DOMAIN`, and everything overridable lives in
+`.env`.
 
 ## Operating notes
 
 - **Wipe Prometheus storage:** `docker volume rm
-  frontend_prometheus_data` (the named volume; rebuild on next deploy).
+  munin_prometheus_data` (the named volume in the backend compose,
+  `${MUNIN_PREFIX:-munin}_prometheus_data`; rebuild on next deploy).
   Use this if a series goes bad and you want a clean slate.
 - **Reach Prometheus's own UI:** `ssh -L 9090:127.0.0.1:9090 hugin`
   then `http://localhost:9090`. Useful for ad-hoc PromQL outside the
@@ -287,7 +290,7 @@ Response: Prometheus's `/api/v1/query_range` body verbatim.
 |---|---|---|
 | `munin_vllm_request_total` | `purpose`, `outcome` | vLLM HTTP calls by call site + final outcome |
 | `munin_vllm_request_duration_seconds` | `purpose` | wall time of one successful vLLM call |
-| `munin_vllm_tokens_total` | `purpose`, `direction` | tokens billed per call site |
+| `munin_vllm_tokens_total` | `purpose`, `kind` (`prompt` / `completion`) | tokens billed per call site |
 | `munin_mcp_tool_total` | `name`, `outcome` | MCP tool dispatches |
 | `munin_mcp_tool_duration_seconds` | `name` | wall time of one MCP tool dispatch |
 | `munin_chat_turns_total` | `persona`, `terminal_reason` | chat turn outcomes |

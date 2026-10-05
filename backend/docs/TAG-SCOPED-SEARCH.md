@@ -146,7 +146,7 @@ wrapped in try/except so repeated starts are no-ops):
 Verify with:
 
 ```bash
-curl -s http://127.0.0.1:6333/collections/papers \
+curl -s http://127.0.0.1:6333/collections/papers_bge \
     | jq '.result.payload_schema'
 ```
 
@@ -160,7 +160,7 @@ with corpus size. At 30k papers the difference is ~10ms vs. ~1s.
 | `retrieval/mcp/context.py` | new `current_query_tags` ContextVar |
 | `retrieval/mcp/tools/papers.py` | `_build_tag_filter()`; `_qdrant_search_one` accepts `query_filter`; `paper_search` reads ContextVar, adds `tags` param, surfaces `contributors[]` + `topic` + `applied_tags` in results |
 | `retrieval/chat_service.py` | `query_tags` param on `stream_chat_completion`; `_normalize_query_tags` sanitiser; sets `current_query_tags` alongside the other per-request contextvars |
-| `retrieval/main.py` | plumbs `body.get("tags")` to chat_service; `GET /api/tags` catalog; startup creates payload indexes on `papers` |
+| `retrieval/main.py` | plumbs `body.get("tags")` to chat_service; `GET /api/tags` catalog; startup creates payload indexes on the live paper collection (`PAPERS_COLLECTION`, default `papers_bge`) |
 | `personas/research.json`, `personas/chat.json` | attribution + scope-acknowledgement guidance |
 
 ## Smoke test
@@ -173,7 +173,7 @@ curl -s http://127.0.0.1:8080/api/tags \
            contrib_count: (.contributors|length)}'
 
 # Direct Qdrant filter via the tag filter syntax
-curl -s http://127.0.0.1:6333/collections/papers/points/scroll \
+curl -s http://127.0.0.1:6333/collections/papers_bge/points/scroll \
     -H 'Content-Type: application/json' \
     -d '{"filter": {"must": [{"key": "contributors[].group_slug",
          "match": {"value": "zeitler"}}]}, "limit": 5,
@@ -181,7 +181,7 @@ curl -s http://127.0.0.1:6333/collections/papers/points/scroll \
 
 # End-to-end tag-scoped chat
 curl -N -s -X POST http://127.0.0.1:8080/api/chat/completions \
-    -H "X-Munin-Email: admin@example.org" \
+    -H "X-Munin-Email: you@example.org" \
     -H "Content-Type: application/json" \
     -d '{
       "persona": "research",

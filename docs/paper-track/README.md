@@ -69,8 +69,8 @@ claim-to-scorecard index: [`../../PAPER.md`](../../PAPER.md).
 | `RETRIEVAL-EVAL-SPEC.md` | Phases 1-3,5 done; **Phase 4 (local pool) deferred** (needs more usage / synthetic queries). Canonical retrieval spec. |
 | `BENCHMARK-TODO.md` | Benchmark landscape TODO. **T8 LitSearch BUILT+RUN 2026-07-28** (BGE-dense 0.485 > BM25 0.378; found a production `/search/hybrid` scale-mismatch bug — citation-rerank −0.368 nDCG@10). **T9 DROPPED** (no frontier key, unset cap, would egress eval data; local judge already human-validated at AUROC 0.95). T10 QASPER not started. P0 status 2026-07-27: T2/T4/T5/T6 done, T1 mostly done, T3 re-run done (stratum 2 still needs Phase 4), T7 deferred. **The only human-blocked P0 is Phase 4** (query curation + qrels). |
 | `TRACK-B-PLAN.md` | Answer faithfulness (MiniCheck). B1-B4 built; judge validated (QA AUROC 0.95). **Per-arm paired faithfulness DONE 2026-07-27**: RAG 0.326 vs agentic 0.340, paired delta **+0.023 [-0.043, +0.089] p=0.496 (n=189)** — grounding does NOT improve with the harness, despite a 4.9x accuracy gap. **Null replicates on Qwen3.8 (2026-08-26)**: 0.282 vs 0.288, delta +0.010 [-0.052, +0.069], p=0.776 (n=163). `bare` is structurally unscoreable (retrieves nothing). **REVERSED 2026-09-16/17** (`done/BACKBONE-SWITCH-AND-EVAL-PLAN.md`): both nulls were scored without the `search`/`source` passages; re-captured, Qwen3.8 gives RAG 0.282 vs agentic **0.540**, paired **+0.258 [0.206, 0.311] p<0.001** (n=199). |
-| `HARNESS-ITERATION-SCOPE.md` | Scoping for the harness-iteration phase (grounding, over-tooling, tool defs). Pre-implementation. |
-| `T2-T3-EDIT-PLAN.md` | Concrete T2 (over-tooling) + T3 (tool defs) edits; measurement + deploy constraints. Plan, not applied. |
+| `HARNESS-ITERATION-SCOPE.md` | Scoping for the harness-iteration phase (grounding, over-tooling, tool defs). Implementation moved into `T1-GROUNDING-PLAN.md` and `T2-T3-EDIT-PLAN.md` (T1a, T2 and T3 applied); HARNESS T4 (abstention) deferred to Track C. |
+| `T2-T3-EDIT-PLAN.md` | Concrete T2 (over-tooling) + T3 (tool defs) edits; measurement + deploy constraints. Both applied (T2 personas, T3 retrieval code), per the plan's own status notes. |
 | `T1-GROUNDING-PLAN.md` | T1 grounding edits (paper_search excerpts, per-item truncation, structured sub-agent returns). T1a applied; T1b/c planned. |
 | `TRACK-C-PLAN.md` | Corpus-grounded abstention. **RE-RUN DONE 2026-07-27 on the current harness.** C1 held (abstain 0.970, 0 confabulated local cites). C2b's 07-10 confound is GONE: at matched `egress=off`, correct-abstention on the answerable subset went **0.200 [0.050, 0.350] -> 0.667 [0.481, 0.852]** (question-paired delta **+0.467 [0.232, 0.697], p<0.001**, CIs added 2026-08-04) and accuracy drops 0.54 -> 0.08 when the source is removed. The system is genuinely corpus-grounded. **Re-run on Qwen3.8**: C1 2026-09-14 (100/100), C2b 2026-09-15 (0.889 [0.719, 0.961] Wilson; absent-arm accuracy 0.04; chunk index shadowed too). Remaining: stratum 2 (needs Phase 4). |
 | `BENCHMARK-AUTHORING-GUIDE.md` | Guide for group members writing items for the internal (Phase 4) benchmark, LitQA2 format plus two additions. Reference, not a plan; the human-curation step Phase 4 is blocked on. |
@@ -99,8 +99,8 @@ FIX, not just a number to measure. So:
      (allowlists retired + soft bias, post-soak dead-code cleanup
      `c4e9ce6..45916e6`), A5 (routing tuning) all complete + live; frontend
      dead-handlers verified clean; soak clean. Migration A0-A5 finished. Plans
-     in `done/`. NB: the A4b dead-code deletion is committed but not yet
-     deployed - a no-op cutover on the next retrieval push.
+     in `done/`. The A4b dead-code deletion has since shipped with later
+     retrieval deploys.
    - ~~**Migration loose ends**~~ Task 1 (embedding-map -> `papers_bge`) DONE
      2026-07-07. Task 2 (retire old `papers`) deferred, one-way, post-soak
      (varghele/root) - see `MIGRATION-LOOSE-ENDS.md`.

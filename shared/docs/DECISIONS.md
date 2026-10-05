@@ -360,11 +360,17 @@ Choices worth recording:
   `truncated` flag; subsequent resumes return 410 rather than
   silently skipping events. No disk persistence — a retrieval
   restart legitimately loses in-flight streams.
+  *Superseded (2026-10): the buffer is now capped at 100000 events and
+  8 MiB (`MAX_LOG_EVENTS` / `MAX_LOG_BYTES` in
+  `backend/retrieval/stream_registry.py`).*
 - **`done` retention 60 s.** A late reconnect (slow refresh, slow
   network) can still pick up the final tail; janitor evicts after.
 - **Cross-tab sessionStorage on the frontend.** Per-tab semantics;
   closing the tab loses the resume, which matches user intent.
   Ephemeral chats deliberately don't persist (nothing to restore).
+  *Superseded (2026-10): since background turns (2026-07 entry above)
+  the resume pointer lives in localStorage, so it survives closing the
+  tab.*
 
 ## 2026-05-22: maintenance mode is a single cluster-side flag
 
@@ -422,6 +428,11 @@ whole-model-dir mount for this reason).
   back to a ~4-chars-per-token heuristic when the tokenizer file is
   absent, and `_get_tokenizer` logs one warning. A later deploy (after
   vLLM's first run) stages the file and a container restart picks it up.
+
+*Superseded (2026-10): the function is now `deploy.sh::stage_tokenizer`,
+and the `VLLM_MODEL_DIR` literal is gone. The model directory comes from
+the active model profile (see "2026-09: the backbone is one file"), so
+there is no longer a second place to keep in sync.*
 - The heuristic fallback undercounts code / LaTeX / JSON by 1.5-2x.
   That is the *old* behaviour, so a missing tokenizer is a graceful
   degradation, not a regression — but it does mean oversized prompts
@@ -429,7 +440,7 @@ whole-model-dir mount for this reason).
 
 ## 2026-05-19: P0 reliability batch (audit closeout)
 
-Five fixes from `munin-audit.md` landed in one batch. The mechanics
+Five fixes from an internal harness audit (not published) landed in one batch. The mechanics
 are in the commits; this section captures the choices that aren't
 obvious from the diff.
 
@@ -599,8 +610,7 @@ future "should we delete this?" question can find the answer:
   benefit.
 - **Manual QA scripts** under `backend/scripts/` (`smoke-test.sh`,
   `flakiness-suite.py`, `repro_vllm_hang.py`, `stress-test.py`,
-  `test_compile_latex_diff_flow.py`,
-  `test_delegate_persona.py`), actively useful as developer
+  `test_compile_latex_diff_flow.py`), actively useful as developer
   tooling for cluster-side debugging. Not invoked by deploys, so
   they don't appear in the runtime path; safe to ignore unless
   you're debugging.
@@ -644,6 +654,14 @@ This repo started as two separate repos: `munin-backend` (cluster-side: vLLM, re
 - `BACKEND-FRONTEND-SYNC.md`: two half-filled copies, one per side.
 
 The merge introduced `shared/` as the single source of truth for cross-cut artifacts: `shared/personas/` (backend deploy rsyncs into `/opt/munin/personas`; frontend fetches at runtime via `/api/personas`), `shared/config/contributors.yml` (read by the cluster ingest endpoint and the VPS backfill cron), and `shared/docs/` (canonical API contract and sync docs both sides edit).
+
+*Superseded (2026-10): `shared/config/contributors.yml` is no longer
+tracked. It is gitignored and only `shared/config/contributors.yml.example`
+is in the repo. Contributors, group leaders and admins are managed in the
+chat UI's admin panel; the cluster pulls the list from the auth service
+every 5 minutes (`backend/retrieval/contributors_sync.py`,
+`CONTRIBUTORS_SYNC_URL`), and `deploy.sh` only seeds
+`/opt/munin/data/contributors.yml` when it is absent.*
 
 The two deploys stayed separate. There is no top-level deploy script and no merged `docker-compose.yml`: the cluster needs sudo + systemd, the VPS is docker compose, different lifecycles, intentionally not unified.
 

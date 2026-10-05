@@ -34,9 +34,9 @@ Citation-based paper acquisition system. Starts from seed papers and automatical
 │                                                                              │
 │   ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐        │
 │   │     arXiv       │    │    Sci-Hub      │    │     Manual      │        │
-│   │  (open access)  │    │  (paywalled)    │    │   (uploaded)    │        │
+│   │  (open access)  │    │ (opt-in, off)   │    │   (uploaded)    │        │
 │   │                 │    │                 │    │                 │        │
-│   │ arxiv.org/pdf/  │    │ sci-hub.se/DOI  │    │ /papers/manual/ │        │
+│   │ arxiv.org/pdf/  │    │ SCIHUB_ENABLED  │    │ /papers/manual/ │        │
 │   └─────────────────┘    └─────────────────┘    └─────────────────┘        │
 │          │                       │                      │                   │
 │          └───────────────────────┴──────────────────────┘                   │
@@ -71,7 +71,7 @@ Citation-based paper acquisition system. Starts from seed papers and automatical
 │                         PROCESSING PIPELINE                                  │
 │                      (paper_pipeline.py - separate)                          │
 │                                                                              │
-│   PDF ──▶ GROBID ──▶ CrossRef ──▶ Validate ──▶ SPECTER ──▶ Qdrant + Neo4j  │
+│   PDF ──▶ GROBID ──▶ CrossRef ──▶ Validate ──▶ BGE-lg. ──▶ Qdrant + Neo4j  │
 │           (parse)    (enrich)     (title)      (embed)      (store)         │
 │                                                                              │
 │   Validation skips papers with:                                              │
@@ -195,11 +195,11 @@ For books or papers you download manually:
 - No authentication required
 - Works for: arXiv IDs and DOIs pointing to arXiv
 
-### Sci-Hub (Priority 2)
-- Research papers behind paywalls
-- Uses multiple mirrors for reliability
-- **Note**: Check legal status in your jurisdiction
-- Works for: DOIs from journals
+### Sci-Hub (off by default)
+- The crawler has a Sci-Hub fallback for DOIs arXiv cannot serve. It
+  is off unless `SCIHUB_ENABLED=1` is set in the crawler's
+  environment; without it, papers not on arXiv are marked failed.
+- Whether using it is legal and acceptable is the operator's call.
 
 ### Source Selection Logic
 
@@ -209,7 +209,7 @@ if paper.arxiv_id:
 elif paper.doi contains "arxiv":
     extract_arxiv_id_and_try_arxiv()
 
-if not downloaded and paper.doi:
+if not downloaded and paper.doi and SCIHUB_ENABLED:
     try_scihub()
 ```
 
@@ -298,7 +298,6 @@ The crawler is designed to be respectful to servers:
 | Source | Recommendation |
 |--------|---------------|
 | arXiv | 5-10 second delay |
-| Sci-Hub | 5-10 second delay |
 | CrossRef | 1 second delay (built-in) |
 | Semantic Scholar | 1 second delay (built-in) |
 
@@ -338,7 +337,6 @@ sqlite3 /opt/munin/data/papers/crawler_queue.db \
 | Error | Cause | Solution |
 |-------|-------|----------|
 | "Not a PDF" | arXiv returned HTML | Paper may not exist or ID is wrong |
-| "Sci-Hub mirror failed" | All mirrors down | Wait and retry, or add more mirrors |
 | "Connection timeout" | Network issues | Increase delay, check internet |
 | "All download sources failed" | Paper not available | May need institutional access |
 
@@ -372,8 +370,8 @@ After crawling, process papers into the knowledge base:
 The pipeline:
 1. Parses PDFs with GROBID
 2. Enriches metadata via CrossRef
-3. Generates SPECTER embeddings
-4. Stores in Qdrant (vectors) and Neo4j (graph)
+3. Generates BGE-large embeddings (1024d)
+4. Stores in Qdrant (vectors, collection `papers_bge`) and Neo4j (graph)
 
 ## Example: Building a Corpus
 
@@ -393,13 +391,13 @@ The pipeline:
 ./paper_pipeline.py --dir /opt/munin/data/papers/pdf
 
 # Step 5: Verify in Qdrant
-curl http://localhost:6333/collections/papers
+curl http://localhost:6333/collections/papers_bge
 ```
 
 ## Legal Considerations
 
 - **arXiv**: Open access, free to download
-- **Sci-Hub**: Legal status varies by country. Use responsibly for research purposes.
+- **Sci-Hub**: off unless `SCIHUB_ENABLED=1`; whether it is legal to use is the operator's call.
 - **CrossRef/Semantic Scholar APIs**: Free for research, respect rate limits
 
 Always comply with your institution's policies and local laws.

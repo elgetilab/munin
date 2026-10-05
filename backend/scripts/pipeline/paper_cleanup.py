@@ -79,7 +79,7 @@ FAILED_DOWNLOADS_FILE = PAPERS_DIR / "failed_downloads.txt"
 LOGS_DIR = PAPERS_DIR / "logs"
 
 # User agent email for API requests
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@example.com")
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL") or os.getenv("MUNIN_CONTACT_EMAIL") or "admin@example.com"
 
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))

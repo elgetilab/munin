@@ -6,8 +6,8 @@ one-time §28 migration: push the ~4,235 PDFs already sitting at
 ingest endpoint so they become searchable with contributor
 attribution (`#zeitler`, `#corzilius`, `#deibel`).
 
-Full backend design lives in the backend repo's
-`docs/CONTRIBUTOR-INGEST.md` and `docs/VPS-BACKFILL-HANDOFF.md`. You
+Full backend design lives in `shared/docs/CONTRIBUTOR-INGEST.md` and
+`backend/docs/archive/VPS-BACKFILL-HANDOFF.md`. You
 don't need to read those to run this script — this README is
 self-contained.
 
@@ -16,12 +16,12 @@ self-contained.
 | Component | Host | Role |
 |---|---|---|
 | This script | **VPS** (`<vps-host>`) | File shuttler — walks `/mnt/uploads/complete/` and POSTs each PDF |
-| `/api/admin/ingest` endpoint | Cluster (`hugin`) | Receives the PDF, runs GROBID → SPECTER → Qdrant + Neo4j |
+| `/api/admin/ingest` endpoint | Cluster (`hugin`) | Receives the PDF, runs GROBID → BGE-large → Qdrant (`papers_bge`) + Neo4j |
 | Autossh tunnel | Bridge | Already up; exposes cluster `:8080` at VPS `127.0.0.1:18080` |
 
 Nothing model-related runs on the VPS. The script does plain HTTP
 POSTs and waits for the response. Concurrency is 1 by design — the
-cluster's GROBID + SPECTER are the bottleneck, and cranking VPS
+cluster's GROBID + encoder (BGE-large) are the bottleneck, and cranking VPS
 parallelism just creates an HTTP backlog.
 
 ## 1. Prerequisites
@@ -129,7 +129,7 @@ sudo -E /usr/local/bin/backfill_contributed.py \
 ```
 
 Expected duration: 2-4 hours at concurrency 1 (per-paper time
-dominated by GROBID + SPECTER, typically 10-30 s each).
+dominated by GROBID + the encoder, typically 10-30 s each).
 
 Progress is written to both stdout and `/var/log/backfill-uploads.log`.
 Tail it from a second SSH session:
@@ -299,7 +299,7 @@ user → Uppy → tusd → /mnt/uploads/staging
                  hook_service moves → /mnt/uploads/processed/<email>/
 ```
 
-The backend repo's `docs/VPS-BACKFILL-HANDOFF.md` carries the
+The archived `backend/docs/archive/VPS-BACKFILL-HANDOFF.md` carries the
 `hook_service.py` patch sketch (a ~30-line `push_to_cluster` helper
 that does exactly what this script does, but one paper at a time as
 they arrive). That's the piece to land on the VPS side after the
