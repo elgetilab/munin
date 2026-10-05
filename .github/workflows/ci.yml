@@ -17,8 +17,16 @@ concurrency:
 
 jobs:
   webui:
-    name: webui (lint, unit, build, e2e)
-    runs-on: ubuntu-latest
+    name: webui (lint, unit, build, e2e) [${{ matrix.os }}]
+    # Pinned: ubuntu-latest moves to 26.04 on 2026-10-19. 24.04 is the
+    # supported image; 26.04 runs alongside as an early warning and may fail
+    # without failing the run.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'ubuntu-26.04' }}
     defaults:
       run:
         working-directory: frontend/webui
@@ -52,8 +60,16 @@ jobs:
           retention-days: 7
 
   python:
-    name: python services (pytest)
-    runs-on: ubuntu-latest
+    name: python services (pytest) [${{ matrix.os }}]
+    # Pinned: ubuntu-latest moves to 26.04 on 2026-10-19. 24.04 is the
+    # supported image; 26.04 runs alongside as an early warning and may fail
+    # without failing the run.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'ubuntu-26.04' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -74,8 +90,16 @@ jobs:
           pytest backend/benchmarks/tests -q
 
   compose:
-    name: compose invariants (single-host + cluster)
-    runs-on: ubuntu-latest
+    name: compose invariants (single-host + cluster) [${{ matrix.os }}]
+    # Pinned: ubuntu-latest moves to 26.04 on 2026-10-19. 24.04 is the
+    # supported image; 26.04 runs alongside as an early warning and may fail
+    # without failing the run.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'ubuntu-26.04' }}
     steps:
       - uses: actions/checkout@v7
       - name: Compose config resolves, and the invariants hold
@@ -137,10 +161,18 @@ jobs:
           done
 
   single-host-smoke:
-    name: single-host smoke (one machine, both halves, against a stub LLM)
+    name: single-host smoke (one machine, both halves, against a stub LLM) [${{ matrix.os }}]
     # Not on PRs: builds the ~10 GB retrieval image. Weekly + on demand.
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moves to 26.04 on 2026-10-19. 24.04 is the
+    # supported image; 26.04 runs alongside as an early warning and may fail
+    # without failing the run.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'ubuntu-26.04' }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
