@@ -60,6 +60,9 @@ QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "papers")
 VLLM_URL = os.getenv("VLLM_URL", "http://127.0.0.1:8000")
+# A hosted OpenAI-compatible endpoint needs its key (same as retrieval).
+_LLM_KEY = (os.getenv("LLM_API_KEY") or "").strip()
+LLM_HEADERS = {"Authorization": f"Bearer {_LLM_KEY}"} if _LLM_KEY else {}
 # MODEL_NAME first: the unit loads it from the active model profile
 # (/opt/munin/config/active-model.env), which names what vLLM actually
 # serves. A literal VLLM_MODEL_NAME in the unit went stale on the 2026-08
@@ -280,7 +283,7 @@ def check_vllm_healthy(
     topic labels with 'cluster-N' fallbacks.
     """
     try:
-        r = requests.get(f"{url}/v1/models", timeout=timeout)
+        r = requests.get(f"{url}/v1/models", timeout=timeout, headers=LLM_HEADERS)
     except requests.RequestException as e:
         return False, f"/v1/models request failed: {e.__class__.__name__}: {e}"
     if r.status_code != 200:
@@ -342,6 +345,7 @@ def label_cluster_via_vllm(
             f"{vllm_url}/v1/chat/completions",
             json=body,
             timeout=timeout,
+            headers=LLM_HEADERS,
         )
         r.raise_for_status()
         content = (

@@ -25,7 +25,7 @@ from typing import Optional
 
 import httpx
 
-from database import VLLM_URL, VLLM_MODEL_NAME, thinking_off_fields
+from database import VLLM_URL, VLLM_MODEL_NAME, thinking_off_fields, LLM_HEADERS
 
 from .query_expansion import expand_queries
 from .papers import paper_search, semantic_scholar_search
@@ -129,6 +129,7 @@ async def decompose_question(question: str, n: int = 4) -> list[str]:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 f"{VLLM_URL}/v1/chat/completions",
+                headers=LLM_HEADERS,
                 json={
                     "model": VLLM_MODEL_NAME,
                     "messages": messages,

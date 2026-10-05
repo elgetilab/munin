@@ -44,7 +44,7 @@ from metrics import observe_vllm_request
 
 logger = logging.getLogger(__name__)
 
-from database import VLLM_URL
+from database import VLLM_URL, LLM_HEADERS
 from mcp.context import current_sse_emitter
 
 # ------------------------------------------------------------------
@@ -159,6 +159,7 @@ async def vllm_post_json(
             try:
                 r = await client.post(
                     f"{VLLM_URL}/v1/chat/completions",
+                    headers=LLM_HEADERS,
                     json=body,
                 )
             except httpx.RequestError as e:
@@ -237,7 +238,7 @@ async def vllm_post_stream(
                     "POST",
                     f"{VLLM_URL}/v1/chat/completions",
                     json=body,
-                    headers={"Accept": "text/event-stream"},
+                    headers={**LLM_HEADERS, "Accept": "text/event-stream"},
                 )
                 async with stream_cm as response:
                     if response.status_code in RETRYABLE_STATUS:

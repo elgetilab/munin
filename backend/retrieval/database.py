@@ -155,6 +155,17 @@ LLM_THINKING_MODE = resolve_thinking_mode()
 
 VLLM_URL, VLLM_MODEL_NAME = resolve_llm_endpoint()
 
+# Headers for every request to the model endpoint. A local vLLM or Ollama
+# needs none; a hosted OpenAI-compatible API needs its key, sent as a Bearer
+# token. Empty when LLM_API_KEY is unset, so nothing changes for a local one.
+def resolve_llm_headers(env=None) -> dict:
+    env = os.environ if env is None else env
+    key = (env.get("LLM_API_KEY") or "").strip()
+    return {"Authorization": f"Bearer {key}"} if key else {}
+
+
+LLM_HEADERS = resolve_llm_headers()
+
 
 def thinking_off_fields(enabled: bool = None, mode: str = None) -> dict:
     """Request fields that disable (or minimise) the endpoint's reasoning

@@ -44,7 +44,7 @@ import httpx
 import provenance as P
 from agent_trace import AgentTrace
 from url_guard import BlockedURL, guarded_client, read_text_capped
-from database import VLLM_MODEL_NAME, VLLM_URL, thinking_off
+from database import VLLM_MODEL_NAME, VLLM_URL, thinking_off, LLM_HEADERS
 import site_config
 
 logger = logging.getLogger(__name__)
@@ -348,7 +348,8 @@ async def _vllm_answer(system: str, user: str, *, max_tokens: int = 4096,
         thinking_off(body)
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
-            r = await client.post(f"{VLLM_URL}/v1/chat/completions", json=body)
+            r = await client.post(f"{VLLM_URL}/v1/chat/completions", json=body,
+                                  headers=LLM_HEADERS)
         if r.status_code != 200:
             return {"error": f"vLLM {r.status_code}: {r.text[:200]}"}
         choices = r.json().get("choices") or []

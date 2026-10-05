@@ -117,6 +117,25 @@ jobs:
           test "$on" = "400" || { echo "expected 400 with the field"; exit 1; }
           test "$off" = "200" || { echo "expected 200 without it"; exit 1; }
 
+      - name: A hosted endpoint gets its key (LLM_API_KEY), and only then answers
+        run: |
+          python3 backend/scripts/ci/stub_llm.py --port 18997 --api-key ci-key --model m &
+          for i in $(seq 1 20); do
+            curl -s -o /dev/null http://127.0.0.1:18997/v1/models && break
+            sleep 0.5
+          done
+          pip install -q httpx
+          cd backend/retrieval
+          for key in "" ci-key; do
+            LLM_BASE_URL=http://127.0.0.1:18997 LLM_MODEL_NAME=m LLM_API_KEY=$key \
+              python3 -c "import httpx, sys; sys.path.insert(0, '.')
+          from database import LLM_HEADERS, VLLM_URL
+          r = httpx.post(VLLM_URL + '/v1/chat/completions', headers=LLM_HEADERS,
+                         json={'model': 'm', 'messages': []})
+          print('key=[$key] ->', r.status_code)
+          assert r.status_code == (200 if '$key' else 401)"
+          done
+
   single-host-smoke:
     name: single-host smoke (builds retrieval, boots against a stub LLM)
     # Not on PRs: builds the ~8.7 GB retrieval image. Weekly + on demand.
