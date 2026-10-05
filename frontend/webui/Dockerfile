@@ -1,14 +1,14 @@
 # ==============================================================================
 # MUNIN CHAT UI - build image
 # ==============================================================================
-# Builds the React chat app so a single-host `docker compose up` needs no Node
-# toolchain on the host. The VPS deploy does NOT use this: there the UI is built
-# with `npm run build` and rsynced, and that path is unchanged.
+# Builds the React chat app so an install needs no Node toolchain on the host
+# (the `webui` profile; configure.sh enables it). The reference VPS builds with
+# `npm run build` on a workstation and rsyncs instead.
 #
-# The site URLs are BUILD-TIME values (Vite inlines `import.meta.env.VITE_*`),
-# so they arrive as build args rather than runtime env. Leaving them unset
-# produces exactly the production bundle, because src/lib/urls.ts defaults every
-# one of them to the live deployment.
+# Site URLs: leave the VITE_* build args unset and src/lib/urls.ts derives them
+# at runtime from the host the UI is served on, so one bundle fits any domain.
+# Only layouts that do not follow the subdomain pattern (the one-machine
+# http://localhost setup) pass them.
 #
 # The final stage is not a server. It holds the built assets and copies them
 # into a mounted directory on run, because Caddy serves the static tree from the

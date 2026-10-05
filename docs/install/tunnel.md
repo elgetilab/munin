@@ -60,8 +60,11 @@ its own. The VPS host key is pinned on the first connection (into
 ## On the backend: systemd (the reference deployment)
 
 `sudo backend/deploy.sh tunnel` installs `munin-tunnel.service`, filling in
-`MUNIN_VPS_HOST` from the cluster env file, with the key at
-`/root/.ssh/munin_tunnel`. It forwards to `localhost:8080`, where retrieval's
+`MUNIN_VPS_HOST` from the cluster env file. The key lives at
+`/root/.ssh/munin_tunnel`; create it once with
+`sudo ssh-keygen -t ed25519 -f /root/.ssh/munin_tunnel -N '' -C munin-tunnel`
+and give its `.pub` to bootstrap (`--tunnel-pubkey`) or to the VPS's
+`authorized_keys` line above. It forwards to `localhost:8080`, where retrieval's
 port is published. Use this when the backend host has systemd and you already
 manage it with `deploy.sh`; otherwise use the container.
 

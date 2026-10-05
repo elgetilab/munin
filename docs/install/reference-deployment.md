@@ -23,8 +23,12 @@ What it adds over `docker compose up`:
   (`#SBATCH --gres=gpu:vllm:1` in `backend/scripts/vllm/start-vllm-service.sh`;
   the two-GPU profile asks for one of each).
 - Environment Modules with `cuda/13.0.2` (`module load cuda/13.0.2`).
-- A vLLM venv at `/opt/munin/services/vllm/venv`. `deploy.sh` does not create
-  it; the reference cluster's SLURM layer (a separate repository) does.
+- A vLLM venv at `/opt/munin/services/vllm/venv`, and the cron file that
+  starts and stops vLLM on its schedule (`/etc/cron.d/hugin-cluster`, read by
+  `schedule-vllm.sh` and `maintenance.sh`). `deploy.sh` creates neither; the
+  reference cluster's own SLURM setup (separate, not public) does. On another
+  cluster, create the venv with vLLM installed and either add the two cron
+  entries or run `vllm-service enable-24x7`.
 - Docker with Compose v2, Python 3.11 or newer, git, rsync, autossh, jq, curl.
 - Root on the head node (`deploy.sh` installs into `/opt` and `/etc/systemd`).
 
@@ -48,7 +52,7 @@ the same value in the VPS `.env`. `deploy.sh verify` fingerprint-checks
 cd backend
 sudo ./deploy.sh --dry-run all      # shows every step, changes nothing
 sudo ./deploy.sh all
-sudo ./deploy.sh model activate qwen3.8-27b   # the backbone; see config/models/
+sudo ./deploy.sh model activate qwen3.8-27b --download   # the backbone (config/models/); --download fetches the weights on a fresh cluster
 sudo vllm-service start
 ```
 
@@ -91,15 +95,11 @@ The reference VPS is a Hetzner CAX21 (ARM, Ubuntu 24.04) prepared with
 `frontend/bootstrap.sh`, with uploads on a mounted volume at `/mnt/uploads`.
 Its `.env` sets `MUNIN_DOMAIN` and the secrets; `BACKEND_URL` keeps its
 default, the tunnel's end. It is deployed by rsync from a workstation rather
-than by `git pull`:
-
-```bash
-cd frontend/webui && npm ci && npm run build && cd ../..
-rsync -az --exclude '.env' --exclude 'node_modules' --exclude '__pycache__' \
-    frontend/ <admin>@<vps>:~/munin/frontend/
-rsync -az --delete frontend/static/chat/assets/ <admin>@<vps>:~/munin/frontend/static/chat/assets/
-ssh <admin>@<vps> 'cd ~/munin/frontend && docker compose up -d --build'
-```
+than by `git pull`; the recipe (build the chat UI, rsync the tree including
+`shared/`, prune old bundles, `compose up`) is in
+[frontend/README.md](../../frontend/README.md#deploy-to-vps). Sync the whole
+tree, not only `frontend/`: the auth service mounts
+`../shared/config/contributors.yml`.
 
 A change to the static pages or the chat bundle is live as soon as it is
 synced; only service code, the Caddyfile or the environment needs the

@@ -1,9 +1,10 @@
-# munin / backend (cluster)
+# munin / backend
 
-Cluster-side of the [Munin](https://muninai.org) AI research
-monorepo. Everything that runs on the SLURM cluster: vLLM,
-retrieval API, MCP tooling, knowledge bases (Qdrant, Neo4j),
-paper pipeline, in-process Deep Research, agentic orchestration.
+The backend half of the [Munin](https://muninai.org) monorepo:
+retrieval API, MCP tooling, knowledge bases (Qdrant, Neo4j), paper
+pipeline, in-process Deep Research, agentic orchestration, plus the
+SLURM scripts the reference cluster serves vLLM with. It runs on any
+Docker host (a GPU server, a workstation, a cluster head node).
 
 To install Munin, start at the top-level [INSTALL.md](../INSTALL.md)
 (`scripts/configure.sh --mode backend` plus `docker compose`). The
@@ -49,7 +50,8 @@ service (`gpu` profile).
 
 This section describes the reference cluster only. The hugin node
 has 2x RTX 5090 (32 GB each). Both GPUs are exposed two ways via SLURM
-(config lives in `HuginSLURM/config/gres.conf` (HuginSLURM, not public)):
+(configured in the cluster's own SLURM setup, `gres.conf`; separate and not
+public):
 
 | Resource         | What it grants                                     | Who uses it (munin) |
 |------------------|----------------------------------------------------|---------------------|
@@ -163,11 +165,11 @@ The canonical API contract lives at
 
 ## Key Paths on Cluster
 
-After `deploy.sh all`, expect:
+Before `deploy.sh all` you create `/opt/hugin/config/cluster.env`
+(secrets and settings, from `config/munin.env.template`). Afterwards,
+expect:
 
-- `/opt/hugin/config/cluster.env`: secrets and settings (see
-  `config/munin.env.template`). `/opt/munin/docker/.env` is a symlink
-  to it.
+- `/opt/munin/docker/.env`: a symlink to that file.
 - `/opt/munin/config/`: `agents.yml`, `faq.yml`, `models/` (profile
   copies) and `active-model.env` (the active backbone).
 - `/opt/munin/docker/`: installed compose file + grobid and
@@ -212,7 +214,7 @@ sudo ./deploy.sh all            # Full deploy: dirs → compose → personas →
                                 #   sandbox → retrieval (ends in verify)
 sudo ./deploy.sh dirs           # Create filesystem layout (idempotent)
 sudo ./deploy.sh compose        # docker-compose.yml + grobid.yaml only (no restart)
-sudo ./deploy.sh personas       # Persona JSON + logos (mounted; no restart)
+sudo ./deploy.sh personas       # Persona JSON + logos (loaded at start: follow with `retrieval`)
 sudo ./deploy.sh agents         # agents.yml, faq.yml, munin.env.template; seeds contributors.yml
 sudo ./deploy.sh models         # Stage embedding models (downloads bge-large)
 sudo ./deploy.sh vllm           # vLLM SLURM scripts, model profiles, health timer
@@ -327,9 +329,10 @@ three files in `../shared/personas/` (`chat`, `code`, `research`) are
 internal profiles the router picks per turn; users can force one for
 a turn with `/chat`, `/code` or `/research`. A new JSON file there
 does not appear in the UI. To change a profile's prompt or tools,
-edit its JSON and run `sudo ./deploy.sh personas`, which installs into
-`/opt/munin/personas/`. No container restart needed; retrieval reads
-the directory at request time.
+edit its JSON and run `sudo ./deploy.sh personas && sudo ./deploy.sh
+retrieval`. Personas are loaded once, when retrieval starts, so the
+restart is what makes the change live (and the persona files and the code
+must change together: the files carry placeholders the code fills in).
 
 ### Maintenance mode
 

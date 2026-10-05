@@ -1,5 +1,5 @@
 services:
-  # ── Caddy — reverse proxy + SSL ────────────────────────────────────────────
+  # ── Caddy - reverse proxy + SSL ────────────────────────────────────────────
   caddy:
     # Pinned to the version the reference deployment runs (2026-10-04).
     image: caddy:2.11.2-alpine
@@ -9,7 +9,7 @@ services:
       # Mount the caddy/ directory, NOT caddy/Caddyfile directly. A
       # single-file bind mount pins the original inode, so rsync (which
       # replaces the file with a new inode) silently fails to update the
-      # running container — `caddy reload` then re-reads stale config.
+      # running container - `caddy reload` then re-reads stale config.
       # Mounting the directory resolves the file by path on each read, so
       # rsync + reload applies changes without recreating the container.
       - ${MUNIN_FRONTEND_SRC:-.}/caddy:/etc/caddy:ro
@@ -40,7 +40,7 @@ services:
       BACKEND_URL: ${BACKEND_URL:-${CLUSTER_TUNNEL:-http://127.0.0.1:18080}}
       MUNIN_GATEWAY_TOKEN: ${MUNIN_GATEWAY_TOKEN:-}
 
-  # ── munin-auth — email OTP authentication ─────────────────────────────────
+  # ── munin-auth - email OTP authentication ─────────────────────────────────
   munin-auth:
     build: ${MUNIN_FRONTEND_SRC:-.}/auth
     restart: unless-stopped
@@ -80,7 +80,7 @@ services:
       # independently.
       KB_GATE_TOKEN: ${KB_GATE_TOKEN:-}
 
-  # ── tusd — chunked file upload server ──────────────────────────────────────
+  # ── tusd - chunked file upload server ──────────────────────────────────────
   tusd:
     # Pinned to the version the reference deployment runs (2026-10-04).
     image: tusproject/tusd:v2.9.1
@@ -99,7 +99,7 @@ services:
     depends_on:
       - hook-service
 
-  # ── Hook Service — post-upload file organization + cluster ingest ──────────
+  # ── Hook Service - post-upload file organization + cluster ingest ──────────
   hook-service:
     build: ${MUNIN_FRONTEND_SRC:-.}/upload
     restart: unless-stopped
@@ -118,7 +118,7 @@ services:
       KB_GATE_TOKEN: ${KB_GATE_TOKEN:-}
       KB_GATE_FAIL_OPEN: ${KB_GATE_FAIL_OPEN:-false}
 
-  # ── API Gateway — proxy, API keys, rate limiting, usage tracking ──────────
+  # ── API Gateway - proxy, API keys, rate limiting, usage tracking ──────────
   api-gateway:
     build: ${MUNIN_FRONTEND_SRC:-.}/gateway
     restart: unless-stopped
@@ -134,10 +134,10 @@ services:
       MUNIN_GATEWAY_TOKEN: ${MUNIN_GATEWAY_TOKEN:-}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
 
-  # ── webui-build — build the chat SPA without a host Node toolchain ─────────
-  # Profile `webui`, so it never runs on the VPS, where the UI is built with
-  # npm and rsynced. Writes into the same static/chat directory Caddy already
-  # serves, so nothing else has to change.
+  # ── webui-build - build the chat SPA without a host Node toolchain ─────────
+  # Profile `webui`, which configure.sh enables, so an install needs no Node on
+  # the host. (The reference VPS builds with npm on a workstation and rsyncs,
+  # without this profile.) Writes into the static/chat directory Caddy serves.
   #
   # No depends_on from caddy: pulling a profiled service into caddy's
   # dependencies would implicitly enable this profile everywhere, including

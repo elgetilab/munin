@@ -19,10 +19,11 @@ Compose, configured by one `.env` that `scripts/configure.sh` writes for you.
 | **One server** (`--mode all --domain lab.example.edu`) | everything on one public server with real certificates | a small group with one GPU server |
 | **Split** (`--mode backend` + `--mode frontend`) | backend on your GPU server or cluster, frontend on a small public VM, joined by a reverse SSH tunnel | a group whose GPUs must not face the internet (what the reference deployment does) |
 
-You always bring the language model: any OpenAI-compatible `/v1` endpoint
-(vLLM, Ollama, llama.cpp, a hosted API). Tool calling must work. The published
-results used Qwen3.8-27B served by vLLM; a small model works but does
-noticeably worse on multi-step tool use.
+You always bring the language model: any OpenAI-compatible endpoint (vLLM,
+llama.cpp, Ollama, or a hosted API with `--llm-api-key`). Give its base URL
+without `/v1`; Munin appends it. Tool calling must work. The published results
+used Qwen3.8-27B served by vLLM; a small model works but does noticeably worse
+on multi-step tool use.
 
 ## 2. What you need
 
@@ -32,7 +33,7 @@ Face).
 
 | | Backend | Frontend |
 |---|---|---|
-| Disk | ~18 GB of images (retrieval 10.1 GB, sandbox 2.8 GB, GROBID 1.7 GB, the rest under 1 GB each) plus ~2 GB of model weights fetched on first start, plus your papers | ~1 GB plus uploads |
+| Disk | ~18 GB of images (retrieval 10.1 GB, sandbox 2.8 GB, GROBID 1.7 GB, the rest under 1 GB each) plus ~2.2 GB of embedding models downloaded once on first start (into `.runtime/data/hf-cache/`), plus your papers | ~1 GB plus uploads |
 | Memory | 16 GB works for a small corpus (GROBID alone is capped at 6 GB); more for a large one | 2 GB |
 | Ports | none open: everything binds `127.0.0.1` | 80 and 443 open to the internet |
 | Other | a model endpoint the containers can reach | a domain with DNS you control, and SMTP for login codes |
@@ -61,6 +62,18 @@ docker compose logs munin-auth | grep "login code"
 With `--domain localhost` the code is logged instead of emailed. That never
 happens for a real domain. `host.docker.internal` is the machine itself as
 seen from inside a container; use it for a model server running on the host.
+
+The other pages are on their own ports: search on `:8081`, docs on `:8082`,
+the landing page on `:8083`, uploads on `:8084`, and the API for API-key
+clients on `:8085` (all `http://localhost`).
+
+**Ollama** needs two settings before Munin can use it. It listens only on the
+host's loopback, which a container cannot reach: start it with
+`OLLAMA_HOST=0.0.0.0:11434` (and keep port 11434 firewalled from the outside).
+Its default context window is a few thousand tokens, far below the 65536 Munin
+budgets for: raise it with `OLLAMA_CONTEXT_LENGTH=32768` (or what your
+hardware allows) and set `VLLM_MAX_MODEL_LEN=32768` and
+`VLLM_MAX_CONTEXT=28000` in `.env` to match, or long turns are silently cut.
 
 The corpus starts empty. The `seed` profile fetches about 20 open-access arXiv
 papers on first start (set `SEED_QUERY` in `.env` to choose the field), or drop
@@ -95,21 +108,28 @@ scripts/configure.sh --mode backend --domain lab.example.edu --admin-email you@l
 
 This writes `.env`, a tunnel key under `.runtime/config/tunnel/`, and
 `munin-peer.env` (the shared tokens; it holds secrets, so copy it over a
-private channel and delete it afterwards). It prints the line the VPS needs.
+private channel and delete it afterwards). It ends by printing the exact
+`bootstrap.sh` command for the VPS, with the tunnel key filled in.
 
-**2. VPS, as root, once:** `frontend/bootstrap.sh` sets up an Ubuntu 24.04 VM
-(firewall, fail2ban, Docker, an admin user, and the `tunnel` user that may only
-forward one port). Give it the backend's tunnel key:
+**2. VPS, as root, once:** copy `frontend/bootstrap.sh` to a fresh Ubuntu
+24.04 VM (there is no clone there yet: `scp frontend/bootstrap.sh root@vps:`)
+and run the command configure.sh printed:
 
 ```bash
-bash bootstrap.sh --admin-user <you> \
-    --tunnel-pubkey "$(cat id_ed25519.pub)"     # the backend's .runtime/config/tunnel/id_ed25519.pub
+bash bootstrap.sh --admin-user <you> --tunnel-pubkey 'ssh-ed25519 AAAA... munin-tunnel@lab.example.edu'
 ```
 
-Its `--volume-id` option mounts a Hetzner volume at `/mnt/uploads`; on any
-other provider mount your upload disk there yourself, or leave uploads on the
-root disk. If you skip bootstrap, see [docs/install/tunnel.md](docs/install/tunnel.md)
-for the tunnel user it would have created.
+It installs a firewall (22, 80, 443), fail2ban and Docker, creates your admin
+user with sudo, creates the `tunnel` user that may only forward one port, and
+restricts SSH logins to those users plus the account you ran it from. Your
+admin user gets the SSH keys of root and of that account (or the one you pass
+with `--admin-pubkey`); if there is none, it stops before changing anything.
+**Before closing your session, check in a second terminal that
+`ssh <you>@vps` works.** It is tested on Hetzner's Ubuntu 24.04 image; its
+`--volume-id` mounts a Hetzner volume at `/mnt/uploads` (elsewhere, mount your
+upload disk there yourself or leave uploads on the root disk). If you skip
+bootstrap, see [docs/install/tunnel.md](docs/install/tunnel.md) for the tunnel
+user it would have created.
 
 **3. Frontend** (the VPS, as the admin user):
 
@@ -154,7 +174,7 @@ curl -s http://127.0.0.1:18080/health
 
 Then in a browser: log in, send a message (the answer streams in), ask
 "run python: print(2+2)" (a `run_python` call returning 4), and open the
-upload page.
+upload page (`https://upload.<domain>`, or `http://localhost:8084` locally).
 
 ## 7. Afterwards
 
@@ -162,12 +182,16 @@ upload page.
   first; configure.sh puts yours there as admin. After the first start the
   auth database is the source of truth: add people in the chat UI's admin
   panel. The CSV is re-read on restart but only adds, never changes.
-- **Papers.** Upload through `https://upload.<domain>` (open to admins and
-  group leaders; set a user's role and group in the admin panel), or drop PDFs
-  into `.runtime/data/papers/pdf/` on the backend.
-- **The model.** Change `LLM_BASE_URL` / `LLM_MODEL_NAME` in `.env`, then
-  `docker compose up -d retrieval`. If the endpoint rejects the extra field
-  vLLM accepts, set `LLM_THINKING_TOGGLE=0` (see `.env.example`).
+- **Papers.** Upload through the upload page (open to admins and group
+  leaders; set a user's role and group in the admin panel), or drop PDFs into
+  `.runtime/data/papers/pdf/` on the backend.
+- **The model.** Change `LLM_BASE_URL`, `LLM_MODEL_NAME` (and `LLM_API_KEY`
+  for a hosted one) in `.env`, then `docker compose up -d retrieval`. If the
+  endpoint rejects the extra field vLLM accepts, set `LLM_THINKING_TOGGLE=0`
+  (see `.env.example`).
+- **Sci-Hub** is off. `SCIHUB_ENABLED=1` makes the paper tools suggest it when
+  a PDF is not in the corpus, and the crawler fall back to it. Whether that is
+  legal and acceptable where you are is yours to decide.
 - **Every other setting** is documented in [`.env.example`](.env.example).
 - **Upgrading.** `git pull && docker compose up -d --build`. Versions are
   pinned (image tags, and `constraints.txt` next to each `requirements.txt`),
@@ -176,8 +200,11 @@ upload page.
   secrets.
 - **Backups.** Everything stateful on the backend is under `.runtime/`
   (`knowledge/` holds Qdrant and Neo4j, `data/` the chats, papers and uploaded
-  documents). On the frontend: the `auth_data` (users, sessions) and
-  `gateway_data` (API keys, usage) Docker volumes, and the uploads directory.
+  documents), plus Docker volumes. On the frontend: the `auth_data` (users,
+  sessions) and `gateway_data` (API keys, usage) volumes, and the uploads
+  directory. Volume names carry the Compose project: `munin_auth_data` on a
+  one-machine install, `frontend_auth_data` on a frontend-only one
+  (`docker volume ls` shows them).
 - **Cleaning up a local install.** The databases write `.runtime/` as their
   own users, so removing it needs `sudo rm -rf .runtime`.
 
@@ -189,7 +216,9 @@ upload page.
 | Login page says the address is not authorized | it is not in the auth database; add it in the admin panel, or (before the first start) to `whitelist.csv` |
 | No login email | SMTP settings, or the provider rejects `SMTP_SENDER` for a domain you do not own; `docker compose logs munin-auth` |
 | Chat hangs or shows "Backend unavailable" (split) | tunnel down: `docker compose logs tunnel` on the backend, `curl 127.0.0.1:18080/health` on the VPS |
-| `/api/status` shows the model as unreachable | `LLM_BASE_URL` is not reachable from inside the container; `localhost` there is the container itself |
+| `/api/status` shows the model as unreachable | `LLM_BASE_URL` is not reachable from inside the container: `localhost` there is the container itself, and a server listening only on the host's loopback (Ollama's default) is invisible to it |
+| Requests to a hosted model fail with 401 | `LLM_API_KEY` missing or wrong |
+| Answers get cut off or forget the start of a long turn | the model's context window is smaller than `VLLM_MAX_MODEL_LEN` (Ollama's default is); lower it in `.env` to what the endpoint serves |
 | Summaries fail while plain chat works | the endpoint rejects `chat_template_kwargs`: `LLM_THINKING_TOGGLE=0` |
 | Uploads fail | the uploads directory is not owned by uid 1000 (tusd): `sudo chown -R 1000:1000 <uploads dir>` |
 | Search returns nothing | the corpus is empty; see "Papers" above |

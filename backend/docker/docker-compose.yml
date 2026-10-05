@@ -151,7 +151,7 @@ services:
         exec ./grobid-service/bin/grobid-service
     environment:
       - MUNIN_CONTACT_EMAIL=${MUNIN_CONTACT_EMAIL:-}
-      # GROBID's JVM defaults to ~4 GB heap — too small once the
+      # GROBID's JVM defaults to ~4 GB heap - too small once the
       # watcher daemon + admin-ingest + cron retry all hammer it
       # concurrently with --workers 4. We saw an OOM in the
       # AsyncAppender thread that wedged request handlers without
@@ -310,7 +310,7 @@ services:
       # vLLM for MCP tools (llm_summarize, web_fetch with summarize)
       # Uses host.docker.internal to reach vLLM running on host
       # (resolved via the extra_hosts host-gateway entry above; must not be
-      # pinned to a host LAN IP — that breaks on any subnet change)
+      # pinned to a host LAN IP - that breaks on any subnet change)
       # LLM_BASE_URL / LLM_MODEL_NAME (the documented names) win over the
       # VLLM_* aliases the cluster sets. They used to reach no container at
       # all, so a single-host .env pointing at Ollama was silently ignored.
@@ -766,7 +766,7 @@ services:
   # cluster boot that doesn't want metrics can skip it. There is no
   # Grafana service: the dashboards live in-tree under the webui
   # admin panel and query Prometheus via a retrieval-side proxy at
-  # /api/admin/metrics/{query,query_range} -- see docs/MONITORING.md.
+  # /api/admin/metrics/{query,query_range} -- see shared/docs/MONITORING.md.
   prometheus:
     image: prom/prometheus:v3.0.1
     container_name: ${MUNIN_PREFIX:-munin}-prometheus

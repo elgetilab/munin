@@ -1,14 +1,18 @@
 # Munin
 
-Munin is an open-source AI research platform built for scientific groups. It pairs a SLURM cluster (LLM inference, retrieval, agentic orchestration, paper pipeline) with a small VPS (auth, API gateway, web UI). Two deploy targets, one source tree.
-
-This repository is meant to be self-hostable. If you run a scientific group with a SLURM cluster and want a private chat, RAG, and deep-research stack on top of your own data, this is for you.
+Munin is an open-source AI research platform built for scientific groups: a
+private chat, retrieval and deep-research stack over your own paper collection,
+driven by the language model of your choice. It has two halves, a **backend**
+(retrieval, agents, the paper pipeline, the databases) and a **frontend**
+(login, API gateway, uploads, web UI), which run together on one machine or
+apart, with the backend on your GPU server or cluster and the frontend on a
+small public VM. Everything is Docker Compose.
 
 ## What you get
 
-- Chat UI with persona switching, SSE streaming, task execution log, PWA install.
+- Chat UI with per-turn routing (chat, research or code), SSE streaming, a task execution log, PWA install.
 - Retrieval over your own paper collection (Qdrant vector DB + Neo4j citation graph) and per-user uploaded documents.
-- vLLM-served LLMs of your choice, scheduled on cluster GPUs.
+- Any OpenAI-compatible model: a local vLLM, Ollama or llama.cpp, or a hosted API.
 - Deep Research: a long-running, plan-driven research agent that runs inside the retrieval service against the live vLLM, streams its progress, and delivers a cited report as an artifact.
 - MCP tool server: web search, paper search, `run_python` sandbox, agentic orchestration.
 - Email-OTP authentication, API keys with rate limits and usage logging, resumable uploads.
@@ -16,15 +20,17 @@ This repository is meant to be self-hostable. If you run a scientific group with
 ## Layout
 
 ```
-backend/    Cluster-side. vLLM, retrieval API, MCP, paper pipeline, deep research.
-            Deploys on the SLURM head via backend/deploy.sh.
-frontend/   VPS-side. Caddy, email-OTP auth, API gateway, tusd, hook service,
-            static UIs, React chat (webui/). Deploys via frontend/docker-compose.yml.
+backend/    Retrieval API, MCP tools, agents, paper pipeline, deep research,
+            Qdrant/Neo4j/GROBID. Compose file in backend/docker/.
+frontend/   Caddy, email-OTP auth, API gateway, tusd, upload hook, static
+            UIs, React chat (webui/). Compose file frontend/docker-compose.yml.
+scripts/    configure.sh, which writes the .env for any install mode.
 shared/     Cross-cut artifacts both sides consume: persona JSONs
             (shared/personas/), contributor allowlist
             (shared/config/contributors.yml), contracts (shared/docs/).
-docs/       paper-track/ (eval suite, benchmarks), agent-track/ (agent
-            architecture, Deep Research), architecture/, handoffs/, archive/.
+docs/       install/ (tunnel, reference deployment), paper-kit/ (the paper's
+            supplementary material), paper-track/ and agent-track/ (eval and
+            agent work, mostly historical), archive/.
 ```
 
 ## Paper artifacts
@@ -99,22 +105,28 @@ Then open <http://localhost>. Your login code is printed to the auth log
 need a mail server to get in. It never does that for a real domain.
 
 **You must supply a language model.** Munin speaks OpenAI-compatible HTTP and
-does not host one. Point `LLM_BASE_URL` at Ollama, llama.cpp, a vLLM you run,
-or a hosted API. Nothing answers without it.
+does not host one. `--llm-url` is the base URL without `/v1` (Munin appends it):
+a vLLM you run, llama.cpp, Ollama, or a hosted API (add `--llm-api-key`). The
+model must support tool calling; the published results used Qwen3.8-27B on
+vLLM, and a small model does noticeably worse at multi-step tool use. For
+Ollama, see [INSTALL.md](INSTALL.md#3-one-machine-local): by default it
+listens only on the host's loopback, which a container cannot reach, and its
+context window is far smaller than Munin's budget.
 
 **Be ready for the download.** Roughly **18 GB of images** with every profile
 enabled, dominated by the retrieval service (10.1 GB, mostly PyTorch) and the
 `run_python` sandbox (2.8 GB, mostly TeX Live). Trim it by removing profiles
-from `COMPOSE_PROFILES` in `.env`. The paper encoder (~1.3 GB) is fetched from
-HuggingFace on first start, on top of that.
+from `COMPOSE_PROFILES` in `.env`. On top of that, about 2.2 GB of embedding
+models (BGE-large, BGE-base, SPECTER) download from Hugging Face on first start
+into `.runtime/data/hf-cache/`, once.
 
 The corpus starts empty. The `seed` profile downloads ~20 open-access arXiv
 papers so search returns something; point `SEED_QUERY` at your own field, or
 drop your own PDFs into `.runtime/data/papers/pdf/` and the pipeline watcher
 will ingest them.
 
-Details, every knob, and the things that will trip you up are in
-[`.env.example`](.env.example) and [`docs/SINGLE-HOST-PLAN.md`](docs/SINGLE-HOST-PLAN.md).
+Every setting is documented in [`.env.example`](.env.example), and the things
+that trip people up are in [INSTALL.md, section 8](INSTALL.md#8-when-something-is-wrong).
 The same command with a real `--domain` (and `--smtp-host`) sets up both
 halves on one public server instead.
 
@@ -156,9 +168,18 @@ and SciFact, LitSearch, the abstention items) and which are not.
 
 ## Status
 
-Munin is in production at [muninai.org](https://muninai.org), used by a single scientific group. The codebase is being prepared for public release; expect rough edges in setup ergonomics. Issues and PRs are welcome, especially for missing prerequisites, undocumented assumptions, or steps that break on a cluster other than the reference one.
+Munin is in production at [muninai.org](https://muninai.org), used by one
+scientific group. This is its first public release (0.9.0, see
+[CHANGELOG.md](CHANGELOG.md)); expect rough edges in setup ergonomics. Issues
+and PRs are welcome, especially for missing prerequisites, undocumented
+assumptions, or steps that break on hardware other than the reference one.
 
-## Don't
+## Contributing
 
-- Don't duplicate files across `backend/` and `frontend/`. If you find yourself wanting to, the file probably belongs in `shared/`.
-- Don't add a top-level deploy script. The two runtimes have different lifecycles (cluster needs sudo + systemd; VPS is docker compose). Keeping them separate is intentional.
+- Keep `backend/` and `frontend/` independent. Anything both use belongs in
+  `shared/`, not in two copies.
+- Configuration is written by `scripts/configure.sh` and run by Compose. There
+  is deliberately no deploy script that drives both halves: they may live on
+  different machines with different owners. `backend/deploy.sh` is the
+  reference cluster's own tooling, not a general installer.
+- `shared/docs/BACKEND-API.md` is the API contract; change it with the code.

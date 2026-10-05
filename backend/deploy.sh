@@ -2,15 +2,18 @@
 # ==============================================================================
 # MUNIN BACKEND - DEPLOYMENT SCRIPT
 # ==============================================================================
-# Syncs this repo into /opt/munin/, installs systemd units, rebuilds the
-# retrieval container, and removes the legacy Open WebUI + status-page
-# services. Intended to run directly on the cluster head (hugin).
+# The reference deployment's tooling (see docs/install/reference-deployment.md),
+# not a general installer: syncs this repo into /opt/munin/, installs the
+# systemd units and the SLURM vLLM scripts, rebuilds and restarts containers.
+# Runs as root on the cluster head. A plain install uses scripts/configure.sh
+# and docker compose instead (INSTALL.md).
 #
 # Usage:
 #   sudo ./deploy.sh all            - everything (recommended first run)
 #   sudo ./deploy.sh dirs           - create filesystem layout
 #   sudo ./deploy.sh compose        - docker/docker-compose.yml
-#   sudo ./deploy.sh personas       - persona JSON + logos
+#   sudo ./deploy.sh personas       - persona JSON + logos (loaded when
+#                                     retrieval starts: follow with `retrieval`)
 #   sudo ./deploy.sh agents         - config/agents.yml + munin.env.template
 #   sudo ./deploy.sh models         - stage embedding models (bge-large etc.)
 #   sudo ./deploy.sh vllm           - scripts/vllm/*.sh → /opt/cluster/scripts/llm/,
@@ -43,7 +46,8 @@
 #   sudo ./deploy.sh pipeline       - paper_pipeline.py → /opt/cluster/scripts/pipeline/ (§28)
 #   sudo ./deploy.sh retrieval      - retrieval/ code, rebuild + restart container
 #   sudo ./deploy.sh searxng        - searxng settings.yml + restart container
-#   sudo ./deploy.sh monitoring     - prometheus + grafana on the metrics endpoint
+#   sudo ./deploy.sh sandbox        - run_python sandbox image + container
+#   sudo ./deploy.sh monitoring     - prometheus on the metrics endpoint
 #   sudo ./deploy.sh verify         - smoke-test /api/status, /api/personas,
 #                                     the paper encoder/collection pairing and
 #                                     the deep research router
@@ -216,7 +220,7 @@ deploy_dirs() {
         run "chmod 644 $MUNIN_DEEPRESEARCH/slurm_queue.json"
     fi
 
-    # Docker compose auto-loads ./.env from the compose dir — symlink to the
+    # Docker compose auto-loads ./.env from the compose dir - symlink to the
     # shared cluster env so NEO4J_PASSWORD, SEMANTIC_SCHOLAR_API_KEY, etc.
     # flow through to retrieval without duplication.
     if [ -f "$HUGIN_ENV" ] && [ ! -e $MUNIN_DOCKER/.env ]; then
@@ -233,7 +237,7 @@ deploy_dirs() {
 # Compose project guard.
 #
 # docker-compose.yml now pins `name: ${MUNIN_PREFIX:-munin}`. Before that it had
-# no `name:`, so Compose derived the project from the directory basename —
+# no `name:`, so Compose derived the project from the directory basename -
 # `docker` for /opt/munin/docker, and ALSO `docker` for a clone's own
 # backend/docker. Two unrelated checkouts looked like one stack: a `compose up`
 # from a clone recreated the live containers against the clone's empty data
@@ -341,7 +345,7 @@ deploy_compose() {
     run "install -d -m 0755 $MUNIN_DOCKER"
     run "install -m 0644 $REPO_DIR/docker/docker-compose.yml $MUNIN_DOCKER/docker-compose.yml"
 
-    # GROBID config override — sets consolidation.crossref.mailto so
+    # GROBID config override - sets consolidation.crossref.mailto so
     # the internal Crossref client uses the polite pool.
     need_file "$REPO_DIR/docker/grobid/grobid.yaml"
     run "install -d -m 0755 $MUNIN_DOCKER/grobid"
@@ -350,17 +354,17 @@ deploy_compose() {
     # Symlink cluster.env into the compose dir as .env so
     # `docker compose ...` from $MUNIN_DOCKER picks up all the
     # ${VAR} interpolations the compose file expects. Without this
-    # every `${VAR:-default}` evaluates to its default — recently
+    # every `${VAR:-default}` evaluates to its default - recently
     # caused CONTRIBUTORS_SYNC_TOKEN to be empty on the cluster
     # (P1 #11 deploy 2026-05-29). Idempotent: -f forces replacement
     # only if the symlink target changed or it isn't a symlink yet.
     if [ -f "$HUGIN_ENV" ]; then
         run "ln -snf $HUGIN_ENV $MUNIN_DOCKER/.env"
     else
-        echo "  [warn] $HUGIN_ENV not found; skipping .env symlink — compose will use defaults"
+        echo "  [warn] $HUGIN_ENV not found; skipping .env symlink - compose will use defaults"
     fi
 
-    echo "[OK] compose — restart with: docker compose --profile rag up -d --force-recreate grobid"
+    echo "[OK] compose - restart with: docker compose --profile rag up -d --force-recreate grobid"
 }
 
 # ------------------------------------------------------------------------------
@@ -471,7 +475,7 @@ deploy_models() {
     local cli
     cli=$(hf_cli)
     if [ -z "$cli" ]; then
-        echo "[WARN] no HuggingFace CLI in $VLLM_VENV — download manually:"
+        echo "[WARN] no HuggingFace CLI in $VLLM_VENV - download manually:"
         echo "       $VLLM_VENV/bin/hf download $BGE_LARGE_HF_ID \\"
         echo "           --local-dir $BGE_LARGE_DIR"
         echo "       Until then the paper encoder is fetched from HF on every"
@@ -481,7 +485,7 @@ deploy_models() {
 
     run "install -d -m 0755 $BGE_LARGE_DIR"
     if "$cli" download "$BGE_LARGE_HF_ID" --local-dir "$BGE_LARGE_DIR"; then
-        echo "[OK] models — bge-large staged to $BGE_LARGE_DIR"
+        echo "[OK] models - bge-large staged to $BGE_LARGE_DIR"
     else
         echo "[WARN] bge-large download failed; retrieval will fetch it from HF"
         echo "       at runtime. Retry: sudo $REPO_DIR/deploy.sh models"
@@ -566,7 +570,7 @@ deploy_maintenance() {
     run "install -m 0755 $REPO_DIR/scripts/maintenance/maintenance.sh \
         $MAINTENANCE_SCRIPTS/maintenance.sh"
     run "ln -sf $MAINTENANCE_SCRIPTS/maintenance.sh /usr/local/bin/munin-maintenance"
-    echo "[OK] maintenance — toggle with:"
+    echo "[OK] maintenance - toggle with:"
     echo "     sudo munin-maintenance on [\"message\"] | off | status"
 }
 
@@ -620,7 +624,7 @@ deploy_deepresearch() {
         if [ "$DRY_RUN" = "1" ]; then
             echo "  [dry-run] would download $MIROTHINKER_MODEL_ID → $MIROTHINKER_MODEL_DIR"
         elif [ -z "$cli" ]; then
-            echo "[WARN] no HuggingFace CLI in $VLLM_VENV — download manually:"
+            echo "[WARN] no HuggingFace CLI in $VLLM_VENV - download manually:"
             echo "       $VLLM_VENV/bin/hf download $MIROTHINKER_MODEL_ID \\"
             echo "           --local-dir $MIROTHINKER_MODEL_DIR"
         elif "$cli" download "$MIROTHINKER_MODEL_ID" \
@@ -631,7 +635,7 @@ deploy_deepresearch() {
         fi
     fi
 
-    echo "[OK] deepresearch (legacy) — daemon stays disabled unless you enable it"
+    echo "[OK] deepresearch (legacy) - daemon stays disabled unless you enable it"
 }
 
 # ------------------------------------------------------------------------------
@@ -723,7 +727,7 @@ deploy_pipeline() {
     # to pdf/inbox/ and the pipeline's _dispose_post_pipeline moves
     # PDFs to pdf/doi_{hash}.pdf (live) or pdf/quarantine/ (failed).
     # Phase B+C of the 2026-05-13 consolidation merged the legacy
-    # skipped/+failed/ trees into one quarantine/ — fresh deploys no
+    # skipped/+failed/ trees into one quarantine/ - fresh deploys no
     # longer create the legacy dirs. Existing clusters keep them
     # until the operator rmdirs them post-migration.
     run "install -d -m 0755 $MUNIN_DATA/papers/pdf/inbox"
@@ -742,9 +746,9 @@ deploy_pipeline() {
         if "$PIPELINE_VENV/bin/python3" -m pip install --quiet --upgrade \
                 -r "$REPO_DIR/scripts/pipeline/requirements.txt" \
                 -c "$REPO_DIR/scripts/pipeline/constraints.txt"; then
-            echo "[OK] pipeline — deps installed into $PIPELINE_VENV"
+            echo "[OK] pipeline - deps installed into $PIPELINE_VENV"
         else
-            echo "[WARN] pipeline — pip install into venv failed; install manually:"
+            echo "[WARN] pipeline - pip install into venv failed; install manually:"
             echo "       $PIPELINE_VENV/bin/pip install -r $PIPELINE_DIR/requirements.txt"
         fi
     else
@@ -787,7 +791,7 @@ deploy_pipeline() {
     run "systemctl restart munin-paper-detect.service"
     run "systemctl enable --now munin-paper-reattribute.timer"
 
-    echo "[OK] pipeline — watcher + detect daemons running, reattribute timer armed"
+    echo "[OK] pipeline - watcher + detect daemons running, reattribute timer armed"
     echo "      Logs:    journalctl -fu munin-paper-pipeline.service"
     echo "               journalctl -fu munin-paper-detect.service"
     echo "               journalctl -u munin-paper-reattribute.service --since today"
@@ -811,7 +815,7 @@ deploy_knowledge() {
     run "install -d -m 0755 $MUNIN_ROOT/knowledge"
     run "install -d -m 0755 $(dirname $KNOWLEDGE_VENV)"
 
-    # Dedicated venv — Debian 12+ enforces PEP 668, so system pip is off-limits.
+    # Dedicated venv - Debian 12+ enforces PEP 668, so system pip is off-limits.
     # Mirrors the vLLM venv pattern. Idempotent: venv is created once, then
     # requirements are re-synced on every deploy.
     if [ "$DRY_RUN" = "0" ]; then
@@ -822,9 +826,9 @@ deploy_knowledge() {
         if "$KNOWLEDGE_VENV/bin/python3" -m pip install --quiet --upgrade \
                 -r "$REPO_DIR/scripts/knowledge/requirements.txt" \
                 -c "$REPO_DIR/scripts/knowledge/constraints.txt"; then
-            echo "[OK] knowledge — deps installed into $KNOWLEDGE_VENV"
+            echo "[OK] knowledge - deps installed into $KNOWLEDGE_VENV"
         else
-            echo "[WARN] knowledge — pip install into venv failed; install manually:"
+            echo "[WARN] knowledge - pip install into venv failed; install manually:"
             echo "       $KNOWLEDGE_VENV/bin/pip install -r /opt/cluster/scripts/knowledge/requirements.txt"
         fi
     else
@@ -839,7 +843,7 @@ deploy_knowledge() {
 
     run "systemctl enable munin-embedding-map.timer"
     run "systemctl restart munin-embedding-map.timer"
-    echo "[OK] knowledge — nightly timer enabled (01:30 local, see munin-embedding-map.timer)"
+    echo "[OK] knowledge - nightly timer enabled (01:30 local, see munin-embedding-map.timer)"
     echo "      First run manually with:  systemctl start munin-embedding-map.service"
     echo "      Watch progress with:       journalctl -fu munin-embedding-map.service"
 }
@@ -883,7 +887,7 @@ deploy_tunnel() {
     # when already enabled; restart picks up the new unit either way.
     run "systemctl enable munin-tunnel.service"
     run "systemctl restart munin-tunnel.service"
-    echo "[OK] tunnel — enabled + restarted"
+    echo "[OK] tunnel - enabled + restarted"
 }
 
 # ------------------------------------------------------------------------------
@@ -925,7 +929,7 @@ deploy_monitoring() {
                 run "docker rm munin-grafana"
             fi
             run "cd $MUNIN_DOCKER && docker compose --profile monitoring up -d prometheus"
-            echo "[OK] monitoring — prometheus up on 127.0.0.1:9090"
+            echo "[OK] monitoring - prometheus up on 127.0.0.1:9090"
             echo "      Dashboards: webui AdminPanel -> Metrics tab"
         else
             echo "[WARN] docker unreachable; bring up later with:"
@@ -949,7 +953,7 @@ deploy_searxng() {
     if [ "$DRY_RUN" = "0" ]; then
         if docker info >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -q '^munin-searxng$'; then
             run "cd $MUNIN_DOCKER && docker compose --profile rag restart searxng"
-            echo "[OK] searxng — config reloaded"
+            echo "[OK] searxng - config reloaded"
         else
             echo "[WARN] munin-searxng not running; bring it up with: docker compose --profile rag up -d searxng"
         fi
@@ -973,7 +977,7 @@ deploy_sandbox() {
         --exclude='.pytest_cache' \
         $REPO_DIR/sandbox/ $MUNIN_SANDBOX/"
 
-    # Make sure the compose file is current too — sandbox is a new service
+    # Make sure the compose file is current too - sandbox is a new service
     # and the network/security_opt blocks must be in place before `up -d`.
     run "install -m 0644 $REPO_DIR/docker/docker-compose.yml $MUNIN_DOCKER/docker-compose.yml"
 
@@ -987,7 +991,7 @@ deploy_sandbox() {
         if docker ps --format '{{.Names}}' | grep -q '^munin-sandbox$'; then
             echo "[OK] sandbox container is running"
         else
-            echo "[WARN] sandbox container is not running — check logs:"
+            echo "[WARN] sandbox container is not running - check logs:"
             echo "       docker logs --tail 200 munin-sandbox"
             return 1
         fi
@@ -1057,7 +1061,7 @@ stage_tokenizer() {
              "(sha256 $(sha256sum "$MODEL_PATH/tokenizer.json" | cut -c1-12) from $MODEL_PATH)"
     else
         echo "[WARN] $MODEL_PATH/tokenizer.json not found"
-        echo "       (checkpoint not downloaded yet) — retrieval will use"
+        echo "       (checkpoint not downloaded yet) - retrieval will use"
         echo "       the char-heuristic fallback until a later deploy."
     fi
 }
@@ -1102,7 +1106,7 @@ deploy_retrieval() {
         if docker ps --format '{{.Names}}' | grep -q '^munin-retrieval$'; then
             echo "[OK] retrieval container is running"
         else
-            echo "[WARN] retrieval container is not running — check logs:"
+            echo "[WARN] retrieval container is not running - check logs:"
             echo "       docker logs --tail 200 munin-retrieval"
             return 1
         fi
@@ -1120,14 +1124,14 @@ VERIFY_EMAIL=${VERIFY_EMAIL:-deploy-check@munin.local}
 
 # Read a single KEY=value from cluster.env without sourcing the whole
 # secret file. Empty if the key is absent or the file isn't readable
-# (e.g. standalone `verify` run without sudo — cluster.env is 0600 root).
+# (e.g. standalone `verify` run without sudo - cluster.env is 0600 root).
 clusterenv_get() {
     local key="$1"
     [ -r "$HUGIN_ENV" ] || return 0
     grep -E "^${key}=" "$HUGIN_ENV" 2>/dev/null | tail -n1 | cut -d= -f2-
 }
 
-# first6/last4 fingerprint of a secret — matches the format the manual
+# first6/last4 fingerprint of a secret - matches the format the manual
 # MONITORING.md cross-check prints, so a mismatch here can be diffed
 # against that doc's commands. Never prints the full token.
 kb_fingerprint() {
@@ -1139,9 +1143,9 @@ kb_fingerprint() {
 
 # KB_GATE_TOKEN is a shared secret with no auto-sync: the cluster holds
 # it in cluster.env, the VPS in frontend/.env. If they drift, the admin
-# Metrics tab silently breaks (proxy 502 / check-role 401 — exactly the
+# Metrics tab silently breaks (proxy 502 / check-role 401 - exactly the
 # 2026-06-23 incident). This compares fingerprints and WARNS on mismatch.
-# Always returns 0 — a token drift must never fail a retrieval deploy.
+# Always returns 0 - a token drift must never fail a retrieval deploy.
 #
 # Cross-host comparison is opt-in: set METRICS_VPS_SSH (and optionally
 # METRICS_VPS_SSH_KEY) in cluster.env to the VPS ssh target. Unset, or an
@@ -1152,7 +1156,7 @@ check_kb_token_sync() {
     cluster_fp=$(kb_fingerprint "$cluster_token")
 
     if [ ! -r "$HUGIN_ENV" ]; then
-        echo "  [skip] KB_GATE_TOKEN sync — $HUGIN_ENV not readable (run via sudo to check)"
+        echo "  [skip] KB_GATE_TOKEN sync - $HUGIN_ENV not readable (run via sudo to check)"
         return 0
     fi
 
@@ -1160,7 +1164,7 @@ check_kb_token_sync() {
     vps_ssh=$(clusterenv_get METRICS_VPS_SSH)
     vps_key=$(clusterenv_get METRICS_VPS_SSH_KEY)
     if [ -z "$vps_ssh" ]; then
-        echo "  [skip] KB_GATE_TOKEN VPS sync — set METRICS_VPS_SSH in cluster.env to enable (cluster fp: $cluster_fp)"
+        echo "  [skip] KB_GATE_TOKEN VPS sync - set METRICS_VPS_SSH in cluster.env to enable (cluster fp: $cluster_fp)"
         return 0
     fi
 
@@ -1171,7 +1175,7 @@ check_kb_token_sync() {
         'docker exec frontend-munin-auth-1 sh -c "printf %s \"\$KB_GATE_TOKEN\""' \
         2>/dev/null || true)
     if [ -z "$vps_token" ]; then
-        echo "  [warn] KB_GATE_TOKEN sync — couldn't read the VPS token over ssh ($vps_ssh); skipped (cluster fp: $cluster_fp)"
+        echo "  [warn] KB_GATE_TOKEN sync - couldn't read the VPS token over ssh ($vps_ssh); skipped (cluster fp: $cluster_fp)"
         return 0
     fi
     vps_fp=$(kb_fingerprint "$vps_token")
@@ -1179,7 +1183,7 @@ check_kb_token_sync() {
     if [ "$cluster_token" = "$vps_token" ]; then
         echo "  [OK] KB_GATE_TOKEN matches VPS ($cluster_fp)"
     else
-        echo "[WARN] KB_GATE_TOKEN MISMATCH — admin Metrics tab will be broken"
+        echo "[WARN] KB_GATE_TOKEN MISMATCH - admin Metrics tab will be broken"
         echo "       cluster: $cluster_fp"
         echo "       vps:     $vps_fp"
         echo "       Fix: copy the VPS value into $HUGIN_ENV in place (do NOT"
@@ -1194,7 +1198,7 @@ check_kb_token_sync() {
 # next restart: e.g. the launch script that boots misses the post-launch
 # context-window assertion, or serves a different window than the code budgets
 # against. This compares each repo script byte-for-byte against its deployed
-# copy and WARNS on drift/absence. Always returns 0 — a stale script must never
+# copy and WARNS on drift/absence. Always returns 0 - a stale script must never
 # fail a retrieval deploy (vllm is a separate deploy target on its own cadence).
 check_vllm_scripts_sync() {
     local drift=0 missing=0 checked=0 f
@@ -1243,7 +1247,7 @@ if sp:
 PY
 )
     if [ -z "$fields" ]; then
-        echo "[WARN] /api/status has no paper_space block — retrieval predates"
+        echo "[WARN] /api/status has no paper_space block - retrieval predates"
         echo "       the encoder check; redeploy retrieval to enable it."
         return 0
     fi
@@ -1252,7 +1256,7 @@ PY
     read -r enc coll enc_dim coll_dim <<< "$fields"
 
     if [ "$enc_dim" = "None" ]; then
-        echo "[FAIL] paper encoder $enc did not load — every paper search will"
+        echo "[FAIL] paper encoder $enc did not load - every paper search will"
         echo "       fail. Check: docker logs --tail 200 munin-retrieval"
         return 1
     fi
@@ -1278,12 +1282,12 @@ PY
         echo "  [warn] paper space: $enc (${enc_dim}d), collection $coll not"
         echo "         readable yet (fresh cluster or Qdrant down)"
     else
-        echo "  [OK] paper space — $enc (${enc_dim}d) / $coll (${coll_dim}d)"
+        echo "  [OK] paper space - $enc (${enc_dim}d) / $coll (${coll_dim}d)"
     fi
 
     # The encoder should be a deployed artifact, not an HF pull at boot.
     if [ "$enc" = "bge-large" ] && [ ! -f "$BGE_LARGE_DIR/config.json" ]; then
-        echo "[WARN] $BGE_LARGE_DIR is missing — the container is fetching"
+        echo "[WARN] $BGE_LARGE_DIR is missing - the container is fetching"
         echo "       bge-large from HuggingFace on every start."
         echo "       Fix: sudo $0 models"
     fi
@@ -1862,7 +1866,7 @@ deploy_verify() {
     fi
     echo "  [OK] /health responding (after ${attempt}s)"
 
-    # 2. /api/status — must return HTTP 200 and contain a 'vllm' key.
+    # 2. /api/status - must return HTTP 200 and contain a 'vllm' key.
     local status_body
     status_body=$(curl -fsS -m 5 "$RETRIEVAL_BASE/api/status" 2>/dev/null || true)
     if [ -z "$status_body" ]; then
@@ -1876,17 +1880,17 @@ deploy_verify() {
     fi
     local vllm_state
     vllm_state=$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['vllm'].get('status','?'))" "$status_body")
-    echo "  [OK] /api/status — vllm=$vllm_state"
+    echo "  [OK] /api/status - vllm=$vllm_state"
 
     # 2b. Paper vector space. The encoder and the collection are a pair, and
-    #     the pairing lives in cluster.env, not in git — so a host that lost
+    #     the pairing lives in cluster.env, not in git - so a host that lost
     #     (or never had) those keys used to come up quietly on the retired
     #     SPECTER stack. Retrieval refuses to boot on a dimension mismatch;
     #     this additionally FAILS the deploy when the live pairing is not the
     #     expected production one, so a rollback can never be silent.
     check_paper_space "$status_body" || return 1
 
-    # 3. /api/personas — must return 200 with a non-empty personas array.
+    # 3. /api/personas - must return 200 with a non-empty personas array.
     local personas_body
     # With MUNIN_GATEWAY_TOKEN set, retrieval refuses identity headers that
     # do not carry it (gateway_token_guard.py), so verify sends it too.
@@ -1901,14 +1905,14 @@ deploy_verify() {
     local persona_count
     persona_count=$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); print(len(d.get('personas',[])))" "$personas_body" 2>/dev/null || echo 0)
     if [ "$persona_count" = "0" ]; then
-        echo "[FAIL] /api/personas returned empty list — check /opt/munin/personas mount"
+        echo "[FAIL] /api/personas returned empty list - check /opt/munin/personas mount"
         return 1
     fi
     local persona_ids
     persona_ids=$(python3 -c "import json,sys; print(','.join(p['id'] for p in json.loads(sys.argv[1])['personas']))" "$personas_body")
-    echo "  [OK] /api/personas — $persona_count loaded ($persona_ids)"
+    echo "  [OK] /api/personas - $persona_count loaded ($persona_ids)"
 
-    # 4. /api/research/jobs — the in-process Deep Research router must be
+    # 4. /api/research/jobs - the in-process Deep Research router must be
     #    mounted. Cheap to break (it is included by one line in main.py) and
     #    invisible until a user starts a report, so probe it here.
     local research_code
@@ -1916,7 +1920,7 @@ deploy_verify() {
         "${gw_hdr[@]}" -H "X-Munin-Email: $VERIFY_EMAIL" "$RETRIEVAL_BASE/api/research/jobs" \
         2>/dev/null || true)
     if [ "$research_code" = "200" ]; then
-        echo "  [OK] /api/research/jobs — deep research router mounted"
+        echo "  [OK] /api/research/jobs - deep research router mounted"
     else
         echo "[FAIL] /api/research/jobs returned $research_code (expected 200)"
         echo "       The in-chat Deep Research feature is down."
@@ -1931,7 +1935,7 @@ deploy_verify() {
     #    launch scripts. Warning-only: never fails the deploy.
     check_vllm_scripts_sync
 
-    echo "[OK] verify — all smoke tests passed"
+    echo "[OK] verify - all smoke tests passed"
 }
 
 # ------------------------------------------------------------------------------
@@ -2009,12 +2013,12 @@ case "$MODE" in
         ;;
     *)
         echo "[ERROR] Unknown mode: $MODE"
-        echo "Modes: all dirs compose personas agents models vllm maintenance deepresearch tunnel knowledge pipeline retrieval sandbox searxng monitoring verify"
+        echo "Modes: all dirs compose personas agents models vllm model instance sudoers maintenance deepresearch tunnel knowledge pipeline retrieval sandbox searxng monitoring verify"
         exit 1
         ;;
 esac
 
 echo ""
 echo "=============================================="
-[ "$DRY_RUN" = "1" ] && echo "Dry run complete — no changes were made." || echo "Done."
+[ "$DRY_RUN" = "1" ] && echo "Dry run complete - no changes were made." || echo "Done."
 echo "=============================================="
