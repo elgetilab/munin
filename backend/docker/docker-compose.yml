@@ -133,12 +133,24 @@ services:
     ports:
       - "127.0.0.1:${GROBID_HOST_PORT:-8070}:8070"
     volumes:
-      # Override the in-image grobid.yaml so we can set
-      # consolidation.crossref.mailto = admin@example.org. Without
-      # this, GROBID's internal "Grobi/x.y" Crossref client uses
-      # the anonymous pool and gets rate-limited.
-      - ${MUNIN_DOCKER_CONFIG:-/opt/munin/docker}/grobid/grobid.yaml:/opt/grobid/grobid-home/config/grobid.yaml:ro
+      # Our grobid.yaml, as a template: the entrypoint below writes it into
+      # place with consolidation.crossref.mailto = MUNIN_CONTACT_EMAIL, so
+      # GROBID's Crossref client uses the polite pool under the instance's
+      # own address (anonymous, and rate-limited, when that is empty).
+      - ${MUNIN_DOCKER_CONFIG:-/opt/munin/docker}/grobid/grobid.yaml:/opt/grobid/grobid-home/config/grobid.yaml.tmpl:ro
+    entrypoint:
+      - /tini
+      - -s
+      - --
+      - sh
+      - -c
+      - |
+        sed "s|__MUNIN_CONTACT_EMAIL__|$${MUNIN_CONTACT_EMAIL}|" \
+          /opt/grobid/grobid-home/config/grobid.yaml.tmpl \
+          > /opt/grobid/grobid-home/config/grobid.yaml
+        exec ./grobid-service/bin/grobid-service
     environment:
+      - MUNIN_CONTACT_EMAIL=${MUNIN_CONTACT_EMAIL:-}
       # GROBID's JVM defaults to ~4 GB heap — too small once the
       # watcher daemon + admin-ingest + cron retry all hammer it
       # concurrently with --workers 4. We saw an OOM in the
