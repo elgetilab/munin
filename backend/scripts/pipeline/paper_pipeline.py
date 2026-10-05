@@ -810,13 +810,19 @@ class PaperPipeline:
             if PAPER_ENCODER == "bge-large":
                 bge_path = os.getenv("BGE_LARGE_MODEL_PATH",
                                      "/opt/munin/data/models/bge-large")
-                model = bge_path if os.path.exists(bge_path) else "BAAI/bge-large-en-v1.5"
+                # A model directory, not just a path: compose mounts an empty
+                # directory when no weights were staged (see retrieval's
+                # database.local_model_or_hub).
+                has_model = any(os.path.isfile(os.path.join(bge_path, f))
+                                for f in ("modules.json", "config.json"))
+                model = bge_path if has_model else "BAAI/bge-large-en-v1.5"
                 self.embedder = SentenceTransformer(model, device=device)  # 1024d, docs raw
                 print(f"[OK] BGE-large embedder loaded from {model}")
             else:
                 # Local SPECTER model downloaded by 05-knowledge-base.sh
                 specter_path = "/opt/munin/data/models/specter"
-                if os.path.exists(specter_path):
+                if any(os.path.isfile(os.path.join(specter_path, f))
+                       for f in ("modules.json", "config.json")):
                     self.embedder = SentenceTransformer(specter_path, device=device)
                     print(f"[OK] SPECTER embedder loaded from {specter_path}")
                 else:
