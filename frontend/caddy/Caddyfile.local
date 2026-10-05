@@ -76,6 +76,18 @@
 	handle /login* {
 		reverse_proxy 127.0.0.1:8090
 	}
+	# Every auth-service page must be listed: an unlisted one falls through to
+	# the forward-auth'd catch-all and bounces back to /login. /verify was
+	# missing until 2026-10-05, so a local login could never complete.
+	handle /verify* {
+		reverse_proxy 127.0.0.1:8090
+	}
+	handle /logout* {
+		reverse_proxy 127.0.0.1:8090
+	}
+	handle /support/* {
+		reverse_proxy 127.0.0.1:8090
+	}
 	handle /auth/* {
 		reverse_proxy 127.0.0.1:8090
 	}
