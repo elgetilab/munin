@@ -77,10 +77,10 @@ logger = logging.getLogger(__name__)
 # turn's PROFILE (chat|research|code) is chosen from the query (router.py),
 # biased by the pinned persona; the system prompt is composed as
 # base[pin] + fragment[routed], with sampling + tools from the routed profile.
-# When false (default until soaked), routed == pin, so compose(pin,pin) ==
-# the original prompt and behaviour is unchanged. Flip ROUTER_ENABLED=true +
-# restart to activate.
-ROUTER_ENABLED = os.getenv("ROUTER_ENABLED", "false").strip().lower() in (
+# When false, routed == pin, so compose(pin,pin) == the persona's own prompt.
+# On by default since 2026-10: it is what production runs (soaked since
+# 2026-07) and what every published number measured.
+ROUTER_ENABLED = os.getenv("ROUTER_ENABLED", "true").strip().lower() in (
     "1", "true", "yes",
 )
 

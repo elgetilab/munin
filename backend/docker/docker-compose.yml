@@ -319,7 +319,7 @@ services:
       - VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-65536}
       - VLLM_MAX_CONTEXT=${VLLM_MAX_CONTEXT:-60000}
       # A3: up-front per-turn router. See munin.env.
-      - ROUTER_ENABLED=${ROUTER_ENABLED:-false}
+      - ROUTER_ENABLED=${ROUTER_ENABLED:-true}
       # Semantic Scholar API (for semantic_scholar_search tool)
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
       # Brave Search API (primary web_search source; SearXNG scrapers are
