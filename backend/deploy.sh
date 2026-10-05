@@ -405,7 +405,7 @@ deploy_agents() {
     # §28 / P1 #11: contributor allowlist. Bootstrap copy goes into
     # /opt/munin/data/contributors.yml (= /data inside the retrieval
     # container) only when it doesn't already exist. After the first
-    # successful pull from auth.muninai.org/admin/contributors.yaml,
+    # successful pull from auth.<MUNIN_DOMAIN>/admin/contributors.yaml,
     # retrieval keeps the file fresh on a 5-minute timer; this
     # bootstrap is just so ingest works before the first sync lands.
     if [ -f "$SHARED_DIR/config/contributors.yml" ] && [ ! -f "$MUNIN_DATA/contributors.yml" ]; then

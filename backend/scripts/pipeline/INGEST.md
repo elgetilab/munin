@@ -81,7 +81,7 @@ them differs.
 ### Path A — Upload (`/api/admin/ingest`)
 
 ```
-upload.muninai.org (tusd) → frontend/upload/hook_service → POST /api/admin/ingest
+upload.<domain> (tusd) → frontend/upload/hook_service → POST /api/admin/ingest
    ↓
 /opt/munin/data/papers/pdf/inbox/<uuid>.pdf  +  <uuid>.contributor.json
    ↓
