@@ -1,35 +1,26 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# Munin VPS Bootstrap Script
+# Munin VPS bootstrap: prepares a fresh Ubuntu 24.04 VM for the frontend
+# (INSTALL.md, section 5). Tested on Hetzner's image; written to work on others.
 #
-# Run as root on a fresh Ubuntu 24.04 VPS (Hetzner CAX21).
-#
-# Usage:
-#   1. Create the VPS in Hetzner with your munin_admin.pub SSH key
-#   2. SSH in as root: ssh -i munin_admin root@VPS_IP
-#   3. Copy this script to the VPS and run it:
-#      bash bootstrap.sh \
-#        --admin-user <your-admin-user> \
-#        --tunnel-pubkey "ssh-ed25519 AAAA... munin-tunnel" \
-#        --volume-id HC_Volume_XXXXXXXX
+# Run as root (directly, or with sudo from the provider's default user):
+#   bash bootstrap.sh --admin-user <you> \
+#       [--tunnel-pubkey '<the backend tunnel key, as configure.sh prints it>'] \
+#       [--admin-pubkey '<your SSH public key>'] \
+#       [--volume-id HC_Volume_XXXXXXXX]      # Hetzner volume for /mnt/uploads
 #
 # What it does:
-#   - Installs packages (ufw, fail2ban, docker, etc.)
-#   - Creates admin user (sudo, SSH key copied from root)
-#   - Creates restricted tunnel user (port-forwarding only)
-#   - Hardens SSH (no root login, no passwords)
-#   - Configures UFW (22, 80, 443)
-#   - Configures fail2ban
-#   - Installs Docker + Docker Compose
-#   - Mounts Hetzner Volume at /mnt/uploads
-#   - Creates ~/munin project directory for the admin user
+#   - Installs ufw, fail2ban and Docker; firewall allows 22, 80 and 443
+#   - Creates the admin user (sudo) with your SSH key: --admin-pubkey, else the
+#     keys of root and of the sudo user, option prefixes stripped. With no key
+#     at all it stops before changing anything.
+#   - Creates the `tunnel` user, which may only forward 127.0.0.1:18080
+#   - Hardens SSH: no root login, no passwords, logins only for the admin user,
+#     `tunnel`, and the account you ran it from
+#   - Creates /mnt/uploads (mounting a Hetzner volume with --volume-id)
 #
-# What it does NOT do (still manual):
-#   - Generate secrets (openssl rand -hex 32 for AUTH_SECRET_KEY)
-#   - Transfer project files (rsync from local machine)
-#   - DNS configuration (your DNS provider)
-#   - docker compose up (run after transferring files)
-#   - Cluster tunnel setup (done on the cluster side)
+# What it leaves to you: DNS, getting the code (git clone), scripts/configure.sh
+# --mode frontend, and docker compose up. Safe to re-run.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -97,7 +88,7 @@ fi
 # ── Step 3: System update + packages ──────────────────────────────────────
 echo ">>> Installing system packages..."
 apt update && apt upgrade -y
-apt install -y ufw fail2ban curl git rsync htop autossh
+apt install -y ufw fail2ban curl git rsync htop
 
 # ── Step 4: Create admin user ─────────────────────────────────────────────
 echo ">>> Creating admin user: $ADMIN_USER"
@@ -113,7 +104,11 @@ fi
 
 # The key(s) settled in step 2, without any option prefix.
 mkdir -p "/home/$ADMIN_USER/.ssh"
-printf '%s\n' "$ADMIN_KEYS" > "/home/$ADMIN_USER/.ssh/authorized_keys"
+# Added to, not replaced, so a re-run keeps keys added since.
+touch "/home/$ADMIN_USER/.ssh/authorized_keys"
+{ cat "/home/$ADMIN_USER/.ssh/authorized_keys"; printf '%s\n' "$ADMIN_KEYS"; } \
+    | sed '/^$/d' | sort -u > "/home/$ADMIN_USER/.ssh/authorized_keys.new"
+mv "/home/$ADMIN_USER/.ssh/authorized_keys.new" "/home/$ADMIN_USER/.ssh/authorized_keys"
 chown -R "$ADMIN_USER:$ADMIN_USER" "/home/$ADMIN_USER/.ssh"
 chmod 700 "/home/$ADMIN_USER/.ssh"
 chmod 600 "/home/$ADMIN_USER/.ssh/authorized_keys"

@@ -1,6 +1,6 @@
 # munin / frontend (VPS)
 
-VPS-side of the [Munin](https://muninai.org) AI research monorepo. Runs on a Linux VPS, reverse-proxying to a SLURM cluster via SSH tunnel. Cluster-side code lives in `../backend/`; cross-cut artifacts in `../shared/`.
+The frontend half of the [Munin](https://muninai.org) monorepo: login, API gateway, uploads and the web UI. It runs on a small public VM in front of the backend (reached over a private path such as the reverse SSH tunnel), or on the same machine as the backend. Cluster-side code lives in `../backend/`; cross-cut artifacts in `../shared/`.
 
 To install Munin, start at the top-level [INSTALL.md](../INSTALL.md) (`scripts/configure.sh --mode frontend` plus `docker compose`). The reference deployment is walked through in [`docs/install/reference-deployment.md`](../docs/install/reference-deployment.md). This README is the internals and operations reference for that deployment and for developers. The reference deploy runs on a Hetzner CAX21 (Ubuntu 24.04, 4 vCPU ARM, 8 GB RAM) plus a 50 GB volume mounted at `/mnt/uploads`.
 
@@ -127,7 +127,7 @@ VPS (public IP)
     │
     └─ /mnt/uploads (MUNIN_UPLOADS_DIR; external volume on the reference VPS)
 
-SLURM Cluster (no inbound)
+Backend: GPU server or cluster (no inbound)
     ├─ vLLM (:8000)              LLM inference
     ├─ Retrieval API (:8080)     RAG, search, deep research
     └─ autossh tunnel → VPS :18080
@@ -183,7 +183,7 @@ What's running today:
   fallback.
 - **Docker Compose**: 5-service stack (Caddy, munin-auth,
   api-gateway, tusd, hook-service) plus the optional `webui-build`.
-- **Bootstrap script**: idempotent VPS provisioning.
+- **Bootstrap script**: VPS provisioning, safe to re-run (keys are added, not replaced).
 
 Specs that haven't shipped yet are in
 [`docs/ADDITIONAL-FEATURES.md`](docs/ADDITIONAL-FEATURES.md) and
