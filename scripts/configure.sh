@@ -18,9 +18,10 @@
 #
 #   scripts/configure.sh --mode backend --domain lab.example.edu \
 #       --admin-email me@lab.example.edu --llm-url http://gpu01:8000 \
-#       --vps-host vps.lab.example.edu          # also sets up the tunnel
+#       --llm-model <served-name> --vps-host vps.lab.example.edu   # + tunnel
 #   scripts/configure.sh --mode frontend --domain lab.example.edu \
-#       --admin-email me@lab.example.edu --peer-env munin-peer.env
+#       --admin-email me@lab.example.edu --smtp-host smtp.lab.example.edu \
+#       --peer-env munin-peer.env
 #
 # Anything not given on the command line is asked for (or, with
 # --non-interactive, is an error). An existing .env is never overwritten
@@ -116,6 +117,9 @@ env_quote() {
     printf '"%s"' "$v"
 }
 
+# Escape a value for the replacement side of a sed s/// command.
+sed_escape() { printf '%s' "$1" | sed 's/[\/&]/\\&/g'; }
+
 secret() {
     if command -v openssl >/dev/null 2>&1; then openssl rand -hex 32
     else python3 -c 'import secrets; print(secrets.token_hex(32))'; fi
@@ -132,6 +136,10 @@ case "$ADMIN_EMAIL" in *@*.*) ;; *) die "--admin-email does not look like an add
 LOCAL=0; [ "$DOMAIN" = localhost ] && LOCAL=1
 [ "$LOCAL" = 1 ] && [ "$MODE" != all ] && die "--domain localhost only makes sense with --mode all"
 
+# The polite-pool contact (Crossref, NCBI, Unpaywall, GROBID): the admin's
+# address unless given, since it must be a mailbox someone reads.
+[ -n "$CONTACT_EMAIL" ] || CONTACT_EMAIL=$ADMIN_EMAIL
+
 if [ "$MODE" != frontend ]; then
     ask LLM_URL "OpenAI-compatible model endpoint" "http://host.docker.internal:8000"
     ask LLM_MODEL "Model name the endpoint serves (as in its /v1/models)"
@@ -141,8 +149,9 @@ if [ "$MODE" = frontend ]; then
 fi
 if [ "$MODE" != backend ] && [ "$LOCAL" = 0 ]; then
     ask SMTP_HOST "SMTP host for login codes"
-    ask SMTP_USERNAME "SMTP username" "-"
-    [ "$SMTP_USERNAME" = "-" ] && SMTP_USERNAME=""
+    if [ -z "$SMTP_USERNAME" ] && [ "$INTERACTIVE" = 1 ]; then
+        read -r -p "SMTP username (empty if the relay needs none): " SMTP_USERNAME
+    fi
     if [ -z "$SMTP_PASSWORD" ] && [ "$INTERACTIVE" = 1 ]; then
         read -r -s -p "SMTP password (hidden): " SMTP_PASSWORD; echo
     fi
@@ -172,8 +181,8 @@ if [ -n "$PEER_ENV" ]; then
     [ -z "$peer_domain" ] || [ "$peer_domain" = "$DOMAIN" ] \
         || die "$PEER_ENV is for $peer_domain, not $DOMAIN"
 elif [ "$MODE" = frontend ]; then
-    echo "configure: no --peer-env: generating fresh shared tokens. Copy munin-peer.env"
-    echo "           to the backend and give it the same values, or nothing will match." >&2
+    { echo "configure: no --peer-env: generating fresh shared tokens. Copy munin-peer.env"
+      echo "           to the backend and give it the same values, or nothing will match."; } >&2
 fi
 
 # ------------------------------------------------------------------------------
@@ -186,11 +195,11 @@ seed() {  # seed <path> ; copies <path>.example to <path> if missing
 echo "Seed files:"
 if [ "$MODE" != backend ]; then
     if seed frontend/auth/whitelist.csv; then
-        sed -i "s/^admin@example\.org,/$ADMIN_EMAIL,/; /^ada@example\.org,/d" \
+        sed -i "s/^admin@example\.org,/$(sed_escape "$ADMIN_EMAIL"),/; /^ada@example\.org,/d" \
             "$ROOT/frontend/auth/whitelist.csv"
     fi
     if seed frontend/config/quotas.yml; then
-        sed -i "s/^  admin@example\.org:/  $ADMIN_EMAIL:/" "$ROOT/frontend/config/quotas.yml"
+        sed -i "s/^  admin@example\.org:/  $(sed_escape "$ADMIN_EMAIL"):/" "$ROOT/frontend/config/quotas.yml"
     fi
 fi
 seed shared/config/contributors.yml || true
@@ -234,8 +243,8 @@ umask 077
 {
 cat <<EOF
 # Written by scripts/configure.sh on $(date -u +%Y-%m-%dT%H:%MZ) for mode: $MODE
-# Every knob is documented in .env.example; anything not set here takes the
-# default described there. Re-run configure.sh with --force to start over.
+# Every setting is documented in .env.example; anything not set here takes the
+# compose file's own default. Re-run configure.sh with --force to start over.
 
 COMPOSE_FILE=$FILES
 COMPOSE_PROFILES=$PROFILES
@@ -372,7 +381,10 @@ case "$MODE:$LOCAL" in
     backend:0)
         echo "  docker compose up -d --build"
         if [ -n "$VPS_HOST" ]; then
-            echo "  on the VPS, append this line to the tunnel user's ~/.ssh/authorized_keys:"
+            echo "  set up the VPS once, as root (copy frontend/bootstrap.sh there first):"
+            echo "    bash bootstrap.sh --admin-user <you> \\"
+            echo "        --tunnel-pubkey '$(cat "$TUNNEL_KEY.pub")'"
+            echo "  or, if the VPS already has a tunnel user, append to its ~/.ssh/authorized_keys:"
             echo "    restrict,port-forwarding,permitlisten=\"127.0.0.1:18080\",command=\"/bin/false\" $(cat "$TUNNEL_KEY.pub")"
         else
             echo "  the frontend reaches retrieval on 127.0.0.1:8080 of this machine: give it a"
