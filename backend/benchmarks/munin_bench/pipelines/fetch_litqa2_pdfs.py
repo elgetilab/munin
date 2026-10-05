@@ -11,7 +11,7 @@ tool never touches sci-hub. Paywalled papers are the operator's to obtain.
 Usage:
     python -m munin_bench.pipelines.fetch_litqa2_pdfs \\
         --csv data/litqa2/missing_papers.csv --out data/litqa2/pdfs \\
-        --email admin@example.org
+        --email you@example.org
 """
 
 from __future__ import annotations
@@ -124,7 +124,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--email", default="admin@example.org")
+    ap.add_argument("--email", default=os.environ.get("MUNIN_CONTACT_EMAIL"),
+                    required=not os.environ.get("MUNIN_CONTACT_EMAIL"),
+                    help="contact address for Unpaywall/Crossref (default: MUNIN_CONTACT_EMAIL)")
     ap.add_argument("--delay", type=float, default=0.2)
     ap.add_argument("--limit", type=int, default=0, help="stop after N (0=all)")
     args = ap.parse_args()

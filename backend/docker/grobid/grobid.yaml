@@ -33,7 +33,9 @@ grobid:
       #url: "https://cloud.science-miner.com/glutton"
       url: "http://localhost:8080" 
     crossref:
-      mailto: "admin@example.org"
+      # Filled in from MUNIN_CONTACT_EMAIL when the container starts (see the
+      # grobid service in docker-compose.yml); empty means the anonymous pool.
+      mailto: "__MUNIN_CONTACT_EMAIL__"
       # to use crossref web API, you need normally to use it politely and to indicate an email address here, e.g.
       #mailto: "toto@titi.tutu"
       token:

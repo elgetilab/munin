@@ -50,7 +50,7 @@ Design decisions (agreed 2026-04-20):
     - Concurrency: 1. Sequential POSTs. The cluster's GROBID +
       SPECTER are the bottleneck, and earlier runs had issues at
       higher parallelism.
-    - Admin skip: admin@example.org is hard-coded in ADMIN_SKIPLIST
+    - Admin skip: addresses in BACKFILL_SKIP_EMAILS (comma-separated) are skipped
       (just the one test file). All other mailboxes get ingested.
     - Upload-time preservation: os.path.getmtime(pdf) → ISO 8601
       UTC → passed to endpoint's `upload_time` form field. Cluster
@@ -97,7 +97,10 @@ CLUSTER_INGEST_URL = os.getenv(
 PIPELINE_TIMEOUT = int(os.getenv("PIPELINE_TIMEOUT", "900"))
 LOG_PATH = pathlib.Path(os.getenv("LOG_PATH", "/var/log/backfill-uploads.log"))
 
-ADMIN_SKIPLIST = {"admin@example.org"}
+# Uploaders whose files are not backfilled (comma-separated, from the env file
+# the cron job sources). Empty: nobody is skipped.
+ADMIN_SKIPLIST = {e.strip().lower() for e in os.getenv("BACKFILL_SKIP_EMAILS", "").split(",")
+                  if e.strip()}
 
 
 # ---- logging setup -------------------------------------------------------

@@ -27,7 +27,7 @@ fi
 # Ensure env file exists
 if [ ! -f "$ENV_FILE" ]; then
     echo "Creating $ENV_FILE — fill in the token:"
-    echo 'ADMIN_INGEST_TOKEN=' > "$ENV_FILE"
+    printf 'ADMIN_INGEST_TOKEN=\n# Uploaders to skip, comma-separated (optional)\nBACKFILL_SKIP_EMAILS=\n' > "$ENV_FILE"
     chmod 600 "$ENV_FILE"
     echo "ERROR: Set ADMIN_INGEST_TOKEN in $ENV_FILE before continuing."
     exit 1
