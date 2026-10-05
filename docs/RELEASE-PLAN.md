@@ -1,6 +1,6 @@
 # Public release: assessment and plan
 
-Status: **APPROVED 2026-10-02, Phase 1 starting.** Written 2026-10-02 for the
+Status: **Phases 1-5 DONE (2026-10-02 to 10-05); release-readiness pass in progress (section 6); Phase 6 open.** Written 2026-10-02 for the
 publication release. Decisions taken are in §2; the §5 questions were resolved
 with their defaults, except the version (§5 Q6).
 
@@ -343,6 +343,51 @@ dependency versions.
 > directories root-owned on a fresh install (tusd needs uid 1000), no
 > configurable retrieval bind address for the VPN option
 > (`RETRIEVAL_BIND_ADDR`), and bootstrap's tunnel key allowed any listen port.
+
+### Release-readiness pass (2026-10-05)
+
+A read-only audit of every document (install path, release and paper docs,
+internal docs; reports kept outside the repo) found the install path's prose
+accurate but the path itself broken on one machine, the API contract and the
+reproduce instructions stale, and two release blockers. Decisions taken:
+
+| Question | Decision |
+|---|---|
+| Sci-Hub (paper tools offer sci-hub links; the crawler uses it as a fallback) | **Keep, off by default**, behind a flag, documented neutrally. |
+| `docs/architecture/HARNESS-AUDIT-2026-05.md` (built on material that is not ours to publish) | **Remove**, rephrase the code comments that cite it, drop the PAPER.md link, and **scrub it from history** before the repo goes public. |
+| CITATION.cff author | The lab as an entity: **Elgeti Lab, Leipzig University Medical Faculty**; paper as preferred-citation once it has a DOI. |
+| DOI repair (921 mis-keyed papers) | Internal: not mentioned in the release. Checked 2026-10-05: no mis-keyed DOI ships (only as test fixtures of the bug). One LitQA2/C2 paper (tenascin review, C2 qid b8ec372b) has a duplicate under its mangled key that stayed in the C2 shadow; only the Qwen3.6 09-17 pair answered it in the absent arm. **Left as is.** |
+| Per-query data behind the paired tests | **Publish verdict tables** (qid, arm, verdict, letter; no question or answer text) for Track D, C2b and faithfulness, so the "every paired test can be regenerated" claim is true. |
+| Reference-deployment names (hugin, SLURM partitions, Hetzner, the lab corpus tag) | **Keep** as the documented example; **remove links to private repos** (HuginSLURM, munin-vps), describing that layer in a sentence instead. |
+
+Defaults taken without a separate question: SINGLE-HOST-PLAN.md archived with
+a stub; CHANGELOG 0.9.0 written as the first public release with a short
+"for existing self-hosters" list of breaking changes (MUNIN_DOMAIN required,
+router on by default, identity defaults removed); em-dashes fixed in current
+docs and printed messages only, historical documents left as written.
+
+Work, in order:
+
+1. **Install-breaking code.** GROBID/gateway port clash on 8070 in
+   `--mode all`; encoders treat an empty mount directory as a model and never
+   fetch from Hugging Face (check for the model files, add an HF cache
+   volume); GROBID's Crossref mailto from the env, not a personal address in
+   `grobid.yaml`; `LLM_API_KEY` for hosted endpoints; `configure.sh --help`,
+   local-mode URLs and upload page, `ACME_EMAIL`; a `bootstrap.sh` that cannot
+   lock out non-Hetzner VMs; Sci-Hub behind a flag. A CI job that boots
+   `--mode all` with the frontend and runs a paper search.
+2. **Install docs** against step 1 and the 28 install-path defects.
+3. **API contract and current references:** BACKEND-API.md (18 defects,
+   including the missing `/api/research/*` and `/api/personas`), and
+   CONTRIBUTOR-INGEST, RUNTIME-CONFIG, MONITORING and the pipeline docs.
+4. **Paper and release docs:** the reproduce commands (retired shadow compose,
+   `risk_coverage` overwriting a committed file, nonexistent download
+   scripts), the per-query verdict tables, `00-INDEX` and the scorecards
+   README, CHANGELOG, NOTICE, CITATION, the routing scorecards' label, the
+   harness-audit removal.
+5. **History hygiene:** historical banners on about 25 plans that read as
+   current, archive the 3 obsolete docs and index the archive folders, fix the
+   broken links, the remaining personal details, the private-repo links.
 
 ### Phase 6: verification and release
 
