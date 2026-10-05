@@ -37,12 +37,14 @@ set -euo pipefail
 ADMIN_USER=""
 TUNNEL_PUBKEY=""
 VOLUME_ID=""
+ADMIN_PUBKEY=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --admin-user)  ADMIN_USER="$2";   shift 2 ;;
         --tunnel-pubkey) TUNNEL_PUBKEY="$2"; shift 2 ;;
         --volume-id)   VOLUME_ID="$2";    shift 2 ;;
+        --admin-pubkey) ADMIN_PUBKEY="$2"; shift 2 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -65,6 +67,33 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
+# ── Step 2: The admin's login key, settled BEFORE anything changes ────────
+# Root's authorized_keys is not reliable on every provider: some put the key
+# only on a default user (ubuntu, debian), and some prefix root's copy with a
+# command that refuses the login ("Please login as the user ubuntu"). Copying
+# that verbatim, then restricting sshd to the new user, locks you out. So:
+# take --admin-pubkey if given, else the keys of root and of the sudo user
+# who ran this, keep only the key itself (no option prefix), and stop here,
+# before touching the system, if there is none.
+extract_keys() {
+    grep -oE '(ssh-(ed25519|rsa|dss)|ecdsa-sha2-nistp[0-9]+|sk-(ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com) [A-Za-z0-9+/=]+( [^"]*)?$' \
+        2>/dev/null || true
+}
+ADMIN_KEYS=""
+if [[ -n "$ADMIN_PUBKEY" ]]; then
+    ADMIN_KEYS=$(printf '%s\n' "$ADMIN_PUBKEY" | extract_keys)
+else
+    for f in /root/.ssh/authorized_keys ${SUDO_USER:+/home/$SUDO_USER/.ssh/authorized_keys}; do
+        [[ -r "$f" ]] && ADMIN_KEYS+=$(extract_keys < "$f")$'\n'
+    done
+    ADMIN_KEYS=$(printf '%s' "$ADMIN_KEYS" | sed '/^$/d' | sort -u)
+fi
+if [[ -z "$ADMIN_KEYS" ]]; then
+    echo "Error: no SSH public key for $ADMIN_USER. Pass --admin-pubkey 'ssh-ed25519 AAAA...'."
+    echo "       Nothing has been changed."
+    exit 1
+fi
+
 # ── Step 3: System update + packages ──────────────────────────────────────
 echo ">>> Installing system packages..."
 apt update && apt upgrade -y
@@ -82,9 +111,9 @@ else
     chmod 440 "/etc/sudoers.d/$ADMIN_USER"
 fi
 
-# Copy SSH key from root
+# The key(s) settled in step 2, without any option prefix.
 mkdir -p "/home/$ADMIN_USER/.ssh"
-cp /root/.ssh/authorized_keys "/home/$ADMIN_USER/.ssh/authorized_keys"
+printf '%s\n' "$ADMIN_KEYS" > "/home/$ADMIN_USER/.ssh/authorized_keys"
 chown -R "$ADMIN_USER:$ADMIN_USER" "/home/$ADMIN_USER/.ssh"
 chmod 700 "/home/$ADMIN_USER/.ssh"
 chmod 600 "/home/$ADMIN_USER/.ssh/authorized_keys"
@@ -114,8 +143,13 @@ fi
 # ── Step 6: Harden SSH ────────────────────────────────────────────────────
 echo ">>> Hardening SSH..."
 ALLOWED_USERS="$ADMIN_USER"
+# Keep the account you are logged in with (ubuntu, debian, ...) allowed too, so
+# this cannot cut off the session you would use to fix a mistake.
+if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != root && "$SUDO_USER" != "$ADMIN_USER" ]]; then
+    ALLOWED_USERS="$ALLOWED_USERS $SUDO_USER"
+fi
 if [[ -n "$TUNNEL_PUBKEY" ]]; then
-    ALLOWED_USERS="$ADMIN_USER tunnel"
+    ALLOWED_USERS="$ALLOWED_USERS tunnel"
 fi
 
 cat > /etc/ssh/sshd_config.d/99-munin-hardening.conf << EOF
@@ -212,6 +246,10 @@ chown "$ADMIN_USER:$ADMIN_USER" "$MUNIN_DIR"
 # ── Done ──────────────────────────────────────────────────────────────────
 echo ""
 echo "=== Bootstrap Complete ==="
+echo ""
+echo "BEFORE closing this session: open a second terminal and check that"
+echo "    ssh $ADMIN_USER@<this host>"
+echo "works. sshd now allows only: $ALLOWED_USERS"
 echo ""
 echo "Next steps (INSTALL.md, section 5):"
 echo "  1. Log in as $ADMIN_USER (root login is now disabled):"
