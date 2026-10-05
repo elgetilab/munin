@@ -403,7 +403,13 @@ MCP_TOOLS = {
     },
     "get_paper_pdf": {
         "name": "get_paper_pdf",
-        "description": "Check if a PDF is available for a paper and get the download URL. If not available, provides alternative sources like Sci-Hub.",
+        # Sci-Hub is named only where the operator enabled it (SCIHUB_ENABLED);
+        # with it on, this is the text every published number used.
+        "description": ("Check if a PDF is available for a paper and get the download URL. "
+                        "If not available, provides alternative sources like Sci-Hub."
+                        if site_config.SCIHUB_ENABLED else
+                        "Check if a PDF is available for a paper and get the download URL. "
+                        "If not available, suggests where to look for it."),
         "inputSchema": {
             "type": "object",
             "properties": {

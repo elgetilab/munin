@@ -297,6 +297,9 @@ services:
       - MUNIN_DOMAIN=${MUNIN_DOMAIN:?MUNIN_DOMAIN must be set, e.g. MUNIN_DOMAIN=lab.example.edu (see .env.example)}
       - MUNIN_CLUSTER_NAME=${MUNIN_CLUSTER_NAME:-}
       - MUNIN_CONTACT_EMAIL=${MUNIN_CONTACT_EMAIL:-}
+      # Off unless set: paper tools then also point at Sci-Hub when a PDF is
+      # not in the corpus. Whether that is legal and acceptable is yours to decide.
+      - SCIHUB_ENABLED=${SCIHUB_ENABLED:-0}
       # Shared secret with the frontend. When set, a request carrying a
       # forwarded identity header (X-Munin-Email, ...) must also carry this
       # token, so a retrieval port reachable by others is not an

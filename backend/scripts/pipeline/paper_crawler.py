@@ -641,8 +641,9 @@ def download_paper(paper: dict) -> bool:
                 update_paper_status(paper_id, "downloaded", pdf_path=str(output_path))
                 return True
 
-    # Try Sci-Hub
-    if doi:
+    # Sci-Hub only where the operator enabled it (SCIHUB_ENABLED); off by
+    # default, since whether it is legal and acceptable is theirs to decide.
+    if doi and os.environ.get("SCIHUB_ENABLED", "").strip().lower() in ("1", "true", "yes"):
         if download_scihub(doi, output_path):
             update_paper_status(paper_id, "downloaded", pdf_path=str(output_path))
             return True
