@@ -2,10 +2,11 @@
 
 §28 Sprint A, shipped 2026-04-20. Accepts PDFs uploaded via
 `upload.muninai.org` (tusd → `hook_service.py` on the VPS) and routes
-them into the shared `papers` corpus with contributor attribution.
+them into the shared paper corpus (Qdrant collection `papers_bge`) with
+contributor attribution.
 
-Full design lives in `docs/future_features.md` §28 and the agreed
-plan in `docs/CONTRIBUTOR-CORPUS-PLAN.md`.
+Full design lives in `backend/docs/future_features.md` §28 and the agreed
+plan in `backend/docs/archive/CONTRIBUTOR-CORPUS-PLAN.md`.
 
 ## Pipeline
 
@@ -34,7 +35,7 @@ hook_service.py
                                               │
                                               ▼
                                           python3 /app/pipeline/paper_pipeline.py --single
-                                          GROBID → CrossRef → SPECTER → Qdrant + Neo4j
+                                          GROBID → CrossRef → BGE-large → Qdrant + Neo4j
                                               │
                                               ▼
                                           Move PDF → /papers/doi_{slug}.pdf
@@ -186,7 +187,7 @@ Bump to 6-8 only if GROBID's pool is also raised
 (`grobid.yaml: concurrency`); never above `<grobid concurrency> -
 <watcher --workers>` or you re-create the saturation.
 
-## Payload shape on Qdrant `papers`
+## Payload shape on Qdrant `papers_bge`
 
 After an ingest, the point gains a `contributors` array:
 
@@ -260,7 +261,8 @@ RETURN p.doi, p.title, groups
 |---|---|
 | `retrieval/main.py` | `/api/admin/ingest` endpoint (§28 block near `/api/embedding_map`) |
 | `scripts/pipeline/paper_pipeline.py` | Reads sidecars, stamps contributors, DOI-keyed Qdrant point IDs |
-| `shared/config/contributors.yml` | Allowlist (email → slug + display name), single source of truth, read by backend deploy + VPS backfill cron |
+| `/opt/munin/data/contributors.yml` | Allowlist (email → slug + display name) the endpoint reads. Pulled from the auth service every 5 minutes (`retrieval/contributors_sync.py`); the auth service's database is the source of truth |
+| `shared/config/contributors.yml.example` | Tracked template. A local `shared/config/contributors.yml` (gitignored) seeds the auth database once and is copied to `/opt/munin/data/` by deploy only when that file is absent |
 | `backend/config/munin.env.template` | Documents `ADMIN_INGEST_TOKEN` and related vars |
 | `/opt/munin/data/papers/pdf/inbox/` | Staging dir; cleared after successful ingest |
 | `/opt/munin/data/papers/pdf/doi_{slug}.pdf` | Final home; reachable via `get_paper_pdf` MCP tool |
@@ -269,7 +271,7 @@ RETURN p.doi, p.title, groups
 ## Deploy
 
 ```bash
-sudo ./deploy.sh agents       # syncs contributors.yml + faq.yml + agents.yml
+sudo ./deploy.sh agents       # syncs faq.yml + agents.yml; seeds contributors.yml only if absent
 sudo ./deploy.sh pipeline     # syncs paper_pipeline.py → /opt/cluster/scripts/pipeline/
 sudo ./deploy.sh compose      # new volume mounts (:rw on /papers, pipeline mount)
 sudo ./deploy.sh retrieval    # rebuild container with the endpoint + `requests` dep
@@ -277,57 +279,40 @@ sudo ./deploy.sh retrieval    # rebuild container with the endpoint + `requests`
 
 ### Adding a new contributor
 
-The workflow takes ~5 minutes and doesn't require a container restart.
+Contributors live in the auth service's database (VPS side), not in a
+file in this repo. The cluster pulls a YAML projection of that database
+(`GET https://auth.<MUNIN_DOMAIN>/admin/contributors.yaml`) every 5
+minutes into `/opt/munin/data/contributors.yml`, and the ingest endpoint
+reloads it on mtime change. No deploy and no container restart needed.
 
-1. **Edit `shared/config/contributors.yml`** in this repo. Two YAML
-   shapes are supported:
+1. **Set the person up in the chat UI's admin panel**: give the user a
+   primary research group and the group leader (or admin) role. The
+   exported allowlist is exactly the users with one of those roles and
+   a research group (`emit_contributors_yaml` in `frontend/auth/main.py`),
+   with all of their registered emails. Several people in the same
+   group should each be their own user in that group, so per-person
+   attribution AND `#group` filtering both work.
 
-   ```yaml
-   # Single person, single email (most common).
-   - email: alice@example.org
-     username: alice
-     display_name: Alice Mustermann
-     research_group: alice
-     research_group_display_name: Mustermann Lab (Leipzig)
-
-   # One person with multiple aliases (use `emails:` list).
-   - emails:
-       - bob@example.org
-       - bob.example@gmail.com
-     username: bob
-     display_name: Bob Beispiel
-     research_group: bob
-     research_group_display_name: Beispiel Group (Leipzig)
-   ```
-
-   **Multiple people in the same group**: write each as a separate
-   entry, all sharing the same `research_group` slug. Per-person
-   attribution AND `#group` filtering both work that way:
-
-   ```yaml
-   - email: contributor-d@example.org
-     username: elgeti
-     display_name: Contributor D
-     research_group: elgeti
-     research_group_display_name: Elgeti Lab (Leipzig)
-
-   - email: contributor-e@example.org
-     username: contributor-e
-     display_name: Contributor E
-     research_group: elgeti                          # SAME group slug
-     research_group_display_name: Elgeti Lab (Leipzig)
-   ```
-
-2. **Deploy the change**: syncs `contributors.yml` to
-   `/opt/munin/config/`:
+2. **Wait for the next sync** (at most 5 minutes) or check that it
+   landed:
 
    ```bash
-   sudo ./deploy.sh agents
+   sudo grep -A4 'new-person@example.org' /opt/munin/data/contributors.yml
    ```
 
-   The endpoint auto-reloads the YAML on file mtime change. **No
-   container restart needed.** Future uploads from any of the
-   listed emails get attributed correctly from that moment on.
+   Future uploads from any of the person's emails get attributed
+   correctly from that moment on.
+
+   **Fresh install bootstrap.** Copy
+   `shared/config/contributors.yml.example` to
+   `shared/config/contributors.yml` (gitignored) and fill it in. The
+   auth service imports it once into its database on first start, and
+   `deploy.sh agents` copies it to `/opt/munin/data/contributors.yml`
+   only when that file does not exist yet, so ingest works before the
+   first sync. After that, edits to the local file have no effect; use
+   the admin panel. The file format (`email` or an `emails:` list,
+   `username`, `display_name`, `research_group`,
+   `research_group_display_name`) is documented in the example.
 
 3. **Backfill past `unknown` uploads** (optional but recommended).
    Uploads from a person who was added LATER are stamped as
@@ -345,9 +330,9 @@ The workflow takes ~5 minutes and doesn't require a container restart.
 
    Folded into `paper_cleanup.py` on 2026-05-13; was previously a
    standalone `reattribute_unknown.py` script. The
-   `munin-paper-reattribute.timer` service (added the same day but
-   not enabled until the consolidation completes) will eventually
-   run this nightly so manual re-attribution becomes optional.
+   `munin-paper-reattribute.timer` (installed and enabled by
+   `deploy.sh pipeline`) runs it daily at 04:30, so the manual run
+   is only needed when you want the change sooner.
 
    The script walks every paper with `contributors[].group_slug
    == "unknown"`, looks up the email against the current
@@ -379,7 +364,7 @@ curl -s -X POST http://127.0.0.1:8080/api/admin/ingest \
     -F "email=contributor-c@example.org" | jq .
 
 # Verify Qdrant stamp
-curl -s http://127.0.0.1:6333/collections/papers/points/scroll \
+curl -s http://127.0.0.1:6333/collections/papers_bge/points/scroll \
     -H 'Content-Type: application/json' \
     -d '{"filter": {"must": [{"key": "contributors[].group_slug",
          "match": {"value": "zeitler"}}]}, "limit": 3,
@@ -445,31 +430,25 @@ and will score similarly) but does waste space and splits the
 existing points on their payload `doi` would resolve it; not yet
 written.
 
-### Pipeline SPECTER cold-start per call
+### Pipeline encoder cold-start per call
 
 Each `/api/admin/ingest` POST spawns a fresh `paper_pipeline.py`
-subprocess, which loads SPECTER (~2-3 GB, ~10-20 s) from scratch.
-Fine for steady-state ingestion (5-10 papers/day) but painful for
-the one-time 4,236-paper backfill, budget several hours regardless
-of VPS-side parallelism, because GROBID + SPECTER are the bottleneck
-on the cluster. Acceptable for a one-time migration. A persistent
-pipeline daemon is the longer-term fix; not in this sprint.
+subprocess, which loads the paper encoder (BGE-large by default,
+`PAPER_ENCODER`) from scratch, adding seconds per call. Fine for
+steady-state ingestion (5-10 papers/day) but painful for a large
+backfill: budget several hours regardless of VPS-side parallelism,
+because GROBID + the encoder are the bottleneck on the cluster. A
+persistent pipeline daemon is the longer-term fix; not yet built.
 
 ## Tunables (env vars)
 
 | Var | Default | Purpose |
 |---|---|---|
 | `ADMIN_INGEST_TOKEN` | _unset_ | Bearer token; endpoint returns 503 without it |
-| `CONTRIBUTORS_CONFIG` | `/app/config/contributors.yml` | Allowlist path (mtime-reloaded) |
+| `CONTRIBUTORS_CONFIG` | `/data/contributors.yml` | Allowlist path (mtime-reloaded; written by the sync) |
+| `CONTRIBUTORS_SYNC_URL` | `https://auth.${MUNIN_DOMAIN}/admin/contributors.yaml` | Where the allowlist is pulled from; empty disables the sync |
+| `CONTRIBUTORS_SYNC_INTERVAL_SECS` | `300` | Pull interval (60 s backoff after a failed fetch) |
 | `PAPER_PIPELINE_SCRIPT` | `/app/pipeline/paper_pipeline.py` | Pipeline path (mounted read-only) |
 | `PIPELINE_TIMEOUT_SECS` | `600` | Per-paper timeout before 504 |
 | `PAPERS_PDF_DIR` | `/papers` | Final PDF home (and inbox parent) |
 | `GROBID_URL` | `http://grobid:8070` | Passed to the subprocess env |
-
-## What's next
-
-Sprint B (tag-scoped search) brings the `#zeitler` / `#corzilius` /
-`#deibel` / `#nmr` tag filters into chat. Until it lands, contributor
-attribution is stored but not query-surfaced, papers filter
-identically to any other, and the `contributors[]` field is visible
-only via direct Qdrant / Neo4j queries.

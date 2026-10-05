@@ -15,7 +15,7 @@ exceptions.
 | Unit | Type | Purpose |
 |---|---|---|
 | `munin-paper-pipeline.service` | always-on | Watches `/papers/pdf/` every 60s for new PDFs, ingests them through the hardened pipeline. |
-| `munin-paper-detect.service` | always-on | Continuous detection sweep. Every 15 min runs `paper_cleanup.py sweep` (a paced `detect --auto-quarantine` over all kinds). Slowly walks the existing corpus, auto-quarantining bad records. |
+| `munin-paper-detect.service` | always-on | Continuous detection sweep. Every 15 min runs `paper_cleanup.py sweep` (a paced `detect --auto-quarantine` over all kinds). Slowly walks the existing corpus, auto-quarantining bad records. Currently runs `sweep --no-quarantine` (detection only, since 2026-10-04) until the pending DOI filename repair is applied; see the comment in `backend/config/munin-paper-detect.service`. |
 | `munin-paper-reattribute.timer` | 04:30 daily | Runs `paper_cleanup.py reattribute`. Backfills group attribution for records whose uploader was added to `contributors.yml` after ingest. |
 | `munin-embedding-map.timer` | 01:30 daily | Rebuilds the 2D paper-embedding map + clusters. (Unrelated to cleanup; lives in `scripts/knowledge/`.) |
 
@@ -49,7 +49,7 @@ That's the entire surface. Everything else is internal.
 
 For deeper context:
 - [`PAPER_CRAWLER.md`](PAPER_CRAWLER.md) — crawler internals (citation
-  harvesting, Sci-Hub, queue DB).
+  harvesting, download sources, queue DB).
 - [`../../docs/PAPER-INGEST-AUDIT.md`](../../docs/PAPER-INGEST-AUDIT.md)
   — the 2026-05-12 audit that introduced the ingest-time
   title-similarity guard.
@@ -64,8 +64,8 @@ turns PDFs into searchable corpus entries. The active pieces:
 
 | File | Purpose |
 |---|---|
-| `paper_pipeline.py` | The ingest engine. PDF → GROBID → CrossRef → SPECTER → Qdrant + Neo4j. Run as `--single <pdf>` for one PDF, `--watch` as a long-running systemd service. |
-| `paper_crawler.py` | Citation-based PDF acquisition. arXiv first, Sci-Hub fallback. Maintains a SQLite queue of pending downloads. |
+| `paper_pipeline.py` | The ingest engine. PDF → GROBID → CrossRef → BGE-large (`papers_bge`) → Qdrant + Neo4j. Run as `--single <pdf>` for one PDF, `--watch` as a long-running systemd service. |
+| `paper_crawler.py` | Citation-based PDF acquisition from arXiv. A Sci-Hub fallback exists but is off unless `SCIHUB_ENABLED=1`; whether it is legal to use is the operator's call. Maintains a SQLite queue of pending downloads. |
 | `paper_cleanup.py` | All cleanup, repair, detection, and remediation subcommands. |
 | `author_names.py` | Author-name sanitising (`sanitize_authors`) and source selection (`best_author_list`). Imported by `paper_pipeline.py`, so it must be deployed alongside it. |
 | `audit_authors.py` | Read-only corpus report: how many author lists are clean / damaged / empty, and what a DOI lookup would fix. Writes nothing. |
@@ -118,13 +118,18 @@ Today, on hugin:
 | Unit | Schedule | What it does |
 |---|---|---|
 | `munin-paper-pipeline.service` | always on | `--watch` loop, polls `/papers/pdf/` every 60s for unprocessed PDFs |
-| `munin-paper-detect.service` | always on | `paper_cleanup.py sweep` continuous loop. 15-min cycles, 5 records/kind/cycle, all 4 detection kinds. Auto-quarantines bad records as it walks. Tunable via `Environment=` in the unit file. |
+| `munin-paper-detect.service` | always on | `paper_cleanup.py sweep` continuous loop. 15-min cycles, 5 records/kind/cycle, all 4 detection kinds. Auto-quarantines bad records as it walks (but see the `--no-quarantine` note below). Tunable via `Environment=` in the unit file. |
 | `munin-paper-reattribute.timer` | 04:30 daily | Runs `paper_cleanup.py reattribute`. Backfills group attribution after `contributors.yml` updates. |
 | `munin-embedding-map.timer` | 01:30 daily | Rebuilds the 2D paper-embedding map + HDBSCAN clusters |
 
-`munin-paper-cleanup` is the **only auto-remove path** that runs
-without operator action. It caps at 20 removals per night to keep a
-bad metadata-source day from emptying the corpus.
+Nothing deletes papers without operator action. The old nightly
+`munin-paper-cleanup.{service,timer}` (the former auto-remove path)
+was retired in Phase F; `deploy.sh pipeline` disables and removes
+those units if it finds them. The detect daemon only quarantines
+(moves to `pdf/quarantine/`, reversible via `review`), and since
+2026-10-04 it runs `sweep --no-quarantine`, so it currently only
+reports. Drop the flag in the unit once the DOI filename repair
+(`repair_doi_filenames.py`) has been applied.
 
 To inspect what's enabled:
 
@@ -132,7 +137,7 @@ To inspect what's enabled:
 systemctl list-timers 'munin-*'
 systemctl status munin-paper-pipeline.service
 journalctl -u munin-paper-pipeline.service -f          # tail the watcher
-journalctl -u munin-paper-cleanup.service --since today
+journalctl -u munin-paper-detect.service --since today
 ```
 
 ## Prerequisites
@@ -414,7 +419,7 @@ also get filtered out by title-pattern matching in `process_pdf()`.
 ├── processed/                          watcher "already seen" markers
 ├── logs/                               per-skip JSON logs (legacy)
 ├── blocklist.txt                       DOIs to refuse on future crawl
-├── failed_downloads.txt                DOIs Sci-Hub gave up on
+├── failed_downloads.txt                DOIs no download source could fetch
 └── crawler_queue.db                    SQLite, the crawler's pending list
 ```
 
@@ -457,7 +462,7 @@ work to drain, then re-run.
 If GROBID is sustained-down, see `docker compose logs grobid` in
 `/opt/munin/docker/`.
 
-### Sci-Hub returned the wrong PDF for a DOI
+### A download returned the wrong PDF for a DOI
 
 The 2026-05-12 audit identified this as the dominant crawler-side
 metadata-corruption mechanism. The hardened pipeline now rejects the
@@ -471,7 +476,7 @@ follow up with `reingest-queue`. See
 
 ## What's documented elsewhere
 
-- Crawler internals (arXiv, Sci-Hub, citation harvesting, seed
+- Crawler internals (download sources, citation harvesting, seed
   management): [`PAPER_CRAWLER.md`](PAPER_CRAWLER.md).
 - 2026-05-12 ingest audit + the title-similarity guard:
   [`../../docs/PAPER-INGEST-AUDIT.md`](../../docs/PAPER-INGEST-AUDIT.md).

@@ -1,14 +1,15 @@
 # Paper-Embedding Knowledge Map — Operator Reference
 
 §15 of `docs/future_features.md`, shipped 2026-04-20. Builds a 2D
-visualisation map + topical clusters over the shared `papers` Qdrant
-corpus. Every paper gets a `cluster_id` / `topic_label` / `topic_slug`
+visualisation map + topical clusters over the shared `papers_bge` Qdrant
+corpus (BGE-large, 1024d). Every paper gets a `cluster_id` / `topic_label` / `topic_slug`
 payload stamp, which is what §28's `#topic` tag filter will read.
 
 ## What it does
 
-1. **Scroll** the Qdrant `papers` collection with vectors.
-2. **L2-normalise** every vector (SPECTER outputs aren't guaranteed
+1. **Scroll** the Qdrant `papers_bge` collection with vectors (the unit
+   sets `QDRANT_COLLECTION=papers_bge`).
+2. **L2-normalise** every vector (encoder outputs aren't guaranteed
    unit-norm; without this the downstream Euclidean HDBSCAN produces
    one mega-cluster).
 3. **UMAP → 10d** (`n_neighbors=15`, `min_dist=0`, cosine metric) for
@@ -33,7 +34,7 @@ payload stamp, which is what §28's `#topic` tag filter will read.
 | `scripts/knowledge/build_embedding_map.py` | The actual script |
 | `scripts/knowledge/requirements.txt` | `umap-learn`, `hdbscan`, `qdrant-client`, `numpy`, `requests` |
 | `config/munin-embedding-map.service` | systemd oneshot unit |
-| `config/munin-embedding-map.timer` | Nightly 03:00 timer (5 min random jitter) |
+| `config/munin-embedding-map.timer` | Nightly 01:30 timer (5 min random jitter), before vLLM's 02:00 shutdown |
 | `/opt/munin/services/knowledge/venv/` | Dedicated Python venv (Debian 12 PEP 668) |
 | `/opt/cluster/scripts/knowledge/build_embedding_map.py` | Deployed copy the unit executes |
 | `/opt/munin/knowledge/embedding_map.json` | Output file (~5-10 MB on 30k papers) |
@@ -132,7 +133,7 @@ jq '[.points[] | select(.cluster == -1)] | length' \
 ### Confirm Qdrant payloads got stamped
 
 ```bash
-curl -s http://127.0.0.1:6333/collections/papers/points/scroll \
+curl -s http://127.0.0.1:6333/collections/papers_bge/points/scroll \
     -H 'Content-Type: application/json' \
     -d '{"limit": 3,
          "with_payload": ["doi","title","topic_slug","topic_label","cluster_id"]}' \

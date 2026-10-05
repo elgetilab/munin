@@ -28,7 +28,7 @@ Two jobs:
 
 ```bash
 cd backend/benchmarks/munin_bench
-VLLM_MODEL_NAME=qwen3.6-35b-a3b python -m routing.run \
+VLLM_MODEL_NAME=qwen3.8-27b python -m routing.run \
     --reps 8 --tag routing-pre-migration --seed 42
 
 # smoke one item:

@@ -11,7 +11,7 @@ and healthy without operator SSH sessions:
 
 - **`munin-paper-pipeline.service`** — watcher daemon that ingests
   any PDF dropped into `/opt/munin/data/papers/pdf/` through the
-  full GROBID → CrossRef → SPECTER → Qdrant + Neo4j pipeline. The
+  full GROBID → CrossRef → BGE-large → Qdrant (`papers_bge`) + Neo4j pipeline. The
   state sidecar + Qdrant payload mirror are written by
   `_dispose_post_pipeline` (Phase B of the 2026-05-13 consolidation);
   failures land in `pdf/quarantine/` instead of being retried every
@@ -20,7 +20,10 @@ and healthy without operator SSH sessions:
   daemon. Runs `paper_cleanup.py sweep` in a paced loop (15-min
   cycles, 5 records/kind/cycle) over four detection kinds. Replaced
   the nightly `munin-paper-cleanup.timer` so cleanup runs as a
-  continuous trickle rather than a once-a-day batch.
+  continuous trickle rather than a once-a-day batch. Since 2026-10-04
+  it runs `sweep --no-quarantine` (detection only) until the pending
+  DOI filename repair is applied; see the comment in
+  `backend/config/munin-paper-detect.service`.
 - **`munin-paper-reattribute.timer`** + `.service` (04:30 daily) —
   backfills group attribution after `contributors.yml` updates.
 
@@ -71,23 +74,18 @@ Papers that arrive via manual `scp` or (future) crawler drop into
 
 ## What the cleanup does
 
-`paper_cleanup.py repair-and-clean` walks a batch of papers (default
-200 per run), re-fetches metadata from OpenAlex / Semantic Scholar /
-CrossRef, and updates the Neo4j `Paper` node + Qdrant payload with
-fresh data. If **all three** sources fail to confirm the paper
-exists (wrong DOI, retracted, never-existed), the paper is removed
-from Qdrant + Neo4j + the PDF on disk — capped at 20 removals per
-run so a bad-source day can't nuke the corpus.
-
-- `--max-check 200` — papers reviewed per run
-- `--auto-remove` — enables the removal path
-- `--limit 20` — hard cap on removals
-- Walk order: age of the last enrichment. Stale papers first.
-
-Runtime: ~5-10 min at default settings. §27 parallelization (on the
-reliability backlog) will take the full-corpus sweep from 8 h → 2-4 h;
-at that point we can crank `--max-check` way up without exceeding the
-nightly window.
+The old nightly `paper_cleanup.py repair-and-clean` run (and its
+`munin-paper-cleanup.{service,timer}` units) was retired in Phase F
+of the 2026-05-13 consolidation; `deploy.sh pipeline` disables and
+deletes those units if it finds them. Cleanup is now
+`paper_cleanup.py sweep`, run continuously by
+`munin-paper-detect.service`: a paced loop over `detect` for the
+kinds in `DETECT_KINDS` (`metadata-mismatch`, `short`, `orphan`,
+`metadata-unverifiable`), 5 records per kind every 15 minutes.
+Flagged records are quarantined (moved to `pdf/quarantine/`, triaged
+with `paper_cleanup.py review`), never deleted, and with
+`--no-quarantine` (the current setting) they are only reported.
+Details and tunables: [`../scripts/pipeline/INGEST.md`](../scripts/pipeline/INGEST.md).
 
 ## Deploy
 
@@ -104,8 +102,9 @@ This mode now:
    `sentence-transformers`, `torch`, `requests`, `pypdf`).
 3. Creates on-disk directories: `pdf/inbox/`, `pdf/skipped/`,
    `pdf/failed/`, `papers/processed/`.
-4. Installs + daemon-reloads + enables + restarts both systemd
-   units.
+4. Installs + daemon-reloads + enables + restarts the watcher and
+   detect services, arms `munin-paper-reattribute.timer`, and removes
+   the retired `munin-paper-cleanup` units if present.
 
 Idempotent on re-run. Safe to re-run after pulling updates.
 
@@ -138,15 +137,15 @@ sudo systemctl start munin-paper-pipeline.service
 sudo systemctl disable munin-paper-pipeline.service
 ```
 
-### Trigger cleanup on-demand
+### Trigger a detection cycle on-demand
 
 ```bash
-# Run cleanup now (service is a oneshot; you run it, it exits)
-sudo systemctl start munin-paper-cleanup.service
-sudo journalctl -fu munin-paper-cleanup.service
+# One sweep cycle by hand, detection only
+sudo /opt/munin/services/pipeline/venv/bin/python3 \
+    /opt/cluster/scripts/pipeline/paper_cleanup.py sweep --once --no-quarantine
 
-# When is the next scheduled run?
-systemctl list-timers munin-paper-cleanup.timer
+# The daemon itself
+systemctl status munin-paper-detect.service
 ```
 
 ### Manual drop → watched ingest
@@ -167,20 +166,20 @@ sudo journalctl -u munin-paper-pipeline.service --since "2 min ago"
 ### Qdrant growing?
 
 ```bash
-curl -s http://127.0.0.1:6333/collections/papers | jq '.result.points_count'
+curl -s http://127.0.0.1:6333/collections/papers_bge | jq '.result.points_count'
 # Sample twice over a minute — if growing, ingest is working.
 ```
 
-### Cleanup log
+### Detection log
 
 ```bash
-sudo journalctl -u munin-paper-cleanup.service --since "yesterday"
+sudo journalctl -u munin-paper-detect.service --since "yesterday"
 ```
 
-Expect one block per night. "Ingested 0, updated 187, removed 3"
-or similar at the end is normal. Many more removals than usual
-flags a data-quality incident upstream (OpenAlex outage, bulk
-API migration) — investigate before assuming papers were bad.
+Expect one block per 15-minute cycle. A sudden jump in flagged
+records usually means a data-quality incident upstream (OpenAlex
+outage, bulk API migration): investigate before assuming the papers
+were bad.
 
 ### What's in the three inbox siblings right now?
 
@@ -204,9 +203,6 @@ time; inspect with `jq .reason {uuid}.skip_info.json`.
 - **Nightly §15 embedding-map** runs at 01:30. New papers ingested
   earlier in the night get cluster assignments that same night.
   Papers ingested after 01:30 wait until the next night.
-- **§27 paper_cleanup parallelization** (reliability backlog) will
-  speed up the nightly sweep. Until then, `--max-check 200 --limit 20`
-  keeps per-run time bounded.
 
 ## Tunables (all in the `.service` unit via `Environment=`)
 
@@ -218,11 +214,13 @@ Watcher:
 | `NEO4J_URI` | `bolt://127.0.0.1:7687` | Graph DB |
 | `NEO4J_PASSWORD` | (cluster.env) | Graph DB auth |
 | `GROBID_URL` | `http://127.0.0.1:8070` | PDF parser |
-| `ADMIN_EMAIL` | `admin@muninai.org` | UA string for polite pools on OpenAlex / CrossRef |
+| `ADMIN_EMAIL` | none in the unit; set in cluster.env. `paper_pipeline.py` and `paper_cleanup.py` fall back to `MUNIN_CONTACT_EMAIL`, and to the placeholder `admin@example.com` only if neither is set | mailto in the User-Agent for polite pools on OpenAlex / CrossRef |
 | `SEMANTIC_SCHOLAR_API_KEY` | (cluster.env) | S2 enrichment rate |
 
-Cleanup: same as watcher. Adjust `--max-check` / `--limit` by
-editing `munin-paper-cleanup.service` and `systemctl daemon-reload`.
+Detect daemon: same connection settings, plus `DETECT_KINDS`,
+`DETECT_PER_CYCLE_LIMIT`, `DETECT_CYCLE_PACE_SECS` and
+`DETECT_GROBID_PACE_SECS` in `munin-paper-detect.service`; edit, then
+`systemctl daemon-reload` and restart the service.
 
 ## Known limitations
 
@@ -235,8 +233,6 @@ editing `munin-paper-cleanup.service` and `systemctl daemon-reload`.
   prevents double-firing, but if you manually `./paper_pipeline.py
   --watch` as well, you'll get race conditions on the markers.
   Don't.
-- **Cleanup cadence assumes serial run time.** Once §27 parallelizes,
-  bump `--max-check` in the service file and watch the run time.
 - **The watcher never cleans up its markers.** A processed marker
   for a deleted paper lingers forever; harmless (just skips a
   non-existent PDF) but consumes inode. Add a periodic broom if
