@@ -1,8 +1,8 @@
 # Paper-ingest audit (2026-05-12)
 
-Triggered by a chat where the
-assistant mixed up the group's contributor
-and a different scientist with the same surname while answering a question
+Triggered by a chat in which the assistant mixed up the group's
+contributor and a different scientist with the same surname while
+answering a question
 scoped to the `#elgeti` research-group tag.
 
 Two layers contributed to the failure: a model-side regression that

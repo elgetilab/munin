@@ -9,7 +9,7 @@ These change SERVED behaviour, so they must be DEPLOYED to be measured (the eval
 drive the live `/api/chat/completions`, which loads `/opt/munin` personas + code
 - not the working tree). Two consequences:
 
-- **`vi` cannot deploy** (deploy.sh is root/varghele). So each measured step needs
+- **The development account cannot deploy** (deploy.sh needs root). So each measured step needs
   a varghele deploy.
 - The document-attachment WIP is now **committed** (`329c150`, varghele, 2026-07-09)
   and landed cleanly under the T2/T3 commits (no conflict; disjoint files). So
