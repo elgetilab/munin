@@ -123,7 +123,7 @@ Wait for DNS to propagate before deploying. Caddy needs the A records to resolve
 The cluster will SSH to the VPS as the `tunnel` user. The bootstrap script created `tunnel` with no password and a forced command (no shell). To allow the cluster's autossh to connect:
 
 - [ ] Get the cluster head's tunnel public key (created in SETUP-CLUSTER.md step 8): `/root/.ssh/munin_tunnel.pub`.
-- [ ] On the VPS, append it to `~tunnel/.ssh/authorized_keys`, prefixed with the restrictive options. The exact line is documented in [`frontend/docs/hugin-tunnel-setup.md`](frontend/docs/hugin-tunnel-setup.md).
+- [ ] On the VPS, append it to `~tunnel/.ssh/authorized_keys`, prefixed with the restrictive options. The exact line is documented in [`docs/install/tunnel.md`](../install/tunnel.md).
 - [ ] From the cluster, test:
   ```bash
   ssh -i /root/.ssh/munin_tunnel -N tunnel@<vps-ip>

@@ -3,9 +3,9 @@
 > **STATUS: PARKED since 2026-06-11. Not the active roadmap.**
 >
 > Active work lives in two other places, and neither supersedes this one:
-> - [`docs/paper-track/`](../docs/paper-track/) — the **eval suite and paper track**
+> - [`docs/paper-track/`](../../paper-track/) — the **eval suite and paper track**
 >   (retrieval/answer benchmarks, Tracks A–F).
-> - [`docs/agent-track/`](../docs/agent-track/) — the
+> - [`docs/agent-track/`](../../agent-track/) — the
 >   **agent architecture and Deep Research** track.
 >
 > This directory is a *different* concern: a human-in-the-loop **prompt

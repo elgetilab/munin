@@ -123,7 +123,7 @@ The cluster initiates a reverse tunnel to the VPS so the VPS can reach the retri
   ```bash
   ssh-keygen -t ed25519 -f /root/.ssh/munin_tunnel -N ''
   ```
-- [ ] Add `/root/.ssh/munin_tunnel.pub` to the VPS `tunnel` user's `~/.ssh/authorized_keys`, prefixed with the restrictive options shown in [`frontend/docs/hugin-tunnel-setup.md`](frontend/docs/hugin-tunnel-setup.md). The options force port-forwarding only, no shell.
+- [ ] Add `/root/.ssh/munin_tunnel.pub` to the VPS `tunnel` user's `~/.ssh/authorized_keys`, prefixed with the restrictive options shown in [`docs/install/tunnel.md`](../install/tunnel.md). The options force port-forwarding only, no shell.
 - [ ] Test the connection:
   ```bash
   ssh -i /root/.ssh/munin_tunnel -N tunnel@<vps-ip>
