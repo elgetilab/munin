@@ -1,6 +1,6 @@
 # Routing scorecard — t2-postdeploy
 
-- **PRE-MIGRATION regression baseline. Not a paper result.**
+- **Routing regression scorecard, run after the router went live (2026-07-08). Note corrected 2026-10: the runner stamped this run as a pre-migration baseline and not a paper result, which was wrong for it.**
 - model: `unknown`  git: `f84fcb2`  reps: 5  seed: 42
 - tier: `anchor`
 - persona policy: chat (A0 decision A; not expected.profile)

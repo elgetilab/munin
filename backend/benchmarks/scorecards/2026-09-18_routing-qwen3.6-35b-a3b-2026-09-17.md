@@ -1,6 +1,6 @@
 # Routing scorecard — routing-qwen3.6-35b-a3b-2026-09-17
 
-- **PRE-MIGRATION regression baseline. Not a paper result.**
+- **Routing regression scorecard, run after the router went live (2026-07-08). Note corrected 2026-10: the runner stamped this run as a pre-migration baseline and not a paper result, which was wrong for it.**
 - model: `qwen3.6-35b-a3b`  git: `556b305`  reps: 8  seed: 42
 - tier: `anchor`
 - persona policy: chat (A0 decision A; not expected.profile)
