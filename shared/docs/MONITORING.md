@@ -26,9 +26,9 @@ at 10:44.
 - **Log**: `/var/log/cluster-admin/vllm-health.log`.
 
 A systemd timer rather than an `/etc/cron.d` entry on purpose: the
-cron file is written by `HuginSLURM/setup/07-scheduling-setup.sh`,
-which runs once per node, so a cron entry would never reach an
-already-provisioned cluster.
+cron file is written by the reference cluster's provisioning (HuginSLURM,
+not public), which runs once per node, so a cron entry would never reach
+an already-provisioned cluster.
 
 ### What it does
 

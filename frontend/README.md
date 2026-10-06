@@ -301,4 +301,4 @@ at [`../shared/docs/BACKEND-API.md`](../shared/docs/BACKEND-API.md).
 
 - `../backend/`: cluster-side of the monorepo (vLLM, retrieval API, RAG, paper pipeline).
 - `../shared/`: cross-cut artifacts (personas, contributors.yml, contract docs).
-- HuginSLURM (separate repo): base cluster setup (CUDA, SLURM, storage).
+- HuginSLURM (separate repo, not public): the reference cluster's base setup (CUDA, SLURM, storage).

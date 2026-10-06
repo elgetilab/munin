@@ -1,6 +1,6 @@
 [Unit]
 Description=Deep Research Queue Daemon
-Documentation=https://github.com/your-repo/HuginSLURM
+Documentation=https://github.com/elgetilab/munin
 After=network.target slurmd.service
 Wants=slurmd.service
 
