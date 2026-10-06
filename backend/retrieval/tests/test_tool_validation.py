@@ -1,6 +1,6 @@
 """
 Standalone tests for the MCP tool argument-validation gate
-(mcp/executor.py, P0 #4 from docs/architecture/HARNESS-AUDIT-2026-05.md).
+(mcp/executor.py, P0 #4 from the 2026-05 internal harness audit).
 
 Run inside the retrieval container:
     docker exec munin-retrieval python /app/tests/test_tool_validation.py

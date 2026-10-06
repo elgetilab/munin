@@ -1,6 +1,6 @@
 """
 Standalone tests for the structured-logging configuration
-(logging_config.py, P1 #6 from docs/architecture/HARNESS-AUDIT-2026-05.md).
+(logging_config.py, P1 #6 from the 2026-05 internal harness audit).
 
 Run inside the retrieval container:
     docker exec munin-retrieval python /app/tests/test_logging_config.py

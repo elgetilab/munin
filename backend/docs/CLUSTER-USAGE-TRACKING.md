@@ -17,4 +17,4 @@ Where to look now:
   — the original problem statement, kept for "why was this once a gap"
   searches.
 
-Closes P0 #3 from [`../../docs/architecture/HARNESS-AUDIT-2026-05.md`](../../docs/architecture/HARNESS-AUDIT-2026-05.md).
+Closes P0 #3 of the 2026-05 internal harness audit.

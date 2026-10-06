@@ -487,6 +487,5 @@ Two operational notes that will otherwise cost you a day:
 | Paper track: plans, specs, open items | `docs/paper-track/` |
 | Agent track: architecture, Deep Research | `docs/agent-track/` |
 | Design decisions (the *why*) | `shared/docs/DECISIONS.md` |
-| Harness audit vs Claude Code | `docs/architecture/HARNESS-AUDIT-2026-05.md` |
 | Routing eval fact sheet (what 0.963 measures, anchor-set provenance, cannot-claim list) | `docs/ROUTING-EVAL-FACTS.md` |
 | Corpus quality evidence | `backend/docs/corpus-quality/` (aggregate summaries; the per-record outputs stay with the deployment) |

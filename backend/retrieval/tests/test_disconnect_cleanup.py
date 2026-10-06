@@ -1,6 +1,6 @@
 """
 Standalone tests for the client-disconnect cleanup pattern in
-chat_service.stream_chat_completion (P0 #2 from docs/architecture/HARNESS-AUDIT-2026-05.md).
+chat_service.stream_chat_completion (P0 #2 from the 2026-05 internal harness audit).
 
 Run inside the retrieval container:
     docker exec munin-retrieval python /app/tests/test_disconnect_cleanup.py
