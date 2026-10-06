@@ -419,8 +419,9 @@ Work, in order:
 1. Clean VM per mode, following only INSTALL.md, ideally by someone outside
    the project. Covers the SINGLE-HOST-PLAN gaps: containerised ingest end to
    end, frontend compose on a fresh host, `seed` and `webui` profiles.
-2. Tag `v0.9.0`, GitHub release notes from CHANGELOG, Zenodo archive for a DOI
-   to cite in the paper. Flip the repo public.
+2. Tag `v0.9.0`, GitHub release notes from CHANGELOG. Flip the repo public.
+   The Zenodo archive and the first DOI come with `v1.0.0` (decided 2026-10-06),
+   through Zenodo's GitHub integration (no token in the repo).
 
 ### 4.7 Protecting the reference deployment
 
