@@ -315,7 +315,7 @@ Replaces Authentik (5 containers) with munin-auth (1 container).
 Auth flow: email whitelist → OTP via SMTP → 30-day session cookie.
 Contains: Caddy, munin-auth, tusd, hook-service, landing page."
 
-git remote add origin <former-frontend-repo>
+git remote add origin <the former frontend repository, since merged into this monorepo>
 git branch -M main
 git push -u origin main
 ```
@@ -366,7 +366,7 @@ docker compose down
 
 ```bash
 mv ~/munin ~/munin-old
-git clone <former-frontend-repo> ~/munin
+git clone <the former frontend repository, since merged into this monorepo> ~/munin
 
 # Create .env with your secrets
 cat > ~/munin/.env << 'EOF'

@@ -3,11 +3,11 @@
 Triggered by a chat export from a user (2026-08-20). The
 export itself was removed from the repo once this work landed: it is
 one user's conversation and it does not belong in a tree being prepared
-for public release. Everything it evidenced is quoted below. He asked
-whether four named papers were in the corpus and whether he could list
-his own uploads. Munin told him one paper could not be found
+for public release. Everything it evidenced is quoted below. They asked
+whether four named papers were in the corpus and whether they could list
+their own uploads. Munin told them one paper could not be found
 "in any scholarly database or on the web". That paper is in the corpus,
-inside the very group scope he had attached.
+inside the very group scope they had attached.
 
 Three independent defects sit behind that conversation. Only the first
 is a retrieval bug; the other two are missing capabilities that made
@@ -30,9 +30,9 @@ Measured against the live index, three full runs of
 | `paper_search(query=title, top_k=5)` | 12/18 runs, at rank 4-5 when present |
 | the same retrieval, re-sorted by score alone | rank 1 in 3 of 3 runs |
 | `paper_search(query=title, top_k=50)` | absent, then rank 36, then rank 11 |
-| `search(query=<his real phrasing>)` | 6/6, and chunk evidence 6/6 |
+| `search(query=<the user's real phrasing>)` | 6/6, and chunk evidence 6/6 |
 
-The other three titles he asked about are genuinely absent from the
+The other three titles they asked about are genuinely absent from the
 corpus, so those answers were correct.
 
 Two facts shape the fix. First, the failure is intermittent: the query
@@ -88,7 +88,7 @@ already demotes it downstream. Left alone deliberately.
 
 Severity: P1 for trust, and the reason defect 1 was unrecoverable.
 
-He asked twice for a list and got four apologies. That answer was
+They asked twice for a list and got four apologies. That answer was
 honest about the tools but wrong about the system: both capabilities
 exist server-side and are used by the web UI today.
 
@@ -96,7 +96,7 @@ exist server-side and are used by the web UI today.
   `document_store.list_documents` and returns every uploaded document.
 - `GET /api/tags/{kind}/{slug}/papers` (`main.py:1661`) is a paginated
   browse of a group corpus ordered by year, built for the Knowledge
-  page (`KnowledgePage.tsx:319`). His request "list the first 10
+  page (`KnowledgePage.tsx:319`). Their request "list the first 10
   documents in the Available knowledge / Deibel group" maps onto
   `/api/tags/group/deibel/papers?limit=10` exactly.
 
@@ -111,19 +111,19 @@ Severity: low, but it fed the confusion in this transcript.
 `build_active_tags_block` (`chat_service.py:1758-1762`) tells the model
 that tags scope "every paper_search / deep_research call". The model
 generalised that to uploaded documents and told the user its `#deibel`
-scope "should scope this automatically" while searching his personal
+scope "should scope this automatically" while searching their personal
 document store. It does not: `search_user_docs` filters on user email
 and project only. The FAQ also has no entry for the Knowledge page, so
-the model could only tell him vaguely to check the interface.
+the model could only tell them vaguely to check the interface.
 
-## Not a defect: his empty document store
+## Not a defect: the user's empty document store
 
 Checked for a silent indexing gap and did not find a systemic one.
 Every user directory holding text files has matching points in
 `user_docs`; the 15 directories with zero embeddings hold only pasted
 PNGs, which are correctly never embedded. Email casing is normalised at
 both `main.py:604` and `document_store.py:54`, and the index holds no
-casing anomalies. His four empty searches most likely reflect an
+casing anomalies. Their four empty searches most likely reflect an
 account with no text uploads.
 
 One residue did turn out to be a real bug, though it belongs to a

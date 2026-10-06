@@ -2,7 +2,7 @@
 
 Two tail tasks left after the SPECTER-v1 -> BGE-large cutover (which is LIVE;
 see `done/ENCODER-MIGRATION-PLAN.md` + `backend/benchmarks/RESULTS.md`). Both
-touch systemd / production Qdrant, so they are **varghele/root** (`vi` cannot
+touch systemd / production Qdrant, so they are **varghele/root** (the unprivileged development account cannot
 sudo or delete production collections). Status set 2026-07-07.
 
 Current state (verified 2026-07-07):

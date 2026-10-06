@@ -149,8 +149,8 @@ Once Zeitler is done and looks clean:
 sudo -E /usr/local/bin/backfill_contributed.py --all
 ```
 
-`--all` processes every non-admin mailbox sequentially. Admin
-`admin@example.org` is hard-coded in `ADMIN_SKIPLIST` and skipped.
+`--all` processes every mailbox sequentially, except the addresses in
+`BACKFILL_SKIP_EMAILS` (comma-separated, e.g. an admin's test uploads).
 
 Remaining files:
 - `contributor-a@example.org` — 1,819 PDFs (~3.0 GB)

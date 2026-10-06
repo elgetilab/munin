@@ -1,6 +1,6 @@
 # Upload-ingest repair plan (2026-08-18)
 
-Triggered by direct feedback from Contributor D that the PDFs he
+Triggered by direct feedback from Contributor D that the PDFs they
 uploaded to the knowledge base are damaged or wrong. The complaint is
 correct. This document records what was measured, the three
 independent defects behind it, the fixes, and the data-repair pass.
@@ -163,10 +163,10 @@ display field:
 That last step is exactly what a user sees: correct title, wrong PDF.
 
 117 of the 627 Elgeti records (18.7%) carry the flag; 61 of those
-currently serve a different paper's PDF. His batch was maximally
+currently serve a different paper's PDF. That batch was maximally
 exposed because the `filename_doi` authority path at
 `paper_pipeline.py:999-1006` only fires for `doi_*.pdf` filenames, and
-his files are publisher-named (`1-s2.0-S0092867415004997-main.pdf`).
+those files are publisher-named (`1-s2.0-S0092867415004997-main.pdf`).
 
 ### Fix
 
