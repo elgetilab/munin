@@ -27,9 +27,12 @@ preferred-citation:
     - given-names: Markus
       family-names: Fischer
       orcid: "https://orcid.org/0000-0002-7057-2309"
+      affiliation: "Institute for Drug Discovery, Leipzig University Medical School, Leipzig, Germany; Institute for Medical Physics and Biophysics, Leipzig University Medical School, Leipzig, Germany"
     - given-names: Jens
       family-names: Meiler
       orcid: "https://orcid.org/0000-0001-8945-193X"
+      affiliation: "Institute for Drug Discovery, Leipzig University Medical School, Leipzig, Germany; Center for Scalable Data Analytics and Artificial Intelligence (ScaDS.AI), Dresden/Leipzig, Germany; School of Embedded Composite Artificial Intelligence (SECAI), Cooperation of Leipzig University and TU Dresden, Dresden/Leipzig, Germany; Faculty of Mathematics and Informatics, Faculty of Chemistry, Leipzig University, Leipzig, Germany"
     - given-names: Matthias
       family-names: Elgeti
       orcid: "https://orcid.org/0000-0002-0550-4852"
+      affiliation: "Institute for Drug Discovery, Leipzig University Medical School, Leipzig, Germany; Institute for Medical Physics and Biophysics, Leipzig University Medical School, Leipzig, Germany; Integrative Center for Bioinformatics, Leipzig University, Leipzig, Germany"
