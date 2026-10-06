@@ -217,15 +217,15 @@ shadows from the frozen `removed_dois`.
 # 2. run_arm overwrites c2_runs/{present,absent}.verdicts.json in place: move the previous pair aside.
 mv c2_runs/present.verdicts.json c2_runs/present.verdicts.<olddate>.json   # and absent, and both .meta.json
 
-# 3. Shadow instance on :8081. docker-compose.shadow.yml extends the production
-#    retrieval service and overrides only PAPERS_COLLECTION and CHUNKS_COLLECTION.
-#    Run from the production project name with --no-deps so nothing else is touched;
-#    /opt/munin/docker/.env is root-only, so export the production container's env
-#    (docker inspect munin-retrieval) and pass an empty --env-file.
-docker compose -p munin --project-directory backend/docker --env-file /dev/null --profile rag \
-  -f backend/docker/docker-compose.yml -f backend/docker/docker-compose.shadow.yml \
-  up -d --no-deps --no-build retrieval-shadow
-#    Probe: a removed paper's title on /search/hybrid must be FOUND on :8080 and absent on :8081.
+# 3. A shadow retrieval instance beside production, reading the shadow
+#    collections (PAPERS_COLLECTION / CHUNKS_COLLECTION overridden, nothing else)
+#    and sharing the eval instance's vLLM. scripts/run_suite.sh does this step
+#    for you; by hand:
+sudo backend/deploy.sh instance up <slug> --name eval-shadow --vllm <eval-instance> \
+  --api-port 8081 --corpus shadow
+sudo backend/deploy.sh instance gates eval-shadow      # verifies the collection names
+#    Probe: a removed paper's title on /search/hybrid must be FOUND on the eval
+#    instance and absent on :8081.
 
 # 4. Both arms at egress=off (the runner defaults to off; say it anyway).
 MUNIN_EVAL_EGRESS=off PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 \
@@ -234,7 +234,7 @@ MUNIN_EVAL_EGRESS=off PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_be
   --arm absent  --base-url http://127.0.0.1:8081 --email <eval-account> --concurrency 1 --date <D> \
   --vs-suffix <olddate>   # writes the paired scorecard with the question-paired delta vs the previous pair
 
-# 5. Teardown: docker stop munin-retrieval-shadow && docker rm munin-retrieval-shadow;
+# 5. Teardown: sudo backend/deploy.sh instance down eval-shadow;
 #    snapshot papers_shadow (kept, ~0.5 GB); delete papers_shadow and papers_chunks_shadow.
 ```
 
@@ -271,7 +271,10 @@ statistics came from different passes.
 ### Track C: risk-coverage
 
 ```bash
-PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.risk_coverage
+# Always pass --date and --tag: the defaults (2026-07-27, untagged runs) point at
+# a committed scorecard, which a bare run would overwrite.
+PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.risk_coverage \
+  --date <D> --tag <run-tag> [--c2-dir c2_runs/<run-tag>/] [--c1-scorecard scorecards/<c1-file>.json]
 ```
 
 Derives operating points from already-captured verdicts. No new inference. Emits
@@ -416,7 +419,7 @@ What a third party can and cannot reproduce, stated honestly:
 | Reproducible | How |
 |---|---|
 | All metric and statistics code | Pure-function unit tests, no infrastructure |
-| BEIR / SciFact and LitSearch results | Public corpora and qrels; download scripts with checksums |
+| BEIR / SciFact and LitSearch results | Public corpora and qrels: BEIR loads through `ir_datasets`, LitSearch from `hf://datasets/princeton-nlp/LitSearch` (not revision-pinned; a later upstream edit would change it) |
 | The abstention benchmark items | The fabricated set is generated from the corpus and its ground-truth JSON is committed, because it is small and it *is* the benchmark |
 | Every reported aggregate and paired test | Scorecards carry per-query arrays |
 
@@ -426,5 +429,5 @@ What a third party can and cannot reproduce, stated honestly:
 | The shadow-corpus experiment | Requires the private corpus and a second retrieval instance |
 | Exact wall-clock costs | Hardware-specific (2x RTX 5090 at TP=2, `--max-num-seqs 8`; the Qwen3.6 figures are on one card at `--max-num-seqs 2`) |
 | The Qwen3.6 column of any table, without the eval-instance method | The checkpoint is retired from production but not gone: `scripts/run_suite.sh qwen3.6-35b-a3b` brought it back as an eval-only instance on 2026-09-17 and re-ran every track under the current protocol (`2026-09-17_*qwen3.6-35b-a3b*`). The 07-27 numbers remain reproducible from artifacts only; quote the 09-17 files for a like-for-like figure. |
-| Benchmark data files | Never committed, for size and licence reasons; each dataset has a download script with a checksum so `data/` rebuilds deterministically |
+| Benchmark data files | Never committed, for size and licence reasons; the loaders above fetch them. That includes the frozen LitQA2 query variants behind claim 4 (`data/litqa2/litqa2_variants.json`): they are keyed by question text, so they are not redistributed, and a clone without them regenerates them with the current model, which need not reproduce Recall@10 0.73 exactly |
 | LitQA2 items and model answers | Not redistributed. LitQA2 (LAB-Bench, CC BY-SA 4.0) is loaded from Hugging Face at the pinned revision `5c77cec6`; the answer scorecards keep each item's qid, verdict, letter and length but not the answer text, which quoted the source papers |

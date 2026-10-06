@@ -437,7 +437,7 @@ short version:
 ```bash
 cd backend/benchmarks
 export PYTHONPATH=$HOME/.cache/munin_bench_deps:.
-export NEO4J_PASSWORD=...                      # from /opt/hugin/config/cluster.env
+export NEO4J_PASSWORD=...                      # from the cluster env file
 PY=/opt/munin/services/pipeline/venv/bin/python
 
 $PY -m pytest tests/                           # unit gates

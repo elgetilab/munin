@@ -1,4 +1,4 @@
-# Munin eval suite — results log
+# Munin eval suite - results log
 
 Consolidated, committed record of every eval-suite run so far. The raw
 per-query artifacts live under `results/` (gitignored, regenerable); this file
@@ -17,10 +17,9 @@ is the durable summary.
 > Paths written as `ablation_runs/<arm>.json` in sections dated before that
 > mean `ablation_runs/qwen38-27b/<arm>.json` today. The Qwen3.8 set is archived
 > off-machine as `munin-bench-artifacts-2026-09-15-qwen38-complete.tar.gz`
-> (sha256 `3aa5d909…bfbc`, 36 files, verified on arrival). The 2026-07-27 clean run is archived **off-machine** at
-> `varghele@<vps>:~/backups/munin-bench-artifacts/` (5.3 MB tar.gz + sha256 +
-> manifest, verified on arrival 2026-08-25), with a working copy at
-> `~/munin-bench-artifacts-2026-08-25-pre-qwen38/` on hugin. Take a fresh
+> (sha256 `3aa5d909…bfbc`, 36 files, verified on arrival). The 2026-07-27 clean run is archived **off-machine**
+> in the operator's backup (5.3 MB tar.gz + sha256 + manifest, verified on
+> arrival 2026-08-25), with a working copy on the cluster. Take a fresh
 > off-machine copy before any re-run that writes these directories. Numbers are copied from the result JSONs, not memory.
 
 **Provenance shared by all runs below**
@@ -73,7 +72,7 @@ is the durable summary.
 
 ---
 
-## Phase 3 — BEIR / SciFact (external validity)  · git `eb1cf73` · 2026-06-29
+## Phase 3 - BEIR / SciFact (external validity)  · git `eb1cf73` · 2026-06-29
 
 300 queries, 5183 docs. nDCG@10 [95% CI]:
 
@@ -92,7 +91,7 @@ Phase 3.
 
 ---
 
-## Phase 5 — LitQA2 retrieval  · git `360367d` · 2026-07-01
+## Phase 5 - LitQA2 retrieval  · git `360367d` · 2026-07-01
 
 199/199 questions in-corpus, retrieve depth 20. Does the retriever surface the
 source paper?
@@ -105,7 +104,7 @@ source paper?
 | MRR | 0.277 [0.23, 0.33] | 0.308 [0.25, 0.37] | 0.001 |
 
 Findings: (1) multi-query fan-out does **not** beat single-query dense
-(Recall@10 p=0.71); (2) citation-rerank **collapses to ~0** — a cold-start
+(Recall@10 p=0.71); (2) citation-rerank **collapses to ~0** - a cold-start
 effect: the LitQA2 sources were backfilled with 0 citations, so re-ranking
 demotes them below older cited papers (a source ranked #1 by dense falls out of
 top-20). Partly a backfill artifact (no CITES edges); not representative of
@@ -120,7 +119,7 @@ established papers.
 
 ---
 
-## Phase 5 — LitQA2 answer (end-to-end, research profile)  · git `42b027b` · 2026-07-01
+## Phase 5 - LitQA2 answer (end-to-end, research profile)  · git `42b027b` · 2026-07-01
 
 199 questions through the full agentic chat pipeline. 85 correct / 19 incorrect
 / 74 abstain / 21 unparseable.
@@ -129,7 +128,7 @@ established papers.
 |---|---|---|
 | Accuracy | 0.427 [0.36, 0.50] | 0.660 |
 | Precision (of attempted) | **0.817** [0.74, 0.89] | 0.852 |
-| Abstention rate | 0.372 | — |
+| Abstention rate | 0.372 | - |
 
 **PaperQA2 baseline** (accuracy 0.660, precision 0.852, n=248): verified against
 the primary source; full provenance and the human-expert comparison are in the
@@ -151,26 +150,26 @@ unparseable needs a re-run.
    better retrieval, which lifts retrieval AND answers together.
 2. **SPECTER-v1 is weak + used out-of-distribution** (embeds short questions,
    not title+abstract). A retrieval-tuned encoder (SPECTER2 / SciNCL / E5 / BGE)
-   is the highest-confidence recall win. Untested — an encoder bake-off on
+   is the highest-confidence recall win. Untested - an encoder bake-off on
    `eval_*` collections would quantify it without a production re-embed.
 3. **`title\n\nabstract` vs `[SEP]` costs ~1.5 nDCG@10** on SciFact (0.479 vs
    0.494). Production embedding could switch to the tokenizer `[SEP]` token
    (needs a corpus re-embed). See memory `project_specter_sep_finding`.
 4. **The agentic fan-out did not rescue recall** here (answer acc ≈ single-pass
-   recall) — but that's a hint, not a measurement. The harness's marginal value
-   is Track D (bare vs vanilla-RAG vs agentic) — since built, and it confirmed
+   recall) - but that's a hint, not a measurement. The harness's marginal value
+   is Track D (bare vs vanilla-RAG vs agentic) - since built, and it confirmed
    the hint emphatically: +0.538 harness value on the finished architecture.
 
 ---
 
-## Encoder bake-off — BEIR SciFact  · git `5f9ef15` · 2026-07-02
+## Encoder bake-off - BEIR SciFact  · git `5f9ef15` · 2026-07-02
 
 In-memory, apples-to-apples (same `title\n\nabstract` docs, cosine, our
 metrics). Answers "would a better encoder help recall?" **Yes, dramatically.**
 
 | Encoder | nDCG@10 | Recall@10 | Recall@100 | MRR | Δ nDCG@10 vs SPECTER (p) |
 |---|---|---|---|---|---|
-| SPECTER-v1 (current) | 0.479 | 0.637 | 0.840 | 0.441 | — |
+| SPECTER-v1 (current) | 0.479 | 0.637 | 0.840 | 0.441 | - |
 | SciNCL | 0.564 | 0.723 | 0.908 | 0.530 | +0.085 (~0) |
 | E5-large-v2 | 0.722 | 0.844 | 0.963 | 0.692 | +0.243 (~0) |
 | **BGE-large-en-v1.5** | **0.746** | **0.873** | 0.948 | 0.716 | **+0.268 (~0)** |
@@ -182,7 +181,7 @@ holds, magnitude TBD); BGE/E5 are 1024-d (SPECTER 768-d) so deploying means a
 Qdrant collection recreate + full 68k re-embed. Highest-ROI change found:
 lifts retrieval AND (via the recall bound) answer accuracy together.
 
-## Encoder bake-off — LitQA2 pool (Munin corpus)  · git `2955824` · 2026-07-02
+## Encoder bake-off - LitQA2 pool (Munin corpus)  · git `2955824` · 2026-07-02
 
 Confirmation on Munin's OWN data: rank each LitQA2 source paper among a shared
 pool of 190 real source papers + 5000 random corpus papers (same pool for every
@@ -201,7 +200,7 @@ is inflated by the 5190-doc pool (SPECTER's full-corpus LitQA2 Recall@10 was
 0.44); the relative comparison is valid.
 
 **Conclusion:** deploying BGE-large (or E5-large) as the paper encoder is
-strongly evidence-backed — it substantially lifts retrieval on our corpus and,
+strongly evidence-backed - it substantially lifts retrieval on our corpus and,
 via the recall bound, should pull LitQA2 answer accuracy up. Cost: recreate the
 Qdrant `papers` collection at 1024-d + re-embed 68k papers + update query
 embedding in `paper_search`. That is the recommended production change; full-
@@ -263,7 +262,7 @@ recall -> ~0.73" projection was wrong. Scorecards:
 
 ---
 
-## LitQA2 answer — post agent-architecture  · git `9f0c02a` · 2026-07-24
+## LitQA2 answer - post agent-architecture  · git `9f0c02a` · 2026-07-24
 
 The single biggest answer-accuracy move in the suite, and it is NOT an encoder
 or retrieval change. Between 2026-07-06 and 2026-07-24 the flat MCP tool loop was
@@ -289,7 +288,7 @@ The CIs are disjoint (baseline tops out at 0.563). **This clears the 0.82
 architectural ceiling (0.864).**
 
 Published LitQA2 baselines, VERIFIED 2026-07-25 against the primary source
-(Skarlinski et al. 2024, arXiv:2409.13740v2 — accuracy = correct / all asked,
+(Skarlinski et al. 2024, arXiv:2409.13740v2 - accuracy = correct / all asked,
 precision = correct / answered, identical to our definitions):
 
 | system | accuracy | precision |
@@ -329,12 +328,12 @@ dominant bottleneck and the model's ~40% abstention was a hard floor. That floor
 was NOT the model - it was `read_paper` discarding the text that held the answer.
 Giving the model the full text (source-qa) collapsed over-abstention from ~42% to
 6% and roughly doubled accuracy. Retrieval quality still bounds BREADTH (how many
-distinct sources a Deep Research report can cite - see `docs/paper-track/TODO.md`), but on
+distinct sources a Deep Research report can cite - see `docs/agent-track/TODO.md`), but on
 single-source MCQ answering the reading path, not retrieval, was the ceiling.
 
 ---
 
-## Track B — answer faithfulness (local MiniCheck)  · git `73ab062` · 2026-07-08
+## Track B - answer faithfulness (local MiniCheck)  · git `73ab062` · 2026-07-08
 
 Local, privacy-preserving faithfulness judge: **MiniCheck-Flan-T5-Large** (<1B)
 scores each answer sentence's support against the retrieved contexts (replicates
@@ -350,7 +349,7 @@ the authors' exact inference; no data leaves the premises).
 Gate (QA-AUROC ≥ 0.70) passed → Flan-T5-Large sufficient, no 7B escalation.
 Scorecard `2026-07-08_faithfulness-judge-ragtruth`.
 
-**Interim single-arm faithfulness (B3/B4)** — live agentic arm, 40 LitQA2
+**Interim single-arm faithfulness (B3/B4)** - live agentic arm, 40 LitQA2
 questions:
 
 | metric | value (95% CI) |
@@ -360,12 +359,12 @@ questions:
 | per-answer grounding | 14.6 real claims, 82.5 contexts / answer |
 
 (claim-extraction refined 2026-07-09: dropping process-narration/questions/
-headers moved the number 0.378 -> 0.356, CIs overlap heavily — the grounding gap
+headers moved the number 0.378 -> 0.356, CIs overlap heavily - the grounding gap
 is ROBUST to claim extraction, not a narration artifact. `2026-07-09` scorecard
 supersedes `2026-07-08` as the dashboard baseline.)
 
 **What the number is and is not.** (1) One arm; faithfulness is most meaningful as
-the Track D **paired** comparison (bare/RAG/agentic — the scorer + per-arm capture
+the Track D **paired** comparison (bare/RAG/agentic - the scorer + per-arm capture
 files are built for it). (2) Claim extraction (2026-07-09) replaced raw
 sentence-split; the number barely moved (0.378 -> 0.356), so the gap is ROBUST,
 not a narration artifact. (3) The context union is generous (all retrieval
@@ -382,7 +381,7 @@ synthesis + MiniCheck literalness (a claim entailed by two passages jointly scor
 
 ---
 
-## Harness iteration — over-tooling & grounding  · 2026-07-09
+## Harness iteration - over-tooling & grounding  · 2026-07-09
 
 Three deploy-measured experiments to improve the agentic harness, each gated on
 the routing anchor eval (>= 0.950) + the Track B arm. A disciplined arc: two null/
@@ -390,14 +389,14 @@ negative results and one win.
 
 | lever | type | result |
 |---|---|---|
-| research fragment: deep -> **medium** default | prompt | **backfired** — paired over-tooling median 10.5 -> 20.5 calls (thinner baseline induces more compensatory search). Reverted. |
+| research fragment: deep -> **medium** default | prompt | **backfired** - paired over-tooling median 10.5 -> 20.5 calls (thinner baseline induces more compensatory search). Reverted. |
 | "<=3-4 follow-ups" wording | prompt | did not bite (over-tooling flat). Kept (harmless). |
 | **T1a** paper_search abstract excerpts | code | **null** for grounding (0.356 -> 0.303, CIs overlap) and over-tooling. So the grounding gap is NOT evidence-availability. |
-| **over-tooling code cap** (`CHAT_MAX_TOOL_CALLS=30`) | code | **works** — tool_calls/answer max 43 -> 31, p90 40 -> 30, >30 tail 9/40 -> 2/40; grounding held (0.331), 0 failures. |
+| **over-tooling code cap** (`CHAT_MAX_TOOL_CALLS=30`) | code | **works** - tool_calls/answer max 43 -> 31, p90 40 -> 30, >30 tail 9/40 -> 2/40; grounding held (0.331), 0 failures. |
 
 Lessons (evidence-backed): over-tooling is not fixable by prompt (needs the code
-cap — shipped, routes into the existing wrap-up synthesis); grounding is not an
-evidence-availability problem (T1a null) — it is model synthesis + judge
+cap - shipped, routes into the existing wrap-up synthesis); grounding is not an
+evidence-availability problem (T1a null) - it is model synthesis + judge
 literalness (Track C1). Post-deploy routing anchor **0.963** (no regression; one
 `known_doi_read` S2-branch side-effect from a T3 description, fixed). That
 number is the tool-trajectory pass rate over 16 anchors x 5 reps, not a
@@ -408,20 +407,20 @@ that stood at 0.70 in the same run, and the most recent anchor run
 Scorecards: `2026-07-09_faithfulness-agentic-live-{t1a,cap}`,
 `2026-07-09_t2-postdeploy`, `2026-07-10_postcap-t3`.
 
-## T8 — LitSearch retrieval benchmark  · 2026-07-28
+## T8 - LitSearch retrieval benchmark  · 2026-07-28
 
 LitSearch (Ajith et al. 2024, arXiv 2407.18940): **597 real natural-language
 literature-search queries** over a **64,183-paper** S2ORC corpus. The closest
-public benchmark to Munin's actual usage — finding papers from a question,
+public benchmark to Munin's actual usage - finding papers from a question,
 rather than BEIR/SciFact's claim-verification framing. Encoder is
 **BGE-large-en-v1.5, the production encoder** (the 2026-06/07 BEIR tables above
-used SPECTER-v1 — do not compare across them). Binary relevance, mean 1.07
+used SPECTER-v1 - do not compare across them). Binary relevance, mean 1.07
 relevant papers per query. Isolated `eval_litsearch` collection.
 
 | retriever | nDCG@10 [95% CI] | R@10 | R@100 | MRR | Δ nDCG@10 vs dense (p) |
 |---|---|---|---|---|---|
 | BM25 | 0.378 [0.345, 0.413] | 0.511 | 0.699 | 0.349 | −0.107 [−0.137, −0.077] (0.0000) |
-| **BGE-dense (production)** | **0.485 [0.453, 0.516]** | **0.637** | 0.829 | 0.451 | — |
+| **BGE-dense (production)** | **0.485 [0.453, 0.516]** | **0.637** | 0.829 | 0.451 | - |
 | citation-rerank 0.7/0.3 (**fixed**) | 0.469 [0.437, 0.503] | 0.609 | 0.829 | 0.442 | −0.016 [−0.030, −0.003] (0.014) |
 | citation-rerank 0.7/0.3 (*pre-fix*) | *0.117 [0.097, 0.138]* | *0.195* | *0.829* | *0.116* | *−0.368 [−0.405, −0.331] (0.0000)* |
 | RRF[BM25, BGE] | 0.490 [0.455, 0.526] | 0.628 | **0.830** | 0.462 | +0.005 [−0.019, +0.030] (0.72, n.s.) |
@@ -429,11 +428,11 @@ relevant papers per query. Isolated `eval_litsearch` collection.
 **Findings:**
 1. **Dense beats BM25 decisively** (+0.107 nDCG@10, p≈0) on realistic
    paper-finding queries. This is the mirror image of the SPECTER-era BEIR
-   result, where BM25 beat the dense retriever — the encoder migration flipped
+   result, where BM25 beat the dense retriever - the encoder migration flipped
    it. RRF adds nothing over dense alone here (n.s.).
 2. **Citation-rerank is catastrophic: −0.368 nDCG@10, a 76% relative drop.**
    It changed the top-10 on **597 / 597** queries, so it is genuinely
-   exercised, not inert. R@100 is *identical* to dense (0.829) — confirming it
+   exercised, not inert. R@100 is *identical* to dense (0.829) - confirming it
    only reorders the fetched pool, and that all the damage is in the ordering.
 
 ### Why citation-rerank fails: a score-scale mismatch (production bug)
@@ -460,7 +459,7 @@ relevance as a tiebreak.
 `main.py` (the retriever module mirrors it verbatim by design), i.e. the search
 page.
 
-### FIXED 2026-07-28 — min-max normalise the vector score within the pool
+### FIXED 2026-07-28 - min-max normalise the vector score within the pool
 
 `main.py::hybrid_search` and `munin_bench/retrievers/citation_rerank.py` now
 min-max normalise the vector score across the fetched pool before mixing, so
@@ -477,7 +476,7 @@ Re-ran LitSearch on the same collection, so this is a clean A/B:
 | **after** | **0.469** | **0.609** | **0.442** | **−0.016 [−0.030, −0.003] p=0.014** |
 
 **+0.352 nDCG@10, recovering 96% of the gap to dense.** BM25, BGE-dense and RRF
-are bit-identical across the two runs — a control confirming the change touched
+are bit-identical across the two runs - a control confirming the change touched
 only the re-ranker.
 
 **Read the residual honestly.** Citation-rerank is now *statistically* still a
@@ -485,21 +484,21 @@ hair below dense (−0.016, p=0.014) though practically at parity. So the fix
 **removes active harm; it does not turn citations into a win on this
 benchmark.** That is the expected result here rather than a disappointment:
 LitSearch is near-single-target retrieval (mean 1.07 relevant papers/query), so
-a popularity prior has almost nothing to contribute — the best it can do is not
+a popularity prior has almost nothing to contribute - the best it can do is not
 get in the way. Whether the citation signal *helps* on broader,
 survey-style queries is a separate question this benchmark cannot answer, and
 Munin's own local pool (Phase 4) is the place to ask it.
 
 Regression test: `tests/test_citation_rerank.py::test_production_weights_are_
 relevance_first_regression` pins the fixture ranking that inverted under the
-bug. **Note those tests previously asserted the UNNORMALISED formula** — the
+bug. **Note those tests previously asserted the UNNORMALISED formula** - the
 suite was encoding the defect, so it failed on the fix and had to be rewritten
 against hand-derived expectations.
 
 **It also revises an earlier conclusion.** Phase 5 (LitQA2) saw citation-rerank
 collapse to ~0 and attributed it to cold-start (backfilled sources with 0
 citations). Cold-start was real but not the whole story: here the graph is
-**dense — 344,703 in-corpus edges over 35,978 papers, max in-degree 4,964** —
+**dense - 344,703 in-corpus edges over 35,978 papers, max in-degree 4,964** -
 and it collapses anyway. The scale mismatch is present regardless of graph
 density, and would not have been visible on BEIR at all, where the graph is
 empty and citation-rerank degenerates harmlessly to dense-only.
@@ -511,11 +510,11 @@ Scorecards: `2026-07-28_litsearch.json` (post-fix, canonical) and `2026-07-28_li
 
 ---
 
-## Track C1 — corpus-grounded abstention (fabricated papers)  · 2026-07-10
+## Track C1 - corpus-grounded abstention (fabricated papers)  · 2026-07-10
 
 "Munin knows when the corpus does not contain the answer" (RQ-M1, corpus-absence
 half). The private-corpus abstention regime no public benchmark covers. Set: 100
-frozen fabricated items — 80 Crossref-verified-nonexistent DOIs + 20 nonexistent-
+frozen fabricated items - 80 Crossref-verified-nonexistent DOIs + 20 nonexistent-
 paper-by-description, in the group's fields; zero collide with the 67,675-DOI
 corpus, so any local citation of them is a confabulation.
 
@@ -531,7 +530,7 @@ and settles the Track B question: the un-grounded content is not fabrication.
 NOTE: this is the corpus-ABSENT extreme; OVER-abstention is Track C2 below.
 Scorecard `2026-07-10_abstention-c1-fabricated`.
 
-**RE-RUN 2026-07-27 on the current harness — result HOLDS.** Same 100 frozen
+**RE-RUN 2026-07-27 on the current harness - result HOLDS.** Same 100 frozen
 items, post agent-architecture, `egress=full`:
 
 | metric | 07-10 | 07-27 |
@@ -543,15 +542,15 @@ items, post agent-architecture, `egress=full`:
 A one-item difference, well inside overlapping CIs. This is the informative
 null: abstention on fabricated papers survived the rewrite **unchanged**, even
 though the same rewrite moved over-abstention on answerable questions
-substantially (Track C2 below). The two behaviours are independent — the
+substantially (Track C2 below). The two behaviours are independent - the
 harness became less trigger-happy about refusing real questions without
 becoming credulous about fake ones. `egress=full` makes this the *harder*
 condition: the model may search the entire live web and must still conclude the
 paper does not exist. Scorecard `2026-07-27_abstention-c1-fabricated`.
 
-## Track C2b — paired shadow-corpus abstention  · 2026-07-10
+## Track C2b - paired shadow-corpus abstention  · 2026-07-10
 
-The complementary paired test: 50 single-source-DOI LitQA2 questions asked twice —
+The complementary paired test: 50 single-source-DOI LitQA2 questions asked twice -
 against the live corpus (`papers_bge`, :8080, source PRESENT) and an isolated
 second retrieval instance on a shadow collection (`papers_shadow` = papers_bge
 minus the 49 sources, :8081, source ABSENT). Shadow verified (removed papers 8/12
@@ -565,7 +564,7 @@ in live top-20, **0/12 in shadow**).
 On the 20 answerable questions (present-correct), removing the source gave: **4
 correct-abstention, 12 still-correct, 4 wrong.**
 
-**Key finding — a confound that is itself informative.** Removing the local source
+**Key finding - a confound that is itself informative.** Removing the local source
 rarely triggers abstention because LitQA2 questions are answerable WITHOUT it (the
 paper is likely in Qwen's training; the model also web/S2-searches). So the paired
 answer-flip is NOT a clean corpus-grounded-abstention measure - `correct_abstention`
@@ -592,7 +591,7 @@ so this is a like-for-like comparison across harness generations.
 |---|---|---|---|---|
 | accuracy | 0.400 | 0.340 | **0.540** | **0.080** |
 | abstain rate | 0.480 | 0.500 | **0.400** | **0.740** |
-| unparseable | 3 | — | **0** | **0** |
+| unparseable | 3 | - | **0** | **0** |
 | accuracy drop on source removal | \-0.060 | | **\-0.460** | |
 
 On the answerable subset (questions the present arm got right), when the source
@@ -600,7 +599,7 @@ is removed from the corpus:
 
 | | 07-10 (n=20) | 07-27 (n=27) |
 |---|---|---|
-| **correct abstention** (desired) | 4 — **0.20** [0.05, 0.35] | 18 — **0.67** [0.48, 0.85] |
+| **correct abstention** (desired) | 4 - **0.20** [0.05, 0.35] | 18 - **0.67** [0.48, 0.85] |
 | answered still correct (from memory/web) | 12 | 4 |
 | answered now wrong (over-confident) | 4 | 5 |
 
@@ -620,7 +619,7 @@ inside that resample):
 
 A third interval is stored, an *unconditional* bootstrap that also resamples
 WHICH questions are answerable: [0.481, 0.833]. It is marginally NARROWER than
-the conditional one, not wider — the rate is a ratio estimator, so numerator
+the conditional one, not wider - the rate is a ratio estimator, so numerator
 and denominator co-vary and the membership variance largely cancels. It is a
 robustness check that conditioning on the observed subset is not flattering the
 interval, not a more conservative bound.
@@ -641,10 +640,10 @@ corpus-grounded, not reciting.
 removal, so this is strong calibration, not perfect. (2) n=27 on the answerable
 subset is small, so the interval is wide (±0.18); ~~the 0.67 needs a CI before
 it is quoted~~ **DONE 2026-08-04**, see above. (3) C1 is no longer
-the *only* clean abstention signal, but it remains the cleanest — C2 depends on
+the *only* clean abstention signal, but it remains the cleanest - C2 depends on
 the shadow-corpus construction, C1 does not.
 
-**EGRESS IS A FIRST-CLASS VARIABLE HERE — do not compare across it.** A parallel
+**EGRESS IS A FIRST-CLASS VARIABLE HERE - do not compare across it.** A parallel
 `egress=full` pair was captured the same day (scorecards
 `2026-07-27_abstention-c2-shadow-egressfull`, captures `c2_runs/*.egressfull.*`):
 present 0.820 / absent 0.740, i.e. removing the local source costs almost
@@ -665,7 +664,7 @@ claim that quotes 0.82 must say the web was open.
 
 Scorecard `2026-07-27_abstention-c2-shadow`.
 
-## Track D — harness ablation (bare / RAG / agentic)  · PILOT · 2026-07-13
+## Track D - harness ablation (bare / RAG / agentic)  · PILOT · 2026-07-13
 
 > **SUPERSEDED as the headline by the 2026-07-27 clean run below.** This n=100
 > pilot was the first of several iterations and predates the agent-architecture
@@ -708,7 +707,7 @@ Scorecard `2026-07-13_harness-ablation.{json,md}`.
 
 ---
 
-## Track D — harness ablation, CLEAN RUN (headline)  · git `9c476b8` · 2026-07-27
+## Track D - harness ablation, CLEAN RUN (headline)  · git `9c476b8` · 2026-07-27
 
 The definitive Track D result, on the finished agent architecture, per the
 master plan's rule that C and D characterise a *frozen* harness. 199 paired
@@ -773,7 +772,7 @@ meaningful effect. It replicates the 07-13 pilot's finding 3 (RAG 0.324,
 agentic ~0.33) almost exactly on full n, across two independent runs.
 
 **What this means for the claim.** The harness buys **correctness, abstention
-and calibration — not literal grounding.** That boundary should be stated
+and calibration - not literal grounding.** That boundary should be stated
 plainly in the paper rather than buried; it is also consistent with Track C,
 where the system reliably knows when it lacks a source (correct abstention
 0.67) without its answered claims being more textually entailed by retrieved
@@ -794,7 +793,7 @@ values for both arms, so the paired test is reproducible without re-scoring).
 
 ---
 
-## Track C — risk-coverage operating points  · 2026-07-27
+## Track C - risk-coverage operating points  · 2026-07-27
 
 Derived from already-captured verdicts, no new inference. `coverage` = fraction
 answered; `selective_risk` = error rate among answered. 95% CIs are item-level
@@ -819,7 +818,7 @@ coverage is the good outcome: c1-fabricated at 0.030 and c2-absent at 0.260.
 > **READ THE `egress` COLUMN BEFORE PLOTTING.** These six points do not share
 > one experimental condition, and `risk_coverage.py` now refuses to bless them:
 > it emits `mixed_generations` / `mixed_egress` in the scorecard's `provenance`
-> block. Each *claim* is internally valid — the ablation trio (harness value),
+> block. Each *claim* is internally valid - the ablation trio (harness value),
 > the C2 pair (both `egress=off`, corpus-grounded abstention), and C1 standalone
 > (`egress=full`, the harder condition). What is invalid is reading across them
 > on one set of axes. Facet the figure by claim, or annotate egress per point.
@@ -837,13 +836,13 @@ coverage is the good outcome: c1-fabricated at 0.030 and c2-absent at 0.260.
 **Limitation (unchanged):** these are operating points, not a within-run swept
 curve. The chat emits a hard abstain decision with no per-item confidence, so
 one run yields one point. A true swept curve needs the answer-letter logprob
-captured per item — a one-line addition to the next capture, not a re-run.
+captured per item - a one-line addition to the next capture, not a re-run.
 
 Scorecard `2026-07-27_risk-coverage.{json,md}`.
 
 ---
 
-## T11 — tool-use reliability  · 2026-07-27
+## T11 - tool-use reliability  · 2026-07-27
 
 Telemetry over the agentic arm of the same 199-question clean run. `degraded` =
 the call returned but with unusable or empty payload; `recovery_rate` = fraction
@@ -1821,7 +1820,7 @@ of the claims traceable to a passage the model read. The RAG arms agree
 ```bash
 cd backend/benchmarks
 export PYTHONPATH=$HOME/.cache/munin_bench_deps:.   # SPECTER stack + rank_bm25/ir_datasets/pyarrow
-export NEO4J_PASSWORD=...                           # from the cluster .env
+export NEO4J_PASSWORD=...                           # from the cluster env file
 PY=/opt/munin/services/pipeline/venv/bin/python
 
 $PY -m pytest tests/                                              # Phase 1-2 unit gates
@@ -1831,26 +1830,15 @@ MUNIN_EVAL_EGRESS=full $PY -m munin_bench.pipelines.run_litqa2 --track answer --
 MUNIN_BENCH_SPECTER_DEVICE=cpu $PY -m munin_bench.pipelines.run_bakeoff --subset scifact
 ```
 
-Not yet run (as of 2026-07-27): BEIR nfcorpus/scidocs/trec-covid; **Phase 4
-local pool** (deferred, blocked on human query curation + two-annotator qrels,
-not compute) and the two P0 items that depend on it (T3 stratum 2, T7); Track F
-throughout. Track B: judge validated, and the **per-arm paired faithfulness is now DONE**
-(2026-07-27, RAG vs agentic, delta n.s.) — see the ablation section. **Track C
-re-run DONE 2026-07-27**: C1 held (0.970 abstain, 0 confabulated local cites),
-C2 correct-abstention 0.20 -> 0.67 at matched `egress=off`. **Model swap
-2026-08-26**: Tracks D, B-per-arm and T11 re-run on Qwen3.8-27B and current;
-standalone LitQA2 answer track re-run on Qwen3.8 2026-09-14 (0.884, agrees
-with the ablation arm within noise); **C1 re-run on Qwen3.8 2026-09-14
-(100/100 abstain, 0 confabulated local cites)**; **C2b re-run on Qwen3.8
-2026-09-15 (correct abstention 0.889, absent-arm accuracy 0.04) and
-risk-coverage re-derived**, so every headline is now on the production
-backbone; **Qwen3.6 full suite re-run 2026-09-17/18** on an eval
-instance under the current protocol (every track, incl. complete-context
-faithfulness 0.627 and an `egress=off` arm), so the retired backbone is no
-longer frozen at its July numbers;
-Track A is model-independent and current; **Track C is still on the retired
-Qwen3.6** and needs the `papers_shadow` collection rebuilt plus the :8081
-instance to re-run C2b. Status table: `README.md`.
+Status as of 2026-10: every headline track has been run on the production
+backbone (Qwen3.8-27B) and on two more backbones under one protocol: Qwen3.6
+on an eval-only instance (2026-09-17/18) and gpt-oss-20b (2026-09-16). That
+covers Tracks D, B (per-arm faithfulness, including the complete-context
+recapture), C1, C2b with risk-coverage, the standalone LitQA2 answer track and
+T11; Track A is model-independent. Not run: BEIR nfcorpus/scidocs/trec-covid,
+the Phase 4 local pool (deferred: blocked on human query curation and
+two-annotator qrels, not compute) and the two items that depend on it (T3
+stratum 2, T7), and Track F. Status table: `README.md`.
 
 ```bash
 # Track B faithfulness (judge validation + one live arm)
@@ -1876,18 +1864,18 @@ MUNIN_EVAL_EGRESS=full PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_b
 #   2. Resolve removed_dois to papers_bge point ids / paper_ids; delete those ids from papers_shadow and
 #      delete-by-filter (paper_id OR doi) from papers_chunks_shadow; verify both counts are 0.
 #   3. mv c2_runs/{present,absent}.verdicts.json -> *.verdicts.<olddate>.json (run_arm overwrites in place).
-#   4. Shadow instance (extends production, overrides only the two collections), from the production project:
-#      docker compose -p munin --project-directory backend/docker --env-file <empty> --profile rag \
-#        -f backend/docker/docker-compose.yml -f backend/docker/docker-compose.shadow.yml up -d --no-deps retrieval-shadow
-#      (needs the production env exported; /opt/munin/docker/.env is root-only). Probe a removed paper on :8080 vs :8081.
+#   4. Shadow instance (overrides only the two collections, shares the eval instance's vLLM);
+#      scripts/run_suite.sh does this step. By hand:
+#        sudo ../deploy.sh instance up <slug> --name eval-shadow --vllm <eval-instance> --api-port 8081 --corpus shadow
+#      Probe a removed paper on the eval instance vs :8081.
 MUNIN_EVAL_EGRESS=off PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 --arm present --base-url http://127.0.0.1:8080 --email ... --concurrency 1 --date <D>
 MUNIN_EVAL_EGRESS=off PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 --arm absent  --base-url http://127.0.0.1:8081 --email ... --concurrency 1 --date <D> --vs-suffix <olddate>  # writes paired scorecard
-PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.risk_coverage --date <D>   # derive the six operating points, no inference
-# Teardown: docker stop/rm munin-retrieval-shadow; snapshot papers_shadow; delete both shadow collections.
+PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.risk_coverage --date <D> --tag <run-tag>   # the six operating points, no inference; without --date/--tag it overwrites the committed 07-27 file
+# Teardown: sudo ../deploy.sh instance down eval-shadow; snapshot papers_shadow; delete both shadow collections.
 
 # A second backbone beside production, whole generation suite, unattended (2026-09-16 recipe; needs
 # `sudo ./deploy.sh sudoers` once and production on the single-GPU profile so GPU 0 is free):
-scripts/run_suite.sh gpt-oss-20b --date <D>     # profile: backend/config/models/<slug>.env; log: runs/<slug>/driver.log
+scripts/run_suite.sh gpt-oss-20b --date <D>     # profile: backend/config/models/<slug>.env; log: runs/<tag>/driver.log
 # Faithfulness recapture of the agentic arm only (Qwen3.8 on production, then gpt-oss on an instance), judge on CPU:
 scripts/run_faith_recapture.sh --date <D> [--skip-qwen] [--skip-gptoss]
 
@@ -1896,11 +1884,12 @@ for arm in bare rag agentic; do MUNIN_EVAL_EGRESS=full PYTHONPATH=$HOME/.cache/m
 # Corpus-only agentic arm (2026-09-15 recipe): back up ablation_runs/agentic.json; run the agentic arm with MUNIN_EVAL_EGRESS=off;
 # compare --date <D>; rename the scorecard to <D>_harness-ablation-agentic-egressoff.json; toolreliability.score ablation_runs/agentic.json
 # --tag <D>_toolreliability-qwen38-egressoff; rename agentic.json to agentic.<D>-egressoff.json and restore the headline capture.
-$PY -m munin_bench.ablation.compare --date <D>
-$PY -m munin_bench.ablation.abstain_arms --arm bare   # + --arm rag: abstention per arm on the fabricated set
-MUNIN_BENCH_ENTAILMENT_DEVICE=cuda:0 $PY -m munin_bench.ablation.faithfulness --date <D>
+# Pass the same --tag as the arms: without it these read the untagged headline set.
+$PY -m munin_bench.ablation.compare --date <D> --tag <run-tag>
+$PY -m munin_bench.ablation.abstain_arms --arm bare --tag <run-tag>   # + --arm rag: abstention per arm on the fabricated set
+MUNIN_BENCH_ENTAILMENT_DEVICE=cuda:0 $PY -m munin_bench.ablation.faithfulness --date <D> --tag <run-tag>
 
-# Track E — one unified re-certification run (all tracks + reliability)
+# Track E - one unified re-certification run (all tracks + reliability)
 PYTHONPATH=$HOME/.cache/munin_bench_deps:. NEO4J_PASSWORD=... $PY -m munin_bench.pipelines.run_all \
   --tag <label> --encoder bge-large \
   --tracks litqa2-retrieval,litqa2-answer,faithfulness,abstention,ablation \

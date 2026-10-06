@@ -2,7 +2,7 @@
 
 Paper-grade, reproducible retrieval benchmarks. Build spec:
 `../../docs/paper-track/RETRIEVAL-EVAL-SPEC.md`; suite-wide plan:
-`../../docs/paper-track/EVAL-SUITE-MASTER-PLAN.md`. This folder is benchmark code only — it
+`../../docs/paper-track/EVAL-SUITE-MASTER-PLAN.md`. This folder is benchmark code only - it
 never ships in `deploy.sh`, and it only ever *reads* the production Qdrant /
 Neo4j (BEIR subsets get their own `eval_*` collections in Phase 3).
 
@@ -13,10 +13,10 @@ Neo4j (BEIR subsets get their own `eval_*` collections in Phase 3).
 | 1 | metrics (nDCG/Recall/MRR/Hits), paired bootstrap, Wilcoxon | **done** |
 | 2 | retrievers (BM25, SPECTER-dense, Agent, citation-rerank, RRF, 2-hop) | **done** |
 | 3 | BEIR runner | **done** (SciFact validated: BM25 0.652 ≈ published; SPECTER 0.479) |
-| 4 | local pool benchmark | 4a done (extractor); 4b needs varghele-curated `queries.jsonl`; only 42 candidates so far |
-| 5 | LitQA2 anchor | **done** — retrieval (agent recall@10 0.44 on SPECTER, **0.73 on BGE-large**) + answer (acc 0.43 SPECTER, 0.50 BGE, then 0.864 on the agent architecture; PaperQA2 0.66). Tracks B/C/D/T11 live in `RESULTS.md`; headline Track D re-measured on Qwen3.8-27B 2026-08-26; third backbone gpt-oss-20b 2026-09-16 and the retired Qwen3.6 re-run 2026-09-17/18, both as eval-only instances via `scripts/run_suite.sh` |
-| E | regression harness — `run_all` → committed `scorecards/`, `compare` paired-diff | **done** |
-| — | encoder bake-off (BGE/E5 ≫ SPECTER-v1 on SciFact + Munin pool; see `RESULTS.md`) | **done** |
+| 4 | local pool benchmark | 4a done (extractor); 4b needs a hand-curated `queries.jsonl`; only 42 candidates so far |
+| 5 | LitQA2 anchor | **done** - retrieval (agent recall@10 0.44 on SPECTER, **0.73 on BGE-large**) + answer (acc 0.43 SPECTER, 0.50 BGE, then 0.864 on the agent architecture; PaperQA2 0.66). Tracks B/C/D/T11 live in `RESULTS.md`; headline Track D re-measured on Qwen3.8-27B 2026-08-26; third backbone gpt-oss-20b 2026-09-16 and the retired Qwen3.6 re-run 2026-09-17/18, both as eval-only instances via `scripts/run_suite.sh` |
+| E | regression harness - `run_all` → committed `scorecards/`, `compare` paired-diff | **done** |
+| - | encoder bake-off (BGE/E5 ≫ SPECTER-v1 on SciFact + Munin pool; see `RESULTS.md`) | **done** |
 
 **Regression harness (Track E):** `python -m munin_bench.pipelines.run_all
 --tag <label> --encoder bge-large --tracks litqa2-retrieval[,litqa2-answer]`
@@ -24,7 +24,7 @@ writes a provenance-stamped `scorecards/<date>_<tag>.{json,md}` (committed, with
 per-query arrays). `--encoder` defaults to `specter-v1`, the retired collection,
 so pass it every time; `beir-scifact` is SPECTER-only and cannot share a run
 with the BGE tracks. `python -m munin_bench.pipelines.compare <old>.json <new>.json` diffs
-two runs with a paired bootstrap — the before/after check for a model or encoder
+two runs with a paired bootstrap - the before/after check for a model or encoder
 swap.
 
 **Corpus provenance:** every arm stamps the collections it searched and their
@@ -56,17 +56,17 @@ $PYBIN -m pip install --target=$HOME/.cache/munin_bench_deps rank_bm25
 ## Run the tests
 
 ```bash
-python -m pytest backend/benchmarks/tests/      # 56 tests, ~0.3s
+python -m pytest backend/benchmarks/tests/      # 87 tests, under a second
 ```
 
 Pure-function tests (metrics, bootstrap, Wilcoxon, citation-score math, RRF
-math) — no infra needed.
+math) - no infra needed.
 
 ## Run the Phase 2 gate (live sanity check)
 
 Instantiates all seven retrievers and runs `"protein folding"` against the live
-`papers` collection, printing top-3 each. `NEO4J_PASSWORD` is in the cluster
-`.env` (symlinked at `/opt/munin/docker/.env -> /opt/hugin/config/cluster.env`).
+paper collection (`PAPERS_COLLECTION`, `papers_bge` in production), printing
+top-3 each. `NEO4J_PASSWORD` is in the cluster env file.
 
 ```bash
 cd backend/benchmarks
@@ -103,11 +103,14 @@ See `../../docs/paper-track/RETRIEVAL-EVAL-SPEC.md` Phase 3 for the gate rationa
 
 ## Frozen variant set (AgentRetriever)
 
-The agent retriever fans a query out to a FROZEN, committed variant set rather
-than a live LLM expansion (a paper-grade benchmark can't depend on a
-non-deterministic expander). The committed file is generated ONCE from Phase 4's
-`data/local/queries.jsonl` and is a Phase-4 deliverable; until then the gate
-uses an inline demo set. Regenerate with:
+The agent retriever fans a query out to a FROZEN variant set rather than a
+live LLM expansion (a paper-grade benchmark can't depend on a non-deterministic
+expander). The LitQA2 variants behind claim 4 live in
+`data/litqa2/litqa2_variants.json`, which is NOT committed: it is keyed by
+LitQA2 question text, which is not ours to redistribute. A clone without it
+regenerates the set with the current model, so its Recall@10 need not match
+the published 0.73 exactly. The local-pool set is a Phase 4 deliverable;
+until then the gate uses an inline demo set. Regenerate with:
 
 ```bash
 python -m munin_bench.frozen_variants.regen_variants \
@@ -126,7 +129,8 @@ munin_bench/
   metrics/             Phase 1: ir_metrics, bootstrap, significance
   retrievers/          Phase 2: base + 6 retrievers
   frozen_variants/     AgentRetriever variant regen (provenance)
-  pipelines/           gate_phase2 (+ Phase 3-5 runners to come)
+  pipelines/           run_all, run_litqa2, run_beir, run_litsearch, run_bakeoff,
+                       compare, certify, reliability, gate_phase2, PDF fetchers
 tests/                 gold-value unit tests
 data/                  gitignored (BM25 cache, downloaded datasets)
 scorecards/            committed (small JSONs)
