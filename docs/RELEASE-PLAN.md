@@ -8,7 +8,7 @@ Goal: another research group can install Munin as **frontend only, backend
 only, or both**, on their own hardware, with their own domain and model, by
 editing one `.env` file and running `docker compose`.
 
-This builds on [SINGLE-HOST-PLAN.md](SINGLE-HOST-PLAN.md), which already made
+This builds on [SINGLE-HOST-PLAN.md](archive/SINGLE-HOST-PLAN.md), which already made
 the compose files path-parameterised, added `LLM_BASE_URL`, containerised the
 pipeline, added dev-OTP login and the local Caddyfile, and put a single-host
 smoke test in CI. That plan delivered "try it on one machine". This one
