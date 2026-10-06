@@ -169,7 +169,7 @@ and SciFact, LitSearch, the abstention items) and which are not.
 ## Status
 
 Munin is in production at [muninai.org](https://muninai.org), used by one
-scientific group. This is its first public release (0.9.0, see
+scientific group. This is its first public release (1.0.0, see
 [CHANGELOG.md](CHANGELOG.md)); expect rough edges in setup ergonomics. Issues
 and PRs are welcome, especially for missing prerequisites, undocumented
 assumptions, or steps that break on hardware other than the reference one.
