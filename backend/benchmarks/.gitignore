@@ -3,11 +3,11 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
-# Benchmark data + raw outputs are NOT committed (size + licenses); every
-# dataset gets a download_<name>.py + checksum so a fresh clone rebuilds
-# data/ deterministically. EXCEPTIONS that ARE committed: scorecards/ (small
-# JSONs), the abstention ground-truth JSON, and the AgentRetriever frozen
-# variant set (see RETRIEVAL-EVAL-SPEC Phase 2 / KICKOFF-QUESTIONS Q3).
+# Benchmark data + raw outputs are NOT committed (size + licenses); the
+# loaders fetch the datasets (ir_datasets, Hugging Face). Committed instead:
+# scorecards/ (small JSONs), verdicts/ (per-question verdict tables, qids only),
+# and the abstention ground-truth JSON. The LitQA2 frozen variant set stays
+# in data/ because it is keyed by LitQA2 question text.
 data/
 results/
 # Track B live-capture artifacts (answers + retrieved contexts). Bulky
