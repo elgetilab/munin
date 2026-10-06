@@ -17,7 +17,7 @@
 # 2. A single-host run straight from a clone, for development, demos, and
 #    anyone reproducing the system. The repo-root `.env.example` overrides the
 #    path variables to point back into the working tree. See
-#    docs/SINGLE-HOST-PLAN.md.
+#    docs/archive/SINGLE-HOST-PLAN.md (history) and INSTALL.md.
 #
 # The two never collide because Compose reads `.env` from the CURRENT WORKING
 # DIRECTORY: the cluster picks up /opt/munin/docker/.env (a symlink to
