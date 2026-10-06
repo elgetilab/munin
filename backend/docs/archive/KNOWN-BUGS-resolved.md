@@ -389,7 +389,7 @@ that had been checked covered that.
 
 Closed earlier the same day, reopened hours later when a user reported
 `Stream is no longer available on the server`. Historical write-up in
-[`archive/KNOWN-BUGS-resolved.md`](archive/KNOWN-BUGS-resolved.md);
+[`archive/KNOWN-BUGS-resolved.md`](KNOWN-BUGS-resolved.md);
 this is the new defect.
 
 ### What was actually wrong

@@ -11,8 +11,8 @@ content of this file disagreed with the live code in several
 places (phantom `event: metadata` SSE frame; wrong `/api/status`
 fields; `notion`/`graph` listed as RAG sources; `code` field in
 the error envelope; `persona` flagged as required) and was a
-liability rather than an aid. See `DOCS-AUDIT.md` (2026-05-04)
-for the deltas.
+liability rather than an aid. The 2026-05-04 docs audit that listed
+the deltas was not kept.
 
 The file is left in place rather than deleted so that prior links
 from external docs and archived specs don't 404. Treat it as a

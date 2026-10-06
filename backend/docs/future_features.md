@@ -360,7 +360,7 @@ when there is real user demand:
   later conversations without re-running the code. ~1 hour but depends
   on the artifact-id surface settling.
 
-**Frontend work tracked in `docs/FRONTEND-TASKS.md` entry #2**:
+**Frontend work tracked in `backend/docs/archive/FRONTEND-TASKS.md` entry #2**:
 rendering the new `artifact` SSE event inline in the assistant
 transcript (image tag for image artifacts, download chip for
 everything else).
@@ -2623,7 +2623,7 @@ Shipped:
 - Tests: `artifact_create`, `artifact_read`, `artifact_update_full`,
   `artifact_list_scoped`, `artifact_user_patch`,
   `artifact_conversation_isolation`, `artifact_size_cap`.
-- Frontend tracked in `docs/FRONTEND-TASKS.md` entry 9.
+- Frontend tracked in `backend/docs/archive/FRONTEND-TASKS.md` entry 9.
 
 **Locked-in decisions (Stage A)**
 

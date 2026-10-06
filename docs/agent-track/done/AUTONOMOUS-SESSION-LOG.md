@@ -90,7 +90,7 @@ across 6 cases incl. the µmol/L-vs-µM alternation-order fix, and
 
 Running the exact question the user gave Claude (membrane lipid composition x
 kinase-inhibitor partitioning) through the full pipeline (OA lever + wider funnel
-+ snowball + R1 report). Saves to `docs/paper-track/MUNIN-DR-SAMPLE-REPORT.md` so the user
++ snowball + R1 report). Saves to `docs/agent-track/MUNIN-DR-SAMPLE-REPORT.md` so the user
 can compare Munin's report side-by-side with the Claude reference. NOTE
 (2026-07-27): this log originally said the reference was never committed. It
 was in fact committed (in `01eaa68`, under an opaque `compass_artifact_*`
@@ -108,7 +108,7 @@ the capstone with the fix (result appended below).
 
 **Capstone result (after the fix):** 3 real sub-questions, 2 resolved / 1
 unresolvable, **21 reads**, 6 grounded notes, 5 citations (4 full-text, 1
-abstract). Report saved to `docs/paper-track/MUNIN-DR-SAMPLE-REPORT.md`. All features
+abstract). Report saved to `docs/agent-track/MUNIN-DR-SAMPLE-REPORT.md`. All features
 visibly working:
 - All 5 sections render, gated correctly (Caveats lists the 1 unresolved
   sub-question + the 1 abstract-only source).
