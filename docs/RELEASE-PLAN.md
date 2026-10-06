@@ -192,6 +192,19 @@ unchanged after every phase; §4.7 says how that is checked.
 **Verify:** the inventory script reports zero personal addresses in tree and
 history; the auth and retrieval suites pass with synthetic fixtures.
 
+> **Phase 1 DONE 2026-10-02/03.** The inventory found 281 distinct email
+> addresses and 144 named people across the tree and 722 commits, a Neo4j
+> password and a NIC MAC in history, and LitQA2 content in the answer
+> scorecards, the C2 question set and one figure's data. The tree was cleaned
+> by ordinary commits (seed files to `.example`, fixtures anonymised, per-record
+> audit outputs and handoff notes removed, LitQA2 text stripped and the dataset
+> revision pinned, LICENSE/NOTICE/CITATION/CHANGELOG added); history was then
+> rewritten with git-filter-repo (48 paths removed, about 350 replacement
+> rules, every author and committer set to the maintainer's GitHub identity)
+> and force-pushed 2026-10-03. A scan of every blob and commit message in the
+> rewritten history found none of the inventoried items. Open: GitHub Support
+> removing the pre-rewrite pull-request refs before the repository goes public.
+
 ### Phase 2: neutral defaults and `MUNIN_DOMAIN`
 
 1. **Pin the reference values first.** Before changing any default, write
@@ -249,7 +262,8 @@ nothing; a frontend deploy, then login and the admin panel, work in production.
 > `deploy.sh pipeline`, `verify` green; inside the running container the three
 > persona prompts hash to the measured ones, every derived URL and User-Agent
 > equals the old literal, the contributor sync pulled from the new auth, and an
-> LLM round-trip completed. Still owed: a human login + admin panel check.
+> LLM round-trip completed. A real login and chat were confirmed on the live
+> site on 2026-10-04 (the admin panel was not separately checked).
 
 ### Phase 3: install modes
 
