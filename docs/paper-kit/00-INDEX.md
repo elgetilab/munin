@@ -33,7 +33,8 @@ one.
 | `09-RELATED-WORK.md` | Bib-ready anchors with arXiv IDs and venues, all verified 2026-07-26, plus the novelty analysis for the abstention contribution. |
 | `10-REPRODUCE.md` | Exact commands, versions, environment, and the two operational gotchas that each cost a day. |
 | `figures/` | Figure scripts and their rendered PDF/PNG/SVG. `fig_architecture.py` draws the trust boundaries and every path a request takes through them, reading its profile and egress labels from the code (the tool counts go in the caption); see `figures/README.md` for provenance and a draft caption; earlier versions are in `figures/archive/`. |
-| `scorecards/` | 54 raw scorecard JSONs behind the headline claims, with per-query arrays so figures and paired tests can be regenerated. |
+| `scorecards/` | 54 raw scorecard JSONs behind the headline claims. |
+| `verdicts/` | Per-question verdict tables (qids, verdicts, letters; no LitQA2 text) for the Track D, C2b and faithfulness scorecards, from which every paired test in the paper recomputes; `verdicts/README.md` maps each table to its scorecard and claim. |
 
 ## One-paragraph summary of the work
 

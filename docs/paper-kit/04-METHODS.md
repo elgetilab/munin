@@ -135,8 +135,9 @@ no-change comparison degrades gracefully inside a scorecard.
 
 **Paired everywhere it is possible.** Every arm-versus-arm comparison in
 Tracks A, C, and D is over the same question set in the same order, and the
-scorecard stores per-query arrays specifically so a paired test can be run
-after the fact without re-scoring.
+per-question verdicts are committed (in the answer, C1 and faithfulness
+scorecards, and as verdict tables in `verdicts/` for Tracks C2b and D)
+specifically so a paired test can be run after the fact without re-scoring.
 
 ---
 
@@ -344,7 +345,7 @@ A certification run forces both `egress: off` and `corpus_scope: curated_only`.
 }
 ```
 
-The per-query arrays are the price of paired significance and are the reason a
+The per-question verdicts are the price of paired significance and are the reason a
 comparison between two runs months apart is a paired bootstrap rather than
 eyeballing overlapping CIs. Provenance is best-effort: missing pieces degrade
 to `n/a` rather than failing a run. The served model id and max length are read

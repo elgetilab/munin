@@ -6,8 +6,9 @@ is the durable summary.
 
 > **`ablation_runs/`, `c1_runs/`, `c2_runs/` and `faithfulness_runs/` are NOT
 > regenerable**, despite being gitignored alongside `results/`. They hold the
-> per-query verdicts behind the headline numbers, the committed scorecards carry
-> only `per_arm` and `deltas` (no per-query arrays), and the model that produced
+> per-query verdicts behind the headline numbers, the Track D and C2b scorecards
+> carry only `per_arm` and `deltas` (their per-question verdicts are committed
+> separately, as tables in `verdicts/`), and the model that produced
 > them is no longer deployed. Until 2026-09-15 `run_arm.run()` overwrote
 > `ablation_runs/<arm>.json` in place, so a single re-run destroyed the only copy
 > and with it any paired old-vs-new comparison. **Since 2026-09-15 every arm

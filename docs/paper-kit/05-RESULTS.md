@@ -201,8 +201,9 @@ first sub-1.000 recovery on any arm), `search` 1,251 calls with 55 errors and
 degraded 1.000 on every `off` arm is the egress guard working. Scorecards:
 `2026-09-15_harness-ablation-agentic-egressoff.json`,
 `2026-09-17_harness-ablation-agentic-egressoff-qwen3.6-35b-a3b.json`,
-`2026-09-17_harness-ablation-agentic-egressoff-gpt-oss-20b.json` (each with
-the full → off verdict transitions), and the three
+`2026-09-17_harness-ablation-agentic-egressoff-gpt-oss-20b.json` (the 09-15
+file carries the full → off verdict transitions; for the two 09-17 files they
+recompute from the verdict tables in `verdicts/`), and the three
 `*toolreliability-*-egressoff_toolreliability.json` files.
 
 Scorecards: `2026-08-26_harness-ablation.json` (headline),

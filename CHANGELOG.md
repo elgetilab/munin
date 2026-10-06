@@ -25,6 +25,9 @@ in [`docs/RELEASE-PLAN.md`](docs/RELEASE-PLAN.md).
   a VPN or private network.
 - **A `tunnel` compose profile**: an autossh container that dials the frontend
   machine, for hosts without systemd access.
+- **Per-question verdict tables** (`backend/benchmarks/verdicts/`, qids only)
+  from which every Track D, C2b and faithfulness scorecard and the paper's
+  cross-backbone paired tests recompute exactly.
 - Apache-2.0 `LICENSE`, `NOTICE`, `CITATION.cff`.
 
 ### Changed
