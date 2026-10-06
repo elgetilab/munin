@@ -102,7 +102,7 @@ profiles booting.
 | Compose defaults | **Neutral defaults.** The reference deployment's values move into its own `cluster.env` and VPS `.env`. Reverses the DECISIONS.md 2026-08 rule; record the reversal there. |
 | `backend/deploy.sh` | **Stays in the repo** as the reference deployment's tooling, referenced from the docs as an example, not documented as the install path. |
 | Images | **Users build their own** (`docker compose build`). No registry publishing. |
-| First release | **`v0.9.0`.** `v1.0.0` comes after further hardening. |
+| First release | **`v1.0.0`** (changed 2026-10-06; planned as `v0.9.0`). |
 | §5 questions | **Defaults accepted** for Q1 to Q5. |
 
 Consequence of building locally: the web UI's `VITE_*` URLs can stay
@@ -419,9 +419,11 @@ Work, in order:
 1. Clean VM per mode, following only INSTALL.md, ideally by someone outside
    the project. Covers the SINGLE-HOST-PLAN gaps: containerised ingest end to
    end, frontend compose on a fresh host, `seed` and `webui` profiles.
-2. Tag `v0.9.0`, GitHub release notes from CHANGELOG. Flip the repo public.
-   The Zenodo archive and the first DOI come with `v1.0.0` (decided 2026-10-06),
-   through Zenodo's GitHub integration (no token in the repo).
+2. Tag `v1.0.0` (the planned `v0.9.0` was skipped), GitHub release notes from
+   CHANGELOG, Zenodo archive for the first DOI through Zenodo's GitHub
+   integration (no token in the repo). The repo was recreated on 2026-10-06
+   (deleted and pushed again, which dropped the pre-rewrite pull-request refs)
+   and made public the same day.
 
 ### 4.7 Protecting the reference deployment
 
@@ -451,5 +453,5 @@ behaviour.
    corpus text or third-party dataset content we may not redistribute (LitQA2,
    SciFact, LitSearch items)? [Audit in Phase 1; keep scorecards and code,
    fetch datasets at run time.]
-6. **Version number:** **`v0.9.0`** (decided 2026-10-02). `v1.0.0` follows after the
+6. **Version number:** **`v0.9.0`** (decided 2026-10-02; changed to `v1.0.0` on 2026-10-06). `v1.0.0` follows after the
    hardening work still in progress.

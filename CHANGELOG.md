@@ -3,9 +3,10 @@
 All notable changes to this project are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]: 0.9.0
+## [1.0.0] - 2026-10-06
 
-First public release, accompanying the paper. The work behind it is recorded
+First public release, accompanying the paper. It was planned as 0.9.0 and is
+released as 1.0.0, the version the Zenodo archive and the paper cite. The work behind it is recorded
 in [`docs/RELEASE-PLAN.md`](docs/RELEASE-PLAN.md).
 
 ### Added
@@ -28,7 +29,8 @@ in [`docs/RELEASE-PLAN.md`](docs/RELEASE-PLAN.md).
 - **Per-question verdict tables** (`backend/benchmarks/verdicts/`, qids only)
   from which every Track D, C2b and faithfulness scorecard and the paper's
   cross-backbone paired tests recompute exactly.
-- Apache-2.0 `LICENSE`, `NOTICE`, `CITATION.cff`.
+- Apache-2.0 `LICENSE`, `NOTICE`, and `CITATION.cff`: the software is the
+  Elgeti Lab's, and the accompanying paper is the preferred citation.
 
 ### Changed
 
@@ -81,5 +83,10 @@ in [`docs/RELEASE-PLAN.md`](docs/RELEASE-PLAN.md).
   `deploy.sh` exported an unset model name and could leave the tunnel unit
   disabled; the VPS backfill retried permanently rejected uploads forever.
 - The embedding map defaulted to the retired `papers` collection.
+- Every commit hash a scorecard or the paper docs cite resolves in the
+  published history (the pre-release history rewrites had changed them all),
+  and CI checks that it stays that way.
 - Reproduce instructions: the C2b shadow instance, `risk_coverage` (which a
   bare run let overwrite a committed scorecard), and the dataset loaders.
+
+[1.0.0]: https://github.com/elgetilab/munin/releases/tag/v1.0.0

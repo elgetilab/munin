@@ -4,8 +4,9 @@ message: >-
   accompanying paper (preferred-citation below).
 title: "Munin: a self-hosted research assistant for scientific groups"
 type: software
-version: 0.9.0
-# At the v1.0.0 tag, add date-released and the Zenodo DOI (the first one).
+version: 1.0.0
+date-released: "2026-10-06"
+# The Zenodo DOI is added once Zenodo has archived the v1.0.0 release.
 license: Apache-2.0
 repository-code: "https://github.com/elgetilab/munin"
 url: "https://muninai.org"
