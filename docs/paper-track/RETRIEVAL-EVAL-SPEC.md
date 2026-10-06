@@ -1,5 +1,7 @@
 # Munin Retrieval Evaluation Harness — Build Spec
 
+> **Historical build spec (2026-06), executed.** It is written as instructions to a coding agent. The harness it specifies is `backend/benchmarks/`; results are in [backend/benchmarks/RESULTS.md](../../backend/benchmarks/RESULTS.md) and [PAPER.md](../../PAPER.md).
+
 **Purpose.** Build a reproducible retrieval-evaluation harness for the Munin paper. The harness measures three things: (1) how Munin's current production retriever compares to baselines on standard scientific IR benchmarks; (2) how it performs on a locally-constructed pool of real user queries; (3) end-to-end RAG answer quality on a subset of (2). The numbers go directly into the paper's Evaluation section.
 
 **Who you are.** A Claude session running in the Munin monorepo with computer-use tools enabled. The operator (varghele) will hand-curate the local query set and the annotations; everything else should be runnable end-to-end without intervention. Treat this document as the source of truth — if it contradicts assumptions you'd make from the codebase, ask before deviating.

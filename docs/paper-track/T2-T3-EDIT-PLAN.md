@@ -1,5 +1,7 @@
 # T2 + T3 edit plan (harness iteration, prompt-first)
 
+> **Historical (2026-07).** The T2 outcome (deployed, measured, backfired, reverted) is recorded in [HARNESS-ITERATION-SCOPE.md](HARNESS-ITERATION-SCOPE.md).
+
 Status: PLAN 2026-07-09. Concrete edits for T2 (over-tooling) + T3 (tool defs)
 from `HARNESS-ITERATION-SCOPE.md`. Grounded in the actual current text.
 

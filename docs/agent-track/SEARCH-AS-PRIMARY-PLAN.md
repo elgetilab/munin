@@ -1,5 +1,7 @@
 # Making `search` the primary research tool
 
+> **Historical (2026-08).** Its changes C and B were measured and did not work; the approach that replaced them is [CHUNK-EVIDENCE-PLAN.md](CHUNK-EVIDENCE-PLAN.md).
+
 Status: PLAN, not implemented. Drafted 2026-08-27 from the iLOV drop
 reproducer. Sibling: [`STREAM-RELIABILITY-TODO.md`](STREAM-RELIABILITY-TODO.md)
 (items 5 and 6 are the ones this closes).

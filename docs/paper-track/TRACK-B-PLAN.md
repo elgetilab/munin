@@ -1,5 +1,7 @@
 # Track B - Answer faithfulness (local MiniCheck) - implementation plan
 
+> **Historical plan, built and run.** The status line below is from when it was drafted; the STATUS sections further down record what was done. Results: [backend/benchmarks/RESULTS.md](../../backend/benchmarks/RESULTS.md) and claim 2 in [PAPER.md](../../PAPER.md).
+
 Status: DRAFT 2026-07-08. Plan-first; no code until an explicit go.
 Spec: `EVAL-SUITE-MASTER-PLAN.md` sec 3. Reuses Track A Phase-1 infra
 (`munin_bench/metrics/` bootstrap + significance) and the Track E scorecard.

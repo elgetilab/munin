@@ -1,5 +1,7 @@
 # Results chapter, clean outline for v6 (2026-09-17, Qwen3.6 column refreshed 2026-09-20)
 
+> **Drafting outline for the paper's results chapter.** The numbers and their sources are in [paper-kit/05-RESULTS.md](paper-kit/05-RESULTS.md); this file is the author's working outline.
+
 Scope: what stays in §5, table by table, with numbers from the kit refreshed
 2026-09-20 (`05-RESULTS.md`, 54 scorecards). Prose is bullets; you write the
 sentences. Development history is in §6.1 (outline at the end); run-level

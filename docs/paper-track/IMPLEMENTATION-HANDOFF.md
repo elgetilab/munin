@@ -1,5 +1,7 @@
 # MuninAI Implementation Handoff — Router Migration + Evaluation Suite
 
+> **Historical build plan (2026-06), executed.** It is written as instructions to a coding agent. The router migration is live; the evaluation results are in [backend/benchmarks/RESULTS.md](../../backend/benchmarks/RESULTS.md) and [PAPER.md](../../PAPER.md).
+
 **Audience:** Claude Code, working in the Munin monorepo (`backend/`).
 **Owner:** varghele. **Status:** approved plan. No submission deadline — quality over speed; gates, not dates, control progression.
 **Last updated:** 2026-06-11 (v2, written from the full source documents).

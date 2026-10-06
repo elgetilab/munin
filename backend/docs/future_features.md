@@ -1,5 +1,7 @@
 # Future Features — backend (cluster)
 
+> **Design record, not a to-do list.** Written as notes for features not yet built; most sections have since shipped. For what the backend does today see [shared/docs/BACKEND-API.md](../../shared/docs/BACKEND-API.md).
+
 Design notes for features that are planned but not yet implemented. When
 we come back to build one of these, the notes below should give enough
 context to pick up without a rediscovery pass.

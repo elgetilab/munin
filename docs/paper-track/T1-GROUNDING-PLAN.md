@@ -1,5 +1,7 @@
 # T1 grounding edit plan
 
+> **Historical (2026-07).** T1a was deployed and measured: null for grounding, so the T1b/T1c track was stopped (outcome section below).
+
 Status: PLAN 2026-07-09. Lift answer grounding (Track B % claims supported ~0.35)
 by making retrieved evidence richer + more citable. Refocused after `329c150`
 already fixed context OVERFLOW - T1 is now about grounding QUALITY, not 400s.
