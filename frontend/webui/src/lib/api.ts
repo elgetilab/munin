@@ -267,13 +267,36 @@ async function adminRequest(path: string, init: RequestInit = {}): Promise<Respo
   return res;
 }
 
+/**
+ * The human-readable message in an error response body, whichever shape it
+ * has. The backend's HTTPExceptions arrive as {"detail": {"error": {"message"}}}
+ * (FastAPI wraps the detail), responses it builds itself as
+ * {"error": {"message"}}, the auth service sends {"error": "..."}, and
+ * FastAPI's own errors {"detail": "..."}. Reading only `body.error` showed
+ * users "Request failed (400)" instead of the reason. Empty when none found.
+ */
+export function errorMessage(body: unknown): string {
+  const pick = (v: unknown): string => {
+    if (typeof v === 'string') return v;
+    if (v && typeof v === 'object') {
+      const o = v as Record<string, unknown>;
+      if (typeof o.message === 'string') return o.message;
+      if (o.error !== undefined) return pick(o.error);
+    }
+    return '';
+  };
+  if (!body || typeof body !== 'object') return '';
+  const b = body as Record<string, unknown>;
+  return pick(b.error) || pick(b.detail);
+}
+
 async function adminJSON<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await adminRequest(path, init);
   if (!res.ok) {
     let detail = '';
     try {
       const body = await res.json();
-      detail = body?.error || '';
+      detail = errorMessage(body);
     } catch {
       // not JSON
     }
@@ -318,7 +341,7 @@ export async function deleteAdminUser(id: number): Promise<void> {
   const res = await adminRequest(`/users/${id}`, { method: 'DELETE' });
   if (!res.ok) {
     let detail = '';
-    try { detail = (await res.json())?.error || ''; } catch { /* */ }
+    try { detail = errorMessage(await res.json()); } catch { /* */ }
     throw new Error(detail || `Delete failed (${res.status})`);
   }
 }
@@ -368,7 +391,7 @@ export async function deleteAdminGroup(slug: string): Promise<void> {
   const res = await adminRequest(`/groups/${encodeURIComponent(slug)}`, { method: 'DELETE' });
   if (!res.ok) {
     let detail = '';
-    try { detail = (await res.json())?.error || ''; } catch { /* */ }
+    try { detail = errorMessage(await res.json()); } catch { /* */ }
     throw new Error(detail || `Delete failed (${res.status})`);
   }
 }
@@ -442,7 +465,7 @@ async function metricsRequest(path: string, body: object): Promise<unknown> {
     let detail = '';
     try {
       const err = await res.json();
-      detail = err?.error?.message || err?.error || '';
+      detail = errorMessage(err);
     } catch {
       /* not JSON */
     }
@@ -550,7 +573,7 @@ export async function uploadDocument(
         // real status still surfaces instead of a thrown SyntaxError.
         let msg = `Upload failed (${xhr.status})`;
         try {
-          msg = JSON.parse(xhr.responseText).error?.message || msg;
+          msg = errorMessage(JSON.parse(xhr.responseText)) || msg;
         } catch {
           /* non-JSON body - keep the status-based message */
         }
@@ -591,7 +614,7 @@ export async function reportChat(
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message || `Report failed (${res.status})`);
+    throw new Error(errorMessage(err) || `Report failed (${res.status})`);
   }
   return res.json();
 }
@@ -627,7 +650,7 @@ export async function startDeepResearch(
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message || `Failed to start research (${res.status})`);
+    throw new Error(errorMessage(err) || `Failed to start research (${res.status})`);
   }
   return res.json();
 }
@@ -961,7 +984,7 @@ export async function streamChat(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: { message: 'Request failed' } }));
-    onEvent({ type: 'error', data: { message: err.error?.message || `HTTP ${res.status}` } });
+    onEvent({ type: 'error', data: { message: errorMessage(err) || `HTTP ${res.status}` } });
     return;
   }
 
