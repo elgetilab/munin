@@ -19,10 +19,10 @@ keywords:
 preferred-citation:
   # The paper that accompanies the software. Its authors are the paper's
   # authors; the software itself is the Elgeti Lab's (authors above).
-  # Title and venue are placeholders until the paper has a reference.
+  # Venue and DOI follow once the paper has a reference.
   type: article
   status: in-preparation
-  title: "Munin: a self-hosted research assistant for scientific groups"
+  title: "MuninAI: A Self-Hosted Agentic Framework for independent Research Groups"
   authors:
     - given-names: Markus
       family-names: Fischer
