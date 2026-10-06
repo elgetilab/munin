@@ -13,7 +13,10 @@ Extended 2026-09-16 with a third backbone from a different lab, gpt-oss-20b
 revised 2026-09-17 for the faithfulness recapture (git `1380524`), which
 reversed the per-arm faithfulness null: the accuracy headline stays on the
 08-26 capture, the faithfulness headline moves to the 09-16 recapture of the
-same arm.
+same arm. Extended 2026-09-17/18 with the retired Qwen3.6 backbone re-run on
+an eval-only instance under the current protocol (git `556b305`), which turned
+the Qwen3.6 comparison from a different-protocol one into a question-paired
+one.
 
 ## Reading order
 
@@ -44,9 +47,10 @@ React chat UI. It has been in production use by one scientific group since
 LitQA2 questions: the agentic harness scores 0.874 accuracy against 0.387 for
 the bare model and 0.211 for naive RAG, a harness value of +0.487 [0.407,
 0.568] at p < 0.001. The same ablation on the previous backbone, a 35B/3B-active
-MoE, gave the same ordering and a similar magnitude (+0.538), which is
-suggestive rather than controlled evidence that the effect is not
-backbone-specific. One finding cuts against the obvious narrative and is
+MoE, re-run under the same protocol on 2026-09-17, gives the same ordering and
+a similar magnitude (+0.533 [0.452, 0.613]); question-paired, the two backbones
+reach the same accuracy inside the harness (-0.005, p = 0.93) and differ only
+outside it. One finding cuts against the obvious narrative and is
 reported as a first-class result, replicating on three backbones: naive top-5
 RAG is **worse than no retrieval at all** (−0.176 [−0.251, −0.096] on
 Qwen3.8). A second, that answer faithfulness did **not** improve with the
@@ -69,7 +73,7 @@ Terms used throughout, in the sense the repository uses them.
 
 | Term | Meaning |
 |---|---|
-| **Track A–F** | The six evaluation tracks. A = retrieval quality, B = answer faithfulness, C = abstention and calibration, D = harness value and cost, E = regression harness and scorecards, F = follow-up scope (specified, not built). |
+| **Track A to F** | The six evaluation tracks. A = retrieval quality, B = answer faithfulness, C = abstention and calibration, D = harness value and cost, E = regression harness and scorecards, F = follow-up scope (specified, not built). |
 | **Arm** | One system configuration in the Track D ablation: `bare` (direct vLLM, no tools), `rag` (BGE top-5 into the prompt, one completion), `agentic` (the production harness). |
 | **Backbone** | The generation model under the harness. Qwen3.8-27B (dense) since 2026-08-25; Qwen3.6-35B-A3B (MoE) before it, retired from production but re-run on the current protocol on 2026-09-17 as an eval instance; gpt-oss-20b, never production, an eval instance. Results tables state which. |
 | **Profile** | The per-turn routing target: `chat`, `research`, or `code`. Chosen before the first model call by `router.py`. Replaced the older persona-delegation mechanism. |

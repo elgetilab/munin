@@ -10,7 +10,7 @@ python3 docs/paper-kit/figures/fig_architecture.py            # writes .pdf .png
 python3 docs/paper-kit/figures/fig_architecture.py --facts    # prints the facts read from code
 ```
 
-Needs Python 3.10+ and matplotlib (tested on 3.9 and 3.11). Nothing from the service's
+Needs Python 3.9 or newer and matplotlib (tested on 3.9 and 3.11). Nothing from the service's
 own dependencies: the source files a figure reads are parsed, never imported.
 Layout is fixed to Arial metrics; Liberation Sans (`fonts-liberation` on
 Debian/Ubuntu) is metric-compatible, so it gives the same layout; the committed

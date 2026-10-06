@@ -70,7 +70,7 @@ harness, not the backbone (5.3.2).
 | | unparseable | 8 (2 truncated) | 0 | 25 (no final message) |
 | RAG (top-5) | accuracy | 0.126 | 0.211 | 0.101 |
 | | precision (attempted) | 0.500 | 0.420 | 0.800 |
-| | abstain | 0.749 | 0.498 | 0.060 |
+| | abstain | 0.749 | 0.497 | 0.060 |
 | | unparseable | 0 | 0 | 162 (no final message) |
 | **Agentic** | **accuracy** | **0.869** | **0.874** | **0.563** |
 | | precision (attempted) | 0.930 | 0.946 | 0.896 |
@@ -146,7 +146,7 @@ Prose bullets:
 - RAG − bare negative on all three backbones, five runs, one sign; largest
   on Qwen3.6 under the current protocol (−0.211).
 - Mechanism on the Qwen family: anchors on retrieved abstracts and declines
-  (abstain 0.498 vs 0.040 on Qwen3.8; 0.749 vs 0.226 on Qwen3.6). On
+  (abstain 0.497 vs 0.040 on Qwen3.8; 0.749 vs 0.226 on Qwen3.6). On
   gpt-oss the same sign arises differently (silence, not refusal); say so.
 - Drop the 100-question pilot.
 
@@ -309,7 +309,7 @@ egress differs by population on all three; no single curve.
 | Agentic accuracy | 0.869 | 0.874 | 0.563 |
 | **Harness value** | **+0.533 [0.452, 0.613]** | **+0.487 [0.407, 0.568]** | +0.156 [0.075, 0.241] |
 | Corpus-only harness value (egress off − bare) | +0.367 | +0.276 | +0.075 (n.s.) |
-| Abstain outside harness (bare / RAG) | 0.226 / 0.749 | 0.040 / 0.498 | 0.030 / 0.060 (+ empty turns) |
+| Abstain outside harness (bare / RAG) | 0.226 / 0.749 | 0.040 / 0.497 | 0.030 / 0.060 (+ empty turns) |
 | Abstain inside harness | 0.065 | 0.075 | 0.342 |
 | Precision of attempted, bare → agentic | 0.459 → 0.930 | 0.403 → 0.946 | 0.482 → 0.896 |
 | Faithfulness, agentic | 0.627 | 0.540 | 0.392 |
