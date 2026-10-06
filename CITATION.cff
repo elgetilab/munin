@@ -1,10 +1,11 @@
 cff-version: 1.2.0
-message: "If you use Munin, please cite it as below."
+message: >-
+  The Munin software belongs to the Elgeti Lab. If you use it, please cite the
+  accompanying paper (preferred-citation below).
 title: "Munin: a self-hosted research assistant for scientific groups"
 type: software
 version: 0.9.0
-# At tag time add date-released, the Zenodo doi, and a preferred-citation
-# block for the paper once it has a reference.
+# At the v1.0.0 tag, add date-released and the Zenodo DOI (the first one).
 license: Apache-2.0
 repository-code: "https://github.com/elgetilab/munin"
 url: "https://muninai.org"
@@ -15,3 +16,20 @@ keywords:
   - scientific literature
   - research agents
   - self-hosted
+preferred-citation:
+  # The paper that accompanies the software. Its authors are the paper's
+  # authors; the software itself is the Elgeti Lab's (authors above).
+  # Title and venue are placeholders until the paper has a reference.
+  type: article
+  status: in-preparation
+  title: "Munin: a self-hosted research assistant for scientific groups"
+  authors:
+    - given-names: Markus
+      family-names: Fischer
+      orcid: "https://orcid.org/0000-0002-7057-2309"
+    - given-names: Jens
+      family-names: Meiler
+      orcid: "https://orcid.org/0000-0001-8945-193X"
+    - given-names: Matthias
+      family-names: Elgeti
+      orcid: "https://orcid.org/0000-0002-0550-4852"
