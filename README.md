@@ -1,5 +1,7 @@
 # Munin
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23191403.svg)](https://doi.org/10.5281/zenodo.23191403)
+
 Munin is an open-source AI research platform built for scientific groups: a
 private chat, retrieval and deep-research stack over your own paper collection,
 driven by the language model of your choice. It has two halves, a **backend**
@@ -173,6 +175,17 @@ scientific group. This is its first public release (1.0.0, see
 [CHANGELOG.md](CHANGELOG.md)); expect rough edges in setup ergonomics. Issues
 and PRs are welcome, especially for missing prerequisites, undocumented
 assumptions, or steps that break on hardware other than the reference one.
+
+## Citing
+
+The software is the Elgeti Lab's and is archived on Zenodo:
+[10.5281/zenodo.23191403](https://doi.org/10.5281/zenodo.23191403) always
+resolves to the newest version; v1.0.0 is
+[10.5281/zenodo.23191404](https://doi.org/10.5281/zenodo.23191404). If you use
+Munin, please cite the accompanying paper, *MuninAI: A Self-Hosted Agentic
+Framework for independent Research Groups* (M. Fischer, J. Meiler, M. Elgeti;
+in preparation). GitHub's "Cite this repository" gives both entries from
+[CITATION.cff](CITATION.cff).
 
 ## Contributing
 

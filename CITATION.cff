@@ -6,7 +6,14 @@ title: "Munin: a self-hosted research assistant for scientific groups"
 type: software
 version: 1.0.0
 date-released: "2026-10-06"
-# The Zenodo DOI is added once Zenodo has archived the v1.0.0 release.
+doi: 10.5281/zenodo.23191404
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.23191403
+    description: Concept DOI, always resolving to the newest version
+  - type: doi
+    value: 10.5281/zenodo.23191404
+    description: Version DOI of v1.0.0
 license: Apache-2.0
 repository-code: "https://github.com/elgetilab/munin"
 url: "https://muninai.org"
