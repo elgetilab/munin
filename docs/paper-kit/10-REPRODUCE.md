@@ -397,8 +397,9 @@ As of 2026-09-17:
 | This kit | `docs/paper-kit/` |
 
 Per-query raw artifacts live under `backend/benchmarks/results/` and are
-gitignored: they are regenerable, and the scorecards carry the per-query arrays
-that any paired test needs. **The exception is `ablation_runs/`, `c1_runs/`,
+gitignored: they are regenerable, and the scorecards together with the
+verdict tables in `verdicts/` carry the per-question verdicts any paired test
+needs. **The exception is `ablation_runs/`, `c1_runs/`,
 `c2_runs/` and `faithfulness_runs/`**, which hold the per-query verdicts
 behind the Track C/D numbers and are regenerable only by re-running the
 backbone (an eval instance, §5a). Since 2026-09-15 the ablation arms write to
@@ -421,7 +422,7 @@ What a third party can and cannot reproduce, stated honestly:
 | All metric and statistics code | Pure-function unit tests, no infrastructure |
 | BEIR / SciFact and LitSearch results | Public corpora and qrels: BEIR loads through `ir_datasets`, LitSearch from `hf://datasets/princeton-nlp/LitSearch` (not revision-pinned; a later upstream edit would change it) |
 | The abstention benchmark items | The fabricated set is generated from the corpus and its ground-truth JSON is committed, because it is small and it *is* the benchmark |
-| Every reported aggregate and paired test | Scorecards carry per-query arrays |
+| Every reported aggregate and paired test | The per-question verdict tables in `verdicts/` (qids only) reproduce every Track D, C2b and faithfulness scorecard exactly (`python -m munin_bench.verdict_tables verify`). Two July Qwen3.6 ablation files have no table: their per-question arrays were overwritten before runs were kept per tag; quote the 09-17 Qwen3.6 files |
 
 | Not reproducible externally | Why |
 |---|---|
