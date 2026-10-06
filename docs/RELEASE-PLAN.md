@@ -1,6 +1,6 @@
 # Public release: assessment and plan
 
-Status: **Phases 1-5 DONE (2026-10-02 to 10-05); release-readiness pass in progress (section 6); Phase 6 open.** Written 2026-10-02 for the
+Status: **Phases 1-5 DONE (2026-10-02 to 10-05); release-readiness pass done 2026-10-06; Phase 6 open.** Written 2026-10-02 for the
 publication release. Decisions taken are in §2; the §5 questions were resolved
 with their defaults, except the version (§5 Q6).
 
@@ -402,6 +402,17 @@ Work, in order:
 5. **History hygiene:** historical banners on about 25 plans that read as
    current, archive the 3 obsolete docs and index the archive folders, fix the
    broken links, the remaining personal details, the private-repo links.
+
+> **Pass DONE 2026-10-06.** Steps 1-3 pushed 2026-10-05 (CI smoke green on
+> Ubuntu 24.04 and 26.04). Step 4: reproduce commands that run as written,
+> paper-kit consistency, per-question verdict tables (32/32 aggregates
+> reproduce), routing scorecard labels, CHANGELOG/NOTICE/CITATION. Step 5:
+> the last personal details and private-repo links out of the tree, three
+> obsolete docs archived, every archive folder indexed, broken links fixed,
+> status banners on the plans that read as current, no em-dashes in the
+> current reference docs. Still owed before going public: the history
+> rewrite that removes the harness audit (and the personal details step 5
+> removed from the tree), and GitHub Support removing the old pull-request refs.
 
 ### Phase 6: verification and release
 
