@@ -1,6 +1,6 @@
 """
 Standalone tests for the deferred-tool schema + tool_search
-(P1 #7 from docs/architecture/HARNESS-AUDIT-2026-05.md).
+(P1 #7 from the 2026-05 internal harness audit).
 
 Run inside the retrieval container:
     docker exec munin-retrieval python /app/tests/test_tool_search.py

@@ -1,5 +1,5 @@
 """
-MCP tool: tool_search (P1 #7 from docs/architecture/HARNESS-AUDIT-2026-05.md).
+MCP tool: tool_search (P1 #7 from the 2026-05 internal harness audit).
 
 The vLLM `tools` schema only carries CORE_TOOLS by default — keeping
 prefill well clear of the hang cliff. tool_search lets the model

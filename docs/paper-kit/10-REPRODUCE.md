@@ -391,7 +391,6 @@ As of 2026-09-17:
 | Agent track: architecture, deep research | `docs/agent-track/` |
 | Design decisions (the *why*) | `shared/docs/DECISIONS.md` |
 | Corpus quality evidence | `backend/docs/corpus-quality/` (aggregate summaries; the per-record outputs stay with the deployment) |
-| Harness audit | `docs/architecture/HARNESS-AUDIT-2026-05.md` |
 | This kit | `docs/paper-kit/` |
 
 Per-query raw artifacts live under `backend/benchmarks/results/` and are

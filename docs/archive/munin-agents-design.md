@@ -6,4 +6,4 @@ superseded by the four-agent design that shipped — see
 [`../agent-track/done/munin-agent-design-v2.md`](../agent-track/done/munin-agent-design-v2.md)
 (source / search / compute / deep_research, IMPLEMENTED). The v1 review moved to
 [`../agent-track/done/munin-agents-design.md`](../agent-track/done/munin-agents-design.md).
-Companion audit (still live): [`../architecture/HARNESS-AUDIT-2026-05.md`](../architecture/HARNESS-AUDIT-2026-05.md).
+Companion: the 2026-05 internal harness audit (not published).

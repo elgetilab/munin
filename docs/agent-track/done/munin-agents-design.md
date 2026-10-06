@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-12
 **Scope:** `backend/config/agents.yml` + `mcp/tools/agents.py` + `mcp/tools/research.py` (deterministic `deep_research`) + `scripts/deepresearch/` (SLURM daemon).
-**Companion to:** `docs/architecture/HARNESS-AUDIT-2026-05.md`.
+**Companion to:** the 2026-05 internal harness audit (not published).
 
 ---
 
@@ -104,7 +104,7 @@ The order matters: trimming first means the remaining agents are clearly the one
 
 ## How this interacts with the main audit
 
-A few items in `docs/architecture/HARNESS-AUDIT-2026-05.md` directly support the changes here:
+A few items from the 2026-05 internal harness audit directly support the changes here:
 
 - **#7 (`tool_search` / deferred tools)** — fewer agents means fewer schema entries to defer, but doesn't remove the need. ToolSearch and agent slash commands compose cleanly.
 - **#22 (plan mode for `research` persona)** — the audit's plan-mode item is half of recommendation #3 above. The other half is the cost-estimate display.
