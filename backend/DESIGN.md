@@ -269,7 +269,7 @@ Invoked via `invoke_agent` MCP tool (model-triggered or user-triggered via `/res
 
 Execution: loop of vLLM calls + tool execution with constrained tool allowlists, iteration limits, and timeouts. Parallel tool execution via `asyncio.gather`.
 
-See AGENTIC-ORCHESTRATION.md for full spec.
+The full spec was `frontend/docs/archive/AGENTIC-ORCHESTRATION.md`; it was superseded by the four-agent architecture (`docs/agent-track/done/munin-agent-design-v2.md`).
 
 ---
 
