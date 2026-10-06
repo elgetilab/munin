@@ -1,4 +1,4 @@
-# VPS Backfill — Operator Instructions
+# VPS Backfill - Operator Instructions
 
 Companion doc for `backfill_contributed.py`. Walks you through the
 one-time §28 migration: push the ~4,235 PDFs already sitting at
@@ -8,19 +8,19 @@ attribution (`#zeitler`, `#corzilius`, `#deibel`).
 
 Full backend design lives in `shared/docs/CONTRIBUTOR-INGEST.md` and
 `backend/docs/archive/VPS-BACKFILL-HANDOFF.md`. You
-don't need to read those to run this script — this README is
+don't need to read those to run this script - this README is
 self-contained.
 
 ## 0. Where things run
 
 | Component | Host | Role |
 |---|---|---|
-| This script | **VPS** (`<vps-host>`) | File shuttler — walks `/mnt/uploads/complete/` and POSTs each PDF |
+| This script | **VPS** (`<vps-host>`) | File shuttler - walks `/mnt/uploads/complete/` and POSTs each PDF |
 | `/api/admin/ingest` endpoint | Cluster (`hugin`) | Receives the PDF, runs GROBID → BGE-large → Qdrant (`papers_bge`) + Neo4j |
 | Autossh tunnel | Bridge | Already up; exposes cluster `:8080` at VPS `127.0.0.1:18080` |
 
 Nothing model-related runs on the VPS. The script does plain HTTP
-POSTs and waits for the response. Concurrency is 1 by design — the
+POSTs and waits for the response. Concurrency is 1 by design - the
 cluster's GROBID + encoder (BGE-large) are the bottleneck, and cranking VPS
 parallelism just creates an HTTP backlog.
 
@@ -83,7 +83,7 @@ echo "${#ADMIN_INGEST_TOKEN}"   # expect 64
 Never commit the token anywhere. It's the machine-to-machine secret
 gating the ingest endpoint.
 
-## 4. Smoke test — 3 papers
+## 4. Smoke test - 3 papers
 
 Tiny probe against one real user. Verifies the endpoint is reachable,
 auth works, and the pipeline finishes end-to-end.
@@ -106,22 +106,22 @@ Expected output:
 2026-04-20 16:24:45 INFO  done. ingested=3 skipped=0 failed=0 elapsed=0.7min
 ```
 
-- `OK` — paper is in Qdrant + Neo4j, searchable.
-- `SKIP` — pipeline ran but quality-filtered the paper (non-research
+- `OK` - paper is in Qdrant + Neo4j, searchable.
+- `SKIP` - pipeline ran but quality-filtered the paper (non-research
   content, empty title, etc.). Still moved to `processed/` because
   "the cluster has seen it".
-- `FAIL HTTP503:saturated` — cluster's ingest pipeline is at its
+- `FAIL HTTP503:saturated` - cluster's ingest pipeline is at its
   concurrency cap (`INGEST_CONCURRENCY`, default 4). Script sleeps
   for the response's `Retry-After` seconds (clamped 5-600), leaves
-  the file in `complete/` for the next pass. **Not an error — this
+  the file in `complete/` for the next pass. **Not an error - this
   is graceful backpressure.** Expect occasional bursts during
   heavy upload activity.
-- `FAIL` (other) — HTTP non-2xx, timeout, or network error. File
+- `FAIL` (other) - HTTP non-2xx, timeout, or network error. File
   stays in `complete/` so you can re-run later.
 
 If the 3 probes all succeed, you're clear to proceed.
 
-## 5. Dress rehearsal — full Zeitler mailbox (418 files)
+## 5. Dress rehearsal - full Zeitler mailbox (418 files)
 
 ```bash
 sudo -E /usr/local/bin/backfill_contributed.py \
@@ -138,10 +138,10 @@ Tail it from a second SSH session:
 tail -f /var/log/backfill-uploads.log
 ```
 
-You can safely `Ctrl+C` and restart — the script is resumable
+You can safely `Ctrl+C` and restart - the script is resumable
 (successful papers have already been moved out of `complete/`).
 
-## 6. Full backfill — the other two groups
+## 6. Full backfill - the other two groups
 
 Once Zeitler is done and looks clean:
 
@@ -153,8 +153,8 @@ sudo -E /usr/local/bin/backfill_contributed.py --all
 `BACKFILL_SKIP_EMAILS` (comma-separated, e.g. an admin's test uploads).
 
 Remaining files:
-- `contributor-a@example.org` — 1,819 PDFs (~3.0 GB)
-- `contributor-b@example.org` — 1,998 PDFs (~7.6 GB)
+- `contributor-a@example.org` - 1,819 PDFs (~3.0 GB)
+- `contributor-b@example.org` - 1,998 PDFs (~7.6 GB)
 
 Expected total duration: 12-24 hours at concurrency 1. Run inside
 `tmux` or `screen` so an SSH disconnect doesn't kill it:
@@ -232,7 +232,7 @@ sudo systemctl status munin-tunnel.service
 sudo systemctl restart munin-tunnel.service
 ```
 
-Re-run the backfill — it picks up where it left off.
+Re-run the backfill - it picks up where it left off.
 
 ### Lots of HTTP 504 timeouts
 
@@ -241,7 +241,7 @@ OOM'ing on an unusual PDF. Options:
 
 - Pause the backfill (Ctrl+C), check GROBID health on hugin:
   `docker logs --tail 50 munin-grobid`
-- Let it keep running — failures stay in `complete/` and you can
+- Let it keep running - failures stay in `complete/` and you can
   re-run the script after fixing GROBID.
 
 ### Lots of `SKIP` with reason "no Qdrant point"
@@ -253,12 +253,12 @@ The pipeline's quality filter is rejecting papers. Common causes:
 - Very short editorial / errata content.
 
 Check the `log_tail` in the log file for the specific reason. These
-still move to `processed/` — they're "seen", just not indexed.
+still move to `processed/` - they're "seen", just not indexed.
 
 ### The script crashes mid-run
 
 All successful work is already committed (files moved to
-`processed/`). Re-run the same command — it picks up the remainder
+`processed/`). Re-run the same command - it picks up the remainder
 automatically. Check `/var/log/backfill-uploads.log` for the final
 state of the previous run.
 
@@ -303,6 +303,6 @@ The archived `backend/docs/archive/VPS-BACKFILL-HANDOFF.md` carries the
 `hook_service.py` patch sketch (a ~30-line `push_to_cluster` helper
 that does exactly what this script does, but one paper at a time as
 they arrive). That's the piece to land on the VPS side after the
-one-time backfill is done — or in parallel, in which case new
+one-time backfill is done - or in parallel, in which case new
 uploads go straight to the cluster while this script drains the
 historical backlog.

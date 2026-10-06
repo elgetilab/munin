@@ -1,9 +1,9 @@
-# Paper ingest and cleanup — operator reference
+# Paper ingest and cleanup - operator reference
 
 Single entry point for everything ingest-related: how PDFs flow into
 the corpus, what runs automatically, what the operator runs by hand.
 
-## Cheatsheet — what runs when, what you run by hand
+## Cheatsheet - what runs when, what you run by hand
 
 The cluster handles ingest, detection, quarantine, and metadata
 backfill **without operator action**. Three always-on systemd
@@ -48,13 +48,13 @@ journalctl -fu munin-paper-detect.service           # tail the sweep
 That's the entire surface. Everything else is internal.
 
 For deeper context:
-- [`PAPER_CRAWLER.md`](PAPER_CRAWLER.md) — crawler internals (citation
+- [`PAPER_CRAWLER.md`](PAPER_CRAWLER.md) - crawler internals (citation
   harvesting, download sources, queue DB).
 - [`../../docs/PAPER-INGEST-AUDIT.md`](../../docs/PAPER-INGEST-AUDIT.md)
-  — the 2026-05-12 audit that introduced the ingest-time
+  - the 2026-05-12 audit that introduced the ingest-time
   title-similarity guard.
 - [`../../docs/archive/PIPELINE-CONSOLIDATION-PLAN.md`](../../docs/archive/PIPELINE-CONSOLIDATION-PLAN.md)
-  — the consolidation that produced this directory's current shape.
+  - the consolidation that produced this directory's current shape.
   All six phases (A-F) shipped 2026-05-13 to 2026-05-15.
 
 ## What this directory is for
@@ -78,7 +78,7 @@ Two ways PDFs enter the system. Both end up calling the same
 `process_pdf()` core in `paper_pipeline.py`, but the wrapper around
 them differs.
 
-### Path A — Upload (`/api/admin/ingest`)
+### Path A - Upload (`/api/admin/ingest`)
 
 ```
 upload.<domain> (tusd) → frontend/upload/hook_service → POST /api/admin/ingest
@@ -94,7 +94,7 @@ on quality fail / pipeline crash / null-DOI:
        legacy skipped/ and failed/ dirs migrated by Phase C)
 ```
 
-### Path B — Crawler / operator drop (watcher)
+### Path B - Crawler / operator drop (watcher)
 
 ```
 paper_crawler.py crawl  →  /opt/munin/data/papers/pdf/doi_<doi>.pdf
@@ -182,7 +182,7 @@ sudo bash -c 'set -a && source /opt/hugin/config/cluster.env && set +a && \
 
 The `set -a` is mandatory: the pipeline needs `NEO4J_PASSWORD` (and
 others) exported to the subprocess. Without it Neo4j auth fails
-silently — that gotcha used to live in a separate `quick_fix_neo4j.md`.
+silently - that gotcha used to live in a separate `quick_fix_neo4j.md`.
 
 ### Crawl new citations
 
@@ -301,7 +301,7 @@ At default settings (4 kinds × 5 records / 15 min):
 - Whole 67k corpus walked per-kind in ~140 days for the
   GROBID-bottlenecked metadata-mismatch; faster kinds finish much
   sooner
-- Up to 20 quarantines per kind per hour — a runaway false-positive
+- Up to 20 quarantines per kind per hour - a runaway false-positive
   day still produces less than `review` can keep up with
 
 ### Review the quarantine queue (`review`)
@@ -448,7 +448,7 @@ with `--single`.
 ### "Could not authenticate to Neo4j" when running manually
 
 The cluster.env exports aren't reaching the Python process. Use the
-`set -a && source && set +a` pattern shown earlier — without `set -a`,
+`set -a && source && set +a` pattern shown earlier - without `set -a`,
 the variables stay shell-local.
 
 ### GROBID 503 / "Could not get an engine from the pool"

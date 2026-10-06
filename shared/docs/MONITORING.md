@@ -144,7 +144,7 @@ admin opens https://chat.muninai.org → Admin → Metrics
    array in `webui/src/components/admin/MetricsTab.tsx`. PromQL goes
    in the same file. Use `$WINDOW` for the rate window placeholder
    so the same panel works at any zoom level.
-3. **No Prometheus restart needed** — the scrape config already
+3. **No Prometheus restart needed** - the scrape config already
    captures `munin_*` series by job, not by name. Restart retrieval
    so the new counter starts incrementing.
 
@@ -175,13 +175,13 @@ which gates on this bearer).
 > holds it in `/opt/hugin/config/cluster.env`. They drift silently:
 > a value added to one side is never propagated to the other, and a
 > mismatch surfaces only as a broken Metrics tab (proxy returns 502,
-> `check-role` 401). `cluster.env` is the cluster's source of truth —
+> `check-role` 401). `cluster.env` is the cluster's source of truth -
 > `deploy.sh` symlinks `/opt/munin/docker/.env -> cluster.env` on
 > every run (`ln -snf`). **Always edit `cluster.env` directly; never
 > `mv`/write a file over the `/opt/munin/docker/.env` symlink.**
 > Replacing the symlink with a regular copy freezes a stale token
 > that "works" until the next deploy restores the symlink to the
-> divergent `cluster.env` and recreates retrieval — which is exactly
+> divergent `cluster.env` and recreates retrieval - which is exactly
 > how this broke once (2026-06-23: a deploy relinked `.env` to a
 > `cluster.env` whose token never matched the VPS).
 
@@ -224,7 +224,7 @@ copy one side's value to the other.
   as `https://auth.${MUNIN_DOMAIN}/admin/check-role` (compose and
   `metrics_proxy.py` via `site_config.py`). Set but empty, the role
   check, and with it the Metrics tab, is off.
-- `PROMETHEUS_URL` — only set if you've moved Prometheus off its
+- `PROMETHEUS_URL` - only set if you've moved Prometheus off its
   default docker service name. Default is `http://prometheus:9090`.
 
 No site-specific values are hardcoded in checked-in files: every
@@ -279,10 +279,10 @@ Response: Prometheus's `/api/v1/query_range` body verbatim.
 - Lookup is cached 30 s per email so a dashboard tick (~8 panels)
   costs one auth round-trip.
 - Errors:
-  - `401` — missing or empty `X-Munin-Email`
-  - `403` — caller is not admin
-  - `502` — auth or prometheus unreachable
-  - `503` — `KB_GATE_TOKEN` unset (proxy not configured)
+  - `401` - missing or empty `X-Munin-Email`
+  - `403` - caller is not admin
+  - `502` - auth or prometheus unreachable
+  - `503` - `KB_GATE_TOKEN` unset (proxy not configured)
 
 ## Metrics currently emitted
 

@@ -1,4 +1,4 @@
-# Paper-Embedding Knowledge Map — Operator Reference
+# Paper-Embedding Knowledge Map - Operator Reference
 
 §15 of `docs/future_features.md`, shipped 2026-04-20. Builds a 2D
 visualisation map + topical clusters over the shared `papers_bge` Qdrant
@@ -16,7 +16,7 @@ payload stamp, which is what §28's `#topic` tag filter will read.
    clustering. 2D is too lossy on a dense corpus.
 4. **HDBSCAN** (`min_cluster_size=15`, Euclidean) on the 10d output.
    Points that don't fit any cluster land in `cluster_id = -1`
-   (slug `unclustered`) — honest noise rather than forced assignment.
+   (slug `unclustered`) - honest noise rather than forced assignment.
 5. **UMAP → 2d** separately, for the visual map coordinates.
 6. **Label** each cluster via vLLM: sample 10 titles closest to the
    cluster's 2D centroid, ask the model for a 2-4 word topic name
@@ -48,7 +48,7 @@ GET /api/embedding_map
 
 Served by `retrieval/main.py`. Returns the raw JSON file as-is.
 404 with the standard error envelope if the map hasn't been built
-yet. No auth — the shape is already public information (paper DOIs
+yet. No auth - the shape is already public information (paper DOIs
 + cluster labels).
 
 Response shape:
@@ -213,7 +213,7 @@ asks for `cluster-N` labels.
 
 systemd surfaces non-zero exits in `systemctl status` and
 `journalctl -u munin-embedding-map.service`. Treat 3 and 4 as
-"skipped this run — the previous map is still authoritative."
+"skipped this run - the previous map is still authoritative."
 
 ## Idempotency
 
@@ -224,7 +224,7 @@ The script skips the rebuild when:
 - Every point already has a `cluster_id` payload.
 
 Use `--force` to override. The timer is safe to run nightly even if
-nothing changed — the skip is very fast (one Qdrant scroll).
+nothing changed - the skip is very fast (one Qdrant scroll).
 
 ## Known limitations
 
@@ -236,7 +236,7 @@ nothing changed — the skip is very fast (one Qdrant scroll).
   different representative titles. In practice labels are stable for
   the big clusters; small clusters (30-50 papers) can flip between
   runs. Not a problem for `#topic` filter matching because slugs
-  land on the same point set — filters are by `cluster_id`, not slug.
+  land on the same point set - filters are by `cluster_id`, not slug.
 - **Noise points are not tag-retrievable.** Papers in `cluster_id =
   -1` don't match any `#topic` tag. This is a feature, not a bug:
   it's more honest than forcing every paper into something.
