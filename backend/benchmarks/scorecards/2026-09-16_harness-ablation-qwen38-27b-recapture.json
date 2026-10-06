@@ -1,7 +1,7 @@
 {
   "track": "harness-ablation",
   "n_paired": 199,
-  "git_sha": "1380524",
+  "git_sha": "c95d849",
   "date": "2026-09-16",
   "runs_dir": "ablation_runs/qwen38-27b-recapture",
   "arm_meta": {
@@ -18,7 +18,7 @@
       "base_url": "http://127.0.0.1:8080",
       "egress": "full",
       "model": "qwen3.8-27b",
-      "git_sha": "1380524",
+      "git_sha": "c95d849",
       "deadline_s": 900,
       "reasoning_effort": "medium",
       "max_output_tokens": 16384,

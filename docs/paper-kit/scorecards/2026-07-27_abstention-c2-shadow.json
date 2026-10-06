@@ -122,9 +122,9 @@
     }
   },
   "date": "2026-07-27",
-  "git_sha": "8d0366c",
+  "git_sha": "52e7961",
   "rescored_by": "munin_bench.abstention.run_c2 --rescore",
-  "rescored_at_git_sha": "ab48d37",
+  "rescored_at_git_sha": "51e102a",
   "correct_abstention_vs_2026-07-10": {
     "old_rate": 0.2,
     "new_rate": 0.6666666666666666,

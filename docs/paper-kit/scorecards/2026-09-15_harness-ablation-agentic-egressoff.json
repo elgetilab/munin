@@ -1,7 +1,7 @@
 {
   "track": "harness-ablation-agentic-egressoff",
   "n_paired": 199,
-  "git_sha": "3be8308",
+  "git_sha": "06bf0d4",
   "date": "2026-09-15",
   "per_arm": {
     "bare": {

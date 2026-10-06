@@ -2,7 +2,7 @@
   "header": {
     "tag": "toolretire-before",
     "timestamp": "2026-07-25T11:11:04.928520+00:00",
-    "git_sha": "be6bf7c",
+    "git_sha": "6ab653a",
     "model": "unknown",
     "persona_policy": "chat (A0 decision A; not expected.profile)",
     "base_url": "http://127.0.0.1:8080",

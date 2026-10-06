@@ -14,19 +14,19 @@ The specialised-agents architecture and the Deep Research breadth work (the whol
 The capstone's honest verdict was Munin reads ~5 sources vs Claude's ~50, blamed
 on the dead web tier + Semantic Scholar rate-limiting — **not** a design flaw.
 Both are now fixed: the Brave Search API shipped as the primary web source
-(`06687d7`, deployed + verified), and production has the S2 key.
+(`6bf646d`, deployed + verified), and production has the S2 key.
 
 **First-pass re-measure (2026-07-23) surfaced — and fixed — a blocker.** A full
 production run confirmed Brave feeds the DR loop (web URLs now surface and get
 read) but resolved 0/3 sub-questions with 0 notes: post cluster-restart, qwen3.6
 returned `[]` from `source(mode=findings)` whenever thinking was disabled, so
-every read abstained and reports came out empty. Fixed in `fc7b57b` (findings
+every read abstained and reports came out empty. Fixed in `87dc0e4` (findings
 mode now runs with thinking on, 8k tokens; tolerant array parse). Two web pages
 also failed to fetch — same commit adds retry-with-backoff (recovers NCBI/PMC
 burst rate-limiting) and reports `blocked` vs `empty` (MDPI is a hard
 datacenter-IP wall, unfixable at the fetch layer).
 
-**Re-measured post-deploy of `fc7b57b` (2026-07-23), same capstone question via
+**Re-measured post-deploy of `87dc0e4` (2026-07-23), same capstone question via
 `POST /api/research/start`:**
 
 | metric | pre-Brave | Brave live, thinking bug | post-fix (now) |
@@ -77,7 +77,7 @@ Cause, traced through the chain:
    (deep_research_agent.py:221-223).
 
 So with `read_cap=6` over a corpus-first list, the read loop never reaches the
-OA/web tail. The tier reservation added in `cd708cd` guarantees the external
+OA/web tail. The tier reservation added in `d089569` guarantees the external
 tiers survive into `ranked`, and then the read stage truncates them away again.
 It is the same crowding-out defect as the original one, reappearing one stage
 later: fixed at the ranking layer, still present at the consumption layer.
@@ -99,7 +99,7 @@ Options for the fix (needs a decision):
   governs citation weighting rather than what gets read. Simpler and uses the
   new signal, but drops "corpus first" at the read stage.
 
-### Read-order fix verified (2026-07-24, `ea87e24` deployed)
+### Read-order fix verified (2026-07-24, `db4db72` deployed)
 
 The read pool is now ordered by relevance instead of tier. All three
 pre-registered predictions held:
@@ -134,7 +134,7 @@ vocabulary overlap. Cosine ranking cannot separate those from genuine hits.
   it passes vocabulary-overlap papers straight into the read budget.
 - Corpus depth on the specific intersection remains a real, separate constraint.
 
-### Full-text triage shipped and measured (2026-07-24, `bfe7e14`)
+### Full-text triage shipped and measured (2026-07-24, `65833a0`)
 
 A cheap yes/no relevance call over the full text now gates the expensive
 8000-token findings extraction. Validated before building against 16 papers with
@@ -274,7 +274,7 @@ over-abstention it was designed to fix has collapsed from 42% withheld to 12%.
 For reference, PaperQA2 on this benchmark is 0.66.
 
 **The 11 "unparseable" verdicts were a harness artefact, not a parser bug**
-(`f4558c4`). Every one was a wall-clock deadline truncation, and truncation was
+(`3b644d0`). Every one was a wall-clock deadline truncation, and truncation was
 perfectly predictive: no truncated response ever parsed. Six had produced only
 whitespace, i.e. the agent was still inside its tool loop at the 300s cut-off. A
 `source` read now costs ~20s (full text, thinking on), so a research turn doing

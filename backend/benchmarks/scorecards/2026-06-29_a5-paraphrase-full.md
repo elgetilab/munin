@@ -1,7 +1,7 @@
 # Routing scorecard — a5-paraphrase-full
 
 - **Paraphrase tier (224), MERGED: 161 clean from the first run + 63 re-run after a 02:00 vLLM-outage window. Not a paper result.**
-- model: `unknown`  git: `3fbb68f`  reps: 1  seed: 42
+- model: `unknown`  git: `c4b7cbb`  reps: 1  seed: 42
 - tier: `paraphrase`
 - persona policy: chat (A0 decision A; not expected.profile)
 - timestamp: 2026-06-29T00:08:11.780313+00:00

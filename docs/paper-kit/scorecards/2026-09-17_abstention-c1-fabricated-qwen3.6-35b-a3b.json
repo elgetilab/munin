@@ -1,7 +1,7 @@
 {
   "track": "abstention-c1-fabricated",
   "n": 100,
-  "git_sha": "556b305",
+  "git_sha": "6983e86",
   "date": "2026-09-17",
   "seed": 42,
   "generator_base_url": "http://127.0.0.1:8082",

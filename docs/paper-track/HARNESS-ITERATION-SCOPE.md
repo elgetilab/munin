@@ -36,11 +36,11 @@ Cadence: persona/fragment changes ship via `deploy.sh personas` + restart
 
 ### T1. Retrieved evidence is thin + truncated -> the faithfulness root  [HIGH / MED]
 
-> UPDATE 2026-07-09: `329c150` (varghele) already added the context-OVERFLOW
+> UPDATE 2026-07-09: `46348a8` (varghele) already added the context-OVERFLOW
 > mitigation - the "degrade the largest pending tool results instead of
 > overflowing" last-resort in `chat_context.py`. So T1 should NO LONGER target
 > overflow/400s (done); it targets GROUNDING QUALITY: excerpts on results,
-> per-item truncation, structured sub-agent returns. Re-read `329c150`'s
+> per-item truncation, structured sub-agent returns. Re-read `46348a8`'s
 > chat_context/chat_service changes before starting T1.
 
 Mechanism (verified):
@@ -172,13 +172,13 @@ medium-default made over-tooling WORSE: retrieval calls/answer **median 10.5 ->
 20.5** (mean 15.9 -> 19.3; 22/40 answers used more), grounding not improved
 (0.356 -> 0.284, CIs overlap). Mechanism: a thinner medium baseline induces MORE
 compensatory follow-up searches; the "<=3-4 follow-ups" prompt did not hold.
-Reverted the medium-default (research 1.5, `13418b9`; keeps the bounded-follow-up
+Reverted the medium-default (research 1.5, `a9159cc`; keeps the bounded-follow-up
 wording); **needs a personas redeploy**. Lesson: reducing per-call depth is the
 WRONG over-tooling lever; the real fix is a **code-level trajectory cap**
 (deferred - user chose T1 grounding next). T3 stays staged (deploy parked with
-`329c150`).
+`46348a8`).
 
-## OVER-TOOLING CODE CAP built (2026-07-09, `438a51b`)
+## OVER-TOOLING CODE CAP built (2026-07-09, `5eae2b0`)
 
 After T2 (prompt) and T1a (evidence) both failed to move over-tooling, built the
 code cap the measurements pointed to: `MAX_TOOL_CALLS_PER_MESSAGE` (env

@@ -153,7 +153,7 @@ so `close_db()` then closes nothing and the process still hangs.
 
 `test_plan_approval_hook.py` gated on `delegate_to_persona` because
 `shared/personas/research.json` declared it in `params.plan_approval`. Commit
-`158e70c` deleted the tool and that config together, and the tests failed for
+`972a931` deleted the tool and that config together, and the tests failed for
 two and a half months while the code they cover was fine.
 
 Worse, one of them kept PASSING for the wrong reason. With no persona list at
@@ -207,7 +207,7 @@ script moved to. Worst of all, its runner let the first `AssertionError`
 propagate, so the tp2 half never ran while the single-GPU half was red.
 
 Underneath all that sat a stale assertion: `tp2 window > single-GPU window`,
-on the reasoning that TP=2 exists to grow the context window. Commit `2d931e2`
+on the reasoning that TP=2 exists to grow the context window. Commit `525e2f3`
 retargeted TP=2 at concurrency and fixed the window at 65,536 on purpose, so
 the correct invariant is now that the two modes AGREE. Nothing was broken in
 the product; the test had simply been unable to notice the design change.

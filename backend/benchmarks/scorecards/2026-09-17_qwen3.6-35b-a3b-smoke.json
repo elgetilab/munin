@@ -2,7 +2,7 @@
   "meta": {
     "tag": "qwen3.6-35b-a3b-smoke",
     "generated_at": "2026-09-18T10:03:45.793694+00:00",
-    "git_sha": "556b305",
+    "git_sha": "6983e86",
     "encoder": "specter-v1",
     "seed": 42,
     "packages": {

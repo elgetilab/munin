@@ -258,7 +258,7 @@ def test_tp2_values_are_sane():
     assert ctx < window, f"tp2 trim ceiling {ctx} must be below its window {window}"
     assert window <= NATIVE_MAX
     # This used to assert `window > single_window`, on the reasoning that tp2
-    # exists to GROW the window. That stopped being true in 2d931e2, which
+    # exists to GROW the window. That stopped being true in 525e2f3, which
     # retargeted TP=2 at concurrency instead: the script now says the window
     # "deliberately STAYS at 65,536", because every committed benchmark number
     # was produced at 64k and raising it here would entangle "new model" with

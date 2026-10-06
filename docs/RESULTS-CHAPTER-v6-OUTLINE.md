@@ -85,7 +85,7 @@ harness, not the backbone (5.3.2).
 | | unparseable | 0 | 0 | 7 |
 | | tool calls / query | 10.5 | 5.1 | 7.4 |
 
-Provenance: `2026-09-17_harness-ablation-qwen3.6-35b-a3b` (git 556b305),
+Provenance: `2026-09-17_harness-ablation-qwen3.6-35b-a3b` (git 6983e86),
 `2026-08-26_harness-ablation` (3e0bcfb, headline),
 `2026-09-16_harness-ablation-gpt-oss-20b` (c6c56a7); egress = off arms
 `2026-09-17_…-agentic-egressoff-qwen3.6-35b-a3b` (same day as its full

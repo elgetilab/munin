@@ -2,7 +2,7 @@
   "header": {
     "tag": "a5-paraphrase-rerun",
     "timestamp": "2026-06-29T07:19:04.071004+00:00",
-    "git_sha": "3fbb68f",
+    "git_sha": "c4b7cbb",
     "model": "unknown",
     "persona_policy": "chat (A0 decision A; not expected.profile)",
     "base_url": "http://127.0.0.1:8080",

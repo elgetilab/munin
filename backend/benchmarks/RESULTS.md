@@ -73,7 +73,7 @@ is the durable summary.
 
 ---
 
-## Phase 3 - BEIR / SciFact (external validity)  · git `eb1cf73` · 2026-06-29
+## Phase 3 - BEIR / SciFact (external validity)  · git `837d28f` · 2026-06-29
 
 300 queries, 5183 docs. nDCG@10 [95% CI]:
 
@@ -92,7 +92,7 @@ Phase 3.
 
 ---
 
-## Phase 5 - LitQA2 retrieval  · git `360367d` · 2026-07-01
+## Phase 5 - LitQA2 retrieval  · git `d82284c` · 2026-07-01
 
 199/199 questions in-corpus, retrieve depth 20. Does the retriever surface the
 source paper?
@@ -120,7 +120,7 @@ established papers.
 
 ---
 
-## Phase 5 - LitQA2 answer (end-to-end, research profile)  · git `42b027b` · 2026-07-01
+## Phase 5 - LitQA2 answer (end-to-end, research profile)  · git `f196572` · 2026-07-01
 
 199 questions through the full agentic chat pipeline. 85 correct / 19 incorrect
 / 74 abstain / 21 unparseable.
@@ -163,7 +163,7 @@ unparseable needs a re-run.
 
 ---
 
-## Encoder bake-off - BEIR SciFact  · git `5f9ef15` · 2026-07-02
+## Encoder bake-off - BEIR SciFact  · git `f793b95` · 2026-07-02
 
 In-memory, apples-to-apples (same `title\n\nabstract` docs, cosine, our
 metrics). Answers "would a better encoder help recall?" **Yes, dramatically.**
@@ -182,7 +182,7 @@ holds, magnitude TBD); BGE/E5 are 1024-d (SPECTER 768-d) so deploying means a
 Qdrant collection recreate + full 68k re-embed. Highest-ROI change found:
 lifts retrieval AND (via the recall bound) answer accuracy together.
 
-## Encoder bake-off - LitQA2 pool (Munin corpus)  · git `2955824` · 2026-07-02
+## Encoder bake-off - LitQA2 pool (Munin corpus)  · git `40441d3` · 2026-07-02
 
 Confirmation on Munin's OWN data: rank each LitQA2 source paper among a shared
 pool of 190 real source papers + 5000 random corpus papers (same pool for every
@@ -207,7 +207,7 @@ Qdrant `papers` collection at 1024-d + re-embed 68k papers + update query
 embedding in `paper_search`. That is the recommended production change; full-
 corpus magnitude confirmed only after the re-embed.
 
-## Encoder migration Phase A - full-corpus validation  · git `bc35b4d` · 2026-07-03
+## Encoder migration Phase A - full-corpus validation  · git `e41f638` · 2026-07-03
 
 BGE-large re-embed of ALL 68k papers (`papers_bge`, 1024-d), LitQA2 retrieval
 over the full corpus, `compare` vs the committed `baseline-specter-v1`
@@ -263,7 +263,7 @@ recall -> ~0.73" projection was wrong. Scorecards:
 
 ---
 
-## LitQA2 answer - post agent-architecture  · git `9f0c02a` · 2026-07-24
+## LitQA2 answer - post agent-architecture  · git `079c41d` · 2026-07-24
 
 The single biggest answer-accuracy move in the suite, and it is NOT an encoder
 or retrieval change. Between 2026-07-06 and 2026-07-24 the flat MCP tool loop was
@@ -310,7 +310,7 @@ DEADLINE, and why it moved again. The Phase C run used a 300s wall-clock deadlin
 2026-07-23 findings-mode fix), so a research turn doing several reads now
 legitimately needs more than 5 minutes. A first full run at 300s scored **0.814**
 but truncated 11 answers (all counted wrong). Raising the deadline to 900s
-(`f4558c4`) and re-running clean gave 0.864 with **0 truncations, 0
+(`3b644d0`) and re-running clean gave 0.864 with **0 truncations, 0
 unparseable**. The 300s and 900s runs are BOTH valid; use 0.814 only if comparing
 to the 300s-era baseline directly, 0.864 as the current headline.
 
@@ -334,7 +334,7 @@ single-source MCQ answering the reading path, not retrieval, was the ceiling.
 
 ---
 
-## Track B - answer faithfulness (local MiniCheck)  · git `73ab062` · 2026-07-08
+## Track B - answer faithfulness (local MiniCheck)  · git `40c12e5` · 2026-07-08
 
 Local, privacy-preserving faithfulness judge: **MiniCheck-Flan-T5-Large** (<1B)
 scores each answer sentence's support against the retrieved contexts (replicates
@@ -708,7 +708,7 @@ Scorecard `2026-07-13_harness-ablation.{json,md}`.
 
 ---
 
-## Track D - harness ablation, CLEAN RUN (headline)  · git `9c476b8` · 2026-07-27
+## Track D - harness ablation, CLEAN RUN (headline)  · git `ac7c3ef` · 2026-07-27
 
 The definitive Track D result, on the finished agent architecture, per the
 master plan's rule that C and D characterise a *frozen* harness. 199 paired
@@ -876,7 +876,7 @@ Per tool (calls / error rate / degraded rate):
    the harness section needs: failures are absorbed, not propagated.
 2. **`web_fetch` is the weak link** at a 45% error rate, dominated by publisher
    datacenter-IP walls (MDPI is a hard block, unfixable at the fetch layer) and
-   burst rate-limiting. Retry-with-backoff (`fc7b57b`) recovers the transient
+   burst rate-limiting. Retry-with-backoff (`87dc0e4`) recovers the transient
    share.
 3. **`web_search` degraded at 1.000 is a measurement artifact, not an outage.**
    Every call is flagged degraded because the arm ran with the corpus-first
@@ -891,7 +891,7 @@ also show **recovery 1.000**, and both show call counts rising under degradation
 (8.6 -> 13.9/16.1), i.e. the harness compensates for bad tools by working
 harder. Scorecards `2026-07-27_toolreliability-clean.json` plus the two probes.
 
-## Model swap Qwen3.6-35B-A3B -> Qwen3.8-27B, Track D re-run  · git `3e0bcfb` · 2026-08-26
+## Model swap Qwen3.6-35B-A3B -> Qwen3.8-27B, Track D re-run  · git `df14dff` · 2026-08-26
 
 **Generation model for THIS section only: `qwen3.8-27b`**
 (`cyankiwi/Qwen3.8-27B-AWQ-INT4`, dense 27B, hybrid Gated DeltaNet + Gated
@@ -934,10 +934,10 @@ paragraph below stays as written for the 07-27 vs 08-26 pair.)* The ordering
 and rough effect size agree across a dense 27B and a 35B/3B-active MoE, which
 is real evidence the harness effect is not backbone-specific. But **16 commits
 touched `backend/retrieval/` between 2026-07-27 and 2026-08-26**, several
-material to the agentic arm: `5e60f2d` (07-29) min-max normalised the vector
-score before citation re-rank, `2ff9aef` (08-03) changed web_fetch failure
-semantics, `0c178d7` (08-12) fixed context budgeting that had been killing
-turns on vLLM 400s, `a294c3a` (08-18) fixed PDF resolution behind `source`, and
+material to the agentic arm: `e069fe0` (07-29) min-max normalised the vector
+score before citation re-rank, `a6de9cc` (08-03) changed web_fetch failure
+semantics, `9381528` (08-12) fixed context budgeting that had been killing
+turns on vLLM 400s, `02a47b7` (08-18) fixed PDF resolution behind `source`, and
 three Neo4j DOI-keying fixes landed on 08-25. Deployment timing for each was
 not independently verified against the run window. So per-arm cross-run deltas
 confound the model with a month of retrieval work and **must not be reported as
@@ -1009,7 +1009,7 @@ Recovery holds at 1.000 and mean calls/query fell 8.61 -> 6.93. Both of those
 are clean comparisons. **The error and degraded rates are not**, and the two
 contributing tools have to be read differently.
 
-**`web_fetch` 0.453 -> 0.678 is NOT a valid comparison.** Commit `2ff9aef`
+**`web_fetch` 0.453 -> 0.678 is NOT a valid comparison.** Commit `a6de9cc`
 (2026-08-03) landed BETWEEN the two runs and changed what counts as a failure:
 it added `looks_like_bot_check`, so an anti-bot interstitial is now reported as
 an error, where before it was summarised and returned as content. On 07-27
@@ -1022,7 +1022,7 @@ That has a second implication worth stating: on the 07-27 run, some web_fetch
 "successes" were interstitials summarised as though they were articles, so a
 little of that run's retrieved context was security-notice text.
 
-**`search` 0.000 -> 0.122 IS a valid comparison.** `2ff9aef` touched
+**`search` 0.000 -> 0.122 IS a valid comparison.** `a6de9cc` touched
 `search_agent.py` only to attach author metadata to web hits; it added no error
 path, and nothing else changed between the runs. Every one of the 11 failures
 was an argument TYPE the model emitted (`top_k="5"`, `top_k=5.0`,
@@ -1033,7 +1033,7 @@ emits mistyped tool arguments where Qwen3.6 did not.
 while Brave answers). `update_plan_item` failed both of its 2 calls, too few to
 read anything into.
 
-**Both causes are fixed as of `fd559c9` (2026-08-27)**, after this run: the
+**Both causes are fixed as of `248a419` (2026-08-27)**, after this run: the
 executor coerces argument types against the declared schema, and `web_fetch`
 reads PMC through NCBI's efetch API instead of the page that blocks it (ok rate
 on 24 real search URLs 0.50 -> 0.71). These numbers therefore describe the tool
@@ -1073,7 +1073,7 @@ Scorecards: `2026-08-26_harness-ablation.json`,
 
 ---
 
-## LitQA2 answer, standalone track on Qwen3.8-27B  · git `dfa823b` · 2026-09-14
+## LitQA2 answer, standalone track on Qwen3.8-27B  · git `f96ab9a` · 2026-09-14
 
 **Generation model: `qwen3.8-27b`** (TP=2, 64k, `--max-num-seqs 8`,
 `reasoning_effort=medium`), BGE-large, `run_litqa2 --track answer
@@ -1100,10 +1100,10 @@ abstain→incorrect). On Qwen3.6 the pair was 0.864 vs 0.839. So the standalone
 track and the ablation arm are one measurement taken twice, on both backbones,
 and either number can stand for "the harness on LitQA2" as long as the paper
 says which protocol it is quoting. The two are **not** a clean protocol
-comparison, though: 26 commits touched `backend/retrieval/` between `3e0bcfb`
+comparison, though: 26 commits touched `backend/retrieval/` between `df14dff`
 and today, including the search escalation ladder and grounded read stage
-(`51f1d5a`), chunk-level evidence mode (`587d93a`) and two new tools
-(`3571bc9`), and the deployed container (rebuilt 04:00 today) carries all of
+(`85d0351`), chunk-level evidence mode (`ecd6524`) and two new tools
+(`ca07350`), and the deployed container (rebuilt 04:00 today) carries all of
 them. The 0.010 is therefore protocol plus two weeks of harness work, and it
 is still inside the noise.
 
@@ -1119,7 +1119,7 @@ like-for-like caveat as the 07-24 section; a strong real result, not a clean
 "beats humans" headline.
 
 Provenance notes:
-- Launched at `497f321`; the stamped `dfa823b` is a docs-only commit that
+- Launched at `851d51d`; the stamped `f96ab9a` is a docs-only commit that
   landed mid-run. No harness code changed during the run.
 - Wall-clock for the whole run 09:44 to 15:48 (6 h 04 min, ~110 s/question
   including runner overhead). **Not a cost figure**: two group members used
@@ -1133,7 +1133,7 @@ Provenance notes:
 Scorecard: `2026-09-14_answer-qwen38-900s.{json,md}` (per-query arrays, so
 the paired tests above are reproducible).
 
-## Track C1 re-run on Qwen3.8-27B, fabricated-paper abstention  · git `28a91f1` · 2026-09-14
+## Track C1 re-run on Qwen3.8-27B, fabricated-paper abstention  · git `0c0abd8` · 2026-09-14
 
 **Generation model: `qwen3.8-27b`**, `egress=full` (the harder condition, as
 on 07-27), 900 s deadline, concurrency 1, the same frozen 100 items (80
@@ -1183,7 +1183,7 @@ Scorecard: `2026-09-14_abstention-c1-fabricated.json` (per-item verdicts,
 tool calls, `cited_in_corpus` lists; `egress` and `harness_note` backfilled
 from the launch log since `run_c1` does not stamp them).
 
-## Track C2b re-run on Qwen3.8-27B, paired shadow corpus, plus risk-coverage  · git `cd226aa` · 2026-09-15
+## Track C2b re-run on Qwen3.8-27B, paired shadow corpus, plus risk-coverage  · git `52c192a` · 2026-09-15
 
 **Generation model: `qwen3.8-27b`**, both arms `egress=off`, 900 s, concurrency
 1, the same frozen 50 questions (`c2_questions.json`, seed 42, 49 source DOIs,
@@ -1198,7 +1198,7 @@ the 07-27 pair ran. A shadow that swapped only `PAPERS_COLLECTION`, which is
 what the retired `docker-compose.shadow.yml` did, would have let the absent
 arm read the removed papers' chunks and measured nothing. The shadow instance
 is now an `extends` of the production service with exactly two overrides
-(`cd226aa`); `docker compose config` verified parity in every other variable
+(`52c192a`); `docker compose config` verified parity in every other variable
 and mount. Five sampled source papers were found on :8080 and absent on :8081
 before launch.
 
@@ -1264,7 +1264,7 @@ Scorecards: `2026-09-15_abstention-c2-shadow.json` (three CIs per rate,
 question-paired delta vs 07-27, `harness_note` backfilled),
 `2026-09-15_risk-coverage.{json,md}`.
 
-## Track D agentic arm at `egress=off` on Qwen3.8-27B (corpus-only harness)  · git `3be8308` · 2026-09-15
+## Track D agentic arm at `egress=off` on Qwen3.8-27B (corpus-only harness)  · git `06bf0d4` · 2026-09-15
 
 The paper writer asked for an agentic ablation arm at `egress=off` and found,
 correctly, that none existed: every Track D agentic arm had run at
@@ -1325,7 +1325,7 @@ Scorecards: `2026-09-15_harness-ablation-agentic-egressoff.json` (track
 `harness-ablation-agentic-egressoff`, per-arm + paired deltas + the full→off
 transitions), `2026-09-15_toolreliability-qwen38-egressoff_toolreliability.json`.
 
-## Third backbone: gpt-oss-20b, full generation suite on an eval-only instance  · git `c6c56a7` · 2026-09-16
+## Third backbone: gpt-oss-20b, full generation suite on an eval-only instance  · git `ad46d05` · 2026-09-16
 
 **Why.** Every number in this file was on one model family, and the paper's
 central claim is about the harness, not the backbone. `openai/gpt-oss-20b`
@@ -1469,11 +1469,11 @@ answerable base is smaller because the present arm is weaker.
   Track D 1 h 50, C1 1 h 05, answer track 1 h 40, C2b 1 h 12, faithfulness on
   CPU 5 min, derived 48 min. One human intervention: the driver's TP=2
   restore raced `vllm-service start` against the completing single-GPU job and
-  production was down from 06:03 until 08:03; fixed in `c6c56a7`.
+  production was down from 06:03 until 08:03; fixed in `ad46d05`.
 - The harness carries one gpt-oss-shaped repair (`repair_tool_name`) beside
   its Qwen-shaped ones. The paper says so.
 
-## Faithfulness recapture with the complete evidence set, Qwen3.8 and gpt-oss-20b  · git `1380524` · 2026-09-16/17
+## Faithfulness recapture with the complete evidence set, Qwen3.8 and gpt-oss-20b  · git `c95d849` · 2026-09-16/17
 
 **Why.** The Track B capture's `RETRIEVAL_TOOLS` predated the search ladder
 and the grounded read stage, so `search` and `source` results (and the
@@ -1535,7 +1535,7 @@ next section brings that checkpoint back on an eval instance and gives it a
 complete-context number (agentic 0.627). Wall-clock: Qwen3.8 arm 6 h, judge 5 h; gpt-oss arm 1 h 40, judge
 3 h 45; two production restarts (single at 18:34 UTC, TP=2 back at 00:04).
 
-## Retired backbone re-run: Qwen3.6-35B-A3B, full generation suite on an eval-only instance  · git `556b305` · 2026-09-17/18
+## Retired backbone re-run: Qwen3.6-35B-A3B, full generation suite on an eval-only instance  · git `6983e86` · 2026-09-17/18
 
 **Why.** Every Qwen3.6 number above is from July: a harness two months older
 (16 `backend/retrieval/` commits before 08-26 alone, then the search ladder,
@@ -1567,12 +1567,12 @@ window). Profile: `backend/config/models/qwen3.6-35b-a3b.env`.
 **What the harness needed before this model would run.** Two gates, both
 about thinking. The instance `completion` gate probed with 64 tokens and
 reasoning on; Qwen3.6 spent all 64 inside `<think>` and returned empty
-content, failing a gate meant to catch a dead server (`8dcf66d`: probe with
+content, failing a gate meant to catch a dead server (`a461ffb`: probe with
 the profile's thinking-off form and 512 tokens). The smoke gate failed on one
 bare answer in 20 that ran the 16,384-token budget out: with no effort dial
 this model truncates about 5% of bare prompts in smoke (2 of 199 in the full
 run), which is a per-arm finding (`empty_kind=truncated`) rather than a
-harness defect (`556b305`: the gate fails above 10%, not at one). No parser
+harness defect (`6983e86`: the gate fails above 10%, not at one). No parser
 or scorer repair was needed: `qwen3_xml` produced 0 malformed tool names and
 0 markup leaks across the 3,549 calls of the two agentic arms.
 
@@ -1647,7 +1647,7 @@ per query, error 0.016, recovery 1.000; `web_search` (171) and
 47 with 10 errors. Without the web the model searches the corpus about twice
 as hard (1,329 `search` against 597 at `full`).
 
-### The gpt-oss-20b arm at `egress=off`, n=199  · git `cb8faa5` · 2026-09-17
+### The gpt-oss-20b arm at `egress=off`, n=199  · git `981fdc1` · 2026-09-17
 
 Run in the same chain, before the Qwen3.6 suite, to fill the same cell on the
 third backbone (`ablation_runs/gpt-oss-20b-egressoff/`; bare and RAG copied
@@ -1676,7 +1676,7 @@ halves, and the corpus-only half is the one that vanishes. T11 at `off`:
 (2 of 57 failing queries not recovered, the first sub-1.000 recovery on any
 arm); `search` 1,251 calls with 55 errors, and 5 calls to tool names the
 repair did not catch (`searchjson` x3, `search.json`, `finish_output`). The
-full − off delta here pairs the 09-16 `full` arm (git `6ad5c26`) with a
+full − off delta here pairs the 09-16 `full` arm (git `604e550`) with a
 09-17 `off` arm one day and one driver commit later; clean enough.
 
 ### Standalone LitQA2 answer track (n=199, 900 s, `egress=full`)
@@ -1793,12 +1793,12 @@ of the claims traceable to a passage the model read. The RAG arms agree
 - This is the July checkpoint on the September harness; against the 07-27
   numbers the backbone is held fixed and the harness moves, the reverse of
   the 08-26 comparison. Against Qwen3.8 and gpt-oss the harness commit is
-  within a day (`556b305` vs `cb8faa5` for the gpt-oss `off` arm; the
-  Qwen3.8 09-16 recapture is `1380524`).
+  within a day (`6983e86` vs `981fdc1` for the gpt-oss `off` arm; the
+  Qwen3.8 09-16 recapture is `c95d849`).
 - Every track at concurrency 1 on a GPU nobody else used; the cost columns
   are clean. 0 Brave 402/429 responses during the suite.
 - Wall-clock: smoke 1 h (the first pass failed the bare-truncation gate and
-  is what produced `556b305`), Track D 5 h 02 (bare 52 min, RAG 29 min,
+  is what produced `6983e86`), Track D 5 h 02 (bare 52 min, RAG 29 min,
   agentic 3 h 42), `egress=off` arm 3 h 00, C1 3 h 06, answer track 4 h 02,
   C2b 2 h 25, faithfulness on CPU 5 h 47, derived 1 h 20 (the routing tier
   is 136 chats), teardown 2 min: about 26 h of instance time. **One
@@ -1808,7 +1808,7 @@ of the claims traceable to a passage the model read. The RAG arms agree
   `deploy.sh instance refresh eval` / `refresh eval-shadow` (all gates PASS
   on both); re-running the same driver command skipped phases 0 to 3d on
   their markers, re-scored the smoke phase from its captures (now PASS under
-  `556b305`) and ran 3e, 3f and the teardown. The re-scored smoke scorecard
+  `6983e86`) and ran 3e, 3f and the teardown. The re-scored smoke scorecard
   picked up the driver's default `gpu_mem_util=0.80` in its provenance;
   corrected by hand to the 0.88 the instance ran at. Production was back on
   TP=2 at 19:13 (job 1009).

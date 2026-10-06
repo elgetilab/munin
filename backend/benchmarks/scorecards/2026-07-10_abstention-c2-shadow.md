@@ -1,7 +1,7 @@
 # Scorecard — Track C2b paired abstention (shadow corpus)
 
 - generator: live MCQ answer track, research persona | 50 single-source-DOI LitQA2
-  questions | 2026-07-10 | git `dd26724`
+  questions | 2026-07-10 | git `7c55d5c`
 - **PRESENT** arm: live corpus `papers_bge` (:8080) — source retrievable.
 - **ABSENT** arm: shadow `papers_shadow` (:8081) — the 49 source papers removed
   (verified: removed DOIs 0/12 in shadow top-20 vs 8/12 in live).

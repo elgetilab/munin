@@ -137,8 +137,8 @@ them. That is the durable lesson here, more than any individual fix:
 | claim | actual state |
 |---|---|
 | `500` "fixed in tree, pending deploy" (2026-06-10) | shipped since June. `main.py:64` has the module-scope import in repo and container. Stale for three months. |
-| hard-`410` on buffer overflow | fixed by `3bea54d`: resume consults the client checkpoint, not the latched `truncated` flag |
-| `GRACE_S` "60s before the turn is cancelled" | no longer cancels. `a27b4d2` made grace expiry **promote to background**; the turn completes and persists |
+| hard-`410` on buffer overflow | fixed by `9b78aec`: resume consults the client checkpoint, not the latched `truncated` flag |
+| `GRACE_S` "60s before the turn is cancelled" | no longer cancels. `b920d30` made grace expiry **promote to background**; the turn completes and persists |
 | windows "plausibly too short" | measured; neither loses work. See the follow-up table |
 
 **Browser half (2026-09-02): mostly already covered, audited rather
@@ -223,7 +223,7 @@ understates the real frequency.
      `resumeChat` already reloads rather than showing a banner.]**
    - `GRACE_S = 60.0` — only 60s of disconnect grace before the turn is
      cancelled.
-     **[STALE. `a27b4d2` made grace expiry promote the stream to
+     **[STALE. `b920d30` made grace expiry promote the stream to
      background instead: the turn keeps running, completes and
      persists. Cancellation now only happens at
      `MAX_BACKGROUND_PER_USER` or past `BACKGROUND_MAX_S`. A measured
@@ -231,7 +231,7 @@ understates the real frequency.
    - `MAX_LOG_EVENTS = 1000` — buffer overflow flips `truncated`, after
      which resume 410s even within the time window (long tool-heavy
      turns can exceed 1000 events).
-     **[STALE. `3bea54d` made resume consult the client's checkpoint
+     **[STALE. `9b78aec` made resume consult the client's checkpoint
      rather than the latched flag, so an overflow no longer refuses a
      client whose checkpoint is still retained.]**
 
@@ -265,7 +265,7 @@ gone/forbidden/unauthenticated behaviour.
 
 So green unit tests here mean "the building blocks work in isolation,"
 not "resume works for users." Confirmed via git history: as of writing,
-`stream_registry.py` has only its original feature commit (`410c9a5`),
+`stream_registry.py` has only its original feature commit (`ce816aa`),
 i.e. no later fix has landed, so the production failures run against the
 current code.
 
@@ -313,7 +313,7 @@ reader, so this does not get re-investigated:
   Neither window loses work:
 
   - **`GRACE_S` no longer cancels.** The description above is stale.
-    Commit `a27b4d2` made grace expiry *promote the stream to
+    Commit `b920d30` made grace expiry *promote the stream to
     background*, so the turn keeps running, completes and persists.
     Cancellation now only happens at `MAX_BACKGROUND_PER_USER` or past
     `BACKGROUND_MAX_S`. The 75s drop above recovered completely.
@@ -332,7 +332,7 @@ reader, so this does not get re-investigated:
   your last event, and is an artifact of how the probe chose its
   checkpoint rather than a finding. Replay from an earlier checkpoint
   is covered by the 964-event case above.)
-- [DONE 2026-09-02, via `3bea54d`] Make truncation degrade gracefully
+- [DONE 2026-09-02, via `9b78aec`] Make truncation degrade gracefully
   instead of hard-410. Resume now consults the client's checkpoint
   rather than the latched `truncated` flag, so an overflow no longer
   refuses a client whose checkpoint is still retained. Raising
@@ -404,13 +404,13 @@ disconnection, which is SHORTER than the 60s grace window. Any real
 blip on a long tool-heavy turn therefore landed past the buffer, and
 `can_resume_from()` honestly refused rather than replaying with a gap.
 
-I had marked this "largely addressed" by `3bea54d` when closing the
-entry. That was wrong: `3bea54d` helps a client still INSIDE the
+I had marked this "largely addressed" by `9b78aec` when closing the
+entry. That was wrong: `9b78aec` helps a client still INSIDE the
 1000-event window, and on the turns people actually want back, nobody
 is.
 
 **2. `streamChat`'s mid-stream 410 raised a banner claiming the work
-was gone.** That branch predates background turns. `a27b4d2` made
+was gone.** That branch predates background turns. `b920d30` made
 grace expiry PROMOTE the stream, so the turn finishes server-side and
 persists regardless of reconnection.
 
@@ -432,7 +432,7 @@ The reporting user's answers were all in `chat_store`, including a
 
 - `stream_registry.py`: `MAX_LOG_EVENTS` 1000 -> 20000, **plus a new
   `MAX_LOG_BYTES` of 8 MB**. Raising the count alone would repeat the
-  `96921b7` mistake of bounding a buffer in the wrong unit: token
+  `a72b1c7` mistake of bounding a buffer in the wrong unit: token
   events are a few hundred bytes, but one tool result or evidence
   passage can be orders of magnitude larger, so a count says nothing
   about memory. Eviction now runs until both bounds hold.

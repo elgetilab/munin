@@ -1,7 +1,7 @@
 # Cross-encoder re-rank: plan, with a validation gate first
 
 Status: **NOT BUILT. Superseded 2026-07-24 by the full-text triage** (commit
-`bfe7e14`), which is the alternative this document recommended. Kept for the
+`65833a0`), which is the alternative this document recommended. Kept for the
 measurement that ruled the cross-encoder out.
 
 The triage was validated the same way, against 16 papers whose real read outcome

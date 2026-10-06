@@ -74,7 +74,7 @@ KEEPALIVE_S = 15.0
 # resume could not work on exactly the long tool-heavy turns people most want
 # back. Three users hit this in six minutes before it was raised.
 #
-# The byte cap exists because raising the count alone is the bug from 96921b7
+# The byte cap exists because raising the count alone is the bug from a72b1c7
 # (chunk upserts sized by paper count rather than request bytes): a pure count
 # bound says nothing about memory. It stays as a backstop for a turn whose
 # payloads are unusually large.

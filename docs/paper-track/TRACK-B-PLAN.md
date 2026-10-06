@@ -120,7 +120,7 @@ contexts; aggregate to answer level.
   separation margin +0.945; a single-wrong-detail date-swap is a documented
   MiniCheck weak spot (reported, not gated). Model cached at
   `~/.cache/huggingface` (HF id `lytang/MiniCheck-Flan-T5-Large`); commit
-  `cb2e95c`.
+  `7f98a2f`.
 - **B2 - RAGTruth validation. GATE PASSED.** LLM-AggreFact is gated, so
   RAGTruth pulled ungated from the authors' GitHub
   (`faithfulness/ragtruth.py`, cached under `~/.cache/munin_bench_data`).
@@ -139,7 +139,7 @@ contexts; aggregate to answer level.
   (`scorecards/2026-07-08_faithfulness-agentic-live.{json,md}`):
   **% claims supported 0.378 [0.314, 0.442]** (length-robust headline), mean
   faithfulness 0.413, per-answer grounding median 0.39; 22.6 claims/answer,
-  82.5 contexts/answer. Commits `3b9b8b9` (code), plus the metric refinement
+  82.5 contexts/answer. Commits `cb38454` (code), plus the metric refinement
   below.
   - **Findings the smoke surfaced (the point of B3):** (a) pipeline works
     end-to-end with CIs; (b) `% fully supported` is length-confounded (-> 0 at

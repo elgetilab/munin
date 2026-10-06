@@ -1,7 +1,7 @@
 # Scope: deep_research vLLM 400 context-overflow (backend context budget)
 
 Status: **ALL THREE TIERS IMPLEMENTED + DEPLOYED.** Tier 1 + Tier 3 (commit
-7fad0f2): deep_research 0.69 -> 0.88, zero ctx errors. Tier 2 (commit fa707bb,
+1c670ee): deep_research 0.69 -> 0.88, zero ctx errors. Tier 2 (commit 266690b,
 deployed 2026-06-29): deep_research holds at 0.938, zero ctx errors, no
 regression; logic proven by unit + composed offline tests (a 50K-token fan-out
 prompt -> elide old result -> output budget 14.7K -> 16.4K). Direct prod log

@@ -94,7 +94,7 @@ in RESULTS.md).
 > "accuracy ~= recall -> ~0.73" projection did NOT hold. Method note: the answer
 > parser had a bug (dropped long-reasoning-then-abstain answers, truncated at
 > 180s, as "unparseable"); fixed with a hardened parser + 300s deadline + saved
-> text (commit 3630f13) before the final measurement.
+> text (commit fea4633) before the final measurement.
 
 ## Retire the old collection (after soak)
 

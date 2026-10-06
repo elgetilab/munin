@@ -231,7 +231,7 @@ endpoint and returns 0 results for a long natural-language question**:
 
 This was made worse by items 0 and 4 together: sharing one variant list meant S2
 received the natural-language variants, and the tightened expansion prompt made
-those variants longer and more sentence-like. Fixed in `7bbe985`: each tier now
+those variants longer and more sentence-like. Fixed in `aa7d566`: each tier now
 gets the query SHAPE its backend can match. Corpus (dense BGE) and Brave keep
 natural language; the OA tier gets `_keywordize`d content words. Relevance
 scoring still uses the natural-language variants, independent of what was sent.
@@ -272,7 +272,7 @@ Until the key question is resolved, the OA half of this work cannot be scored
 end to end. The ranking, gating and expansion changes are all in and unit-tested
 regardless, and they take effect the moment the tier returns candidates again.
 
-## Final verification (post-deploy of `7bbe985`, 2026-07-24)
+## Final verification (post-deploy of `aa7d566`, 2026-07-24)
 
 Three capstone sub-questions through the live `search` agent, paced to avoid
 self-inflicted S2 throttling.

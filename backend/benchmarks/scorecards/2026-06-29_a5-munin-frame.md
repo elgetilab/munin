@@ -1,7 +1,7 @@
 # Routing scorecard — a5-munin-frame
 
 - **PRE-MIGRATION regression baseline. Not a paper result.**
-- model: `unknown`  git: `5a9df63`  reps: 5  seed: 42
+- model: `unknown`  git: `050322f`  reps: 5  seed: 42
 - tier: `anchor`
 - persona policy: chat (A0 decision A; not expected.profile)
 - timestamp: 2026-06-29T12:57:33.005336+00:00

@@ -6,9 +6,9 @@ field fixes landed during the run: instance vLLM binds 0.0.0.0 and needs a
 ufw allow from 172.16.0.0/12 to its port; instances run at util 0.80 because
 GPU 0 carries 2.3 GiB of other processes. One post-run fix: the TP=2 restore
 raced `vllm-service start` against the completing job (production down
-06:03 to 08:03). Implemented 2026-09-15 (evening). Commits `54d4d1d`
-(bench autonomy), `1b79887` (model profiles, sampling migration, `/api/models`),
-`9bf13c4` (sudoers), `450aa1c` (instances + gates), `9cef413` (driver, shadow
+06:03 to 08:03). Implemented 2026-09-15 (evening). Commits `d46096f`
+(bench autonomy), `effa344` (model profiles, sampling migration, `/api/models`),
+`5900770` (sudoers), `e578f8b` (instances + gates), `dc7cae5` (driver, shadow
 corpus, per-track resume). What was built matches sections 2, 4 and 5 below
 with these naming differences: the driver is
 `backend/benchmarks/scripts/run_suite.sh <slug>`; instance state lives under
@@ -16,7 +16,7 @@ with these naming differences: the driver is
 `munin_bench.abstention.shadow_corpus`; the gates are
 `scripts/vllm/backbone_gates.py`; per-backbone scorecards carry a `-<slug>`
 suffix. Awaiting: the sudoers install (one root command), the deploy of
-`1b79887` to production (`deploy.sh vllm`, `retrieval`, `model activate
+`effa344` to production (`deploy.sh vllm`, `retrieval`, `model activate
 qwen3.8-27b`, `personas`), and the owner's TP=2 to single switch. Then
 `scripts/run_suite.sh gpt-oss-20b`. Supersedes two same-day drafts (parallel
 stack; full swap).
@@ -278,7 +278,7 @@ profile file says `single` (so the 6 AM cron would not bring TP=2 back).
 `vllm-service enable-24x7` so the 2 AM stop does not fire during the window;
 the driver records that it did this. Checkpoint present. `MUNIN_EVAL_EGRESS=full`.
 Disk ≥ 40 GB. Shadow collections: `papers_shadow` and `papers_chunks_shadow`
-rebuilt from snapshot + frozen `removed_dois` (the `e05bd8d` recipe) if
+rebuilt from snapshot + frozen `removed_dois` (the `2913f9b` recipe) if
 absent; leakage check = 0 on five sampled DOIs.
 
 **Phase 1, instances up.** `instance up gpt-oss-20b --name eval ...` and

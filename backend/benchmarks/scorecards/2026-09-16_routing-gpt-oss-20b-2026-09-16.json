@@ -2,7 +2,7 @@
   "header": {
     "tag": "routing-gpt-oss-20b-2026-09-16",
     "timestamp": "2026-09-16T06:02:33.879859+00:00",
-    "git_sha": "6e3aa53",
+    "git_sha": "39a1590",
     "model": "gpt-oss-20b",
     "persona_policy": "chat (A0 decision A; not expected.profile)",
     "base_url": "http://127.0.0.1:8082",

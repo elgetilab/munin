@@ -2,7 +2,7 @@
   "meta": {
     "tag": "answer-specter-v1",
     "generated_at": "2026-07-04T19:56:56.926568+00:00",
-    "git_sha": "426a311",
+    "git_sha": "a2f1c00",
     "encoder": "specter-v1",
     "seed": 42,
     "packages": {

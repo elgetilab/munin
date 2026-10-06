@@ -1,6 +1,6 @@
 # Scorecard — faithfulness-judge-validation (RAGTruth)
 
-- judge `MiniCheck-Flan-T5-Large` (<1B) | device `cpu` | git `cb2e95c` | seed 42
+- judge `MiniCheck-Flan-T5-Large` (<1B) | device `cpu` | git `7f98a2f` | seed 42
 - dataset RAGTruth test split (ungated GitHub); 120 responses, 20 per
   (task_type × grounded/hallucinated) cell | threshold 0.5 | ~35 min CPU
 

@@ -2,7 +2,7 @@
   "header": {
     "tag": "a5-deepresearch-tier2",
     "timestamp": "2026-06-29T11:30:03.937705+00:00",
-    "git_sha": "fa707bb",
+    "git_sha": "266690b",
     "model": "unknown",
     "persona_policy": "chat (A0 decision A; not expected.profile)",
     "base_url": "http://127.0.0.1:8080",

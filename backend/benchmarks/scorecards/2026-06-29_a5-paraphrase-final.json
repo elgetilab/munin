@@ -2,7 +2,7 @@
   "header": {
     "tag": "a5-paraphrase-final",
     "timestamp": "2026-06-29T10:33:36.670950+00:00",
-    "git_sha": "6e82be3",
+    "git_sha": "d0092c5",
     "model": "unknown",
     "persona_policy": "chat (A0 decision A; not expected.profile)",
     "base_url": "http://127.0.0.1:8080",

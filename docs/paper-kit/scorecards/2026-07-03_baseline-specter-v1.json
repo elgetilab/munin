@@ -2,7 +2,7 @@
   "meta": {
     "tag": "baseline-specter-v1",
     "generated_at": "2026-07-03T08:58:11.946690+00:00",
-    "git_sha": "77b6a21",
+    "git_sha": "dc57e46",
     "encoder": "specter-v1",
     "seed": 42,
     "packages": {

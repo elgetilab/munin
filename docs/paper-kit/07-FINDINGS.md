@@ -411,7 +411,7 @@ the headline run (45% on Qwen3.6 under a looser definition that counted
 anti-bot interstitials as content), dominated by publisher datacenter-IP walls
 (one major publisher is a hard block that is unfixable at the fetch layer) and
 burst rate-limiting. Retry-with-backoff recovers the transient share; reading
-PMC through NCBI's efetch API instead of the blocking page (`fd559c9`, after
+PMC through NCBI's efetch API instead of the blocking page (`248a419`, after
 the run) lifted the ok rate on 24 real search URLs 0.50 → 0.71, and with it
 in place `web_fetch` errors at 0.40 (Qwen3.6, 208 calls) and 0.44 (Qwen3.8
 recapture, 103 calls), the paywall rate of the pages the models pick. Corpus
@@ -574,7 +574,7 @@ makes the failure structurally impossible or that detects it after the fact.
 - **Qwen3.8 emits malformed tool arguments where Qwen3.6 does not.** `search`
   went from 0 errors in 90 calls to 11 in 90 across the swap, every one an
   argument *type* (`top_k="5"`, `top_k=5.0`, `filters="year:2023"`). The
-  executor now coerces arguments against the declared schema (`fd559c9`), and
+  executor now coerces arguments against the declared schema (`248a419`), and
   on the current harness the contrast persists in a different shape: Qwen3.8
   `search` error 0.231 (a `queries` list or an empty query, each followed by
   a corrected call) against Qwen3.6's 0.005 in 597 calls, one day apart. A

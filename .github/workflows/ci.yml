@@ -102,6 +102,12 @@ jobs:
     continue-on-error: ${{ matrix.os == 'ubuntu-26.04' }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # the commit-reference check needs the history
+      - name: Every commit a scorecard or the paper cites is in the history
+        # The history was rewritten before release, which changed every hash;
+        # this fails as soon as a cited commit no longer resolves.
+        run: python3 backend/scripts/ci/check_commit_refs.py
       - name: Compose config resolves, and the invariants hold
         # Cheap (no images pulled) and guards the properties the whole
         # single-host setup rests on: cluster defaults stay production, local

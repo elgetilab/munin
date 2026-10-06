@@ -2,7 +2,7 @@
   "meta": {
     "tag": "gpt-oss-20b",
     "generated_at": "2026-09-16T01:11:56.397301+00:00",
-    "git_sha": "6ad5c26",
+    "git_sha": "604e550",
     "encoder": "specter-v1",
     "seed": 42,
     "packages": {

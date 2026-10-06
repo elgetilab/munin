@@ -3,13 +3,13 @@
 > **Historical (2026-07).** T1a was deployed and measured: null for grounding, so the T1b/T1c track was stopped (outcome section below).
 
 Status: PLAN 2026-07-09. Lift answer grounding (Track B % claims supported ~0.35)
-by making retrieved evidence richer + more citable. Refocused after `329c150`
+by making retrieved evidence richer + more citable. Refocused after `46348a8`
 already fixed context OVERFLOW - T1 is now about grounding QUALITY, not 400s.
 
 ## Deploy/measure constraint
 
 T1 is retrieval CODE (papers.py, tool_result.py). Needs `deploy.sh retrieval`
-(varghele), which now bundles `329c150` + T3 + T1 as one retrieval deploy. Measure
+(varghele), which now bundles `46348a8` + T3 + T1 as one retrieval deploy. Measure
 via the Track B agentic arm (re-capture + GPU score) vs the 0.356 baseline
 (pre-T2 deep-default; the current live baseline once research 1.5 redeploys).
 Benchmark-only otherwise; no self-deploy.
@@ -22,7 +22,7 @@ Benchmark-only otherwise; no self-deploy.
 - `truncate_tool_result` (`tool_result.py`, limit 8000) Tier 2 drops WHOLE
   trailing list items (keeps earlier ones full); Tier 3 wraps a too-big single
   item as a preview. So bigger per-item rows (with excerpts) => fewer papers fit.
-- `329c150` added the pending-result overflow degrade in chat_context - leave it.
+- `46348a8` added the pending-result overflow degrade in chat_context - leave it.
 
 ## T1a - paper_search excerpt  [LOW risk, high leverage] - IMPLEMENT NOW
 
@@ -39,7 +39,7 @@ results include a short excerpt. Default excerpt 280 chars.
 
 Instead of DROPPING trailing papers, SHRINK each item's long text fields
 (abstract/excerpt/snippet) so more papers survive with a shorter excerpt each.
-Touches the shared truncater used by ALL tools and interacts with `329c150`'s
+Touches the shared truncater used by ALL tools and interacts with `46348a8`'s
 chat_context degrade - coordinate. Gate: no regression in other tools' results.
 
 ## T1c - structured sub-agent / deep_research returns  [MED-HIGH risk] - PLAN, needs go

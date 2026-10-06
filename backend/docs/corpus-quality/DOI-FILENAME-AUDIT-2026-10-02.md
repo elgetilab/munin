@@ -1,6 +1,6 @@
 # DOI filename audit, 2026-10-02
 
-Read-only audit by `scripts/pipeline/audit_doi_filenames.py` (commit 47d3751).
+Read-only audit by `scripts/pipeline/audit_doi_filenames.py` (commit f396599).
 `doi_*.pdf` filenames map `/` and `:` to `_`; until 2026-10 the decoder restored
 only the first `_` and its result overrode GROBID's DOI, so papers were keyed to
 DOIs that do not exist (`10.1093/molehr_3.5.431` for `10.1093/molehr/3.5.431`).

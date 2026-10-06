@@ -62,9 +62,9 @@ Source chat `d28ef78e` ("code me a pong game"). Findings worth keeping so
 they aren't re-investigated:
 
 - **Fixed (deterministic, committed):** HTML artifact downloaded as
-  `.txt` (`e22d1a4`); no "working" spinner while the model wrote an
-  artifact (`6618045`); 3× same-title `create_artifact` in one response
-  → redundant artifacts (`eff7ee3`).
+  `.txt` (`ac30095`); no "working" spinner while the model wrote an
+  artifact (`be93620`); 3× same-title `create_artifact` in one response
+  → redundant artifacts (`d53fec1`).
 - **NOT a bug:** "ask_clarification should drop sibling tool calls" — it
   already does. The intercept (`chat_service.py` ~2293) returns before
   the single `_run_tool_calls` site; the pong artifacts ran in an

@@ -47,11 +47,11 @@ two-sided paired bootstrap unless stated.
 
 199 paired in-corpus LitQA2 questions, three arms, concurrency 1,
 `egress=full`, BGE-large encoder, finished agent architecture, all arms at
-`max_tokens=16,384`. **Headline run: Qwen3.8-27B, git `3e0bcfb`, 2026-08-26.**
-Second backbone: Qwen3.6-35B-A3B, **git `556b305`, 2026-09-17**, the retired
+`max_tokens=16,384`. **Headline run: Qwen3.8-27B, git `df14dff`, 2026-08-26.**
+Second backbone: Qwen3.6-35B-A3B, **git `6983e86`, 2026-09-17**, the retired
 checkpoint brought back as an eval-only instance (single GPU,
 `--max-num-seqs 2`, `qwen3_xml` tool parser, thinking on, Qwen's sampling
-set) and run under the same protocol; its July run (git `9c476b8`,
+set) and run under the same protocol; its July run (git `ac7c3ef`,
 2026-07-27, bare arm at 4,096 tokens) is kept below it.
 
 | Arm | Backbone | Accuracy | Precision of attempted | Abstain | Unparseable | Wall-clock | Tool calls |
@@ -101,7 +101,7 @@ per-question arrays no longer exist), nine questions, inside the marginal
 CIs.
 
 **Third backbone, gpt-oss-20b (`openai/gpt-oss-20b`, 21B MoE, 3.6B active,
-native MXFP4), 2026-09-16, git `c6c56a7`.** Same 199 questions and arms,
+native MXFP4), 2026-09-16, git `ad46d05`.** Same 199 questions and arms,
 `max_tokens=16,384`, 900 s, `egress=full`, concurrency 1; served on its own
 GPU (Marlin MXFP4 kernel, `--max-num-seqs 2`, `reasoning_effort=medium`,
 sampling `temperature 1.0, top_p 1.0` per OpenAI's recommendation).
@@ -631,7 +631,7 @@ system.
 
 ### R4.1 BEIR / SciFact, external validity anchor
 
-300 queries, 5,183 docs. **SPECTER-v1 era.** Git `eb1cf73`, 2026-06-29.
+300 queries, 5,183 docs. **SPECTER-v1 era.** Git `837d28f`, 2026-06-29.
 
 | Retriever | nDCG@10 | 95% CI | Note |
 |---|---|---|---|
@@ -661,7 +661,7 @@ Scorecards: `2026-07-28_litsearch.json` (post-fix, canonical),
 
 ### R4.3 LitQA2 retrieval, SPECTER-v1 baseline
 
-199 in-corpus questions, retrieve depth 20. Git `360367d`, 2026-07-01.
+199 in-corpus questions, retrieve depth 20. Git `d82284c`, 2026-07-01.
 
 | Metric | AgentRetriever (production) | SPECTER-dense | Citation re-rank |
 |---|---|---|---|
@@ -676,7 +676,7 @@ Multi-query fan-out does **not** beat single-query dense (Recall@10 p = 0.71).
 
 BGE-large re-embed of all 68k papers (`papers_bge`, 1024d), LitQA2 retrieval
 over the full corpus, paired bootstrap against the committed SPECTER baseline
-on the same 199 questions. Git `bc35b4d`, 2026-07-03.
+on the same 199 questions. Git `e41f638`, 2026-07-03.
 
 | System | Metric | SPECTER-v1 | BGE-large | Δ (p) |
 |---|---|---|---|---|
@@ -721,7 +721,7 @@ did on Qwen3.6.** Question-paired, standalone track − ablation arm on Qwen3.8:
 **+0.010 [−0.035, +0.055], p = 0.73**, 175 of 199 verdicts identical, the 24
 flips symmetric. On Qwen3.6 the pair was 0.864 vs 0.839. Either number can
 stand for the harness on LitQA2 provided the protocol is named. Note that 26
-harness commits landed between the ablation run (`3e0bcfb`) and the standalone
+harness commits landed between the ablation run (`df14dff`) and the standalone
 run (search ladder, grounded read stage, evidence mode, two new tools), so
 the 0.010 is protocol plus harness drift and is still inside the noise.
 Cross-backbone on the standalone track, Qwen3.8 − Qwen3.6 (07-24): +0.020
@@ -850,7 +850,7 @@ Per tool, Qwen3.6 (07-27):
 clean comparisons. **The aggregate error and degraded rates are not**, and the
 two tools that drive them have to be read separately:
 
-- **`web_fetch` 0.453 → 0.678 is not a valid comparison.** Commit `2ff9aef`
+- **`web_fetch` 0.453 → 0.678 is not a valid comparison.** Commit `a6de9cc`
   (2026-08-03) landed between the runs and changed what counts as a failure:
   an anti-bot interstitial is now an error, where before it was summarised and
   returned as content. On 07-27 those pages were counted as successes, so
@@ -862,7 +862,7 @@ two tools that drive them have to be read separately:
   (`top_k="5"`, `top_k=5.0`, `filters="year:2023"`). Qwen3.8 emits mistyped
   tool arguments where Qwen3.6 did not.
 
-Both causes were fixed after the run (`fd559c9`, 2026-08-27: schema-driven
+Both causes were fixed after the run (`248a419`, 2026-08-27: schema-driven
 argument coercion in the executor; `web_fetch` reads PMC via NCBI efetch).
 These figures therefore describe the tool layer **during the comparison**, not
 as shipped. `update_plan_item` failed both of its 2 calls, too few to read.
