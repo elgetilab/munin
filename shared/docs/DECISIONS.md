@@ -197,7 +197,7 @@ The general rule this encodes: when a migration completes, move the
 defaults, do not leave them pointing at the rollback. Secrets stay in
 cluster.env; topology should not.
 
-## 2026-07: background turns — registry is the source of truth, no DB status column
+## 2026-07: background turns - registry is the source of truth, no DB status column
 
 Chat turns now survive a closed tab: after the 60 s reconnect grace,
 the stream registry promotes a listenerless turn to *background*
@@ -210,7 +210,7 @@ the answer generates to completion and persists. Non-obvious choices:
   time. A durable status column was rejected: the registry and the
   chats API share a process, so the registry is always reachable when
   the question is asked, and a DB status would go stale exactly when
-  it matters — on process death the turn is dead anyway (SIGTERM runs
+  it matters - on process death the turn is dead anyway (SIGTERM runs
   the save-always persist) and a durable "generating" flag would lie
   forever. Deep Research keeps its `research_jobs.status` column
   because its jobs deliver into chats asynchronously; chat turns
@@ -219,7 +219,7 @@ the answer generates to completion and persists. Non-obvious choices:
   (`POST /api/chat/completions/{id}/cancel`). Before background
   turns, the Stop button only aborted the client fetch and silently
   relied on the grace timer to cancel 60 s later. Once grace expiry
-  promotes instead of cancels, closing the connection stops nothing —
+  promotes instead of cancels, closing the connection stops nothing -
   and as a side effect Stop is now immediate instead of delayed a
   minute.
 - **410 on resume is a reload signal, not an error.** The turn's
@@ -245,7 +245,7 @@ best-effort supplement. Why this shape:
   or access-denied from the cluster's IP (probe 2026-07-22). This is
   inherent to scraping consumer engines from a datacenter address, not
   tunable via UA/proxy settings. The "science" engines keep working
-  because they are APIs — which is the lesson.
+  because they are APIs - which is the lesson.
 - **Direct call, not SearXNG's `brave` engine.** SearXNG's built-in
   `brave` engine is an HTML scraper (dropped 2026-06-01 after months of
   "Suspended: too many requests"); it has no first-class engine for the
@@ -265,7 +265,7 @@ best-effort supplement. Why this shape:
   fully suspended; the TOOL FAILURE warning only fires when nothing
   keyed worked either. With `BRAVE_API_KEY` unset, behaviour is
   byte-identical to the old SearXNG-only path.
-- **Sovereignty:** web queries leave the cluster to Brave — the same
+- **Sovereignty:** web queries leave the cluster to Brave - the same
   trust boundary the scraper path already had. Brave is an independent
   index and EU-friendly, the most defensible of the keyed options.
 
@@ -317,14 +317,14 @@ Why delegation went, not just got disabled:
 A4a deleted the machinery (intercept, rewind, budget, `delegated`/
 `persona_changed` SSE, the `DELEGATION_ENABLED` flag, `delegate_to_persona`
 from CORE/registry). `backend/scripts/test_delegate_persona.py` is retired
-(stub) — its replacement is the routing eval
+(stub) - its replacement is the routing eval
 (`backend/benchmarks/munin_bench/routing/`).
 
 **Deliberate trade-off (A4b):** the per-persona `tool_allowlist` was a HARD
 boundary (research literally could not run_python). The router relaxes it:
 profiles bias tool *usage* via the prompt fragment + a soft `resident_tools`
 surfacing set, but any tool is reachable. If a specific tool ever needs a hard
-wall, add an explicit per-tool guard — do NOT resurrect allowlists.
+wall, add an explicit per-tool guard - do NOT resurrect allowlists.
 
 ## 2026-05-25: SSE reconnect decouples listener from work, reshapes P0 #2
 
@@ -347,7 +347,7 @@ this feasible was decoupling the HTTP listener from the work:
 dropped. P1 #10 replaces that with a **grace timer**: on detach,
 start a 60 s window; reattach during the window keeps the work
 running; only if grace expires does the cascade fire. So a brief
-disconnect no longer kills the turn — but a truly abandoned stream
+disconnect no longer kills the turn - but a truly abandoned stream
 still frees its vLLM slot, which was P0 #2's whole point.
 
 Choices worth recording:
@@ -358,7 +358,7 @@ Choices worth recording:
   header on resume.
 - **In-memory buffer, bounded at 1000 events.** Overflow flips a
   `truncated` flag; subsequent resumes return 410 rather than
-  silently skipping events. No disk persistence — a retrieval
+  silently skipping events. No disk persistence - a retrieval
   restart legitimately loses in-flight streams.
   *Superseded (2026-10): the buffer is now capped at 100000 events and
   8 MiB (`MAX_LOG_EVENTS` / `MAX_LOG_BYTES` in
@@ -390,7 +390,7 @@ cannot read it. So there is no *automatic* proxy-level cutover (Caddy
 serving a maintenance page for every route based on the flag). The
 static maintenance page is the API-driven fallback for the normal case
 (retrieval up, vLLM/Miro down). A full Caddy-level cutover would need a
-separate VPS-side flag — deliberately left out of scope.
+separate VPS-side flag - deliberately left out of scope.
 
 **Why a file, not an env var or DB row:** a file is trivially
 toggled by a root shell script, needs no service restart (an env var
@@ -413,7 +413,7 @@ Decision: `deploy.sh::stage_qwen_tokenizer` copies just
 dedicated `/opt/munin/data/models/qwen-tokenizer/` dir, and
 docker-compose bind-mounts *that* read-only into the container as
 `/models/qwen`. The container sees exactly the files it needs and none
-of the weights ("correct blast radius" — rejected the simpler
+of the weights ("correct blast radius" - rejected the simpler
 whole-model-dir mount for this reason).
 
 **Invariants:**
@@ -435,7 +435,7 @@ the active model profile (see "2026-09: the backbone is one file"), so
 there is no longer a second place to keep in sync.*
 - The heuristic fallback undercounts code / LaTeX / JSON by 1.5-2x.
   That is the *old* behaviour, so a missing tokenizer is a graceful
-  degradation, not a regression — but it does mean oversized prompts
+  degradation, not a regression - but it does mean oversized prompts
   can still slip past the budget until the tokenizer is in place.
 
 ## 2026-05-19: P0 reliability batch (audit closeout)
@@ -485,7 +485,7 @@ obvious from the diff.
   disconnect). Without `shield`, that cancellation can truncate the
   `chat_store.add_message` mid-row. Shielding lets the inner
   coroutine complete in the background even when our await is
-  cancelled — the request is already lost, but the row lands.
+  cancelled - the request is already lost, but the row lands.
 
 - **500ms disconnect watchdog, not per-event polling**
   (`main.py::_watch_disconnect`). The audit's "minutes" symptom was a

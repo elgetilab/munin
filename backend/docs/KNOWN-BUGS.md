@@ -1,4 +1,4 @@
-# Known Bugs — backend (cluster)
+# Known Bugs - backend (cluster)
 
 Running list of confirmed bugs that are not yet fixed. Each entry
 should carry enough detail (symptom, root cause, file references) to

@@ -159,7 +159,7 @@ Polled by the frontend's `useStatus` hook every 60 s.
 ```
 
 When maintenance mode is on, the `maintenance` block instead reads
-`{"active": true, "message": "...", "since": "<ISO8601>"}` — `message`
+`{"active": true, "message": "...", "since": "<ISO8601>"}` - `message`
 is operator-set (may be empty), `since` is when it was switched on.
 
 Notes:
@@ -385,7 +385,7 @@ Loads a full conversation with messages in order.
   "active_stream": {"stream_id": "abc123...", "done": false, "last_seq": 41}
   ```
 
-  `done: false` means a turn is still generating — the client should
+  `done: false` means a turn is still generating - the client should
   re-attach via §4.8a with **no** `Last-Event-ID` so the full log
   replays (the transcript above only contains persisted turns).
   `done: true` means the turn completed within the ~60 s retention
@@ -606,7 +606,7 @@ error passes through with its own status and body.
 `id: <stream_id>-<seq>` line where `seq` is a monotonic per-stream
 integer starting at 1. The first `conversation` event's payload also
 carries `stream_id` so the client can persist it (the webui uses
-localStorage — moved from sessionStorage for background turns, so the
+localStorage - moved from sessionStorage for background turns, so the
 pointer survives a closed tab) and resume across a refresh or reopen.
 SSE comments (`: keepalive`) fire every ~15 s of silence so reverse
 proxies don't drop idle connections.
@@ -629,7 +629,7 @@ Listeners are refcounted (two tabs can watch one stream); the grace
 timer only engages when the count hits zero. Bounds:
 
 - at most **2 concurrent background streams per user**
-  (`MAX_BACKGROUND_PER_USER`) — at the cap, grace expiry cancels the
+  (`MAX_BACKGROUND_PER_USER`) - at the cap, grace expiry cancels the
   newest candidate exactly as it did pre-background-turns;
 - a listenerless stream is hard-cancelled **30 min after it started**
   (`BACKGROUND_MAX_S`), a runaway guard on top of the tool-turn
@@ -637,12 +637,12 @@ timer only engages when the count hits zero. Bounds:
 
 Cancellation (Stop button, cap fallback, runaway guard) still runs
 the P0 #2 cascade and the save-always finally persists partial state.
-Explicit cancellation is §4.8b — closing the connection alone stops
+Explicit cancellation is §4.8b - closing the connection alone stops
 nothing.
 
 **Responses**:
 
-- `200` with an SSE body — same wire format as the POST. Replayed
+- `200` with an SSE body - same wire format as the POST. Replayed
   events arrive in `seq` order, then live events follow.
 - `410 Gone`: the stream is unknown, evicted (kept ~60 s after
   completion), or its replay log overflowed past the client's
@@ -650,14 +650,14 @@ nothing.
   `MAX_LOG_EVENTS` / `MAX_LOG_BYTES` in `stream_registry.py`). Because the turn's outcome is persisted
   regardless, the webui treats this as "reload the transcript"
   (synthetic `stream_gone` event, §5), not as an error.
-- `403 Forbidden` — `X-Munin-Email` does not match the stream's
+- `403 Forbidden` - `X-Munin-Email` does not match the stream's
   owner. Stream ids are UUIDs so this shouldn't happen organically;
   it's a belt-and-braces check.
 
 Note for proxies: this GET has no body, so gateways that detect
 streaming by a `stream: true` body flag must also honour
 `Accept: text/event-stream` (the VPS gateway does since background
-turns Phase B) — otherwise the resumed stream gets buffered to
+turns Phase B) - otherwise the resumed stream gets buffered to
 completion.
 
 ### 4.8b `POST /api/chat/completions/{stream_id}/cancel`
@@ -674,10 +674,10 @@ e.g. service shutdown).
 
 **Responses**:
 
-- `204 No Content` — cancellation signalled, or the stream had
+- `204 No Content` - cancellation signalled, or the stream had
   already finished (no-op).
-- `410 Gone` — unknown or evicted stream id.
-- `403 Forbidden` — `X-Munin-Email` does not match the stream's
+- `410 Gone` - unknown or evicted stream id.
+- `403 Forbidden` - `X-Munin-Email` does not match the stream's
   owner.
 
 ### 4.9 `POST /api/documents/upload`
@@ -857,7 +857,7 @@ HTTP call.
 
 ### 4.11e `DELETE /api/chats/{cid}/plan` (P2 #24 Phase 1)
 
-Drops the plan row entirely. Returns `{"deleted": true|false}` —
+Drops the plan row entirely. Returns `{"deleted": true|false}` -
 idempotent: `false` simply means there was nothing to delete.
 
 ### 4.11f `POST /api/chats/{cid}/plan/approve` (P2 #24 Phase 2)
@@ -865,10 +865,10 @@ idempotent: `false` simply means there was nothing to delete.
 Marks the plan approved with the supplied mode. Body:
 `{"mode": "each" | "auto"}` (default `"each"`).
 
-- `mode="each"` — one approval = one gated tool call. The
+- `mode="each"` - one approval = one gated tool call. The
   `postToolUse` hook clears `approved_at` after the next gated
   dispatch so subsequent calls re-trigger the gate.
-- `mode="auto"` — the approval persists across all subsequent
+- `mode="auto"` - the approval persists across all subsequent
   gated calls until the plan is replaced (`set_plan` resets the
   approval state to `(False, NULL, 'each')`) or the user revokes
   (POST `/approve` again with `mode="each"`).
@@ -882,7 +882,7 @@ freshly-approved plan. **400** with the standard error envelope on
 Deletes the plan row. The user is expected to type a follow-up
 message describing the new direction; the model's next turn will
 see no plan block and recover naturally. **No** synthetic system
-message is injected — the user-driven follow-up is the recovery
+message is injected - the user-driven follow-up is the recovery
 signal.
 
 **Response (200)**: `{"rejected": true, "deleted": true|false}`.
@@ -1366,7 +1366,7 @@ descending. Empty arrays are returned (not 404) when a family has no
 entries yet.
 
 `contributors` is the `#@username` mention list, so it contains **only**
-contributors that have a `username` set — it is deliberately a subset and
+contributors that have a `username` set - it is deliberately a subset and
 not a contributor headcount. `contributor_count` is the distinct number of
 contributors (by `contributors[].email`) with at least one paper in the
 KB; this is what the knowledge overview's "Contributors" stat shows.
@@ -1450,7 +1450,7 @@ are called by the frontend with session auth, unlike
 `POST /api/admin/ingest`, which is token-auth from the VPS hook
 service.
 
-**`POST /api/admin/metrics/query`** — instant query.
+**`POST /api/admin/metrics/query`** - instant query.
 
 ```json
 {"query": "<promql>", "time": "<rfc3339>"}
@@ -1459,7 +1459,7 @@ service.
 `time` is optional. Returns Prometheus's raw response body verbatim,
 so the shape is Prometheus's, not ours.
 
-**`POST /api/admin/metrics/query_range`** — range query.
+**`POST /api/admin/metrics/query_range`** - range query.
 
 ```json
 {"query": "<promql>", "start": "<rfc3339>", "end": "<rfc3339>", "step": "15s"}
@@ -1629,11 +1629,11 @@ data: <minified json>
 | `agent_tool_result` | `{"id": "atc-1", "name": "paper_search", "result": {...}, "duration_ms": 42}` | Paired with `agent_tool_call` by id |
 | `agent_done` | `{"agent": "...", "tool_calls": 8, "duration_seconds": 34, "stopped_reason": "done"}` | When the agent returns. `stopped_reason` ∈ `done`/`max_iterations`/`max_tool_calls`/`timeout`/`error` |
 | `token` | `{"content": "partial response text"}` | Many. Accumulate into the visible answer. Sourced from vLLM `delta.content` |
-| `done` | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}, "usage_by_purpose": {"main_turn": {...}, "wrap_up": {...}, ...}, "finish_reason": "stop", "terminal_reason": "done"}` | Always the last event on success. `usage` is the **aggregate across every vLLM call this turn**, not just the last one — the gateway records `total_tokens` from here for quota. `usage_by_purpose` is the same numbers broken down by call site for debugging: `main_turn`, `wrap_up`, `forced_clarification`, `forced_required`, `agent_turn`, `agent_wrap_up`, `summary`, `title`. Purposes with zero calls are omitted. `terminal_reason` ∈ `done` / `max_turns` / `stream_error` / `cancelled` — distinct from `finish_reason` (which is `stop` even after the turn-budget wrap-up). The frontend uses `terminal_reason == "max_turns"` to render a **Continue** affordance so the user can resume a task that hit its (auto-extended) tool-use budget without retyping "keep going" |
+| `done` | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}, "usage_by_purpose": {"main_turn": {...}, "wrap_up": {...}, ...}, "finish_reason": "stop", "terminal_reason": "done"}` | Always the last event on success. `usage` is the **aggregate across every vLLM call this turn**, not just the last one - the gateway records `total_tokens` from here for quota. `usage_by_purpose` is the same numbers broken down by call site for debugging: `main_turn`, `wrap_up`, `forced_clarification`, `forced_required`, `agent_turn`, `agent_wrap_up`, `summary`, `title`. Purposes with zero calls are omitted. `terminal_reason` ∈ `done` / `max_turns` / `stream_error` / `cancelled` - distinct from `finish_reason` (which is `stop` even after the turn-budget wrap-up). The frontend uses `terminal_reason == "max_turns"` to render a **Continue** affordance so the user can resume a task that hit its (auto-extended) tool-use budget without retyping "keep going" |
 | `retrying` | `{"attempt": N, "max_attempts": M, "delay_s": 1.0, "reason": "vllm 503"}` | A vLLM call hit a transient error (5xx / 429 / connection drop / pre-first-byte stream drop) and is about to retry. Fires before the backoff sleep. `attempt` is 1-indexed. `reason` is a short tag (e.g. `vllm 503`, `vllm ConnectError`). Multiple may fire per turn. Frontend should render a transient "reconnecting" indicator and reset it once any other event resumes |
-| `reconnecting` | `{"attempt": N, "max_attempts": M, "delay_s": 1.0}` | **Synthetic, client-side only** (P1 #10). Not emitted by the server — the frontend's SSE consumer dispatches it when an SSE connection drops and a `GET /api/chat/completions/resume` is being attempted with `Last-Event-ID`. Renders the same "reconnecting" indicator as `retrying`; cleared on the first real event from the resumed connection |
-| `stream_gone` | `{"reason": "..."}` (fields optional) | **Synthetic, client-side only** (background turns). Dispatched by `resumeChat` when a resume GET returns `410 Gone`. Because the turn's outcome — completed answer or save-always partial — is already persisted, the store reacts by **reloading the conversation transcript**, not by showing an error banner. The mid-stream reconnect loop in `streamChat` deliberately does NOT use this: there the user is watching a live bubble die, and an error banner is the honest signal |
-| `memory_proposed` | `{"id": "uuid", "key": "user_role", "value": "postdoc in Smith Lab", "reason": "stable identity fact"}` | **P2 #25**. Auto-extracted memory candidate from a post-turn classifier hook. Fires zero or more times per turn, typically AFTER `done` (the `stop` hook runs in the finally block). Only fires when `terminal_reason ∈ {done, max_turns}` — never on cancelled/error paths. Capped at 3 per turn and 10 pending per user (FIFO). Frontend renders an inline accept/reject pill below the assistant bubble; user action posts to `/api/memories/proposed/{id}/{accept,reject}`. Skips the persistent store ContextVar lookup is unavailable (ephemeral chats are silently skipped) |
+| `reconnecting` | `{"attempt": N, "max_attempts": M, "delay_s": 1.0}` | **Synthetic, client-side only** (P1 #10). Not emitted by the server - the frontend's SSE consumer dispatches it when an SSE connection drops and a `GET /api/chat/completions/resume` is being attempted with `Last-Event-ID`. Renders the same "reconnecting" indicator as `retrying`; cleared on the first real event from the resumed connection |
+| `stream_gone` | `{"reason": "..."}` (fields optional) | **Synthetic, client-side only** (background turns). Dispatched by `resumeChat` when a resume GET returns `410 Gone`. Because the turn's outcome - completed answer or save-always partial - is already persisted, the store reacts by **reloading the conversation transcript**, not by showing an error banner. The mid-stream reconnect loop in `streamChat` deliberately does NOT use this: there the user is watching a live bubble die, and an error banner is the honest signal |
+| `memory_proposed` | `{"id": "uuid", "key": "user_role", "value": "postdoc in Smith Lab", "reason": "stable identity fact"}` | **P2 #25**. Auto-extracted memory candidate from a post-turn classifier hook. Fires zero or more times per turn, typically AFTER `done` (the `stop` hook runs in the finally block). Only fires when `terminal_reason ∈ {done, max_turns}` - never on cancelled/error paths. Capped at 3 per turn and 10 pending per user (FIFO). Frontend renders an inline accept/reject pill below the assistant bubble; user action posts to `/api/memories/proposed/{id}/{accept,reject}`. Skips the persistent store ContextVar lookup is unavailable (ephemeral chats are silently skipped) |
 | `plan_updated` | `{"conversation_id": "...", "items": [...], "requires_approval": bool, "approved_at": str\|null, "approval_mode": "each"\|"auto", "created_at": "...", "updated_at": "..."}` | **P2 #24 Phase 1**. Fires after every successful `set_plan` or `update_plan_item` MCP tool dispatch. Frontend renders an inline `PlanCard` checkbox list above the assistant bubble whose turn last touched the plan. State persists across reloads via `Message.plan_snapshot` (also returned in `GET /api/chats/{id}` under the `plan` key). |
 | `plan_approval_required` | `{"tool": "...", "arguments": {...}, "plan": {...}}` | **P2 #24 Phase 2**. Fires from the `preToolUse` gate hook when a gated tool dispatch short-circuits because the in-flight plan is unapproved. The dispatch returns a synthetic `{"status": "awaiting_user_approval", ...}` result; the model sees this, generates a "waiting for approval" message, and the turn ends with `done`. Frontend renders Approve / Approve-all / Edit / Reject buttons on the inline `PlanCard`; the user's choice posts to `/api/chats/{cid}/plan/{approve\|reject}` or `PATCH /api/chats/{cid}/plan`, then the frontend sends a synthetic `"I've approved the plan, please continue."` user message so the model resumes. |
 | `compact_boundary` | `{"summary_through_index": N, "dropped_messages": K, "summary": "...", "is_fresh": true \| false}` | **P2 #22**. Fires at most once per turn, immediately after the initial assembly step in `assemble_context` (before any `thinking`/`token` event), when the model's view of the conversation has been compressed to fit the context budget. `is_fresh: true` means the summary was generated this turn (blocking vLLM call ~1-3s); `is_fresh: false` means a prior turn's opportunistic prefetch had already populated it (no cost this turn). Frontend renders a thin "earlier N messages summarised" divider above the assistant bubble with the full summary text revealed on click. The backend schedules a fire-and-forget background task at end-of-turn that pre-summarises whenever history exceeds 70% of the budget, so subsequent turns generally land in the `is_fresh: false` path |
@@ -1797,11 +1797,11 @@ The executor validates every tool call's `arguments` against the tool's
 (wrong type, missing required field, value out of enum) short-circuit
 with a `tool_result` whose `result` is `{"error": "invalid arguments for
 <tool> at <pointer>: <message>"}`. The frontend doesn't need to render
-these differently — they appear as normal tool_result events and the
+these differently - they appear as normal tool_result events and the
 model self-corrects on its next turn. Permissive on extra unknown keys.
 
 Concurrency policy: tools that declare `is_concurrency_safe: False` in
-`mcp/schemas.py` (the artifact / memory / sandbox mutators —
+`mcp/schemas.py` (the artifact / memory / sandbox mutators -
 `create_artifact`, `update_artifact`, `save_artifact_to_documents`,
 `remember`, `forget`, `run_python`, `sandbox_reset`, `compile_latex`)
 run **serially in declared order** when the model emits multiple of

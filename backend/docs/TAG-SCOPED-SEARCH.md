@@ -1,4 +1,4 @@
-# Tag-Scoped Search — Operator Reference
+# Tag-Scoped Search - Operator Reference
 
 §28 Sprint B, shipped 2026-04-20. Adds `#tag` chips to the chat
 composer that narrow `paper_search` / `deep_research` results to a
@@ -14,7 +14,7 @@ Three tag kinds. All AND-combine when multiple are passed.
 | Kind | Example chip | Backend filter | Source of truth |
 |---|---|---|---|
 | `topic` | `#nmr-studies-of-lipid-bilayers` | `payload.topic_slug == <slug>` | §15 `build_embedding_map.py` writes `topic_slug` onto every paper |
-| `group` | `#zeitler` | `payload.contributors[].group_slug == <slug>` | §28 Sprint A — set when a paper is ingested via `/api/admin/ingest` with an allowlisted uploader |
+| `group` | `#zeitler` | `payload.contributors[].group_slug == <slug>` | §28 Sprint A - set when a paper is ingested via `/api/admin/ingest` with an allowlisted uploader |
 | `contributor` | `#@alice` | `payload.contributors[].username == <username>` | Same as `group`; surfaces individual uploaders for the `#@username` shortcut |
 
 Multiple tags → papers must match ALL (Qdrant `must`). Empty tags list
@@ -44,7 +44,7 @@ Qdrant query. `deep_research` inherits transparently because it calls
 `paper_search` internally.
 
 The model itself **does not** manipulate tags. It doesn't see a `tags`
-parameter in the tool schema — the tag flow is strictly composer →
+parameter in the tool schema - the tag flow is strictly composer →
 request body → ContextVar → tool.
 
 ## Tool result additions
@@ -87,8 +87,8 @@ now instruct the model to:
 
 1. Credit contributors by `group_display_name` when citing a paper
    that has a `contributors[]` array.
-2. Tell the user about any applied scope — "I searched the Zeitler
-   Lab corpus" — so the user knows what was in vs. out of scope.
+2. Tell the user about any applied scope - "I searched the Zeitler
+   Lab corpus" - so the user knows what was in vs. out of scope.
 
 ## Catalog endpoint
 
@@ -96,7 +96,7 @@ now instruct the model to:
 GET /api/tags
 ```
 
-No auth — tag names are public. Returns:
+No auth - tag names are public. Returns:
 
 ```json
 {
@@ -132,7 +132,7 @@ chip autocomplete.
 
 ## Payload indexes
 
-Created at retrieval startup (idempotent — `create_payload_index` is
+Created at retrieval startup (idempotent - `create_payload_index` is
 wrapped in try/except so repeated starts are no-ops):
 
 | Key | Type | Purpose |
@@ -201,9 +201,9 @@ scoped to the Zeitler corpus only.
 
 If the model (or a stale frontend) passes
 `{"kind": "topic", "value": "nonexistent-slug"}`, the filter still
-applies — just matches nothing. The request returns an empty result
-set rather than an error. That's honest — "no papers match this
-scope" — but watch for it in bug reports if users complain of empty
+applies - just matches nothing. The request returns an empty result
+set rather than an error. That's honest - "no papers match this
+scope" - but watch for it in bug reports if users complain of empty
 searches. Check `applied_tags` in the tool result to confirm which
 filter was actually applied.
 
@@ -220,7 +220,7 @@ new kinds (e.g. `year`, `journal`) requires:
 
 ### Frontend catalog caching
 
-`GET /api/tags` is uncached server-side — every call scans the
+`GET /api/tags` is uncached server-side - every call scans the
 allowlist and runs `qdrant.count` per group + contributor. Cheap
 enough today (a few dozen ms per call) but worth adding a short TTL
 cache if the composer polls it aggressively.
@@ -233,7 +233,7 @@ cache if the composer polls it aggressively.
 user's personal notes collection. §9 (user memory) shipped separately
 and covers most of that use case. If we later want a `#me` tag, the
 filter branch would target the `user_notes` collection (not
-`papers`), which means `paper_search` is the wrong place for it —
+`papers`), which means `paper_search` is the wrong place for it -
 it'd need its own dispatch in `chat_service`. Not in this sprint.
 
 ### Tag inheritance across conversation turns
@@ -246,7 +246,7 @@ turns or store `default_tags` on the conversation row). Mentioned in
 
 ### Semantic Scholar does not honour tags
 
-`semantic_scholar_search` is an external HTTP API — tags don't apply.
+`semantic_scholar_search` is an external HTTP API - tags don't apply.
 If the user pins `#zeitler` and the model uses S2, the S2 results
 aren't contributor-scoped. This is mentioned implicitly by
 `applied_tags` being absent on S2 results, but nothing stops the

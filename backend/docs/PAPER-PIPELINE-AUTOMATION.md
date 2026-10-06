@@ -1,4 +1,4 @@
-# Paper Pipeline Automation — Operator Reference
+# Paper Pipeline Automation - Operator Reference
 
 **Note (2026-05-15):** the operator cheatsheet now lives at
 [`../scripts/pipeline/INGEST.md`](../scripts/pipeline/INGEST.md).
@@ -9,14 +9,14 @@ I run by hand" start with INGEST.md.
 Three systemd services + one timer keep the paper corpus growing
 and healthy without operator SSH sessions:
 
-- **`munin-paper-pipeline.service`** — watcher daemon that ingests
+- **`munin-paper-pipeline.service`** - watcher daemon that ingests
   any PDF dropped into `/opt/munin/data/papers/pdf/` through the
   full GROBID → CrossRef → BGE-large → Qdrant (`papers_bge`) + Neo4j pipeline. The
   state sidecar + Qdrant payload mirror are written by
   `_dispose_post_pipeline` (Phase B of the 2026-05-13 consolidation);
   failures land in `pdf/quarantine/` instead of being retried every
   poll.
-- **`munin-paper-detect.service`** — Phase F continuous detection
+- **`munin-paper-detect.service`** - Phase F continuous detection
   daemon. Runs `paper_cleanup.py sweep` in a paced loop (15-min
   cycles, 5 records/kind/cycle) over four detection kinds. Replaced
   the nightly `munin-paper-cleanup.timer` so cleanup runs as a
@@ -24,7 +24,7 @@ and healthy without operator SSH sessions:
   it runs `sweep --no-quarantine` (detection only) until the pending
   DOI filename repair is applied; see the comment in
   `backend/config/munin-paper-detect.service`.
-- **`munin-paper-reattribute.timer`** + `.service` (04:30 daily) —
+- **`munin-paper-reattribute.timer`** + `.service` (04:30 daily) -
   backfills group attribution after `contributors.yml` updates.
 
 All run as `root` on the cluster head from a dedicated venv at
@@ -236,4 +236,4 @@ Detect daemon: same connection settings, plus `DETECT_KINDS`,
 - **The watcher never cleans up its markers.** A processed marker
   for a deleted paper lingers forever; harmless (just skips a
   non-existent PDF) but consumes inode. Add a periodic broom if
-  ever a concern — not today.
+  ever a concern - not today.

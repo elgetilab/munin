@@ -59,7 +59,7 @@ in `backend/docs/archive/CLUSTER-USAGE-TRACKING.md`)
   The gateway logs `tokens_total` per request by scanning the SSE
   stream for `"usage"`. The cluster previously sent an empty
   `usage: {}` on `done`, so every request was recorded as 0
-  tokens — breaking per-user quota enforcement and the admin
+  tokens - breaking per-user quota enforcement and the admin
   usage dashboard.
 
 **Answer / outcome:**
