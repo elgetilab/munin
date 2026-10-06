@@ -38,8 +38,12 @@ unmodified, as separate programs, unless noted.
   TeX Live, biber                  LPPL / GPL / Artistic, mixed   sandbox image
   GROBID (incl. pdfalto)           Apache-2.0 (pdfalto GPL-2.0)
   Qdrant, vLLM, Prometheus, Caddy  Apache-2.0
+  Tesseract OCR                    Apache-2.0  retrieval image, via ocrmypdf
+  autossh, OpenSSH client          BSD-style   the optional tunnel container
   tusd                             MIT
   Uppy                             MIT         loaded from a CDN by the upload page
+  Base images                      python:*-slim (Debian), alpine, node:*-alpine;
+                                   their OS packages keep their own licenses
   Python and npm dependencies      see backend/*/requirements*.txt and
                                    frontend/webui/package-lock.json
 
@@ -50,9 +54,11 @@ unmodified, as separate programs, unless noted.
   openai/gpt-oss-20b                                     Apache-2.0 plus OpenAI's usage policy
   lytang/MiniCheck-Flan-T5-Large, intfloat/e5-large-v2   MIT (evaluation only)
 
-  Evaluation material with non-commercial terms, downloaded by the benchmark
-  scripts: the SciFact dataset (CC BY-NC 2.0) and the Bespoke-MiniCheck-7B
-  model. Use them for research only.
+  Evaluation datasets, downloaded by the benchmark scripts, each under the
+  terms on its own dataset card: the BEIR subsets (via ir_datasets), LitSearch
+  (princeton-nlp/LitSearch), RAGTruth (ParticleMedia/RAGTruth) and LitQA2
+  (above). Two carry non-commercial terms, the SciFact dataset (CC BY-NC 2.0)
+  and the Bespoke-MiniCheck-7B model: use them for research only.
 
 If you publish container images built from this repository, the copyleft
 components above (notably the AGPL-3.0 and GPL-3.0 ones) bring source-offer

@@ -3,11 +3,13 @@ message: "If you use Munin, please cite it as below."
 title: "Munin: a self-hosted research assistant for scientific groups"
 type: software
 version: 0.9.0
+# At tag time add date-released, the Zenodo doi, and a preferred-citation
+# block for the paper once it has a reference.
 license: Apache-2.0
 repository-code: "https://github.com/elgetilab/munin"
 url: "https://muninai.org"
 authors:
-  - alias: varghele
+  - name: "Elgeti Lab, Leipzig University Medical Faculty"
 keywords:
   - retrieval-augmented generation
   - scientific literature
