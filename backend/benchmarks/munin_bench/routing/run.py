@@ -83,7 +83,10 @@ def make_header(tag: str, reps: int, seed: int, base: str, persona: str) -> dict
         "seed": seed,
         "python_version": sys.version.split()[0],
         "package_versions": _package_versions(),
-        "note": "PRE-MIGRATION regression baseline. Not a paper result.",
+        # Was "PRE-MIGRATION regression baseline. Not a paper result." for
+        # every run, which stayed true only until the router went live
+        # (2026-07-08); later runs are routing results.
+        "note": "Routing regression scorecard (per-turn router).",
     }
 
 
