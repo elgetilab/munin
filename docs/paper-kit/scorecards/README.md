@@ -13,7 +13,9 @@ cites.
 carry `text_tail`, the last 600 characters of each model answer. Those tails
 quoted the source papers and gave away LitQA2 answers, so the field was
 removed for the public release (2026-10). No metric reads it; every verdict,
-letter and per-query array is unchanged.
+letter and per-query array is unchanged. (The C1 files keep a short `answer_tail` per
+item: the model's own text about invented papers, which quotes no source and
+no benchmark item.)
 
 **Backbone is now stamped in every ablation-family file** (`backbone`,
 `backbone_checkpoint`, and for Track D `serving`, `egress` per arm,
@@ -125,7 +127,7 @@ facts live in top-level fields backfilled on 2026-09-15 (see
    headline would be wrong.
 5. **The C2 scorecards carry three intervals per rate.** `bootstrap` is the one
    to quote (it matches every other CI in the suite). `wilson` is the
-   closed-form check, which matters because the answerable subset is only 20-27
+   closed-form check, which matters because the answerable subset is only 20-32
    items. `correct_abstention_rate_ci_unconditional` also resamples *which*
    items are answerable; it is a robustness check and comes out marginally
    **narrower**, not wider, so do not present it as a conservative bound.
@@ -178,9 +180,8 @@ facts live in top-level fields backfilled on 2026-09-15 (see
    is of marginals. Prefer the 09-17 files for every Qwen3.6 number: they are
    under the protocol the other two backbones ran under, with the bare arm at
    16,384 tokens and the chunk-level shadow.
-   Quote only the recapture files for claim 2; the Qwen3.6 file cannot be
-   recaptured (checkpoint retired).
-10. **Bare and RAG arms on gpt-oss-20b are dominated by `no_final_message`.**
+
+11. **Bare and RAG arms on gpt-oss-20b are dominated by `no_final_message`.**
    Without tools the model reasons "Use search." and ends its turn with no
    final message (finish `stop`, ~130 tokens, no tool call) on 25 of 199 bare
    and 162 of 199 RAG prompts. These score as unparseable, i.e. wrong for

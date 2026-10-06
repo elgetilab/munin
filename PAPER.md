@@ -1,4 +1,4 @@
-# Munin — publication artifact index
+# Munin: publication artifact index
 
 What the paper claims, which measurement backs each claim, and how to
 reproduce it. Every number below is copied from
@@ -56,7 +56,7 @@ gpt-oss-20b); the table is the production model.
 
 | arm | accuracy | precision of attempted | abstain | cost |
 |---|---|---|---|---|
-| RAG (naive top-5) | 0.211 | 0.420 | 0.498 | 8.3s, 0 tools |
+| RAG (naive top-5) | 0.211 | 0.420 | 0.497 | 8.3s, 0 tools |
 | bare (parametric) | 0.387 | 0.403 | 0.040 | 8.0s, 0 tools |
 | **agentic (harness)** | **0.874** | **0.946** | 0.075 | 157.3s, 6.9 tools |
 
@@ -117,7 +117,7 @@ Two secondary findings, both of which survive on both backbones:
   card.
 
 A third finding, now controlled. **Qwen3.8 abstains far less outside the
-harness** (bare 0.226 → 0.040, RAG 0.749 → 0.498) and its precision of
+harness** (bare 0.226 → 0.040, RAG 0.749 → 0.497) and its precision of
 attempted falls with it (bare 0.459 → 0.403, RAG 0.500 → 0.420). Inside the
 harness abstention is 0.065 and 0.075, precision 0.930 and 0.946, accuracy
 the same. The harness, not the backbone, is what keeps attempted answers

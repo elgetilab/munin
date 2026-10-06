@@ -84,7 +84,7 @@ bare model** on the same questions.
 (**−0.176 [−0.251, −0.096], p < 0.001**); Qwen3.6 on the current protocol
 with a correctly budgeted bare arm (**−0.211 [−0.281, −0.141], p < 0.001**,
 the largest of the set); and gpt-oss-20b (−0.306, mostly refusal by silence,
-finding 8c). Naive RAG abstains on **0.498** of questions against the bare
+finding 8c). Naive RAG abstains on **0.497** of questions against the bare
 model's 0.040 on Qwen3.8 (0.749 vs 0.226 on Qwen3.6, current protocol).
 
 **Mechanism.** Verified from the answers themselves: imperfect top-5 retrieval
@@ -427,7 +427,7 @@ answer and how often it is wrong when it does; inside the harness neither
 moved, and precision rose.
 
 **Evidence.** Outside the harness, Qwen3.8 abstains far less than Qwen3.6
-(bare 0.226 → 0.040, RAG 0.749 → 0.498, Qwen3.6 on the current protocol; in
+(bare 0.226 → 0.040, RAG 0.749 → 0.497, Qwen3.6 on the current protocol; in
 July 0.201 and 0.749) and its precision of attempted falls with it (bare
 0.459 → 0.403, RAG 0.500 → 0.420): it attempts many more questions and is
 wrong more often when it does. Inside the harness, abstention is 0.065 and

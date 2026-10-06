@@ -56,7 +56,7 @@ set) and run under the same protocol; its July run (git `9c476b8`,
 
 | Arm | Backbone | Accuracy | Precision of attempted | Abstain | Unparseable | Wall-clock | Tool calls |
 |---|---|---|---|---|---|---|---|
-| RAG (naive top-5) | **Qwen3.8** | **0.211** | 0.420 | 0.498 | 0 | 8.3 s | 0 |
+| RAG (naive top-5) | **Qwen3.8** | **0.211** | 0.420 | 0.497 | 0 | 8.3 s | 0 |
 | Bare (parametric) | **Qwen3.8** | **0.387** | 0.403 | 0.040 | 0 | 8.0 s | 0 |
 | **Agentic (harness)** | **Qwen3.8** | **0.874** | **0.946** | 0.075 | 0 | 157.3 s | 6.9 |
 | RAG (naive top-5) | Qwen3.6 (09-17) | 0.126 | 0.500 | 0.749 | 0 | 8.4 s | 0 |
@@ -332,7 +332,7 @@ Scorecards: `2026-07-09_faithfulness-agentic-live` (baseline), `-t1a`, `-cap`.
 > **All three Track C results are on Qwen3.8 as the headline** (C1
 > 2026-09-14; C2b and risk-coverage 2026-09-15), with the Qwen3.6 figures
 > kept beside them. R1 shows Qwen3.8 abstains far less than Qwen3.6
-> **outside** the harness (bare 0.201 → 0.040, RAG 0.749 → 0.498) and
+> **outside** the harness (bare 0.201 → 0.040, RAG 0.749 → 0.497) and
 > identically inside it (0.075); Track C is where that disposition would
 > show up as confabulation or as answering without the source, and on both
 > counts the harness result held or improved. The C2b re-run needed a second

@@ -907,7 +907,7 @@ window, `--max-num-seqs 8`, `reasoning_effort=medium`. Encoder unchanged
 | | abstain | 0.201 | 0.040 |
 | | precision of attempted | 0.476 | 0.403 |
 | rag | accuracy | 0.171 | **0.211** |
-| | abstain | 0.749 | 0.498 |
+| | abstain | 0.749 | 0.497 |
 | | precision of attempted | 0.708 | 0.420 |
 | agentic | accuracy | 0.839 | **0.874** |
 | | abstain | 0.075 | 0.075 |
@@ -970,7 +970,7 @@ This survives a correctly-budgeted bare arm, which is the strongest form of the
 finding so far.
 
 **Qwen3.8 abstains far less outside the harness.** bare abstain 0.201 -> 0.040
-and rag 0.749 -> 0.498, with precision of attempted falling correspondingly
+and rag 0.749 -> 0.497, with precision of attempted falling correspondingly
 (bare 0.476 -> 0.403, rag 0.708 -> 0.420). It attempts many more questions and
 is wrong more often when it does. Inside the harness the opposite holds:
 abstain is **identical** at 0.075 and precision *rises* 0.908 -> 0.946. The
@@ -1278,7 +1278,7 @@ deltas.
 | arm | egress | accuracy | abstain | precision of attempted | verdicts | s/query | tools/query |
 |---|---|---|---|---|---|---|---|
 | bare | n/a | 0.387 | 0.040 | 0.403 | 77 / 114 / 8 | 8.0 | 0 |
-| rag | n/a | 0.211 | 0.498 | 0.420 | 42 / 58 / 99 | 8.3 | 0 |
+| rag | n/a | 0.211 | 0.497 | 0.420 | 42 / 58 / 99 | 8.3 | 0 |
 | **agentic, `egress=off`** | **off** | **0.663** | 0.276 | **0.917** | **132 / 12 / 55** | 96.0 | 5.1 |
 | agentic, `egress=full` (08-26 headline) | full | 0.874 | 0.075 | 0.946 | 174 / 10 / 15 | 157.3 | 6.9 |
 
