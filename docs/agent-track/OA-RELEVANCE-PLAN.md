@@ -1,5 +1,7 @@
 # Retrieval relevance plan: rank each tier on a relevance axis
 
+> **Historical (2026-07).** Implemented and measured on 2026-07-24; see the measurement outcome below.
+
 Status: APPROVED 2026-07-24, implementing. Scope:
 `backend/retrieval/mcp/tools/search_agent.py` (+ a prompt tweak in
 `query_expansion.py`). Motivated by the 2026-07-23 breadth investigation (see

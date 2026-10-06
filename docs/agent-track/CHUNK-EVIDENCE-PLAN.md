@@ -1,5 +1,7 @@
 # Chunk-level evidence + LLM-scored relevance
 
+> **Historical (2026-08).** The chunk-level evidence layer was built: `source` mode `evidence` (2026-08-30) over the `papers_chunks` collection, complete on 2026-08-31.
+
 Status: PLAN, not implemented. Drafted 2026-08-28.
 Sibling: [`SEARCH-AS-PRIMARY-PLAN.md`](SEARCH-AS-PRIMARY-PLAN.md) (whose changes
 C and B were measured and did NOT work; this is why).

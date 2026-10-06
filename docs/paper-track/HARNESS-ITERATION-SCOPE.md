@@ -1,5 +1,7 @@
 # Harness iteration - scope
 
+> **Historical (2026-07).** The status line below is from when it was written; the outcomes are recorded further down (T2's medium default backfired and was reverted).
+
 Status: SCOPING 2026-07-09. What to improve in the agentic harness BEFORE Track
 C/D (they characterise the harness, so they need it stable). Grounded in a
 3-agent code sweep (loop/sub-agents, tool definitions, persona fragments) +

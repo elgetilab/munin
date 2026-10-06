@@ -1,5 +1,7 @@
 # Track C - corpus-grounded abstention - scope
 
+> **Historical scope, built and run.** C1, C2b and risk-coverage were built and re-run on three backbones by 2026-09. Results: [backend/benchmarks/RESULTS.md](../../backend/benchmarks/RESULTS.md) and [PAPER.md](../../PAPER.md).
+
 Status: SCOPING 2026-07-10. Spec: `EVAL-SUITE-MASTER-PLAN.md` sec 4. Reframed
 against current reality (below). The paper's most differentiating benchmark:
 "Munin knows when the corpus does not contain the answer". Novelty pass

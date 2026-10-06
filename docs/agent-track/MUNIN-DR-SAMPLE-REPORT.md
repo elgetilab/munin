@@ -1,5 +1,7 @@
 # How does membrane lipid composition influence the partitioning, binding affinity, and activity of small-molecule kinase inhibitors? Cover the molecular mechanisms, the experimental and computational methods, and any cases where membrane localization affects efficacy or resistance.
 
+> **Sample output, not documentation.** A Munin Deep Research report on the same prompt, compared in [DR-VS-CLAUDE-COMPARISON.md](DR-VS-CLAUDE-COMPARISON.md).
+
 ## TL;DR
 
 - **Experimental and computational techniques characterize drug-membrane interactions** using methods such as NMR, SPR, ITC, and molecular dynamics simulations to determine binding kinetics, localization, and partitioning energies. (Source: Drug Membrane Interaction and the Importance for Drug Transport, Distribution, Accumulation, Efficacy and Resistance; Modeling membrane targeting: interaction and recognition of proteins with model biomembrane systems; Interaction of Quinine with Model Lipid Membranes of Different Compositions)

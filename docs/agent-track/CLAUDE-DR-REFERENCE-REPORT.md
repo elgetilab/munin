@@ -1,5 +1,7 @@
 # Membrane Lipid Composition as a Determinant of Kinase Inhibitor Partitioning, Binding, and Activity
 
+> **Sample output, not documentation.** A Claude Research report on a fixed prompt, kept as the reference for [DR-VS-CLAUDE-COMPARISON.md](DR-VS-CLAUDE-COMPARISON.md).
+
 ## TL;DR
 - **Membrane lipid composition is a first-order, often underappreciated pharmacological variable for kinase inhibitors:** because most kinase inhibitors are lipophilic weak bases with high cLogP, they partition heavily into bilayers (an ITC-measured POPC membrane–water constant of ~84,000 M⁻¹ for lapatinib), which lowers the free concentration available to engage the ATP site, concentrates drug near membrane-proximal targets, and creates systematic gaps between biochemical and cellular potency.
 - **The effect is composition-dependent and bidirectional:** cholesterol, acyl-chain order, and anionic headgroups (PS/PI/PIP2/cardiolipin) tune both where a drug sits in the bilayer and how strongly it binds—electrostatics amplify binding of cationic species (~7–8-fold with PS in model systems) but *reduce* it for neutral lipophiles; cholesterol-rich rafts sequester EGFR/HER2 and confer inhibitor resistance that statins/cholesterol depletion can reverse.

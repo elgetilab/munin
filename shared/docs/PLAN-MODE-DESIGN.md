@@ -1,5 +1,7 @@
 # Plan mode — design doc
 
+> **Historical design (2026-05-28).** Phase 1, structural plan mode, shipped the same day; the status line below is from before that. Some file paths below (`useChat.ts`) predate a later refactor of the chat UI.
+
 > **Status**: design, not yet implemented.
 > **Audit row**: P2 #24 ("Plan mode for `research` persona") — broadened to a
 > general-purpose primitive per the 2026-05-28 design discussion.
