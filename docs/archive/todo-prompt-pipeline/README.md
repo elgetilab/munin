@@ -39,7 +39,7 @@ Status legend: ⬜ not started · 🟡 in progress · ✅ done · ❄️ parked
 ## Already shipped (context)
 
 - Pong-chat bug triage — 3 deterministic fixes committed + deployed
-  (`e22d1a4` .txt download, `6618045` spinner, `eff7ee3` artifact dedup)
+  (`ac30095` .txt download, `be93620` spinner, `d53fec1` artifact dedup)
   and the first eval scenario built. Lasting findings + the baseline are
   absorbed into [eval-scenarios.md](eval-scenarios.md); the
   `PONG-BUG-TRIAGE.md` scratchpad has been deleted. The eval harness it

@@ -2,7 +2,7 @@
   "header": {
     "tag": "postcap-t3",
     "timestamp": "2026-07-10T09:20:23.906337+00:00",
-    "git_sha": "304fdc2",
+    "git_sha": "cdd5cfd",
     "model": "unknown",
     "persona_policy": "chat (A0 decision A; not expected.profile)",
     "base_url": "http://127.0.0.1:8080",

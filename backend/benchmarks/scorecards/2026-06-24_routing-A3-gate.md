@@ -1,7 +1,7 @@
 # Routing scorecard — routing-A3-gate
 
 - **PRE-MIGRATION regression baseline. Not a paper result.**
-- model: `qwen3.6-35b-a3b`  git: `915a1e3`  reps: 8  seed: 42
+- model: `qwen3.6-35b-a3b`  git: `b720e18`  reps: 8  seed: 42
 - persona policy: chat (A0 decision A; not expected.profile)
 - timestamp: 2026-06-24T14:57:52.367395+00:00
 

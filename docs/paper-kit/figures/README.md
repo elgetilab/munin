@@ -45,7 +45,7 @@ count changes, update the caption from that output.
 
 **What the figure shows as current but the measurements predate.** The figure
 draws the shipped system. The headline results (`05-RESULTS.md`, git
-`3e0bcfb`, 2026-08-26) were measured before the search ladder (the
+`df14dff`, 2026-08-26) were measured before the search ladder (the
 corpus → scholarly → web chips in `search`) landed (2026-08-27).
 
 **Layout.** The figure was sketched in Google Drawings

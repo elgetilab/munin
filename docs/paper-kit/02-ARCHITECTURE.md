@@ -5,7 +5,7 @@ each piece has the shape it does, and which design principles are load-bearing.
 
 **Snapshot.** This file describes the harness as deployed at the refresh
 commit (2026-09-14). The headline measurements in `05-RESULTS.md` were taken
-at `3e0bcfb` (2026-08-26); the search escalation ladder, the grounded `read`
+at `df14dff` (2026-08-26); the search escalation ladder, the grounded `read`
 stage in `search`, and the `list_documents` / `browse_tag_papers` tools
 landed after that run and are described here because the paper describes the
 shipped system, but no result in this kit was measured with them.

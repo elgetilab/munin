@@ -3,7 +3,7 @@
   "dataset": "RAGTruth (test split, GitHub ungated)",
   "judge_model": "lytang/MiniCheck-Flan-T5-Large",
   "device": "cpu",
-  "git_sha": "cb2e95c",
+  "git_sha": "7f98a2f",
   "seed": 42,
   "n_per_cell": 20,
   "threshold": 0.5,

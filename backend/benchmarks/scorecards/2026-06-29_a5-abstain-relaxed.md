@@ -1,7 +1,7 @@
 # Routing scorecard — a5-abstain-relaxed
 
 - **PRE-MIGRATION regression baseline. Not a paper result.**
-- model: `unknown`  git: `1d319d7`  reps: 1  seed: 42
+- model: `unknown`  git: `3b2d991`  reps: 1  seed: 42
 - tier: `paraphrase`
 - persona policy: chat (A0 decision A; not expected.profile)
 - timestamp: 2026-06-29T10:45:19.322657+00:00

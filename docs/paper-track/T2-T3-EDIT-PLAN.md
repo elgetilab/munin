@@ -13,16 +13,16 @@ drive the live `/api/chat/completions`, which loads `/opt/munin` personas + code
 
 - **The development account cannot deploy** (deploy.sh needs root). So each measured step needs
   a varghele deploy.
-- The document-attachment WIP is now **committed** (`329c150`, varghele, 2026-07-09)
+- The document-attachment WIP is now **committed** (`46348a8`, varghele, 2026-07-09)
   and landed cleanly under the T2/T3 commits (no conflict; disjoint files). So
   the "park behind uncommitted WIP" concern is RESOLVED:
   - **T2 = personas-only** (`deploy.sh personas` + restart) - independent of the
-    attachment code. Safe to deploy + measure now. APPLIED (`af2d04d`, research
+    attachment code. Safe to deploy + measure now. APPLIED (`60c0083`, research
     1.3->1.4).
-  - **T3 = retrieval code** (schemas.py, tool_search.py) - APPLIED (`fdf8ded`).
-    A `deploy.sh retrieval` would now ship `329c150` + T3 together as a coherent
+  - **T3 = retrieval code** (schemas.py, tool_search.py) - APPLIED (`65d4970`).
+    A `deploy.sh retrieval` would now ship `46348a8` + T3 together as a coherent
     unit. No longer blocked by uncommitted code; the only question is whether
-    varghele considers `329c150` ready to go live - coordinate the timing, do not
+    varghele considers `46348a8` ready to go live - coordinate the timing, do not
     self-deploy.
 
 Dashboard per step: routing anchor eval (**gate: >= 0.950, no regression**),

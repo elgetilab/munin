@@ -2,7 +2,7 @@
   "meta": {
     "tag": "answer-bge-large",
     "generated_at": "2026-07-05T13:14:11.039429+00:00",
-    "git_sha": "054340c",
+    "git_sha": "7281059",
     "encoder": "bge-large",
     "seed": 42,
     "packages": {

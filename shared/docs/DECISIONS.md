@@ -671,4 +671,4 @@ Other artefacts of the merge worth knowing:
 - `backend/personas/` was canonical; `frontend/cluster/personas/` was stale and dropped.
 - The pre-merge `BACKEND-FRONTEND-SYNC.md` is archived at `shared/docs/archive/SYNC-2026-04.md` (see the 2026-05-04 entry above).
 
-Post-merge cleanup landed in six tiers (commit `e419fe6` plus the 2026-05-04 entries above). The original step-by-step merge plan (`REFACTOR-PLAN.md`) was deleted in 2026-05 once this section captured the outcome; `git log --diff-filter=D -- REFACTOR-PLAN.md` will resurrect it if needed.
+Post-merge cleanup landed in six tiers (commit `83764b3` plus the 2026-05-04 entries above). The original step-by-step merge plan (`REFACTOR-PLAN.md`) was deleted in 2026-05 once this section captured the outcome; `git log --diff-filter=D -- REFACTOR-PLAN.md` will resurrect it if needed.

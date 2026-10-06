@@ -5,16 +5,16 @@ written to be read **without access to the repository**: paths are quoted for
 reference but nothing depends on following them, and every number is traced to
 a committed scorecard file.
 
-Generated 2026-08-04 from the `munin` monorepo at commit `5441a13`.
+Generated 2026-08-04 from the `munin` monorepo at commit `edaa0fb`.
 Refreshed 2026-09-14 to the Qwen3.8-27B provenance (headline re-measurement of
-2026-08-26, git `3e0bcfb`); see "Provenance" below for which numbers moved.
+2026-08-26, git `df14dff`); see "Provenance" below for which numbers moved.
 Extended 2026-09-16 with a third backbone from a different lab, gpt-oss-20b
-(git `c6c56a7`), reported beside the Qwen numbers in every affected table, and
-revised 2026-09-17 for the faithfulness recapture (git `1380524`), which
+(git `ad46d05`), reported beside the Qwen numbers in every affected table, and
+revised 2026-09-17 for the faithfulness recapture (git `c95d849`), which
 reversed the per-arm faithfulness null: the accuracy headline stays on the
 08-26 capture, the faithfulness headline moves to the 09-16 recapture of the
 same arm. Extended 2026-09-17/18 with the retired Qwen3.6 backbone re-run on
-an eval-only instance under the current protocol (git `556b305`), which turned
+an eval-only instance under the current protocol (git `6983e86`), which turned
 the Qwen3.6 comparison from a different-protocol one into a question-paired
 one.
 

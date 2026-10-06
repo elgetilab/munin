@@ -2,7 +2,7 @@
   "header": {
     "tag": "t2-postdeploy",
     "timestamp": "2026-07-09T10:39:06.967937+00:00",
-    "git_sha": "f84fcb2",
+    "git_sha": "ad75f19",
     "model": "unknown",
     "persona_policy": "chat (A0 decision A; not expected.profile)",
     "base_url": "http://127.0.0.1:8080",

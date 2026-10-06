@@ -1,6 +1,6 @@
 # Scorecard — gpt-oss-20b-smoke
 
-- model `gpt-oss-20b` | encoder `specter-v1` | git `a74526a`
+- model `gpt-oss-20b` | encoder `specter-v1` | git `e37892e`
 - corpus papers 68913 | graph CITES n/a | seed 42
 - 2026-09-15T22:40:01.799158+00:00
 

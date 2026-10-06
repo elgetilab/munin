@@ -2,7 +2,7 @@
   "header": {
     "tag": "routing-pre-migration",
     "timestamp": "2026-06-22T11:09:35.169050+00:00",
-    "git_sha": "5a7d298",
+    "git_sha": "d4e30a2",
     "model": "qwen3.6-35b-a3b",
     "persona_policy": "chat (A0 decision A; not expected.profile)",
     "base_url": "http://127.0.0.1:8080",

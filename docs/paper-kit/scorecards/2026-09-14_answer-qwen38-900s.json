@@ -9,7 +9,7 @@
     "error": 0,
     "attempted": 190,
     "deadline_truncated": 0,
-    "git_sha": "dfa823b",
+    "git_sha": "f96ab9a",
     "generated_at": "2026-09-14T13:48:27.985958+00:00",
     "paperqa2_accuracy_published": 0.66,
     "caveat": "NOT like-for-like vs PaperQA2: PaperQA2 was trained on LitQA2 (train+eval), Munin's model (Qwen3.8-27B) was not. A loss is expected and informative; parity is strong; a win remarkable. Precision excludes abstentions + unparseable; accuracy counts them as wrong."

@@ -1,7 +1,7 @@
 # Paper-kit refresh: bring `docs/paper-kit/` to the 2026-08-26 provenance
 
-Status: **DONE 2026-09-14** (`617ea4e` kit refresh, `0bd8806` egress fix,
-`b8ce907` Track A wording, `28a91f1` standalone answer track, `38e81cb` C1).
+Status: **DONE 2026-09-14** (`b2f1a2e` kit refresh, `01f1212` egress fix,
+`b7888d1` Track A wording, `0c0abd8` standalone answer track, `7677e90` C1).
 Q1, Q3, Q4, Q5, Q6 taken at their defaults. **Q2 went the other way:** the
 standalone answer track was confirmed never re-run and was re-run the same
 day (0.884 [0.839, 0.925], agrees with the ablation arm question-paired,
@@ -9,7 +9,7 @@ day (0.884 [0.839, 0.925], agrees with the ablation arm question-paired,
 writer's request (100/100, 0 confabulated local cites), and two reproduce
 defects found on the way were fixed (answer-track and C1 commands ran
 `egress=off` by default; `run_c1` resumes from the previous capture). C2b
-and risk-coverage followed on 2026-09-15 (`e05bd8d`). Moved to `done/`
+and risk-coverage followed on 2026-09-15 (`2913f9b`). Moved to `done/`
 2026-09-15. Written
 2026-09-14 as step 3 of `MODEL-SWAP-QWEN38-PLAN.md` (section 6), the half
 that was never done.
@@ -19,7 +19,7 @@ scorecards, which already exist.
 
 ## 0. Problem
 
-The kit was generated 2026-08-04 at `5441a13` and has not been touched since.
+The kit was generated 2026-08-04 at `edaa0fb` and has not been touched since.
 `PAPER.md` and `RESULTS.md` moved to the Qwen3.8-27B headline on 2026-08-26/27;
 the kit still names Qwen3.6-35B-A3B as the generation model in its shared
 provenance block and quotes 0.839 / +0.538, +0.023 p=0.496 and 8.61 calls per
@@ -52,7 +52,7 @@ Numbers are copied from `RESULTS.md` lines 868-1016 or read out of the JSONs
 with a script (section 3), never retyped from memory.
 
 ### `00-INDEX.md`
-- "Generated 2026-08-04 at `5441a13`" becomes a regeneration line with the new
+- "Generated 2026-08-04 at `edaa0fb`" becomes a regeneration line with the new
   date and commit, keeping the original line as history.
 - One-paragraph summary: 0.874 / 0.387 / 0.211, +0.487 [0.407, 0.568], 4.1x,
   faithfulness +0.010 p=0.776; add one clause for the cross-backbone
@@ -89,11 +89,11 @@ with a script (section 3), never retyped from memory.
   writing them (a loose grep shows 11 `is_concurrency_safe` mentions; verify
   which are `False`).
 - Section 3.2 `search`: the section predates `mode=evidence` chunk-level
-  retrieval (`587d93a`, 08-30) and the escalating ladder plus grounded read
-  stage (`51f1d5a`, 08-27). Read the current `search_agent.py` and update the
+  retrieval (`ecd6524`, 08-30) and the escalating ladder plus grounded read
+  stage (`85d0351`, 08-27). Read the current `search_agent.py` and update the
   contract block and the `thin_evidence` paragraph. **Add one sentence stating
   that the architecture described is at commit X while the 08-26 measurement
-  is at `3e0bcfb`**, so nobody attributes the accuracy to code that landed after
+  is at `df14dff`**, so nobody attributes the accuracy to code that landed after
   the run (open question Q5).
 - Any Qwen3.6 mention in the design-principles prose (there is one) becomes
   model-neutral or names both.
@@ -101,7 +101,7 @@ with a script (section 3), never retyped from memory.
 ### `03-CORPUS.md`
 - Corpus-size table gains a row for the 08-26 run. The ablation scorecards do
   not stamp a corpus count; the nearest recorded figure is **68,863 entries on
-  2026-08-28** (`3e2b181`), two days after the run. State it as "nearest
+  2026-08-28** (`fa9dfcf`), two days after the run. State it as "nearest
   recorded" (open question Q3).
 
 ### `04-METHODS.md`
@@ -140,9 +140,9 @@ with a script (section 3), never retyped from memory.
 - **R6**: both columns (calls 1,714 / 1,380; per query 8.61 / 6.93; error
   0.061 / 0.139; degraded 0.240 / 0.379; failures 86 / 102; recovery 1.000 /
   1.000) with the per-tool paragraph: `web_fetch` 0.453 to 0.678 **not
-  comparable** (`2ff9aef` redefined failure), `search` 0.000 to 0.122
+  comparable** (`a6de9cc` redefined failure), `search` 0.000 to 0.122
   **comparable** (mistyped arguments, 11 of 11), both fixed after the run in
-  `fd559c9`, so these describe the tool layer during the comparison, not as
+  `248a419`, so these describe the tool layer during the comparison, not as
   shipped.
 - **R7** unchanged.
 
@@ -270,13 +270,13 @@ is a property of the retrieval-side check as much as of the model, and the
 kit should keep saying what was measured.
 
 **Q5. Architecture snapshot.** `02` describes the shipped system, which now
-includes search changes that post-date the 08-26 measurement (`51f1d5a`,
-`587d93a`, `3571bc9`). *Default: describe the current architecture and state
-both commits (measured at `3e0bcfb`, described at HEAD) in one sentence.*
-Alternative: freeze `02` at `3e0bcfb`, which would make the kit describe a
+includes search changes that post-date the 08-26 measurement (`85d0351`,
+`ecd6524`, `ca07350`). *Default: describe the current architecture and state
+both commits (measured at `df14dff`, described at HEAD) in one sentence.*
+Alternative: freeze `02` at `df14dff`, which would make the kit describe a
 system that is no longer deployed.
 
-**Q6. Regeneration line.** *Default: keep "Generated 2026-08-04 from `5441a13`"
+**Q6. Regeneration line.** *Default: keep "Generated 2026-08-04 from `edaa0fb`"
 and add "Refreshed 2026-09-xx from `<sha>`".*
 
 ## 5. Effort

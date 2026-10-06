@@ -1,7 +1,7 @@
 # Routing scorecard — routing-A2-after-prompt-n16
 
 - **PRE-MIGRATION regression baseline. Not a paper result.**
-- model: `qwen3.6-35b-a3b`  git: `bc00638`  reps: 16  seed: 42
+- model: `qwen3.6-35b-a3b`  git: `e3629f5`  reps: 16  seed: 42
 - persona policy: _eval_full (test-config override; e.g. _eval_full = full tool universe for the A2 post-allowlist gate preview)
 - timestamp: 2026-06-23T11:56:44.731867+00:00
 

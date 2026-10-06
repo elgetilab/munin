@@ -50,7 +50,7 @@ attributed to "a different backbone", not to any one of them.
 ## 1. Headline claim: the agentic harness is what produces the accuracy
 
 Track D, three arms over the same 199 LitQA2 questions, paired.
-`RESULTS.md` "Model swap ... Track D re-run", git `3e0bcfb`, 2026-08-26.
+`RESULTS.md` "Model swap ... Track D re-run", git `df14dff`, 2026-08-26.
 **Measured on three backbones from two labs** (Qwen3.6-35B-A3B, Qwen3.8-27B,
 gpt-oss-20b); the table is the production model.
 
@@ -67,7 +67,7 @@ agentic − RAG = +0.663 [0.598, 0.729]; RAG − bare = −0.176 [−0.251, −0
 above ran on the same day, same code, same 199 questions, paired. That is the
 claim, and it does not depend on anything outside this run.
 
-**The same three arms on Qwen3.6, same protocol (git `556b305`,
+**The same three arms on Qwen3.6, same protocol (git `6983e86`,
 2026-09-17; RESULTS.md "Retired backbone re-run").** The retired MoE brought
 back as an eval-only instance, all arms at 16,384 tokens, 900 s,
 `egress=full`, concurrency 1:
@@ -92,7 +92,7 @@ sentence the paper can now say: **a dense 27B and a 35B/3B-active MoE from
 the same lab reach the same accuracy inside the harness and differ only
 outside it**, so the harness value is larger on Qwen3.6 (+0.533 vs +0.487)
 because its floor is lower, not because its ceiling is higher. The July
-version of this comparison (git `9c476b8`, 2026-07-27: RAG 0.171 / bare
+version of this comparison (git `ac7c3ef`, 2026-07-27: RAG 0.171 / bare
 0.302 / agentic 0.839, +0.538 [0.457, 0.618]) stays suggestive, since 16
 `backend/retrieval/` commits sat between it and the 08-26 run; it is no
 longer needed for the claim.
@@ -155,7 +155,7 @@ months of harness apart (07-24: 0.864) is +0.010, p = 0.70, the harness-drift
 floor.
 
 **Third backbone, a different lab: gpt-oss-20b, 2026-09-16** (RESULTS.md
-"Third backbone", git `c6c56a7`). Same 199 questions, same arms, same
+"Third backbone", git `ad46d05`). Same 199 questions, same arms, same
 16,384-token budget, same 900 s deadline, `egress=full`, concurrency 1:
 
 | arm | accuracy | precision of attempted | abstain | cost |
@@ -223,7 +223,7 @@ Do **not** cite the 2026-07-13 pilot (n=100, 0.56/0.32/0.15); it is superseded.
 
 Track B faithfulness, per-arm paired, same MiniCheck-Flan-T5-Large judge,
 each arm's answer claims scored against **that arm's own retrieved
-contexts**. `RESULTS.md` "Faithfulness recapture", git `1380524`.
+contexts**. `RESULTS.md` "Faithfulness recapture", git `c95d849`.
 
 **On `qwen3.8-27b`, with the complete evidence set (n=199): RAG 0.282
 [0.248, 0.316] vs agentic 0.540 [0.503, 0.578], paired delta +0.258 [0.206,
@@ -381,14 +381,14 @@ empty query each followed by a corrected call, against Qwen3.6's 0.005 in
 597 calls; `web_fetch` is 0.44 and 0.40, the same paywall rate.
 
 **The error-rate deltas are not, and must not be cited as one number.**
-`web_fetch` (0.453 → 0.678) is **not comparable**: commit `2ff9aef` landed
+`web_fetch` (0.453 → 0.678) is **not comparable**: commit `a6de9cc` landed
 between the runs and changed what counts as a failure, so anti-bot
 interstitials that were previously summarised as content are now errors. The
 old figure counted those as successes. `search` (0.000 → 0.122) **is**
 comparable and is a genuine behavioural finding: every failure was an argument
 type Qwen3.8 emitted and Qwen3.6 did not.
 
-Both causes were fixed after this run (`fd559c9`), so these figures describe
+Both causes were fixed after this run (`248a419`), so these figures describe
 the tool layer during the comparison rather than as shipped. Reported per tool,
 with the full reasoning, in RESULTS.md.
 

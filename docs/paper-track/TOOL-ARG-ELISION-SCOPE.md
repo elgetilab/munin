@@ -2,7 +2,7 @@
 
 Status: **PLAN, not implemented.** Follow-on to
 [`done/CONTEXT-BUDGET-FIX-SCOPE.md`](done/CONTEXT-BUDGET-FIX-SCOPE.md) and its
-2026-08-12 reopening (commit `0c178d7`, deployed 2026-08-13).
+2026-08-12 reopening (commit `9381528`, deployed 2026-08-13).
 
 ## Why
 

@@ -2,7 +2,7 @@
   "header": {
     "tag": "a5-anchor-baseline",
     "timestamp": "2026-06-28T12:02:38.964749+00:00",
-    "git_sha": "754e5e8",
+    "git_sha": "a207539",
     "model": "unknown",
     "persona_policy": "chat (A0 decision A; not expected.profile)",
     "base_url": "http://127.0.0.1:8080",

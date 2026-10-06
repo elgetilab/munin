@@ -55,7 +55,7 @@ and scored as failures); section 1.2a measures what that was worth.
 
 The retired checkpoint brought back as an eval-only instance
 (`10-REPRODUCE.md` §5a) and run under the protocol of 1.3 and 1.3a: all arms
-at 16,384 tokens, 900 s, `egress=full`, concurrency 1, git `556b305`.
+at 16,384 tokens, 900 s, `egress=full`, concurrency 1, git `6983e86`.
 Agentic **0.869** vs bare 0.337 vs RAG 0.126; harness value **+0.533 [0.452,
 0.613], p < 0.001**; agentic − RAG +0.744; RAG − bare −0.211. Agentic
 abstention 0.065, precision of attempted 0.930, 7.3 tool calls and 67 s per
@@ -65,14 +65,14 @@ query, 0 unparseable; bare 8 unparseable (6 without a letter, 2 truncated at
 
 ### 1.3 Re-measurement on the production backbone, 2026-08-26, n=199, Qwen3.8-27B (the headline)
 
-Same 199 questions, same arm code, all arms at 16,384 tokens, git `3e0bcfb`.
+Same 199 questions, same arm code, all arms at 16,384 tokens, git `df14dff`.
 Agentic **0.874** vs bare 0.387 vs RAG 0.211; harness value **+0.487 [0.407,
 0.568], p < 0.001**; agentic − RAG +0.663; RAG − bare **−0.176**.
 
 ### 1.3a Third backbone from a different lab, 2026-09-16, n=199, gpt-oss-20b
 
 Same 199 questions, same arm code, all arms at 16,384 tokens, 900 s,
-`egress=full`, git `c6c56a7`; run as an eval-only instance beside production
+`egress=full`, git `ad46d05`; run as an eval-only instance beside production
 (`10-REPRODUCE.md` §5a). Agentic **0.563** vs bare 0.407 vs RAG 0.101; harness
 value **+0.156 [0.075, 0.241], p = 0.004**; agentic − RAG +0.462; RAG − bare
 −0.306. Agentic abstention 0.342, precision of attempted 0.896, 8.8 tool calls
@@ -165,7 +165,7 @@ question.
 ### 2.1 Off-corpus bake-off (SciFact, in-memory)
 
 Apples-to-apples: same `title\n\nabstract` documents, cosine, same metrics.
-Git `5f9ef15`, 2026-07-02.
+Git `f793b95`, 2026-07-02.
 
 | Encoder | nDCG@10 | Recall@10 | Recall@100 | MRR | Δ nDCG@10 vs SPECTER (p) |
 |---|---|---|---|---|---|
@@ -177,7 +177,7 @@ Git `5f9ef15`, 2026-07-02.
 ### 2.2 On-corpus bake-off (Munin's own data, shared pool)
 
 Each LitQA2 source paper ranked among a shared pool of 190 real source papers +
-5,000 random corpus papers, same pool for every encoder. Git `2955824`,
+5,000 random corpus papers, same pool for every encoder. Git `40441d3`,
 2026-07-02.
 
 | Metric | SPECTER-v1 | SciNCL | E5-large-v2 | BGE-large |

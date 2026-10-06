@@ -142,7 +142,7 @@ Key findings:
   a placeholder ("(prior deep_research answer with a few numbers)") with no
   actual numbers, so "plot those values" was under-specified and the model
   searched to FIND values. Probe: with real numbers in the prior turn,
-  0/5 -> 4/5 clean run_python. Fixed the stub (commit edfa42b); this is exactly
+  0/5 -> 4/5 clean run_python. Fixed the stub (commit b9f46a9); this is exactly
   A5's "a brittle setup must not swing the score" mandate.
 - The 0.80 items at v4 (`percent_calc`, `sota_phip`, `reroute`) are single-rep
   benign deviations (inline arithmetic; set_plan-before-deep_research; one stray
@@ -191,7 +191,7 @@ By category (mean pass over 16 paraphrases each):
 ## Paraphrase tier re-run after the context-budget fix (2026-06-29)
 
 Full clean run (224, reps=1, zero errors): **mean 0.866**. deep_research
-**0.69 -> 0.88** (the context-budget fix, commit 7fad0f2, confirmed: the 3
+**0.69 -> 0.88** (the context-budget fix, commit 1c670ee, confirmed: the 3
 items that 400'd now pass). Other categories wobbled +/-0.1 vs the earlier
 merged 0.911 - that gap is **reps=1 sampling noise** (each category = 16
 single-sample coin flips; every category shows a 0.00 min from one unlucky
@@ -289,7 +289,7 @@ Ran the Step-1 routing-behaviour review over the live window (2026-06-28 ->
 
 - **reroute (implicit-plot):** 0 plot/graph asks in the window - no real-traffic
   instance either way. The eval covers it (anchor 0.95; the 0/5 was a test-stub
-  artefact, fixed edfa42b). No regression evidence.
+  artefact, fixed b9f46a9). No regression evidence.
 - **remember recognition:** 0 remember-style asks in the window. Eval confirms
   (0.0 -> 1.0 once the cue moved to the research fragment). No regression
   evidence.

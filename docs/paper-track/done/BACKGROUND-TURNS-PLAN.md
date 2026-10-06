@@ -7,7 +7,7 @@ closed-tab turn survived past grace and persisted clean with title
 (timestamped tail over 6s, 804 events); cancel endpoint 204 + prompt
 partial persist; active_stream done:false→true and generating flag
 observed against a live turn. One bug found during verification and
-fixed (commit 7f0c001): registry streams for NEW conversations never
+fixed (commit 5b78756): registry streams for NEW conversations never
 got their conversation_id, so active_stream/generating missed
 first-message turns — fix deployed and spot-checked live (a fresh
 conversation reports active_stream mid-turn). Follow-up RESOLVED

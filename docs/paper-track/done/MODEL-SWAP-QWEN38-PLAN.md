@@ -2,7 +2,7 @@
 
 Status: **DONE 2026-08-26** for steps 1 and 2 (model switched, TP=2 64k
 profile live; Track D, per-arm faithfulness and T11 re-run on the same 199
-questions, git `3e0bcfb`, scorecards `2026-08-26_*`). Step 3 landed for
+questions, git `df14dff`, scorecards `2026-08-26_*`). Step 3 landed for
 `RESULTS.md` and `PAPER.md` (2026-08-27) and for `docs/paper-kit/` on
 2026-09-14 (`PAPER-KIT-REFRESH-PLAN.md`, beside this file). The standalone
 answer track and C1 were re-run on Qwen3.8 on 2026-09-14, C2b and

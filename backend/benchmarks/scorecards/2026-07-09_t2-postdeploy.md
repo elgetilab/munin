@@ -1,7 +1,7 @@
 # Routing scorecard — t2-postdeploy
 
 - **Routing regression scorecard, run after the router went live (2026-07-08). Note corrected 2026-10: the runner stamped this run as a pre-migration baseline and not a paper result, which was wrong for it.**
-- model: `unknown`  git: `f84fcb2`  reps: 5  seed: 42
+- model: `unknown`  git: `ad75f19`  reps: 5  seed: 42
 - tier: `anchor`
 - persona policy: chat (A0 decision A; not expected.profile)
 - timestamp: 2026-07-09T10:39:06.967937+00:00

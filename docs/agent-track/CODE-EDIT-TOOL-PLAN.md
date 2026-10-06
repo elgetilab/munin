@@ -1,6 +1,6 @@
 # Plan: `edit_python`, a patch-style edit tool for code
 
-Status: **BUILT + DEPLOYED 2026-08-23** (`660aaea`). Measured; see Results. Root-cause follow-on to the context-budget
+Status: **BUILT + DEPLOYED 2026-08-23** (`1468009`). Measured; see Results. Root-cause follow-on to the context-budget
 work (`../paper-track/done/CONTEXT-BUDGET-FIX-SCOPE.md`, reopened 2026-08-12).
 Supersedes the argument-elision scope (`../paper-track/TOOL-ARG-ELISION-SCOPE.md`),
 which was rejected as symptom-treatment.

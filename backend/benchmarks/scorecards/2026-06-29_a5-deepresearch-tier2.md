@@ -1,7 +1,7 @@
 # Routing scorecard — a5-deepresearch-tier2
 
 - **PRE-MIGRATION regression baseline. Not a paper result.**
-- model: `unknown`  git: `fa707bb`  reps: 1  seed: 42
+- model: `unknown`  git: `266690b`  reps: 1  seed: 42
 - tier: `paraphrase`
 - persona policy: chat (A0 decision A; not expected.profile)
 - timestamp: 2026-06-29T11:30:03.937705+00:00

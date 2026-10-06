@@ -122,9 +122,9 @@
     }
   },
   "date": "2026-07-27",
-  "git_sha": "8d0366c",
+  "git_sha": "52e7961",
   "rescored_by": "munin_bench.abstention.run_c2 --rescore",
-  "rescored_at_git_sha": "ab48d37",
+  "rescored_at_git_sha": "51e102a",
   "backbone": "qwen3.6-35b-a3b",
   "backbone_checkpoint": "cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit (retired 2026-08-25)",
   "egress": "full",

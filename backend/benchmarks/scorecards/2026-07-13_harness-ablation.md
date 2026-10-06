@@ -2,7 +2,7 @@
 
 - generator: bare + RAG via direct vLLM (`qwen3.6-35b-a3b`, :8000, no tools,
   concurrency=1); agentic via live `/api/chat/completions`. | 100 in-corpus
-  LitQA2 MCQ questions (seed 7) | 2026-07-13 | git `dfe89f8`
+  LitQA2 MCQ questions (seed 7) | 2026-07-13 | git `d2fdb17`
 
 ## Accuracy — the headline (all paired, p ~ 0)
 

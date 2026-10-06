@@ -31,7 +31,7 @@ em-dash", and the fresh-chat regression now asserting the timeline. Fixed 2
 em-dashes I'd introduced in the timeline copy.
 
 NOT deployed: this UI depends on the un-deployed event-log backend (commit
-01eaa68). Deploy backend (`deploy.sh retrieval`) + frontend (rsync) together.
+3a60eec). Deploy backend (`deploy.sh retrieval`) + frontend (rsync) together.
 
 Problems: none blocking. Minor: a stale-WAL hang during an earlier isolated
 store test (killed process left a `.db-wal` lock) - environmental, not a code
@@ -93,7 +93,7 @@ kinase-inhibitor partitioning) through the full pipeline (OA lever + wider funne
 + snowball + R1 report). Saves to `docs/agent-track/MUNIN-DR-SAMPLE-REPORT.md` so the user
 can compare Munin's report side-by-side with the Claude reference. NOTE
 (2026-07-27): this log originally said the reference was never committed. It
-was in fact committed (in `01eaa68`, under an opaque `compass_artifact_*`
+was in fact committed (in `3a60eec`, under an opaque `compass_artifact_*`
 filename) and now lives at `docs/agent-track/CLAUDE-DR-REFERENCE-REPORT.md`.
 
 **The capstone caught a real bug (b5a58c6).** The first capstone run produced an
@@ -201,14 +201,14 @@ Both tiers work in production; the read paths for them are unit-tested here.
 
 Live A/B testing of the deployed DR endpoint surfaced two things:
 
-1. **Ranking crowded out external tiers (fixed, `cd708cd`).** `_dedup_and_rank`
+1. **Ranking crowded out external tiers (fixed, `d089569`).** `_dedup_and_rank`
    did `(corpus + oa + web)[:top_k]`, so a corpus-rich query filled `top_k` and
    OA/web were truncated off before screening. Confirmed live: the web tier
    returned 17-20 results that were silently discarded. Fix reserves **4 OA + 3
    web** slots within `top_k` (`OA_QUOTA`/`WEB_QUOTA`); corpus takes the rest.
    Verified: ranking went 26-corpus/0-external → 19/4/3. +3 unit tests.
 
-2. **Source tier was invisible in the timeline (fixed, `daba612`).** Reads/notes
+2. **Source tier was invisible in the timeline (fixed, `49a78cd`).** Reads/notes
    didn't say which tier a citation came from. Added `_origin_tier()` +
    propagation into events, `evidence_refs`, `_citations`, the Sources list, and a
    `TierBadge` in `ResearchTimeline.tsx`. Now every citation is badged

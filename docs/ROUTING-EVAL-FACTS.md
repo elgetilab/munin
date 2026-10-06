@@ -1,6 +1,6 @@
 # Routing eval facts for paper Section 3.2.1 (per-turn routing)
 
-Compiled 2026-09-14 from the repository at `main` (HEAD `b8ce907`), read-only.
+Compiled 2026-09-14 from the repository at `main` (HEAD `b7888d1`), read-only.
 Every claim cites file:line and, where history matters, the commit. Line
 numbers are against HEAD. Nothing was modified; the one patch in Section 3 is
 a draft that was dry-run with `git apply --check` and exercised in a scratch
@@ -31,7 +31,7 @@ PIN_PRIOR = 0.5             # vote weight the pinned profile gets as a prior
 ```
 
 The kit's 8 / 0.10 / 0.45 / 0.5 is correct. These values are **unchanged since
-the file was created** in commit `1a81c6c` (2026-06-24, `feat(router): A3
+the file was created** in commit `06f3958` (2026-06-24, `feat(router): A3
 per-turn router + labelled example set`): `git diff 1a81c6c HEAD --
 backend/retrieval/router.py` touches only a docstring path, the
 `stripped_query` field, and the rule-tier return. The comment immediately
@@ -138,11 +138,11 @@ that `make_header` hard-codes (`run.py:86`). The later anchor-tier files
 
 **Which file is 0.963.** `backend/benchmarks/scorecards/2026-07-10_postcap-t3.json`
 (`aggregate.mean_pass_rate: 0.963`, `ci95 0.911-1.000`, `n_items 16`,
-`reps 5`, `tier anchor`, header `git_sha 304fdc2`, committed in `e78da2c`
-2026-07-10). Note: the header SHAs in all these scorecards (`304fdc2`,
-`41d20ad`, `5a9df63`, `f84fcb2`, `20a62ef`, ...) **do not resolve** in the
+`reps 5`, `tier anchor`, header `git_sha 304fdc2`, committed in `65ea3c1`
+2026-07-10). Note: the header SHAs in all these scorecards (`cdd5cfd`,
+`e5e27b7`, `050322f`, `ad75f19`, `38696f8`, ...) **do not resolve** in the
 current history because the tree was rewritten before public release; the
-commits that *added* the scorecards (`e78da2c`, `e34e344`, ...) do resolve.
+commits that *added* the scorecards (`65ea3c1`, `5b6088d`, ...) do resolve.
 
 **What the number is.** Neither pooled routing accuracy nor macro-F1 over
 profiles. It is the **mean over items of the per-item pass fraction across
@@ -160,7 +160,7 @@ code itself calls "rough".
 `diagnostics["profile_match"] = emitted_profile == exp.profile` and nothing
 else about the router (`routing_eval.py:261-262`). Diagnostics are "NEVER
 folded into `passed`" (`routing_eval.py:216-223`). This was a deliberate
-change in `fd5638c` (2026-06-25, `fix(router): profile = reported metric`),
+change in `f68a6d8` (2026-06-25, `fix(router): profile = reported metric`),
 which turned the earlier gated `checks["profile"]` into a diagnostic with the
 rationale "genuinely-ambiguous queries ... meet the tool gate but sit on a
 profile boundary, so a profile mismatch must not fail the item"
@@ -204,7 +204,7 @@ profiled items correct ... (75% routing accuracy)" at the A3 gate v3.
 `2026-07-25_toolretire-after.json`: mean pass **0.835**, n=17, reps 5
 (`before`: 0.788), with `sota_phip` 0/5 (`first tool 'search', expected
 'deep_research'`) and `group_corpus_qa` 2/5 after the tool consolidation.
-Commit `e34e344` calls the overall move "within noise". The paper kit
+Commit `5b6088d` calls the overall move "within noise". The paper kit
 (`05-RESULTS.md:488-491`, `06-ABLATIONS.md:202`) quotes 0.963 as
 "post-deploy", which is true of the 2026-07-10 deploy of the tool-call cap,
 not of the current tree.
@@ -246,16 +246,16 @@ profile label an anchor has; the 7 unlabelled anchors (`percent_calc`,
 nothing to any profile-routing measurement.
 
 **Anchor count over time** (from `git show <sha>:...routing_eval.py`):
-15 items / 14 run at `1b6be07` (2026-06-22, A0); 17 / 16 from `8cd63df`
+15 items / 14 run at `6504866` (2026-06-22, A0); 17 / 16 from `a207539`
 (2026-06-28, added `html_poster_artifact`, `corpus_absent_abstain`); 18 / 17
-from `fe0a456` (2026-07-25, added `compare_known_dois`, and re-targeted
+from `6ab653a` (2026-07-25, added `compare_known_dois`, and re-targeted
 `known_doi_read` from `read_paper` to `source`). The 0.963 run used the
 17 / 16 set with `known_doi_read` still expecting `read_paper` (its
 `completed_in_turn:read_paper` diagnostic is in the scorecard).
 
-**Example-set count over time:** 24 at `1a81c6c` (2026-06-24; 16 prompt
-suggestions + **8 seed items**), 229 from `9340364`/`fd5638c` (2026-06-25),
-244 from `4355fa4` (2026-08-27, +15 research "property/value lookup"
+**Example-set count over time:** 24 at `06f3958` (2026-06-24; 16 prompt
+suggestions + **8 seed items**), 229 from `c95e3ff`/`f68a6d8` (2026-06-25),
+244 from `c02481d` (2026-08-27, +15 research "property/value lookup"
 examples). The 0.963 run was measured against the 229-example set.
 
 ---
@@ -296,7 +296,7 @@ Next highest, below 0.95 but notable:
 
 The `citing_papers` example is the anchor with the DOI removed; the
 `group_corpus_qa` example is the anchor minus the word "SABRE". These entered
-the example set in `9340364` (2026-06-25), the same commit that removed the
+the example set in `c95e3ff` (2026-06-25), the same commit that removed the
 verbatim anchors, under the heading "Generalised phrasings of each profile's
 sub-patterns; deliberately NOT the verbatim routing-eval test queries"
 (`router_examples_build.py:42-44`). They pass the exact-match guard and are
@@ -308,13 +308,13 @@ floor by a wide margin (minimum nearest-neighbour cosine 0.513,
 
 | event | commit | date |
 |---|---|---|
-| Anchors authored (15 items) | `1b6be07` feat(benchmarks): A0 routing-eval harness | 2026-06-22 |
-| Router + example set created; **8 anchors with `expected.profile` copied INTO the example set** as `source: seed_item` (`git show 1a81c6c:backend/retrieval/router_examples.json`, meta.sources lists "routing-eval seed items with expected.profile") | `1a81c6c` | 2026-06-24 |
-| Leak found and removed; example set 24 -> 229; build-time exact-match guard added; near-verbatim "generalised" examples added | `9340364` fix(router): ship labelled set in image, expand it, drop test-set leakage | 2026-06-25 |
-| Guard finalised; profile made non-gating | `fd5638c` fix(router): profile = reported metric; leak-free labelled set + guard | 2026-06-25 |
-| Anchors +2 (`8cd63df`), reroute stub fixed (`7caacbd`), abstain gate relaxed (`350ce7d`) | | 2026-06-28/29 |
-| Anchor +1 and `known_doi_read` re-targeted | `fe0a456` | 2026-07-25 |
-| **Example set last changed**: +15 research examples | `4355fa4` fix(search): ... plus the router gap ... | 2026-08-27 |
+| Anchors authored (15 items) | `6504866` feat(benchmarks): A0 routing-eval harness | 2026-06-22 |
+| Router + example set created; **8 anchors with `expected.profile` copied INTO the example set** as `source: seed_item` (`git show 1a81c6c:backend/retrieval/router_examples.json`, meta.sources lists "routing-eval seed items with expected.profile") | `06f3958` | 2026-06-24 |
+| Leak found and removed; example set 24 -> 229; build-time exact-match guard added; near-verbatim "generalised" examples added | `c95e3ff` fix(router): ship labelled set in image, expand it, drop test-set leakage | 2026-06-25 |
+| Guard finalised; profile made non-gating | `f68a6d8` fix(router): profile = reported metric; leak-free labelled set + guard | 2026-06-25 |
+| Anchors +2 (`a207539`), reroute stub fixed (`b9f46a9`), abstain gate relaxed (`9f2576a`) | | 2026-06-28/29 |
+| Anchor +1 and `known_doi_read` re-targeted | `6ab653a` | 2026-07-25 |
+| **Example set last changed**: +15 research examples | `c02481d` fix(search): ... plus the router gap ... | 2026-08-27 |
 
 So: anchors were copied into the example set for one day (2026-06-24 to
 2026-06-25). The `2026-06-24_routing-A3-gate.json` scorecard (mean 0.643,
@@ -406,7 +406,7 @@ the two pairs above.
 
 **Authorship.** `git blame` over `SEED_ITEMS` (`routing_eval.py:367-749`):
 every line is authored by `varghele` (the repository's sole committer for
-this file, 12 commits from `1b6be07` to `dcec85c`). `router_examples_build.py`
+this file, 12 commits from `6504866` to `81a53cd`). `router_examples_build.py`
 (407 lines) and `routing_paraphrases.json` (1150 lines): 100% `varghele`.
 The authored commits were produced in Claude Code sessions (the commit
 messages and plan documents are written in that register, e.g. "Decision
@@ -443,7 +443,7 @@ labelling guideline. What exists:
   every run; the same comment says routing it to research is defensible.
 - The example-set labels follow a stated convention for one ambiguity
   class: "paper-finding / scientific-literature queries lean RESEARCH"
-  (`router_examples_build.py:31-37` at `1a81c6c`, kept at HEAD `:31-35`).
+  (`router_examples_build.py:31-37` at `06f3958`, kept at HEAD `:31-35`).
 
 ---
 
@@ -515,8 +515,8 @@ The paper kit's phrasing (`02-ARCHITECTURE.md:78-80`) is a paraphrase of
 DECISIONS.md.
 
 **What the count actually is.** The dates (05-28 to 06-19) all precede the
-A1 commit that disabled delegation (`41fb267`, 2026-06-22), and A4a deleted the
-machinery three days later (`158e70c`, 2026-06-25). So the 15 are
+A1 commit that disabled delegation (`6b1b77d`, 2026-06-22), and A4a deleted the
+machinery three days later (`972a931`, 2026-06-25). So the 15 are
 **historical `delegate_to_persona` records in `chats.db` while delegation was
 enabled**, not attempts logged during a delegation-off soak. The planned
 soak with `DELEGATION_ENABLED=false` and `delegation-disabled attempt` log

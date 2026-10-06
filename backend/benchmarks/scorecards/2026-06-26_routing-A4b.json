@@ -2,7 +2,7 @@
   "header": {
     "tag": "routing-A4b",
     "timestamp": "2026-06-26T10:43:31.293163+00:00",
-    "git_sha": "2047406",
+    "git_sha": "d3ed072",
     "model": "qwen3.6-35b-a3b",
     "persona_policy": "chat (A0 decision A; not expected.profile)",
     "base_url": "http://127.0.0.1:8080",

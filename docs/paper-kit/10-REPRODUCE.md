@@ -256,12 +256,12 @@ changes but the captures do not):
 # egress=off pair, preserving the capture-time git sha, plus the
 # question-paired delta against the earlier 2026-07-10 captures
 PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 \
-  --rescore --date 2026-07-27 --keep-git-sha 8d0366c --vs-suffix 2026-07-10
+  --rescore --date 2026-07-27 --keep-git-sha 52e7961 --vs-suffix 2026-07-10
 
 # egress=full pair
 PYTHONPATH=$HOME/.cache/munin_bench_deps:. $PY -m munin_bench.abstention.run_c2 \
   --rescore --suffix egressfull --date 2026-07-27 \
-  --out-tag abstention-c2-shadow-egressfull --keep-git-sha 8d0366c
+  --out-tag abstention-c2-shadow-egressfull --keep-git-sha 52e7961
 ```
 
 A re-scored scorecard records `rescored_by` and `rescored_at_git_sha` alongside

@@ -1,7 +1,7 @@
 # Routing scorecard — a5-anchor-baseline
 
 - **PRE-MIGRATION regression baseline. Not a paper result.**
-- model: `unknown`  git: `754e5e8`  reps: 5  seed: 42
+- model: `unknown`  git: `a207539`  reps: 5  seed: 42
 - tier: `anchor`
 - persona policy: chat (A0 decision A; not expected.profile)
 - timestamp: 2026-06-28T12:02:38.964749+00:00

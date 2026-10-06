@@ -1,6 +1,6 @@
 # Scorecard — answer-bge-large-v2
 
-- model `qwen3.6-35b-a3b` | encoder `bge-large` | git `3ef9a57`
+- model `qwen3.6-35b-a3b` | encoder `bge-large` | git `d49a58b`
 - corpus papers 68121 | graph CITES 1342364 | seed 42
 - 2026-07-06T15:50:59.748439+00:00
 

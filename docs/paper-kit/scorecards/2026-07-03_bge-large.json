@@ -2,7 +2,7 @@
   "meta": {
     "tag": "bge-large",
     "generated_at": "2026-07-03T16:46:38.106157+00:00",
-    "git_sha": "bc35b4d",
+    "git_sha": "e41f638",
     "encoder": "bge-large",
     "seed": 42,
     "packages": {

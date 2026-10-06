@@ -49,7 +49,7 @@ Paired deltas @300s (p~0): agentic-bare **+0.367** [0.276,0.452] (Track D was
 **300s caveat that triggered the re-run:** all 15 agentic unparseables were at
 exactly 300s (truncations scored wrong), 23 questions hit the cap. So 0.668
 understates; true number ~standalone 0.864. Committed the deadline fix
-(`3a1dfa2`, 300->900) and re-running agentic at 900s. The 300s result is kept
+(`d7b0c01`, 300->900) and re-running agentic at 900s. The 300s result is kept
 (`scratchpad agentic_300s.json`) as the same-deadline Track-D before/after.
 
 Abstention-per-arm (C1 fabricated): bare 0.61, RAG 0.42 (Track D 0.59/0.36),
@@ -281,7 +281,7 @@ loop, not retrieval per se.
 
 ## Why it needs a refresh (the real T2 work)
 
-The **agentic arm is stale.** Track D ran at git ~`dfe89f8` on 2026-07-13.
+The **agentic arm is stale.** Track D ran at git ~`d2fdb17` on 2026-07-13.
 Since then the source agent's full-text reading + the retrieval fixes landed,
 taking standalone LitQA2 answer accuracy **0.497 → 0.864** (07-06 → 07-24), plus
 the tool retirement and R5. The 0.56 agentic number predates all of it and

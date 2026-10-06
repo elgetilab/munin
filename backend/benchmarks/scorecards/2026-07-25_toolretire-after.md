@@ -1,7 +1,7 @@
 # Routing scorecard — toolretire-after
 
 - **Routing regression scorecard, run after the router went live (2026-07-08). Note corrected 2026-10: the runner stamped this run as a pre-migration baseline and not a paper result, which was wrong for it.**
-- model: `unknown`  git: `20a62ef`  reps: 5  seed: 42
+- model: `unknown`  git: `38696f8`  reps: 5  seed: 42
 - tier: `anchor`
 - persona policy: chat (A0 decision A; not expected.profile)
 - timestamp: 2026-07-25T12:03:47.393497+00:00

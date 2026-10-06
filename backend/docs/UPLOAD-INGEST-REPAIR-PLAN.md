@@ -316,8 +316,8 @@ Post-deploy checks:
 ## Status
 
 All three defects are fixed and committed. Defects 1 and 3 were deployed
-and verified live on 2026-08-21 (commits c77a9d4, a294c3a). Defect 2 is
-built and verified against the running stack (commit 10d3e94) but is NOT
+and verified live on 2026-08-21 (commits 80c05c2, a294c3a). Defect 2 is
+built and verified against the running stack (commit f9dff7a) but is NOT
 yet deployed. The data repair (R1 to R4) is still open.
 
 ### Deviation from the plan, defect 2 step 4

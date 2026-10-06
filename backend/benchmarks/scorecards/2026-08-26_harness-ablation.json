@@ -1,7 +1,7 @@
 {
   "track": "harness-ablation",
   "n_paired": 199,
-  "git_sha": "3e0bcfb",
+  "git_sha": "df14dff",
   "date": "2026-08-26",
   "per_arm": {
     "bare": {

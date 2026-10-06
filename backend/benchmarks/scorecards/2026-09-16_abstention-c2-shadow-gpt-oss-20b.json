@@ -122,7 +122,7 @@
     }
   },
   "date": "2026-09-16",
-  "git_sha": "6e3aa53",
+  "git_sha": "39a1590",
   "correct_abstention_vs_c2_runs": {
     "old_rate": 0.8888888888888888,
     "new_rate": 0.8,

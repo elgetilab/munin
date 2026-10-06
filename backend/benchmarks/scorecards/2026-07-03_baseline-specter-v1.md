@@ -1,6 +1,6 @@
 # Scorecard — baseline-specter-v1
 
-- model `qwen3.6-35b-a3b` | encoder `specter-v1` | git `77b6a21`
+- model `qwen3.6-35b-a3b` | encoder `specter-v1` | git `dc57e46`
 - corpus papers 68121 | graph CITES 1342364 | seed 42
 - 2026-07-03T08:58:11.946690+00:00
 

@@ -1,7 +1,7 @@
 # Scorecard — faithfulness (arm: agentic-live)
 
 - judge `MiniCheck-Flan-T5-Large` on `cuda:0` (validated on RAGTruth-QA:
-  AUROC 0.95, see `2026-07-08_faithfulness-judge-ragtruth`) | git `3b9b8b9` | seed 42
+  AUROC 0.95, see `2026-07-08_faithfulness-judge-ragtruth`) | git `cb38454` | seed 42
 - generator: live research chat (`/api/chat/completions`, persona research) |
   40 LitQA2 questions | threshold 0.5 | 2026-07-08
 

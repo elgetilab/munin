@@ -1,7 +1,7 @@
 {
   "track": "litsearch",
   "date": "2026-07-28",
-  "git_sha": "0efbe68",
+  "git_sha": "7651f73",
   "encoder": "BGE-large-en-v1.5",
   "encoder_note": "PRODUCTION encoder. The 2026-06/07 BEIR tables used SPECTER-v1 \u2014 do not compare across them.",
   "n_queries": 597,

@@ -9,6 +9,14 @@ The full set is 97 JSON plus 57 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
+**Commit hashes are those of the published history.** The repository's
+history was rewritten before release to remove personal data and one internal
+document, which changes every commit hash. Each `git_sha` and
+`rescored_at_git_sha` here, and every git `<hash>` cited in the paper docs,
+was mapped in 2026-10 to the same commit in the published history, so it
+resolves in a clone; `backend/scripts/ci/check_commit_refs.py` keeps it that
+way.
+
 **Answer text is withheld.** The four `*_answer-*-900s.json` files used to
 carry `text_tail`, the last 600 characters of each model answer. Those tails
 quoted the source papers and gave away LitQA2 answers, so the field was

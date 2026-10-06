@@ -4,7 +4,7 @@
   "judge_model": "lytang/MiniCheck-Flan-T5-Large",
   "judge_device": "cuda:0",
   "generator_base_url": "http://127.0.0.1:8080",
-  "git_sha": "d806e10",
+  "git_sha": "9110147",
   "seed": 42,
   "threshold": 0.5,
   "claim_mode": "extract",

@@ -116,7 +116,7 @@ the pre-consolidation v4 baseline, no real regression. Critical checks held:
 
 Commit bba3b01 (consolidation) + the drift-guard test.
 
-### Backend step 2 done + verified (commit 3b53650)
+### Backend step 2 done + verified (commit 7b777e8)
 
 `/api/personas` returns a single "Munin" entry (default_persona "munin");
 `persona:"munin"` or unset -> no-pin auto-route (router decides from the query);
@@ -125,7 +125,7 @@ and is unaffected). New conversations persist "munin" so reopening re-routes.
 Live probe: munin -> {python:code, papers:research, weather:chat} all pin=null;
 chat -> pin="chat". Backend fully done.
 
-### Frontend DONE + DEPLOYED (commit ed577a1, 2026-06-29)
+### Frontend DONE + DEPLOYED (commit 846ba45, 2026-06-29)
 
 Picker removed (PersonaSelector + PersonaDivider deleted); composer shows a static
 Munin mark (`/shared/munin_logo_without_script.webp`) + slash hint placeholder;
