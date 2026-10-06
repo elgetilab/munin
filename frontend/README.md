@@ -185,10 +185,6 @@ What's running today:
   api-gateway, tusd, hook-service) plus the optional `webui-build`.
 - **Bootstrap script**: VPS provisioning, safe to re-run (keys are added, not replaced).
 
-Specs that haven't shipped yet are in
-[`docs/ADDITIONAL-FEATURES.md`](docs/ADDITIONAL-FEATURES.md) and
-[`docs/AGENTIC-ORCHESTRATION.md`](docs/AGENTIC-ORCHESTRATION.md).
-
 ## Repository Structure
 
 ```
@@ -285,11 +281,6 @@ static `/maintenance` page follow the flag through `/api/status`
 reference deployment, [`docs/install/reference-deployment.md`](../docs/install/reference-deployment.md).
 
 ## Design Documents
-
-Live design notes in [`docs/`](docs/):
-
-- [ADDITIONAL-FEATURES.md](docs/ADDITIONAL-FEATURES.md): PWA, user memory, BM25, compaction.
-- [AGENTIC-ORCHESTRATION.md](docs/AGENTIC-ORCHESTRATION.md): agent registry and orchestration.
 
 The cluster-to-VPS tunnel recipe is in
 [`docs/install/tunnel.md`](../docs/install/tunnel.md). Frozen
