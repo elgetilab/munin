@@ -18,9 +18,11 @@ Validators compile once at module import; a malformed schema in
 rather than failing the first user request that exercises it.
 """
 
+import ast
 import json
 import logging
 import time
+import warnings
 
 from jsonschema import Draft202012Validator, ValidationError
 from jsonschema.exceptions import SchemaError
@@ -82,6 +84,49 @@ _VALIDATORS: dict[str, Draft202012Validator] = _build_validators()
 # type, so `"year:2023"` is still rejected (it is not JSON) while
 # `'{"year":"2023"}'` is accepted. Anything ambiguous is left alone for the
 # validator to reject with its clear message.
+#
+# Defensive hardening (v1.1 review, 2026-10): the review counted 7 + 1 + 1
+# rejections of `top_k` / `queries` as coercion misses, but all but one predate
+# this coercion's deploy (248a419, 2026-08-27); the one later case was a
+# truncated, malformed array that nothing can safely repair. So this is not a
+# measured cause. It covers shapes the strict json.loads would still miss: a
+# quoted number ('"5"'), a Python list repr with single quotes, a trailing
+# comma, or JSON encoded twice. _parse_literal reads those with json first and
+# ast.literal_eval second (literals only, never eval), and the declared-type
+# check below still applies to whatever comes out. literal_eval also reads
+# Python-only spellings such as '0x10' (16) or '1+2j'; that is harmless, since
+# a value of the wrong type is still dropped by that check.
+_UNPARSED = object()
+_LITERAL_MAX_CHARS = 100_000
+
+
+def _parse_literal_once(text: str):
+    try:
+        return json.loads(text)
+    except (ValueError, RecursionError):
+        # RecursionError: a deeply nested '[[[[...' string; leave it to the validator.
+        pass
+    try:
+        with warnings.catch_warnings():
+            # Invalid escapes like "\_" warn under literal_eval; not our concern.
+            warnings.simplefilter("ignore")
+            return ast.literal_eval(text)
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        return _UNPARSED
+
+
+def _parse_literal(value: str):
+    """Parse a JSON or Python literal the model sent as a string, unwrapping
+    one level of double encoding. Returns _UNPARSED when it is not one."""
+    text = value.strip()
+    if not text or len(text) > _LITERAL_MAX_CHARS:
+        return _UNPARSED
+    parsed = _parse_literal_once(text)
+    if isinstance(parsed, str) and parsed.strip() and parsed.strip() != text:
+        parsed = _parse_literal_once(parsed.strip())
+    return parsed
+
+
 def _coerce_scalar(value, want: str):
     """Return a coerced value, or None if no safe coercion applies."""
     if want == "integer":
@@ -97,6 +142,11 @@ def _coerce_scalar(value, want: str):
                 try:
                     f = float(t)
                 except ValueError:
+                    parsed = _parse_literal(t)
+                    if isinstance(parsed, int) and not isinstance(parsed, bool):
+                        return parsed
+                    if isinstance(parsed, float) and parsed.is_integer():
+                        return int(parsed)
                     return None
                 return int(f) if f.is_integer() else None
         return None
@@ -107,6 +157,9 @@ def _coerce_scalar(value, want: str):
             try:
                 return float(value.strip())
             except ValueError:
+                parsed = _parse_literal(value)
+                if isinstance(parsed, (int, float)) and not isinstance(parsed, bool):
+                    return float(parsed)
                 return None
         return None
     if want == "boolean":
@@ -119,10 +172,7 @@ def _coerce_scalar(value, want: str):
         return None
     if want in ("object", "array"):
         if isinstance(value, str):
-            try:
-                parsed = json.loads(value)
-            except Exception:
-                return None
+            parsed = _parse_literal(value)
             if want == "object" and isinstance(parsed, dict):
                 return parsed
             if want == "array" and isinstance(parsed, list):
@@ -244,6 +294,8 @@ def _normalize_aliases(tool_name: str, arguments: dict) -> dict:
     key is absent. Non-destructive: an explicit canonical key always wins,
     and the alias key is left in place (the artifact schemas don't set
     ``additionalProperties: false``, so a leftover ``id`` is harmless)."""
+    if tool_name == "edit_python":
+        return _repair_edit_python_args(arguments)
     aliases = _ARG_ALIASES.get(tool_name)
     if not aliases or not isinstance(arguments, dict):
         return arguments
@@ -252,6 +304,72 @@ def _normalize_aliases(tool_name: str, arguments: dict) -> dict:
         if canonical not in patched and alias in patched:
             patched[canonical] = patched[alias]
     return patched
+
+
+# edit_python failed 81% of the time in the v1.1 review window: the model
+# spells one {old, new} edit the way other editors do (`old_str`/`new_str`,
+# `old_string`/`new_string` + `replace_all`, `find`/`replace`), or sends a
+# `replacements` list of such pairs. Each pair maps onto exactly one `edits`
+# entry, so rebuild that shape. Only complete pairs are mapped; a bare `code`
+# or `code`/`new_code` is ambiguous (a whole new script, or a snippet?) and is
+# left to fail with the example in _ARG_SHAPE_HINTS. `replace_all` is dropped:
+# apply_edits refuses an `old` that matches more than once, so it cannot
+# silently patch the wrong place.
+_EDIT_PAIR_KEYS = (
+    ("old", "new"),
+    ("old_str", "new_str"),
+    ("old_string", "new_string"),
+    ("find", "replace"),
+)
+
+
+def _as_edit(obj):
+    """{old, new} for a dict carrying one known pair of keys, else None."""
+    if not isinstance(obj, dict):
+        return None
+    for old_key, new_key in _EDIT_PAIR_KEYS:
+        if old_key in obj and new_key in obj:
+            return {"old": obj[old_key], "new": obj[new_key]}
+    return None
+
+
+def _repair_edit_python_args(arguments: dict) -> dict:
+    if not isinstance(arguments, dict):
+        return arguments
+    edits = arguments.get("edits")
+    if isinstance(edits, dict):
+        edits = [edits]
+    if isinstance(edits, list):
+        fixed = [e if isinstance(e, dict) and "old" in e and "new" in e
+                 else (_as_edit(e) or e) for e in edits]
+    elif "edits" in arguments:
+        return arguments                      # a string: coercion's job
+    elif isinstance(arguments.get("replacements"), list):
+        fixed = [_as_edit(e) for e in arguments["replacements"]]
+        if not fixed or None in fixed:
+            return arguments
+    else:
+        one = _as_edit(arguments)
+        if one is None:
+            return arguments
+        fixed = [one]
+    if fixed == arguments.get("edits"):
+        return arguments
+    patched = dict(arguments)
+    patched["edits"] = fixed
+    logger.info("repaired edit_python arguments into edits (keys: %s)",
+                sorted(arguments))
+    return patched
+
+
+# One-line example of the correct call, appended to a validation error for
+# tools whose wrong shapes we deliberately do not guess at.
+_ARG_SHAPE_HINTS: dict[str, str] = {
+    "edit_python": (
+        'expected {"edits": [{"old": "<exact snippet from the code you ran>", '
+        '"new": "<replacement>"}]}, e.g. {"edits": [{"old": "x = 1", "new": "x = 2"}]}'
+    ),
+}
 
 
 def _format_validation_error(
@@ -268,7 +386,9 @@ def _format_validation_error(
     for e in errs:
         pointer = "/".join(str(p) for p in e.absolute_path) or "(root)"
         parts.append(f"{pointer}: {e.message}")
-    return f"invalid arguments for {tool_name!r}: " + "; ".join(parts)
+    msg = f"invalid arguments for {tool_name!r}: " + "; ".join(parts)
+    hint = _ARG_SHAPE_HINTS.get(tool_name)
+    return f"{msg}. {hint}" if hint else msg
 
 
 async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
