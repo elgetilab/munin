@@ -718,7 +718,7 @@ MCP_TOOLS = {
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Search query. Plain words work; FTS5 syntax (phrase queries, NEAR, OR) also works."
+                    "description": "Search query. Plain words (all must match) work; \"quoted phrases\", OR between words and a trailing * prefix also work."
                 },
                 "limit": {
                     "type": "integer",

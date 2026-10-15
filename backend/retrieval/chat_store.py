@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -408,6 +409,44 @@ async def create_conversation(
 
 _UNFILED_SENTINEL = "__unfiled__"
 
+# "quoted phrase" or a run of non-space characters.
+_FTS_TOKEN_RE = re.compile(r'"([^"]*)"|(\S+)')
+_FTS_DROPPED_OPERATORS = {"AND", "NOT", "NEAR"}
+
+
+def fts5_query(text: Optional[str]) -> str:
+    """
+    Turn free text into a safe FTS5 MATCH expression. Raw text is parsed
+    as FTS5 syntax, so ``abc-3`` became ``abc NOT column:3`` and failed
+    with "no such column: 3". Each token is quoted as a phrase (embedded
+    quotes doubled), so hyphens, colons and parentheses are literal.
+    Kept: implicit AND between terms, ``"quoted phrases"``, a bare ``OR``
+    between two terms, and a trailing ``*`` for prefix match. Bare AND,
+    NOT and NEAR are dropped. Returns "" when nothing searchable is left.
+    """
+    if not text:
+        return ""
+    parts: list[str] = []
+    for m in _FTS_TOKEN_RE.finditer(text):
+        phrase, word = m.group(1), m.group(2)
+        if phrase is not None:
+            token, prefix = phrase, False
+        elif word == "OR":
+            if parts and parts[-1] != "OR":
+                parts.append("OR")
+            continue
+        elif word in _FTS_DROPPED_OPERATORS:
+            continue
+        else:
+            prefix = word.endswith("*")
+            token = word.rstrip("*")
+        if not any(ch.isalnum() for ch in token):
+            continue
+        parts.append('"' + token.replace('"', '""') + '"' + ("*" if prefix else ""))
+    while parts and parts[-1] == "OR":
+        parts.pop()
+    return " ".join(parts)
+
 
 async def get_conversations(
     user_email: str,
@@ -443,6 +482,9 @@ async def get_conversations(
         params.append(project_id)
 
     if search:
+        search = fts5_query(search)
+        if not search:
+            return {"conversations": [], "total": 0}
         where.append(
             "c.id IN (SELECT DISTINCT m.conversation_id FROM messages m "
             "JOIN messages_fts fts ON fts.rowid = m.rowid WHERE fts.content MATCH ?)"
@@ -502,9 +544,13 @@ async def search_user_messages(
     top of the result set; within a pin tier, ranking is FTS5 BM25
     (lower = more relevant).
 
-    ``query`` is passed through to FTS5 MATCH unchanged. Plain words
-    work; advanced FTS5 syntax (phrase queries, NEAR, OR) also works.
+    ``query`` goes through ``fts5_query``: plain words (all must match),
+    "quoted phrases", OR between words and a trailing * prefix work.
     """
+    query = fts5_query(query)
+    if not query:
+        return {"results": [], "total_matches": 0}
+
     db = await get_db()
 
     where = ["c.user_email = ?", "fts.content MATCH ?"]
