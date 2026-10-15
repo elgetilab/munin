@@ -16,6 +16,8 @@ was supposed to answer it:
   3. The model passed `queries` (not in this tool's schema). The dispatcher
      reads arguments by name, so it vanished silently: the model believed it
      had issued a 4-query fan-out, one query ran, and nothing said otherwise.
+     (It was then rejected outright; it is now accepted with a note naming
+     the queries that did not run.)
 
     docker exec munin-retrieval python /app/tests/test_search_agent_hygiene.py
 """
@@ -75,15 +77,12 @@ def test_corpus_snippet_capped() -> bool:
 
 # --- 3. the stray `queries` argument ---------------------------------------
 
-def test_queries_argument_is_rejected() -> bool:
-    """Must be an explicit, actionable error rather than a silent drop."""
-    async def go():
-        return await sa.search(query="q", extra_queries='["a","b"]')
-    r = asyncio.run(go())
-    ok = ("error" in r and "queries" in r["error"]
-          and ("paper_search" in r["error"] or "web_search" in r["error"]))
-    return _check("stray `queries` rejected with an actionable message", ok,
-                  f"got {r!r}")
+def test_queries_argument_is_parsed() -> bool:
+    """`queries` is now accepted (first one runs, the rest are reported in a
+    note; see test_search_queries_arg.py). Here: the stringified shape parses."""
+    got = sa._query_list('["a","b"]')
+    return _check("stringified `queries` parses to a list", got == ["a", "b"],
+                  f"got {got!r}")
 
 
 def test_queries_none_is_not_rejected() -> bool:
@@ -112,7 +111,7 @@ TESTS = [
     test_corpus_snippet_prefers_excerpt_over_abstract,
     test_corpus_snippet_missing_both_is_empty_not_crash,
     test_corpus_snippet_capped,
-    test_queries_argument_is_rejected,
+    test_queries_argument_is_parsed,
     test_queries_none_is_not_rejected,
     test_empty_queries_list_is_not_rejected,
 ]

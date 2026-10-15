@@ -318,6 +318,11 @@ async def _dispatch_mcp_tool(tool_name: str, arguments: dict) -> dict:
     lookup. ``verify_dispatch_registry`` runs at startup so a
     schema/executor mismatch can't reach a real request."""
     arguments = _normalize_aliases(tool_name, arguments or {})
+    if tool_name == "search":
+        # A call that only sent `queries` would otherwise fail on the
+        # required `query`; search() reports the queries it did not run.
+        from .tools.search_agent import fill_search_query
+        arguments = fill_search_query(arguments)
     arguments = coerce_argument_types(tool_name, arguments)
     validator = _VALIDATORS.get(tool_name)
     if validator is not None:

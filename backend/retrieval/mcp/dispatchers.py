@@ -119,9 +119,9 @@ async def _search(arguments: dict) -> dict:
         filters=arguments.get("filters"),
         depth=arguments.get("depth", "normal"),
         top_k=arguments.get("top_k", 10),
-        # Forwarded ONLY so search can reject it with a useful message; it is
-        # not in the schema. Dropping it here is what made the mistake silent.
         read=arguments.get("read", 0),
+        # Not in the schema, but models send it; forwarded so search can run
+        # the first and tell the model which ones did not run.
         extra_queries=arguments.get("queries"),
     )
 

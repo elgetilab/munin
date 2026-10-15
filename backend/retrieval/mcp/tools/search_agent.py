@@ -24,6 +24,7 @@ Design contract (AGENT-IMPLEMENTATION-PLAN.md, D18/D19 + design-v2 §6):
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -363,6 +364,35 @@ _ANSWER_SHAPED = re.compile(
     re.IGNORECASE)
 
 
+def _query_list(raw: Any) -> list[str]:
+    """A model-sent `queries` value as a clean list: a list, a stringified
+    JSON list, or a bare string. Blank entries are dropped."""
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            parsed = raw
+        raw = parsed if isinstance(parsed, list) else [raw]
+    if not isinstance(raw, list):
+        return []
+    return [str(q).strip() for q in raw if q is not None and str(q).strip()]
+
+
+def fill_search_query(arguments: dict) -> dict:
+    """Pre-validation: fill a missing `query` from `queries[0]`, so a call that
+    only sent `queries` is not rejected by the schema. `queries` is left in
+    place so search() can report which of them did not run."""
+    if not isinstance(arguments, dict):
+        return arguments
+    q = arguments.get("query")
+    if isinstance(q, str) and q.strip():
+        return arguments
+    extra = _query_list(arguments.get("queries"))
+    if not extra:
+        return arguments
+    return {**arguments, "query": extra[0]}
+
+
 def _wants_answer(query: str) -> bool:
     q = (query or "").strip()
     if not q:
@@ -382,24 +412,26 @@ async def search(query: str, filters: Optional[dict] = None,
     from mcp.tools.web import web_search
     import asyncio
 
+    # `queries` is NOT part of this tool's schema, but models send it anyway
+    # (paper_search and web_search both take one, and the research persona used
+    # to tell them to). Rejecting it failed 33 of 307 calls, and silently
+    # dropping it before that made the model believe a fan-out had run. So:
+    # accept it, run ONE query (`search` expands internally), and say plainly
+    # which queries did not run. A missing `query` was already filled from
+    # queries[0] by the executor (see fill_search_query) so validation passes.
+    extra = _query_list(extra_queries)
+    if (not query or not str(query).strip()) and extra:
+        query = extra[0]
     if not query or not str(query).strip():
         return {"error": "search requires a non-empty query"}
-    # `queries` is NOT part of this tool's schema, but models send it anyway
-    # (paper_search and web_search both take one, so it is a reasonable guess).
-    # The dispatcher reads arguments by name, so it used to vanish silently: the
-    # model believed it had issued a 4-query fan-out, one query ran, and it got
-    # no signal either way. Observed on the iLOV reproducer, where the model
-    # then spent 25 further calls doing by hand what it thought it had asked
-    # for. `search` expands internally, so the right answer is to say so rather
-    # than to accept a second, conflicting expansion.
-    if extra_queries:
-        return {"error": (
-            "search does not take a 'queries' argument: it expands 'query' "
-            "internally and runs the fan-out across all tiers itself. Pass the "
-            "single best natural-language query as 'query'. (If you want to "
-            "control the exact variants, use paper_search or web_search, which "
-            "do take 'queries'.)"
-        )}
+    unrun = [q for q in dict.fromkeys(extra) if q != str(query).strip()]
+    queries_note = None
+    if unrun:
+        queries_note = (
+            f"search runs one query per call. It ran {str(query).strip()!r}; "
+            f"these were NOT run: {unrun!r}. Call search again once for each "
+            "one you still need."
+        )
     filters = filters or {}
     year = filters.get("year", "")
     tags = filters.get("tags")  # None -> inherits current_query_tags ContextVar
@@ -631,6 +663,8 @@ async def search(query: str, filters: Optional[dict] = None,
            "escalated": escalated,
            "counts": {TIER_CORPUS: len(corpus_hits), TIER_OA: len(oa_hits),
                       TIER_WEB: len(web_hits)}}
+    if queries_note:
+        env["note"] = queries_note
     env["trace"] = tr.finish(outcome="resolved", n_ranked=len(ranked),
                              thin_evidence=thin_evidence)
     return env
