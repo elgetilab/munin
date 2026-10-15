@@ -1202,6 +1202,9 @@ async def _run_tool_calls(
             )
         except Exception as e:
             logger.exception("postToolUse dispatch failed for %r: %s", name, e)
+        _record_tool_result_urls(
+            result, tc["arguments"], current_search_urls.get(),
+        )
         return {
             "id": tc["id"],
             "name": name,
@@ -1363,6 +1366,25 @@ def _seed_search_urls(
             args = tc.get("arguments")
             if isinstance(args, dict):
                 bucket.update(_extract_urls(args.get("url")))
+
+
+def _record_tool_result_urls(
+    result,
+    arguments,
+    bucket: Optional[set],
+) -> None:
+    """Add every URL in a tool's result to the per-request web_fetch
+    allowlist as the tool returns, so a URL surfaced by any tool
+    (semantic_scholar_search, s2_*, paper_lookup, search, ...) is
+    fetchable in the same turn, not only on the next request. Error
+    results and URLs the tool merely echoed from its own arguments are
+    skipped so an invented URL cannot whitelist itself. No-op when the
+    bucket is unbound."""
+    if bucket is None:
+        return
+    if isinstance(result, dict) and result.get("error"):
+        return
+    bucket.update(_extract_urls(result) - _extract_urls(arguments))
 
 
 def apply_stream_error_marker(final_content: str, error_message: str) -> str:
@@ -2261,8 +2283,9 @@ async def stream_chat_completion(
     # Bug 4b (2026-06-01): seed the web_fetch URL allowlist from the
     # conversation's prior tool results AND from the current user
     # message's text. The set lives in `current_search_urls` and is
-    # also updated in place by web_search as it runs. Scope is whole-
-    # conversation so URLs surfaced in earlier turns remain fetchable.
+    # also updated in place by web_search and by _run_tool_calls (every
+    # tool result's URLs, as it returns). Scope is whole-conversation
+    # so URLs surfaced in earlier turns remain fetchable.
     _seed_search_urls(
         conversation.get("messages") or [],
         persisted_text,

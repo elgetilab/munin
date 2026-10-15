@@ -720,18 +720,19 @@ async def web_fetch_content(
     # Bug 4b: gate against hallucinated URLs. The set is seeded by
     # `chat_service.stream_chat_completion` from prior tool_call results
     # AND from URLs in user-message content, then updated in place by
-    # `web_search` and `web_fetch_content` (so a follow-up fetch on a
-    # page that linked to another URL succeeds after that page is
-    # fetched). `None` means the gate is unwired (standalone tests,
+    # `web_search` and by the executor, which records the URLs in every
+    # tool result as it returns (`chat_service._record_tool_result_urls`).
+    # `None` means the gate is unwired (standalone tests,
     # back-compat) and gating is skipped.
     allow = current_search_urls.get()
     if (allow is not None and isinstance(url, str) and url not in allow
             and not _is_canonical_reference_url(url)):
         return {
             "error": (
-                "URL not from any recent search result. Call web_search "
-                "first, then fetch a URL from the results. Do not invent "
-                "URLs from prior knowledge."
+                "URL not from any prior tool result in this conversation. "
+                "Only fetch a URL that a prior tool result returned; to "
+                "find one, call `search` first. Do not invent URLs from "
+                "prior knowledge."
             ),
             "url": url,
         }
