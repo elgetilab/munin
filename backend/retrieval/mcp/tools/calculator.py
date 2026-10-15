@@ -180,6 +180,44 @@ def _normalize_numeric(expression: str) -> str:
     return expression
 
 
+def _shape_numeric(expr: Any) -> tuple[Any, str]:
+    """Return (result, result_str) for one parsed value.
+
+    parse_expr does not always hand back a sympy Expr: "3, 4" is a tuple,
+    "[1, 2]" and solve(...) are lists, and some paths give a plain Python
+    number. Sequences are shaped element by element into a list.
+    """
+    if isinstance(expr, (tuple, list)):
+        items = [_shape_numeric(e) for e in expr]
+        return [r for r, _ in items], "[" + ", ".join(s for _, s in items) + "]"
+    if isinstance(expr, (int, float)):
+        expr = sympy.sympify(expr)
+
+    # Handle arbitrary-precision integers FIRST. Checking is_Integer on the
+    # original expression preserves the full digit count. Calling evalf()
+    # first would convert Integer(2**1024) to a Float which then overflows
+    # float64 and serializes as JSON-incompatible inf.
+    if getattr(expr, "is_Integer", False):
+        as_int = int(expr)
+        return as_int, str(as_int)
+
+    # Otherwise it's some other Number: try to coerce to a Python float,
+    # falling back to a string for inf / NaN / overflow / non-numeric.
+    if getattr(expr, "is_Number", False):
+        try:
+            numeric = expr.evalf()
+            as_float = float(numeric)
+            if as_float != as_float or as_float in (float("inf"), float("-inf")):
+                # NaN or infinity: string-only
+                return str(numeric), str(numeric)
+            return as_float, str(numeric)
+        except (OverflowError, ValueError, TypeError):
+            return str(expr), str(expr)
+
+    # Symbolic / non-numeric: return the simplified form as a string.
+    return str(expr), str(expr)
+
+
 def _calc_numeric(expression: str) -> dict:
     expression = _normalize_numeric(expression)
     expr = parse_expr(
@@ -188,44 +226,19 @@ def _calc_numeric(expression: str) -> dict:
         transformations=_TRANSFORMATIONS,
         evaluate=True,
     )
+    if expr is None:
+        raise ValueError(
+            "expression evaluated to nothing. pass a math expression such as "
+            "'2*(3+4)', or several separated by commas such as '1/3, 2**10'"
+        )
 
-    out: dict = {
+    result, result_str = _shape_numeric(expr)
+    return {
         "mode": "numeric",
         "expression": expression,
+        "result": result,
+        "result_str": result_str,
     }
-
-    # Handle arbitrary-precision integers FIRST — checking is_Integer on the
-    # original expression preserves the full digit count. Calling evalf()
-    # first would convert Integer(2**1024) to a Float which then overflows
-    # float64 and serializes as JSON-incompatible inf.
-    if expr.is_Integer:
-        as_int = int(expr)
-        out["result"] = as_int
-        out["result_str"] = str(as_int)
-        return out
-
-    # Otherwise it's some other Number — try to coerce to a Python float,
-    # falling back to a string for inf / NaN / overflow / non-numeric.
-    if expr.is_Number:
-        try:
-            numeric = expr.evalf()
-            as_float = float(numeric)
-            if as_float != as_float or as_float in (float("inf"), float("-inf")):
-                # NaN or infinity → string-only
-                out["result"] = str(numeric)
-                out["result_str"] = str(numeric)
-            else:
-                out["result"] = as_float
-                out["result_str"] = str(numeric)
-        except (OverflowError, ValueError, TypeError):
-            out["result"] = str(expr)
-            out["result_str"] = str(expr)
-        return out
-
-    # Symbolic / non-numeric — return the simplified form as a string.
-    out["result"] = str(expr)
-    out["result_str"] = str(expr)
-    return out
 
 
 # -----------------------------------------------------------------------------
