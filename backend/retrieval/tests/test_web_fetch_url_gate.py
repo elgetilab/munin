@@ -199,9 +199,9 @@ def test_web_fetch_blocks_url_not_in_allowlist() -> bool:
             False,
             f"expected error, got {result!r}",
         )
-    if "not from any recent search result" not in result["error"]:
+    if "not from any prior tool result" not in result["error"]:
         return _check(
-            "rejection nudges the model toward web_search",
+            "rejection nudges the model toward a prior tool result",
             False,
             f"unexpected error text: {result['error']!r}",
         )
