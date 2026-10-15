@@ -31,7 +31,9 @@ REFERENCE_ENV = {
 MEASURED_SHA256 = {
     "chat.json": "59f1c5aaad5f71c155880eb5409c9d9f73e396250b56f7fa2d93509203c544a3",
     "code.json": "3c846fda3ac6a242590fc19aa4b70b6906ef1c48d4df19fa49d3dc1d5679c23a",
-    "research.json": "bc460136529ef811b8affea04c0ccff7ac28dc305209cea18f749e56288c4cf2",
+    # Changed on purpose 2026-10-15: `search` is the primary search tool, so
+    # the "ALWAYS pass `queries`" and "paper_search first" guidance went.
+    "research.json": "12e8e912434a7569c681d6837d5d3cc03935bed4789fca02e3d7a79e74eb2824",
 }
 
 
