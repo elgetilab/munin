@@ -21,6 +21,8 @@ import time
 import urllib.request
 
 # Tools whose results are retrieved EVIDENCE the answer may ground on.
+# read_paper, compare_papers and deep_research are retired as tools; they stay
+# listed so older captures re-score exactly as they did when they were taken.
 RETRIEVAL_TOOLS = {
     "paper_search", "search_user_docs", "semantic_scholar_search",
     "web_search", "web_fetch", "get_citations", "get_references",

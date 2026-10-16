@@ -12,8 +12,9 @@
 # regression:
 #   1. web_search                    single tool call, simple JSON args
 #   2. paper_search                  single tool call, multi-query array arg
-#   3. invoke_agent (orchestrator)   nested agent path - the original
-#                                    "vanishing agent" bug
+#   3. search (agent)                nested agent path (replaces the retired
+#                                    invoke_agent, the original "vanishing
+#                                    agent" bug)
 #   4. compile_latex                 long code-string argument plus a
 #                                    reasoning trace
 #
@@ -219,9 +220,9 @@ PAPER_SEARCH_PROMPT = (
     "in solid-state NMR. Pass an array of 3 varied query phrasings."
 )
 
-INVOKE_AGENT_PROMPT = (
-    "Use the research_orchestrator agent (via invoke_agent) to give me a "
-    "short overview of luthiers and explain why you delegated."
+SEARCH_AGENT_PROMPT = (
+    "Use the search tool to give me a short overview of recent work on "
+    "luthiers and stringed-instrument acoustics, and cite what it found."
 )
 
 COMPILE_LATEX_PROMPT = (
@@ -241,9 +242,9 @@ async def scenario_paper_search(client: httpx.AsyncClient) -> SmokeOutcome:
     return _expect_tool(res, "paper_search", "paper_search multi-query array")
 
 
-async def scenario_invoke_agent(client: httpx.AsyncClient) -> SmokeOutcome:
-    res = await send_chat(client, INVOKE_AGENT_PROMPT)
-    return _expect_tool(res, "invoke_agent", "invoke_agent (research_orchestrator)")
+async def scenario_search_agent(client: httpx.AsyncClient) -> SmokeOutcome:
+    res = await send_chat(client, SEARCH_AGENT_PROMPT)
+    return _expect_tool(res, "search", "search (nested agent)")
 
 
 async def scenario_compile_latex(client: httpx.AsyncClient) -> SmokeOutcome:
@@ -254,7 +255,7 @@ async def scenario_compile_latex(client: httpx.AsyncClient) -> SmokeOutcome:
 SCENARIOS = [
     scenario_web_search,
     scenario_paper_search,
-    scenario_invoke_agent,
+    scenario_search_agent,
     scenario_compile_latex,
 ]
 
