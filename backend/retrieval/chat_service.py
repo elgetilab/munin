@@ -1348,7 +1348,16 @@ def _seed_search_urls(
     """Populate the per-request URL allowlist from the conversation's
     prior tool results + the current user message text. Silently
     no-op when the bucket is not bound (standalone tool unit tests,
-    legacy callers). Mutates `bucket` in place."""
+    legacy callers). Mutates `bucket` in place.
+
+    Persisted tool calls go through the same rule as in-turn ones
+    (`_record_tool_result_urls`): error results and URLs a call only
+    echoed from its own arguments are skipped, except the URL of a
+    web_fetch that succeeded. Seeding those used to let
+    an invented URL through on the retry one request after the gate
+    rejected it (chat 924de2c6). Message prose stays seeded: a URL
+    `search` recorded in-turn can be missing from its persisted result,
+    and the answer that cited it is then the only record left."""
     if bucket is None:
         return
     if isinstance(user_text, str) and user_text:
@@ -1362,9 +1371,12 @@ def _seed_search_urls(
         for tc in (msg.get("tool_calls") or []):
             if not isinstance(tc, dict):
                 continue
-            bucket.update(_extract_urls(tc.get("result")))
-            args = tc.get("arguments")
-            if isinstance(args, dict):
+            result, args = tc.get("result"), tc.get("arguments")
+            _record_tool_result_urls(result, args, bucket)
+            # A web_fetch that succeeded passed the gate, so its URL was
+            # legitimate then and stays fetchable.
+            if (tc.get("name") == "web_fetch" and isinstance(args, dict)
+                    and not (isinstance(result, dict) and result.get("error"))):
                 bucket.update(_extract_urls(args.get("url")))
 
 
@@ -2285,7 +2297,8 @@ async def stream_chat_completion(
     # message's text. The set lives in `current_search_urls` and is
     # also updated in place by web_search and by _run_tool_calls (every
     # tool result's URLs, as it returns). Scope is whole-conversation
-    # so URLs surfaced in earlier turns remain fetchable.
+    # so URLs surfaced in earlier turns remain fetchable; error results
+    # and argument echoes never count.
     _seed_search_urls(
         conversation.get("messages") or [],
         persisted_text,
