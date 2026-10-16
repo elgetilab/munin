@@ -96,6 +96,13 @@ def apply_edits(
     }
 
 
+def as_sentence(err: Exception) -> str:
+    """An apply_edits error ending in a full stop, for callers that append
+    more text after it (some messages end with one, some do not)."""
+    msg = str(err).rstrip()
+    return msg if msg.endswith(".") else msg + "."
+
+
 # Shape example appended to an edit failure from the artifact tools, so a
 # retry can fix the call instead of falling back to re-sending everything.
 ARTIFACT_EDITS_EXAMPLE = (

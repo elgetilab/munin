@@ -483,6 +483,11 @@ async def _dispatch_mcp_tool(tool_name: str, arguments: dict) -> dict:
         from .tools.search_agent import fill_search_query
         arguments = fill_search_query(arguments)
     arguments = coerce_argument_types(tool_name, arguments)
+    if tool_name == "edit_python" or tool_name in _EDITS_CANONICAL:
+        # A string `edits` is skipped by the first repair pass and only
+        # becomes a list in coercion, so its entries ({old, new} sent to
+        # update_artifact, say) get their key mapping here. Idempotent.
+        arguments = _normalize_aliases(tool_name, arguments)
     validator = _VALIDATORS.get(tool_name)
     if validator is not None:
         errs = sorted(

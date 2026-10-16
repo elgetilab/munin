@@ -312,6 +312,37 @@ def test_update_artifact_repairs_other_pair_spellings():
         assert latest["content"].startswith("# Final"), latest["content"]
 
 
+def test_update_artifact_string_encoded_edits_with_old_new_repaired():
+    """A JSON-string `edits` only becomes a list in coercion; its {old, new}
+    entries must still be mapped onto {old_str, new_str} afterwards."""
+    async def go():
+        conv_id, art_id = await _artifact(DOC)
+        res = await executor._dispatch_mcp_tool("update_artifact", {
+            "artifact_id": art_id,
+            "edits": '[{"old": "Draft", "new": "Final"}]',
+        })
+        return res, await _latest(conv_id, art_id)
+    res, latest = asyncio.run(go())
+    assert not res.get("error"), res
+    assert latest["content"].startswith("# Final"), latest["content"]
+
+
+def test_update_artifact_shape_error_is_punctuated():
+    async def go():
+        _conv_id, art_id = await _artifact(DOC)
+        return await executor._dispatch_mcp_tool("update_artifact", {
+            "artifact_id": art_id, "edits": [{"old_str": "", "new_str": "x"}]})
+    err = asyncio.run(go()).get("error") or ""
+    assert "non-empty string. Nothing was changed" in err, err
+
+
+def test_active_artifacts_block_points_at_edits():
+    block = artifact_store.build_artifact_summary_block([{
+        "id": "art_x", "title": "t", "content_type": "text/markdown",
+        "latest_version": 1, "word_count": 3, "source": "model_written"}])
+    assert "edits=[{old_str, new_str}]" in block, block
+
+
 def test_update_artifact_top_level_pair_not_folded_when_content_sent():
     args = executor._normalize_aliases("update_artifact", {
         "artifact_id": "art_x", "content": "full", "old_str": "a", "new_str": "b"})

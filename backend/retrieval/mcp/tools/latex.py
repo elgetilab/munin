@@ -24,7 +24,7 @@ from typing import Any, Optional
 
 import httpx
 
-from text_edits import ARTIFACT_EDITS_EXAMPLE, apply_edits
+from text_edits import ARTIFACT_EDITS_EXAMPLE, apply_edits, as_sentence
 
 from ..context import current_user_email, current_conversation_id
 from .artifacts import DIFF_DEPRECATION
@@ -272,7 +272,7 @@ async def compile_latex(
             except ValueError as e:
                 return {
                     "error": (
-                        f"edit application failed: {e} Nothing was "
+                        f"edit application failed: {as_sentence(e)} Nothing was "
                         f"compiled; fix that edit and retry, or "
                         f"read_artifact {artifact_id} to see the current "
                         f"source. {ARTIFACT_EDITS_EXAMPLE}"

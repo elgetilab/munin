@@ -39,7 +39,7 @@ import uuid
 from typing import Any, Optional
 
 from chat_store import _iso_now, _row_to_dict, get_db
-from text_edits import ARTIFACT_EDITS_EXAMPLE, apply_edits
+from text_edits import ARTIFACT_EDITS_EXAMPLE, apply_edits, as_sentence
 
 
 # Content cap per version. 500 KB of text is ~100k words, comfortably
@@ -815,7 +815,7 @@ async def update_artifact(
                 )
             except ValueError as e:
                 raise ArtifactError(
-                    f"{e} Nothing was changed; fix that edit and retry "
+                    f"{as_sentence(e)} Nothing was changed; fix that edit and retry "
                     f"against version {applied_base}. {ARTIFACT_EDITS_EXAMPLE}"
                 ) from None
             if new_content == base_content:
@@ -942,8 +942,10 @@ def build_artifact_summary_block(artifacts: list[dict]) -> Optional[str]:
     lines.append("")
     lines.append(
         "Model-written artifacts can be read with read_artifact(id), "
-        "edited with update_artifact(id, content) to produce a new "
-        "version, or created fresh with create_artifact(...). "
+        "edited with update_artifact(id, edits=[{old_str, new_str}]) "
+        "for a partial change or update_artifact(id, content) to "
+        "replace the whole text (either makes a new version), or "
+        "created fresh with create_artifact(...). "
         "Sandbox-generated artifacts (plots, spreadsheets, files "
         "produced by run_python) are read-only - call run_python "
         "again if you need to regenerate. Either kind can be "
