@@ -24,7 +24,10 @@ while [ \$# -gt 0 ]; do
     esac
     shift
 done
-if [ \$post = 1 ]; then printf '%s\n' "\$body" >> "$T/posts.txt"; exit 0; fi
+if [ \$post = 1 ]; then
+    [ -f "$T/post_fails" ] && exit 22
+    printf '%s\n' "\$body" >> "$T/posts.txt"; exit 0
+fi
 [ -f "$T/healthy" ]
 STUB
 cat > "$T/bin/scontrol" <<STUB
@@ -100,16 +103,28 @@ check "class change names the old class"  last_post_has 'was: restart_submitted'
 run
 check "same class after change is silent" [ "$(posts)" -eq 4 ]
 
-# 7. Placeholder webhook: never POSTs.
+# 7. A failed POST is not "already notified": the next run posts again.
+rm -f "$T/state/vllm-health.incident" "$T/jobs"
+echo "DOWN" > "$T/node_state"
+touch "$T/post_fails"
+run
+check "failed POST records unsent"        grep -q ' unsent$' "$T/state/vllm-health.incident"
+rm -f "$T/post_fails"
+run
+check "next run retries the alert"        [ "$(posts)" -eq 5 ]
+check "retry does not claim a class"      bash -c "! tail -1 '$T/posts.txt' | grep -q 'was:'"
+check "retry then records the class"      grep -q ' node_down$' "$T/state/vllm-health.incident"
+
+# 8. Placeholder webhook: never POSTs.
 rm -f "$T/state/vllm-health.incident" "$T/jobs"
 echo 'MUNIN_ALERT_WEBHOOK=https://ntfy.sh/your-topic' > "$T/cluster.env"
 echo "DOWN" > "$T/node_state"
 run
-check "placeholder webhook never POSTs"   [ "$(posts)" -eq 4 ]
+check "placeholder webhook never POSTs"   [ "$(posts)" -eq 5 ]
 
-# 8. Outside the serving window nothing is probed or posted.
+# 9. Outside the serving window nothing is probed or posted.
 VLLM_HEALTH_HOUR=3 run
-check "outside window is a no-op"         [ "$(posts)" -eq 4 ]
+check "outside window is a no-op"         [ "$(posts)" -eq 5 ]
 
 [ $FAIL = 0 ] && echo "PASS" || { echo "FAILED"; tail -30 "$T/log/vllm-health.log"; }
 exit $FAIL

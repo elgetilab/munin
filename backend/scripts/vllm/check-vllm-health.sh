@@ -132,11 +132,14 @@ EOF
             log "  [dry-run] Content-Type: $ctype"
             log "  [dry-run] body: $payload"
         else
-            curl -fsS --max-time 15 -X POST "$MUNIN_ALERT_WEBHOOK" \
-                 -H "Content-Type: $ctype" \
-                 -d "$payload" >/dev/null 2>&1 \
-                 && log "  webhook notified ($fmt)" \
-                 || log "  WARNING: webhook POST failed ($fmt); check the URL and MUNIN_ALERT_FORMAT"
+            if curl -fsS --max-time 15 -X POST "$MUNIN_ALERT_WEBHOOK" \
+                    -H "Content-Type: $ctype" \
+                    -d "$payload" >/dev/null 2>&1; then
+                log "  webhook notified ($fmt)"
+            else
+                log "  WARNING: webhook POST failed ($fmt); check the URL and MUNIN_ALERT_FORMAT"
+                return 1
+            fi
         fi
     elif [ "$PLACEHOLDER_WEBHOOK" = "1" ]; then
         log "  WARNING: MUNIN_ALERT_WEBHOOK still holds a PLACEHOLDER; refusing to POST."
@@ -158,22 +161,28 @@ fi
 
 # alert CLASS MESSAGE. Posts on a new incident or a class change, otherwise
 # logs only. --dry-run reports the decision but never writes the state file,
-# so a test run cannot silence the next real alert.
+# so a test run cannot silence the next real alert. A POST that fails records
+# the class as "unsent", so the next run posts again instead of treating an
+# undelivered alert as already notified for the rest of the incident.
 alert() {
-    local class="$1" msg="$2" now
+    local class="$1" msg="$2" now rc
     now=$(date +%s)
     if [ -n "$INC_START" ] && [ "$INC_CLASS" = "$class" ]; then
         local mins=$(( (now - INC_START) / 60 ))
         log "ALERT (repeat, incident open ${mins} min, already notified): $msg"
         return
     fi
-    if [ -n "$INC_START" ]; then
+    if [ -n "$INC_START" ] && [ "$INC_CLASS" != "unsent" ]; then
         notify "$msg (incident open $(( (now - INC_START) / 60 )) min; was: $INC_CLASS)"
+    elif [ -n "$INC_START" ]; then
+        notify "$msg (incident open $(( (now - INC_START) / 60 )) min)"
     else
         INC_START=$now
         notify "$msg"
     fi
+    rc=$?
     INC_CLASS=$class
+    [ "$rc" -ne 0 ] && class=unsent
     if [ "$DRY_RUN" = "1" ]; then
         log "  [dry-run] would record incident: $INC_START $class -> $INCIDENT_FILE"
     else

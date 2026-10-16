@@ -51,7 +51,9 @@ an already-provisioned cluster.
    `restart_submitted`, `cooldown`) and posts. Later runs with the same
    class log an `ALERT (repeat ...)` line and call `wall`, but do not
    post. A class change (a submitted restart turning into a stuck job)
-   posts again, naming the previous class. The first healthy run after
+   posts again, naming the previous class. A POST that fails records
+   the class as `unsent`, so the next run posts again rather than
+   counting an undelivered alert as notified. The first healthy run after
    an open incident posts `vLLM recovered after N min` and deletes the
    file. An incident still open at 02:00 stays open through the
    downtime window, so the 06:15 recovery message reports the full span.
