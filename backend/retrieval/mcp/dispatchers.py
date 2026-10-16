@@ -23,16 +23,13 @@ from .tools import (
     compile_latex,
     compute,
     create_artifact,
-    deep_research,
     export_citations,
     faq,
-    forget,
     get_author_papers,
     get_citations,
     get_current_project,
     get_paper_pdf,
     get_references,
-    invoke_agent,
     list_artifacts,
     show_protein,
     list_projects,
@@ -42,7 +39,6 @@ from .tools import (
     read_artifact,
     edit_python,
     recall,
-    remember,
     run_python,
     s2_get_citations,
     s2_get_references,
@@ -332,19 +328,6 @@ async def _save_artifact_to_documents(arguments: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-@register_tool("remember")
-async def _remember(arguments: dict) -> dict:
-    return await remember(
-        key=arguments.get("key", ""),
-        value=arguments.get("value", ""),
-    )
-
-
-@register_tool("forget")
-async def _forget(arguments: dict) -> dict:
-    return await forget(key=arguments.get("key", ""))
-
-
 @register_tool("recall")
 async def _recall(arguments: dict) -> dict:
     return await recall(search=arguments.get("search"))
@@ -371,24 +354,8 @@ async def _search_past_conversations(arguments: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Agents + research orchestration
+# Citations
 # ---------------------------------------------------------------------------
-
-
-@register_tool("invoke_agent")
-async def _invoke_agent(arguments: dict) -> dict:
-    return await invoke_agent(
-        arguments.get("agent", ""),
-        arguments.get("query", ""),
-    )
-
-
-@register_tool("deep_research")
-async def _deep_research(arguments: dict) -> dict:
-    return await deep_research(
-        arguments.get("question", ""),
-        arguments.get("depth", "medium"),
-    )
 
 
 @register_tool("export_citations")

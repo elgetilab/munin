@@ -689,40 +689,6 @@ MCP_TOOLS = {
             "required": ["artifact_id"]
         }
     },
-    "remember": {
-        "name": "remember",
-        "is_concurrency_safe": False,
-        "description": "Store a persistent fact about the user across conversations. Use this sparingly and only for facts that will matter in FUTURE chats: who the user is (field, role, affiliation), their long-term preferences (citation style, language, tone, units), ongoing projects they'll want you to recall next session, and anything they explicitly ask you to 'remember'. Do NOT use it for ephemeral conversation context, one-off questions, or things that belong in the current chat only. Keys should be short snake_case labels (e.g. 'research_area', 'citation_style', 'preferred_plot_style'). Values are capped at 200 characters. The store is bounded at 20 entries per user - if full, the oldest entry is auto-evicted and its key is returned in the 'evicted' field. Complementary to the user profile (user-curated via settings); memory is model-curated via this tool. Not available in ephemeral chats.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "key": {
-                    "type": "string",
-                    "description": "Short snake_case label for the fact (max 100 chars), e.g. 'research_area' or 'preferred_citation_style'."
-                },
-                "value": {
-                    "type": "string",
-                    "description": "The fact itself, at most 200 characters. Concise and factual, not a full sentence of explanation."
-                }
-            },
-            "required": ["key", "value"]
-        }
-    },
-    "forget": {
-        "name": "forget",
-        "is_concurrency_safe": False,
-        "description": "Delete a specific remembered fact about the user. Use this when the user says something that contradicts an existing memory, when they explicitly ask you to forget something, or when a fact has become stale (e.g. they changed jobs). Returns {forgotten: bool, key: ..., total_memories: N}. No-op if the key doesn't exist. Not available in ephemeral chats.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "key": {
-                    "type": "string",
-                    "description": "The exact key of the memory to delete."
-                }
-            },
-            "required": ["key"]
-        }
-    },
     "recall": {
         "name": "recall",
         "description": "Retrieve remembered facts about the user. All existing memories are already included in your system prompt under '=== WHAT YOU REMEMBER ABOUT THIS USER ===' so you rarely need this tool - use it only when the user asks 'what do you remember about me?' and you want to show them the full list, or when you need to search memories by substring. Pass a 'search' string to filter by case-insensitive substring match against keys and values; omit for the full list. Returns {memories: [...], total: N, search: ...}. Not available in ephemeral chats.",
@@ -783,24 +749,6 @@ MCP_TOOLS = {
             "required": ["query"]
         }
     },
-    "invoke_agent": {
-        "name": "invoke_agent",
-        "description": "Delegate a task to a named agent workflow defined in agents.yml. Agents run their own tool-calling loop with guardrails and return a structured answer. Use this when a request is substantially more work than a single tool call — deep literature review, structured code reviews, long-form writing with citations. The `agent` must be one of the registered agent names listed in the system prompt.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "agent": {
-                    "type": "string",
-                    "description": "Registered agent name (e.g. research_orchestrator)"
-                },
-                "query": {
-                    "type": "string",
-                    "description": "The task or question to hand to the agent"
-                }
-            },
-            "required": ["agent", "query"]
-        }
-    },
     "calculate": {
         "name": "calculate",
         "description": "Evaluate a mathematical expression precisely. ALWAYS prefer this tool over computing in your head — LLMs make silent arithmetic errors and researchers notice. Three modes: 'numeric' for arithmetic / percentages / trig / logs / arbitrary precision (e.g. '17% of 450', 'sqrt(2)*pi/log(10)', '2**1024'); 'symbolic' for sympy operations like derivatives, integrals, equation solving, limits, simplification (e.g. 'diff(sin(x)**2, x)', 'integrate(exp(-x**2), (x, -oo, oo))', 'solve(x**2 - 4, x)'); 'physical' for unit-aware arithmetic with built-in physical constants and unit conversions via pint (e.g. '8.6 MJ to kcal', '1 eV to J', 'boltzmann_constant * 310 K to eV', 'planck_constant * speed_of_light / (500 nm) to eV'). Use 'physical' whenever units are involved. Use 'symbolic' when the user wants an exact answer or a symbolic operation. Otherwise use 'numeric'.",
@@ -843,26 +791,6 @@ MCP_TOOLS = {
                 }
             },
             "required": ["dois"]
-        }
-    },
-    "deep_research": {
-        "name": "deep_research",
-        "description": "One-shot composite research tool. Decomposes a research question into sub-questions, expands each into search query variants, fans out across the local paper corpus + Semantic Scholar + the web in parallel, and fetches + map-reduce-summarises the top web pages — all in a single deterministic call. Returns a structured dict with {sub_questions, queries_executed, papers, web_sources, web_summaries, sources_used}. USE THIS INSTEAD OF CALLING web_search / paper_search / web_fetch SEPARATELY when the user asks a substantive research question (\"tell me about X\", \"what's the state of the art in Y\", \"find papers about Z and summarise them\"). Much more efficient than firing individual tool calls because it reuses the same query pool across all three sources and runs everything in parallel. For short factual lookups or single-source queries, still prefer the individual search tools — deep_research is heavier. Use depth=\"deep\" for exhaustive coverage (5 sub-questions, 5 fetches); default \"medium\" (3 sub-questions, 3 fetches) is the right choice for most questions.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "question": {
-                    "type": "string",
-                    "description": "The research question or topic to investigate. Should be a full question or topic, not a single search term."
-                },
-                "depth": {
-                    "type": "string",
-                    "enum": ["medium", "deep"],
-                    "description": "Coverage level. 'medium' = 3 sub-questions, 3 web fetches (~15-30s). 'deep' = 5 sub-questions, 5 web fetches (~30-90s). Default: medium.",
-                    "default": "medium"
-                }
-            },
-            "required": ["question"]
         }
     },
     "edit_python": {
@@ -1042,7 +970,7 @@ MCP_TOOLS = {
             "can type a free-form answer if none fit.\n\n"
             "CRITICAL CALLING RULE: this tool MUST be called ALONE on its own "
             "turn. Do NOT combine it with `create_artifact`, `run_python`, "
-            "`deep_research`, `paper_search`, `web_search`, or ANY other tool "
+            "`search`, `paper_search`, `web_search`, or ANY other tool "
             "in the same response. Do NOT write any prose answer alongside "
             "the tool call - the backend short-circuits the turn as soon as "
             "you emit this call, so other tool calls and trailing text are "
@@ -1110,7 +1038,7 @@ MCP_TOOLS = {
     },
     "faq": {
         "name": "faq",
-        "description": "Look up admin-curated answers to user-facing how-to questions. Use this ONLY when the user asks how the Munin interface works ('how do I upload a document?', 'what is incognito mode?', 'what's the difference between the personas?', 'how do I start a project?'). Do NOT use it for research questions - those go through deep_research / paper_search / web_search / source / etc. The list of available topic ids is in the === CAPABILITIES === block of your system prompt under 'FAQ topics'. Three call modes: (1) faq(topic='upload_documents') returns the full answer for one topic; (2) faq(search='upload') does substring matching and returns a list of previews; (3) faq() with no arguments returns the table of contents (all topics with their questions, no answer bodies). Start with mode (1) when you know the exact topic; fall back to (2) or (3) when you don't.",
+        "description": "Look up admin-curated answers to user-facing how-to questions. Use this ONLY when the user asks how the Munin interface works ('how do I upload a document?', 'what is incognito mode?', 'what's the difference between the personas?', 'how do I start a project?'). Do NOT use it for research questions - those go through search / paper_search / web_search / source / etc. The list of available topic ids is in the === CAPABILITIES === block of your system prompt under 'FAQ topics'. Three call modes: (1) faq(topic='upload_documents') returns the full answer for one topic; (2) faq(search='upload') does substring matching and returns a list of previews; (3) faq() with no arguments returns the table of contents (all topics with their questions, no answer bodies). Start with mode (1) when you know the exact topic; fall back to (2) or (3) when you don't.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1139,7 +1067,7 @@ MCP_TOOLS = {
             "tools, equation transcription, citation export, and more. "
             "Call tool_search with a short description of the capability "
             "you need (e.g. 'find papers that cite a DOI', 'compile LaTeX "
-            "to PDF', 'remember a fact about the user', 'list the user's "
+            "to PDF', 'recall what I know about the user', 'list the user's "
             "uploaded documents'). It returns the matching tools' full "
             "schemas and makes them callable on your following turns. "
             "Use this whenever the obvious tool for a task isn't in your "

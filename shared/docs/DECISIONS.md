@@ -30,6 +30,32 @@ unit, its installed scripts and the weights until an operator removes them:
     rm /opt/cluster/scripts/llm/deepresearch-daemon.py /opt/cluster/scripts/llm/deepresearch-job.sh
     rm -r /opt/munin/data/models/mirothinker-v1.5-30b   # ~17 GB
 
+## 2026-10: invoke_agent, deep_research, remember and forget retired as tools
+
+Owner decision during the v1.1 tool review: four model-facing tools were
+removed from `MCP_TOOLS` because nothing in the current design needs them,
+and each one was an extra, overlapping entry in the deferred catalog.
+
+- `invoke_agent` and its `config/agents.yml` registry (with the
+  `retrieval/agents/` executor that only it used) predate the agent tools.
+  `search`, `source` and `compute` cover the same ground as direct tool
+  calls, and the registry's per-turn prompt block cost prefill on every
+  persistent turn for workflows the model almost never picked.
+- The one-shot `deep_research` tool was superseded twice over: `search` is
+  the in-chat research entry point, and the long-running Deep Research agent
+  (`/api/research/*`, composer toggle) handles exhaustive reports. That agent
+  stays; only the tool went.
+- `remember` and `forget` let the model write user memory directly. The
+  memory extraction hook already proposes facts as accept/reject pills, so a
+  fact now enters memory only when the user accepts it. `recall` stays so the
+  model can still list what it knows. Deleting an accepted memory has no
+  user-facing path yet.
+
+Persisted conversations still carry the old names in `tool_calls`, so the
+webui keeps their task-log icons, and the routing eval's `sota_phip` and
+`remember_research_area` anchors were re-pointed (to `search` and to "no
+search") rather than deleted, to keep the paraphrase set attached.
+
 ## 2026-10: behaviour defaults are production; identity has no default
 
 For the public release (docs/RELEASE-PLAN.md, Phase 2), the 2026-08 rule

@@ -1,5 +1,5 @@
 """
-User memory store (§9) — model-curated facts that persist across chats.
+User memory store (§9) - facts about the user that persist across chats.
 
 Complementary to §25 user profile, not overlapping with it:
 
@@ -7,10 +7,13 @@ Complementary to §25 user profile, not overlapping with it:
     edits it through a settings UI. A small, fixed schema
     (``about_me``, ``response_format``, ``default_persona``,
     ``default_rag_sources``, ``timezone``).
-  * §9 memory (this module) is MODEL-curated: the Qwen-backed chat
-    model calls ``remember(key, value)`` mid-conversation when the
-    user tells it something worth remembering. Free-form key-value
-    pairs with LRU eviction at 20 entries.
+  * §9 memory (this module) is MODEL-proposed, USER-confirmed: the
+    post-turn extraction hook (``hooks/memory_extract.py``) proposes
+    facts worth keeping, and an accepted proposal lands here through
+    ``remember(key, value)``. The model-facing remember/forget tools
+    were retired (2026-10); the model only reads the store, via the
+    prompt block and the ``recall`` tool. Free-form key-value pairs
+    with LRU eviction at 20 entries.
 
 Both get injected into the system prompt on every persistent chat
 turn; the memory block sits between the profile block and the
@@ -22,12 +25,11 @@ Design notes:
 - Caps are deliberately tight: 20 entries per user, 100 chars per
   key, 200 chars per value. That bounds the system-prompt overhead
   at roughly 4 KB (~1000 tokens) per turn, which is what the spec
-  budgeted. Enforce at the store layer so the MCP tool stays thin.
+  budgeted. Enforce at the store layer so callers stay thin.
 - Eviction is LRU by ``updated_at``. When a ``remember`` call would
   push the store past MAX_MEMORIES, the oldest-touched entry is
-  silently dropped and its key is reported back in the tool result
-  so the model can tell the user "I had to forget X to make room
-  for Y" if it wants to.
+  silently dropped and its key is reported back in the result's
+  ``evicted`` field.
 - There is no vector search here. 20 entries × 200 chars of text is
   tiny; plain ``.lower()`` substring is instant.
 """

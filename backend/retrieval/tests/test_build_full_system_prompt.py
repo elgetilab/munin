@@ -9,7 +9,7 @@ Pins three properties of the refactor:
                        the other two still appear in the prompt.
   3. BLOCK ORDER     — final prompt stacks top-to-bottom as
                        project → artifact → memory → profile → persona
-                       → ambient → agent_hint → capabilities.
+                       → ambient → capabilities.
 
 Run inside the retrieval container:
     docker exec munin-retrieval python /app/tests/test_build_full_system_prompt.py
@@ -61,7 +61,6 @@ def _install_stubs(
     artifact_builder=lambda v: None,
     persona_text: str = "PERSONA",
     capabilities_text=None,
-    agent_summary: str = "",
 ):
     """Patch every module that _build_full_system_prompt touches.
 
@@ -82,7 +81,6 @@ def _install_stubs(
     patch(cs.artifact_store, "build_artifact_summary_block", artifact_builder)
     patch(cs.persona_module, "build_system_prompt", lambda persona: persona_text)
     patch(cs.capabilities_module, "build_capabilities_block", lambda: capabilities_text)
-    patch(cs.agents_pkg, "agent_summaries_for_prompt", lambda: agent_summary)
     return saved
 
 
@@ -226,7 +224,6 @@ def test_block_order_matches_contract() -> bool:
             artifact_builder=lambda _: "ARTIFACT_BLOCK",
             persona_text="PERSONA_BLOCK",
             capabilities_text="CAPABILITIES_BLOCK",
-            agent_summary="AGENT_HINT",
         )
         # project_store.build_project_prompt_block is sync — patch directly.
         saved.append((
@@ -251,18 +248,17 @@ def test_block_order_matches_contract() -> bool:
                 "PROFILE_BLOCK",
                 "PERSONA_BLOCK",
                 # ambient ("Current date:") sits here — checked by phrase
-                "AGENT_HINT",
                 "CAPABILITIES_BLOCK",
             ]
             positions = [result.find(marker) for marker in order]
             if -1 in positions:
                 return False
             ascending = all(a < b for a, b in zip(positions, positions[1:]))
-            # Spot-check the ambient block falls between PERSONA and AGENT_HINT.
+            # Spot-check the ambient block falls between PERSONA and CAPABILITIES.
             ambient_pos = result.find("Current date:")
             if not (
                 positions[order.index("PERSONA_BLOCK")] < ambient_pos
-                < positions[order.index("AGENT_HINT")]
+                < positions[order.index("CAPABILITIES_BLOCK")]
             ):
                 return False
             return ascending
@@ -270,7 +266,7 @@ def test_block_order_matches_contract() -> bool:
             _restore(saved)
 
     return _check(
-        "block order: project > artifact > memory > profile > persona > ambient > agent_hint > capabilities",
+        "block order: project > artifact > memory > profile > persona > ambient > capabilities",
         asyncio.run(go()),
     )
 

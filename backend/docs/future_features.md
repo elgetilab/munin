@@ -955,6 +955,10 @@ Shipped:
 
 ## 9. User memory / notes store
 
+> **Status (2026-10):** the model-facing `remember` and `forget` tools were
+> retired. Facts enter memory only through an accepted proposal from the
+> extraction hook; `recall` remains. See shared/docs/DECISIONS.md.
+
 ### Problem
 
 Users re-explain themselves every new conversation. The model has no
@@ -1891,6 +1895,11 @@ bibtex → pdflatex → pdflatex).
 ---
 
 ## 19. Autonomous agent selection (prompt tuning + investigation)
+
+> **Status (2026-10): retired.** `invoke_agent`, `config/agents.yml` and the
+> `deep_research` tool were removed; `search`, `source` and `compute` are the
+> agent surface and Deep Research runs from the composer toggle. Kept as a
+> design record. See shared/docs/DECISIONS.md.
 
 ### Problem
 

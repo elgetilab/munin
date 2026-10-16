@@ -256,7 +256,7 @@ def partition_by_concurrency_safety(
     ``is_concurrency_safe: False``. Default is safe — most tools are
     read-only (paper_search, web_search, etc.) and gather happily.
     Mutators (``create_artifact``, ``update_artifact``, ``run_python``,
-    ``compile_latex``, ``remember``, ``forget``, ``sandbox_reset``,
+    ``compile_latex``, ``edit_python``, ``sandbox_reset``,
     ``save_artifact_to_documents``) flip the flag so the dispatcher
     serialises them.
 

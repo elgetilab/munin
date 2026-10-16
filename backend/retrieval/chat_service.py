@@ -35,7 +35,6 @@ import chat_store
 import chat_context
 import personas as persona_module
 import router as router_module
-import agents as agents_pkg
 import user_profile_store
 import project_store
 import memory_store
@@ -1721,7 +1720,6 @@ async def _build_full_system_prompt(
         profile_block                  -- §25
         <persona system prompt>
         ambient (current date)
-        agent_hint                     -- agent registry
         capabilities_block             -- §4 passive
 
     Each block is gated by ``ephemeral``/conversation_id/project
@@ -1850,10 +1848,6 @@ async def _build_full_system_prompt(
     system_prompt = (
         f"{system_prompt}\n\n{ambient}" if system_prompt else ambient
     )
-
-    agent_hint = agents_pkg.agent_summaries_for_prompt()
-    if agent_hint:
-        system_prompt = f"{system_prompt}\n\n{agent_hint}"
 
     if not ephemeral:
         try:
@@ -2385,7 +2379,7 @@ async def stream_chat_completion(
         # us to abandon the current turn. Triggers the partial-state persistence
         # path below (§6) instead of returning silently. Losing partial state on
         # error was the cause of the "vanishing agent" symptom in chat 676a3238
-        # on 2026-05-05, where the user saw invoke_agent fire and the agent run,
+        # on 2026-05-05, where the user saw a sub-agent tool fire and run,
         # but a vLLM "Error in input stream" on the follow-up summarisation turn
         # made the entire assistant message disappear from the saved transcript.
         had_stream_error: Optional[str] = None
@@ -2965,7 +2959,7 @@ async def stream_chat_completion(
         # N+1 (no tool_calls, no text), which naturally breaks the loop. We
         # must detect that and force a synthesis — checking `final_content`
         # (cumulative) would miss it because the preamble already populated
-        # final_content on turn N. Mirrors agents/executor.py::execute_agent.
+        # final_content on turn N.
         last_turn_content = (acc.content if acc is not None else "").strip()
         # Skip the wrap-up synthesis on a stream error: vLLM is broken right
         # now, so calling it again to rewrite the final answer would almost

@@ -21,7 +21,7 @@ VPS-side code is in `../frontend/`; cross-cut artifacts in
 
 | Service | Port | Purpose |
 |---------|------|---------|
-| **Retrieval API** | 8080 | FastAPI: RAG, chat, agents, MCP, deep research |
+| **Retrieval API** | 8080 | FastAPI: RAG, chat, MCP, deep research |
 | **Qdrant** | 6333 | Vector DB (papers + user_docs collections) |
 | **Neo4j** | 7474/7687 | Citation graph |
 | **GROBID** | 8070 | PDF parsing (Crossref polite-pool configured) |
@@ -108,7 +108,6 @@ backend/
 ├── deploy.sh
 ├── config/
 │   ├── munin.env.template    # cluster.env keys, with what each one means
-│   ├── agents.yml            # Agent registry
 │   ├── faq.yml               # Curated answers for the faq tool
 │   ├── models/               # One <slug>.env per backbone (see models/README.md)
 │   ├── sudoers.d/            # Operator sudoers template (deploy.sh sudoers)
@@ -142,7 +141,6 @@ backend/
 │   ├── Dockerfile, requirements.txt, constraints.txt
 │   ├── mcp/                  # MCP server (schemas, executor with input
 │   │                         #   validation, dispatchers, tools/*.py)
-│   ├── agents/               # Agentic orchestration (registry, executor, parallel)
 │   └── tests/
 ├── sandbox/                  # Jupyter-kernel sandbox sidecar (run_python tool)
 ├── scripts/
@@ -168,7 +166,7 @@ Before `deploy.sh all` you create `/opt/hugin/config/cluster.env`
 expect:
 
 - `/opt/munin/docker/.env`: a symlink to that file.
-- `/opt/munin/config/`: `agents.yml`, `faq.yml`, `models/` (profile
+- `/opt/munin/config/`: `faq.yml`, `models/` (profile
   copies) and `active-model.env` (the active backbone).
 - `/opt/munin/docker/`: installed compose file + grobid and
   Prometheus config.
@@ -213,7 +211,7 @@ sudo ./deploy.sh all            # Full deploy: dirs → compose → personas →
 sudo ./deploy.sh dirs           # Create filesystem layout (idempotent)
 sudo ./deploy.sh compose        # docker-compose.yml + grobid.yaml only (no restart)
 sudo ./deploy.sh personas       # Persona JSON + logos (loaded at start: follow with `retrieval`)
-sudo ./deploy.sh agents         # agents.yml, faq.yml, munin.env.template; seeds contributors.yml
+sudo ./deploy.sh agents         # faq.yml, munin.env.template; seeds contributors.yml
 sudo ./deploy.sh models         # Stage embedding models (downloads bge-large)
 sudo ./deploy.sh vllm           # vLLM SLURM scripts, model profiles, health timer
 sudo ./deploy.sh model ...      # Backbone status / validate / activate (below)

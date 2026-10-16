@@ -3,9 +3,8 @@ Capability introspection block (§4 passive half).
 
 Builds a compact ``=== CAPABILITIES ===`` block that chat_service
 prepends to the system prompt on persistent chats. The block
-summarises what the model can actually do: MCP tools, registered
-agents, available personas, static user-facing features, and the
-list of FAQ topics (so the model knows the ``faq`` tool exists and
+summarises what the model can actually do: MCP tools, available
+personas, static user-facing features, and the list of FAQ topics (so the model knows the ``faq`` tool exists and
 what topic ids to pass).
 
 Why this exists: users ask "what can you do?" in plain English and
@@ -86,23 +85,6 @@ def _tool_one_liners() -> list[str]:
     return lines
 
 
-def _agent_one_liners() -> list[str]:
-    try:
-        import agents as agents_pkg
-    except Exception:
-        return []
-    try:
-        listed = agents_pkg.list_agents()
-    except Exception:
-        return []
-    out: list[str] = []
-    for a in listed:
-        name = a.get("name") or "?"
-        desc = _one_line(a.get("description") or "")
-        out.append(f"  - {name}: {desc}" if desc else f"  - {name}")
-    return out
-
-
 def _persona_one_liners() -> list[str]:
     try:
         import personas as persona_module
@@ -151,12 +133,6 @@ def build_capabilities_block() -> Optional[str]:
         sections.append("")
         sections.append("Available tools:")
         sections.extend(tools)
-
-    agents = _agent_one_liners()
-    if agents:
-        sections.append("")
-        sections.append("Available agents (call via invoke_agent):")
-        sections.extend(agents)
 
     personas = _persona_one_liners()
     if personas:

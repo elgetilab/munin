@@ -86,7 +86,7 @@ override.
 | `CHAT_MAX_TOOL_CALLS` | `30` | `chat_service.py` | per-message tool-call ceiling |
 | `SANDBOX_HTTP_TIMEOUT_S` | `180` | sandbox client | |
 | `DEFAULT_PERSONA` / `AUTO_PERSONA` | `chat` / `munin` | `personas.py` | |
-| `PERSONAS_DIR` / `AGENTS_CONFIG` / `FAQ_PATH` | `/app/personas`, `/app/config/agents.yml`, `/app/config/faq.yml` | `personas.py`, faq tool | **mount-locked**: change only alongside the matching volume |
+| `PERSONAS_DIR` / `FAQ_PATH` | `/app/personas`, `/app/config/faq.yml` | `personas.py`, faq tool | **mount-locked**: change only alongside the matching volume |
 | `PAPERS_CACHE_DIR` | `/data/papers_cached` | `mcp/tools/read_paper.py` | see growth note below |
 | `PAPERS_CACHE_WARN_GB` | `5` | `mcp/tools/read_paper.py` | warn threshold only, no eviction |
 | `AGENT_TRACE_DIR` | `/data/agent_traces` | `agent_trace.py` | |

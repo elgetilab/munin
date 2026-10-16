@@ -28,12 +28,17 @@ REFERENCE_ENV = {
     "MUNIN_CLUSTER_NAME": "the Hugin research cluster",
 }
 
+# All three changed on purpose 2026-10-16: the invoke_agent, deep_research,
+# remember and forget tools were retired, so the shared frame's gated-tool and
+# unlocked-tool examples name live tools, chat drops `remember` from its
+# resident tools, research's memory rule no longer routes to `remember`, and
+# every version is bumped.
 MEASURED_SHA256 = {
-    "chat.json": "59f1c5aaad5f71c155880eb5409c9d9f73e396250b56f7fa2d93509203c544a3",
-    "code.json": "3c846fda3ac6a242590fc19aa4b70b6906ef1c48d4df19fa49d3dc1d5679c23a",
+    "chat.json": "a91d5aab24088a4158266216b10e44e1318318ab7d527f880d44596079ccffb3",
+    "code.json": "06163f1c05b75c691a97f616f4174391d8d094f923ac06f04a212f2472523554",
     # Changed on purpose 2026-10-15: `search` is the primary search tool, so
     # the "ALWAYS pass `queries`" and "paper_search first" guidance went.
-    "research.json": "12e8e912434a7569c681d6837d5d3cc03935bed4789fca02e3d7a79e74eb2824",
+    "research.json": "2778b217d6b20ddc4c6b0ea10f973a4cabad2dd3315bbee8a49879c9beb3c3e0",
 }
 
 

@@ -117,7 +117,7 @@ def test_paper_url_nested_deep_in_tool_result_passes() -> bool:
     tool_calls = [
         {
             "id": "tc-1",
-            "name": "deep_research",
+            "name": "search",
             "result": {
                 "summary": "...",
                 "sources": {

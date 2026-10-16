@@ -31,7 +31,7 @@ from .compute_agent import compute
 from .structures import show_protein
 from .s2_citations import s2_get_citations, s2_get_references
 from .chats import search_past_conversations
-from .memory import remember, forget, recall
+from .memory import recall
 from .artifacts import (
     create_artifact,
     read_artifact,
@@ -40,8 +40,6 @@ from .artifacts import (
     save_artifact_to_documents,
 )
 from .projects import list_projects, get_current_project
-from .agents import invoke_agent
-from .research import deep_research
 from .citations import export_citations
 from .calculator import calculate
 from .sandbox import edit_python, run_python, sandbox_reset, sandbox_shutdown
@@ -77,8 +75,6 @@ __all__ = [
     "transcribe_equation",
     "faq",
     "search_past_conversations",
-    "remember",
-    "forget",
     "recall",
     "create_artifact",
     "read_artifact",
@@ -88,8 +84,6 @@ __all__ = [
     "show_protein",
     "list_projects",
     "get_current_project",
-    "invoke_agent",
-    "deep_research",
     "export_citations",
     "calculate",
     "run_python",

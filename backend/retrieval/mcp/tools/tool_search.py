@@ -39,7 +39,7 @@ _MAX_RESULTS = 10
 # tools and crowded the genuinely-relevant tool out of the result cap
 # (verified: a "papers that cite a DOI" query failed to surface
 # get_citations). IDF down-weights terms common across the tool corpus and
-# up-weights rare, specific ones (cite, bibtex, remember), so the right tool
+# up-weights rare, specific ones (cite, bibtex, latex), so the right tool
 # ranks where it should.
 
 _STOPWORDS = frozenset({
