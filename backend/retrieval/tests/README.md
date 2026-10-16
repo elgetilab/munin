@@ -28,6 +28,39 @@ python backend/retrieval/tests/test_config_schemas.py
 docker exec munin-retrieval python /app/tests/test_config_schemas.py
 ```
 
+## Tiers: `suite.txt` and `run_suite.py`
+
+Every `test_*.py` and `smoke_*.py` here has a line in `suite.txt` saying
+which tier it belongs to: `hermetic` (no network), `live` (real Qdrant and
+encoders, no vLLM) or `manual` (vLLM and paid web search). `run_suite.py`
+runs one tier, one interpreter and one throwaway `CHATS_DB_PATH` per file,
+and refuses to run (exit 2) while a file is unclassified, so a new test
+cannot quietly fall out of CI.
+
+```bash
+# exactly what GitHub CI runs on every push (repo read-only, --network none)
+docker build -t munin-retrieval-tests:ci \
+  -f backend/scripts/ci/retrieval-tests.Dockerfile backend/retrieval
+backend/scripts/ci/run_retrieval_tests.sh            # or --only test_router
+
+# the same checkout against the production dependency set
+IMAGE=munin-retrieval:latest backend/scripts/ci/run_retrieval_tests.sh
+
+# deployed container
+docker exec munin-retrieval python /app/tests/run_suite.py --tier hermetic
+```
+
+`run_retrieval_tests.sh` assembles `/app` from symlinks into the read-only
+repo, with `/app/personas` and `/app/config` where docker-compose puts them.
+That is the deployed layout and the host layout at once, so
+`test_self_description.py` finds `faq.yml` and the repo-relative files
+(`test_api_contract.py`, `test_vllm_window_consistency.py`) run instead of
+SKIPping. It is the fix for the ad-hoc-mount trap described above.
+
+The live tier runs nightly on hugin, inside the 02:00-06:00 vLLM maintenance
+window, from `backend/scripts/ci/nightly_live_tests.sh` (timer:
+`backend/config/munin-nightly-tests.timer`).
+
 ## Running undeployed code against real services
 
 To test repo code before deploying it, mount the repo over `/app` but join the
@@ -48,10 +81,11 @@ resolves `qdrant`, so every test touching the index silently takes a
 failing loudly. Add `-v "$PWD/shared/personas:/app/personas:ro"` when a test
 needs personas.
 
-Two files genuinely require this: `test_source_evidence.py` (17/17 with the
-network, 14/17 without) and `test_paper_search_merge.py` (11/11 with, 6/11
-without). Everything else in the directory passes with no network at all, so a
-failure in a third file is a real one, not the trap.
+Two files have a live half: `test_source_evidence.py` (its judge-flag checks
+use the real chunk index when `MUNIN_TEST_LIVE=1`, a stub otherwise) and
+`test_paper_search_merge.py` (its live checks SKIP without Qdrant and the
+encoder). Everything in the directory passes with no network at all, so a
+failure there is a real one, not the trap.
 
 `test_paper_search_merge.py` also needs a generous timeout: it loads BGE and
 does real Qdrant work, and takes **~100 s**. Under a 90 s per-file limit it
