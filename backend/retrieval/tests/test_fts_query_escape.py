@@ -121,6 +121,8 @@ CASES = [
     ("   ", set()),
     ('""', set()),
     ("- : * ( )", set()),
+    ("widget\x00", {"hyphen"}),
+    ("\x00", set()),
 ]
 
 
@@ -181,6 +183,7 @@ def test_fts5_query_shape() -> None:
     assert q("* : -") == ""
     assert q("") == ""
     assert q(None) == ""
+    assert q("a\x00b") == '"a" "b"'
 
 
 TESTS = [

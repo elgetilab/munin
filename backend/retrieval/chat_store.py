@@ -423,9 +423,12 @@ def fts5_query(text: Optional[str]) -> str:
     Kept: implicit AND between terms, ``"quoted phrases"``, a bare ``OR``
     between two terms, and a trailing ``*`` for prefix match. Bare AND,
     NOT and NEAR are dropped. Returns "" when nothing searchable is left.
+    A NUL byte is treated as a space: FTS5 ends a quoted string at NUL,
+    which raised "unterminated string" (sidebar ``?search=a%00`` gave a 500).
     """
     if not text:
         return ""
+    text = text.replace("\x00", " ")
     parts: list[str] = []
     for m in _FTS_TOKEN_RE.finditer(text):
         phrase, word = m.group(1), m.group(2)
