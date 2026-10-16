@@ -1,5 +1,6 @@
 """
-Contract test: BACKEND-API.md vs FastAPI routes in main.py.
+Contract test: BACKEND-API.md vs FastAPI routes in main.py (and the
+APIRouters it includes).
 
 The post-2026-04 monorepo audit (`shared/docs/DECISIONS.md`)
 found three frontend-facing endpoints implemented in main.py
@@ -91,12 +92,9 @@ def extract_documented_routes() -> set[tuple[str, str]]:
     }
 
 
-def extract_implemented_routes() -> set[tuple[str, str]]:
-    """Parse main.py and return {(METHOD, normalized_path)} for
-    every `@app.<method>("/path")` decorator. Uses AST so we
-    don't have to import main.py (which would drag in Qdrant /
-    Neo4j / vLLM connections)."""
-    tree = ast.parse(MAIN_PY.read_text(encoding="utf-8"))
+def _decorated_routes(tree: ast.AST, owner: str, prefix: str = "") -> set[tuple[str, str]]:
+    """{(METHOD, normalized_path)} for every `@<owner>.<method>("/path")`
+    decorator in `tree`, with `prefix` prepended."""
     routes: set[tuple[str, str]] = set()
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -107,14 +105,68 @@ def extract_implemented_routes() -> set[tuple[str, str]]:
             func = dec.func
             if not isinstance(func, ast.Attribute):
                 continue
-            if not isinstance(func.value, ast.Name) or func.value.id != "app":
+            if not isinstance(func.value, ast.Name) or func.value.id != owner:
                 continue
             method = func.attr.upper()
             if method not in METHODS or not dec.args:
                 continue
             arg = dec.args[0]
             if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                routes.add((method, normalize_path(arg.value)))
+                routes.add((method, normalize_path(prefix + arg.value)))
+    return routes
+
+
+def _router_prefix(tree: ast.AST) -> str:
+    """The `prefix=` of a module-level `router = APIRouter(...)`, or ""."""
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "router" for t in node.targets):
+            continue
+        for kw in node.value.keywords:
+            if kw.arg == "prefix" and isinstance(kw.value, ast.Constant):
+                return str(kw.value.value)
+    return ""
+
+
+def _included_router_modules(tree: ast.AST) -> list[Path]:
+    """Source files of every `from M import router as X` whose X is passed
+    to `app.include_router(X)`. Routes on an APIRouter never appear as
+    `@app.<method>`, so without following these the /api/research/* surface
+    read as documented-but-unimplemented although it is served."""
+    imported: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            for alias in node.names:
+                if alias.name == "router":
+                    imported[alias.asname or alias.name] = node.module
+    included: list[Path] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "include_router" and node.args):
+            continue
+        arg = node.args[0]
+        if isinstance(arg, ast.Name) and arg.id in imported:
+            rel = Path(*imported[arg.id].split("."))
+            for cand in (MAIN_PY.parent / rel.with_suffix(".py"),
+                         MAIN_PY.parent / rel / "__init__.py"):
+                if cand.is_file():
+                    included.append(cand)
+                    break
+    return included
+
+
+def extract_implemented_routes() -> set[tuple[str, str]]:
+    """Parse main.py and return {(METHOD, normalized_path)} for
+    every `@app.<method>("/path")` decorator, plus every
+    `@router.<method>` route of an APIRouter main.py includes (with
+    that router's prefix). Uses AST so we don't have to import
+    main.py (which would drag in Qdrant / Neo4j / vLLM connections)."""
+    tree = ast.parse(MAIN_PY.read_text(encoding="utf-8"))
+    routes = _decorated_routes(tree, "app")
+    for mod in _included_router_modules(tree):
+        sub = ast.parse(mod.read_text(encoding="utf-8"))
+        routes |= _decorated_routes(sub, "router", _router_prefix(sub))
     return routes
 
 
