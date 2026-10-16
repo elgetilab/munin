@@ -13,14 +13,29 @@
 # and the Prometheus counters (munin_vllm_request_total) only move when chat
 # traffic flows, so a dead vLLM with no users emits precisely nothing.
 #
+# ONE ALERT PER INCIDENT. The timer fires hourly, and a webhook post every
+# hour for the same dead vLLM trains people to mute the channel. The first
+# failing run opens an incident (start epoch + message class in INCIDENT_FILE)
+# and posts; later runs with the same class only log. A change of class (say
+# "restart submitted" turning into "job exists but not answering") posts again,
+# because that is new information. The first healthy run after an open
+# incident posts "recovered after N min" and closes it.
+#
 # Usage: check-vllm-health.sh [--dry-run]
 # Exit:  0 healthy or outside the window, 1 degraded
+#
+# Paths default to the production layout; the env overrides exist so the test
+# (scripts/vllm/tests/test_check_vllm_health.sh) can run against a temp dir.
 # ==============================================================================
 
-LOG_FILE="/var/log/cluster-admin/vllm-health.log"
-STAMP_FILE="/opt/munin/logs/vllm-health-restart.stamp"
-HOLD_FILE="/opt/munin/logs/vllm-health.hold"
-SCHEDULE_VLLM="/opt/cluster/scripts/llm/schedule-vllm.sh"
+LOG_DIR="${VLLM_HEALTH_LOG_DIR:-/var/log/cluster-admin}"
+STATE_DIR="${VLLM_HEALTH_STATE_DIR:-/opt/munin/logs}"
+CLUSTER_ENV="${VLLM_HEALTH_CLUSTER_ENV:-/opt/hugin/config/cluster.env}"
+LOG_FILE="$LOG_DIR/vllm-health.log"
+STAMP_FILE="$STATE_DIR/vllm-health-restart.stamp"
+HOLD_FILE="$STATE_DIR/vllm-health.hold"
+INCIDENT_FILE="$STATE_DIR/vllm-health.incident"
+SCHEDULE_VLLM="${VLLM_HEALTH_SCHEDULE_VLLM:-/opt/cluster/scripts/llm/schedule-vllm.sh}"
 HEALTH_URL="${VLLM_HEALTH_URL:-http://127.0.0.1:8000/v1/models}"
 
 # Serving window, matching the cron in HuginSLURM setup/07-scheduling-setup.sh
@@ -38,7 +53,7 @@ RESTART_COOLDOWN=3600
 DRY_RUN=0
 [ "$1" = "--dry-run" ] && DRY_RUN=1
 
-mkdir -p /var/log/cluster-admin /opt/munin/logs
+mkdir -p "$LOG_DIR" "$STATE_DIR"
 
 # Alerts name the host, so this reads correctly on any node, not just hugin.
 HOST=$(hostname -s 2>/dev/null || echo unknown)
@@ -47,7 +62,7 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S'): $1" | tee -a "$LOG_FILE"; }
 
 # Optional out-of-band alert. Unset is a silent no-op so other sites deploy
 # this cleanly without inventing a notification stack.
-[ -f /opt/hugin/config/cluster.env ] && . /opt/hugin/config/cluster.env 2>/dev/null
+[ -f "$CLUSTER_ENV" ] && . "$CLUSTER_ENV" 2>/dev/null
 
 # Refuse to POST to a placeholder. The documented value is an example URL, and
 # an example URL pasted verbatim is a REAL destination: ntfy topics are public
@@ -60,7 +75,7 @@ case "$MUNIN_ALERT_WEBHOOK" in
         ;;
 esac
 
-alert() {
+notify() {
     local msg="$1"
     # Label test alerts in the LOG, not just on stdout. Yesterday's post-mortem
     # ran entirely off these files, and an unlabelled ALERT line from someone
@@ -125,16 +140,52 @@ EOF
         fi
     elif [ "$PLACEHOLDER_WEBHOOK" = "1" ]; then
         log "  WARNING: MUNIN_ALERT_WEBHOOK still holds a PLACEHOLDER; refusing to POST."
-        log "           Set a real, unguessable destination in /opt/hugin/config/cluster.env"
+        log "           Set a real, unguessable destination in $CLUSTER_ENV"
     else
         log "  (MUNIN_ALERT_WEBHOOK unset; log + wall only)"
     fi
 }
 
 # ------------------------------------------------------------------------------
+# Incident state: "<start epoch> <class>" in INCIDENT_FILE
+# ------------------------------------------------------------------------------
+INC_START=""
+INC_CLASS=""
+if [ -f "$INCIDENT_FILE" ]; then
+    read -r INC_START INC_CLASS < "$INCIDENT_FILE" 2>/dev/null
+    case "$INC_START" in ''|*[!0-9]*) INC_START=""; INC_CLASS="" ;; esac
+fi
+
+# alert CLASS MESSAGE. Posts on a new incident or a class change, otherwise
+# logs only. --dry-run reports the decision but never writes the state file,
+# so a test run cannot silence the next real alert.
+alert() {
+    local class="$1" msg="$2" now
+    now=$(date +%s)
+    if [ -n "$INC_START" ] && [ "$INC_CLASS" = "$class" ]; then
+        local mins=$(( (now - INC_START) / 60 ))
+        log "ALERT (repeat, incident open ${mins} min, already notified): $msg"
+        return
+    fi
+    if [ -n "$INC_START" ]; then
+        notify "$msg (incident open $(( (now - INC_START) / 60 )) min; was: $INC_CLASS)"
+    else
+        INC_START=$now
+        notify "$msg"
+    fi
+    INC_CLASS=$class
+    if [ "$DRY_RUN" = "1" ]; then
+        log "  [dry-run] would record incident: $INC_START $class -> $INCIDENT_FILE"
+    else
+        echo "$INC_START $class" > "$INCIDENT_FILE"
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # Window guard
 # ------------------------------------------------------------------------------
-H=$(date +%-H)
+# VLLM_HEALTH_HOUR pins the clock for the test, which may run at 03:00.
+H="${VLLM_HEALTH_HOUR:-$(date +%-H)}"
 if [ "$H" -ge "$WINDOW_STOP_H" ] && [ "$H" -lt "$WINDOW_START_H" ]; then
     log "outside the serving window (${WINDOW_STOP_H}:00-${WINDOW_START_H}:00); vLLM is meant to be down"
     exit 0
@@ -150,6 +201,15 @@ fi
 # ------------------------------------------------------------------------------
 if curl -fsS --max-time 10 "$HEALTH_URL" >/dev/null 2>&1; then
     log "OK: vLLM answering at $HEALTH_URL"
+    if [ -n "$INC_START" ]; then
+        MINS=$(( ($(date +%s) - INC_START) / 60 ))
+        notify "vLLM recovered after ${MINS} min (incident: $INC_CLASS). Answering at $HEALTH_URL"
+        if [ "$DRY_RUN" = "1" ]; then
+            log "  [dry-run] would close incident: rm $INCIDENT_FILE"
+        else
+            rm -f "$INCIDENT_FILE"
+        fi
+    fi
     rm -f "$STAMP_FILE"          # healthy again, so the next outage may restart
     exit 0
 fi
@@ -168,13 +228,13 @@ log "  vllm job  : ${JOB:-none}"
 # another pending job. This is 2026-08-31's shape and it needs a human.
 case "$NODE_STATE" in
     *DOWN*|*DRAIN*|*NOT_RESPONDING*|UNKNOWN)
-        alert "vLLM is down AND the SLURM node is $NODE_STATE. Not resubmitting: a job would only pend. Check: systemctl status slurmd, nvidia-smi, and /lib/modules/\$(uname -r) for the NVIDIA module."
+        alert node_down "vLLM is down AND the SLURM node is $NODE_STATE. Not resubmitting: a job would only pend. Check: systemctl status slurmd, nvidia-smi, and /lib/modules/\$(uname -r) for the NVIDIA module."
         exit 1
         ;;
 esac
 
 if [ -n "$JOB" ]; then
-    alert "vLLM is not answering but a job already exists ($JOB). It may still be loading (~2 min) or be stuck. Not resubmitting. Check /opt/munin/logs/vllm-service-*.out"
+    alert job_exists "vLLM is not answering but a job already exists ($JOB). It may still be loading (~2 min) or be stuck. Not resubmitting. Check /opt/munin/logs/vllm-service-*.out"
     exit 1
 fi
 
@@ -187,26 +247,26 @@ LAST=0
 AGE=$(( NOW - LAST ))
 
 if [ "$AGE" -lt "$RESTART_COOLDOWN" ]; then
-    alert "vLLM is down and was already restarted ${AGE}s ago (cooldown ${RESTART_COOLDOWN}s). NOT resubmitting again; this looks like a crashloop and needs a human. Check /opt/munin/logs/vllm-service-*.out"
+    alert cooldown "vLLM is down and was already restarted ${AGE}s ago (cooldown ${RESTART_COOLDOWN}s). NOT resubmitting again; this looks like a crashloop and needs a human. Check /opt/munin/logs/vllm-service-*.out"
     exit 1
 fi
 
 if [ "$DRY_RUN" = "1" ]; then
     log "  [dry-run] would run: $SCHEDULE_VLLM start"
-    alert "vLLM down, node $NODE_STATE, would have restarted"
+    alert restart_submitted "vLLM down, node $NODE_STATE, would have restarted"
     exit 1
 fi
 
 if [ ! -x "$SCHEDULE_VLLM" ]; then
-    alert "vLLM is down and $SCHEDULE_VLLM is missing or not executable. Cannot restart."
+    alert no_restart_script "vLLM is down and $SCHEDULE_VLLM is missing or not executable. Cannot restart."
     exit 1
 fi
 
 echo "$NOW" > "$STAMP_FILE"
 log "  restarting vLLM via $SCHEDULE_VLLM start"
 if "$SCHEDULE_VLLM" start >>"$LOG_FILE" 2>&1; then
-    alert "vLLM was down with node $NODE_STATE and no job queued; submitted a restart. Verify it comes up: squeue, then curl $HEALTH_URL"
+    alert restart_submitted "vLLM was down with node $NODE_STATE and no job queued; submitted a restart. Verify it comes up: squeue, then curl $HEALTH_URL"
 else
-    alert "vLLM was down and the restart command FAILED. Needs a human. See $LOG_FILE"
+    alert restart_failed "vLLM was down and the restart command FAILED. Needs a human. See $LOG_FILE"
 fi
 exit 1

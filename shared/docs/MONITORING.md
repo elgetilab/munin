@@ -45,6 +45,16 @@ an already-provisioned cluster.
    `schedule-vllm.sh start`, then alerts regardless of outcome so the
    event is never silent. A one-hour cooldown stamp stops a
    crashlooping vLLM being fed back to SLURM every hour.
+5. **Alerts once per incident.** The first failing run opens an
+   incident in `/opt/munin/logs/vllm-health.incident` (start epoch and
+   a message class such as `node_down`, `job_exists`,
+   `restart_submitted`, `cooldown`) and posts. Later runs with the same
+   class log an `ALERT (repeat ...)` line and call `wall`, but do not
+   post. A class change (a submitted restart turning into a stuck job)
+   posts again, naming the previous class. The first healthy run after
+   an open incident posts `vLLM recovered after N min` and deletes the
+   file. An incident still open at 02:00 stays open through the
+   downtime window, so the 06:15 recovery message reports the full span.
 
 ### Alert channels
 
@@ -93,6 +103,9 @@ destination.
 # see what it would do, changing nothing
 sudo /opt/cluster/scripts/llm/check-vllm-health.sh --dry-run
 
+# forget an open incident without waiting for recovery (next failure posts)
+rm    /opt/munin/logs/vllm-health.incident
+
 # pause during planned maintenance (skips check AND restart)
 touch /opt/munin/logs/vllm-health.hold
 rm    /opt/munin/logs/vllm-health.hold
@@ -100,6 +113,14 @@ rm    /opt/munin/logs/vllm-health.hold
 systemctl list-timers munin-vllm-health.timer
 journalctl -u munin-vllm-health.service --since today
 ```
+
+`--dry-run` reads the incident file and logs what it would post,
+record or close, but never POSTs and never writes the file, so a test
+cannot silence the next real alert. The regression test is
+`bash backend/scripts/vllm/tests/test_check_vllm_health.sh` (stubs
+`curl`, `scontrol`, `squeue` on `PATH`; paths overridable via
+`VLLM_HEALTH_LOG_DIR`, `VLLM_HEALTH_STATE_DIR`,
+`VLLM_HEALTH_CLUSTER_ENV`, `VLLM_HEALTH_SCHEDULE_VLLM`).
 
 Exit 1 means "reported a problem", and the unit sets
 `SuccessExitStatus=0 1` so a degraded cluster does not also show up as
