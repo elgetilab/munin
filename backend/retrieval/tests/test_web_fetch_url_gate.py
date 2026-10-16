@@ -170,6 +170,89 @@ def test_seed_search_urls_noop_when_bucket_none() -> bool:
     )
 
 
+def _fetch_call(url: str, result: dict) -> dict:
+    return {"name": "web_fetch", "arguments": {"url": url}, "result": result}
+
+
+def test_seed_skips_rejected_url_and_gate_echo() -> bool:
+    # The gate echoes the rejected URL in its error result; neither that
+    # echo nor the call's `url` argument may allow it on the next request.
+    invented = "https://invented.example/page"
+    prior = [{
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [_fetch_call(invented, {
+            "error": "URL not from any prior tool result in this conversation.",
+            "url": invented,
+        })],
+    }]
+    bucket: set[str] = set()
+    _seed_search_urls(prior, user_text="try again", bucket=bucket)
+    return _check(
+        "_seed_search_urls skips a gate-rejected URL and its echo",
+        invented not in bucket,
+        f"got {bucket!r}",
+    )
+
+
+def test_seed_skips_failed_call_arguments() -> bool:
+    prior = [{
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            _fetch_call("https://blocked.example/a", {
+                "error": "HTTP 403 for URL: https://blocked.example/a",
+            }),
+            {"name": "source", "arguments": {"ref": "https://arg-only.example/x"},
+             "result": {"error": "unresolved"}},
+        ],
+    }]
+    bucket: set[str] = set()
+    _seed_search_urls(prior, user_text="next", bucket=bucket)
+    return _check(
+        "_seed_search_urls skips URLs from failed calls",
+        bucket == set(),
+        f"got {bucket!r}",
+    )
+
+
+def test_seed_keeps_successful_results_and_fetches() -> bool:
+    prior = [{
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {"name": "semantic_scholar_search", "arguments": {"query": "q"},
+             "result": {"results": [{"url": "https://hit.example/paper"}]}},
+            _fetch_call("https://fetched.example/ok", {"content": "page text"}),
+        ],
+    }]
+    bucket: set[str] = set()
+    _seed_search_urls(prior, user_text="next", bucket=bucket)
+    return _check(
+        "_seed_search_urls keeps successful results and fetched URLs",
+        bucket == {"https://hit.example/paper", "https://fetched.example/ok"},
+        f"got {bucket!r}",
+    )
+
+
+def test_seed_keeps_user_and_assistant_prose() -> bool:
+    prior = [
+        {"role": "user", "content": "see https://pasted.example/doc"},
+        {"role": "assistant", "content": "Source: https://cited.example/page."},
+    ]
+    bucket: set[str] = set()
+    _seed_search_urls(prior, user_text="and https://now.example", bucket=bucket)
+    return _check(
+        "_seed_search_urls keeps URLs from user and assistant prose",
+        bucket == {
+            "https://pasted.example/doc",
+            "https://cited.example/page",
+            "https://now.example",
+        },
+        f"got {bucket!r}",
+    )
+
+
 # ─── web_fetch_content gating behaviour ──────────────────────────────────
 
 
@@ -323,6 +406,10 @@ def main() -> int:
         test_seed_search_urls_from_user_message,
         test_seed_search_urls_from_prior_tool_call,
         test_seed_search_urls_noop_when_bucket_none,
+        test_seed_skips_rejected_url_and_gate_echo,
+        test_seed_skips_failed_call_arguments,
+        test_seed_keeps_successful_results_and_fetches,
+        test_seed_keeps_user_and_assistant_prose,
         test_web_fetch_blocks_url_not_in_allowlist,
         test_web_fetch_allows_url_added_by_web_search,
         test_web_fetch_open_mode_when_bucket_unbound,
