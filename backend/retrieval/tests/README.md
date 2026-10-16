@@ -58,7 +58,8 @@ That is the deployed layout and the host layout at once, so
 SKIPping. It is the fix for the ad-hoc-mount trap described above.
 
 The live tier runs nightly on hugin, inside the 02:00-06:00 vLLM maintenance
-window, from `backend/scripts/ci/nightly_live_tests.sh` (timer:
+window, from `backend/scripts/ci/nightly_live_tests.sh` (installed by
+`sudo ./deploy.sh nightly-tests`; timer:
 `backend/config/munin-nightly-tests.timer`).
 
 ## Running undeployed code against real services

@@ -16,10 +16,8 @@ Group=root
 # not mount /data. vLLM is not used (the run sits in the 02:00-06:00 vLLM
 # maintenance window, and the live tier points LLM_BASE_URL at a closed port).
 #
-# NOT installed by deploy.sh yet. To install by hand:
-#   install -m 0755 backend/scripts/ci/nightly_live_tests.sh /opt/cluster/scripts/ci/
-#   install -m 0644 backend/config/munin-nightly-tests.{service,timer} /etc/systemd/system/
-#   systemctl daemon-reload && systemctl enable --now munin-nightly-tests.timer
+# Installed by `sudo ./deploy.sh nightly-tests` (not part of `all`), which
+# puts the script at the ExecStart path below.
 ExecStart=/opt/cluster/scripts/ci/nightly_live_tests.sh
 
 # The script stops starting test files once less than one file's timeout

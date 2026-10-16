@@ -220,6 +220,7 @@ sudo ./deploy.sh model ...      # Backbone status / validate / activate (below)
 sudo ./deploy.sh maintenance    # Install the munin-maintenance toggle
 sudo ./deploy.sh tunnel         # Render + install munin-tunnel.service, restart it
 sudo ./deploy.sh knowledge      # Embedding-map script, venv, nightly timer
+sudo ./deploy.sh nightly-tests  # Nightly retrieval test runner + 02:30 timer (not in all)
 sudo ./deploy.sh pipeline       # Pipeline scripts, venv, paper-* units
 sudo ./deploy.sh searxng        # settings.yml, restart searxng
 sudo ./deploy.sh sandbox        # Sync sandbox/, rebuild + restart sandbox container
