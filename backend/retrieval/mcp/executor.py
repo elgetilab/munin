@@ -296,6 +296,8 @@ def _normalize_aliases(tool_name: str, arguments: dict) -> dict:
     ``additionalProperties: false``, so a leftover ``id`` is harmless)."""
     if tool_name == "edit_python":
         return _repair_edit_python_args(arguments)
+    if tool_name in _EDITS_CANONICAL:
+        arguments = _repair_edits_args(tool_name, arguments)
     aliases = _ARG_ALIASES.get(tool_name)
     if not aliases or not isinstance(arguments, dict):
         return arguments
@@ -323,33 +325,35 @@ _EDIT_PAIR_KEYS = (
 )
 
 
-def _as_edit(obj):
-    """{old, new} for a dict carrying one known pair of keys, else None."""
+def _as_edit(obj, canonical=("old", "new")):
+    """The canonical pair for a dict carrying one known pair of keys, else None."""
     if not isinstance(obj, dict):
         return None
     for old_key, new_key in _EDIT_PAIR_KEYS:
         if old_key in obj and new_key in obj:
-            return {"old": obj[old_key], "new": obj[new_key]}
+            return {canonical[0]: obj[old_key], canonical[1]: obj[new_key]}
     return None
 
 
-def _repair_edit_python_args(arguments: dict) -> dict:
+def _repair_edit_python_args(arguments: dict, canonical=("old", "new"),
+                             tool_name: str = "edit_python") -> dict:
     if not isinstance(arguments, dict):
         return arguments
+    old_key, new_key = canonical
     edits = arguments.get("edits")
     if isinstance(edits, dict):
         edits = [edits]
     if isinstance(edits, list):
-        fixed = [e if isinstance(e, dict) and "old" in e and "new" in e
-                 else (_as_edit(e) or e) for e in edits]
+        fixed = [e if isinstance(e, dict) and old_key in e and new_key in e
+                 else (_as_edit(e, canonical) or e) for e in edits]
     elif "edits" in arguments:
         return arguments                      # a string: coercion's job
     elif isinstance(arguments.get("replacements"), list):
-        fixed = [_as_edit(e) for e in arguments["replacements"]]
+        fixed = [_as_edit(e, canonical) for e in arguments["replacements"]]
         if not fixed or None in fixed:
             return arguments
     else:
-        one = _as_edit(arguments)
+        one = _as_edit(arguments, canonical)
         if one is None:
             return arguments
         fixed = [one]
@@ -357,9 +361,33 @@ def _repair_edit_python_args(arguments: dict) -> dict:
         return arguments
     patched = dict(arguments)
     patched["edits"] = fixed
-    logger.info("repaired edit_python arguments into edits (keys: %s)",
-                sorted(arguments))
+    logger.info("repaired %s arguments into edits (keys: %s)",
+                tool_name, sorted(arguments))
     return patched
+
+
+# update_artifact and compile_latex take the same search/replace edits as
+# edit_python, spelled {old_str, new_str} (v1.1, replacing unified diffs). The
+# same slips get the same repair, mapped onto that spelling, so an {old, new}
+# pair learned from edit_python also works here. A top-level pair is only
+# folded into `edits` when no full body (`content` / `source`) was sent;
+# otherwise the call is left for the tool to reject as ambiguous.
+_EDITS_CANONICAL: dict[str, tuple[str, str]] = {
+    "update_artifact": ("old_str", "new_str"),
+    "compile_latex": ("old_str", "new_str"),
+}
+
+
+def _repair_edits_args(tool_name: str, arguments: dict) -> dict:
+    if not isinstance(arguments, dict):
+        return arguments
+    if "edits" not in arguments and "replacements" not in arguments and (
+        arguments.get("content") or arguments.get("source")
+    ):
+        return arguments
+    return _repair_edit_python_args(
+        arguments, canonical=_EDITS_CANONICAL[tool_name], tool_name=tool_name
+    )
 
 
 # One-line example of the correct call, appended to a validation error for
@@ -368,6 +396,17 @@ _ARG_SHAPE_HINTS: dict[str, str] = {
     "edit_python": (
         'expected {"edits": [{"old": "<exact snippet from the code you ran>", '
         '"new": "<replacement>"}]}, e.g. {"edits": [{"old": "x = 1", "new": "x = 2"}]}'
+    ),
+    "update_artifact": (
+        'to change part of an artifact, expected {"artifact_id": "art_...", '
+        '"edits": [{"old_str": "<exact snippet from the current version>", '
+        '"new_str": "<replacement>"}]}; to replace all of it, '
+        '{"artifact_id": "art_...", "content": "<complete new text>"}'
+    ),
+    "compile_latex": (
+        'expected {"source": "<complete LaTeX>"} for a new document, or '
+        '{"artifact_id": "art_...", "edits": [{"old_str": "<exact snippet>", '
+        '"new_str": "<replacement>"}]} to change and recompile an existing one'
     ),
 }
 

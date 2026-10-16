@@ -15,12 +15,13 @@ Per-conversation kernel binding:
 
 from __future__ import annotations
 
-import difflib
 import logging
 import os
 from typing import Optional
 
 import httpx
+
+from text_edits import apply_edits as _apply_edits, near_misses
 
 from ..context import current_user_email, current_conversation_id
 
@@ -140,75 +141,15 @@ async def _base_source(conv_id: str) -> Optional[str]:
     return None
 
 
-def _near_misses(source: str, needle: str, limit: int = 3) -> list[str]:
-    """Closest lines to an unmatched `old`, so the error is actionable.
-
-    A bare "not found" is the fastest route back to re-pasting the whole
-    script, which is the behaviour this tool exists to remove.
-    """
-    first = (needle.strip().splitlines() or [""])[0].strip()
-    if not first:
-        return []
-    lines = source.splitlines()
-    scored = sorted(
-        ((difflib.SequenceMatcher(None, first, ln.strip()).ratio(), ln) for ln in lines),
-        key=lambda t: -t[0],
-    )
-    return [ln.strip()[:160] for score, ln in scored[:limit] if score > 0.5]
+# The search/replace core is shared with update_artifact and compile_latex
+# (text_edits.py); edit_python keeps its original {old, new} key names.
+_near_misses = near_misses
 
 
 def apply_edits(source: str, edits: list) -> tuple[str, dict]:
     """Apply ordered {old, new} replacements. Raises ValueError on any miss.
-
-    Search/replace rather than unified diff, by design: update_artifact already
-    ships a correct unified-diff mode and the model used it in 1 of 66 calls
-    (2%). Line numbers and hunk lengths are the arithmetic models are worst at.
-    Reproducing a snippet verbatim is something they do constantly.
-
-    Each `old` must match EXACTLY ONCE. Ambiguity is an error rather than a
-    first-match guess: silently patching the wrong occurrence produces code
-    that runs and is subtly wrong, which is the worst failure available here.
-    """
-    if not isinstance(edits, list) or not edits:
-        raise ValueError("edits must be a non-empty list of {old, new} objects")
-
-    out = source
-    added = removed = 0
-    for i, edit in enumerate(edits):
-        if not isinstance(edit, dict):
-            raise ValueError(f"edit {i + 1}: must be an object with 'old' and 'new'")
-        old = edit.get("old")
-        new = edit.get("new")
-        if not isinstance(old, str) or not old:
-            raise ValueError(f"edit {i + 1}: 'old' must be a non-empty string")
-        if not isinstance(new, str):
-            raise ValueError(f"edit {i + 1}: 'new' must be a string (use \"\" to delete)")
-
-        count = out.count(old)
-        if count == 0:
-            hint = _near_misses(out, old)
-            msg = (
-                f"edit {i + 1}: 'old' not found in the current source. It must match "
-                f"character-for-character, including indentation."
-            )
-            if hint:
-                msg += " Closest lines in the source: " + " | ".join(hint)
-            raise ValueError(msg)
-        if count > 1:
-            raise ValueError(
-                f"edit {i + 1}: 'old' matches {count} places; include more "
-                f"surrounding lines so it identifies exactly one."
-            )
-
-        out = out.replace(old, new, 1)
-        added += len(new.splitlines())
-        removed += len(old.splitlines())
-
-    return out, {
-        "edits_applied": len(edits),
-        "lines_added": added,
-        "lines_removed": removed,
-    }
+    See text_edits.apply_edits for why this is search/replace."""
+    return _apply_edits(source, edits, old_key="old", new_key="new")
 
 
 async def run_python(code: str, timeout_s: int = 30) -> dict:

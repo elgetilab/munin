@@ -24,7 +24,10 @@ from typing import Any, Optional
 
 import httpx
 
+from text_edits import ARTIFACT_EDITS_EXAMPLE, apply_edits
+
 from ..context import current_user_email, current_conversation_id
+from .artifacts import DIFF_DEPRECATION
 from .sandbox import SANDBOX_URL, SANDBOX_TIMEOUT_S
 
 logger = logging.getLogger(__name__)
@@ -101,6 +104,7 @@ async def compile_latex(
     source: Optional[str] = None,
     artifact_id: Optional[str] = None,
     diff: Optional[str] = None,
+    edits: Optional[list] = None,
     bibliography: Optional[str] = None,
     extra_files: Optional[dict[str, str]] = None,
     timeout_s: int = 60,
@@ -108,32 +112,37 @@ async def compile_latex(
     """
     Compile a LaTeX document via the sandbox's pdflatex pipeline.
 
-    Three input modes:
+    Input modes:
 
     - ``source``: full LaTeX text. The standard path for a brand-new
       document.
     - ``artifact_id``: id of a previously-registered .tex artifact.
       Reads its latest version content as the source. Use this when
       the user asks for an unchanged recompile.
-    - ``artifact_id`` + ``diff``: read the artifact, apply a unified
-      diff, then compile. The big iteration win — a one-line edit
-      ("aspectratio=169") becomes ~150 emitted tokens instead of
-      re-emitting the full ~9KB source. Diff format mirrors
-      update_artifact's is_diff mode (strict matching, no fuzz).
+    - ``artifact_id`` + ``edits``: read the artifact, apply ordered
+      ``{old_str, new_str}`` search/replace pairs, then compile. The
+      big iteration win: a one-line edit ("aspectratio=169") becomes
+      ~150 emitted tokens instead of re-emitting the full ~9KB source.
+      Same semantics as update_artifact's ``edits``.
+    - ``artifact_id`` + ``diff`` (deprecated): the same, with a unified
+      diff (strict matching, no fuzz). Kept working for one release;
+      the result carries a ``deprecation`` note.
 
-    Exactly one of ``source`` / ``artifact_id`` must be set. ``diff``
-    is only valid alongside ``artifact_id``.
+    Exactly one of ``source`` / ``artifact_id`` must be set. ``edits``
+    and ``diff`` are only valid alongside ``artifact_id``, and not
+    together.
     """
     has_source = isinstance(source, str) and source.strip()
     has_artifact = isinstance(artifact_id, str) and artifact_id.strip()
     has_diff = isinstance(diff, str) and diff.strip()
+    has_edits = edits is not None
 
     if has_source and has_artifact:
         return {
             "error": (
                 "pass either 'source' or 'artifact_id', not both. Use "
                 "'source' for new documents and 'artifact_id' "
-                "(optionally with 'diff') for iterating on an existing "
+                "(optionally with 'edits') for iterating on an existing "
                 ".tex artifact."
             )
         }
@@ -142,8 +151,8 @@ async def compile_latex(
             "error": (
                 "must pass either 'source' (full LaTeX) or "
                 "'artifact_id' (id of an existing .tex artifact, "
-                "optionally with 'diff' to apply a unified diff before "
-                "compiling)."
+                "optionally with 'edits' to apply search/replace pairs "
+                "before compiling)."
             )
         }
     if has_diff and not has_artifact:
@@ -151,6 +160,20 @@ async def compile_latex(
             "error": (
                 "'diff' is only valid with 'artifact_id'. To compile a "
                 "new document pass full LaTeX in 'source' instead."
+            )
+        }
+    if has_edits and not has_artifact:
+        return {
+            "error": (
+                "'edits' is only valid with 'artifact_id'. To compile a "
+                "new document pass full LaTeX in 'source' instead."
+            )
+        }
+    if has_edits and has_diff:
+        return {
+            "error": (
+                "pass either 'edits' or 'diff', not both. Prefer 'edits'; "
+                "'diff' is deprecated."
             )
         }
 
@@ -241,7 +264,28 @@ async def compile_latex(
                     f"artifact_id mode."
                 )
             }
-        if has_diff:
+        if has_edits:
+            try:
+                resolved_source, _stats = apply_edits(
+                    base_source, edits, old_key="old_str", new_key="new_str"
+                )
+            except ValueError as e:
+                return {
+                    "error": (
+                        f"edit application failed: {e} Nothing was "
+                        f"compiled; fix that edit and retry, or "
+                        f"read_artifact {artifact_id} to see the current "
+                        f"source. {ARTIFACT_EDITS_EXAMPLE}"
+                    )
+                }
+            if resolved_source == base_source:
+                return {
+                    "error": (
+                        "the edits leave the source unchanged; pass "
+                        "artifact_id alone for an unchanged recompile"
+                    )
+                }
+        elif has_diff:
             try:
                 resolved_source, _stats = artifact_store.apply_unified_diff(
                     base_source, diff
@@ -254,7 +298,8 @@ async def compile_latex(
                         f"+new,len @@) with context and removal lines "
                         f"matching the artifact source exactly. Read "
                         f"the artifact again with read_artifact and "
-                        f"rebuild the diff against the latest version."
+                        f"retry with 'edits' (search/replace pairs), "
+                        f"which replace diffs. {ARTIFACT_EDITS_EXAMPLE}"
                     )
                 }
         else:
@@ -296,7 +341,7 @@ async def compile_latex(
     # already routes `source: "sandbox_generated"` to a downloadable
     # chip rendered via `external_url`. The .tex artifact carries the
     # resolved source inline so subsequent compile_latex(artifact_id=
-    # ..., diff=...) calls can fetch and patch it without re-emitting
+    # ..., edits=...) calls can fetch and patch it without re-emitting
     # the full body.
     registered_artifacts: list[dict] = []
     tex_art = payload.get("tex_artifact")
@@ -314,4 +359,6 @@ async def compile_latex(
 
     payload["artifacts"] = registered_artifacts
     payload["conversation_id"] = conv_id
+    if has_diff:
+        payload["deprecation"] = DIFF_DEPRECATION
     return payload

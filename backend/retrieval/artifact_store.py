@@ -20,9 +20,10 @@ Scope rules:
   comfortably fits a full paper draft (~100k words). Binary
   artifacts (PNG plots, PDFs, xlsx) stay on disk via the §2/§3
   sandbox pipeline until Stage C unifies the two concepts.
-- **Full-content updates in Stage A**: ``update_artifact`` takes a
-  replacement content string. Diff-based updates (to save tokens on
-  large documents) are deferred to Stage B.
+- **Updates**: ``update_artifact`` takes either a replacement content
+  string or a list of search/replace ``edits`` (v1.1). The Stage B
+  unified-diff mode (``is_diff``) still works for one release but is
+  deprecated in favour of ``edits``.
 
 Context injection is summary-only: chat_service prepends an
 ``=== ACTIVE ARTIFACTS ===`` block listing title + type + version +
@@ -38,6 +39,7 @@ import uuid
 from typing import Any, Optional
 
 from chat_store import _iso_now, _row_to_dict, get_db
+from text_edits import ARTIFACT_EDITS_EXAMPLE, apply_edits
 
 
 # Content cap per version. 500 KB of text is ~100k words, comfortably
@@ -699,7 +701,7 @@ def _count_words(content: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Update (full content — diffs deferred to Stage B)
+# Update (full content, search/replace edits, or deprecated unified diff)
 # ---------------------------------------------------------------------------
 
 async def update_artifact(
@@ -711,6 +713,7 @@ async def update_artifact(
     created_by: str = "assistant",
     is_diff: bool = False,
     base_version: Optional[int] = None,
+    edits: Optional[list] = None,
 ) -> Optional[dict]:
     """
     Append a new version to an existing artifact.
@@ -718,10 +721,15 @@ async def update_artifact(
     Stage A path (``is_diff=False``): ``content`` is the full
     replacement text. The new version is a complete snapshot.
 
-    Stage B path (``is_diff=True``): ``content`` is a unified diff to
-    apply to the content of ``base_version`` (or the latest version
-    if ``base_version`` is omitted). Token-efficient for small edits
-    on long documents.
+    Edits path (``edits`` set, v1.1): an ordered list of
+    ``{old_str, new_str}`` replacements applied to the content of
+    ``base_version`` (or the latest version if omitted). Each
+    ``old_str`` must match exactly once; any miss rejects the whole
+    update. ``content`` must be empty in this mode.
+
+    Stage B path (``is_diff=True``, deprecated): ``content`` is a
+    unified diff to apply to the same base. Kept working for one
+    release; ``edits`` replaces it.
 
     Concurrency guard: when ``base_version`` is supplied it must
     match the artifact's current ``latest_version``. A mismatch
@@ -731,10 +739,23 @@ async def update_artifact(
     clear error so the caller can re-read and retry.
 
     Returns a dict with the enriched response shape: in addition to
-    the basic metadata, ``applied_hunks`` (None for full-content
-    updates), ``lines_added``, ``lines_removed``, and the
-    ``base_version`` that was actually applied against.
+    the basic metadata, ``applied_hunks`` (None unless ``is_diff``),
+    ``edits_applied`` (None unless ``edits``), ``lines_added``,
+    ``lines_removed``, and the ``base_version`` that was actually
+    applied against.
     """
+    if edits is not None:
+        if is_diff:
+            raise ArtifactError(
+                "pass either 'edits' or is_diff=true with a diff in "
+                "'content', not both. Prefer 'edits'."
+            )
+        if isinstance(content, str) and content.strip():
+            raise ArtifactError(
+                "pass either 'content' (the full new text) or 'edits' "
+                "(search/replace pairs), not both."
+            )
+
     meta = await _verify_artifact_owned(artifact_id, conversation_id, user_email)
     if meta is None:
         return None
@@ -771,9 +792,10 @@ async def update_artifact(
 
     applied_base = base_version if base_version is not None else latest_version
     applied_hunks: Optional[int] = None
+    edits_applied: Optional[int] = None
 
-    if is_diff:
-        # Load the base version's content and apply the diff.
+    if edits is not None or is_diff:
+        # Load the base version's content and apply the edits or diff.
         db = await get_db()
         cur = await db.execute(
             "SELECT content FROM artifact_versions "
@@ -786,14 +808,27 @@ async def update_artifact(
                 f"base version {applied_base} not found for this artifact"
             )
         base_content = base_row["content"] or ""
-        try:
+        if edits is not None:
+            try:
+                new_content, stats = apply_edits(
+                    base_content, edits, old_key="old_str", new_key="new_str"
+                )
+            except ValueError as e:
+                raise ArtifactError(
+                    f"{e} Nothing was changed; fix that edit and retry "
+                    f"against version {applied_base}. {ARTIFACT_EDITS_EXAMPLE}"
+                ) from None
+            if new_content == base_content:
+                raise ArtifactError(
+                    "the edits leave the content unchanged; nothing to save"
+                )
+            edits_applied = stats["edits_applied"]
+        else:
             new_content, stats = apply_unified_diff(base_content, content)
-        except ArtifactError:
-            raise
-        applied_hunks = stats["hunks_applied"]
+            applied_hunks = stats["hunks_applied"]
         lines_added = stats["lines_added"]
         lines_removed = stats["lines_removed"]
-        # Now apply the SIZE cap against the RESULT, not the diff.
+        # Now apply the SIZE cap against the RESULT, not the edits/diff.
         new_content = _validate_content(new_content)
     else:
         # Full-content path: validate the incoming string then
@@ -846,6 +881,7 @@ async def update_artifact(
         "updated_at": now,
         "base_version": applied_base,
         "applied_hunks": applied_hunks,
+        "edits_applied": edits_applied,
         "lines_added": lines_added,
         "lines_removed": lines_removed,
     }
