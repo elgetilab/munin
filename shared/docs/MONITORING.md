@@ -126,6 +126,70 @@ Exit 1 means "reported a problem", and the unit sets
 `SuccessExitStatus=0 1` so a degraded cluster does not also show up as
 a failed unit in `systemctl --failed`.
 
+## Off-host probe (VPS)
+
+The vLLM check runs ON the cluster, so it cannot report a cluster that
+is powered off, has lost its network, or whose reverse SSH tunnel to
+the VPS has dropped: the box that would send the alert is the one that
+is gone. The VPS probe asks the question from outside, the same way
+the chat UI does.
+
+- **Script**: `frontend/monitoring/cluster_probe.py` (Python stdlib
+  only), installed as `/usr/local/bin/munin-cluster-probe`.
+- **Units**: `frontend/monitoring/munin-cluster-probe.{service,timer}`,
+  every 2 minutes. Oneshot, `DynamicUser=yes`, state in
+  `/var/lib/munin-cluster-probe/state.json`, logs in the journal.
+- **Probes**: `GET http://127.0.0.1:18080/api/status`, the tunnel end
+  the api-gateway itself uses (`CLUSTER_TUNNEL` / `BACKEND_URL` in
+  `frontend/docker-compose.yml`). Override with `PROBE_URL` if the
+  backend is reached some other way.
+- **Healthy** means HTTP 200, a JSON body, and `services.retrieval`
+  and `services.qdrant` both `ok`. During announced maintenance
+  (`maintenance.active`) reachability alone counts. vLLM is not
+  considered: it is down 02:00-06:00 by design, and the cluster-side
+  check owns it.
+- **Alerts** only after 10 consecutive minutes unhealthy
+  (`PROBE_DOWN_AFTER_S`, default 600): one down message per incident,
+  then one `recovered after N min` message. A blip under the threshold
+  is logged and never posted; a single healthy probe resets the clock.
+  A failed POST is retried on the next run.
+- **Webhook**: `/etc/munin/cluster-probe.env` (root, 0600), template
+  `frontend/monitoring/cluster-probe.env.example`. Use the same
+  `MUNIN_ALERT_WEBHOOK` (Discord in the reference deployment) as the
+  cluster's `cluster.env`. Payload detection, `MUNIN_ALERT_FORMAT` and
+  the placeholder refusal are identical to the vLLM check above.
+  Messages are prefixed `[munin/<vps hostname>]`, so a probe alert is
+  distinguishable from a cluster-side one in the same channel.
+
+### Installing (on the VPS, by hand; nothing installs it automatically)
+
+```bash
+# from a checkout of this repo on the VPS
+sudo install -m 0755 frontend/monitoring/cluster_probe.py /usr/local/bin/munin-cluster-probe
+sudo install -d -m 0755 /etc/munin
+sudo install -m 0600 frontend/monitoring/cluster-probe.env.example /etc/munin/cluster-probe.env
+sudoedit /etc/munin/cluster-probe.env        # paste the real webhook URL
+
+# check the wiring without posting or writing state
+sudo sh -c 'set -a; . /etc/munin/cluster-probe.env; set +a; \
+    PROBE_STATE_FILE=/tmp/probe-test.json PROBE_DOWN_AFTER_S=0 \
+    /usr/local/bin/munin-cluster-probe --dry-run'
+
+sudo install -m 0644 frontend/monitoring/munin-cluster-probe.service \
+    frontend/monitoring/munin-cluster-probe.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now munin-cluster-probe.timer
+
+systemctl list-timers munin-cluster-probe.timer
+journalctl -u munin-cluster-probe.service --since today
+```
+
+Against a healthy cluster `--dry-run` only logs `OK`; to see the
+payload, point `PROBE_URL` at a closed port (`http://127.0.0.1:9/`)
+for that one command. Tests:
+`pytest frontend/monitoring/tests` (a local `http.server` stands in
+for both the cluster and the webhook).
+
 ## Why no Grafana
 
 Decided 2026-06-02 (see commit history). At single-cluster, ~150-user

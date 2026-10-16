@@ -1,0 +1,24 @@
+[Unit]
+Description=Munin off-host cluster probe (GET /api/status over the tunnel)
+Documentation=file:///usr/local/bin/munin-cluster-probe
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Needs nothing but loopback (the tunnel endpoint) and outbound HTTPS to the
+# webhook, so it runs as a throwaway user. systemd reads EnvironmentFile as
+# root before dropping privileges, so the file can stay 0600 root.
+DynamicUser=yes
+StateDirectory=munin-cluster-probe
+EnvironmentFile=-/etc/munin/cluster-probe.env
+Environment=PROBE_STATE_FILE=/var/lib/munin-cluster-probe/state.json
+ExecStart=/usr/bin/python3 /usr/local/bin/munin-cluster-probe
+# Exit 1 means "the cluster is unhealthy", which is the probe doing its job,
+# not the unit failing.
+SuccessExitStatus=0 1
+TimeoutStartSec=60
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
