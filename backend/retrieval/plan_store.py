@@ -420,7 +420,7 @@ def build_plan_block(plan: Optional[dict]) -> Optional[str]:
         if not approved_at:
             lines.append(
                 "APPROVAL STATUS: AWAITING APPROVAL — the user must approve "
-                "this plan before gated tool calls (e.g. deep_research) "
+                "this plan before gated tool calls (e.g. compile_latex) "
                 "run. If a gated tool returns "
                 "'awaiting_user_approval', WAIT for the user; do NOT retry "
                 "the tool in this turn — the UI is asking them for approval "

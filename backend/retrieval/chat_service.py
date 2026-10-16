@@ -1899,8 +1899,8 @@ def build_active_tags_block(tags: Optional[list[dict]]) -> Optional[str]:
             lines.append(f"- #{value} (topic-cluster scope)")
     lines.append("")
     lines.append(
-        "These filters apply to CORPUS SEARCH ONLY. search, paper_search, "
-        "source and deep_research scope their Qdrant queries to papers "
+        "These filters apply to CORPUS SEARCH ONLY. search, paper_search "
+        "and source scope their Qdrant queries to papers "
         "matching ALL of the tags above, and browse_tag_papers lists that "
         "collection when called with no arguments."
     )

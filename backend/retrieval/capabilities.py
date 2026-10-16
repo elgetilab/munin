@@ -4,8 +4,9 @@ Capability introspection block (§4 passive half).
 Builds a compact ``=== CAPABILITIES ===`` block that chat_service
 prepends to the system prompt on persistent chats. The block
 summarises what the model can actually do: MCP tools, available
-personas, static user-facing features, and the list of FAQ topics (so the model knows the ``faq`` tool exists and
-what topic ids to pass).
+personas, static user-facing features, and the list of FAQ topics
+(so the model knows the ``faq`` tool exists and what topic ids to
+pass).
 
 Why this exists: users ask "what can you do?" in plain English and
 expect a real answer. Without this block the model hallucinates a
