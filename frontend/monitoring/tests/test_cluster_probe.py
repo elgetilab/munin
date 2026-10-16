@@ -22,6 +22,7 @@ class _Stub:
     status_code = 200
     status_body = json.dumps(HEALTHY).encode()
     posts = []
+    agents = []
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
@@ -35,6 +36,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         _Stub.posts.append((self.path, self.headers.get("Content-Type"),
                             self.rfile.read(n)))
+        _Stub.agents.append(self.headers.get("User-Agent") or "")
         self.send_response(204)
         self.end_headers()
 
@@ -47,7 +49,7 @@ def server():
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     t = threading.Thread(target=srv.serve_forever, daemon=True)
     t.start()
-    _Stub.status_code, _Stub.posts = 200, []
+    _Stub.status_code, _Stub.posts, _Stub.agents = 200, [], []
     _Stub.status_body = json.dumps(HEALTHY).encode()
     yield f"http://127.0.0.1:{srv.server_address[1]}"
     srv.shutdown()
@@ -91,6 +93,8 @@ def test_down_once_after_threshold_then_one_recovery(server, probe, tmp_path):
     assert msgs[0].startswith("[munin/vps] cluster unreachable/unhealthy")
     assert "HTTP 503" in msgs[0]
     assert _Stub.posts[0][1] == "application/json"
+    # Discord 403s urllib's default UA (Cloudflare error 1010).
+    assert not _Stub.agents[0].startswith("Python-urllib")
 
     _Stub.status_code = 200
     assert probe.run(env, now=t0 + 1500, host="vps") == 0

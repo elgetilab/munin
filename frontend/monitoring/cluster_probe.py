@@ -44,6 +44,7 @@ import urllib.request
 DEFAULT_URL = "http://127.0.0.1:18080/api/status"
 DEFAULT_STATE = "/var/lib/munin-cluster-probe/state.json"
 REQUIRED_SERVICES = ("retrieval", "qdrant")
+USER_AGENT = "munin-cluster-probe/1.0"
 
 # Same refusal list as check-vllm-health.sh: an example URL pasted verbatim is
 # a real destination, and on public ntfy a guessable topic is a broadcast.
@@ -139,8 +140,12 @@ def send(msg, env, dry_run, host):
         log(f"  [dry-run] Content-Type: {ctype}")
         log(f"  [dry-run] body: {body.decode()}")
         return True
+    # An explicit User-Agent: Discord's Cloudflare front answers urllib's
+    # default "Python-urllib/3.x" with 403 (error 1010), so without this every
+    # Discord post would fail and be retried forever. curl's UA passes.
     req = urllib.request.Request(url, data=body, method="POST",
-                                 headers={"Content-Type": ctype})
+                                 headers={"Content-Type": ctype,
+                                          "User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=15):
             pass
