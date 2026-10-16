@@ -1,0 +1,19 @@
+[Unit]
+Description=Nightly retrieval test run (live tier), inside the vLLM maintenance window
+Documentation=backend/retrieval/tests/README.md
+
+[Timer]
+# 02:30 every day, cluster-local time: after vLLM's 02:00 stop and the 01:30
+# embedding-map rebuild, so neither the GPUs nor the index are busy. The run
+# must be over by 05:45, a quarter of an hour before vLLM's 06:00 start; the
+# script enforces that (END_BY in the service), and typical runtime is a few
+# minutes (test_paper_search_merge's live half, ~100 s, dominates).
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=600
+# NOT Persistent: a run caught up at boot would land outside the window, where
+# the script refuses to start (exit 2) and the unit would read as failed.
+Persistent=false
+Unit=munin-nightly-tests.service
+
+[Install]
+WantedBy=timers.target
