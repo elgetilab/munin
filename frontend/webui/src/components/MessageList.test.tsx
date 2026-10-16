@@ -153,13 +153,6 @@ describe('MessageList plan card wiring', () => {
 // ── detectPhase tests ───────────────────────────────────────────────────────
 
 describe('detectPhase', () => {
-  it('returns "deep_research" when last tool call is invoke_agent', () => {
-    const streaming = makeStreaming({
-      toolCalls: [{ name: 'invoke_agent', arguments: {} }],
-    });
-    expect(detectPhase(streaming)).toBe('deep_research');
-  });
-
   it('returns "paper_search" for paper_search tool calls', () => {
     const streaming = makeStreaming({
       toolCalls: [{ name: 'paper_search', arguments: {} }],

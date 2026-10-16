@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import type { ToolCall, AgentState, RagContext } from '../lib/types';
+import type { ToolCall, RagContext } from '../lib/types';
 import { doiUrl } from '../lib/doi';
 import { BookIcon, FolderIcon, PageIcon, SearchIcon } from './ui/icons';
 
@@ -75,6 +75,11 @@ const TOOL_ICON_MAP: Record<string, ReactNode> = {
   // conversations whose tool_calls still carry these names render them.
   read_paper: Icons.papers,
   compare_papers: Icons.papers,
+  // Likewise retired (2026-10), kept for persisted tool_calls.
+  invoke_agent: Icons.robot,
+  deep_research: Icons.magnifier,
+  remember: Icons.edit,
+  forget: Icons.edit,
   search: Icons.magnifier,
   tool_search: Icons.magnifier,
   s2_get_citations: Icons.link,
@@ -87,10 +92,8 @@ const TOOL_ICON_MAP: Record<string, ReactNode> = {
   web_fetch: Icons.globe,
   llm_summarize: Icons.memo,
   get_paper_pdf: Icons.file,
-  invoke_agent: Icons.robot,
   search_user_docs: Icons.folder,
   list_documents: Icons.folder,
-  deep_research: Icons.magnifier,
   run_python: Icons.terminal,
   edit_python: Icons.edit,
   compute: Icons.terminal,
@@ -101,8 +104,6 @@ const TOOL_ICON_MAP: Record<string, ReactNode> = {
   update_plan_item: Icons.edit,
   calculate: Icons.calculator,
   faq: Icons.question,
-  remember: Icons.edit,
-  forget: Icons.edit,
   recall: Icons.edit,
   create_artifact: Icons.file,
   read_artifact: Icons.file,
@@ -221,14 +222,6 @@ function ArgumentsBody({ call }: { call: ToolCall }) {
   );
 }
 
-const STOP_REASON_LABELS: Record<string, { label: string; warn: boolean }> = {
-  done: { label: 'Completed', warn: false },
-  max_iterations: { label: 'Stopped: max iterations', warn: true },
-  max_tool_calls: { label: 'Stopped: max tool calls', warn: true },
-  timeout: { label: 'Stopped: timeout', warn: true },
-  error: { label: 'Stopped: error', warn: true },
-};
-
 interface TaskLogProps {
   thinking?: string | null;
   toolCalls?: ToolCall[] | null;
@@ -254,9 +247,7 @@ export function TaskLog({ thinking, toolCalls, ragContext, thinkingDuration, isS
         />
       )}
       {toolCalls?.map((tc, i) => (
-        tc.name === 'invoke_agent' && tc.agent
-          ? <AgentBlock key={tc.id || i} call={tc} agent={tc.agent} isActive={isStreaming && i === toolCalls.length - 1 && !tc.result} />
-          : <ToolCallRow key={tc.id || i} call={tc} isActive={isStreaming && i === toolCalls.length - 1 && !tc.result} />
+        <ToolCallRow key={tc.id || i} call={tc} isActive={isStreaming && i === toolCalls.length - 1 && !tc.result} />
       ))}
     </div>
   );
@@ -340,74 +331,6 @@ function ToolCallRow({ call, isActive }: { call: ToolCall; isActive?: boolean })
   );
 }
 
-function AgentBlock({ call, agent, isActive }: { call: ToolCall; agent: AgentState; isActive?: boolean }) {
-  const [expanded, setExpanded] = useState(true);
-  const isDone = agent.stoppedReason != null;
-  const stopInfo = agent.stoppedReason ? STOP_REASON_LABELS[agent.stoppedReason] || { label: agent.stoppedReason, warn: true } : null;
-
-  return (
-    <div className="border-b border-border last:border-0 py-1.5">
-      {/* Agent header */}
-      <button
-        type="button"
-        aria-expanded={expanded}
-        onClick={() => setExpanded(!expanded)}
-        className={`w-full text-left flex items-center gap-2 cursor-pointer hover:text-accent transition-colors ${isActive ? 'text-text-primary' : 'text-text-secondary'}`}
-      >
-        <span className="flex-shrink-0">{Icons.flask}</span>
-        <span className="flex-1 font-medium">
-          {agent.name.replace(/_/g, ' ')}
-          {agent.query ? `: "${agent.query}"` : ''}
-        </span>
-        {isActive && !isDone && (
-          <span className="text-accent animate-pulse">running...</span>
-        )}
-        {isDone && agent.durationSeconds != null && (
-          <span className="text-text-secondary">
-            {agent.durationSeconds.toFixed(0)}s · {agent.toolCalls.length} tool{agent.toolCalls.length !== 1 ? 's' : ''}
-          </span>
-        )}
-        <span className="text-text-secondary">{expanded ? '\u25BE' : '\u25B8'}</span>
-      </button>
-
-      {/* Expanded agent content */}
-      {expanded && (
-        <div className="ml-4 mt-1 border-l-2 border-border pl-3">
-          {/* Agent thinking */}
-          {agent.thinking && (
-            <ThinkingRow
-              content={agent.thinking}
-              isActive={isActive && !isDone && agent.toolCalls.length === 0}
-            />
-          )}
-
-          {/* Agent tool calls */}
-          {agent.toolCalls.map((atc, i) => (
-            <ToolCallRow
-              key={atc.id || i}
-              call={atc}
-              isActive={isActive && !isDone && i === agent.toolCalls.length - 1 && !atc.result}
-            />
-          ))}
-
-          {/* Stop reason */}
-          {stopInfo && stopInfo.warn && (
-            <div className="py-1.5 text-warning flex items-center gap-2">
-              <span className="flex-shrink-0">{Icons.warning}</span>
-              <span>{stopInfo.label}</span>
-            </div>
-          )}
-
-          {/* Final result from invoke_agent tool_result */}
-          {isDone && call.result != null && (
-            <AgentResultRow result={call.result} />
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function RagContextRow({ context }: { context: RagContext }) {
   const [expanded, setExpanded] = useState(false);
   const sourceCount = context.sources_used.length;
@@ -455,28 +378,3 @@ function RagContextRow({ context }: { context: RagContext }) {
   );
 }
 
-function AgentResultRow({ result }: { result: unknown }) {
-  const [expanded, setExpanded] = useState(false);
-  const summary = formatResult(result);
-  const failed = isFailedResult(result);
-
-  return (
-    <div className="py-1.5">
-      <button
-        type="button"
-        aria-expanded={expanded}
-        onClick={() => setExpanded(!expanded)}
-        className={`w-full text-left flex items-center gap-2 cursor-pointer hover:text-accent transition-colors ${failed ? 'text-warning' : 'text-text-secondary'}`}
-      >
-        <span className="flex-shrink-0">{failed ? Icons.warning : Icons.result}</span>
-        <span className="flex-1">Agent result{summary ? `: ${summary}` : ''}</span>
-        <span className="text-text-secondary">{expanded ? '\u25BE' : '\u25B8'}</span>
-      </button>
-      {expanded && (
-        <div className="mt-2 ml-6 p-3 bg-bg-tertiary rounded-lg text-[11px] max-h-48 overflow-y-auto">
-          <ResultBody result={result} />
-        </div>
-      )}
-    </div>
-  );
-}

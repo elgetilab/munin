@@ -54,15 +54,18 @@ const REGISTRY_TOOLS = [
   'search_user_docs', 'list_documents', 'browse_tag_papers',
   'transcribe_equation', 'view_attachment', 'create_artifact', 'read_artifact',
   'update_artifact', 'list_artifacts', 'save_artifact_to_documents', 'show_protein',
-  'remember', 'forget', 'recall', 'list_projects', 'get_current_project',
-  'search_past_conversations', 'invoke_agent', 'calculate', 'export_citations',
-  'deep_research', 'edit_python', 'run_python', 'sandbox_reset',
+  'recall', 'list_projects', 'get_current_project',
+  'search_past_conversations', 'calculate', 'export_citations',
+  'edit_python', 'run_python', 'sandbox_reset',
   'compile_latex', 'ask_clarification', 'faq', 'tool_search', 'set_plan',
   'update_plan_item',
 ];
 
 // Retired tools that persisted conversations can still carry in tool_calls.
-const HISTORY_TOOLS = ['read_paper', 'compare_papers'];
+const HISTORY_TOOLS = [
+  'read_paper', 'compare_papers', 'invoke_agent', 'deep_research', 'remember',
+  'forget',
+];
 
 // Rendered markup of the row's leading icon span for a single tool call.
 function iconMarkup(name: string): string {
