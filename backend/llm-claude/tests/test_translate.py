@@ -36,8 +36,26 @@ def test_max_tokens_is_clamped_but_small_values_survive():
     assert build({"messages": [USER]})["max_tokens"] == 16384
 
 
-def test_thinking_is_off_on_haiku():
-    assert build({"messages": [USER]})["thinking"] == {"type": "disabled"}
+def test_thinking_is_on_unless_a_sub_task_or_a_tiny_budget():
+    on = {"type": "adaptive", "display": "summarized"}
+    off = {"type": "disabled"}
+    assert build({"messages": [USER]})["thinking"] == on
+    assert build({"messages": [USER], "max_tokens": 1024})["thinking"] == on
+    assert build({"messages": [USER], "max_tokens": 40})["thinking"] == off
+    sub_task = {"messages": [USER], "chat_template_kwargs": {"enable_thinking": False}}
+    assert build(sub_task)["thinking"] == off
+    # Only an explicit false counts: reasoning_effort goes through the same field.
+    effort = {"messages": [USER], "chat_template_kwargs": {"reasoning_effort": "medium"}}
+    assert build(effort)["thinking"] == on
+
+
+def test_operator_can_turn_thinking_off():
+    params = translate.build_request(
+        {"messages": [USER], "tools": [TOOL]}, model="claude-haiku-5-5", effort="medium",
+        max_output_tokens=16384, thinking=False,
+    )
+    assert params["thinking"] == {"type": "disabled"}
+    assert translate.TOOL_LOOP_INSTRUCTION in params["system"][0]["text"]
 
 
 def test_system_messages_are_hoisted_wherever_they_appear():
@@ -55,13 +73,14 @@ def test_one_shot_calls_are_not_cached_but_tool_loops_are():
     loop = build({"messages": [{"role": "system", "content": "s"}, USER], "tools": [TOOL]})
     assert loop["cache_control"] == {"type": "ephemeral"}
     assert loop["system"][0]["cache_control"] == {"type": "ephemeral"}
-    assert translate.TOOL_LOOP_INSTRUCTION in loop["system"][0]["text"]
+    assert loop["tools"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert translate.TOOL_LOOP_INSTRUCTION not in loop["system"][0]["text"]
 
 
 def test_tools_convert_and_strict_is_dropped():
     tools = build({"messages": [USER], "tools": [TOOL, TOOL]})["tools"]
-    assert tools == [{"name": "search", "description": "d", "input_schema": {
-        "type": "object", "properties": {"q": {"type": "string"}}}}]
+    assert tools == [{"name": "search", "description": "d", "cache_control": {"type": "ephemeral"},
+                       "input_schema": {"type": "object", "properties": {"q": {"type": "string"}}}}]
 
 
 def test_tool_choice_forms():
@@ -196,3 +215,88 @@ def test_prompt_tokens_count_the_whole_prompt():
     assert usage["prompt_tokens"] == 130
     assert usage["total_tokens"] == 135
     assert usage["prompt_tokens_details"]["cached_tokens"] == 100
+
+
+BLOCK = {"type": "thinking", "thinking": "hmm", "signature": "sig"}
+
+
+def loop_request(first_result="r1"):
+    return build({"tools": [TOOL], "messages": [
+        USER,
+        {"role": "assistant", "tool_calls": [tool_call("t1")]},
+        {"role": "tool", "tool_call_id": "t1", "content": first_result},
+        {"role": "assistant", "tool_calls": [tool_call("t2")]},
+        {"role": "tool", "tool_call_id": "t2", "content": "r2"},
+    ]})
+
+
+def stored_store():
+    """A store holding the blocks each round of loop_request() produced."""
+    store = translate.ThinkingStore()
+    before, _ = translate._prefix_hashes(loop_request())
+    store.put("t1", before[1], [BLOCK])
+    store.put("t2", before[3], [{**BLOCK, "signature": "sig2"}])
+    return store
+
+
+def test_thinking_blocks_return_on_an_unchanged_history():
+    params = loop_request()
+    translate.attach_thinking(params, stored_store())
+    assert params["messages"][1]["content"][0] == BLOCK
+    assert params["messages"][3]["content"][0]["signature"] == "sig2"
+    assert params["messages"][3]["content"][1]["type"] == "tool_use"
+
+
+def test_edited_history_drops_later_blocks_but_not_earlier_ones():
+    # Eliding t1's result changes what preceded t2, so t2's block would be a 400.
+    # The walk stops there, and t1's block is then a removable leading one too.
+    params = loop_request(first_result="[elided]")
+    translate.attach_thinking(params, stored_store())
+    assert all(b["type"] != "thinking" for m in params["messages"] for b in m["content"])
+
+
+def test_a_changed_system_prompt_drops_every_block():
+    params = loop_request()
+    params["system"] = [{"type": "text", "text": "new minute"}]
+    translate.attach_thinking(params, stored_store())
+    assert all(b["type"] != "thinking" for m in params["messages"] for b in m["content"])
+
+
+def test_blocks_are_only_missing_from_the_start():
+    store = translate.ThinkingStore()
+    before, _ = translate._prefix_hashes(loop_request())
+    store.put("t1", before[1], [BLOCK])  # t2 unknown: restoring t1 alone is a gap
+    params = loop_request()
+    translate.attach_thinking(params, store)
+    assert all(b["type"] != "thinking" for m in params["messages"] for b in m["content"])
+
+
+def test_a_round_without_thinking_does_not_stop_the_walk():
+    store = translate.ThinkingStore()
+    before, _ = translate._prefix_hashes(loop_request())
+    store.put("t1", before[1], [BLOCK])
+    store.put("t2", before[3], [])
+    params = loop_request()
+    translate.attach_thinking(params, store)
+    assert params["messages"][1]["content"][0] == BLOCK
+
+
+def test_blocks_from_another_model_are_not_replayed():
+    params = translate.build_request(
+        {"tools": [TOOL], "messages": [
+            USER,
+            {"role": "assistant", "tool_calls": [tool_call("t1")]},
+            {"role": "tool", "tool_call_id": "t1", "content": "r1"},
+            {"role": "assistant", "tool_calls": [tool_call("t2")]},
+            {"role": "tool", "tool_call_id": "t2", "content": "r2"},
+        ]}, model="claude-sonnet-5", effort="medium", max_output_tokens=16384,
+    )
+    translate.attach_thinking(params, stored_store())
+    assert all(b["type"] != "thinking" for m in params["messages"] for b in m["content"])
+
+
+def test_store_is_bounded():
+    store = translate.ThinkingStore(max_entries=2)
+    for name in "abc":
+        store.put(name, "p", [])
+    assert store.get("a") is None and store.get("c") is not None

@@ -9,23 +9,27 @@ retrieval and its roughly eight direct callers need no changes.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
+from collections import OrderedDict
 from typing import Any, Iterable, Optional
 
-# Thinking stays off because a thinking block has to be sent back unmodified
-# with its tool result, and the OpenAI message shape has nowhere to carry one.
-# Retrieval also elides old tool results to fit its context budget, and sending
-# a thinking block after that kind of history edit is a 400 on newer accounts.
-# Opus 5.5 cannot turn thinking off, so it needs block storage before it can be
-# added here.
+# "on" and "off" are the thinking settings each model accepts. Opus 5.5 cannot
+# turn thinking off, and the 8 and 40 token calls would spend their whole budget
+# on it, so it is not offered here.
+_ADAPTIVE = {"type": "adaptive", "display": "summarized"}
 MODEL_PROFILES: dict[str, dict[str, Any]] = {
-    "claude-haiku-5-5": {"thinking": {"type": "disabled"}, "forced_tools": True},
-    "claude-sonnet-5-5": {"thinking": {"type": "between_tools"}, "forced_tools": False},
+    "claude-haiku-5-5": {"on": _ADAPTIVE, "off": {"type": "disabled"}, "forced_tools": True},
+    "claude-sonnet-5": {"on": _ADAPTIVE, "off": {"type": "disabled"}, "forced_tools": True},
+    "claude-sonnet-5-5": {"on": _ADAPTIVE, "off": {"type": "between_tools"}, "forced_tools": False},
 }
 
-# Anthropic's suggested instruction for agent loops running with thinking off.
+# Thinking counts toward max_tokens, so a smaller cap could end with no answer.
+MIN_TOKENS_FOR_THINKING = 1024
+
+# Anthropic's suggested instruction for tool loops running with thinking off.
 TOOL_LOOP_INSTRUCTION = (
     "When you use a tool, you may say a brief sentence first. If no tool can "
     "express what the user asked for, say so instead of guessing. Do not "
@@ -213,7 +217,17 @@ def convert_tool_choice(choice: Any, parallel: Any, forced_allowed: bool) -> dic
     return result
 
 
-def build_request(body: dict, *, model: str, effort: str, max_output_tokens: int) -> dict:
+def wants_thinking(body: dict, max_tokens: int) -> bool:
+    """Retrieval marks mechanical sub-tasks with enable_thinking=false, so this
+    needs LLM_THINKING_TOGGLE=1, which is its default."""
+    kwargs = body.get("chat_template_kwargs")
+    asked_off = isinstance(kwargs, dict) and kwargs.get("enable_thinking") is False
+    return not asked_off and max_tokens >= MIN_TOKENS_FOR_THINKING
+
+
+def build_request(
+    body: dict, *, model: str, effort: str, max_output_tokens: int, thinking: bool = True
+) -> dict:
     """Messages API parameters for an OpenAI request. Only fields that map
     across are read, so temperature, top_p, top_k, min_p, presence_penalty and
     chat_template_kwargs never reach the API. `model` comes from the operator
@@ -224,16 +238,19 @@ def build_request(body: dict, *, model: str, effort: str, max_output_tokens: int
     tools = convert_tools(body.get("tools"))
 
     requested = body.get("max_tokens") or body.get("max_completion_tokens") or max_output_tokens
+    max_tokens = max(1, min(int(requested), max_output_tokens))
+    think = thinking and wants_thinking(body, max_tokens)
     params: dict[str, Any] = {
         "model": model,
-        "max_tokens": max(1, min(int(requested), max_output_tokens)),
+        "max_tokens": max_tokens,
         "messages": messages,
-        "thinking": profile["thinking"],
+        "thinking": profile["on"] if think else profile["off"],
         "output_config": {"effort": effort},
     }
 
     if tools:
-        system.append(TOOL_LOOP_INSTRUCTION)
+        if not think:
+            system.append(TOOL_LOOP_INSTRUCTION)
         params["tools"] = tools
         params["tool_choice"] = convert_tool_choice(
             body.get("tool_choice"), body.get("parallel_tool_calls"), profile["forced_tools"]
@@ -241,11 +258,13 @@ def build_request(body: dict, *, model: str, effort: str, max_output_tokens: int
         # Only tool loops resend their prefix. A one-shot title or summary call
         # would pay the cache-write premium and never read the entry back.
         params["cache_control"] = {"type": "ephemeral"}
+        # The tools come first in the prefix and are shared across users, while
+        # retrieval's system prompt carries the time of day and changes per turn.
+        tools[-1]["cache_control"] = {"type": "ephemeral"}
 
     if system:
         block: dict[str, Any] = {"type": "text", "text": "\n".join(system)}
         if tools:
-            # Conversations sharing a persona also share this prefix.
             block["cache_control"] = {"type": "ephemeral"}
         params["system"] = [block]
 
@@ -256,6 +275,95 @@ def build_request(body: dict, *, model: str, effort: str, max_output_tokens: int
         if stops:
             params["stop_sequences"] = stops
     return params
+
+
+# ------------------------------------------------------------------- thinking
+
+def _prefix_hashes(params: dict) -> tuple[dict[int, str], str]:
+    """Hash of what precedes each assistant message, and of the whole request.
+
+    A thinking block is bound to its system prompt, tool set and earlier
+    messages, and sending it after any of those changed is a 400 on newer
+    accounts. These hashes let a block be replayed only when its prefix is
+    byte-identical, so retrieval trimming old tool results just costs the block.
+    Call this before thinking blocks are attached: they are not part of a prefix.
+    """
+    tools = sorted(
+        ({k: v for k, v in t.items() if k != "cache_control"} for t in params.get("tools", [])),
+        key=lambda t: t["name"],
+    )
+    system = [b["text"] for b in params.get("system", [])]
+    digest = hashlib.sha256(json.dumps([params["model"], system, tools], sort_keys=True).encode())
+    before: dict[int, str] = {}
+    for i, message in enumerate(params["messages"]):
+        if message["role"] == "assistant":
+            before[i] = digest.hexdigest()
+        digest.update(json.dumps(message, sort_keys=True).encode())
+    return before, digest.hexdigest()
+
+
+class ThinkingStore:
+    """Thinking blocks by first tool_use id, since the OpenAI message shape has
+    nowhere to carry them. Losing an entry only costs that block's reasoning, so
+    a small in-memory store is enough, and a restart simply starts it empty."""
+
+    def __init__(self, max_entries: int = 2000):
+        self._entries: OrderedDict[str, tuple[str, list[dict]]] = OrderedDict()
+        self._max_entries = max_entries
+
+    def put(self, tool_id: str, prefix: str, blocks: list[dict]) -> None:
+        self._entries[tool_id] = (prefix, blocks)
+        self._entries.move_to_end(tool_id)
+        while len(self._entries) > self._max_entries:
+            self._entries.popitem(last=False)
+
+    def get(self, tool_id: str) -> Optional[tuple[str, list[dict]]]:
+        return self._entries.get(tool_id)
+
+
+def attach_thinking(params: dict, store: ThinkingStore) -> str:
+    """Put stored blocks back on the newest assistant turns and return the hash
+    to store this request's own response under.
+
+    Walks backwards and stops at the first turn it cannot restore: blocks may be
+    missing from the start of the conversation but not from the middle. A round
+    that really had no thinking is stored with an empty list, so it does not stop
+    the walk. A final text answer has no tool id and always does."""
+    before, whole = _prefix_hashes(params)
+    if params["thinking"] != _ADAPTIVE:
+        return whole
+    for i in sorted(before, reverse=True):
+        content = params["messages"][i]["content"]
+        tool_id = next((b["id"] for b in content if b["type"] == "tool_use"), None)
+        entry = store.get(tool_id) if tool_id else None
+        if entry is None or entry[0] != before[i]:
+            break
+        content[:0] = entry[1]
+    return whole
+
+
+def strip_thinking(params: dict) -> None:
+    """Anthropic's documented recovery from a rejected block."""
+    for message in params["messages"]:
+        message["content"] = [
+            b for b in message["content"] if b["type"] not in ("thinking", "redacted_thinking")
+        ]
+
+
+def _thinking_block(block: Any) -> Optional[dict]:
+    if block.type == "thinking":
+        return {"type": "thinking", "thinking": block.thinking, "signature": block.signature}
+    if block.type == "redacted_thinking":
+        return {"type": "redacted_thinking", "data": block.data}
+    return None
+
+
+def remember_message(message: Any, prefix: str, store: ThinkingStore) -> None:
+    """Store a finished message's thinking if it asked for tool results."""
+    tool_id = next((b.id for b in message.content if b.type == "tool_use"), None)
+    if tool_id:
+        blocks = [t for t in map(_thinking_block, message.content) if t]
+        store.put(tool_id, prefix, blocks)
 
 
 # ---------------------------------------------------------------- responses
@@ -318,6 +426,9 @@ def completion_from_message(message: Any, model: str) -> dict:
     if message.stop_reason == "refusal":
         text.append(refusal_notice(message.stop_details))
     reply: dict[str, Any] = {"role": "assistant", "content": "".join(text) or None}
+    reasoning = "".join(b.thinking for b in message.content if b.type == "thinking")
+    if reasoning:
+        reply["reasoning"] = reasoning
     if calls:
         reply["tool_calls"] = calls
     return {
@@ -345,6 +456,10 @@ class StreamTranslator:
         self._tools = 0
         self._tool_index: dict[int, int] = {}  # content block index -> tool index
         self._tool_has_args: dict[int, bool] = {}
+        self.first_tool_id: Optional[str] = None
+        self.sent_output = False  # text or a tool call the client cannot unsee
+        self.thinking_blocks: list[dict] = []
+        self._open_thinking: dict[int, dict] = {}
 
     def _chunk(self, delta: dict, finish: Optional[str] = None) -> dict:
         return {
@@ -370,6 +485,8 @@ class StreamTranslator:
             self._tools += 1
             self._tool_index[event.index] = index
             self._tool_has_args[index] = False
+            self.first_tool_id = self.first_tool_id or event.content_block.id
+            self.sent_output = True
             return [self._tool_delta(
                 index,
                 id=event.content_block.id,
@@ -377,9 +494,23 @@ class StreamTranslator:
                 function={"name": event.content_block.name, "arguments": ""},
             )]
 
+        if kind == "content_block_start":
+            block = _thinking_block(event.content_block)
+            if block:
+                self.thinking_blocks.append(block)
+                self._open_thinking[event.index] = block
+            return []
+
         if kind == "content_block_delta":
             if event.delta.type == "text_delta":
+                self.sent_output = self.sent_output or bool(event.delta.text)
                 return [self._chunk({"content": event.delta.text})]
+            if event.delta.type == "thinking_delta":
+                self._open_thinking[event.index]["thinking"] += event.delta.thinking
+                return [self._chunk({"reasoning": event.delta.thinking})]
+            if event.delta.type == "signature_delta":
+                self._open_thinking[event.index]["signature"] = event.delta.signature
+                return []
             if event.delta.type == "input_json_delta" and event.delta.partial_json:
                 index = self._tool_index[event.index]
                 self._tool_has_args[index] = True

@@ -53,21 +53,23 @@ def tool_events(fragments):
 
 
 class Upstream:
-    def __init__(self, response):
-        self.response = response
+    """Answers with each response in turn, repeating the last."""
+
+    def __init__(self, *responses):
+        self.responses = list(responses)
         self.requests = []
 
     def __call__(self, request):
         self.requests.append(request)
-        return self.response
+        return self.responses.pop(0) if len(self.responses) > 1 else self.responses[0]
 
     @property
     def sent(self):
         return json.loads(self.requests[-1].content)
 
 
-def client_for(response):
-    upstream = Upstream(response)
+def client_for(*responses):
+    upstream = Upstream(*responses)
     sdk = anthropic.AsyncAnthropic(
         api_key="test-key", max_retries=0,
         http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(upstream)),
@@ -105,6 +107,108 @@ def accumulate(parsed):
                 slot["arguments"] += fn.get("arguments") or ""
             state["finish"] = choice["finish_reason"] or state["finish"]
     return state
+
+
+def refusal_stream(category="bio"):
+    return ok_stream(text_events("", stop_reason="refusal", stop_details={
+        "type": "refusal", "category": category, "explanation": None}))
+
+
+def thinking_tool_events():
+    block = {"type": "thinking", "thinking": "", "signature": ""}
+    shifted = [{**e, "index": 1} if "index" in e else e for e in tool_events(['{"q": "x"}'])]
+    return [
+        shifted[0],
+        {"type": "content_block_start", "index": 0, "content_block": block},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "let me"}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta", "signature": "SIG"}},
+        {"type": "content_block_stop", "index": 0},
+        *shifted[1:],
+    ]
+
+
+def test_thinking_reaches_the_client_and_returns_with_the_tool_result():
+    client, upstream = client_for(ok_stream(thinking_tool_events()), ok_stream(text_events("done")))
+    tool = {"type": "function", "function": {"name": "search", "parameters": {"type": "object"}}}
+    base = {"messages": [USER], "stream": True, "tools": [tool]}
+    parsed = chunks(client.post("/v1/chat/completions", json=base))
+    assert "".join(c["choices"][0]["delta"].get("reasoning") or "" for c in parsed) == "let me"
+
+    call = {"id": "toolu_1", "type": "function", "function": {"name": "search", "arguments": '{"q": "x"}'}}
+    chunks(client.post("/v1/chat/completions", json={**base, "messages": [
+        USER,
+        {"role": "assistant", "content": "", "tool_calls": [call]},
+        {"role": "tool", "tool_call_id": "toolu_1", "content": "result"},
+    ]}))
+    assert upstream.sent["messages"][1]["content"][0] == {
+        "type": "thinking", "thinking": "let me", "signature": "SIG"}
+
+
+def test_rejected_thinking_block_is_stripped_and_retried():
+    client, upstream = client_for(
+        ok_stream(thinking_tool_events()),
+        api_error(400, "invalid_request_error", "messages.1.content.0: Invalid `signature` in `thinking` block."),
+        ok_stream(text_events("done")),
+    )
+    tool = {"type": "function", "function": {"name": "search", "parameters": {"type": "object"}}}
+    base = {"messages": [USER], "stream": True, "tools": [tool]}
+    chunks(client.post("/v1/chat/completions", json=base))
+    call = {"id": "toolu_1", "type": "function", "function": {"name": "search", "arguments": '{"q": "x"}'}}
+    state = accumulate(chunks(client.post("/v1/chat/completions", json={**base, "messages": [
+        USER,
+        {"role": "assistant", "content": "", "tool_calls": [call]},
+        {"role": "tool", "tool_call_id": "toolu_1", "content": "result"},
+    ]})))
+    assert state["content"] == "done"
+    assert all(b["type"] != "thinking" for b in upstream.sent["messages"][1]["content"])
+
+
+def test_other_400s_are_not_retried():
+    client, upstream = client_for(api_error(400, "invalid_request_error", "bad tool schema"))
+    response = client.post("/v1/chat/completions", json={"messages": [USER], "stream": True})
+    assert response.status_code == 400
+    assert len(upstream.requests) == 1
+
+
+@pytest.mark.parametrize("stream", [True, False])
+def test_refusal_is_answered_by_the_fallback_model(stream):
+    client, upstream = client_for(refusal_stream(), ok_stream(text_events("answer")))
+    response = client.post("/v1/chat/completions", json={"messages": [USER], "stream": stream})
+    if stream:
+        state = accumulate(chunks(response))
+        content, finish = state["content"], state["finish"]
+    else:
+        choice = response.json()["choices"][0]
+        content, finish = choice["message"]["content"], choice["finish_reason"]
+    assert content == "answer" and finish == "stop"
+    assert [json.loads(r.content)["model"] for r in upstream.requests] == ["claude-haiku-5-5", "claude-sonnet-5"]
+
+
+def test_conversation_stays_on_the_fallback_and_others_do_not():
+    client, upstream = client_for(refusal_stream(), ok_stream(text_events("answer")))
+    client.post("/v1/chat/completions", json={"messages": [USER]})
+    client.post("/v1/chat/completions", json={"messages": [
+        USER, {"role": "assistant", "content": "answer"}, {"role": "user", "content": "more"}]})
+    assert upstream.sent["model"] == "claude-sonnet-5"
+    client.post("/v1/chat/completions", json={"messages": [{"role": "user", "content": "new chat"}]})
+    assert upstream.sent["model"] == "claude-haiku-5-5"
+
+
+def test_refusal_after_visible_output_is_not_retried():
+    client, upstream = client_for(ok_stream(text_events("partial", stop_reason="refusal", stop_details={
+        "type": "refusal", "category": "bio", "explanation": None})))
+    state = accumulate(chunks(client.post(
+        "/v1/chat/completions", json={"messages": [USER], "stream": True})))
+    assert len(upstream.requests) == 1
+    assert state["content"].startswith("partial") and "declined" in state["content"]
+
+
+def test_fallback_can_be_turned_off(monkeypatch):
+    monkeypatch.setenv("CLAUDE_FALLBACK_MODEL", "")
+    client, upstream = client_for(refusal_stream())
+    body = client.post("/v1/chat/completions", json={"messages": [USER]}).json()
+    assert len(upstream.requests) == 1
+    assert "declined" in body["choices"][0]["message"]["content"]
 
 
 def test_models_answers_without_calling_the_api():
@@ -171,10 +275,8 @@ def test_non_stream_tool_call():
 
 
 @pytest.mark.parametrize("stream", [True, False])
-def test_refusal_is_visible_to_the_user(stream):
-    events = text_events("", stop_reason="refusal", stop_details={
-        "type": "refusal", "category": "bio", "explanation": None})
-    client, _ = client_for(ok_stream(events))
+def test_refusal_is_visible_to_the_user_when_the_fallback_also_declines(stream):
+    client, _ = client_for(refusal_stream())
     response = client.post("/v1/chat/completions", json={"messages": [USER], "stream": stream})
     if stream:
         state = accumulate(chunks(response))
