@@ -213,7 +213,7 @@ upload page (`https://upload.<domain>`, or `http://localhost:8084` locally).
 | Symptom | Likely cause |
 |---|---|
 | `docker compose` says `MUNIN_DOMAIN must be set` | no `.env` in the directory you ran it from: run it from the repo root, or run configure.sh |
-| Login page says the address is not authorized | it is not in the auth database; add it in the admin panel, or (before the first start) to `whitelist.csv` |
+| Login page says there is no account for the address | it is not in the auth database; add it in the admin panel, or (before the first start) to `whitelist.csv` |
 | No login email | SMTP settings, or the provider rejects `SMTP_SENDER` for a domain you do not own; `docker compose logs munin-auth` |
 | Chat hangs or shows "Backend unavailable" (split) | tunnel down: `docker compose logs tunnel` on the backend, `curl 127.0.0.1:18080/health` on the VPS |
 | `/api/status` shows the model as unreachable | `LLM_BASE_URL` is not reachable from inside the container: `localhost` there is the container itself, and a server listening only on the host's loopback (Ollama's default) is invisible to it |

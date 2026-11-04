@@ -45,6 +45,17 @@
             gap: 16px;
         }
 
+        .auth-field {
+            text-align: left;
+        }
+
+        .auth-field label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
         .auth-form input[type="email"] {
             width: 100%;
             padding: 14px 16px;
@@ -66,17 +77,44 @@
             color: var(--error);
             font-size: 14px;
             margin-bottom: 16px;
+            overflow-wrap: anywhere;
+        }
+
+        .auth-error a {
+            color: inherit;
+            text-decoration: underline;
         }
 
         .auth-footer {
             margin-top: 24px;
             font-size: 13px;
             color: var(--text-secondary);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
         }
 
         .auth-footer a {
             color: var(--accent);
             text-decoration: none;
+        }
+
+        .auth-sending {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            padding: 14px;
+        }
+
+        .auth-sending canvas {
+            width: 40px;
+            height: 40px;
+        }
+
+        .auth-sending span {
+            color: var(--text-secondary);
+            font-size: 14px;
         }
     </style>
 </head>
@@ -87,20 +125,66 @@
             <h1 class="auth-title">Sign in to Munin</h1>
             <p class="auth-subtitle">Enter your email to receive a login code.</p>
 
-            {% if error %}
-            <div class="auth-error">{{ error }}</div>
+            {% if unknown_account %}
+            <div class="auth-error" role="alert">We don't have an account for {{ email }}. Check the spelling, or {% if support_email %}ask <a href="mailto:{{ support_email }}">{{ support_email }}</a> for access{% else %}ask your Munin administrator for access{% endif %}.</div>
+            {% elif error %}
+            <div class="auth-error" role="alert">{{ error }}</div>
             {% endif %}
 
-            <form class="auth-form" method="POST" action="/login">
+            <form id="login-form" class="auth-form" method="POST" action="/login">
                 <input type="hidden" name="redirect" value="{{ redirect }}">
-                <input type="email" name="email" placeholder="you@example.com" required autofocus>
-                <button type="submit" class="btn btn-primary">Send code</button>
+                <div class="auth-field">
+                    <label for="login-email">Email address</label>
+                    <input id="login-email" type="email" name="email" value="{{ email }}" placeholder="you@example.com" required autofocus autocomplete="email">
+                </div>
+                <button id="login-btn" type="submit" class="btn btn-primary">Send code</button>
+                <div id="login-sending" class="auth-sending" role="status" style="display: none;">
+                    <canvas id="login-vortex" width="128" height="128"></canvas>
+                    <span>Sending code...</span>
+                </div>
             </form>
 
             <div class="auth-footer">
+                {% if support_email %}
+                <a href="mailto:{{ support_email }}">Need help? {{ support_email }}</a>
+                {% endif %}
                 <a href="{{ site_url or '/' }}">&larr; Back to Munin</a>
             </div>
         </div>
     </div>
+
+    <script src="/shared/feather-vortex.js"></script>
+    <script>
+        (function() {
+            var form = document.getElementById('login-form');
+            var button = document.getElementById('login-btn');
+            var sending = document.getElementById('login-sending');
+            var submitted = false;
+            var stopVortex = null;
+
+            form.addEventListener('submit', function(event) {
+                if (submitted) {
+                    event.preventDefault();
+                    return;
+                }
+                submitted = true;
+                button.disabled = true;
+                button.style.display = 'none';
+                sending.style.display = 'flex';
+                stopVortex = createVortex(document.getElementById('login-vortex'), 10, 7.0);
+            });
+
+            // Coming back with the browser's back button restores this page
+            // as it was left, spinner included.
+            window.addEventListener('pageshow', function(event) {
+                if (!event.persisted) return;
+                submitted = false;
+                button.disabled = false;
+                button.style.display = '';
+                sending.style.display = 'none';
+                if (stopVortex) stopVortex();
+            });
+        })();
+    </script>
 </body>
 </html>

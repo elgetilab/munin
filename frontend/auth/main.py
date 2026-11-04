@@ -28,6 +28,7 @@ import asyncio
 import csv
 import logging
 import os
+import re
 import secrets
 import signal
 import sqlite3
@@ -35,6 +36,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import formatdate, make_msgid, parseaddr
 from pathlib import Path
 from urllib.parse import quote, urlencode, urlparse
 
@@ -60,9 +62,11 @@ SMTP_USERNAME = os.environ.get("SMTP_USERNAME", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 SMTP_SENDER = (os.environ.get("SMTP_SENDER")
                or (f"noreply@{MUNIN_DOMAIN}" if MUNIN_DOMAIN else ""))
-# The relay (GoDaddy's smtpout.secureserver.net:587) intermittently drops the
-# connection on connect; a retry lands on a healthy node. Failures are fast,
-# so a few attempts with short backoff cost little.
+SUPPORT_EMAIL = (os.environ.get("SUPPORT_EMAIL")
+                 or (f"support@{MUNIN_DOMAIN}" if MUNIN_DOMAIN else ""))
+# The relay (GoDaddy's smtpout.secureserver.net:587) occasionally stalls on
+# connect: production logs showed 1 slow connect timeout in about 32 attempts.
+# That attempt costs up to SMTP_TIMEOUT, and a retry normally gets through.
 SMTP_MAX_ATTEMPTS = int(os.environ.get("SMTP_MAX_ATTEMPTS", "4"))
 SMTP_RETRY_BASE_DELAY = float(os.environ.get("SMTP_RETRY_BASE_DELAY", "0.5"))
 SMTP_TIMEOUT = float(os.environ.get("SMTP_TIMEOUT", "20"))
@@ -150,9 +154,13 @@ templates = Environment(
 )
 # Templates link back to the instance's landing page and load its logo.
 templates.globals["site_url"] = SITE_URL
+# Sign-in pages and the login email name these.
+templates.globals["support_email"] = SUPPORT_EMAIL
+templates.globals["sender_address"] = parseaddr(SMTP_SENDER)[1]
+templates.globals["expiry_minutes"] = OTP_EXPIRY // 60
 
 # In-memory stores (transient state only — user data lives in SQLite)
-otp_store: dict[str, dict] = {}  # email -> {code, expires, attempts}
+otp_store: dict[str, dict] = {}  # email -> {code, expires, attempts, sends}
 rate_send: dict[str, list[float]] = {}  # email -> [timestamps]
 rate_verify: dict[str, list[float]] = {}  # email -> [timestamps]
 rate_support: dict[str, list[float]] = {}  # email -> [timestamps]
@@ -921,15 +929,37 @@ def record_rate(store: dict[str, list[float]], key: str):
 
 # ── OTP ──────────────────────────────────────────────────────────────────────
 
+# A re-request reuses a code with at least this many seconds left, so it does
+# not kill the code in a mail still on its way.
+OTP_REUSE_MIN_REMAINING = 120
+VERIFY_ATTEMPT_LIMIT = 5
+LOCKOUT_MESSAGE = "Too many failed attempts. Please wait 15 minutes, then request a new code."
+
+
 def generate_otp(email: str) -> str:
-    """Generate and store a 6-digit OTP for the given email."""
+    """Return the email's live 6-digit OTP, or generate and store a new one.
+
+    Reuse keeps the expiry and the attempt count, so re-requesting never buys
+    more time or more guesses."""
+    entry = otp_store.get(email)
+    if entry and entry["expires"] - time.time() >= OTP_REUSE_MIN_REMAINING:
+        return entry["code"]
     code = f"{secrets.randbelow(1000000):06d}"
     otp_store[email] = {
         "code": code,
         "expires": time.time() + OTP_EXPIRY,
         "attempts": 0,
+        "sends": 0,
     }
     return code
+
+
+def verify_attempts_left(email: str, window: int = 900) -> int:
+    """How many failures rate_verify still allows. Unlike check_rate, this
+    creates no entry, so viewing GET /verify leaves the store alone."""
+    now = time.time()
+    used = sum(1 for t in rate_verify.get(email, []) if now - t < window)
+    return max(0, VERIFY_ATTEMPT_LIMIT - used)
 
 
 def verify_otp(email: str, code: str) -> tuple[bool, str]:
@@ -942,15 +972,45 @@ def verify_otp(email: str, code: str) -> tuple[bool, str]:
         return False, "Code expired. Please request a new one."
     if entry["code"] != code.strip():
         entry["attempts"] += 1
-        if entry["attempts"] >= 5:
+        if entry["attempts"] >= VERIFY_ATTEMPT_LIMIT:
             del otp_store[email]
-            return False, "Too many failed attempts. Please request a new code."
-        return False, "Invalid code. Please try again."
+            return False, LOCKOUT_MESSAGE
+        # The caller records this failure after we return, hence the - 1.
+        left = verify_attempts_left(email) - 1
+        return False, f"Invalid code. {left} attempt{'' if left == 1 else 's'} left."
     del otp_store[email]
     return True, ""
 
 
 # ── Email ────────────────────────────────────────────────────────────────────
+
+def build_otp_message(email: str, code: str, name: str) -> MIMEMultipart:
+    """Build the login email: a plain-text part and the HTML template."""
+    expiry_minutes = OTP_EXPIRY // 60
+    tmpl = templates.get_template("email_otp.html")
+    html_body = tmpl.render(code=code, name=name, expiry_minutes=expiry_minutes)
+
+    plain_body = (
+        f"Hi {name},\n\n"
+        f"Your Munin login code is: {code}\n\n"
+        "Enter this code on the Munin sign-in page you just opened.\n"
+        f"It expires in {expiry_minutes} minutes.\n\n"
+        "If you didn't request this code, you can safely ignore this email.\n"
+    )
+    if SUPPORT_EMAIL:
+        plain_body += f"Need help? Write to {SUPPORT_EMAIL}.\n"
+
+    sender_domain = parseaddr(SMTP_SENDER)[1].rpartition("@")[2]
+    msg = MIMEMultipart("alternative")
+    msg["From"] = SMTP_SENDER
+    msg["To"] = email
+    msg["Subject"] = f"Munin login code: {code}"
+    msg["Date"] = formatdate(usegmt=True)
+    msg["Message-ID"] = make_msgid(domain=sender_domain or "localhost")
+    msg.attach(MIMEText(plain_body, "plain"))
+    msg.attach(MIMEText(html_body, "html"))
+    return msg
+
 
 async def send_otp_email(email: str, code: str, name: str):
     """Send OTP code via SMTP, or log it when AUTH_DEV_ECHO_OTP is set.
@@ -965,20 +1025,12 @@ async def send_otp_email(email: str, code: str, name: str):
             email, code)
         return
 
-    tmpl = templates.get_template("email_otp.html")
-    html_body = tmpl.render(code=code, name=name, expiry_minutes=OTP_EXPIRY // 60)
+    msg = build_otp_message(email, code, name)
 
-    msg = MIMEMultipart("alternative")
-    msg["From"] = SMTP_SENDER
-    msg["To"] = email
-    msg["Subject"] = f"Munin login code: {code}"
-    msg.attach(MIMEText(f"Your Munin login code is: {code}\nIt expires in {OTP_EXPIRY // 60} minutes.", "plain"))
-    msg.attach(MIMEText(html_body, "html"))
-
-    # Retry transient SMTP failures. The relay drops ~40% of connects (fast,
-    # ~0.02s), so without this a single attempt fails roughly that often and
-    # the user sees "Failed to send email" until they happen to retry. Four
-    # independent attempts take that to a fraction of a percent.
+    # Retry transient SMTP failures. Production logs showed 1 slow connect
+    # timeout in about 32 attempts; without a retry that user sees "Failed to
+    # send email" after waiting out SMTP_TIMEOUT.
+    started = time.monotonic()
     last_exc: Exception | None = None
     for attempt in range(1, SMTP_MAX_ATTEMPTS + 1):
         try:
@@ -991,9 +1043,8 @@ async def send_otp_email(email: str, code: str, name: str):
                 start_tls=True,
                 timeout=SMTP_TIMEOUT,
             )
-            if attempt > 1:
-                log.info("OTP email to %s sent on attempt %d/%d",
-                         email, attempt, SMTP_MAX_ATTEMPTS)
+            log.info("OTP email to %s sent in %.1fs on attempt %d/%d",
+                     email, time.monotonic() - started, attempt, SMTP_MAX_ATTEMPTS)
             return
         except (aiosmtplib.SMTPException, OSError, asyncio.TimeoutError) as e:
             last_exc = e
@@ -1030,20 +1081,23 @@ async def startup():
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, redirect: str = ""):
     tmpl = templates.get_template("login.html")
-    return tmpl.render(error="", redirect=redirect)
+    return tmpl.render(error="", redirect=redirect, email="")
 
 
 @app.post("/login", response_class=HTMLResponse)
 async def login_submit(request: Request, email: str = Form(...), redirect: str = Form("")):
-    email = email.strip().lower()
+    typed_email = email.strip()
+    email = typed_email.lower()
     tmpl = templates.get_template("login.html")
 
     user = lookup_user(email)
     if not user:
-        return tmpl.render(error="This email is not authorized.", redirect=redirect)
+        # The template words this one, because it carries a mailto link.
+        return tmpl.render(error="", unknown_account=True, redirect=redirect, email=typed_email)
 
     if not check_rate(rate_send, email, limit=3):
-        return tmpl.render(error="Too many code requests. Please wait 15 minutes.", redirect=redirect)
+        return tmpl.render(error="Too many code requests. Please wait 15 minutes.",
+                           redirect=redirect, email=typed_email)
 
     code = generate_otp(email)
     record_rate(rate_send, email)
@@ -1053,7 +1107,13 @@ async def login_submit(request: Request, email: str = Form(...), redirect: str =
     except Exception as e:
         log.error("OTP send ultimately failed for %s after %d attempts: %s: %s",
                   email, SMTP_MAX_ATTEMPTS, type(e).__name__, e)
-        return tmpl.render(error="Failed to send email. Please try again.", redirect=redirect)
+        return tmpl.render(error="Failed to send email. Please try again.",
+                           redirect=redirect, email=typed_email)
+
+    # The entry can be gone if the code was used while this mail was on its way.
+    entry = otp_store.get(email)
+    if entry and entry["code"] == code:
+        entry["sends"] += 1
 
     query = {"email": email}
     if redirect:
@@ -1061,10 +1121,27 @@ async def login_submit(request: Request, email: str = Form(...), redirect: str =
     return RedirectResponse(url=f"/verify?{urlencode(query)}", status_code=303)
 
 
+def _render_verify(email: str, redirect: str, error: str = "") -> str:
+    """Render the verify page, disabled with the lockout message at the limit."""
+    locked = verify_attempts_left(email) == 0
+    entry = otp_store.get(email)
+    same_code_resent = bool(entry and entry["sends"] > 1 and time.time() <= entry["expires"])
+    return templates.get_template("verify.html").render(
+        email=email,
+        error=LOCKOUT_MESSAGE if locked else error,
+        redirect=redirect,
+        locked=locked,
+        same_code_resent=same_code_resent,
+    )
+
+
 @app.get("/verify", response_class=HTMLResponse)
 async def verify_page(email: str = "", redirect: str = ""):
-    tmpl = templates.get_template("verify.html")
-    return tmpl.render(email=email, error="", redirect=redirect)
+    email = email.strip().lower()
+    if not email:
+        query = urlencode({"redirect": redirect}) if redirect else ""
+        return RedirectResponse(url=f"/login?{query}" if query else "/login", status_code=303)
+    return _render_verify(email, redirect)
 
 
 @app.post("/verify")
@@ -1074,21 +1151,18 @@ async def verify_submit(
     redirect: str = Form(""),
 ):
     email = email.strip().lower()
-    tmpl = templates.get_template("verify.html")
+    code = re.sub(r"[^0-9]", "", code)
 
-    if not check_rate(rate_verify, email, limit=5):
-        return HTMLResponse(tmpl.render(
-            email=email,
-            error="Too many failed attempts. Please wait 15 minutes.",
-            redirect=redirect,
-        ))
+    if not check_rate(rate_verify, email, limit=VERIFY_ATTEMPT_LIMIT):
+        return HTMLResponse(_render_verify(email, redirect))
 
     success, error_msg = verify_otp(email, code)
 
     if not success:
         record_rate(rate_verify, email)
-        return HTMLResponse(tmpl.render(email=email, error=error_msg, redirect=redirect))
+        return HTMLResponse(_render_verify(email, redirect, error_msg))
 
+    rate_verify.pop(email, None)
     user = lookup_user(email)
     name = user["name"] if user else email
     signed_token = create_session(email, name)
@@ -1222,8 +1296,6 @@ async def logout(request: Request):
 
 # ── Support Contact ──────────────────────────────────────────────────────
 
-SUPPORT_EMAIL = (os.environ.get("SUPPORT_EMAIL")
-                 or (f"support@{MUNIN_DOMAIN}" if MUNIN_DOMAIN else ""))
 SUPPORT_RATE_LIMIT = 3  # max 3 support messages per hour
 
 @app.post("/support/contact")

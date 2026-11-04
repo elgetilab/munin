@@ -36,17 +36,36 @@
         .auth-subtitle {
             color: var(--text-secondary);
             font-size: 14px;
-            margin-bottom: 32px;
+            margin-bottom: 8px;
+            overflow-wrap: anywhere;
         }
 
         .auth-subtitle strong {
             color: var(--text-primary);
         }
 
+        .auth-hint {
+            color: var(--text-secondary);
+            font-size: 13px;
+            margin-bottom: 24px;
+            overflow-wrap: anywhere;
+        }
+
         .auth-form {
             display: flex;
             flex-direction: column;
             gap: 16px;
+        }
+
+        .auth-field {
+            text-align: left;
+        }
+
+        .auth-field label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 13px;
+            color: var(--text-secondary);
         }
 
         .auth-form input[type="text"] {
@@ -58,10 +77,21 @@
             font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
         }
 
-        .auth-form button {
+        .auth-form input[type="text"]:disabled {
+            opacity: 0.5;
+        }
+
+        .auth-form button,
+        .auth-resend button {
             width: 100%;
             padding: 14px;
             font-size: 16px;
+        }
+
+        .auth-form button:disabled,
+        .auth-resend button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
 
         .auth-error {
@@ -72,6 +102,10 @@
             color: var(--error);
             font-size: 14px;
             margin-bottom: 16px;
+        }
+
+        .auth-resend {
+            margin-top: 16px;
         }
 
         .auth-links {
@@ -111,26 +145,42 @@
     <div class="auth-container">
         <div class="auth-card">
             <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="auth-logo">
+            {% if locked %}
+            <h1 class="auth-title">Sign-in is paused</h1>
+            <p class="auth-subtitle auth-hint">Too many wrong codes for <strong>{{ email }}</strong></p>
+            {% else %}
             <h1 class="auth-title">Check your email</h1>
             <p class="auth-subtitle">We sent a 6-digit code to <strong>{{ email }}</strong></p>
+            <p class="auth-hint">Usually arrives within a minute. It expires in {{ expiry_minutes }} minutes. {% if sender_address %}Check spam for mail from {{ sender_address }}.{% else %}Check your spam folder too.{% endif %}{% if same_code_resent %} We resent the same code you were already sent.{% endif %}</p>
+            {% endif %}
 
             {% if error %}
-            <div class="auth-error">{{ error }}</div>
+            <div class="auth-error" role="alert">{{ error }}</div>
             {% endif %}
 
             <form id="verify-form" class="auth-form" method="POST" action="/verify">
                 <input type="hidden" name="email" value="{{ email }}">
                 <input type="hidden" name="redirect" value="{{ redirect }}">
-                <input type="text" name="code" placeholder="000000" maxlength="6" pattern="\d{6}" required autofocus autocomplete="one-time-code" inputmode="numeric">
-                <button id="verify-btn" type="submit" class="btn btn-primary">Verify</button>
-                <div id="verify-loading" class="auth-verifying" style="display: none;">
+                <div class="auth-field">
+                    <label for="verify-code">Login code</label>
+                    {# The pattern allows separators: a code pasted as "482 913" is valid, and the server strips them. #}
+                    <input id="verify-code" type="text" name="code" pattern="\D*(\d\D*){6}" title="The 6-digit code from the email" required autocomplete="one-time-code" inputmode="numeric"{% if locked %} disabled{% else %} autofocus{% endif %}>
+                </div>
+                <button id="verify-btn" type="submit" class="btn btn-primary"{% if locked %} disabled{% endif %}>Verify</button>
+                <div id="verify-loading" class="auth-verifying" role="status" style="display: none;">
                     <canvas id="verify-vortex" width="128" height="128"></canvas>
                     <span>Verifying...</span>
                 </div>
             </form>
 
+            <form id="resend-form" class="auth-resend" method="POST" action="/login">
+                <input type="hidden" name="email" value="{{ email }}">
+                <input type="hidden" name="redirect" value="{{ redirect }}">
+                <button id="resend-btn" type="submit" class="btn btn-secondary"{% if locked %} disabled{% endif %}>Resend code</button>
+            </form>
+
             <div class="auth-links">
-                <a href="/login?redirect={{ redirect | urlencode }}">Request a new code</a>
+                <a href="/login?redirect={{ redirect | urlencode }}">Use a different email</a>
                 <a href="{{ site_url or '/' }}">&larr; Back to Munin</a>
             </div>
         </div>
@@ -138,12 +188,77 @@
 
     <script src="/shared/feather-vortex.js"></script>
     <script>
-        document.getElementById('verify-form').addEventListener('submit', function() {
-            document.getElementById('verify-btn').style.display = 'none';
+        (function() {
+            var form = document.getElementById('verify-form');
+            var input = document.getElementById('verify-code');
+            var button = document.getElementById('verify-btn');
             var loading = document.getElementById('verify-loading');
-            loading.style.display = 'flex';
-            createVortex(document.getElementById('verify-vortex'), 10, 7.0);
-        });
+            var resendForm = document.getElementById('resend-form');
+            var resendButton = document.getElementById('resend-btn');
+            var resendLocked = resendButton.disabled;
+            var resendLabel = resendButton.textContent;
+            var countdown = null;
+            var submitted = false;
+            var stopVortex = null;
+
+            form.addEventListener('submit', function(event) {
+                if (submitted) {
+                    event.preventDefault();
+                    return;
+                }
+                submitted = true;
+                button.style.display = 'none';
+                loading.style.display = 'flex';
+                stopVortex = createVortex(document.getElementById('verify-vortex'), 10, 7.0);
+            });
+
+            // Typed or pasted: digits only, at most 6, and 6 submits the form.
+            input.addEventListener('input', function() {
+                var digits = input.value.replace(/\D/g, '').slice(0, 6);
+                if (digits !== input.value) input.value = digits;
+                if (digits.length === 6 && !submitted) form.requestSubmit();
+            });
+
+            // Coming back with the browser's back button restores this page
+            // as it was left, spinner included.
+            window.addEventListener('pageshow', function(event) {
+                if (!event.persisted) return;
+                submitted = false;
+                input.value = '';
+                button.style.display = '';
+                loading.style.display = 'none';
+                if (stopVortex) stopVortex();
+                if (!resendLocked) {
+                    clearInterval(countdown);
+                    resendButton.disabled = false;
+                    resendButton.textContent = resendLabel;
+                }
+            });
+
+            if (resendLocked) return;
+
+            // Without JavaScript the button simply stays enabled.
+            var remaining = 30;
+            countdown = setInterval(tick, 1000);
+            resendButton.disabled = true;
+            resendButton.textContent = resendLabel + ' (' + remaining + 's)';
+
+            function tick() {
+                remaining -= 1;
+                if (remaining > 0) {
+                    resendButton.textContent = resendLabel + ' (' + remaining + 's)';
+                    return;
+                }
+                clearInterval(countdown);
+                resendButton.disabled = false;
+                resendButton.textContent = resendLabel;
+            }
+
+            resendForm.addEventListener('submit', function() {
+                resendButton.disabled = true;
+                resendButton.textContent = 'Sending code...';
+            });
+        })();
     </script>
 </body>
 </html>
