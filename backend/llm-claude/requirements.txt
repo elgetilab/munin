@@ -1,0 +1,5 @@
+# The anthropic SDK is the only route to Claude here; see README.md for why the
+# API's OpenAI-compatible endpoint is not used.
+anthropic>=2.4,<3
+fastapi>=0.115
+uvicorn>=0.32

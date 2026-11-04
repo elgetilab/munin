@@ -260,6 +260,7 @@ cat <<EOF
 MUNIN_ROOT=$RT
 MUNIN_RETRIEVAL_SRC=$B/retrieval
 MUNIN_SANDBOX_SRC=$B/sandbox
+MUNIN_LLM_CLAUDE_SRC=$B/llm-claude
 MUNIN_PIPELINE_SRC=$B/scripts/pipeline
 MUNIN_SCRIPTS_SRC=$B/scripts
 MUNIN_KNOWLEDGE_SRC=$B/scripts/knowledge

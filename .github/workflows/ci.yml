@@ -84,6 +84,10 @@ jobs:
         run: |
           pip install -r frontend/upload/requirements.txt -c frontend/upload/constraints.txt pytest pyyaml
           pytest frontend/upload/tests -q
+      - name: llm-claude adapter tests
+        run: |
+          pip install -r backend/llm-claude/requirements.txt -c backend/llm-claude/constraints.txt pytest
+          pytest backend/llm-claude/tests -q
       - name: benchmarks unit tests (pure functions)
         run: |
           pip install -r backend/benchmarks/requirements-ci.txt

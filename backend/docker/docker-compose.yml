@@ -32,6 +32,7 @@
 #   MUNIN_ROOT            /opt/munin                     data, models, knowledge
 #   MUNIN_RETRIEVAL_SRC   /opt/munin/services/retrieval  retrieval build context
 #   MUNIN_SANDBOX_SRC     /opt/munin/services/sandbox    sandbox build context
+#   MUNIN_LLM_CLAUDE_SRC  /opt/munin/services/llm-claude llm-claude build context
 #   MUNIN_PIPELINE_SRC    /opt/cluster/scripts/pipeline  pipeline mounted into retrieval
 #   MUNIN_PERSONAS_SRC    /opt/munin/personas            persona JSON + logos
 #   MUNIN_AGENT_CONFIG    /opt/munin/config              agents.yml, faq.yml
@@ -525,6 +526,42 @@ services:
           pids: 2048
     profiles:
       - rag
+
+  # ============================================================================
+  # LLM-CLAUDE (profile: llm-claude) - OPTIONAL, for a host with no local LLM
+  # ============================================================================
+  # OpenAI-compatible front for the Claude API, billed to ANTHROPIC_API_KEY. Set
+  # LLM_BASE_URL=http://llm-claude:8000 to point retrieval at it. No host port,
+  # and not on sandbox-net, so user code in run_python cannot reach it. See
+  # backend/llm-claude/README.md.
+  llm-claude:
+    build:
+      context: ${MUNIN_LLM_CLAUDE_SRC:-/opt/munin/services/llm-claude}
+      dockerfile: Dockerfile
+    image: ${MUNIN_PREFIX:-munin}-llm-claude:latest
+    container_name: ${MUNIN_PREFIX:-munin}-llm-claude
+    restart: unless-stopped
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-haiku-5-5}
+      - CLAUDE_EFFORT=${CLAUDE_EFFORT:-medium}
+      - CLAUDE_MAX_OUTPUT_TOKENS=${CLAUDE_MAX_OUTPUT_TOKENS:-16384}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    networks:
+      - default
+    profiles:
+      - llm-claude
 
   # ============================================================================
   # vLLM (profile: gpu) - OPTIONAL, and off by default
