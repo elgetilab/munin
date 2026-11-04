@@ -446,7 +446,7 @@ export default function App() {
       setToast(err instanceof Error ? err.message : 'The demo card failed to start.');
       setTimeout(() => setToast(null), 6000);
     }
-  }, [clearConversation, loadConversation, sendMessage, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin]);
+  }, [clearConversation, loadConversation, sendMessage, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin, setToast]);
 
   const openDemoChat = useCallback((id: string) => {
     setShowDemo(false);
