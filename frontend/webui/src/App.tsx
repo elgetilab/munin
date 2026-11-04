@@ -5,9 +5,10 @@ import { useUiStore } from './stores/uiStore';
 import { useUserStore } from './stores/userStore';
 import { useWorkspaceStore } from './stores/workspaceStore';
 import { useDeepResearchStore, isActive as isDrActive } from './stores/deepResearchStore';
+import { DemoDeck, type DemoCard } from './components/DemoDeck';
 import { ResearchTimeline } from './components/ResearchTimeline';
 import { useStatus } from './hooks/useStatus';
-import { fetchPersonas, fetchMe, fetchAnnouncement, fetchUsageStats, fetchArtifacts, fetchTags, getResearchStatus, fetchResearchForConversation } from './lib/api';
+import { fetchPersonas, fetchMe, fetchAnnouncement, fetchUsageStats, fetchArtifacts, fetchTags, getResearchStatus, fetchResearchForConversation, startDeepResearch } from './lib/api';
 import type { UserProfile } from './lib/api';
 import { getGreeting } from './lib/greetings';
 import { Sidebar } from './components/Sidebar';
@@ -184,6 +185,12 @@ export default function App() {
   }, [setPersonas, setSelectedPersona]);
 
   // URL routing: read conversation ID, persona, and knowledge route from URL on mount
+  // Presenter deck at the unlinked /demo URL. demoMode stays on after a card
+  // hands over to a chat, so the Slides button can bring the deck back.
+  const [showDemo, setShowDemo] = useState(() => window.location.pathname === '/demo');
+  const [demoMode] = useState(showDemo);
+  const [demoSlide, setDemoSlide] = useState(0);
+
   useEffect(() => {
     const path = window.location.pathname;
     const knowledgeMatch = path.match(/^\/knowledge(?:\/(.+))?$/);
@@ -217,12 +224,13 @@ export default function App() {
 
   // Update URL when conversation changes
   useEffect(() => {
+    if (showDemo) return;
     const currentPath = window.location.pathname;
     const expectedPath = conversationId ? `/c/${conversationId}` : '/';
     if (currentPath !== expectedPath) {
       window.history.pushState(null, '', expectedPath);
     }
-  }, [conversationId]);
+  }, [conversationId, showDemo]);
 
   // Load artifacts when conversation changes. Clear the selected artifact FIRST:
   // otherwise the panel keeps the previous conversation's selectedArtifactId and
@@ -411,10 +419,53 @@ export default function App() {
     sendMessage(textPart, selectedPersona, isEphemeral, content, projectIdForNewChat, activeTags.length > 0 ? activeTags : undefined);
   }, [sendMessage, selectedPersona, isEphemeral, projectIdForNewChat, activeTags]);
 
+  const runDemoCard = useCallback(async (card: DemoCard, projectId: string | null) => {
+    const phase = useChatStore.getState().streaming.phase;
+    if (phase === 'thinking' || phase === 'tool_call' || phase === 'generating') {
+      setToast('The current answer is still running. Stop it or let it finish first.');
+      setTimeout(() => setToast(null), 4000);
+      return;
+    }
+    const cardProject = card.useProject ? projectId : null;
+    setShowDemo(false);
+    setEditingProject(null);
+    setShowAdmin(false);
+    setIsEphemeral(false);
+    setActiveProjectId(cardProject);
+    clearConversation();
+    window.history.pushState(null, '', '/');
+    try {
+      if (card.kind === 'research') {
+        const r = await startDeepResearch(null, card.prompt, card.budgets);
+        useDeepResearchStore.getState().startJob(r.job_id, card.prompt, r.conversation_id, Date.now());
+        await loadConversation(r.conversation_id);
+      } else {
+        await sendMessage(card.prompt, 'munin', false, undefined, cardProject ?? undefined);
+      }
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'The demo card failed to start.');
+      setTimeout(() => setToast(null), 6000);
+    }
+  }, [clearConversation, loadConversation, sendMessage, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin]);
+
+  const openDemoChat = useCallback((id: string) => {
+    setShowDemo(false);
+    setEditingProject(null);
+    setShowAdmin(false);
+    setIsEphemeral(false);
+    setActiveProjectId(null);
+    loadConversation(id);
+  }, [loadConversation, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin]);
+
   // Handle browser back/forward
   useEffect(() => {
     const handler = () => {
       const path = window.location.pathname;
+      if (path === '/demo') {
+        setShowDemo(true);
+        return;
+      }
+      setShowDemo(false);
       const knowledgeMatch = path.match(/^\/knowledge(?:\/(.+))?$/);
       if (knowledgeMatch) {
         setShowKnowledgePage(knowledgeMatch[1] || true);
@@ -592,6 +643,18 @@ export default function App() {
 
   return (
     <div className="flex h-screen">
+      {showDemo && (
+        <DemoDeck slide={demoSlide} onSlide={setDemoSlide} offline={isOffline || isMaintenance} onRun={runDemoCard} onOpenChat={openDemoChat} />
+      )}
+      {demoMode && !showDemo && (
+        <button
+          data-testid="demo-slides"
+          onClick={() => { setShowDemo(true); window.history.pushState(null, '', '/demo'); }}
+          className="fixed bottom-20 right-4 z-40 px-3 py-1.5 text-sm rounded-lg border border-border bg-bg-secondary text-text-primary shadow-lg cursor-pointer hover:bg-bg-tertiary"
+        >
+          Slides
+        </button>
+      )}
       {/* Sidebar — overlay on mobile, inline on desktop */}
       {sidebarOpen && (
         <>

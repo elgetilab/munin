@@ -640,19 +640,25 @@ export interface ResearchStatus {
 export async function startDeepResearch(
   conversationId: string | null,
   question: string,
+  budgets?: { max_subq?: number; screen_keep?: number; read_cap?: number },
 ): Promise<{ job_id: string; conversation_id: string; created_conversation: boolean; status: string }> {
   const res = await fetch(`${API}/research/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     // Omit conversation_id for a brand-new chat; the backend creates one and
     // returns it so we can switch to it.
-    body: JSON.stringify(conversationId ? { conversation_id: conversationId, question } : { question }),
+    body: JSON.stringify({ ...(conversationId ? { conversation_id: conversationId } : {}), question, ...budgets }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(errorMessage(err) || `Failed to start research (${res.status})`);
   }
   return res.json();
+}
+
+export async function cancelDeepResearch(jobId: string): Promise<void> {
+  const res = await fetch(`${API}/research/cancel/${encodeURIComponent(jobId)}`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to cancel research (${res.status})`);
 }
 
 export async function getResearchStatus(jobId: string): Promise<ResearchStatus> {

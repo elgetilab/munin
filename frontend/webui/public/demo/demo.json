@@ -1,0 +1,42 @@
+{
+  "projectId": "proj_9c1d201ddc26",
+  "savedResearchChat": "6a4a0c8f-fd15-4fe0-add8-a9babaf8c607",
+  "cards": [
+    {
+      "id": "chat",
+      "title": "Normal chat",
+      "blurb": "A quick, conversational explanation with no tools involved.",
+      "kind": "chat",
+      "prompt": "/chat Explain nuclear spin hyperpolarisation to a biophysics PhD student in three short paragraphs: what it is, why it matters for studying proteins and membranes, and its main limitation."
+    },
+    {
+      "id": "papers",
+      "title": "Ask our papers",
+      "blurb": "Answers from hyperpolarisation papers uploaded by consortium members, with citations.",
+      "kind": "chat",
+      "prompt": "/research Using my uploaded papers, compare optical and microwave-driven routes to nuclear spin hyperpolarisation. Cite the papers you use."
+    },
+    {
+      "id": "code",
+      "title": "Compute and plot",
+      "blurb": "Writes and runs Python, then delivers the figure as an artifact.",
+      "kind": "chat",
+      "prompt": "/code Write and run Python that computes the thermal 13C polarisation at 9.4 T and 298 K, then plots the decay of a hyperpolarised 13C sample starting at 20% polarisation with T1 = 60 s against that thermal level, on a log axis. Show the plot."
+    },
+    {
+      "id": "refusal",
+      "title": "It won't invent a paper",
+      "blurb": "We ask about a paper that doesn't exist. Watch it look, then say so.",
+      "kind": "chat",
+      "prompt": "/research Summarise the main findings of \"Cryogen-free parahydrogen relay hyperpolarisation of intact GPCRs in living yeast at 1 T\" by Lindqvist, Okafor and Brandt (Nature Biophysics, 2021)."
+    },
+    {
+      "id": "research",
+      "title": "Deep Research",
+      "blurb": "Plans, searches, reads and writes a cited report, in the background.",
+      "kind": "research",
+      "budgets": { "max_subq": 3 },
+      "prompt": "How do optical and microwave DNP compare for room-temperature hyperpolarisation, and what are the prospects for biomolecules? Keep each sub-question under 15 words."
+    }
+  ]
+}
