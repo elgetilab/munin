@@ -169,23 +169,24 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
   const canPdf = !editing && !!loadedArtifact && ct !== 'application/pdf' && !ct.startsWith('image/') && !isWidget(loadedArtifact);
 
   return (
-    <div data-testid="artifact-panel" className="w-96 lg:w-[32rem] xl:w-[36rem] border-l border-border bg-bg-secondary flex flex-col h-full">
+    // A full-screen overlay below xl, where a side column would crush the chat.
+    <div data-testid="artifact-panel" className="fixed inset-0 z-40 w-full flex flex-col bg-bg-secondary xl:static xl:w-[36rem] xl:border-l xl:border-border xl:h-full">
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
         {selectedArtifactId ? (
           <button
             onClick={() => onSelectArtifact(null)}
-            className="text-text-secondary hover:text-text-primary transition-colors cursor-pointer text-sm"
+            className="p-2 -m-2 text-text-secondary hover:text-text-primary transition-colors cursor-pointer text-sm"
           >
             &larr;
           </button>
         ) : null}
-        <h3 className="text-sm font-semibold text-text-primary flex-1">
+        <h3 className="text-sm font-semibold text-text-primary flex-1 min-w-0 wrap-anywhere">
           {selectedArtifactId ? (loadedArtifact?.title || 'Loading...') : 'Artifacts'}
         </h3>
         <button
           onClick={onClose}
-          className="text-text-secondary hover:text-text-primary transition-colors cursor-pointer text-xs"
+          className="p-2 -m-2 text-text-secondary hover:text-text-primary transition-colors cursor-pointer text-xs"
         >
           &#10005;
         </button>

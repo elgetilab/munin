@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { TaskLog } from './TaskLog';
 import type { ToolCall } from '../lib/types';
 
@@ -41,5 +41,21 @@ describe('TaskLog tool icons', () => {
       (name) => iconMarkup(name) === fallback,
     );
     expect(missing).toEqual([]);
+  });
+});
+
+describe('TaskLog rows', () => {
+  it('are real buttons that report whether they are expanded', () => {
+    render(<TaskLog thinking="Mulling it over" toolCalls={[{ id: 't1', name: 'web_search', arguments: {} }]} />);
+    const rows = screen.getAllByRole('button');
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row).toHaveAttribute('type', 'button');
+      expect(row).toHaveAttribute('aria-expanded', 'false');
+    }
+
+    fireEvent.click(rows[0]);
+    expect(rows[0]).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Mulling it over')).toBeInTheDocument();
   });
 });

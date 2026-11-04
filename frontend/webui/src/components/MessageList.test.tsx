@@ -210,10 +210,18 @@ describe('MessageList', () => {
       <MessageList messages={[userMsg]} streaming={makeStreaming({ phase: 'idle' })} />,
     );
 
-    // No feather vortex for active streaming (only the idle one at the bottom)
-    const vortexes = screen.getAllByTestId('feather-vortex');
-    // The idle vortex is shown after messages
-    expect(vortexes).toHaveLength(1);
+    // Motion means work is happening, so a finished turn shows no vortex at all.
+    expect(screen.queryAllByTestId('feather-vortex')).toHaveLength(0);
+  });
+
+  it('left-aligns the working state', () => {
+    render(
+      <MessageList messages={[userMsg]} streaming={makeStreaming({ phase: 'thinking', content: '' })} />,
+    );
+
+    const wrapper = screen.getByTestId('feather-vortex').parentElement;
+    expect(wrapper).toHaveClass('justify-start');
+    expect(wrapper).not.toHaveClass('justify-center');
   });
 
   // Free-scroll + jump-to-bottom button (2026-06-02 second pass).
@@ -465,10 +473,7 @@ describe('MessageList', () => {
           streaming={makeStreaming({ phase: 'idle', content: '' })}
         />,
       );
-      // Only the idle vortex after the last message — but that's the idle
-      // indicator, not a "working" one; the active streaming block is gone.
-      // (The idle vortex is acceptable; assert the active block isn't shown
-      // by checking there's no streamed content node.)
+      expect(vortexes()).toHaveLength(0);
       expect(screen.queryByText('Building your game...')).not.toBeInTheDocument();
     });
   });

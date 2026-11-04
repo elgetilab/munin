@@ -55,6 +55,7 @@ interface ChatInputProps {
 // pipeline the composer uses, without lifting that state out of here.
 export interface ChatInputHandle {
   handleDroppedFiles: (files: FileList | File[]) => void;
+  focus: () => void;
 }
 
 const ACCEPTED_TYPES = '.pdf,.txt,.md,.docx';
@@ -118,6 +119,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const [tagHighlight, setTagHighlight] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const attachRef = useRef<HTMLDivElement>(null);
+  const attachButtonRef = useRef<HTMLButtonElement>(null);
   const knowledgeRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -221,6 +223,19 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  // Close attach menu / knowledge picker on Escape, back onto the + button
+  useEffect(() => {
+    if (!attachMenuOpen && !knowledgePickerOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setAttachMenuOpen(false);
+      setKnowledgePickerOpen(false);
+      attachButtonRef.current?.focus();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [attachMenuOpen, knowledgePickerOpen]);
 
   // Knowledge picker search results
   const knowledgeResults = useMemo((): TagAutocompleteItem[] => {
@@ -500,7 +515,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     }
   };
 
-  useImperativeHandle(ref, () => ({ handleDroppedFiles }));
+  useImperativeHandle(ref, () => ({ handleDroppedFiles, focus: () => textareaRef.current?.focus() }));
 
   return (
     <div className="px-4 py-4 bg-bg-primary w-full">
@@ -773,6 +788,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         {/* Textarea */}
         <textarea
           ref={textareaRef}
+          id="composer-textarea"
           data-testid="composer-textarea"
           value={input}
           onChange={e => setInput(e.target.value)}
@@ -788,6 +804,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           {/* Attach button (+) with menu */}
           <div ref={attachRef} className="relative">
             <button
+              ref={attachButtonRef}
               data-testid="composer-attach"
               onClick={() => setAttachMenuOpen(!attachMenuOpen)}
               className="p-2 text-text-secondary hover:text-text-primary rounded-lg hover:bg-bg-tertiary transition-colors cursor-pointer"

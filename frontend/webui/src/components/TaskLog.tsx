@@ -176,16 +176,18 @@ function ThinkingRow({ content, duration, isActive }: { content: string; duratio
 
   return (
     <div className="border-b border-border last:border-0 py-1.5">
-      <div
+      <button
+        type="button"
+        aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
-        className={`flex items-center gap-2 cursor-pointer hover:text-accent transition-colors ${isActive ? 'text-text-primary' : 'text-text-secondary'}`}
+        className={`w-full text-left flex items-center gap-2 cursor-pointer hover:text-accent transition-colors ${isActive ? 'text-text-primary' : 'text-text-secondary'}`}
       >
         <span className="flex-shrink-0">{Icons.thinking}</span>
         <span className="flex-1">
           {isActive ? 'Reasoning...' : `Reasoned${duration ? ` for ${(duration / 1000).toFixed(1)}s` : ''}`}
         </span>
         <span className="text-text-secondary">{expanded ? '\u25BE' : '\u25B8'}</span>
-      </div>
+      </button>
       {expanded && (
         <div className="mt-2 ml-6 p-3 bg-bg-tertiary rounded-lg text-text-secondary whitespace-pre-wrap text-[11px] leading-relaxed max-h-48 overflow-y-auto">
           {content}
@@ -202,9 +204,11 @@ function ToolCallRow({ call, isActive }: { call: ToolCall; isActive?: boolean })
 
   return (
     <div className="border-b border-border last:border-0 py-1.5">
-      <div
+      <button
+        type="button"
+        aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
-        className={`flex items-center gap-2 cursor-pointer hover:text-accent transition-colors ${isActive ? 'text-text-primary' : 'text-text-secondary'}`}
+        className={`w-full text-left flex items-center gap-2 cursor-pointer hover:text-accent transition-colors ${isActive ? 'text-text-primary' : 'text-text-secondary'}`}
       >
         <span className="flex-shrink-0">{icon}</span>
         <span className="flex-1">
@@ -221,7 +225,7 @@ function ToolCallRow({ call, isActive }: { call: ToolCall; isActive?: boolean })
           <span className="text-text-secondary ml-1">{(call.duration_ms / 1000).toFixed(1)}s</span>
         )}
         <span className="text-text-secondary">{expanded ? '\u25BE' : '\u25B8'}</span>
-      </div>
+      </button>
       {expanded && (
         <div className="mt-2 ml-6 space-y-2">
           <div className="p-3 bg-bg-tertiary rounded-lg text-[11px]">
@@ -248,9 +252,11 @@ function AgentBlock({ call, agent, isActive }: { call: ToolCall; agent: AgentSta
   return (
     <div className="border-b border-border last:border-0 py-1.5">
       {/* Agent header */}
-      <div
+      <button
+        type="button"
+        aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
-        className={`flex items-center gap-2 cursor-pointer hover:text-accent transition-colors ${isActive ? 'text-text-primary' : 'text-text-secondary'}`}
+        className={`w-full text-left flex items-center gap-2 cursor-pointer hover:text-accent transition-colors ${isActive ? 'text-text-primary' : 'text-text-secondary'}`}
       >
         <span className="flex-shrink-0">{Icons.flask}</span>
         <span className="flex-1 font-medium">
@@ -266,7 +272,7 @@ function AgentBlock({ call, agent, isActive }: { call: ToolCall; agent: AgentSta
           </span>
         )}
         <span className="text-text-secondary">{expanded ? '\u25BE' : '\u25B8'}</span>
-      </div>
+      </button>
 
       {/* Expanded agent content */}
       {expanded && (
@@ -312,9 +318,11 @@ function RagContextRow({ context }: { context: RagContext }) {
 
   return (
     <div className="border-b border-border last:border-0 py-1.5">
-      <div
+      <button
+        type="button"
+        aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 cursor-pointer hover:text-accent transition-colors text-text-secondary"
+        className="w-full text-left flex items-center gap-2 cursor-pointer hover:text-accent transition-colors text-text-secondary"
       >
         <span className="flex-shrink-0">{Icons.sources}</span>
         <span className="flex-1">
@@ -324,7 +332,7 @@ function RagContextRow({ context }: { context: RagContext }) {
           )}
         </span>
         <span className="text-text-secondary">{expanded ? '\u25BE' : '\u25B8'}</span>
-      </div>
+      </button>
       {expanded && (
         <div className="mt-2 ml-6 space-y-1.5">
           {context.documents.map((doc, i) => (
@@ -352,14 +360,16 @@ function AgentResultRow({ result }: { result: unknown }) {
 
   return (
     <div className="py-1.5">
-      <div
+      <button
+        type="button"
+        aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 cursor-pointer hover:text-accent transition-colors text-text-secondary"
+        className="w-full text-left flex items-center gap-2 cursor-pointer hover:text-accent transition-colors text-text-secondary"
       >
         <span className="flex-shrink-0">{Icons.result}</span>
         <span className="flex-1">Agent result{summary ? `: ${summary}` : ''}</span>
         <span className="text-text-secondary">{expanded ? '\u25BE' : '\u25B8'}</span>
-      </div>
+      </button>
       {expanded && (
         <div className="mt-2 ml-6 p-3 bg-bg-tertiary rounded-lg text-[11px] max-h-48 overflow-y-auto">
           <pre className="text-text-secondary whitespace-pre-wrap">{JSON.stringify(result, null, 2)}</pre>

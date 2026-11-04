@@ -49,6 +49,19 @@ async function widgetFrame(page: Page): Promise<Frame> {
 }
 
 test.describe('protein viewer', () => {
+  test('the controls show keyboard focus despite outline-none', async ({ page }) => {
+    await openViewer(page);
+    const viewer = page.getByTestId('protein-viewer');
+    await viewer.getByRole('button', { name: 'Spin' }).focus();
+    await page.keyboard.press('Shift+Tab');
+    const color = viewer.getByLabel('Color');
+    await expect(color).toBeFocused();
+    await expect(color).toHaveClass(/outline-none/);
+    await expect(color).toHaveCSS('outline', 'rgb(88, 166, 255) solid 2px');
+    await page.keyboard.press('Tab');
+    await expect(viewer.getByRole('button', { name: 'Spin' })).toHaveCSS('outline', 'rgb(88, 166, 255) solid 2px');
+  });
+
   test('renders in the message and leaves the panel closed', async ({ page }) => {
     await openViewer(page);
     await expect(page.getByTestId('artifact-panel')).toBeHidden();

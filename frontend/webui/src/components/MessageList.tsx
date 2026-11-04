@@ -148,7 +148,6 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
   };
 
   const isActive = streaming.phase !== 'idle' && streaming.phase !== 'done' && streaming.phase !== 'error';
-  const isIdle = streaming.phase === 'idle' || streaming.phase === 'done';
 
   return (
     <div className="flex-1 relative min-h-0 flex flex-col">
@@ -220,7 +219,7 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
 
             {/* Loading vortex — show when no content yet OR during tool calls */}
             {(!streaming.content.trim() || streaming.phase === 'tool_call') && (
-              <div className="flex justify-center py-8">
+              <div className="flex justify-start py-2">
                 <FeatherVortex size="inline" phase={detectPhase(streaming)} />
               </div>
             )}
@@ -254,13 +253,6 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
                 onSubmit={onSendClarification}
               />
             )}
-          </div>
-        )}
-
-        {/* Idle indicator — small vortex after last message */}
-        {isIdle && messages.length > 0 && (
-          <div className="pt-1">
-            <FeatherVortex size="idle" />
           </div>
         )}
 

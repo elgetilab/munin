@@ -313,6 +313,7 @@ function createRotatingMessage(el, phase) {
   var typeTimer = null;
   var cycleTimer = null;
   var stopped = false;
+  var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   function pick() {
     var idx;
@@ -325,6 +326,12 @@ function createRotatingMessage(el, phase) {
 
   /** Type out text one character at a time, then call onDone. */
   function typeOut(text, onDone) {
+    // Reduced motion: the message still changes, but just appears
+    if (reducedMotion) {
+      el.textContent = text;
+      if (onDone) onDone();
+      return;
+    }
     var i = 0;
     el.textContent = '';
     el.style.opacity = '1';
@@ -344,6 +351,10 @@ function createRotatingMessage(el, phase) {
   function scheduleNext() {
     cycleTimer = setTimeout(function() {
       if (stopped) return;
+      if (reducedMotion) {
+        typeOut(pick(), scheduleNext);
+        return;
+      }
       el.style.transition = 'opacity 0.2s';
       el.style.opacity = '0';
       setTimeout(function() {

@@ -47,13 +47,14 @@ export function KnowledgePanel({ catalog, activeTags, onTagsChange }: KnowledgeP
   };
 
   return (
-    <div className="w-72 flex-shrink-0 border-l border-border bg-bg-secondary flex flex-col h-full">
+    // A full-screen overlay below xl, where a side column would crush the chat.
+    <div data-testid="knowledge-panel" className="fixed inset-0 z-40 w-full flex flex-col bg-bg-secondary xl:static xl:w-72 xl:flex-shrink-0 xl:border-l xl:border-border xl:h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
         <h3 className="text-sm font-semibold text-text-primary">Available Knowledge</h3>
         <button
           onClick={onClose}
-          className="text-text-secondary hover:text-text-primary cursor-pointer text-xs"
+          className="p-2 -m-2 text-text-secondary hover:text-text-primary cursor-pointer text-xs"
         >&#10005;</button>
       </div>
 

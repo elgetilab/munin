@@ -23,9 +23,35 @@ body {
 }
 
 #root {
-  height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
+}
+
+/* Keyboard focus. Unlayered on purpose: Tailwind's utilities live in a cascade
+   layer, and an unlayered rule beats any layer, so this wins over outline-none. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* The composer's textarea fills most of its rounded bubble, so a ring on the
+   textarea cuts across the bubble. Draw the same ring on the bubble instead. */
+#composer-textarea:focus-visible {
+  outline: none;
+}
+:has(> #composer-textarea:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* The support widget's floating button covers Send on phones, where Help lives
+   in the profile menu instead. !important because the widget injects its own
+   #munin-support-btn rule after this stylesheet has loaded. */
+@media (width < 48rem) {
+  #munin-support-btn {
+    display: none !important;
+  }
 }
 
 /* Scrollbar styling */
@@ -60,8 +86,21 @@ body {
   margin: 0.5em 0;
   padding-left: 1.5em;
 }
+.prose-munin ul {
+  list-style-type: disc;
+}
+.prose-munin ol {
+  list-style-type: decimal;
+}
 .prose-munin li {
   margin: 0.25em 0;
+}
+.prose-munin li::marker {
+  color: var(--color-text-secondary);
+}
+/* A GFM task item's checkbox is its marker. */
+.prose-munin li.task-list-item {
+  list-style-type: none;
 }
 .prose-munin li > p {
   margin: 0;

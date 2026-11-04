@@ -3,7 +3,7 @@ import { fetchChats, deleteChat, renameChat, pinChat, unpinChat, fetchProjects, 
 import type { ConversationSummary, Project } from '../lib/types';
 import { useUserStore } from '../stores/userStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
-import { DOCS_URL, SITE_HOME } from '../lib/urls';
+import { DOCS_URL, SITE_HOME, UPLOAD_URL } from '../lib/urls';
 import { conversationPath, isModifiedClick, newChatPath } from '../lib/nav';
 import { groupByTime } from '../lib/chatGrouping';
 
@@ -23,7 +23,11 @@ interface SidebarProps {
   refreshKey: number;
   onOpenSettings: () => void;
   onOpenAdmin?: () => void;
+  onOpenKnowledge?: () => void;
 }
+
+// Set by /shared/support-widget.js, if it has loaded.
+type WindowWithSupport = Window & { MuninSupport?: { open: () => void } };
 
 // ── One-time migration from localStorage starring to backend pinning ────────
 
@@ -45,7 +49,7 @@ async function migrateStarredToPinned() {
 // ── Grouping ────────────────────────────────────────────────────────────────
 
 
-export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, onOpenProjectSettings, refreshKey, onOpenSettings, onOpenAdmin }: SidebarProps) {
+export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, onOpenProjectSettings, refreshKey, onOpenSettings, onOpenAdmin, onOpenKnowledge }: SidebarProps) {
   const userProfile = useUserStore(s => s.userProfile);
   const userEmail = userProfile?.email || '';
   const userName = userProfile?.name || '';
@@ -417,7 +421,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                       className={`sidebar-row-menu flex-shrink-0 p-1 rounded cursor-pointer transition-opacity hover:bg-bg-primary hover:text-text-primary ${
                         projectActionMenuId === proj.id
                           ? 'opacity-100 text-text-primary'
-                          : 'opacity-0 group-hover:opacity-100 text-text-secondary'
+                          : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 text-text-secondary'
                       }`}
                       title="More"
                     >
@@ -633,6 +637,54 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                 </svg>
                 Learn more
               </a>
+              <button
+                onClick={() => { setProfileMenuOpen(false); (window as WindowWithSupport).MuninSupport?.open(); }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary transition-colors cursor-pointer"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
+                  <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                </svg>
+                Help
+              </button>
+              {/* The header nav is hidden below md, so these are the only way
+                  to these pages on a phone. */}
+              <a
+                href="/knowledge"
+                onClick={(e) => {
+                  setProfileMenuOpen(false);
+                  if (isModifiedClick(e) || !onOpenKnowledge) return;
+                  e.preventDefault();
+                  onOpenKnowledge();
+                }}
+                className="md:hidden w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary transition-colors cursor-pointer no-underline"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
+                  <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z" />
+                  <path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" />
+                </svg>
+                Knowledge
+              </a>
+              <a
+                href={DOCS_URL}
+                className="md:hidden w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary transition-colors cursor-pointer no-underline"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
+                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+                Docs
+              </a>
+              <a
+                href={UPLOAD_URL}
+                className="md:hidden w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary transition-colors cursor-pointer no-underline"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                Upload
+              </a>
               <div className="flex items-center gap-3 px-3 py-2.5 text-sm text-text-secondary">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="10" />
@@ -832,7 +884,7 @@ function ChatRow({
           className={`flex-shrink-0 cursor-pointer transition-colors ${
             chat.pinned
               ? 'text-accent'
-              : 'text-transparent group-hover:text-text-secondary hover:!text-accent'
+              : 'text-transparent group-hover:text-text-secondary group-focus-within:text-text-secondary focus-visible:text-text-secondary [@media(hover:none)]:text-text-secondary hover:!text-accent'
           }`}
           title={chat.pinned ? 'Unpin' : 'Pin'}
         >
@@ -849,7 +901,7 @@ function ChatRow({
           className={`sidebar-row-menu flex-shrink-0 p-1 rounded cursor-pointer transition-opacity hover:bg-bg-primary hover:text-text-primary ${
             showActionMenu
               ? 'opacity-100 text-text-primary'
-              : 'opacity-0 group-hover:opacity-100 text-text-secondary'
+              : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 text-text-secondary'
           }`}
           title="More"
         >

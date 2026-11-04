@@ -3,10 +3,12 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
 import { MOCK_CHATS } from '../test/msw-handlers';
+import { useUserStore, _resetUserStoreForTests } from '../stores/userStore';
 import { useWorkspaceStore, _resetWorkspaceStoreForTests } from '../stores/workspaceStore';
 import { Sidebar } from './Sidebar';
 import { groupByTime } from '../lib/chatGrouping';
 import type { ConversationSummary } from '../lib/types';
+import type { UserProfile } from '../lib/api';
 
 // ── groupByTime tests ───────────────────────────────────────────────────────
 
@@ -517,5 +519,54 @@ describe('Sidebar data loading', () => {
     await user.click(within(row as HTMLElement).getByText('Delete'));
 
     await waitFor(() => expect(screen.queryByText('Test Chat 1')).not.toBeInTheDocument());
+  });
+});
+
+describe('Sidebar profile menu', () => {
+  const support = window as Window & { MuninSupport?: { open: () => void } };
+
+  beforeEach(() => {
+    useUserStore.setState({ userProfile: { email: 'a@b.c', name: 'A' } as UserProfile });
+  });
+
+  afterEach(() => {
+    _resetUserStoreForTests();
+    delete support.MuninSupport;
+  });
+
+  it('Help opens the support widget and closes the menu', async () => {
+    const user = userEvent.setup();
+    const open = vi.fn();
+    support.MuninSupport = { open };
+    renderSidebar();
+
+    await user.click(screen.getByText('a@b.c'));
+    await user.click(screen.getByRole('button', { name: 'Help' }));
+
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Help' })).not.toBeInTheDocument();
+  });
+
+  it('Help does nothing worse than close the menu when the widget has not loaded', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    await user.click(screen.getByText('a@b.c'));
+    await user.click(screen.getByRole('button', { name: 'Help' }));
+
+    expect(screen.queryByRole('button', { name: 'Help' })).not.toBeInTheDocument();
+  });
+
+  it('Knowledge is a real link that stays in the app on a plain click', async () => {
+    const user = userEvent.setup();
+    const onOpenKnowledge = vi.fn();
+    renderSidebar({ onOpenKnowledge });
+
+    await user.click(screen.getByText('a@b.c'));
+    const link = screen.getByRole('link', { name: 'Knowledge' });
+    expect(link).toHaveAttribute('href', '/knowledge');
+    await user.click(link);
+
+    expect(onOpenKnowledge).toHaveBeenCalledTimes(1);
   });
 });

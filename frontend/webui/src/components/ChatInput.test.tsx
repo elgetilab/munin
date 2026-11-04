@@ -1,5 +1,5 @@
 import { createRef } from 'react';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, act } from '@testing-library/react';
 import { ChatInput, type ChatInputHandle } from './ChatInput';
 
 // Mutable store state shared with the mocked selectors (hoisted so the
@@ -83,5 +83,26 @@ describe('ChatInput drag-and-drop routing (handleDroppedFiles)', () => {
     });
     await waitFor(() => expect(screen.getByAltText('shot.png')).toBeInTheDocument());
     expect(uploadDocumentMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ChatInput + menu', () => {
+  it('closes on Escape and returns focus to the + button', () => {
+    renderChatInput();
+    const attach = screen.getByTestId('composer-attach');
+    fireEvent.click(attach);
+    expect(screen.getByText('Upload image')).toBeInTheDocument();
+
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(screen.queryByText('Upload image')).not.toBeInTheDocument();
+    expect(attach).toHaveFocus();
+  });
+
+  it('leaves focus alone on Escape when the menu is closed', () => {
+    renderChatInput();
+    const box = screen.getByTestId('composer-textarea');
+    box.focus();
+    fireEvent.keyDown(box, { key: 'Escape' });
+    expect(box).toHaveFocus();
   });
 });
