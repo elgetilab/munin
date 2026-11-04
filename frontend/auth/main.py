@@ -932,6 +932,8 @@ def record_rate(store: dict[str, list[float]], key: str):
 # A re-request reuses a code with at least this many seconds left, so it does
 # not kill the code in a mail still on its way.
 OTP_REUSE_MIN_REMAINING = 120
+# Lets a code keep saying its full lifetime in the seconds after it is issued.
+OTP_MINUTES_LEFT_SLACK = 15
 VERIFY_ATTEMPT_LIMIT = 5
 LOCKOUT_MESSAGE = "Too many failed attempts. Please wait 15 minutes, then request a new code."
 
@@ -952,6 +954,15 @@ def generate_otp(email: str) -> str:
         "sends": 0,
     }
     return code
+
+
+def otp_minutes_left(email: str) -> int:
+    """Whole minutes the email's code has left, rounded down so a reused code
+    is not promised time it does not have. The full lifetime if there is none."""
+    entry = otp_store.get(email)
+    if not entry:
+        return OTP_EXPIRY // 60
+    return max(1, int(entry["expires"] - time.time() + OTP_MINUTES_LEFT_SLACK) // 60)
 
 
 def verify_attempts_left(email: str, window: int = 900) -> int:
@@ -984,9 +995,17 @@ def verify_otp(email: str, code: str) -> tuple[bool, str]:
 
 # ── Email ────────────────────────────────────────────────────────────────────
 
+def _ascii_domain(domain: str) -> str:
+    """The domain as a Message-ID can carry it, or localhost if it has no such form."""
+    try:
+        return domain.encode("idna").decode("ascii") or "localhost"
+    except UnicodeError:
+        return "localhost"
+
+
 def build_otp_message(email: str, code: str, name: str) -> MIMEMultipart:
     """Build the login email: a plain-text part and the HTML template."""
-    expiry_minutes = OTP_EXPIRY // 60
+    expiry_minutes = otp_minutes_left(email)
     tmpl = templates.get_template("email_otp.html")
     html_body = tmpl.render(code=code, name=name, expiry_minutes=expiry_minutes)
 
@@ -1006,7 +1025,7 @@ def build_otp_message(email: str, code: str, name: str) -> MIMEMultipart:
     msg["To"] = email
     msg["Subject"] = f"Munin login code: {code}"
     msg["Date"] = formatdate(usegmt=True)
-    msg["Message-ID"] = make_msgid(domain=sender_domain or "localhost")
+    msg["Message-ID"] = make_msgid(domain=_ascii_domain(sender_domain))
     msg.attach(MIMEText(plain_body, "plain"))
     msg.attach(MIMEText(html_body, "html"))
     return msg
@@ -1110,38 +1129,56 @@ async def login_submit(request: Request, email: str = Form(...), redirect: str =
         return tmpl.render(error="Failed to send email. Please try again.",
                            redirect=redirect, email=typed_email)
 
+    query = {"email": email}
     # The entry can be gone if the code was used while this mail was on its way.
     entry = otp_store.get(email)
     if entry and entry["code"] == code:
         entry["sends"] += 1
-
-    query = {"email": email}
+        # GET /verify needs no login, so these travel from here: it must not
+        # read per-account state out of otp_store for whoever opens the URL.
+        minutes = otp_minutes_left(email)
+        if minutes < OTP_EXPIRY // 60:
+            query["minutes"] = minutes
+        if entry["sends"] > 1:
+            query["resent"] = "1"
     if redirect:
         query["redirect"] = redirect
     return RedirectResponse(url=f"/verify?{urlencode(query)}", status_code=303)
 
 
-def _render_verify(email: str, redirect: str, error: str = "") -> str:
-    """Render the verify page, disabled with the lockout message at the limit."""
+def _render_verify(
+    email: str,
+    redirect: str,
+    error: str = "",
+    expiry_minutes: int = 0,
+    same_code_resent: bool = False,
+) -> str:
+    """Render the verify page, disabled with the lockout message at the limit.
+    With no expiry_minutes, the page does not state an expiry."""
     locked = verify_attempts_left(email) == 0
-    entry = otp_store.get(email)
-    same_code_resent = bool(entry and entry["sends"] > 1 and time.time() <= entry["expires"])
     return templates.get_template("verify.html").render(
         email=email,
         error=LOCKOUT_MESSAGE if locked else error,
         redirect=redirect,
         locked=locked,
+        expiry_minutes=expiry_minutes,
         same_code_resent=same_code_resent,
     )
 
 
 @app.get("/verify", response_class=HTMLResponse)
-async def verify_page(email: str = "", redirect: str = ""):
+async def verify_page(email: str = "", redirect: str = "", minutes: int = 0, resent: bool = False):
     email = email.strip().lower()
     if not email:
         query = urlencode({"redirect": redirect}) if redirect else ""
         return RedirectResponse(url=f"/login?{query}" if query else "/login", status_code=303)
-    return _render_verify(email, redirect)
+    full = OTP_EXPIRY // 60
+    return _render_verify(
+        email,
+        redirect,
+        expiry_minutes=minutes if 0 < minutes <= full else full,
+        same_code_resent=resent,
+    )
 
 
 @app.post("/verify")

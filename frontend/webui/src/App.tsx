@@ -670,7 +670,7 @@ export default function App() {
         <button
           data-testid="demo-slides"
           onClick={() => { setShowDemo(true); window.history.pushState(null, '', '/demo'); }}
-          className="fixed bottom-20 right-4 z-40 px-3 py-1.5 text-sm rounded-lg border border-border bg-bg-secondary text-text-primary shadow-lg cursor-pointer hover:bg-bg-tertiary"
+          className="fixed bottom-20 right-4 z-50 px-3 py-1.5 text-sm rounded-lg border border-border bg-bg-secondary text-text-primary shadow-lg cursor-pointer hover:bg-bg-tertiary"
         >
           Slides
         </button>
@@ -703,7 +703,8 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header — minimal, just sidebar toggle and nav links */}
         {/* Never wider than the main area: on a phone the pills can be swiped when
-            they do not fit, and the page itself never scrolls sideways. */}
+            they do not fit, and the page itself never scrolls sideways. From md up
+            nothing can scroll, so the pill text wraps and the header grows. */}
         <header className="flex items-center gap-2 md:gap-3 px-4 py-2.5 border-b border-border bg-bg-secondary overflow-x-auto md:overflow-x-clip [scrollbar-width:none]">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -718,7 +719,7 @@ export default function App() {
           <button
             data-testid="ephemeral-toggle"
             onClick={handleToggleEphemeral}
-            className={`text-xs px-2.5 py-1 rounded-full whitespace-nowrap transition-colors cursor-pointer border ${
+            className={`text-xs px-2.5 py-1 rounded-full whitespace-nowrap md:whitespace-normal transition-colors cursor-pointer border ${
               isEphemeral
                 ? 'bg-warning/15 border-warning text-warning'
                 : 'bg-bg-tertiary border-border text-text-secondary hover:text-text-primary'
@@ -733,7 +734,7 @@ export default function App() {
             <button
               data-testid="artifacts-button"
               onClick={() => setArtifactPanelOpen(!artifactPanelOpen)}
-              className={`text-xs px-2.5 py-1 rounded-full whitespace-nowrap transition-colors cursor-pointer border ${
+              className={`text-xs px-2.5 py-1 rounded-full whitespace-nowrap md:whitespace-normal transition-colors cursor-pointer border ${
                 artifactPanelOpen
                   ? 'bg-accent/15 border-accent text-accent'
                   : 'bg-bg-tertiary border-border text-text-secondary hover:text-text-primary'
@@ -748,7 +749,7 @@ export default function App() {
           {tagCatalog && (
             <button
               onClick={() => setKnowledgePanelOpen(!knowledgePanelOpen)}
-              className={`text-xs px-2.5 py-1 rounded-full whitespace-nowrap transition-colors cursor-pointer border ${
+              className={`text-xs px-2.5 py-1 rounded-full whitespace-nowrap md:whitespace-normal transition-colors cursor-pointer border ${
                 knowledgePanelOpen || activeTags.length > 0
                   ? 'bg-accent/15 border-accent text-accent'
                   : 'bg-bg-tertiary border-border text-text-secondary hover:text-text-primary'
@@ -765,7 +766,7 @@ export default function App() {
           {conversationId && !isEphemeral && messages.length > 0 && (
             <button
               onClick={() => setShowReportDialog(true)}
-              className={`text-xs px-2.5 py-1 rounded-full whitespace-nowrap transition-colors cursor-pointer border ${
+              className={`text-xs px-2.5 py-1 rounded-full whitespace-nowrap md:whitespace-normal transition-colors cursor-pointer border ${
                 reportedChats.has(conversationId)
                   ? 'bg-warning/15 border-warning text-warning'
                   : 'bg-bg-tertiary border-border text-text-secondary hover:text-text-primary'

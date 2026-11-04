@@ -210,9 +210,11 @@ select {
     transition: border-color 0.2s;
 }
 
-input:focus,
-textarea:focus,
-select:focus {
+/* :focus-visible draws the ring. This is for focus that gets none, such as a
+   select opened with the mouse, so a field never shows both. */
+input:focus:not(:focus-visible),
+textarea:focus:not(:focus-visible),
+select:focus:not(:focus-visible) {
     border-color: var(--accent);
 }
 

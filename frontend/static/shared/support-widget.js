@@ -123,8 +123,8 @@
       box-sizing: border-box;
       font-family: inherit;
     }
-    #munin-support-panel input:focus,
-    #munin-support-panel textarea:focus {
+    #munin-support-panel input:focus:not(:focus-visible),
+    #munin-support-panel textarea:focus:not(:focus-visible) {
       border-color: var(--accent, #58a6ff);
     }
     /* Repeated from style.css because the chat app does not load it */
@@ -305,6 +305,9 @@
       return;
     }
     if (res.status !== 401 || !panel.isConnected) return;
+    // On a slow check the visitor may have started typing: keep their text. The
+    // form already names the address, and Send reports the missing session.
+    if (panel.querySelector('#munin-sp-subject')?.value || panel.querySelector('#munin-sp-message')?.value) return;
 
     panel.querySelector('.sp-body').innerHTML = `
       <div class="sp-email-info" style="margin-bottom: 0;">

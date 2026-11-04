@@ -131,19 +131,73 @@ def test_re_request_mails_the_same_code_and_still_counts_against_rate_send(auth_
 
 
 def test_verify_page_says_same_code_only_when_it_was(auth_env, user, client):
-    _post_login(client)
-    first = client.get("/verify", params={"email": EMAIL})
+    first = client.get(_post_login(client).headers["location"])
     assert "We resent the same code" not in first.text
 
-    _post_login(client)
-    second = client.get("/verify", params={"email": EMAIL})
+    second = client.get(_post_login(client).headers["location"])
     assert "We resent the same code" in second.text
 
     # Near expiry the next request issues a new code, so the claim goes away.
     auth_env.otp_store[EMAIL]["expires"] = time.time() + 60
-    _post_login(client)
-    third = client.get("/verify", params={"email": EMAIL})
+    third = client.get(_post_login(client).headers["location"])
     assert "We resent the same code" not in third.text
+
+
+def test_bare_verify_page_does_not_reveal_a_sign_in_in_progress(auth_env, user, client):
+    """GET /verify needs no login, so it must not read the address's otp_store entry."""
+    untouched = client.get("/verify", params={"email": EMAIL}).text
+
+    _post_login(client)
+    _post_login(client)
+    auth_env.otp_store[EMAIL]["expires"] = time.time() + 125
+
+    assert client.get("/verify", params={"email": EMAIL}).text == untouched
+
+
+def test_reused_code_is_mailed_with_the_time_it_has_left(auth_env, user, client, sent):
+    _post_login(client)
+    auth_env.otp_store[EMAIL]["expires"] = time.time() + 125
+
+    response = _post_login(client)
+
+    msg = email.message_from_bytes(sent[-1].as_bytes())
+    plain, html = [p.get_payload(decode=True).decode(p.get_content_charset()) for p in msg.get_payload()]
+    assert "It expires in 2 minutes." in plain
+    assert "This code expires in 2 minutes." in html
+    assert "It expires in 2 minutes." in client.get(response.headers["location"]).text
+
+
+def test_fresh_code_is_mailed_with_its_full_lifetime(auth_env, user, client, sent):
+    response = _post_login(client)
+
+    msg = email.message_from_bytes(sent[-1].as_bytes())
+    plain = msg.get_payload()[0].get_payload(decode=True).decode()
+    assert "It expires in 10 minutes." in plain
+    assert "minutes=" not in response.headers["location"]
+    assert "It expires in 10 minutes." in client.get(response.headers["location"]).text
+
+
+def test_verify_page_says_one_minute_in_the_singular(client):
+    page = client.get("/verify", params={"email": EMAIL, "minutes": 1}).text
+
+    assert "It expires in 1 minute." in page
+
+
+@pytest.mark.parametrize("minutes", [0, -5, 9999])
+def test_verify_page_ignores_a_forged_minutes_value(client, minutes):
+    page = client.get("/verify", params={"email": EMAIL, "minutes": minutes}).text
+
+    assert "It expires in 10 minutes." in page
+
+
+def test_wrong_code_page_does_not_restate_a_stale_expiry(auth_env, user, client):
+    auth_env.generate_otp(EMAIL)
+    auth_env.otp_store[EMAIL]["expires"] = time.time() + 125
+
+    page = _post_verify(client, _wrong_code(auth_env)).text
+
+    assert "Invalid code." in page
+    assert "It expires in" not in page
 
 
 # ── Lockout ──────────────────────────────────────────────────────────────────
@@ -177,6 +231,13 @@ def test_lockout_wording_and_disabled_form(auth_env, user, client):
     assert re.search(r'<button id="verify-btn"[^>]* disabled', response.text)
     assert re.search(r'<button id="resend-btn"[^>]* disabled', response.text)
     assert 'role="alert"' in response.text
+
+
+def test_locked_page_labels_the_way_out(auth_env, user, client):
+    page = _lock_out(auth_env, client).text
+
+    assert re.search(r'<a href="/login\?redirect=[^"]*">Request a new code</a>', page)
+    assert "Use a different email" not in page
 
 
 def test_verify_otp_uses_the_same_lockout_wording(auth_env):
@@ -381,6 +442,20 @@ def test_message_has_date_and_message_id_from_the_sender_domain(auth_env, monkey
 
     assert email.utils.parsedate_to_datetime(msg["Date"]) is not None
     assert re.fullmatch(r"<[^@<>]+@mail\.example\.org>", msg["Message-ID"])
+
+
+@pytest.mark.parametrize("sender, domain", [
+    ("noreply@münchen.example", r"xn--mnchen-3ya\.example"),
+    # A label over 63 characters has no IDNA form.
+    (f"noreply@{'ü' * 64}.example", "localhost"),
+    ("foo@", "localhost"),
+])
+def test_message_id_domain_is_ascii(auth_env, monkeypatch, sender, domain):
+    monkeypatch.setattr(auth_env, "SMTP_SENDER", sender)
+
+    msg = email.message_from_bytes(auth_env.build_otp_message(EMAIL, "123456", "Someone").as_bytes())
+
+    assert re.fullmatch(rf"<[^@<>]+@{domain}>", msg["Message-ID"])
 
 
 def test_message_plain_text_says_what_the_code_is_for(auth_env, monkeypatch):

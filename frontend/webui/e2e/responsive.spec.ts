@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { test, expect, type Page } from '@playwright/test';
 import { installMocks } from './fixtures/mock';
 import { ev, tokens } from './fixtures/sse';
@@ -154,5 +156,116 @@ test.describe('keyboard', () => {
     await expect(box).toHaveCSS('outline-style', 'none');
     await expect(box.locator('..')).toHaveCSS('outline-style', 'solid');
     await expect(box.locator('..')).toHaveCSS('outline-color', 'rgb(88, 166, 255)');
+  });
+
+  test('the composer shows one focus line, not the ring and an accent border', async ({ page }) => {
+    await installMocks(page);
+    await page.goto('/');
+    await page.getByTestId('composer-textarea').focus();
+    const bubble = page.getByTestId('composer-textarea').locator('..');
+    await bubble.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+    await expect(bubble).toHaveCSS('outline-style', 'solid');
+    await expect(bubble).not.toHaveCSS('border-top-color', 'rgb(88, 166, 255)');
+  });
+});
+
+test.describe('demo', () => {
+  for (const width of [390, 820, 1024, 1440]) {
+    test(`the Slides button still works over an open artifact panel at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await installMocks(page, { chatScript: script() });
+      await page.goto('/demo');
+      await page.getByTestId('demo-next').click();
+      await page.getByTestId('demo-next').click();
+      await page.getByTestId('demo-run-chat').click();
+      await expect(page.getByTestId('artifact-panel')).toBeVisible();
+
+      await page.getByTestId('demo-slides').click({ timeout: 3000 });
+
+      await expect(page.getByTestId('demo-deck')).toBeVisible();
+      await expect(page).toHaveURL(/\/demo$/);
+    });
+  }
+});
+
+test.describe('busy header', () => {
+  const topics = ['alpha', 'beta', 'gamma'].map((slug) => ({ slug, label: slug, paper_count: 1 }));
+  const manyArtifacts = () => [
+    ev.conversation('conv-e2e'), ev.routing('chat'),
+    ...Array.from({ length: 12 }, (_, i) => ev.artifactCreated({ id: `a-${i}`, title: `Report ${i}`, content_type: 'text/markdown', source: 'model_written' })),
+    ...tokens(REPLY),
+    ev.done(),
+  ];
+
+  for (const [width, sidebar] of [[1024, 'open'], [768, 'closed']] as const) {
+    test(`keeps the last nav link inside the viewport at ${width}px with the sidebar ${sidebar}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await installMocks(page, { chatScript: manyArtifacts() });
+      await page.route('**/api/tags', (route) => route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ topics, groups: [], contributors: [], contributor_count: 0 }),
+      }));
+      await page.goto('/');
+      await send(page);
+      await page.getByTestId('artifact-panel').getByRole('button', { name: '✕' }).click();
+
+      await page.getByTitle('Browse available knowledge').click();
+      const knowledge = page.getByTestId('knowledge-panel');
+      await knowledge.getByRole('button', { name: 'Topics (3)' }).click();
+      for (const { label } of topics) await knowledge.getByRole('button', { name: label }).click();
+      await knowledge.getByRole('button', { name: '✕' }).first().click();
+
+      const toggle = page.getByRole('button', { name: /sidebar$/ });
+      if ((await toggle.getAttribute('aria-label')) !== (sidebar === 'open' ? 'Hide sidebar' : 'Show sidebar')) await toggle.click();
+
+      const upload = page.getByRole('banner').getByRole('link', { name: 'Upload', exact: true });
+      await expect(upload).toBeVisible();
+      const box = await upload.boundingBox();
+      expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(width);
+    });
+  }
+});
+
+test.describe('support widget', () => {
+  const WIDGET = fileURLToPath(new URL('../../static/shared/support-widget.js', import.meta.url));
+
+  // The widget on a bare page, against the signed-out answer from /auth/me,
+  // released only when the test calls the returned function.
+  async function openWidget(page: Page) {
+    let answer = () => {};
+    const answered = new Promise<void>((resolve) => { answer = resolve; });
+    const source = readFileSync(WIDGET, 'utf-8').replace(/\{\{env "[A-Z_]+"\}\}/g, '');
+    await page.route('**/widget-page', (route) => route.fulfill({
+      status: 200, contentType: 'text/html',
+      body: '<!doctype html><html><body><script src="/shared/support-widget.js"></script></body></html>',
+    }));
+    await page.route('**/shared/support-widget.js', (route) => route.fulfill({ status: 200, contentType: 'application/javascript', body: source }));
+    let responded = () => {};
+    const response = new Promise<void>((resolve) => { responded = resolve; });
+    await page.route('**/auth/me', async (route) => {
+      await answered;
+      await route.fulfill({ status: 401, contentType: 'application/json', body: '{}' });
+      responded();
+    });
+    await page.goto('/widget-page');
+    await page.locator('#munin-support-btn').click();
+    await expect(page.locator('#munin-sp-message')).toBeVisible();
+    return () => { answer(); return response; };
+  }
+
+  test('a slow sign-in check keeps a message the visitor has started typing', async ({ page }) => {
+    const answer = await openWidget(page);
+    await page.locator('#munin-sp-message').fill('The upload page fails');
+    await answer();
+    await page.waitForTimeout(100);
+    await expect(page.locator('#munin-sp-message')).toHaveValue('The upload page fails');
+    await expect(page.locator('#munin-sp-message')).toBeFocused();
+  });
+
+  test('a visitor who has typed nothing gets the sign-in and email note', async ({ page }) => {
+    const answer = await openWidget(page);
+    await answer();
+    await expect(page.locator('#munin-sp-message')).toHaveCount(0);
+    await expect(page.locator('#munin-support-panel .sp-body')).toContainText('Sign in to send a message here');
   });
 });

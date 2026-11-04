@@ -170,7 +170,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
 
   return (
     // A full-screen overlay below xl, where a side column would crush the chat.
-    <div data-testid="artifact-panel" className="fixed inset-0 z-40 w-full flex flex-col bg-bg-secondary xl:static xl:w-[36rem] xl:border-l xl:border-border xl:h-full">
+    <div data-testid="artifact-panel" className="fixed inset-0 z-40 w-full flex flex-col bg-bg-secondary xl:static xl:z-auto xl:w-[36rem] xl:border-l xl:border-border xl:h-full">
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
         {selectedArtifactId ? (

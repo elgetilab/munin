@@ -48,7 +48,7 @@ export function KnowledgePanel({ catalog, activeTags, onTagsChange }: KnowledgeP
 
   return (
     // A full-screen overlay below xl, where a side column would crush the chat.
-    <div data-testid="knowledge-panel" className="fixed inset-0 z-40 w-full flex flex-col bg-bg-secondary xl:static xl:w-72 xl:flex-shrink-0 xl:border-l xl:border-border xl:h-full">
+    <div data-testid="knowledge-panel" className="fixed inset-0 z-40 w-full flex flex-col bg-bg-secondary xl:static xl:z-auto xl:w-72 xl:flex-shrink-0 xl:border-l xl:border-border xl:h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
         <h3 className="text-sm font-semibold text-text-primary">Available Knowledge</h3>

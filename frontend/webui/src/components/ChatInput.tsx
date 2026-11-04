@@ -681,7 +681,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       )}
 
       {/* Input bubble */}
-      <div className="max-w-3xl mx-auto bg-bg-secondary border border-border rounded-2xl focus-within:border-accent transition-colors">
+      <div className="max-w-3xl mx-auto bg-bg-secondary border border-border rounded-2xl">
         {/* Active tag chips */}
         {activeTags.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 px-5 pt-3 pb-0">
