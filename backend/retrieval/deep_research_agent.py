@@ -30,6 +30,7 @@ to JSON for resume (SQLite conversation_plans migration is a follow-up).
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import uuid
@@ -39,6 +40,8 @@ import httpx
 
 from agent_trace import AgentTrace
 from database import VLLM_MODEL_NAME, VLLM_URL, thinking_off, LLM_HEADERS
+
+logger = logging.getLogger(__name__)
 
 # Async progress callback: `await progress(event: str, data: dict)`. The manager
 # passes one that appends a render-ready event to the durable job log (so the
@@ -80,7 +83,11 @@ async def _llm(system: str, user: str, *, max_tokens: int = 1500,
                               headers=LLM_HEADERS)
     if r.status_code != 200:
         raise RuntimeError(f"vLLM {r.status_code}: {r.text[:150]}")
-    return (r.json()["choices"][0]["message"].get("content") or "").strip()
+    choice = r.json()["choices"][0]
+    if choice.get("finish_reason") == "length":
+        logger.warning("Deep Research LLM reply was cut off at max_tokens=%d",
+                       max_tokens)
+    return (choice["message"].get("content") or "").strip()
 
 
 def _parse_json(text: str, default):
@@ -116,8 +123,14 @@ async def _decompose(question: str, max_subq: int) -> list[str]:
         "You are a research planner. Break the user's question into 2-5 concrete, "
         "independently-answerable sub-questions. Return ONLY a JSON array of "
         "strings (not an object), e.g. [\"...\", \"...\"].",
-        f"Question: {question}", max_tokens=500)
+        # Roomy on purpose: five detailed sub-questions can pass 500 tokens, and
+        # a reply cut off before its closing bracket does not parse.
+        f"Question: {question}", max_tokens=2000)
     subs = _coerce_str_list(_parse_json(out, []))
+    if not subs:
+        logger.warning("Deep Research planner reply had no usable sub-questions, "
+                       "so the whole question becomes one. Reply starts: %r",
+                       out[:200])
     return subs[:max_subq] or [question]
 
 
