@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useUiStore } from '../stores/uiStore';
 import type { DeepResearchJob, ResearchEvent } from '../stores/deepResearchStore';
 import { isActive } from '../stores/deepResearchStore';
+import { cancelDeepResearch } from '../lib/api';
 
 // Renders a Deep Research job's durable event log inline in the conversation:
 // a plan checklist, a tool card per search / paper read, the notes it found, and
@@ -113,7 +114,7 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
           job.status === 'done' ? 'bg-success/15 text-success'
           : job.status === 'error' || job.status === 'cancelled' ? 'bg-error/15 text-error'
           : 'bg-accent/15 text-accent'}`}>
-          {active ? 'running' : job.status}
+          {job.status === 'queued' ? 'queued' : active ? 'running' : job.status}
         </span>
       </div>
 
@@ -184,7 +185,10 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
         {active ? (
           <span className="flex items-center gap-2 text-xs text-text-secondary">
             <svg className="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
-            Researching in the background…
+            {job.status === 'queued' ? 'Waiting for another research job to finish…' : 'Researching in the background…'}
+            <button data-testid="research-cancel" onClick={() => { cancelDeepResearch(job.id).catch(() => {}); }} className="text-accent hover:underline cursor-pointer">
+              Cancel
+            </button>
           </span>
         ) : reportId ? (
           <button data-testid="research-report-link" onClick={openReport} className="text-xs text-accent hover:underline cursor-pointer">
