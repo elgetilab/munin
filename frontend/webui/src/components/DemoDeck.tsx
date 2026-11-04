@@ -28,7 +28,7 @@ interface Props {
   onOpenChat: (conversationId: string) => void;
 }
 
-const SLIDE_COUNT = 3;
+const SLIDE_COUNT = 4;
 
 export function DemoDeck({ slide, onSlide, offline, onRun, onOpenChat }: Props) {
   const [config, setConfig] = useState<DemoConfig | null>(null);
@@ -66,6 +66,7 @@ export function DemoDeck({ slide, onSlide, offline, onRun, onOpenChat }: Props) 
               onOpenChat={onOpenChat}
             />
           )}
+          {slide === 3 && <SlideOutlook />}
         </div>
       </main>
 
@@ -163,6 +164,56 @@ function SlideWhy() {
         preparation. Tonight's live demo uses a different model and a small document set, and citations
         are always worth checking.
       </p>
+    </div>
+  );
+}
+
+const OUTLOOK = [
+  {
+    theme: 'Connected to what we know',
+    items: [
+      { name: 'HypMol Knowledge Graph', detail: "Answers that draw on the consortium's structured knowledge." },
+      { name: 'XWiki in Chemnitz', detail: 'Internal protocols and documentation, searchable alongside the literature.' },
+    ],
+  },
+  {
+    theme: 'Room for real computation',
+    items: [
+      { name: 'A more capable sandbox', detail: 'Run much more than short scripts, directly in the chat.' },
+      { name: 'Cluster jobs from chat', detail: 'Hand long calculations to the cluster, with results coming back to the conversation.' },
+    ],
+  },
+  {
+    theme: 'Built for working together',
+    items: [
+      { name: 'Shared team spaces', detail: 'Projects, reports and document collections a group can work on together.' },
+      { name: 'More interactivity', detail: 'Explore results in the chat, like 3D structures you can rotate and restyle.' },
+    ],
+  },
+];
+
+function SlideOutlook() {
+  return (
+    <div>
+      <h1 className="text-4xl font-semibold leading-tight mb-3">What comes next</h1>
+      <p className="text-lg text-text-secondary mb-8">
+        Where we plan to take Munin for the consortium.
+      </p>
+      <div className="grid md:grid-cols-3 gap-5">
+        {OUTLOOK.map(group => (
+          <div key={group.theme} className="rounded-xl border border-border bg-bg-secondary p-6">
+            <h2 className="text-accent text-sm font-medium mb-4">{group.theme}</h2>
+            <ul className="space-y-4">
+              {group.items.map(item => (
+                <li key={item.name}>
+                  <div className="text-base font-medium mb-1">{item.name}</div>
+                  <div className="text-sm text-text-secondary">{item.detail}</div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
