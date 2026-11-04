@@ -5,6 +5,7 @@ Endpoints:
     GET   /login       Login page (enter email)
     POST  /login       Submit email, look up user in DB, send OTP
     GET   /verify      OTP entry page
+    GET   /verify/status  Progress of one login mail, by its unguessable send id
     POST  /verify      Verify OTP, set session cookie, redirect
     GET   /auth/check  Caddy forward-auth: 200 + headers or 401
     GET   /auth/me     Current user info (JSON: email, name)
@@ -41,7 +42,7 @@ from pathlib import Path
 from urllib.parse import quote, urlencode, urlparse
 
 import aiosmtplib
-from fastapi import FastAPI, Form, Request, Response
+from fastapi import BackgroundTasks, FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from itsdangerous import TimestampSigner, BadSignature
 from jinja2 import Environment, FileSystemLoader
@@ -164,6 +165,7 @@ otp_store: dict[str, dict] = {}  # email -> {code, expires, attempts, sends}
 rate_send: dict[str, list[float]] = {}  # email -> [timestamps]
 rate_verify: dict[str, list[float]] = {}  # email -> [timestamps]
 rate_support: dict[str, list[float]] = {}  # email -> [timestamps]
+send_status: dict[str, dict] = {}  # send id -> {state, created}
 
 
 def _handle_sighup(*_):
@@ -935,6 +937,8 @@ OTP_REUSE_MIN_REMAINING = 120
 # Lets a code keep saying its full lifetime in the seconds after it is issued.
 OTP_MINUTES_LEFT_SLACK = 15
 VERIFY_ATTEMPT_LIMIT = 5
+# How long the verify page can still ask how a login mail went.
+SEND_STATUS_TTL = 900
 LOCKOUT_MESSAGE = "Too many failed attempts. Please wait 15 minutes, then request a new code."
 
 
@@ -1075,6 +1079,43 @@ async def send_otp_email(email: str, code: str, name: str):
     raise last_exc
 
 
+def start_send_status() -> str:
+    """Record a login mail as on its way and return its id. The id is what lets
+    the page ask about this one mail: GET /verify needs no login, so a status
+    looked up by email would tell anyone that a sign-in is in progress."""
+    now = time.time()
+    for send_id in [k for k, v in send_status.items() if now - v["created"] > SEND_STATUS_TTL]:
+        del send_status[send_id]
+    send_id = secrets.token_urlsafe(16)
+    send_status[send_id] = {"state": "sending", "created": now}
+    return send_id
+
+
+def read_send_state(send_id: str) -> str:
+    """sending, sent or failed. Unknown once the entry has aged out or the
+    service restarted, in which case the mail may never have gone out."""
+    entry = send_status.get(send_id)
+    return entry["state"] if entry else "unknown"
+
+
+async def deliver_otp(send_id: str, email: str, code: str, name: str):
+    """Send the login mail after the response has gone out, and record how it
+    went for the verify page. The relay takes seconds to accept a mail, and on a
+    stalled connection much longer, which used to hold the login page."""
+    try:
+        await send_otp_email(email, code, name)
+    except Exception as e:
+        log.error("OTP send ultimately failed for %s after %d attempts: %s: %s",
+                  email, SMTP_MAX_ATTEMPTS, type(e).__name__, e)
+        send_status[send_id]["state"] = "failed"
+        return
+    send_status[send_id]["state"] = "sent"
+    # The entry can be gone if the code was used while this mail was on its way.
+    entry = otp_store.get(email)
+    if entry and entry["code"] == code:
+        entry["sends"] += 1
+
+
 # ── Startup ──────────────────────────────────────────────────────────────────
 
 @app.on_event("startup")
@@ -1104,7 +1145,12 @@ async def login_page(request: Request, redirect: str = ""):
 
 
 @app.post("/login", response_class=HTMLResponse)
-async def login_submit(request: Request, email: str = Form(...), redirect: str = Form("")):
+async def login_submit(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    email: str = Form(...),
+    redirect: str = Form(""),
+):
     typed_email = email.strip()
     email = typed_email.lower()
     tmpl = templates.get_template("login.html")
@@ -1121,26 +1167,17 @@ async def login_submit(request: Request, email: str = Form(...), redirect: str =
     code = generate_otp(email)
     record_rate(rate_send, email)
 
-    try:
-        await send_otp_email(email, code, user["name"])
-    except Exception as e:
-        log.error("OTP send ultimately failed for %s after %d attempts: %s: %s",
-                  email, SMTP_MAX_ATTEMPTS, type(e).__name__, e)
-        return tmpl.render(error="Failed to send email. Please try again.",
-                           redirect=redirect, email=typed_email)
+    send_id = start_send_status()
+    background_tasks.add_task(deliver_otp, send_id, email, code, user["name"])
 
-    query = {"email": email}
-    # The entry can be gone if the code was used while this mail was on its way.
-    entry = otp_store.get(email)
-    if entry and entry["code"] == code:
-        entry["sends"] += 1
-        # GET /verify needs no login, so these travel from here: it must not
-        # read per-account state out of otp_store for whoever opens the URL.
-        minutes = otp_minutes_left(email)
-        if minutes < OTP_EXPIRY // 60:
-            query["minutes"] = minutes
-        if entry["sends"] > 1:
-            query["resent"] = "1"
+    query = {"email": email, "send": send_id}
+    # GET /verify needs no login, so these travel from here: it must not read
+    # per-account state out of otp_store for whoever opens the URL.
+    minutes = otp_minutes_left(email)
+    if minutes < OTP_EXPIRY // 60:
+        query["minutes"] = minutes
+    if otp_store[email]["sends"] > 0:
+        query["resent"] = "1"
     if redirect:
         query["redirect"] = redirect
     return RedirectResponse(url=f"/verify?{urlencode(query)}", status_code=303)
@@ -1152,9 +1189,11 @@ def _render_verify(
     error: str = "",
     expiry_minutes: int = 0,
     same_code_resent: bool = False,
+    send_id: str = "",
 ) -> str:
     """Render the verify page, disabled with the lockout message at the limit.
-    With no expiry_minutes, the page does not state an expiry."""
+    With no expiry_minutes, the page does not state an expiry. With a send_id,
+    it follows that mail; without one, it reads as if the code has gone out."""
     locked = verify_attempts_left(email) == 0
     return templates.get_template("verify.html").render(
         email=email,
@@ -1163,11 +1202,19 @@ def _render_verify(
         locked=locked,
         expiry_minutes=expiry_minutes,
         same_code_resent=same_code_resent,
+        send_id=send_id,
+        send_state=read_send_state(send_id) if send_id else "sent",
     )
 
 
 @app.get("/verify", response_class=HTMLResponse)
-async def verify_page(email: str = "", redirect: str = "", minutes: int = 0, resent: bool = False):
+async def verify_page(
+    email: str = "",
+    redirect: str = "",
+    minutes: int = 0,
+    resent: bool = False,
+    send: str = "",
+):
     email = email.strip().lower()
     if not email:
         query = urlencode({"redirect": redirect}) if redirect else ""
@@ -1178,7 +1225,14 @@ async def verify_page(email: str = "", redirect: str = "", minutes: int = 0, res
         redirect,
         expiry_minutes=minutes if 0 < minutes <= full else full,
         same_code_resent=resent,
+        send_id=send,
     )
+
+
+@app.get("/verify/status")
+async def verify_status(send: str = ""):
+    return JSONResponse({"state": read_send_state(send)},
+                        headers={"Cache-Control": "no-store"})
 
 
 @app.post("/verify")

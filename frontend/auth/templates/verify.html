@@ -143,15 +143,33 @@
 </head>
 <body>
     <div class="auth-container">
-        <div class="auth-card">
+        <div id="auth-card" class="auth-card" data-send-id="{{ send_id }}" data-send-state="{{ send_state }}">
             <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="auth-logo">
             {% if locked %}
             <h1 class="auth-title">Sign-in is paused</h1>
             <p class="auth-subtitle auth-hint">Too many wrong codes for <strong>{{ email }}</strong></p>
             {% else %}
-            <h1 class="auth-title">Check your email</h1>
-            <p class="auth-subtitle">We sent a 6-digit code to <strong>{{ email }}</strong></p>
-            <p class="auth-hint">Usually arrives within a minute. {% if expiry_minutes %}It expires in {{ expiry_minutes }} minute{{ '' if expiry_minutes == 1 else 's' }}. {% endif %}{% if sender_address %}Check spam for mail from {{ sender_address }}.{% else %}Check your spam folder too.{% endif %}{% if same_code_resent %} We resent the same code you were already sent.{% endif %}</p>
+            {% set hint %}Usually arrives within a minute. {% if expiry_minutes %}It expires in {{ expiry_minutes }} minute{{ '' if expiry_minutes == 1 else 's' }}. {% endif %}{% if sender_address %}Check spam for mail from {{ sender_address }}.{% else %}Check your spam folder too.{% endif %}{% endset %}
+            <div data-send-panel="sending"{% if send_state != 'sending' %} hidden{% endif %}>
+                <h1 class="auth-title">Check your email</h1>
+                <p class="auth-subtitle">Sending a 6-digit code to <strong>{{ email }}</strong></p>
+                <p class="auth-hint">{{ hint }}{% if same_code_resent %} This is the same code you were already sent.{% endif %}</p>
+            </div>
+            <div data-send-panel="sent"{% if send_state != 'sent' %} hidden{% endif %}>
+                <h1 class="auth-title">Check your email</h1>
+                <p class="auth-subtitle">We sent a 6-digit code to <strong>{{ email }}</strong></p>
+                <p class="auth-hint">{{ hint }}{% if same_code_resent %} We resent the same code you were already sent.{% endif %}</p>
+            </div>
+            <div data-send-panel="failed"{% if send_state != 'failed' %} hidden{% endif %}>
+                <h1 class="auth-title">We couldn't send your code</h1>
+                <p class="auth-subtitle" role="alert">The email to <strong>{{ email }}</strong> did not go out.</p>
+                <p class="auth-hint">Press Resend code to try again.</p>
+            </div>
+            <div data-send-panel="unknown"{% if send_state != 'unknown' %} hidden{% endif %}>
+                <h1 class="auth-title">Check your email</h1>
+                <p class="auth-subtitle">We can't confirm that a code went out to <strong>{{ email }}</strong></p>
+                <p class="auth-hint">If nothing arrives within a minute, press Resend code.</p>
+            </div>
             {% endif %}
 
             {% if error %}
@@ -229,11 +247,57 @@
                 loading.style.display = 'none';
                 if (stopVortex) stopVortex();
                 if (!resendLocked) {
-                    clearInterval(countdown);
-                    resendButton.disabled = false;
-                    resendButton.textContent = resendLabel;
+                    freeResend();
+                    followSend();
                 }
             });
+
+            function freeResend() {
+                clearInterval(countdown);
+                resendButton.disabled = false;
+                resendButton.textContent = resendLabel;
+            }
+
+            // The mail goes out after this page is served, so the page asks how it
+            // went. Without JavaScript, a reload shows the same answer.
+            var card = document.getElementById('auth-card');
+            var pollTimer = null;
+            var pollUntil = 0;
+
+            function showSendState(state) {
+                card.dataset.sendState = state;
+                document.querySelectorAll('[data-send-panel]').forEach(function(panel) {
+                    panel.hidden = panel.dataset.sendPanel !== state;
+                });
+                if (state === 'failed' || state === 'unknown') {
+                    freeResend();
+                    if (!input.value) resendButton.focus();
+                }
+            }
+
+            function pollSend() {
+                if (Date.now() > pollUntil) {
+                    showSendState('unknown');
+                    return;
+                }
+                fetch('/verify/status?send=' + encodeURIComponent(card.dataset.sendId), { cache: 'no-store' })
+                    .then(function(response) { return response.ok ? response.json() : null; })
+                    .catch(function() { return null; })
+                    .then(function(status) {
+                        if (status && status.state !== 'sending') {
+                            showSendState(status.state);
+                        } else {
+                            pollTimer = setTimeout(pollSend, 1500);
+                        }
+                    });
+            }
+
+            function followSend() {
+                clearTimeout(pollTimer);
+                if (card.dataset.sendState !== 'sending' || !card.dataset.sendId) return;
+                pollUntil = Date.now() + 120000;
+                pollSend();
+            }
 
             if (resendLocked) return;
 
@@ -242,6 +306,10 @@
             countdown = setInterval(tick, 1000);
             resendButton.disabled = true;
             resendButton.textContent = resendLabel + ' (' + remaining + 's)';
+            if (card.dataset.sendState === 'failed' || card.dataset.sendState === 'unknown') {
+                freeResend();
+            }
+            followSend();
 
             function tick() {
                 remaining -= 1;
@@ -249,9 +317,7 @@
                     resendButton.textContent = resendLabel + ' (' + remaining + 's)';
                     return;
                 }
-                clearInterval(countdown);
-                resendButton.disabled = false;
-                resendButton.textContent = resendLabel;
+                freeResend();
             }
 
             resendForm.addEventListener('submit', function() {

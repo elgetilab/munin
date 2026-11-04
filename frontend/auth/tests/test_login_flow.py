@@ -11,6 +11,7 @@ import email.utils
 import logging
 import re
 import time
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import pytest
 
@@ -410,16 +411,159 @@ def test_rate_limit_error_keeps_the_typed_email(auth_env, user, client):
     assert f'value="{EMAIL}"' in page
 
 
-def test_send_failure_keeps_the_typed_email(auth_env, user, client, monkeypatch):
+def _send_id(response):
+    return parse_qs(urlparse(response.headers["location"]).query)["send"][0]
+
+
+def _asgi_post_login(auth_env, email, messages):
+    """Drive the app directly, because TestClient hides when the response went out."""
+    body = urlencode({"email": email, "redirect": ""}).encode()
+    scope = {
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+        "method": "POST", "scheme": "https", "path": "/login", "raw_path": b"/login",
+        "query_string": b"", "root_path": "", "server": ("test", 443), "client": ("test", 1),
+        "headers": [(b"content-type", b"application/x-www-form-urlencoded"),
+                    (b"content-length", str(len(body)).encode())],
+    }
+
+    async def receive():
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    async def send(message):
+        messages.append(message)
+
+    return auth_env.app(scope, receive, send)
+
+
+def test_redirect_goes_out_before_the_relay_answers(auth_env, user, client, monkeypatch):
+    monkeypatch.setattr(auth_env, "DEV_ECHO_OTP", False)
+
+    async def run():
+        relay_answers = asyncio.Event()
+        relay_reached = asyncio.Event()
+        delivered = []
+
+        async def _slow_relay(msg, **kw):
+            relay_reached.set()
+            await relay_answers.wait()
+            delivered.append(msg)
+
+        monkeypatch.setattr(auth_env.aiosmtplib, "send", _slow_relay)
+        messages = []
+        request = asyncio.create_task(_asgi_post_login(auth_env, EMAIL, messages))
+
+        await asyncio.wait_for(relay_reached.wait(), 5)
+        assert not delivered
+        start = next(m for m in messages if m["type"] == "http.response.start")
+        assert start["status"] == 303
+        assert any(m["type"] == "http.response.body" for m in messages)
+        location = dict(start["headers"])[b"location"].decode()
+        send_id = parse_qs(urlparse(location).query)["send"][0]
+        assert auth_env.read_send_state(send_id) == "sending"
+
+        relay_answers.set()
+        await asyncio.wait_for(request, 5)
+        assert len(delivered) == 1
+        assert auth_env.read_send_state(send_id) == "sent"
+
+    asyncio.run(run())
+
+
+def test_verify_page_while_the_mail_is_on_its_way(auth_env, client):
+    send_id = auth_env.start_send_status()
+
+    page = client.get("/verify", params={"email": EMAIL, "send": send_id}).text
+
+    assert 'data-send-state="sending"' in page
+    assert 'data-send-panel="sending">' in page
+    assert 'data-send-panel="sent" hidden>' in page
+
+
+def test_send_failure_is_shown_on_the_verify_page(auth_env, user, client, monkeypatch):
     async def _fail(*a, **kw):
         raise OSError("relay down")
 
     monkeypatch.setattr(auth_env, "send_otp_email", _fail)
 
-    page = _post_login(client).text
+    response = _post_login(client)
 
-    assert "Failed to send email" in page
-    assert f'value="{EMAIL}"' in page
+    assert response.status_code == 303
+    send_id = _send_id(response)
+    assert client.get("/verify/status", params={"send": send_id}).json() == {"state": "failed"}
+    page = client.get(response.headers["location"]).text
+    assert 'data-send-state="failed"' in page
+    assert 'data-send-panel="failed">' in page
+    assert 'data-send-panel="sending" hidden>' in page
+    assert "did not go out" in page
+
+
+def test_failed_send_is_not_counted_as_a_mail_sent(auth_env, user, client, sent, monkeypatch):
+    async def _fail(*a, **kw):
+        raise OSError("relay down")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(auth_env, "send_otp_email", _fail)
+        _post_login(client)
+
+    assert auth_env.otp_store[EMAIL]["sends"] == 0
+    page = client.get(_post_login(client).headers["location"]).text
+    assert "same code" not in page
+
+
+def test_send_failure_still_counts_against_rate_send(auth_env, user, client, monkeypatch):
+    async def _fail(*a, **kw):
+        raise OSError("relay down")
+
+    monkeypatch.setattr(auth_env, "send_otp_email", _fail)
+    for _ in range(3):
+        _post_login(client)
+
+    assert "Too many code requests" in _post_login(client).text
+
+
+def test_send_status_says_unknown_for_an_id_it_does_not_have(client):
+    response = client.get("/verify/status", params={"send": "not-a-real-id"})
+
+    assert response.json() == {"state": "unknown"}
+    assert response.headers["cache-control"] == "no-store"
+    page = client.get("/verify", params={"email": EMAIL, "send": "not-a-real-id"}).text
+    assert 'data-send-state="unknown"' in page
+    assert 'data-send-panel="unknown">' in page
+
+
+def test_send_status_does_not_answer_by_email(auth_env, user, client, sent):
+    _post_login(client)
+
+    assert client.get("/verify/status", params={"send": EMAIL}).json() == {"state": "unknown"}
+    assert client.get("/verify/status").json() == {"state": "unknown"}
+
+
+def test_send_id_is_escaped_on_the_page(client):
+    page = client.get("/verify", params={"email": EMAIL, "send": '"><script>x</script>'}).text
+
+    assert "<script>x</script>" not in page
+
+
+def test_old_send_statuses_are_dropped(auth_env):
+    old = auth_env.start_send_status()
+    auth_env.send_status[old]["created"] = time.time() - auth_env.SEND_STATUS_TTL - 1
+
+    new = auth_env.start_send_status()
+
+    assert old not in auth_env.send_status
+    assert new in auth_env.send_status
+
+
+def test_code_used_while_the_mail_was_on_its_way(auth_env, user, client, monkeypatch):
+    async def _used_meanwhile(email, code, name):
+        assert auth_env.verify_otp(email, code) == (True, "")
+
+    monkeypatch.setattr(auth_env, "send_otp_email", _used_meanwhile)
+
+    response = _post_login(client)
+
+    assert auth_env.read_send_state(_send_id(response)) == "sent"
+    assert EMAIL not in auth_env.otp_store
 
 
 def test_login_page_label_and_footer_support_link(auth_env, client, monkeypatch):
