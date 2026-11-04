@@ -106,6 +106,7 @@ const TOOL_ICON_MAP: Record<string, ReactNode> = {
   read_artifact: Icons.file,
   update_artifact: Icons.edit,
   list_artifacts: Icons.result,
+  show_protein: Icons.file,
   save_artifact_to_documents: Icons.folder,
   list_projects: Icons.folder,
   get_current_project: Icons.folder,

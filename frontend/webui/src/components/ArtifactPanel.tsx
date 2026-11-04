@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ArtifactSummary, ArtifactFull } from '../lib/types';
 import { fetchArtifact, updateArtifact } from '../lib/api';
 import { getExtension } from '../lib/artifactDownload';
-import { formatBytes, getContentTypeIcon, svgDataUrl } from '../lib/artifactDisplay';
+import { formatBytes, getContentTypeIcon, isWidget, parseProteinSpec, svgDataUrl } from '../lib/artifactDisplay';
+import { ProteinViewer } from './ProteinViewer';
 import { printArtifactAsPdf } from '../lib/printPdf';
 import { Markdown } from './Markdown';
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -161,11 +162,11 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
   };
 
   const isLatest = loadedArtifact && summary && loadedArtifact.version === summary.latest_version;
-  const canEdit = isLatest && summary?.source === 'model_written';
+  const canEdit = isLatest && summary?.source === 'model_written' && !isWidget(summary);
   // "Save as PDF" applies to rendered text artifacts (reports, notes, code).
   // Existing PDFs already download as-is, and images have nothing to render.
   const ct = loadedArtifact?.content_type || '';
-  const canPdf = !editing && !!loadedArtifact && ct !== 'application/pdf' && !ct.startsWith('image/');
+  const canPdf = !editing && !!loadedArtifact && ct !== 'application/pdf' && !ct.startsWith('image/') && !isWidget(loadedArtifact);
 
   return (
     <div data-testid="artifact-panel" className="w-96 lg:w-[32rem] xl:w-[36rem] border-l border-border bg-bg-secondary flex flex-col h-full">
@@ -319,7 +320,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
               ) : (
                 // Content viewer
                 <div ref={contentRef} className="flex-1 overflow-y-auto px-4 py-3">
-                  <ArtifactContent artifact={loadedArtifact} />
+                  <ArtifactContent artifact={loadedArtifact} conversationId={conversationId} />
                 </div>
               )}
             </>
@@ -383,8 +384,24 @@ function getBinaryArtifactUrl(artifact: ArtifactFull): string | null {
   return match ? match[1] : null;
 }
 
-function ArtifactContent({ artifact }: { artifact: ArtifactFull }) {
+function ArtifactContent({ artifact, conversationId }: { artifact: ArtifactFull; conversationId: string }) {
   const ct = artifact.content_type;
+
+  if (isWidget(artifact)) {
+    const spec = parseProteinSpec(artifact.content);
+    if (spec) {
+      return (
+        <ProteinViewer
+          spec={spec}
+          title={artifact.title}
+          conversationId={conversationId}
+          artifactId={artifact.id}
+          version={artifact.version}
+          heightClass="h-[60vh]"
+        />
+      );
+    }
+  }
 
   // Sandbox images — use external_url or parsed binary URL
   if (ct.startsWith('image/')) {

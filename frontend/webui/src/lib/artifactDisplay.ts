@@ -13,6 +13,34 @@ export interface ArtifactRef {
   external_url?: string;
 }
 
+export const WIDGET_CONTENT_TYPE = 'application/vnd.munin.widget+json';
+
+export const PROTEIN_STYLES = [
+  { value: 'cartoon', label: 'Cartoon' },
+  { value: 'stick', label: 'Sticks' },
+  { value: 'sphere', label: 'Spheres' },
+  { value: 'line', label: 'Lines' },
+] as const;
+
+export const PROTEIN_COLORS = [
+  { value: 'spectrum', label: 'Spectrum' },
+  { value: 'chain', label: 'Chain' },
+  { value: 'secondary', label: 'Secondary structure' },
+  { value: 'bfactor', label: 'B-factor' },
+] as const;
+
+export type ProteinStyle = typeof PROTEIN_STYLES[number]['value'];
+export type ProteinColor = typeof PROTEIN_COLORS[number]['value'];
+
+export interface ProteinSpec {
+  widget: 'protein';
+  source: 'pdb' | 'alphafold';
+  id: string;
+  style: ProteinStyle;
+  color: ProteinColor;
+  highlight: { chain?: string; residues: number[] }[];
+}
+
 // Above this an image gets a card, so one huge plot cannot stall the transcript.
 export const MAX_INLINE_PREVIEW_BYTES = 5 * 1024 * 1024;
 
@@ -34,6 +62,7 @@ const CONTENT_TYPE_ICONS: Record<string, string> = {
   'image/png': '\u{1F5BC}',
   'image/jpeg': '\u{1F5BC}',
   'application/pdf': '\u{1F4C4}',
+  [WIDGET_CONTENT_TYPE]: '\u{1F9EC}',
 };
 
 const CONTENT_TYPE_LABELS: Record<string, string> = {
@@ -50,6 +79,7 @@ const CONTENT_TYPE_LABELS: Record<string, string> = {
   'image/jpeg': 'Image',
   'image/webp': 'Image',
   'image/gif': 'Image',
+  [WIDGET_CONTENT_TYPE]: '3D structure',
 };
 
 export function getContentTypeIcon(ct: string): string {
@@ -73,6 +103,32 @@ export function isInlinePreview(ref: ArtifactRef): boolean {
   return (ref.size_bytes ?? 0) <= MAX_INLINE_PREVIEW_BYTES;
 }
 
+export function isWidget(ref: { content_type: string }): boolean {
+  return ref.content_type === WIDGET_CONTENT_TYPE;
+}
+
+// The model can rewrite a spec with update_artifact, so a stored one is checked
+// before use, and anything unknown falls back rather than reaching the viewer.
+export function parseProteinSpec(content: string): ProteinSpec | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return null;
+  }
+  if (!isRecord(parsed) || parsed.widget !== 'protein') return null;
+  if ((parsed.source !== 'pdb' && parsed.source !== 'alphafold') || typeof parsed.id !== 'string') return null;
+  const style = PROTEIN_STYLES.find(s => s.value === parsed.style)?.value ?? 'cartoon';
+  const color = PROTEIN_COLORS.find(c => c.value === parsed.color)?.value ?? 'spectrum';
+  const highlight = (Array.isArray(parsed.highlight) ? parsed.highlight : []).flatMap((item: unknown) => {
+    if (!isRecord(item) || !Array.isArray(item.residues)) return [];
+    const residues = item.residues.filter((r: unknown): r is number => Number.isInteger(r));
+    if (residues.length === 0) return [];
+    return [typeof item.chain === 'string' ? { chain: item.chain, residues } : { residues }];
+  });
+  return { widget: 'protein', source: parsed.source, id: parsed.id, style, color, highlight };
+}
+
 // An <img> does not run an SVG's scripts or load anything it references, so
 // model-written source is safe to show this way.
 export function svgDataUrl(svg: string): string {
@@ -86,7 +142,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function refsFromResult(name: string, result: unknown): ArtifactRef[] {
   if (!isRecord(result)) return [];
 
-  if (name === 'create_artifact' || name === 'update_artifact') {
+  if (name === 'create_artifact' || name === 'update_artifact' || name === 'show_protein') {
     if (result.error || typeof result.id !== 'string') return [];
     return [{
       id: result.id,

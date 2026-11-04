@@ -2,6 +2,9 @@ import {
   artifactRefsFromToolCalls,
   isEmbeddedInText,
   isInlinePreview,
+  isWidget,
+  parseProteinSpec,
+  WIDGET_CONTENT_TYPE,
   MAX_INLINE_PREVIEW_BYTES,
   svgDataUrl,
   type ArtifactRef,
@@ -136,5 +139,45 @@ describe('svgDataUrl', () => {
     const url = svgDataUrl('<svg xmlns="http://www.w3.org/2000/svg"><text>a#b "c"</text></svg>');
     expect(url.startsWith('data:image/svg+xml;charset=utf-8,')).toBe(true);
     expect(url).not.toMatch(/[<>"#]/);
+  });
+});
+
+describe('widgets', () => {
+  const spec = { widget: 'protein', source: 'pdb', id: '1CRN', style: 'stick', color: 'chain', highlight: [{ chain: 'A', residues: [3] }] };
+
+  it('reads a viewer from show_protein', () => {
+    const result = { id: 'art_p', title: 'Crambin', content_type: WIDGET_CONTENT_TYPE, version: 1 };
+    const [found] = artifactRefsFromToolCalls([call('show_protein', result)]);
+    expect(found.id).toBe('art_p');
+    expect(isWidget(found)).toBe(true);
+    expect(isInlinePreview(found)).toBe(false);
+  });
+
+  it('ignores a failed show_protein', () => {
+    expect(artifactRefsFromToolCalls([call('show_protein', { error: 'no PDB entry 9XXX' })])).toEqual([]);
+  });
+
+  it('parses a good spec', () => {
+    expect(parseProteinSpec(JSON.stringify(spec))).toEqual(spec);
+  });
+
+  it.each([
+    ['not JSON', 'nope'],
+    ['an array', '[]'],
+    ['another widget', '{"widget":"other"}'],
+    ['an unknown source', '{"widget":"protein","source":"evil","id":"1CRN"}'],
+    ['a missing id', '{"widget":"protein","source":"pdb"}'],
+  ])('refuses %s', (_label, content) => {
+    expect(parseProteinSpec(content)).toBeNull();
+  });
+
+  it('falls back on settings the viewer does not know', () => {
+    const parsed = parseProteinSpec(JSON.stringify({ ...spec, style: '<script>', color: 'red', highlight: 'all' }));
+    expect(parsed).toMatchObject({ style: 'cartoon', color: 'spectrum', highlight: [] });
+  });
+
+  it('keeps only whole residue numbers in a highlight', () => {
+    const parsed = parseProteinSpec(JSON.stringify({ ...spec, highlight: [{ residues: [1, 'x', 2.5] }, { residues: [] }, 'y'] }));
+    expect(parsed?.highlight).toEqual([{ residues: [1] }]);
   });
 });

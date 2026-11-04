@@ -48,6 +48,8 @@ _NO_CORPUS_FEATURES = (
 )
 _STATIC_FEATURES = (
     "Upload documents (PDF, TXT, MD, DOCX, PNG, JPG, WEBP) via the + button",
+    "Show proteins in an interactive 3D viewer in the chat, from a PDB id or an "
+    "AlphaFold model",
     *(_CORPUS_FEATURES if os.getenv("MUNIN_CORPUS", "1") != "0" else _NO_CORPUS_FEATURES),
     "Switch personas in the sidebar (Meitner chat / Turing code / Curie research)",
     "Organize chats into Projects with per-project instructions and docs",

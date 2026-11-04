@@ -32,6 +32,7 @@ const CONTENT_TYPE_EXT: Record<string, string> = {
   'text/markdown': '.md',
   'text/latex': '.tex',
   'application/json': '.json',
+  'application/vnd.munin.widget+json': '.json',
   'image/svg+xml': '.svg',
   'text/css': '.css',
   'application/javascript': '.js',

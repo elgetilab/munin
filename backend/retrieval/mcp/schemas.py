@@ -567,6 +567,50 @@ MCP_TOOLS = {
             "required": ["title", "content", "content_type"]
         }
     },
+    "show_protein": {
+        "name": "show_protein",
+        "is_concurrency_safe": False,
+        "description": "Show a protein as an interactive 3D molecular structure viewer in your message, which the user can rotate, zoom and restyle. Use it whenever the user asks to see, view, visualise, visualize or display a protein, enzyme, antibody or other molecule or macromolecule structure in 3D. Give a pdb_id for an experimental structure from the RCSB Protein Data Bank, or a uniprot_id for an AlphaFold predicted model. Look the id up first if you are not sure of it; an unknown id returns an error. Returns the entry's real title, so check it matches what the user asked for. Not available in ephemeral chats.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pdb_id": {
+                    "type": "string",
+                    "description": "Four-character PDB id, e.g. '1CRN'. Pass this or uniprot_id, not both."
+                },
+                "uniprot_id": {
+                    "type": "string",
+                    "description": "UniProt accession for an AlphaFold model, e.g. 'P69905'. Pass this or pdb_id, not both."
+                },
+                "style": {
+                    "type": "string",
+                    "enum": ["cartoon", "stick", "sphere", "line"],
+                    "description": "How to draw it. Default cartoon."
+                },
+                "color": {
+                    "type": "string",
+                    "enum": ["spectrum", "chain", "secondary", "bfactor"],
+                    "description": "How to colour it: spectrum (N to C terminus, the default), chain, secondary structure, or bfactor (model confidence on an AlphaFold model)."
+                },
+                "highlight": {
+                    "type": "array",
+                    "description": "Residues to pick out, e.g. an active site. At most 200 in total.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "chain": {"type": "string", "description": "Chain id. Omit to match every chain."},
+                            "residues": {"type": "array", "items": {"type": "integer"}, "description": "Residue numbers as numbered in the structure."}
+                        },
+                        "required": ["residues"]
+                    }
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Optional title. Defaults to the entry's title in its database."
+                }
+            }
+        }
+    },
     "read_artifact": {
         "name": "read_artifact",
         "description": "Load the full current (or a specific past) version of an artifact in the current conversation. Use this when you need to see the actual content of an artifact to reason about it, quote it, or decide how to update it. The === ACTIVE ARTIFACTS === block in your system prompt shows only titles and word counts to keep context overhead bounded - this tool is the on-demand fetch for the content itself. For the current draft, omit the version argument; for a historical version, pass version=N where N is between 1 and the artifact's latest_version.",

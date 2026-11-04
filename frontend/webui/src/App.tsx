@@ -18,6 +18,7 @@ import { SleepingPage } from './components/SleepingPage';
 import { MaintenancePage } from './components/MaintenancePage';
 import { Settings } from './components/Settings';
 import { ArtifactPanel } from './components/ArtifactPanel';
+import { isWidget } from './lib/artifactDisplay';
 import { ProjectSettings } from './components/ProjectSettings';
 import { AdminPanel } from './components/AdminPanel';
 import { ReportDialog } from './components/ReportDialog';
@@ -279,12 +280,13 @@ export default function App() {
     return () => { mounted = false; clearInterval(id); };
   }, [drJobId, drJobConv, drJobActive, drSetJob, setArtifacts]);
 
-  // Open the panel on a document the model is writing. Sandbox files already
-  // show in the message, so they only become the selection if that does not
-  // replace something the user is reading in the panel.
+  // Open the panel on a document the model is writing. Sandbox files and widgets
+  // already show in the message, so they only become the selection if that does
+  // not replace something the user is reading in the panel.
   useEffect(() => {
     if (!lastArtifactEvent) return;
-    if (lastArtifactEvent.source === 'model_written') {
+    const inMessage = 'content_type' in lastArtifactEvent && isWidget(lastArtifactEvent);
+    if (lastArtifactEvent.source === 'model_written' && !inMessage) {
       setArtifactPanelOpen(true);
       setSelectedArtifactId(lastArtifactEvent.id);
     } else if (!useUiStore.getState().artifactPanelOpen) {

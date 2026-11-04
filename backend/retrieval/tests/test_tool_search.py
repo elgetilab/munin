@@ -67,7 +67,7 @@ _BROAD = [
     "get_author_papers", "get_paper_pdf", "check_papers_availability",
     "export_citations", "compile_latex", "run_python", "sandbox_reset",
     "calculate", "ask_clarification", "create_artifact", "read_artifact",
-    "update_artifact", "list_artifacts", "save_artifact_to_documents",
+    "update_artifact", "list_artifacts", "save_artifact_to_documents", "show_protein",
     "search_user_docs", "search_past_conversations", "list_projects",
     "get_current_project", "remember", "forget", "recall", "invoke_agent",
     "deep_research", "view_attachment", "transcribe_equation", "faq",

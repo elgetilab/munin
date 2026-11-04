@@ -28,6 +28,7 @@ from .faq import faq
 from .source import source
 from .search_agent import search
 from .compute_agent import compute
+from .structures import show_protein
 from .s2_citations import s2_get_citations, s2_get_references
 from .chats import search_past_conversations
 from .memory import remember, forget, recall
@@ -84,6 +85,7 @@ __all__ = [
     "update_artifact",
     "list_artifacts",
     "save_artifact_to_documents",
+    "show_protein",
     "list_projects",
     "get_current_project",
     "invoke_agent",

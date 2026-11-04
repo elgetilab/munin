@@ -2847,7 +2847,7 @@ async def stream_chat_completion(
                 # the sandbox registrations above - both model-written and
                 # sandbox-generated artifacts use `artifact_created` (Stage
                 # C unification). Only emitted on successful tool results.
-                if res.get("name") == "create_artifact":
+                if res.get("name") in ("create_artifact", "show_protein"):
                     tr = res.get("result") or {}
                     if isinstance(tr, dict) and not tr.get("error"):
                         yield _sse(

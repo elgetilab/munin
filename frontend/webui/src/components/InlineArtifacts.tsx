@@ -8,10 +8,14 @@ import {
   getContentTypeLabel,
   isEmbeddedInText,
   isInlinePreview,
+  isWidget,
+  parseProteinSpec,
   svgDataUrl,
   type ArtifactRef,
+  type ProteinSpec,
 } from '../lib/artifactDisplay';
 import { useUiStore } from '../stores/uiStore';
+import { ProteinViewer } from './ProteinViewer';
 
 interface InlineArtifactsProps {
   toolCalls: ToolCall[] | null | undefined;
@@ -25,11 +29,11 @@ export function InlineArtifacts({ toolCalls, content = '', conversationId }: Inl
   if (refs.length === 0) return null;
   return (
     <div data-testid="inline-artifacts" className="space-y-2">
-      {refs.map(ref => (
-        isInlinePreview(ref)
-          ? <ArtifactPreview key={ref.id} artifact={ref} conversationId={conversationId} />
-          : <ArtifactCard key={ref.id} artifact={ref} />
-      ))}
+      {refs.map(ref => {
+        if (isWidget(ref)) return <ArtifactWidget key={ref.id} artifact={ref} conversationId={conversationId} />;
+        if (isInlinePreview(ref)) return <ArtifactPreview key={ref.id} artifact={ref} conversationId={conversationId} />;
+        return <ArtifactCard key={ref.id} artifact={ref} />;
+      })}
     </div>
   );
 }
@@ -67,6 +71,40 @@ function ArtifactCard({ artifact, note }: { artifact: ArtifactRef; note?: string
         <span className="block text-[11px] text-text-secondary">{details}</span>
       </span>
     </button>
+  );
+}
+
+function ArtifactWidget({ artifact, conversationId }: { artifact: ArtifactRef; conversationId?: string | null }) {
+  const open = useOpenArtifact(artifact.id);
+  const [spec, setSpec] = useState<ProteinSpec | null>(null);
+  const [failed, setFailed] = useState(false);
+  const { id, version } = artifact;
+
+  useEffect(() => {
+    if (!conversationId) return;
+    let cancelled = false;
+    fetchArtifact(conversationId, id, version)
+      .then(full => {
+        if (cancelled) return;
+        const parsed = parseProteinSpec(full.content);
+        if (parsed) setSpec(parsed);
+        else setFailed(true);
+      })
+      .catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; };
+  }, [conversationId, id, version]);
+
+  if (failed) return <ArtifactCard artifact={artifact} note="preview unavailable" />;
+  if (!spec || !conversationId) return <div data-testid="artifact-preview-loading" className="h-32 max-w-md rounded-lg bg-bg-secondary border border-border" />;
+  return (
+    <ProteinViewer
+      spec={spec}
+      title={artifact.title}
+      conversationId={conversationId}
+      artifactId={id}
+      version={version}
+      onExpand={open}
+    />
   );
 }
 

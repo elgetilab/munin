@@ -15,6 +15,9 @@ frontend/webui/src/components/Markdown.tsx (safeUrlTransform)
   Adapted from react-markdown's defaultUrlTransform
   (https://github.com/remarkjs/react-markdown), MIT License.
 
+frontend/webui (3Dmol.js, bundled into the protein viewer)
+  3Dmol.js (https://github.com/3dmol/3Dmol.js), BSD 3-Clause License.
+
 backend/benchmarks/munin_bench/faithfulness/minicheck.py
   Reimplements the inference procedure of MiniCheck
   (Tang et al. 2024, https://github.com/Liyan06/MiniCheck), MIT License.

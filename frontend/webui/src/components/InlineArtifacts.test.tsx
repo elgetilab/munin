@@ -4,8 +4,11 @@ import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
 import { InlineArtifacts } from './InlineArtifacts';
 import { useUiStore, _resetUiStoreForTests } from '../stores/uiStore';
-import { MAX_INLINE_PREVIEW_BYTES } from '../lib/artifactDisplay';
+import { MAX_INLINE_PREVIEW_BYTES, WIDGET_CONTENT_TYPE } from '../lib/artifactDisplay';
 import type { ToolCall } from '../lib/types';
+
+vi.mock('3dmol/build/3Dmol-min.js?raw', () => ({ default: 'library' }));
+vi.mock('../widgets/proteinRuntime.js?raw', () => ({ default: 'runtime' }));
 
 function sandboxCall(file: Record<string, unknown>): ToolCall {
   return {
@@ -92,5 +95,42 @@ describe('InlineArtifacts', () => {
     server.use(http.get('/api/chats/:cid/artifacts/:aid', () => new HttpResponse(null, { status: 404 })));
     render(<InlineArtifacts toolCalls={[SVG]} conversationId="c1" />);
     await waitFor(() => expect(screen.getByTestId('artifact-card')).toHaveTextContent('preview unavailable'));
+  });
+});
+
+describe('InlineArtifacts widgets', () => {
+  const VIEWER: ToolCall = {
+    name: 'show_protein',
+    arguments: {},
+    result: { id: 'art_p', title: 'Crambin', content_type: WIDGET_CONTENT_TYPE, version: 1 },
+  };
+
+  beforeEach(() => _resetUiStoreForTests());
+
+  it('shows a viewer in the message, and Expand opens the panel', async () => {
+    server.use(
+      http.get('/api/chats/c1/artifacts/art_p', () => HttpResponse.json({
+        id: 'art_p',
+        content: JSON.stringify({ widget: 'protein', source: 'pdb', id: '1CRN', style: 'cartoon', color: 'spectrum', highlight: [] }),
+      })),
+      http.get('/api/chats/c1/artifacts/art_p/structure', () => HttpResponse.json({ format: 'pdb', data: 'ATOM' })),
+    );
+    render(<InlineArtifacts toolCalls={[VIEWER]} conversationId="c1" />);
+    await screen.findByTestId('protein-viewer');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand' }));
+    expect(useUiStore.getState().selectedArtifactId).toBe('art_p');
+    expect(useUiStore.getState().artifactPanelOpen).toBe(true);
+  });
+
+  it('falls back to a card when the spec is not usable', async () => {
+    server.use(http.get('/api/chats/c1/artifacts/art_p', () => HttpResponse.json({ id: 'art_p', content: 'broken' })));
+    render(<InlineArtifacts toolCalls={[VIEWER]} conversationId="c1" />);
+    expect(await screen.findByTestId('artifact-card')).toHaveTextContent('preview unavailable');
+  });
+
+  it('falls back to a card when the spec cannot be loaded', async () => {
+    server.use(http.get('/api/chats/c1/artifacts/art_p', () => new HttpResponse(null, { status: 404 })));
+    render(<InlineArtifacts toolCalls={[VIEWER]} conversationId="c1" />);
+    expect(await screen.findByTestId('artifact-card')).toHaveTextContent('3D structure');
   });
 });

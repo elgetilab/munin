@@ -12,7 +12,7 @@ const REGISTRY_TOOLS = [
   'get_author_papers', 'get_paper_pdf', 'check_papers_availability',
   'search_user_docs', 'list_documents', 'browse_tag_papers',
   'transcribe_equation', 'view_attachment', 'create_artifact', 'read_artifact',
-  'update_artifact', 'list_artifacts', 'save_artifact_to_documents',
+  'update_artifact', 'list_artifacts', 'save_artifact_to_documents', 'show_protein',
   'remember', 'forget', 'recall', 'list_projects', 'get_current_project',
   'search_past_conversations', 'invoke_agent', 'calculate', 'export_citations',
   'deep_research', 'edit_python', 'run_python', 'sandbox_reset',

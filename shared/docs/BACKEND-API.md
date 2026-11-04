@@ -989,6 +989,12 @@ returns an error on a sandbox row, regenerate via `run_python` or
 The full content snapshot chain lives in `artifact_versions`; there is
 no diff chain, just full snapshots per version.
 
+**Widgets.** `show_protein` creates a model-written artifact of type
+`application/vnd.munin.widget+json` that holds a small JSON spec, not the
+coordinates. `GET /api/chats/{cid}/artifacts/{id}/structure` returns
+`{format, data}` for it, fetched from RCSB or AlphaFold and checked against
+the artifact's owner.
+
 **Text in SQLite, binary on disk.** Model-written artifacts hold text
 inline under a 500 KB byte cap. Sandbox-generated artifacts store
 a short metadata placeholder inline and point `external_url` at

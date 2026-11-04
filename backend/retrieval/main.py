@@ -1075,6 +1075,37 @@ async def api_get_artifact(
     return row
 
 
+@app.get("/api/chats/{conversation_id}/artifacts/{artifact_id}/structure")
+async def api_get_artifact_structure(
+    conversation_id: str,
+    artifact_id: str,
+    request: Request,
+    version: Optional[int] = Query(None, ge=1),
+):
+    """Coordinates for a protein viewer. Only an artifact the user owns names the
+    entry, so this is not a general proxy to the structure databases."""
+    from mcp.tools import structures
+
+    user_email = _require_user_email(request)
+    row = await artifact_store.get_artifact_version(
+        user_email=user_email,
+        conversation_id=conversation_id,
+        artifact_id=artifact_id,
+        version=version,
+    )
+    if row is None or row.get("content_type") != structures.WIDGET_CONTENT_TYPE:
+        raise _error_404("Artifact not found")
+    try:
+        spec = structures.parse_protein_spec(row.get("content") or "")
+        entry = await structures.fetch_structure(spec["source"], spec["id"])
+    except structures.StructureError as exc:
+        raise HTTPException(status_code=502, detail={"error": {"message": str(exc)}})
+    return JSONResponse(
+        {"format": entry["format"], "data": entry["data"]},
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
 @app.patch("/api/chats/{conversation_id}/artifacts/{artifact_id}")
 async def api_patch_artifact(
     conversation_id: str,

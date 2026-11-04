@@ -34,6 +34,7 @@ from .tools import (
     get_references,
     invoke_agent,
     list_artifacts,
+    show_protein,
     list_projects,
     llm_summarize,
     paper_lookup,
@@ -304,6 +305,18 @@ async def _update_artifact(arguments: dict) -> dict:
 @register_tool("list_artifacts")
 async def _list_artifacts(arguments: dict) -> dict:
     return await list_artifacts()
+
+
+@register_tool("show_protein")
+async def _show_protein(arguments: dict) -> dict:
+    return await show_protein(
+        pdb_id=arguments.get("pdb_id"),
+        uniprot_id=arguments.get("uniprot_id"),
+        style=arguments.get("style", "cartoon"),
+        color=arguments.get("color", "spectrum"),
+        highlight=arguments.get("highlight"),
+        title=arguments.get("title"),
+    )
 
 
 @register_tool("save_artifact_to_documents")

@@ -684,6 +684,16 @@ export async function fetchArtifact(conversationId: string, artifactId: string, 
   return res.json();
 }
 
+export async function fetchArtifactStructure(conversationId: string, artifactId: string, version?: number): Promise<{ format: string; data: string }> {
+  const qs = version ? `?version=${version}` : '';
+  const res = await fetch(`${API}/chats/${conversationId}/artifacts/${artifactId}/structure${qs}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail?.error?.message ?? body?.error?.message ?? 'Could not load the structure');
+  }
+  return res.json();
+}
+
 export async function updateArtifact(conversationId: string, artifactId: string, content: string, changeSummary: string): Promise<ArtifactFull> {
   const res = await fetch(`${API}/chats/${conversationId}/artifacts/${artifactId}`, {
     method: 'PATCH',
