@@ -279,10 +279,15 @@ export default function App() {
     return () => { mounted = false; clearInterval(id); };
   }, [drJobId, drJobConv, drJobActive, drSetJob, setArtifacts]);
 
-  // Auto-open panel and select the latest artifact whenever one is created or updated
+  // Open the panel on a document the model is writing. Sandbox files already
+  // show in the message, so they only become the selection if that does not
+  // replace something the user is reading in the panel.
   useEffect(() => {
-    if (lastArtifactEvent) {
+    if (!lastArtifactEvent) return;
+    if (lastArtifactEvent.source === 'model_written') {
       setArtifactPanelOpen(true);
+      setSelectedArtifactId(lastArtifactEvent.id);
+    } else if (!useUiStore.getState().artifactPanelOpen) {
       setSelectedArtifactId(lastArtifactEvent.id);
     }
   }, [lastArtifactEvent, setArtifactPanelOpen, setSelectedArtifactId]);

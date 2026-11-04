@@ -473,3 +473,41 @@ describe('MessageList', () => {
     });
   });
 });
+
+// ── Inline artifacts ────────────────────────────────────────────────────────
+
+describe('MessageList inline artifacts', () => {
+  const runPython = {
+    name: 'run_python',
+    arguments: {},
+    result: {
+      artifacts: [{
+        registered_artifact_id: 'art_1',
+        filename: 'plot.png',
+        content_type: 'image/png',
+        size_bytes: 2048,
+        external_url: '/api/artifacts/c1/hash',
+      }],
+    },
+  };
+
+  it('shows a plot from a finished message, as after a reload', () => {
+    const messages: Message[] = [{
+      id: 'm1', role: 'assistant', content: 'Here it is.', tool_calls: [runPython],
+      created_at: new Date().toISOString(),
+    }];
+    render(<MessageList messages={messages} streaming={makeStreaming()} conversationId="c1" />);
+    expect(screen.getByRole('img', { name: 'plot.png' })).toBeInTheDocument();
+  });
+
+  it('shows a plot while the turn is still streaming', () => {
+    render(
+      <MessageList
+        messages={[]}
+        streaming={makeStreaming({ phase: 'tool_call', toolCalls: [runPython] })}
+        conversationId="c1"
+      />,
+    );
+    expect(screen.getByRole('img', { name: 'plot.png' })).toBeInTheDocument();
+  });
+});

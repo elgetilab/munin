@@ -1,0 +1,96 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { http, HttpResponse } from 'msw';
+import { server } from '../test/msw-server';
+import { InlineArtifacts } from './InlineArtifacts';
+import { useUiStore, _resetUiStoreForTests } from '../stores/uiStore';
+import { MAX_INLINE_PREVIEW_BYTES } from '../lib/artifactDisplay';
+import type { ToolCall } from '../lib/types';
+
+function sandboxCall(file: Record<string, unknown>): ToolCall {
+  return {
+    name: 'run_python',
+    arguments: {},
+    result: { artifacts: [{ registered_artifact_id: 'art_1', external_url: '/api/artifacts/c1/hash', ...file }] },
+  };
+}
+
+const PLOT = sandboxCall({ filename: 'plot.png', content_type: 'image/png', size_bytes: 2048 });
+const PDF = sandboxCall({ filename: 'paper.pdf', content_type: 'application/pdf', size_bytes: 2 * 1024 * 1024 });
+const SVG: ToolCall = {
+  name: 'create_artifact',
+  arguments: {},
+  result: { id: 'art_svg', title: 'Pathway', content_type: 'image/svg+xml', version: 2 },
+};
+
+describe('InlineArtifacts', () => {
+  beforeEach(() => _resetUiStoreForTests());
+
+  it('renders nothing when the turn made no artifacts', () => {
+    const { container } = render(<InlineArtifacts toolCalls={[{ name: 'search', arguments: {}, result: {} }]} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('shows a plot as a preview', () => {
+    render(<InlineArtifacts toolCalls={[PLOT]} />);
+    expect(screen.getByRole('img', { name: 'plot.png' })).toHaveAttribute('src', '/api/artifacts/c1/hash');
+    expect(screen.queryByTestId('artifact-card')).not.toBeInTheDocument();
+  });
+
+  it('shows a PDF as a card with its type and size', () => {
+    render(<InlineArtifacts toolCalls={[PDF]} />);
+    const card = screen.getByTestId('artifact-card');
+    expect(card).toHaveTextContent('paper.pdf');
+    expect(card).toHaveTextContent('PDF · 2.0 MB');
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
+
+  it('shows an oversized image as a card', () => {
+    render(<InlineArtifacts toolCalls={[sandboxCall({ filename: 'huge.png', content_type: 'image/png', size_bytes: MAX_INLINE_PREVIEW_BYTES + 1 })]} />);
+    expect(screen.getByTestId('artifact-card')).toHaveTextContent('huge.png');
+  });
+
+  it.each([
+    ['a card', PDF, 'artifact-card'],
+    ['a preview', PLOT, 'artifact-preview'],
+  ])('opens the panel on the artifact when %s is clicked', async (_label, call, testId) => {
+    render(<InlineArtifacts toolCalls={[call]} />);
+    useUiStore.setState({ knowledgePanelOpen: true });
+    await userEvent.click(screen.getByTestId(testId));
+    const ui = useUiStore.getState();
+    expect(ui.selectedArtifactId).toBe('art_1');
+    expect(ui.artifactPanelOpen).toBe(true);
+    expect(ui.knowledgePanelOpen).toBe(false);
+  });
+
+  it('falls back to a card when the file is gone', () => {
+    render(<InlineArtifacts toolCalls={[PLOT]} />);
+    fireEvent.error(screen.getByRole('img', { name: 'plot.png' }));
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    expect(screen.getByTestId('artifact-card')).toHaveTextContent('preview unavailable');
+  });
+
+  it('does not repeat an image the model embedded in its text', () => {
+    render(<InlineArtifacts toolCalls={[PLOT]} content="Here: ![plot](/api/artifacts/c1/hash)" />);
+    expect(screen.queryByTestId('inline-artifacts')).not.toBeInTheDocument();
+  });
+
+  it('loads a model-written SVG at its version and shows it as an image', async () => {
+    const versions: (string | null)[] = [];
+    server.use(http.get('/api/chats/:cid/artifacts/:aid', ({ request }) => {
+      versions.push(new URL(request.url).searchParams.get('version'));
+      return HttpResponse.json({ id: 'art_svg', content: '<svg xmlns="http://www.w3.org/2000/svg"/>' });
+    }));
+    render(<InlineArtifacts toolCalls={[SVG]} conversationId="c1" />);
+    expect(screen.getByTestId('artifact-preview-loading')).toBeInTheDocument();
+    const img = await screen.findByRole('img', { name: 'Pathway' });
+    expect(img.getAttribute('src')).toMatch(/^data:image\/svg\+xml/);
+    expect(versions).toEqual(['2']);
+  });
+
+  it('falls back to a card when the SVG cannot be loaded', async () => {
+    server.use(http.get('/api/chats/:cid/artifacts/:aid', () => new HttpResponse(null, { status: 404 })));
+    render(<InlineArtifacts toolCalls={[SVG]} conversationId="c1" />);
+    await waitFor(() => expect(screen.getByTestId('artifact-card')).toHaveTextContent('preview unavailable'));
+  });
+});

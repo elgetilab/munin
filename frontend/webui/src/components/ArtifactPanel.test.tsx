@@ -95,3 +95,17 @@ describe('ArtifactPanel', () => {
     await waitFor(() => expect(screen.queryByDisplayValue('Edited body')).not.toBeInTheDocument());
   });
 });
+
+describe('ArtifactPanel SVG', () => {
+  beforeEach(() => _resetUiStoreForTests());
+
+  it('draws a model-written SVG instead of showing its source', async () => {
+    const svg: ArtifactSummary = { ...SECOND, id: 'a3', title: 'Pathway', content_type: 'image/svg+xml' };
+    server.use(http.get('/api/chats/:cid/artifacts/:aid', () =>
+      HttpResponse.json({ ...svg, version: 1, content: '<svg xmlns="http://www.w3.org/2000/svg"/>' })));
+    renderPanel([svg]);
+    useUiStore.setState({ selectedArtifactId: 'a3' });
+    const img = await screen.findByRole('img', { name: 'Pathway' });
+    expect(img.getAttribute('src')).toMatch(/^data:image\/svg\+xml/);
+  });
+});

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { installMocks } from './fixtures/mock';
-import { artifactReply } from './fixtures/scenarios';
+import { artifactReply, sandboxFileReply } from './fixtures/scenarios';
 
 // The heaviest real usage: LaTeX->PDF, run_python->PNG, create_artifact->html.
 // A chat reply that emits `artifact_created` should surface in the Artifacts
@@ -60,5 +60,31 @@ test.describe('artifacts', () => {
     // The "back to list" control (a left-arrow) returns to the list view.
     await page.getByTestId('artifact-panel').getByRole('button', { name: '←' }).click();
     await expect(page.getByTestId('artifact-item').filter({ hasText: 'Report One' })).toBeVisible();
+  });
+});
+
+test.describe('inline artifacts', () => {
+  test('a plot shows in the message and leaves the panel closed', async ({ page }) => {
+    await installMocks(page, { chatScript: sandboxFileReply({ id: 'a-png', filename: 'figure.png', content_type: 'image/png', size_bytes: 2048 }) });
+    await page.route('**/api/artifacts/conv-e2e/a-png', route => route.fulfill({
+      contentType: 'image/png',
+      // A 1x1 PNG, because the catch-all mock's JSON would fail to load as an image.
+      body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAEBgIApD5fRAAAAABJRU5ErkJggg==', 'base64'),
+    }));
+    await page.goto('/');
+    await sendFor(page, 'plot sin(x)');
+    await expect(page.getByTestId('artifact-preview').getByRole('img', { name: 'figure.png' })).toBeAttached();
+    await expect(page.getByTestId('artifact-panel')).toBeHidden();
+  });
+
+  test('a PDF card opens the panel when clicked', async ({ page }) => {
+    await installMocks(page, { chatScript: sandboxFileReply({ id: 'a-pdf', filename: 'paper.pdf', content_type: 'application/pdf', size_bytes: 2097152 }) });
+    await page.goto('/');
+    await sendFor(page, 'compile my latex');
+    const card = page.getByTestId('artifact-card');
+    await expect(card).toContainText('paper.pdf');
+    await expect(page.getByTestId('artifact-panel')).toBeHidden();
+    await card.click();
+    await expect(page.getByTestId('artifact-panel').getByRole('heading', { name: 'paper.pdf' })).toBeVisible();
   });
 });

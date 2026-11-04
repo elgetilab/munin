@@ -97,3 +97,18 @@ export function researchSnapshots(jobId: string, conversationId: string, questio
 }
 
 export const DR_REPORT_ARTIFACT = { id: 'art-dr', title: 'Research: CRISPR off-target risks', content_type: 'text/markdown', latest_version: 1, word_count: 400, byte_size: 2400, source: 'model_written', created_at: new Date(0).toISOString(), updated_at: new Date(0).toISOString() };
+
+// A sandbox file as the backend really sends it: a tool result that carries the
+// registered artifact, followed by the event for the panel.
+export function sandboxFileReply(a: { id: string; filename: string; content_type: string; size_bytes: number }): SseEvent[] {
+  const external_url = `/api/artifacts/conv-e2e/${a.id}`;
+  const id = 'tc-file';
+  return [
+    ev.conversation('conv-e2e'), ev.routing('code'),
+    ev.toolCall('run_python', { code: 'x' }, id),
+    ev.toolResult(id, { artifacts: [{ ...a, registered_artifact_id: a.id, external_url, source: 'sandbox_generated' }] }),
+    ev.artifactCreated({ id: a.id, title: a.filename, content_type: a.content_type, filename: a.filename, size_bytes: a.size_bytes, external_url, source: 'sandbox_generated' }),
+    ...tokens('Done.'),
+    ev.done(),
+  ];
+}

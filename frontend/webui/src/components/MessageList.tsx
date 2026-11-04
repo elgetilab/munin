@@ -7,6 +7,7 @@ import { ClarificationCard } from './ClarificationCard';
 import { MemoryProposalPill } from './MemoryProposalPill';
 import { CompactBoundaryDivider } from './CompactBoundaryDivider';
 import { PlanCard } from './PlanCard';
+import { InlineArtifacts } from './InlineArtifacts';
 import { detectPhase } from '../lib/streamPhase';
 
 interface RetryingState {
@@ -183,7 +184,7 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
                 onAfterEdit={onPlanEdited}
               />
             ) : null}
-            <MessageBubble message={msg} onSendClarification={onSendClarification} onDismissMemoryProposal={onDismissMemoryProposal} onContinue={isLast && !streamingActive ? onContinue : undefined} />
+            <MessageBubble message={msg} conversationId={conversationId} onSendClarification={onSendClarification} onDismissMemoryProposal={onDismissMemoryProposal} onContinue={isLast && !streamingActive ? onContinue : undefined} />
           </div>
           );
         })}
@@ -230,6 +231,8 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
                 <Markdown content={cleanContent(streaming.content)} />
               </div>
             )}
+
+            <InlineArtifacts toolCalls={streaming.toolCalls} content={streaming.content} conversationId={conversationId} />
 
             {/* Working spinner below already-streamed content. Shown for
                 ANY active non-tool_call phase (not just 'generating'), so
@@ -289,7 +292,7 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
   );
 }
 
-function MessageBubble({ message, onSendClarification, onDismissMemoryProposal, onContinue }: { message: Message; onSendClarification?: (answer: string) => void; onDismissMemoryProposal?: (proposalId: string) => void; onContinue?: () => void }) {
+function MessageBubble({ message, conversationId, onSendClarification, onDismissMemoryProposal, onContinue }: { message: Message; conversationId?: string | null; onSendClarification?: (answer: string) => void; onDismissMemoryProposal?: (proposalId: string) => void; onContinue?: () => void }) {
   if (message.role === 'user') {
     return (
       <div className="flex gap-3 justify-end">
@@ -321,6 +324,8 @@ function MessageBubble({ message, onSendClarification, onDismissMemoryProposal, 
           <Markdown content={cleanContent(message.content)} />
         </div>
       )}
+
+      <InlineArtifacts toolCalls={message.tool_calls} content={message.content} conversationId={conversationId} />
 
       {/* Clarification card on completed message */}
       {message.clarification && onSendClarification && (

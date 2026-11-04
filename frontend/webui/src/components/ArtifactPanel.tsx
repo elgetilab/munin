@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ArtifactSummary, ArtifactFull } from '../lib/types';
 import { fetchArtifact, updateArtifact } from '../lib/api';
 import { getExtension } from '../lib/artifactDownload';
+import { formatBytes, getContentTypeIcon, svgDataUrl } from '../lib/artifactDisplay';
 import { printArtifactAsPdf } from '../lib/printPdf';
 import { Markdown } from './Markdown';
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -18,36 +19,13 @@ interface ArtifactPanelProps {
   conversationId: string;
 }
 
-const CONTENT_TYPE_ICONS: Record<string, string> = {
-  'text/markdown': '\u{1F4DD}',
-  'text/latex': '\u{1F4C4}',
-  'text/plain': '\u{1F4C3}',
-  'application/python': '\u{1F40D}',
-  'application/json': '{}',
-  'image/svg+xml': '\u{1F5BC}',
-  'image/png': '\u{1F5BC}',
-  'image/jpeg': '\u{1F5BC}',
-  'application/pdf': '\u{1F4C4}',
-};
-
-function getContentTypeIcon(ct: string): string {
-  return CONTENT_TYPE_ICONS[ct] || '\u{1F4C4}';
-}
-
 function getLanguageForHighlight(artifact: ArtifactFull): string | null {
   if (artifact.language) return artifact.language;
   const ct = artifact.content_type;
   if (ct === 'application/python') return 'python';
   if (ct === 'application/json') return 'json';
   if (ct === 'text/latex') return 'latex';
-  if (ct === 'image/svg+xml') return 'xml';
   return null;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps) {
@@ -413,6 +391,9 @@ function ArtifactContent({ artifact }: { artifact: ArtifactFull }) {
     const url = artifact.external_url || getBinaryArtifactUrl(artifact);
     if (url) {
       return <img src={url} alt={artifact.title} className="max-w-full rounded" />;
+    }
+    if (ct === 'image/svg+xml') {
+      return <img src={svgDataUrl(artifact.content)} alt={artifact.title} className="max-w-full rounded bg-white" />;
     }
   }
 
