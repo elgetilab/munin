@@ -46,7 +46,9 @@ KERNEL_LIMITS = {
     "as": 2 * 1024 * 1024 * 1024,
     "fsize": 100 * 1024 * 1024,
     "nofile": 256,
-    "nproc": 256,
+    # Lower it where the container's pids limit is small, so that one conversation
+    # cannot use up the processes of all the others.
+    "nproc": int(os.environ.get("SANDBOX_KERNEL_NPROC", "256")),
 }
 LATEX_LIMITS = dict(KERNEL_LIMITS, fsize=50 * 1024 * 1024)
 

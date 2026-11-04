@@ -1,0 +1,79 @@
+# ==============================================================================
+# MUNIN LITE - the backend on a small host, with no corpus and a hosted LLM
+# ==============================================================================
+# Layered over docker-compose.yml, which stays untouched so the reference cluster
+# is unaffected. Fits beside the frontend on a 4-core, 8 GB VM. Turns off the
+# paper corpus, citation graph, GROBID and ingest, and LaTeX. See
+# docs/install/lite.md.
+#
+#   COMPOSE_FILE=backend/docker/docker-compose.yml:backend/docker/lite.yml
+#   COMPOSE_PROFILES=rag,llm-claude
+# ==============================================================================
+services:
+  neo4j:
+    profiles: [corpus]
+  grobid:
+    profiles: [corpus]
+
+  retrieval:
+    build:
+      args:
+        TORCH_INDEX_URL: https://download.pytorch.org/whl/cpu
+    depends_on: !override
+      - qdrant
+      - searxng
+      - sandbox
+      - llm-claude
+    environment:
+      - MUNIN_CORPUS=0
+      - MUNIN_DISABLED_TOOLS=paper_search,get_citations,get_references,get_author_papers,get_paper_pdf,check_papers_availability,browse_tag_papers,compile_latex
+      - NEO4J_PASSWORD=
+      # Rejects uploads with a 503, so the frontend keeps them queued in
+      # complete/ for a backend that can ingest them.
+      - ADMIN_INGEST_TOKEN=
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+
+  llm-claude:
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  qdrant:
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  searxng:
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # Small, and unable to touch the disk the login databases share: the root
+  # filesystem is read-only and everything writable is RAM, inside the memory
+  # limit. A kernel that exceeds it is killed, not the host's other services.
+  sandbox:
+    build:
+      args:
+        INSTALL_TEX: "0"
+    read_only: true
+    tmpfs:
+      - /scratch:size=256m,mode=0711
+      - /scratch-meta:size=16m,mode=0700
+      - /run/munin-sandbox:size=16m,mode=0711
+      - /tmp:size=64m
+    environment:
+      - SANDBOX_IDLE_TTL_S=300
+      - SANDBOX_MAX_TIMEOUT_S=60
+      - SANDBOX_KERNEL_NPROC=64
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1'
+          pids: 256

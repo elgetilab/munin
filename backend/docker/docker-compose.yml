@@ -349,6 +349,7 @@ services:
       - ROUTER_ENABLED=${ROUTER_ENABLED:-true}
       # Semantic Scholar API (for semantic_scholar_search tool)
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
+      - OPENALEX_API_KEY=${OPENALEX_API_KEY:-}
       # Brave Search API (primary web_search source; SearXNG scrapers are
       # dead from the datacenter IP). QPS default matches the free tier;
       # raise in cluster.env if the key's paid tier allows (Base = 20/s).

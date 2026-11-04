@@ -27,17 +27,23 @@ WORKDIR /app
 # \usepackage[ngerman]{babel} fails with "Unknown option 'ngerman'", which
 # stranded a German user's compile on 2026-06-16 (chat 5e27dfa4).
 # ~1 GB in the final image.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        texlive-latex-base \
-        texlive-latex-extra \
-        texlive-latex-recommended \
-        texlive-science \
-        texlive-bibtex-extra \
-        texlive-fonts-recommended \
-        texlive-lang-german \
-        texlive-lang-european \
-        biber \
-    && rm -rf /var/lib/apt/lists/*
+#
+# INSTALL_TEX=0 skips it on a small host (backend/docker/lite.yml), which also
+# has to disable the compile_latex tool.
+ARG INSTALL_TEX=1
+RUN if [ "$INSTALL_TEX" = "1" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends \
+            texlive-latex-base \
+            texlive-latex-extra \
+            texlive-latex-recommended \
+            texlive-science \
+            texlive-bibtex-extra \
+            texlive-fonts-recommended \
+            texlive-lang-german \
+            texlive-lang-european \
+            biber \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 # System dependencies: build tools for the few wheels that compile from
 # source on slim, plus tini for proper child-process reaping (matplotlib

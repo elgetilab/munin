@@ -36,6 +36,11 @@ BGE_LARGE_MODEL_PATH = os.getenv("BGE_LARGE_MODEL_PATH", "/models/bge-large")
 _BGE_QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 PAPER_QUERY_PREFIX = _BGE_QUERY_INSTRUCTION if PAPER_ENCODER == "bge-large" else ""
 
+# MUNIN_CORPUS=0 runs with no shared paper corpus, on a host too small for one
+# (backend/docker/lite.yml). Only BGE-base loads, and it also ranks web and
+# Semantic Scholar hits, which have no corpus scores to stay comparable with.
+CORPUS_ENABLED = os.getenv("MUNIN_CORPUS", "1") != "0"
+
 # Deep Research configuration
 # Submission is disabled by default while the MiroThinker research model is
 # under review for retirement. Read endpoints (status/output/jobs/queue) stay
@@ -338,7 +343,9 @@ def get_paper_encoder():
     ``notion`` collection and must not change under the migration."""
     global _paper_encoder
     if _paper_encoder is None:
-        if PAPER_ENCODER == "bge-large":
+        if not CORPUS_ENABLED:
+            _paper_encoder = get_bge()
+        elif PAPER_ENCODER == "bge-large":
             from sentence_transformers import SentenceTransformer
             model = local_model_or_hub(BGE_LARGE_MODEL_PATH, "BAAI/bge-large-en-v1.5")
             _paper_encoder = SentenceTransformer(model)   # 1024d

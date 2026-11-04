@@ -21,6 +21,7 @@ that matches the YAML.
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 
@@ -35,12 +36,19 @@ from typing import Optional
 # browse it was answered with this list and a suggestion to "check your
 # interface directly" - while the Knowledge page was doing exactly what he
 # asked, one click away.
-_STATIC_FEATURES = (
-    "Upload documents (PDF, TXT, MD, DOCX, PNG, JPG, WEBP) via the + button",
+_CORPUS_FEATURES = (
     "Attach knowledge scope with #tags (research group, topic, or #@contributor) "
     "from the + menu or by typing # in the chat box - scopes corpus search only",
     "Browse the corpus by group, topic, or contributor on the Knowledge page "
     "at /knowledge",
+)
+_NO_CORPUS_FEATURES = (
+    "The shared paper corpus, #tags and the Knowledge page are offline on this "
+    "instance. Papers are found through web search and Semantic Scholar instead",
+)
+_STATIC_FEATURES = (
+    "Upload documents (PDF, TXT, MD, DOCX, PNG, JPG, WEBP) via the + button",
+    *(_CORPUS_FEATURES if os.getenv("MUNIN_CORPUS", "1") != "0" else _NO_CORPUS_FEATURES),
     "Switch personas in the sidebar (Meitner chat / Turing code / Curie research)",
     "Organize chats into Projects with per-project instructions and docs",
     "Versioned document artifacts in the side panel (drafts, code, plots, spreadsheets)",

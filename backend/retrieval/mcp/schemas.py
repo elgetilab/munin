@@ -7,6 +7,7 @@ Each tool has:
 - inputSchema: JSON Schema for parameters
 """
 
+import os
 from urllib.parse import urlparse
 
 import site_config
@@ -1221,3 +1222,12 @@ MCP_TOOLS = {
         "is_concurrency_safe": False
     }
 }
+
+# MUNIN_DISABLED_TOOLS removes tools a deployment cannot serve (no corpus, no
+# LaTeX), so the model is not offered them and tool_search cannot find them.
+DISABLED_TOOLS = frozenset(
+    name.strip() for name in os.getenv("MUNIN_DISABLED_TOOLS", "").split(",") if name.strip()
+)
+CORE_TOOLS = CORE_TOOLS - DISABLED_TOOLS
+for _name in DISABLED_TOOLS:
+    MCP_TOOLS.pop(_name, None)

@@ -85,6 +85,8 @@ def _build_tag_filter(tags: Optional[list[dict]]):
 # Semantic Scholar API
 SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
 SEMANTIC_SCHOLAR_BASE_URL = "https://api.semanticscholar.org/graph/v1"
+OPENALEX_API_KEY = os.getenv("OPENALEX_API_KEY", "")
+OPENALEX_BASE_URL = "https://api.openalex.org"
 
 # Public URL for download links (accessible from outside the cluster)
 PUBLIC_URL = site_config.PUBLIC_URL
@@ -383,6 +385,82 @@ async def paper_search(
     return response
 
 
+def _openalex_abstract(inverted: Optional[dict]) -> str:
+    """OpenAlex stores abstracts as {word: [positions]}."""
+    if not inverted:
+        return ""
+    positions = {i: word for word, spots in inverted.items() for i in spots}
+    return " ".join(positions[i] for i in sorted(positions))
+
+
+def _openalex_year_filter(year: str) -> str:
+    """Semantic Scholar's year syntax ("2020", "2020-2024", "2020-", "-2024")."""
+    start, dash, end = (year or "").strip().partition("-")
+    if not dash:
+        end = start
+    parts = []
+    if start.isdigit():
+        parts.append(f"from_publication_date:{start}-01-01")
+    if end.isdigit():
+        parts.append(f"to_publication_date:{end}-12-31")
+    return ",".join(parts)
+
+
+async def _openalex_one(
+    client: httpx.AsyncClient,
+    q: str,
+    top_k: int,
+    year: str,
+) -> list[dict]:
+    """Stand in for one failed Semantic Scholar query, with rows of the same
+    shape. Its rate limit is the usual cause, and a shared address hits it even
+    when the corpus is not there to answer instead."""
+    params = {
+        "search": q,
+        "per-page": min(top_k, 100),
+        "select": ("id,doi,title,publication_year,cited_by_count,authorships,"
+                   "primary_location,open_access,abstract_inverted_index"),
+    }
+    year_filter = _openalex_year_filter(year)
+    if year_filter:
+        params["filter"] = year_filter
+    if OPENALEX_API_KEY:
+        params["api_key"] = OPENALEX_API_KEY
+
+    try:
+        response = await client.get(f"{OPENALEX_BASE_URL}/works", params=params)
+        response.raise_for_status()
+        works = response.json().get("results", [])
+    except Exception as e:
+        # The message would carry the request URL, and with it the key.
+        logger.warning("openalex fallback %r failed: %s", q, type(e).__name__)
+        return []
+
+    logger.info("openalex fallback %r returned %d works", q, len(works))
+    out: list[dict] = []
+    for work in works:
+        source = (work.get("primary_location") or {}).get("source") or {}
+        out.append({
+            "title": work.get("title") or "",
+            "doi": (work.get("doi") or "").removeprefix("https://doi.org/"),
+            "year": work.get("publication_year"),
+            "authors": [
+                name for name in (
+                    (a.get("author") or {}).get("display_name")
+                    for a in (work.get("authorships") or [])[:10]
+                ) if name
+            ],
+            "citation_count": work.get("cited_by_count", 0),
+            "abstract": _openalex_abstract(work.get("abstract_inverted_index"))[:500],
+            "tldr": "",
+            "journal": source.get("display_name") or "",
+            "openalex_id": work.get("id", ""),
+            "open_access_pdf": (work.get("open_access") or {}).get("oa_url") or None,
+            "matched_query": q,
+        })
+    return out
+
+
 async def _semantic_scholar_one(
     client: httpx.AsyncClient,
     q: str,
@@ -429,10 +507,10 @@ async def _semantic_scholar_one(
                 "semantic_scholar_search %r HTTP %d",
                 q, e.response.status_code,
             )
-        return []
+        return await _openalex_one(client, q, top_k, year)
     except Exception as e:
         logger.warning("semantic_scholar_search %r failed: %s", q, e)
-        return []
+        return await _openalex_one(client, q, top_k, year)
 
     out: list[dict] = []
     for paper in data.get("data", []):

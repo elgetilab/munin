@@ -722,7 +722,9 @@ async def api_status():
         async with httpx.AsyncClient() as client:
             searxng_state = await _probe_http(client, SEARXNG_URL)
 
-    embedding_ok = is_specter_loaded() and is_bge_loaded()
+    embedding_ok = is_bge_loaded() and (
+        is_specter_loaded() or not database.CORPUS_ENABLED
+    )
 
     services = {
         "retrieval": "ok",
@@ -4309,22 +4311,23 @@ async def startup():
     # both operators and the dashboard). Each model is wrapped
     # individually so a single failure doesn't block the other.
     logger.info("Loading embedding models (this may take a moment)...")
-    try:
-        get_specter()
-    except Exception:
-        logger.exception("SPECTER preload failed")
-    try:
-        # Preload the ACTIVE paper encoder (BGE-large when PAPER_ENCODER=bge-large;
-        # a no-op alias of SPECTER otherwise).
-        database.get_paper_encoder()
-    except Exception:
-        logger.exception("paper encoder preload failed")
+    if database.CORPUS_ENABLED:
+        try:
+            get_specter()
+        except Exception:
+            logger.exception("SPECTER preload failed")
+        try:
+            # Preload the ACTIVE paper encoder (BGE-large when PAPER_ENCODER=bge-large;
+            # a no-op alias of SPECTER otherwise).
+            database.get_paper_encoder()
+        except Exception:
+            logger.exception("paper encoder preload failed")
 
-    # Encoder and collection are a pair. A half-flip is a dimension mismatch
-    # that makes every paper search fail at query time, so fail the boot
-    # instead of serving a broken corpus. Deliberately NOT wrapped in
-    # try/except: the raise is the point.
-    database.verify_paper_space()
+        # Encoder and collection are a pair. A half-flip is a dimension mismatch
+        # that makes every paper search fail at query time, so fail the boot
+        # instead of serving a broken corpus. Deliberately NOT wrapped in
+        # try/except: the raise is the point.
+        database.verify_paper_space()
     try:
         get_bge()
     except Exception:

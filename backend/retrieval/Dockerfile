@@ -17,6 +17,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # constraints.txt pins every package, transitive ones included, to the versions
 # the reference deployment runs; requirements.txt only says what is needed.
 COPY requirements.txt constraints.txt ./
+# TORCH_INDEX_URL installs torch from another index first, which then satisfies
+# requirements.txt. A small host points it at the CPU wheels: PyPI's torch brings
+# the CUDA stack even on ARM, a 10 GB image against one with no GPU to use it.
+ARG TORCH_INDEX_URL=
+RUN if [ -n "$TORCH_INDEX_URL" ]; then \
+        pip install --no-cache-dir --user torch -c constraints.txt --extra-index-url "$TORCH_INDEX_URL"; \
+    fi
 RUN pip install --no-cache-dir --user -r requirements.txt -c constraints.txt
 
 # ==============================================================================

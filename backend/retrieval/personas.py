@@ -227,8 +227,9 @@ def load_personas() -> dict[str, dict]:
                          .get("plan_approval") or [])
         if approval_list:
             try:
-                from mcp.schemas import MCP_TOOLS
-                unknown = [t for t in approval_list if t not in MCP_TOOLS]
+                from mcp.schemas import DISABLED_TOOLS, MCP_TOOLS
+                unknown = [t for t in approval_list
+                           if t not in MCP_TOOLS and t not in DISABLED_TOOLS]
                 if unknown:
                     logger.error(
                         "Persona %s: plan_approval references unknown "

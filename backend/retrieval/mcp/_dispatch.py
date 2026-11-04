@@ -74,14 +74,15 @@ def verify_dispatch_registry() -> None:
     # at module top would create an import cycle once schemas imports
     # back to register things (it doesn't today, but the lazy form is
     # cheap insurance).
-    from .schemas import MCP_TOOLS
+    from .schemas import DISABLED_TOOLS, MCP_TOOLS
 
     declared = frozenset(MCP_TOOLS.keys())
     registered = registered_names()
     expected_registered = declared - _SCHEMA_ONLY
 
     missing = expected_registered - registered
-    extra = registered - declared
+    # Switched-off tools keep their dispatchers but leave MCP_TOOLS.
+    extra = registered - declared - DISABLED_TOOLS
 
     problems: list[str] = []
     if missing:

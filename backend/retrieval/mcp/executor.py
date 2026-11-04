@@ -35,7 +35,7 @@ from ._dispatch import get_dispatcher, verify_dispatch_registry  # noqa: F401
 # request lands. main.py calls verify_dispatch_registry() at startup
 # to catch schema/executor drift.
 from . import dispatchers  # noqa: F401
-from .schemas import MCP_TOOLS
+from .schemas import DISABLED_TOOLS, MCP_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -452,7 +452,7 @@ async def _dispatch_mcp_tool(tool_name: str, arguments: dict) -> dict:
         )
         if errs:
             return {"error": _format_validation_error(tool_name, errs)}
-    fn = get_dispatcher(tool_name)
+    fn = get_dispatcher(tool_name) if tool_name not in DISABLED_TOOLS else None
     if fn is None:
         return {"error": f"Unknown tool: {tool_name}"}
     try:
