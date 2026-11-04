@@ -6,7 +6,7 @@
     <title>Deep Research - Munin</title>
     <link rel="stylesheet" href="/shared/style.css">
     <style>
-        .unavailable {
+        .research-intro {
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -17,18 +17,18 @@
             text-align: center;
         }
 
-        .unavailable canvas {
+        .research-intro canvas {
             width: 96px;
             height: 96px;
         }
 
-        .unavailable h1 {
+        .research-intro h1 {
             font-size: 28px;
             font-weight: 600;
             margin: 8px 0;
         }
 
-        .unavailable p {
+        .research-intro p {
             color: var(--text-secondary);
             font-size: 15px;
             max-width: 480px;
@@ -36,7 +36,19 @@
             margin: 0;
         }
 
-        .unavailable-actions {
+        .research-steps {
+            max-width: 480px;
+            padding-left: 24px;
+            font-size: 15px;
+            line-height: 1.9;
+            text-align: left;
+        }
+
+        .research-intro .research-note {
+            font-size: 14px;
+        }
+
+        .research-actions {
             display: flex;
             flex-direction: column;
             gap: 12px;
@@ -45,7 +57,7 @@
             margin-top: 16px;
         }
 
-        .unavailable-action {
+        .research-action {
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -59,11 +71,11 @@
             transition: border-color 0.2s;
         }
 
-        .unavailable-action:hover {
+        .research-action:hover {
             border-color: var(--accent);
         }
 
-        .unavailable-action .arrow {
+        .research-action .arrow {
             color: var(--accent);
         }
     </style>
@@ -86,22 +98,33 @@
         </div>
     </header>
 
-    <main class="unavailable">
-        <canvas id="unavailable-vortex" width="192" height="192"></canvas>
+    <main class="research-intro">
+        <canvas id="research-vortex" width="192" height="192"></canvas>
 
-        <h1>Deep Research is no longer available</h1>
+        <h1>Deep Research runs in Chat</h1>
         <p>
-            Standalone Deep Research jobs have been retired. Munin Chat now
-            covers the same ground: ask a research question and it searches
-            the paper corpus, Semantic Scholar, and the web for you.
+            Give Munin a question and it works through it in the background:
+            it plans sub-questions, searches the paper corpus, open-access
+            literature and the web, reads the sources, and delivers a cited
+            report in your conversation.
         </p>
 
-        <div class="unavailable-actions">
-            <a class="unavailable-action" href="{{env "MUNIN_URL_CHAT"}}">
-                <span>Ask your question in Chat</span>
+        <ol class="research-steps">
+            <li>In the Chat composer, open the <strong>+</strong> menu.</li>
+            <li>Choose <strong>Deep Research</strong>, so that it shows <strong>On</strong>.</li>
+            <li>Send your question, without attachments.</li>
+        </ol>
+
+        <p class="research-note">
+            It turns itself off after each report, and isn't available in incognito chats.
+        </p>
+
+        <div class="research-actions">
+            <a class="research-action" href="{{env "MUNIN_URL_CHAT"}}">
+                <span>Open Chat</span>
                 <span class="arrow">&#8594;</span>
             </a>
-            <a class="unavailable-action" href="{{env "MUNIN_URL_SEARCH"}}">
+            <a class="research-action" href="{{env "MUNIN_URL_SEARCH"}}">
                 <span>Search the paper corpus</span>
                 <span class="arrow">&#8594;</span>
             </a>
@@ -117,7 +140,7 @@
 
     <script src="/shared/feather-vortex.js"></script>
     <script>
-        createVortex(document.getElementById('unavailable-vortex'), 10, 5.5, 0.3);
+        createVortex(document.getElementById('research-vortex'), 10, 5.5, 0.3);
     </script>
 </body>
 </html>

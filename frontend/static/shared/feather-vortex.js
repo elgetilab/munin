@@ -93,6 +93,7 @@ function createVortex(canvas, featherCount, sizeMultiplier, speedMultiplier) {
 
   var t = Math.random() * 100;
   var animId;
+  var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   function draw() {
     ctx.clearRect(0, 0, w, h);
@@ -131,7 +132,8 @@ function createVortex(canvas, featherCount, sizeMultiplier, speedMultiplier) {
       drawFeather(ctx, x, y, drawSize, tangent, opacity);
     }
 
-    animId = requestAnimationFrame(draw);
+    // Reduced motion: leave the first frame on the canvas and stop here
+    if (!reducedMotion) animId = requestAnimationFrame(draw);
   }
 
   draw();

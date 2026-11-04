@@ -115,18 +115,26 @@
     #munin-support-panel textarea {
       width: 100%;
       background: var(--bg-primary, #0f1419);
-      border: 1px solid var(--border, #30363d);
+      border: 1px solid var(--border-input, #6e7681);
       border-radius: 8px;
       padding: 8px 12px;
       font-size: 13px;
       color: var(--text-primary, #e6edf3);
-      outline: none;
       box-sizing: border-box;
       font-family: inherit;
     }
     #munin-support-panel input:focus,
     #munin-support-panel textarea:focus {
       border-color: var(--accent, #58a6ff);
+    }
+    /* Repeated from style.css because the chat app does not load it */
+    #munin-support-btn:focus-visible,
+    #munin-support-panel a:focus-visible,
+    #munin-support-panel button:focus-visible,
+    #munin-support-panel input:focus-visible,
+    #munin-support-panel textarea:focus-visible {
+      outline: 2px solid var(--accent, #58a6ff);
+      outline-offset: 2px;
     }
     #munin-support-panel input::placeholder,
     #munin-support-panel textarea::placeholder {
@@ -154,6 +162,7 @@
       font-weight: 500;
       cursor: pointer;
       border: none;
+      font-family: inherit;
       transition: background 0.15s;
     }
     #munin-support-panel .sp-btn-cancel {
@@ -222,6 +231,8 @@
   btn.addEventListener('click', openSupport);
   document.body.appendChild(btn);
 
+  window.MuninSupport = { open: openSupport };
+
   // ── Support panel ───────────────────────────────────────────────────
   function openSupport() {
     if (document.getElementById('munin-support-overlay')) return;
@@ -243,7 +254,7 @@
           <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01"/>
         </svg>
         <h3>Contact Support</h3>
-        <button class="sp-close" onclick="document.getElementById('munin-support-overlay')?.remove()">&times;</button>
+        <button class="sp-close" aria-label="Close support" onclick="document.getElementById('munin-support-overlay')?.remove()">&times;</button>
       </div>
       <div class="sp-body">
         <div class="sp-email-info">
@@ -279,6 +290,31 @@
 
     // Send button
     document.getElementById('munin-sp-send').addEventListener('click', submitSupport);
+
+    showEmailIfSignedOut(panel);
+  }
+
+  // /support/contact needs a session, so a visitor without one gets the email
+  // address before typing a message that can't be sent. Only a 401 means that:
+  // on any other failure, CORS and network errors included, the form stays.
+  async function showEmailIfSignedOut(panel) {
+    let res;
+    try {
+      res = await fetch(AUTH_URL + '/auth/me', { credentials: 'include' });
+    } catch (e) {
+      return;
+    }
+    if (res.status !== 401 || !panel.isConnected) return;
+
+    panel.querySelector('.sp-body').innerHTML = `
+      <div class="sp-email-info" style="margin-bottom: 0;">
+        Sign in to send a message here, or email us at <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>
+      </div>
+    `;
+    panel.querySelector('.sp-footer').innerHTML = `
+      <button class="sp-btn sp-btn-cancel" onclick="document.getElementById('munin-support-overlay')?.remove()">Close</button>
+    `;
+    panel.querySelector('.sp-body a').focus();
   }
 
   function closeSupport() {
