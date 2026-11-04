@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-// Three-slide presenter deck at /demo. It is unlinked on purpose: the presenter
+// Four-slide presenter deck at /demo. It is unlinked on purpose: the presenter
 // opens the URL, and the live cards on slide 3 hand over to a real chat. Prompts
 // live in /demo/demo.json so they can change without a rebuild.
 

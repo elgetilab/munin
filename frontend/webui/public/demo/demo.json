@@ -24,6 +24,13 @@
       "prompt": "/code Write and run Python that computes the thermal 13C polarisation at 9.4 T and 298 K, then plots the decay of a hyperpolarised 13C sample starting at 20% polarisation with T1 = 60 s against that thermal level, on a log axis. Show the plot."
     },
     {
+      "id": "structure",
+      "title": "See it in 3D",
+      "blurb": "Shows a membrane protein in an interactive viewer, right in the chat. Rotate and restyle it yourself.",
+      "kind": "chat",
+      "prompt": "/chat Show me bacteriorhodopsin (PDB 1C3W) in 3D as a cartoon, coloured by secondary structure, then say in two sentences why it matters for membrane biophysics."
+    },
+    {
       "id": "refusal",
       "title": "It won't invent a paper",
       "blurb": "We ask about a paper that doesn't exist. Watch it look, then say so.",
