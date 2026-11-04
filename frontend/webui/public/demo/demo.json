@@ -36,7 +36,7 @@
       "blurb": "Plans, searches, reads and writes a cited report, in the background.",
       "kind": "research",
       "budgets": { "max_subq": 3 },
-      "prompt": "How do optical and microwave DNP compare for room-temperature hyperpolarisation, and what are the prospects for biomolecules? Keep each sub-question under 15 words."
+      "prompt": "How do optical and microwave DNP compare for room-temperature hyperpolarisation, and what are the prospects for biomolecules?"
     }
   ]
 }
