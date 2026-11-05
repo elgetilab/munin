@@ -79,6 +79,13 @@ body.munin-side-panel-open #munin-support-btn {
 /* Markdown prose styling */
 .prose-munin {
   line-height: 1.7;
+  /* Sequences, SMILES, DOIs and URLs have no break points of their own. */
+  overflow-wrap: anywhere;
+}
+/* These scroll sideways instead; "anywhere" would squeeze table columns to a letter. */
+.prose-munin table,
+.prose-munin pre {
+  overflow-wrap: normal;
 }
 .prose-munin p {
   margin: 0.5em 0;

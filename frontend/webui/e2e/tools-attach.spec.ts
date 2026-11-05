@@ -7,9 +7,9 @@ test.describe('tools + attach + clarification', () => {
     await installMocks(page);
     await page.goto('/');
     await page.getByTestId('composer-attach').click();
-    await expect(page.getByRole('button', { name: /Upload file/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Upload image/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Attach knowledge/i })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /Upload file/i })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /Upload image/i })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /Attach knowledge/i })).toBeVisible();
     await expect(page.getByTestId('attach-deep-research')).toBeVisible();
   });
 
@@ -17,7 +17,7 @@ test.describe('tools + attach + clarification', () => {
     await installMocks(page);
     await page.goto('/');
     await page.getByTestId('composer-attach').click();
-    await page.getByRole('button', { name: /Attach knowledge/i }).click();
+    await page.getByRole('menuitem', { name: /Attach knowledge/i }).click();
     await expect(page.getByPlaceholder(/Search groups, topics, contributors/i)).toBeVisible();
   });
 

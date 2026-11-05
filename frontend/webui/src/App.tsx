@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef, useState, useSyncExternalStore } from 'react';
 import { useChatLifecycle } from './hooks/useChatLifecycle';
+import { friendlyError } from './lib/modelError';
 import { useChatStore } from './stores/chatStore';
 import { useUiStore } from './stores/uiStore';
 import { useUserStore } from './stores/userStore';
@@ -988,10 +989,10 @@ export default function App() {
 
         {/* Error banner */}
         {error && (
-          <div className="mx-4 mt-3">
+          <div title={error} className="mx-4 mt-3">
             {/* An interrupted reply already says why, in the reply itself. */}
             <ErrorNotice
-              message={replyInterrupted ? 'The reply was interrupted.' : chatLoadFailed ? 'This chat could not be opened.' : error}
+              message={replyInterrupted ? 'The reply was interrupted.' : chatLoadFailed ? 'This chat could not be opened.' : friendlyError(error)}
               onRetry={canRetryReply ? handleRetryReply : undefined}
               onDismiss={() => useChatStore.setState({ error: null })}
             />

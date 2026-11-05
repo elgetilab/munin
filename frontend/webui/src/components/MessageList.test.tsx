@@ -1,5 +1,7 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { http, HttpResponse } from 'msw';
+import { server } from '../test/msw-server';
 import { MessageList } from './MessageList';
 import { detectPhase } from '../lib/streamPhase';
 import type { Message } from '../lib/types';
@@ -35,6 +37,118 @@ function makeStreaming(overrides: Partial<Parameters<typeof MessageList>[0]['str
     ...overrides,
   };
 }
+
+describe('MessageList long unbroken text', () => {
+  it('lets a user bubble break a long sequence instead of overflowing', () => {
+    const content = 'MKT'.repeat(200);
+    const msg: Message = { id: 'u', role: 'user', content, created_at: '' } as Message;
+    render(<MessageList messages={[msg]} streaming={makeStreaming()} />);
+    expect(screen.getByText(content).className).toContain('wrap-anywhere');
+  });
+});
+
+describe('MessageList wording', () => {
+  it('describes a retry in plain words and keeps the raw reason in a title', () => {
+    render(
+      <MessageList
+        messages={[]}
+        streaming={makeStreaming({
+          phase: 'thinking',
+          retrying: { attempt: 2, maxAttempts: 5, reason: 'upstream 503' },
+        } as never)}
+      />,
+    );
+    const line = screen.getByText(/Munin is having trouble reaching the model/);
+    expect(line).toHaveTextContent('Retrying (2 of 5)');
+    expect(line).not.toHaveTextContent('vLLM');
+    expect(line).not.toHaveTextContent('503');
+    expect(line.parentElement).toHaveAttribute('title', 'upstream 503');
+  });
+
+  it('rewords the stream interrupted marker on a saved message', () => {
+    const msg = {
+      id: 'a', role: 'assistant', created_at: '',
+      content: 'Partial\n\n_(stream interrupted: vLLM unavailable)_',
+    } as Message;
+    render(<MessageList messages={[msg]} streaming={makeStreaming()} />);
+    const body = screen.getByTestId('markdown');
+    expect(body).toHaveTextContent('This answer was cut off. The model is unavailable right now.');
+    expect(body).not.toHaveTextContent('vLLM');
+  });
+});
+
+describe('MessageList jump button while content grows', () => {
+  const original = globalThis.ResizeObserver;
+  let notify: () => void = () => {};
+
+  beforeEach(() => {
+    globalThis.ResizeObserver = class {
+      constructor(cb: ResizeObserverCallback) { notify = () => cb([], this as unknown as ResizeObserver); }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+  });
+  afterEach(() => { globalThis.ResizeObserver = original; });
+
+  it('appears when an answer grows past the bottom, with no scroll event or auto-scroll', () => {
+    const spy = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const { container } = render(<MessageList messages={[]} streaming={makeStreaming({ phase: 'generating' } as never)} />);
+    expect(screen.queryByRole('button', { name: 'Scroll to bottom' })).not.toBeInTheDocument();
+
+    const scroller = container.querySelector('.overflow-y-auto') as HTMLElement;
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 2000 });
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 500 });
+    act(() => notify());
+
+    expect(screen.getByRole('button', { name: 'Scroll to bottom' })).toBeInTheDocument();
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});
+
+describe('MessageList plan card wiring', () => {
+  it('revoking auto-approve fires none of the callbacks that send a message', async () => {
+    let body: unknown = null;
+    server.use(
+      http.post('/api/chats/:id/plan/approve', async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ approved: true });
+      }),
+    );
+    const onPlanApproved = vi.fn();
+    const onPlanRejected = vi.fn();
+    const onPlanEdited = vi.fn();
+    const onContinue = vi.fn();
+    const msg = {
+      id: 'a', role: 'assistant', content: 'Working', created_at: '',
+      plan_snapshot: {
+        conversation_id: 'c1',
+        items: [{ id: 's1', title: 'Search', status: 'pending' }],
+        requires_approval: true, approved_at: '2026-01-01', approval_mode: 'auto',
+        created_at: '', updated_at: '',
+      },
+    } as unknown as Message;
+    render(
+      <MessageList
+        messages={[msg]}
+        streaming={makeStreaming()}
+        conversationId="c1"
+        onPlanApproved={onPlanApproved}
+        onPlanRejected={onPlanRejected}
+        onPlanEdited={onPlanEdited}
+        onContinue={onContinue}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'revoke' }));
+    await screen.findByText(/asking before each step/i);
+    expect(body).toEqual({ mode: 'each' });
+    expect(onPlanEdited).not.toHaveBeenCalled();
+    expect(onPlanApproved).not.toHaveBeenCalled();
+    expect(onPlanRejected).not.toHaveBeenCalled();
+    expect(onContinue).not.toHaveBeenCalled();
+  });
+});
 
 // ── detectPhase tests ───────────────────────────────────────────────────────
 
