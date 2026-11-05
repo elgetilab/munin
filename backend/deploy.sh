@@ -39,8 +39,6 @@
 #                                     (default: the invoking sudo user), so the
 #                                     benchmark driver can run unattended
 #   sudo ./deploy.sh maintenance    - maintenance-mode toggle → munin-maintenance
-#   sudo ./deploy.sh deepresearch   - LEGACY MiroThinker path (disabled; not in `all`)
-#                                     add --with-model to fetch the 17 GB weights
 #   sudo ./deploy.sh tunnel         - munin-tunnel.service (+ daemon-reload + restart)
 #   sudo ./deploy.sh knowledge      - §15 embedding-map script + nightly timer
 #   sudo ./deploy.sh pipeline       - paper_pipeline.py → /opt/cluster/scripts/pipeline/ (§28)
@@ -67,26 +65,19 @@ fi
 
 MODE=${1:-}
 if [ -z "$MODE" ]; then
-    echo "Usage: sudo $0 [--dry-run] <mode> [--with-model]"
-    echo "Modes: all dirs compose personas agents models vllm model instance sudoers maintenance deepresearch tunnel knowledge pipeline retrieval sandbox searxng monitoring verify"
+    echo "Usage: sudo $0 [--dry-run] <mode>"
+    echo "Modes: all dirs compose personas agents models vllm model instance sudoers maintenance tunnel knowledge pipeline retrieval sandbox searxng monitoring verify"
     exit 1
 fi
 shift
 
-# Opt-in to the 17 GB MiroThinker download in the legacy `deepresearch` mode.
-# Off by default because the feature is disabled (see deploy_deepresearch).
-WITH_MODEL=${DEEPRESEARCH_WITH_MODEL:-0}
 # `model` takes a sub-command and its own flags; everything else takes none.
 MODEL_ARGS=()
 if [ "$MODE" = "model" ] || [ "$MODE" = "instance" ]; then
     MODEL_ARGS=("$@")
-else
-    for arg in "$@"; do
-        case "$arg" in
-            --with-model) WITH_MODEL=1 ;;
-            *) echo "[ERROR] Unknown argument: $arg"; exit 1 ;;
-        esac
-    done
+elif [ $# -gt 0 ]; then
+    echo "[ERROR] Unknown argument: $1"
+    exit 1
 fi
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -110,8 +101,6 @@ SYSTEMD_DIR=/etc/systemd/system
 #   sudo HUGIN_ENV=/etc/munin/cluster.env ./deploy.sh all
 HUGIN_ENV=${HUGIN_ENV:-/opt/hugin/config/cluster.env}
 
-MIROTHINKER_MODEL_ID="cyankiwi/MiroThinker-v1.5-30B-AWQ-4bit"
-MIROTHINKER_MODEL_DIR=$MUNIN_ROOT/data/models/mirothinker-v1.5-30b
 VLLM_VENV=/opt/munin/services/vllm/venv
 
 # The production backbone is named in exactly one place: the active model
@@ -202,7 +191,7 @@ deploy_dirs() {
     #   papers_cached/  read_paper full-text cache (grows; PAPERS_CACHE_WARN_GB)
     run "mkdir -p $MUNIN_DATA/deep_research $MUNIN_DATA/agent_traces"
     run "mkdir -p $MUNIN_DATA/agent_extracts $MUNIN_DATA/papers_cached"
-    # LEGACY MiroThinker queue (disabled 2026-07; kept so old reports resolve).
+    # Retired research queue: nothing writes here now, kept so old reports resolve.
     run "mkdir -p $MUNIN_DEEPRESEARCH/queue $MUNIN_DEEPRESEARCH/jobs"
     run "mkdir -p $MUNIN_DOCKER $MUNIN_RETRIEVAL $MUNIN_SANDBOX"
     run "mkdir -p $CLUSTER_SCRIPTS"
@@ -572,70 +561,6 @@ deploy_maintenance() {
     run "ln -sf $MAINTENANCE_SCRIPTS/maintenance.sh /usr/local/bin/munin-maintenance"
     echo "[OK] maintenance - toggle with:"
     echo "     sudo munin-maintenance on [\"message\"] | off | status"
-}
-
-# ------------------------------------------------------------------------------
-# deepresearch: LEGACY MiroThinker path (disabled; NOT part of `all`)
-# ------------------------------------------------------------------------------
-# This is the retired standalone Deep Research: research.muninai.org, the
-# /deepresearch/* endpoints, the deepresearch-daemon, and a SLURM job running
-# MiroThinker-30B. Disabled 2026-07 (DECISIONS.md) and deliberately dropped
-# from `all`, so a fresh cluster does not provision a feature that is off.
-#
-# The Deep Research users actually get runs IN-PROCESS inside retrieval
-# (/api/research/*, deep_research_manager.py) and needs no separate deploy
-# step beyond the dirs created by `deploy.sh dirs`.
-#
-# The 17 GB MiroThinker download is opt-in: `deploy.sh deepresearch --with-model`
-# or DEEPRESEARCH_WITH_MODEL=1. Weights already on disk are left alone.
-deploy_deepresearch() {
-    echo "[deepresearch] LEGACY MiroThinker path. Deep Research submission is"
-    echo "[deepresearch] DISABLED; read endpoints stay up for past reports."
-    echo "[deepresearch] Re-enable needs BOTH:"
-    echo "[deepresearch]   1. DEEPRESEARCH_ENABLED=1 in $HUGIN_ENV, then"
-    echo "[deepresearch]      docker compose --profile rag up -d retrieval"
-    echo "[deepresearch]   2. systemctl enable --now deepresearch-daemon"
-    echo "[deepresearch] The in-chat Deep Research (/api/research/*) is separate"
-    echo "[deepresearch] and unaffected by any of this."
-    echo "[deepresearch] Installing daemon + job script..."
-    need_file "$REPO_DIR/scripts/deepresearch/deepresearch-daemon.py"
-    need_file "$REPO_DIR/scripts/deepresearch/deepresearch-job.sh"
-    need_file "$REPO_DIR/config/deepresearch-daemon.service"
-    run "install -d -m 0755 $CLUSTER_SCRIPTS"
-    run "install -m 0755 $REPO_DIR/scripts/deepresearch/deepresearch-daemon.py $CLUSTER_SCRIPTS/deepresearch-daemon.py"
-    run "install -m 0755 $REPO_DIR/scripts/deepresearch/deepresearch-job.sh $CLUSTER_SCRIPTS/deepresearch-job.sh"
-    run "install -m 0644 $REPO_DIR/config/deepresearch-daemon.service $SYSTEMD_DIR/deepresearch-daemon.service"
-    run "systemctl daemon-reload"
-
-    echo ""
-    if [ -d "$MIROTHINKER_MODEL_DIR" ]; then
-        echo "[deepresearch] MiroThinker weights present at $MIROTHINKER_MODEL_DIR (~17 GB)."
-        echo "[deepresearch] Kept on disk per DECISIONS.md; delete manually if the"
-        echo "[deepresearch] retirement is made final."
-    elif [ "$WITH_MODEL" != "1" ]; then
-        echo "[deepresearch] MiroThinker weights NOT present and NOT downloaded."
-        echo "[deepresearch] The feature is disabled, so 17 GB is not spent by default."
-        echo "[deepresearch] To fetch them: sudo $0 deepresearch --with-model"
-    else
-        echo "[deepresearch] Downloading MiroThinker (opt-in via --with-model)..."
-        echo "               $MIROTHINKER_MODEL_ID (~17 GB, 10-30 min)"
-        local cli
-        cli=$(hf_cli)
-        if [ "$DRY_RUN" = "1" ]; then
-            echo "  [dry-run] would download $MIROTHINKER_MODEL_ID → $MIROTHINKER_MODEL_DIR"
-        elif [ -z "$cli" ]; then
-            echo "[WARN] no HuggingFace CLI in $VLLM_VENV - download manually:"
-            echo "       $VLLM_VENV/bin/hf download $MIROTHINKER_MODEL_ID \\"
-            echo "           --local-dir $MIROTHINKER_MODEL_DIR"
-        elif "$cli" download "$MIROTHINKER_MODEL_ID" \
-                --local-dir "$MIROTHINKER_MODEL_DIR"; then
-            echo "[OK] MiroThinker downloaded"
-        else
-            echo "[WARN] MiroThinker download failed"
-        fi
-    fi
-
-    echo "[OK] deepresearch (legacy) - daemon stays disabled unless you enable it"
 }
 
 # ------------------------------------------------------------------------------
@@ -1979,7 +1904,6 @@ case "$MODE" in
     models)       deploy_models ;;
     vllm)         deploy_vllm ;;
     maintenance)  deploy_maintenance ;;
-    deepresearch) deploy_deepresearch ;;
     tunnel)       deploy_tunnel ;;
     knowledge)    deploy_knowledge ;;
     pipeline)     deploy_pipeline ;;
@@ -2000,9 +1924,6 @@ case "$MODE" in
                              # else the container pulls it from HuggingFace
         deploy_vllm
         deploy_maintenance
-        # deploy_deepresearch is NOT part of `all`: it provisions the retired
-        # MiroThinker path (disabled 2026-07). Run it explicitly if you are
-        # reviving that feature. The Deep Research in chat needs nothing here.
         deploy_tunnel
         deploy_knowledge
         deploy_pipeline
@@ -2013,7 +1934,7 @@ case "$MODE" in
         ;;
     *)
         echo "[ERROR] Unknown mode: $MODE"
-        echo "Modes: all dirs compose personas agents models vllm model instance sudoers maintenance deepresearch tunnel knowledge pipeline retrieval sandbox searxng monitoring verify"
+        echo "Modes: all dirs compose personas agents models vllm model instance sudoers maintenance tunnel knowledge pipeline retrieval sandbox searxng monitoring verify"
         exit 1
         ;;
 esac

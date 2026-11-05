@@ -54,7 +54,7 @@
 #   state has to be recomputed rather than just re-read.
 #
 # ALLOCATION: claims the WHOLE of BOTH GPUs (gpu:vllm:1 + gpu:batch:1). While it
-# runs, ALL shards on both cards are blocked, so NO batch/deepresearch/user job
+# runs, ALL shards on both cards are blocked, so NO batch/user job
 # can schedule. Use start-vllm-service.sh (single GPU, 64k) as the default when
 # GPU 0 needs to stay free.
 #   - The 5090s have NO NVLink, so TP communication crosses PCIe. Fine for a

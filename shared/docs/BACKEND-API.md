@@ -19,10 +19,9 @@ expected to track it, and where the two disagree, this file wins.
 The service also exposes the legacy `/retrieve`, `/search/hybrid`,
 `/citations/{doi}`, `/mcp/*`, `/deepresearch/*`, etc. routes, those are
 **not** part of the frontend contract. Ignore them for the UI.
-(`POST /deepresearch/submit` is additionally disabled since 2026-07:
-returns 503 unless the service runs with `DEEPRESEARCH_ENABLED=1`;
-the read-only `/deepresearch/*` routes still serve past reports.
-See DECISIONS.md "Deep Research (MiroThinker) disabled".) The Deep
+(`POST /deepresearch/submit` was removed in 2026-11; the read-only,
+admin-only `/deepresearch/*` routes still serve past reports. See
+DECISIONS.md "the standalone Deep Research path is removed".) The Deep
 Research users see today is the in-process agent under `/api/research/*`,
 which **is** part of the contract (§4.23).
 

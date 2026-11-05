@@ -1,5 +1,5 @@
 """
-The retired MiroThinker /deepresearch/* routes are admin-only.
+The /deepresearch/* routes for past reports of the retired queue are admin-only.
 
 Regression for the 2026-09 review finding S5: the routes took no identity, and
 the gateway retries a 404 on /api/X as /X, so any logged-in user could list

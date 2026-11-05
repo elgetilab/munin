@@ -279,13 +279,9 @@ services:
       # Chat persistence + user docs
       - CHATS_DB_PATH=/data/chats.db
       - USER_DOCS_DIR=/data/user_docs
-      # LEGACY Deep Research (MiroThinker + deepresearch-daemon + SLURM job).
-      # Disabled 2026-07, kept so past reports stay downloadable; see
-      # DECISIONS.md. DEEPRESEARCH_ENABLED=1 in cluster.env re-opens
-      # POST /deepresearch/submit, and needs the daemon enabled too.
-      # This is NOT the Deep Research users see in chat, which runs
-      # in-process in retrieval (see DEEP_RESEARCH_* below).
-      - DEEPRESEARCH_ENABLED=${DEEPRESEARCH_ENABLED:-0}
+      # Retired research queue, read-only so past reports stay downloadable;
+      # see DECISIONS.md. This is NOT the Deep Research users see in chat,
+      # which runs in-process in retrieval (see DEEP_RESEARCH_* below).
       - DEEPRESEARCH_QUEUE_DIR=/deepresearch/queue
       - DEEPRESEARCH_JOBS_DIR=/deepresearch/jobs
       - SLURM_QUEUE_FILE=/deepresearch/status/slurm_queue.json

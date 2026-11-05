@@ -63,7 +63,7 @@ with memory protection. Sketch:
 
 ### Recommendation
 Only worth it if "batch jobs alongside 128k vLLM" becomes a frequent, hard
-requirement. With Miro (MiroThinker, GPU 0's main batch tenant) being retired
+requirement. With GPU 0's main batch tenant retired
 (see docs/paper-track / memory), GPU 0 frees up anyway, so the simple toggle is likely the
 better trade. Revisit MPS only if that assumption breaks.
 

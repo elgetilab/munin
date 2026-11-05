@@ -27,7 +27,7 @@
 #     the profile's VLLM_MAX_NUM_SEQS_SINGLE must be covered by the pool.
 #   - While this job holds gpu:vllm:1, the 8 cooperative shards on GPU 1
 #     (shard:vllm:N) are unavailable. Whole GPU 0 (gpu:batch:1) and its
-#     8 shards (shard:batch:N) remain free for user / deepresearch jobs.
+#     8 shards (shard:batch:N) remain free for user jobs.
 #   - If we ever shrink vLLM's footprint, the equivalent partial claim
 #     would be `#SBATCH --gres=shard:vllm:N` (N out of 8, ~4 GB each).
 #   - CPU: 12 cores. MEASURED 2026-08-27 at the old allocation of 4:
