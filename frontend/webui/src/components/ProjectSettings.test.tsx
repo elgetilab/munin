@@ -204,7 +204,7 @@ describe('ProjectSettings', () => {
       expect(screen.queryByDisplayValue('ML Research')).not.toBeInTheDocument();
     });
 
-    it("drops a slow response for the project that was left", async () => {
+    it('drops a slow response for the project that was left', async () => {
       let finishA!: () => void;
       const heldA = new Promise<void>(resolve => { finishA = resolve; });
       let answeredA = false;
@@ -214,14 +214,15 @@ describe('ProjectSettings', () => {
           answeredA = true;
           return HttpResponse.json(mockProject);
         }),
-        http.get('/api/projects/p9', () => HttpResponse.json(projectB)),
+        http.get('/api/projects/p9', () => HttpResponse.json({ ...projectB, name: 'Other, fresh' })),
       );
       const { rerender } = render(<ProjectSettings {...props} project={mockProject} />);
       rerender(<ProjectSettings {...props} project={projectB} />);
+      await screen.findByDisplayValue('Other, fresh');
       finishA();
       await waitFor(() => expect(answeredA).toBe(true));
       await new Promise(resolve => setTimeout(resolve, 20));
-      expect(screen.getByDisplayValue('Other')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('Other, fresh')).toBeInTheDocument();
       expect(screen.queryByDisplayValue('ML Research')).not.toBeInTheDocument();
     });
 
@@ -259,6 +260,17 @@ describe('ProjectSettings', () => {
       await waitFor(() => expect(screen.getByDisplayValue('Fresh')).toBeInTheDocument());
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+    });
+  });
+
+  describe('accessible names', () => {
+    it('names the back button and ties each label to its control', () => {
+      renderSettings();
+      expect(screen.getByRole('button', { name: 'Back to chat' })).toBeInTheDocument();
+      expect(screen.getByLabelText('Name')).toHaveValue('ML Research');
+      expect(screen.getByLabelText('Description')).toHaveValue('Machine learning stuff');
+      expect(screen.getByLabelText('Instructions')).toHaveValue('Focus on transformers');
+      expect(screen.getByLabelText('Default Persona').tagName).toBe('SELECT');
     });
   });
 });

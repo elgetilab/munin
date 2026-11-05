@@ -254,4 +254,64 @@ describe('Settings', () => {
       expect(screen.queryByText('sk-munin-secret-value')).not.toBeInTheDocument();
     });
   });
+
+  describe('accessible names', () => {
+    it('ties each label to its control and names the icon-only and repeated buttons', async () => {
+      useUserStore.setState({ personas: [{ id: 'chat', name: 'Chat' }] } as never);
+      renderSettings();
+      expect(screen.getByLabelText('Full name')).toHaveValue('Test User');
+      expect(screen.getByLabelText('What should Munin call you?')).toHaveValue('tester');
+      expect(screen.getByLabelText('About you').tagName).toBe('TEXTAREA');
+      expect(screen.getByLabelText('How should Munin respond?').tagName).toBe('TEXTAREA');
+      expect(screen.getByLabelText('Default persona').tagName).toBe('SELECT');
+      expect(screen.getByLabelText('Timezone').tagName).toBe('SELECT');
+      expect(screen.getByLabelText('API key name')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Change profile picture' })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'Revoke laptop' })).toBeInTheDocument();
+    });
+
+    it('labels the announcement text and marks the chosen level', async () => {
+      const user = userEvent.setup();
+      useUserStore.setState({ isAdmin: true });
+      renderSettings();
+      expect(screen.getByLabelText('Announcement message').tagName).toBe('TEXTAREA');
+      const group = screen.getByRole('group', { name: 'Level:' });
+      expect(within(group).getByRole('button', { name: 'info' })).toHaveAttribute('aria-pressed', 'true');
+      await user.click(within(group).getByRole('button', { name: 'error' }));
+      expect(within(group).getByRole('button', { name: 'error' })).toHaveAttribute('aria-pressed', 'true');
+      expect(within(group).getByRole('button', { name: 'info' })).toHaveAttribute('aria-pressed', 'false');
+    });
+  });
+
+  describe('timezone', () => {
+    const select = () => screen.getByLabelText('Timezone') as HTMLSelectElement;
+    const withStored = (timezone: string) => server.use(http.get('/api/profile', () => HttpResponse.json({ user_email: 'test@test.com', timezone })));
+
+    it('offers zones the short list missed, with no duplicate options', () => {
+      renderSettings();
+      const values = Array.from(select().options).map(o => o.value);
+      expect(values).toEqual(expect.arrayContaining(['UTC', 'Africa/Nairobi', 'America/Sao_Paulo', 'Asia/Dubai']));
+      expect(new Set(values).size).toBe(values.length);
+    });
+
+    it("offers this device's zone first", () => {
+      renderSettings();
+      const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const first = select().options[1];
+      expect(first.value).toBe(zone);
+      expect(first.textContent).toBe(`${zone} (this device)`);
+    });
+
+    it('shows a stored zone that is not in the list', async () => {
+      withStored('US/Eastern');
+      renderSettings();
+      await waitFor(() => expect(select()).toHaveValue('US/Eastern'));
+    });
+
+    it('shows a stored zone that is in the list', async () => {
+      withStored('Africa/Nairobi');
+      renderSettings();
+      await waitFor(() => expect(select()).toHaveValue('Africa/Nairobi'));
+    });
+  });
 });

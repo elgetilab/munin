@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useId, useState, useEffect, useRef } from 'react';
 import { fetchProject, updateProject } from '../lib/api';
 import type { Project, Persona } from '../lib/types';
 import { ErrorNotice } from './ui/ErrorNotice';
@@ -35,6 +35,7 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
   const [loadFailed, setLoadFailed] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const edited = useRef(false);
+  const fieldId = useId();
 
   // Reload fresh data on mount. A response that arrives after the user started
   // typing leaves their input alone.
@@ -90,9 +91,10 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
         <div className="flex items-center gap-3">
           <button
             onClick={onClose}
+            aria-label="Back to chat"
             className="text-text-secondary hover:text-text-primary cursor-pointer"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="15 18 9 12 15 6" />
             </svg>
           </button>
@@ -108,8 +110,9 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
 
         {/* Name */}
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">Name</label>
+          <label htmlFor={`${fieldId}-name`} className="text-xs font-medium text-text-secondary uppercase tracking-wider">Name</label>
           <input
+            id={`${fieldId}-name`}
             value={name}
             onChange={e => setName(e.target.value)}
             maxLength={NAME_LIMIT}
@@ -120,8 +123,9 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
 
         {/* Description */}
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">Description</label>
+          <label htmlFor={`${fieldId}-description`} className="text-xs font-medium text-text-secondary uppercase tracking-wider">Description</label>
           <textarea
+            id={`${fieldId}-description`}
             value={description}
             onChange={e => setDescription(e.target.value)}
             rows={2}
@@ -134,11 +138,12 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
 
         {/* Instructions */}
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">Instructions</label>
+          <label htmlFor={`${fieldId}-instructions`} className="text-xs font-medium text-text-secondary uppercase tracking-wider">Instructions</label>
           <p className="text-[11px] text-text-secondary">
             Custom instructions injected into the system prompt for all chats in this project.
           </p>
           <textarea
+            id={`${fieldId}-instructions`}
             value={instructions}
             onChange={e => setInstructions(e.target.value)}
             rows={6}
@@ -151,8 +156,9 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
 
         {/* Default persona */}
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">Default Persona</label>
+          <label htmlFor={`${fieldId}-persona`} className="text-xs font-medium text-text-secondary uppercase tracking-wider">Default Persona</label>
           <select
+            id={`${fieldId}-persona`}
             value={defaultPersona}
             onChange={e => setDefaultPersona(e.target.value)}
             className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-accent cursor-pointer"

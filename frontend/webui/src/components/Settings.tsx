@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useId, useState, useRef, useEffect, useCallback } from 'react';
 import { useStatus } from '../hooks/useStatus';
 import { updateProfile, fetchApiKeys, createApiKey, revokeApiKey, fetchUsageStats, fetchAnnouncement, setAnnouncement, clearAnnouncement, fetchMuninProfile, updateMuninProfile, deleteMuninProfile } from '../lib/api';
 import type { UserProfile, ApiKeyInfo, UsageStats } from '../lib/api';
@@ -28,21 +28,36 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
+// Only for browsers without Intl.supportedValuesOf.
 const COMMON_TIMEZONES = [
   'Europe/Berlin', 'Europe/London', 'Europe/Paris', 'Europe/Amsterdam',
   'Europe/Zurich', 'Europe/Vienna', 'Europe/Rome', 'Europe/Madrid',
   'Europe/Stockholm', 'Europe/Helsinki', 'Europe/Warsaw', 'Europe/Prague',
-  'US/Eastern', 'US/Central', 'US/Mountain', 'US/Pacific',
   'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
   'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Singapore', 'Asia/Kolkata',
   'Australia/Sydney', 'Pacific/Auckland',
 ];
+
+// Chrome leaves UTC out of supportedValuesOf.
+const TIMEZONES = [...new Set([
+  'UTC',
+  ...(typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : COMMON_TIMEZONES),
+])];
+
+function deviceTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  } catch {
+    return '';
+  }
+}
 
 export function Settings({ profile, onUpdate }: SettingsProps) {
   // The served backbone for the quick-start snippet; /api/status already
   // carries it. Falls back to the reference model while loading.
   const status = useStatus(300000);
   const servedModel = status?.vllm?.model || 'qwen3.8-27b';
+  const fieldId = useId();
   const setShowSettings = useUiStore(s => s.setShowSettings);
   const setBanner = useUiStore(s => s.setAnnouncement);
   const setBannerDismissed = useUiStore(s => s.setAnnouncementDismissed);
@@ -273,6 +288,7 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
     setCopyState('idle');
   };
 
+  const deviceZone = deviceTimezone();
   const initials = (fullName || profile.email)[0].toUpperCase();
   const activeKeys = apiKeys.filter(k => !k.revoked);
   const revokedKeys = apiKeys.filter(k => k.revoked);
@@ -298,10 +314,11 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
 
         {/* Profile picture */}
         <div className="mb-8">
-          <label className="block text-sm text-text-secondary mb-3">Profile picture</label>
+          <p className="text-sm text-text-secondary mb-3">Profile picture</p>
           <div className="flex items-center gap-4">
             <button
               onClick={() => fileRef.current?.click()}
+              aria-label="Change profile picture"
               className="relative w-16 h-16 rounded-full overflow-hidden bg-accent/20 flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity"
             >
               {avatar ? (
@@ -320,6 +337,7 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
               {avatar && (
                 <button
                   onClick={() => setAvatar('')}
+                  aria-label="Remove profile picture"
                   className="block text-xs text-text-secondary hover:text-error transition-colors cursor-pointer mt-1"
                 >
                   Remove
@@ -338,8 +356,9 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
 
         {/* Full name */}
         <div className="mb-6">
-          <label className="block text-sm text-text-secondary mb-2">Full name</label>
+          <label htmlFor={`${fieldId}-full-name`} className="block text-sm text-text-secondary mb-2">Full name</label>
           <input
+            id={`${fieldId}-full-name`}
             type="text"
             value={fullName}
             onChange={e => setFullName(e.target.value)}
@@ -350,8 +369,9 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
 
         {/* Nickname */}
         <div className="mb-8">
-          <label className="block text-sm text-text-secondary mb-2">What should Munin call you?</label>
+          <label htmlFor={`${fieldId}-nickname`} className="block text-sm text-text-secondary mb-2">What should Munin call you?</label>
           <input
+            id={`${fieldId}-nickname`}
             type="text"
             value={nickname}
             onChange={e => setNickname(e.target.value)}
@@ -365,7 +385,7 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
 
         {/* Email (read-only) */}
         <div className="mb-8">
-          <label className="block text-sm text-text-secondary mb-2">Email</label>
+          <p className="text-sm text-text-secondary mb-2">Email</p>
           <div className="px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-secondary">
             {profile.email}
           </div>
@@ -400,8 +420,9 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
 
         {/* About me */}
         <div className="mb-6">
-          <label className="block text-sm text-text-secondary mb-2">About you</label>
+          <label htmlFor={`${fieldId}-about`} className="block text-sm text-text-secondary mb-2">About you</label>
           <textarea
+            id={`${fieldId}-about`}
             value={aboutMe}
             onChange={e => setAboutMe(e.target.value)}
             disabled={muninLoad !== 'ready'}
@@ -415,8 +436,9 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
 
         {/* Response format */}
         <div className="mb-6">
-          <label className="block text-sm text-text-secondary mb-2">How should Munin respond?</label>
+          <label htmlFor={`${fieldId}-response`} className="block text-sm text-text-secondary mb-2">How should Munin respond?</label>
           <textarea
+            id={`${fieldId}-response`}
             value={responseFormat}
             onChange={e => setResponseFormat(e.target.value)}
             disabled={muninLoad !== 'ready'}
@@ -431,8 +453,9 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
         {/* Default persona */}
         {personas.length > 0 && (
           <div className="mb-6">
-            <label className="block text-sm text-text-secondary mb-2">Default persona</label>
+            <label htmlFor={`${fieldId}-persona`} className="block text-sm text-text-secondary mb-2">Default persona</label>
             <select
+              id={`${fieldId}-persona`}
               value={defaultPersona}
               onChange={e => setDefaultPersona(e.target.value)}
               disabled={muninLoad !== 'ready'}
@@ -448,15 +471,21 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
 
         {/* Timezone */}
         <div className="mb-8">
-          <label className="block text-sm text-text-secondary mb-2">Timezone</label>
+          <label htmlFor={`${fieldId}-timezone`} className="block text-sm text-text-secondary mb-2">Timezone</label>
           <select
+            id={`${fieldId}-timezone`}
             value={timezone}
             onChange={e => setTimezone(e.target.value)}
             disabled={muninLoad !== 'ready'}
             className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent transition-colors cursor-pointer disabled:opacity-50"
           >
             <option value="">Not set</option>
-            {COMMON_TIMEZONES.map(tz => (
+            {deviceZone && <option value={deviceZone}>{deviceZone} (this device)</option>}
+            {/* A stored zone the list doesn't have, so the control still shows it. */}
+            {timezone && timezone !== deviceZone && !TIMEZONES.includes(timezone) && (
+              <option value={timezone}>{timezone}</option>
+            )}
+            {TIMEZONES.filter(tz => tz !== deviceZone).map(tz => (
               <option key={tz} value={tz}>{tz}</option>
             ))}
           </select>
@@ -532,6 +561,7 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
               onChange={e => setNewKeyName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleCreateKey()}
               placeholder="Key name (e.g. my laptop, research script)"
+              aria-label="API key name"
               className="flex-1 px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-accent transition-colors"
             />
             <button
@@ -599,6 +629,7 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
                   </div>
                   <button
                     onClick={() => handleRevokeKey(key.id)}
+                    aria-label={`Revoke ${key.name || 'Untitled'}`}
                     className="text-xs text-text-secondary hover:text-error transition-colors cursor-pointer flex-shrink-0"
                   >
                     Revoke
@@ -674,17 +705,19 @@ print(response.choices[0].message.content)`}</pre>
                 value={announcementText}
                 onChange={e => setAnnouncementText(e.target.value)}
                 placeholder="e.g. Cluster maintenance scheduled for tomorrow 8:00 AM"
+                aria-label="Announcement message"
                 rows={2}
                 className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-accent transition-colors resize-none"
               />
             </div>
 
-            <div className="flex items-center gap-3 mb-4">
-              <label className="text-sm text-text-secondary">Level:</label>
+            <div role="group" aria-labelledby={`${fieldId}-level`} className="flex items-center gap-3 mb-4">
+              <span id={`${fieldId}-level`} className="text-sm text-text-secondary">Level:</span>
               {(['info', 'warning', 'error'] as const).map(level => (
                 <button
                   key={level}
                   onClick={() => setAnnouncementLevel(level)}
+                  aria-pressed={announcementLevel === level}
                   className={`px-3 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
                     announcementLevel === level
                       ? level === 'error' ? 'bg-error/20 text-error border border-error'
