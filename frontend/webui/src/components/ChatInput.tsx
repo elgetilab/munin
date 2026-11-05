@@ -14,6 +14,13 @@ const SLASH_COMMANDS = [
   { command: '/chat', description: 'Force chat mode for this turn', icon: '\uD83D\uDCAC' },
 ] as const;
 
+// Display order of the tag menu and the knowledge picker. Results are built in
+// this order too, so arrow keys walk the rows from top to bottom.
+const TAG_KIND_ORDER = ['group', 'contributor', 'topic'] as const;
+
+// A `#` only opens the tag menu at the start of a word, so `C#` stays text.
+const TAG_TRIGGER = /(?:^|\s)#([@\w-]*)$/;
+
 interface PendingImage {
   id: string;
   dataUrl: string;
@@ -117,6 +124,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const [pendingDocs, setPendingDocs] = useState<UploadedDocument[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
   const [tagHighlight, setTagHighlight] = useState(0);
+  // Caret position while it is known; null means the end of the input.
+  const [cursor, setCursor] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const attachRef = useRef<HTMLDivElement>(null);
   const attachButtonRef = useRef<HTMLButtonElement>(null);
@@ -135,11 +144,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   // Tag autocomplete: detect `#` followed by typed text
   const tagQuery = useMemo(() => {
-    const cursor = textareaRef.current?.selectionStart ?? input.length;
-    const before = input.slice(0, cursor);
-    const match = before.match(/#([@\w-]*)$/);
+    const before = cursor === null ? input : input.slice(0, cursor);
+    const match = before.match(TAG_TRIGGER);
     return match ? match[1] : null;
-  }, [input]);
+  }, [input, cursor]);
 
   const tagMatches = useMemo((): TagAutocompleteItem[] => {
     if (tagQuery === null || !tagCatalog) return [];
@@ -156,12 +164,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           results.push({ kind: 'group', value: g.slug, label: g.display_name, paperCount: g.paper_count });
         }
       }
-      for (const t of tagCatalog.topics) {
-        if (activeKeys.has(`topic:${t.slug}`)) continue;
-        if (!search || t.slug.includes(search) || t.label.toLowerCase().includes(search)) {
-          results.push({ kind: 'topic', value: t.slug, label: t.label, paperCount: t.paper_count });
-        }
-      }
     }
     for (const c of tagCatalog.contributors) {
       if (activeKeys.has(`contributor:${c.username}`)) continue;
@@ -169,17 +171,35 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         results.push({ kind: 'contributor', value: c.username, label: c.display_name, paperCount: c.paper_count });
       }
     }
+    if (!isContributorForced) {
+      for (const t of tagCatalog.topics) {
+        if (activeKeys.has(`topic:${t.slug}`)) continue;
+        if (!search || t.slug.includes(search) || t.label.toLowerCase().includes(search)) {
+          results.push({ kind: 'topic', value: t.slug, label: t.label, paperCount: t.paper_count });
+        }
+      }
+    }
     return results.slice(0, 12);
   }, [tagQuery, tagCatalog, activeTags]);
 
+  // The highlight can outlive a shorter list, for example after a tag is added.
+  const activeTagIndex = Math.min(tagHighlight, tagMatches.length - 1);
+  const highlightedTagRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    highlightedTagRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [activeTagIndex]);
+
+  // Remove the `#query` before the caret, keeping the space in front of it.
+  const removeTagTrigger = () => {
+    const caret = textareaRef.current?.selectionStart ?? input.length;
+    const cleaned = input.slice(0, caret).replace(/(^|\s)#[@\w-]*$/, '$1');
+    setInput(cleaned + input.slice(caret));
+    setCursor(cleaned.length);
+  };
+
   const selectTag = (item: TagAutocompleteItem) => {
     onTagsChange([...activeTags, { kind: item.kind, value: item.value }]);
-    // Remove the #query from input
-    const cursor = textareaRef.current?.selectionStart ?? input.length;
-    const before = input.slice(0, cursor);
-    const after = input.slice(cursor);
-    const cleaned = before.replace(/#[@\w-]*$/, '');
-    setInput(cleaned + after);
+    removeTagTrigger();
     setTagHighlight(0);
     textareaRef.current?.focus();
   };
@@ -316,14 +336,17 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     return () => el.removeEventListener('paste', handler);
   });
 
+  const hasAttachments = pendingImages.length > 0 || pendingDocs.length > 0;
+  // A research job only takes a question, so it can't carry attachments.
+  const deepResearchBlocked = deepResearchMode && hasAttachments;
+
   const handleSubmit = () => {
     const trimmed = input.trim();
-    const hasAttachments = pendingImages.length > 0 || pendingDocs.length > 0;
-    if ((!trimmed && !hasAttachments) || isStreaming || researchActive) return;
+    if ((!trimmed && !hasAttachments) || isStreaming || researchActive || deepResearchBlocked) return;
 
     // Deep Research mode: the composer's send starts a background research job
     // instead of a chat turn (Claude-style toggle in the "+" menu).
-    if (deepResearchMode && trimmed && !hasAttachments) {
+    if (deepResearchMode && trimmed) {
       handleDeepResearch();
       return;
     }
@@ -412,18 +435,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       }
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
         e.preventDefault();
-        selectTag(tagMatches[tagHighlight]);
+        selectTag(tagMatches[activeTagIndex]);
         return;
       }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        // Remove the # trigger
-        const cursor = textareaRef.current?.selectionStart ?? input.length;
-        const before = input.slice(0, cursor);
-        const after = input.slice(cursor);
-        setInput(before.replace(/#[@\w-]*$/, '') + after);
-        return;
-      }
+    }
+    // Also with no matches, since the "No matches" panel is still open.
+    if (e.key === 'Escape' && tagQuery !== null && tagCatalog) {
+      e.preventDefault();
+      removeTagTrigger();
+      return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -614,7 +634,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             </div>
             <div className="max-h-64 overflow-y-auto">
               {/* Group results by kind */}
-              {(['group', 'contributor', 'topic'] as const).map(kind => {
+              {TAG_KIND_ORDER.map(kind => {
                 const items = tagMatches.filter(m => m.kind === kind);
                 if (items.length === 0) return null;
                 return (
@@ -627,9 +647,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                       return (
                         <button
                           key={`${item.kind}:${item.value}`}
+                          ref={globalIdx === activeTagIndex ? highlightedTagRef : undefined}
                           onClick={() => selectTag(item)}
                           className={`w-full flex items-center gap-3 px-4 py-2 text-left text-sm transition-colors cursor-pointer ${
-                            globalIdx === tagHighlight ? 'bg-bg-tertiary text-text-primary' : 'text-text-secondary hover:bg-bg-tertiary'
+                            globalIdx === activeTagIndex ? 'bg-bg-tertiary text-text-primary' : 'text-text-secondary hover:bg-bg-tertiary'
                           }`}
                         >
                           <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
@@ -724,7 +745,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                 <img src={img.dataUrl} alt={img.name} className="w-14 h-14 rounded-lg object-cover border border-border" />
                 <button
                   onClick={() => removeImage(img.id)}
-                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-bg-primary border border-border rounded-full text-text-secondary hover:text-error text-xs flex items-center justify-center cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-bg-primary border border-border rounded-full text-text-secondary hover:text-error text-xs flex items-center justify-center cursor-pointer opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100 transition-opacity"
+                  aria-label={`Remove image ${img.name}`}
                 >
                   &#10005;
                 </button>
@@ -762,11 +784,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         {/* Deep Research mode armed (toggle on, no job yet): the next send starts
             a background research job rather than a chat turn. */}
         {deepResearchMode && !drActive && (
-          <div data-testid="dr-armed" className="px-5 pt-2 flex items-center gap-2 text-xs text-accent">
+          <div data-testid="dr-armed" className={`px-5 pt-2 flex items-center gap-2 text-xs ${deepResearchBlocked ? 'text-warning' : 'text-accent'}`}>
             <svg className="shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 3h6M10 3v6.5L5.5 18a2 2 0 0 0 1.8 3h9.4a2 2 0 0 0 1.8-3L14 9.5V3" />
             </svg>
-            <span className="flex-1 truncate">Deep Research is on. Your next message runs as a background report.</span>
+            <span className="flex-1 truncate">
+              {deepResearchBlocked
+                ? 'Deep Research cannot use attachments. Remove them or turn Deep Research off.'
+                : 'Deep Research is on. Your next message runs as a background report.'}
+            </span>
             <button
               onClick={() => setDeepResearchMode(false)}
               className="text-text-secondary hover:text-text-primary cursor-pointer"
@@ -791,7 +817,17 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           id="composer-textarea"
           data-testid="composer-textarea"
           value={input}
-          onChange={e => setInput(e.target.value)}
+          onChange={e => {
+            setInput(e.target.value);
+            setCursor(e.target.selectionStart);
+            setTagHighlight(0);
+          }}
+          onSelect={e => {
+            const caret = e.currentTarget.selectionStart;
+            if (caret === cursor) return;
+            setCursor(caret);
+            setTagHighlight(0);
+          }}
           onKeyDown={handleKeyDown}
           disabled={researchActive}
           placeholder={researchActive ? 'Deep Research is running…' : 'Ask Munin anything… (/research, /code, /chat to steer)'}
@@ -976,9 +1012,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             <button
               data-testid="composer-send"
               onClick={handleSubmit}
-              disabled={(!input.trim() && pendingImages.length === 0 && pendingDocs.length === 0) || drStarting || researchActive}
+              disabled={(!input.trim() && !hasAttachments) || drStarting || researchActive || deepResearchBlocked}
               className="p-2.5 bg-accent rounded-full text-bg-primary cursor-pointer hover:bg-accent-hover transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title={deepResearchMode ? 'Start Deep Research' : 'Send message'}
+              title={deepResearchBlocked ? 'Deep Research cannot use attachments' : deepResearchMode ? 'Start Deep Research' : 'Send message'}
             >
               {drStarting ? (
                 <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">

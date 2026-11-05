@@ -1,5 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { http, HttpResponse } from 'msw';
+import { server } from '../test/msw-server';
 import { MessageList } from './MessageList';
 import { detectPhase } from '../lib/streamPhase';
 import type { Message } from '../lib/types';
@@ -35,6 +37,58 @@ function makeStreaming(overrides: Partial<Parameters<typeof MessageList>[0]['str
     ...overrides,
   };
 }
+
+describe('MessageList long unbroken text', () => {
+  it('lets a user bubble break a long sequence instead of overflowing', () => {
+    const content = 'MKT'.repeat(200);
+    const msg: Message = { id: 'u', role: 'user', content, created_at: '' } as Message;
+    render(<MessageList messages={[msg]} streaming={makeStreaming()} />);
+    expect(screen.getByText(content).className).toContain('wrap-anywhere');
+  });
+});
+
+describe('MessageList plan card wiring', () => {
+  it('revoking auto-approve fires none of the callbacks that send a message', async () => {
+    let body: unknown = null;
+    server.use(
+      http.post('/api/chats/:id/plan/approve', async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ approved: true });
+      }),
+    );
+    const onPlanApproved = vi.fn();
+    const onPlanRejected = vi.fn();
+    const onPlanEdited = vi.fn();
+    const onContinue = vi.fn();
+    const msg = {
+      id: 'a', role: 'assistant', content: 'Working', created_at: '',
+      plan_snapshot: {
+        conversation_id: 'c1',
+        items: [{ id: 's1', title: 'Search', status: 'pending' }],
+        requires_approval: true, approved_at: '2026-01-01', approval_mode: 'auto',
+        created_at: '', updated_at: '',
+      },
+    } as unknown as Message;
+    render(
+      <MessageList
+        messages={[msg]}
+        streaming={makeStreaming()}
+        conversationId="c1"
+        onPlanApproved={onPlanApproved}
+        onPlanRejected={onPlanRejected}
+        onPlanEdited={onPlanEdited}
+        onContinue={onContinue}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'revoke' }));
+    await screen.findByText(/asking before each step/i);
+    expect(body).toEqual({ mode: 'each' });
+    expect(onPlanEdited).not.toHaveBeenCalled();
+    expect(onPlanApproved).not.toHaveBeenCalled();
+    expect(onPlanRejected).not.toHaveBeenCalled();
+    expect(onContinue).not.toHaveBeenCalled();
+  });
+});
 
 // ── detectPhase tests ───────────────────────────────────────────────────────
 

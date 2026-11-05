@@ -12,7 +12,11 @@ import { approvePlan, rejectPlan, editPlan } from '../lib/api';
  *   call resolves so the chat can send a synthetic
  *   `"I've approved the plan, please continue."` user message and
  *   the model resumes. Auto-mode renders an indicator + revoke
- *   button so the user can flip back to per-call gating.
+ *   button so the user can flip back to per-call gating. Revoking
+ *   only changes a setting, so it sends no message.
+ *
+ * `plan` is a snapshot taken when the message was built and nothing
+ * updates it afterwards, so the result of an action is held here.
  */
 interface Props {
   plan: Plan;
@@ -37,6 +41,9 @@ const STATUS_LABEL: Record<PlanItemStatus, string> = {
   done: 'done',
   cancelled: 'cancelled',
 };
+
+// What the user did on this card, once the request has succeeded.
+type Outcome = 'approved' | 'auto' | 'rejected' | 'revoked';
 
 function progressSummary(plan: Plan): string {
   const done = plan.items.filter(i => i.status === 'done').length;
@@ -69,11 +76,13 @@ export function PlanCard({
   const [busy, setBusy] = useState<'approve' | 'auto' | 'reject' | 'edit' | 'revoke' | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<EditDraft[]>(() => toDraft(plan.items));
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
 
   if (!plan.items.length) return null;
 
-  const needsApproval = plan.requires_approval && !plan.approved_at;
-  const autoMode = plan.requires_approval && plan.approved_at && plan.approval_mode === 'auto';
+  const needsApproval = plan.requires_approval && !plan.approved_at && !outcome;
+  const autoMode = outcome === 'auto'
+    || (!outcome && plan.requires_approval && plan.approved_at && plan.approval_mode === 'auto');
   const canAct = !!conversationId;
 
   const handleApprove = async (mode: 'each' | 'auto') => {
@@ -81,6 +90,7 @@ export function PlanCard({
     setBusy(mode === 'auto' ? 'auto' : 'approve');
     try {
       await approvePlan(conversationId, mode);
+      setOutcome(mode === 'auto' ? 'auto' : 'approved');
       onAfterApprove?.();
     } catch {
       // best-effort; the parent's afterApprove typically retries
@@ -94,7 +104,10 @@ export function PlanCard({
     setBusy('reject');
     try {
       await rejectPlan(conversationId);
+      setOutcome('rejected');
       onAfterReject?.();
+      // The next step is the user's: say what to change, in the composer.
+      document.getElementById('composer-textarea')?.focus();
     } catch {
       /* noop */
     } finally {
@@ -123,6 +136,7 @@ export function PlanCard({
     setBusy('edit');
     try {
       await editPlan(conversationId, items, 'each');
+      setOutcome('approved');
       onAfterEdit?.();
       setEditing(false);
     } catch {
@@ -137,7 +151,7 @@ export function PlanCard({
     setBusy('revoke');
     try {
       await approvePlan(conversationId, 'each');
-      onAfterEdit?.();
+      setOutcome('revoked');
     } catch {
       /* noop */
     } finally {
@@ -277,6 +291,14 @@ export function PlanCard({
           >
             {busy === 'revoke' ? '…' : 'revoke'}
           </button>
+        </div>
+      )}
+
+      {outcome && outcome !== 'auto' && !editing && (
+        <div role="status" className="mt-2 pt-2 border-t border-border text-[12px] text-text-secondary">
+          {outcome === 'approved' && 'Approved'}
+          {outcome === 'rejected' && 'Rejected. Tell Munin what to change.'}
+          {outcome === 'revoked' && 'Asking before each step that needs approval.'}
         </div>
       )}
     </div>
