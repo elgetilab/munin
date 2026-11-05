@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { TagCatalog, TagChip, TagPaper, TopicTag, GroupTag } from '../lib/types';
 import { fetchTags, fetchTagPapers, fetchEmbeddingMap } from '../lib/api';
+import { UPLOAD_URL } from '../lib/urls';
 import { EmbeddingMapView } from './EmbeddingMapView';
+import { ErrorNotice } from './ui/ErrorNotice';
 
 interface KnowledgePageProps {
   initialRoute?: string; // e.g. "group/zeitler" or "topic/nmr-..."
@@ -308,46 +310,52 @@ function BrowseView({ kind, slug, catalog: _catalog, onChatWithTag }: {
   onChatWithTag: (tags: TagChip[]) => void;
 }) {
   const [papers, setPapers] = useState<TagPaper[]>([]);
-  const [total, setTotal] = useState(0);
+  // Null until a response arrives: before that the count is not known to be 0.
+  const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
   const [sort, setSort] = useState('year_desc');
-  const [offset, setOffset] = useState(0);
   const limit = 50;
+  // Only the newest request may report back, so a slow answer for the previous
+  // sort or group cannot land in this list.
+  const latestRequest = useRef(0);
 
-  const loadPapers = useCallback(async (newOffset: number, newSort: string) => {
+  const loadPapers = useCallback(async (offset: number, newSort: string) => {
+    const request = ++latestRequest.current;
     setLoading(true);
+    setFailed(false);
     try {
-      const res = await fetchTagPapers(kind, slug, { offset: newOffset, limit, sort: newSort });
-      setPapers(newOffset === 0 ? res.papers : prev => [...prev, ...res.papers]);
+      const res = await fetchTagPapers(kind, slug, { offset, limit, sort: newSort });
+      if (request !== latestRequest.current) return;
+      setPapers(offset === 0 ? res.papers : prev => [...prev, ...res.papers]);
       setTotal(res.total);
     } catch {
-      // ignore
+      if (request === latestRequest.current) setFailed(true);
     } finally {
-      setLoading(false);
+      if (request === latestRequest.current) setLoading(false);
     }
   }, [kind, slug]);
 
   useEffect(() => {
     setPapers([]);
-    setOffset(0);
+    setTotal(null);
     loadPapers(0, sort);
   }, [kind, slug, sort, loadPapers]);
 
-  const loadMore = () => {
-    const newOffset = offset + limit;
-    setOffset(newOffset);
-    loadPapers(newOffset, sort);
-  };
+  // The next page starts after what actually arrived, so retrying a failed
+  // page asks for the same one again rather than skipping it.
+  const loadMore = () => loadPapers(papers.length, sort);
+  const isEmpty = total === 0 && !loading && !failed;
 
   return (
     <div className="px-6 py-4">
       {/* Controls */}
-      <div className="flex items-center gap-3 mb-4">
+      {total !== null && !isEmpty && <div className="flex items-center gap-3 mb-4">
         <span className="text-xs text-text-secondary">{total.toLocaleString()} papers</span>
         <div className="flex-1" />
         <select
           value={sort}
-          onChange={e => { setSort(e.target.value); setOffset(0); }}
+          onChange={e => setSort(e.target.value)}
           className="text-xs px-2 py-1 bg-bg-secondary border border-border rounded-lg text-text-primary outline-none cursor-pointer"
         >
           <option value="year_desc">Newest first</option>
@@ -360,7 +368,14 @@ function BrowseView({ kind, slug, catalog: _catalog, onChatWithTag }: {
         >
           Discuss in chat
         </button>
-      </div>
+      </div>}
+
+      {isEmpty && (
+        <div className="text-center py-12 text-sm text-text-secondary">
+          <p>No papers here yet.</p>
+          <a href={UPLOAD_URL} className="inline-block mt-2 text-accent hover:underline">Upload papers</a>
+        </div>
+      )}
 
       {/* Paper list */}
       <div className="flex flex-col gap-2">
@@ -370,7 +385,15 @@ function BrowseView({ kind, slug, catalog: _catalog, onChatWithTag }: {
       </div>
 
       {/* Load more */}
-      {papers.length < total && (
+      {failed && (
+        <ErrorNotice
+          message="Could not load the papers."
+          onRetry={papers.length > 0 ? loadMore : () => loadPapers(0, sort)}
+          className="mt-3"
+        />
+      )}
+
+      {total !== null && papers.length < total && !failed && (
         <div className="flex justify-center py-4">
           <button
             onClick={loadMore}

@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
 import { KnowledgePage } from './KnowledgePage';
@@ -67,6 +68,71 @@ describe('KnowledgePage', () => {
 
     rerender(<KnowledgePage tagCatalog={CATALOG} onChatWithTag={vi.fn()} />);
     await waitFor(() => expect(screen.getByText('Knowledge Base')).toBeInTheDocument());
+  });
+
+  describe('browsing papers', () => {
+    const PAPERS_PATH = '/api/tags/group/elgeti/papers';
+    const paper = (n: number) => ({ title: `Paper ${n}`, doi: `10.1/${n}`, year: 2024, authors: [], journal: 'J', contributors: [] });
+    const page = (offset: number, count: number, total: number) => ({
+      kind: 'group', slug: 'elgeti', total, offset, limit: 50, sort: 'year_desc',
+      papers: Array.from({ length: count }, (_, i) => paper(offset + i)),
+    });
+    const renderBrowse = () => render(<KnowledgePage initialRoute="group/elgeti" tagCatalog={CATALOG} onChatWithTag={vi.fn()} />);
+
+    it('tells a failed fetch from an empty group, and can retry', async () => {
+      let fail = true;
+      server.use(http.get(PAPERS_PATH, () => fail
+        ? new HttpResponse(null, { status: 500 })
+        : HttpResponse.json(page(0, 2, 2))));
+      renderBrowse();
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Could not load the papers');
+      expect(screen.queryByText(/0 papers/)).not.toBeInTheDocument();
+      expect(screen.queryByText('No papers here yet.')).not.toBeInTheDocument();
+
+      fail = false;
+      await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      expect(await screen.findByText('Paper 0')).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.getByText('2 papers')).toBeInTheDocument();
+    });
+
+    it('shows no count before the first answer', async () => {
+      server.use(http.get(PAPERS_PATH, () => HttpResponse.json(page(0, 2, 2))));
+      renderBrowse();
+      expect(screen.queryByText(/0 papers/)).not.toBeInTheDocument();
+      expect(await screen.findByText('2 papers')).toBeInTheDocument();
+    });
+
+    it('says when a group has no papers, with nothing to discuss', async () => {
+      server.use(http.get(PAPERS_PATH, () => HttpResponse.json(page(0, 0, 0))));
+      renderBrowse();
+      expect(await screen.findByText('No papers here yet.')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Upload papers' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Discuss in chat' })).not.toBeInTheDocument();
+    });
+
+    it('asks for the same page again after a failed Load more', async () => {
+      const offsets: (string | null)[] = [];
+      let fail = true;
+      server.use(http.get(PAPERS_PATH, ({ request }) => {
+        const offset = new URL(request.url).searchParams.get('offset');
+        offsets.push(offset);
+        if (offset === null) return HttpResponse.json(page(0, 50, 60));
+        return fail ? new HttpResponse(null, { status: 500 }) : HttpResponse.json(page(50, 10, 60));
+      }));
+      renderBrowse();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Load more (50 of 60)' }));
+      await screen.findByRole('alert');
+      expect(screen.getByText('Paper 49')).toBeInTheDocument();
+
+      fail = false;
+      await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      expect(await screen.findByText('Paper 59')).toBeInTheDocument();
+      expect(offsets).toEqual([null, '50', '50']);
+      expect(screen.queryByRole('button', { name: /Load more/ })).not.toBeInTheDocument();
+    });
   });
 
   it('surfaces a failed self-fetch', async () => {
