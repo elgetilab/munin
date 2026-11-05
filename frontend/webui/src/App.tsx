@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
 import { useChatLifecycle } from './hooks/useChatLifecycle';
+import { friendlyError } from './lib/modelError';
 import { useChatStore } from './stores/chatStore';
 import { useUiStore } from './stores/uiStore';
 import { useUserStore } from './stores/userStore';
@@ -869,8 +870,8 @@ export default function App() {
 
         {/* Error banner */}
         {error && (
-          <div className="mx-4 mt-3 px-4 py-3 bg-error/10 border border-error rounded-lg text-error text-sm">
-            {error}
+          <div title={error} className="mx-4 mt-3 px-4 py-3 bg-error/10 border border-error rounded-lg text-error text-sm">
+            {friendlyError(error)}
           </div>
         )}
 
@@ -1003,6 +1004,7 @@ export default function App() {
           <span>{toast}</span>
           <button
             onClick={() => setToast(null)}
+            aria-label="Dismiss"
             className="text-text-secondary hover:text-text-primary cursor-pointer text-xs"
           >&#10005;</button>
         </div>

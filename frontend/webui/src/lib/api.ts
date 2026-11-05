@@ -549,6 +549,7 @@ export async function uploadDocument(
   file: File,
   conversationId?: string | null,
   onProgress?: (pct: number) => void,
+  signal?: AbortSignal,
 ): Promise<UploadedDocument> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -581,6 +582,8 @@ export async function uploadDocument(
       }
     };
     xhr.onerror = () => reject(new Error('Upload failed'));
+    xhr.onabort = () => reject(new DOMException('Upload cancelled', 'AbortError'));
+    signal?.addEventListener('abort', () => xhr.abort(), { once: true });
 
     const form = new FormData();
     form.append('file', file);

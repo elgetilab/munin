@@ -76,6 +76,121 @@ describe('PlanCard revoke', () => {
   });
 });
 
+describe('PlanCard failures', () => {
+  it.each([
+    ['Approve plan', 'Could not approve the plan. Try again.'],
+    ['Reject plan', 'Could not reject the plan. Try again.'],
+  ])('%s says it failed, and the next click clears the message', async (button, message) => {
+    mockPlanApi(500);
+    render(<PlanCard plan={makePlan()} conversationId="c1" />);
+
+    fireEvent.click(screen.getByRole('button', { name: button }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(message);
+
+    fireEvent.click(screen.getByRole('button', { name: button }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await screen.findByRole('alert');
+  });
+
+  it('a failed revoke says so and keeps the auto footer', async () => {
+    mockPlanApi(500);
+    render(<PlanCard plan={makePlan(AUTO)} conversationId="c1" />);
+    fireEvent.click(screen.getByRole('button', { name: 'revoke' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not change/i);
+    expect(screen.getByRole('button', { name: 'revoke' })).toBeInTheDocument();
+  });
+
+  it('a failed save keeps the editor and the edits, and says so', async () => {
+    mockPlanApi(500);
+    const onAfterEdit = vi.fn();
+    render(<PlanCard plan={makePlan()} conversationId="c1" onAfterEdit={onAfterEdit} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit plan' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Step 1 title' }), { target: { value: 'Changed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save & approve' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not save the plan. Try again.');
+    expect(screen.getByRole('textbox', { name: 'Step 1 title' })).toHaveValue('Changed');
+    expect(onAfterEdit).not.toHaveBeenCalled();
+  });
+});
+
+describe('PlanCard editor', () => {
+  const openEditor = () => fireEvent.click(screen.getByRole('button', { name: 'Edit plan' }));
+  const save = () => screen.getByRole('button', { name: 'Save & approve' });
+
+  it('shows plain numbers, not raw ids, in both modes', () => {
+    render(<PlanCard plan={makePlan()} conversationId="c1" />);
+    expect(screen.queryByText(/step-1/)).not.toBeInTheDocument();
+    expect(screen.getByText('1.')).toBeInTheDocument();
+    openEditor();
+    expect(screen.queryByText(/step-1/)).not.toBeInTheDocument();
+    expect(screen.getByText('1.')).toBeInTheDocument();
+  });
+
+  it('adds a step with an id that cannot clash after a removal', async () => {
+    const calls = mockPlanApi();
+    render(<PlanCard plan={makePlan()} conversationId="c1" />);
+    openEditor();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove step 1' }));
+    fireEvent.click(screen.getByRole('button', { name: /add step/i }));
+    const added = screen.getByRole('textbox', { name: 'Step 2 title' });
+    expect(added).toHaveFocus();
+    fireEvent.change(added, { target: { value: 'New step' } });
+    fireEvent.click(save());
+    await screen.findByText('Approved');
+
+    const { items } = calls[0].body as { items: Array<{ id: string; title: string; status: string }> };
+    expect(items.map(i => i.title)).toEqual(['Compare methods', 'New step']);
+    expect(items[1].status).toBe('pending');
+    expect(items[1].id).toBeTruthy();
+    expect(new Set(items.map(i => i.id)).size).toBe(2);
+  });
+
+  it('shows the saved steps afterwards, not the snapshot from before', async () => {
+    mockPlanApi();
+    render(<PlanCard plan={makePlan()} conversationId="c1" />);
+    openEditor();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Step 1 title' }), { target: { value: 'Edited title' } });
+    fireEvent.click(save());
+    await screen.findByText('Approved');
+    expect(screen.getByText('Edited title')).toBeInTheDocument();
+    expect(screen.queryByText('Search the corpus')).not.toBeInTheDocument();
+  });
+
+  it('disables Save while every title is blank', () => {
+    render(<PlanCard plan={makePlan()} conversationId="c1" />);
+    openEditor();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Step 1 title' }), { target: { value: ' ' } });
+    expect(save()).toBeEnabled();
+    expect(screen.getByText(/left out when you save/)).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Step 2 title' }), { target: { value: '' } });
+    expect(save()).toBeDisabled();
+  });
+
+  it('Edit starts from the current plan, even if the prop changed since mount', () => {
+    const { rerender } = render(<PlanCard plan={makePlan()} conversationId="c1" />);
+    rerender(
+      <PlanCard
+        plan={makePlan({ items: [{ id: 'step-1', title: 'Newer title', status: 'done' }] })}
+        conversationId="c1"
+      />,
+    );
+    openEditor();
+    expect(screen.getByRole('textbox', { name: 'Step 1 title' })).toHaveValue('Newer title');
+    expect(screen.queryByRole('textbox', { name: 'Step 2 title' })).not.toBeInTheDocument();
+  });
+
+  it('Cancel discards the edits', () => {
+    render(<PlanCard plan={makePlan()} conversationId="c1" />);
+    openEditor();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Step 1 title' }), { target: { value: 'Changed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByText('Search the corpus')).toBeInTheDocument();
+    openEditor();
+    expect(screen.getByRole('textbox', { name: 'Step 1 title' })).toHaveValue('Search the corpus');
+  });
+});
+
 describe('PlanCard after an action', () => {
   it('Approve hides the buttons, shows Approved and calls back once', async () => {
     mockPlanApi();

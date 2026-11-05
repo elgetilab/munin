@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Plan, PlanItem, PlanItemStatus } from '../lib/types';
 import { approvePlan, rejectPlan, editPlan } from '../lib/api';
+import { ErrorNotice } from './ui/ErrorNotice';
 
 /**
  * Inline plan card (P2 #24).
@@ -45,9 +46,9 @@ const STATUS_LABEL: Record<PlanItemStatus, string> = {
 // What the user did on this card, once the request has succeeded.
 type Outcome = 'approved' | 'auto' | 'rejected' | 'revoked';
 
-function progressSummary(plan: Plan): string {
-  const done = plan.items.filter(i => i.status === 'done').length;
-  return `${done} / ${plan.items.length} done`;
+function progressSummary(items: PlanItem[]): string {
+  const done = items.filter(i => i.status === 'done').length;
+  return `${done} / ${items.length} done`;
 }
 
 interface EditDraft {
@@ -55,6 +56,16 @@ interface EditDraft {
   title: string;
   status: PlanItemStatus;
   notes: string;
+}
+
+// New steps need an id of their own. Left without one, the backend numbers them
+// by position (p-1, p-2...), which can repeat an existing id once a step has been
+// removed, and it rejects a plan with a repeated id.
+function newStepId(draft: EditDraft[]): string {
+  const ids = new Set(draft.map(d => d.id));
+  let n = draft.length + 1;
+  while (ids.has(`step-${n}`)) n++;
+  return `step-${n}`;
 }
 
 function toDraft(items: PlanItem[]): EditDraft[] {
@@ -77,23 +88,40 @@ export function PlanCard({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<EditDraft[]>(() => toDraft(plan.items));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // The edited steps, once saved: `plan` still holds the ones from before.
+  const [savedItems, setSavedItems] = useState<PlanItem[] | null>(null);
+  const [focusStepId, setFocusStepId] = useState<string | null>(null);
 
   if (!plan.items.length) return null;
 
+  const items = savedItems ?? plan.items;
   const needsApproval = plan.requires_approval && !plan.approved_at && !outcome;
   const autoMode = outcome === 'auto'
     || (!outcome && plan.requires_approval && plan.approved_at && plan.approval_mode === 'auto');
   const canAct = !!conversationId;
+  const titledSteps = draft.filter(d => d.title.trim().length > 0).length;
+
+  const updateDraftTitle = (id: string, title: string) => {
+    setDraft(draft.map(d => (d.id === id ? { ...d, title } : d)));
+  };
+
+  const addStep = () => {
+    const id = newStepId(draft);
+    setDraft([...draft, { id, title: '', status: 'pending', notes: '' }]);
+    setFocusStepId(id);
+  };
 
   const handleApprove = async (mode: 'each' | 'auto') => {
     if (!conversationId || busy) return;
     setBusy(mode === 'auto' ? 'auto' : 'approve');
+    setError(null);
     try {
       await approvePlan(conversationId, mode);
       setOutcome(mode === 'auto' ? 'auto' : 'approved');
       onAfterApprove?.();
     } catch {
-      // best-effort; the parent's afterApprove typically retries
+      setError('Could not approve the plan. Try again.');
     } finally {
       setBusy(null);
     }
@@ -102,6 +130,7 @@ export function PlanCard({
   const handleReject = async () => {
     if (!conversationId || busy) return;
     setBusy('reject');
+    setError(null);
     try {
       await rejectPlan(conversationId);
       setOutcome('rejected');
@@ -109,7 +138,7 @@ export function PlanCard({
       // The next step is the user's: say what to change, in the composer.
       document.getElementById('composer-textarea')?.focus();
     } catch {
-      /* noop */
+      setError('Could not reject the plan. Try again.');
     } finally {
       setBusy(null);
     }
@@ -121,7 +150,7 @@ export function PlanCard({
     // produced a fresh object literal, which excess-property checking
     // rejected against editPlan's narrower parameter, and the `as any`
     // that silenced it also switched off every other check on this call.
-    const items = draft
+    const edited = draft
       .map(d => ({
         id: d.id,
         title: d.title.trim(),
@@ -129,18 +158,18 @@ export function PlanCard({
         notes: d.notes.trim() || null,
       }))
       .filter(d => d.title.length > 0);
-    if (items.length === 0) {
-      setEditing(false);
-      return;
-    }
+    if (edited.length === 0) return;
     setBusy('edit');
+    setError(null);
     try {
-      await editPlan(conversationId, items, 'each');
+      await editPlan(conversationId, edited, 'each');
+      setSavedItems(edited);
       setOutcome('approved');
       onAfterEdit?.();
       setEditing(false);
     } catch {
-      /* leave the editor open so the user can retry */
+      // The editor stays open so the user can retry.
+      setError('Could not save the plan. Try again.');
     } finally {
       setBusy(null);
     }
@@ -149,11 +178,12 @@ export function PlanCard({
   const handleRevoke = async () => {
     if (!conversationId || busy) return;
     setBusy('revoke');
+    setError(null);
     try {
       await approvePlan(conversationId, 'each');
       setOutcome('revoked');
     } catch {
-      /* noop */
+      setError('Could not change the approval setting. Try again.');
     } finally {
       setBusy(null);
     }
@@ -166,7 +196,7 @@ export function PlanCard({
           {needsApproval ? '⚠ Plan — approval required' : 'Plan'}
         </div>
         <div className="text-[11px] text-text-tertiary">
-          {autoMode ? 'auto-approve on · ' : ''}{progressSummary(plan)}
+          {autoMode ? 'auto-approve on · ' : ''}{progressSummary(items)}
         </div>
       </div>
 
@@ -174,34 +204,54 @@ export function PlanCard({
         <div className="space-y-2">
           {draft.map((d, idx) => (
             <div key={d.id} className="flex items-start gap-2">
-              <span className="text-text-tertiary text-[12px] pt-1 shrink-0 font-mono">
-                {d.id}:
+              <span className="text-text-tertiary text-[12px] pt-1 shrink-0">
+                {idx + 1}.
               </span>
               <input
                 type="text"
                 value={d.title}
-                onChange={e => {
-                  const next = draft.slice();
-                  next[idx] = { ...next[idx], title: e.target.value };
-                  setDraft(next);
-                }}
-                className="flex-1 px-2 py-1 rounded bg-bg-tertiary border border-border text-[13px]"
-                placeholder="Item title"
+                onChange={e => updateDraftTitle(d.id, e.target.value)}
+                aria-label={`Step ${idx + 1} title`}
+                autoFocus={d.id === focusStepId}
+                className="flex-1 min-w-0 px-2 py-1 rounded bg-bg-tertiary border border-border text-[13px]"
+                placeholder="Step title"
               />
+              <button
+                type="button"
+                onClick={() => setDraft(draft.filter(x => x.id !== d.id))}
+                aria-label={`Remove step ${idx + 1}`}
+                title="Remove step"
+                className="shrink-0 w-7 h-7 rounded text-text-secondary hover:text-error hover:bg-bg-tertiary cursor-pointer flex items-center justify-center"
+              >
+                <span aria-hidden="true">&#10005;</span>
+              </button>
             </div>
           ))}
+          <button
+            type="button"
+            onClick={addStep}
+            className="text-[12px] text-accent hover:underline cursor-pointer"
+          >
+            + Add step
+          </button>
+          {titledSteps > 0 && titledSteps < draft.length && (
+            <p className="text-[11px] text-text-secondary">
+              Steps with no title are left out when you save.
+            </p>
+          )}
           <div className="flex items-center gap-2 pt-1">
             <button
               type="button"
               onClick={handleSaveEdit}
-              disabled={!!busy}
+              disabled={!!busy || titledSteps === 0}
+              title={titledSteps === 0 ? 'Give at least one step a title' : undefined}
               className="px-2 py-1 rounded text-[12px] bg-accent text-white hover:opacity-90 disabled:opacity-50 cursor-pointer"
             >
               {busy === 'edit' ? 'Saving…' : 'Save & approve'}
             </button>
             <button
               type="button"
-              onClick={() => { setDraft(toDraft(plan.items)); setEditing(false); }}
+              onClick={() => { setError(null); setEditing(false); }}
               disabled={!!busy}
               className="px-2 py-1 rounded text-[12px] border border-border text-text-secondary hover:bg-bg-tertiary disabled:opacity-50 cursor-pointer"
             >
@@ -211,7 +261,7 @@ export function PlanCard({
         </div>
       ) : (
         <ul className="space-y-1">
-          {plan.items.map(item => (
+          {items.map((item, idx) => (
             <li
               key={item.id}
               className={
@@ -229,7 +279,7 @@ export function PlanCard({
               <span className="mr-1.5" aria-hidden="true">
                 {STATUS_ICON[item.status]}
               </span>
-              <span className="text-text-tertiary mr-1.5">{item.id}:</span>
+              <span className="text-text-tertiary mr-1.5">{idx + 1}.</span>
               {item.title}
             </li>
           ))}
@@ -259,7 +309,7 @@ export function PlanCard({
           </button>
           <button
             type="button"
-            onClick={() => setEditing(true)}
+            onClick={() => { setDraft(toDraft(items)); setFocusStepId(null); setError(null); setEditing(true); }}
             disabled={!!busy}
             aria-label="Edit plan"
             className="px-2 py-1 rounded text-[12px] border border-border text-text-secondary hover:bg-bg-tertiary disabled:opacity-50 cursor-pointer"
@@ -281,7 +331,7 @@ export function PlanCard({
       {autoMode && !editing && canAct && (
         <div className="mt-2 pt-2 border-t border-border flex items-center justify-between text-[11px]">
           <span className="text-text-tertiary">
-            Subsequent gated tool calls run without prompting.
+            Munin will carry on without asking before each step.
           </span>
           <button
             type="button"
@@ -293,6 +343,8 @@ export function PlanCard({
           </button>
         </div>
       )}
+
+      {error && <ErrorNotice message={error} className="mt-2" />}
 
       {outcome && outcome !== 'auto' && !editing && (
         <div role="status" className="mt-2 pt-2 border-t border-border text-[12px] text-text-secondary">

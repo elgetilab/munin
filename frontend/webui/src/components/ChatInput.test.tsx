@@ -1,6 +1,7 @@
 import { createRef } from 'react';
 import { fireEvent, render, screen, waitFor, act } from '@testing-library/react';
 import { ChatInput, type ChatInputHandle } from './ChatInput';
+import { useDeepResearchStore } from '../stores/deepResearchStore';
 
 // Mutable store state shared with the mocked selectors (hoisted so the
 // vi.mock factories can reference it).
@@ -62,6 +63,201 @@ const CATALOG = {
 const composer = () => screen.getByTestId('composer-textarea') as HTMLTextAreaElement;
 const type = (value: string) => fireEvent.change(composer(), { target: { value } });
 const key = (k: string) => fireEvent.keyDown(composer(), { key: k });
+
+describe('Sending during an upload', () => {
+  // An upload that stays open until the test says how it ends.
+  function pendingUpload() {
+    let finish!: (doc: unknown) => void;
+    uploadDocumentMock.mockImplementationOnce(((_f: File, _c: string, _p: unknown, signal: AbortSignal) =>
+      new Promise((resolve, reject) => {
+        finish = resolve;
+        signal.addEventListener('abort', () => reject(new DOMException('cancelled', 'AbortError')));
+      })) as never);
+    return (doc: unknown) => finish(doc);
+  }
+  const DOC = { document_id: 'doc-1', filename: 'paper.pdf', status: 'embedded', chunks: 3, upload_time: '' };
+
+  it('holds Send until the upload ends, so the document goes with the message', async () => {
+    const finish = pendingUpload();
+    const onSend = vi.fn();
+    const onSendMultimodal = vi.fn();
+    const ref = createRef<ChatInputHandle>();
+    render(<ChatInput ref={ref} onSend={onSend} onSendMultimodal={onSendMultimodal} onStop={() => {}} isStreaming={false} persona={null} conversationId="conv-1" />);
+    await act(async () => { void ref.current!.handleDroppedFiles([file('paper.pdf', 'application/pdf')]); });
+    type('Summarise this');
+
+    const send = screen.getByTestId('composer-send');
+    expect(send).toBeDisabled();
+    expect(send).toHaveAttribute('title', 'Waiting for upload to finish');
+    key('Enter');
+    expect(onSend).not.toHaveBeenCalled();
+
+    await act(async () => { finish(DOC); });
+    expect(send).toBeEnabled();
+    key('Enter');
+    expect(onSendMultimodal).toHaveBeenCalledWith([
+      { type: 'text', text: 'Summarise this' },
+      { type: 'document', document_id: 'doc-1', filename: 'paper.pdf' },
+    ]);
+  });
+
+  it('Cancel upload really cancels: no banner comes back and nothing attaches', async () => {
+    pendingUpload();
+    const ref = renderChatInput();
+    await act(async () => { void ref.current!.handleDroppedFiles([file('paper.pdf', 'application/pdf')]); });
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cancel upload' })); });
+
+    expect(screen.queryByText(/Uploading paper\.pdf/)).not.toBeInTheDocument();
+    expect(screen.queryByText('paper.pdf')).not.toBeInTheDocument();
+    expect(screen.queryByText(/cancelled/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId('composer-send')).toBeDisabled(); // nothing to send
+    type('Now send');
+    expect(screen.getByTestId('composer-send')).toBeEnabled();
+  });
+});
+
+describe('Composer accessibility', () => {
+  it('names the composer and the + menu, and reports its state', () => {
+    renderChatInput();
+    expect(screen.getByRole('textbox', { name: 'Message Munin' })).toBeInTheDocument();
+    const attach = screen.getByRole('button', { name: 'Attach' });
+    expect(attach).toHaveAttribute('aria-haspopup', 'menu');
+    expect(attach).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(attach);
+    expect(attach).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('menuitemcheckbox', { name: /Deep Research/ })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('menuitem', { name: 'Upload file' })).toHaveFocus();
+  });
+
+  it('names the remove buttons on tag chips by what they remove', () => {
+    const setActiveTags = vi.fn();
+    workspaceState.tagCatalog = CATALOG;
+    workspaceState.activeTags = [{ kind: 'group', value: 'zeitler' }];
+    workspaceState.setActiveTags = setActiveTags;
+    renderChatInput();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove tag Zeitler Group' }));
+    expect(setActiveTags).toHaveBeenCalledWith([]);
+  });
+});
+
+describe('Disabled menu items explain themselves', () => {
+  it('shows the reason as text in ephemeral chats', () => {
+    workspaceState.isEphemeral = true;
+    renderChatInput();
+    fireEvent.click(screen.getByTestId('composer-attach'));
+    expect(screen.getAllByText('Not available in ephemeral chats')).toHaveLength(2);
+    expect(screen.getByRole('menuitem', { name: /Upload file/ })).toBeDisabled();
+    expect(screen.queryByText(/\(disabled\)/)).not.toBeInTheDocument();
+  });
+
+  it('describes Deep Research in the menu when it is available', () => {
+    renderChatInput();
+    fireEvent.click(screen.getByTestId('composer-attach'));
+    expect(screen.getByText('Slower, multi-source report that runs in the background')).toBeInTheDocument();
+  });
+
+  it('lets the armed line wrap instead of truncating it', () => {
+    renderChatInput();
+    fireEvent.click(screen.getByTestId('composer-attach'));
+    fireEvent.click(screen.getByTestId('attach-deep-research'));
+    expect(screen.getByTestId('dr-armed').querySelector('.truncate')).toBeNull();
+  });
+});
+
+describe('Deep Research running', () => {
+  afterEach(() => useDeepResearchStore.getState().clear());
+
+  function renderActive() {
+    render(<ChatInput onSend={() => {}} onStop={() => {}} isStreaming={false} researchActive persona={null} conversationId="conv-1" />);
+  }
+
+  it('says it once, not in both the note and the placeholder', () => {
+    renderActive();
+    expect(screen.getByTestId('dr-blocked')).toHaveTextContent('Deep Research is running');
+    expect(composer()).not.toHaveAttribute('placeholder');
+  });
+
+  it('says waiting while the job is queued', () => {
+    useDeepResearchStore.getState().startJob('j1', 'Q', 'conv-1', 0);
+    renderActive();
+    expect(screen.getByTestId('dr-blocked')).toHaveTextContent(/waiting for another research job/i);
+  });
+});
+
+describe('Knowledge lists', () => {
+  it('chips show the catalog name and keep the slug in a title', () => {
+    workspaceState.tagCatalog = CATALOG;
+    workspaceState.activeTags = [{ kind: 'group', value: 'zeitler' }, { kind: 'topic', value: 'gone' }];
+    renderChatInput();
+    const chip = screen.getByText('Zeitler Group');
+    expect(chip).toHaveAttribute('title', '#zeitler');
+    expect(screen.getByText('#gone')).toBeInTheDocument();
+  });
+
+  it('the picker and the tag menu both count papers, with the right plural', () => {
+    workspaceState.tagCatalog = CATALOG;
+    renderChatInput();
+    type('#');
+    expect(screen.getByText('412 papers')).toBeInTheDocument();
+    expect(screen.getByText('1 paper')).toBeInTheDocument();
+    expect(screen.getByText('3 results')).toBeInTheDocument();
+    key('Escape');
+
+    openPicker();
+    expect(screen.getByText('412 papers')).toBeInTheDocument();
+    expect(screen.getByText('1 paper')).toBeInTheDocument();
+  });
+
+  function openPicker() {
+    fireEvent.click(screen.getByTestId('composer-attach'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Attach knowledge' }));
+    return screen.getByRole('textbox', { name: /search groups/i });
+  }
+
+  it('the picker supports arrow keys and Enter', () => {
+    const setActiveTags = vi.fn();
+    workspaceState.tagCatalog = CATALOG;
+    workspaceState.setActiveTags = setActiveTags;
+    renderChatInput();
+    const search = openPicker();
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    expect(setActiveTags).toHaveBeenCalledWith([{ kind: 'contributor', value: 'ada' }]);
+    expect(screen.queryByRole('dialog', { name: 'Attach knowledge' })).not.toBeInTheDocument();
+  });
+
+  it('Escape in the picker closes only it, back onto the + button', () => {
+    workspaceState.tagCatalog = CATALOG;
+    renderChatInput();
+    const search = openPicker();
+    fireEvent.keyDown(search, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Attach knowledge' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('composer-attach')).toHaveFocus();
+  });
+
+  it('caps each kind separately and says when there are more', () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => i);
+    workspaceState.tagCatalog = {
+      groups: many(30).map(i => ({ slug: `g${i}`, display_name: `Group ${i}`, paper_count: 1 })),
+      topics: [],
+      contributors: [{ username: 'ada', display_name: 'Ada L', paper_count: 1 }],
+    };
+    renderChatInput();
+    type('#');
+    // The groups must not push the only contributor out of the list.
+    expect(screen.getByText('Ada L')).toBeInTheDocument();
+    expect(screen.getByText('Showing 9 of 31, keep typing to narrow')).toBeInTheDocument();
+    expect(screen.getByText('31 results')).toBeInTheDocument();
+  });
+
+  it('shows wording rather than internals once a document is uploaded', async () => {
+    const ref = renderChatInput();
+    await act(async () => { await ref.current!.handleDroppedFiles([file('paper.pdf', 'application/pdf')]); });
+    expect(await screen.findByText(/ready to send/)).toBeInTheDocument();
+    expect(screen.queryByText(/chunks/)).not.toBeInTheDocument();
+  });
+});
 
 describe('Deep Research with attachments', () => {
   function arm() {
