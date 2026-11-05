@@ -1,9 +1,10 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
 import { KnowledgePage } from './KnowledgePage';
 import { _resetTagCacheForTests } from '../lib/api';
+import { useUiStore, _resetUiStoreForTests } from '../stores/uiStore';
 import type { TagCatalog } from '../lib/types';
 
 // Characterization tests written before the copy-prop-to-state effect is
@@ -23,9 +24,15 @@ const FETCHED: TagCatalog = {
   topics: [...CATALOG.topics, { slug: 'xray', label: 'X-ray', paper_count: 3 }],
 };
 
+// deck.gl needs WebGL, which jsdom has not got. EmbeddingMapView.test.tsx covers
+// what is passed to it.
+vi.mock('@deck.gl/react', () => ({ default: () => <div data-testid="deck" /> }));
+
 describe('KnowledgePage', () => {
   beforeEach(() => {
     _resetTagCacheForTests();
+    _resetUiStoreForTests();
+    window.history.replaceState(null, '', '/knowledge');
     server.use(
       http.get('/api/tags', () => HttpResponse.json(FETCHED)),
       // EmbeddingMapView spreads `clusters` unguarded, so a response missing
@@ -135,9 +142,140 @@ describe('KnowledgePage', () => {
     });
   });
 
-  it('surfaces a failed self-fetch', async () => {
-    server.use(http.get('/api/tags', () => new HttpResponse(null, { status: 500 })));
+  it('reports a failed self-fetch in plain words and can retry', async () => {
+    let fail = true;
+    server.use(http.get('/api/tags', () => fail
+      ? new HttpResponse(null, { status: 500 })
+      : HttpResponse.json(FETCHED)));
     render(<KnowledgePage tagCatalog={null} onChatWithTag={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText(/failed/i)).toBeInTheDocument());
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load the knowledge base');
+
+    fail = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('Knowledge Base')).toBeInTheDocument();
+  });
+
+  it('reports a failed map and retries it, leaving the rest of the page up', async () => {
+    let fail = true;
+    server.use(http.get('/api/embedding_map', () => fail
+      ? new HttpResponse(null, { status: 500 })
+      : HttpResponse.json({ generated_at: '', paper_count: 1, cluster_count: 0, points: [{ id: 'p', doi: '', title: 'T', year: 2020, x: 0, y: 0, cluster: -1 }], clusters: [] })));
+    render(<KnowledgePage tagCatalog={CATALOG} onChatWithTag={vi.fn()} />);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Could not load the paper map');
+    expect(alert).toHaveClass('mb-8');
+    expect(screen.getByRole('heading', { name: 'Research Groups' })).toBeInTheDocument();
+
+    fail = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByTestId('deck')).toBeInTheDocument();
+  });
+
+  it('shows one empty state for an empty catalog', async () => {
+    server.use(http.get('/api/embedding_map', () => HttpResponse.json({ generated_at: '', paper_count: 0, cluster_count: 0, points: [], clusters: [] })));
+    render(<KnowledgePage tagCatalog={{ topics: [], groups: [], contributors: [], contributor_count: 0 }} onChatWithTag={vi.fn()} />);
+    expect(await screen.findByText('No papers yet.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Upload papers' })).toBeInTheDocument();
+    expect(screen.queryByText('Research Groups')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Search topics')).not.toBeInTheDocument();
+    expect(screen.queryByText('Papers')).not.toBeInTheDocument();
+  });
+
+  describe('paper rows', () => {
+    const renderRows = (paper: Record<string, unknown>) => {
+      server.use(http.get('/api/tags/group/elgeti/papers', () => HttpResponse.json({
+        kind: 'group', slug: 'elgeti', total: 1, offset: 0, limit: 50, sort: 'year_desc',
+        papers: [{ title: 'A paper', year: 2024, authors: [], journal: 'J', contributors: [], ...paper }],
+      })));
+      render(<KnowledgePage initialRoute="group/elgeti" tagCatalog={CATALOG} onChatWithTag={vi.fn()} />);
+    };
+
+    it('links a title to its DOI and shows the DOI', async () => {
+      renderRows({ doi: '10.1234/ab(c)/1' });
+      const link = await screen.findByRole('link', { name: 'A paper' });
+      expect(link).toHaveAttribute('href', 'https://doi.org/10.1234/ab(c)/1');
+      expect(link).toHaveAttribute('target', '_blank');
+      expect(screen.getByText('10.1234/ab(c)/1')).toBeInTheDocument();
+    });
+
+    it('leaves the title plain when there is no real DOI', async () => {
+      renderRows({ doi: 'upload-123' });
+      expect(await screen.findByRole('heading', { name: 'A paper' })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'A paper' })).not.toBeInTheDocument();
+    });
+
+    it('names the paper in its PDF link', async () => {
+      renderRows({ doi: '10.1/x', download_url: '/paper/x/pdf' });
+      expect(await screen.findByRole('link', { name: 'Download PDF: A paper' })).toHaveAttribute('href', '/paper/x/pdf');
+      expect(screen.getByText('Download PDF')).toBeInTheDocument();
+    });
+  });
+
+  describe('routing', () => {
+    // App's part: it passes the store's route down.
+    function RoutedPage() {
+      const route = useUiStore(s => s.showKnowledgePage);
+      return <KnowledgePage initialRoute={typeof route === 'string' ? route : undefined} tagCatalog={CATALOG} onChatWithTag={vi.fn()} />;
+    }
+
+    beforeEach(() => {
+      server.use(http.get('/api/tags/:kind/:slug/papers', () => HttpResponse.json({
+        kind: 'group', slug: 'elgeti', total: 1, offset: 0, limit: 50, sort: 'year_desc',
+        papers: [{ title: 'Browsed paper', doi: '10.1/x', year: 2024, authors: [], journal: 'J', contributors: [] }],
+      })));
+    });
+
+    it('gives a browse view its own address, and Back returns to the overview', async () => {
+      const user = userEvent.setup();
+      render(<RoutedPage />);
+      await user.click(await screen.findByRole('button', { name: 'Browse papers' }));
+      expect(window.location.pathname).toBe('/knowledge/group/elgeti');
+      expect(await screen.findByText('Browsed paper')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Elgeti Lab' })).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: /Back/ }));
+      expect(window.location.pathname).toBe('/knowledge');
+      expect(screen.getByRole('heading', { name: 'Knowledge Base' })).toBeInTheDocument();
+      expect(screen.queryByText('Browsed paper')).not.toBeInTheDocument();
+    });
+
+    it('follows the route when the browser goes back', async () => {
+      render(<RoutedPage />);
+      await screen.findByRole('heading', { name: 'Knowledge Base' });
+      act(() => useUiStore.getState().setShowKnowledgePage('topic/nmr'));
+      expect(await screen.findByRole('heading', { name: 'NMR' })).toBeInTheDocument();
+      act(() => useUiStore.getState().setShowKnowledgePage(true));
+      expect(await screen.findByRole('heading', { name: 'Knowledge Base' })).toBeInTheDocument();
+    });
+
+    it('reads a slug that had to be encoded for the address', async () => {
+      let requested = '';
+      server.use(http.get('/api/tags/:kind/:slug/papers', ({ params }) => {
+        requested = String(params.slug);
+        return HttpResponse.json({ kind: 'topic', slug: 'x', total: 0, offset: 0, limit: 50, sort: 'year_desc', papers: [] });
+      }));
+      render(<KnowledgePage initialRoute="topic/a%20b" tagCatalog={CATALOG} onChatWithTag={vi.fn()} />);
+      await screen.findByText('No papers here yet.');
+      expect(requested).toBe('a b');
+    });
+
+    it('keeps the search and does not fetch the map again after a round trip', async () => {
+      const user = userEvent.setup();
+      let mapFetches = 0;
+      server.use(http.get('/api/embedding_map', () => {
+        mapFetches += 1;
+        return HttpResponse.json({ generated_at: '', paper_count: 1, cluster_count: 0, points: [{ id: 'p', doi: '', title: 'T', year: 2020, x: 0, y: 0, cluster: -1 }], clusters: [] });
+      }));
+      render(<RoutedPage />);
+      await screen.findByTestId('deck');
+      await user.type(screen.getByLabelText('Search topics'), 'nmr');
+
+      await user.click(screen.getByRole('button', { name: 'Browse papers' }));
+      await screen.findByText('Browsed paper');
+      await user.click(screen.getByRole('button', { name: /Back/ }));
+
+      expect(screen.getByLabelText('Search topics')).toHaveValue('nmr');
+      expect(mapFetches).toBe(1);
+    });
   });
 });

@@ -1,12 +1,15 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import type { TagCatalog, TagChip, TagPaper, TopicTag, GroupTag } from '../lib/types';
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
+import type { EmbeddingMap, TagCatalog, TagChip, TagPaper, TopicTag, GroupTag } from '../lib/types';
 import { fetchTags, fetchTagPapers, fetchEmbeddingMap } from '../lib/api';
 import { UPLOAD_URL } from '../lib/urls';
+import { useUiStore } from '../stores/uiStore';
 import { EmbeddingMapView } from './EmbeddingMapView';
 import { ErrorNotice } from './ui/ErrorNotice';
 
 interface KnowledgePageProps {
-  initialRoute?: string; // e.g. "group/zeitler" or "topic/nmr-..."
+  // The part of the path after /knowledge, e.g. "group/zeitler". App keeps it in
+  // step with the address bar, including on Back and Forward.
+  initialRoute?: string;
   tagCatalog: TagCatalog | null;
   onClose?: () => void;
   onChatWithTag: (tags: TagChip[]) => void;
@@ -15,6 +18,19 @@ interface KnowledgePageProps {
 type View =
   | { type: 'overview' }
   | { type: 'browse'; kind: string; slug: string };
+
+const BROWSE_KINDS = ['group', 'topic', 'contributor'];
+
+function viewFromRoute(route: string | undefined): View {
+  const [kind, ...rest] = (route ?? '').split('/');
+  const slug = rest.join('/');
+  if (!BROWSE_KINDS.includes(kind) || !slug) return { type: 'overview' };
+  try {
+    return { type: 'browse', kind, slug: decodeURIComponent(slug) };
+  } catch {
+    return { type: 'browse', kind, slug };
+  }
+}
 
 export function KnowledgePage({ initialRoute, tagCatalog, onChatWithTag }: KnowledgePageProps) {
   // The catalog reaches this page two ways: as a prop once App's /api/tags
@@ -26,10 +42,31 @@ export function KnowledgePage({ initialRoute, tagCatalog, onChatWithTag }: Knowl
   const [fetchedCatalog, setFetchedCatalog] = useState<TagCatalog | null>(null);
   const catalog = tagCatalog ?? fetchedCatalog;
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [mapStats, setMapStats] = useState<{ paper_count: number; cluster_count: number } | null>(null);
-  const [view, setView] = useState<View>(
-    initialRoute ? { type: 'browse', kind: initialRoute.split('/')[0], slug: initialRoute.split('/').slice(1).join('/') } : { type: 'overview' }
-  );
+  const setShowKnowledgePage = useUiStore(s => s.setShowKnowledgePage);
+  const view = viewFromRoute(initialRoute);
+  // The overview stays mounted behind a browse view, so its filters, its search
+  // and the map survive the trip. It is only mounted once it has been visited.
+  const [overviewVisited, setOverviewVisited] = useState(view.type === 'overview');
+  if (view.type === 'overview' && !overviewVisited) setOverviewVisited(true);
+
+  // The map is fetched once here: the stats and the map view both use it.
+  const [mapAttempt, setMapAttempt] = useState(0);
+  const [mapResult, setMapResult] = useState<{ attempt: number; data: EmbeddingMap | null; error: string | null } | null>(null);
+  const mapLoading = mapResult?.attempt !== mapAttempt;
+  const mapData = mapLoading ? null : mapResult.data;
+  const mapError = mapLoading ? null : mapResult.error;
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const overviewScroll = useRef(0);
+  const browseKey = view.type === 'browse' ? `${view.kind}/${view.slug}` : null;
+  useLayoutEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = browseKey ? 0 : overviewScroll.current;
+  }, [browseKey]);
+
+  const goToRoute = (route: string | null) => {
+    window.history.pushState(null, '', route ? `/knowledge/${route}` : '/knowledge');
+    setShowKnowledgePage(route ?? true);
+  };
 
   // Fetch ourselves if the prop is still null.
   useEffect(() => {
@@ -41,24 +78,35 @@ export function KnowledgePage({ initialRoute, tagCatalog, onChatWithTag }: Knowl
     return () => { cancelled = true; };
   }, [catalog, loadError]);
 
-  // Fetch embedding map stats for accurate paper count
   useEffect(() => {
-    if (!mapStats) {
-      fetchEmbeddingMap()
-        .then(data => setMapStats({ paper_count: data.paper_count, cluster_count: data.cluster_count }))
-        .catch(() => {});
-    }
-  }, [mapStats]);
+    let cancelled = false;
+    fetchEmbeddingMap()
+      .then(data => { if (!cancelled) setMapResult({ attempt: mapAttempt, data, error: null }); })
+      .catch(e => {
+        if (!cancelled) setMapResult({ attempt: mapAttempt, data: null, error: e instanceof Error ? e.message : 'Failed to load' });
+      });
+    return () => { cancelled = true; };
+  }, [mapAttempt]);
 
   if (!catalog) {
-    return (
+    return loadError ? (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <ErrorNotice
+          message="Could not load the knowledge base."
+          onRetry={() => setLoadError(null)}
+          className="w-full max-w-md"
+        />
+      </div>
+    ) : (
       <div className="flex-1 flex items-center justify-center text-text-secondary text-sm">
-        {loadError ? `Error: ${loadError}` : 'Loading knowledge base...'}
+        Loading knowledge base...
       </div>
     );
   }
 
-  const totalPapers = mapStats?.paper_count ?? catalog.topics.reduce((sum, t) => sum + t.paper_count, 0);
+  const totalPapers = mapData?.paper_count ?? catalog.topics.reduce((sum, t) => sum + t.paper_count, 0);
+  const catalogEmpty = !mapLoading && totalPapers === 0
+    && ![...catalog.groups, ...catalog.contributors, ...catalog.topics].some(item => item.paper_count > 0);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -66,7 +114,7 @@ export function KnowledgePage({ initialRoute, tagCatalog, onChatWithTag }: Knowl
       <div className="flex items-center gap-3 px-6 py-3 border-b border-border bg-bg-primary">
         {view.type !== 'overview' && (
           <button
-            onClick={() => setView({ type: 'overview' })}
+            onClick={() => goToRoute(null)}
             className="text-text-secondary hover:text-text-primary text-sm cursor-pointer"
           >
             &larr; Back
@@ -78,16 +126,33 @@ export function KnowledgePage({ initialRoute, tagCatalog, onChatWithTag }: Knowl
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
-        {view.type === 'overview' ? (
-          <OverviewView
-            catalog={catalog}
-            totalPapers={totalPapers}
-            onBrowse={(kind, slug) => setView({ type: 'browse', kind, slug })}
-            onChatWithTag={onChatWithTag}
-          />
-        ) : (
+      <div
+        ref={scrollRef}
+        onScroll={e => { if (view.type === 'overview') overviewScroll.current = e.currentTarget.scrollTop; }}
+        className="flex-1 overflow-y-auto"
+      >
+        {catalogEmpty && view.type === 'overview' ? (
+          <div className="px-6 py-16 text-center text-sm text-text-secondary">
+            <p>No papers yet.</p>
+            <a href={UPLOAD_URL} className="inline-block mt-2 text-accent hover:underline">Upload papers</a>
+          </div>
+        ) : overviewVisited && (
+          <div hidden={view.type !== 'overview'}>
+            <OverviewView
+              catalog={catalog}
+              totalPapers={totalPapers}
+              mapData={mapData}
+              mapLoading={mapLoading}
+              mapError={mapError}
+              onRetryMap={() => setMapAttempt(a => a + 1)}
+              onBrowse={(kind, slug) => goToRoute(`${kind}/${encodeURIComponent(slug)}`)}
+              onChatWithTag={onChatWithTag}
+            />
+          </div>
+        )}
+        {view.type === 'browse' && (
           <BrowseView
+            key={browseKey}
             kind={view.kind}
             slug={view.slug}
             catalog={catalog}
@@ -117,9 +182,13 @@ function getBrowseTitle(kind: string, slug: string, catalog: TagCatalog): string
 
 // ── Overview ─────────────────────────────────────────────────────────────────
 
-function OverviewView({ catalog, totalPapers, onBrowse, onChatWithTag }: {
+function OverviewView({ catalog, totalPapers, mapData, mapLoading, mapError, onRetryMap, onBrowse, onChatWithTag }: {
   catalog: TagCatalog;
   totalPapers: number;
+  mapData: EmbeddingMap | null;
+  mapLoading: boolean;
+  mapError: string | null;
+  onRetryMap: () => void;
   onBrowse: (kind: string, slug: string) => void;
   onChatWithTag: (tags: TagChip[]) => void;
 }) {
@@ -134,7 +203,14 @@ function OverviewView({ catalog, totalPapers, onBrowse, onChatWithTag }: {
       </div>
 
       {/* Embedding Map */}
-      <EmbeddingMapView onNavigateToTopic={(slug) => onBrowse('topic', slug)} />
+      <EmbeddingMapView
+        mapData={mapData}
+        loading={mapLoading}
+        error={mapError}
+        onRetry={onRetryMap}
+        onNavigateToTopic={(slug) => onBrowse('topic', slug)}
+        onChatWithTopic={(slug) => onChatWithTag([{ kind: 'topic', value: slug }])}
+      />
 
       {/* Research Groups */}
       <ResearchGroupsSection
@@ -177,6 +253,8 @@ function ResearchGroupsSection({ groups, onBrowse, onChatWithTag }: {
     [groups],
   );
   const visible = showAll ? [...nonEmpty, ...empties] : nonEmpty;
+
+  if (groups.length === 0) return null;
 
   return (
     <>
@@ -251,12 +329,15 @@ function TopicSearch({ topics, onBrowse }: { topics: TopicTag[]; onBrowse: (kind
     return showAll ? topics : topics.slice(0, 20);
   }, [topics, query, showAll]);
 
+  if (topics.length === 0) return null;
+
   return (
     <>
       <div className="flex items-center gap-3 mb-3">
         <h3 className="text-sm font-semibold text-text-primary">Topics</h3>
         <input
           type="text"
+          aria-label="Search topics"
           value={query}
           onChange={e => setQuery(e.target.value)}
           placeholder="Search topics..."
@@ -354,6 +435,7 @@ function BrowseView({ kind, slug, catalog: _catalog, onChatWithTag }: {
         <span className="text-xs text-text-secondary">{total.toLocaleString()} papers</span>
         <div className="flex-1" />
         <select
+          aria-label="Sort papers"
           value={sort}
           onChange={e => setSort(e.target.value)}
           className="text-xs px-2 py-1 bg-bg-secondary border border-border rounded-lg text-text-primary outline-none cursor-pointer"
@@ -412,12 +494,23 @@ function BrowseView({ kind, slug, catalog: _catalog, onChatWithTag }: {
   );
 }
 
+// Not every paper's doi field is a real DOI, and only a real one resolves.
+function doiLink(doi: string | null | undefined): string | null {
+  if (!doi || !/^10\.\d+\//.test(doi)) return null;
+  return `https://doi.org/${encodeURIComponent(doi).replace(/%2F/g, '/')}`;
+}
+
 function PaperRow({ paper }: { paper: TagPaper }) {
+  const doiUrl = doiLink(paper.doi);
   return (
     <div className="bg-bg-secondary border border-border rounded-xl px-4 py-3">
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
-          <h4 className="text-sm font-medium text-text-primary leading-snug">{paper.title}</h4>
+          <h4 className="text-sm font-medium text-text-primary leading-snug">
+            {doiUrl ? (
+              <a href={doiUrl} target="_blank" rel="noopener noreferrer" className="hover:text-accent hover:underline">{paper.title}</a>
+            ) : paper.title}
+          </h4>
           <div className="flex flex-wrap items-center gap-2 mt-1.5">
             {paper.year && (
               <span className="text-[10px] px-1.5 py-0.5 bg-bg-tertiary rounded text-text-secondary">{paper.year}</span>
@@ -427,6 +520,9 @@ function PaperRow({ paper }: { paper: TagPaper }) {
             )}
             {paper.topic && (
               <span className="text-[10px] px-1.5 py-0.5 bg-warning/10 text-warning rounded truncate max-w-48">{paper.topic.label}</span>
+            )}
+            {doiUrl && (
+              <span className="text-[10px] text-text-secondary truncate max-w-48">{paper.doi}</span>
             )}
           </div>
           {paper.authors && paper.authors.length > 0 && (
@@ -440,10 +536,10 @@ function PaperRow({ paper }: { paper: TagPaper }) {
             href={paper.download_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex-shrink-0 text-xs px-2.5 py-1.5 bg-bg-tertiary border border-border rounded-lg text-text-secondary hover:text-accent hover:border-accent transition-colors"
-            title="Download PDF"
+            aria-label={`Download PDF: ${paper.title}`}
+            className="flex-shrink-0 whitespace-nowrap text-xs px-2.5 py-1.5 bg-bg-tertiary border border-border rounded-lg text-text-secondary hover:text-accent hover:border-accent transition-colors"
           >
-            PDF
+            Download PDF
           </a>
         )}
       </div>
