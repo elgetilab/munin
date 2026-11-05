@@ -1,11 +1,16 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchChats, deleteChat, renameChat, pinChat, unpinChat, fetchProjects, createProject, deleteProject, updateProject, fileConversation, unfileConversation } from '../lib/api';
-import type { ConversationSummary, Project } from '../lib/types';
+import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
+import type { RefObject } from 'react';
+import { fetchChat, fetchChats, deleteChat, renameChat, pinChat, unpinChat, fetchProjects, createProject, deleteProject, updateProject, fileConversation, unfileConversation } from '../lib/api';
+import type { Conversation, ConversationSummary, Project } from '../lib/types';
+import { useMenu } from '../hooks/useMenu';
+import { useModal } from '../hooks/useModal';
+import { useUiStore } from '../stores/uiStore';
 import { useUserStore } from '../stores/userStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
-import { DOCS_URL, SITE_HOME, UPLOAD_URL } from '../lib/urls';
+import { AUTH_BASE, DOCS_URL, SEARCH_URL, SITE_HOME, UPLOAD_URL } from '../lib/urls';
 import { conversationPath, isModifiedClick, newChatPath } from '../lib/nav';
 import { groupByTime } from '../lib/chatGrouping';
+import { ErrorNotice } from './ui/ErrorNotice';
 
 // P2 #26 commit 3: user identity slots (userEmail / userName /
 // userAvatar / isAdmin) and activeProjectId pulled from stores
@@ -24,6 +29,8 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onOpenAdmin?: () => void;
   onOpenKnowledge?: () => void;
+  // Set when the sidebar is the phone drawer; shows its close button.
+  onCloseDrawer?: () => void;
 }
 
 // Set by /shared/support-widget.js, if it has loaded.
@@ -32,6 +39,31 @@ type WindowWithSupport = Window & { MuninSupport?: { open: () => void } };
 // The date groups list only chats with no project; a filed chat lives in its
 // project, pinned or not. The backend treats this project_id as "no project".
 const UNFILED = '__unfiled__';
+
+const PAGE_SIZE = 50;
+// The API refuses a larger limit.
+const API_MAX_LIMIT = 200;
+
+type LoadState = 'loading' | 'loaded' | 'error';
+
+function uniqueById(chats: ConversationSummary[]): ConversationSummary[] {
+  const seen = new Set<string>();
+  return chats.filter(c => !seen.has(c.id) && seen.add(c.id));
+}
+
+// Re-reads a list at the length it has reached, so a refresh does not undo Show more.
+async function fetchFirstChats(projectId: string, count: number) {
+  const wanted = Math.max(count, PAGE_SIZE);
+  const conversations: ConversationSummary[] = [];
+  let total = 0;
+  for (let offset = 0; offset < wanted; offset += API_MAX_LIMIT) {
+    const page = await fetchChats({ limit: Math.min(API_MAX_LIMIT, wanted - offset), offset, project_id: projectId });
+    conversations.push(...page.conversations);
+    total = page.total;
+    if (page.conversations.length === 0) break;
+  }
+  return { conversations: uniqueById(conversations), total };
+}
 
 // ── One-time migration from localStorage starring to backend pinning ────────
 
@@ -50,37 +82,145 @@ async function migrateStarredToPinned() {
   }
 }
 
-// ── Grouping ────────────────────────────────────────────────────────────────
+// ── Menus ───────────────────────────────────────────────────────────────────
 
+const MENU_PANEL = 'fixed z-50 bg-bg-secondary border border-border rounded-lg shadow-lg overflow-y-auto';
+const MENU_ITEM = 'block w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary focus-visible:bg-bg-tertiary cursor-pointer no-underline';
+const ACCOUNT_ITEM = 'w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary focus-visible:bg-bg-tertiary transition-colors cursor-pointer no-underline';
+// A 32px target below md, with negative margin so the row does not grow.
+const ROW_ICON_TARGET = 'max-md:p-[9px] max-md:-my-[9px]';
 
-export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, onOpenProjectSettings, refreshKey, onOpenSettings, onOpenAdmin, onOpenKnowledge }: SidebarProps) {
+/**
+ * Puts a row menu next to its trigger with fixed positioning, which is what gets
+ * it out of the scrolling list that would otherwise clip it. It opens upward when
+ * there is more room there, and scrolls inside itself if it fits neither way.
+ * `content` is whatever changes the menu's height.
+ */
+function useFixedMenuPosition(
+  open: boolean,
+  triggerRef: RefObject<HTMLElement | null>,
+  menuRef: RefObject<HTMLElement | null>,
+  content?: unknown,
+) {
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const trigger = triggerRef.current;
+      const menu = menuRef.current;
+      if (!trigger || !menu) return;
+      const edge = 8;
+      const gap = 4;
+      const rect = trigger.getBoundingClientRect();
+      const below = window.innerHeight - rect.bottom - gap - edge;
+      const above = rect.top - gap - edge;
+      menu.style.maxHeight = 'none';
+      const height = menu.offsetHeight;
+      const up = height > below && above > below;
+      const room = up ? above : below;
+      menu.style.maxHeight = `${room}px`;
+      menu.style.top = up ? `${rect.top - gap - Math.min(height, room)}px` : `${rect.bottom + gap}px`;
+      menu.style.right = `${Math.max(edge, window.innerWidth - rect.right)}px`;
+    };
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [open, triggerRef, menuRef, content]);
+}
+
+function KebabIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <circle cx="12" cy="5" r="1.6" />
+      <circle cx="12" cy="12" r="1.6" />
+      <circle cx="12" cy="19" r="1.6" />
+    </svg>
+  );
+}
+
+// ── New project ─────────────────────────────────────────────────────────────
+
+function NewProjectInput({ value, onChange, onCreate, onCancel }: {
+  value: string;
+  onChange: (value: string) => void;
+  onCreate: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="px-2 py-1">
+      <input
+        autoFocus
+        aria-label="Project name"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onBlur={() => { if (!value.trim()) onCancel(); }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') onCreate();
+          if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+        }}
+        placeholder="Project name..."
+        className="w-full bg-bg-primary border border-accent rounded px-2 py-1 text-xs text-text-primary placeholder-text-secondary outline-none"
+      />
+      <div className="flex justify-end gap-1 mt-1">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-2 py-1 text-xs text-text-secondary hover:text-text-primary cursor-pointer"
+        >Cancel</button>
+        <button
+          type="button"
+          onClick={onCreate}
+          disabled={!value.trim()}
+          className="px-2 py-1 text-xs text-accent hover:text-accent-hover cursor-pointer disabled:opacity-50 disabled:cursor-default"
+        >Create</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Sidebar ─────────────────────────────────────────────────────────────────
+
+export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, onOpenProjectSettings, refreshKey, onOpenSettings, onOpenAdmin, onOpenKnowledge, onCloseDrawer }: SidebarProps) {
   const userProfile = useUserStore(s => s.userProfile);
   const userEmail = userProfile?.email || '';
   const userName = userProfile?.name || '';
   const userAvatar = userProfile?.avatar || '';
   const isAdmin = useUserStore(s => s.isAdmin);
   const activeProjectId = useWorkspaceStore(s => s.activeProjectId);
+  const showToast = useUiStore(s => s.showToast);
   const [chats, setChats] = useState<ConversationSummary[]>([]);
+  const [chatsTotal, setChatsTotal] = useState(0);
+  const [chatsState, setChatsState] = useState<LoadState>('loading');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<ConversationSummary[]>([]);
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  // The results and the query they answer, so a query still waiting for its
+  // results is never shown someone else's.
+  const [searched, setSearched] = useState<{ query: string; results: ConversationSummary[] }>({ query: '', results: [] });
   const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsState, setProjectsState] = useState<LoadState>('loading');
   const [archivedProjects, setArchivedProjects] = useState<Project[]>([]);
   const [archivedOpen, setArchivedOpen] = useState(false);
   // What the search overlay lists before anything is typed: every chat, filed or
   // not, unlike `chats`. Empty until it has loaded, when `chats` stands in.
   const [recentChats, setRecentChats] = useState<ConversationSummary[]>([]);
   // Which project folder is open. `undefined` means the user has not touched
-  // it, in which case the active project (if any) is shown expanded; `null`
-  // means they collapsed it deliberately and we must not re-open it. That
-  // sentinel is what replaces the old "auto-expand" effect, which could not
-  // tell "never opened" from "closed on purpose".
+  // it, in which case the project of what is being worked on (if any) is shown
+  // expanded; `null` means they collapsed it deliberately and we must not re-open
+  // it. That sentinel is what replaces the old "auto-expand" effect, which could
+  // not tell "never opened" from "closed on purpose".
   const [userExpandedProject, setUserExpandedProject] = useState<string | null | undefined>(undefined);
-  const expandedProject = userExpandedProject === undefined ? activeProjectId : userExpandedProject;
   const [projectChats, setProjectChats] = useState<Record<string, ConversationSummary[]>>({});
+  const [projectTotals, setProjectTotals] = useState<Record<string, number>>({});
+  const [projectChatsFailed, setProjectChatsFailed] = useState<Record<string, boolean>>({});
+  // A list being extended by Show more, keyed by project id or UNFILED.
+  const [loadingMore, setLoadingMore] = useState<string | null>(null);
+  // How long each list has become, for the refresh effects to re-read.
+  const listLengths = useRef<Record<string, number>>({});
   const [showNewProject, setShowNewProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [moveMenuId, setMoveMenuId] = useState<string | null>(null);
@@ -92,9 +232,25 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   // state so chat-id and project-id namespaces don't accidentally
   // collide on the rare same-string-id edge case.
   const [projectActionMenuId, setProjectActionMenuId] = useState<string | null>(null);
-  const profileMenuRef = useRef<HTMLDivElement>(null);
+  // The project of the open chat, when it is not in a list we hold.
+  const [currentChatProject, setCurrentChatProject] = useState<{ chatId: string; projectId: string } | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const searchOverlayRef = useRef<HTMLDivElement>(null);
+  const profileMenu = useMenu();
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery('');
+  }, []);
+  const searchModal = useModal({ onClose: closeSearch, active: searchOpen, initialFocusRef: searchInputRef });
+
+  const currentListedIn = currentId
+    ? Object.keys(projectChats).find(pid => projectChats[pid].some(c => c.id === currentId))
+    : undefined;
+  const currentIsListed = !!currentListedIn || chats.some(c => c.id === currentId);
+  const currentProject = currentListedIn
+    ?? (currentChatProject?.chatId === currentId ? currentChatProject?.projectId : undefined)
+    ?? null;
+  const expandedProject = userExpandedProject === undefined ? (activeProjectId ?? currentProject) : userExpandedProject;
 
   // Reads live in the effects that own them rather than in callbacks the
   // effects call, so nothing sets state synchronously when an effect fires
@@ -107,17 +263,24 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
 
   useEffect(() => {
     let cancelled = false;
-    fetchChats({ limit: 50, project_id: UNFILED })
-      .then(r => { if (!cancelled) setChats(r.conversations); })
-      .catch(() => { /* silently fail */ });
+    fetchFirstChats(UNFILED, listLengths.current[UNFILED] ?? 0)
+      .then(r => {
+        if (cancelled) return;
+        listLengths.current[UNFILED] = r.conversations.length;
+        setChats(r.conversations);
+        setChatsTotal(r.total);
+        setChatsState('loaded');
+      })
+      .catch(() => { if (!cancelled) setChatsState('error'); });
     // archived=true returns every project, so one request fills both lists.
     fetchProjects(true)
       .then(r => {
         if (cancelled) return;
         setProjects(r.projects.filter(p => !p.archived));
         setArchivedProjects(r.projects.filter(p => p.archived));
+        setProjectsState('loaded');
       })
-      .catch(() => { /* silently fail */ });
+      .catch(() => { if (!cancelled) setProjectsState('error'); });
     return () => { cancelled = true; };
   }, [reloadKey, refreshKey]);
 
@@ -132,32 +295,36 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     if (!expandedProject) return;
     const projectId = expandedProject;
     let cancelled = false;
-    fetchChats({ limit: 50, project_id: projectId })
+    fetchFirstChats(projectId, listLengths.current[projectId] ?? 0)
       .then(r => {
-        if (!cancelled) setProjectChats(prev => ({ ...prev, [projectId]: r.conversations }));
+        if (cancelled) return;
+        listLengths.current[projectId] = r.conversations.length;
+        setProjectChats(prev => ({ ...prev, [projectId]: r.conversations }));
+        setProjectTotals(prev => ({ ...prev, [projectId]: r.total }));
+        setProjectChatsFailed(prev => ({ ...prev, [projectId]: false }));
       })
-      .catch(() => { /* silently fail */ });
+      .catch(() => {
+        if (!cancelled) setProjectChatsFailed(prev => ({ ...prev, [projectId]: true }));
+      });
     return () => { cancelled = true; };
   }, [expandedProject, reloadKey, refreshKey]);
 
-  // Close the row-action menu + move-to menu on any click outside a
-  // `.sidebar-row-menu` element. The toggle buttons live inside the
-  // same parent .relative wrapper, so mousedown handlers on the
-  // buttons themselves still fire first and toggle correctly.
+  // An open chat that no list holds may belong to a project: a link, a search hit,
+  // or the chat just started in a project. Show its folder, since a filed chat
+  // appears nowhere else.
   useEffect(() => {
-    if (!actionMenuId && !moveMenuId && !projectActionMenuId) return;
-    const onMouseDown = (e: MouseEvent) => {
-      const target = e.target as Element | null;
-      if (target && target.closest && target.closest('.sidebar-row-menu')) {
-        return;
-      }
-      setActionMenuId(null);
-      setMoveMenuId(null);
-      setProjectActionMenuId(null);
-    };
-    document.addEventListener('mousedown', onMouseDown);
-    return () => document.removeEventListener('mousedown', onMouseDown);
-  }, [actionMenuId, moveMenuId, projectActionMenuId]);
+    if (!currentId || currentIsListed || chatsState !== 'loaded') return;
+    let cancelled = false;
+    fetchChat(currentId)
+      .then(chat => {
+        const projectId = (chat as Conversation & { project_id?: string | null }).project_id;
+        if (cancelled || !projectId) return;
+        setCurrentChatProject({ chatId: currentId, projectId });
+        setUserExpandedProject(undefined);
+      })
+      .catch(() => { /* the folder just stays as it is */ });
+    return () => { cancelled = true; };
+  }, [currentId, currentIsListed, chatsState]);
 
   useEffect(() => {
     if (!searchOpen) return;
@@ -168,89 +335,94 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     return () => { cancelled = true; };
   }, [searchOpen]);
 
-  const closeSearch = useCallback(() => {
-    setSearchOpen(false);
-    setSearchQuery('');
-  }, []);
-
-  // Search when query changes — server-side with FTS5 prefix matching.
-  // An empty query is not a search: the overlay's "Recent" list is just the
-  // first few conversations, so it is derived at the bottom of this
-  // component instead of being copied into state here.
+  // Search when query changes — server-side with FTS5 prefix matching. That
+  // matches message text only, so titles of the chats we hold are merged in, or a
+  // renamed chat could not be found by its new name.
+  // An empty query is not a search: the overlay's "Recent" list is derived at the
+  // bottom of this component instead of being copied into state here.
   useEffect(() => {
     if (!searchOpen) return;
-    if (!searchQuery.trim()) return;
     const q = searchQuery.trim();
+    if (!q) return;
+    let cancelled = false;
     const timer = setTimeout(async () => {
+      const lower = q.toLowerCase();
+      const held = [...chats, ...Object.values(projectChats).flat()];
+      const titleHits = held.filter(c => (c.title || '').toLowerCase().includes(lower));
+      let hits: ConversationSummary[];
       try {
         const ftsQuery = q.endsWith('*') ? q : `${q}*`;
-        const result = await fetchChats({ limit: 20, search: ftsQuery });
-        setSearchResults(result.conversations);
+        hits = (await fetchChats({ limit: 20, search: ftsQuery })).conversations;
       } catch {
         // Fallback to client-side filtering
-        const lower = q.toLowerCase();
-        setSearchResults(
-          chats.filter(c =>
-            (c.title || '').toLowerCase().includes(lower) ||
-            (c.preview || '').toLowerCase().includes(lower)
-          ).slice(0, 20)
-        );
+        hits = held.filter(c => (c.preview || '').toLowerCase().includes(lower));
       }
+      if (!cancelled) setSearched({ query: q, results: uniqueById([...hits, ...titleHits]) });
     }, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery, searchOpen, chats]);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [searchQuery, searchOpen, chats, projectChats]);
 
-  // Focus the search input when the overlay opens. Clearing the query moved
-  // into closeSearch(), because "the box empties when you close it" is a
-  // consequence of closing, not something to re-derive from the flag having
-  // changed.
-  useEffect(() => {
-    if (!searchOpen) return;
-    const timer = setTimeout(() => searchInputRef.current?.focus(), 50);
-    return () => clearTimeout(timer);
-  }, [searchOpen]);
+  const retryLists = () => {
+    setChatsState('loading');
+    setProjectsState('loading');
+    load();
+  };
 
-  // Close search on outside click
-  useEffect(() => {
-    if (!searchOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (searchOverlayRef.current && !searchOverlayRef.current.contains(e.target as Node)) {
-        closeSearch();
+  const showMore = async (listKey: string, offset: number) => {
+    setLoadingMore(listKey);
+    try {
+      const page = await fetchChats({ limit: PAGE_SIZE, offset, project_id: listKey });
+      if (listKey === UNFILED) {
+        const merged = uniqueById([...chats, ...page.conversations]);
+        listLengths.current[UNFILED] = merged.length;
+        setChats(merged);
+        setChatsTotal(page.total);
+      } else {
+        const merged = uniqueById([...(projectChats[listKey] ?? []), ...page.conversations]);
+        listLengths.current[listKey] = merged.length;
+        setProjectChats(prev => ({ ...prev, [listKey]: merged }));
+        setProjectTotals(prev => ({ ...prev, [listKey]: page.total }));
       }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [searchOpen, closeSearch]);
-
-  // Close search on Escape
-  useEffect(() => {
-    if (!searchOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeSearch();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [searchOpen, closeSearch]);
+    } catch {
+      showToast('Could not load more chats');
+    } finally {
+      setLoadingMore(null);
+    }
+  };
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm('Delete this conversation?')) return;
-    await deleteChat(id);
-    load();
-    if (id === currentId) onNewChat();
+    try {
+      await deleteChat(id);
+      load();
+      if (id === currentId) onNewChat();
+    } catch {
+      showToast('Could not delete the chat');
+    }
   };
 
   const handleRename = async (id: string) => {
-    if (editTitle.trim()) {
-      await renameChat(id, editTitle.trim());
-      load();
+    try {
+      if (editTitle.trim()) {
+        await renameChat(id, editTitle.trim());
+        load();
+      }
+    } catch {
+      showToast('Could not rename the chat');
+    } finally {
+      setEditingId(null);
     }
-    setEditingId(null);
   };
 
   const handleSearchSelect = (id: string) => {
     onSelect(id);
     closeSearch();
+  };
+
+  const cancelNewProject = () => {
+    setNewProjectName('');
+    setShowNewProject(false);
   };
 
   const handleCreateProject = async () => {
@@ -261,12 +433,11 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       setShowNewProject(false);
       load();
     } catch {
-      // silently fail
+      showToast('Could not create the project');
     }
   };
 
-  const handleDeleteProject = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleDeleteProject = async (id: string) => {
     if (!confirm('Delete this project? Conversations will be moved to Unfiled.')) return;
     try {
       await deleteProject(id);
@@ -277,7 +448,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       if (workspace.editingProject?.id === id) workspace.setEditingProject(null);
       load(); // chats too: they become unfiled
     } catch {
-      // silently fail
+      showToast('Could not delete the project');
     }
   };
 
@@ -286,27 +457,25 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       await updateProject(id, { archived: false });
       load();
     } catch {
-      // silently fail
+      showToast('Could not unarchive the project');
     }
   };
 
   const handleMoveToProject = async (chatId: string, projectId: string) => {
     try {
       await fileConversation(projectId, chatId);
-      setMoveMenuId(null);
       load();
     } catch {
-      // silently fail
+      showToast('Could not move the chat');
     }
   };
 
   const handleUnfile = async (chatId: string, projectId: string) => {
     try {
       await unfileConversation(projectId, chatId);
-      setMoveMenuId(null);
       load();
     } catch {
-      // silently fail
+      showToast('Could not remove the chat from the project');
     }
   };
 
@@ -320,31 +489,61 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       }
       load();
     } catch {
-      // silently fail
+      showToast(chat.pinned ? 'Could not unpin the chat' : 'Could not pin the chat');
     }
   };
 
-  // Close profile menu on outside click
-  useEffect(() => {
-    if (!profileMenuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
-        setProfileMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [profileMenuOpen]);
+  const openHelp = () => {
+    profileMenu.close();
+    const support = (window as WindowWithSupport).MuninSupport;
+    if (support) {
+      support.open();
+      return;
+    }
+    showToast('The help window could not load, so the docs opened instead.');
+    window.open(DOCS_URL, '_blank', 'noopener');
+  };
+
+  const chatRowProps = (chat: ConversationSummary) => ({
+    chat,
+    isCurrent: chat.id === currentId,
+    onSelect,
+    onDelete: handleDelete,
+    onRename: (id: string) => { setEditingId(id); setEditTitle(chat.title || ''); },
+    onPin: togglePin,
+    editing: editingId === chat.id,
+    editTitle,
+    onEditTitleChange: setEditTitle,
+    onEditComplete: handleRename,
+    onEditCancel: () => setEditingId(null),
+    onMoveMenu: () => {
+      setActionMenuId(null);
+      setMoveMenuId(chat.id);
+    },
+    showMoveMenu: moveMenuId === chat.id,
+    onMenuOpenChange: (open: boolean) => {
+      setMoveMenuId(id => (id === chat.id ? null : id));
+      setActionMenuId(id => (open ? chat.id : id === chat.id ? null : id));
+    },
+    showActionMenu: actionMenuId === chat.id,
+    projects,
+    onMoveToProject: (pid: string) => handleMoveToProject(chat.id, pid),
+  });
 
   const groups = groupByTime(chats);
+  const query = searchQuery.trim();
+  const searching = query !== '' && searched.query !== query;
   // With no query typed the overlay lists recent conversations; with one it
   // lists what the last search returned.
-  const searchGroups = groupByTime(searchQuery.trim() ? searchResults : (recentChats.length > 0 ? recentChats : chats.slice(0, 10)));
+  const searchList = query
+    ? (searching ? [] : searched.results)
+    : (recentChats.length > 0 ? recentChats : chats.slice(0, 10));
+  const searchGroups = groupByTime(searchList);
 
   return (
     <aside className="w-64 flex-shrink-0 bg-bg-secondary border-r border-border flex flex-col h-full relative">
       {/* Logo */}
-      <div className="px-4 pt-4 pb-3">
+      <div className="px-4 pt-4 pb-3 flex items-center justify-between">
         <a href={SITE_HOME} className="flex items-center gap-2.5 no-underline">
           <img
             src="/shared/munin_logo_without_script.webp"
@@ -353,6 +552,16 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
           />
           <span className="text-lg font-semibold text-text-primary">Munin</span>
         </a>
+        {onCloseDrawer && (
+          <button
+            type="button"
+            onClick={onCloseDrawer}
+            aria-label="Close menu"
+            className="md:hidden min-w-8 min-h-8 flex items-center justify-center -mr-2 text-text-secondary hover:text-text-primary cursor-pointer"
+          >
+            <span aria-hidden="true">&#10005;</span>
+          </button>
+        )}
       </div>
 
       {/* New chat + Search row */}
@@ -388,175 +597,85 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
-          <span className="text-sm">Search</span>
+          <span className="text-sm">Search chats</span>
         </button>
       </div>
 
       {/* Projects + Conversation list */}
       <div className="flex-1 overflow-y-auto px-2">
+        {projectsState === 'error' && projects.length === 0 && (
+          <ErrorNotice message="Could not load your projects" onRetry={retryLists} className="mb-3" />
+        )}
+
         {/* Projects section */}
         {projects.length > 0 && (
           <div className="mb-3">
             <div className="px-2 py-1 text-[11px] font-semibold text-text-secondary uppercase tracking-wider flex items-center">
               <span className="flex-1">Projects</span>
               <button
+                // Keeps focus in an empty input, whose blur would close it
+                // just before this click opened it again.
+                onMouseDown={e => e.preventDefault()}
                 onClick={() => setShowNewProject(!showNewProject)}
-                className="text-text-secondary hover:text-accent cursor-pointer text-sm"
+                className="text-text-secondary hover:text-accent cursor-pointer text-sm max-md:px-3 max-md:py-2 max-md:-my-2 max-md:-mr-2"
                 title="New project"
+                aria-label="New project"
               >+</button>
             </div>
 
             {/* New project input */}
             {showNewProject && (
-              <div className="px-2 py-1">
-                <input
-                  autoFocus
-                  value={newProjectName}
-                  onChange={e => setNewProjectName(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleCreateProject(); if (e.key === 'Escape') setShowNewProject(false); }}
-                  placeholder="Project name..."
-                  className="w-full bg-bg-primary border border-accent rounded px-2 py-1 text-xs text-text-primary placeholder-text-secondary outline-none"
-                />
-              </div>
+              <NewProjectInput value={newProjectName} onChange={setNewProjectName} onCreate={handleCreateProject} onCancel={cancelNewProject} />
             )}
 
-            {projects.map(proj => (
-              <div key={proj.id}>
-                {/* Project row + its action-menu dropdown live inside
-                    the same `relative` wrapper so the absolute popover
-                    is positioned against the row, not the expanded
-                    children below. */}
-                <div className="relative">
-                  <div
-                    onClick={() => setUserExpandedProject(expandedProject === proj.id ? null : proj.id)}
-                    className={`group flex items-center gap-2 px-2 py-2 rounded-md cursor-pointer text-sm transition-colors ${
-                      activeProjectId === proj.id
-                        ? 'bg-bg-tertiary text-text-primary'
-                        : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary'
-                    }`}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
-                      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-                    </svg>
-                    <span className="flex-1 truncate font-medium">{proj.name}</span>
-                    <span className="text-xs text-text-secondary">{proj.conversation_count}</span>
-                    <span className="text-[10px] text-text-secondary">{expandedProject === proj.id ? '\u25BE' : '\u25B8'}</span>
+            {projects.map(proj => {
+              const list = projectChats[proj.id];
+              const failed = projectChatsFailed[proj.id] && !list;
+              return (
+                <div key={proj.id}>
+                  <ProjectRow
+                    project={proj}
+                    expanded={expandedProject === proj.id}
+                    active={activeProjectId === proj.id}
+                    onToggle={() => setUserExpandedProject(expandedProject === proj.id ? null : proj.id)}
+                    menuOpen={projectActionMenuId === proj.id}
+                    onMenuOpenChange={(open) => setProjectActionMenuId(id => (open ? proj.id : id === proj.id ? null : id))}
+                    onNewChatInProject={onNewChatInProject}
+                    onOpenProjectSettings={onOpenProjectSettings}
+                    onDelete={() => handleDeleteProject(proj.id)}
+                  />
 
-                    {/* Three-dots project action menu trigger. Fades
-                        in on row hover; same opacity-only transition
-                        as the chat-row kebab so the layout doesn't
-                        shift. */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setActionMenuId(null);
-                        setMoveMenuId(null);
-                        setProjectActionMenuId(projectActionMenuId === proj.id ? null : proj.id);
-                      }}
-                      className={`sidebar-row-menu flex-shrink-0 p-1 rounded cursor-pointer transition-opacity hover:bg-bg-primary hover:text-text-primary ${
-                        projectActionMenuId === proj.id
-                          ? 'opacity-100 text-text-primary'
-                          : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 text-text-secondary'
-                      }`}
-                      title="More"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                        <circle cx="12" cy="5" r="1.6" />
-                        <circle cx="12" cy="12" r="1.6" />
-                        <circle cx="12" cy="19" r="1.6" />
-                      </svg>
-                    </button>
-                  </div>
-
-                  {/* Project action dropdown. Same shape as the chat
-                      kebab menu so they read as one consistent
-                      affordance. */}
-                  {projectActionMenuId === proj.id && (
-                    <div className="sidebar-row-menu absolute right-0 top-full z-50 w-48 bg-bg-secondary border border-border rounded-lg shadow-lg overflow-hidden mt-1">
-                      {onNewChatInProject && (
-                        <a
-                          href={newChatPath(proj.id)}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            // Modified click: let the browser open the
-                            // link, which carries ?project so the new
-                            // tab files its first message into this
-                            // project too. Close the menu either way.
-                            setProjectActionMenuId(null);
-                            if (isModifiedClick(e)) return;
-                            e.preventDefault();
-                            onNewChatInProject(proj.id);
-                          }}
-                          className="block w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary cursor-pointer no-underline"
-                        >
-                          New chat in project
-                        </a>
+                  {/* Expanded project chats */}
+                  {expandedProject === proj.id && (
+                    <div className="ml-4 border-l border-border">
+                      {(list ?? []).map(chat => (
+                        <ChatRow
+                          key={chat.id}
+                          {...chatRowProps(chat)}
+                          onUnfile={() => handleUnfile(chat.id, proj.id)}
+                          isInProject={true}
+                        />
+                      ))}
+                      {failed && (
+                        <div className="text-[11px] text-error py-2 pl-3">
+                          Could not load these chats.{' '}
+                          <button type="button" onClick={load} className="underline cursor-pointer">Retry</button>
+                        </div>
                       )}
-                      {onOpenProjectSettings && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setProjectActionMenuId(null);
-                            onOpenProjectSettings(proj);
-                          }}
-                          className="w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary cursor-pointer"
-                        >
-                          Project settings
-                        </button>
+                      {!list && !failed && (
+                        <div className="text-[11px] text-text-secondary py-2 pl-3">Loading...</div>
                       )}
-                      <button
-                        onClick={(e) => {
-                          setProjectActionMenuId(null);
-                          handleDeleteProject(proj.id, e);
-                        }}
-                        className="w-full text-left px-3 py-2 text-xs text-error hover:bg-bg-tertiary cursor-pointer"
-                      >
-                        Delete project
-                      </button>
+                      {list?.length === 0 && (
+                        <div className="text-[11px] text-text-secondary py-2 pl-3">No chats</div>
+                      )}
+                      {list && list.length < (projectTotals[proj.id] ?? 0) && (
+                        <ShowMoreRow busy={loadingMore === proj.id} onClick={() => showMore(proj.id, list.length)} />
+                      )}
                     </div>
                   )}
                 </div>
-
-                {/* Expanded project chats */}
-                {expandedProject === proj.id && (
-                  <div className="ml-4 border-l border-border">
-                    {(projectChats[proj.id] || []).map(chat => (
-                      <ChatRow
-                        key={chat.id}
-                        chat={chat}
-                        isCurrent={chat.id === currentId}
-                        onSelect={onSelect}
-                        onDelete={handleDelete}
-                        onRename={(id) => { setEditingId(id); setEditTitle(chat.title || ''); }}
-                        onPin={togglePin}
-                        editingId={editingId}
-                        editTitle={editTitle}
-                        onEditTitleChange={setEditTitle}
-                        onEditComplete={handleRename}
-                        onMoveMenu={() => {
-                          setActionMenuId(null);
-                          setMoveMenuId(chat.id === moveMenuId ? null : chat.id);
-                        }}
-                        showMoveMenu={moveMenuId === chat.id}
-                        onActionMenu={() => {
-                          setMoveMenuId(null);
-                          setActionMenuId(chat.id === actionMenuId ? null : chat.id);
-                        }}
-                        showActionMenu={actionMenuId === chat.id}
-                        onCloseMenus={() => { setActionMenuId(null); setMoveMenuId(null); }}
-                        projects={projects}
-                        onMoveToProject={(pid) => handleMoveToProject(chat.id, pid)}
-                        onUnfile={() => handleUnfile(chat.id, proj.id)}
-                        isInProject={true}
-                      />
-                    ))}
-                    {(projectChats[proj.id] || []).length === 0 && (
-                      <div className="text-[11px] text-text-secondary py-2 pl-3">No chats</div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -564,16 +683,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
         {projects.length === 0 && (
           <div className="mb-3">
             {showNewProject ? (
-              <div className="px-2 py-1">
-                <input
-                  autoFocus
-                  value={newProjectName}
-                  onChange={e => setNewProjectName(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleCreateProject(); if (e.key === 'Escape') setShowNewProject(false); }}
-                  placeholder="Project name..."
-                  className="w-full bg-bg-primary border border-accent rounded px-2 py-1 text-xs text-text-primary placeholder-text-secondary outline-none"
-                />
-              </div>
+              <NewProjectInput value={newProjectName} onChange={setNewProjectName} onCreate={handleCreateProject} onCancel={cancelNewProject} />
             ) : (
               <button
                 onClick={() => setShowNewProject(true)}
@@ -599,9 +709,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
               className="w-full flex items-center px-2 py-1 text-[11px] font-semibold text-text-secondary hover:text-text-primary uppercase tracking-wider cursor-pointer text-left"
             >
               <span className="flex-1">Archived ({archivedProjects.length})</span>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`transition-transform ${archivedOpen ? 'rotate-180' : ''}`}>
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
+              <Chevron open={archivedOpen} />
             </button>
             {archivedOpen && archivedProjects.map(proj => (
               <div key={proj.id} data-testid="archived-project" className="flex items-center gap-2 px-2 py-1.5 text-sm text-text-secondary">
@@ -627,6 +735,16 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
         )}
 
         {/* Unfiled conversations */}
+        {chatsState === 'loading' && chats.length === 0 && (
+          <div role="status" aria-label="Loading your chats" className="px-2 py-1 space-y-3" data-testid="chats-loading">
+            {[0, 1, 2, 3].map(i => (
+              <div key={i} className="h-3 rounded bg-bg-tertiary animate-pulse" />
+            ))}
+          </div>
+        )}
+        {chatsState === 'error' && chats.length === 0 && (
+          <ErrorNotice message="Could not load your chats" onRetry={retryLists} className="mb-3" />
+        )}
         {groups.map(group => (
           <div key={group.label} className="mb-3">
             <div className="px-2 py-1 text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
@@ -635,35 +753,16 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
             {group.chats.map(chat => (
               <ChatRow
                 key={chat.id}
-                chat={chat}
-                isCurrent={chat.id === currentId}
-                onSelect={onSelect}
-                onDelete={handleDelete}
-                onRename={(id) => { setEditingId(id); setEditTitle(chat.title || ''); }}
-                onPin={togglePin}
-                editingId={editingId}
-                editTitle={editTitle}
-                onEditTitleChange={setEditTitle}
-                onEditComplete={handleRename}
-                onMoveMenu={() => {
-                  setActionMenuId(null);
-                  setMoveMenuId(chat.id === moveMenuId ? null : chat.id);
-                }}
-                showMoveMenu={moveMenuId === chat.id}
-                onActionMenu={() => {
-                  setMoveMenuId(null);
-                  setActionMenuId(chat.id === actionMenuId ? null : chat.id);
-                }}
-                showActionMenu={actionMenuId === chat.id}
-                onCloseMenus={() => { setActionMenuId(null); setMoveMenuId(null); }}
-                projects={projects}
-                onMoveToProject={(pid) => handleMoveToProject(chat.id, pid)}
+                {...chatRowProps(chat)}
                 isInProject={false}
               />
             ))}
           </div>
         ))}
-        {chats.length === 0 && projects.length === 0 && (
+        {chats.length > 0 && chats.length < chatsTotal && (
+          <ShowMoreRow busy={loadingMore === UNFILED} onClick={() => showMore(UNFILED, chats.length)} />
+        )}
+        {chatsState === 'loaded' && projectsState === 'loaded' && chats.length === 0 && projects.length === 0 && (
           <div className="text-center text-text-secondary text-xs py-8">
             No conversations yet
           </div>
@@ -672,13 +771,18 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
 
       {/* User profile */}
       {userEmail && (
-        <div ref={profileMenuRef} className="relative border-t border-border px-3 py-3">
+        <div className="relative border-t border-border px-3 py-3">
           {/* Profile menu popup */}
-          {profileMenuOpen && (
-            <div className="absolute bottom-full left-2 right-2 mb-2 bg-bg-secondary border border-border rounded-xl shadow-lg z-50 overflow-hidden">
+          {profileMenu.open && (
+            <div
+              {...profileMenu.menuProps}
+              aria-label="Account"
+              className="absolute bottom-full left-2 right-2 mb-2 max-h-[70dvh] overflow-y-auto bg-bg-secondary border border-border rounded-xl shadow-lg z-50"
+            >
               <button
-                onClick={() => { setProfileMenuOpen(false); onOpenSettings(); }}
-                className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary transition-colors cursor-pointer"
+                role="menuitem"
+                onClick={() => { profileMenu.close(); onOpenSettings(); }}
+                className={ACCOUNT_ITEM}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
                   <circle cx="12" cy="12" r="3" />
@@ -688,8 +792,9 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
               </button>
               {isAdmin && onOpenAdmin && (
                 <button
-                  onClick={() => { setProfileMenuOpen(false); onOpenAdmin(); }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary transition-colors cursor-pointer"
+                  role="menuitem"
+                  onClick={() => { profileMenu.close(); onOpenAdmin(); }}
+                  className={ACCOUNT_ITEM}
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
                     <rect x="3" y="3" width="7" height="7" />
@@ -700,78 +805,74 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                   Admin
                 </button>
               )}
-              <a
-                href={DOCS_URL}
-                className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary transition-colors cursor-pointer no-underline"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01" />
-                </svg>
-                Learn more
-              </a>
-              <button
-                onClick={() => { setProfileMenuOpen(false); (window as WindowWithSupport).MuninSupport?.open(); }}
-                className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary transition-colors cursor-pointer"
-              >
+              <div className="border-t border-border" role="none">
+                {/* The header nav only appears from lg while the sidebar is open,
+                    so below that these are the way to these pages. */}
+                <a
+                  role="menuitem"
+                  href="/knowledge"
+                  onClick={(e) => {
+                    profileMenu.close();
+                    if (isModifiedClick(e) || !onOpenKnowledge) return;
+                    e.preventDefault();
+                    onOpenKnowledge();
+                  }}
+                  className={`lg:hidden ${ACCOUNT_ITEM}`}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
+                    <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z" />
+                    <path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" />
+                  </svg>
+                  Knowledge
+                </a>
+                <a role="menuitem" href={SEARCH_URL} className={`lg:hidden ${ACCOUNT_ITEM}`}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
+                  Search papers
+                </a>
+                <a role="menuitem" href={UPLOAD_URL} className={`lg:hidden ${ACCOUNT_ITEM}`}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                  Upload
+                </a>
+                <a role="menuitem" href={DOCS_URL} className={ACCOUNT_ITEM}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                  </svg>
+                  Docs
+                </a>
+              </div>
+              <button role="menuitem" onClick={openHelp} className={`border-t border-border ${ACCOUNT_ITEM}`}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
                   <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
                 </svg>
                 Help
               </button>
-              {/* The header nav is hidden below md, so these are the only way
-                  to these pages on a phone. */}
-              <a
-                href="/knowledge"
-                onClick={(e) => {
-                  setProfileMenuOpen(false);
-                  if (isModifiedClick(e) || !onOpenKnowledge) return;
-                  e.preventDefault();
-                  onOpenKnowledge();
-                }}
-                className="md:hidden w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary transition-colors cursor-pointer no-underline"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
-                  <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z" />
-                  <path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" />
-                </svg>
-                Knowledge
-              </a>
-              <a
-                href={DOCS_URL}
-                className="md:hidden w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary transition-colors cursor-pointer no-underline"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
-                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
-                Docs
-              </a>
-              <a
-                href={UPLOAD_URL}
-                className="md:hidden w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary transition-colors cursor-pointer no-underline"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
-                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-                  <polyline points="17 8 12 3 7 8" />
-                  <line x1="12" y1="3" x2="12" y2="15" />
-                </svg>
-                Upload
-              </a>
-              <div className="flex items-center gap-3 px-3 py-2.5 text-sm text-text-secondary">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="2" y1="12" x2="22" y2="12" />
-                  <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" />
-                </svg>
-                <span>English</span>
-                <span className="ml-auto text-[11px] text-text-secondary">Coming soon</span>
-              </div>
+              {/* A real form post, not fetch: it navigates the whole page to the
+                  auth service, which clears the cookie and answers with its login
+                  page. A top-level post involves no CORS, and the Lax session
+                  cookie is sent because the chat and auth hosts are same-site. */}
+              <form method="post" action={`${AUTH_BASE}/logout`} role="none">
+                <button type="submit" role="menuitem" className={ACCOUNT_ITEM}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
+                    <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" y1="12" x2="9" y2="12" />
+                  </svg>
+                  Sign out
+                </button>
+              </form>
             </div>
           )}
 
           <button
-            onClick={() => setProfileMenuOpen(!profileMenuOpen)}
+            {...profileMenu.triggerProps}
             className="w-full flex items-center gap-3 px-2 py-2 rounded-lg text-left hover:bg-bg-tertiary transition-colors cursor-pointer"
           >
             <div className="w-7 h-7 rounded-full bg-accent/20 text-accent flex items-center justify-center text-xs font-semibold flex-shrink-0 overflow-hidden">
@@ -796,7 +897,8 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
           <div className="absolute inset-0 bg-bg-primary/70 backdrop-blur-sm" onClick={() => closeSearch()} />
 
           {/* Search panel */}
-          <div ref={searchOverlayRef} className="relative w-full max-w-xl mx-4 bg-bg-secondary border border-border rounded-xl shadow-2xl overflow-hidden max-h-[60vh] flex flex-col">
+          <div {...searchModal.panelProps} className="relative w-full max-w-xl mx-4 bg-bg-secondary border border-border rounded-xl shadow-2xl overflow-hidden max-h-[60vh] flex flex-col outline-none">
+            <h2 id={searchModal.titleId} className="sr-only">Search your chats</h2>
             {/* Search input */}
             <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary flex-shrink-0">
@@ -806,6 +908,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
               <input
                 ref={searchInputRef}
                 type="text"
+                aria-label="Search conversations"
                 placeholder="Search conversations..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
@@ -813,23 +916,30 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
               />
               <button
                 onClick={() => closeSearch()}
+                aria-label="Close search"
                 className="text-text-secondary hover:text-text-primary text-xs cursor-pointer"
               >
-                Esc
+                {/* A phone has no Esc key to be reminded of. */}
+                <span className="md:hidden">Close</span>
+                <span className="hidden md:inline">Esc</span>
               </button>
             </div>
 
             {/* Results */}
             <div className="flex-1 overflow-y-auto">
-              {searchQuery.trim() === '' && (
+              {query === '' && (
                 <div className="px-4 py-2 text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
                   Recent
                 </div>
               )}
-              {searchGroups.length > 0 ? (
+              {searching ? (
+                <div role="status" className="text-center text-text-secondary text-xs py-8">
+                  Searching...
+                </div>
+              ) : searchGroups.length > 0 ? (
                 searchGroups.map(group => (
                   <div key={group.label}>
-                    {searchQuery.trim() !== '' && (
+                    {query !== '' && (
                       <div className="px-4 py-2 text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
                         {group.label}
                       </div>
@@ -864,7 +974,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                 ))
               ) : (
                 <div className="text-center text-text-secondary text-xs py-8">
-                  No matching conversations
+                  {query ? 'No matching conversations' : 'No conversations yet'}
                 </div>
               )}
             </div>
@@ -875,6 +985,171 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   );
 }
 
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}>
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
+function ShowMoreRow({ busy, onClick }: { busy: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      className="w-full text-left px-2 py-1.5 mb-3 text-xs text-text-secondary hover:text-text-primary cursor-pointer disabled:cursor-default"
+    >
+      {busy ? 'Loading...' : 'Show more'}
+    </button>
+  );
+}
+
+interface ProjectRowProps {
+  project: Project;
+  expanded: boolean;
+  active: boolean;
+  onToggle: () => void;
+  menuOpen: boolean;
+  onMenuOpenChange: (open: boolean) => void;
+  onNewChatInProject?: (projectId: string) => void;
+  onOpenProjectSettings?: (project: Project) => void;
+  onDelete: () => void;
+}
+
+function ProjectRow({
+  project, expanded, active, onToggle, menuOpen, onMenuOpenChange,
+  onNewChatInProject, onOpenProjectSettings, onDelete,
+}: ProjectRowProps) {
+  const menu = useMenu({ open: menuOpen, onOpenChange: onMenuOpenChange });
+  useFixedMenuPosition(menu.open, menu.triggerProps.ref, menu.menuProps.ref);
+  const count = project.conversation_count ?? 0;
+
+  return (
+    <div className="relative">
+      <div
+        className={`group flex items-center pr-2 rounded-md text-sm transition-colors ${
+          active
+            ? 'bg-bg-tertiary text-text-primary'
+            : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary'
+        }`}
+      >
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          aria-label={`${project.name}, ${count} ${count === 1 ? 'chat' : 'chats'}`}
+          className="flex-1 min-w-0 flex items-center gap-2 pl-2 pr-1 py-2 text-left cursor-pointer"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0" aria-hidden="true">
+            <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+          </svg>
+          <span className="flex-1 truncate font-medium">{project.name}</span>
+          <span className="text-xs text-text-secondary">{count}</span>
+          <Chevron open={expanded} />
+        </button>
+
+        {/* Three-dots project action menu trigger. Fades in on row hover; same
+            opacity-only transition as the chat-row kebab so the layout doesn't
+            shift. */}
+        <button
+          {...menu.triggerProps}
+          aria-label={`More actions for ${project.name}`}
+          className={`flex-shrink-0 p-1 ${ROW_ICON_TARGET} rounded cursor-pointer transition-opacity hover:bg-bg-primary hover:text-text-primary ${
+            menu.open
+              ? 'opacity-100 text-text-primary'
+              : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 text-text-secondary'
+          }`}
+          title="More"
+        >
+          <KebabIcon />
+        </button>
+      </div>
+
+      {/* Project action dropdown. Same shape as the chat kebab menu so they read
+          as one consistent affordance. */}
+      {menu.open && (
+        <div {...menu.menuProps} aria-label={`Actions for ${project.name}`} className={`${MENU_PANEL} w-48`}>
+          {onNewChatInProject && (
+            <a
+              role="menuitem"
+              href={newChatPath(project.id)}
+              onClick={(e) => {
+                // Modified click: let the browser open the link, which carries
+                // ?project so the new tab files its first message into this
+                // project too. Close the menu either way.
+                menu.close();
+                if (isModifiedClick(e)) return;
+                e.preventDefault();
+                onNewChatInProject(project.id);
+              }}
+              className={MENU_ITEM}
+            >
+              New chat in project
+            </a>
+          )}
+          {onOpenProjectSettings && (
+            <button
+              role="menuitem"
+              onClick={() => {
+                menu.close();
+                onOpenProjectSettings(project);
+              }}
+              className={MENU_ITEM}
+            >
+              Project settings
+            </button>
+          )}
+          <button
+            role="menuitem"
+            onClick={() => {
+              menu.close();
+              onDelete();
+            }}
+            className={`${MENU_ITEM} !text-error`}
+          >
+            Delete project
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Saves on Enter or on losing focus, and Escape leaves the title as it was. Only
+// the first of these counts, because removing a focused input can also fire blur.
+function RenameInput({ initial, value, onChange, onSave, onCancel }: {
+  initial: string;
+  value: string;
+  onChange: (value: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const finished = useRef(false);
+  const finish = (save: boolean) => {
+    if (finished.current) return;
+    finished.current = true;
+    if (save && value.trim() !== initial) onSave();
+    else onCancel();
+  };
+  return (
+    <input
+      autoFocus
+      aria-label="Rename chat"
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      onBlur={() => finish(true)}
+      onKeyDown={e => {
+        if (e.key === 'Enter') finish(true);
+        if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+      }}
+      onClick={e => e.stopPropagation()}
+      className="flex-1 min-w-0 bg-bg-primary border border-accent rounded px-1 py-0.5 text-xs text-text-primary outline-none"
+    />
+  );
+}
+
 interface ChatRowProps {
   chat: ConversationSummary;
   isCurrent: boolean;
@@ -882,17 +1157,17 @@ interface ChatRowProps {
   onDelete: (id: string, e: React.MouseEvent) => void;
   onRename: (id: string) => void;
   onPin: (chat: ConversationSummary, e: React.MouseEvent) => void;
-  editingId: string | null;
+  editing: boolean;
   editTitle: string;
   onEditTitleChange: (v: string) => void;
   onEditComplete: (id: string) => void;
+  onEditCancel: () => void;
   onMoveMenu: () => void;
   showMoveMenu: boolean;
-  // Claude-style three-dots action menu. Mutually exclusive with the
-  // move menu (only one popover open at a time per row).
-  onActionMenu: () => void;
+  // Claude-style three-dots action menu. Move to project replaces its items, so
+  // only one popover is open at a time per row.
+  onMenuOpenChange: (open: boolean) => void;
   showActionMenu: boolean;
-  onCloseMenus: () => void;
   projects: Project[];
   onMoveToProject: (projectId: string) => void;
   onUnfile?: () => void;
@@ -901,11 +1176,21 @@ interface ChatRowProps {
 
 function ChatRow({
   chat, isCurrent, onSelect, onDelete, onRename, onPin,
-  editingId, editTitle, onEditTitleChange, onEditComplete,
+  editing, editTitle, onEditTitleChange, onEditComplete, onEditCancel,
   onMoveMenu, showMoveMenu,
-  onActionMenu, showActionMenu, onCloseMenus,
+  onMenuOpenChange, showActionMenu,
   projects, onMoveToProject, onUnfile, isInProject,
 }: ChatRowProps) {
+  const title = chat.title || 'Untitled';
+  const menu = useMenu({ open: showActionMenu || showMoveMenu, onOpenChange: onMenuOpenChange });
+  useFixedMenuPosition(menu.open, menu.triggerProps.ref, menu.menuProps.ref, showMoveMenu);
+
+  // The item that opened the move list has gone, and focus with it.
+  const menuElement = menu.menuProps.ref;
+  useEffect(() => {
+    if (showMoveMenu) menuElement.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  }, [showMoveMenu, menuElement]);
+
   return (
     <div className="relative">
       <div
@@ -920,7 +1205,7 @@ function ChatRow({
           e.preventDefault();
           onSelect(chat.id);
         }}
-        className={`group flex items-center gap-2 px-2 py-2 rounded-md cursor-pointer text-sm transition-colors ${
+        className={`group flex items-center gap-2 max-md:gap-0 px-2 py-2 rounded-md cursor-pointer text-sm transition-colors ${
           isCurrent
             ? 'bg-bg-tertiary text-text-primary'
             : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary'
@@ -930,38 +1215,37 @@ function ChatRow({
             conversation (server-derived, refreshes with the list). */}
         {chat.generating && (
           <span
-            className="flex-shrink-0 w-2 h-2 rounded-full bg-accent animate-pulse"
+            className="flex-shrink-0 w-2 h-2 max-md:mr-2 rounded-full bg-accent animate-pulse"
             title="Generating…"
           />
         )}
-        {editingId === chat.id ? (
-          <input
-            autoFocus
+        {editing ? (
+          <RenameInput
+            initial={chat.title || ''}
             value={editTitle}
-            onChange={e => onEditTitleChange(e.target.value)}
-            onBlur={() => onEditComplete(chat.id)}
-            onKeyDown={e => e.key === 'Enter' && onEditComplete(chat.id)}
-            onClick={e => e.stopPropagation()}
-            className="flex-1 bg-bg-primary border border-accent rounded px-1 py-0.5 text-xs text-text-primary outline-none"
+            onChange={onEditTitleChange}
+            onSave={() => onEditComplete(chat.id)}
+            onCancel={onEditCancel}
           />
         ) : (
           <a
             href={conversationPath(chat.id)}
-            className="flex-1 truncate no-underline text-inherit"
-          >{chat.title || 'Untitled'}</a>
+            className="flex-1 min-w-0 truncate no-underline text-inherit"
+          >{title}</a>
         )}
 
         {/* Pin */}
         <button
           onClick={(e) => onPin(chat, e)}
-          className={`flex-shrink-0 cursor-pointer transition-colors ${
+          className={`flex-shrink-0 ${ROW_ICON_TARGET} cursor-pointer transition-colors ${
             chat.pinned
               ? 'text-accent'
               : 'text-transparent group-hover:text-text-secondary group-focus-within:text-text-secondary focus-visible:text-text-secondary [@media(hover:none)]:text-text-secondary hover:!text-accent'
           }`}
           title={chat.pinned ? 'Unpin' : 'Pin'}
+          aria-label={`${chat.pinned ? 'Unpin' : 'Pin'} ${title}`}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill={chat.pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill={chat.pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
           </svg>
         </button>
@@ -970,80 +1254,71 @@ function ChatRow({
             Stays visible when the menu is open so the user can click
             the toggle a second time to dismiss. */}
         <button
-          onClick={(e) => { e.stopPropagation(); onActionMenu(); }}
-          className={`sidebar-row-menu flex-shrink-0 p-1 rounded cursor-pointer transition-opacity hover:bg-bg-primary hover:text-text-primary ${
-            showActionMenu
+          {...menu.triggerProps}
+          onClick={(e) => { e.stopPropagation(); menu.triggerProps.onClick(); }}
+          aria-label={`More actions for ${title}`}
+          className={`flex-shrink-0 p-1 ${ROW_ICON_TARGET} rounded cursor-pointer transition-opacity hover:bg-bg-primary hover:text-text-primary ${
+            menu.open
               ? 'opacity-100 text-text-primary'
               : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 text-text-secondary'
           }`}
           title="More"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <circle cx="12" cy="5" r="1.6" />
-            <circle cx="12" cy="12" r="1.6" />
-            <circle cx="12" cy="19" r="1.6" />
-          </svg>
+          <KebabIcon />
         </button>
       </div>
 
-      {/* Three-dots action menu (Rename / Move / Delete). Right-
-          anchored under the row, same dropdown shape as the move
-          menu. `.sidebar-row-menu` keeps the click-outside listener
-          in Sidebar from closing it when the user clicks inside. */}
-      {showActionMenu && (
-        <div className="sidebar-row-menu absolute right-0 top-full z-50 w-44 bg-bg-secondary border border-border rounded-lg shadow-lg overflow-hidden mt-1">
-          <button
-            onClick={(e) => { e.stopPropagation(); onCloseMenus(); onRename(chat.id); }}
-            className="w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary cursor-pointer"
-          >
-            Rename
-          </button>
-          {projects.length > 0 && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onMoveMenu(); }}
-              className="w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary cursor-pointer flex items-center justify-between"
-            >
-              <span>Move to project</span>
-              <span className="text-text-secondary text-[10px]">&#9656;</span>
-            </button>
+      {/* Three-dots action menu (Rename / Move / Delete), or the list of projects
+          after Move to project. */}
+      {menu.open && (
+        <div {...menu.menuProps} aria-label={`Actions for ${title}`} className={`${MENU_PANEL} w-44`}>
+          {showMoveMenu ? (
+            <>
+              {isInProject && onUnfile && (
+                <button role="menuitem" onClick={() => { menu.close(); onUnfile(); }} className={MENU_ITEM}>
+                  Remove from project
+                </button>
+              )}
+              {projects.map(p => (
+                <button
+                  key={p.id}
+                  role="menuitem"
+                  onClick={() => { menu.close(); onMoveToProject(p.id); }}
+                  className={`${MENU_ITEM} truncate`}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </>
+          ) : (
+            <>
+              <button role="menuitem" onClick={() => { menu.close(); onRename(chat.id); }} className={MENU_ITEM}>
+                Rename
+              </button>
+              {projects.length > 0 && (
+                <button
+                  role="menuitem"
+                  onClick={onMoveMenu}
+                  className={`${MENU_ITEM} !flex items-center justify-between`}
+                >
+                  <span>Move to project</span>
+                  <span className="text-text-secondary text-[10px]" aria-hidden="true">&#9656;</span>
+                </button>
+              )}
+              {isInProject && onUnfile && (
+                <button role="menuitem" onClick={() => { menu.close(); onUnfile(); }} className={MENU_ITEM}>
+                  Remove from project
+                </button>
+              )}
+              <button
+                role="menuitem"
+                onClick={(e) => { menu.close(); onDelete(chat.id, e); }}
+                className={`${MENU_ITEM} !text-error`}
+              >
+                Delete
+              </button>
+            </>
           )}
-          {isInProject && onUnfile && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onCloseMenus(); onUnfile(); }}
-              className="w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary cursor-pointer"
-            >
-              Remove from project
-            </button>
-          )}
-          <button
-            onClick={(e) => { e.stopPropagation(); onCloseMenus(); onDelete(chat.id, e); }}
-            className="w-full text-left px-3 py-2 text-xs text-error hover:bg-bg-tertiary cursor-pointer"
-          >
-            Delete
-          </button>
-        </div>
-      )}
-
-      {/* Move to project dropdown */}
-      {showMoveMenu && (
-        <div className="sidebar-row-menu absolute right-0 top-full z-50 w-44 bg-bg-secondary border border-border rounded-lg shadow-lg overflow-hidden mt-1">
-          {isInProject && onUnfile && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onCloseMenus(); onUnfile(); }}
-              className="w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary cursor-pointer"
-            >
-              Remove from project
-            </button>
-          )}
-          {projects.map(p => (
-            <button
-              key={p.id}
-              onClick={(e) => { e.stopPropagation(); onCloseMenus(); onMoveToProject(p.id); }}
-              className="w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary cursor-pointer truncate"
-            >
-              {p.name}
-            </button>
-          ))}
         </div>
       )}
     </div>

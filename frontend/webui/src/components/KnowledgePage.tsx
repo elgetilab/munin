@@ -76,7 +76,7 @@ export function KnowledgePage({ initialRoute, tagCatalog, onChatWithTag }: Knowl
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto md:pb-16">
         {view.type === 'overview' ? (
           <OverviewView
             catalog={catalog}
