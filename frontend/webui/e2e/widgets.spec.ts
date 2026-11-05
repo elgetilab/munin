@@ -188,7 +188,7 @@ test.describe('widget sandbox', () => {
       window.parent.postMessage({ type: 'error', message: '<img src=x onerror=alert(1)>' }, '*');
     });
     // Shown as plain text, never as markup.
-    await expect(page.getByRole('alert')).toHaveText('<img src=x onerror=alert(1)>');
+    await expect(page.getByRole('alert').locator('p')).toHaveText('<img src=x onerror=alert(1)>');
     await expect(page.getByRole('alert').locator('img')).toHaveCount(0);
   });
 });
