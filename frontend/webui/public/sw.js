@@ -1,4 +1,4 @@
-const CACHE_NAME = 'munin-v2';
+const CACHE_NAME = 'munin-v3';
 const STATIC_ASSETS = ['/shared/style.css', '/shared/feather-vortex.js'];
 
 self.addEventListener('install', (event) => {
@@ -22,6 +22,24 @@ self.addEventListener('fetch', (event) => {
   if (event.request.url.includes('/api/') || event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request).catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Network-first for /shared: these keep their names between deploys, so a
+  // cached copy would outlive the bundle that expects the new one. no-cache makes
+  // the browser revalidate instead of trusting its own HTTP cache.
+  if (new URL(event.request.url).pathname.startsWith('/shared/')) {
+    event.respondWith(
+      fetch(event.request, { cache: 'no-cache' })
+        .then((response) => {
+          if (response.ok && response.type === 'basic') {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request))
     );
     return;
   }
