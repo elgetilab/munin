@@ -68,6 +68,7 @@ export function ProteinViewer({ spec, title, conversationId, artifactId, version
   const [color, setColor] = useState<ProteinColor>(spec.color);
   const [spin, setSpin] = useState(false);
   const [reset, setReset] = useState(0);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!near) return;
@@ -78,12 +79,15 @@ export function ProteinViewer({ spec, title, conversationId, artifactId, version
         if (cancelled) return;
         setSrcDoc(document);
         setStructure({ key, format: loaded.format, data: loaded.data });
+        // Scrolling back into view fetches again, and a fetch that works ends an
+        // earlier failure: the frame, and so 'rendered', depend on there being none.
+        setError(null);
       })
       .catch(e => {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load the structure');
       });
     return () => { cancelled = true; };
-  }, [near, conversationId, artifactId, version, spec.source, spec.id]);
+  }, [near, conversationId, artifactId, version, spec.source, spec.id, attempt]);
 
   const state = useMemo(() => ({
     structure,
@@ -106,9 +110,17 @@ export function ProteinViewer({ spec, title, conversationId, artifactId, version
 
   // Scrolling away drops the frame, and with it the live 3D context.
   const showFrame = near && srcDoc && structure && !error;
+  const retry = () => {
+    setError(null);
+    setRendered(false);
+    setAttempt(a => a + 1);
+  };
+  const databaseName = spec.source === 'alphafold' ? 'AlphaFold' : 'RCSB';
+  // Nothing is there to restyle until the viewer has drawn the structure.
+  const controlsDisabled = !rendered || !!error;
   const colorLabel = (value: ProteinColor, label: string) =>
     value === 'bfactor' && spec.source === 'alphafold' ? 'Confidence' : label;
-  const controlClass = 'px-2 py-1 bg-bg-tertiary border border-border rounded text-xs text-text-primary outline-none cursor-pointer';
+  const controlClass = 'px-2 py-1 bg-bg-tertiary border border-border rounded text-xs text-text-primary outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed';
 
   return (
     <div
@@ -119,14 +131,16 @@ export function ProteinViewer({ spec, title, conversationId, artifactId, version
     >
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
         <span className="text-sm text-text-primary truncate flex-1" title={title}>{title}</span>
-        <a
-          href={databaseUrl(spec)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-xs text-text-secondary hover:text-accent transition-colors shrink-0"
-        >
-          {spec.source === 'alphafold' ? 'AlphaFold' : 'RCSB'}
-        </a>
+        {!error && (
+          <a
+            href={databaseUrl(spec)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-text-secondary hover:text-accent transition-colors shrink-0"
+          >
+            {databaseName}
+          </a>
+        )}
         {onExpand && (
           <button
             type="button"
@@ -149,23 +163,42 @@ export function ProteinViewer({ spec, title, conversationId, artifactId, version
           />
         )}
         {error ? (
-          <div role="alert" className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm text-error">{error}</div>
+          <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center text-sm text-error">
+            <p className="wrap-anywhere">{error}</p>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={retry}
+                className="px-2 py-1 border border-error rounded text-xs font-medium hover:bg-error/10 cursor-pointer"
+              >
+                Retry
+              </button>
+              <a
+                href={databaseUrl(spec)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-text-secondary hover:text-accent transition-colors underline"
+              >
+                Open on {databaseName}
+              </a>
+            </div>
+          </div>
         ) : !rendered && (
           <div className="absolute inset-0 flex items-center justify-center text-sm text-text-secondary pointer-events-none">Loading structure...</div>
         )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-t border-border">
-        <select aria-label="Style" value={style} onChange={e => setStyle(e.target.value as ProteinStyle)} className={controlClass}>
+        <select aria-label="Style" disabled={controlsDisabled} value={style} onChange={e => setStyle(e.target.value as ProteinStyle)} className={controlClass}>
           {PROTEIN_STYLES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
-        <select aria-label="Color" value={color} onChange={e => setColor(e.target.value as ProteinColor)} className={controlClass}>
+        <select aria-label="Color" disabled={controlsDisabled} value={color} onChange={e => setColor(e.target.value as ProteinColor)} className={controlClass}>
           {PROTEIN_COLORS.map(c => <option key={c.value} value={c.value}>{colorLabel(c.value, c.label)}</option>)}
         </select>
-        <button type="button" aria-pressed={spin} onClick={() => setSpin(s => !s)} className={controlClass}>
+        <button type="button" aria-pressed={spin} disabled={controlsDisabled} onClick={() => setSpin(s => !s)} className={controlClass}>
           {spin ? 'Stop' : 'Spin'}
         </button>
-        <button type="button" onClick={() => setReset(r => r + 1)} className={controlClass}>Reset view</button>
+        <button type="button" disabled={controlsDisabled} onClick={() => setReset(r => r + 1)} className={controlClass}>Reset view</button>
       </div>
     </div>
   );
