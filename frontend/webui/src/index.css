@@ -55,6 +55,12 @@ body {
   }
 }
 
+/* An open side panel has its own controls in that corner, and Help is still in the
+   account menu. App.tsx sets the class. */
+body.munin-side-panel-open #munin-support-btn {
+  display: none !important;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

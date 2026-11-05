@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef, useState } from 'react';
+import { useEffect, useCallback, useRef, useState, useSyncExternalStore } from 'react';
 import { useChatLifecycle } from './hooks/useChatLifecycle';
 import { useChatStore } from './stores/chatStore';
 import { useUiStore } from './stores/uiStore';
@@ -8,7 +8,7 @@ import { useDeepResearchStore, isActive as isDrActive } from './stores/deepResea
 import { DemoDeck, type DemoCard } from './components/DemoDeck';
 import { ResearchTimeline } from './components/ResearchTimeline';
 import { useStatus } from './hooks/useStatus';
-import { fetchPersonas, fetchMe, fetchAnnouncement, fetchUsageStats, fetchArtifacts, fetchTags, getResearchStatus, fetchResearchForConversation, startDeepResearch } from './lib/api';
+import { fetchPersonas, fetchMe, fetchAnnouncement, fetchUsageStats, fetchArtifacts, fetchProject, fetchTags, getResearchStatus, fetchResearchForConversation, startDeepResearch } from './lib/api';
 import type { UserProfile } from './lib/api';
 import { getGreeting } from './lib/greetings';
 import { Sidebar } from './components/Sidebar';
@@ -25,9 +25,33 @@ import { AdminPanel } from './components/AdminPanel';
 import { ReportDialog } from './components/ReportDialog';
 import { KnowledgePanel } from './components/KnowledgePanel';
 import { KnowledgePage } from './components/KnowledgePage';
+import { ErrorNotice } from './components/ui/ErrorNotice';
+import { useModal } from './hooks/useModal';
 import type { Project } from './lib/types';
-import { CHAT_URL, DOCS_URL, SEARCH_URL, SITE_HOME, UPLOAD_URL } from './lib/urls';
-import { isModifiedClick } from './lib/nav';
+import { DOCS_URL, SEARCH_URL, SITE_HOME, UPLOAD_URL } from './lib/urls';
+import { conversationPath, dropStaleOverlayEntry, isModifiedClick, pushAppPath, readOverlayEntry, syncOverlayHistory } from './lib/nav';
+
+// Tailwind's md breakpoint, below which the sidebar is a drawer over the page.
+const BELOW_MD = '(width < 48rem)';
+
+function subscribeBelowMd(onChange: () => void) {
+  if (typeof window.matchMedia !== 'function') return () => {};
+  const query = window.matchMedia(BELOW_MD);
+  query.addEventListener('change', onChange);
+  return () => query.removeEventListener('change', onChange);
+}
+
+function isBelowMd() {
+  return typeof window.matchMedia === 'function' && window.matchMedia(BELOW_MD).matches;
+}
+
+// Set once per browser tab session; see the isEphemeral reset below.
+const SESSION_STARTED_KEY = 'munin_session_started';
+
+const PILL_BASE = 'text-xs px-2.5 py-1 rounded-full whitespace-nowrap md:whitespace-normal transition-colors cursor-pointer border';
+const PILL_OFF = 'bg-bg-tertiary border-border text-text-secondary hover:text-text-primary';
+const PILL_ACCENT = 'bg-accent/15 border-accent text-accent';
+const DISMISS_BUTTON = 'flex-shrink-0 min-w-8 min-h-8 -my-1 flex items-center justify-center opacity-80 hover:opacity-100 transition-opacity cursor-pointer text-xs';
 
 export default function App() {
   const status = useStatus();
@@ -66,8 +90,8 @@ export default function App() {
   const setShowInstallBanner = useUiStore(s => s.setShowInstallBanner);
   // P2 #26 commit 3: isEphemeral lives in workspaceStore — persisted
   // across reloads so a user who switched to incognito stays in
-  // incognito after F5. The previous useState always defaulted to
-  // false on reload.
+  // incognito after F5. A new session starts with it off, below, so
+  // nobody comes back days later in a mode that saves nothing.
   const isEphemeral = useWorkspaceStore(s => s.isEphemeral);
   const setIsEphemeral = useWorkspaceStore(s => s.setIsEphemeral);
   const toggleEphemeral = useWorkspaceStore(s => s.toggleEphemeral);
@@ -127,6 +151,14 @@ export default function App() {
   // entry is migrated in via onRehydrateStorage on first load.
   const reportedChats = useWorkspaceStore(s => s.reportedChats);
   const addReportedChat = useWorkspaceStore(s => s.addReportedChat);
+
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(SESSION_STARTED_KEY)) return;
+      sessionStorage.setItem(SESSION_STARTED_KEY, '1');
+      setIsEphemeral(false);
+    } catch { /* no session storage: the persisted value stands */ }
+  }, [setIsEphemeral]);
 
   // Load user info on mount
   useEffect(() => {
@@ -190,6 +222,9 @@ export default function App() {
   const [showDemo, setShowDemo] = useState(() => window.location.pathname === '/demo');
   const [demoMode] = useState(showDemo);
   const [demoSlide, setDemoSlide] = useState(0);
+  // True while the /c/<id> this page was opened at is still loading. Until it
+  // settles, conversationId says nothing about where the address bar should be.
+  const initialChatLoading = useRef(/^\/c\/.+/.test(window.location.pathname));
 
   useEffect(() => {
     const path = window.location.pathname;
@@ -200,7 +235,7 @@ export default function App() {
     }
     const match = path.match(/^\/c\/(.+)$/);
     if (match) {
-      loadConversation(match[1]);
+      void loadConversation(match[1]).finally(() => { initialChatLoading.current = false; });
     }
     const params = new URLSearchParams(window.location.search);
     const persona = params.get('persona');
@@ -226,11 +261,50 @@ export default function App() {
   useEffect(() => {
     if (showDemo) return;
     const currentPath = window.location.pathname;
-    const expectedPath = conversationId ? `/c/${conversationId}` : '/';
+    // Not a chat URL, and whoever leaves it pushes the right path themselves.
+    if (/^\/knowledge(\/|$)/.test(currentPath) || initialChatLoading.current) return;
+    const expectedPath = conversationId ? conversationPath(conversationId) : '/';
     if (currentPath !== expectedPath) {
-      window.history.pushState(null, '', expectedPath);
+      pushAppPath(expectedPath);
     }
   }, [conversationId, showDemo]);
+
+  // Overlays and the phone drawer in the browser history (see lib/nav.ts).
+  const belowMd = useSyncExternalStore(subscribeBelowMd, isBelowMd);
+  const drawerOpen = sidebarOpen && belowMd && !showKnowledgePage;
+  const overlayView = showAdmin ? 'admin' : editingProject ? 'project' : showSettings ? 'settings' : null;
+  const overlayProject = overlayView === 'project' ? editingProject : null;
+  const overlayHistoryStarted = useRef(false);
+  useEffect(() => {
+    if (!overlayHistoryStarted.current) {
+      overlayHistoryStarted.current = true;
+      dropStaleOverlayEntry();
+    }
+    syncOverlayHistory({ view: overlayView, project: overlayProject, drawer: drawerOpen });
+  }, [overlayView, overlayProject, drawerOpen]);
+
+  const drawerModal = useModal({ onClose: () => setSidebarOpen(false), active: drawerOpen });
+
+  // Hide the support button while a side panel is showing (see index.css).
+  const sidePanelShowing = !showKnowledgePage && (
+    (knowledgePanelOpen && !!tagCatalog) || (artifactPanelOpen && !!conversationId && !isEphemeral)
+  );
+  useEffect(() => {
+    document.body.classList.toggle('munin-side-panel-open', sidePanelShowing);
+    return () => document.body.classList.remove('munin-side-panel-open');
+  }, [sidePanelShowing]);
+
+  // The active project's name, for the banner that says where the chat will go.
+  const [activeProjectInfo, setActiveProjectInfo] = useState<{ id: string; name: string } | null>(null);
+  useEffect(() => {
+    if (!activeProjectId) return;
+    let cancelled = false;
+    fetchProject(activeProjectId)
+      .then(p => { if (!cancelled) setActiveProjectInfo({ id: p.id, name: p.name }); })
+      .catch(() => { /* the banner falls back to "this project" */ });
+    return () => { cancelled = true; };
+  }, [activeProjectId]);
+  const activeProjectName = activeProjectInfo?.id === activeProjectId ? activeProjectInfo?.name : null;
 
   // Load artifacts when conversation changes. Clear the selected artifact FIRST:
   // otherwise the panel keeps the previous conversation's selectedArtifactId and
@@ -321,6 +395,10 @@ export default function App() {
     }
   }, [streaming.phase, messages.length, isEphemeral, activeProjectId, conversationId, bumpSidebarRefresh, setActiveProjectId]);
 
+  const closeDrawerOnPhone = useCallback(() => {
+    if (window.innerWidth < 768) setSidebarOpen(false);
+  }, [setSidebarOpen]);
+
   const handleSelectChat = useCallback((id: string) => {
     setIsEphemeral(false);
     setActiveProjectId(null);
@@ -335,21 +413,23 @@ export default function App() {
     setEditingProject(null);
     setShowAdmin(false);
     clearConversation();
-    window.history.pushState(null, '', '/');
+    pushAppPath('/');
   }, [clearConversation, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin]);
 
   const handleNewChatInProject = useCallback((projectId: string) => {
     setIsEphemeral(false);
     setActiveProjectId(projectId);
     setEditingProject(null);
+    setShowAdmin(false);
     clearConversation();
-    window.history.pushState(null, '', '/');
-  }, [clearConversation, setActiveProjectId, setEditingProject, setIsEphemeral]);
+    pushAppPath('/');
+  }, [clearConversation, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin]);
 
   const handleOpenProjectSettings = useCallback((project: Project) => {
     setEditingProject(project);
     setShowSettings(false);
-  }, [setEditingProject, setShowSettings]);
+    setShowAdmin(false);
+  }, [setEditingProject, setShowAdmin, setShowSettings]);
 
   const handleProjectUpdated = useCallback((updated: Project) => {
     setEditingProject(updated);
@@ -361,7 +441,7 @@ export default function App() {
     if (nowEphemeral) {
       // Entering ephemeral: clear current conversation
       clearConversation();
-      window.history.pushState(null, '', '/');
+      pushAppPath('/');
     }
   }, [clearConversation, toggleEphemeral]);
 
@@ -370,8 +450,14 @@ export default function App() {
     setShowSettings(false);
     setShowAdmin(false);
     setEditingProject(null);
-    window.history.pushState(null, '', '/knowledge');
+    pushAppPath('/knowledge');
   }, [setEditingProject, setShowAdmin, setShowKnowledgePage, setShowSettings]);
+
+  // Back to the chat still loaded behind the Knowledge page, under its own URL.
+  const leaveKnowledgePage = useCallback(() => {
+    setShowKnowledgePage(false);
+    pushAppPath(conversationId ? conversationPath(conversationId) : '/');
+  }, [conversationId, setShowKnowledgePage]);
 
   const handleProfileUpdate = useCallback((updated: UserProfile) => {
     setUserProfile(updated);
@@ -391,6 +477,20 @@ export default function App() {
   // a turn, send a synthetic short user message. The model sees
   // APPROVAL STATUS: APPROVED in its next system-prompt plan block
   // and retries the gated tool call naturally.
+  const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
+  const lastMessage = messages[messages.length - 1];
+  const replyInterrupted = !!error && lastMessage?.role === 'assistant' && !!lastMessage.interrupted;
+  // Sent attachments are not kept, and a message of only attachments is just a
+  // placeholder such as [Image], which is nothing to send again.
+  const canRetryReply = replyInterrupted && !!lastUserMessage && !/^\[.*\]$/.test(lastUserMessage.content);
+
+  const handleRetryReply = () => {
+    if (!lastUserMessage) return;
+    // sendMessage adds the user's message again, so take this attempt away first.
+    useChatStore.setState({ messages: messages.slice(0, messages.lastIndexOf(lastUserMessage)) });
+    handleSend(lastUserMessage.content);
+  };
+
   const handlePlanApproved = useCallback(() => {
     sendMessage(
       "I've approved the plan, please continue.",
@@ -441,7 +541,7 @@ export default function App() {
     setIsEphemeral(false);
     setActiveProjectId(cardProject);
     clearConversation();
-    window.history.pushState(null, '', '/');
+    pushAppPath('/');
     try {
       if (card.kind === 'research') {
         const r = await startDeepResearch(null, card.prompt, card.budgets);
@@ -468,6 +568,12 @@ export default function App() {
   // Handle browser back/forward
   useEffect(() => {
     const handler = () => {
+      const overlay = readOverlayEntry();
+      setShowSettings(overlay.view === 'settings');
+      setShowAdmin(overlay.view === 'admin');
+      setEditingProject(overlay.view === 'project' ? overlay.project as Project : null);
+      if (isBelowMd()) setSidebarOpen(overlay.drawer);
+
       const path = window.location.pathname;
       if (path === '/demo') {
         setShowDemo(true);
@@ -480,16 +586,19 @@ export default function App() {
         return;
       }
       setShowKnowledgePage(false);
+      // Closing an overlay lands on the same page, whose chat must stay as it is:
+      // a temporary chat has no id and could not be read back.
+      const chat = useChatStore.getState();
       const match = path.match(/^\/c\/(.+)$/);
       if (match) {
-        loadConversation(match[1]);
-      } else {
+        if (match[1] !== chat.conversationId) loadConversation(match[1]);
+      } else if (chat.conversationId || (chat.error && chat.messages.length === 0)) {
         clearConversation();
       }
     };
     window.addEventListener('popstate', handler);
     return () => window.removeEventListener('popstate', handler);
-  }, [loadConversation, clearConversation, setShowKnowledgePage]);
+  }, [loadConversation, clearConversation, setEditingProject, setShowAdmin, setShowKnowledgePage, setShowSettings, setSidebarOpen]);
 
   // PWA install prompt
   useEffect(() => {
@@ -539,6 +648,9 @@ export default function App() {
     setShowInstallBanner(false);
     localStorage.setItem('munin_pwa_dismissed', '1');
   };
+
+  // What fetchChat reports, whether the server refused or could not be reached.
+  const chatLoadFailed = !!error && !replyInterrupted && /failed to fetch/i.test(error);
 
   const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
@@ -607,24 +719,25 @@ export default function App() {
     return (
       <div className="flex flex-col h-dvh">
         {/* Standalone header for knowledge page */}
-        <header className="flex items-center gap-3 px-4 py-2.5 border-b border-border bg-bg-secondary overflow-x-auto md:overflow-x-clip [scrollbar-width:none]">
-          <a href={SITE_HOME} className="flex items-center gap-2 no-underline">
-            <img src="/shared/munin_logo_without_script.webp" alt="Munin" className="w-7 h-7" />
+        {/* On a phone only the links that fit: the logo goes Home, and the account
+            menu back in the chat has the rest. */}
+        <header className="flex items-center gap-3 px-4 py-2.5 border-b border-border bg-bg-secondary">
+          <a href={SITE_HOME} className="flex-shrink-0 flex items-center gap-2 no-underline whitespace-nowrap">
+            <img src="/shared/munin_logo_without_script.webp" alt="Munin" className="w-7 h-7 brightness-0 invert" />
             <span className="text-text-primary font-semibold text-sm">Munin</span>
           </a>
           <div className="flex-1" />
-          <nav className="flex gap-4 text-sm">
-            <a href={SITE_HOME} className="text-text-secondary hover:text-accent no-underline transition-colors">Home</a>
-            <a href={SEARCH_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Search</a>
-            <a href={DOCS_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Docs</a>
-            <span className="text-accent">Knowledge</span>
+          <nav className="flex-shrink-0 flex gap-4 text-sm whitespace-nowrap">
+            <a href={SITE_HOME} className="hidden md:inline text-text-secondary hover:text-accent no-underline transition-colors">Home</a>
+            <a href={SEARCH_URL} className="hidden md:inline text-text-secondary hover:text-accent no-underline transition-colors">Search papers</a>
+            <a href={DOCS_URL} className="hidden md:inline text-text-secondary hover:text-accent no-underline transition-colors">Docs</a>
+            <span className="text-accent" aria-current="page">Knowledge</span>
             <a
               href="/"
               onClick={(e) => {
                 if (isModifiedClick(e)) return;
                 e.preventDefault();
-                setShowKnowledgePage(false);
-                window.history.pushState(null, '', '/');
+                leaveKnowledgePage();
               }}
               className="text-text-secondary hover:text-accent no-underline transition-colors cursor-pointer text-sm"
             >Chat</a>
@@ -634,15 +747,12 @@ export default function App() {
         <KnowledgePage
           initialRoute={typeof showKnowledgePage === 'string' ? showKnowledgePage : undefined}
           tagCatalog={tagCatalog}
-          onClose={() => {
-            setShowKnowledgePage(false);
-            window.history.pushState(null, '', '/');
-          }}
+          onClose={leaveKnowledgePage}
           onChatWithTag={(tags) => {
             setActiveTags(tags);
             setShowKnowledgePage(false);
             clearConversation();
-            window.history.pushState(null, '', '/');
+            pushAppPath('/');
           }}
         />
       </div>
@@ -669,8 +779,8 @@ export default function App() {
       {demoMode && !showDemo && (
         <button
           data-testid="demo-slides"
-          onClick={() => { setShowDemo(true); window.history.pushState(null, '', '/demo'); }}
-          className="fixed bottom-20 right-4 z-50 px-3 py-1.5 text-sm rounded-lg border border-border bg-bg-secondary text-text-primary shadow-lg cursor-pointer hover:bg-bg-tertiary"
+          onClick={() => { setShowDemo(true); pushAppPath('/demo'); }}
+          className="fixed top-14 md:top-auto md:bottom-20 right-4 z-50 px-3 py-1.5 text-sm rounded-lg border border-border bg-bg-secondary text-text-primary shadow-lg cursor-pointer hover:bg-bg-tertiary"
         >
           Slides
         </button>
@@ -681,19 +791,22 @@ export default function App() {
           {/* Backdrop on mobile */}
           <div
             className="fixed inset-0 bg-black/50 z-40 md:hidden"
+            aria-hidden="true"
             onClick={() => setSidebarOpen(false)}
           />
-          <div className="fixed inset-y-0 left-0 z-50 md:relative md:z-auto">
+          <div {...drawerModal.panelProps} className="fixed inset-y-0 left-0 z-50 md:relative md:z-auto outline-none">
+            {drawerOpen && <h2 id={drawerModal.titleId} className="sr-only">Menu</h2>}
             <Sidebar
               currentId={conversationId}
-              onSelect={(id) => { handleSelectChat(id); setShowSettings(false); setEditingProject(null); if (window.innerWidth < 768) setSidebarOpen(false); }}
-              onNewChat={() => { handleNewChat(); setShowSettings(false); setEditingProject(null); if (window.innerWidth < 768) setSidebarOpen(false); }}
-              onNewChatInProject={(pid) => { handleNewChatInProject(pid); setShowSettings(false); if (window.innerWidth < 768) setSidebarOpen(false); }}
-              onOpenProjectSettings={handleOpenProjectSettings}
+              onSelect={(id) => { handleSelectChat(id); setShowSettings(false); setEditingProject(null); closeDrawerOnPhone(); }}
+              onNewChat={() => { handleNewChat(); setShowSettings(false); setEditingProject(null); closeDrawerOnPhone(); }}
+              onNewChatInProject={(pid) => { handleNewChatInProject(pid); setShowSettings(false); closeDrawerOnPhone(); }}
+              onOpenProjectSettings={(project) => { handleOpenProjectSettings(project); closeDrawerOnPhone(); }}
               refreshKey={sidebarRefreshKey}
-              onOpenSettings={() => { setShowSettings(true); setEditingProject(null); setShowAdmin(false); if (window.innerWidth < 768) setSidebarOpen(false); }}
-              onOpenAdmin={() => { setShowAdmin(true); setShowSettings(false); setEditingProject(null); if (window.innerWidth < 768) setSidebarOpen(false); }}
-              onOpenKnowledge={() => { handleOpenKnowledgePage(); if (window.innerWidth < 768) setSidebarOpen(false); }}
+              onOpenSettings={() => { setShowSettings(true); setEditingProject(null); setShowAdmin(false); closeDrawerOnPhone(); }}
+              onOpenAdmin={() => { setShowAdmin(true); setShowSettings(false); setEditingProject(null); closeDrawerOnPhone(); }}
+              onOpenKnowledge={() => { handleOpenKnowledgePage(); closeDrawerOnPhone(); }}
+              onCloseDrawer={drawerOpen ? () => setSidebarOpen(false) : undefined}
             />
           </div>
         </>
@@ -719,14 +832,11 @@ export default function App() {
           <button
             data-testid="ephemeral-toggle"
             onClick={handleToggleEphemeral}
-            className={`text-xs px-2.5 py-1 rounded-full whitespace-nowrap md:whitespace-normal transition-colors cursor-pointer border ${
-              isEphemeral
-                ? 'bg-warning/15 border-warning text-warning'
-                : 'bg-bg-tertiary border-border text-text-secondary hover:text-text-primary'
-            }`}
-            title={isEphemeral ? "Ephemeral mode ON. Chats won't be saved." : 'Enable ephemeral mode'}
+            aria-pressed={isEphemeral}
+            className={`${PILL_BASE} ${isEphemeral ? 'bg-warning/15 border-warning text-warning' : PILL_OFF}`}
+            title={isEphemeral ? "Temporary chat is on. This chat won't be saved." : "Start a temporary chat that won't be saved"}
           >
-            Ephemeral
+            Temporary chat
           </button>
 
           {/* Artifacts panel toggle */}
@@ -734,11 +844,8 @@ export default function App() {
             <button
               data-testid="artifacts-button"
               onClick={() => setArtifactPanelOpen(!artifactPanelOpen)}
-              className={`text-xs px-2.5 py-1 rounded-full whitespace-nowrap md:whitespace-normal transition-colors cursor-pointer border ${
-                artifactPanelOpen
-                  ? 'bg-accent/15 border-accent text-accent'
-                  : 'bg-bg-tertiary border-border text-text-secondary hover:text-text-primary'
-              }`}
+              aria-pressed={artifactPanelOpen}
+              className={`${PILL_BASE} ${artifactPanelOpen ? PILL_ACCENT : PILL_OFF}`}
               title={artifactPanelOpen ? 'Hide artifacts' : 'Show artifacts'}
             >
               {artifacts.length > 0 ? `Artifacts (${artifacts.length})` : 'Artifacts'}
@@ -749,16 +856,13 @@ export default function App() {
           {tagCatalog && (
             <button
               onClick={() => setKnowledgePanelOpen(!knowledgePanelOpen)}
-              className={`text-xs px-2.5 py-1 rounded-full whitespace-nowrap md:whitespace-normal transition-colors cursor-pointer border ${
-                knowledgePanelOpen || activeTags.length > 0
-                  ? 'bg-accent/15 border-accent text-accent'
-                  : 'bg-bg-tertiary border-border text-text-secondary hover:text-text-primary'
-              }`}
-              title={knowledgePanelOpen ? 'Hide knowledge panel' : 'Browse available knowledge'}
+              aria-pressed={knowledgePanelOpen}
+              className={`${PILL_BASE} ${knowledgePanelOpen || activeTags.length > 0 ? PILL_ACCENT : PILL_OFF}`}
+              title={knowledgePanelOpen ? 'Hide sources' : 'Choose which sources to search'}
             >
               {activeTags.length > 0
-                ? `Knowledge (${activeTags.length})`
-                : 'Knowledge'}
+                ? `Sources (${activeTags.length})`
+                : 'Sources'}
             </button>
           )}
 
@@ -786,7 +890,7 @@ export default function App() {
 
           <nav className={`hidden gap-4 text-sm ${sidebarOpen ? 'lg:flex' : 'md:flex'}`}>
             <a href={SITE_HOME} className="text-text-secondary hover:text-accent no-underline transition-colors">Home</a>
-            <a href={SEARCH_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Search</a>
+            <a href={SEARCH_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Search papers</a>
             <a href={DOCS_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Docs</a>
             <a
               href="/knowledge"
@@ -795,9 +899,20 @@ export default function App() {
                 e.preventDefault();
                 handleOpenKnowledgePage();
               }}
-              className={`${showKnowledgePage ? 'text-accent' : 'text-text-secondary hover:text-accent'} no-underline transition-colors cursor-pointer text-sm`}
+              className="text-text-secondary hover:text-accent no-underline transition-colors cursor-pointer text-sm"
             >Knowledge</a>
-            <a href={CHAT_URL} className={`${!showKnowledgePage ? 'text-accent' : 'text-text-secondary hover:text-accent'} no-underline transition-colors`}>Chat</a>
+            <a
+              href={conversationId ? conversationPath(conversationId) : '/'}
+              onClick={(e) => {
+                if (isModifiedClick(e)) return;
+                e.preventDefault();
+                setShowAdmin(false);
+                setShowSettings(false);
+                setEditingProject(null);
+              }}
+              aria-current={overlayView ? undefined : 'page'}
+              className={`${overlayView ? 'text-text-secondary hover:text-accent' : 'text-accent'} no-underline transition-colors cursor-pointer`}
+            >Chat</a>
             <a href={UPLOAD_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Upload</a>
           </nav>
         </header>
@@ -812,9 +927,10 @@ export default function App() {
             <span className="flex-1">{announcement.message}</span>
             <button
               onClick={() => setAnnouncementDismissed(true)}
-              className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity cursor-pointer text-xs"
+              aria-label="Dismiss"
+              className={DISMISS_BUTTON}
             >
-              &#10005;
+              <span aria-hidden="true">&#10005;</span>
             </button>
           </div>
         )}
@@ -822,21 +938,23 @@ export default function App() {
         {/* Ephemeral banner */}
         {isEphemeral && (
           <div className="mx-4 mt-3 px-4 py-2 bg-warning/10 border border-warning rounded-lg text-xs text-warning flex items-center gap-2">
-            <span>This chat won't be saved. Messages are lost on refresh.</span>
+            <span className="flex-1">This chat won't be saved. Messages are lost on refresh.</span>
+            <button onClick={handleToggleEphemeral} className="flex-shrink-0 underline cursor-pointer">Turn off</button>
           </div>
         )}
 
         {/* Project context banner */}
-        {activeProjectId && !isEphemeral && !showSettings && !editingProject && (
+        {activeProjectId && !isEphemeral && !overlayView && (
           <div className="mx-4 mt-3 px-4 py-2 bg-accent/10 border border-accent rounded-lg text-xs text-accent flex items-center gap-2">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
             </svg>
-            <span>New chats will be filed into this project</span>
+            <span className="flex-1 min-w-0">This chat will be saved in {activeProjectName ?? 'this project'}</span>
             <button
               onClick={() => setActiveProjectId(null)}
-              className="ml-auto text-accent/60 hover:text-accent cursor-pointer"
-            >&#10005;</button>
+              aria-label="Don't save in this project"
+              className={DISMISS_BUTTON}
+            ><span aria-hidden="true">&#10005;</span></button>
           </div>
         )}
 
@@ -860,17 +978,28 @@ export default function App() {
             )}
             <button
               onClick={dismissInstallBanner}
-              className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity cursor-pointer text-xs"
+              aria-label="Dismiss"
+              className={DISMISS_BUTTON}
             >
-              &#10005;
+              <span aria-hidden="true">&#10005;</span>
             </button>
           </div>
         )}
 
         {/* Error banner */}
         {error && (
-          <div className="mx-4 mt-3 px-4 py-3 bg-error/10 border border-error rounded-lg text-error text-sm">
-            {error}
+          <div className="mx-4 mt-3">
+            {/* An interrupted reply already says why, in the reply itself. */}
+            <ErrorNotice
+              message={replyInterrupted ? 'The reply was interrupted.' : chatLoadFailed ? 'This chat could not be opened.' : error}
+              onRetry={canRetryReply ? handleRetryReply : undefined}
+              onDismiss={() => useChatStore.setState({ error: null })}
+            />
+            {chatLoadFailed && (
+              <button onClick={handleNewChat} className="mt-2 text-sm text-accent hover:text-accent-hover cursor-pointer">
+                Start a new chat
+              </button>
+            )}
           </div>
         )}
 
@@ -969,7 +1098,7 @@ export default function App() {
           )}
 
           {/* Artifact panel */}
-          {artifactPanelOpen && conversationId && !isEphemeral && !knowledgePanelOpen && (
+          {artifactPanelOpen && conversationId && !isEphemeral && (
             <ArtifactPanel
               artifacts={artifacts}
               conversationId={conversationId}
@@ -999,12 +1128,13 @@ export default function App() {
 
       {/* Toast */}
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 bg-bg-secondary border border-border rounded-lg shadow-lg text-sm text-text-primary flex items-center gap-3">
+        <div role="status" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 bg-bg-secondary border border-border rounded-lg shadow-lg text-sm text-text-primary flex items-center gap-3">
           <span>{toast}</span>
           <button
             onClick={() => setToast(null)}
-            className="text-text-secondary hover:text-text-primary cursor-pointer text-xs"
-          >&#10005;</button>
+            aria-label="Dismiss"
+            className="min-w-8 min-h-8 -my-1 flex items-center justify-center text-text-secondary hover:text-text-primary cursor-pointer text-xs"
+          ><span aria-hidden="true">&#10005;</span></button>
         </div>
       )}
     </div>

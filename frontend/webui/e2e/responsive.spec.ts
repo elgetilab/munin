@@ -51,7 +51,7 @@ test.describe('panels', () => {
       await artifacts.getByRole('button', { name: '✕' }).click();
       await expect(artifacts).toBeHidden();
 
-      await page.getByRole('button', { name: 'Knowledge', exact: true }).click();
+      await page.getByRole('button', { name: 'Sources', exact: true }).click();
       const knowledge = page.getByTestId('knowledge-panel');
       await expect(knowledge).toHaveCSS('position', 'fixed');
       expect((await knowledge.boundingBox())?.width).toBe(width);
@@ -106,11 +106,11 @@ test.describe('profile menu', () => {
     await page.goto('/');
     await page.getByRole('button', { name: 'Show sidebar' }).click();
     await page.getByText('e2e@test.local').click();
-    await expect(page.getByRole('button', { name: 'Help' })).toBeVisible();
-    for (const name of ['Knowledge', 'Docs', 'Upload']) {
-      await expect(page.getByRole('link', { name, exact: true })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Help' })).toBeVisible();
+    for (const name of ['Knowledge', 'Search papers', 'Docs', 'Upload']) {
+      await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
     }
-    await page.getByRole('link', { name: 'Knowledge', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Knowledge', exact: true }).click();
     await expect(page).toHaveURL(/\/knowledge$/);
   });
 
@@ -118,7 +118,7 @@ test.describe('profile menu', () => {
     await installMocks(page);
     await page.goto('/');
     await page.getByText('e2e@test.local').click();
-    await expect(page.getByRole('button', { name: 'Help' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Help' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Upload', exact: true })).toHaveCount(1);
   });
 });
@@ -209,7 +209,7 @@ test.describe('busy header', () => {
       await send(page);
       await page.getByTestId('artifact-panel').getByRole('button', { name: '✕' }).click();
 
-      await page.getByTitle('Browse available knowledge').click();
+      await page.getByTitle('Choose which sources to search').click();
       const knowledge = page.getByTestId('knowledge-panel');
       await knowledge.getByRole('button', { name: 'Topics (3)' }).click();
       for (const { label } of topics) await knowledge.getByRole('button', { name: label }).click();

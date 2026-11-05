@@ -138,7 +138,7 @@ export function ProjectSettings({ project, personas, onClose, onUpdated }: Proje
             />
             <span className="text-sm text-text-primary">Archived</span>
           </label>
-          <span className="text-[11px] text-text-secondary">Archived projects are hidden from the sidebar</span>
+          <span className="text-[11px] text-text-secondary">Archived projects move to the Archived group in the sidebar, where you can restore them</span>
         </div>
 
         {/* Error */}
