@@ -5,7 +5,8 @@ import {
 } from 'recharts';
 import { metricsQueryRange } from '../../lib/api';
 import type { PromSeries } from '../../lib/api';
-import { rateWindowFor, seriesToRows } from '../../lib/metricsSeries';
+import { formatMetricValue, rateWindowFor, seriesToRows } from '../../lib/metricsSeries';
+import { ErrorNotice } from '../ui/ErrorNotice';
 
 
 /**
@@ -50,6 +51,8 @@ interface PanelDef {
   seriesLabel: string;
   chartType: 'line' | 'bar';
   yUnit?: 'count' | 'seconds' | 'percent';
+  // What a 'count' value measures. The other kinds label their own values.
+  unit?: string;
 }
 
 const PANELS: PanelDef[] = [
@@ -61,6 +64,7 @@ const PANELS: PanelDef[] = [
     seriesLabel: 'purpose',
     chartType: 'line',
     yUnit: 'count',
+    unit: 'calls/s',
   },
   {
     id: 'vllm-outcomes',
@@ -70,6 +74,7 @@ const PANELS: PanelDef[] = [
     seriesLabel: 'outcome',
     chartType: 'line',
     yUnit: 'count',
+    unit: 'calls/s',
   },
   {
     id: 'vllm-p95',
@@ -88,6 +93,7 @@ const PANELS: PanelDef[] = [
     seriesLabel: 'direction',
     chartType: 'line',
     yUnit: 'count',
+    unit: 'tokens/s',
   },
   {
     id: 'chat-turns',
@@ -97,6 +103,7 @@ const PANELS: PanelDef[] = [
     seriesLabel: 'terminal_reason',
     chartType: 'line',
     yUnit: 'count',
+    unit: 'turns/s',
   },
   {
     id: 'mcp-tool-rate',
@@ -106,6 +113,7 @@ const PANELS: PanelDef[] = [
     seriesLabel: 'name',
     chartType: 'line',
     yUnit: 'count',
+    unit: 'calls/s',
   },
   {
     id: 'mcp-tool-errors',
@@ -124,6 +132,7 @@ const PANELS: PanelDef[] = [
     seriesLabel: 'kind',
     chartType: 'bar',
     yUnit: 'count',
+    unit: 'URLs/hour',
   },
 ];
 
@@ -140,6 +149,16 @@ export function MetricsTab() {
   const [rangeIdx, setRangeIdx] = useState(1); // default 6h
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [refreshTick, setRefreshTick] = useState(0);
+
+  // Each panel's latest error, or null. When every panel fails the same way
+  // (Prometheus is down), one banner replaces eight copies of the message. The
+  // panels stay mounted but draw nothing, so they keep querying and come back.
+  const [panelErrors, setPanelErrors] = useState<Record<string, string | null>>({});
+  const reportPanel = useCallback((id: string, err: string | null) => {
+    setPanelErrors(prev => (prev[id] === err ? prev : { ...prev, [id]: err }));
+  }, []);
+  const firstError = panelErrors[PANELS[0].id];
+  const sharedError = firstError && PANELS.every(p => panelErrors[p.id] === firstError) ? firstError : null;
 
   useEffect(() => {
     if (!autoRefresh) return;
@@ -187,6 +206,13 @@ export function MetricsTab() {
         </div>
       </div>
 
+      {sharedError && (
+        <ErrorNotice
+          message={`All charts failed to load: ${sharedError}`}
+          onRetry={() => setRefreshTick(t => t + 1)}
+        />
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {PANELS.map(panel => (
           <Panel
@@ -194,6 +220,8 @@ export function MetricsTab() {
             def={panel}
             range={range}
             refreshTick={refreshTick}
+            collapsed={!!sharedError}
+            onResult={reportPanel}
           />
         ))}
       </div>
@@ -203,11 +231,13 @@ export function MetricsTab() {
 
 
 function Panel({
-  def, range, refreshTick,
+  def, range, refreshTick, collapsed, onResult,
 }: {
   def: PanelDef;
   range: typeof TIME_RANGES[number];
   refreshTick: number;
+  collapsed: boolean;
+  onResult: (id: string, err: string | null) => void;
 }) {
   const [series, setSeries] = useState<PromSeries[]>([]);
   const [loading, setLoading] = useState(true);
@@ -225,12 +255,15 @@ function Panel({
         throw new Error(resp.error || 'query failed');
       }
       setSeries(resp.data.result);
+      onResult(def.id, null);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'fetch failed');
+      const message = e instanceof Error ? e.message : 'fetch failed';
+      setErr(message);
       setSeries([]);
+      onResult(def.id, message);
     }
     setLoading(false);
-  }, [def.query, range.minutes, range.stepSeconds]);
+  }, [def.id, def.query, range.minutes, range.stepSeconds, onResult]);
 
   useEffect(() => { load(); }, [load, refreshTick]);
 
@@ -239,10 +272,15 @@ function Panel({
     [series, def.seriesLabel],
   );
 
+  if (collapsed) return null;
+
   return (
     <div className="bg-bg-secondary border border-border rounded-lg p-3">
       <div className="mb-2">
-        <h3 className="text-sm font-medium text-text-primary">{def.title}</h3>
+        <div className="flex items-baseline justify-between gap-2">
+          <h3 className="text-sm font-medium text-text-primary">{def.title}</h3>
+          {def.unit && <span className="text-[11px] text-text-tertiary whitespace-nowrap">{def.unit}</span>}
+        </div>
         {def.description && (
           <p className="text-xs text-text-secondary mt-0.5">{def.description}</p>
         )}
@@ -283,8 +321,13 @@ function ChartFor({
     if (def.yUnit === 'seconds') {
       return (v: number) => v >= 1 ? `${v.toFixed(1)}s` : `${(v * 1000).toFixed(0)}ms`;
     }
-    return (v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(2);
+    return formatMetricValue;
   }, [def.yUnit]);
+
+  const tooltipFormatter = (v: unknown) => {
+    const value = yFormatter(typeof v === 'number' ? v : Number.parseFloat(String(v)));
+    return def.unit ? `${value} ${def.unit}` : value;
+  };
 
   if (def.chartType === 'bar') {
     return (
@@ -296,7 +339,7 @@ function ChartFor({
           <Tooltip
             contentStyle={{ background: '#1a1f26', border: '1px solid #30363d', borderRadius: 6, fontSize: 12 }}
             labelStyle={{ color: '#e6edf3' }}
-            formatter={(v) => yFormatter(typeof v === 'number' ? v : Number.parseFloat(String(v)))}
+            formatter={tooltipFormatter}
           />
           <Legend wrapperStyle={{ fontSize: 11 }} />
           {names.map((name, i) => (
@@ -316,7 +359,7 @@ function ChartFor({
         <Tooltip
           contentStyle={{ background: '#1a1f26', border: '1px solid #30363d', borderRadius: 6, fontSize: 12 }}
           labelStyle={{ color: '#e6edf3' }}
-          formatter={(v) => yFormatter(typeof v === 'number' ? v : Number.parseFloat(String(v)))}
+          formatter={tooltipFormatter}
         />
         <Legend wrapperStyle={{ fontSize: 11 }} />
         {names.map((name, i) => (

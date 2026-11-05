@@ -60,3 +60,14 @@ export function seriesToRows(
   });
   return { rows, names: seriesNames };
 }
+
+/**
+ * A count or rate for a chart axis or tooltip. Small values keep two significant
+ * figures, because a small lab's 0.004 calls/s is real traffic and must not read
+ * as 0.00.
+ */
+export function formatMetricValue(v: number): string {
+  if (v >= 1000) return `${(v / 1000).toFixed(1)}k`;
+  if (v >= 100) return v.toFixed(0);
+  return String(Number(v.toPrecision(2)));
+}
