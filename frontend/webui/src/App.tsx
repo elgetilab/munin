@@ -27,7 +27,7 @@ import { KnowledgePanel } from './components/KnowledgePanel';
 import { KnowledgePage } from './components/KnowledgePage';
 import type { Project } from './lib/types';
 import { CHAT_URL, DOCS_URL, SEARCH_URL, SITE_HOME, UPLOAD_URL } from './lib/urls';
-import { isModifiedClick } from './lib/nav';
+import { conversationPath, isModifiedClick } from './lib/nav';
 
 export default function App() {
   const status = useStatus();
@@ -190,6 +190,9 @@ export default function App() {
   const [showDemo, setShowDemo] = useState(() => window.location.pathname === '/demo');
   const [demoMode] = useState(showDemo);
   const [demoSlide, setDemoSlide] = useState(0);
+  // True while the /c/<id> this page was opened at is still loading. Until it
+  // settles, conversationId says nothing about where the address bar should be.
+  const initialChatLoading = useRef(/^\/c\/.+/.test(window.location.pathname));
 
   useEffect(() => {
     const path = window.location.pathname;
@@ -200,7 +203,7 @@ export default function App() {
     }
     const match = path.match(/^\/c\/(.+)$/);
     if (match) {
-      loadConversation(match[1]);
+      void loadConversation(match[1]).finally(() => { initialChatLoading.current = false; });
     }
     const params = new URLSearchParams(window.location.search);
     const persona = params.get('persona');
@@ -226,7 +229,9 @@ export default function App() {
   useEffect(() => {
     if (showDemo) return;
     const currentPath = window.location.pathname;
-    const expectedPath = conversationId ? `/c/${conversationId}` : '/';
+    // Not a chat URL, and whoever leaves it pushes the right path themselves.
+    if (/^\/knowledge(\/|$)/.test(currentPath) || initialChatLoading.current) return;
+    const expectedPath = conversationId ? conversationPath(conversationId) : '/';
     if (currentPath !== expectedPath) {
       window.history.pushState(null, '', expectedPath);
     }
@@ -321,6 +326,10 @@ export default function App() {
     }
   }, [streaming.phase, messages.length, isEphemeral, activeProjectId, conversationId, bumpSidebarRefresh, setActiveProjectId]);
 
+  const closeDrawerOnPhone = useCallback(() => {
+    if (window.innerWidth < 768) setSidebarOpen(false);
+  }, [setSidebarOpen]);
+
   const handleSelectChat = useCallback((id: string) => {
     setIsEphemeral(false);
     setActiveProjectId(null);
@@ -342,14 +351,16 @@ export default function App() {
     setIsEphemeral(false);
     setActiveProjectId(projectId);
     setEditingProject(null);
+    setShowAdmin(false);
     clearConversation();
     window.history.pushState(null, '', '/');
-  }, [clearConversation, setActiveProjectId, setEditingProject, setIsEphemeral]);
+  }, [clearConversation, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin]);
 
   const handleOpenProjectSettings = useCallback((project: Project) => {
     setEditingProject(project);
     setShowSettings(false);
-  }, [setEditingProject, setShowSettings]);
+    setShowAdmin(false);
+  }, [setEditingProject, setShowAdmin, setShowSettings]);
 
   const handleProjectUpdated = useCallback((updated: Project) => {
     setEditingProject(updated);
@@ -372,6 +383,12 @@ export default function App() {
     setEditingProject(null);
     window.history.pushState(null, '', '/knowledge');
   }, [setEditingProject, setShowAdmin, setShowKnowledgePage, setShowSettings]);
+
+  // Back to the chat still loaded behind the Knowledge page, under its own URL.
+  const leaveKnowledgePage = useCallback(() => {
+    setShowKnowledgePage(false);
+    window.history.pushState(null, '', conversationId ? conversationPath(conversationId) : '/');
+  }, [conversationId, setShowKnowledgePage]);
 
   const handleProfileUpdate = useCallback((updated: UserProfile) => {
     setUserProfile(updated);
@@ -623,8 +640,7 @@ export default function App() {
               onClick={(e) => {
                 if (isModifiedClick(e)) return;
                 e.preventDefault();
-                setShowKnowledgePage(false);
-                window.history.pushState(null, '', '/');
+                leaveKnowledgePage();
               }}
               className="text-text-secondary hover:text-accent no-underline transition-colors cursor-pointer text-sm"
             >Chat</a>
@@ -634,10 +650,7 @@ export default function App() {
         <KnowledgePage
           initialRoute={typeof showKnowledgePage === 'string' ? showKnowledgePage : undefined}
           tagCatalog={tagCatalog}
-          onClose={() => {
-            setShowKnowledgePage(false);
-            window.history.pushState(null, '', '/');
-          }}
+          onClose={leaveKnowledgePage}
           onChatWithTag={(tags) => {
             setActiveTags(tags);
             setShowKnowledgePage(false);
@@ -686,14 +699,14 @@ export default function App() {
           <div className="fixed inset-y-0 left-0 z-50 md:relative md:z-auto">
             <Sidebar
               currentId={conversationId}
-              onSelect={(id) => { handleSelectChat(id); setShowSettings(false); setEditingProject(null); if (window.innerWidth < 768) setSidebarOpen(false); }}
-              onNewChat={() => { handleNewChat(); setShowSettings(false); setEditingProject(null); if (window.innerWidth < 768) setSidebarOpen(false); }}
-              onNewChatInProject={(pid) => { handleNewChatInProject(pid); setShowSettings(false); if (window.innerWidth < 768) setSidebarOpen(false); }}
-              onOpenProjectSettings={handleOpenProjectSettings}
+              onSelect={(id) => { handleSelectChat(id); setShowSettings(false); setEditingProject(null); closeDrawerOnPhone(); }}
+              onNewChat={() => { handleNewChat(); setShowSettings(false); setEditingProject(null); closeDrawerOnPhone(); }}
+              onNewChatInProject={(pid) => { handleNewChatInProject(pid); setShowSettings(false); closeDrawerOnPhone(); }}
+              onOpenProjectSettings={(project) => { handleOpenProjectSettings(project); closeDrawerOnPhone(); }}
               refreshKey={sidebarRefreshKey}
-              onOpenSettings={() => { setShowSettings(true); setEditingProject(null); setShowAdmin(false); if (window.innerWidth < 768) setSidebarOpen(false); }}
-              onOpenAdmin={() => { setShowAdmin(true); setShowSettings(false); setEditingProject(null); if (window.innerWidth < 768) setSidebarOpen(false); }}
-              onOpenKnowledge={() => { handleOpenKnowledgePage(); if (window.innerWidth < 768) setSidebarOpen(false); }}
+              onOpenSettings={() => { setShowSettings(true); setEditingProject(null); setShowAdmin(false); closeDrawerOnPhone(); }}
+              onOpenAdmin={() => { setShowAdmin(true); setShowSettings(false); setEditingProject(null); closeDrawerOnPhone(); }}
+              onOpenKnowledge={() => { handleOpenKnowledgePage(); closeDrawerOnPhone(); }}
             />
           </div>
         </>

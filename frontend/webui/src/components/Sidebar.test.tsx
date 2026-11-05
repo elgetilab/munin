@@ -2,12 +2,12 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
-import { MOCK_CHATS } from '../test/msw-handlers';
+import { MOCK_CHATS, MOCK_PROJECTS } from '../test/msw-handlers';
 import { useUserStore, _resetUserStoreForTests } from '../stores/userStore';
 import { useWorkspaceStore, _resetWorkspaceStoreForTests } from '../stores/workspaceStore';
 import { Sidebar } from './Sidebar';
 import { groupByTime } from '../lib/chatGrouping';
-import type { ConversationSummary } from '../lib/types';
+import type { ConversationSummary, Project } from '../lib/types';
 import type { UserProfile } from '../lib/api';
 
 // ── groupByTime tests ───────────────────────────────────────────────────────
@@ -498,7 +498,7 @@ describe('Sidebar data loading', () => {
     let deleted = false;
     server.use(
       http.get(ADMIN_CHATS, ({ request }) => {
-        if (new URL(request.url).searchParams.get('project_id')) {
+        if (new URL(request.url).searchParams.get('project_id') === 'p1') {
           return HttpResponse.json({ conversations: [], total: 0 });
         }
         return HttpResponse.json({
@@ -568,5 +568,181 @@ describe('Sidebar profile menu', () => {
     await user.click(link);
 
     expect(onOpenKnowledge).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── Filed chats live in their project (findings 3, 4, 5, 6) ─────────────────
+
+describe('Sidebar filed chats and projects', () => {
+  const FILED = makeChat({ id: 'pc1', title: 'Filed Chat', pinned: false });
+
+  beforeEach(() => _resetWorkspaceStoreForTests());
+  afterEach(() => vi.restoreAllMocks());
+
+  // Behaves like the real endpoint: without __unfiled__ a filed chat is listed too.
+  function mockBackendChats() {
+    const seen: (string | null)[] = [];
+    server.use(
+      http.get('/api/chats', ({ request }) => {
+        const pid = new URL(request.url).searchParams.get('project_id');
+        seen.push(pid);
+        if (pid === 'p1') return HttpResponse.json({ conversations: [FILED], total: 1 });
+        if (pid === '__unfiled__') return HttpResponse.json(MOCK_CHATS);
+        return HttpResponse.json({
+          conversations: [...MOCK_CHATS.conversations, FILED],
+          total: 4,
+        });
+      }),
+    );
+    return seen;
+  }
+
+  const rowOf = (title: string) => screen.getByText(title).closest('.relative') as HTMLElement;
+
+  it('asks for unfiled chats only, so a filed chat is listed once', async () => {
+    const user = userEvent.setup();
+    const seen = mockBackendChats();
+    renderSidebar();
+
+    await waitFor(() => expect(screen.getByText('Test Chat 1')).toBeInTheDocument());
+    expect(seen).toContain('__unfiled__');
+    expect(screen.queryByText('Filed Chat')).not.toBeInTheDocument();
+
+    await user.click(screen.getByText('ML Research'));
+    await waitFor(() => expect(screen.getAllByText('Filed Chat')).toHaveLength(1));
+  });
+
+  it('the search overlay still offers filed chats as recent', async () => {
+    const user = userEvent.setup();
+    mockBackendChats();
+    renderSidebar();
+    await waitFor(() => expect(screen.getByText('Test Chat 1')).toBeInTheDocument());
+
+    await user.click(screen.getByText(/^Search/));
+    await waitFor(() => expect(screen.getByText('Filed Chat')).toBeInTheDocument());
+  });
+
+  it('pins a project chat that the main list does not contain', async () => {
+    const user = userEvent.setup();
+    mockBackendChats();
+    const pinned: string[] = [];
+    server.use(http.post('/api/chats/:id/pin', ({ params }) => {
+      pinned.push(params.id as string);
+      return new HttpResponse(null, { status: 200 });
+    }));
+    renderSidebar();
+    await user.click(await screen.findByText('ML Research'));
+    await screen.findByText('Filed Chat');
+
+    await user.click(within(rowOf('Filed Chat')).getByTitle('Pin'));
+
+    await waitFor(() => expect(pinned).toEqual(['pc1']));
+  });
+
+  it('a pinned filed chat stays in its project and shows as pinned there', async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get('/api/chats', ({ request }) => {
+        const pid = new URL(request.url).searchParams.get('project_id');
+        return pid === 'p1'
+          ? HttpResponse.json({ conversations: [{ ...FILED, pinned: true }], total: 1 })
+          : HttpResponse.json({ conversations: [MOCK_CHATS.conversations[1]], total: 1 });
+      }),
+    );
+    renderSidebar();
+    await user.click(await screen.findByText('ML Research'));
+    await screen.findByText('Filed Chat');
+
+    expect(within(rowOf('Filed Chat')).getByTitle('Unpin')).toBeInTheDocument();
+    expect(screen.queryByText('Pinned')).not.toBeInTheDocument();
+  });
+
+  it('renames a project chat starting from its own title', async () => {
+    const user = userEvent.setup();
+    mockBackendChats();
+    renderSidebar();
+    await user.click(await screen.findByText('ML Research'));
+    await screen.findByText('Filed Chat');
+
+    const row = rowOf('Filed Chat');
+    await user.click(within(row).getByTitle('More'));
+    await user.click(within(row).getByText('Rename'));
+
+    expect(screen.getByDisplayValue('Filed Chat')).toBeInTheDocument();
+  });
+
+  it('deleting the active project clears it and any open settings for it', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    useWorkspaceStore.setState({ activeProjectId: 'p1', editingProject: { id: 'p1' } as unknown as Project });
+    renderSidebar();
+    await screen.findByText('ML Research');
+
+    const row = rowOf('ML Research');
+    await user.click(within(row).getByTitle('More'));
+    await user.click(within(row).getByText('Delete project'));
+
+    await waitFor(() => expect(useWorkspaceStore.getState().activeProjectId).toBeNull());
+    expect(useWorkspaceStore.getState().editingProject).toBeNull();
+  });
+
+  describe('archived projects', () => {
+    const ARCHIVED = { ...MOCK_PROJECTS.projects[1], id: 'p9', name: 'Old Work', archived: true };
+
+    function mockArchived() {
+      let archived = true;
+      const patches: unknown[] = [];
+      server.use(
+        http.get('/api/projects', ({ request }) => {
+          const all = new URL(request.url).searchParams.get('archived') === 'true';
+          const list = [MOCK_PROJECTS.projects[0], ...(all || !archived ? [{ ...ARCHIVED, archived }] : [])];
+          return HttpResponse.json({ projects: list, total: list.length });
+        }),
+        http.patch('/api/projects/p9', async ({ request }) => {
+          patches.push(await request.json());
+          archived = false;
+          return HttpResponse.json({ ...ARCHIVED, archived: false });
+        }),
+      );
+      return patches;
+    }
+
+    it('are listed in a collapsed group and can be unarchived', async () => {
+      const user = userEvent.setup();
+      const patches = mockArchived();
+      renderSidebar();
+
+      const group = await screen.findByRole('button', { name: 'Archived (1)' });
+      expect(group).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByText('Old Work')).not.toBeInTheDocument();
+
+      await user.click(group);
+      await user.click(screen.getByRole('button', { name: 'Unarchive Old Work' }));
+
+      await waitFor(() => expect(patches).toEqual([{ archived: false }]));
+      await waitFor(() => expect(screen.queryByRole('button', { name: /^Archived/ })).not.toBeInTheDocument());
+      expect(screen.getByText('Old Work')).toBeInTheDocument();
+    });
+
+    it('open their settings from the row', async () => {
+      const user = userEvent.setup();
+      mockArchived();
+      const onOpenProjectSettings = vi.fn();
+      renderSidebar({ onOpenProjectSettings });
+
+      await user.click(await screen.findByRole('button', { name: 'Archived (1)' }));
+      await user.click(screen.getByRole('button', { name: 'Old Work' }));
+
+      expect(onOpenProjectSettings).toHaveBeenCalledWith(expect.objectContaining({ id: 'p9' }));
+    });
+
+    it('stay reachable when every project is archived', async () => {
+      server.use(http.get('/api/projects', () =>
+        HttpResponse.json({ projects: [ARCHIVED], total: 1 })));
+      renderSidebar();
+
+      expect(await screen.findByRole('button', { name: 'Archived (1)' })).toBeInTheDocument();
+      expect(screen.getByText('New project')).toBeInTheDocument();
+    });
   });
 });

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchChats, deleteChat, renameChat, pinChat, unpinChat, fetchProjects, createProject, deleteProject, fileConversation, unfileConversation } from '../lib/api';
+import { fetchChats, deleteChat, renameChat, pinChat, unpinChat, fetchProjects, createProject, deleteProject, updateProject, fileConversation, unfileConversation } from '../lib/api';
 import type { ConversationSummary, Project } from '../lib/types';
 import { useUserStore } from '../stores/userStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
@@ -28,6 +28,10 @@ interface SidebarProps {
 
 // Set by /shared/support-widget.js, if it has loaded.
 type WindowWithSupport = Window & { MuninSupport?: { open: () => void } };
+
+// The date groups list only chats with no project; a filed chat lives in its
+// project, pinned or not. The backend treats this project_id as "no project".
+const UNFILED = '__unfiled__';
 
 // ── One-time migration from localStorage starring to backend pinning ────────
 
@@ -64,6 +68,11 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   const [searchResults, setSearchResults] = useState<ConversationSummary[]>([]);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [archivedProjects, setArchivedProjects] = useState<Project[]>([]);
+  const [archivedOpen, setArchivedOpen] = useState(false);
+  // What the search overlay lists before anything is typed: every chat, filed or
+  // not, unlike `chats`. Empty until it has loaded, when `chats` stands in.
+  const [recentChats, setRecentChats] = useState<ConversationSummary[]>([]);
   // Which project folder is open. `undefined` means the user has not touched
   // it, in which case the active project (if any) is shown expanded; `null`
   // means they collapsed it deliberately and we must not re-open it. That
@@ -98,11 +107,16 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
 
   useEffect(() => {
     let cancelled = false;
-    fetchChats({ limit: 50 })
+    fetchChats({ limit: 50, project_id: UNFILED })
       .then(r => { if (!cancelled) setChats(r.conversations); })
       .catch(() => { /* silently fail */ });
-    fetchProjects()
-      .then(r => { if (!cancelled) setProjects(r.projects); })
+    // archived=true returns every project, so one request fills both lists.
+    fetchProjects(true)
+      .then(r => {
+        if (cancelled) return;
+        setProjects(r.projects.filter(p => !p.archived));
+        setArchivedProjects(r.projects.filter(p => p.archived));
+      })
       .catch(() => { /* silently fail */ });
     return () => { cancelled = true; };
   }, [reloadKey, refreshKey]);
@@ -144,6 +158,15 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     document.addEventListener('mousedown', onMouseDown);
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, [actionMenuId, moveMenuId, projectActionMenuId]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    let cancelled = false;
+    fetchChats({ limit: 10 })
+      .then(r => { if (!cancelled) setRecentChats(r.conversations); })
+      .catch(() => { /* `chats` stands in */ });
+    return () => { cancelled = true; };
+  }, [searchOpen]);
 
   const closeSearch = useCallback(() => {
     setSearchOpen(false);
@@ -247,7 +270,21 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     if (!confirm('Delete this project? Conversations will be moved to Unfiled.')) return;
     try {
       await deleteProject(id);
+      // Nothing may go on pointing at it: the next message would be filed into a
+      // project that no longer exists, and the backend answers that with a 404.
+      const workspace = useWorkspaceStore.getState();
+      if (workspace.activeProjectId === id) workspace.setActiveProjectId(null);
+      if (workspace.editingProject?.id === id) workspace.setEditingProject(null);
       load(); // chats too: they become unfiled
+    } catch {
+      // silently fail
+    }
+  };
+
+  const handleUnarchive = async (id: string) => {
+    try {
+      await updateProject(id, { archived: false });
+      load();
     } catch {
       // silently fail
     }
@@ -273,15 +310,13 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     }
   };
 
-  const togglePin = async (id: string, e: React.MouseEvent) => {
+  const togglePin = async (chat: ConversationSummary, e: React.MouseEvent) => {
     e.stopPropagation();
-    const chat = chats.find(c => c.id === id);
-    if (!chat) return;
     try {
       if (chat.pinned) {
-        await unpinChat(id);
+        await unpinChat(chat.id);
       } else {
-        await pinChat(id);
+        await pinChat(chat.id);
       }
       load();
     } catch {
@@ -304,7 +339,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   const groups = groupByTime(chats);
   // With no query typed the overlay lists recent conversations; with one it
   // lists what the last search returned.
-  const searchGroups = groupByTime(searchQuery.trim() ? searchResults : chats.slice(0, 10));
+  const searchGroups = groupByTime(searchQuery.trim() ? searchResults : (recentChats.length > 0 ? recentChats : chats.slice(0, 10)));
 
   return (
     <aside className="w-64 flex-shrink-0 bg-bg-secondary border-r border-border flex flex-col h-full relative">
@@ -492,7 +527,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                         isCurrent={chat.id === currentId}
                         onSelect={onSelect}
                         onDelete={handleDelete}
-                        onRename={(id) => { setEditingId(id); setEditTitle(chats.find(c => c.id === id)?.title || ''); }}
+                        onRename={(id) => { setEditingId(id); setEditTitle(chat.title || ''); }}
                         onPin={togglePin}
                         editingId={editingId}
                         editTitle={editTitle}
@@ -550,6 +585,44 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                 New project
               </button>
             )}
+          </div>
+        )}
+
+        {/* Archived projects: the only way back to one, because project settings
+            opens from a sidebar row. */}
+        {archivedProjects.length > 0 && (
+          <div className="mb-3">
+            <button
+              type="button"
+              aria-expanded={archivedOpen}
+              onClick={() => setArchivedOpen(!archivedOpen)}
+              className="w-full flex items-center px-2 py-1 text-[11px] font-semibold text-text-secondary hover:text-text-primary uppercase tracking-wider cursor-pointer text-left"
+            >
+              <span className="flex-1">Archived ({archivedProjects.length})</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`transition-transform ${archivedOpen ? 'rotate-180' : ''}`}>
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+            {archivedOpen && archivedProjects.map(proj => (
+              <div key={proj.id} data-testid="archived-project" className="flex items-center gap-2 px-2 py-1.5 text-sm text-text-secondary">
+                {onOpenProjectSettings ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenProjectSettings(proj)}
+                    className="flex-1 min-w-0 truncate text-left hover:text-text-primary cursor-pointer"
+                    title="Project settings"
+                  >{proj.name}</button>
+                ) : (
+                  <span className="flex-1 min-w-0 truncate">{proj.name}</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleUnarchive(proj.id)}
+                  aria-label={`Unarchive ${proj.name}`}
+                  className="flex-shrink-0 text-xs text-accent hover:text-accent-hover cursor-pointer"
+                >Unarchive</button>
+              </div>
+            ))}
           </div>
         )}
 
@@ -808,7 +881,7 @@ interface ChatRowProps {
   onSelect: (id: string) => void;
   onDelete: (id: string, e: React.MouseEvent) => void;
   onRename: (id: string) => void;
-  onPin: (id: string, e: React.MouseEvent) => void;
+  onPin: (chat: ConversationSummary, e: React.MouseEvent) => void;
   editingId: string | null;
   editTitle: string;
   onEditTitleChange: (v: string) => void;
@@ -880,7 +953,7 @@ function ChatRow({
 
         {/* Pin */}
         <button
-          onClick={(e) => onPin(chat.id, e)}
+          onClick={(e) => onPin(chat, e)}
           className={`flex-shrink-0 cursor-pointer transition-colors ${
             chat.pinned
               ? 'text-accent'
