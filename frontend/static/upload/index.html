@@ -68,6 +68,11 @@
             font-size: 14px;
         }
 
+        .no-access.warn {
+            border-color: var(--warning);
+            color: var(--text-primary);
+        }
+
         .dot {
             width: 8px;
             height: 8px;
@@ -134,7 +139,7 @@
     <main class="container">
         <section class="upload-section">
             <h1>Upload Papers</h1>
-            <p>Upload PDFs to be added to the Munin paper database. Large batches are fully supported — uploads pause and resume automatically if your connection drops.</p>
+            <p id="upload-intro">Upload PDFs to be added to the Munin paper database. Large batches are fully supported — uploads pause and resume automatically if your connection drops.</p>
 
             <div class="info-box" id="user-box">
                 <div class="dot"></div>
@@ -142,7 +147,7 @@
                 &nbsp;&middot;&nbsp; Files are tagged to your account.</span>
             </div>
 
-            <p class="notice">
+            <p class="notice" id="upload-notice">
                 Only research group leaders can contribute to the knowledge base.
                 If you need upload access, contact <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">{{env "MUNIN_SUPPORT_EMAIL"}}</a>.
             </p>
@@ -203,17 +208,27 @@
             })
         }
 
+        // The account can't upload from here, so stop presenting it as ready to.
+        function showNotUploading() {
+            var box = document.getElementById('user-box')
+            var email = document.getElementById('user-email')
+            var text = document.getElementById('user-box-text')
+            box.classList.add('warn')
+            text.textContent = 'Signed in as: '
+            text.appendChild(email)
+        }
+
         // Uppy comes from a CDN, so a blocked host or a refused hash leaves it
-        // undefined. Say so, and stop presenting the account as ready to upload.
+        // undefined. Say so.
         function startUploader() {
             try {
                 if (typeof Uppy === 'undefined') throw new Error('Uppy did not load')
                 initUploader()
             } catch (e) {
                 console.error('Uploader failed to start:', e)
-                document.getElementById('user-box').classList.add('warn')
+                showNotUploading()
                 document.getElementById('uppy-dashboard').innerHTML =
-                    '<div class="no-access" role="alert">The uploader could not load, so uploads are ' +
+                    '<div class="no-access warn" role="alert">The uploader could not load, so uploads are ' +
                     'not available from this page right now. Your network may be blocking it. ' +
                     'Reload to try again, or contact ' + SUPPORT_LINK + ' if it keeps happening.</div>'
             }
@@ -224,15 +239,16 @@
         // pre-create hook); this is the up-front signal. `reason` tailors the
         // message: 'role' (not a leader) or 'group' (leader without a group).
         function denyUpload(reason) {
-            var box = document.getElementById('user-box')
-            box.classList.add('warn')
+            showNotUploading()
+            document.getElementById('upload-intro').hidden = true
+            document.getElementById('upload-notice').hidden = true
             var msg = reason === 'group'
                 ? 'Your account is not assigned to a research group yet, so you cannot ' +
                   'contribute to the knowledge base. Ask your admin to assign your group.'
                 : 'Your account is not a research group leader, so you cannot ' +
                   'contribute to the knowledge base.'
             document.getElementById('uppy-dashboard').innerHTML =
-                '<div class="no-access">' + msg + '<br>Contact ' + SUPPORT_LINK +
+                '<div class="no-access warn">' + msg + '<br>Contact ' + SUPPORT_LINK +
                 ' if you need upload access.</div>'
         }
 

@@ -12,6 +12,7 @@
 
         main {
             padding: 48px 0;
+            overflow-wrap: break-word;
         }
 
         h1 {
@@ -37,17 +38,78 @@
             color: var(--text-secondary);
         }
 
-        .diagram {
+        .arch {
+            margin: 24px 0;
+        }
+
+        .arch-node {
             background: var(--bg-secondary);
             border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            text-align: center;
+            font-size: 14px;
+            max-width: 360px;
+            margin: 0 auto;
+        }
+
+        .arch-node strong,
+        .arch-node span {
+            display: block;
+        }
+
+        .arch-node span {
+            color: var(--text-secondary);
+        }
+
+        .arch-link {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 14px;
+            padding: 8px 0;
+        }
+
+        .arch-cluster {
+            border: 1px solid var(--border);
             border-radius: 12px;
-            padding: 24px;
+            padding: 16px;
+        }
+
+        .arch-cluster-title,
+        .arch-cluster-foot {
+            text-align: center;
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .arch-cluster-title {
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .arch-cluster-foot {
+            margin-top: 12px;
+        }
+
+        .arch-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+        }
+
+        .arch-grid .arch-node {
+            max-width: none;
+            margin: 0;
+            width: 100%;
+        }
+
+        /* A wide table scrolls inside this, not the whole page. */
+        .table-scroll {
             overflow-x: auto;
             margin: 24px 0;
         }
 
         table {
-            margin: 24px 0;
             font-size: 14px;
         }
 
@@ -115,48 +177,55 @@
         <p>Technical overview of the Munin research assistant system.</p>
 
         <h2>High-Level Overview</h2>
-        <div class="diagram">
-<pre>
-                                    +---------------------+
-                                    |       Users         |
-                                    +----------+----------+
-                                               |
-                                               v
-                                    +---------------------+
-                                    |    Hetzner VPS      |
-                                    |  Caddy + munin-auth |
-                                    |  React Chat UI      |
-                                    |  API Gateway        |
-                                    +----------+----------+
-                                               |
-                                          SSH tunnel
-                                               |
-                                               v
-+-----------------------------------------------------------------------------+
-|                              MUNIN CLUSTER                                   |
-|                                                                              |
-|  +-------------------+     +-------------------+     +-------------------+   |
-|  |  Retrieval API    |---->|      Qdrant       |     |      Neo4j        |   |
-|  |   (RAG Layer)     |     |   (Vector DB)     |     |   (Citations)     |   |
-|  |   Port 8080       |     |   Port 6333       |     |   Port 7474       |   |
-|  +---------+---------+     +-------------------+     +-------------------+   |
-|            |                                                                 |
-|            v                                                                 |
-|  +-------------------+     +-------------------+                             |
-|  |     SearXNG       |     |       vLLM        |     Munin (auto-route):    |
-|  |  (Web Search)     |     |     Port 8000     |       - chat profile       |
-|  |   Port 8888       |     |                   |       - code profile       |
-|  +-------------------+     | Qwen3.8-27B     |       - research profile   |
-|                             | (dense 27B)       |                             |
-|                             +-------------------+                             |
-|                                                                              |
-|                         GPU 1 (RTX 5090) - 90% VRAM                         |
-+-----------------------------------------------------------------------------+
-</pre>
+        <div class="arch">
+            <div class="arch-node">
+                <strong>Users</strong>
+            </div>
+            <div class="arch-link"><span aria-hidden="true">&darr;</span></div>
+            <div class="arch-node">
+                <strong>Hetzner VPS</strong>
+                <span>Caddy + munin-auth</span>
+                <span>React Chat UI</span>
+                <span>API Gateway</span>
+            </div>
+            <div class="arch-link"><span aria-hidden="true">&darr;</span> SSH tunnel</div>
+            <div class="arch-cluster">
+                <div class="arch-cluster-title">Munin Cluster</div>
+                <div class="arch-grid">
+                    <div class="arch-node">
+                        <strong>Retrieval API</strong>
+                        <span>RAG Layer, port 8080</span>
+                        <span>Calls Qdrant, Neo4j and SearXNG</span>
+                    </div>
+                    <div class="arch-node">
+                        <strong>Qdrant</strong>
+                        <span>Vector DB, port 6333</span>
+                    </div>
+                    <div class="arch-node">
+                        <strong>Neo4j</strong>
+                        <span>Citations, port 7474</span>
+                    </div>
+                    <div class="arch-node">
+                        <strong>SearXNG</strong>
+                        <span>Web Search, port 8888</span>
+                    </div>
+                    <div class="arch-node">
+                        <strong>vLLM</strong>
+                        <span>Port 8000</span>
+                        <span>Qwen3.8-27B (dense 27B)</span>
+                    </div>
+                    <div class="arch-node">
+                        <strong>Munin (auto-route)</strong>
+                        <span>chat, code and research profiles</span>
+                    </div>
+                </div>
+                <div class="arch-cluster-foot">GPU 1 (RTX 5090) - 90% VRAM</div>
+            </div>
         </div>
 
         <h2>Routing Profile Comparison</h2>
         <p>Munin is one user-facing assistant. An up-front router picks one of three internal profiles per turn from the query (slash commands <code>/chat</code>, <code>/code</code>, <code>/research</code> force a profile). Each profile shares the same Munin base prompt and differs only in its task guidance, sampling, and surfaced tools.</p>
+        <div class="table-scroll">
         <table>
             <thead>
                 <tr>
@@ -187,6 +256,7 @@
                 </tr>
             </tbody>
         </table>
+        </div>
         <p>All profiles use the same underlying model: <code>Qwen3.8-27B</code> (dense 27B, hybrid Gated DeltaNet + attention, thinking on by default).</p>
         <p><strong>Workflow:</strong> just ask, and Munin routes to research for discovery and analysis, code for implementation, and chat for general tasks and writing.</p>
 
@@ -224,6 +294,7 @@
         </div>
 
         <h2>Knowledge Bases</h2>
+        <div class="table-scroll">
         <table>
             <thead>
                 <tr>
@@ -254,8 +325,10 @@
                 </tr>
             </tbody>
         </table>
+        </div>
 
         <h2>Model Configuration</h2>
+        <div class="table-scroll">
         <table>
             <thead>
                 <tr>
@@ -297,8 +370,10 @@
                 </tr>
             </tbody>
         </table>
+        </div>
 
         <h2>Service Ports</h2>
+        <div class="table-scroll">
         <table>
             <thead>
                 <tr>
@@ -345,8 +420,10 @@
                 </tr>
             </tbody>
         </table>
+        </div>
 
         <h2>Technology Stack</h2>
+        <div class="table-scroll">
         <table>
             <thead>
                 <tr>
@@ -418,8 +495,10 @@
                 </tr>
             </tbody>
         </table>
+        </div>
 
         <h2>User Types</h2>
+        <div class="table-scroll">
         <table>
             <thead>
                 <tr>
@@ -446,6 +525,7 @@
                 </tr>
             </tbody>
         </table>
+        </div>
     </main>
 
     <footer>

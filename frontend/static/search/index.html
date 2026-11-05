@@ -248,6 +248,29 @@
             cursor: wait;
         }
 
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        .error a {
+            color: inherit;
+            text-decoration: underline;
+        }
+
+        .error small {
+            display: block;
+            margin-top: 4px;
+            opacity: 0.8;
+        }
+
         .download-btn.unavailable {
             opacity: 0.4;
             cursor: not-allowed;
@@ -295,7 +318,7 @@
     <main class="container">
         <section class="search-section">
             <h1>Paper Search</h1>
-            <p>Search by topic, DOI, author, or year. Paste a DOI for exact lookup, use filters for author/year, or search by topic with semantic embeddings.</p>
+            <p>Search by topic or paste a DOI. Use Author and Year to narrow results, or Author alone to list someone's papers.</p>
 
             <div class="stats-bar" id="stats-bar">
                 <span id="paper-count">Loading paper count...</span>
@@ -303,8 +326,9 @@
 
             <form id="search-form" role="search">
             <div class="search-box">
+                <label for="search-input" class="sr-only">Search papers by topic or DOI</label>
                 <input type="text" id="search-input" class="search-input"
-                       placeholder="Search by topic or paste a DOI (e.g., '10.1016/j.bbalip.2013.12.002')"
+                       placeholder="Topic or DOI"
                        autocomplete="off">
                 <button id="search-btn" type="submit" class="search-btn">Search</button>
             </div>
@@ -316,9 +340,9 @@
                 </div>
                 <div class="filter-group">
                     <label for="year-min">Year:</label>
-                    <input type="number" id="year-min" placeholder="From" min="1900" max="2030" style="width: 70px;">
+                    <input type="number" id="year-min" aria-label="Year from" placeholder="From" min="1900" max="2030" style="width: 70px;">
                     <span style="color: var(--text-secondary);">-</span>
-                    <input type="number" id="year-max" placeholder="To" min="1900" max="2030" style="width: 70px;">
+                    <input type="number" id="year-max" aria-label="Year to" placeholder="To" min="1900" max="2030" style="width: 70px;">
                 </div>
                 <div class="filter-group">
                     <label for="topk-input">Results:</label>
@@ -328,6 +352,7 @@
             </form>
 
             <div id="error-container"></div>
+            <div id="results-summary" class="sr-only" role="status" aria-live="polite"></div>
 
             <div id="results-container">
                 <div class="empty-state">
@@ -358,6 +383,32 @@
         const topkInput = document.getElementById('topk-input');
         const resultsContainer = document.getElementById('results-container');
         const errorContainer = document.getElementById('error-container');
+        const resultsSummary = document.getElementById('results-summary');
+
+        // Tells a screen reader what the results area now holds.
+        function announce(message) {
+            resultsSummary.textContent = message;
+        }
+
+        // A failed response, with its status kept for the error message.
+        function httpError(status) {
+            const error = new Error(`Request failed: ${status}`);
+            error.status = status;
+            return error;
+        }
+
+        function showSearchError(error) {
+            const support = document.querySelector('footer a[href^="mailto:"]');
+            const contact = support
+                ? `<a href="${escapeHtml(support.getAttribute('href'))}">contact support</a>`
+                : 'contact support';
+            errorContainer.innerHTML = `
+                <div class="error" role="alert">
+                    Search is unavailable right now. Try again in a minute, or ${contact} if it keeps happening.
+                    ${error.status ? `<small>Error ${error.status}</small>` : ''}
+                </div>
+            `;
+        }
 
         // Check if query looks like a DOI
         function isDOI(query) {
@@ -389,7 +440,7 @@
             }
 
             if (!response.ok) {
-                throw new Error(`DOI lookup failed: ${response.status}`);
+                throw httpError(response.status);
             }
             const paper = await response.json();
             return { type: 'doi', found: true, paper: paper, doi: doi };
@@ -399,7 +450,7 @@
         async function searchByAuthor(authorName, limit, signal) {
             const response = await fetch(`${RETRIEVAL_API_URL}/author/${encodeURIComponent(authorName)}/papers?limit=${limit}`, { signal });
             if (!response.ok) {
-                throw new Error(`Author search failed: ${response.status}`);
+                throw httpError(response.status);
             }
             return await response.json();
         }
@@ -425,7 +476,7 @@
                 signal
             });
             if (!response.ok) {
-                throw new Error(`Hybrid search failed: ${response.status}`);
+                throw httpError(response.status);
             }
             return await response.json();
         }
@@ -442,7 +493,7 @@
                 })
             });
             if (!response.ok) {
-                throw new Error(`Search failed: ${response.status}`);
+                throw httpError(response.status);
             }
             return await response.json();
         }
@@ -481,9 +532,13 @@
 
             // Need either a query or an author filter
             if (!query && !authorFilter) {
+                // A year range only narrows a search, so it needs one of the two.
+                const message = yearMin || yearMax
+                    ? 'A year range narrows a search. Enter a topic or an author name as well.'
+                    : 'Please enter a search query or author name.';
                 errorContainer.innerHTML = `
-                    <div class="error">
-                        Please enter a search query or author name.
+                    <div class="error" role="alert">
+                        ${message}
                     </div>
                 `;
                 return;
@@ -504,6 +559,7 @@
             createVortex(document.getElementById('search-vortex'), 10, 7.0);
             createRotatingMessage(document.getElementById('search-loading-msg'), 'paper_search');
             errorContainer.innerHTML = '';
+            announce('Searching');
 
             try {
                 let result;
@@ -540,6 +596,7 @@
                     // Always use hybrid search when we have a query (supports year filters)
                     result = await hybridSearch(query, topK * 3, yearMin, yearMax, signal);  // Fetch more for filtering
                     if (signal.aborted) return;
+                    const scanned = result.papers ? result.papers.length : 0;
 
                     // Client-side author filtering if author filter is set
                     if (authorFilter && result.papers) {
@@ -555,20 +612,41 @@
                         result.papers = result.papers.slice(0, topK);
                     }
 
-                    displayHybridResults(result, query, yearMin, yearMax, authorFilter);
+                    displayHybridResults(result, query, yearMin, yearMax, authorFilter, scanned);
                 }
 
             } catch (error) {
                 if (signal.aborted) return;
                 console.error('Search error:', error);
-                errorContainer.innerHTML = `
-                    <div class="error">
-                        <strong>Search failed:</strong> ${error.message}
-                        <br><small>Make sure the retrieval service is running and accessible.</small>
-                    </div>
-                `;
+                showSearchError(error);
                 resultsContainer.innerHTML = '';
+                announce('');
             }
+        }
+
+        // Fill in every "Checking availability..." on the page, a few at a time.
+        const PDF_CHECK_CONCURRENCY = 6;
+        async function checkPdfButtons() {
+            const pending = [...resultsContainer.querySelectorAll('.download-btn.checking')];
+            const worker = async () => {
+                while (pending.length > 0) {
+                    const btn = pending.shift();
+                    // Replaced by a newer search while waiting its turn.
+                    if (!btn.isConnected) continue;
+                    const doi = btn.dataset.doi;
+                    const isAvailable = await checkPdfAvailable(doi);
+                    if (isAvailable) {
+                        btn.href = `/paper/${encodeURIComponent(doi)}/pdf`;
+                        btn.innerHTML = '&#128196; Download PDF';
+                        btn.classList.remove('checking');
+                    } else {
+                        btn.innerHTML = '&#128196; PDF not available';
+                        btn.classList.remove('checking');
+                        btn.classList.add('unavailable');
+                    }
+                }
+            };
+            await Promise.all(Array.from({ length: PDF_CHECK_CONCURRENCY }, worker));
         }
 
         // Check PDF availability
@@ -641,7 +719,7 @@
                         ${abstract ? `<div class="paper-abstract">${escapeHtml(abstract)}</div>` : ''}
                         ${doi ? `
                             <div class="paper-actions">
-                                <a id="${downloadBtnId}" class="download-btn checking" href="#" data-doi="${doi}">
+                                <a id="${downloadBtnId}" class="download-btn checking" data-doi="${doi}">
                                     &#128196; Checking availability...
                                 </a>
                             </div>
@@ -654,26 +732,7 @@
             resultsContainer.innerHTML = html;
 
             // Check PDF availability for each paper with a DOI
-            for (const doc of data.documents) {
-                const doi = doc.metadata?.doi;
-                if (doi) {
-                    const btnId = `download-${doi.replace(/[^a-zA-Z0-9]/g, '-')}`;
-                    const btn = document.getElementById(btnId);
-                    if (btn) {
-                        const isAvailable = await checkPdfAvailable(doi);
-                        if (isAvailable) {
-                            btn.href = `/paper/${encodeURIComponent(doi)}/pdf`;
-                            btn.innerHTML = '&#128196; Download PDF';
-                            btn.classList.remove('checking');
-                        } else {
-                            btn.innerHTML = '&#128196; PDF not available';
-                            btn.classList.remove('checking');
-                            btn.classList.add('unavailable');
-                            btn.removeAttribute('href');
-                        }
-                    }
-                }
-            }
+            checkPdfButtons();
         }
 
         // Escape HTML
@@ -686,6 +745,7 @@
         // Display DOI lookup result
         async function displayDOIResult(result) {
             if (!result.found) {
+                announce('Paper not found');
                 resultsContainer.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">&#128269;</div>
@@ -719,7 +779,7 @@
                         ${authors ? `<div class="paper-authors">&#128100; ${escapeHtml(authors)}</div>` : ''}
                         ${paper.abstract ? `<div class="paper-abstract">${escapeHtml(paper.abstract)}</div>` : ''}
                         <div class="paper-actions">
-                            <a id="${downloadBtnId}" class="download-btn checking" href="#" data-doi="${doi}">
+                            <a id="${downloadBtnId}" class="download-btn checking" data-doi="${doi}">
                                 &#128196; Checking availability...
                             </a>
                         </div>
@@ -728,24 +788,10 @@
             `;
 
             resultsContainer.innerHTML = html;
+            announce('1 result: exact match');
 
             // Check PDF availability
-            if (doi) {
-                const btn = document.getElementById(downloadBtnId);
-                if (btn) {
-                    const isAvailable = await checkPdfAvailable(doi);
-                    if (isAvailable) {
-                        btn.href = `/paper/${encodeURIComponent(doi)}/pdf`;
-                        btn.innerHTML = '&#128196; Download PDF';
-                        btn.classList.remove('checking');
-                    } else {
-                        btn.innerHTML = '&#128196; PDF not available';
-                        btn.classList.remove('checking');
-                        btn.classList.add('unavailable');
-                        btn.removeAttribute('href');
-                    }
-                }
-            }
+            checkPdfButtons();
         }
 
         // Display author search results
@@ -757,6 +803,7 @@
             const scanNote = data.scanLimit ? `Checked their ${data.scanLimit} most recent papers.` : '';
 
             if (papers.length === 0) {
+                announce('No papers found');
                 resultsContainer.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">&#128100;</div>
@@ -799,7 +846,7 @@
                         ${paper.author_name ? `<div class="paper-authors">&#128100; ${escapeHtml(paper.author_name)}</div>` : ''}
                         ${doi ? `
                             <div class="paper-actions">
-                                <a id="${downloadBtnId}" class="download-btn checking" href="#" data-doi="${doi}">
+                                <a id="${downloadBtnId}" class="download-btn checking" data-doi="${doi}">
                                     &#128196; Checking availability...
                                 </a>
                             </div>
@@ -810,32 +857,14 @@
 
             html += '</div>';
             resultsContainer.innerHTML = html;
+            announce(`${papers.length} papers found`);
 
             // Check PDF availability for each paper
-            for (const paper of papers) {
-                const doi = paper.doi;
-                if (doi) {
-                    const btnId = `download-${doi.replace(/[^a-zA-Z0-9]/g, '-')}`;
-                    const btn = document.getElementById(btnId);
-                    if (btn) {
-                        const isAvailable = await checkPdfAvailable(doi);
-                        if (isAvailable) {
-                            btn.href = `/paper/${encodeURIComponent(doi)}/pdf`;
-                            btn.innerHTML = '&#128196; Download PDF';
-                            btn.classList.remove('checking');
-                        } else {
-                            btn.innerHTML = '&#128196; PDF not available';
-                            btn.classList.remove('checking');
-                            btn.classList.add('unavailable');
-                            btn.removeAttribute('href');
-                        }
-                    }
-                }
-            }
+            checkPdfButtons();
         }
 
         // Display hybrid search results
-        async function displayHybridResults(data, query, yearMin, yearMax, authorFilter = '') {
+        async function displayHybridResults(data, query, yearMin, yearMax, authorFilter = '', scanned = 0) {
             const papers = data.papers || [];
 
             // Build filter description
@@ -845,11 +874,32 @@
             if (authorFilter) filters.push(`author: ${authorFilter}`);
             const filterDesc = filters.length > 0 ? ` (${filters.join(', ')})` : '';
 
+            // The author filter runs here over the top matches, so an empty result
+            // says nothing about what the database holds for this author.
+            if (papers.length === 0 && authorFilter && scanned > 0) {
+                announce('None of the top matches are by this author');
+                resultsContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">&#128100;</div>
+                        <p>None of the top ${scanned} matches for "${escapeHtml(query)}" are by "${escapeHtml(authorFilter)}".</p>
+                        <p style="font-size: 14px; margin: 8px 0 16px;">Their papers may rank lower for this topic.</p>
+                        <button type="button" id="author-only-btn" class="btn btn-secondary">List papers by "${escapeHtml(authorFilter)}"</button>
+                    </div>
+                `;
+                document.getElementById('author-only-btn').addEventListener('click', () => {
+                    searchInput.value = '';
+                    searchInput.focus();
+                    search();
+                });
+                return;
+            }
+
             if (papers.length === 0) {
+                announce('No papers found');
                 resultsContainer.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">&#128533;</div>
-                        <p>No papers found for "${escapeHtml(query)}"${filterDesc}</p>
+                        <p>No papers found for "${escapeHtml(query)}"${escapeHtml(filterDesc)}</p>
                         <p style="font-size: 14px; margin-top: 8px;">Try broader terms or adjust the filters.</p>
                     </div>
                 `;
@@ -858,8 +908,8 @@
 
             let html = `
                 <div class="results-header">
-                    <span class="results-count">${papers.length} results for "${escapeHtml(query)}"${filterDesc}</span>
-                    <span style="color: var(--text-secondary); font-size: 14px;">Hybrid search (semantic + citations)</span>
+                    <span class="results-count">${papers.length} results for "${escapeHtml(query)}"${escapeHtml(filterDesc)}</span>
+                    <span style="color: var(--text-secondary); font-size: 14px;">Ranked by relevance and citations</span>
                 </div>
                 <div class="results-list">
             `;
@@ -885,7 +935,7 @@
                         ${paper.abstract ? `<div class="paper-abstract">${escapeHtml(paper.abstract.substring(0, 300))}${paper.abstract.length > 300 ? '...' : ''}</div>` : ''}
                         ${doi ? `
                             <div class="paper-actions">
-                                <a id="${downloadBtnId}" class="download-btn checking" href="#" data-doi="${doi}">
+                                <a id="${downloadBtnId}" class="download-btn checking" data-doi="${doi}">
                                     &#128196; Checking availability...
                                 </a>
                             </div>
@@ -896,28 +946,10 @@
 
             html += '</div>';
             resultsContainer.innerHTML = html;
+            announce(`${papers.length} results found`);
 
             // Check PDF availability for each paper
-            for (const paper of papers) {
-                const doi = paper.doi;
-                if (doi) {
-                    const btnId = `download-${doi.replace(/[^a-zA-Z0-9]/g, '-')}`;
-                    const btn = document.getElementById(btnId);
-                    if (btn) {
-                        const isAvailable = await checkPdfAvailable(doi);
-                        if (isAvailable) {
-                            btn.href = `/paper/${encodeURIComponent(doi)}/pdf`;
-                            btn.innerHTML = '&#128196; Download PDF';
-                            btn.classList.remove('checking');
-                        } else {
-                            btn.innerHTML = '&#128196; PDF not available';
-                            btn.classList.remove('checking');
-                            btn.classList.add('unavailable');
-                            btn.removeAttribute('href');
-                        }
-                    }
-                }
-            }
+            checkPdfButtons();
         }
 
         // Event listeners
