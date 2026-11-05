@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ArtifactSummary, ArtifactFull } from '../lib/types';
-import { fetchArtifact, updateArtifact } from '../lib/api';
+import { fetchArtifact, fetchArtifactStructure, updateArtifact } from '../lib/api';
 import { copyText } from '../lib/copyText';
 import { downloadFilename, saveBlob } from '../lib/artifactDownload';
-import { formatBytes, getContentTypeIcon, isFilePlaceholder, isWidget, parseProteinSpec, svgDataUrl } from '../lib/artifactDisplay';
+import { fileSizeBytes, formatBytes, getContentTypeIcon, getContentTypeLabel, isFilePlaceholder, isWidget, parseProteinSpec, svgDataUrl } from '../lib/artifactDisplay';
 import { ProteinViewer } from './ProteinViewer';
 import { printArtifactAsPdf } from '../lib/printPdf';
 import { Markdown } from './Markdown';
@@ -11,6 +11,8 @@ import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useUiStore } from '../stores/uiStore';
 import { useChatStore } from '../stores/chatStore';
+import { useBelowXl, useModal } from '../hooks/useModal';
+import { Dialog } from './ui/Dialog';
 import { ErrorNotice } from './ui/ErrorNotice';
 
 // P2 #26 commit 2: onClose / selectedArtifactId / onSelectArtifact
@@ -22,6 +24,9 @@ interface ArtifactPanelProps {
   artifacts: ArtifactSummary[];
   conversationId: string;
 }
+
+// Where the user was heading when an unsaved draft stopped them.
+type LeaveEditor = 'cancel' | 'back' | 'close';
 
 function getLanguageForHighlight(artifact: ArtifactFull): string | null {
   if (artifact.language) return artifact.language;
@@ -36,7 +41,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
   const selectedArtifactId = useUiStore(s => s.selectedArtifactId);
   const onSelectArtifact = useUiStore(s => s.setSelectedArtifactId);
   const setArtifactPanelOpen = useUiStore(s => s.setArtifactPanelOpen);
-  const onClose = () => setArtifactPanelOpen(false);
+  const closeRef = useRef<HTMLButtonElement>(null);
   // Everything below is scoped to the artifact it belongs to and then
   // derived, rather than stored loose and reset by an effect when the
   // selection changes. The old version needed three synchronous setStates in
@@ -57,6 +62,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
   const [editContent, setEditContent] = useState('');
   const [editSummary, setEditSummary] = useState('');
   const [saving, setSaving] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState<LeaveEditor | null>(null);
   const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState(false);
   // Failures carry the artifact they happened on, so selecting a different
@@ -131,6 +137,19 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
   const handleDownload = async () => {
     if (!loadedArtifact) return;
     setActionError(null);
+    // The stored body of a protein artifact is the viewer's settings. What a
+    // person wants from it is the structure those settings point at.
+    if (proteinSpec) {
+      setDownloading(true);
+      try {
+        const structure = await fetchArtifactStructure(conversationId, loadedArtifact.id, loadedArtifact.version);
+        saveBlob(new Blob([structure.data], { type: 'text/plain' }), `${proteinSpec.id}.${structure.format}`);
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : 'Could not load the structure');
+      }
+      setDownloading(false);
+      return;
+    }
     const filename = downloadFilename(loadedArtifact);
     if (!isFilePlaceholder(loadedArtifact)) {
       saveBlob(new Blob([loadedArtifact.content], { type: loadedArtifact.content_type }), filename);
@@ -190,11 +209,23 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
     setSaving(false);
   };
 
-  const handleCancelEdit = () => {
+  const leaveEditor = (where: LeaveEditor) => {
+    setConfirmLeave(null);
     setEditingId(null);
     setEditContent('');
     setEditSummary('');
+    if (where === 'back') onSelectArtifact(null);
+    if (where === 'close') setArtifactPanelOpen(false);
   };
+
+  // Everything that would take the editor away goes through here, so a changed
+  // draft is never dropped without asking.
+  const requestLeave = (where: LeaveEditor) => {
+    if (draftChanged) setConfirmLeave(where);
+    else leaveEditor(where);
+  };
+
+  const modal = useModal({ onClose: () => requestLeave('close'), active: useBelowXl(), initialFocusRef: closeRef });
 
   const isLatest = loadedArtifact && summary && loadedArtifact.version === summary.latest_version;
   const canEdit = isLatest && summary?.source === 'model_written' && !isWidget(summary);
@@ -202,29 +233,43 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
   // Existing PDFs already download as-is, and images have nothing to render.
   const ct = loadedArtifact?.content_type || '';
   const isFile = !!loadedArtifact && isFilePlaceholder(loadedArtifact);
-  const canPdf = !editing && !!loadedArtifact && !isFile && ct !== 'application/pdf' && !ct.startsWith('image/') && !isWidget(loadedArtifact);
+  const canPdf = !!loadedArtifact && !isFile && ct !== 'application/pdf' && !ct.startsWith('image/') && !isWidget(loadedArtifact);
+  // A spec this panel cannot draw falls through to showing, and copying, its text.
+  const proteinSpec = loadedArtifact && isWidget(loadedArtifact) ? parseProteinSpec(loadedArtifact.content) : null;
+  const canCopy = !isFile && !proteinSpec;
+  const showFileCard = !!loadedArtifact && isFile && !hasFilePreview(loadedArtifact);
+  const draftChanged = editing && !!loadedArtifact && editContent !== loadedArtifact.content;
+  const draftBytes = editing ? new Blob([editContent]).size : 0;
+  const draftTooLarge = draftBytes > 500_000;
 
   return (
     // A full-screen overlay below xl, where a side column would crush the chat.
-    <div data-testid="artifact-panel" className="fixed inset-0 z-40 w-full flex flex-col bg-bg-secondary xl:static xl:z-auto xl:w-[36rem] xl:border-l xl:border-border xl:h-full">
+    <div {...modal.panelProps} data-testid="artifact-panel" className="fixed inset-0 z-40 w-full flex flex-col bg-bg-secondary xl:static xl:z-auto xl:w-[36rem] xl:border-l xl:border-border xl:h-full">
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
         {selectedArtifactId ? (
           <button
-            onClick={() => onSelectArtifact(null)}
-            className="p-2 -m-2 text-text-secondary hover:text-text-primary transition-colors cursor-pointer text-sm"
+            aria-label="Back to artifact list"
+            onClick={() => requestLeave('back')}
+            className="p-2 -m-2 text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
           >
-            &larr;
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
           </button>
         ) : null}
-        <h3 className="text-sm font-semibold text-text-primary flex-1 min-w-0 wrap-anywhere">
+        <h3 id={modal.titleId} className="text-sm font-semibold text-text-primary flex-1 min-w-0 wrap-anywhere">
           {selectedArtifactId ? (loadedArtifact?.title || 'Loading...') : 'Artifacts'}
         </h3>
         <button
-          onClick={onClose}
-          className="p-2 -m-2 text-text-secondary hover:text-text-primary transition-colors cursor-pointer text-xs"
+          ref={closeRef}
+          aria-label="Close artifacts"
+          onClick={() => requestLeave('close')}
+          className="p-2 -m-2 text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
         >
-          &#10005;
+          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
         </button>
       </div>
 
@@ -234,7 +279,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
         <div className="flex-1 overflow-y-auto">
           {artifacts.length === 0 ? (
             <div className="px-4 py-8 text-center text-text-secondary text-sm">
-              No artifacts yet
+              No artifacts yet. Reports, code and figures Munin creates in this chat appear here.
             </div>
           ) : (
             <div className="py-1">
@@ -246,13 +291,13 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
                   className="w-full text-left px-4 py-3 hover:bg-bg-tertiary transition-colors cursor-pointer border-b border-border last:border-0"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-sm">{getContentTypeIcon(art.content_type)}</span>
+                    <span aria-hidden="true" className="w-5 flex-shrink-0 text-center text-sm">{getContentTypeIcon(art.content_type)}</span>
                     <span className="text-sm text-text-primary truncate flex-1">{art.title}</span>
                     <span className="text-[10px] text-text-secondary">v{art.latest_version}</span>
                   </div>
-                  <div className="text-[11px] text-text-secondary mt-0.5 ml-6">
-                    {art.content_type}
-                    {art.source === 'sandbox_generated' && ' · sandbox'}
+                  <div className="text-[11px] text-text-secondary mt-0.5 ml-7">
+                    {getContentTypeLabel(art.content_type)}
+                    {art.source === 'sandbox_generated' && ' · Generated by code'}
                     {art.byte_size > 0 && ` · ${formatBytes(art.byte_size)}`}
                   </div>
                 </button>
@@ -285,11 +330,13 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
               {actionError && (
                 <ErrorNotice message={actionError} onDismiss={() => setActionError(null)} className="mx-4 mt-3" />
               )}
-              {/* Toolbar */}
-              <div className="flex items-center gap-2 px-4 py-2 border-b border-border flex-wrap">
+              {/* Toolbar. It acts on the saved content, so it goes away while
+                  editing a draft, and a file card carries its own Download. */}
+              {!editing && !showFileCard && <div className="flex items-center gap-2 px-4 py-2 border-b border-border flex-wrap">
                 {/* Version picker */}
                 {summary && summary.latest_version > 1 && (
                   <select
+                    aria-label="Version"
                     value={selectedVersion || summary.latest_version}
                     onChange={e => handleVersionChange(Number(e.target.value))}
                     className="px-2 py-1 bg-bg-tertiary border border-border rounded text-xs text-text-primary outline-none cursor-pointer"
@@ -302,7 +349,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
 
                 <div className="flex-1" />
 
-                {canEdit && !editing && (
+                {canEdit && (
                   <button
                     onClick={handleEdit}
                     className="px-2 py-1 text-xs text-text-secondary hover:text-accent transition-colors cursor-pointer"
@@ -310,7 +357,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
                     Edit
                   </button>
                 )}
-                {!isFile && (
+                {canCopy && (
                   <button
                     onClick={handleCopy}
                     className="px-2 py-1 text-xs text-text-secondary hover:text-accent transition-colors cursor-pointer"
@@ -333,7 +380,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
                     PDF
                   </button>
                 )}
-              </div>
+              </div>}
 
               {/* Edit mode */}
               {editing ? (
@@ -346,10 +393,11 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
                   />
                   <div className="px-4 py-3 border-t border-border space-y-2">
                     <div className="flex items-center justify-between text-[11px] text-text-secondary">
-                      <span>{new Blob([editContent]).size > 500_000 ? '500 KB limit exceeded!' : formatBytes(new Blob([editContent]).size)}</span>
+                      <span className={draftTooLarge ? 'text-error' : undefined}>{draftTooLarge ? '500 KB limit exceeded!' : formatBytes(draftBytes)}</span>
                     </div>
                     <input
                       type="text"
+                      aria-label="Change summary"
                       value={editSummary}
                       onChange={e => setEditSummary(e.target.value)}
                       placeholder="Change summary (optional)"
@@ -358,13 +406,13 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
                     <div className="flex gap-2">
                       <button
                         onClick={handleSave}
-                        disabled={saving || new Blob([editContent]).size > 500_000}
+                        disabled={saving || draftTooLarge || !editContent || !draftChanged}
                         className="px-3 py-1.5 bg-accent text-bg-primary rounded text-xs font-medium hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50"
                       >
                         {saving ? 'Saving...' : 'Save'}
                       </button>
                       <button
-                        onClick={handleCancelEdit}
+                        onClick={() => requestLeave('cancel')}
                         className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
                       >
                         Cancel
@@ -375,12 +423,42 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
               ) : (
                 // Content viewer
                 <div ref={contentRef} className="flex-1 overflow-y-auto px-4 py-3">
-                  <ArtifactContent artifact={loadedArtifact} conversationId={conversationId} />
+                  <ArtifactContent
+                    artifact={loadedArtifact}
+                    conversationId={conversationId}
+                    downloading={downloading}
+                    onDownload={handleDownload}
+                  />
                 </div>
               )}
             </>
           )}
         </div>
+      )}
+
+      {confirmLeave && (
+        <Dialog
+          title="Discard your changes?"
+          onClose={() => setConfirmLeave(null)}
+          footer={(
+            <>
+              <button
+                onClick={() => setConfirmLeave(null)}
+                className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
+              >
+                Keep editing
+              </button>
+              <button
+                onClick={() => leaveEditor(confirmLeave)}
+                className="px-3 py-1.5 bg-error text-bg-primary rounded text-xs font-medium hover:opacity-90 transition-opacity cursor-pointer"
+              >
+                Discard
+              </button>
+            </>
+          )}
+        >
+          <p className="text-sm text-text-secondary">Your edits to this artifact have not been saved.</p>
+        </Dialog>
       )}
     </div>
   );
@@ -439,8 +517,47 @@ function getBinaryArtifactUrl(artifact: ArtifactFull): string | null {
   return match ? match[1] : null;
 }
 
-function ArtifactContent({ artifact, conversationId }: { artifact: ArtifactFull; conversationId: string }) {
+// Whether a file the panel only has a description of can still be shown, from its URL.
+function hasFilePreview(artifact: ArtifactFull): boolean {
   const ct = artifact.content_type;
+  return (ct.startsWith('image/') || ct === 'application/pdf') && !!getBinaryArtifactUrl(artifact);
+}
+
+function FileCard({ artifact, downloading, onDownload }: { artifact: ArtifactFull; downloading: boolean; onDownload: () => void }) {
+  const size = fileSizeBytes(artifact);
+  const details = [getContentTypeLabel(artifact.content_type), size ? formatBytes(size) : null].filter(Boolean).join(' · ');
+  return (
+    <div data-testid="artifact-file-card" className="flex flex-col items-center gap-3 px-4 py-8 text-center">
+      <span aria-hidden="true" className="text-3xl">{getContentTypeIcon(artifact.content_type)}</span>
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-text-primary wrap-anywhere">{artifact.filename || artifact.title}</p>
+        <p className="text-xs text-text-secondary mt-1">{details}</p>
+      </div>
+      <p className="text-xs text-text-secondary">No preview for this file type</p>
+      {getBinaryArtifactUrl(artifact) && (
+        <button
+          onClick={onDownload}
+          disabled={downloading}
+          className="px-3 py-1.5 bg-accent text-bg-primary rounded text-xs font-medium hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50"
+        >
+          {downloading ? 'Downloading...' : 'Download'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ArtifactContent({ artifact, conversationId, downloading, onDownload }: {
+  artifact: ArtifactFull;
+  conversationId: string;
+  downloading: boolean;
+  onDownload: () => void;
+}) {
+  const ct = artifact.content_type;
+
+  if (isFilePlaceholder(artifact) && !hasFilePreview(artifact)) {
+    return <FileCard artifact={artifact} downloading={downloading} onDownload={onDownload} />;
+  }
 
   if (isWidget(artifact)) {
     const spec = parseProteinSpec(artifact.content);
@@ -462,7 +579,7 @@ function ArtifactContent({ artifact, conversationId }: { artifact: ArtifactFull;
   if (ct.startsWith('image/')) {
     const url = artifact.external_url || getBinaryArtifactUrl(artifact);
     if (url) {
-      return <img src={url} alt={artifact.title} className="max-w-full rounded" />;
+      return <img src={url} alt={artifact.title} className="max-w-full rounded bg-white" />;
     }
     if (ct === 'image/svg+xml') {
       return <img src={svgDataUrl(artifact.content)} alt={artifact.title} className="max-w-full rounded bg-white" />;

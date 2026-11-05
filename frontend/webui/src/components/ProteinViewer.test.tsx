@@ -167,6 +167,17 @@ describe('ProteinViewer', () => {
     await waitFor(() => expect(screen.getByTestId('protein-viewer')).toHaveAttribute('data-status', 'rendered'));
   });
 
+  it('carries the title only where nothing above it does', async () => {
+    const { unmount } = renderViewer(SPEC, vi.fn());
+    expect(screen.getByText('Crambin')).toBeInTheDocument();
+    await screen.findByTestId('widget-frame');
+    unmount();
+    renderViewer();
+    expect(screen.queryByText('Crambin')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'RCSB' })).toBeInTheDocument();
+    await screen.findByTestId('widget-frame');
+  });
+
   it('offers Expand only when it can expand', async () => {
     const onExpand = vi.fn();
     const { unmount } = renderViewer(SPEC, onExpand);

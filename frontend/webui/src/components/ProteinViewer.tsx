@@ -129,8 +129,11 @@ export function ProteinViewer({ spec, title, conversationId, artifactId, version
       data-status={error ? 'error' : rendered ? 'rendered' : 'loading'}
       className="w-full rounded-lg border border-border bg-bg-secondary overflow-hidden"
     >
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-        <span className="text-sm text-text-primary truncate flex-1" title={title}>{title}</span>
+      {/* In the panel, its header already carries the title. */}
+      {(onExpand || !error) && <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+        {onExpand
+          ? <span className="text-sm text-text-primary truncate flex-1" title={title}>{title}</span>
+          : <span className="flex-1" />}
         {!error && (
           <a
             href={databaseUrl(spec)}
@@ -150,7 +153,7 @@ export function ProteinViewer({ spec, title, conversationId, artifactId, version
             Expand
           </button>
         )}
-      </div>
+      </div>}
 
       <div className={`relative ${heightClass}`} style={{ background: '#0f1419' }}>
         {showFrame && (
