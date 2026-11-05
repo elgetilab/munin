@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useId, useState, useRef, useEffect, useCallback } from 'react';
 import { reportChat } from '../lib/api';
 import { useUiStore } from '../stores/uiStore';
 
@@ -22,6 +22,7 @@ export function ReportDialog({ conversationId, onReported }: ReportDialogProps) 
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const reasonId = useId();
 
   useEffect(() => {
     setTimeout(() => textareaRef.current?.focus(), 50);
@@ -77,10 +78,15 @@ export function ReportDialog({ conversationId, onReported }: ReportDialogProps) 
 
         {/* Body */}
         <div className="px-5 py-4 space-y-3">
-          <label className="text-xs text-text-secondary">
+          {/* What api_report_chat in backend/retrieval/main.py stores. Keep them in step. */}
+          <p className="text-xs text-text-secondary">
+            Sending a report saves this whole conversation with your email address for Munin's developers to review, and it may be kept as a test case. That covers every message, the model's thinking, tool calls and retrieved context, plus the names of attached files and artifacts.
+          </p>
+          <label htmlFor={reasonId} className="block text-xs text-text-secondary">
             What went wrong? (optional)
           </label>
           <textarea
+            id={reasonId}
             ref={textareaRef}
             value={reason}
             onChange={e => setReason(e.target.value.slice(0, MAX_REASON))}
@@ -100,14 +106,14 @@ export function ReportDialog({ conversationId, onReported }: ReportDialogProps) 
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-border">
           <button
             onClick={onClose}
-            className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
+            className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
           >
             Cancel
           </button>
           <button
             onClick={handleSubmit}
             disabled={submitting}
-            className="px-4 py-1.5 bg-warning/15 border border-warning text-warning rounded-lg text-xs font-medium hover:bg-warning/25 transition-colors cursor-pointer disabled:opacity-50"
+            className="px-4 py-2 bg-accent text-bg-primary rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50"
           >
             {submitting ? 'Sending...' : 'Send report'}
           </button>

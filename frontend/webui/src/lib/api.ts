@@ -91,8 +91,11 @@ export async function updateProfile(data: { full_name?: string; nickname?: strin
 
 // ── Munin Profile ──────────────────────────────────────────────────────────
 
-export async function fetchMuninProfile(): Promise<MuninProfile> {
+// Resolves to null when there is no profile. Every other failure rejects, so a
+// caller can't mistake an outage for an empty profile and then save over it.
+export async function fetchMuninProfile(): Promise<MuninProfile | null> {
   const res = await fetch(`${API}/profile`);
+  if (res.status === 404) return null;
   if (!res.ok) throw new Error('Failed to fetch profile');
   return res.json();
 }
@@ -738,13 +741,17 @@ export async function createProject(data: { name: string; description?: string; 
   return res.json();
 }
 
-export async function updateProject(id: string, data: Partial<Pick<Project, 'name' | 'description' | 'instructions' | 'default_persona' | 'archived'>>): Promise<Project> {
+// null clears a field. Leaving a key out keeps its stored value.
+export async function updateProject(id: string, data: { name?: string; description?: string | null; instructions?: string | null; default_persona?: string | null; archived?: boolean }): Promise<Project> {
   const res = await fetch(`${API}/projects/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error('Failed to update project');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(errorMessage(err) || 'Failed to update project');
+  }
   return res.json();
 }
 

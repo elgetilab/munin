@@ -66,4 +66,19 @@ describe('ReportDialog', () => {
     expect(onReported).not.toHaveBeenCalled();
     expect(isOpen()).toBe(true);
   });
+
+  it('says what a report shares before it is sent', () => {
+    renderDialog();
+    const notice = screen.getByText(/saves this whole conversation/);
+    expect(notice).toHaveTextContent(/email address/);
+    expect(notice).toHaveTextContent(/developers/);
+    expect(notice).toHaveTextContent(/thinking, tool calls and retrieved context/);
+  });
+
+  it('ties the label to the reason field and sets it on its own line', () => {
+    renderDialog();
+    const field = screen.getByLabelText('What went wrong? (optional)');
+    expect(field.tagName).toBe('TEXTAREA');
+    expect(screen.getByText('What went wrong? (optional)')).toHaveClass('block');
+  });
 });
