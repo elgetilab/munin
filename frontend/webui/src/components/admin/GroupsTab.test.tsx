@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../../test/msw-server';
@@ -72,5 +72,22 @@ describe('GroupsTab', () => {
     // remount, and the rows that were already there must stay.
     await waitFor(() => expect(screen.getByText('New Lab')).toBeInTheDocument());
     expect(screen.getByText('ML Research')).toBeInTheDocument();
+  });
+
+  // With enough members the dialog is taller than the screen. Save and Delete
+  // live in the footer, outside the part that scrolls, so they stay reachable.
+  it('keeps the edit dialog actions outside its scrolling body', async () => {
+    const user = userEvent.setup();
+    render(<GroupsTab />);
+    await waitFor(() => expect(screen.getByText('ML Research')).toBeInTheDocument());
+
+    await user.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+
+    const dialog = screen.getByRole('dialog', { name: 'Edit ML Research' });
+    const body = within(dialog).getByText('Slug (read-only)').closest('.overflow-y-auto');
+    expect(body).not.toBeNull();
+    for (const name of ['Save', 'Close', 'Delete group']) {
+      expect(body).not.toContainElement(within(dialog).getByRole('button', { name }));
+    }
   });
 });

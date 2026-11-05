@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../../test/msw-server';
@@ -75,5 +75,50 @@ describe('UsersTab', () => {
     await user.click(screen.getByText('Create'));
 
     await waitFor(() => expect(screen.getByText('Barbara')).toBeInTheDocument());
+  });
+
+  // A phone is too narrow for the table, so it has to pan rather than clip, or
+  // the Edit column is out of reach. jsdom has no layout, so the classes are
+  // the only thing that can be pinned here.
+  it('lets the table scroll sideways with Edit pinned', async () => {
+    render(<UsersTab />);
+    await waitFor(() => expect(screen.getByText('Ada')).toBeInTheDocument());
+
+    expect(screen.getByRole('table').parentElement).toHaveClass('overflow-x-auto');
+    expect(screen.getAllByRole('button', { name: 'Edit' })[0].closest('td')).toHaveClass('sticky', 'right-0');
+  });
+
+  // Email changes apply at once and Save stays disabled, so Close is the only
+  // way out of the dialog. The table must not be left showing the old address.
+  it('re-reads the table after an email change, before the dialog is closed', async () => {
+    const user = userEvent.setup();
+    let primary = 'ada@test.com';
+    const row = () => ({
+      id: 1, first_name: 'Ada', last_name: 'Lovelace', name: 'Ada Lovelace', role: 'user',
+      group: null, username: null, primary_email: primary,
+      emails: ['ada@test.com', 'countess@test.com'], created_at: '', updated_at: '',
+    });
+    server.use(
+      http.get(`${ADMIN}/users`, () => HttpResponse.json({ users: [row()] })),
+      http.put(`${ADMIN}/users/1/emails/:email/primary`, ({ params }) => {
+        primary = String(params.email);
+        return HttpResponse.json(row());
+      }),
+    );
+
+    render(<UsersTab />);
+    await waitFor(() => expect(screen.getByText('Ada')).toBeInTheDocument());
+    expect(within(screen.getByRole('table')).getByText('ada@test.com')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(screen.getByRole('button', { name: 'Make primary' }));
+
+    await waitFor(() => expect(within(screen.getByRole('table')).getByText('countess@test.com')).toBeInTheDocument());
+
+    // Reopening starts from the fresh row, not the one the dialog first opened with.
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const primaryBadge = screen.getByText('Primary', { selector: 'span' });
+    expect(primaryBadge.parentElement).toHaveTextContent('countess@test.com');
   });
 });

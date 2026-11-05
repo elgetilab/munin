@@ -168,7 +168,9 @@ export function UsersTab() {
         </button>
       </div>
 
-      <div className="bg-bg-secondary border border-border rounded-lg overflow-hidden">
+      {/* Scrolls sideways on a phone; the Edit column stays pinned to the right
+          edge so every user can be edited without panning. */}
+      <div className="bg-bg-secondary border border-border rounded-lg overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-text-secondary text-xs">
@@ -178,7 +180,7 @@ export function UsersTab() {
               <SortHeader label="Role" col="role" active={sortKey === 'role'} dir={sortDir} onSort={toggleSort} />
               <SortHeader label="Group" col="group" active={sortKey === 'group'} dir={sortDir} onSort={toggleSort} />
               <SortHeader label="Emails" col="emails" active={sortKey === 'emails'} dir={sortDir} onSort={toggleSort} align="right" />
-              <th className="px-3 py-2 font-medium w-px"></th>
+              <th className="px-3 py-2 font-medium w-px sticky right-0 bg-bg-secondary"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -192,7 +194,7 @@ export function UsersTab() {
                 <td className="px-3 py-2"><RoleBadge role={u.role} /></td>
                 <td className="px-3 py-2 text-text-secondary">{u.group ?? <span className="text-text-secondary/50">–</span>}</td>
                 <td className="px-3 py-2 text-right text-text-secondary text-xs">{u.emails.length}</td>
-                <td className="px-3 py-2 whitespace-nowrap">
+                <td className="px-3 py-2 whitespace-nowrap sticky right-0 bg-bg-secondary">
                   <button
                     onClick={() => setEditing(u)}
                     className="text-xs text-accent hover:underline cursor-pointer mr-2"
@@ -218,6 +220,7 @@ export function UsersTab() {
           user={editing}
           groups={groups}
           onClose={() => setEditing(null)}
+          onReload={load}
           onSaved={() => { setEditing(null); load(); }}
         />
       )}
@@ -316,10 +319,13 @@ function UserCreateModal({ groups, onClose, onSaved }: {
 }
 
 
-function UserEditModal({ user, groups, onClose, onSaved }: {
+function UserEditModal({ user, groups, onClose, onReload, onSaved }: {
   user: AdminUser;
   groups: AdminGroup[];
   onClose: () => void;
+  // Email changes apply immediately and leave the dialog open, so the table
+  // behind it has to be re-read each time.
+  onReload: () => void;
   onSaved: () => void;
 }) {
   const [current, setCurrent] = useState<AdminUser>(user);
@@ -371,19 +377,19 @@ function UserEditModal({ user, groups, onClose, onSaved }: {
     const em = newEmail.trim();
     if (!em || !em.includes('@')) return;
     const updated = await withBusy('add-' + em, () => addAdminUserEmail(current.id, em));
-    if (updated) { setCurrent(updated); setNewEmail(''); }
+    if (updated) { setCurrent(updated); setNewEmail(''); onReload(); }
   }
 
   async function removeEmail(em: string) {
     if (current.emails.length === 1) return;
     if (!confirm(`Remove email ${em} from ${current.name}?`)) return;
     const updated = await withBusy('rm-' + em, () => removeAdminUserEmail(current.id, em));
-    if (updated) setCurrent(updated);
+    if (updated) { setCurrent(updated); onReload(); }
   }
 
   async function setPrimary(em: string) {
     const updated = await withBusy('prim-' + em, () => setAdminUserPrimaryEmail(current.id, em));
-    if (updated) setCurrent(updated);
+    if (updated) { setCurrent(updated); onReload(); }
   }
 
   async function deleteUser() {
