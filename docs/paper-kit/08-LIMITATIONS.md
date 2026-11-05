@@ -245,7 +245,7 @@ asked.
 | Old SPECTER `papers` collection | Retained as rollback. Retiring it is a tracked, one-way, root-owned task. |
 | Deep Research breadth | Munin reads roughly 5 distinct sources against a frontier system's ~50 on the same capstone question. Diagnosed as upstream retrieval relevance plus corpus depth, not a design flaw, but not closed. |
 | Scoped abstention | If a user is in a sub-corpus and the answer is not there but *is* consortium-wide, `not_found` is misleading. `coverage_note` addresses it in `search`; a fifth outcome value in `source` was considered and not added. |
-| MiroThinker deep-research path | Disabled 2026-07, kept in code, no parity evaluation before deletion. |
+| MiroThinker deep-research path | Disabled 2026-07 and removed from the code 2026-11, with no parity evaluation against the current Deep Research. |
 
 ---
 

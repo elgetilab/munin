@@ -41,7 +41,7 @@ GPUs are exposed to SLURM two ways via `gres.conf`:
 
 | Resource | What it grants | Consumer |
 |---|---|---|
-| `gpu:batch:1` | Whole GPU 0 | legacy MiroThinker deep-research job (now disabled) |
+| `gpu:batch:1` | Whole GPU 0 | user and batch jobs |
 | `gpu:vllm:1` | Whole GPU 1 | the vLLM service |
 | `shard:N` | N/8 of any free GPU (~4 GB per shard) | available, unused |
 | `shard:batch:N` | N/8 of GPU 0 | unused |
@@ -76,7 +76,6 @@ resolved by moving the VPS.
 | Paper embedding (rollback only) | SPECTER-v1 (`allenai-specter`) | 768d, collection `papers`. Retained for rollback; retiring it is a tracked one-way task. |
 | User-document embedding | BGE-base | Separate collection from the paper corpus. |
 | Faithfulness judge | MiniCheck-Flan-T5-Large | Under 1B parameters. Runs locally on GPU 0. Never used in production, only in Track B scoring. |
-| Legacy deep research | MiroThinker-v1.5-30B | ~17 GB, disabled 2026-07, weights retained on disk. |
 
 ### Why BGE needs a query prefix
 

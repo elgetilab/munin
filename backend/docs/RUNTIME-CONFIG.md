@@ -44,8 +44,7 @@ compose file and redeploying.
 | `PAPER_PIPELINE_SCRIPT` / `GROBID_URL` / `PAPERS_PROCESSED_DIR` | `/app/pipeline/...` / `http://grobid:8070` / `/papers-processed` | ingest route |
 | `MUNIN_REPORTED_DIR` | `/data/reported` | report route |
 | `INGEST_CONCURRENCY` | `4` | ingest route |
-| `DEEPRESEARCH_ENABLED` | `0` | legacy Miro submit gate (added 2026-08) |
-| `DEEPRESEARCH_QUEUE_DIR` / `_JOBS_DIR` / `SLURM_QUEUE_FILE` | `/deepresearch/*` | legacy Miro read endpoints |
+| `DEEPRESEARCH_QUEUE_DIR` / `_JOBS_DIR` / `SLURM_QUEUE_FILE` | `/deepresearch/*` | read endpoints for past reports of the retired queue |
 | `DEEP_RESEARCH_DIR` / `DEEP_RESEARCH_MAX_CONCURRENT` | `/data/deep_research` / `1` | in-process DR (added 2026-08) |
 | `MUNIN_DOMAIN` | none: **required**, compose refuses to start without it | `site_config.py`; every public URL below derives from it unless set explicitly |
 | `MUNIN_PUBLIC_URL` | `https://search.${MUNIN_DOMAIN}` | `site_config.py`: report + paper links (added 2026-08) |
@@ -161,7 +160,7 @@ first use, so an existing cluster is unaffected either way.
 | `data/deep_research/dr_*.json` | in-process DR | ~480 KB, one per job | none |
 | `data/papers/pdf/` | pipeline + ingest | large, corpus-sized | quarantine layout, see INGEST.md |
 | `data/author_repair_state.json` | `repair_authors.py --apply` | tiny | resume marker for the author backfill; delete to force a full re-scan (`REPAIR_STATE_FILE` overrides the path) |
-| `deepresearch/queue`, `deepresearch/jobs` | LEGACY Miro daemon | frozen (feature disabled) | keep for old reports |
+| `deepresearch/queue`, `deepresearch/jobs` | retired research queue | frozen, nothing writes here | keep for old reports |
 
 The unbounded one that matters is `papers_cached`: it is a full-text
 cache keyed by DOI, it only warns past 5 GB, and nothing evicts. Worth a
@@ -169,11 +168,9 @@ retention policy before it becomes a disk incident.
 
 ## Deep Research: two different things
 
-- **Legacy (`/deepresearch/*`)**: MiroThinker-30B via `deepresearch-daemon`
-  and a SLURM job. Disabled 2026-07 (see `shared/docs/DECISIONS.md`).
-  Submission 503s unless `DEEPRESEARCH_ENABLED=1` AND the daemon is
-  enabled. `deploy.sh deepresearch` provisions it and is deliberately
-  NOT part of `deploy.sh all`.
+- **Legacy (`/deepresearch/*`)**: read-only, admin-only access to past
+  reports. The daemon, job and submit route were removed in 2026-11 (see
+  `shared/docs/DECISIONS.md`).
 - **Current (`/api/research/*`)**: runs in-process inside retrieval
   (`research_routes.py`, `deep_research_manager.py`,
   `deep_research_agent.py`), this is what users get in chat. It needs no

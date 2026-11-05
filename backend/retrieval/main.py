@@ -67,7 +67,6 @@ from sse_starlette.sse import EventSourceResponse
 from database import (
     QDRANT_HOST, QDRANT_PORT, NEO4J_URI, SEARXNG_URL,
     PAPERS_PDF_DIR, get_pdf_path,
-    DEEPRESEARCH_ENABLED,
     DEEPRESEARCH_QUEUE_DIR, DEEPRESEARCH_JOBS_DIR, SLURM_QUEUE_FILE,
     VLLM_URL, VLLM_MODEL_NAME, LLM_HEADERS,
     reasoning_effort_fields,
@@ -82,7 +81,7 @@ from models import (
     AuthorPapersResponse, CoAuthorNode, CoAuthorsResponse, GraphStatsResponse,
     HybridSearchRequest, EnrichedPaper, HybridSearchResponse,
     SimilarByAuthorsRequest, SimilarByAuthorsResponse,
-    DeepResearchRequest, DeepResearchSubmitResponse, DeepResearchStatus,
+    DeepResearchStatus,
     SlurmQueueEntry, GpuProcess, GpuInfo, SlurmQueueResponse,
 )
 from fastapi import UploadFile, File, Form, BackgroundTasks
@@ -3943,7 +3942,7 @@ async def get_enriched_paper(doi: str):
 # ==============================================================================
 # Deep Research Endpoints
 # ==============================================================================
-# Legacy MiroThinker queue (retired 2026-07, kept for the parity eval). Its jobs
+# Past reports from the retired research queue (DECISIONS.md, 2026-11). Those jobs
 # never recorded who submitted them, so no per-user ownership check is
 # possible: every route is admin-only. The gateway's /api/X -> /X fallback made
 # them reachable by any logged-in user, listing and serving everyone's reports.
@@ -3952,61 +3951,6 @@ def _legacy_dr_request_id(request_id: str) -> str:
         return str(uuid.UUID(request_id))
     except ValueError:
         raise HTTPException(status_code=404, detail={"error": {"message": "Job not found"}})
-
-
-@app.post("/deepresearch/submit", response_model=DeepResearchSubmitResponse)
-async def submit_deepresearch(request: DeepResearchRequest, http_request: Request):
-    """
-    Submit a deep research question for processing.
-
-    The question will be queued for processing by a 30B thinking model
-    running on the cluster GPU. Results will be available as Markdown and PDF.
-    """
-    await _require_admin_email(http_request)
-    if not DEEPRESEARCH_ENABLED:
-        raise HTTPException(
-            status_code=503,
-            detail={"error": {"message": "Deep Research is disabled. Past reports remain available."}},
-        )
-
-    if not request.question.strip():
-        raise HTTPException(status_code=400, detail="Question cannot be empty")
-
-    if len(request.question) > 10000:
-        raise HTTPException(status_code=400, detail="Question too long (max 10,000 characters)")
-
-    # Check if queue directory exists
-    if not os.path.exists(DEEPRESEARCH_QUEUE_DIR):
-        raise HTTPException(
-            status_code=503,
-            detail="Deep Research service not configured. Queue directory not available."
-        )
-
-    # Generate request ID
-    request_id = str(uuid.uuid4())
-
-    # Create job request
-    job_request = {
-        "request_id": request_id,
-        "question": request.question.strip(),
-        "context": request.context.strip() if request.context else None,
-        "submitted_at": datetime.utcnow().isoformat() + "Z",
-        "status": "queued"
-    }
-
-    # Write to queue directory
-    queue_file = os.path.join(DEEPRESEARCH_QUEUE_DIR, f"{request_id}.json")
-    try:
-        with open(queue_file, "w") as f:
-            json.dump(job_request, f, indent=2)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to queue job: {str(e)}")
-
-    return DeepResearchSubmitResponse(
-        request_id=request_id,
-        message="Research question submitted successfully. Check status for updates.",
-        estimated_wait="5-30 minutes depending on cluster queue"
-    )
 
 
 @app.get("/deepresearch/status/{request_id}", response_model=DeepResearchStatus)

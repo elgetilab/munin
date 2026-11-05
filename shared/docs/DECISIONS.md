@@ -10,6 +10,26 @@ self-document (renames, refactors, bug fixes).
 
 ---
 
+## 2026-11: the standalone Deep Research path is removed
+
+This is the final retirement decision that the 2026-07 entry below left open.
+MiroThinker is no longer used, and Deep Research is the in-process agent that
+users enable in chat. Removed: `deepresearch-daemon` and its unit, the SLURM job
+script, `deploy.sh deepresearch` and `--with-model`, `POST /deepresearch/submit`
+and `DEEPRESEARCH_ENABLED`. All of it is in git history. The parity evaluation
+planned before deletion was not run.
+
+Kept: the read-only, admin-only `/deepresearch/*` routes and
+`/opt/munin/deepresearch`, because past reports are user data.
+
+Nothing here touches a running cluster. An existing head node keeps its disabled
+unit, its installed scripts and the weights until an operator removes them:
+
+    systemctl disable --now deepresearch-daemon
+    rm /etc/systemd/system/deepresearch-daemon.service && systemctl daemon-reload
+    rm /opt/cluster/scripts/llm/deepresearch-daemon.py /opt/cluster/scripts/llm/deepresearch-job.sh
+    rm -r /opt/munin/data/models/mirothinker-v1.5-30b   # ~17 GB
+
 ## 2026-10: behaviour defaults are production; identity has no default
 
 For the public release (docs/RELEASE-PLAN.md, Phase 2), the 2026-08 rule
@@ -270,6 +290,8 @@ best-effort supplement. Why this shape:
   index and EU-friendly, the most defensible of the keyed options.
 
 ## 2026-07: Deep Research (MiroThinker) disabled, kept in code
+
+Superseded by the 2026-11 entry, which removes it.
 
 The standalone Deep Research feature (research.muninai.org, `/deepresearch/*`
 endpoints, `deepresearch-daemon` + SLURM job running MiroThinker-30B on GPU 0)

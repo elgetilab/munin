@@ -2,7 +2,7 @@
 munin-maintenance on/off against a temp dir (no root, no systemd, no cron).
 
 Regressions from the 2026-09 review: `off` ran `systemctl enable --now
-deepresearch-daemon`, reviving the retired MiroThinker daemon, and `on`
+deepresearch-daemon`, reviving a retired daemon, and `on`
 never placed the vLLM health hold, so munin-vllm-health.timer restarted
 vLLM inside the serving window while maintenance was meant to keep the GPU
 free. `off` must also never remove an operator's own hold.

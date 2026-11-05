@@ -109,7 +109,6 @@ backend/                              ← cluster half of the monorepo
 ├── sandbox/                          ← Jupyter-kernel sandbox sidecar
 ├── scripts/
 │   ├── vllm/                         ← SLURM job + scheduler
-│   ├── deepresearch/                 ← daemon + SLURM job
 │   ├── knowledge/                    ← build_embedding_map.py
 │   └── pipeline/                     ← paper_pipeline.py + friends
 └── docs/                             ← internal design notes;

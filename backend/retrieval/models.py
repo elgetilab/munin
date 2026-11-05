@@ -186,27 +186,6 @@ class SimilarByAuthorsResponse(BaseModel):
 # ==============================================================================
 # Deep Research Models
 # ==============================================================================
-class DeepResearchRequest(BaseModel):
-    """Request to submit a deep research job."""
-    question: str
-    context: Optional[str] = None
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "question": "What are the current therapeutic approaches for treating glioblastoma?",
-                "context": "Focus on immunotherapy and targeted molecular therapies"
-            }
-        }
-
-
-class DeepResearchSubmitResponse(BaseModel):
-    """Response after submitting a deep research job."""
-    request_id: str
-    message: str
-    estimated_wait: str
-
-
 class DeepResearchStatus(BaseModel):
     """Status of a deep research job."""
     request_id: str

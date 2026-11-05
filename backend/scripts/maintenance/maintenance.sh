@@ -14,7 +14,7 @@
 #     service reads the same flag). Deep Research runs in-process against
 #     vLLM, so a job already running fails at its next model call.
 #
-# The retired MiroThinker deepresearch-daemon is not touched in either
+# The retired deepresearch-daemon is not touched in either
 # direction; `off` used to `enable --now` it, reviving a retired service.
 #
 # Usage:

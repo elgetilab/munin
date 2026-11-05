@@ -118,7 +118,6 @@ backend/
 │   ├── munin-paper-reattribute.{service,timer}  # 04:30 attribution backfill
 │   ├── munin-embedding-map.{service,timer} # nightly knowledge map
 │   ├── munin-vllm-health.{service,timer}   # hourly vLLM health check
-│   └── deepresearch-daemon.service         # LEGACY (deploy.sh deepresearch only)
 ├── docker/
 │   ├── docker-compose.yml    # Qdrant, Neo4j, GROBID, SearXNG, retrieval, sandbox,
 │   │                         #   plus profiles gpu, pipeline, seed, monitoring, tunnel
@@ -150,7 +149,6 @@ backend/
 │   ├── vllm/                 # start-vllm-service{,-tp2}.sh, schedule-vllm.sh,
 │   │                         #   model-env.sh, check-vllm-health.sh
 │   ├── maintenance/          # maintenance.sh (munin-maintenance)
-│   ├── deepresearch/         # LEGACY MiroThinker daemon + SLURM job
 │   ├── knowledge/            # build_embedding_map.py
 │   ├── seed/                 # seed_corpus.py (compose `seed` profile)
 │   └── pipeline/             # paper_pipeline.py, paper_cleanup.py,
@@ -187,7 +185,7 @@ expect:
   checkpoints (the feature users see in chat).
 - `/opt/munin/data/agent_traces/`, `.../agent_extracts/`: agent trace and
   source-extraction records.
-- `/opt/munin/deepresearch/`: LEGACY MiroThinker job queue + results,
+- `/opt/munin/deepresearch/`: results of the retired research queue,
   kept so old reports stay downloadable.
 - `/opt/munin/logs/`: service status files and vLLM job logs
   (`vllm-service-<jobid>.{out,err}`).
@@ -230,7 +228,6 @@ sudo ./deploy.sh verify         # Smoke-test retrieval endpoints + paper encoder
 sudo ./deploy.sh monitoring     # Prometheus config + container (not in `all`)
 sudo ./deploy.sh instance ...   # Side-by-side backbone instances (up/down/gates/ls)
 sudo MUNIN_OPERATOR=<login> ./deploy.sh sudoers  # Operator sudoers drop-in (not in `all`)
-sudo ./deploy.sh deepresearch   # LEGACY MiroThinker path (disabled; not in `all`)
 ```
 
 Notes:
@@ -258,9 +255,7 @@ Notes:
   bge-large/papers_bge. Deliberate rollback:
   `EXPECTED_PAPER_ENCODER=specter EXPECTED_PAPERS_COLLECTION=papers sudo ./deploy.sh verify`.
 - **Deep Research**: the in-chat feature (`/api/research/*`) runs inside
-  retrieval and needs no deploy step of its own. `deploy deepresearch`
-  provisions the retired MiroThinker daemon only, is excluded from
-  `all`, and downloads the 17 GB weights solely with `--with-model`.
+  retrieval and needs no deploy step of its own.
 - **Paper detect**: `munin-paper-detect.service` runs
   `paper_cleanup.py sweep --no-quarantine` (detection only) until the
   DOI filename repair (`scripts/pipeline/repair_doi_filenames.py`) has
