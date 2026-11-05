@@ -1,14 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ArtifactSummary, ArtifactFull } from '../lib/types';
 import { fetchArtifact, updateArtifact } from '../lib/api';
-import { getExtension } from '../lib/artifactDownload';
-import { formatBytes, getContentTypeIcon, isWidget, parseProteinSpec, svgDataUrl } from '../lib/artifactDisplay';
+import { copyText } from '../lib/copyText';
+import { downloadFilename, saveBlob } from '../lib/artifactDownload';
+import { formatBytes, getContentTypeIcon, isFilePlaceholder, isWidget, parseProteinSpec, svgDataUrl } from '../lib/artifactDisplay';
 import { ProteinViewer } from './ProteinViewer';
 import { printArtifactAsPdf } from '../lib/printPdf';
 import { Markdown } from './Markdown';
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useUiStore } from '../stores/uiStore';
+import { useChatStore } from '../stores/chatStore';
+import { ErrorNotice } from './ui/ErrorNotice';
 
 // P2 #26 commit 2: onClose / selectedArtifactId / onSelectArtifact
 // dropped from props — all three are pulled directly from uiStore.
@@ -55,13 +58,19 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
   const [editSummary, setEditSummary] = useState('');
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   // Failures carry the artifact they happened on, so selecting a different
   // one clears the message instead of showing the previous artifact's error
-  // against the new one.
+  // against the new one. A failed read only takes over the panel when there is
+  // nothing loaded to show. A failed action (save, download, copy, print) never
+  // does: it must not take the editor and the user's draft off the screen.
   const [failure, setFailure] = useState<{ id: string; message: string } | null>(null);
   const error = failure && failure.id === selectedArtifactId ? failure.message : null;
-  const setError = useCallback((message: string | null) => {
-    setFailure(message && selectedArtifactId ? { id: selectedArtifactId, message } : null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [actionFailure, setActionFailure] = useState<{ id: string; message: string } | null>(null);
+  const actionError = actionFailure && actionFailure.id === selectedArtifactId ? actionFailure.message : null;
+  const setActionError = useCallback((message: string | null) => {
+    setActionFailure(message && selectedArtifactId ? { id: selectedArtifactId, message } : null);
   }, [selectedArtifactId]);
   // The rendered-content node, read by "Save as PDF" so the print output
   // carries the same formatting (headings, tables, math) the user sees.
@@ -95,41 +104,58 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
         setFailure({ id, message: e instanceof Error ? e.message : 'Failed to load artifact' });
       });
     return () => { cancelled = true; };
-  }, [conversationId, selectedArtifactId, wantVersion, latestVersion, editing]);
+  }, [conversationId, selectedArtifactId, wantVersion, latestVersion, editing, reloadKey]);
 
   // True while something is selected but its content has not arrived yet.
   const loading = !!selectedArtifactId && !loadedArtifact && !error;
 
   const handleVersionChange = (version: number) => {
     if (selectedArtifactId) {
-      setPinnedVersion({ id: selectedArtifactId, version });
+      // Picking the latest is the same as not pinning, so a later save or a new
+      // version over SSE still moves the panel on.
+      setPinnedVersion(version === summary?.latest_version ? null : { id: selectedArtifactId, version });
     }
   };
 
-  const handleCopy = () => {
-    if (loadedArtifact?.content) {
-      navigator.clipboard.writeText(loadedArtifact.content);
+  const handleCopy = async () => {
+    if (!loadedArtifact?.content) return;
+    setActionError(null);
+    if (await copyText(loadedArtifact.content)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    } else {
+      setActionError('Could not copy - the browser refused access to the clipboard.');
     }
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!loadedArtifact) return;
-    const blob = new Blob([loadedArtifact.content], { type: loadedArtifact.content_type });
-    const ext = getExtension(loadedArtifact.content_type, loadedArtifact.language);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${loadedArtifact.title}${ext}`;
-    a.click();
-    URL.revokeObjectURL(url);
+    setActionError(null);
+    const filename = downloadFilename(loadedArtifact);
+    if (!isFilePlaceholder(loadedArtifact)) {
+      saveBlob(new Blob([loadedArtifact.content], { type: loadedArtifact.content_type }), filename);
+      return;
+    }
+    // The stored body only describes a sandbox file, so the bytes come from its
+    // URL. Fetching rather than linking means a file the sandbox no longer has
+    // is reported here, and the proxy's Content-Disposition cannot rename it.
+    const url = getBinaryArtifactUrl(loadedArtifact);
+    setDownloading(true);
+    try {
+      if (!url) throw new Error('no file URL');
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      saveBlob(await res.blob(), filename);
+    } catch {
+      setActionError('Could not download this file. It may no longer be available.');
+    }
+    setDownloading(false);
   };
 
   const handleDownloadPdf = () => {
     if (!loadedArtifact || !contentRef.current) return;
     const ok = printArtifactAsPdf(contentRef.current.innerHTML, loadedArtifact.title);
-    if (!ok) setError('Could not open the print view - allow pop-ups for this site, then try again.');
+    if (!ok) setActionError('Could not open the print view - allow pop-ups for this site, then try again.');
   };
 
   const handleEdit = () => {
@@ -143,14 +169,23 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
   const handleSave = async () => {
     if (!selectedArtifactId || !editContent) return;
     setSaving(true);
-    setError(null);
+    setActionError(null);
     try {
-      await updateArtifact(conversationId, selectedArtifactId, editContent, editSummary || 'User edit');
+      const saved = await updateArtifact(conversationId, selectedArtifactId, editContent, editSummary || 'User edit');
+      // A user's save produces no SSE event, so the list has to learn about the
+      // new version here. Read from the store, not the prop: an artifact event
+      // may have landed while this request was in flight.
+      const { artifacts: current, setArtifacts } = useChatStore.getState();
+      setArtifacts(current.map(a => a.id === selectedArtifactId
+        ? { ...a, latest_version: saved.version, byte_size: new Blob([editContent]).size, word_count: editContent.split(/\s+/).filter(Boolean).length }
+        : a));
       // Leaving edit mode re-runs the read effect, which fetches the version
-      // the save just created.
+      // the save just created. A pin on an older version must not outlive that.
+      setPinnedVersion(null);
       setEditingId(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save');
+      const reason = e instanceof Error ? e.message : 'Failed to save';
+      setActionError(`${reason}. Your edits are still here.`);
     }
     setSaving(false);
   };
@@ -166,7 +201,8 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
   // "Save as PDF" applies to rendered text artifacts (reports, notes, code).
   // Existing PDFs already download as-is, and images have nothing to render.
   const ct = loadedArtifact?.content_type || '';
-  const canPdf = !editing && !!loadedArtifact && ct !== 'application/pdf' && !ct.startsWith('image/') && !isWidget(loadedArtifact);
+  const isFile = !!loadedArtifact && isFilePlaceholder(loadedArtifact);
+  const canPdf = !editing && !!loadedArtifact && !isFile && ct !== 'application/pdf' && !ct.startsWith('image/') && !isWidget(loadedArtifact);
 
   return (
     // A full-screen overlay below xl, where a side column would crush the chat.
@@ -231,10 +267,24 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
             <div className="flex-1 flex items-center justify-center text-text-secondary text-sm">
               Loading...
             </div>
-          ) : error ? (
-            <div className="px-4 py-4 text-error text-sm">{error}</div>
-          ) : loadedArtifact ? (
+          ) : !loadedArtifact ? (
+            error ? (
+              <div className="px-4 py-4">
+                <ErrorNotice message={error} onRetry={() => { setFailure(null); setReloadKey(k => k + 1); }} />
+              </div>
+            ) : null
+          ) : (
             <>
+              {error && (
+                <ErrorNotice
+                  message={error}
+                  onRetry={() => { setFailure(null); setReloadKey(k => k + 1); }}
+                  className="mx-4 mt-3"
+                />
+              )}
+              {actionError && (
+                <ErrorNotice message={actionError} onDismiss={() => setActionError(null)} className="mx-4 mt-3" />
+              )}
               {/* Toolbar */}
               <div className="flex items-center gap-2 px-4 py-2 border-b border-border flex-wrap">
                 {/* Version picker */}
@@ -260,17 +310,20 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
                     Edit
                   </button>
                 )}
-                <button
-                  onClick={handleCopy}
-                  className="px-2 py-1 text-xs text-text-secondary hover:text-accent transition-colors cursor-pointer"
-                >
-                  {copied ? 'Copied!' : 'Copy'}
-                </button>
+                {!isFile && (
+                  <button
+                    onClick={handleCopy}
+                    className="px-2 py-1 text-xs text-text-secondary hover:text-accent transition-colors cursor-pointer"
+                  >
+                    {copied ? 'Copied!' : 'Copy'}
+                  </button>
+                )}
                 <button
                   onClick={handleDownload}
-                  className="px-2 py-1 text-xs text-text-secondary hover:text-accent transition-colors cursor-pointer"
+                  disabled={downloading}
+                  className="px-2 py-1 text-xs text-text-secondary hover:text-accent transition-colors cursor-pointer disabled:opacity-50"
                 >
-                  Download
+                  {downloading ? 'Downloading...' : 'Download'}
                 </button>
                 {canPdf && (
                   <button
@@ -286,6 +339,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
               {editing ? (
                 <div className="flex-1 flex flex-col">
                   <textarea
+                    aria-label="Artifact content"
                     value={editContent}
                     onChange={e => setEditContent(e.target.value)}
                     className="flex-1 px-4 py-3 bg-bg-primary text-sm text-text-primary font-mono outline-none resize-none"
@@ -325,7 +379,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
                 </div>
               )}
             </>
-          ) : null}
+          )}
         </div>
       )}
     </div>
