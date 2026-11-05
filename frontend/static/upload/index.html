@@ -162,6 +162,8 @@
     <script src="https://releases.transloadit.com/uppy/v4.12.1/uppy.min.js"
             integrity="sha384-dlDjAG7zhXcllLzM7EEoV7na66HGixwf+fW57TsFB29lstpSjg0EWk9vpjIxzaXU" crossorigin="anonymous"></script>
     <script>
+        var SUPPORT_LINK = '<a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}" style="color:var(--accent)">{{env "MUNIN_SUPPORT_EMAIL"}}</a>'
+
         function initUploader() {
             var uppy = new Uppy.Uppy({
                 restrictions: {
@@ -201,6 +203,22 @@
             })
         }
 
+        // Uppy comes from a CDN, so a blocked host or a refused hash leaves it
+        // undefined. Say so, and stop presenting the account as ready to upload.
+        function startUploader() {
+            try {
+                if (typeof Uppy === 'undefined') throw new Error('Uppy did not load')
+                initUploader()
+            } catch (e) {
+                console.error('Uploader failed to start:', e)
+                document.getElementById('user-box').classList.add('warn')
+                document.getElementById('uppy-dashboard').innerHTML =
+                    '<div class="no-access" role="alert">The uploader could not load, so uploads are ' +
+                    'not available from this page right now. Your network may be blocking it. ' +
+                    'Reload to try again, or contact ' + SUPPORT_LINK + ' if it keeps happening.</div>'
+            }
+        }
+
         // Replace the uploader with a "no access" message and flip the identity
         // box into a warning state. The server enforces the same gate (tusd
         // pre-create hook); this is the up-front signal. `reason` tailors the
@@ -214,9 +232,8 @@
                 : 'Your account is not a research group leader, so you cannot ' +
                   'contribute to the knowledge base.'
             document.getElementById('uppy-dashboard').innerHTML =
-                '<div class="no-access">' + msg + '<br>Contact ' +
-                '<a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}" style="color:var(--accent)">{{env "MUNIN_SUPPORT_EMAIL"}}</a> ' +
-                'if you need upload access.</div>'
+                '<div class="no-access">' + msg + '<br>Contact ' + SUPPORT_LINK +
+                ' if you need upload access.</div>'
         }
 
         // Fetch the authenticated identity + role + group from /whoami, then
@@ -224,24 +241,26 @@
         // allowed; group leaders need a group; everyone else denied.
         fetch('/whoami')
             .then(function(r) { return r.json() })
-            .then(function(data) {
-                document.getElementById('user-email').textContent = data.email || 'unknown'
-                var role = (data.role || '').toLowerCase()
-                var group = (data.group || '').trim()
-                if (role === 'admin') {
-                    initUploader()
-                } else if (role === 'group_leader') {
-                    if (group) { initUploader() } else { denyUpload('group') }
-                } else {
-                    denyUpload('role')
+            .then(
+                function(data) {
+                    document.getElementById('user-email').textContent = data.email || 'unknown'
+                    var role = (data.role || '').toLowerCase()
+                    var group = (data.group || '').trim()
+                    if (role === 'admin') {
+                        startUploader()
+                    } else if (role === 'group_leader') {
+                        if (group) { startUploader() } else { denyUpload('group') }
+                    } else {
+                        denyUpload('role')
+                    }
+                },
+                function() {
+                    // On a /whoami failure, fall back to showing the uploader; the
+                    // server still rejects ineligible uploads at pre-create.
+                    document.getElementById('user-email').textContent = 'unknown'
+                    startUploader()
                 }
-            })
-            .catch(function() {
-                // On a /whoami failure, fall back to showing the uploader; the
-                // server still rejects ineligible uploads at pre-create.
-                document.getElementById('user-email').textContent = 'unknown'
-                initUploader()
-            })
+            )
     </script>
 <script src="/shared/support-widget.js"></script>
 </body>

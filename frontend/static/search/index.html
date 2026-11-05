@@ -301,11 +301,12 @@
                 <span id="paper-count">Loading paper count...</span>
             </div>
 
+            <form id="search-form" role="search">
             <div class="search-box">
                 <input type="text" id="search-input" class="search-input"
                        placeholder="Search by topic or paste a DOI (e.g., '10.1016/j.bbalip.2013.12.002')"
                        autocomplete="off">
-                <button id="search-btn" class="search-btn">Search</button>
+                <button id="search-btn" type="submit" class="search-btn">Search</button>
             </div>
 
             <div class="filters">
@@ -324,6 +325,7 @@
                     <input type="number" id="topk-input" value="10" min="1" max="50">
                 </div>
             </div>
+            </form>
 
             <div id="error-container"></div>
 
@@ -350,7 +352,6 @@
 
         // DOM elements
         const searchInput = document.getElementById('search-input');
-        const searchBtn = document.getElementById('search-btn');
         const authorInput = document.getElementById('author-input');
         const yearMinInput = document.getElementById('year-min');
         const yearMaxInput = document.getElementById('year-max');
@@ -379,22 +380,24 @@
         }
 
         // Search by DOI (exact lookup)
-        async function searchByDOI(doi) {
+        async function searchByDOI(doi, signal) {
             const encodedDoi = encodeURIComponent(doi);
-            const response = await fetch(`/paper/${encodedDoi}/enriched`);
+            const response = await fetch(`/paper/${encodedDoi}/enriched`, { signal });
 
             if (response.status === 404) {
                 return { type: 'doi', found: false, doi: doi };
             }
 
-            response.raise_for_status;
+            if (!response.ok) {
+                throw new Error(`DOI lookup failed: ${response.status}`);
+            }
             const paper = await response.json();
             return { type: 'doi', found: true, paper: paper, doi: doi };
         }
 
         // Search by author
-        async function searchByAuthor(authorName, limit) {
-            const response = await fetch(`${RETRIEVAL_API_URL}/author/${encodeURIComponent(authorName)}/papers?limit=${limit}`);
+        async function searchByAuthor(authorName, limit, signal) {
+            const response = await fetch(`${RETRIEVAL_API_URL}/author/${encodeURIComponent(authorName)}/papers?limit=${limit}`, { signal });
             if (!response.ok) {
                 throw new Error(`Author search failed: ${response.status}`);
             }
@@ -402,7 +405,7 @@
         }
 
         // Hybrid search (with year filters)
-        async function hybridSearch(query, topK, yearMin, yearMax) {
+        async function hybridSearch(query, topK, yearMin, yearMax, signal) {
             const payload = {
                 query: query,
                 top_k: topK
@@ -418,7 +421,8 @@
             const response = await fetch(`${RETRIEVAL_API_URL}/search/hybrid`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(payload),
+                signal
             });
             if (!response.ok) {
                 throw new Error(`Hybrid search failed: ${response.status}`);
@@ -443,6 +447,30 @@
             return await response.json();
         }
 
+        // The author endpoint has no year parameter and returns newest first, so
+        // a year filter is applied here over this many of the author's papers.
+        const AUTHOR_YEAR_FETCH_LIMIT = 500;
+
+        // "2015-2020", "2015+" or "up to 2020"; empty without a range.
+        function yearRangeLabel(yearMin, yearMax) {
+            if (yearMin && yearMax) return `${yearMin}-${yearMax}`;
+            if (yearMin) return `${yearMin}+`;
+            if (yearMax) return `up to ${yearMax}`;
+            return '';
+        }
+
+        function inYearRange(paper, yearMin, yearMax) {
+            if (!paper.year) return false;
+            if (yearMin && paper.year < parseInt(yearMin)) return false;
+            if (yearMax && paper.year > parseInt(yearMax)) return false;
+            return true;
+        }
+
+        // The search in flight. A new one aborts it, so a slower, older answer
+        // can't overwrite newer results. The Search button stays enabled for
+        // this: a form's Enter key does nothing while its submit button is disabled.
+        let activeSearch = null;
+
         // Main search function
         async function search() {
             const query = searchInput.value.trim();
@@ -461,6 +489,11 @@
                 return;
             }
 
+            if (activeSearch) activeSearch.abort();
+            const controller = new AbortController();
+            activeSearch = controller;
+            const signal = controller.signal;
+
             // Show loading
             resultsContainer.innerHTML = `
                 <div class="vortex-loading">
@@ -471,7 +504,6 @@
             createVortex(document.getElementById('search-vortex'), 10, 7.0);
             createRotatingMessage(document.getElementById('search-loading-msg'), 'paper_search');
             errorContainer.innerHTML = '';
-            searchBtn.disabled = true;
 
             try {
                 let result;
@@ -481,20 +513,33 @@
                 if (query && isDOI(query)) {
                     searchType = 'doi';
                     const doi = extractDOI(query);
-                    result = await searchByDOI(doi);
+                    result = await searchByDOI(doi, signal);
+                    if (signal.aborted) return;
                     displayDOIResult(result);
                 }
                 // Priority 2: Author-only search (no topic query)
                 else if (authorFilter && !query) {
                     searchType = 'author';
-                    result = await searchByAuthor(authorFilter, topK);
-                    displayAuthorResults(result, authorFilter);
+                    const hasYears = yearMin || yearMax;
+                    const fetchLimit = hasYears ? AUTHOR_YEAR_FETCH_LIMIT : topK;
+                    result = await searchByAuthor(authorFilter, fetchLimit, signal);
+                    if (signal.aborted) return;
+                    if (hasYears) {
+                        const papers = result.papers || [];
+                        // At the limit, older papers may not have been returned.
+                        result.scanLimit = papers.length >= fetchLimit ? fetchLimit : 0;
+                        result.papers = papers
+                            .filter(paper => inYearRange(paper, yearMin, yearMax))
+                            .slice(0, topK);
+                    }
+                    displayAuthorResults(result, authorFilter, yearMin, yearMax);
                 }
                 // Priority 3: Combined search (topic + optional author/year filters)
                 else if (query) {
                     searchType = 'hybrid';
                     // Always use hybrid search when we have a query (supports year filters)
-                    result = await hybridSearch(query, topK * 3, yearMin, yearMax);  // Fetch more for filtering
+                    result = await hybridSearch(query, topK * 3, yearMin, yearMax, signal);  // Fetch more for filtering
+                    if (signal.aborted) return;
 
                     // Client-side author filtering if author filter is set
                     if (authorFilter && result.papers) {
@@ -514,6 +559,7 @@
                 }
 
             } catch (error) {
+                if (signal.aborted) return;
                 console.error('Search error:', error);
                 errorContainer.innerHTML = `
                     <div class="error">
@@ -522,8 +568,6 @@
                     </div>
                 `;
                 resultsContainer.innerHTML = '';
-            } finally {
-                searchBtn.disabled = false;
             }
         }
 
@@ -705,16 +749,19 @@
         }
 
         // Display author search results
-        async function displayAuthorResults(data, authorQuery) {
+        async function displayAuthorResults(data, authorQuery, yearMin, yearMax) {
             const papers = data.papers || [];
             const authorsFound = data.authors_found || [];
+            const yearRange = yearRangeLabel(yearMin, yearMax);
+            const yearDesc = yearRange ? ` (${yearRange})` : '';
+            const scanNote = data.scanLimit ? `Checked their ${data.scanLimit} most recent papers.` : '';
 
             if (papers.length === 0) {
                 resultsContainer.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">&#128100;</div>
-                        <p>No papers found for author: "${escapeHtml(authorQuery)}"</p>
-                        <p style="font-size: 14px; margin-top: 8px;">Try a different spelling or partial name.</p>
+                        <p>No papers found for author: "${escapeHtml(authorQuery)}"${yearDesc}</p>
+                        <p style="font-size: 14px; margin-top: 8px;">${yearRange ? `${scanNote} Try a wider year range.` : 'Try a different spelling or partial name.'}</p>
                     </div>
                 `;
                 return;
@@ -727,9 +774,9 @@
 
             let html = `
                 <div class="results-header">
-                    <span class="results-count">${papers.length} papers by "${escapeHtml(authorQuery)}"</span>
+                    <span class="results-count">${papers.length} papers by "${escapeHtml(authorQuery)}"${yearDesc}</span>
                     <span style="color: var(--text-secondary); font-size: 14px;">
-                        ${authorInfo ? `Matching: ${escapeHtml(authorInfo)}` : ''}
+                        ${authorInfo ? `Matching: ${escapeHtml(authorInfo)}` : ''} ${scanNote}
                     </span>
                 </div>
                 <div class="results-list">
@@ -793,9 +840,8 @@
 
             // Build filter description
             let filters = [];
-            if (yearMin && yearMax) filters.push(`${yearMin}-${yearMax}`);
-            else if (yearMin) filters.push(`${yearMin}+`);
-            else if (yearMax) filters.push(`up to ${yearMax}`);
+            const yearRange = yearRangeLabel(yearMin, yearMax);
+            if (yearRange) filters.push(yearRange);
             if (authorFilter) filters.push(`author: ${authorFilter}`);
             const filterDesc = filters.length > 0 ? ` (${filters.join(', ')})` : '';
 
@@ -875,9 +921,9 @@
         }
 
         // Event listeners
-        searchBtn.addEventListener('click', search);
-        searchInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') search();
+        document.getElementById('search-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            search();
         });
 
         // Fetch and display paper count
