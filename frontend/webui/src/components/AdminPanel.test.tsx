@@ -1,4 +1,5 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
 import { MOCK_ADMIN_ACTIVITY } from '../test/msw-handlers';
@@ -26,6 +27,62 @@ describe('AdminPanel', () => {
     render(<AdminPanel />);
     await waitFor(() => expect(screen.getByText(/failed/i)).toBeInTheDocument());
     expect(screen.queryByText('Online now')).not.toBeInTheDocument();
+  });
+
+  it('retries a failed load', async () => {
+    const user = userEvent.setup();
+    let fail = true;
+    server.use(http.get('/api/usage/admin/activity', () => (
+      fail ? new HttpResponse(null, { status: 500 }) : HttpResponse.json(MOCK_ADMIN_ACTIVITY)
+    )));
+
+    render(<AdminPanel />);
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+
+    fail = false;
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => expect(screen.getByText('Online now')).toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps the last data, with a notice, when the 30s refresh fails', async () => {
+    let calls = 0;
+    server.use(http.get('/api/usage/admin/activity', () => {
+      calls += 1;
+      return calls > 1 ? new HttpResponse(null, { status: 500 }) : HttpResponse.json(MOCK_ADMIN_ACTIVITY);
+    }));
+
+    vi.useFakeTimers();
+    try {
+      render(<AdminPanel />);
+      await vi.waitFor(() => expect(screen.getByText('All tracked users', { exact: false })).toBeInTheDocument());
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      await vi.waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/could not refresh/i));
+
+      expect(screen.getByText('All tracked users', { exact: false })).toBeInTheDocument();
+      expect(screen.getByText('Online now')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('scrolls a newly chosen tab into view inside the tab row', async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      render(<AdminPanel />);
+      const groups = screen.getByRole('button', { name: 'Groups' });
+      expect(groups.closest('.overflow-x-auto')).not.toBeNull();
+
+      await user.click(groups);
+
+      expect(scrollIntoView.mock.contexts).toContain(groups);
+    } finally {
+      delete (Element.prototype as Partial<Element>).scrollIntoView;
+    }
   });
 
   // The panel refreshes activity and usage on a 30s timer. The old
