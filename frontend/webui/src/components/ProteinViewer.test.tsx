@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
@@ -57,7 +57,8 @@ describe('ProteinViewer', () => {
   });
 
   it('sends a change of style, colour, spin and view to the frame', async () => {
-    const { post } = await readyFrame_();
+    const { post, send } = await readyFrame_();
+    send({ type: 'rendered', atoms: 3 });
     await userEvent.selectOptions(screen.getByLabelText('Style'), 'sphere');
     expect(lastState(post).style).toBe('sphere');
     await userEvent.selectOptions(screen.getByLabelText('Color'), 'spectrum');
@@ -107,12 +108,74 @@ describe('ProteinViewer', () => {
     expect(screen.getByRole('alert').querySelector('b')).toBeNull();
   });
 
+  it('recovers through Retry after a failed load', async () => {
+    let fail = true;
+    server.use(http.get(URL_PATH, () => fail
+      ? HttpResponse.json({ detail: { error: { message: 'no PDB entry 1CRN' } } }, { status: 502 })
+      : HttpResponse.json({ format: 'pdb', data: 'ATOM' })));
+    renderViewer();
+    await screen.findByRole('alert');
+
+    fail = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByTestId('widget-frame')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByTestId('protein-viewer')).toHaveAttribute('data-status', 'loading');
+  });
+
+  it('retries after the viewer itself reports a failure', async () => {
+    renderViewer();
+    const { send } = await readyFrame();
+    send({ type: 'rendered', atoms: 3 });
+    send({ type: 'error', message: 'WebGL is unavailable' });
+    expect(screen.queryByTestId('widget-frame')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByTestId('widget-frame')).toBeInTheDocument();
+    expect(screen.getByTestId('protein-viewer')).toHaveAttribute('data-status', 'loading');
+  });
+
+  it('points to the database from the error', async () => {
+    server.use(http.get(URL_PATH, () => new HttpResponse(null, { status: 502 })));
+    renderViewer();
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByRole('link', { name: 'Open on RCSB' })).toHaveAttribute('href', 'https://www.rcsb.org/structure/1CRN');
+  });
+
+  it('keeps the controls disabled until the structure is drawn, and in an error', async () => {
+    renderViewer();
+    expect(screen.getByLabelText('Style')).toBeDisabled();
+    const { send } = await readyFrame();
+    expect(screen.getByRole('button', { name: 'Reset view' })).toBeDisabled();
+
+    send({ type: 'rendered', atoms: 3 });
+    await waitFor(() => expect(screen.getByLabelText('Style')).toBeEnabled());
+    expect(screen.getByRole('button', { name: 'Spin' })).toBeEnabled();
+
+    send({ type: 'error', message: 'WebGL is unavailable' });
+    expect(screen.getByLabelText('Color')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Spin' })).toBeDisabled();
+  });
+
   it('marks itself rendered when the viewer says so', async () => {
     renderViewer();
     expect(screen.getByTestId('protein-viewer')).toHaveAttribute('data-status', 'loading');
     const { send } = await readyFrame();
     send({ type: 'rendered', atoms: 3 });
     await waitFor(() => expect(screen.getByTestId('protein-viewer')).toHaveAttribute('data-status', 'rendered'));
+  });
+
+  it('carries the title only where nothing above it does', async () => {
+    const { unmount } = renderViewer(SPEC, vi.fn());
+    expect(screen.getByText('Crambin')).toBeInTheDocument();
+    await screen.findByTestId('widget-frame');
+    unmount();
+    renderViewer();
+    expect(screen.queryByText('Crambin')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'RCSB' })).toBeInTheDocument();
+    await screen.findByTestId('widget-frame');
   });
 
   it('offers Expand only when it can expand', async () => {

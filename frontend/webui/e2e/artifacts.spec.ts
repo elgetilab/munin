@@ -58,7 +58,7 @@ test.describe('artifacts', () => {
     await sendFor(page, 'write a report');
     await openArtifacts(page);
     // The "back to list" control (a left-arrow) returns to the list view.
-    await page.getByTestId('artifact-panel').getByRole('button', { name: '←' }).click();
+    await page.getByTestId('artifact-panel').getByRole('button', { name: 'Back to artifact list' }).click();
     await expect(page.getByTestId('artifact-item').filter({ hasText: 'Report One' })).toBeVisible();
   });
 });

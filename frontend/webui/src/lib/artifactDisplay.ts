@@ -107,6 +107,24 @@ export function isWidget(ref: { content_type: string }): boolean {
   return ref.content_type === WIDGET_CONTENT_TYPE;
 }
 
+// What artifact_store.register_sandbox_artifact stores when the bytes live in
+// the sandbox: a sentence for the model, not the file.
+const SANDBOX_PLACEHOLDER_PREFIX = '[Sandbox-generated file:';
+
+/** True when an artifact's body only points at a file held elsewhere. */
+export function isFilePlaceholder(artifact: { source?: string; content?: string | null }): boolean {
+  const body = artifact.content ?? '';
+  return body.startsWith(SANDBOX_PLACEHOLDER_PREFIX)
+    || (artifact.source === 'sandbox_generated' && !body.trim());
+}
+
+/** A sandbox file's size. Its record has none, but the placeholder states it. */
+export function fileSizeBytes(artifact: { size_bytes?: number; content?: string | null }): number | null {
+  if (artifact.size_bytes) return artifact.size_bytes;
+  const stated = artifact.content?.match(/^\[Sandbox-generated file:.*, (\d+) bytes\)/s);
+  return stated ? Number(stated[1]) : null;
+}
+
 // The model can rewrite a spec with update_artifact, so a stored one is checked
 // before use, and anything unknown falls back rather than reaching the viewer.
 export function parseProteinSpec(content: string): ProteinSpec | null {

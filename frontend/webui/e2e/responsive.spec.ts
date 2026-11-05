@@ -46,16 +46,16 @@ test.describe('panels', () => {
       const artifacts = page.getByTestId('artifact-panel');
       await expect(artifacts).toHaveCSS('position', 'fixed');
       expect((await artifacts.boundingBox())?.width).toBe(width);
-      await artifacts.getByRole('button', { name: '←' }).click();
+      await artifacts.getByRole('button', { name: 'Back to artifact list' }).click();
       await expect(page.getByTestId('artifact-item')).toBeVisible();
-      await artifacts.getByRole('button', { name: '✕' }).click();
+      await artifacts.getByRole('button', { name: 'Close artifacts' }).click();
       await expect(artifacts).toBeHidden();
 
       await page.getByRole('button', { name: 'Sources', exact: true }).click();
       const knowledge = page.getByTestId('knowledge-panel');
       await expect(knowledge).toHaveCSS('position', 'fixed');
       expect((await knowledge.boundingBox())?.width).toBe(width);
-      await knowledge.getByRole('button', { name: '✕' }).click();
+      await knowledge.getByRole('button', { name: 'Close knowledge panel' }).click();
       await expect(knowledge).toBeHidden();
     });
   }
@@ -78,7 +78,7 @@ test.describe('header', () => {
     await installMocks(page, { chatScript: script() });
     await page.goto('/');
     await send(page);
-    await page.getByTestId('artifact-panel').getByRole('button', { name: '✕' }).click();
+    await page.getByTestId('artifact-panel').getByRole('button', { name: 'Close artifacts' }).click();
 
     await expect(page.getByTestId('artifacts-button')).toHaveCSS('height', '26px');
     expect(await horizontalOverflow(page)).toBe(0);
@@ -94,7 +94,7 @@ test.describe('header', () => {
     await installMocks(page, { chatScript: script() });
     await page.goto('/');
     await send(page);
-    await page.getByTestId('artifact-panel').getByRole('button', { name: '✕' }).click();
+    await page.getByTestId('artifact-panel').getByRole('button', { name: 'Close artifacts' }).click();
     expect(await horizontalOverflow(page)).toBe(0);
   });
 });
@@ -207,13 +207,13 @@ test.describe('busy header', () => {
       }));
       await page.goto('/');
       await send(page);
-      await page.getByTestId('artifact-panel').getByRole('button', { name: '✕' }).click();
+      await page.getByTestId('artifact-panel').getByRole('button', { name: 'Close artifacts' }).click();
 
       await page.getByTitle('Choose which sources to search').click();
       const knowledge = page.getByTestId('knowledge-panel');
       await knowledge.getByRole('button', { name: 'Topics (3)' }).click();
       for (const { label } of topics) await knowledge.getByRole('button', { name: label }).click();
-      await knowledge.getByRole('button', { name: '✕' }).first().click();
+      await knowledge.getByRole('button', { name: 'Close knowledge panel' }).click();
 
       const toggle = page.getByRole('button', { name: /sidebar$/ });
       if ((await toggle.getAttribute('aria-label')) !== (sidebar === 'open' ? 'Hide sidebar' : 'Show sidebar')) await toggle.click();

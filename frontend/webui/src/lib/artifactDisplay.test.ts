@@ -1,6 +1,8 @@
 import {
   artifactRefsFromToolCalls,
+  fileSizeBytes,
   isEmbeddedInText,
+  isFilePlaceholder,
   isInlinePreview,
   isWidget,
   parseProteinSpec,
@@ -27,6 +29,26 @@ function call(name: string, result: unknown): ToolCall {
 function ref(overrides: Partial<ArtifactRef> = {}): ArtifactRef {
   return { id: 'a', title: 't', content_type: 'image/png', source: 'sandbox_generated', external_url: '/api/artifacts/c1/a', ...overrides };
 }
+
+describe('sandbox file bodies', () => {
+  const placeholder = '[Sandbox-generated file: a.bin (application/octet-stream, 2048 bytes). The actual bytes live in the sandbox container; fetch them via GET /api/artifacts/c/h.]';
+
+  it('recognises the stored placeholder and an empty sandbox body', () => {
+    expect(isFilePlaceholder({ source: 'sandbox_generated', content: placeholder })).toBe(true);
+    expect(isFilePlaceholder({ source: 'sandbox_generated', content: '  ' })).toBe(true);
+  });
+
+  it('leaves real text alone, including text a sandbox file stores', () => {
+    expect(isFilePlaceholder({ source: 'sandbox_generated', content: '\\documentclass{article}' })).toBe(false);
+    expect(isFilePlaceholder({ source: 'model_written', content: '' })).toBe(false);
+  });
+
+  it('reads the size from the record or the placeholder', () => {
+    expect(fileSizeBytes({ size_bytes: 10, content: placeholder })).toBe(10);
+    expect(fileSizeBytes({ content: placeholder })).toBe(2048);
+    expect(fileSizeBytes({ content: 'a paper, 2048 bytes)' })).toBeNull();
+  });
+});
 
 describe('artifactRefsFromToolCalls', () => {
   it('returns nothing without tool calls', () => {
