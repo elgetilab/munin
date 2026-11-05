@@ -124,4 +124,141 @@ describe('ProjectSettings', () => {
 
     expect(capturedBody!.archived).toBe(true);
   });
+
+  describe('clearing fields', () => {
+    it.each([
+      ['description', 'Machine learning stuff'],
+      ['instructions', 'Focus on transformers'],
+    ])('sends null for an emptied %s', async (field, value) => {
+      const user = userEvent.setup();
+      let body: Record<string, unknown> = {};
+      server.use(
+        http.get('/api/projects/p1', () => HttpResponse.json(mockProject)),
+        http.patch('/api/projects/p1', async ({ request }) => {
+          body = await request.json() as Record<string, unknown>;
+          return HttpResponse.json({ ...mockProject, ...body });
+        }),
+      );
+      const { props } = renderSettings();
+      await user.clear(screen.getByDisplayValue(value));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(props.onUpdated).toHaveBeenCalled());
+      expect(body).toHaveProperty(field, null);
+    });
+
+    it('sends null when the persona goes back to the global default', async () => {
+      const user = userEvent.setup();
+      const project = { ...mockProject, default_persona: 'code' };
+      let body: Record<string, unknown> = {};
+      server.use(
+        http.get('/api/projects/p1', () => HttpResponse.json(project)),
+        http.patch('/api/projects/p1', async ({ request }) => {
+          body = await request.json() as Record<string, unknown>;
+          return HttpResponse.json({ ...project, ...body });
+        }),
+      );
+      const { props } = renderSettings({ project });
+      await user.selectOptions(screen.getByDisplayValue('Turing - Code'), 'Use global default');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(props.onUpdated).toHaveBeenCalled());
+      expect(body).toHaveProperty('default_persona', null);
+    });
+  });
+
+  describe('limits', () => {
+    it('matches the limits the server enforces', async () => {
+      server.use(http.get('/api/projects/p1', () => HttpResponse.json(mockProject)));
+      renderSettings();
+      expect(screen.getByDisplayValue('ML Research')).toHaveAttribute('maxlength', '200');
+      expect(screen.getByDisplayValue('Machine learning stuff')).toHaveAttribute('maxlength', '1000');
+      expect(screen.getByDisplayValue('Focus on transformers')).toHaveAttribute('maxlength', '2000');
+      expect(screen.getByText(`${mockProject.instructions.length}/2000`)).toBeInTheDocument();
+    });
+
+    it("shows the server's reason when a save is rejected", async () => {
+      const user = userEvent.setup();
+      server.use(http.patch('/api/projects/p1', () => HttpResponse.json(
+        { detail: { error: { message: 'instructions exceed 2000-character cap (got 2001)' } } },
+        { status: 400 },
+      )));
+      renderSettings();
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+      expect(await screen.findByText('instructions exceed 2000-character cap (got 2001)')).toBeInTheDocument();
+    });
+  });
+
+  describe('loading', () => {
+    const projectB: Project = { ...mockProject, id: 'p9', name: 'Other', description: 'Other notes', instructions: 'Other rules' };
+    const props = { personas: mockPersonas, onClose: vi.fn(), onUpdated: vi.fn() };
+
+    it("shows the new project's values at once when another project is opened", async () => {
+      server.use(
+        http.get('/api/projects/p1', () => HttpResponse.json(mockProject)),
+        // Never answers, so what is on screen can only have come from the prop.
+        http.get('/api/projects/p9', () => new Promise<Response>(() => {})),
+      );
+      const { rerender } = render(<ProjectSettings {...props} project={mockProject} />);
+      rerender(<ProjectSettings {...props} project={projectB} />);
+      expect(screen.getByDisplayValue('Other')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('Other notes')).toBeInTheDocument();
+      expect(screen.queryByDisplayValue('ML Research')).not.toBeInTheDocument();
+    });
+
+    it("drops a slow response for the project that was left", async () => {
+      let finishA!: () => void;
+      const heldA = new Promise<void>(resolve => { finishA = resolve; });
+      let answeredA = false;
+      server.use(
+        http.get('/api/projects/p1', async () => {
+          await heldA;
+          answeredA = true;
+          return HttpResponse.json(mockProject);
+        }),
+        http.get('/api/projects/p9', () => HttpResponse.json(projectB)),
+      );
+      const { rerender } = render(<ProjectSettings {...props} project={mockProject} />);
+      rerender(<ProjectSettings {...props} project={projectB} />);
+      finishA();
+      await waitFor(() => expect(answeredA).toBe(true));
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(screen.getByDisplayValue('Other')).toBeInTheDocument();
+      expect(screen.queryByDisplayValue('ML Research')).not.toBeInTheDocument();
+    });
+
+    it('a late response does not overwrite what the user typed', async () => {
+      const user = userEvent.setup();
+      let finish!: () => void;
+      const held = new Promise<void>(resolve => { finish = resolve; });
+      let answered = false;
+      server.use(http.get('/api/projects/p1', async () => {
+        await held;
+        answered = true;
+        return HttpResponse.json({ ...mockProject, description: 'From the server' });
+      }));
+      renderSettings();
+      const description = screen.getByDisplayValue('Machine learning stuff');
+      await user.clear(description);
+      await user.type(description, 'Typed');
+      finish();
+      await waitFor(() => expect(answered).toBe(true));
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(description).toHaveValue('Typed');
+    });
+
+    it('shows a failed load and keeps Save off until Retry works', async () => {
+      const user = userEvent.setup();
+      let fail = true;
+      server.use(http.get('/api/projects/p1', () => (fail
+        ? new HttpResponse(null, { status: 500 })
+        : HttpResponse.json({ ...mockProject, description: 'Fresh' }))));
+      renderSettings();
+      expect(await screen.findByRole('alert')).toHaveTextContent(/Could not load this project/);
+      expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+      fail = false;
+      await user.click(screen.getByRole('button', { name: 'Retry' }));
+      await waitFor(() => expect(screen.getByDisplayValue('Fresh')).toBeInTheDocument());
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+    });
+  });
 });
