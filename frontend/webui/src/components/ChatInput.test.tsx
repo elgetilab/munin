@@ -142,11 +142,11 @@ describe('Composer accessibility', () => {
 });
 
 describe('Disabled menu items explain themselves', () => {
-  it('shows the reason as text in ephemeral chats', () => {
+  it('shows the reason as text in temporary chats', () => {
     workspaceState.isEphemeral = true;
     renderChatInput();
     fireEvent.click(screen.getByTestId('composer-attach'));
-    expect(screen.getAllByText('Not available in ephemeral chats')).toHaveLength(2);
+    expect(screen.getAllByText('Not available in temporary chats')).toHaveLength(2);
     expect(screen.getByRole('menuitem', { name: /Upload file/ })).toBeDisabled();
     expect(screen.queryByText(/\(disabled\)/)).not.toBeInTheDocument();
   });
@@ -414,12 +414,12 @@ describe('ChatInput drag-and-drop routing (handleDroppedFiles)', () => {
     expect(uploadDocumentMock).not.toHaveBeenCalled();
   });
 
-  it('blocks document upload in ephemeral chats', async () => {
+  it('blocks document upload in temporary chats', async () => {
     workspaceState.isEphemeral = true;
     const ref = renderChatInput();
     await act(async () => { await ref.current!.handleDroppedFiles([file('paper.pdf', 'application/pdf')]); });
     expect(uploadDocumentMock).not.toHaveBeenCalled();
-    expect(screen.getByText(/disabled in ephemeral/i)).toBeInTheDocument();
+    expect(screen.getByText(/disabled in temporary/i)).toBeInTheDocument();
   });
 
   it('routes a mixed drop: image thumbnail + document upload', async () => {

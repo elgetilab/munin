@@ -588,10 +588,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       }
     }
     // Documents upload one at a time (the banner tracks a single upload).
-    // Document upload is disabled in ephemeral chats, mirroring the menu.
+    // Document upload is disabled in temporary chats, mirroring the menu.
     for (const f of docs) {
       if (isEphemeral) {
-        setUploadState({ file: f, progress: 0, status: 'error', error: 'File upload is disabled in ephemeral chats' });
+        setUploadState({ file: f, progress: 0, status: 'error', error: 'File upload is disabled in temporary chats' });
         break;
       }
       await handleFileSelect(f);
@@ -914,7 +914,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   </svg>
                   <span className="flex-1 min-w-0">
                     <span className="block">Upload file</span>
-                    {isEphemeral && <span className="block text-[11px]">Not available in ephemeral chats</span>}
+                    {isEphemeral && <span className="block text-[11px]">Not available in temporary chats</span>}
                   </span>
                 </button>
                 <button
@@ -966,7 +966,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   <span className="flex-1 min-w-0">
                     <span className="block">Deep Research</span>
                     <span className="block text-[11px] text-text-secondary">
-                      {isEphemeral ? 'Not available in ephemeral chats'
+                      {isEphemeral ? 'Not available in temporary chats'
                         : drActive ? 'A research report is already running'
                         : 'Slower, multi-source report that runs in the background'}
                     </span>
