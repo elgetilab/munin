@@ -9,6 +9,9 @@
 
 # ── Shared Snippets ──────────────────────────────────────────────────────────
 (auth) {
+	# Make the browser ask again each time. Otherwise it reuses a saved page without
+	# reaching forward_auth, and someone signed out gets a page that cannot load.
+	header ?Cache-Control "no-cache"
 	forward_auth 127.0.0.1:8090 {
 		uri /auth/check
 		copy_headers X-Munin-Email X-Munin-Name X-Munin-Role X-Munin-Group
@@ -105,6 +108,8 @@ chat.{$MUNIN_DOMAIN} {
 	}
 	handle {
 		root * /srv/static/chat
+		# Built files have a hash in their name, so they never change.
+		header /assets/* Cache-Control "public, max-age=31536000, immutable"
 		try_files {path} /index.html
 		file_server
 	}

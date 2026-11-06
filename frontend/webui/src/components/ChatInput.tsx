@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
 import type { ReactNode } from 'react';
 import type { Persona, PromptSuggestion, TagCatalog, TagChip } from '../lib/types';
-import { uploadDocument, startDeepResearch } from '../lib/api';
+import { uploadDocument, cancelUpload, startDeepResearch } from '../lib/api';
 import type { UploadedDocument } from '../lib/api';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useChatStore } from '../stores/chatStore';
@@ -255,6 +255,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const uploadAbortRef = useRef<AbortController | null>(null);
+  const uploadIdRef = useRef<string | null>(null);
 
   // Slash command matching
   const slashMatches = useMemo(() => {
@@ -529,11 +530,13 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     setUploadState({ file, progress: 0, status: 'uploading' });
     const abort = new AbortController();
     uploadAbortRef.current = abort;
+    const uploadId = crypto.randomUUID();
+    uploadIdRef.current = uploadId;
 
     try {
       const doc = await uploadDocument(file, conversationId, (pct) => {
         setUploadState(s => s ? { ...s, progress: pct } : null);
-      }, abort.signal);
+      }, abort.signal, uploadId);
       setUploadState({ file, progress: 100, status: 'done', result: doc });
       // Hold the doc as a pending attachment so it's sent with the next message
       // (deduped by document_id in case of a re-upload).
@@ -660,7 +663,22 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               </>
             )}
             <button
-              onClick={() => { if (uploading) uploadAbortRef.current?.abort(); setUploadState(null); }}
+              onClick={() => {
+                const { file } = uploadState;
+                const uploadId = uploadIdRef.current;
+                if (uploading) {
+                  uploadAbortRef.current?.abort();
+                  if (uploadId) {
+                    cancelUpload(uploadId).catch(() => setUploadState({
+                      file,
+                      progress: 0,
+                      status: 'error',
+                      error: `${file.name} was cancelled here, but the server may have kept it.`,
+                    }));
+                  }
+                }
+                setUploadState(null);
+              }}
               aria-label={uploading ? 'Cancel upload' : 'Dismiss'}
               title={uploading ? 'Cancel upload' : undefined}
               className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity cursor-pointer text-xs"

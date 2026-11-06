@@ -4,6 +4,7 @@ Database connections and embedder initialization for the Munin Retrieval Service
 
 import logging
 import os
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -364,14 +365,35 @@ def encode_paper_doc(text: str) -> list[float]:
     return get_paper_encoder().encode(text).tolist()
 
 
+class _OneAtATimeEncoder:
+    """The model, used by one thread at a time.
+
+    Uploads embed in a worker thread while queries embed on the event loop, and a
+    fast tokenizer can raise "Already borrowed" when threads share it. Uploads hold
+    this for one small batch at a time (document_store.EMBED_BATCH_SIZE), so a query
+    waits for that batch and not for the whole document.
+    """
+
+    def __init__(self, model) -> None:
+        self._model = model
+        self._lock = threading.Lock()
+
+    def encode(self, *args, **kwargs):
+        with self._lock:
+            return self._model.encode(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._model, name)
+
+
 def get_bge():
     """Get or initialize BGE embedder for general content."""
     global _bge
     if _bge is None:
         try:
             from sentence_transformers import SentenceTransformer
-            _bge = SentenceTransformer(
-                local_model_or_hub(BGE_MODEL_PATH, "BAAI/bge-base-en-v1.5"))
+            _bge = _OneAtATimeEncoder(SentenceTransformer(
+                local_model_or_hub(BGE_MODEL_PATH, "BAAI/bge-base-en-v1.5")))
             logger.info("BGE model loaded")
         except Exception:
             logger.exception("Failed to load BGE")

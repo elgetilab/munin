@@ -25,7 +25,7 @@ vi.mock('../stores/userStore', () => ({
 vi.mock('../stores/workspaceStore', () => ({
   useWorkspaceStore: (selector: (s: typeof workspaceState) => unknown) => selector(workspaceState),
 }));
-vi.mock('../lib/api', () => ({ uploadDocument: uploadDocumentMock, startDeepResearch: startDeepResearchMock }));
+vi.mock('../lib/api', () => ({ uploadDocument: uploadDocumentMock, cancelUpload: () => Promise.resolve(), startDeepResearch: startDeepResearchMock }));
 
 function renderChatInput() {
   const ref = createRef<ChatInputHandle>();

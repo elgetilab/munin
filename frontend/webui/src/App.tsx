@@ -29,7 +29,7 @@ import { KnowledgePage } from './components/KnowledgePage';
 import { ErrorNotice } from './components/ui/ErrorNotice';
 import { useModal } from './hooks/useModal';
 import type { Project } from './lib/types';
-import { DOCS_URL, SEARCH_URL, SITE_HOME, UPLOAD_URL } from './lib/urls';
+import { AUTH_BASE, DOCS_URL, SEARCH_URL, SITE_HOME, UPLOAD_URL } from './lib/urls';
 import { conversationPath, correctChatPath, dropStaleOverlayEntry, finishAppPath, isModifiedClick, popClosedOverlay, pushAppPath, readOverlayEntry, syncChatPath, syncOverlayHistory } from './lib/nav';
 
 // Tailwind's md breakpoint, below which the sidebar is a drawer over the page.
@@ -174,7 +174,14 @@ export default function App() {
         setUserProfile(res);
         setGreeting(getGreeting(res.name));
       })
-      .catch(() => {
+      .catch((e: unknown) => {
+        // Signed out, but this page came from the browser's cache or an open tab,
+        // so Caddy never got to redirect. Nothing here can work without a session,
+        // and the login page does not bounce back, so this cannot loop.
+        if ((e as { status?: number }).status === 401) {
+          window.location.assign(`${AUTH_BASE}/login?redirect=${encodeURIComponent(window.location.href)}`);
+          return;
+        }
         setGreeting(getGreeting(null));
       });
   }, [setGreeting, setUserProfile]);

@@ -76,7 +76,7 @@ export interface UserProfile {
 
 export async function fetchMe(): Promise<UserProfile> {
   const res = await fetch(`${AUTH_BASE}/auth/me`, { credentials: 'include' });
-  if (!res.ok) throw new Error('Failed to fetch user info');
+  if (!res.ok) throw Object.assign(new Error('Failed to fetch user info'), { status: res.status });
   return res.json();
 }
 
@@ -555,6 +555,7 @@ export async function uploadDocument(
   conversationId?: string | null,
   onProgress?: (pct: number) => void,
   signal?: AbortSignal,
+  uploadId?: string,
 ): Promise<UploadedDocument> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -593,8 +594,15 @@ export async function uploadDocument(
     const form = new FormData();
     form.append('file', file);
     if (conversationId) form.append('conversation_id', conversationId);
+    if (uploadId) form.append('upload_id', uploadId);
     xhr.send(form);
   });
+}
+
+/** Aborting the request does not stop the server, so this removes the document too. */
+export async function cancelUpload(uploadId: string): Promise<void> {
+  const res = await fetch(`${API}/documents/upload/${encodeURIComponent(uploadId)}/cancel`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to cancel upload');
 }
 
 export async function fetchDocuments(conversationId?: string): Promise<{ documents: UploadedDocument[] }> {
