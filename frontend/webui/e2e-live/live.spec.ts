@@ -174,11 +174,10 @@ test('Cancel during an upload removes the document on the server too', async ({ 
     await expect(page.getByText(/Uploading /)).toBeHidden();
     await expect(page.getByText(/server may have kept it/)).toBeHidden();
 
-    // Long enough for the upload to have finished on the server.
-    for (let i = 0; i < 12; i++) {
-      await page.waitForTimeout(5_000);
-      expect(await docsNamed(page, name), `after ${(i + 1) * 5} s`).toEqual([]);
-    }
+    // The file is listed until embedding, which cannot be interrupted, has finished.
+    await expect.poll(() => docsNamed(page, name), { timeout: 120_000, intervals: [2_000] }).toEqual([]);
+    await page.waitForTimeout(10_000);
+    expect(await docsNamed(page, name), 'and it stays gone').toEqual([]);
   } finally {
     await deleteDocs(page, name);
   }
