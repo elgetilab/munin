@@ -32,6 +32,8 @@ interface UiState {
   showInstallBanner: boolean;
   artifactPanelOpen: boolean;
   selectedArtifactId: string | null;
+  // The artifact editor holds a change that has not been saved.
+  artifactDraftChanged: boolean;
   knowledgePanelOpen: boolean;
   // True/string opens the knowledge page (string = initial route);
   // false hides it. Same triple-shape the original useState had.
@@ -59,6 +61,7 @@ interface UiState {
   // other. That keeps a header pill's state in step with what is showing.
   setArtifactPanelOpen: (open: boolean) => void;
   setSelectedArtifactId: (id: string | null) => void;
+  setArtifactDraftChanged: (changed: boolean) => void;
   setKnowledgePanelOpen: (open: boolean) => void;
   setShowKnowledgePage: (value: string | true | false) => void;
   setSidebarOpen: (open: boolean) => void;
@@ -98,6 +101,7 @@ export const useUiStore = create<UiState>()(
       showInstallBanner: false,
       artifactPanelOpen: false,
       selectedArtifactId: null,
+      artifactDraftChanged: false,
       knowledgePanelOpen: false,
       showKnowledgePage: false,
 
@@ -118,6 +122,7 @@ export const useUiStore = create<UiState>()(
         if (open) state.knowledgePanelOpen = false;
       }),
       setSelectedArtifactId: (id) => set(state => { state.selectedArtifactId = id; }),
+      setArtifactDraftChanged: (changed) => set(state => { state.artifactDraftChanged = changed; }),
       setKnowledgePanelOpen: (open) => set(state => {
         state.knowledgePanelOpen = open;
         if (open) state.artifactPanelOpen = false;
@@ -160,6 +165,7 @@ export function _resetUiStoreForTests(): void {
     showInstallBanner: false,
     artifactPanelOpen: false,
     selectedArtifactId: null,
+    artifactDraftChanged: false,
     knowledgePanelOpen: false,
     showKnowledgePage: false,
     sidebarOpen: _defaultSidebarOpen(),

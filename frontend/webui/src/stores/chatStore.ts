@@ -156,6 +156,8 @@ interface ChatState {
   conversationPersona: string | null;
   streaming: StreamingState;
   error: string | null;
+  // Whether `error` is about a chat that could not be read, not about a reply.
+  loadFailed: boolean;
   artifacts: ArtifactSummary[];
   lastArtifactEvent: ArtifactCreatedEvent | ArtifactUpdatedEvent | null;
   /**
@@ -246,6 +248,7 @@ export const useChatStore = create<ChatState>()(
     conversationPersona: null,
     streaming: INITIAL_STREAMING,
     error: null,
+    loadFailed: false,
     artifacts: [],
     lastArtifactEvent: null,
     charsPerSec: DEFAULT_CHARS_PER_SEC,
@@ -258,6 +261,7 @@ export const useChatStore = create<ChatState>()(
     loadConversation: async (id: string) => {
       set(state => {
         state.error = null;
+        state.loadFailed = false;
       });
       try {
         const chat = await fetchChat(id);
@@ -323,6 +327,7 @@ export const useChatStore = create<ChatState>()(
       } catch (e) {
         set(state => {
           state.error = e instanceof Error ? e.message : 'Failed to load conversation';
+          state.loadFailed = true;
         });
         return null;
       }
@@ -335,6 +340,7 @@ export const useChatStore = create<ChatState>()(
         state.conversationPersona = null;
         state.streaming = INITIAL_STREAMING;
         state.error = null;
+        state.loadFailed = false;
         state.artifacts = [];
         state.lastArtifactEvent = null;
       }),
@@ -350,6 +356,7 @@ export const useChatStore = create<ChatState>()(
     ) => {
       set(state => {
         state.error = null;
+        state.loadFailed = false;
       });
 
       if (!resumeOpts) {
@@ -873,6 +880,7 @@ export const useChatStore = create<ChatState>()(
             set(state => {
               state.messages.push(interruptedMessage);
               state.error = event.data.message;
+              state.loadFailed = false;
               state.streaming = INITIAL_STREAMING;
             });
             break;
@@ -998,6 +1006,7 @@ export const useChatStore = create<ChatState>()(
           set(state => {
             state.messages.push(interruptedMessage);
             state.error = reason;
+            state.loadFailed = false;
             state.streaming = INITIAL_STREAMING;
           });
         }
@@ -1069,6 +1078,7 @@ export function _resetChatStoreForTests(): void {
     conversationPersona: null,
     streaming: INITIAL_STREAMING,
     error: null,
+    loadFailed: false,
     artifacts: [],
     lastArtifactEvent: null,
     // Tests assert on streaming.content synchronously after dispatching

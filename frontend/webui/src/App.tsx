@@ -30,7 +30,7 @@ import { ErrorNotice } from './components/ui/ErrorNotice';
 import { useModal } from './hooks/useModal';
 import type { Project } from './lib/types';
 import { DOCS_URL, SEARCH_URL, SITE_HOME, UPLOAD_URL } from './lib/urls';
-import { conversationPath, dropStaleOverlayEntry, isModifiedClick, pushAppPath, readOverlayEntry, syncOverlayHistory } from './lib/nav';
+import { conversationPath, correctChatPath, dropStaleOverlayEntry, finishAppPath, isModifiedClick, popClosedOverlay, pushAppPath, readOverlayEntry, syncChatPath, syncOverlayHistory } from './lib/nav';
 
 // Tailwind's md breakpoint, below which the sidebar is a drawer over the page.
 const BELOW_MD = '(width < 48rem)';
@@ -53,6 +53,11 @@ const PILL_BASE = 'text-xs px-2.5 py-1 rounded-full whitespace-nowrap md:whitesp
 const PILL_OFF = 'bg-bg-tertiary border-border text-text-secondary hover:text-text-primary';
 const PILL_ACCENT = 'bg-accent/15 border-accent text-accent';
 const DISMISS_BUTTON = 'flex-shrink-0 min-w-8 min-h-8 -my-1 flex items-center justify-center opacity-80 hover:opacity-100 transition-opacity cursor-pointer text-xs';
+
+// From xl up the artifact panel sits beside controls that can take it away.
+function mayDropArtifactDraft(): boolean {
+  return !useUiStore.getState().artifactDraftChanged || window.confirm('Discard your changes to this artifact?');
+}
 
 export default function App() {
   const status = useStatus();
@@ -116,6 +121,7 @@ export default function App() {
   const conversationPersona = useChatStore(s => s.conversationPersona);
   const streaming = useChatStore(s => s.streaming);
   const error = useChatStore(s => s.error);
+  const loadFailed = useChatStore(s => s.loadFailed);
   const artifacts = useChatStore(s => s.artifacts);
   const setArtifacts = useChatStore(s => s.setArtifacts);
   const lastArtifactEvent = useChatStore(s => s.lastArtifactEvent);
@@ -266,7 +272,7 @@ export default function App() {
     if (/^\/knowledge(\/|$)/.test(currentPath) || initialChatLoading.current) return;
     const expectedPath = conversationId ? conversationPath(conversationId) : '/';
     if (currentPath !== expectedPath) {
-      pushAppPath(expectedPath);
+      syncChatPath(expectedPath);
     }
   }, [conversationId, showDemo]);
 
@@ -401,6 +407,7 @@ export default function App() {
   }, [setSidebarOpen]);
 
   const handleSelectChat = useCallback((id: string) => {
+    if (id !== useChatStore.getState().conversationId && !mayDropArtifactDraft()) return;
     setIsEphemeral(false);
     setActiveProjectId(null);
     setEditingProject(null);
@@ -409,6 +416,7 @@ export default function App() {
   }, [loadConversation, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin]);
 
   const handleNewChat = useCallback(() => {
+    if (!mayDropArtifactDraft()) return;
     setIsEphemeral(false);
     setActiveProjectId(null);
     setEditingProject(null);
@@ -418,6 +426,7 @@ export default function App() {
   }, [clearConversation, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin]);
 
   const handleNewChatInProject = useCallback((projectId: string) => {
+    if (!mayDropArtifactDraft()) return;
     setIsEphemeral(false);
     setActiveProjectId(projectId);
     setEditingProject(null);
@@ -438,6 +447,7 @@ export default function App() {
   }, [bumpSidebarRefresh, setEditingProject]);
 
   const handleToggleEphemeral = useCallback(() => {
+    if (!mayDropArtifactDraft()) return;
     const nowEphemeral = toggleEphemeral();
     if (nowEphemeral) {
       // Entering ephemeral: clear current conversation
@@ -447,6 +457,7 @@ export default function App() {
   }, [clearConversation, toggleEphemeral]);
 
   const handleOpenKnowledgePage = useCallback(() => {
+    if (!mayDropArtifactDraft()) return;
     setShowKnowledgePage(true);
     setShowSettings(false);
     setShowAdmin(false);
@@ -480,7 +491,8 @@ export default function App() {
   // and retries the gated tool call naturally.
   const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
   const lastMessage = messages[messages.length - 1];
-  const replyInterrupted = !!error && lastMessage?.role === 'assistant' && !!lastMessage.interrupted;
+  const chatLoadFailed = !!error && loadFailed;
+  const replyInterrupted = !!error && !loadFailed && lastMessage?.role === 'assistant' && !!lastMessage.interrupted;
   // Sent attachments are not kept, and a message of only attachments is just a
   // placeholder such as [Image], which is nothing to send again.
   const canRetryReply = replyInterrupted && !!lastUserMessage && !/^\[.*\]$/.test(lastUserMessage.content);
@@ -569,6 +581,9 @@ export default function App() {
   // Handle browser back/forward
   useEffect(() => {
     const handler = () => {
+      // Whoever called pushAppPath has already decided what is open.
+      if (finishAppPath()) return;
+      const closedOverlay = popClosedOverlay();
       const overlay = readOverlayEntry();
       setShowSettings(overlay.view === 'settings');
       setShowAdmin(overlay.view === 'admin');
@@ -591,7 +606,11 @@ export default function App() {
       // a temporary chat has no id and could not be read back.
       const chat = useChatStore.getState();
       const match = path.match(/^\/c\/(.+)$/);
-      if (match) {
+      if (closedOverlay) {
+        if (chat.conversationId && path !== conversationPath(chat.conversationId)) {
+          correctChatPath(conversationPath(chat.conversationId));
+        }
+      } else if (match) {
         if (match[1] !== chat.conversationId) loadConversation(match[1]);
       } else if (chat.conversationId || (chat.error && chat.messages.length === 0)) {
         clearConversation();
@@ -649,9 +668,6 @@ export default function App() {
     setShowInstallBanner(false);
     localStorage.setItem('munin_pwa_dismissed', '1');
   };
-
-  // What fetchChat reports, whether the server refused or could not be reached.
-  const chatLoadFailed = !!error && !replyInterrupted && /failed to fetch/i.test(error);
 
   const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
@@ -844,7 +860,7 @@ export default function App() {
           {conversationId && !isEphemeral && (
             <button
               data-testid="artifacts-button"
-              onClick={() => setArtifactPanelOpen(!artifactPanelOpen)}
+              onClick={() => { if (mayDropArtifactDraft()) setArtifactPanelOpen(!artifactPanelOpen); }}
               aria-pressed={artifactPanelOpen}
               className={`${PILL_BASE} ${artifactPanelOpen ? PILL_ACCENT : PILL_OFF}`}
               title={artifactPanelOpen ? 'Hide artifacts' : 'Show artifacts'}
@@ -856,7 +872,7 @@ export default function App() {
           {/* Knowledge panel toggle */}
           {tagCatalog && (
             <button
-              onClick={() => setKnowledgePanelOpen(!knowledgePanelOpen)}
+              onClick={() => { if (mayDropArtifactDraft()) setKnowledgePanelOpen(!knowledgePanelOpen); }}
               aria-pressed={knowledgePanelOpen}
               className={`${PILL_BASE} ${knowledgePanelOpen || activeTags.length > 0 ? PILL_ACCENT : PILL_OFF}`}
               title={knowledgePanelOpen ? 'Hide sources' : 'Choose which sources to search'}

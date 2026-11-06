@@ -374,4 +374,39 @@ describe('error banner', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(window.location.pathname).toBe('/');
   });
+
+  it('a failed chat load is not an interrupted reply, whatever is still on screen', async () => {
+    useChatStore.setState(failedTurn('Question'));
+    openAt('/');
+    await screen.findByText('The reply was interrupted.');
+
+    await act(async () => { await useChatStore.getState().loadConversation('missing'); });
+
+    const notice = screen.getByRole('alert');
+    expect(notice).toHaveTextContent('This chat could not be opened.');
+    expect(within(notice).queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start a new chat' })).toBeInTheDocument();
+  });
+
+  it.each(['NetworkError when attempting to fetch resource.', 'Load failed', 'Failed to fetch'])(
+    'an unreachable server reads the same in every browser: %s',
+    async (message) => {
+      const realFetch = globalThis.fetch;
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        if (String(input instanceof Request ? input.url : input).includes('/api/chats/gone')) throw new TypeError(message);
+        return realFetch(input, init);
+      });
+      openAt('/c/gone');
+
+      expect(await screen.findByText('This chat could not be opened.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Start a new chat' })).toBeInTheDocument();
+    },
+  );
+
+  it('a later load that works clears the failure', async () => {
+    await act(async () => { await useChatStore.getState().loadConversation('missing'); });
+    expect(useChatStore.getState().loadFailed).toBe(true);
+    await act(async () => { await useChatStore.getState().loadConversation('c1'); });
+    expect(useChatStore.getState().loadFailed).toBe(false);
+  });
 });

@@ -218,8 +218,10 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
     if (where === 'close') setArtifactPanelOpen(false);
   };
 
-  // Everything that would take the editor away goes through here, so a changed
-  // draft is never dropped without asking.
+  // The panel's own ways out of the editor. Beside the chat (xl and up) the controls
+  // around it can take it away too: App asks first for those, using the flag set
+  // below. Browser Back to another chat, a demo card, and a click on another
+  // artifact in the chat do not ask.
   const requestLeave = (where: LeaveEditor) => {
     if (draftChanged) setConfirmLeave(where);
     else leaveEditor(where);
@@ -239,6 +241,10 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
   const canCopy = !isFile && !proteinSpec;
   const showFileCard = !!loadedArtifact && isFile && !hasFilePreview(loadedArtifact);
   const draftChanged = editing && !!loadedArtifact && editContent !== loadedArtifact.content;
+  useEffect(() => {
+    useUiStore.getState().setArtifactDraftChanged(draftChanged);
+    return () => useUiStore.getState().setArtifactDraftChanged(false);
+  }, [draftChanged]);
   const draftBytes = editing ? new Blob([editContent]).size : 0;
   const draftTooLarge = draftBytes > 500_000;
 
