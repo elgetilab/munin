@@ -316,12 +316,16 @@
     setTimeout(() => document.getElementById('munin-sp-message')?.focus(), 50);
 
     // Escape closes, and Tab stays inside. On the document, so that both still
-    // work when focus has fallen out of the panel.
+    // work when focus has fallen out of the panel. This panel sits above anything
+    // the page has open, so these two keys are its alone: in the capture phase and
+    // stopped there, or a dialog underneath would close too, or pull Tab away.
     const keyHandler = (e) => {
+      if (e.key !== 'Escape' && e.key !== 'Tab') return;
+      e.stopImmediatePropagation();
       if (e.key === 'Escape') closeSupport();
-      else if (e.key === 'Tab') trapTab(e, panel);
+      else trapTab(e, panel);
     };
-    document.addEventListener('keydown', keyHandler);
+    document.addEventListener('keydown', keyHandler, true);
     overlay._keyHandler = keyHandler;
 
     // Send button
@@ -360,7 +364,7 @@
   function closeSupport() {
     const overlay = document.getElementById('munin-support-overlay');
     if (overlay) {
-      if (overlay._keyHandler) document.removeEventListener('keydown', overlay._keyHandler);
+      if (overlay._keyHandler) document.removeEventListener('keydown', overlay._keyHandler, true);
       overlay.remove();
       // The opener may be gone, or may have been nothing in particular.
       const target = opener && opener !== document.body && opener.isConnected ? opener : btn;

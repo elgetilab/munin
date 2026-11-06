@@ -37,7 +37,8 @@ interface SidebarProps {
 type WindowWithSupport = Window & { MuninSupport?: { open: () => void } };
 
 // The date groups list only chats with no project; a filed chat lives in its
-// project, pinned or not. The backend treats this project_id as "no project".
+// project, and if pinned, in the Pinned group as well. The backend treats this
+// project_id as "no project".
 const UNFILED = '__unfiled__';
 
 const PAGE_SIZE = 50;
@@ -194,6 +195,8 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   const [chats, setChats] = useState<ConversationSummary[]>([]);
   const [chatsTotal, setChatsTotal] = useState(0);
   const [chatsState, setChatsState] = useState<LoadState>('loading');
+  // Pinned chats that are filed in a project, which `chats` leaves out.
+  const [pinnedFiled, setPinnedFiled] = useState<ConversationSummary[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -263,15 +266,20 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
 
   useEffect(() => {
     let cancelled = false;
-    fetchFirstChats(UNFILED, listLengths.current[UNFILED] ?? 0)
+    const wanted = listLengths.current[UNFILED] ?? 0;
+    fetchFirstChats(UNFILED, wanted)
       .then(r => {
-        if (cancelled) return;
+        // Shorter than the list has become: Show more landed and is re-reading it.
+        if (cancelled || (listLengths.current[UNFILED] ?? 0) > wanted) return;
         listLengths.current[UNFILED] = r.conversations.length;
         setChats(r.conversations);
         setChatsTotal(r.total);
         setChatsState('loaded');
       })
       .catch(() => { if (!cancelled) setChatsState('error'); });
+    fetchChats({ pinned_only: true, limit: API_MAX_LIMIT })
+      .then(r => { if (!cancelled) setPinnedFiled(r.conversations.filter(c => c.pinned && c.project_id)); })
+      .catch(() => { /* they are still in their projects */ });
     // archived=true returns every project, so one request fills both lists.
     fetchProjects(true)
       .then(r => {
@@ -295,9 +303,10 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     if (!expandedProject) return;
     const projectId = expandedProject;
     let cancelled = false;
-    fetchFirstChats(projectId, listLengths.current[projectId] ?? 0)
+    const wanted = listLengths.current[projectId] ?? 0;
+    fetchFirstChats(projectId, wanted)
       .then(r => {
-        if (cancelled) return;
+        if (cancelled || (listLengths.current[projectId] ?? 0) > wanted) return;
         listLengths.current[projectId] = r.conversations.length;
         setProjectChats(prev => ({ ...prev, [projectId]: r.conversations }));
         setProjectTotals(prev => ({ ...prev, [projectId]: r.total }));
@@ -347,7 +356,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     let cancelled = false;
     const timer = setTimeout(async () => {
       const lower = q.toLowerCase();
-      const held = [...chats, ...Object.values(projectChats).flat()];
+      const held = [...chats, ...pinnedFiled, ...Object.values(projectChats).flat()];
       const titleHits = held.filter(c => (c.title || '').toLowerCase().includes(lower));
       let hits: ConversationSummary[];
       try {
@@ -360,7 +369,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       if (!cancelled) setSearched({ query: q, results: uniqueById([...hits, ...titleHits]) });
     }, 300);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [searchQuery, searchOpen, chats, projectChats]);
+  }, [searchQuery, searchOpen, chats, pinnedFiled, projectChats]);
 
   const retryLists = () => {
     setChatsState('loading');
@@ -372,17 +381,18 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     setLoadingMore(listKey);
     try {
       const page = await fetchChats({ limit: PAGE_SIZE, offset, project_id: listKey });
+      // A refresh may have landed during the wait, so this joins the list as it is
+      // now. One may also still be on its way at the old length, or the rows may
+      // have moved under this offset, so the list is then read again at its new one.
+      listLengths.current[listKey] = offset + page.conversations.length;
       if (listKey === UNFILED) {
-        const merged = uniqueById([...chats, ...page.conversations]);
-        listLengths.current[UNFILED] = merged.length;
-        setChats(merged);
+        setChats(prev => uniqueById([...prev, ...page.conversations]));
         setChatsTotal(page.total);
       } else {
-        const merged = uniqueById([...(projectChats[listKey] ?? []), ...page.conversations]);
-        listLengths.current[listKey] = merged.length;
-        setProjectChats(prev => ({ ...prev, [listKey]: merged }));
+        setProjectChats(prev => ({ ...prev, [listKey]: uniqueById([...(prev[listKey] ?? []), ...page.conversations]) }));
         setProjectTotals(prev => ({ ...prev, [listKey]: page.total }));
       }
+      load();
     } catch {
       showToast('Could not load more chats');
     } finally {
@@ -495,6 +505,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
 
   const openHelp = () => {
     profileMenu.close();
+    onCloseDrawer?.();
     const support = (window as WindowWithSupport).MuninSupport;
     if (support) {
       support.open();
@@ -504,33 +515,35 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     window.open(DOCS_URL, '_blank', 'noopener');
   };
 
-  const chatRowProps = (chat: ConversationSummary) => ({
+  // A pinned filed chat can show twice, so its row in the Pinned group has an id of
+  // its own for the menus and the rename, which open on one row only.
+  const chatRowProps = (chat: ConversationSummary, rowId = chat.id) => ({
     chat,
     isCurrent: chat.id === currentId,
     onSelect,
     onDelete: handleDelete,
-    onRename: (id: string) => { setEditingId(id); setEditTitle(chat.title || ''); },
+    onRename: () => { setEditingId(rowId); setEditTitle(chat.title || ''); },
     onPin: togglePin,
-    editing: editingId === chat.id,
+    editing: editingId === rowId,
     editTitle,
     onEditTitleChange: setEditTitle,
     onEditComplete: handleRename,
     onEditCancel: () => setEditingId(null),
     onMoveMenu: () => {
       setActionMenuId(null);
-      setMoveMenuId(chat.id);
+      setMoveMenuId(rowId);
     },
-    showMoveMenu: moveMenuId === chat.id,
+    showMoveMenu: moveMenuId === rowId,
     onMenuOpenChange: (open: boolean) => {
-      setMoveMenuId(id => (id === chat.id ? null : id));
-      setActionMenuId(id => (open ? chat.id : id === chat.id ? null : id));
+      setMoveMenuId(id => (id === rowId ? null : id));
+      setActionMenuId(id => (open ? rowId : id === rowId ? null : id));
     },
-    showActionMenu: actionMenuId === chat.id,
+    showActionMenu: actionMenuId === rowId,
     projects,
     onMoveToProject: (pid: string) => handleMoveToProject(chat.id, pid),
   });
 
-  const groups = groupByTime(chats);
+  const groups = groupByTime(uniqueById([...chats, ...pinnedFiled]));
   const query = searchQuery.trim();
   const searching = query !== '' && searched.query !== query;
   // With no query typed the overlay lists recent conversations; with one it
@@ -539,6 +552,38 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     ? (searching ? [] : searched.results)
     : (recentChats.length > 0 ? recentChats : chats.slice(0, 10));
   const searchGroups = groupByTime(searchList);
+
+  const projectChatList = (projectId: string) => {
+    const list = projectChats[projectId];
+    const failed = projectChatsFailed[projectId] && !list;
+    return (
+      <div className="ml-4 border-l border-border">
+        {(list ?? []).map(chat => (
+          <ChatRow
+            key={chat.id}
+            {...chatRowProps(chat)}
+            onUnfile={() => handleUnfile(chat.id, projectId)}
+            isInProject={true}
+          />
+        ))}
+        {failed && (
+          <div className="text-[11px] text-error py-2 pl-3">
+            Could not load these chats.{' '}
+            <button type="button" onClick={load} className="underline cursor-pointer">Retry</button>
+          </div>
+        )}
+        {!list && !failed && (
+          <div className="text-[11px] text-text-secondary py-2 pl-3">Loading...</div>
+        )}
+        {list?.length === 0 && (
+          <div className="text-[11px] text-text-secondary py-2 pl-3">No chats</div>
+        )}
+        {list && list.length < (projectTotals[projectId] ?? 0) && (
+          <ShowMoreRow busy={loadingMore === projectId} onClick={() => showMore(projectId, list.length)} />
+        )}
+      </div>
+    );
+  };
 
   return (
     <aside className="w-64 flex-shrink-0 bg-bg-secondary border-r border-border flex flex-col h-full relative">
@@ -628,54 +673,24 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
               <NewProjectInput value={newProjectName} onChange={setNewProjectName} onCreate={handleCreateProject} onCancel={cancelNewProject} />
             )}
 
-            {projects.map(proj => {
-              const list = projectChats[proj.id];
-              const failed = projectChatsFailed[proj.id] && !list;
-              return (
-                <div key={proj.id}>
-                  <ProjectRow
-                    project={proj}
-                    expanded={expandedProject === proj.id}
-                    active={activeProjectId === proj.id}
-                    onToggle={() => setUserExpandedProject(expandedProject === proj.id ? null : proj.id)}
-                    menuOpen={projectActionMenuId === proj.id}
-                    onMenuOpenChange={(open) => setProjectActionMenuId(id => (open ? proj.id : id === proj.id ? null : id))}
-                    onNewChatInProject={onNewChatInProject}
-                    onOpenProjectSettings={onOpenProjectSettings}
-                    onDelete={() => handleDeleteProject(proj.id)}
-                  />
+            {projects.map(proj => (
+              <div key={proj.id}>
+                <ProjectRow
+                  project={proj}
+                  expanded={expandedProject === proj.id}
+                  active={activeProjectId === proj.id}
+                  onToggle={() => setUserExpandedProject(expandedProject === proj.id ? null : proj.id)}
+                  menuOpen={projectActionMenuId === proj.id}
+                  onMenuOpenChange={(open) => setProjectActionMenuId(id => (open ? proj.id : id === proj.id ? null : id))}
+                  onNewChatInProject={onNewChatInProject}
+                  onOpenProjectSettings={onOpenProjectSettings}
+                  onDelete={() => handleDeleteProject(proj.id)}
+                />
 
-                  {/* Expanded project chats */}
-                  {expandedProject === proj.id && (
-                    <div className="ml-4 border-l border-border">
-                      {(list ?? []).map(chat => (
-                        <ChatRow
-                          key={chat.id}
-                          {...chatRowProps(chat)}
-                          onUnfile={() => handleUnfile(chat.id, proj.id)}
-                          isInProject={true}
-                        />
-                      ))}
-                      {failed && (
-                        <div className="text-[11px] text-error py-2 pl-3">
-                          Could not load these chats.{' '}
-                          <button type="button" onClick={load} className="underline cursor-pointer">Retry</button>
-                        </div>
-                      )}
-                      {!list && !failed && (
-                        <div className="text-[11px] text-text-secondary py-2 pl-3">Loading...</div>
-                      )}
-                      {list?.length === 0 && (
-                        <div className="text-[11px] text-text-secondary py-2 pl-3">No chats</div>
-                      )}
-                      {list && list.length < (projectTotals[proj.id] ?? 0) && (
-                        <ShowMoreRow busy={loadingMore === proj.id} onClick={() => showMore(proj.id, list.length)} />
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                {/* Expanded project chats */}
+                {expandedProject === proj.id && projectChatList(proj.id)}
+              </div>
+            ))}
           </div>
         )}
 
@@ -712,23 +727,33 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
               <Chevron open={archivedOpen} />
             </button>
             {archivedOpen && archivedProjects.map(proj => (
-              <div key={proj.id} data-testid="archived-project" className="flex items-center gap-2 px-2 py-1.5 text-sm text-text-secondary">
-                {onOpenProjectSettings ? (
+              <div key={proj.id}>
+                <div data-testid="archived-project" className="flex items-center gap-2 px-2 py-1.5 text-sm text-text-secondary">
+                  {onOpenProjectSettings ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenProjectSettings(proj)}
+                      className="flex-1 min-w-0 truncate text-left hover:text-text-primary cursor-pointer"
+                      title="Project settings"
+                    >{proj.name}</button>
+                  ) : (
+                    <span className="flex-1 min-w-0 truncate">{proj.name}</span>
+                  )}
                   <button
                     type="button"
-                    onClick={() => onOpenProjectSettings(proj)}
-                    className="flex-1 min-w-0 truncate text-left hover:text-text-primary cursor-pointer"
-                    title="Project settings"
-                  >{proj.name}</button>
-                ) : (
-                  <span className="flex-1 min-w-0 truncate">{proj.name}</span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => handleUnarchive(proj.id)}
-                  aria-label={`Unarchive ${proj.name}`}
-                  className="flex-shrink-0 text-xs text-accent hover:text-accent-hover cursor-pointer"
-                >Unarchive</button>
+                    onClick={() => handleUnarchive(proj.id)}
+                    aria-label={`Unarchive ${proj.name}`}
+                    className="flex-shrink-0 text-xs text-accent hover:text-accent-hover cursor-pointer"
+                  >Unarchive</button>
+                  <button
+                    type="button"
+                    onClick={() => setUserExpandedProject(expandedProject === proj.id ? null : proj.id)}
+                    aria-expanded={expandedProject === proj.id}
+                    aria-label={`Chats in ${proj.name}`}
+                    className={`flex-shrink-0 ${ROW_ICON_TARGET} hover:text-text-primary cursor-pointer`}
+                  ><Chevron open={expandedProject === proj.id} /></button>
+                </div>
+                {expandedProject === proj.id && projectChatList(proj.id)}
               </div>
             ))}
           </div>
@@ -750,19 +775,23 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
             <div className="px-2 py-1 text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
               {group.label}
             </div>
-            {group.chats.map(chat => (
-              <ChatRow
-                key={chat.id}
-                {...chatRowProps(chat)}
-                isInProject={false}
-              />
-            ))}
+            {group.chats.map(chat => {
+              const filedIn = chat.project_id;
+              return (
+                <ChatRow
+                  key={chat.id}
+                  {...chatRowProps(chat, filedIn ? `pinned:${chat.id}` : chat.id)}
+                  onUnfile={filedIn ? () => handleUnfile(chat.id, filedIn) : undefined}
+                  isInProject={!!filedIn}
+                />
+              );
+            })}
           </div>
         ))}
         {chats.length > 0 && chats.length < chatsTotal && (
           <ShowMoreRow busy={loadingMore === UNFILED} onClick={() => showMore(UNFILED, chats.length)} />
         )}
-        {chatsState === 'loaded' && projectsState === 'loaded' && chats.length === 0 && projects.length === 0 && (
+        {chatsState === 'loaded' && projectsState === 'loaded' && groups.length === 0 && projects.length === 0 && (
           <div className="text-center text-text-secondary text-xs py-8">
             No conversations yet
           </div>
@@ -1155,7 +1184,7 @@ interface ChatRowProps {
   isCurrent: boolean;
   onSelect: (id: string) => void;
   onDelete: (id: string, e: React.MouseEvent) => void;
-  onRename: (id: string) => void;
+  onRename: () => void;
   onPin: (chat: ConversationSummary, e: React.MouseEvent) => void;
   editing: boolean;
   editTitle: string;
@@ -1292,7 +1321,7 @@ function ChatRow({
             </>
           ) : (
             <>
-              <button role="menuitem" onClick={() => { menu.close(); onRename(chat.id); }} className={MENU_ITEM}>
+              <button role="menuitem" onClick={() => { menu.close(); onRename(); }} className={MENU_ITEM}>
                 Rename
               </button>
               {projects.length > 0 && (

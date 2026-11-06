@@ -550,6 +550,18 @@ describe('Sidebar profile menu', () => {
     expect(screen.queryByRole('menuitem', { name: 'Help' })).not.toBeInTheDocument();
   });
 
+  it('Help closes the phone drawer', async () => {
+    const user = userEvent.setup();
+    const onCloseDrawer = vi.fn();
+    support.MuninSupport = { open: vi.fn() };
+    renderSidebar({ onCloseDrawer });
+
+    await user.click(screen.getByText('a@b.c'));
+    await user.click(screen.getByRole('menuitem', { name: 'Help' }));
+
+    expect(onCloseDrawer).toHaveBeenCalledTimes(1);
+  });
+
   it('Help says so and opens the docs when the widget has not loaded', async () => {
     const user = userEvent.setup();
     const opened = vi.spyOn(window, 'open').mockReturnValue(null);
@@ -685,22 +697,75 @@ describe('Sidebar filed chats and projects', () => {
     await waitFor(() => expect(pinned).toEqual(['pc1']));
   });
 
-  it('a pinned filed chat stays in its project and shows as pinned there', async () => {
-    const user = userEvent.setup();
-    server.use(
-      http.get('/api/chats', ({ request }) => {
-        const pid = new URL(request.url).searchParams.get('project_id');
-        return pid === 'p1'
-          ? HttpResponse.json({ conversations: [{ ...FILED, pinned: true }], total: 1 })
-          : HttpResponse.json({ conversations: [MOCK_CHATS.conversations[1]], total: 1 });
-      }),
-    );
-    renderSidebar();
-    await user.click(await screen.findByText('ML Research'));
-    await screen.findByText('Filed Chat');
+  describe('a pinned filed chat', () => {
+    const PINNED = { ...FILED, pinned: true, project_id: 'p1' };
 
-    expect(within(rowOf('Filed Chat')).getByTitle('Unpin')).toBeInTheDocument();
-    expect(screen.queryByText('Pinned')).not.toBeInTheDocument();
+    function mockPinnedFiled() {
+      server.use(http.get('/api/chats', ({ request }) => {
+        const params = new URL(request.url).searchParams;
+        if (params.get('pinned_only') === 'true') return HttpResponse.json({ conversations: [PINNED], total: 1 });
+        return params.get('project_id') === 'p1'
+          ? HttpResponse.json({ conversations: [PINNED], total: 1 })
+          : HttpResponse.json({ conversations: [MOCK_CHATS.conversations[1]], total: 1 });
+      }));
+    }
+
+    it('shows in the Pinned group with its folder closed', async () => {
+      mockPinnedFiled();
+      renderSidebar();
+
+      await screen.findByText('Pinned');
+      expect(within(rowOf('Filed Chat')).getByTitle('Unpin')).toBeInTheDocument();
+      expect(screen.getAllByText('Filed Chat')).toHaveLength(1);
+    });
+
+    it('can be removed from its project there', async () => {
+      const user = userEvent.setup();
+      mockPinnedFiled();
+      const removed: string[] = [];
+      server.use(http.delete('/api/projects/:pid/conversations/:cid', ({ params }) => {
+        removed.push(`${params.pid}/${params.cid}`);
+        return HttpResponse.json({ ok: true });
+      }));
+      renderSidebar();
+      await screen.findByText('Pinned');
+
+      const row = rowOf('Filed Chat');
+      await user.click(within(row).getByTitle('More'));
+      await user.click(within(row).getByText('Remove from project'));
+
+      await waitFor(() => expect(removed).toEqual(['p1/pc1']));
+    });
+
+    it('also stays in its project, where a rename or menu opens on that row alone', async () => {
+      const user = userEvent.setup();
+      mockPinnedFiled();
+      renderSidebar();
+      await screen.findByText('Pinned');
+      await user.click(screen.getByText('ML Research'));
+      await waitFor(() => expect(screen.getAllByText('Filed Chat')).toHaveLength(2));
+
+      const [first] = screen.getAllByText('Filed Chat').map(el => el.closest('.relative') as HTMLElement);
+      await user.click(within(first).getByTitle('More'));
+      expect(screen.getAllByRole('menuitem', { name: 'Rename' })).toHaveLength(1);
+
+      await user.click(within(first).getByText('Rename'));
+      expect(screen.getAllByRole('textbox', { name: 'Rename chat' })).toHaveLength(1);
+      expect(screen.getByRole('textbox', { name: 'Rename chat' })).toHaveFocus();
+    });
+
+    it('leaves the date groups alone when unpinned', async () => {
+      server.use(http.get('/api/chats', ({ request }) => {
+        const params = new URL(request.url).searchParams;
+        if (params.get('pinned_only') === 'true') return HttpResponse.json({ conversations: [MOCK_CHATS.conversations[0]], total: 1 });
+        return HttpResponse.json({ conversations: [MOCK_CHATS.conversations[0], MOCK_CHATS.conversations[1]], total: 2 });
+      }));
+      renderSidebar();
+
+      await screen.findByText('Test Chat 2');
+      expect(screen.getAllByText('Test Chat 1')).toHaveLength(1);
+      expect(screen.queryByText('Filed Chat')).not.toBeInTheDocument();
+    });
   });
 
   it('renames a project chat starting from its own title', async () => {
@@ -780,6 +845,33 @@ describe('Sidebar filed chats and projects', () => {
       await user.click(screen.getByRole('button', { name: 'Old Work' }));
 
       expect(onOpenProjectSettings).toHaveBeenCalledWith(expect.objectContaining({ id: 'p9' }));
+    });
+
+    it('list their chats when expanded, one folder at a time', async () => {
+      const user = userEvent.setup();
+      mockArchived();
+      const OLD = makeChat({ id: 'old1', title: 'Archived Chat', project_id: 'p9' });
+      server.use(http.get('/api/chats', ({ request }) => {
+        const pid = new URL(request.url).searchParams.get('project_id');
+        return pid === 'p9'
+          ? HttpResponse.json({ conversations: [OLD], total: 1 })
+          : HttpResponse.json(MOCK_CHATS);
+      }));
+      const onSelect = vi.fn();
+      renderSidebar({ onSelect });
+
+      await user.click(await screen.findByRole('button', { name: 'Archived (1)' }));
+      const toggle = screen.getByRole('button', { name: 'Chats in Old Work' });
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByText('Archived Chat')).not.toBeInTheDocument();
+
+      await user.click(toggle);
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await user.click(await screen.findByText('Archived Chat'));
+      expect(onSelect).toHaveBeenCalledWith('old1');
+
+      await user.click(toggle);
+      expect(screen.queryByText('Archived Chat')).not.toBeInTheDocument();
     });
 
     it('stay reachable when every project is archived', async () => {
@@ -864,6 +956,81 @@ describe('Sidebar loading and feedback', () => {
     rerender(<Sidebar {...props} refreshKey={1} />);
     await new Promise(resolve => setTimeout(resolve, 50));
     expect(screen.getByText('Chat 59')).toBeInTheDocument();
+  });
+
+  describe('Show more overlapping a refresh', () => {
+    const rows = (n: number) => Array.from({ length: n }, (_, i) => makeChat({ id: `c${i}`, title: `Chat ${i}` }));
+
+    it('a refresh still on its way at the old length cannot shrink the list', async () => {
+      const user = userEvent.setup();
+      const all = rows(120);
+      let release = () => {};
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      let holdFirstPage = false;
+      const firstPageLimits: number[] = [];
+      server.use(http.get('/api/chats', async ({ request }) => {
+        const url = new URL(request.url);
+        if (url.searchParams.get('pinned_only')) return none();
+        const limit = Number(url.searchParams.get('limit'));
+        const offset = Number(url.searchParams.get('offset') ?? 0);
+        if (offset === 0) {
+          firstPageLimits.push(limit);
+          if (holdFirstPage && limit === 50) await gate;
+        }
+        return HttpResponse.json({ conversations: all.slice(offset, offset + limit), total: all.length });
+      }));
+      const { rerender, props } = renderSidebar();
+      await screen.findByText('Chat 49');
+
+      holdFirstPage = true;
+      rerender(<Sidebar {...props} refreshKey={1} />);
+      await waitFor(() => expect(firstPageLimits.at(-1)).toBe(50));
+      await user.click(screen.getByRole('button', { name: 'Show more' }));
+      await screen.findByText('Chat 99');
+
+      release();
+      await waitFor(() => expect(firstPageLimits.at(-1)).toBe(100));
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(screen.getByText('Chat 99')).toBeInTheDocument();
+    });
+
+    it('a chat a refresh removed during the wait does not come back', async () => {
+      const user = userEvent.setup();
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      let all = rows(120);
+      let release = () => {};
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      server.use(
+        http.get('/api/chats', async ({ request }) => {
+          const url = new URL(request.url);
+          if (url.searchParams.get('pinned_only')) return none();
+          const limit = Number(url.searchParams.get('limit'));
+          const offset = Number(url.searchParams.get('offset') ?? 0);
+          // The page Show more asks for, read before the delete.
+          const answer = all.slice(offset, offset + limit);
+          if (offset > 0) await gate;
+          return HttpResponse.json({ conversations: answer, total: all.length });
+        }),
+        http.delete('/api/chats/:id', ({ params }) => {
+          all = all.filter(c => c.id !== params.id);
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+      renderSidebar();
+      await screen.findByText('Chat 49');
+
+      await user.click(screen.getByRole('button', { name: 'Show more' }));
+
+      const row = screen.getByText('Chat 3').closest('.relative') as HTMLElement;
+      await user.click(within(row).getByTitle('More'));
+      await user.click(within(row).getByText('Delete'));
+      await waitFor(() => expect(screen.queryByText('Chat 3')).not.toBeInTheDocument());
+
+      release();
+      await screen.findByText('Chat 99');
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(screen.queryByText('Chat 3')).not.toBeInTheDocument();
+    });
   });
 
   it('Show more works inside a project', async () => {

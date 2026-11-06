@@ -401,7 +401,7 @@ describe('support widget', () => {
 
     expect(document.getElementById('munin-support-overlay')).toBeNull();
     expect(document.activeElement).toBe(opener);
-    expect(remove).toHaveBeenCalledWith('keydown', expect.any(Function));
+    expect(remove).toHaveBeenCalledWith('keydown', expect.any(Function), true);
     remove.mockRestore();
   });
 
@@ -410,6 +410,23 @@ describe('support widget', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     expect(document.getElementById('munin-support-overlay')).toBeNull();
     expect(document.activeElement).toBe(opener);
+  });
+
+  it('keeps Escape and Tab from whatever the page has open underneath', async () => {
+    await open(200);
+    const page = vi.fn();
+    document.addEventListener('keydown', page);
+    onTestFinished(() => document.removeEventListener('keydown', page));
+
+    tab();
+    expect(page).not.toHaveBeenCalled();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(page).not.toHaveBeenCalled();
+    expect(document.getElementById('munin-support-overlay')).toBeNull();
+
+    // Closed, the page has its keys back.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(page).toHaveBeenCalledTimes(1);
   });
 
   it('moves focus to Close after a send, since the focused button has gone', async () => {

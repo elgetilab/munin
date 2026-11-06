@@ -19,6 +19,7 @@ export async function fetchChats(params?: {
   persona?: string;
   search?: string;
   project_id?: string;
+  pinned_only?: boolean;
 }): Promise<{ conversations: ConversationSummary[]; total: number }> {
   const query = new URLSearchParams();
   if (params?.limit) query.set('limit', String(params.limit));
@@ -26,6 +27,7 @@ export async function fetchChats(params?: {
   if (params?.persona) query.set('persona', params.persona);
   if (params?.search) query.set('search', params.search);
   if (params?.project_id) query.set('project_id', params.project_id);
+  if (params?.pinned_only) query.set('pinned_only', 'true');
   const qs = query.toString();
   const res = await fetch(`${API}/chats${qs ? '?' + qs : ''}`);
   if (!res.ok) throw new Error('Failed to fetch chats');

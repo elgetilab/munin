@@ -114,6 +114,36 @@ test.describe('profile menu', () => {
     await expect(page).toHaveURL(/\/knowledge$/);
   });
 
+  // jsdom applies no CSS, so only a browser shows the `lg:hidden` items being skipped.
+  test('the arrow keys reach every item past the ones hidden at 1280px', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await installMocks(page);
+    await page.goto('/');
+    await page.getByText('e2e@test.local').click();
+
+    const settings = page.getByRole('menuitem', { name: 'Settings' });
+    const docs = page.getByRole('menuitem', { name: 'Docs' });
+    const help = page.getByRole('menuitem', { name: 'Help' });
+    const signOut = page.getByRole('menuitem', { name: 'Sign out' });
+    await expect(settings).toBeFocused();
+    await expect(page.getByRole('menuitem', { name: 'Knowledge', exact: true })).toBeHidden();
+
+    await page.keyboard.press('ArrowDown');
+    await expect(docs).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(help).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(signOut).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(settings).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await expect(signOut).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('ArrowUp');
+    await expect(settings).toBeFocused();
+  });
+
   test('leaves those links to the header nav from md up', async ({ page }) => {
     await installMocks(page);
     await page.goto('/');
@@ -252,6 +282,51 @@ test.describe('support widget', () => {
     await expect(page.locator('#munin-sp-message')).toBeVisible();
     return () => { answer(); return response; };
   }
+
+  // The real widget on the real app, which the shared mocks otherwise blank out.
+  async function appWithWidget(page: Page) {
+    await installMocks(page);
+    const source = readFileSync(WIDGET, 'utf-8').replace(/\{\{env "[A-Z_]+"\}\}/g, '');
+    await page.route('**/shared/support-widget.js*', (route) => route.fulfill({ status: 200, contentType: 'application/javascript', body: source }));
+    await page.goto('/');
+  }
+
+  test('Escape closes the widget and leaves a dialog beneath it alone', async ({ page }) => {
+    await appWithWidget(page);
+    await page.getByRole('button', { name: 'Search chats' }).click();
+    const search = page.getByRole('textbox', { name: 'Search conversations' });
+    await search.fill('kinase');
+
+    await page.locator('#munin-support-btn').click();
+    await expect(page.locator('#munin-sp-message')).toBeFocused();
+    await page.keyboard.press('Escape');
+
+    await expect(page.locator('#munin-support-overlay')).toHaveCount(0);
+    await expect(search).toHaveValue('kinase');
+
+    await page.keyboard.press('Escape');
+    await expect(search).toHaveCount(0);
+  });
+
+  test('Help from the phone drawer closes it, and Tab moves on through the widget', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await appWithWidget(page);
+    await page.getByRole('button', { name: 'Show sidebar' }).click();
+    await page.getByText('e2e@test.local').click();
+    await page.getByRole('menuitem', { name: 'Help' }).click();
+
+    await expect(page.getByRole('button', { name: 'Close menu' })).toBeHidden();
+    const message = page.locator('#munin-sp-message');
+    await expect(message).toBeFocused();
+
+    // Past Cancel to Send, which a trap fighting over Tab never let it reach, then round.
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#munin-sp-send')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('button', { name: 'Close support' })).toBeFocused();
+  });
 
   test('a slow sign-in check keeps a message the visitor has started typing', async ({ page }) => {
     const answer = await openWidget(page);
