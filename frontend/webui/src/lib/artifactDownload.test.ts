@@ -1,4 +1,39 @@
-import { getExtension } from './artifactDownload';
+import { downloadFilename, getExtension } from './artifactDownload';
+
+describe('downloadFilename', () => {
+  const sandbox = (title: string, content_type: string) => ({ title, filename: title, content_type, source: 'sandbox_generated' });
+  const written = (title: string, content_type: string, language?: string) => ({ title, content_type, language, source: 'model_written' });
+
+  it('keeps a sandbox filename as it is, whatever its type', () => {
+    expect(downloadFilename(sandbox('plot.png', 'image/png'))).toBe('plot.png');
+    expect(downloadFilename(sandbox('model.ckpt', 'application/octet-stream'))).toBe('model.ckpt');
+    expect(downloadFilename(sandbox('data.csv', 'text/csv'))).toBe('data.csv');
+    expect(downloadFilename(sandbox('paper.pdf', 'application/pdf'))).toBe('paper.pdf');
+  });
+
+  it('never invents .txt for a sandbox file of unknown type', () => {
+    expect(downloadFilename(sandbox('unnamed', 'application/octet-stream'))).toBe('unnamed');
+  });
+
+  it('gives an extensionless sandbox file the one its type names', () => {
+    expect(downloadFilename(sandbox('unnamed', 'image/png'))).toBe('unnamed.png');
+  });
+
+  it('prefers the full filename over a title the store may have cut short', () => {
+    expect(downloadFilename({ title: 'long-na', filename: 'long-name.csv', content_type: 'text/csv', source: 'sandbox_generated' })).toBe('long-name.csv');
+  });
+
+  it('does not double the extension on a model-written title', () => {
+    expect(downloadFilename(written('analysis.py', 'application/python'))).toBe('analysis.py');
+    expect(downloadFilename(written('ANALYSIS.PY', 'text/plain', 'python'))).toBe('ANALYSIS.PY');
+    expect(downloadFilename(written('config.yml', 'text/plain', 'yaml'))).toBe('config.yml');
+  });
+
+  it('appends the extension to a model-written title without one', () => {
+    expect(downloadFilename(written('Analysis Report', 'text/markdown'))).toBe('Analysis Report.md');
+    expect(downloadFilename(written('Version 1.5 notes', 'text/plain'))).toBe('Version 1.5 notes.txt');
+  });
+});
 
 /**
  * "Pong test" — artifact download extension regression.

@@ -119,13 +119,23 @@ function getIcon(name: string): ReactNode {
   return TOOL_ICON_MAP[name] || Icons.gear;
 }
 
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+// A tool reports failure by returning { error: ... }.
+function isFailedResult(result: unknown): boolean {
+  return typeof result === 'object' && result !== null && !!(result as Record<string, unknown>).error;
+}
+
 function formatResult(result: unknown): string {
   if (!result) return '';
+  if (isFailedResult(result)) return 'failed';
   if (typeof result === 'object' && result !== null) {
     const r = result as Record<string, unknown>;
-    if (Array.isArray(r.papers)) return `${r.papers.length} papers`;
-    if (Array.isArray(r.results)) return `${r.results.length} results`;
-    if (typeof r.content === 'string') return `${Math.round(r.content.length / 5)} words`;
+    if (Array.isArray(r.papers)) return plural(r.papers.length, 'paper');
+    if (Array.isArray(r.results)) return plural(r.results.length, 'result');
+    if (typeof r.content === 'string') return plural(Math.round(r.content.length / 5), 'word');
   }
   return 'done';
 }
@@ -189,7 +199,7 @@ function ThinkingRow({ content, duration, isActive }: { content: string; duratio
         <span className="text-text-secondary">{expanded ? '\u25BE' : '\u25B8'}</span>
       </button>
       {expanded && (
-        <div className="mt-2 ml-6 p-3 bg-bg-tertiary rounded-lg text-text-secondary whitespace-pre-wrap text-[11px] leading-relaxed max-h-48 overflow-y-auto">
+        <div className="mt-2 ml-6 p-3 bg-bg-tertiary rounded-lg text-text-secondary whitespace-pre-wrap wrap-anywhere text-[11px] leading-relaxed max-h-48 overflow-y-auto">
           {content}
         </div>
       )}
@@ -218,9 +228,14 @@ function ToolCallRow({ call, isActive }: { call: ToolCall; isActive?: boolean })
         {isActive && !resultSummary && (
           <span className="text-accent animate-pulse">...</span>
         )}
-        {resultSummary && (
+        {resultSummary && (isFailedResult(call.result) ? (
+          <span className="text-warning flex items-center gap-1">
+            <span className="flex-shrink-0">{Icons.warning}</span>
+            {resultSummary}
+          </span>
+        ) : (
           <span className="text-text-secondary">{'\u2192'} {resultSummary}</span>
-        )}
+        ))}
         {call.duration_ms && (
           <span className="text-text-secondary ml-1">{(call.duration_ms / 1000).toFixed(1)}s</span>
         )}
@@ -230,12 +245,12 @@ function ToolCallRow({ call, isActive }: { call: ToolCall; isActive?: boolean })
         <div className="mt-2 ml-6 space-y-2">
           <div className="p-3 bg-bg-tertiary rounded-lg text-[11px]">
             <div className="text-text-secondary mb-1 font-semibold">Arguments</div>
-            <pre className="text-text-secondary whitespace-pre-wrap">{JSON.stringify(call.arguments, null, 2)}</pre>
+            <pre className="text-text-secondary whitespace-pre-wrap wrap-anywhere">{JSON.stringify(call.arguments, null, 2)}</pre>
           </div>
           {call.result != null && (
             <div className="p-3 bg-bg-tertiary rounded-lg text-[11px] max-h-48 overflow-y-auto">
               <div className="text-text-secondary mb-1 font-semibold">Result</div>
-              <pre className="text-text-secondary whitespace-pre-wrap">{JSON.stringify(call.result, null, 2)}</pre>
+              <pre className="text-text-secondary whitespace-pre-wrap wrap-anywhere">{JSON.stringify(call.result, null, 2)}</pre>
             </div>
           )}
         </div>
@@ -357,6 +372,7 @@ function RagContextRow({ context }: { context: RagContext }) {
 function AgentResultRow({ result }: { result: unknown }) {
   const [expanded, setExpanded] = useState(false);
   const summary = formatResult(result);
+  const failed = isFailedResult(result);
 
   return (
     <div className="py-1.5">
@@ -364,15 +380,15 @@ function AgentResultRow({ result }: { result: unknown }) {
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
-        className="w-full text-left flex items-center gap-2 cursor-pointer hover:text-accent transition-colors text-text-secondary"
+        className={`w-full text-left flex items-center gap-2 cursor-pointer hover:text-accent transition-colors ${failed ? 'text-warning' : 'text-text-secondary'}`}
       >
-        <span className="flex-shrink-0">{Icons.result}</span>
+        <span className="flex-shrink-0">{failed ? Icons.warning : Icons.result}</span>
         <span className="flex-1">Agent result{summary ? `: ${summary}` : ''}</span>
         <span className="text-text-secondary">{expanded ? '\u25BE' : '\u25B8'}</span>
       </button>
       {expanded && (
         <div className="mt-2 ml-6 p-3 bg-bg-tertiary rounded-lg text-[11px] max-h-48 overflow-y-auto">
-          <pre className="text-text-secondary whitespace-pre-wrap">{JSON.stringify(result, null, 2)}</pre>
+          <pre className="text-text-secondary whitespace-pre-wrap wrap-anywhere">{JSON.stringify(result, null, 2)}</pre>
         </div>
       )}
     </div>

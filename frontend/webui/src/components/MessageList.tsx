@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Message, ToolCall, RagContext, Clarification } from '../lib/types';
 import { TaskLog } from './TaskLog';
 import { FeatherVortex } from './FeatherVortex';
@@ -9,6 +9,7 @@ import { CompactBoundaryDivider } from './CompactBoundaryDivider';
 import { PlanCard } from './PlanCard';
 import { InlineArtifacts } from './InlineArtifacts';
 import { detectPhase } from '../lib/streamPhase';
+import { rewordInterruptedMarker } from '../lib/modelError';
 
 interface RetryingState {
   attempt: number;
@@ -76,10 +77,10 @@ function RoutedProfileChip({ profile }: { profile?: string | null }) {
 
 /** Strip system-injected context blocks (e.g. artifact summaries) from assistant content */
 function cleanContent(raw: string): string {
-  return raw
+  return rewordInterruptedMarker(raw
     .replace(/=== ACTIVE ARTIFACTS ===[\s\S]*?(?====|$)/g, '')
     .replace(/^\n+/, '')
-    .trim();
+    .trim());
 }
 
 
@@ -91,6 +92,7 @@ const JUMP_BUTTON_HIDE_THRESHOLD_PX = 96;
 export function MessageList({ messages, streaming, onSendClarification, onDismissMemoryProposal, conversationId, onPlanApproved, onPlanRejected, onPlanEdited, onContinue, researchTimeline }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const columnRef = useRef<HTMLDivElement>(null);
   // Drives the floating "jump to bottom" button. True when the user
   // has scrolled up far enough from the bottom that the button is
   // worth showing.
@@ -135,13 +137,23 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
   // (4) Update jump-button visibility on scroll. Coalesced naturally
   // by the browser; no rAF/throttle needed at typical scroll
   // cadences.
-  const handleScroll = () => {
+  const updateJumpButton = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     const farFromBottom = distanceFromBottom > JUMP_BUTTON_HIDE_THRESHOLD_PX;
     setShowJumpButton(prev => (prev === farFromBottom ? prev : farFromBottom));
-  };
+  }, []);
+
+  // Growing content fires no scroll event, so without this an answer streaming
+  // past the bottom would show no button until the user scrolled by hand.
+  useEffect(() => {
+    const column = columnRef.current;
+    if (!column || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(updateJumpButton);
+    observer.observe(column);
+    return () => observer.disconnect();
+  }, [updateJumpButton]);
 
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -151,8 +163,8 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
 
   return (
     <div className="flex-1 relative min-h-0 flex flex-col">
-    <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-6">
-      <div className="max-w-2xl mx-auto space-y-6">
+    <div ref={containerRef} onScroll={updateJumpButton} className="flex-1 overflow-y-auto px-4 py-6">
+      <div ref={columnRef} className="max-w-2xl mx-auto space-y-6">
         {messages.map((msg, i) => {
           const isLast = i === messages.length - 1;
           // Only surface Continue on the final bubble, and only while
@@ -193,13 +205,14 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
           <div className="space-y-3">
             {/* Transient retry indicator when vLLM is hiccuping */}
             {streaming.retrying && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-300 text-xs text-amber-800">
-                <span className="inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              <div
+                title={streaming.retrying.reason || undefined}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-warning/10 border border-warning text-xs text-warning"
+              >
+                <span className="inline-block w-2 h-2 rounded-full bg-warning animate-pulse" />
                 <span>
-                  Reconnecting to vLLM
-                  {` (attempt ${streaming.retrying.attempt}/${streaming.retrying.maxAttempts}`}
-                  {streaming.retrying.reason ? `, ${streaming.retrying.reason}` : ''}
-                  )…
+                  Munin is having trouble reaching the model. Retrying
+                  {` (${streaming.retrying.attempt} of ${streaming.retrying.maxAttempts})`}…
                 </span>
               </div>
             )}
@@ -288,7 +301,7 @@ function MessageBubble({ message, conversationId, onSendClarification, onDismiss
   if (message.role === 'user') {
     return (
       <div className="flex gap-3 justify-end">
-        <div className="max-w-[80%] bg-bg-tertiary border border-border rounded-2xl rounded-br-sm px-4 py-3 text-base text-text-primary leading-relaxed whitespace-pre-wrap">
+        <div className="max-w-[80%] bg-bg-tertiary border border-border rounded-2xl rounded-br-sm px-4 py-3 text-base text-text-primary leading-relaxed whitespace-pre-wrap wrap-anywhere">
           {message.content}
         </div>
       </div>
@@ -333,7 +346,7 @@ function MessageBubble({ message, conversationId, onSendClarification, onDismiss
           "keep going" (rpt_20260702). */}
       {message.paused_at_budget && onContinue && (
         <div className="mt-2 flex items-center gap-2 text-sm text-text-secondary">
-          <span>Munin paused at its tool-use budget.</span>
+          <span>Munin paused after using its allowance of tools for this answer.</span>
           <button
             type="button"
             onClick={onContinue}

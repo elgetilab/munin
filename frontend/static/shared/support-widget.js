@@ -163,6 +163,7 @@
       cursor: pointer;
       border: none;
       font-family: inherit;
+      text-decoration: none;
       transition: background 0.15s;
     }
     #munin-support-panel .sp-btn-cancel {
@@ -227,15 +228,40 @@
   const btn = document.createElement('button');
   btn.id = 'munin-support-btn';
   btn.title = 'Contact support';
+  btn.setAttribute('aria-label', 'Contact support');
   btn.innerHTML = '?';
   btn.addEventListener('click', openSupport);
   document.body.appendChild(btn);
 
   window.MuninSupport = { open: openSupport };
 
+  // What had focus when the panel opened, for closeSupport to return to.
+  let opener = null;
+
+  // Keeps Tab inside the panel, whose contents change as the form is answered.
+  function trapTab(e, panel) {
+    const items = [...panel.querySelectorAll('a[href], button, input, textarea')].filter((el) => !el.disabled);
+    if (items.length === 0) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    if (!panel.contains(active) || active === panel) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+    } else if (e.shiftKey && active === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+
   // ── Support panel ───────────────────────────────────────────────────
   function openSupport() {
     if (document.getElementById('munin-support-overlay')) return;
+
+    opener = document.activeElement;
 
     const overlay = document.createElement('div');
     overlay.id = 'munin-support-overlay';
@@ -247,14 +273,18 @@
 
     const panel = document.createElement('div');
     panel.id = 'munin-support-panel';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'true');
+    panel.setAttribute('aria-labelledby', 'munin-sp-title');
+    panel.tabIndex = -1;
     panel.innerHTML = `
       <div class="sp-header">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent, #58a6ff); flex-shrink: 0;">
           <circle cx="12" cy="12" r="10"/>
           <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01"/>
         </svg>
-        <h3>Contact Support</h3>
-        <button class="sp-close" aria-label="Close support" onclick="document.getElementById('munin-support-overlay')?.remove()">&times;</button>
+        <h3 id="munin-sp-title">Contact Support</h3>
+        <button type="button" class="sp-close" aria-label="Close support" data-sp-close>&times;</button>
       </div>
       <div class="sp-body">
         <div class="sp-email-info">
@@ -268,25 +298,35 @@
           <label for="munin-sp-message">Message</label>
           <textarea id="munin-sp-message" placeholder="Describe what happened, what you expected, and which page you were on..."></textarea>
         </div>
-        <div id="munin-sp-error" class="sp-error" style="display:none"></div>
+        <div id="munin-sp-error" class="sp-error" role="alert" style="display:none"></div>
       </div>
       <div class="sp-footer">
-        <button class="sp-btn sp-btn-cancel" onclick="document.getElementById('munin-support-overlay')?.remove()">Cancel</button>
-        <button class="sp-btn sp-btn-send" id="munin-sp-send">Send message</button>
+        <button type="button" class="sp-btn sp-btn-cancel" data-sp-close>Cancel</button>
+        <button type="button" class="sp-btn sp-btn-send" id="munin-sp-send">Send message</button>
       </div>
     `;
+    // The footer is replaced as the form is answered, so listen on the panel.
+    panel.addEventListener('click', (e) => {
+      if (e.target.closest('[data-sp-close]')) closeSupport();
+    });
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
 
     // Focus message field
     setTimeout(() => document.getElementById('munin-sp-message')?.focus(), 50);
 
-    // Escape to close
-    const escHandler = (e) => {
+    // Escape closes, and Tab stays inside. On the document, so that both still
+    // work when focus has fallen out of the panel. This panel sits above anything
+    // the page has open, so these two keys are its alone: in the capture phase and
+    // stopped there, or a dialog underneath would close too, or pull Tab away.
+    const keyHandler = (e) => {
+      if (e.key !== 'Escape' && e.key !== 'Tab') return;
+      e.stopImmediatePropagation();
       if (e.key === 'Escape') closeSupport();
+      else trapTab(e, panel);
     };
-    document.addEventListener('keydown', escHandler);
-    overlay._escHandler = escHandler;
+    document.addEventListener('keydown', keyHandler, true);
+    overlay._keyHandler = keyHandler;
 
     // Send button
     document.getElementById('munin-sp-send').addEventListener('click', submitSupport);
@@ -315,16 +355,21 @@
       </div>
     `;
     panel.querySelector('.sp-footer').innerHTML = `
-      <button class="sp-btn sp-btn-cancel" onclick="document.getElementById('munin-support-overlay')?.remove()">Close</button>
+      <button type="button" class="sp-btn sp-btn-cancel" data-sp-close>Close</button>
+      <a class="sp-btn sp-btn-send" href="${AUTH_URL}/login?redirect=${encodeURIComponent(location.href)}">Sign in</a>
     `;
-    panel.querySelector('.sp-body a').focus();
+    panel.querySelector('.sp-btn-send').focus();
   }
 
   function closeSupport() {
     const overlay = document.getElementById('munin-support-overlay');
     if (overlay) {
-      if (overlay._escHandler) document.removeEventListener('keydown', overlay._escHandler);
+      if (overlay._keyHandler) document.removeEventListener('keydown', overlay._keyHandler, true);
       overlay.remove();
+      // The opener may be gone, or may have been nothing in particular.
+      const target = opener && opener !== document.body && opener.isConnected ? opener : btn;
+      opener = null;
+      target.focus();
     }
   }
 
@@ -370,14 +415,17 @@
           </div>
         `;
         panel.querySelector('.sp-footer').innerHTML = `
-          <button class="sp-btn sp-btn-cancel" onclick="document.getElementById('munin-support-overlay')?.remove()">Close</button>
+          <button type="button" class="sp-btn sp-btn-cancel" data-sp-close>Close</button>
         `;
+        // The button that had focus has just gone.
+        panel.querySelector('[data-sp-close].sp-btn').focus();
       }
     } catch (e) {
       errorEl.textContent = e.message;
       errorEl.style.display = 'block';
       sendBtn.disabled = false;
       sendBtn.textContent = 'Send message';
+      sendBtn.focus();
     }
   }
 })();

@@ -53,8 +53,9 @@ export function DemoDeck({ slide, onSlide, offline, onRun, onOpenChat }: Props) 
 
   return (
     <div data-testid="demo-deck" className="fixed inset-0 z-50 bg-bg-primary text-text-primary flex flex-col">
-      <main className="flex-1 min-h-0 overflow-y-auto px-8 md:px-16 py-10 flex flex-col justify-center">
-        <div className="max-w-6xl w-full mx-auto">
+      <main className="flex-1 min-h-0 overflow-y-auto px-8 md:px-16 py-10 flex flex-col">
+        {/* my-auto, not justify-center: a slide taller than the screen must overflow downward, or its top can't be scrolled to. */}
+        <div className="max-w-6xl w-full mx-auto my-auto">
           {slide === 0 && <SlideWhat />}
           {slide === 1 && <SlideWhy />}
           {slide === 2 && (

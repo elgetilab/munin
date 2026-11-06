@@ -10,6 +10,16 @@ function renderDeck(slide: number, onSlide = vi.fn()) {
   return onSlide;
 }
 
+describe('DemoDeck layout', () => {
+  it('keeps the top of a tall slide reachable on a short screen', () => {
+    renderDeck(0);
+    const main = screen.getByRole('main');
+    expect(main).toHaveClass('overflow-y-auto');
+    expect(main).not.toHaveClass('justify-center');
+    expect(main.firstElementChild).toHaveClass('my-auto');
+  });
+});
+
 describe('DemoDeck outlook', () => {
   it('reaches the outlook from the live demo', async () => {
     const onSlide = renderDeck(2);

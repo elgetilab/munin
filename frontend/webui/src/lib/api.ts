@@ -19,6 +19,7 @@ export async function fetchChats(params?: {
   persona?: string;
   search?: string;
   project_id?: string;
+  pinned_only?: boolean;
 }): Promise<{ conversations: ConversationSummary[]; total: number }> {
   const query = new URLSearchParams();
   if (params?.limit) query.set('limit', String(params.limit));
@@ -26,6 +27,7 @@ export async function fetchChats(params?: {
   if (params?.persona) query.set('persona', params.persona);
   if (params?.search) query.set('search', params.search);
   if (params?.project_id) query.set('project_id', params.project_id);
+  if (params?.pinned_only) query.set('pinned_only', 'true');
   const qs = query.toString();
   const res = await fetch(`${API}/chats${qs ? '?' + qs : ''}`);
   if (!res.ok) throw new Error('Failed to fetch chats');
@@ -74,7 +76,7 @@ export interface UserProfile {
 
 export async function fetchMe(): Promise<UserProfile> {
   const res = await fetch(`${AUTH_BASE}/auth/me`, { credentials: 'include' });
-  if (!res.ok) throw new Error('Failed to fetch user info');
+  if (!res.ok) throw Object.assign(new Error('Failed to fetch user info'), { status: res.status });
   return res.json();
 }
 
@@ -91,8 +93,11 @@ export async function updateProfile(data: { full_name?: string; nickname?: strin
 
 // ── Munin Profile ──────────────────────────────────────────────────────────
 
-export async function fetchMuninProfile(): Promise<MuninProfile> {
+// Resolves to null when there is no profile. Every other failure rejects, so a
+// caller can't mistake an outage for an empty profile and then save over it.
+export async function fetchMuninProfile(): Promise<MuninProfile | null> {
   const res = await fetch(`${API}/profile`);
+  if (res.status === 404) return null;
   if (!res.ok) throw new Error('Failed to fetch profile');
   return res.json();
 }
@@ -549,6 +554,8 @@ export async function uploadDocument(
   file: File,
   conversationId?: string | null,
   onProgress?: (pct: number) => void,
+  signal?: AbortSignal,
+  uploadId?: string,
 ): Promise<UploadedDocument> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -581,12 +588,21 @@ export async function uploadDocument(
       }
     };
     xhr.onerror = () => reject(new Error('Upload failed'));
+    xhr.onabort = () => reject(new DOMException('Upload cancelled', 'AbortError'));
+    signal?.addEventListener('abort', () => xhr.abort(), { once: true });
 
     const form = new FormData();
     form.append('file', file);
     if (conversationId) form.append('conversation_id', conversationId);
+    if (uploadId) form.append('upload_id', uploadId);
     xhr.send(form);
   });
+}
+
+/** Aborting the request does not stop the server, so this removes the document too. */
+export async function cancelUpload(uploadId: string): Promise<void> {
+  const res = await fetch(`${API}/documents/upload/${encodeURIComponent(uploadId)}/cancel`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to cancel upload');
 }
 
 export async function fetchDocuments(conversationId?: string): Promise<{ documents: UploadedDocument[] }> {
@@ -735,13 +751,17 @@ export async function createProject(data: { name: string; description?: string; 
   return res.json();
 }
 
-export async function updateProject(id: string, data: Partial<Pick<Project, 'name' | 'description' | 'instructions' | 'default_persona' | 'archived'>>): Promise<Project> {
+// null clears a field. Leaving a key out keeps its stored value.
+export async function updateProject(id: string, data: { name?: string; description?: string | null; instructions?: string | null; default_persona?: string | null; archived?: boolean }): Promise<Project> {
   const res = await fetch(`${API}/projects/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error('Failed to update project');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(errorMessage(err) || 'Failed to update project');
+  }
   return res.json();
 }
 

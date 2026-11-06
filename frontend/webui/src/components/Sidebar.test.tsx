@@ -1,13 +1,16 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { onTestFinished } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
-import { MOCK_CHATS } from '../test/msw-handlers';
+import { MOCK_CHATS, MOCK_PROJECTS } from '../test/msw-handlers';
+import { useUiStore } from '../stores/uiStore';
 import { useUserStore, _resetUserStoreForTests } from '../stores/userStore';
 import { useWorkspaceStore, _resetWorkspaceStoreForTests } from '../stores/workspaceStore';
 import { Sidebar } from './Sidebar';
 import { groupByTime } from '../lib/chatGrouping';
-import type { ConversationSummary } from '../lib/types';
+import { AUTH_BASE, DOCS_URL, SEARCH_URL } from '../lib/urls';
+import type { ConversationSummary, Project } from '../lib/types';
 import type { UserProfile } from '../lib/api';
 
 // ── groupByTime tests ───────────────────────────────────────────────────────
@@ -107,7 +110,7 @@ describe('Sidebar', () => {
     const user = userEvent.setup();
     renderSidebar();
 
-    await user.click(screen.getByText('Search'));
+    await user.click(screen.getByText('Search chats'));
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText('Search conversations...')).toBeInTheDocument();
@@ -367,7 +370,7 @@ describe('Sidebar open-in-new-tab links', () => {
   it('search results are links to their conversation', async () => {
     const user = userEvent.setup();
     renderSidebar();
-    await user.click(screen.getByText('Search'));
+    await user.click(screen.getByText('Search chats'));
 
     // "Hello" is c1's preview, rendered only inside the search overlay,
     // so it identifies the overlay row without colliding with the
@@ -458,7 +461,7 @@ describe('Sidebar data loading', () => {
     renderSidebar();
     await waitFor(() => expect(screen.getByText('Test Chat 1')).toBeInTheDocument());
 
-    await user.click(screen.getByText('Search'));
+    await user.click(screen.getByText('Search chats'));
     const overlay = await screen.findByPlaceholderText('Search conversations...');
     // Empty query lists the recent conversations under a "Recent" heading.
     await waitFor(() => expect(screen.getByText('Recent')).toBeInTheDocument());
@@ -480,14 +483,14 @@ describe('Sidebar data loading', () => {
     renderSidebar();
     await waitFor(() => expect(screen.getByText('Test Chat 1')).toBeInTheDocument());
 
-    await user.click(screen.getByText('Search'));
+    await user.click(screen.getByText('Search chats'));
     await user.type(await screen.findByPlaceholderText('Search conversations...'), 'abc');
     await user.click(screen.getByText('Esc'));
 
     await waitFor(() =>
       expect(screen.queryByPlaceholderText('Search conversations...')).not.toBeInTheDocument());
 
-    await user.click(screen.getByText('Search'));
+    await user.click(screen.getByText('Search chats'));
     const reopened = await screen.findByPlaceholderText('Search conversations...');
     expect(reopened).toHaveValue('');
   });
@@ -498,7 +501,7 @@ describe('Sidebar data loading', () => {
     let deleted = false;
     server.use(
       http.get(ADMIN_CHATS, ({ request }) => {
-        if (new URL(request.url).searchParams.get('project_id')) {
+        if (new URL(request.url).searchParams.get('project_id') === 'p1') {
           return HttpResponse.json({ conversations: [], total: 0 });
         }
         return HttpResponse.json({
@@ -541,20 +544,75 @@ describe('Sidebar profile menu', () => {
     renderSidebar();
 
     await user.click(screen.getByText('a@b.c'));
-    await user.click(screen.getByRole('button', { name: 'Help' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Help' }));
 
     expect(open).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('button', { name: 'Help' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Help' })).not.toBeInTheDocument();
   });
 
-  it('Help does nothing worse than close the menu when the widget has not loaded', async () => {
+  it('Help closes the phone drawer', async () => {
     const user = userEvent.setup();
+    const onCloseDrawer = vi.fn();
+    support.MuninSupport = { open: vi.fn() };
+    renderSidebar({ onCloseDrawer });
+
+    await user.click(screen.getByText('a@b.c'));
+    await user.click(screen.getByRole('menuitem', { name: 'Help' }));
+
+    expect(onCloseDrawer).toHaveBeenCalledTimes(1);
+  });
+
+  it('Help says so and opens the docs when the widget has not loaded', async () => {
+    const user = userEvent.setup();
+    const opened = vi.spyOn(window, 'open').mockReturnValue(null);
     renderSidebar();
 
     await user.click(screen.getByText('a@b.c'));
-    await user.click(screen.getByRole('button', { name: 'Help' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Help' }));
 
-    expect(screen.queryByRole('button', { name: 'Help' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Help' })).not.toBeInTheDocument();
+    expect(opened).toHaveBeenCalledWith(DOCS_URL, '_blank', 'noopener');
+    expect(useUiStore.getState().toast).toMatch(/could not load/i);
+    opened.mockRestore();
+    useUiStore.getState().setToast(null);
+  });
+
+  it('Sign out is the last item and posts to the auth service', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    await user.click(screen.getByText('a@b.c'));
+
+    const items = screen.getAllByRole('menuitem');
+    const signOut = items[items.length - 1];
+    expect(signOut).toHaveAccessibleName('Sign out');
+    expect(signOut).toHaveAttribute('type', 'submit');
+    const form = signOut.closest('form')!;
+    expect(form).toHaveAttribute('method', 'post');
+    expect(form).toHaveAttribute('action', `${AUTH_BASE}/logout`);
+  });
+
+  it('offers one docs link, no dead language row, and paper search', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    await user.click(screen.getByText('a@b.c'));
+
+    expect(screen.getAllByRole('menuitem', { name: 'Docs' })).toHaveLength(1);
+    expect(screen.queryByText('Learn more')).not.toBeInTheDocument();
+    expect(screen.queryByText('English')).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Search papers' })).toHaveAttribute('href', SEARCH_URL);
+  });
+
+  it('Escape closes the menu and returns focus to its trigger', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    const trigger = screen.getByText('a@b.c').closest('button')!;
+    await user.click(trigger);
+    expect(screen.getByRole('menuitem', { name: 'Settings' })).toHaveFocus();
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it('Knowledge is a real link that stays in the app on a plain click', async () => {
@@ -563,10 +621,709 @@ describe('Sidebar profile menu', () => {
     renderSidebar({ onOpenKnowledge });
 
     await user.click(screen.getByText('a@b.c'));
-    const link = screen.getByRole('link', { name: 'Knowledge' });
+    const link = screen.getByRole('menuitem', { name: 'Knowledge' });
     expect(link).toHaveAttribute('href', '/knowledge');
     await user.click(link);
 
     expect(onOpenKnowledge).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── Filed chats live in their project (findings 3, 4, 5, 6) ─────────────────
+
+describe('Sidebar filed chats and projects', () => {
+  const FILED = makeChat({ id: 'pc1', title: 'Filed Chat', pinned: false });
+
+  beforeEach(() => _resetWorkspaceStoreForTests());
+  afterEach(() => vi.restoreAllMocks());
+
+  // Behaves like the real endpoint: without __unfiled__ a filed chat is listed too.
+  function mockBackendChats() {
+    const seen: (string | null)[] = [];
+    server.use(
+      http.get('/api/chats', ({ request }) => {
+        const pid = new URL(request.url).searchParams.get('project_id');
+        seen.push(pid);
+        if (pid === 'p1') return HttpResponse.json({ conversations: [FILED], total: 1 });
+        if (pid === '__unfiled__') return HttpResponse.json(MOCK_CHATS);
+        return HttpResponse.json({
+          conversations: [...MOCK_CHATS.conversations, FILED],
+          total: 4,
+        });
+      }),
+    );
+    return seen;
+  }
+
+  const rowOf = (title: string) => screen.getByText(title).closest('.relative') as HTMLElement;
+
+  it('asks for unfiled chats only, so a filed chat is listed once', async () => {
+    const user = userEvent.setup();
+    const seen = mockBackendChats();
+    renderSidebar();
+
+    await waitFor(() => expect(screen.getByText('Test Chat 1')).toBeInTheDocument());
+    expect(seen).toContain('__unfiled__');
+    expect(screen.queryByText('Filed Chat')).not.toBeInTheDocument();
+
+    await user.click(screen.getByText('ML Research'));
+    await waitFor(() => expect(screen.getAllByText('Filed Chat')).toHaveLength(1));
+  });
+
+  it('the search overlay still offers filed chats as recent', async () => {
+    const user = userEvent.setup();
+    mockBackendChats();
+    renderSidebar();
+    await waitFor(() => expect(screen.getByText('Test Chat 1')).toBeInTheDocument());
+
+    await user.click(screen.getByText('Search chats'));
+    await waitFor(() => expect(screen.getByText('Filed Chat')).toBeInTheDocument());
+  });
+
+  it('pins a project chat that the main list does not contain', async () => {
+    const user = userEvent.setup();
+    mockBackendChats();
+    const pinned: string[] = [];
+    server.use(http.post('/api/chats/:id/pin', ({ params }) => {
+      pinned.push(params.id as string);
+      return new HttpResponse(null, { status: 200 });
+    }));
+    renderSidebar();
+    await user.click(await screen.findByText('ML Research'));
+    await screen.findByText('Filed Chat');
+
+    await user.click(within(rowOf('Filed Chat')).getByTitle('Pin'));
+
+    await waitFor(() => expect(pinned).toEqual(['pc1']));
+  });
+
+  describe('a pinned filed chat', () => {
+    const PINNED = { ...FILED, pinned: true, project_id: 'p1' };
+
+    function mockPinnedFiled() {
+      server.use(http.get('/api/chats', ({ request }) => {
+        const params = new URL(request.url).searchParams;
+        if (params.get('pinned_only') === 'true') return HttpResponse.json({ conversations: [PINNED], total: 1 });
+        return params.get('project_id') === 'p1'
+          ? HttpResponse.json({ conversations: [PINNED], total: 1 })
+          : HttpResponse.json({ conversations: [MOCK_CHATS.conversations[1]], total: 1 });
+      }));
+    }
+
+    it('shows in the Pinned group with its folder closed', async () => {
+      mockPinnedFiled();
+      renderSidebar();
+
+      await screen.findByText('Pinned');
+      expect(within(rowOf('Filed Chat')).getByTitle('Unpin')).toBeInTheDocument();
+      expect(screen.getAllByText('Filed Chat')).toHaveLength(1);
+    });
+
+    it('can be removed from its project there', async () => {
+      const user = userEvent.setup();
+      mockPinnedFiled();
+      const removed: string[] = [];
+      server.use(http.delete('/api/projects/:pid/conversations/:cid', ({ params }) => {
+        removed.push(`${params.pid}/${params.cid}`);
+        return HttpResponse.json({ ok: true });
+      }));
+      renderSidebar();
+      await screen.findByText('Pinned');
+
+      const row = rowOf('Filed Chat');
+      await user.click(within(row).getByTitle('More'));
+      await user.click(within(row).getByText('Remove from project'));
+
+      await waitFor(() => expect(removed).toEqual(['p1/pc1']));
+    });
+
+    it('also stays in its project, where a rename or menu opens on that row alone', async () => {
+      const user = userEvent.setup();
+      mockPinnedFiled();
+      renderSidebar();
+      await screen.findByText('Pinned');
+      await user.click(screen.getByText('ML Research'));
+      await waitFor(() => expect(screen.getAllByText('Filed Chat')).toHaveLength(2));
+
+      const [first] = screen.getAllByText('Filed Chat').map(el => el.closest('.relative') as HTMLElement);
+      await user.click(within(first).getByTitle('More'));
+      expect(screen.getAllByRole('menuitem', { name: 'Rename' })).toHaveLength(1);
+
+      await user.click(within(first).getByText('Rename'));
+      expect(screen.getAllByRole('textbox', { name: 'Rename chat' })).toHaveLength(1);
+      expect(screen.getByRole('textbox', { name: 'Rename chat' })).toHaveFocus();
+    });
+
+    it('leaves the date groups alone when unpinned', async () => {
+      server.use(http.get('/api/chats', ({ request }) => {
+        const params = new URL(request.url).searchParams;
+        if (params.get('pinned_only') === 'true') return HttpResponse.json({ conversations: [MOCK_CHATS.conversations[0]], total: 1 });
+        return HttpResponse.json({ conversations: [MOCK_CHATS.conversations[0], MOCK_CHATS.conversations[1]], total: 2 });
+      }));
+      renderSidebar();
+
+      await screen.findByText('Test Chat 2');
+      expect(screen.getAllByText('Test Chat 1')).toHaveLength(1);
+      expect(screen.queryByText('Filed Chat')).not.toBeInTheDocument();
+    });
+  });
+
+  it('renames a project chat starting from its own title', async () => {
+    const user = userEvent.setup();
+    mockBackendChats();
+    renderSidebar();
+    await user.click(await screen.findByText('ML Research'));
+    await screen.findByText('Filed Chat');
+
+    const row = rowOf('Filed Chat');
+    await user.click(within(row).getByTitle('More'));
+    await user.click(within(row).getByText('Rename'));
+
+    expect(screen.getByDisplayValue('Filed Chat')).toBeInTheDocument();
+  });
+
+  it('deleting the active project clears it and any open settings for it', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    useWorkspaceStore.setState({ activeProjectId: 'p1', editingProject: { id: 'p1' } as unknown as Project });
+    renderSidebar();
+    await screen.findByText('ML Research');
+
+    const row = rowOf('ML Research');
+    await user.click(within(row).getByTitle('More'));
+    await user.click(within(row).getByText('Delete project'));
+
+    await waitFor(() => expect(useWorkspaceStore.getState().activeProjectId).toBeNull());
+    expect(useWorkspaceStore.getState().editingProject).toBeNull();
+  });
+
+  describe('archived projects', () => {
+    const ARCHIVED = { ...MOCK_PROJECTS.projects[1], id: 'p9', name: 'Old Work', archived: true };
+
+    function mockArchived() {
+      let archived = true;
+      const patches: unknown[] = [];
+      server.use(
+        http.get('/api/projects', ({ request }) => {
+          const all = new URL(request.url).searchParams.get('archived') === 'true';
+          const list = [MOCK_PROJECTS.projects[0], ...(all || !archived ? [{ ...ARCHIVED, archived }] : [])];
+          return HttpResponse.json({ projects: list, total: list.length });
+        }),
+        http.patch('/api/projects/p9', async ({ request }) => {
+          patches.push(await request.json());
+          archived = false;
+          return HttpResponse.json({ ...ARCHIVED, archived: false });
+        }),
+      );
+      return patches;
+    }
+
+    it('are listed in a collapsed group and can be unarchived', async () => {
+      const user = userEvent.setup();
+      const patches = mockArchived();
+      renderSidebar();
+
+      const group = await screen.findByRole('button', { name: 'Archived (1)' });
+      expect(group).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByText('Old Work')).not.toBeInTheDocument();
+
+      await user.click(group);
+      await user.click(screen.getByRole('button', { name: 'Unarchive Old Work' }));
+
+      await waitFor(() => expect(patches).toEqual([{ archived: false }]));
+      await waitFor(() => expect(screen.queryByRole('button', { name: /^Archived/ })).not.toBeInTheDocument());
+      expect(screen.getByText('Old Work')).toBeInTheDocument();
+    });
+
+    it('open their settings from the row', async () => {
+      const user = userEvent.setup();
+      mockArchived();
+      const onOpenProjectSettings = vi.fn();
+      renderSidebar({ onOpenProjectSettings });
+
+      await user.click(await screen.findByRole('button', { name: 'Archived (1)' }));
+      await user.click(screen.getByRole('button', { name: 'Old Work' }));
+
+      expect(onOpenProjectSettings).toHaveBeenCalledWith(expect.objectContaining({ id: 'p9' }));
+    });
+
+    it('list their chats when expanded, one folder at a time', async () => {
+      const user = userEvent.setup();
+      mockArchived();
+      const OLD = makeChat({ id: 'old1', title: 'Archived Chat', project_id: 'p9' });
+      server.use(http.get('/api/chats', ({ request }) => {
+        const pid = new URL(request.url).searchParams.get('project_id');
+        return pid === 'p9'
+          ? HttpResponse.json({ conversations: [OLD], total: 1 })
+          : HttpResponse.json(MOCK_CHATS);
+      }));
+      const onSelect = vi.fn();
+      renderSidebar({ onSelect });
+
+      await user.click(await screen.findByRole('button', { name: 'Archived (1)' }));
+      const toggle = screen.getByRole('button', { name: 'Chats in Old Work' });
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByText('Archived Chat')).not.toBeInTheDocument();
+
+      await user.click(toggle);
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await user.click(await screen.findByText('Archived Chat'));
+      expect(onSelect).toHaveBeenCalledWith('old1');
+
+      await user.click(toggle);
+      expect(screen.queryByText('Archived Chat')).not.toBeInTheDocument();
+    });
+
+    it('stay reachable when every project is archived', async () => {
+      server.use(http.get('/api/projects', () =>
+        HttpResponse.json({ projects: [ARCHIVED], total: 1 })));
+      renderSidebar();
+
+      expect(await screen.findByRole('button', { name: 'Archived (1)' })).toBeInTheDocument();
+      expect(screen.getByText('New project')).toBeInTheDocument();
+    });
+  });
+});
+
+// ── Loading, failure and feedback (findings 8, 9, 10, 17, 18) ───────────────
+
+describe('Sidebar loading and feedback', () => {
+  beforeEach(() => {
+    _resetWorkspaceStoreForTests();
+    useUiStore.getState().setToast(null);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    useUiStore.getState().setToast(null);
+  });
+
+  const none = () => HttpResponse.json({ conversations: [], total: 0 });
+  const noProjects = () => HttpResponse.json({ projects: [], total: 0 });
+
+  it('shows a loading state first, and the empty text only after an empty answer', async () => {
+    let release = () => {};
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    server.use(
+      http.get('/api/chats', async () => { await gate; return none(); }),
+      http.get('/api/projects', noProjects),
+    );
+    renderSidebar();
+
+    expect(screen.getByTestId('chats-loading')).toBeInTheDocument();
+    expect(screen.queryByText('No conversations yet')).not.toBeInTheDocument();
+
+    release();
+    expect(await screen.findByText('No conversations yet')).toBeInTheDocument();
+    expect(screen.queryByTestId('chats-loading')).not.toBeInTheDocument();
+  });
+
+  it('says so when chats fail to load, and Retry reads them again', async () => {
+    const user = userEvent.setup();
+    let fail = true;
+    server.use(
+      http.get('/api/chats', () => (fail ? new HttpResponse(null, { status: 500 }) : HttpResponse.json(MOCK_CHATS))),
+      http.get('/api/projects', noProjects),
+    );
+    renderSidebar();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load your chats');
+    expect(screen.queryByText('No conversations yet')).not.toBeInTheDocument();
+
+    fail = false;
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('Test Chat 1')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('Show more appends the next page, and a refresh keeps it', async () => {
+    const user = userEvent.setup();
+    const all = Array.from({ length: 60 }, (_, i) => makeChat({ id: `c${i}`, title: `Chat ${i}` }));
+    server.use(http.get('/api/chats', ({ request }) => {
+      const url = new URL(request.url);
+      const limit = Number(url.searchParams.get('limit'));
+      const offset = Number(url.searchParams.get('offset') ?? 0);
+      return HttpResponse.json({ conversations: all.slice(offset, offset + limit), total: all.length });
+    }));
+    const { rerender, props } = renderSidebar();
+
+    await screen.findByText('Chat 49');
+    expect(screen.queryByText('Chat 50')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Show more' }));
+    await screen.findByText('Chat 59');
+    expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
+
+    rerender(<Sidebar {...props} refreshKey={1} />);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(screen.getByText('Chat 59')).toBeInTheDocument();
+  });
+
+  describe('Show more overlapping a refresh', () => {
+    const rows = (n: number) => Array.from({ length: n }, (_, i) => makeChat({ id: `c${i}`, title: `Chat ${i}` }));
+
+    it('a refresh still on its way at the old length cannot shrink the list', async () => {
+      const user = userEvent.setup();
+      const all = rows(120);
+      let release = () => {};
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      let holdFirstPage = false;
+      const firstPageLimits: number[] = [];
+      server.use(http.get('/api/chats', async ({ request }) => {
+        const url = new URL(request.url);
+        if (url.searchParams.get('pinned_only')) return none();
+        const limit = Number(url.searchParams.get('limit'));
+        const offset = Number(url.searchParams.get('offset') ?? 0);
+        if (offset === 0) {
+          firstPageLimits.push(limit);
+          if (holdFirstPage && limit === 50) await gate;
+        }
+        return HttpResponse.json({ conversations: all.slice(offset, offset + limit), total: all.length });
+      }));
+      const { rerender, props } = renderSidebar();
+      await screen.findByText('Chat 49');
+
+      holdFirstPage = true;
+      rerender(<Sidebar {...props} refreshKey={1} />);
+      await waitFor(() => expect(firstPageLimits.at(-1)).toBe(50));
+      await user.click(screen.getByRole('button', { name: 'Show more' }));
+      await screen.findByText('Chat 99');
+
+      release();
+      await waitFor(() => expect(firstPageLimits.at(-1)).toBe(100));
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(screen.getByText('Chat 99')).toBeInTheDocument();
+    });
+
+    it('a chat a refresh removed during the wait does not come back', async () => {
+      const user = userEvent.setup();
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      let all = rows(120);
+      let release = () => {};
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      server.use(
+        http.get('/api/chats', async ({ request }) => {
+          const url = new URL(request.url);
+          if (url.searchParams.get('pinned_only')) return none();
+          const limit = Number(url.searchParams.get('limit'));
+          const offset = Number(url.searchParams.get('offset') ?? 0);
+          // The page Show more asks for, read before the delete.
+          const answer = all.slice(offset, offset + limit);
+          if (offset > 0) await gate;
+          return HttpResponse.json({ conversations: answer, total: all.length });
+        }),
+        http.delete('/api/chats/:id', ({ params }) => {
+          all = all.filter(c => c.id !== params.id);
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+      renderSidebar();
+      await screen.findByText('Chat 49');
+
+      await user.click(screen.getByRole('button', { name: 'Show more' }));
+
+      const row = screen.getByText('Chat 3').closest('.relative') as HTMLElement;
+      await user.click(within(row).getByTitle('More'));
+      await user.click(within(row).getByText('Delete'));
+      await waitFor(() => expect(screen.queryByText('Chat 3')).not.toBeInTheDocument());
+
+      release();
+      await screen.findByText('Chat 99');
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(screen.queryByText('Chat 3')).not.toBeInTheDocument();
+    });
+  });
+
+  it('Show more works inside a project', async () => {
+    const user = userEvent.setup();
+    const all = Array.from({ length: 51 }, (_, i) => makeChat({ id: `pc${i}`, title: `Filed ${i}` }));
+    server.use(http.get('/api/chats', ({ request }) => {
+      const url = new URL(request.url);
+      if (url.searchParams.get('project_id') !== 'p1') return none();
+      const limit = Number(url.searchParams.get('limit'));
+      const offset = Number(url.searchParams.get('offset') ?? 0);
+      return HttpResponse.json({ conversations: all.slice(offset, offset + limit), total: all.length });
+    }));
+    renderSidebar();
+
+    await user.click(await screen.findByText('ML Research'));
+    await screen.findByText('Filed 49');
+    await user.click(screen.getByRole('button', { name: 'Show more' }));
+    expect(await screen.findByText('Filed 50')).toBeInTheDocument();
+  });
+
+  it('a failed rename says so and closes the editor', async () => {
+    const user = userEvent.setup();
+    server.use(http.patch('/api/chats/:id', () => new HttpResponse(null, { status: 500 })));
+    renderSidebar();
+    await screen.findByText('Test Chat 2');
+
+    const row = screen.getByText('Test Chat 2').closest('.relative') as HTMLElement;
+    await user.click(within(row).getByTitle('More'));
+    await user.click(within(row).getByText('Rename'));
+    await user.clear(screen.getByRole('textbox', { name: 'Rename chat' }));
+    await user.type(screen.getByRole('textbox', { name: 'Rename chat' }), 'New name{Enter}');
+
+    await waitFor(() => expect(useUiStore.getState().toast).toBe('Could not rename the chat'));
+    expect(screen.queryByRole('textbox', { name: 'Rename chat' })).not.toBeInTheDocument();
+  });
+
+  it('a failed delete says so instead of rejecting unhandled', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    server.use(http.delete('/api/chats/:id', () => new HttpResponse(null, { status: 500 })));
+    renderSidebar();
+    await screen.findByText('Test Chat 2');
+
+    const row = screen.getByText('Test Chat 2').closest('.relative') as HTMLElement;
+    await user.click(within(row).getByTitle('More'));
+    await user.click(within(row).getByText('Delete'));
+
+    await waitFor(() => expect(useUiStore.getState().toast).toBe('Could not delete the chat'));
+  });
+
+  it('Escape cancels a rename without saving, and so does the blur that follows', async () => {
+    const user = userEvent.setup();
+    const saved: unknown[] = [];
+    server.use(http.patch('/api/chats/:id', async ({ request }) => {
+      saved.push(await request.json());
+      return new HttpResponse(null, { status: 200 });
+    }));
+    renderSidebar();
+    await screen.findByText('Test Chat 2');
+
+    const row = screen.getByText('Test Chat 2').closest('.relative') as HTMLElement;
+    await user.click(within(row).getByTitle('More'));
+    await user.click(within(row).getByText('Rename'));
+    await user.type(screen.getByRole('textbox', { name: 'Rename chat' }), ' edited');
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('textbox', { name: 'Rename chat' })).not.toBeInTheDocument();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(saved).toEqual([]);
+  });
+
+  it('the new project input can be cancelled by touch, and forgets what was typed', async () => {
+    const user = userEvent.setup();
+    server.use(http.get('/api/projects', noProjects));
+    renderSidebar();
+
+    await user.click(await screen.findByText('New project'));
+    await user.type(screen.getByRole('textbox', { name: 'Project name' }), 'Draft');
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('textbox', { name: 'Project name' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByText('New project'));
+    expect(screen.getByRole('textbox', { name: 'Project name' })).toHaveValue('');
+  });
+
+  it('an empty new project input closes when it loses focus', async () => {
+    const user = userEvent.setup();
+    server.use(http.get('/api/projects', noProjects));
+    renderSidebar();
+
+    await user.click(await screen.findByText('New project'));
+    await user.click(screen.getByText('Search chats'));
+    expect(screen.queryByRole('textbox', { name: 'Project name' })).not.toBeInTheDocument();
+  });
+
+  it('a failed create says so and keeps what was typed', async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get('/api/projects', noProjects),
+      http.post('/api/projects', () => new HttpResponse(null, { status: 500 })),
+    );
+    renderSidebar();
+
+    await user.click(await screen.findByText('New project'));
+    await user.type(screen.getByRole('textbox', { name: 'Project name' }), 'Keep me{Enter}');
+
+    await waitFor(() => expect(useUiStore.getState().toast).toBe('Could not create the project'));
+    expect(screen.getByRole('textbox', { name: 'Project name' })).toHaveValue('Keep me');
+  });
+
+  describe('search', () => {
+    it('says Searching until the current query has answered', async () => {
+      const user = userEvent.setup();
+      let release = () => {};
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      renderSidebar();
+      await screen.findByText('Test Chat 1');
+      server.use(http.get('/api/chats', async ({ request }) => {
+        if (new URL(request.url).searchParams.get('search')) await gate;
+        return none();
+      }));
+
+      await user.click(screen.getByText('Search chats'));
+      await user.type(await screen.findByPlaceholderText('Search conversations...'), 'zzz');
+
+      expect(screen.getByText('Searching...')).toBeInTheDocument();
+      expect(screen.queryByText('No matching conversations')).not.toBeInTheDocument();
+
+      release();
+      expect(await screen.findByText('No matching conversations', {}, { timeout: 2000 })).toBeInTheDocument();
+    });
+
+    it('ignores the answer to a query that has been replaced', async () => {
+      const user = userEvent.setup();
+      let releaseOld = () => {};
+      const oldGate = new Promise<void>(resolve => { releaseOld = resolve; });
+      renderSidebar();
+      await screen.findByText('Test Chat 1');
+      server.use(http.get('/api/chats', async ({ request }) => {
+        const q = new URL(request.url).searchParams.get('search');
+        if (q === 'old*') {
+          await oldGate;
+          return HttpResponse.json({ conversations: [makeChat({ id: 'o', title: 'Old answer' })], total: 1 });
+        }
+        if (q === 'new*') return HttpResponse.json({ conversations: [makeChat({ id: 'n', title: 'New answer' })], total: 1 });
+        return none();
+      }));
+
+      await user.click(screen.getByText('Search chats'));
+      const input = await screen.findByPlaceholderText('Search conversations...');
+      await user.type(input, 'old');
+      await new Promise(resolve => setTimeout(resolve, 350));
+      await user.clear(input);
+      await user.type(input, 'new');
+      await screen.findByText('New answer', {}, { timeout: 2000 });
+
+      releaseOld();
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(screen.getByText('New answer')).toBeInTheDocument();
+      expect(screen.queryByText('Old answer')).not.toBeInTheDocument();
+    });
+
+    it('finds a loaded chat by title when the server only matched message text', async () => {
+      const user = userEvent.setup();
+      renderSidebar();
+      await screen.findByText('Test Chat 2');
+      server.use(http.get('/api/chats', ({ request }) => (
+        new URL(request.url).searchParams.get('search') ? none() : HttpResponse.json(MOCK_CHATS)
+      )));
+
+      await user.click(screen.getByText('Search chats'));
+      await user.type(await screen.findByPlaceholderText('Search conversations...'), 'Old Chat');
+
+      const dialog = await screen.findByRole('dialog');
+      await waitFor(() => expect(within(dialog).getByText('Old Chat')).toBeInTheDocument(), { timeout: 2000 });
+    });
+
+    it('with no chats at all, says so rather than no match', async () => {
+      const user = userEvent.setup();
+      server.use(http.get('/api/chats', none));
+      renderSidebar();
+
+      await user.click(screen.getByText('Search chats'));
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText('No conversations yet')).toBeInTheDocument();
+    });
+
+    it('is a labelled dialog that Escape closes, returning focus', async () => {
+      const user = userEvent.setup();
+      renderSidebar();
+      const opener = screen.getByText('Search chats').closest('button')!;
+      await user.click(opener);
+
+      const dialog = await screen.findByRole('dialog', { name: 'Search your chats' });
+      expect(within(dialog).getByRole('textbox', { name: 'Search conversations' })).toHaveFocus();
+
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(opener).toHaveFocus();
+    });
+  });
+});
+
+// ── Keyboard and folders (findings 12, 13, 26) ──────────────────────────────
+
+describe('Sidebar keyboard and folders', () => {
+  beforeEach(() => _resetWorkspaceStoreForTests());
+
+  const filed = makeChat({ id: 'pc1', title: 'Filed Chat' });
+  const mockFiled = () => server.use(http.get('/api/chats', ({ request }) => (
+    new URL(request.url).searchParams.get('project_id') === 'p1'
+      ? HttpResponse.json({ conversations: [filed], total: 1 })
+      : HttpResponse.json(MOCK_CHATS)
+  )));
+
+  it('a project folder opens from the keyboard and reports its state', async () => {
+    const user = userEvent.setup();
+    mockFiled();
+    renderSidebar();
+
+    const folder = await screen.findByRole('button', { name: 'ML Research, 2 chats' });
+    expect(folder).toHaveAttribute('aria-expanded', 'false');
+    folder.focus();
+    await user.keyboard('{Enter}');
+
+    expect(folder).toHaveAttribute('aria-expanded', 'true');
+    expect(await screen.findByText('Filed Chat')).toBeInTheDocument();
+  });
+
+  it('row menus name their chat, take focus, and follow arrow keys and Escape', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    const trigger = await screen.findByRole('button', { name: 'More actions for Test Chat 2' });
+    expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
+
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('menuitem', { name: 'Rename' })).toHaveFocus();
+
+    await user.keyboard('{ArrowDown}');
+    expect(screen.getByRole('menuitem', { name: 'Move to project' })).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('menuitem', { name: 'ML Research' })).toHaveFocus();
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it('a row menu near the bottom of the window opens upward, outside the scrolling list', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    const trigger = await screen.findByRole('button', { name: 'More actions for Old Chat' });
+    const bottom = window.innerHeight - 10;
+    vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue({ top: bottom - 20, bottom, right: 250 } as DOMRect);
+    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(120);
+    onTestFinished(() => { height.mockRestore(); });
+
+    await user.click(trigger);
+
+    const menu = screen.getByRole('menu');
+    expect(menu).toHaveClass('fixed');
+    expect(menu.style.top).toBe(`${bottom - 20 - 4 - 120}px`);
+  });
+
+  it('opening another row menu closes the first', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    await user.click(await screen.findByRole('button', { name: 'More actions for Test Chat 2' }));
+    await user.click(screen.getByRole('button', { name: 'More actions for Old Chat' }));
+
+    expect(screen.getAllByRole('menu')).toHaveLength(1);
+    expect(screen.getByRole('menu')).toHaveAccessibleName('Actions for Old Chat');
+  });
+
+  it('keeps a filed chat\'s folder open when the active project clears', async () => {
+    mockFiled();
+    useWorkspaceStore.setState({ activeProjectId: 'p1' });
+    const { rerender, props } = renderSidebar({ currentId: 'pc1' });
+    await screen.findByText('Filed Chat');
+
+    useWorkspaceStore.setState({ activeProjectId: null });
+    rerender(<Sidebar {...props} currentId="pc1" />);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /^ML Research/ })).toHaveAttribute('aria-expanded', 'true'));
+  });
+
+  it('opens the folder of a chat that no list holds, such as a direct link', async () => {
+    mockFiled();
+    server.use(http.get('/api/chats/pc1', () => HttpResponse.json({ ...filed, messages: [], project_id: 'p1' })));
+    renderSidebar({ currentId: 'pc1' });
+
+    expect(await screen.findByText('Filed Chat')).toBeInTheDocument();
   });
 });

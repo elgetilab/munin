@@ -32,6 +32,8 @@ interface UiState {
   showInstallBanner: boolean;
   artifactPanelOpen: boolean;
   selectedArtifactId: string | null;
+  // The artifact editor holds a change that has not been saved.
+  artifactDraftChanged: boolean;
   knowledgePanelOpen: boolean;
   // True/string opens the knowledge page (string = initial route);
   // false hides it. Same triple-shape the original useState had.
@@ -55,8 +57,11 @@ interface UiState {
   setShowAdmin: (open: boolean) => void;
   setShowReportDialog: (open: boolean) => void;
   setShowInstallBanner: (open: boolean) => void;
+  // The two side panels share one place on screen, so opening either closes the
+  // other. That keeps a header pill's state in step with what is showing.
   setArtifactPanelOpen: (open: boolean) => void;
   setSelectedArtifactId: (id: string | null) => void;
+  setArtifactDraftChanged: (changed: boolean) => void;
   setKnowledgePanelOpen: (open: boolean) => void;
   setShowKnowledgePage: (value: string | true | false) => void;
   setSidebarOpen: (open: boolean) => void;
@@ -64,6 +69,8 @@ interface UiState {
   setAnnouncement: (a: Announcement | null) => void;
   setAnnouncementDismissed: (dismissed: boolean) => void;
   setToast: (msg: string | null) => void;
+  // A toast that takes itself away.
+  showToast: (msg: string, durationMs?: number) => void;
 }
 
 
@@ -82,6 +89,9 @@ const _defaultSidebarOpen = (): boolean => {
 };
 
 
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
+
+
 export const useUiStore = create<UiState>()(
   persist(
     immer((set) => ({
@@ -91,6 +101,7 @@ export const useUiStore = create<UiState>()(
       showInstallBanner: false,
       artifactPanelOpen: false,
       selectedArtifactId: null,
+      artifactDraftChanged: false,
       knowledgePanelOpen: false,
       showKnowledgePage: false,
 
@@ -106,15 +117,30 @@ export const useUiStore = create<UiState>()(
       setShowAdmin: (open) => set(state => { state.showAdmin = open; }),
       setShowReportDialog: (open) => set(state => { state.showReportDialog = open; }),
       setShowInstallBanner: (open) => set(state => { state.showInstallBanner = open; }),
-      setArtifactPanelOpen: (open) => set(state => { state.artifactPanelOpen = open; }),
+      setArtifactPanelOpen: (open) => set(state => {
+        state.artifactPanelOpen = open;
+        if (open) state.knowledgePanelOpen = false;
+      }),
       setSelectedArtifactId: (id) => set(state => { state.selectedArtifactId = id; }),
-      setKnowledgePanelOpen: (open) => set(state => { state.knowledgePanelOpen = open; }),
+      setArtifactDraftChanged: (changed) => set(state => { state.artifactDraftChanged = changed; }),
+      setKnowledgePanelOpen: (open) => set(state => {
+        state.knowledgePanelOpen = open;
+        if (open) state.artifactPanelOpen = false;
+      }),
       setShowKnowledgePage: (value) => set(state => { state.showKnowledgePage = value; }),
       setSidebarOpen: (open) => set(state => { state.sidebarOpen = open; }),
       bumpSidebarRefresh: () => set(state => { state.sidebarRefreshKey += 1; }),
       setAnnouncement: (a) => set(state => { state.announcement = a; }),
       setAnnouncementDismissed: (dismissed) => set(state => { state.announcementDismissed = dismissed; }),
-      setToast: (msg) => set(state => { state.toast = msg; }),
+      setToast: (msg) => {
+        clearTimeout(toastTimer);
+        set(state => { state.toast = msg; });
+      },
+      showToast: (msg, durationMs = 6000) => {
+        clearTimeout(toastTimer);
+        set(state => { state.toast = msg; });
+        toastTimer = setTimeout(() => set(state => { state.toast = null; }), durationMs);
+      },
     })),
     {
       // localStorage key — namespaced so it doesn't collide with
@@ -139,6 +165,7 @@ export function _resetUiStoreForTests(): void {
     showInstallBanner: false,
     artifactPanelOpen: false,
     selectedArtifactId: null,
+    artifactDraftChanged: false,
     knowledgePanelOpen: false,
     showKnowledgePage: false,
     sidebarOpen: _defaultSidebarOpen(),

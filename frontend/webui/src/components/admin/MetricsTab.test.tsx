@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../../test/msw-server';
 import { MetricsTab } from './MetricsTab';
-import { rateWindowFor, seriesToRows } from '../../lib/metricsSeries';
+import { formatMetricValue, rateWindowFor, seriesToRows } from '../../lib/metricsSeries';
 
 /**
  * MetricsTab tests cover the pure transforms (seriesToRows,
@@ -27,6 +27,23 @@ describe('rateWindowFor', () => {
     expect(rateWindowFor(1440)).toBe('1h');
     expect(rateWindowFor(10080)).toBe('6h');
     expect(rateWindowFor(43200)).toBe('1d');
+  });
+});
+
+describe('formatMetricValue', () => {
+  // Under 18 per hour is under 0.005/s, which toFixed(2) showed as 0.00.
+  it('keeps low traffic visible', () => {
+    expect(formatMetricValue(0.0042)).toBe('0.0042');
+    expect(formatMetricValue(0.00049)).toBe('0.00049');
+  });
+
+  it('shows ordinary values without padding, and large ones compactly', () => {
+    expect(formatMetricValue(0)).toBe('0');
+    expect(formatMetricValue(8)).toBe('8');
+    expect(formatMetricValue(1.5)).toBe('1.5');
+    expect(formatMetricValue(99.6)).toBe('100');
+    expect(formatMetricValue(250)).toBe('250');
+    expect(formatMetricValue(1500)).toBe('1.5k');
   });
 });
 
@@ -155,7 +172,15 @@ describe('MetricsTab rendering', () => {
     });
   });
 
-  it('shows the upstream error message when prometheus rejects the query', async () => {
+  it('labels what the rate charts measure', async () => {
+    render(<MetricsTab />);
+    expect(await screen.findAllByText('calls/s')).toHaveLength(3);
+    expect(screen.getByText('tokens/s')).toBeInTheDocument();
+    expect(screen.getByText('turns/s')).toBeInTheDocument();
+    expect(screen.getByText('URLs/hour')).toBeInTheDocument();
+  });
+
+  it('shows one banner, not eight, when every panel fails the same way', async () => {
     server.use(
       http.post('/api/admin/metrics/query_range', () =>
         HttpResponse.json(
@@ -168,9 +193,48 @@ describe('MetricsTab rendering', () => {
     render(<MetricsTab />);
 
     await waitFor(() => {
-      const errs = screen.getAllByText('parse error: bad PromQL');
-      expect(errs.length).toBe(8);
+      expect(screen.getByRole('alert')).toHaveTextContent('All charts failed to load: parse error: bad PromQL');
     });
+    expect(screen.queryByText('vLLM outcomes')).not.toBeInTheDocument();
+    expect(screen.queryByText('parse error: bad PromQL')).not.toBeInTheDocument();
+  });
+
+  it('brings the panels back when Retry succeeds', async () => {
+    const user = userEvent.setup();
+    let fail = true;
+    server.use(
+      http.post('/api/admin/metrics/query_range', () => (
+        fail
+          ? HttpResponse.json({ error: { message: 'Prometheus is not reachable.' } }, { status: 502 })
+          : HttpResponse.json({ status: 'success', data: { resultType: 'matrix', result: [] } })
+      )),
+    );
+
+    render(<MetricsTab />);
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+
+    fail = false;
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => expect(screen.getByText('vLLM outcomes')).toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps the error in the panel when only some panels fail', async () => {
+    server.use(
+      http.post('/api/admin/metrics/query_range', async ({ request }) => {
+        const body = (await request.json()) as { query: string };
+        return body.query.includes('munin_phantom_url_total')
+          ? HttpResponse.json({ error: { message: 'parse error: bad PromQL' } }, { status: 400 })
+          : HttpResponse.json({ status: 'success', data: { resultType: 'matrix', result: [] } });
+      }),
+    );
+
+    render(<MetricsTab />);
+
+    await waitFor(() => expect(screen.getByText('parse error: bad PromQL')).toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByText('vLLM outcomes')).toBeInTheDocument();
   });
 
   it('switching time range re-issues all queries', async () => {

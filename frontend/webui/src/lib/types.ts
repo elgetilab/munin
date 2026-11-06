@@ -28,6 +28,7 @@ export interface ConversationSummary {
   preview: string;
   pinned: boolean;
   pinned_at: string | null;
+  project_id?: string | null;
   /** Background turns: a live stream is generating in this conversation. */
   generating?: boolean;
 }

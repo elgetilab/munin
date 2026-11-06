@@ -6,6 +6,7 @@
   --color-bg-tertiary: #242a33;
   --color-text-primary: #e6edf3;
   --color-text-secondary: #8b949e;
+  --color-text-tertiary: #808891;
   --color-accent: #58a6ff;
   --color-accent-hover: #79b8ff;
   --color-border: #30363d;
@@ -54,6 +55,18 @@ body {
   }
 }
 
+/* An open side panel has its own controls in that corner, and Help is still in the
+   account menu. App.tsx sets the class. */
+body.munin-side-panel-open #munin-support-btn {
+  display: none !important;
+}
+
+/* A Knowledge browse page has a Download button at the end of each row, which the
+   floating button would cover. Help is still in the account menu. */
+body.munin-browsing-knowledge #munin-support-btn {
+  display: none !important;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;
@@ -72,6 +85,13 @@ body {
 /* Markdown prose styling */
 .prose-munin {
   line-height: 1.7;
+  /* Sequences, SMILES, DOIs and URLs have no break points of their own. */
+  overflow-wrap: anywhere;
+}
+/* These scroll sideways instead; "anywhere" would squeeze table columns to a letter. */
+.prose-munin table,
+.prose-munin pre {
+  overflow-wrap: normal;
 }
 .prose-munin p {
   margin: 0.5em 0;

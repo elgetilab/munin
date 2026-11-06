@@ -51,6 +51,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 import uuid
@@ -91,6 +92,7 @@ import chat_store
 import personas as persona_module
 import chat_service
 import document_store
+from upload_tracker import UploadTracker
 import agents as agents_pkg
 import user_profile_store
 import project_store
@@ -2761,6 +2763,8 @@ async def api_get_artifact(
 # Frontend Document Routes (/api/documents)
 # ==============================================================================
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # Frontend enforces 50 MB; mirror on server.
+_UPLOAD_ID_RE = re.compile(r"[A-Za-z0-9_-]{8,64}")
+upload_tracker = UploadTracker()
 
 
 @app.post("/api/documents/upload")
@@ -2770,14 +2774,23 @@ async def api_upload_document(
     file: UploadFile = File(...),
     conversation_id: Optional[str] = Form(None),
     project_id: Optional[str] = Form(None),
+    upload_id: Optional[str] = Form(None),
 ):
     """Upload + embed a user document. Returns a document record.
 
     Optional ``project_id`` files the document into a project (§21) so
     subsequent project-scoped search finds it. The project must be owned
     by the requesting user or we return 404.
+
+    Optional ``upload_id``, chosen by the browser, lets the user cancel this
+    upload with the route below.
     """
     user_email = _require_user_email(request)
+    if upload_id and not _UPLOAD_ID_RE.fullmatch(upload_id):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": "Invalid upload_id"}},
+        )
     if not file.filename:
         raise HTTPException(
             status_code=400,
@@ -2811,6 +2824,16 @@ async def api_upload_document(
             conversation_id=conversation_id,
             project_id=project_id,
         )
+        if upload_id:
+            if upload_tracker.is_cancelled(user_email, upload_id):
+                await document_store.delete_document(
+                    result["document_id"], user_email
+                )
+                return JSONResponse(
+                    status_code=409,
+                    content={"error": {"message": "Upload was cancelled"}},
+                )
+            upload_tracker.finish(user_email, upload_id, result["document_id"])
         # A PDF with no text layer (a scan, or anything printed to PDF) needs
         # OCR, which costs tens of seconds to minutes. Run it AFTER the
         # response so the upload returns at its normal speed; the document
@@ -2837,6 +2860,22 @@ async def api_upload_document(
             status_code=500,
             detail={"error": {"message": "Upload processing failed"}},
         )
+
+
+@app.post("/api/documents/upload/{upload_id}/cancel")
+async def api_cancel_upload(request: Request, upload_id: str):
+    """Cancel an upload and remove its document, whenever this request lands."""
+    user_email = _require_user_email(request)
+    if not _UPLOAD_ID_RE.fullmatch(upload_id):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"message": "Invalid upload_id"}},
+        )
+    document_id = upload_tracker.cancel(user_email, upload_id)
+    deleted = False
+    if document_id:
+        deleted = await document_store.delete_document(document_id, user_email)
+    return {"cancelled": True, "deleted": deleted}
 
 
 @app.get("/api/documents")

@@ -2,6 +2,47 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { TaskLog } from './TaskLog';
 import type { ToolCall } from '../lib/types';
 
+describe('TaskLog result summary', () => {
+  const row = (result: unknown) => {
+    const call: ToolCall = { id: 't', name: 'web_fetch', arguments: {}, result } as ToolCall;
+    render(<TaskLog toolCalls={[call]} />);
+    return screen.getByRole('button');
+  };
+
+  it('shows a tool that returned an error as failed, not done', () => {
+    const button = row({ error: 'Timed out after 30s' });
+    expect(button).toHaveTextContent('failed');
+    expect(button).not.toHaveTextContent('done');
+    expect(button.querySelector('.text-warning svg')).not.toBeNull();
+  });
+
+  it('still shows a recognised or unrecognised success normally', () => {
+    expect(row({ ok: true })).toHaveTextContent('done');
+  });
+
+  it('does not treat an empty error field as a failure', () => {
+    expect(row({ papers: [{}, {}], error: null })).toHaveTextContent('2 papers');
+  });
+
+  it.each([
+    [{ papers: [{}] }, '1 paper'],
+    [{ results: [{}] }, '1 result'],
+    [{ results: [{}, {}] }, '2 results'],
+  ])('pluralises counts: %j', (result, text) => {
+    const button = row(result);
+    expect(button.textContent).toContain(text);
+    expect(button.textContent).not.toMatch(/\b1 (papers|results)\b/);
+  });
+
+  it('lets long unbroken values wrap in the expanded view', () => {
+    const button = row({ error: 'x' });
+    fireEvent.click(button);
+    const pres = document.querySelectorAll('pre');
+    expect(pres.length).toBeGreaterThan(0);
+    pres.forEach(p => expect(p.className).toContain('wrap-anywhere'));
+  });
+});
+
 // Mirrors the keys of MCP_TOOLS in backend/retrieval/mcp/schemas.py, the
 // live tool registry. Hand-copied: when a tool is added there, add it here
 // and give it an icon in TaskLog.tsx's TOOL_ICON_MAP.

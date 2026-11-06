@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { fetchAdminActivity, fetchAdminUsage } from '../lib/api';
 import type { AdminActivity, AdminUsage } from '../lib/api';
 import { useUiStore } from '../stores/uiStore';
 import { UsersTab } from './admin/UsersTab';
 import { GroupsTab } from './admin/GroupsTab';
 import { MetricsTab } from './admin/MetricsTab';
+import { ErrorNotice } from './ui/ErrorNotice';
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -50,6 +51,7 @@ export function AdminPanel() {
   // twice a minute while an admin was reading it. Here `loading` is only
   // ever turned off, so a refresh swaps the numbers in place.
   const [reloadKey, setReloadKey] = useState(0);
+  const reload = () => setReloadKey(k => k + 1);
 
   useEffect(() => {
     if (!needsLiveData) return;
@@ -116,12 +118,17 @@ export function AdminPanel() {
         )}
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-4 border-b border-border">
-          <TabButton current={tab} value="activity" onClick={setTab}>Activity</TabButton>
-          <TabButton current={tab} value="usage" onClick={setTab}>Usage</TabButton>
-          <TabButton current={tab} value="metrics" onClick={setTab}>Metrics</TabButton>
-          <TabButton current={tab} value="users" onClick={setTab}>Users</TabButton>
-          <TabButton current={tab} value="groups" onClick={setTab}>Groups</TabButton>
+        {/* The outer box scrolls on a narrow phone, so the page itself never
+            shifts sideways. The border sits on the inner row, which the active
+            tab's underline overlaps by a pixel. */}
+        <div className="mb-4 overflow-x-auto">
+          <div className="flex gap-1 min-w-max border-b border-border">
+            <TabButton current={tab} value="activity" onClick={setTab}>Activity</TabButton>
+            <TabButton current={tab} value="usage" onClick={setTab}>Usage</TabButton>
+            <TabButton current={tab} value="metrics" onClick={setTab}>Metrics</TabButton>
+            <TabButton current={tab} value="users" onClick={setTab}>Users</TabButton>
+            <TabButton current={tab} value="groups" onClick={setTab}>Groups</TabButton>
+          </div>
         </div>
 
         {/* Content */}
@@ -133,12 +140,19 @@ export function AdminPanel() {
           <MetricsTab />
         ) : loading ? (
           <div className="text-center text-text-secondary text-sm py-12">Loading...</div>
-        ) : error ? (
-          <div className="text-center text-error text-sm py-12">{error}</div>
-        ) : tab === 'activity' ? (
-          <ActivityTab activity={activity!} />
+        ) : error && (!activity || !usage) ? (
+          <ErrorNotice message={error} onRetry={reload} className="my-8" />
         ) : (
-          <UsageTab usage={usage!} />
+          <>
+            {error && (
+              <ErrorNotice
+                message={`Could not refresh, showing the last loaded data: ${error}`}
+                onRetry={reload}
+                className="mb-4"
+              />
+            )}
+            {tab === 'activity' ? <ActivityTab activity={activity!} /> : <UsageTab usage={usage!} />}
+          </>
         )}
       </div>
     </div>
@@ -154,10 +168,15 @@ function TabButton({ current, value, onClick, children }: {
   children: React.ReactNode;
 }) {
   const active = current === value;
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (active) ref.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [active]);
   return (
     <button
+      ref={ref}
       onClick={() => onClick(value)}
-      className={`px-4 py-2 text-sm transition-colors cursor-pointer border-b-2 -mb-px ${
+      className={`px-2.5 sm:px-4 py-2 text-sm whitespace-nowrap transition-colors cursor-pointer border-b-2 -mb-px ${
         active
           ? 'border-accent text-accent'
           : 'border-transparent text-text-secondary hover:text-text-primary'

@@ -224,13 +224,15 @@ def test_attempts_left_counts_failures_from_an_earlier_code(auth_env, user, clie
     assert "Invalid code. 2 attempts left." in _post_verify(client, _wrong_code(auth_env)).text
 
 
-def test_lockout_wording_and_disabled_form(auth_env, user, client):
+def test_lockout_wording_and_no_dead_controls(auth_env, user, client):
     response = _lock_out(auth_env, client)
 
     assert LOCKOUT in response.text
-    assert re.search(r'<input id="verify-code"[^>]* disabled', response.text)
-    assert re.search(r'<button id="verify-btn"[^>]* disabled', response.text)
-    assert re.search(r'<button id="resend-btn"[^>]* disabled', response.text)
+    assert 'id="verify-code"' not in response.text
+    assert 'id="verify-btn"' not in response.text
+    assert 'id="resend-btn"' not in response.text
+    assert "Too many wrong codes" not in response.text
+    assert EMAIL in response.text
     assert 'role="alert"' in response.text
 
 
@@ -255,7 +257,7 @@ def test_get_verify_shows_the_lockout_too(auth_env, user, client):
 
     page = client.get("/verify", params={"email": EMAIL})
     assert LOCKOUT in page.text
-    assert re.search(r'<input id="verify-code"[^>]* disabled', page.text)
+    assert 'id="verify-code"' not in page.text
 
 
 def test_correct_code_is_refused_while_locked(auth_env, user, client):
@@ -341,6 +343,30 @@ def test_verify_without_email_keeps_redirect(client):
     assert response.headers["location"] == (
         "/login?redirect=https%3A%2F%2Fapp.example.org%2Fa%3Fb%3Dc%26d%3De"
     )
+
+
+def test_verify_page_offers_help_in_every_state(auth_env, user, client, monkeypatch):
+    monkeypatch.setitem(auth_env.templates.globals, "support_email", "help@example.org")
+    expected = '<a href="mailto:help@example.org">Need help? help@example.org</a>'
+
+    assert expected in client.get("/verify", params={"email": EMAIL}).text
+    assert expected in _lock_out(auth_env, client).text
+
+
+def test_resend_is_the_main_action_when_the_mail_failed(auth_env, client):
+    auth_env.send_status["failed-send"] = {"state": "failed", "created": time.time()}
+
+    page = client.get("/verify", params={"email": EMAIL, "send": "failed-send"}).text
+
+    assert '<button id="resend-btn" type="submit" class="btn btn-primary">' in page
+    assert '<button id="verify-btn" type="submit" class="btn btn-secondary">' in page
+
+
+def test_verify_is_the_main_action_otherwise(client):
+    page = client.get("/verify", params={"email": EMAIL}).text
+
+    assert '<button id="verify-btn" type="submit" class="btn btn-primary">' in page
+    assert '<button id="resend-btn" type="submit" class="btn btn-secondary">' in page
 
 
 def test_verify_page_has_the_next_steps(auth_env, client, monkeypatch):

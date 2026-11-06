@@ -22,11 +22,16 @@
  * transient UI state that should re-derive on each mount.
  */
 
+import { enableMapSet } from 'immer';
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
 
 import type { Project, TagCatalog, TagChip } from '../lib/types';
+
+// reportedChats is a Set, and Immer refuses to draft one without this plugin:
+// even reading the Set inside a set() callback throws.
+enableMapSet();
 
 
 interface WorkspaceState {

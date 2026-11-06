@@ -14,6 +14,7 @@ Embedding model: BGE-base (768 dims, cosine), reused from database.py.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import logging
@@ -148,6 +149,10 @@ async def _extract_pdf(file_bytes: bytes) -> str:
     except Exception as e:
         logger.info("GROBID extraction failed, falling back to pypdf: %s", e)
 
+    return await asyncio.to_thread(_extract_pdf_text_layer, file_bytes)
+
+
+def _extract_pdf_text_layer(file_bytes: bytes) -> str:
     try:
         import pypdf
         reader = pypdf.PdfReader(io.BytesIO(file_bytes))
@@ -384,7 +389,7 @@ async def extract_text(filename: str, file_bytes: bytes) -> str:
     if ext == ".pdf":
         return await _extract_pdf(file_bytes)
     if ext == ".docx":
-        return _extract_docx(file_bytes)
+        return await asyncio.to_thread(_extract_docx, file_bytes)
     if ext in (".txt", ".md"):
         return _extract_text(file_bytes)
     return ""
@@ -607,7 +612,7 @@ async def upload_document(
         }
 
     text = await extract_text(safe_filename, file_bytes)
-    chunks = chunk_text(text)
+    chunks = await asyncio.to_thread(chunk_text, text)
     if not chunks:
         # A supported TEXT type that yields nothing is a defect, not a
         # property of the file, and it used to be indistinguishable from an
@@ -669,7 +674,8 @@ async def upload_document(
             "upload_time": upload_time,
         }
 
-    _embed_chunks(
+    await asyncio.to_thread(
+        _embed_chunks,
         chunks=chunks, user_email=user_email, document_id=document_id,
         filename=safe_filename, upload_time=upload_time,
         conversation_id=conversation_id, project_id=project_id,
@@ -682,6 +688,12 @@ async def upload_document(
         "status": "embedded",
         "upload_time": upload_time,
     }
+
+
+# Chunks encoded per turn on the model. Queries take turns with an upload (see
+# database.get_bge) and some of them wait on the event loop, so this bounds how long
+# an upload can hold up everything else. On the 4-core VPS one chunk took about 1 s.
+EMBED_BATCH_SIZE = 4
 
 
 def _embed_chunks(
@@ -706,7 +718,10 @@ def _embed_chunks(
         return 0
     ensure_collection()
 
-    vectors = bge.encode(chunks, show_progress_bar=False).tolist()
+    vectors: list = []
+    for start in range(0, len(chunks), EMBED_BATCH_SIZE):
+        batch = chunks[start:start + EMBED_BATCH_SIZE]
+        vectors.extend(bge.encode(batch, show_progress_bar=False).tolist())
 
     from qdrant_client.http import models as qm
     points = []

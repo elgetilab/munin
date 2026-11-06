@@ -41,7 +41,7 @@
             margin-bottom: 12px;
         }
 
-        ul {
+        ul, ol {
             margin: 8px 0 16px 20px;
         }
 
@@ -170,11 +170,23 @@
             <a href="{{env "MUNIN_URL_SEARCH"}}">Paper Search</a> is a fast, interactive search tool for finding scientific papers in our database.
         </p>
         <ul>
-            <li>Type a topic, author name, or DOI into the search bar.</li>
-            <li>Results are ranked by semantic similarity, not just keywords, so you'll find conceptually related work even if the exact terms don't match.</li>
-            <li>Click a result to see its abstract, metadata, and a link to the full PDF (when available).</li>
-            <li>Filter by author or year range to narrow results.</li>
+            <li>Type a topic or DOI into the search bar.</li>
+            <li>To list someone's papers, type their name in the Author filter and leave the search bar empty.</li>
+            <li>Results are ranked by meaning and citations, not just keywords, so you'll find conceptually related work even if the exact terms don't match.</li>
+            <li>Each result shows its abstract, metadata, and a PDF download (when available). The title opens the paper at doi.org.</li>
+            <li>Filter by author or year range to narrow results. A year range needs a topic or an author to narrow.</li>
         </ul>
+
+        <h2 id="deep-research">Deep Research</h2>
+        <p>
+            Give Munin a question and it works through it in the background: it plans sub-questions, searches the paper corpus, open-access literature and the web, reads the sources, and delivers a cited report in your conversation.
+        </p>
+        <ol>
+            <li>In the Chat composer, open the <strong>+</strong> menu.</li>
+            <li>Choose <strong>Deep Research</strong>, so that it shows <strong>On</strong>.</li>
+            <li>Send your question, without attachments.</li>
+        </ol>
+        <p>It turns itself off after each report, and isn't available in temporary chats.</p>
 
         <h2>Knowledge Browser</h2>
         <p>
@@ -211,26 +223,26 @@
         <p>Tags tell the assistant which part of the knowledge base to search. Without tags, it searches everything.</p>
 
         <h2>Knowledge Sources</h2>
-        <p>When you ask a question, the assistants can draw from three sources:</p>
+        <p>When you ask a question, Munin can draw from three sources:</p>
 
         <div class="card">
             <h4>Web Search</h4>
-            <p>All personas can search the web for current information: news, documentation, tutorials, or anything beyond their training data.</p>
+            <p>Munin can search the web for current information: news, documentation, tutorials, or anything beyond their training data.</p>
         </div>
         <div class="card">
             <h4>Academic Databases</h4>
-            <p>The assistants query Semantic Scholar and OpenAlex to find published papers, citations, and author information across all scientific fields.</p>
+            <p>Munin queries Semantic Scholar and OpenAlex to find published papers, citations, and author information across all scientific fields.</p>
         </div>
         <div class="card">
             <h4>Internal Paper Database</h4>
             <p>Our own curated collection of papers, searchable by meaning (not just keywords). This is the same database that powers Paper Search.</p>
         </div>
 
-        <p>The assistant will indicate which source a piece of information came from. If you're unsure whether an answer is grounded in a source or generated from the model's training, just ask.</p>
+        <p>Munin will indicate which source a piece of information came from. If you're unsure whether an answer is grounded in a source or generated from the model's training, just ask.</p>
 
         <h2>Contributing to the Knowledge Base</h2>
         <p>
-            You can grow the internal paper database by uploading PDFs on the <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload page</a>.
+            Research group leaders can grow the internal paper database by uploading PDFs on the <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload page</a>. If you aren't a group leader, ask yours or contact support.
         </p>
         <ul>
             <li>Drag and drop PDFs (or click to browse). You can upload up to 1,000 files at once.</li>
@@ -468,7 +480,7 @@ opencode</pre>
             <li><strong>Be specific.</strong> "Find papers on cholesterol-lipid interactions in DPPC membranes" works better than "find papers on lipids".</li>
             <li><strong>Use the right tool.</strong> Quick factual question or a full literature overview? Chat. Need a specific paper? Paper Search.</li>
             <li><strong>Steer with slash commands.</strong> Munin routes automatically, or start a message with /research to find papers, /code to implement something, or /chat to write it up.</li>
-            <li><strong>Upload your papers.</strong> The more papers in the database, the better the search results for everyone.</li>
+            <li><strong>Get your papers added.</strong> Your group leader can upload them. The more papers in the database, the better the search results for everyone.</li>
         </ul>
     </main>
 

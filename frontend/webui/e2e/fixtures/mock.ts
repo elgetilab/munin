@@ -71,6 +71,7 @@ export async function installMocks(page: Page, init: Partial<MockState> = {}): P
     if (p === '/api/announcement') return json(route, S.ANNOUNCEMENT);
     if (p === '/api/usage/me') return json(route, S.USAGE);
     if (p === '/api/projects') return json(route, { projects: [], total: 0 });
+    if (p === '/api/keys') return json(route, { keys: [] });
 
     // conversations
     if (p === '/api/chats') return m === 'GET'

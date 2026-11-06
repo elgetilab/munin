@@ -77,10 +77,6 @@
             font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
         }
 
-        .auth-form input[type="text"]:disabled {
-            opacity: 0.5;
-        }
-
         .auth-form button,
         .auth-resend button {
             width: 100%;
@@ -147,7 +143,7 @@
             <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="auth-logo">
             {% if locked %}
             <h1 class="auth-title">Sign-in is paused</h1>
-            <p class="auth-subtitle auth-hint">Too many wrong codes for <strong>{{ email }}</strong></p>
+            <p class="auth-subtitle auth-hint"><strong>{{ email }}</strong></p>
             {% else %}
             {% set hint %}Usually arrives within a minute. {% if expiry_minutes %}It expires in {{ expiry_minutes }} minute{{ '' if expiry_minutes == 1 else 's' }}. {% endif %}{% if sender_address %}Check spam for mail from {{ sender_address }}.{% else %}Check your spam folder too.{% endif %}{% endset %}
             <div data-send-panel="sending"{% if send_state != 'sending' %} hidden{% endif %}>
@@ -176,15 +172,16 @@
             <div class="auth-error" role="alert">{{ error }}</div>
             {% endif %}
 
+            {% if not locked %}
             <form id="verify-form" class="auth-form" method="POST" action="/verify">
                 <input type="hidden" name="email" value="{{ email }}">
                 <input type="hidden" name="redirect" value="{{ redirect }}">
                 <div class="auth-field">
                     <label for="verify-code">Login code</label>
                     {# The pattern allows separators: a code pasted as "482 913" is valid, and the server strips them. #}
-                    <input id="verify-code" type="text" name="code" pattern="\D*(\d\D*){6}" title="The 6-digit code from the email" required autocomplete="one-time-code" inputmode="numeric"{% if locked %} disabled{% else %} autofocus{% endif %}>
+                    <input id="verify-code" type="text" name="code" pattern="\D*(\d\D*){6}" title="The 6-digit code from the email" required autocomplete="one-time-code" inputmode="numeric" autofocus>
                 </div>
-                <button id="verify-btn" type="submit" class="btn btn-primary"{% if locked %} disabled{% endif %}>Verify</button>
+                <button id="verify-btn" type="submit" class="btn {% if send_state == 'failed' %}btn-secondary{% else %}btn-primary{% endif %}">Verify</button>
                 <div id="verify-loading" class="auth-verifying" role="status" style="display: none;">
                     <canvas id="verify-vortex" width="128" height="128"></canvas>
                     <span>Verifying...</span>
@@ -194,16 +191,21 @@
             <form id="resend-form" class="auth-resend" method="POST" action="/login">
                 <input type="hidden" name="email" value="{{ email }}">
                 <input type="hidden" name="redirect" value="{{ redirect }}">
-                <button id="resend-btn" type="submit" class="btn btn-secondary"{% if locked %} disabled{% endif %}>Resend code</button>
+                <button id="resend-btn" type="submit" class="btn {% if send_state == 'failed' %}btn-primary{% else %}btn-secondary{% endif %}">Resend code</button>
             </form>
+            {% endif %}
 
             <div class="auth-links">
                 <a href="/login?redirect={{ redirect | urlencode }}">{% if locked %}Request a new code{% else %}Use a different email{% endif %}</a>
+                {% if support_email %}
+                <a href="mailto:{{ support_email }}">Need help? {{ support_email }}</a>
+                {% endif %}
                 <a href="{{ site_url or '/' }}">&larr; Back to Munin</a>
             </div>
         </div>
     </div>
 
+    {% if not locked %}
     <script src="/shared/feather-vortex.js"></script>
     <script>
         (function() {
@@ -213,7 +215,6 @@
             var loading = document.getElementById('verify-loading');
             var resendForm = document.getElementById('resend-form');
             var resendButton = document.getElementById('resend-btn');
-            var resendLocked = resendButton.disabled;
             var resendLabel = resendButton.textContent;
             var countdown = null;
             var submitted = false;
@@ -246,10 +247,8 @@
                 button.style.display = '';
                 loading.style.display = 'none';
                 if (stopVortex) stopVortex();
-                if (!resendLocked) {
-                    freeResend();
-                    followSend();
-                }
+                freeResend();
+                followSend();
             });
 
             function freeResend() {
@@ -269,6 +268,11 @@
                 document.querySelectorAll('[data-send-panel]').forEach(function(panel) {
                     panel.hidden = panel.dataset.sendPanel !== state;
                 });
+                // No code went out, so sending one is the thing to do next.
+                button.classList.toggle('btn-primary', state !== 'failed');
+                button.classList.toggle('btn-secondary', state === 'failed');
+                resendButton.classList.toggle('btn-primary', state === 'failed');
+                resendButton.classList.toggle('btn-secondary', state !== 'failed');
                 if (state === 'failed' || state === 'unknown') {
                     freeResend();
                     if (!input.value) resendButton.focus();
@@ -299,8 +303,6 @@
                 pollSend();
             }
 
-            if (resendLocked) return;
-
             // Without JavaScript the button simply stays enabled.
             var remaining = 30;
             countdown = setInterval(tick, 1000);
@@ -326,5 +328,6 @@
             });
         })();
     </script>
+    {% endif %}
 </body>
 </html>

@@ -1,18 +1,30 @@
 import { useState, useRef, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
-import type { Persona, PromptSuggestion } from '../lib/types';
-import { uploadDocument, startDeepResearch } from '../lib/api';
+import type { ReactNode } from 'react';
+import type { Persona, PromptSuggestion, TagCatalog, TagChip } from '../lib/types';
+import { uploadDocument, cancelUpload, startDeepResearch } from '../lib/api';
 import type { UploadedDocument } from '../lib/api';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useChatStore } from '../stores/chatStore';
 import { useDeepResearchStore } from '../stores/deepResearchStore';
+import { useMenu } from '../hooks/useMenu';
 
 // Router-recognized per-turn overrides (backend parse_slash: research|code|chat).
 // These force Munin's routing for one turn; otherwise it auto-routes.
 const SLASH_COMMANDS = [
-  { command: '/research', description: 'Force research mode for this turn', icon: '\uD83D\uDD2C' },
-  { command: '/code', description: 'Force code mode for this turn', icon: '\uD83D\uDCBB' },
-  { command: '/chat', description: 'Force chat mode for this turn', icon: '\uD83D\uDCAC' },
+  { command: '/research', description: 'Treat this message as research', icon: '\uD83D\uDD2C' },
+  { command: '/code', description: 'Treat this message as a coding task', icon: '\uD83D\uDCBB' },
+  { command: '/chat', description: 'Treat this message as ordinary chat', icon: '\uD83D\uDCAC' },
 ] as const;
+
+// Display order of the tag menu and the knowledge picker. Results are built in
+// this order too, so arrow keys walk the rows from top to bottom.
+const TAG_KIND_ORDER = ['group', 'contributor', 'topic'] as const;
+
+// Capped per kind so a long list of groups can't push the others out.
+const MAX_RESULTS_PER_KIND = 8;
+
+// A `#` only opens the tag menu at the start of a word, so `C#` stays text.
+const TAG_TRIGGER = /(?:^|\s)#([@\w-]*)$/;
 
 interface PendingImage {
   id: string;
@@ -25,6 +37,123 @@ interface TagAutocompleteItem {
   value: string;
   label: string;
   paperCount: number;
+}
+
+interface TagSearchResult {
+  items: TagAutocompleteItem[];
+  total: number;   // matches before the cap
+}
+
+function plural(count: number, noun: string): string {
+  return `${count.toLocaleString()} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+function searchTagCatalog(
+  catalog: TagCatalog,
+  search: string,
+  activeTags: TagChip[],
+  contributorsOnly = false,
+): TagSearchResult {
+  const activeKeys = new Set(activeTags.map(t => `${t.kind}:${t.value}`));
+  const candidates: Record<TagAutocompleteItem['kind'], TagAutocompleteItem[]> = {
+    group: contributorsOnly ? [] : catalog.groups.map(g => (
+      { kind: 'group', value: g.slug, label: g.display_name, paperCount: g.paper_count }
+    )),
+    contributor: catalog.contributors.map(c => (
+      { kind: 'contributor', value: c.username, label: c.display_name, paperCount: c.paper_count }
+    )),
+    topic: contributorsOnly ? [] : catalog.topics.map(t => (
+      { kind: 'topic', value: t.slug, label: t.label, paperCount: t.paper_count }
+    )),
+  };
+  const items: TagAutocompleteItem[] = [];
+  let total = 0;
+  for (const kind of TAG_KIND_ORDER) {
+    const matches = candidates[kind].filter(item =>
+      !activeKeys.has(`${item.kind}:${item.value}`)
+      && (!search || item.value.includes(search) || item.label.toLowerCase().includes(search)));
+    total += matches.length;
+    items.push(...matches.slice(0, MAX_RESULTS_PER_KIND));
+  }
+  return { items, total };
+}
+
+// The name a chip shows. Tags stay valid when the catalog hasn't loaded or no
+// longer lists them, so this falls back to the slug.
+function tagChipLabel(catalog: TagCatalog | null, tag: TagChip): string {
+  const fallback = `#${tag.kind === 'contributor' ? '@' : ''}${tag.value}`;
+  if (!catalog) return fallback;
+  if (tag.kind === 'group') return catalog.groups.find(g => g.slug === tag.value)?.display_name ?? fallback;
+  if (tag.kind === 'topic') return catalog.topics.find(t => t.slug === tag.value)?.label ?? fallback;
+  return catalog.contributors.find(c => c.username === tag.value)?.display_name ?? fallback;
+}
+
+function nextHighlight(current: number, key: string, length: number): number {
+  return key === 'ArrowDown' ? (current + 1) % length : (current - 1 + length) % length;
+}
+
+// The result list shared by the tag menu and the knowledge picker.
+function TagResultList({ result, highlight, onSelect, gutter, empty }: {
+  result: TagSearchResult;
+  highlight: number;
+  onSelect: (item: TagAutocompleteItem) => void;
+  gutter: 'px-3' | 'px-4';
+  empty: ReactNode;
+}) {
+  const { items, total } = result;
+  const highlightedRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    highlightedRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [highlight]);
+
+  return (
+    <>
+      <div className="max-h-64 overflow-y-auto">
+        {TAG_KIND_ORDER.map(kind => {
+          const rows = items.filter(m => m.kind === kind);
+          if (rows.length === 0) return null;
+          return (
+            <div key={kind}>
+              <div className={`${gutter} py-1.5 text-[10px] uppercase tracking-wider text-text-secondary bg-bg-tertiary font-medium`}>
+                {kind === 'group' ? 'Research Groups' : kind === 'contributor' ? 'Contributors' : 'Topics'}
+              </div>
+              {rows.map(item => {
+                const isHighlighted = items.indexOf(item) === highlight;
+                return (
+                  <button
+                    key={`${item.kind}:${item.value}`}
+                    ref={isHighlighted ? highlightedRef : undefined}
+                    onClick={() => onSelect(item)}
+                    className={`w-full flex items-center gap-3 ${gutter} py-2 text-left text-sm transition-colors cursor-pointer ${
+                      isHighlighted ? 'bg-bg-tertiary text-text-primary' : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary'
+                    }`}
+                  >
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                      item.kind === 'group' ? 'bg-accent/15 text-accent' :
+                      item.kind === 'contributor' ? 'bg-success/15 text-success' :
+                      'bg-warning/15 text-warning'
+                    }`}>
+                      {item.kind === 'group' ? 'group' : item.kind === 'contributor' ? 'person' : 'topic'}
+                    </span>
+                    <span className="flex-1 truncate">{item.label}</span>
+                    <span className={`text-xs whitespace-nowrap ${item.paperCount === 0 ? 'text-text-secondary/50' : 'text-text-secondary'}`}>
+                      {plural(item.paperCount, 'paper')}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })}
+        {items.length === 0 && empty}
+      </div>
+      {total > items.length && (
+        <p className={`${gutter} py-1.5 border-t border-border text-[11px] text-text-secondary`}>
+          Showing {items.length} of {total}, keep typing to narrow
+        </p>
+      )}
+    </>
+  );
 }
 
 // P2 #26 commit 3: store-backed props dropped. The 7 fields below
@@ -101,12 +230,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const loadConversation = useChatStore(s => s.loadConversation);
   // A running job blocks starting another and (via researchActive) the composer.
   const drActive = researchActive;
+  const drQueued = useDeepResearchStore(s => s.job?.status === 'queued');
   const [drStarting, setDrStarting] = useState(false);
   const [deepResearchMode, setDeepResearchMode] = useState(false);
   const [input, setInput] = useState('');
-  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const attachMenu = useMenu();
   const [knowledgePickerOpen, setKnowledgePickerOpen] = useState(false);
+  const knowledgePicker = useMenu({ kind: 'popover', open: knowledgePickerOpen, onOpenChange: setKnowledgePickerOpen });
   const [knowledgeSearch, setKnowledgeSearch] = useState('');
+  const [knowledgeHighlight, setKnowledgeHighlight] = useState(0);
   const [uploadState, setUploadState] = useState<FileUploadState | null>(null);
   const [slashHighlight, setSlashHighlight] = useState(0);
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
@@ -117,12 +249,13 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const [pendingDocs, setPendingDocs] = useState<UploadedDocument[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
   const [tagHighlight, setTagHighlight] = useState(0);
+  // Caret position while it is known; null means the end of the input.
+  const [cursor, setCursor] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const attachRef = useRef<HTMLDivElement>(null);
-  const attachButtonRef = useRef<HTMLButtonElement>(null);
-  const knowledgeRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const uploadAbortRef = useRef<AbortController | null>(null);
+  const uploadIdRef = useRef<string | null>(null);
 
   // Slash command matching
   const slashMatches = useMemo(() => {
@@ -135,51 +268,33 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   // Tag autocomplete: detect `#` followed by typed text
   const tagQuery = useMemo(() => {
-    const cursor = textareaRef.current?.selectionStart ?? input.length;
-    const before = input.slice(0, cursor);
-    const match = before.match(/#([@\w-]*)$/);
+    const before = cursor === null ? input : input.slice(0, cursor);
+    const match = before.match(TAG_TRIGGER);
     return match ? match[1] : null;
-  }, [input]);
+  }, [input, cursor]);
 
-  const tagMatches = useMemo((): TagAutocompleteItem[] => {
-    if (tagQuery === null || !tagCatalog) return [];
+  const tagResult = useMemo((): TagSearchResult => {
+    if (tagQuery === null || !tagCatalog) return { items: [], total: 0 };
     const q = tagQuery.toLowerCase();
     const isContributorForced = q.startsWith('@');
-    const search = isContributorForced ? q.slice(1) : q;
-    const activeKeys = new Set(activeTags.map(t => `${t.kind}:${t.value}`));
-    const results: TagAutocompleteItem[] = [];
-
-    if (!isContributorForced) {
-      for (const g of tagCatalog.groups) {
-        if (activeKeys.has(`group:${g.slug}`)) continue;
-        if (!search || g.slug.includes(search) || g.display_name.toLowerCase().includes(search)) {
-          results.push({ kind: 'group', value: g.slug, label: g.display_name, paperCount: g.paper_count });
-        }
-      }
-      for (const t of tagCatalog.topics) {
-        if (activeKeys.has(`topic:${t.slug}`)) continue;
-        if (!search || t.slug.includes(search) || t.label.toLowerCase().includes(search)) {
-          results.push({ kind: 'topic', value: t.slug, label: t.label, paperCount: t.paper_count });
-        }
-      }
-    }
-    for (const c of tagCatalog.contributors) {
-      if (activeKeys.has(`contributor:${c.username}`)) continue;
-      if (!search || c.username.includes(search) || c.display_name.toLowerCase().includes(search)) {
-        results.push({ kind: 'contributor', value: c.username, label: c.display_name, paperCount: c.paper_count });
-      }
-    }
-    return results.slice(0, 12);
+    return searchTagCatalog(tagCatalog, isContributorForced ? q.slice(1) : q, activeTags, isContributorForced);
   }, [tagQuery, tagCatalog, activeTags]);
+  const tagMatches = tagResult.items;
+
+  // The highlight can outlive a shorter list, for example after a tag is added.
+  const activeTagIndex = Math.min(tagHighlight, tagMatches.length - 1);
+
+  // Remove the `#query` before the caret, keeping the space in front of it.
+  const removeTagTrigger = () => {
+    const caret = textareaRef.current?.selectionStart ?? input.length;
+    const cleaned = input.slice(0, caret).replace(/(^|\s)#[@\w-]*$/, '$1');
+    setInput(cleaned + input.slice(caret));
+    setCursor(cleaned.length);
+  };
 
   const selectTag = (item: TagAutocompleteItem) => {
     onTagsChange([...activeTags, { kind: item.kind, value: item.value }]);
-    // Remove the #query from input
-    const cursor = textareaRef.current?.selectionStart ?? input.length;
-    const before = input.slice(0, cursor);
-    const after = input.slice(cursor);
-    const cleaned = before.replace(/#[@\w-]*$/, '');
-    setInput(cleaned + after);
+    removeTagTrigger();
     setTagHighlight(0);
     textareaRef.current?.focus();
   };
@@ -212,58 +327,30 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     }
   }, [deepResearchMode, isEphemeral]);
 
-  // Close attach menu / knowledge picker on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (attachRef.current && !attachRef.current.contains(e.target as Node)) {
-        setAttachMenuOpen(false);
-        setKnowledgePickerOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  // Close attach menu / knowledge picker on Escape, back onto the + button
-  useEffect(() => {
-    if (!attachMenuOpen && !knowledgePickerOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      setAttachMenuOpen(false);
-      setKnowledgePickerOpen(false);
-      attachButtonRef.current?.focus();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [attachMenuOpen, knowledgePickerOpen]);
-
   // Knowledge picker search results
-  const knowledgeResults = useMemo((): TagAutocompleteItem[] => {
-    if (!tagCatalog) return [];
-    const q = knowledgeSearch.toLowerCase().trim();
-    const activeKeys = new Set(activeTags.map(t => `${t.kind}:${t.value}`));
-    const results: TagAutocompleteItem[] = [];
-
-    for (const g of tagCatalog.groups) {
-      if (activeKeys.has(`group:${g.slug}`)) continue;
-      if (!q || g.slug.includes(q) || g.display_name.toLowerCase().includes(q)) {
-        results.push({ kind: 'group', value: g.slug, label: g.display_name, paperCount: g.paper_count });
-      }
-    }
-    for (const t of tagCatalog.topics) {
-      if (activeKeys.has(`topic:${t.slug}`)) continue;
-      if (!q || t.slug.includes(q) || t.label.toLowerCase().includes(q)) {
-        results.push({ kind: 'topic', value: t.slug, label: t.label, paperCount: t.paper_count });
-      }
-    }
-    for (const c of tagCatalog.contributors) {
-      if (activeKeys.has(`contributor:${c.username}`)) continue;
-      if (!q || c.username.includes(q) || c.display_name.toLowerCase().includes(q)) {
-        results.push({ kind: 'contributor', value: c.username, label: c.display_name, paperCount: c.paper_count });
-      }
-    }
-    return results.slice(0, 20);
+  const knowledgeResult = useMemo((): TagSearchResult => {
+    if (!tagCatalog) return { items: [], total: 0 };
+    return searchTagCatalog(tagCatalog, knowledgeSearch.toLowerCase().trim(), activeTags);
   }, [tagCatalog, knowledgeSearch, activeTags]);
+  const activeKnowledgeIndex = Math.min(knowledgeHighlight, knowledgeResult.items.length - 1);
+
+  const selectKnowledge = (item: TagAutocompleteItem) => {
+    onTagsChange([...activeTags, { kind: item.kind, value: item.value }]);
+    setKnowledgePickerOpen(false);
+    textareaRef.current?.focus();
+  };
+
+  const handleKnowledgeSearchKeyDown = (e: React.KeyboardEvent) => {
+    const { items } = knowledgeResult;
+    if (items.length === 0) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      setKnowledgeHighlight(h => nextHighlight(h, e.key, items.length));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      selectKnowledge(items[activeKnowledgeIndex]);
+    }
+  };
 
   const addImage = async (file: File) => {
     setImageError(null);
@@ -316,14 +403,19 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     return () => el.removeEventListener('paste', handler);
   });
 
+  const hasAttachments = pendingImages.length > 0 || pendingDocs.length > 0;
+  // A research job only takes a question, so it can't carry attachments.
+  const deepResearchBlocked = deepResearchMode && hasAttachments;
+  // A document only joins the message once its upload has finished.
+  const uploading = uploadState?.status === 'uploading';
+
   const handleSubmit = () => {
     const trimmed = input.trim();
-    const hasAttachments = pendingImages.length > 0 || pendingDocs.length > 0;
-    if ((!trimmed && !hasAttachments) || isStreaming || researchActive) return;
+    if ((!trimmed && !hasAttachments) || isStreaming || researchActive || deepResearchBlocked || uploading) return;
 
     // Deep Research mode: the composer's send starts a background research job
     // instead of a chat turn (Claude-style toggle in the "+" menu).
-    if (deepResearchMode && trimmed && !hasAttachments) {
+    if (deepResearchMode && trimmed) {
       handleDeepResearch();
       return;
     }
@@ -400,30 +492,22 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       }
     }
     if (tagMatches.length > 0) {
-      if (e.key === 'ArrowDown') {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
-        setTagHighlight(h => (h + 1) % tagMatches.length);
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setTagHighlight(h => (h - 1 + tagMatches.length) % tagMatches.length);
+        setTagHighlight(h => nextHighlight(h, e.key, tagMatches.length));
         return;
       }
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
         e.preventDefault();
-        selectTag(tagMatches[tagHighlight]);
+        selectTag(tagMatches[activeTagIndex]);
         return;
       }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        // Remove the # trigger
-        const cursor = textareaRef.current?.selectionStart ?? input.length;
-        const before = input.slice(0, cursor);
-        const after = input.slice(cursor);
-        setInput(before.replace(/#[@\w-]*$/, '') + after);
-        return;
-      }
+    }
+    // Also with no matches, since the "No matches" panel is still open.
+    if (e.key === 'Escape' && tagQuery !== null && tagCatalog) {
+      e.preventDefault();
+      removeTagTrigger();
+      return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -444,11 +528,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     }
 
     setUploadState({ file, progress: 0, status: 'uploading' });
+    const abort = new AbortController();
+    uploadAbortRef.current = abort;
+    const uploadId = crypto.randomUUID();
+    uploadIdRef.current = uploadId;
 
     try {
       const doc = await uploadDocument(file, conversationId, (pct) => {
         setUploadState(s => s ? { ...s, progress: pct } : null);
-      });
+      }, abort.signal, uploadId);
       setUploadState({ file, progress: 100, status: 'done', result: doc });
       // Hold the doc as a pending attachment so it's sent with the next message
       // (deduped by document_id in case of a re-upload).
@@ -459,6 +547,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       // Auto-dismiss the progress chip after 5 seconds (the pending-doc chip stays).
       setTimeout(() => setUploadState(s => s?.status === 'done' ? null : s), 5000);
     } catch (e) {
+      if (abort.signal.aborted) return;
       setUploadState({
         file,
         progress: 0,
@@ -502,10 +591,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       }
     }
     // Documents upload one at a time (the banner tracks a single upload).
-    // Document upload is disabled in ephemeral chats, mirroring the menu.
+    // Document upload is disabled in temporary chats, mirroring the menu.
     for (const f of docs) {
       if (isEphemeral) {
-        setUploadState({ file: f, progress: 0, status: 'error', error: 'File upload is disabled in ephemeral chats' });
+        setUploadState({ file: f, progress: 0, status: 'error', error: 'File upload is disabled in temporary chats' });
         break;
       }
       await handleFileSelect(f);
@@ -561,8 +650,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                 <span className="flex-1 truncate">
                   {uploadState.result.filename}{' '}
                   {uploadState.result.status === 'embedded'
-                    ? `(${uploadState.result.chunks} chunks embedded)`
-                    : '(uploaded, not indexed)'}
+                    ? '(ready to send)'
+                    : uploadState.result.reason === 'no_text_layer'
+                    ? '(attached, searchable shortly)'
+                    : '(attached, not searchable)'}
                 </span>
               </>
             )}
@@ -572,10 +663,27 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               </>
             )}
             <button
-              onClick={() => setUploadState(null)}
+              onClick={() => {
+                const { file } = uploadState;
+                const uploadId = uploadIdRef.current;
+                if (uploading) {
+                  uploadAbortRef.current?.abort();
+                  if (uploadId) {
+                    cancelUpload(uploadId).catch(() => setUploadState({
+                      file,
+                      progress: 0,
+                      status: 'error',
+                      error: `${file.name} was cancelled here, but the server may have kept it.`,
+                    }));
+                  }
+                }
+                setUploadState(null);
+              }}
+              aria-label={uploading ? 'Cancel upload' : 'Dismiss'}
+              title={uploading ? 'Cancel upload' : undefined}
               className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity cursor-pointer text-xs"
             >
-              &#10005;
+              <span aria-hidden="true">&#10005;</span>
             </button>
           </div>
         </div>
@@ -610,51 +718,19 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               <span className="text-xs text-text-secondary">
                 {tagQuery ? <>Searching: <span className="text-text-primary font-medium">{tagQuery}</span></> : 'Type to search knowledge...'}
               </span>
-              <span className="ml-auto text-[10px] text-text-secondary">{tagMatches.length} results</span>
+              <span className="ml-auto text-[10px] text-text-secondary">{plural(tagResult.total, 'result')}</span>
             </div>
-            <div className="max-h-64 overflow-y-auto">
-              {/* Group results by kind */}
-              {(['group', 'contributor', 'topic'] as const).map(kind => {
-                const items = tagMatches.filter(m => m.kind === kind);
-                if (items.length === 0) return null;
-                return (
-                  <div key={kind}>
-                    <div className="px-4 py-1.5 text-[10px] uppercase tracking-wider text-text-secondary bg-bg-tertiary font-medium">
-                      {kind === 'group' ? 'Research Groups' : kind === 'contributor' ? 'Contributors' : 'Topics'}
-                    </div>
-                    {items.map(item => {
-                      const globalIdx = tagMatches.indexOf(item);
-                      return (
-                        <button
-                          key={`${item.kind}:${item.value}`}
-                          onClick={() => selectTag(item)}
-                          className={`w-full flex items-center gap-3 px-4 py-2 text-left text-sm transition-colors cursor-pointer ${
-                            globalIdx === tagHighlight ? 'bg-bg-tertiary text-text-primary' : 'text-text-secondary hover:bg-bg-tertiary'
-                          }`}
-                        >
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                            item.kind === 'group' ? 'bg-accent/15 text-accent' :
-                            item.kind === 'contributor' ? 'bg-success/15 text-success' :
-                            'bg-warning/15 text-warning'
-                          }`}>
-                            {item.kind === 'group' ? 'group' : item.kind === 'contributor' ? 'person' : 'topic'}
-                          </span>
-                          <span className="flex-1 truncate">{item.label}</span>
-                          <span className={`text-xs ${item.paperCount === 0 ? 'text-text-secondary/50' : 'text-text-secondary'}`}>
-                            {item.paperCount.toLocaleString()} papers
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-              {tagMatches.length === 0 && (
+            <TagResultList
+              result={tagResult}
+              highlight={activeTagIndex}
+              onSelect={selectTag}
+              gutter="px-4"
+              empty={(
                 <p className="px-4 py-4 text-xs text-text-secondary text-center">
                   No matches for "{tagQuery}"
                 </p>
               )}
-            </div>
+            />
           </div>
         </div>
       )}
@@ -685,24 +761,29 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         {/* Active tag chips */}
         {activeTags.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 px-5 pt-3 pb-0">
-            {activeTags.map((tag, i) => (
+            {activeTags.map((tag, i) => {
+              const label = tagChipLabel(tagCatalog, tag);
+              return (
               <span
                 key={`${tag.kind}:${tag.value}`}
+                title={`#${tag.kind === 'contributor' ? '@' : ''}${tag.value}`}
                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium ${
                   tag.kind === 'group' ? 'bg-accent/15 text-accent' :
                   tag.kind === 'contributor' ? 'bg-success/15 text-success' :
                   'bg-warning/15 text-warning'
                 }`}
               >
-                #{tag.kind === 'contributor' ? '@' : ''}{tag.value}
+                {label}
                 <button
                   onClick={() => removeTag(i)}
+                  aria-label={`Remove tag ${label}`}
                   className="ml-0.5 opacity-60 hover:opacity-100 cursor-pointer"
                 >
-                  &#10005;
+                  <span aria-hidden="true">&#10005;</span>
                 </button>
               </span>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -724,9 +805,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                 <img src={img.dataUrl} alt={img.name} className="w-14 h-14 rounded-lg object-cover border border-border" />
                 <button
                   onClick={() => removeImage(img.id)}
-                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-bg-primary border border-border rounded-full text-text-secondary hover:text-error text-xs flex items-center justify-center cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-bg-primary border border-border rounded-full text-text-secondary hover:text-error text-xs flex items-center justify-center cursor-pointer opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100 transition-opacity"
+                  aria-label={`Remove image ${img.name}`}
                 >
-                  &#10005;
+                  <span aria-hidden="true">&#10005;</span>
                 </button>
               </div>
             ))}
@@ -746,8 +828,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   onClick={() => removeDoc(doc.document_id)}
                   className="w-4 h-4 shrink-0 text-text-secondary hover:text-error flex items-center justify-center cursor-pointer"
                   title="Remove attachment"
+                  aria-label={`Remove attachment ${doc.filename}`}
                 >
-                  &#10005;
+                  <span aria-hidden="true">&#10005;</span>
                 </button>
               </div>
             ))}
@@ -762,14 +845,18 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         {/* Deep Research mode armed (toggle on, no job yet): the next send starts
             a background research job rather than a chat turn. */}
         {deepResearchMode && !drActive && (
-          <div data-testid="dr-armed" className="px-5 pt-2 flex items-center gap-2 text-xs text-accent">
+          <div data-testid="dr-armed" className={`px-5 pt-2 flex items-center gap-2 text-xs ${deepResearchBlocked ? 'text-warning' : 'text-accent'}`}>
             <svg className="shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 3h6M10 3v6.5L5.5 18a2 2 0 0 0 1.8 3h9.4a2 2 0 0 0 1.8-3L14 9.5V3" />
             </svg>
-            <span className="flex-1 truncate">Deep Research is on. Your next message runs as a background report.</span>
+            <span className="flex-1 min-w-0">
+              {deepResearchBlocked
+                ? 'Deep Research cannot use attachments. Remove them or turn Deep Research off.'
+                : 'Deep Research is on. Your next message runs as a background report.'}
+            </span>
             <button
               onClick={() => setDeepResearchMode(false)}
-              className="text-text-secondary hover:text-text-primary cursor-pointer"
+              className="shrink-0 text-text-secondary hover:text-text-primary cursor-pointer"
               title="Turn off Deep Research"
             >
               Turn off
@@ -781,7 +868,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             conversation (ResearchTimeline) and the composer is blocked. */}
         {researchActive && (
           <div data-testid="dr-blocked" className="px-5 pt-2 text-xs text-text-secondary">
-            Deep Research is running. You can send new messages once it finishes.
+            {drQueued
+              ? 'Deep Research is waiting for another research job to finish. You can send new messages once it is done.'
+              : 'Deep Research is running. You can send new messages once it finishes.'}
           </div>
         )}
 
@@ -791,10 +880,21 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           id="composer-textarea"
           data-testid="composer-textarea"
           value={input}
-          onChange={e => setInput(e.target.value)}
+          onChange={e => {
+            setInput(e.target.value);
+            setCursor(e.target.selectionStart);
+            setTagHighlight(0);
+          }}
+          onSelect={e => {
+            const caret = e.currentTarget.selectionStart;
+            if (caret === cursor) return;
+            setCursor(caret);
+            setTagHighlight(0);
+          }}
           onKeyDown={handleKeyDown}
           disabled={researchActive}
-          placeholder={researchActive ? 'Deep Research is running…' : 'Ask Munin anything… (/research, /code, /chat to steer)'}
+          aria-label="Message Munin"
+          placeholder={researchActive ? undefined : 'Ask Munin anything… (/research, /code, /chat to steer)'}
           rows={1}
           className="w-full resize-none bg-transparent px-5 pt-4 pb-2 text-sm text-text-primary placeholder-text-secondary outline-none disabled:opacity-50"
         />
@@ -802,11 +902,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         {/* Bottom bar: attach, spacer, Munin mark, send */}
         <div className="flex items-center gap-1 px-3 pb-3">
           {/* Attach button (+) with menu */}
-          <div ref={attachRef} className="relative">
+          <div className="relative">
             <button
-              ref={attachButtonRef}
+              {...attachMenu.triggerProps}
               data-testid="composer-attach"
-              onClick={() => setAttachMenuOpen(!attachMenuOpen)}
+              aria-label="Attach"
               className="p-2 text-text-secondary hover:text-text-primary rounded-lg hover:bg-bg-tertiary transition-colors cursor-pointer"
               title="Attach"
             >
@@ -816,23 +916,28 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               </svg>
             </button>
 
-            {attachMenuOpen && (
-              <div className="absolute bottom-full left-0 mb-2 w-48 bg-bg-secondary border border-border rounded-xl shadow-lg z-50 overflow-hidden">
+            {attachMenu.open && (
+              <div {...attachMenu.menuProps} aria-label="Attach" className="absolute bottom-full left-0 mb-2 w-64 max-w-[calc(100vw-3rem)] bg-bg-secondary border border-border rounded-xl shadow-lg z-50 overflow-hidden">
                 <button
-                  onClick={() => { setAttachMenuOpen(false); fileInputRef.current?.click(); }}
+                  role="menuitem"
+                  onClick={() => { attachMenu.close(); fileInputRef.current?.click(); }}
                   disabled={isEphemeral}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors cursor-pointer ${
-                    isEphemeral ? 'text-text-secondary opacity-50 cursor-not-allowed' : 'text-text-primary hover:bg-bg-tertiary'
+                    isEphemeral ? 'text-text-secondary cursor-not-allowed' : 'text-text-primary hover:bg-bg-tertiary'
                   }`}
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
                     <polyline points="14 2 14 8 20 8" />
                   </svg>
-                  Upload file{isEphemeral ? ' (disabled)' : ''}
+                  <span className="flex-1 min-w-0">
+                    <span className="block">Upload file</span>
+                    {isEphemeral && <span className="block text-[11px]">Not available in temporary chats</span>}
+                  </span>
                 </button>
                 <button
-                  onClick={() => { setAttachMenuOpen(false); imageInputRef.current?.click(); }}
+                  role="menuitem"
+                  onClick={() => { attachMenu.close(); imageInputRef.current?.click(); }}
                   className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary transition-colors cursor-pointer"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -843,7 +948,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   Upload image
                 </button>
                 <button
-                  onClick={() => { setAttachMenuOpen(false); setKnowledgePickerOpen(true); setKnowledgeSearch(''); }}
+                  role="menuitem"
+                  onClick={() => { attachMenu.close(); setKnowledgePickerOpen(true); setKnowledgeSearch(''); setKnowledgeHighlight(0); }}
                   className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary transition-colors cursor-pointer"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -858,27 +964,31 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                     artifact) instead of a normal chat turn. Needs a saved chat. */}
                 <div className="border-t border-border" />
                 <button
+                  role="menuitemcheckbox"
+                  aria-checked={deepResearchMode}
                   data-testid="attach-deep-research"
                   onClick={() => {
                     if (drResearchUnavailable) return;
                     setDeepResearchMode(m => !m);
-                    setAttachMenuOpen(false);
+                    attachMenu.close();
                     textareaRef.current?.focus();
                   }}
                   disabled={drResearchUnavailable}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors cursor-pointer ${
-                    drResearchUnavailable ? 'text-text-secondary opacity-50 cursor-not-allowed' : 'text-text-primary hover:bg-bg-tertiary'
+                    drResearchUnavailable ? 'text-text-secondary cursor-not-allowed' : 'text-text-primary hover:bg-bg-tertiary'
                   }`}
-                  title={
-                    isEphemeral ? 'Deep Research is not available in incognito chats'
-                    : drActive ? 'A research report is already running'
-                    : 'Run a thorough multi-source investigation in the background'
-                  }
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M9 3h6M10 3v6.5L5.5 18a2 2 0 0 0 1.8 3h9.4a2 2 0 0 0 1.8-3L14 9.5V3" />
                   </svg>
-                  <span className="flex-1">Deep Research</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block">Deep Research</span>
+                    <span className="block text-[11px] text-text-secondary">
+                      {isEphemeral ? 'Not available in temporary chats'
+                        : drActive ? 'A research report is already running'
+                        : 'Slower, multi-source report that runs in the background'}
+                    </span>
+                  </span>
                   {/* on/off pill */}
                   <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${deepResearchMode ? 'bg-accent/15 text-accent' : 'bg-bg-tertiary text-text-secondary'}`}>
                     {deepResearchMode ? 'On' : 'Off'}
@@ -889,56 +999,40 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
             {/* Knowledge picker */}
             {knowledgePickerOpen && (
-              <div ref={knowledgeRef} className="absolute bottom-full left-0 mb-2 w-72 bg-bg-secondary border border-border rounded-xl shadow-lg z-50 overflow-hidden">
+              <div
+                {...knowledgePicker.menuProps}
+                aria-label="Attach knowledge"
+                onKeyDown={e => {
+                  if (e.key !== 'Escape') return;
+                  // Handled here so that focus goes back to the + button.
+                  e.preventDefault();
+                  setKnowledgePickerOpen(false);
+                  attachMenu.triggerProps.ref.current?.focus();
+                }}
+                className="absolute bottom-full left-0 mb-2 w-72 max-w-[calc(100vw-3rem)] bg-bg-secondary border border-border rounded-xl shadow-lg z-50 overflow-hidden">
                 <div className="px-3 py-2 border-b border-border">
                   <input
                     type="text"
                     value={knowledgeSearch}
-                    onChange={e => setKnowledgeSearch(e.target.value)}
+                    onChange={e => { setKnowledgeSearch(e.target.value); setKnowledgeHighlight(0); }}
+                    onKeyDown={handleKnowledgeSearchKeyDown}
+                    aria-label="Search groups, topics, contributors"
                     placeholder="Search groups, topics, contributors..."
                     className="w-full text-xs px-2.5 py-1.5 bg-bg-tertiary border border-border rounded-lg text-text-primary placeholder:text-text-secondary outline-none focus:border-accent transition-colors"
                     autoFocus
                   />
                 </div>
-                <div className="max-h-64 overflow-y-auto">
-                  {(['group', 'contributor', 'topic'] as const).map(kind => {
-                    const items = knowledgeResults.filter(m => m.kind === kind);
-                    if (items.length === 0) return null;
-                    return (
-                      <div key={kind}>
-                        <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-text-secondary bg-bg-tertiary font-medium">
-                          {kind === 'group' ? 'Research Groups' : kind === 'contributor' ? 'Contributors' : 'Topics'}
-                        </div>
-                        {items.map(item => (
-                          <button
-                            key={`${item.kind}:${item.value}`}
-                            onClick={() => {
-                              onTagsChange([...activeTags, { kind: item.kind, value: item.value }]);
-                              setKnowledgePickerOpen(false);
-                              textareaRef.current?.focus();
-                            }}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors cursor-pointer"
-                          >
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                              item.kind === 'group' ? 'bg-accent/15 text-accent' :
-                              item.kind === 'contributor' ? 'bg-success/15 text-success' :
-                              'bg-warning/15 text-warning'
-                            }`}>
-                              {item.kind === 'group' ? 'group' : item.kind === 'contributor' ? 'person' : 'topic'}
-                            </span>
-                            <span className="flex-1 truncate">{item.label}</span>
-                            <span className="text-[10px] tabular-nums text-text-secondary">{item.paperCount.toLocaleString()}</span>
-                          </button>
-                        ))}
-                      </div>
-                    );
-                  })}
-                  {knowledgeResults.length === 0 && (
+                <TagResultList
+                  result={knowledgeResult}
+                  highlight={activeKnowledgeIndex}
+                  onSelect={selectKnowledge}
+                  gutter="px-3"
+                  empty={(
                     <p className="px-3 py-4 text-xs text-text-secondary text-center">
                       {tagCatalog ? 'No matches' : 'Loading...'}
                     </p>
                   )}
-                </div>
+                />
               </div>
             )}
           </div>
@@ -976,9 +1070,14 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             <button
               data-testid="composer-send"
               onClick={handleSubmit}
-              disabled={(!input.trim() && pendingImages.length === 0 && pendingDocs.length === 0) || drStarting || researchActive}
+              disabled={(!input.trim() && !hasAttachments) || drStarting || researchActive || deepResearchBlocked || uploading}
               className="p-2.5 bg-accent rounded-full text-bg-primary cursor-pointer hover:bg-accent-hover transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title={deepResearchMode ? 'Start Deep Research' : 'Send message'}
+              title={
+                uploading ? 'Waiting for upload to finish'
+                : deepResearchBlocked ? 'Deep Research cannot use attachments'
+                : deepResearchMode ? 'Start Deep Research'
+                : 'Send message'
+              }
             >
               {drStarting ? (
                 <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">

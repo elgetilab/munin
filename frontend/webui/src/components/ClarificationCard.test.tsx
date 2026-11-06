@@ -106,6 +106,60 @@ describe('ClarificationCard', () => {
     expect(screen.getByRole('button', { name: 'F1' })).toBeDisabled();
   });
 
+  it('explains a disabled Submit with a count of the answers so far', async () => {
+    const user = userEvent.setup();
+    render(<ClarificationCard clarification={baseClarification} onSubmit={vi.fn()} />);
+    expect(screen.getByText('Answer all questions to continue (0 of 2 answered)')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'MNIST' }));
+    expect(screen.getByText('Answer all questions to continue (1 of 2 answered)')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'F1' }));
+    expect(screen.queryByText(/Answer all questions/)).not.toBeInTheDocument();
+  });
+
+  it('marks the selected option for screen readers', async () => {
+    const user = userEvent.setup();
+    render(<ClarificationCard clarification={baseClarification} onSubmit={vi.fn()} />);
+    const option = screen.getByRole('button', { name: 'MNIST' });
+    expect(option).toHaveAttribute('aria-pressed', 'false');
+    await user.click(option);
+    expect(option).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('uses a heading that fits when there is no summary', () => {
+    render(<ClarificationCard clarification={{ ...baseClarification, what_i_understood: '' }} onSubmit={vi.fn()} />);
+    expect(screen.getByText('A few quick questions:')).toBeInTheDocument();
+    expect(screen.queryByText(/make sure I understand/)).not.toBeInTheDocument();
+  });
+
+  describe('"Other..." input', () => {
+    const custom: Clarification = {
+      ...baseClarification,
+      questions: [{ id: 'q1', text: 'Which dataset?', options: ['MNIST'], allow_custom: true }],
+    };
+
+    it('takes focus when chosen', async () => {
+      const user = userEvent.setup();
+      render(<ClarificationCard clarification={custom} onSubmit={vi.fn()} />);
+      await user.click(screen.getByRole('button', { name: 'Other...' }));
+      expect(screen.getByPlaceholderText('Type your answer...')).toHaveFocus();
+    });
+
+    it('Enter submits once every question is answered, and not before', async () => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn();
+      render(<ClarificationCard clarification={custom} onSubmit={onSubmit} />);
+      await user.click(screen.getByRole('button', { name: 'Other...' }));
+
+      await user.keyboard('{Enter}');
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      await user.keyboard('ImageNet{Enter}');
+      expect(onSubmit).toHaveBeenCalledWith('Q1: Which dataset?\nA1: ImageNet');
+    });
+  });
+
   it('submits custom text when "Other..." is used', async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();

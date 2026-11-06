@@ -3,6 +3,7 @@ import { useUiStore } from '../stores/uiStore';
 import type { DeepResearchJob, ResearchEvent } from '../stores/deepResearchStore';
 import { isActive } from '../stores/deepResearchStore';
 import { cancelDeepResearch } from '../lib/api';
+import { friendlyError } from '../lib/modelError';
 
 // Renders a Deep Research job's durable event log inline in the conversation:
 // a plan checklist, a tool card per search / paper read, the notes it found, and
@@ -24,6 +25,7 @@ function derive(events: ResearchEvent[]) {
   const notes: Note[] = [];
   let artifactId: string | null = null;
   let synthesising = false;
+  let errorMessage: string | null = null;
 
   const s = (v: unknown) => (typeof v === 'string' ? v : undefined);
   for (const e of events) {
@@ -62,13 +64,15 @@ function derive(events: ResearchEvent[]) {
       }
       case 'synthesising': synthesising = true; break;
       case 'artifact': artifactId = s(e.artifact_id) || null; break;
+      case 'error': errorMessage = s(e.message) || null; break;
       default: break;
     }
   }
-  return { plan: planOrder.map((id) => plan[id]), rows, notes, artifactId, synthesising };
+  return { plan: planOrder.map((id) => plan[id]), rows, notes, artifactId, synthesising, errorMessage };
 }
 
 const STATUS_MARK: Record<string, string> = { open: '○', in_progress: '◐', resolved: '●', unresolvable: '×' };
+const STATUS_TEXT: Record<string, string> = { open: 'Not started', in_progress: 'In progress', resolved: 'Resolved', unresolvable: 'Could not be resolved' };
 
 // Which source tier a citation came from - the breadth signal.
 const TIER_LABEL: Record<string, string> = { corpus: 'corpus', oa: 'open access', web: 'web' };
@@ -89,9 +93,23 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
   const setSelectedArtifactId = useUiStore((s) => s.setSelectedArtifactId);
   const setArtifactPanelOpen = useUiStore((s) => s.setArtifactPanelOpen);
   const [openLog, setOpenLog] = useState(true);
-  const { plan, rows, notes, artifactId } = derive(job.events);
+  // Tied to the job, since the next job in this chat reuses this component.
+  const [cancel, setCancel] = useState<{ jobId: string; state: 'cancelling' | 'failed' } | null>(null);
+  const cancelState = cancel?.jobId === job.id ? cancel.state : 'idle';
+  const { plan, rows, notes, artifactId, errorMessage } = derive(job.events);
   const active = isActive(job.status);
   const reportId = artifactId || job.artifactId;
+
+  const handleCancel = async () => {
+    const jobId = job.id;
+    setCancel({ jobId, state: 'cancelling' });
+    try {
+      // The status changes on the next poll; until then it stays "Cancelling".
+      await cancelDeepResearch(jobId);
+    } catch {
+      setCancel({ jobId, state: 'failed' });
+    }
+  };
 
   const openReport = () => {
     if (!reportId) return;
@@ -127,14 +145,19 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
         <div className="px-4 py-3">
           <div className="text-[11px] uppercase tracking-wide text-text-secondary mb-2">Plan</div>
           <ul className="space-y-1.5">
-            {plan.map((p) => (
+            {plan.map((p) => {
+              // Once the job has ended, nothing left open is still being worked on.
+              const unfinished = !active && p.status !== 'resolved' && p.status !== 'unresolvable';
+              return (
               <li key={p.id} data-testid="research-plan-item" className="flex items-start gap-2 text-sm">
-                <span className={`mt-0.5 ${p.status === 'resolved' ? 'text-success' : p.status === 'in_progress' ? 'text-accent' : p.status === 'unresolvable' ? 'text-error' : 'text-text-secondary'}`}>
-                  {STATUS_MARK[p.status] || '○'}
+                <span aria-hidden="true" className={`mt-0.5 ${p.status === 'resolved' ? 'text-success' : p.status === 'in_progress' && active ? 'text-accent' : p.status === 'unresolvable' ? 'text-error' : 'text-text-secondary'}`}>
+                  {unfinished ? '○' : STATUS_MARK[p.status] || '○'}
                 </span>
+                <span className="sr-only">{unfinished ? 'Not finished' : STATUS_TEXT[p.status] || STATUS_TEXT.open}: </span>
                 <span className={p.status === 'resolved' ? 'text-text-primary' : 'text-text-secondary'}>{p.text}</span>
               </li>
-            ))}
+              );
+            })}
           </ul>
         </div>
       )}
@@ -153,7 +176,7 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
                   <span className="flex-1 min-w-0">
                     <span className="text-text-primary">{r.name === 'search' ? `Searched: ${r.query || ''}` : `Read: ${r.title || ''}`}</span>
                     {r.summary && <span className="text-text-secondary"> · {r.summary}</span>}
-                    {!r.done && <span className="text-accent"> …</span>}
+                    {!r.done && active && <span className="text-accent"> …</span>}
                   </span>
                 </li>
               ))}
@@ -183,19 +206,37 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
       {/* Footer / report link */}
       <div className="border-t border-border px-4 py-3 flex items-center gap-2">
         {active ? (
-          <span className="flex items-center gap-2 text-xs text-text-secondary">
+          <span className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
             <svg className="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
             {job.status === 'queued' ? 'Waiting for another research job to finish…' : 'Researching in the background…'}
-            <button data-testid="research-cancel" onClick={() => { cancelDeepResearch(job.id).catch(() => {}); }} className="text-accent hover:underline cursor-pointer">
-              Cancel
+            <button
+              data-testid="research-cancel"
+              onClick={handleCancel}
+              disabled={cancelState === 'cancelling'}
+              className="text-accent hover:underline cursor-pointer disabled:text-text-secondary disabled:no-underline disabled:cursor-default"
+            >
+              {cancelState === 'cancelling' ? 'Cancelling…' : 'Cancel'}
             </button>
+            {cancelState === 'failed' && (
+              <span role="alert" className="text-error">Could not cancel. Try again.</span>
+            )}
           </span>
         ) : reportId ? (
           <button data-testid="research-report-link" onClick={openReport} className="text-xs text-accent hover:underline cursor-pointer">
             View the full report →
           </button>
         ) : job.status === 'error' ? (
-          <span className="text-xs text-error">Research failed.</span>
+          <span data-testid="research-ended" className="text-xs text-error wrap-anywhere">
+            Research failed.
+            {errorMessage && ` ${friendlyError(errorMessage).replace(/\.?$/, '.')}`}
+            {notes.length > 0 && ' The findings above are partial.'}
+            {' '}You can start Deep Research again from the + menu.
+          </span>
+        ) : job.status === 'cancelled' ? (
+          <span data-testid="research-ended" className="text-xs text-text-secondary">
+            Research cancelled.
+            {notes.length > 0 && ' The findings above were gathered before it stopped.'}
+          </span>
         ) : (
           <span className="text-xs text-text-secondary">Research finished.</span>
         )}

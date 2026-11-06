@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useId } from 'react';
 import {
   fetchAdminGroups,
   createAdminGroup,
@@ -11,11 +11,14 @@ import {
   removeGroupMember,
 } from '../../lib/api';
 import type { AdminGroup, AdminUser, AdminRole } from '../../lib/api';
+import { Dialog } from '../ui/Dialog';
+import { ErrorNotice } from '../ui/ErrorNotice';
 
 
 export function GroupsTab() {
   const [groups, setGroups] = useState<AdminGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<AdminGroup | null>(null);
   const [adding, setAdding] = useState(false);
@@ -44,6 +47,7 @@ export function GroupsTab() {
         const next = await fetchAdminGroups();
         if (cancelled) return;
         setGroups(next);
+        setHasLoaded(true);
         setError(null);
       } catch (e) {
         if (cancelled) return;
@@ -56,10 +60,13 @@ export function GroupsTab() {
   }, [reloadKey]);
 
   if (loading) return <div className="text-text-secondary text-sm py-12 text-center">Loading groups...</div>;
-  if (error) return <div className="text-error text-sm py-12 text-center">{error}</div>;
+  // Only a first load with nothing to show replaces the page. A failed refresh
+  // keeps the table, and any dialog open over it, with a notice above.
+  if (error && !hasLoaded) return <ErrorNotice message={error} onRetry={load} className="my-8" />;
 
   return (
     <div className="space-y-4">
+      {error && <ErrorNotice message={`Could not refresh, showing the last loaded list: ${error}`} onRetry={load} />}
       <div className="flex items-center justify-end">
         <button
           onClick={() => setAdding(true)}
@@ -121,11 +128,15 @@ export function GroupsTab() {
 }
 
 
+const MAX_MEMBER_RESULTS = 8;
+
+
 function GroupCreateModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [slug, setSlug] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const formId = useId();
 
   async function submit() {
     setSaving(true);
@@ -140,27 +151,48 @@ function GroupCreateModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
   }
 
   const slugValid = /^[a-z0-9][a-z0-9_-]*$/.test(slug);
+  const canSubmit = slugValid && !!displayName.trim();
+  const missing = [
+    !slugValid && 'a valid slug',
+    !displayName.trim() && 'a display name',
+  ].filter(Boolean).join(' and ');
 
   return (
-    <ModalShell title="Add group" onClose={onClose}>
-      <Field label="Slug">
-        <Input value={slug} onChange={v => setSlug(v.toLowerCase())} placeholder="lowercase, no spaces" />
-        {slug && !slugValid && (
-          <p className="text-[11px] text-error mt-1">Slug must be lowercase alphanumeric (hyphens / underscores allowed).</p>
-        )}
-      </Field>
-      <Field label="Display name">
-        <Input value={displayName} onChange={setDisplayName} placeholder="e.g. Elgeti Lab (Leipzig)" />
-      </Field>
-      {err && <div className="text-xs text-error">{err}</div>}
-      <Actions
-        onCancel={onClose}
-        onSubmit={submit}
-        submitLabel="Create"
-        submitting={saving}
-        disabled={!slugValid || !displayName.trim()}
-      />
-    </ModalShell>
+    <Dialog
+      title="Add group"
+      onClose={onClose}
+      closeOnBackdrop={!slug && !displayName}
+      footer={
+        <Actions
+          formId={formId}
+          onCancel={onClose}
+          submitLabel="Create"
+          submitting={saving}
+          disabled={!canSubmit}
+        />
+      }
+    >
+      <form
+        id={formId}
+        className="space-y-3"
+        onSubmit={e => {
+          e.preventDefault();
+          if (canSubmit && !saving) submit();
+        }}
+      >
+        <Field label="Slug">
+          <Input value={slug} onChange={v => setSlug(v.toLowerCase())} placeholder="lowercase, no spaces" />
+          {slug && !slugValid && (
+            <p className="text-[11px] text-error mt-1">Slug must be lowercase alphanumeric (hyphens / underscores allowed).</p>
+          )}
+        </Field>
+        <Field label="Display name">
+          <Input value={displayName} onChange={setDisplayName} placeholder="e.g. Elgeti Lab (Leipzig)" />
+        </Field>
+        {err && <div className="text-xs text-error">{err}</div>}
+        {missing && <p className="text-[11px] text-text-secondary">To create this group, enter {missing}.</p>}
+      </form>
+    </Dialog>
   );
 }
 
@@ -179,6 +211,7 @@ function GroupEditModal({ group, onClose, onReload, onSaved }: {
   const [memberBusy, setMemberBusy] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const formId = useId();
 
   const loadMembers = useCallback(async () => {
     setLoadingMembers(true);
@@ -248,126 +281,141 @@ function GroupEditModal({ group, onClose, onReload, onSaved }: {
     }
   }
 
-  const available = allUsers
+  const matching = allUsers
     .filter(u => !members.some(m => m.id === u.id))
     .filter(u => {
       const f = addFilter.trim().toLowerCase();
       if (!f) return true;
       return u.name.toLowerCase().includes(f) || u.emails.some(e => e.toLowerCase().includes(f));
-    })
-    .slice(0, 8);
+    });
+  const available = matching.slice(0, MAX_MEMBER_RESULTS);
+
+  const nameChanged = displayName.trim() !== group.display_name;
+  const canSave = !!displayName.trim() && nameChanged;
 
   return (
-    <ModalShell title={`Edit ${group.display_name}`} onClose={onClose}>
-      <Field label="Slug (read-only)">
-        <code className="block px-3 py-1.5 text-sm font-mono bg-bg-secondary border border-border rounded text-text-secondary">{group.slug}</code>
-      </Field>
-      <Field label="Display name">
-        <Input value={displayName} onChange={setDisplayName} />
-      </Field>
-
-      <Field label={`Members (${members.length})`}>
-        {loadingMembers ? (
-          <div className="text-xs text-text-secondary py-2">Loading members...</div>
-        ) : (
-          <div className="space-y-1">
-            {members.map(m => (
-              <div key={m.id} className="flex items-center gap-2 text-sm">
-                <div className="flex-1 min-w-0">
-                  <div className="text-text-primary truncate">{m.name || m.primary_email}</div>
-                  <div className="text-[11px] text-text-secondary truncate font-mono">{m.primary_email}</div>
-                </div>
-                {m.role === 'admin' ? (
-                  <span className="text-[10px] uppercase tracking-wide text-accent px-1.5 py-0.5 bg-accent/15 rounded">Admin</span>
-                ) : (
-                  <select
-                    value={m.role}
-                    onChange={e => setMemberRole(m, e.target.value as AdminRole)}
-                    disabled={memberBusy === m.id}
-                    className="bg-bg-secondary border border-border rounded px-2 py-1 text-xs text-text-primary cursor-pointer focus:outline-none focus:border-accent disabled:opacity-50"
-                  >
-                    <option value="user">Member</option>
-                    <option value="group_leader">Leader</option>
-                  </select>
-                )}
-                <button
-                  onClick={() => removeMember(m)}
-                  disabled={memberBusy === m.id}
-                  className="text-[11px] text-text-secondary hover:text-error cursor-pointer disabled:opacity-50"
-                >Remove</button>
-              </div>
-            ))}
-            {members.length === 0 && (
-              <div className="text-xs text-text-secondary py-1">No members yet.</div>
-            )}
-          </div>
-        )}
-      </Field>
-
-      <Field label="Add member">
-        <Input value={addFilter} onChange={setAddFilter} placeholder="search users by name or email..." />
-        {addFilter.trim() && (
-          <div className="mt-1 border border-border rounded divide-y divide-border max-h-40 overflow-y-auto">
-            {available.length === 0 && (
-              <div className="px-3 py-2 text-xs text-text-secondary">No matching users.</div>
-            )}
-            {available.map(u => (
-              <button
-                key={u.id}
-                onClick={() => addMember(u)}
-                disabled={memberBusy === u.id}
-                className="w-full text-left px-3 py-1.5 hover:bg-bg-secondary flex items-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                <span className="flex-1 truncate text-text-primary text-sm">{u.name || u.primary_email}</span>
-                <span className="text-[11px] text-text-secondary truncate font-mono">{u.primary_email}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </Field>
-
-      <div className="text-[11px] text-text-secondary">
-        The <span className="text-text-primary">Leader</span> role lets a member upload to the knowledge base; it applies account-wide, not just to this group.
-      </div>
-
-      {err && <div className="text-xs text-error">{err}</div>}
-      <div className="flex items-center justify-between pt-2 border-t border-border mt-3">
-        <button
-          onClick={remove}
-          disabled={members.length > 0 || saving}
-          className="text-xs text-error hover:underline cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
-          title={members.length > 0 ? 'Group has members; remove them first' : 'Delete this group'}
-        >Delete group</button>
-        <div className="flex items-center gap-2">
+    <Dialog
+      title={`Edit ${group.display_name}`}
+      onClose={onClose}
+      closeOnBackdrop={!nameChanged}
+      footer={
+        <>
           <button
+            type="button"
+            onClick={remove}
+            disabled={members.length > 0 || saving}
+            className="mr-auto text-xs text-error hover:underline cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
+            title={members.length > 0 ? 'Group has members; remove them first' : 'Delete this group'}
+          >Delete group</button>
+          <button
+            type="button"
             onClick={onClose}
             className="text-sm px-3 py-1.5 text-text-secondary hover:text-text-primary cursor-pointer"
           >Close</button>
           <button
-            onClick={save}
-            disabled={!displayName.trim() || displayName.trim() === group.display_name || saving}
+            type="submit"
+            form={formId}
+            disabled={!canSave || saving}
             className="text-sm px-3 py-1.5 bg-accent text-bg-primary rounded font-medium cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >{saving ? 'Saving...' : 'Save'}</button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <form
+          id={formId}
+          className="space-y-3"
+          onSubmit={e => {
+            e.preventDefault();
+            if (canSave && !saving) save();
+          }}
+        >
+          <Field label="Slug (read-only)">
+            <code className="block px-3 py-1.5 text-sm font-mono bg-bg-primary border border-border rounded text-text-secondary">{group.slug}</code>
+          </Field>
+          <Field label="Display name">
+            <Input value={displayName} onChange={setDisplayName} />
+          </Field>
+        </form>
+
+        <Field label={`Members (${members.length})`}>
+          {loadingMembers ? (
+            <div className="text-xs text-text-secondary py-2">Loading members...</div>
+          ) : (
+            <div className="space-y-1">
+              {members.map(m => (
+                <div key={m.id} className="flex items-center gap-2 text-sm">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-text-primary truncate">{m.name || m.primary_email}</div>
+                    <div className="text-[11px] text-text-secondary truncate font-mono">{m.primary_email}</div>
+                  </div>
+                  {m.role === 'admin' ? (
+                    <span className="text-[10px] uppercase tracking-wide text-accent px-1.5 py-0.5 bg-accent/15 rounded">Admin</span>
+                  ) : (
+                    <select
+                      value={m.role}
+                      onChange={e => setMemberRole(m, e.target.value as AdminRole)}
+                      disabled={memberBusy === m.id}
+                      aria-label={`Role of ${m.name || m.primary_email}`}
+                      className="bg-bg-primary border border-border rounded px-2 py-1 text-xs text-text-primary cursor-pointer focus:outline-none focus:border-accent disabled:opacity-50"
+                    >
+                      <option value="user">User</option>
+                      <option value="group_leader">Group leader</option>
+                    </select>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeMember(m)}
+                    disabled={memberBusy === m.id}
+                    className="text-[11px] text-text-secondary hover:text-error cursor-pointer disabled:opacity-50"
+                  >Remove</button>
+                </div>
+              ))}
+              {members.length === 0 && (
+                <div className="text-xs text-text-secondary py-1">No members yet.</div>
+              )}
+            </div>
+          )}
+        </Field>
+
+        <Field label="Add member">
+          <Input value={addFilter} onChange={setAddFilter} placeholder="search users by name or email..." />
+          {addFilter.trim() && (
+            <div className="mt-1 border border-border rounded divide-y divide-border max-h-40 overflow-y-auto">
+              {available.length === 0 && (
+                <div className="px-3 py-2 text-xs text-text-secondary">No matching users.</div>
+              )}
+              {available.map(u => (
+                <button
+                  type="button"
+                  key={u.id}
+                  onClick={() => addMember(u)}
+                  disabled={memberBusy === u.id}
+                  className="block w-full text-left px-3 py-1.5 hover:bg-bg-tertiary cursor-pointer disabled:opacity-50"
+                >
+                  <span className="block truncate text-text-primary text-sm">{u.name || u.primary_email}</span>
+                  <span className="block truncate text-[11px] text-text-secondary font-mono">{u.primary_email}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {addFilter.trim() && matching.length > available.length && (
+            <p className="text-[11px] text-text-secondary mt-1">
+              Showing {available.length} of {matching.length}, refine your search.
+            </p>
+          )}
+        </Field>
+
+        <div className="text-[11px] text-text-secondary">
+          The <span className="text-text-primary">Group leader</span> role lets a user with a primary group upload to the knowledge base; it applies account-wide, not just to this group.
         </div>
+
+        {err && <div className="text-xs text-error">{err}</div>}
       </div>
-    </ModalShell>
+    </Dialog>
   );
 }
 
-
-function ModalShell({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <div
-        className="bg-bg-primary border border-border rounded-lg p-5 w-full max-w-md"
-        onClick={e => e.stopPropagation()}
-      >
-        <h3 className="text-base font-semibold text-text-primary mb-4">{title}</h3>
-        <div className="space-y-3">{children}</div>
-      </div>
-    </div>
-  );
-}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -385,29 +433,31 @@ function Input({ value, onChange, placeholder }: { value: string; onChange: (v: 
       value={value}
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full bg-bg-secondary border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent"
+      className="w-full bg-bg-primary border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent"
     />
   );
 }
 
-function Actions({ onCancel, onSubmit, submitLabel, submitting, disabled }: {
+function Actions({ formId, onCancel, submitLabel, submitting, disabled }: {
+  formId: string;
   onCancel: () => void;
-  onSubmit: () => void;
   submitLabel: string;
   submitting: boolean;
   disabled: boolean;
 }) {
   return (
-    <div className="flex items-center justify-end gap-2 pt-2">
+    <>
       <button
+        type="button"
         onClick={onCancel}
         className="text-sm px-3 py-1.5 text-text-secondary hover:text-text-primary cursor-pointer"
       >Cancel</button>
       <button
-        onClick={onSubmit}
+        type="submit"
+        form={formId}
         disabled={submitting || disabled}
         className="text-sm px-3 py-1.5 bg-accent text-bg-primary rounded font-medium cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
       >{submitting ? 'Saving...' : submitLabel}</button>
-    </div>
+    </>
   );
 }
