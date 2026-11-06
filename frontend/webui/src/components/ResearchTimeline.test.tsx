@@ -102,6 +102,18 @@ describe('ResearchTimeline cancel', () => {
     expect(cancel).toHaveTextContent('Cancelling…');
   });
 
+  it('the next job in the same chat can be cancelled too', async () => {
+    server.use(http.post('/api/research/cancel/:id', () => HttpResponse.json({ ok: true })));
+    const { rerender } = render(<ResearchTimeline job={endedJob('running')} />);
+    fireEvent.click(screen.getByTestId('research-cancel'));
+    expect(screen.getByTestId('research-cancel')).toBeDisabled();
+
+    rerender(<ResearchTimeline job={{ ...endedJob('running'), id: 'dr_next' }} />);
+
+    expect(screen.getByTestId('research-cancel')).toBeEnabled();
+    expect(screen.getByTestId('research-cancel')).not.toHaveTextContent('Cancelling');
+  });
+
   it('says so when the cancel fails, and it can be tried again', async () => {
     server.use(http.post('/api/research/cancel/:id', () => HttpResponse.json({}, { status: 500 })));
     render(<ResearchTimeline job={endedJob('running')} />);

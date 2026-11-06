@@ -93,18 +93,21 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
   const setSelectedArtifactId = useUiStore((s) => s.setSelectedArtifactId);
   const setArtifactPanelOpen = useUiStore((s) => s.setArtifactPanelOpen);
   const [openLog, setOpenLog] = useState(true);
-  const [cancelState, setCancelState] = useState<'idle' | 'cancelling' | 'failed'>('idle');
+  // Tied to the job, since the next job in this chat reuses this component.
+  const [cancel, setCancel] = useState<{ jobId: string; state: 'cancelling' | 'failed' } | null>(null);
+  const cancelState = cancel?.jobId === job.id ? cancel.state : 'idle';
   const { plan, rows, notes, artifactId, errorMessage } = derive(job.events);
   const active = isActive(job.status);
   const reportId = artifactId || job.artifactId;
 
   const handleCancel = async () => {
-    setCancelState('cancelling');
+    const jobId = job.id;
+    setCancel({ jobId, state: 'cancelling' });
     try {
       // The status changes on the next poll; until then it stays "Cancelling".
-      await cancelDeepResearch(job.id);
+      await cancelDeepResearch(jobId);
     } catch {
-      setCancelState('failed');
+      setCancel({ jobId, state: 'failed' });
     }
   };
 
