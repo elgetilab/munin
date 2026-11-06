@@ -61,6 +61,12 @@ body.munin-side-panel-open #munin-support-btn {
   display: none !important;
 }
 
+/* A Knowledge browse page has a Download button at the end of each row, which the
+   floating button would cover. Help is still in the account menu. */
+body.munin-browsing-knowledge #munin-support-btn {
+  display: none !important;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

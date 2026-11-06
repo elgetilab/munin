@@ -256,6 +256,26 @@ test.describe('busy header', () => {
   }
 });
 
+test('the support button is hidden on a Knowledge browse page, and only there', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await installMocks(page);
+  const button = page.locator('#munin-support-btn');
+  const addButton = () => page.evaluate(() => {
+    const el = document.createElement('button');
+    el.id = 'munin-support-btn';
+    el.textContent = '?';
+    document.body.appendChild(el);
+  });
+
+  await page.goto('/knowledge/topic/example');
+  await addButton();
+  await expect(button).toBeHidden();
+
+  await page.goto('/knowledge');
+  await addButton();
+  await expect(button).toBeVisible();
+});
+
 test.describe('support widget', () => {
   const WIDGET = fileURLToPath(new URL('../../static/shared/support-widget.js', import.meta.url));
 

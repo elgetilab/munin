@@ -301,6 +301,13 @@ export default function App() {
     return () => document.body.classList.remove('munin-side-panel-open');
   }, [sidePanelShowing]);
 
+  // The button would sit over the rows of a Knowledge browse page (see index.css).
+  const browsingKnowledge = typeof showKnowledgePage === 'string';
+  useEffect(() => {
+    document.body.classList.toggle('munin-browsing-knowledge', browsingKnowledge);
+    return () => document.body.classList.remove('munin-browsing-knowledge');
+  }, [browsingKnowledge]);
+
   // The active project's name, for the banner that says where the chat will go.
   const [activeProjectInfo, setActiveProjectInfo] = useState<{ id: string; name: string } | null>(null);
   useEffect(() => {
