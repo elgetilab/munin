@@ -36,6 +36,13 @@ export interface UseMenuOptions {
 
 const ITEMS = '[role^="menuitem"]:not([disabled])';
 
+function itemsIn(menu: HTMLElement): HTMLElement[] {
+  // checkVisibility skips anything hidden by CSS, such as `lg:hidden` items, which
+  // cannot take focus: moving to one would leave the arrow keys stuck in place.
+  return Array.from(menu.querySelectorAll<HTMLElement>(ITEMS))
+    .filter(el => !el.checkVisibility || el.checkVisibility());
+}
+
 export function useMenu<T extends HTMLElement = HTMLButtonElement>({
   kind = 'menu',
   open: controlledOpen,
@@ -63,7 +70,7 @@ export function useMenu<T extends HTMLElement = HTMLButtonElement>({
   useEffect(() => {
     if (!open) return;
 
-    if (kind === 'menu') menuRef.current?.querySelector<HTMLElement>(ITEMS)?.focus();
+    if (kind === 'menu' && menuRef.current) itemsIn(menuRef.current)[0]?.focus();
 
     const removeLayer = pushLayer({ modal: false, onEscape: () => latest.current.close() });
 
@@ -94,7 +101,7 @@ export function useMenu<T extends HTMLElement = HTMLButtonElement>({
       close();
       return;
     }
-    const items = Array.from(e.currentTarget.querySelectorAll<HTMLElement>(ITEMS));
+    const items = itemsIn(e.currentTarget);
     if (items.length === 0) return;
     const index = items.indexOf(document.activeElement as HTMLElement);
     const moves: Record<string, number> = {

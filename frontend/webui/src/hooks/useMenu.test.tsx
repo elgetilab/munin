@@ -65,6 +65,60 @@ describe('useMenu', () => {
     expect(screen.getByText('one')).toHaveFocus();
   });
 
+  describe('with items hidden by CSS', () => {
+    // jsdom applies no CSS, so this stands in for a `lg:hidden` item.
+    function HiddenItems() {
+      const menu = useMenu();
+      return (
+        <>
+          <button {...menu.triggerProps}>trigger</button>
+          {menu.open && (
+            <div {...menu.menuProps}>
+              <button role="menuitem" data-hidden>first hidden</button>
+              <button role="menuitem">one</button>
+              <button role="menuitem" data-hidden>middle hidden</button>
+              <button role="menuitem">two</button>
+              <button role="menuitem" data-hidden>last hidden</button>
+            </div>
+          )}
+        </>
+      );
+    }
+
+    beforeEach(() => {
+      HTMLElement.prototype.checkVisibility = function (this: HTMLElement) {
+        return !this.hasAttribute('data-hidden');
+      };
+    });
+    afterEach(() => {
+      delete (HTMLElement.prototype as Partial<HTMLElement>).checkVisibility;
+    });
+
+    it('opens on the first visible item', async () => {
+      const user = userEvent.setup();
+      render(<HiddenItems />);
+      await user.click(screen.getByText('trigger'));
+      expect(screen.getByText('one')).toHaveFocus();
+    });
+
+    it('moves past them with every key', async () => {
+      const user = userEvent.setup();
+      render(<HiddenItems />);
+      await user.click(screen.getByText('trigger'));
+
+      await user.keyboard('{ArrowDown}');
+      expect(screen.getByText('two')).toHaveFocus();
+      await user.keyboard('{ArrowDown}');
+      expect(screen.getByText('one')).toHaveFocus();
+      await user.keyboard('{ArrowUp}');
+      expect(screen.getByText('two')).toHaveFocus();
+      await user.keyboard('{Home}');
+      expect(screen.getByText('one')).toHaveFocus();
+      await user.keyboard('{End}');
+      expect(screen.getByText('two')).toHaveFocus();
+    });
+  });
+
   it('closes on Escape and returns focus to the trigger', async () => {
     const user = userEvent.setup();
     render(<Menu />);
