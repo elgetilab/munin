@@ -111,6 +111,33 @@ describe('KnowledgePage', () => {
       expect(await screen.findByText('2 papers')).toBeInTheDocument();
     });
 
+    it('keeps the controls and focus while a new sort loads, and after it fails', async () => {
+      const user = userEvent.setup();
+      let gate: Promise<void> | null = null;
+      server.use(http.get(PAPERS_PATH, async () => {
+        if (!gate) return HttpResponse.json(page(0, 2, 2));
+        await gate;
+        return new HttpResponse(null, { status: 500 });
+      }));
+      renderBrowse();
+      const select = await screen.findByRole('combobox', { name: 'Sort papers' });
+
+      let release = () => {};
+      gate = new Promise(resolve => { release = resolve; });
+      select.focus();
+      await user.selectOptions(select, 'year_asc');
+
+      expect(screen.getByRole('combobox', { name: 'Sort papers' })).toBe(select);
+      expect(select).toHaveFocus();
+      expect(screen.getByText('2 papers')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Load more|Loading/ })).not.toBeInTheDocument();
+
+      release();
+      await screen.findByRole('alert');
+      expect(screen.getByRole('combobox', { name: 'Sort papers' })).toBe(select);
+      expect(screen.getByRole('button', { name: 'Discuss in chat' })).toBeInTheDocument();
+    });
+
     it('says when a group has no papers, with nothing to discuss', async () => {
       server.use(http.get(PAPERS_PATH, () => HttpResponse.json(page(0, 0, 0))));
       renderBrowse();

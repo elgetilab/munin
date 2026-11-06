@@ -418,8 +418,10 @@ function BrowseView({ kind, slug, catalog: _catalog, onChatWithTag }: {
   }, [kind, slug]);
 
   useEffect(() => {
+    // The total stays, and with it the controls: this may be the sort select
+    // reloading the list, and it must not unmount under the keyboard. Another
+    // group is a new BrowseView (see its key), which starts with no total.
     setPapers([]);
-    setTotal(null);
     loadPapers(0, sort);
   }, [kind, slug, sort, loadPapers]);
 
@@ -475,7 +477,7 @@ function BrowseView({ kind, slug, catalog: _catalog, onChatWithTag }: {
         />
       )}
 
-      {total !== null && papers.length < total && !failed && (
+      {total !== null && papers.length > 0 && papers.length < total && !failed && (
         <div className="flex justify-center py-4">
           <button
             onClick={loadMore}
