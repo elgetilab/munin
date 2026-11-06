@@ -406,34 +406,41 @@ export default function App() {
     if (window.innerWidth < 768) setSidebarOpen(false);
   }, [setSidebarOpen]);
 
-  const handleSelectChat = useCallback((id: string) => {
-    if (id !== useChatStore.getState().conversationId && !mayDropArtifactDraft()) return;
+  // The three handlers below return false when the user kept an artifact draft,
+  // so that callers leave whatever else is open alone.
+  const handleSelectChat = useCallback((id: string): boolean => {
+    if (id !== useChatStore.getState().conversationId && !mayDropArtifactDraft()) return false;
     setIsEphemeral(false);
     setActiveProjectId(null);
     setEditingProject(null);
     setShowAdmin(false);
     loadConversation(id);
+    return true;
   }, [loadConversation, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin]);
 
-  const handleNewChat = useCallback(() => {
-    if (!mayDropArtifactDraft()) return;
+  const handleNewChat = useCallback((): boolean => {
+    if (!mayDropArtifactDraft()) return false;
     setIsEphemeral(false);
     setActiveProjectId(null);
     setEditingProject(null);
     setShowAdmin(false);
+    setShowSettings(false);
     clearConversation();
     pushAppPath('/');
-  }, [clearConversation, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin]);
+    return true;
+  }, [clearConversation, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin, setShowSettings]);
 
-  const handleNewChatInProject = useCallback((projectId: string) => {
-    if (!mayDropArtifactDraft()) return;
+  const handleNewChatInProject = useCallback((projectId: string): boolean => {
+    if (!mayDropArtifactDraft()) return false;
     setIsEphemeral(false);
     setActiveProjectId(projectId);
     setEditingProject(null);
     setShowAdmin(false);
+    setShowSettings(false);
     clearConversation();
     pushAppPath('/');
-  }, [clearConversation, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin]);
+    return true;
+  }, [clearConversation, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin, setShowSettings]);
 
   const handleOpenProjectSettings = useCallback((project: Project) => {
     setEditingProject(project);
@@ -450,11 +457,15 @@ export default function App() {
     if (!mayDropArtifactDraft()) return;
     const nowEphemeral = toggleEphemeral();
     if (nowEphemeral) {
-      // Entering ephemeral: clear current conversation
+      // Entering ephemeral: clear current conversation. pushAppPath replaces any
+      // overlay's history entry, so the overlay has to close with it.
+      setShowSettings(false);
+      setEditingProject(null);
+      setShowAdmin(false);
       clearConversation();
       pushAppPath('/');
     }
-  }, [clearConversation, toggleEphemeral]);
+  }, [clearConversation, setEditingProject, setShowAdmin, setShowSettings, toggleEphemeral]);
 
   const handleOpenKnowledgePage = useCallback(() => {
     if (!mayDropArtifactDraft()) return;
@@ -815,9 +826,9 @@ export default function App() {
             {drawerOpen && <h2 id={drawerModal.titleId} className="sr-only">Menu</h2>}
             <Sidebar
               currentId={conversationId}
-              onSelect={(id) => { handleSelectChat(id); setShowSettings(false); setEditingProject(null); closeDrawerOnPhone(); }}
-              onNewChat={() => { handleNewChat(); setShowSettings(false); setEditingProject(null); closeDrawerOnPhone(); }}
-              onNewChatInProject={(pid) => { handleNewChatInProject(pid); setShowSettings(false); closeDrawerOnPhone(); }}
+              onSelect={(id) => { if (!handleSelectChat(id)) return; setShowSettings(false); setEditingProject(null); closeDrawerOnPhone(); }}
+              onNewChat={() => { if (handleNewChat()) closeDrawerOnPhone(); }}
+              onNewChatInProject={(pid) => { if (handleNewChatInProject(pid)) closeDrawerOnPhone(); }}
               onOpenProjectSettings={(project) => { handleOpenProjectSettings(project); closeDrawerOnPhone(); }}
               refreshKey={sidebarRefreshKey}
               onOpenSettings={() => { setShowSettings(true); setEditingProject(null); setShowAdmin(false); closeDrawerOnPhone(); }}

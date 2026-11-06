@@ -54,6 +54,22 @@ test.describe('overlays and Back', () => {
     await expect(page).toHaveURL(/\/c\/conv-e2e$/);
     await expect(page.getByText('First question')).toBeVisible();
   });
+  test('Temporary chat closes Settings, so Back does not reopen the old chat with it', async ({ page }) => {
+    await installMocks(page, { conversations: [conversationSummary('cA', 'Conversation A')] });
+    await page.goto('/c/cA');
+    await page.getByText('e2e@test.local').click();
+    await page.getByRole('menuitem', { name: 'Settings' }).click();
+    const heading = page.getByRole('heading', { name: 'Settings' });
+    await expect(heading).toBeVisible();
+
+    await page.getByRole('button', { name: 'Temporary chat' }).click();
+    await expect(heading).toBeHidden();
+    await expect(page).toHaveURL(/\/$/);
+
+    await page.goBack();
+    await expect(page).toHaveURL(/\/c\/cA$/);
+    await expect(heading).toBeHidden();
+  });
 });
 
 test.describe('an edited artifact beside the chat', () => {
@@ -88,6 +104,32 @@ test.describe('an edited artifact beside the chat', () => {
     await page.getByTestId('chat-row').filter({ hasText: 'Conversation B' }).click();
     await expect(page).toHaveURL(/\/c\/cB$/);
     await expect(prompts).toHaveLength(3);
+  });
+
+  test('keeping the draft also keeps the view that is open beside it', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await installMocks(page, {
+      conversations: [conversationSummary('cA', 'Conversation A'), conversationSummary('cB', 'Conversation B')],
+      perConversationArtifacts: { cA: [artifactSummary('art-A', 'Report A')], cB: [] },
+    });
+    await page.goto('/c/cA');
+    await page.getByTestId('artifacts-button').click();
+    await page.getByTestId('artifact-item').filter({ hasText: 'Report A' }).click();
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    const editor = page.getByRole('textbox', { name: 'Artifact content' });
+    await editor.fill('A changed draft');
+    await page.getByText('e2e@test.local').click();
+    await page.getByRole('menuitem', { name: 'Settings' }).click();
+    const heading = page.getByRole('heading', { name: 'Settings' });
+    await expect(heading).toBeVisible();
+
+    page.on('dialog', (dialog) => { void dialog.dismiss(); });
+    await page.getByTestId('chat-row').filter({ hasText: 'Conversation B' }).click();
+    await expect(heading).toBeVisible();
+    await page.getByRole('link', { name: 'New chat' }).click();
+    await expect(heading).toBeVisible();
+    await expect(page).toHaveURL(/\/c\/cA$/);
+    await expect(editor).toHaveValue('A changed draft');
   });
 });
 
