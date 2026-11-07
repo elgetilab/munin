@@ -31,7 +31,7 @@ test.describe('artifacts', () => {
   });
 
   test('a compiled PDF artifact appears with a download action', async ({ page }) => {
-    await installMocks(page, { chatScript: artifactReply({ id: 'a-pdf', title: 'paper.pdf', content_type: 'application/pdf', filename: 'paper.pdf', external_url: '/api/artifacts/conv-e2e/a-pdf', source: 'sandbox' }) });
+    await installMocks(page, { chatScript: artifactReply({ id: 'a-pdf', title: 'paper.pdf', content_type: 'application/pdf', filename: 'paper.pdf', external_url: '/api/artifacts/conv-e2e/a-pdf', source: 'sandbox_generated' }) });
     await page.goto('/');
     await sendFor(page, 'compile my latex');
     await expect(page.getByTestId('artifacts-button')).toContainText('Artifacts (1)');
@@ -42,7 +42,7 @@ test.describe('artifacts', () => {
   });
 
   test('a PNG plot artifact renders in the panel', async ({ page }) => {
-    await installMocks(page, { chatScript: artifactReply({ id: 'a-png', title: 'figure.png', content_type: 'image/png', filename: 'figure.png', external_url: '/api/artifacts/conv-e2e/a-png', source: 'sandbox' }) });
+    await installMocks(page, { chatScript: artifactReply({ id: 'a-png', title: 'figure.png', content_type: 'image/png', filename: 'figure.png', external_url: '/api/artifacts/conv-e2e/a-png', source: 'sandbox_generated' }) });
     await page.goto('/');
     await sendFor(page, 'plot sin(x)');
     await openArtifacts(page);

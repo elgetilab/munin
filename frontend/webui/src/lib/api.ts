@@ -7,9 +7,10 @@ const API = '/api';
 /**
  * fetch for every request below, so that a session that ended while the tab
  * was open is noticed in one place (lib/session.ts). It only reports: what it
- * resolves or throws is exactly what fetch did.
+ * resolves or throws is exactly what fetch did. Use it for any request behind
+ * the sign-in, also outside this file.
  */
-async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   let res: Response;
   try {
     res = await fetch(input, init);

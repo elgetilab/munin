@@ -41,7 +41,7 @@ export function toolReply(): SseEvent[] {
 }
 
 // A reply that produces an artifact (content_type configurable).
-export function artifactReply(a: { id: string; title: string; content_type: string; external_url?: string; filename?: string }): SseEvent[] {
+export function artifactReply(a: Parameters<typeof ev.artifactCreated>[0]): SseEvent[] {
   return [
     ev.conversation('conv-e2e'), ev.routing('code'),
     ...tokens(`I created ${a.title}.`),

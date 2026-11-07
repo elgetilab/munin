@@ -226,6 +226,12 @@ export function Markdown({ content }: { content: string }) {
             if (!href) return <span>{children}</span>;
             return <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline" {...props}>{children}</a>;
           },
+          img({ src, alt, ...props }) {
+            // Plots and diagrams are often transparent with dark ink, so give them
+            // the same white backing as artifact images, in both themes.
+            if (!src) return null;
+            return <img src={src} alt={alt ?? ''} loading="lazy" className="max-w-full rounded bg-white" {...props} />;
+          },
           table({ children, ...props }) {
             return (
               <div className="overflow-x-auto my-3">

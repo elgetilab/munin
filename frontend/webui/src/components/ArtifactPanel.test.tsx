@@ -7,6 +7,8 @@ import { ArtifactPanel } from './ArtifactPanel';
 import { useUiStore, _resetUiStoreForTests } from '../stores/uiStore';
 import { useChatStore } from '../stores/chatStore';
 import type { ArtifactSummary } from '../lib/types';
+import { _resetSessionForTests, isSessionEnded } from '../lib/session';
+import { AUTH_BASE } from '../lib/urls';
 
 // Characterization tests written before the Phase 4 restructure. This panel
 // had no unit tests: the e2e suite covers it, but that is slow feedback for a
@@ -207,6 +209,21 @@ describe('ArtifactPanel downloads', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Download' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not download this file');
     expect(saved).toHaveLength(0);
+  });
+
+  it('reports an ended session when the file download is refused', async () => {
+    _resetSessionForTests();
+    try {
+      const file = await openSandboxFile('model.ckpt', 'application/octet-stream');
+      server.use(
+        http.get(file.external_url, () => new HttpResponse(null, { status: 401 })),
+        http.get(`${AUTH_BASE}/auth/me`, () => new HttpResponse(null, { status: 401 })),
+      );
+      await userEvent.click(await screen.findByRole('button', { name: 'Download' }));
+      await waitFor(() => expect(isSessionEnded()).toBe(true));
+    } finally {
+      _resetSessionForTests();
+    }
   });
 
   it('still saves a text body, with one extension', async () => {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ArtifactSummary, ArtifactFull } from '../lib/types';
-import { fetchArtifact, fetchArtifactStructure, updateArtifact } from '../lib/api';
+import { apiFetch, fetchArtifact, fetchArtifactStructure, updateArtifact } from '../lib/api';
 import { copyText } from '../lib/copyText';
 import { downloadFilename, saveBlob } from '../lib/artifactDownload';
 import { fileSizeBytes, formatBytes, getContentTypeIcon, getContentTypeLabel, isFilePlaceholder, isWidget, parseProteinSpec, svgDataUrl } from '../lib/artifactDisplay';
@@ -162,7 +162,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
     setDownloading(true);
     try {
       if (!url) throw new Error('no file URL');
-      const res = await fetch(url, { credentials: 'include' });
+      const res = await apiFetch(url, { credentials: 'include' });
       if (!res.ok) throw new Error(`status ${res.status}`);
       saveBlob(await res.blob(), filename);
     } catch {
@@ -477,7 +477,7 @@ function PdfViewer({ url, title }: { url: string; title: string }) {
   useEffect(() => {
     let cancelled = false;
     let createdUrl: string | null = null;
-    fetch(url, { credentials: 'include' })
+    apiFetch(url, { credentials: 'include' })
       .then(r => {
         if (!r.ok) throw new Error(`Failed to load PDF (${r.status})`);
         return r.blob();

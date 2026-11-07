@@ -64,6 +64,13 @@ describe('Markdown — dangerous URL schemes are stripped', () => {
       expect(img.getAttribute('src') || '').toBe('');
     }
   });
+
+  it('an image gets a white backing, so transparent plots read in both themes', () => {
+    renderMd('![A plot](https://example.org/plot.png)');
+    const img = screen.getByRole('img', { name: 'A plot' });
+    expect(img).toHaveAttribute('src', 'https://example.org/plot.png');
+    expect(img).toHaveClass('bg-white', 'max-w-full');
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────
