@@ -117,6 +117,23 @@ describe('Sidebar', () => {
     });
   });
 
+  it('dims behind the search panel with the scrim in light', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    await user.click(screen.getByText('Search chats'));
+    const input = await screen.findByPlaceholderText('Search conversations...');
+    const backdrop = input.closest('.fixed')!.firstElementChild;
+    expect(backdrop).toHaveClass('bg-bg-primary/70', '[[data-theme=light]_&]:bg-scrim');
+  });
+
+  // The logo file is a black raven; --logo-filter turns it white in dark only.
+  it('takes the logo filter from the theme', () => {
+    renderSidebar();
+    const logo = screen.getAllByAltText('Munin')[0];
+    expect(logo).toHaveClass('[filter:var(--logo-filter)]');
+    expect(logo).not.toHaveClass('invert');
+  });
+
   it('creates a project via input', async () => {
     const user = userEvent.setup();
 
