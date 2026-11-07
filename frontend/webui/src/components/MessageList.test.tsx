@@ -140,7 +140,7 @@ describe('MessageList plan card wiring', () => {
         onContinue={onContinue}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'revoke' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
     await screen.findByText(/asking before each step/i);
     expect(body).toEqual({ mode: 'each' });
     expect(onPlanEdited).not.toHaveBeenCalled();
@@ -628,5 +628,21 @@ describe('MessageList inline artifacts', () => {
       />,
     );
     expect(screen.getByRole('img', { name: 'plot.png' })).toBeInTheDocument();
+  });
+});
+
+describe('MessageList Continue', () => {
+  it('is a primary button, since it is the one action at that point', () => {
+    const onContinue = vi.fn();
+    const msg = {
+      id: 'a', role: 'assistant', content: 'Halfway', created_at: '', paused_at_budget: true,
+    } as unknown as Message;
+    render(<MessageList messages={[msg]} streaming={makeStreaming()} onContinue={onContinue} />);
+    const button = screen.getByRole('button', { name: 'Continue' });
+    expect(button.className).toContain('bg-accent');
+    expect(button.className).toContain('cursor-pointer');
+    expect(button.className).toContain('pointer-coarse:min-h-9');
+    fireEvent.click(button);
+    expect(onContinue).toHaveBeenCalledTimes(1);
   });
 });

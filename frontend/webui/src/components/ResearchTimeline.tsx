@@ -5,6 +5,18 @@ import { isActive } from '../stores/deepResearchStore';
 import { cancelDeepResearch } from '../lib/api';
 import { friendlyError } from '../lib/modelError';
 
+// Shared look for the action buttons on the cards in a conversation (plan,
+// memory, clarification, Continue, research). Kept the same in each card file;
+// at least 36px tall on touch screens.
+const BTN = 'inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default pointer-coarse:min-h-9';
+const BTN_SECONDARY = `${BTN} border border-border text-text-secondary hover:bg-bg-tertiary hover:text-text-primary`;
+const BTN_QUIET = `${BTN} text-text-secondary hover:bg-bg-tertiary hover:text-text-primary`;
+
+// Line icons in the TaskLog style (14x14, stroke) rather than emoji.
+const ICON = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+const SEARCH_ICON = <svg {...ICON}><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>;
+const PAGE_ICON = <svg {...ICON}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>;
+
 // Renders a Deep Research job's durable event log inline in the conversation:
 // a plan checklist, a tool card per search / paper read, the notes it found, and
 // a link to the finished report. Fed from the store (which is loaded + polled by
@@ -172,7 +184,7 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
             <ul className="space-y-1.5">
               {rows.map((r, i) => (
                 <li key={r.id + i} data-testid="research-tool-row" className="flex items-start gap-2 text-xs">
-                  <span className="text-text-secondary shrink-0">{r.name === 'search' ? '🔍' : '📄'}</span>
+                  <span aria-hidden="true" className="text-text-secondary shrink-0 mt-px">{r.name === 'search' ? SEARCH_ICON : PAGE_ICON}</span>
                   <span className="flex-1 min-w-0">
                     <span className="text-text-primary">{r.name === 'search' ? `Searched: ${r.query || ''}` : `Read: ${r.title || ''}`}</span>
                     {r.summary && <span className="text-text-secondary"> · {r.summary}</span>}
@@ -213,7 +225,7 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
               data-testid="research-cancel"
               onClick={handleCancel}
               disabled={cancelState === 'cancelling'}
-              className="text-accent hover:underline cursor-pointer disabled:text-text-secondary disabled:no-underline disabled:cursor-default"
+              className={BTN_QUIET}
             >
               {cancelState === 'cancelling' ? 'Cancelling…' : 'Cancel'}
             </button>
@@ -222,7 +234,7 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
             )}
           </span>
         ) : reportId ? (
-          <button data-testid="research-report-link" onClick={openReport} className="text-xs text-accent hover:underline cursor-pointer">
+          <button data-testid="research-report-link" onClick={openReport} className={BTN_SECONDARY}>
             View the full report →
           </button>
         ) : job.status === 'error' ? (

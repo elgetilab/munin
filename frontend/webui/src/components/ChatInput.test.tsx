@@ -433,6 +433,46 @@ describe('ChatInput drag-and-drop routing (handleDroppedFiles)', () => {
     await waitFor(() => expect(screen.getByAltText('shot.png')).toBeInTheDocument());
     expect(uploadDocumentMock).toHaveBeenCalledTimes(1);
   });
+
+  it('keeps a drop of many images to the limit of 3 and says so', async () => {
+    const ref = renderChatInput();
+    await act(async () => {
+      await ref.current!.handleDroppedFiles(
+        ['a', 'b', 'c', 'd', 'e'].map(n => file(`${n}.png`, 'image/png')),
+      );
+    });
+    await waitFor(() => expect(screen.getAllByRole('img', { name: /\.png$/ })).toHaveLength(3));
+    expect(screen.getByText('Maximum 3 images')).toBeInTheDocument();
+  });
+
+  it('removes only the image asked for when several arrive in one drop', async () => {
+    const ref = renderChatInput();
+    await act(async () => {
+      await ref.current!.handleDroppedFiles([file('a.png', 'image/png'), file('b.png', 'image/png')]);
+    });
+    await waitFor(() => expect(screen.getByAltText('b.png')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Remove image a.png' }));
+    expect(screen.queryByAltText('a.png')).not.toBeInTheDocument();
+    expect(screen.getByAltText('b.png')).toBeInTheDocument();
+  });
+});
+
+describe('Composer icons', () => {
+  it('uses line icons, not emoji, in the slash menu', () => {
+    renderChatInput();
+    type('/');
+    const row = screen.getByRole('button', { name: /\/research/ });
+    expect(row.querySelector('svg')).not.toBeNull();
+    expect(row.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
+  });
+
+  it('uses a line icon, not emoji, once a document is uploaded', async () => {
+    const ref = renderChatInput();
+    await act(async () => { await ref.current!.handleDroppedFiles([file('paper.pdf', 'application/pdf')]); });
+    const banner = (await screen.findByText(/ready to send/)).parentElement!;
+    expect(banner.querySelector('svg')).not.toBeNull();
+    expect(banner.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
+  });
 });
 
 describe('ChatInput + menu', () => {
@@ -445,6 +485,20 @@ describe('ChatInput + menu', () => {
     fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(screen.queryByText('Upload image')).not.toBeInTheDocument();
     expect(attach).toHaveFocus();
+  });
+
+  it('with the knowledge picker open, + closes it rather than opening the menu under it', () => {
+    workspaceState.tagCatalog = CATALOG;
+    renderChatInput();
+    const attach = screen.getByTestId('composer-attach');
+    fireEvent.click(attach);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Attach knowledge' }));
+    expect(screen.getByRole('dialog', { name: 'Attach knowledge' })).toBeInTheDocument();
+
+    fireEvent.mouseDown(attach);
+    fireEvent.click(attach);
+    expect(screen.queryByRole('dialog', { name: 'Attach knowledge' })).not.toBeInTheDocument();
+    expect(screen.getByRole('menu', { name: 'Attach' })).toBeInTheDocument();
   });
 
   it('leaves focus alone on Escape when the menu is closed', () => {
