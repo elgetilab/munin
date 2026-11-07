@@ -27,6 +27,7 @@ import { ReportDialog } from './components/ReportDialog';
 import { KnowledgePanel } from './components/KnowledgePanel';
 import { KnowledgePage } from './components/KnowledgePage';
 import { ErrorNotice } from './components/ui/ErrorNotice';
+import { LOGO_FILTER, SCRIM } from './components/ui/themeClasses';
 import { SessionNotice } from './components/SessionNotice';
 import { useModal } from './hooks/useModal';
 import type { Project } from './lib/types';
@@ -765,7 +766,7 @@ export default function App() {
             menu back in the chat has the rest. */}
         <header className="flex items-center gap-3 px-4 py-2.5 border-b border-border bg-bg-secondary">
           <a href={SITE_HOME} className="flex-shrink-0 flex items-center gap-2 no-underline whitespace-nowrap">
-            <img src="/shared/munin_logo_without_script.webp" alt="Munin" className="w-7 h-7 brightness-0 invert" />
+            <img src="/shared/munin_logo_without_script.webp" alt="Munin" className={`w-7 h-7 ${LOGO_FILTER}`} />
             <span className="text-text-primary font-semibold text-sm">Munin</span>
           </a>
           <div className="flex-1" />
@@ -833,7 +834,7 @@ export default function App() {
         <>
           {/* Backdrop on mobile */}
           <div
-            className="fixed inset-0 bg-black/50 z-40 md:hidden"
+            className={`fixed inset-0 ${SCRIM} z-40 md:hidden`}
             aria-hidden="true"
             onClick={() => setSidebarOpen(false)}
           />
