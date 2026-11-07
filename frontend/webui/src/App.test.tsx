@@ -9,6 +9,8 @@ import { _resetChatStoreForTests, useChatStore } from './stores/chatStore';
 import { _resetUiStoreForTests, useUiStore } from './stores/uiStore';
 import { _resetUserStoreForTests, useUserStore } from './stores/userStore';
 import { _resetWorkspaceStoreForTests, useWorkspaceStore } from './stores/workspaceStore';
+import { _resetSessionForTests, reportApiFailure } from './lib/session';
+import { AUTH_BASE } from './lib/urls';
 
 // App is the one place routing, the panels and the sidebar meet, so these run
 // the whole shell against the mocked network.
@@ -41,6 +43,7 @@ beforeEach(() => {
   _resetUiStoreForTests();
   _resetUserStoreForTests();
   _resetWorkspaceStoreForTests();
+  _resetSessionForTests();
   useUiStore.setState({ sidebarOpen: true });
   server.use(
     http.get('/api/tags', () => new HttpResponse(null, { status: 500 })),
@@ -408,5 +411,66 @@ describe('error banner', () => {
     expect(useChatStore.getState().loadFailed).toBe(true);
     await act(async () => { await useChatStore.getState().loadConversation('c1'); });
     expect(useChatStore.getState().loadFailed).toBe(false);
+  });
+});
+
+describe('a session that ends while the tab is open', () => {
+  it('shows a notice that stays, with a link back through the login page, and does not navigate', async () => {
+    const assign = vi.fn();
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, assign, href: 'http://localhost:3000/c/c1' });
+    openAt('/');
+    await screen.findByText('Test Chat 2');
+
+    server.use(http.get(`${AUTH_BASE}/auth/me`, () => new HttpResponse(null, { status: 401 })));
+    act(() => reportApiFailure('network'));
+
+    const notice = await screen.findByTestId('session-notice');
+    expect(notice).toHaveAttribute('role', 'alert');
+    expect(notice).toHaveTextContent('Your session has ended.');
+    expect(within(notice).getByRole('link', { name: 'Sign in again' })).toHaveAttribute(
+      'href',
+      `${AUTH_BASE}/login?redirect=${encodeURIComponent('http://localhost:3000/c/c1')}`,
+    );
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('shows nothing when the session is still good', async () => {
+    openAt('/');
+    await screen.findByText('Test Chat 2');
+
+    act(() => reportApiFailure('network'));
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(screen.queryByTestId('session-notice')).not.toBeInTheDocument();
+  });
+});
+
+describe('the toast', () => {
+  it('appears inside a status region that was already there, so it is announced', async () => {
+    openAt('/');
+    await screen.findByText('Test Chat 2');
+    const region = screen.getAllByRole('status').find(el => el.textContent === '');
+    expect(region).toBeDefined();
+
+    act(() => useUiStore.getState().showToast('Saved'));
+
+    expect(region).toHaveTextContent('Saved');
+    expect(within(region!).getByRole('button', { name: 'Dismiss' })).toBeInTheDocument();
+  });
+
+  it('a newer toast is not cleared early by the timer of the report toast', async () => {
+    // Fake time that also runs on its own, so the waits below still work.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+    onTestFinished(() => { vi.useRealTimers(); });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    openAt('/c/c1');
+    await user.click(await screen.findByRole('button', { name: 'Report this chat' }));
+    await user.click(screen.getByRole('button', { name: 'Send report' }));
+    expect(await screen.findByText('Chat reported. Thank you for helping us improve.')).toBeInTheDocument();
+
+    act(() => useUiStore.getState().showToast('Newer', 10_000));
+    act(() => { vi.advanceTimersByTime(5000); });
+
+    expect(screen.getByText('Newer')).toBeInTheDocument();
   });
 });
