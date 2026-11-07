@@ -173,7 +173,9 @@ screenshots named were local to the review and are not in the repo.
 
 ## Light mode
 
-Munin is dark only today. No light mode work has started.
+Light mode is built on feat/light-mode: dark stays the default, and light and
+Match system are offered in Settings and in the static page headers. The decisions
+below are what it was built to.
 
 ### Decisions made
 
@@ -188,6 +190,14 @@ Munin is dark only today. No light mode work has started.
 - The demo deck follows the presenter's theme.
 - All pages ship together, so moving between sites never switches theme.
 - Filed chats stay out of the sidebar's date list.
+
+### Known limits
+
+- The installed iOS app keeps `apple-mobile-web-app-status-bar-style` at
+  `black-translucent`, so in light its white status-bar text sits over the light
+  header. iOS reads the value once at launch and cannot follow the theme, and
+  `black` or `default` would change the dark home-screen app as well. Dark is the
+  default, so it keeps the dark look.
 
 ### Estimate
 

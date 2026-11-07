@@ -3,7 +3,7 @@
 // The choice lives in a cookie, not localStorage, because chat, auth, docs, search,
 // research and upload are separate subdomains in production and localStorage is
 // per origin. Every page head carries a small inline script (see
-// frontend/static/shared/theme-snippet.html and themeSnippet.test.ts) that reads the
+// frontend/static/shared/theme-snippet.html and src/lib/theme.test.ts) that reads the
 // same cookie and sets data-theme before any CSS loads, so there is no flash.
 
 import { useSyncExternalStore } from 'react';
