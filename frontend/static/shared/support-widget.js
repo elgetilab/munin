@@ -53,6 +53,30 @@
       background: rgba(15, 20, 25, 0.7);
       backdrop-filter: blur(4px);
     }
+
+    /* Light pages. The colours above are theme variables, which style.css and the
+       chat app's index.css both define for light and dark. These rules only redo
+       what the dark look got from fixed values, so dark stays as it was. */
+    :root[data-theme="light"] #munin-support-btn {
+      /* The page and the button are both near white: 4.55:1 for the edge */
+      border-color: var(--border-input);
+      box-shadow: 0 2px 8px rgba(31, 36, 41, 0.15);
+    }
+    :root[data-theme="light"] #munin-support-btn:hover {
+      box-shadow: 0 4px 16px rgba(31, 36, 41, 0.2);
+    }
+    :root[data-theme="light"] #munin-support-backdrop {
+      background: var(--scrim);
+    }
+    :root[data-theme="light"] #munin-support-panel {
+      box-shadow: 0 8px 32px rgba(31, 36, 41, 0.2);
+    }
+    /* Faded secondary text would be 2.65:1 on white; tertiary is 5.25:1 */
+    :root[data-theme="light"] #munin-support-panel input::placeholder,
+    :root[data-theme="light"] #munin-support-panel textarea::placeholder {
+      color: var(--text-tertiary);
+      opacity: 1;
+    }
     #munin-support-panel {
       position: relative;
       width: 100%;
