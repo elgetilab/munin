@@ -30,6 +30,8 @@ export default defineConfig({
   },
   projects: [
     { name: 'login', testMatch: 'login.setup.ts', timeout: 600_000 },
+    // Light mode checks. Run before 'live', which ends by signing out.
+    { name: 'theme', testMatch: 'theme.spec.ts', timeout: 240_000, use: { storageState: statePath } },
     { name: 'live', testMatch: 'live.spec.ts', timeout: 240_000, use: { storageState: statePath } },
   ],
 });
