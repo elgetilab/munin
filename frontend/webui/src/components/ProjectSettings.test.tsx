@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
@@ -158,7 +158,7 @@ describe('ProjectSettings', () => {
         }),
       );
       const { props } = renderSettings({ project });
-      await user.selectOptions(screen.getByDisplayValue('Turing - Code'), 'Use global default');
+      await user.selectOptions(screen.getByDisplayValue('Turing - Code'), 'Use my default from Settings');
       await user.click(screen.getByRole('button', { name: 'Save' }));
       await waitFor(() => expect(props.onUpdated).toHaveBeenCalled());
       expect(body).toHaveProperty('default_persona', null);
@@ -270,7 +270,35 @@ describe('ProjectSettings', () => {
       expect(screen.getByLabelText('Name')).toHaveValue('ML Research');
       expect(screen.getByLabelText('Description')).toHaveValue('Machine learning stuff');
       expect(screen.getByLabelText('Instructions')).toHaveValue('Focus on transformers');
-      expect(screen.getByLabelText('Default Persona').tagName).toBe('SELECT');
+      expect(screen.getByLabelText('Default persona').tagName).toBe('SELECT');
+    });
+  });
+
+  describe('wording and controls', () => {
+    it('closes from a visible Back to chat button in the header', async () => {
+      const user = userEvent.setup();
+      const { props } = renderSettings();
+      const back = screen.getByRole('button', { name: 'Back to chat' });
+      expect(back).toHaveTextContent('Back to chat');
+      await user.click(back);
+      expect(props.onClose).toHaveBeenCalled();
+    });
+
+    it('describes instructions and personas in plain words', () => {
+      renderSettings();
+      expect(screen.getByLabelText('Instructions')).toHaveAccessibleDescription('Munin reads these at the start of every chat in this project.');
+      expect(screen.queryByText(/system prompt/)).not.toBeInTheDocument();
+      const persona = screen.getByLabelText('Default persona');
+      expect(persona).toHaveAccessibleDescription(/A persona is a preset way for Munin to work/);
+      expect(within(persona).getByRole('option', { name: 'Use my default from Settings' })).toHaveValue('');
+    });
+
+    it('says Saved, like the other settings pages, after a save', async () => {
+      const user = userEvent.setup();
+      renderSettings();
+      await waitFor(() => expect(screen.getByDisplayValue('ML Research')).toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+      expect(await screen.findByRole('button', { name: 'Saved' })).toBeInTheDocument();
     });
   });
 });

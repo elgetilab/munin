@@ -88,17 +88,14 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
     <div className="flex-1 overflow-y-auto px-4 py-6">
       <div className="max-w-xl mx-auto space-y-6" onChange={() => { edited.current = true; }}>
         {/* Header */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-xl font-semibold text-text-primary">Project Settings</h2>
           <button
             onClick={onClose}
-            aria-label="Back to chat"
-            className="text-text-secondary hover:text-text-primary cursor-pointer"
+            className="text-text-secondary hover:text-text-primary transition-colors cursor-pointer text-sm"
           >
-            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
+            Back to chat
           </button>
-          <h2 className="text-lg font-semibold text-text-primary">Project Settings</h2>
         </div>
 
         {loadFailed && (
@@ -110,7 +107,7 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
 
         {/* Name */}
         <div className="space-y-1.5">
-          <label htmlFor={`${fieldId}-name`} className="text-xs font-medium text-text-secondary uppercase tracking-wider">Name</label>
+          <label htmlFor={`${fieldId}-name`} className="block text-sm text-text-secondary">Name</label>
           <input
             id={`${fieldId}-name`}
             value={name}
@@ -123,7 +120,7 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
 
         {/* Description */}
         <div className="space-y-1.5">
-          <label htmlFor={`${fieldId}-description`} className="text-xs font-medium text-text-secondary uppercase tracking-wider">Description</label>
+          <label htmlFor={`${fieldId}-description`} className="block text-sm text-text-secondary">Description</label>
           <textarea
             id={`${fieldId}-description`}
             value={description}
@@ -138,12 +135,13 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
 
         {/* Instructions */}
         <div className="space-y-1.5">
-          <label htmlFor={`${fieldId}-instructions`} className="text-xs font-medium text-text-secondary uppercase tracking-wider">Instructions</label>
-          <p className="text-[11px] text-text-secondary">
-            Custom instructions injected into the system prompt for all chats in this project.
+          <label htmlFor={`${fieldId}-instructions`} className="block text-sm text-text-secondary">Instructions</label>
+          <p id={`${fieldId}-instructions-help`} className="text-[11px] text-text-secondary">
+            Munin reads these at the start of every chat in this project.
           </p>
           <textarea
             id={`${fieldId}-instructions`}
+            aria-describedby={`${fieldId}-instructions-help`}
             value={instructions}
             onChange={e => setInstructions(e.target.value)}
             rows={6}
@@ -156,14 +154,18 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
 
         {/* Default persona */}
         <div className="space-y-1.5">
-          <label htmlFor={`${fieldId}-persona`} className="text-xs font-medium text-text-secondary uppercase tracking-wider">Default Persona</label>
+          <label htmlFor={`${fieldId}-persona`} className="block text-sm text-text-secondary">Default persona</label>
+          <p id={`${fieldId}-persona-help`} className="text-[11px] text-text-secondary">
+            A persona is a preset way for Munin to work, such as general chat or coding. New chats in this project start with this one.
+          </p>
           <select
             id={`${fieldId}-persona`}
+            aria-describedby={`${fieldId}-persona-help`}
             value={defaultPersona}
             onChange={e => setDefaultPersona(e.target.value)}
             className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-accent cursor-pointer"
           >
-            <option value="">Use global default</option>
+            <option value="">Use my default from Settings</option>
             {personas.map(p => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
@@ -196,7 +198,7 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
             disabled={saving || loadFailed}
             className="px-4 py-2 bg-accent text-bg-primary rounded-lg text-sm font-medium cursor-pointer hover:bg-accent-hover disabled:opacity-50 transition-colors"
           >
-            {saving ? 'Saving...' : saved ? 'Saved!' : 'Save'}
+            {saving ? 'Saving...' : saved ? 'Saved' : 'Save'}
           </button>
           <button
             onClick={onClose}

@@ -13,6 +13,7 @@ import {
 import type { AdminGroup, AdminUser, AdminRole } from '../../lib/api';
 import { Dialog } from '../ui/Dialog';
 import { ErrorNotice } from '../ui/ErrorNotice';
+import { Field, Input, ModalActions, PRIMARY_BUTTON, SECONDARY_BUTTON } from './formControls';
 
 
 export function GroupsTab() {
@@ -70,7 +71,7 @@ export function GroupsTab() {
       <div className="flex items-center justify-end">
         <button
           onClick={() => setAdding(true)}
-          className="bg-accent hover:bg-accent/90 text-bg-primary text-sm font-medium px-3 py-1.5 rounded cursor-pointer transition-colors"
+          className="bg-accent hover:bg-accent/90 text-bg-primary text-sm font-medium px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
         >
           + Add group
         </button>
@@ -163,7 +164,7 @@ function GroupCreateModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
       onClose={onClose}
       closeOnBackdrop={!slug && !displayName}
       footer={
-        <Actions
+        <ModalActions
           formId={formId}
           onCancel={onClose}
           submitLabel="Create"
@@ -310,13 +311,13 @@ function GroupEditModal({ group, onClose, onReload, onSaved }: {
           <button
             type="button"
             onClick={onClose}
-            className="text-sm px-3 py-1.5 text-text-secondary hover:text-text-primary cursor-pointer"
+            className={SECONDARY_BUTTON}
           >Close</button>
           <button
             type="submit"
             form={formId}
             disabled={!canSave || saving}
-            className="text-sm px-3 py-1.5 bg-accent text-bg-primary rounded font-medium cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            className={PRIMARY_BUTTON}
           >{saving ? 'Saving...' : 'Save'}</button>
         </>
       }
@@ -331,7 +332,7 @@ function GroupEditModal({ group, onClose, onReload, onSaved }: {
           }}
         >
           <Field label="Slug (read-only)">
-            <code className="block px-3 py-1.5 text-sm font-mono bg-bg-primary border border-border rounded text-text-secondary">{group.slug}</code>
+            <code className="block px-3 py-1.5 text-sm font-mono bg-bg-primary border border-border rounded-lg text-text-secondary">{group.slug}</code>
           </Field>
           <Field label="Display name">
             <Input value={displayName} onChange={setDisplayName} />
@@ -357,7 +358,7 @@ function GroupEditModal({ group, onClose, onReload, onSaved }: {
                       onChange={e => setMemberRole(m, e.target.value as AdminRole)}
                       disabled={memberBusy === m.id}
                       aria-label={`Role of ${m.name || m.primary_email}`}
-                      className="bg-bg-primary border border-border rounded px-2 py-1 text-xs text-text-primary cursor-pointer focus:outline-none focus:border-accent disabled:opacity-50"
+                      className="bg-bg-primary border border-border rounded-lg px-2 py-1 text-xs text-text-primary cursor-pointer focus:outline-none focus:border-accent disabled:opacity-50"
                     >
                       <option value="user">User</option>
                       <option value="group_leader">Group leader</option>
@@ -381,7 +382,7 @@ function GroupEditModal({ group, onClose, onReload, onSaved }: {
         <Field label="Add member">
           <Input value={addFilter} onChange={setAddFilter} placeholder="search users by name or email..." />
           {addFilter.trim() && (
-            <div className="mt-1 border border-border rounded divide-y divide-border max-h-40 overflow-y-auto">
+            <div className="mt-1 border border-border rounded-lg divide-y divide-border max-h-40 overflow-y-auto">
               {available.length === 0 && (
                 <div className="px-3 py-2 text-xs text-text-secondary">No matching users.</div>
               )}
@@ -413,51 +414,5 @@ function GroupEditModal({ group, onClose, onReload, onSaved }: {
         {err && <div className="text-xs text-error">{err}</div>}
       </div>
     </Dialog>
-  );
-}
-
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="block text-xs uppercase tracking-wide text-text-secondary mb-1">{label}</label>
-      {children}
-    </div>
-  );
-}
-
-function Input({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return (
-    <input
-      type="text"
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      placeholder={placeholder}
-      className="w-full bg-bg-primary border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent"
-    />
-  );
-}
-
-function Actions({ formId, onCancel, submitLabel, submitting, disabled }: {
-  formId: string;
-  onCancel: () => void;
-  submitLabel: string;
-  submitting: boolean;
-  disabled: boolean;
-}) {
-  return (
-    <>
-      <button
-        type="button"
-        onClick={onCancel}
-        className="text-sm px-3 py-1.5 text-text-secondary hover:text-text-primary cursor-pointer"
-      >Cancel</button>
-      <button
-        type="submit"
-        form={formId}
-        disabled={submitting || disabled}
-        className="text-sm px-3 py-1.5 bg-accent text-bg-primary rounded font-medium cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-      >{submitting ? 'Saving...' : submitLabel}</button>
-    </>
   );
 }

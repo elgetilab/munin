@@ -1,10 +1,10 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
 import { MOCK_ADMIN_ACTIVITY } from '../test/msw-handlers';
 import { AdminPanel } from './AdminPanel';
-import { _resetUiStoreForTests } from '../stores/uiStore';
+import { useUiStore, _resetUiStoreForTests } from '../stores/uiStore';
 
 // Characterization tests written before the fetch-on-mount restructure.
 // The last one pins a behaviour the restructure FIXES rather than preserves,
@@ -16,7 +16,7 @@ describe('AdminPanel', () => {
   it('shows the summary cards once activity and usage arrive', async () => {
     render(<AdminPanel />);
     await waitFor(() => expect(screen.getByText('Online now')).toBeInTheDocument());
-    expect(screen.getByText('Active today')).toBeInTheDocument();
+    expect(screen.getByText('Recent (24h)')).toBeInTheDocument();
     expect(screen.getByText('Users this month')).toBeInTheDocument();
     expect(screen.getByText('Tokens this month')).toBeInTheDocument();
     expect(screen.getByText('Admin Dashboard')).toBeInTheDocument();
@@ -56,16 +56,94 @@ describe('AdminPanel', () => {
     vi.useFakeTimers();
     try {
       render(<AdminPanel />);
-      await vi.waitFor(() => expect(screen.getByText('All tracked users', { exact: false })).toBeInTheDocument());
+      await vi.waitFor(() => expect(screen.getByText('Tracked users')).toBeInTheDocument());
 
       await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
       await vi.waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/could not refresh/i));
 
-      expect(screen.getByText('All tracked users', { exact: false })).toBeInTheDocument();
+      expect(screen.getByText('Tracked users')).toBeInTheDocument();
       expect(screen.getByText('Online now')).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('closes from a labelled Back to chat control', async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ showAdmin: true });
+    render(<AdminPanel />);
+    await user.click(screen.getByRole('button', { name: 'Back to chat' }));
+    expect(useUiStore.getState().showAdmin).toBe(false);
+  });
+
+  it('shows the summary cards only on the tabs that refresh them', async () => {
+    const user = userEvent.setup();
+    render(<AdminPanel />);
+    await screen.findByText('Online now');
+    await user.click(screen.getByRole('button', { name: 'Users' }));
+    expect(screen.queryByText('Online now')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Usage' }));
+    expect(await screen.findByText('Online now')).toBeInTheDocument();
+  });
+
+  describe('Activity', () => {
+    const activity = {
+      online: [{ email: 'ada@test.com', last_seen_at: new Date().toISOString(), source: 'browser' }],
+      recent: [{ email: 'grace@test.com', last_seen_at: new Date().toISOString(), source: 'api_key' }],
+      all_users: [
+        { email: 'ada@test.com', last_seen_at: new Date().toISOString(), source: 'browser' },
+        { email: 'grace@test.com', last_seen_at: new Date().toISOString(), source: 'api_key' },
+        { email: 'linus@test.com', last_seen_at: '2026-01-01T00:00:00Z', source: 'other' },
+      ],
+      total: 3,
+    };
+    beforeEach(() => server.use(http.get('/api/usage/admin/activity', () => HttpResponse.json(activity))));
+
+    it('lists each person once', async () => {
+      render(<AdminPanel />);
+      await screen.findByText('Tracked users');
+      expect(screen.getAllByText('ada@test.com')).toHaveLength(1);
+      expect(screen.getAllByText('grace@test.com')).toHaveLength(1);
+      expect(screen.getAllByText('linus@test.com')).toHaveLength(1);
+    });
+
+    it('filters the list to online or recent people', async () => {
+      const user = userEvent.setup();
+      render(<AdminPanel />);
+      const group = await screen.findByRole('group', { name: 'Show' });
+      await user.click(within(group).getByRole('button', { name: 'Online (1)' }));
+      expect(screen.getByText('ada@test.com')).toBeInTheDocument();
+      expect(screen.queryByText('grace@test.com')).not.toBeInTheDocument();
+      await user.click(within(group).getByRole('button', { name: 'Recent (24h) (1)' }));
+      expect(screen.getByText('grace@test.com')).toBeInTheDocument();
+      expect(screen.queryByText('ada@test.com')).not.toBeInTheDocument();
+      await user.click(within(group).getByRole('button', { name: 'All (3)' }));
+      expect(screen.getByText('linus@test.com')).toBeInTheDocument();
+    });
+
+    it('names the source in words', async () => {
+      render(<AdminPanel />);
+      expect(await screen.findByText('Browser')).toBeInTheDocument();
+      expect(screen.getByText('API key')).toBeInTheDocument();
+      expect(screen.queryByText('api_key')).not.toBeInTheDocument();
+      expect(screen.getByText('other')).toBeInTheDocument();
+    });
+  });
+
+  it('shows the usage period as a month name', async () => {
+    const user = userEvent.setup();
+    render(<AdminPanel />);
+    await screen.findByText('Online now');
+    await user.click(screen.getByRole('button', { name: 'Usage' }));
+    expect(await screen.findByText('September 2026')).toBeInTheDocument();
+    expect(screen.queryByText('2026-09')).not.toBeInTheDocument();
+  });
+
+  it('has an Announcement tab', async () => {
+    const user = userEvent.setup();
+    render(<AdminPanel />);
+    await user.click(screen.getByRole('button', { name: 'Announcement' }));
+    expect(screen.getByLabelText('Announcement message')).toBeInTheDocument();
   });
 
   it('scrolls a newly chosen tab into view inside the tab row', async () => {

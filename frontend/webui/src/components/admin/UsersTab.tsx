@@ -12,6 +12,7 @@ import {
 import type { AdminUser, AdminGroup, AdminRole } from '../../lib/api';
 import { Dialog } from '../ui/Dialog';
 import { ErrorNotice } from '../ui/ErrorNotice';
+import { Field, Input, ModalActions, PRIMARY_BUTTON, SECONDARY_BUTTON, Select } from './formControls';
 
 
 const ROLES: AdminRole[] = ['user', 'group_leader', 'admin'];
@@ -171,7 +172,7 @@ export function UsersTab() {
           aria-label="Filter users by first or last name, email, or group"
           value={filter}
           onChange={e => setFilter(e.target.value)}
-          className="w-full sm:w-auto sm:flex-1 min-w-0 bg-bg-secondary border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent"
+          className="w-full sm:w-auto sm:flex-1 min-w-0 bg-bg-secondary border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent"
         />
         <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer select-none whitespace-nowrap">
           <input
@@ -185,7 +186,7 @@ export function UsersTab() {
         <span className="ml-auto sm:ml-0 text-xs text-text-secondary whitespace-nowrap">{filtered.length} / {users.length}</span>
         <button
           onClick={() => setAdding(true)}
-          className="bg-accent hover:bg-accent/90 text-bg-primary text-sm font-medium px-3 py-1.5 rounded cursor-pointer transition-colors whitespace-nowrap"
+          className="bg-accent hover:bg-accent/90 text-bg-primary text-sm font-medium px-3 py-1.5 rounded-lg cursor-pointer transition-colors whitespace-nowrap"
         >
           + Add user
         </button>
@@ -468,13 +469,13 @@ function UserEditModal({ user, groups, onClose, onReload, onSaved }: {
           <button
             type="button"
             onClick={onClose}
-            className="text-sm px-3 py-1.5 text-text-secondary hover:text-text-primary cursor-pointer"
+            className={SECONDARY_BUTTON}
           >Close</button>
           <button
             type="submit"
             form={formId}
             disabled={!dirty || saving}
-            className="text-sm px-3 py-1.5 bg-accent text-bg-primary rounded font-medium cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            className={PRIMARY_BUTTON}
           >{saving ? 'Saving...' : 'Save'}</button>
         </>
       }
@@ -550,7 +551,7 @@ function UserEditModal({ user, groups, onClose, onReload, onSaved }: {
               <button
                 type="submit"
                 disabled={!newEmail.trim() || !newEmail.includes('@') || !!busy}
-                className="text-xs px-2 py-1 bg-accent/15 text-accent hover:bg-accent/25 rounded cursor-pointer disabled:opacity-50"
+                className="text-xs px-2 py-1 bg-accent/15 text-accent hover:bg-accent/25 rounded-lg cursor-pointer disabled:opacity-50"
               >Add</button>
             </form>
           </div>
@@ -577,62 +578,5 @@ function GroupHint() {
     <p className="text-[11px] text-text-secondary mt-1">
       Other group memberships are managed in the Groups tab.
     </p>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="block text-xs uppercase tracking-wide text-text-secondary mb-1">{label}</label>
-      {children}
-    </div>
-  );
-}
-
-function Input({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return (
-    <input
-      type="text"
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      placeholder={placeholder}
-      className="w-full bg-bg-primary border border-border rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent"
-    />
-  );
-}
-
-function Select({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
-  return (
-    <select
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      className="w-full bg-bg-primary border border-border rounded px-3 py-1.5 text-sm text-text-primary cursor-pointer focus:outline-none focus:border-accent"
-    >
-      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
-  );
-}
-
-function ModalActions({ formId, onCancel, submitLabel, submitting, disabled }: {
-  formId: string;
-  onCancel: () => void;
-  submitLabel: string;
-  submitting: boolean;
-  disabled: boolean;
-}) {
-  return (
-    <>
-      <button
-        type="button"
-        onClick={onCancel}
-        className="text-sm px-3 py-1.5 text-text-secondary hover:text-text-primary cursor-pointer"
-      >Cancel</button>
-      <button
-        type="submit"
-        form={formId}
-        disabled={submitting || disabled}
-        className="text-sm px-3 py-1.5 bg-accent text-bg-primary rounded font-medium cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-      >{submitting ? 'Saving...' : submitLabel}</button>
-    </>
   );
 }
