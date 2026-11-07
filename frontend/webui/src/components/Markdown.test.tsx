@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { Markdown } from './Markdown';
 
 /**
@@ -24,34 +24,35 @@ function renderMd(content: string) {
 // ────────────────────────────────────────────────────────────────────
 
 describe('Markdown — dangerous URL schemes are stripped', () => {
-  it('javascript: link renders the anchor but strips the href', () => {
+  it('javascript: link keeps its text but renders no anchor', () => {
     const { container } = renderMd('[click me](javascript:alert(1))');
-    const a = container.querySelector('a');
-    expect(a).not.toBeNull();
-    // urlTransform replaces the scheme with '' so the anchor is inert.
-    expect(a!.getAttribute('href') || '').toBe('');
-    expect(a!.textContent).toBe('click me');
+    // urlTransform replaces the scheme with ''. An anchor with an empty
+    // href would open the app in a new tab, so the text is shown plain.
+    expect(container.querySelector('a')).toBeNull();
+    expect(container.textContent).toContain('click me');
   });
 
   it('data:text/html link is stripped', () => {
     const payload = 'data:text/html,<script>alert(1)</script>';
     const { container } = renderMd(`[x](${payload})`);
-    const a = container.querySelector('a')!;
-    expect(a.getAttribute('href') || '').toBe('');
+    expect(container.querySelector('a')).toBeNull();
     // The literal string never lands in the DOM as a usable href.
-    expect(a.outerHTML).not.toContain('data:text/html');
+    expect(container.innerHTML).not.toContain('data:text/html');
   });
 
   it('vbscript: link is stripped', () => {
     const { container } = renderMd('[x](vbscript:msgbox(1))');
-    const a = container.querySelector('a')!;
-    expect(a.getAttribute('href') || '').toBe('');
+    expect(container.querySelector('a')).toBeNull();
   });
 
   it('mixed-case JaVaScRiPt: link is stripped (case-insensitive match)', () => {
     const { container } = renderMd('[x](JaVaScRiPt:alert(1))');
-    const a = container.querySelector('a')!;
-    expect(a.getAttribute('href') || '').toBe('');
+    expect(container.querySelector('a')).toBeNull();
+  });
+
+  it('a stripped link has no target, so clicking it opens nothing', () => {
+    const { container } = renderMd('[x](javascript:alert(1))');
+    expect(container.querySelector('[target="_blank"]')).toBeNull();
   });
 
   it('javascript: image src is stripped', () => {
@@ -98,8 +99,8 @@ describe('Markdown — raw HTML in source does not execute', () => {
   it('<a href="javascript:" onclick=...> from raw HTML is not produced as a live anchor', () => {
     const { container } = renderMd('<a href="javascript:alert(1)" onclick="alert(2)">x</a>');
     // No anchor was synthesised from the raw HTML; the source becomes text.
-    // (A separate markdown-link test confirms anchors made via [text](url)
-    //  do exist but with hrefs filtered.)
+    // (A separate markdown-link test confirms a [text](url) link with an
+    //  unsafe scheme keeps its text but renders no anchor.)
     const anchors = container.querySelectorAll('a');
     anchors.forEach(a => {
       expect(a.getAttribute('href') || '').toBe('');
@@ -191,6 +192,52 @@ describe('Markdown — legitimate content still renders', () => {
     const { container } = renderMd('[contact](mailto:hi@example.com)');
     const a = container.querySelector('a')!;
     expect(a.getAttribute('href')).toBe('mailto:hi@example.com');
+  });
+});
+
+describe('Markdown code block Copy', () => {
+  const block = ['```python', 'print(1)', '```'].join('\n');
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  function stubClipboard(writeText: (t: string) => Promise<void>) {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+  }
+
+  it('says Copied when the clipboard accepts the text', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    stubClipboard(writeText);
+    renderMd(block);
+    fireEvent.click(screen.getByRole('button', { name: /copy/i }));
+    expect(await screen.findByText('Copied')).toBeInTheDocument();
+    expect(writeText).toHaveBeenCalledWith('print(1)');
+  });
+
+  it('says Copy failed when the clipboard refuses', async () => {
+    stubClipboard(vi.fn().mockRejectedValue(new Error('denied')));
+    renderMd(block);
+    fireEvent.click(screen.getByRole('button', { name: /copy/i }));
+    expect(await screen.findByText('Copy failed')).toBeInTheDocument();
+    expect(screen.queryByText('Copied')).toBeNull();
+  });
+
+  it('goes back to Copy after a short wait', async () => {
+    vi.useFakeTimers();
+    stubClipboard(vi.fn().mockResolvedValue(undefined));
+    renderMd(block);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /copy/i }));
+    });
+    expect(screen.getByText('Copied')).toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(2000); });
+    expect(screen.getByRole('button')).toHaveTextContent('Copy');
+    expect(screen.queryByText('Copied')).toBeNull();
   });
 });
 

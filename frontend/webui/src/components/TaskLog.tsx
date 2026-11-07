@@ -140,6 +140,94 @@ function formatResult(result: unknown): string {
   return 'done';
 }
 
+// Not every doi field is a real DOI, and only a real one resolves.
+// Same rule as KnowledgePage's doiLink.
+function doiUrl(doi: unknown): string | null {
+  if (typeof doi !== 'string') return null;
+  const bare = doi.trim().replace(/^(https?:\/\/(dx\.)?doi\.org\/|doi:\s*)/i, '');
+  if (!/^10\.\d+\//.test(bare)) return null;
+  return `https://doi.org/${encodeURIComponent(bare).replace(/%2F/g, '/')}`;
+}
+
+function ExternalLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline wrap-anywhere">
+      {children}
+    </a>
+  );
+}
+
+function Doi({ doi }: { doi: string }) {
+  const href = doiUrl(doi);
+  return href ? <ExternalLink href={href}>{doi}</ExternalLink> : <>{doi}</>;
+}
+
+interface ResultItem { title: string; href: string | null; year: string | null }
+
+// Papers or search hits as a short title list, or null when the result
+// is not shaped like that (then only the raw JSON is shown).
+function resultItems(result: unknown): ResultItem[] | null {
+  if (typeof result !== 'object' || result === null || isFailedResult(result)) return null;
+  const r = result as Record<string, unknown>;
+  const list = Array.isArray(r.papers) ? r.papers : Array.isArray(r.results) ? r.results : null;
+  if (!list) return null;
+  const items: ResultItem[] = [];
+  for (const entry of list) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const e = entry as Record<string, unknown>;
+    const title = typeof e.title === 'string' && e.title.trim() ? e.title.trim() : null;
+    if (!title) continue;
+    const url = typeof e.url === 'string' && /^https?:\/\//i.test(e.url) ? e.url : null;
+    const year = typeof e.year === 'number' || (typeof e.year === 'string' && e.year) ? String(e.year) : null;
+    items.push({ title, href: doiUrl(e.doi) ?? url, year });
+  }
+  return items.length > 0 ? items : null;
+}
+
+function ResultBody({ result }: { result: unknown }) {
+  const [showRaw, setShowRaw] = useState(false);
+  const raw = <pre className="text-text-secondary whitespace-pre-wrap wrap-anywhere">{JSON.stringify(result, null, 2)}</pre>;
+  const items = resultItems(result);
+  if (!items) return raw;
+  return (
+    <>
+      <ol className="list-decimal ml-4 space-y-1 font-sans text-text-primary">
+        {items.map((item, i) => (
+          <li key={i}>
+            {item.href ? <ExternalLink href={item.href}>{item.title}</ExternalLink> : item.title}
+            {item.year && <span className="text-text-secondary"> ({item.year})</span>}
+          </li>
+        ))}
+      </ol>
+      <button
+        type="button"
+        aria-expanded={showRaw}
+        onClick={() => setShowRaw(!showRaw)}
+        className="mt-2 text-text-secondary hover:text-accent cursor-pointer"
+      >
+        {showRaw ? 'Hide raw' : 'Show raw'}
+      </button>
+      {showRaw && <div className="mt-1">{raw}</div>}
+    </>
+  );
+}
+
+function ArgumentsBody({ call }: { call: ToolCall }) {
+  const code = call.name === 'run_python' && typeof call.arguments.code === 'string' ? call.arguments.code : null;
+  if (code === null) {
+    return <pre className="text-text-secondary whitespace-pre-wrap wrap-anywhere">{JSON.stringify(call.arguments, null, 2)}</pre>;
+  }
+  const rest = Object.fromEntries(Object.entries(call.arguments).filter(([k]) => k !== 'code'));
+  return (
+    <>
+      <pre className="text-text-primary bg-bg-secondary rounded p-2 overflow-x-auto"><code>{code}</code></pre>
+      {Object.keys(rest).length > 0 && (
+        <pre className="mt-1 text-text-secondary whitespace-pre-wrap wrap-anywhere">{JSON.stringify(rest, null, 2)}</pre>
+      )}
+    </>
+  );
+}
+
 const STOP_REASON_LABELS: Record<string, { label: string; warn: boolean }> = {
   done: { label: 'Completed', warn: false },
   max_iterations: { label: 'Stopped: max iterations', warn: true },
@@ -243,14 +331,14 @@ function ToolCallRow({ call, isActive }: { call: ToolCall; isActive?: boolean })
       </button>
       {expanded && (
         <div className="mt-2 ml-6 space-y-2">
-          <div className="p-3 bg-bg-tertiary rounded-lg text-[11px]">
+          <div className="p-3 bg-bg-tertiary rounded-lg text-[11px] max-h-48 overflow-y-auto">
             <div className="text-text-secondary mb-1 font-semibold">Arguments</div>
-            <pre className="text-text-secondary whitespace-pre-wrap wrap-anywhere">{JSON.stringify(call.arguments, null, 2)}</pre>
+            <ArgumentsBody call={call} />
           </div>
           {call.result != null && (
             <div className="p-3 bg-bg-tertiary rounded-lg text-[11px] max-h-48 overflow-y-auto">
               <div className="text-text-secondary mb-1 font-semibold">Result</div>
-              <pre className="text-text-secondary whitespace-pre-wrap wrap-anywhere">{JSON.stringify(call.result, null, 2)}</pre>
+              <ResultBody result={call.result} />
             </div>
           )}
         </div>
@@ -355,7 +443,12 @@ function RagContextRow({ context }: { context: RagContext }) {
               <div className="text-text-primary font-medium">{doc.title}</div>
               <div className="text-text-secondary mt-0.5">
                 {doc.source}
-                {doc.doi && <span> · DOI: {doc.doi}</span>}
+                {doc.doi && (
+                  <span>
+                    {' · DOI: '}
+                    <Doi doi={doc.doi} />
+                  </span>
+                )}
                 {doc.score != null && <span> · Score: {doc.score.toFixed(2)}</span>}
               </div>
               {doc.content && (
@@ -388,7 +481,7 @@ function AgentResultRow({ result }: { result: unknown }) {
       </button>
       {expanded && (
         <div className="mt-2 ml-6 p-3 bg-bg-tertiary rounded-lg text-[11px] max-h-48 overflow-y-auto">
-          <pre className="text-text-secondary whitespace-pre-wrap wrap-anywhere">{JSON.stringify(result, null, 2)}</pre>
+          <ResultBody result={result} />
         </div>
       )}
     </div>

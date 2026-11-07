@@ -100,3 +100,72 @@ describe('TaskLog rows', () => {
     expect(screen.getByText('Mulling it over')).toBeInTheDocument();
   });
 });
+
+describe('TaskLog expanded rows', () => {
+  const open = (call: ToolCall) => {
+    const view = render(<TaskLog toolCalls={[call]} />);
+    fireEvent.click(screen.getAllByRole('button')[0]);
+    return view;
+  };
+
+  it('lists paper titles linked to doi.org, with the JSON behind Show raw', () => {
+    open({
+      id: 'p', name: 'paper_search', arguments: { query: 'kinase' },
+      result: { papers: [
+        { title: 'Kinase atlas', doi: '10.1000/abc', year: 2021 },
+        { title: 'Web only', url: 'https://example.org/paper' },
+        { title: 'No link' },
+        { title: 'Bad link', url: 'javascript:alert(1)' },
+      ] },
+    });
+    expect(screen.getByRole('link', { name: 'Kinase atlas' })).toHaveAttribute('href', 'https://doi.org/10.1000/abc');
+    expect(screen.getByText('(2021)')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Web only' })).toHaveAttribute('href', 'https://example.org/paper');
+    expect(screen.queryByRole('link', { name: 'No link' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Bad link' })).toBeNull();
+    expect(screen.getByText('Bad link')).toBeInTheDocument();
+
+    expect(screen.queryByText(/"doi": "10.1000\/abc"/)).toBeNull();
+    const raw = screen.getByRole('button', { name: 'Show raw' });
+    fireEvent.click(raw);
+    expect(raw).toHaveTextContent('Hide raw');
+    expect(screen.getByText(/"doi": "10.1000\/abc"/)).toBeInTheDocument();
+  });
+
+  it('falls back to raw JSON when results have no titles', () => {
+    open({ id: 'r', name: 'calculate', arguments: {}, result: { results: [{ value: 4 }] } });
+    expect(screen.queryByRole('button', { name: 'Show raw' })).toBeNull();
+    expect(screen.getByText(/"value": 4/)).toBeInTheDocument();
+  });
+
+  it('shows run_python code as a code block, not an escaped string', () => {
+    const code = 'import numpy as np\nprint(np.pi)';
+    const { container } = open({ id: 'c', name: 'run_python', arguments: { code, timeout: 60 } });
+    const block = container.querySelector('pre code');
+    expect(block?.textContent).toBe(code);
+    expect(container.textContent).not.toContain('\\n');
+    expect(screen.getByText(/"timeout": 60/)).toBeInTheDocument();
+  });
+
+  it('caps the Arguments box height like the Result box', () => {
+    open({ id: 'a', name: 'web_fetch', arguments: { url: 'https://x.org' }, result: { ok: true } });
+    const boxes = screen.getAllByText(/^(Arguments|Result)$/).map(label => label.parentElement!);
+    expect(boxes).toHaveLength(2);
+    boxes.forEach(box => expect(box.className).toContain('max-h-48'));
+    boxes.forEach(box => expect(box.className).toContain('overflow-y-auto'));
+  });
+
+  it('links a retrieved document DOI to doi.org', () => {
+    render(<TaskLog ragContext={{
+      sources_used: ['papers'],
+      documents: [
+        { title: 'Doc A', source: 'papers', score: 0.9, doi: '10.5555/xyz' },
+        { title: 'Doc B', source: 'papers', score: 0.8, doi: 'not-a-doi' },
+      ],
+    }} />);
+    fireEvent.click(screen.getByRole('button'));
+    expect(screen.getByRole('link', { name: '10.5555/xyz' })).toHaveAttribute('href', 'https://doi.org/10.5555/xyz');
+    expect(screen.queryByRole('link', { name: 'not-a-doi' })).toBeNull();
+    expect(screen.getByText(/not-a-doi/)).toBeInTheDocument();
+  });
+});
