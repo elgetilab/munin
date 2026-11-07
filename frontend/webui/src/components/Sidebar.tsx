@@ -938,7 +938,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
             {...profileMenu.triggerProps}
             className="w-full flex items-center gap-3 px-2 py-2 rounded-lg text-left hover:bg-bg-tertiary transition-colors cursor-pointer"
           >
-            <div className="w-7 h-7 rounded-full bg-accent/20 text-accent [[data-theme=light]_&]:text-accent-hover flex items-center justify-center text-xs font-semibold flex-shrink-0 overflow-hidden">
+            <div className="w-7 h-7 rounded-full bg-accent/20 text-accent-hover flex items-center justify-center text-xs font-semibold flex-shrink-0 overflow-hidden">
               {userAvatar ? (
                 <img src={userAvatar} alt="" className="w-full h-full object-cover" />
               ) : (

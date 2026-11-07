@@ -2,8 +2,8 @@ import { test, expect, type Page } from '@playwright/test';
 import { installMocks } from './fixtures/mock';
 import { ev, tokens } from './fixtures/sse';
 import * as S from './fixtures/scenarios';
-import { formatFailures, measureContrast, type ContrastFailure } from './fixtures/contrast';
-import { expectProjectTheme, projectTheme, type Theme } from './fixtures/theme';
+import { formatFailures, measureContrast } from './fixtures/contrast';
+import { expectProjectTheme } from './fixtures/theme';
 
 // Every visible piece of text on the main screens, against what is painted
 // behind it: 4.5:1, or 3:1 for large text (e2e/fixtures/contrast.ts). It runs
@@ -77,42 +77,13 @@ async function openAccountMenu(page: Page) {
   await page.getByText('e2e@test.local').click();
 }
 
-// Failures that were already there in dark before light mode, and that light
-// mode must not change (dark stays exactly as it was). Each is matched exactly:
-// the theme, the end of the element's selector and both colours, so any other
-// failure still fails. A test that shows one names it in `seen`, and fails if
-// it is no longer found, so this list has to shrink when one is fixed.
-interface KnownFailure { theme: Theme; selectorEnd: string; fg: string; bg: string; why: string }
-
-const AVATAR_INITIAL: KnownFailure = {
-  theme: 'dark', selectorEnd: 'div.w-7.h-7.rounded-full.bg-accent/20', fg: '#58a6ff', bg: '#2e435c',
-  why: 'sidebar account avatar initial, text-accent on bg-accent/20 over the hovered row: 4.02:1 in dark',
-};
-const CLUSTER_COUNT: KnownFailure = {
-  theme: 'dark', selectorEnd: 'span.text-[10px].tabular-nums.opacity-60', fg: '#5e656e', bg: '#1a1f26',
-  why: 'Knowledge page topic chip count at opacity-60: 2.81:1 in dark',
-};
-const ERROR_BANNER_DISMISS: KnownFailure = {
-  theme: 'dark', selectorEnd: 'button.flex-shrink-0.min-w-8.min-h-8.-my-1 > span', fg: '#ce4640', bg: '#261a1e',
-  why: 'the dismiss cross on an error announcement, text-error at opacity-80 on bg-error/10: 3.66:1 in dark',
-};
-const KNOWN_DARK: KnownFailure[] = [AVATAR_INITIAL, CLUSTER_COUNT, ERROR_BANNER_DISMISS];
-
-const isKnown = (f: ContrastFailure, k: KnownFailure) =>
-  f.selector.endsWith(k.selectorEnd) && f.fg === k.fg && f.bg === k.bg;
-
-async function expectReadable(page: Page, opts: { root?: string; ignore?: string[]; seen?: KnownFailure[] } = {}) {
+// Strict in both themes: no exceptions.
+async function expectReadable(page: Page, opts: { root?: string; ignore?: string[] } = {}) {
   const report = await measureContrast(page, opts);
   await test.info().attach('contrast', { body: JSON.stringify(report, null, 2), contentType: 'application/json' });
   // A walk that found nothing would pass whatever the colours were.
   expect(report.checked, `text checked, skipped: ${JSON.stringify(report.skipped)}`).toBeGreaterThan(5);
-  const theme = projectTheme(test.info());
-  const known = KNOWN_DARK.filter((k) => k.theme === theme);
-  const failures = report.failures.filter((f) => !known.some((k) => isKnown(f, k)));
-  expect(failures, `text under the contrast minimum:\n${formatFailures(failures)}\n`).toEqual([]);
-  for (const k of (opts.seen ?? []).filter((s) => s.theme === theme)) {
-    expect(report.failures.some((f) => isKnown(f, k)), `known failure no longer found, remove it from KNOWN_DARK: ${k.why}`).toBe(true);
-  }
+  expect(report.failures, `text under the contrast minimum:\n${formatFailures(report.failures)}\n`).toEqual([]);
 }
 
 test.describe('contrast', () => {
@@ -143,7 +114,7 @@ test.describe('contrast', () => {
       await page.goto('/');
       await expectProjectTheme(page, info);
       await expect(page.getByText(`A ${level} announcement for everyone.`)).toBeVisible();
-      await expectReadable(page, { seen: level === 'error' ? [ERROR_BANNER_DISMISS] : [] });
+      await expectReadable(page);
     }
   });
 
@@ -176,7 +147,7 @@ test.describe('contrast', () => {
     await expectProjectTheme(page, info);
     await openAccountMenu(page);
     await expect(page.getByRole('menuitem', { name: 'Settings' })).toBeVisible();
-    await expectReadable(page, { seen: [AVATAR_INITIAL] });
+    await expectReadable(page);
   });
 
   test('settings', async ({ page }, info) => {
@@ -226,7 +197,7 @@ test.describe('contrast', () => {
     await expectProjectTheme(page, info);
     await expect(page.getByRole('heading', { name: 'Knowledge Base' })).toBeVisible();
     await expect(page.getByText('12 papers')).toBeVisible();
-    await expectReadable(page, { seen: [CLUSTER_COUNT] });
+    await expectReadable(page);
   });
 
   test('the Sources panel', async ({ page }, info) => {
