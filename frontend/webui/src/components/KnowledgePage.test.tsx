@@ -272,6 +272,12 @@ describe('KnowledgePage', () => {
       expect(papersTile('Papers (approx.)')).toHaveTextContent('12');
       expect(screen.queryByText('Papers')).not.toBeInTheDocument();
     });
+
+    it('falls back to the approximate sum when the map reply has no count', async () => {
+      server.use(http.get('/api/embedding_map', () => HttpResponse.json({ generated_at: '', cluster_count: 0, points: [], clusters: [] })));
+      render(<KnowledgePage tagCatalog={CATALOG} onChatWithTag={vi.fn()} />);
+      await waitFor(() => expect(papersTile('Papers (approx.)')).toHaveTextContent('12'));
+    });
   });
 
   it('says Show less once every research group is shown', async () => {

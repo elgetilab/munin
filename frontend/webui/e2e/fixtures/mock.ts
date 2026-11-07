@@ -68,6 +68,8 @@ export async function installMocks(page: Page, init: Partial<MockState> = {}): P
     if (p === '/api/status') return json(route, S.STATUS);
     if (p === '/api/personas') return json(route, S.PERSONAS);
     if (p === '/api/tags') return json(route, S.TAGS);
+    // A Knowledge browse page: an empty list, in the shape the page expects.
+    if (/^\/api\/tags\/[^/]+\/[^/]+\/papers$/.test(p)) return json(route, { papers: [], total: 0 });
     if (p === '/api/announcement') return json(route, S.ANNOUNCEMENT);
     if (p === '/api/usage/me') return json(route, S.USAGE);
     if (p === '/api/projects') return json(route, { projects: [], total: 0 });

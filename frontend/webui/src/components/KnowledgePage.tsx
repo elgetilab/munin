@@ -107,9 +107,12 @@ export function KnowledgePage({ initialRoute, tagCatalog, onChatWithTag }: Knowl
   // Only the map knows the real paper count. The topic sum counts a paper once
   // per topic, so it is shown only as an estimate, and only when the map fails.
   const topicPaperSum = catalog.topics.reduce((sum, t) => sum + t.paper_count, 0);
-  const totalPapers = mapData?.paper_count ?? topicPaperSum;
-  const papersStat: PapersStat = mapData
-    ? { value: mapData.paper_count.toLocaleString(), label: 'Papers' }
+  // A map reply without a count (a partial or empty body) must not take the
+  // page down, so the count is checked rather than assumed.
+  const mapPaperCount = typeof mapData?.paper_count === 'number' ? mapData.paper_count : null;
+  const totalPapers = mapPaperCount ?? topicPaperSum;
+  const papersStat: PapersStat = mapPaperCount !== null
+    ? { value: mapPaperCount.toLocaleString(), label: 'Papers' }
     : mapLoading
       ? { value: '–', label: 'Papers' }
       : { value: topicPaperSum.toLocaleString(), label: 'Papers (approx.)' };
