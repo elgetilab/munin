@@ -45,7 +45,7 @@ import rehypeKatex from 'rehype-katex';
 // which previously rendered as raw dollar-sign text.
 import 'katex/dist/katex.min.css';
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { codeHighlightStyle, type HighlightStyle } from '../lib/codeTheme';
 import python from 'react-syntax-highlighter/dist/esm/languages/prism/python';
 import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
 import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
@@ -92,11 +92,11 @@ SyntaxHighlighter.registerLanguage('docker', docker);
 SyntaxHighlighter.registerLanguage('dockerfile', docker);
 SyntaxHighlighter.registerLanguage('toml', toml);
 
-/** Customise oneDark to blend with Munin's bg-secondary */
-const highlightStyle: Record<string, React.CSSProperties> = {
-  ...oneDark,
+/** The themed oneDark (src/lib/codeTheme.ts), on Munin's bg-secondary. */
+const highlightStyle: HighlightStyle = {
+  ...codeHighlightStyle,
   'pre[class*="language-"]': {
-    ...(oneDark['pre[class*="language-"]'] as React.CSSProperties),
+    ...codeHighlightStyle['pre[class*="language-"]'],
     background: 'var(--color-bg-secondary)',
     margin: 0,
     padding: '0.75rem 1rem',
@@ -104,7 +104,7 @@ const highlightStyle: Record<string, React.CSSProperties> = {
     lineHeight: '1.6',
   },
   'code[class*="language-"]': {
-    ...(oneDark['code[class*="language-"]'] as React.CSSProperties),
+    ...codeHighlightStyle['code[class*="language-"]'],
     background: 'none',
     fontSize: '13px',
   },

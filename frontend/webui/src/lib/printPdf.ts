@@ -7,22 +7,39 @@
 // syntax-highlight styles all survive), clones the app's stylesheets so
 // `.prose-munin` + Tailwind utilities resolve, then layers a light-theme
 // print override on top by redefining the theme `--color-*` variables. The
-// user picks "Save as PDF" in the print dialog.
+// highlight styles are var(--code-*) references, so they take the light code
+// colours here rather than oneDark's. The user picks "Save as PDF" in the
+// print dialog.
+
+// The print document always uses the light theme, whatever the app or the OS
+// is set to: the PDF is read on white paper. Setting data-theme makes the
+// cloned app CSS apply its light values, including the --code-* syntax colours
+// in src/styles/code.css (each 4.5:1 or more on white).
+export const PRINT_THEME = 'light';
 
 // Layered last so it wins ties against the cloned app CSS. Flipping the theme
 // variables to light values recolours every rule that reads them (prose,
-// utilities) without having to restyle each element.
-const PRINT_OVERRIDE_CSS = `
+// utilities) without having to restyle each element. The selector also names
+// :root[data-theme] so it outranks the app's :root[data-theme="light"] block,
+// which has the same specificity and comes earlier.
+// Each text colour here is at least 4.5:1 on white (printPdf.test.ts checks).
+export const PRINT_OVERRIDE_CSS = `
 @page { margin: 18mm 16mm; }
-:root {
+:root, :root[data-theme] {
   --color-bg-primary: #ffffff;
   --color-bg-secondary: #ffffff;
   --color-bg-tertiary: #f4f4f5;
   --color-text-primary: #1a1a1a;
   --color-text-secondary: #444444;
+  --color-text-tertiary: #555555;
   --color-border: #cccccc;
   --color-accent: #0b62c4;
   --color-accent-hover: #0b62c4;
+  --color-success: #196b2e;
+  --color-warning: #7a5300;
+  --color-error: #b81c28;
+  --code-text-shadow: none;
+  color-scheme: light;
 }
 html, body {
   background: #ffffff !important;
@@ -71,6 +88,7 @@ export function printArtifactAsPdf(contentHtml: string, title: string): boolean 
   doc.open();
   doc.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>');
   doc.close();
+  doc.documentElement.setAttribute('data-theme', PRINT_THEME);
   doc.title = title || 'Report';
 
   // Clone the app's stylesheets so prose/utility/KaTeX rules apply.

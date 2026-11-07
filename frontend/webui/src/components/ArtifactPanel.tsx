@@ -8,7 +8,7 @@ import { ProteinViewer } from './ProteinViewer';
 import { printArtifactAsPdf } from '../lib/printPdf';
 import { Markdown } from './Markdown';
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { codeHighlightStyle } from '../lib/codeTheme';
 import { useUiStore } from '../stores/uiStore';
 import { useChatStore } from '../stores/chatStore';
 import { useBelowXl, useModal } from '../hooks/useModal';
@@ -613,7 +613,7 @@ function ArtifactContent({ artifact, conversationId, downloading, onDownload }: 
   if (lang) {
     return (
       <div className="text-xs rounded-lg overflow-hidden">
-        <SyntaxHighlighter language={lang} style={oneDark} customStyle={{ margin: 0, borderRadius: '0.5rem', fontSize: '0.75rem' }}>
+        <SyntaxHighlighter language={lang} style={codeHighlightStyle} customStyle={{ margin: 0, borderRadius: '0.5rem', fontSize: '0.75rem' }}>
           {artifact.content}
         </SyntaxHighlighter>
       </div>
