@@ -54,7 +54,7 @@ describe('PlanCard revoke', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'revoke' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
     await screen.findByText(/asking before each step/i);
 
     expect(calls).toEqual([{ path: 'approve', body: { mode: 'each' } }]);
@@ -68,10 +68,10 @@ describe('PlanCard revoke', () => {
     render(<PlanCard plan={makePlan(AUTO)} conversationId="c1" />);
     expect(screen.getByText(/auto-approve on/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'revoke' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
     await screen.findByText(/asking before each step/i);
 
-    expect(screen.queryByRole('button', { name: 'revoke' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument();
     expect(screen.queryByText(/auto-approve on/)).not.toBeInTheDocument();
   });
 });
@@ -95,9 +95,9 @@ describe('PlanCard failures', () => {
   it('a failed revoke says so and keeps the auto footer', async () => {
     mockPlanApi(500);
     render(<PlanCard plan={makePlan(AUTO)} conversationId="c1" />);
-    fireEvent.click(screen.getByRole('button', { name: 'revoke' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/could not change/i);
-    expect(screen.getByRole('button', { name: 'revoke' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Revoke' })).toBeInTheDocument();
   });
 
   it('a failed save keeps the editor and the edits, and says so', async () => {
@@ -212,7 +212,7 @@ describe('PlanCard after an action', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Approve all subsequent calls' }));
 
-    expect(await screen.findByRole('button', { name: 'revoke' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Revoke' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Approve plan' })).not.toBeInTheDocument();
     expect(calls[0]).toEqual({ path: 'approve', body: { mode: 'auto' } });
   });
@@ -245,5 +245,47 @@ describe('PlanCard after an action', () => {
 
     expect(onAfterApprove).not.toHaveBeenCalled();
     expect(screen.queryByText('Approved')).not.toBeInTheDocument();
+  });
+});
+
+describe('PlanCard look', () => {
+  it('marks each step with a line icon of one width, and keeps the status in its name', () => {
+    const plan = makePlan({
+      items: [
+        { id: 'a', title: 'One', status: 'pending' },
+        { id: 'b', title: 'Two', status: 'in_progress' },
+        { id: 'c', title: 'Three', status: 'done' },
+        { id: 'd', title: 'Four', status: 'cancelled' },
+      ],
+    });
+    render(<PlanCard plan={plan} />);
+    for (const name of ['pending: One', 'in progress: Two', 'done: Three', 'cancelled: Four']) {
+      const item = screen.getByRole('listitem', { name });
+      const icon = item.querySelector('svg');
+      expect(icon).not.toBeNull();
+      expect(icon!.getAttribute('width')).toBe('14');
+      expect(item.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
+    }
+  });
+
+  it('gives Approve the primary look, the others the secondary one, and all a touch height', () => {
+    render(<PlanCard plan={makePlan()} conversationId="c1" />);
+    const approve = screen.getByRole('button', { name: 'Approve plan' });
+    expect(approve.className).toContain('bg-accent');
+    for (const name of ['Approve all subsequent calls', 'Edit plan', 'Reject plan']) {
+      const button = screen.getByRole('button', { name });
+      expect(button.className).not.toContain('bg-accent');
+      expect(button.className).toContain('border-border');
+    }
+    for (const button of screen.getAllByRole('button')) {
+      expect(button.className).toContain('pointer-coarse:min-h-9');
+    }
+  });
+
+  it('shows Revoke as a quiet button in sentence case', () => {
+    render(<PlanCard plan={makePlan(AUTO)} conversationId="c1" />);
+    const revoke = screen.getByRole('button', { name: 'Revoke' });
+    expect(revoke.className).not.toContain('underline');
+    expect(revoke.className).toContain('pointer-coarse:min-h-9');
   });
 });

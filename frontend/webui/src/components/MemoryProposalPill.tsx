@@ -3,6 +3,13 @@ import type { MemoryProposal } from '../lib/types';
 import { acceptMemoryProposal, rejectMemoryProposal } from '../lib/api';
 import { useUiStore } from '../stores/uiStore';
 
+// Shared look for the action buttons on the cards in a conversation (plan,
+// memory, clarification, Continue, research). Kept the same in each card file;
+// at least 36px tall on touch screens.
+const BTN = 'inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default pointer-coarse:min-h-9';
+const BTN_PRIMARY = `${BTN} bg-accent text-bg-primary hover:bg-accent-hover`;
+const BTN_SECONDARY = `${BTN} border border-border text-text-secondary hover:bg-bg-tertiary hover:text-text-primary`;
+
 /**
  * Renders a single auto-extracted memory candidate (P2 #25) below
  * an assistant bubble. The user can accept (POST to user_memory) or
@@ -80,7 +87,7 @@ export function MemoryProposalPill({ proposal, onDismiss }: Props) {
           onClick={handleAccept}
           disabled={!!busy}
           aria-label="Accept memory"
-          className="px-2 py-1 rounded text-[12px] bg-accent text-white hover:opacity-90 disabled:opacity-50 cursor-pointer"
+          className={BTN_PRIMARY}
         >
           Save
         </button>
@@ -88,7 +95,7 @@ export function MemoryProposalPill({ proposal, onDismiss }: Props) {
           onClick={handleReject}
           disabled={!!busy}
           aria-label="Reject memory"
-          className="px-2 py-1 rounded text-[12px] border border-border text-text-secondary hover:bg-bg-tertiary disabled:opacity-50 cursor-pointer"
+          className={BTN_SECONDARY}
         >
           Dismiss
         </button>

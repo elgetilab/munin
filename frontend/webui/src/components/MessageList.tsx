@@ -11,6 +11,12 @@ import { InlineArtifacts } from './InlineArtifacts';
 import { detectPhase } from '../lib/streamPhase';
 import { rewordInterruptedMarker } from '../lib/modelError';
 
+// Shared look for the action buttons on the cards in a conversation (plan,
+// memory, clarification, Continue, research). Kept the same in each card file;
+// at least 36px tall on touch screens.
+const BTN = 'inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default pointer-coarse:min-h-9';
+const BTN_PRIMARY = `${BTN} bg-accent text-bg-primary hover:bg-accent-hover`;
+
 interface RetryingState {
   attempt: number;
   maxAttempts: number;
@@ -350,7 +356,7 @@ function MessageBubble({ message, conversationId, onSendClarification, onDismiss
           <button
             type="button"
             onClick={onContinue}
-            className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium text-text-primary bg-bg-tertiary border border-border hover:bg-bg-secondary transition-colors"
+            className={BTN_PRIMARY}
           >
             Continue
           </button>
