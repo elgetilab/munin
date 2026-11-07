@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { fetchArtifactStructure } from '../lib/api';
 import { PROTEIN_COLORS, PROTEIN_STYLES, type ProteinColor, type ProteinSpec, type ProteinStyle } from '../lib/artifactDisplay';
 import { buildWidgetDocument } from '../lib/widgetDocument';
@@ -15,7 +15,23 @@ interface ProteinViewerProps {
   onExpand?: () => void;
 }
 
-const VIEWER_CSS = 'html,body,#viewer{margin:0;width:100%;height:100%;overflow:hidden;background:#0f1419}#viewer{position:relative}';
+// The 3D view stays dark in both themes: structure colours are chosen for a dark
+// background. VIEWER_BG matches backgroundColor in widgets/proteinRuntime.js.
+const VIEWER_BG = '#0f1419';
+const VIEWER_CSS = `:root{color-scheme:dark}html,body,#viewer{margin:0;width:100%;height:100%;overflow:hidden;background:${VIEWER_BG}}#viewer{position:relative}`;
+
+// The loading text, errors and links drawn over the 3D view sit on its dark
+// background in a light page too, so they take the dark theme's values (the
+// @theme block in index.css). In dark these are the values already in force.
+const DARK_STAGE = {
+  background: VIEWER_BG,
+  colorScheme: 'dark',
+  '--color-text-primary': '#e6edf3',
+  '--color-text-secondary': '#8b949e',
+  '--color-accent': '#58a6ff',
+  '--color-accent-hover': '#79b8ff',
+  '--color-error': '#f85149',
+} as CSSProperties;
 
 // 3Dmol.js is a large download, so it loads with the first viewer and is shared.
 let viewerDocument: Promise<string> | null = null;
@@ -202,13 +218,14 @@ export function ProteinViewer({ spec, title, conversationId, artifactId, version
         )}
       </div>}
 
-      <div className={`relative ${heightClass}`} style={{ background: '#0f1419' }}>
+      <div data-testid="protein-stage" className={`relative ${heightClass}`} style={DARK_STAGE}>
         {showFrame && (
           <WidgetFrame
             srcDoc={srcDoc}
             title={`3D structure: ${title}`}
             state={state}
             onEvent={onEvent}
+            theme="dark"
             className="absolute inset-0 w-full h-full border-0"
           />
         )}
