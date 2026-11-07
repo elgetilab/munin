@@ -2,21 +2,29 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Sets light or dark before any CSS loads. Keep identical to static/shared/theme-snippet.html. -->
+    <script data-munin-theme>(function(){var p="dark",d=document.documentElement;try{var m=document.cookie.match(/(?:^|;\s*)munin_theme=(light|dark|system)(?:;|$)/);if(m)p=m[1]}catch(e){}var t=p;if(p==="system"){try{t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}catch(e){t="dark"}}d.setAttribute("data-theme-pref",p);d.setAttribute("data-theme",t)})()</script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Chat - Munin</title>
     <link rel="icon" type="image/webp" href="/shared/munin_logo_without_script.webp" />
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#0f1419">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <!-- black-translucent puts white status-bar text over the page header, which
+         is hard to read on the light theme. iOS reads it once at launch, so it
+         cannot follow the theme, and black or default would change the dark
+         home-screen app too. Kept on purpose: see "Known limits" under Light mode
+         in docs/UI-POLISH-AND-LIGHT-MODE.md. -->
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="apple-touch-icon" href="/icons/munin-192.png">
   </head>
   <body>
     <div id="root"></div>
     <!-- ?v= misses the copies held by service workers older than munin-v3, which
-         answer the first load after a deploy from their cache. -->
-    <script src="/shared/feather-vortex.js?v=3"></script>
-    <script src="/shared/support-widget.js?v=3"></script>
+         answer /shared from their cache on the first load after a deploy. Bump it
+         with the cache name in public/sw.js when these files change. -->
+    <script src="/shared/feather-vortex.js?v=4"></script>
+    <script src="/shared/support-widget.js?v=4"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

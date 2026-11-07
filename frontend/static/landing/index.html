@@ -2,9 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <!-- Sets light or dark before any CSS loads. Keep identical to static/shared/theme-snippet.html. -->
+    <script data-munin-theme>(function(){var p="dark",d=document.documentElement;try{var m=document.cookie.match(/(?:^|;\s*)munin_theme=(light|dark|system)(?:;|$)/);if(m)p=m[1]}catch(e){}var t=p;if(p==="system"){try{t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}catch(e){t="dark"}}d.setAttribute("data-theme-pref",p);d.setAttribute("data-theme",t)})()</script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Munin - Research Assistant</title>
-    <link rel="stylesheet" href="/shared/style.css">
+    <link rel="stylesheet" href="/shared/style.css?v=2">
+    <script src="/shared/theme.js" defer></script>
     <style>
         /* Landing page overrides and page-specific styles */
         .container {
@@ -27,7 +30,7 @@
         .hero h1 {
             font-size: 48px;
             margin-bottom: 16px;
-            background: linear-gradient(135deg, var(--accent) 0%, #a371f7 100%);
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
@@ -220,6 +223,10 @@
             justify-content: center;
             flex-shrink: 0;
         }
+        /* On the light page a white disc needs an edge to show. */
+        :root[data-theme="light"] .munin-mark {
+            box-shadow: inset 0 0 0 1px var(--border);
+        }
         .munin-mark img {
             width: 84px;
             height: 84px;
@@ -373,6 +380,6 @@
             <p style="margin-top: 8px;"><a href="{{env "MUNIN_URL_SEARCH"}}">Search</a> | <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a> | <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload</a> | <a href="{{env "MUNIN_URL_DOCS"}}">Docs</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Support</a></p>
         </div>
     </footer>
-<script src="/shared/support-widget.js"></script>
+<script src="/shared/support-widget.js?v=4"></script>
 </body>
 </html>

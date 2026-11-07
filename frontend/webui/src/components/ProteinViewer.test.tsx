@@ -1,10 +1,13 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
 import { ProteinViewer } from './ProteinViewer';
 import type { ProteinSpec } from '../lib/artifactDisplay';
 import { stubWidgetFrame } from '../test/widgetFrame';
+import { setThemePref } from '../lib/theme';
 
 // 3Dmol.js itself needs a browser, so these cover what surrounds it. The
 // rendering and the sandbox are covered in e2e/widgets.spec.ts.
@@ -215,4 +218,50 @@ describe('ProteinViewer', () => {
     renderViewer();
     return readyFrame();
   }
+});
+
+describe('ProteinViewer in a light page', () => {
+  beforeEach(() => {
+    server.use(http.get(URL_PATH, () => HttpResponse.json({ format: 'pdb', data: 'ATOM' })));
+    setThemePref('light');
+  });
+  afterEach(() => act(() => setThemePref('dark')));
+
+  it('keeps the 3D view dark: the frame is told dark whatever the app uses', async () => {
+    renderViewer();
+    const { post } = await readyFrame();
+    expect(post.mock.lastCall?.[0]).toMatchObject({ type: 'state', theme: 'dark' });
+    const calls = post.mock.calls.length;
+    act(() => setThemePref('dark'));
+    act(() => setThemePref('light'));
+    expect(post.mock.calls.length).toBe(calls);
+  });
+
+  // The loading text, errors and links over the 3D view would be under 3:1 on its
+  // dark background with light values, so the stage carries the dark ones.
+  it('gives the stage the dark theme values, the same as index.css', async () => {
+    renderViewer();
+    const stage = screen.getByTestId('protein-stage');
+    const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf-8');
+    const darkBlock = css.slice(css.indexOf('@theme {'), css.indexOf('}', css.indexOf('@theme {')));
+    for (const name of ['--color-text-primary', '--color-text-secondary', '--color-accent', '--color-accent-hover', '--color-error']) {
+      const dark = darkBlock.match(new RegExp(`${name}:\\s*(#[0-9a-f]{6});`))![1];
+      expect(stage.style.getPropertyValue(name)).toBe(dark);
+    }
+    // The viewer's own background, which proteinRuntime.js also uses.
+    expect(darkBlock).toContain('--color-bg-primary: #0f1419;');
+    expect(stage.style.background).toBe('rgb(15, 20, 25)');
+    expect(stage.style.colorScheme).toBe('dark');
+    expect(within(stage).getByText('Loading structure...')).toHaveClass('text-text-secondary');
+    await screen.findByTestId('widget-frame');
+  });
+
+  it('outlines the legend swatches only in light', async () => {
+    renderViewer({ ...SPEC, source: 'alphafold', color: 'bfactor' });
+    const swatches = screen.getByTestId('protein-legend').querySelectorAll('[aria-hidden="true"]');
+    expect(swatches.length).toBe(5);
+    for (const swatch of swatches) expect(swatch).toHaveClass('in-data-[theme=light]:ring-1');
+    for (const swatch of swatches) expect(swatch).not.toHaveClass('ring-1');
+    await screen.findByTestId('widget-frame');
+  });
 });

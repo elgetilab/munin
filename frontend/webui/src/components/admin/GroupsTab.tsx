@@ -13,6 +13,7 @@ import {
 import type { AdminGroup, AdminUser, AdminRole } from '../../lib/api';
 import { Dialog } from '../ui/Dialog';
 import { ErrorNotice } from '../ui/ErrorNotice';
+import { ROW_HOVER } from '../ui/themeClasses';
 import { Field, Input, ModalActions, PRIMARY_BUTTON, SECONDARY_BUTTON } from './formControls';
 
 
@@ -89,7 +90,7 @@ export function GroupsTab() {
           </thead>
           <tbody className="divide-y divide-border">
             {groups.map(g => (
-              <tr key={g.slug} className="hover:bg-bg-primary/30">
+              <tr key={g.slug} className={ROW_HOVER}>
                 <td className="px-3 py-2 text-text-primary">{g.display_name}</td>
                 <td className="px-3 py-2 text-text-secondary font-mono text-xs">{g.slug}</td>
                 <td className="px-3 py-2 text-right text-text-secondary text-xs">{g.member_count}</td>

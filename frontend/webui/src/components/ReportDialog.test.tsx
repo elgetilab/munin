@@ -81,4 +81,11 @@ describe('ReportDialog', () => {
     expect(field.tagName).toBe('TEXTAREA');
     expect(screen.getByText('What went wrong? (optional)')).toHaveClass('block');
   });
+
+  // A bg-primary veil is dark in dark mode but white in light, so light dims with the scrim.
+  it('dims the page with the scrim in light and keeps the dark veil', () => {
+    renderDialog();
+    const backdrop = screen.getByText('Report this chat').closest('.fixed')!.firstElementChild;
+    expect(backdrop).toHaveClass('bg-bg-primary/70', 'backdrop-blur-sm', '[[data-theme=light]_&]:bg-scrim');
+  });
 });

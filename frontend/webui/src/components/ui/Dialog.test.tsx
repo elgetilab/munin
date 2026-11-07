@@ -155,6 +155,10 @@ describe('Dialog', () => {
   it('keeps phone margins, a capped height and a scrolling body', () => {
     render(<Dialog title="T" onClose={() => {}} footer={<button>Save</button>}>body</Dialog>);
     expect(screen.getByTestId('dialog-backdrop')).toHaveClass('p-4');
+    // Dark blurs under a bg-primary veil; light dims with the scrim instead.
+    expect(screen.getByTestId('dialog-backdrop')).toHaveClass(
+      'bg-bg-primary/70', 'backdrop-blur-sm', '[[data-theme=light]_&]:bg-scrim',
+    );
     expect(screen.getByRole('dialog')).toHaveClass('max-h-full', 'flex-col');
     expect(screen.getByText('body')).toHaveClass('overflow-y-auto', 'min-h-0');
     expect(screen.getByText('Save').parentElement).toHaveClass('flex-shrink-0');

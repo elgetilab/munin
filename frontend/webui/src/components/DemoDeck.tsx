@@ -38,6 +38,12 @@ interface Props {
 
 const SLIDE_COUNT = 4;
 
+// Back and Next. A disabled one keeps readable text (tertiary, 5.2:1 in both
+// themes) and loses its border instead of fading: at 30% opacity it was 1.6:1.
+const NAV_BUTTON =
+  'px-3 py-1.5 text-sm rounded-lg border border-border text-text-secondary enabled:hover:text-text-primary cursor-pointer ' +
+  'disabled:border-transparent disabled:text-text-tertiary disabled:cursor-default';
+
 export function DemoDeck({ slide, onSlide, offline, onRun, onOpenChat }: Props) {
   const [config, setConfig] = useState<DemoConfig | null>(null);
   const [configError, setConfigError] = useState(false);
@@ -83,7 +89,7 @@ export function DemoDeck({ slide, onSlide, offline, onRun, onOpenChat }: Props) 
         <button
           onClick={() => onSlide(slide - 1)}
           disabled={slide === 0}
-          className="px-3 py-1.5 text-sm rounded-lg border border-border text-text-secondary hover:text-text-primary disabled:opacity-30 cursor-pointer disabled:cursor-default"
+          className={NAV_BUTTON}
         >
           Back
         </button>
@@ -92,7 +98,7 @@ export function DemoDeck({ slide, onSlide, offline, onRun, onOpenChat }: Props) 
           data-testid="demo-next"
           onClick={() => onSlide(slide + 1)}
           disabled={slide === SLIDE_COUNT - 1}
-          className="px-3 py-1.5 text-sm rounded-lg border border-border text-text-secondary hover:text-text-primary disabled:opacity-30 cursor-pointer disabled:cursor-default"
+          className={NAV_BUTTON}
         >
           Next
         </button>

@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event';
 import type { ComponentProps } from 'react';
 import { EmbeddingMapView } from './EmbeddingMapView';
 import type { EmbeddingMap, EmbeddingMapPoint } from '../lib/types';
+import { setThemePref } from '../lib/theme';
+import { clusterCss, pointFill } from '../lib/chartPalette';
 
 // deck.gl needs WebGL, which jsdom has not got. Keeping what it was last given
 // lets a test read the view and play the part of a pointer.
@@ -11,7 +13,14 @@ interface DeckProps {
   touchAction?: string;
   onClick: (info: { object?: EmbeddingMapPoint; x?: number; y?: number }) => void;
   onViewStateChange: (change: { viewState: unknown }) => void;
-  layers: { props: { data: EmbeddingMapPoint[]; onHover: (info: { object?: EmbeddingMapPoint; x?: number; y?: number }) => void } }[];
+  layers: {
+    props: {
+      data: EmbeddingMapPoint[];
+      onHover: (info: { object?: EmbeddingMapPoint; x?: number; y?: number }) => void;
+      getFillColor: (point: EmbeddingMapPoint) => number[];
+      updateTriggers: { getFillColor: unknown };
+    };
+  }[];
 }
 const deck = vi.hoisted(() => ({ props: null as unknown }));
 vi.mock('@deck.gl/react', () => ({
@@ -237,6 +246,39 @@ describe('EmbeddingMapView', () => {
     it('leaves room below the loading state too', () => {
       renderMap({ mapData: null, loading: true });
       expect(screen.getByText('Loading embedding map...')).toHaveClass('mb-8');
+    });
+  });
+
+  describe('theme', () => {
+    afterEach(() => {
+      act(() => setThemePref('dark'));
+    });
+
+    const chipDot = (label: string) =>
+      screen.getByRole('button', { name: new RegExp(label) }).querySelector('span') as HTMLElement;
+
+    it('draws the dark colours by default', () => {
+      renderMap();
+      const { props } = deckProps().layers[0];
+      expect(props.getFillColor(POINTS[0])).toEqual([99, 102, 241, 200]);
+      expect(props.getFillColor(POINTS[4])).toEqual([100, 100, 100, 80]);
+      expect(chipDot('Lipid nanoparticles').style.backgroundColor).toBe('rgb(99, 102, 241)');
+    });
+
+    it('recolours the points it has and the chips when the theme changes', () => {
+      renderMap();
+      expect(deckProps().layers[0].props.updateTriggers.getFillColor).toBe('dark');
+
+      act(() => setThemePref('light'));
+
+      const { props } = deckProps().layers[0];
+      // A new trigger value is what makes deck.gl recompute existing points.
+      expect(props.updateTriggers.getFillColor).toBe('light');
+      expect(props.getFillColor(POINTS[2])).toEqual(pointFill(1, 'light'));
+      expect(chipDot('Cryo-EM').style.backgroundColor).toBe(clusterCss(1, 'light'));
+      // The chip and the dots are the same colour.
+      const [r, g, b] = props.getFillColor(POINTS[0]);
+      expect(chipDot('Lipid nanoparticles').style.backgroundColor).toBe(`rgb(${r}, ${g}, ${b})`);
     });
   });
 });

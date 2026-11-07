@@ -46,6 +46,29 @@ describe('service worker', () => {
     expect(response).toBe('last good copy');
   });
 
+  it('drops every older cache on activate, including the munin-v3 copy of style.css', async () => {
+    const handlers: Record<string, (event: { waitUntil: (p: Promise<unknown>) => void }) => void> = {};
+    const self = {
+      addEventListener: (name: string, fn: (typeof handlers)[string]) => { handlers[name] = fn; },
+      clients: { claim: vi.fn() },
+    };
+    const current = source.match(/CACHE_NAME = '([^']+)'/)![1];
+    const deleted: string[] = [];
+    const caches = {
+      keys: async () => ['munin-v3', current, 'munin-v2'],
+      delete: vi.fn(async (key: string) => { deleted.push(key); return true; }),
+    };
+    new Function('self', 'fetch', 'caches', source)(self, vi.fn(), caches);
+
+    let done: Promise<unknown> | undefined;
+    handlers.activate({ waitUntil: (p) => { done = p; } });
+    await done;
+
+    // The light theme changed /shared/style.css, which the worker precaches.
+    expect(current).not.toBe('munin-v3');
+    expect(deleted.sort()).toEqual(['munin-v2', 'munin-v3']);
+  });
+
   it('keeps answering hashed assets from the cache', async () => {
     const { response, fetchStub } = await answer(
       'https://chat.example.org/assets/index-abc.js', async () => fresh, 'cached bundle');

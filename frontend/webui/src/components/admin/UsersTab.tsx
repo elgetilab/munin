@@ -12,6 +12,7 @@ import {
 import type { AdminUser, AdminGroup, AdminRole } from '../../lib/api';
 import { Dialog } from '../ui/Dialog';
 import { ErrorNotice } from '../ui/ErrorNotice';
+import { ROW_HOVER } from '../ui/themeClasses';
 import { Field, Input, ModalActions, PRIMARY_BUTTON, SECONDARY_BUTTON, Select } from './formControls';
 
 
@@ -209,7 +210,7 @@ export function UsersTab() {
           </thead>
           <tbody className="divide-y divide-border">
             {displayed.map(u => (
-              <tr key={u.id} className="hover:bg-bg-primary/30">
+              <tr key={u.id} className={ROW_HOVER}>
                 <td className="px-3 py-2 text-text-primary">{u.first_name}</td>
                 <td className="px-3 py-2 text-text-primary">
                   {u.last_name || <span className="text-text-secondary/50">–</span>}
@@ -263,8 +264,8 @@ export function UsersTab() {
 function RoleBadge({ role }: { role: AdminRole }) {
   const colors: Record<AdminRole, string> = {
     user: 'bg-text-secondary/15 text-text-secondary',
-    group_leader: 'bg-yellow-400/15 text-yellow-300',
-    admin: 'bg-accent/20 text-accent',
+    group_leader: 'bg-yellow-400/15 text-yellow-300 [[data-theme=light]_&]:text-warning',
+    admin: 'bg-accent/20 text-accent [[data-theme=light]_&]:text-accent-hover',
   };
   return (
     <span className={`inline-block whitespace-nowrap text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded ${colors[role]}`}>

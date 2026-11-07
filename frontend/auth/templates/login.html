@@ -2,9 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <!-- Sets light or dark before any CSS loads. Keep identical to static/shared/theme-snippet.html. -->
+    <script data-munin-theme>(function(){var p="dark",d=document.documentElement;try{var m=document.cookie.match(/(?:^|;\s*)munin_theme=(light|dark|system)(?:;|$)/);if(m)p=m[1]}catch(e){}var t=p;if(p==="system"){try{t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}catch(e){t="dark"}}d.setAttribute("data-theme-pref",p);d.setAttribute("data-theme",t)})()</script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign In - Munin</title>
-    <link rel="stylesheet" href="/shared/style.css">
+    <link rel="stylesheet" href="/shared/style.css?v=2">
+    <script src="/shared/theme.js" defer></script>
     <style>
         .auth-container {
             max-width: 400px;
@@ -23,7 +26,7 @@
         .auth-logo {
             height: 48px;
             width: auto;
-            filter: brightness(0) invert(1);
+            filter: var(--logo-filter);
             margin-bottom: 24px;
         }
 
@@ -71,6 +74,7 @@
 
         .auth-error {
             background: rgba(248, 81, 73, 0.1);
+            background: color-mix(in srgb, var(--error) 10%, transparent);
             border: 1px solid var(--error);
             border-radius: 8px;
             padding: 12px;
@@ -153,7 +157,7 @@
         </div>
     </div>
 
-    <script src="/shared/feather-vortex.js"></script>
+    <script src="/shared/feather-vortex.js?v=4"></script>
     <script>
         (function() {
             var form = document.getElementById('login-form');

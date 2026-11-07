@@ -15,7 +15,25 @@
  *   Sleeping (96px): createVortex(canvas, 10, 5.5, 0.3) — slow drift for off-hours
  */
 
-function drawFeather(ctx, x, y, size, angle, opacity) {
+// The page's text colours, read on every frame so a theme switch mid-animation
+// recolours the feathers. The static pages and the web UI both define
+// --text-primary and --text-secondary. The fallbacks are the dark values.
+var VORTEX_FALLBACK = { fill: '#e6edf3', line: '#8b949e' };
+
+function vortexColors(el) {
+  try {
+    var style = getComputedStyle(el);
+    return {
+      fill: style.getPropertyValue('--text-primary').trim() || VORTEX_FALLBACK.fill,
+      line: style.getPropertyValue('--text-secondary').trim() || VORTEX_FALLBACK.line
+    };
+  } catch (e) {
+    return VORTEX_FALLBACK;
+  }
+}
+
+function drawFeather(ctx, x, y, size, angle, opacity, colors) {
+  colors = colors || VORTEX_FALLBACK;
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
@@ -28,20 +46,22 @@ function drawFeather(ctx, x, y, size, angle, opacity) {
   ctx.bezierCurveTo(size * 0.65, size * 0.6, size * 0.35, size * 1.2, 0, size * 1.6);    // right vane to base
   ctx.bezierCurveTo(-size * 0.18, size * 1.0, -size * 0.25, size * 0.3, -size * 0.18, -size * 0.2); // left vane
   ctx.bezierCurveTo(-size * 0.12, -size * 0.8, -size * 0.06, -size * 1.4, 0, -size * 1.8);         // back to tip
-  ctx.fillStyle = '#e6edf3';
+  ctx.fillStyle = colors.fill;
   ctx.fill();
 
-  // Rachis (spine line)
+  // Rachis (spine line): the secondary colour at half strength
+  ctx.globalAlpha = opacity * 0.5;
   ctx.beginPath();
   ctx.moveTo(0, -size * 1.7);
   ctx.bezierCurveTo(size * 0.06, -size * 1.0, size * 0.1, -size * 0.2, 0, size * 1.5);
-  ctx.strokeStyle = 'rgba(139, 148, 158, 0.5)';
+  ctx.strokeStyle = colors.line;
   ctx.lineWidth = Math.max(0.5, size * 0.08);
   ctx.stroke();
 
   // Barb lines (only render when feather is large enough to see them)
   if (size > 3) {
-    ctx.globalAlpha = opacity * 0.3;
+    // 0.3 for the barbs, times the 0.6 their colour used to carry
+    ctx.globalAlpha = opacity * 0.3 * 0.6;
     ctx.beginPath();
     var barbs = 5;
     for (var i = 0; i < barbs; i++) {
@@ -54,7 +74,7 @@ function drawFeather(ctx, x, y, size, angle, opacity) {
         spineX + size * 0.55 * (1 - t * 0.3), spineY + size * 0.3
       );
     }
-    ctx.strokeStyle = 'rgba(139, 148, 158, 0.6)';
+    ctx.strokeStyle = colors.line;
     ctx.lineWidth = Math.max(0.4, size * 0.05);
     ctx.stroke();
   }
@@ -98,6 +118,7 @@ function createVortex(canvas, featherCount, sizeMultiplier, speedMultiplier) {
   function draw() {
     ctx.clearRect(0, 0, w, h);
     t += 0.016;
+    var colors = vortexColors(canvas);
 
     // Sort by radius for depth (inner = behind)
     var sorted = feathers.slice().sort(function(a, b) {
@@ -129,7 +150,7 @@ function createVortex(canvas, featherCount, sizeMultiplier, speedMultiplier) {
       opacity *= (0.4 + rNorm * 0.6);
       opacity = Math.max(0.05, Math.min(0.95, opacity));
 
-      drawFeather(ctx, x, y, drawSize, tangent, opacity);
+      drawFeather(ctx, x, y, drawSize, tangent, opacity, colors);
     }
 
     // Reduced motion: leave the first frame on the canvas and stop here

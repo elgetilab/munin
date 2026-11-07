@@ -278,6 +278,13 @@ describe('KnowledgePage', () => {
       render(<KnowledgePage tagCatalog={CATALOG} onChatWithTag={vi.fn()} />);
       await waitFor(() => expect(papersTile('Papers (approx.)')).toHaveTextContent('12'));
     });
+
+    it('stays up when the map reply is an empty object', async () => {
+      server.use(http.get('/api/embedding_map', () => HttpResponse.json({})));
+      render(<KnowledgePage tagCatalog={CATALOG} onChatWithTag={vi.fn()} />);
+      await waitFor(() => expect(papersTile('Papers (approx.)')).toHaveTextContent('12'));
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
   });
 
   it('says Show less once every research group is shown', async () => {
