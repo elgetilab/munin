@@ -95,7 +95,7 @@ function ArtifactWidget({ artifact, conversationId }: { artifact: ArtifactRef; c
   }, [conversationId, id, version]);
 
   if (failed) return <ArtifactCard artifact={artifact} note="preview unavailable" />;
-  if (!spec || !conversationId) return <div data-testid="artifact-preview-loading" className="h-32 max-w-md rounded-lg bg-bg-secondary border border-border" />;
+  if (!spec || !conversationId) return <PreviewLoading />;
   return (
     <ProteinViewer
       spec={spec}
@@ -128,22 +128,41 @@ function ArtifactPreview({ artifact, conversationId }: { artifact: ArtifactRef; 
   // The message outlives the sandbox's copy of the file, which is gone after a
   // reset and, on a lite host, after a restart.
   if (failed) return <ArtifactCard artifact={artifact} note="preview unavailable" />;
-  if (!src) return <div data-testid="artifact-preview-loading" className="h-32 max-w-md rounded-lg bg-bg-secondary border border-border" />;
+  if (!src) return <PreviewLoading />;
   return (
     <button
       type="button"
       data-testid="artifact-preview"
       onClick={open}
       title={`Open ${artifact.title}`}
-      className="block max-w-full rounded-lg overflow-hidden border border-border hover:border-accent transition-colors cursor-pointer bg-white"
+      aria-label={`Open ${artifact.title}`}
+      className="block max-w-full rounded-lg overflow-hidden border border-border hover:border-accent transition-colors cursor-pointer bg-bg-secondary text-left"
     >
       <img
         src={src}
         alt={artifact.title}
         loading="lazy"
         onError={() => setFailed(true)}
-        className="block max-w-full max-h-96 object-contain"
+        className="block max-w-full max-h-96 object-contain bg-white"
       />
+      {/* w-0 min-w-full: a long name truncates to the image's width rather than widening it. */}
+      <span data-testid="artifact-preview-caption" className="flex items-center gap-3 w-0 min-w-full px-3 py-1.5 border-t border-border">
+        <span className="min-w-0 flex-1 text-[11px] text-text-secondary truncate">{artifact.title}</span>
+        <span className="shrink-0 text-[11px] text-accent">Open</span>
+      </span>
     </button>
+  );
+}
+
+function PreviewLoading() {
+  return (
+    <div
+      data-testid="artifact-preview-loading"
+      role="status"
+      aria-busy="true"
+      className="h-32 max-w-md flex items-center justify-center rounded-lg bg-bg-secondary border border-border text-xs text-text-secondary"
+    >
+      Loading preview...
+    </div>
   );
 }

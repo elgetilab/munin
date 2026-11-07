@@ -197,7 +197,7 @@ describe('ArtifactPanel downloads', () => {
     await openSandboxFile('model.ckpt', 'application/octet-stream');
     await screen.findByRole('button', { name: 'Download' });
     expect(screen.queryByRole('button', { name: 'Copy' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'PDF' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save as PDF' })).not.toBeInTheDocument();
   });
 
   it('says so when the sandbox no longer has the file', async () => {
@@ -250,7 +250,7 @@ describe('ArtifactPanel failed actions', () => {
     useUiStore.setState({ selectedArtifactId: 'a1' });
     await screen.findByText('Some analysis here.');
 
-    await user.click(screen.getByRole('button', { name: 'PDF' }));
+    await user.click(screen.getByRole('button', { name: 'Save as PDF' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('allow pop-ups');
     expect(screen.getByText('Some analysis here.')).toBeInTheDocument();
@@ -410,7 +410,7 @@ describe('ArtifactPanel edit mode', () => {
 
   it('takes the controls that act on the saved content away', async () => {
     await openEditor(userEvent.setup());
-    for (const name of ['Copy', 'Download', 'PDF']) {
+    for (const name of ['Copy', 'Download', 'Save as PDF']) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
     }
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();

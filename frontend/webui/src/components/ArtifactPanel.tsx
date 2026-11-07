@@ -383,7 +383,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
                     onClick={handleDownloadPdf}
                     className="px-2 py-1 text-xs text-text-secondary hover:text-accent transition-colors cursor-pointer"
                   >
-                    PDF
+                    Save as PDF
                   </button>
                 )}
               </div>}
@@ -575,7 +575,7 @@ function ArtifactContent({ artifact, conversationId, downloading, onDownload }: 
           conversationId={conversationId}
           artifactId={artifact.id}
           version={artifact.version}
-          heightClass="h-[60vh]"
+          heightClass="h-[min(60vh,100vw)]"
         />
       );
     }

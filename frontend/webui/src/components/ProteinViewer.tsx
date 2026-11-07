@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { fetchArtifactStructure } from '../lib/api';
 import { PROTEIN_COLORS, PROTEIN_STYLES, type ProteinColor, type ProteinSpec, type ProteinStyle } from '../lib/artifactDisplay';
 import { buildWidgetDocument } from '../lib/widgetDocument';
@@ -56,6 +56,53 @@ function databaseUrl(spec: ProteinSpec): string {
   return spec.source === 'alphafold'
     ? `https://alphafold.ebi.ac.uk/entry/${id}`
     : `https://www.rcsb.org/structure/${id}`;
+}
+
+// The bands and colours match confidenceColor in widgets/proteinRuntime.js.
+const CONFIDENCE_BANDS = [
+  { label: 'Very high (90+)', color: '#0053d6' },
+  { label: 'Confident (70-90)', color: '#65cbf3' },
+  { label: 'Low (50-70)', color: '#ffdb13' },
+  { label: 'Very low (<50)', color: '#ff7d45' },
+];
+
+// What the current colouring means, following widgets/proteinRuntime.js.
+function ColorLegend({ color, source, highlighted }: { color: ProteinColor; source: ProteinSpec['source']; highlighted: boolean }) {
+  let scheme: ReactNode;
+  if (color === 'bfactor' && source === 'alphafold') {
+    scheme = CONFIDENCE_BANDS.map(band => (
+      <span key={band.label} className="inline-flex items-center gap-1">
+        <span aria-hidden="true" className="inline-block w-2 h-2 rounded-sm" style={{ background: band.color }} />
+        {band.label}
+      </span>
+    ));
+  } else {
+    scheme = {
+      spectrum: 'Blue N-terminus to red C-terminus',
+      chain: 'One color per chain',
+      secondary: 'Red helices, yellow sheets, green loops',
+      bfactor: 'Blue low B-factor to red high',
+    }[color];
+  }
+  return (
+    <div data-testid="protein-legend" className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pb-2 text-[11px] text-text-secondary">
+      {scheme}
+      {highlighted && (
+        <span className="inline-flex items-center gap-1">
+          <span aria-hidden="true" className="inline-block w-2 h-2 rounded-sm" style={{ background: '#ff00ff' }} />
+          Magenta: highlighted residues
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ExternalLinkIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="inline-block ml-1 -mt-px">
+      <path d="M7 1.5h3.5V5M10.5 1.5 5.5 6.5M9 7.5v2.5a.5.5 0 0 1-.5.5h-6.5a.5.5 0 0 1-.5-.5V3.5a.5.5 0 0 1 .5-.5H4.5" />
+    </svg>
+  );
 }
 
 export function ProteinViewer({ spec, title, conversationId, artifactId, version, heightClass = 'h-80', onExpand }: ProteinViewerProps) {
@@ -141,7 +188,7 @@ export function ProteinViewer({ spec, title, conversationId, artifactId, version
             rel="noopener noreferrer"
             className="text-xs text-text-secondary hover:text-accent transition-colors shrink-0"
           >
-            {databaseName}
+            Open in {databaseName}<ExternalLinkIcon />
           </a>
         )}
         {onExpand && (
@@ -182,7 +229,7 @@ export function ProteinViewer({ spec, title, conversationId, artifactId, version
                 rel="noopener noreferrer"
                 className="text-xs text-text-secondary hover:text-accent transition-colors underline"
               >
-                Open on {databaseName}
+                Open in {databaseName}<ExternalLinkIcon />
               </a>
             </div>
           </div>
@@ -203,6 +250,7 @@ export function ProteinViewer({ spec, title, conversationId, artifactId, version
         </button>
         <button type="button" disabled={controlsDisabled} onClick={() => setReset(r => r + 1)} className={controlClass}>Reset view</button>
       </div>
+      <ColorLegend color={color} source={spec.source} highlighted={spec.highlight.length > 0} />
     </div>
   );
 }
