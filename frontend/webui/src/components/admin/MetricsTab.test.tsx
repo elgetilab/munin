@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../../test/msw-server';
@@ -302,8 +302,12 @@ describe('MetricsTab rendering', () => {
     const legend = screen.getAllByText('chat_turn')[0];
     expect(legend.style.color).toBe('var(--chart-1)');
 
-    const bars = container.querySelectorAll('.recharts-bar-rectangle path');
-    expect(bars[0]).toHaveAttribute('fill', 'var(--chart-1)');
+    // jsdom never runs the bars' grow-in, so the bar chart is checked by its legend:
+    // the icon is drawn in the bar's own fill.
+    const barChart = container.querySelector('.recharts-bar')?.closest('.recharts-wrapper') as HTMLElement;
+    const barLegend = within(barChart).getByText('paper');
+    expect(barLegend.style.color).toBe('var(--chart-1)');
+    expect(barLegend.closest('.recharts-legend-item')?.querySelector('.recharts-legend-icon')).toHaveAttribute('fill', 'var(--chart-1)');
 
     // No fixed dark hex is left in the drawn SVG.
     expect(container.innerHTML).not.toMatch(/#(30363d|8b949e|1a1f26|e6edf3|58a6ff)/i);

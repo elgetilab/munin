@@ -114,6 +114,27 @@ describe('cluster colours', () => {
     }
   });
 
+  // A chosen chip sits on accent/15 over the panel.
+  it('gives every light chip dot 3:1 on a chosen chip', () => {
+    const chosen = over(hex(lightTokens['--color-accent']), 0.15 * 255, hex(lightTokens['--color-bg-secondary']));
+    for (const color of CLUSTER_COLORS.light) {
+      expect(contrast(color, chosen), color.join()).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  // Darkening every colour alike made some pairs near twins. No light pair may sit
+  // closer than the closest pair in dark.
+  it('keeps light colours at least as far apart as dark ones', () => {
+    const closest = (set: Rgb[]) => {
+      let min = Infinity;
+      set.forEach((a, i) => set.slice(i + 1).forEach(b => {
+        min = Math.min(min, Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]));
+      }));
+      return min;
+    };
+    expect(closest(CLUSTER_COLORS.light)).toBeGreaterThanOrEqual(closest(CLUSTER_COLORS.dark));
+  });
+
   it('cycles past twenty and tolerates odd ids', () => {
     expect(clusterColor(20, 'light')).toEqual(clusterColor(0, 'light'));
     expect(clusterColor(-2, 'dark')).toEqual(CLUSTER_COLORS.dark[18]);

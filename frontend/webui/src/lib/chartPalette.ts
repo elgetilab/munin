@@ -43,12 +43,16 @@ const CLUSTER_DARK: Rgb[] = [
   [45, 212, 191],   // teal-light
 ];
 
-// Light: the same hues, darker, so that every dot reaches 3:1 on the map's
-// background (#e9edf1) at the light alpha. Lowest is 3.20:1 (orange-light).
+// Light: hand-tuned, not a straight scale. The same hues, darker, so every dot
+// reaches 3:1 on the map's background (--color-bg-tertiary, #e9edf1) at the light
+// alpha (lowest 3.36:1, lime) and every chip dot 3:1 on its chip. The pairs that a
+// plain darkening made near twins (amber and orange, cyan and sky, orange and
+// orange-light, teal and teal-light) are pulled apart, so no two colours sit
+// closer than the closest pair in dark. chartPalette.test.ts checks all of this.
 const CLUSTER_LIGHT: Rgb[] = [
   [79, 70, 229],    // indigo
   [4, 120, 87],     // emerald
-  [180, 83, 9],     // amber
+  [168, 90, 6],     // amber
   [220, 38, 38],    // red
   [37, 99, 235],    // blue
   [147, 51, 234],   // purple
@@ -58,14 +62,14 @@ const CLUSTER_LIGHT: Rgb[] = [
   [77, 124, 15],    // lime
   [14, 116, 144],   // cyan
   [192, 38, 211],   // fuchsia
-  [161, 98, 7],     // yellow
+  [128, 104, 0],    // yellow (olive gold)
   [21, 128, 61],    // green
   [225, 29, 72],    // rose
   [67, 56, 202],    // violet
-  [3, 105, 161],    // sky
-  [204, 79, 10],    // orange-light
+  [2, 98, 178],     // sky
+  [146, 64, 14],    // orange-light (brown)
   [63, 98, 18],     // lime-light
-  [11, 128, 116],   // teal-light
+  [17, 94, 89],     // teal-light (deep teal)
 ];
 
 export const CLUSTER_COLORS: Record<Theme, Rgb[]> = { dark: CLUSTER_DARK, light: CLUSTER_LIGHT };
