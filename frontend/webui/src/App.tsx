@@ -54,8 +54,8 @@ const SESSION_STARTED_KEY = 'munin_session_started';
 const PILL_BASE = 'text-xs px-2.5 py-1 rounded-full whitespace-nowrap md:whitespace-normal transition-colors cursor-pointer border';
 const PILL_OFF = 'bg-bg-tertiary border-border text-text-secondary hover:text-text-primary';
 const PILL_ACCENT = 'bg-accent/15 border-accent text-accent';
-// Light shows the ✕ at full strength: at 80% it falls under 4.5:1 on the banner's tint.
-const DISMISS_BUTTON = 'flex-shrink-0 min-w-8 min-h-8 -my-1 flex items-center justify-center opacity-80 [[data-theme=light]_&]:opacity-100 hover:opacity-100 transition-opacity cursor-pointer text-xs';
+// The ✕ stays at full strength: faded, it falls under 4.5:1 on the banner's tint.
+const DISMISS_BUTTON = 'flex-shrink-0 min-w-8 min-h-8 -my-1 flex items-center justify-center rounded hover:bg-current/10 transition-colors cursor-pointer text-xs';
 
 // From xl up the artifact panel sits beside controls that can take it away.
 function mayDropArtifactDraft(): boolean {

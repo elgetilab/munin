@@ -292,8 +292,8 @@ export function EmbeddingMapView({ mapData, loading, error, onRetry, onNavigateT
                   style={{ backgroundColor: clusterCss(cluster.id, theme) }}
                 />
                 <span className="truncate max-w-32">{cluster.label}</span>
-                {/* Faded in dark as before. In light the fade drops under 4.5:1. */}
-                <span className="text-[10px] tabular-nums opacity-60 [[data-theme=light]_&]:opacity-100">{cluster.size}</span>
+                {/* Not faded: at 60% it drops under 4.5:1 in both themes. */}
+                <span className="text-[10px] tabular-nums">{cluster.size}</span>
               </button>
             );
           })}

@@ -138,7 +138,7 @@ function TagResultList({ result, highlight, onSelect, gutter, empty }: {
                       {item.kind === 'group' ? 'group' : item.kind === 'contributor' ? 'person' : 'topic'}
                     </span>
                     <span className="flex-1 truncate">{item.label}</span>
-                    <span className={`text-xs whitespace-nowrap ${item.paperCount === 0 ? 'text-text-secondary/50' : 'text-text-secondary'}`}>
+                    <span className="text-xs whitespace-nowrap text-text-secondary">
                       {plural(item.paperCount, 'paper')}
                     </span>
                   </button>
