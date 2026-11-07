@@ -850,7 +850,14 @@ export async function fetchTagPapers(
 export async function fetchEmbeddingMap(): Promise<EmbeddingMap> {
   const res = await apiFetch(`${API}/embedding_map`);
   if (!res.ok) throw new Error('Failed to fetch embedding map');
-  return res.json();
+  // Before the first map is built the server can reply {}. Give the page empty
+  // lists so it shows its empty state instead of crashing.
+  const data = (await res.json()) ?? {};
+  return {
+    ...data,
+    points: Array.isArray(data.points) ? data.points : [],
+    clusters: Array.isArray(data.clusters) ? data.clusters : [],
+  };
 }
 
 export async function fetchPaperEnriched(doi: string): Promise<Record<string, unknown>> {
