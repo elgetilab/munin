@@ -7,6 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Upload Papers - Munin</title>
     <link rel="stylesheet" href="/shared/style.css">
+    <script src="/shared/theme.js" defer></script>
     <link rel="stylesheet" href="https://releases.transloadit.com/uppy/v4.12.1/uppy.min.css"
           integrity="sha384-TV3wgScnuVcCKU94DU89lYCq5OZIlJ43HYxxlCoQKsL2C5jTi1tVPvKjYDSF+6nN" crossorigin="anonymous">
     <style>
@@ -83,7 +84,7 @@
             flex-shrink: 0;
         }
 
-        /* Uppy dark theme overrides */
+        /* Uppy overrides, so it uses the page's colours in either theme */
         .uppy-Dashboard-inner {
             background: var(--bg-secondary) !important;
             border-color: var(--border) !important;
@@ -118,6 +119,33 @@
         .uppy-StatusBar-content {
             color: var(--text-secondary) !important;
         }
+
+        /* Uppy's light theme greys (#757575) and blue (#1269cf) fall under 4.5:1
+           on these backgrounds, and white on its green button is 2.6:1. */
+        :root[data-theme="light"] .uppy-Dashboard-note,
+        :root[data-theme="light"] .uppy-Dashboard-Item-status,
+        :root[data-theme="light"] .uppy-StatusBar-statusSecondary {
+            color: var(--text-secondary) !important;
+        }
+        :root[data-theme="light"] .uppy-Dashboard-Item-name,
+        :root[data-theme="light"] .uppy-StatusBar-statusPrimary {
+            color: var(--text-primary) !important;
+        }
+        :root[data-theme="light"] .uppy-Dashboard-browse,
+        :root[data-theme="light"] .uppy-DashboardContent-back,
+        :root[data-theme="light"] .uppy-DashboardContent-save,
+        :root[data-theme="light"] .uppy-DashboardContent-addMore,
+        :root[data-theme="light"] .uppy-StatusBar:not(.is-waiting) .uppy-StatusBar-actionBtn--upload {
+            color: var(--accent) !important;
+        }
+        :root[data-theme="light"] .uppy-Dashboard-browse:hover,
+        :root[data-theme="light"] .uppy-Dashboard-browse:focus {
+            border-bottom-color: var(--accent) !important;
+        }
+        :root[data-theme="light"] .uppy-StatusBar.is-waiting .uppy-StatusBar-actionBtn--upload {
+            background-color: var(--accent) !important;
+            color: var(--bg-primary) !important;
+        }
     </style>
 </head>
 <body>
@@ -141,7 +169,7 @@
     <main class="container">
         <section class="upload-section">
             <h1>Upload Papers</h1>
-            <p id="upload-intro">Upload PDFs to be added to the Munin paper database. Large batches are fully supported — uploads pause and resume automatically if your connection drops.</p>
+            <p id="upload-intro">Upload PDFs to be added to the Munin paper database. Large batches are fully supported. Uploads pause and resume automatically if your connection drops.</p>
 
             <div class="info-box" id="user-box">
                 <div class="dot"></div>
@@ -171,6 +199,11 @@
     <script>
         var SUPPORT_LINK = '<a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}" style="color:var(--accent)">{{env "MUNIN_SUPPORT_EMAIL"}}</a>'
 
+        // The head script set data-theme from the saved choice.
+        function pageTheme() {
+            return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'
+        }
+
         function initUploader() {
             var uppy = new Uppy.Uppy({
                 restrictions: {
@@ -186,7 +219,13 @@
                 height: 420,
                 proudlyDisplayPoweredByUppy: false,
                 note: 'PDF files only \u00b7 Large batches supported \u00b7 Uploads resume if interrupted',
-                theme: 'dark',
+                theme: pageTheme(),
+            })
+
+            // Uppy draws its own colours, so it follows the theme switch by event.
+            document.addEventListener('munin-themechange', function () {
+                var dashboard = uppy.getPlugin && uppy.getPlugin('Dashboard')
+                if (dashboard) dashboard.setOptions({ theme: pageTheme() })
             })
 
             uppy.use(Uppy.Tus, {

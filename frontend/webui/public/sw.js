@@ -1,4 +1,4 @@
-const CACHE_NAME = 'munin-v3';
+const CACHE_NAME = 'munin-v4';
 const STATIC_ASSETS = ['/shared/style.css', '/shared/feather-vortex.js'];
 
 self.addEventListener('install', (event) => {
