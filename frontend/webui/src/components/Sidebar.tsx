@@ -11,6 +11,7 @@ import { AUTH_BASE, DOCS_URL, SEARCH_URL, SITE_HOME, UPLOAD_URL } from '../lib/u
 import { conversationPath, isModifiedClick, newChatPath } from '../lib/nav';
 import { groupByTime } from '../lib/chatGrouping';
 import { ErrorNotice } from './ui/ErrorNotice';
+import { DIALOG_BACKDROP, LOGO_FILTER } from './ui/themeClasses';
 
 // P2 #26 commit 3: user identity slots (userEmail / userName /
 // userAvatar / isAdmin) and activeProjectId pulled from stores
@@ -625,7 +626,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
           <img
             src="/shared/munin_logo_without_script.webp"
             alt="Munin"
-            className="h-7 brightness-0 invert"
+            className={`h-7 ${LOGO_FILTER}`}
           />
           <span className="text-lg font-semibold text-text-primary">Munin</span>
         </a>
@@ -956,7 +957,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       {searchOpen && (
         <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
           {/* Backdrop */}
-          <div className="absolute inset-0 bg-bg-primary/70 backdrop-blur-sm" onClick={() => closeSearch()} />
+          <div className={`absolute inset-0 ${DIALOG_BACKDROP}`} onClick={() => closeSearch()} />
 
           {/* Search panel */}
           <div {...searchModal.panelProps} className="relative w-full max-w-xl mx-4 bg-bg-secondary border border-border rounded-xl shadow-2xl overflow-hidden max-h-[60vh] flex flex-col outline-none">

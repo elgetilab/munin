@@ -1,6 +1,7 @@
 import { useId, useState, useRef, useEffect, useCallback } from 'react';
 import { reportChat } from '../lib/api';
 import { useUiStore } from '../stores/uiStore';
+import { DIALOG_BACKDROP } from './ui/themeClasses';
 
 interface ReportDialogProps {
   conversationId: string;
@@ -63,7 +64,7 @@ export function ReportDialog({ conversationId, onReported }: ReportDialogProps) 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-bg-primary/70 backdrop-blur-sm" />
+      <div className={`absolute inset-0 ${DIALOG_BACKDROP}`} />
 
       {/* Dialog */}
       <div ref={panelRef} className="relative w-full max-w-md bg-bg-secondary border border-border rounded-xl shadow-2xl overflow-hidden">

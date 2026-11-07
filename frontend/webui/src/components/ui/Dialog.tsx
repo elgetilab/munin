@@ -23,6 +23,7 @@ import type { MouseEvent, ReactNode, RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useModal } from '../../hooks/useModal';
+import { DIALOG_BACKDROP } from './themeClasses';
 
 export interface DialogProps {
   title: ReactNode;
@@ -57,7 +58,7 @@ export function Dialog({
   return createPortal(
     <div
       data-testid="dialog-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-bg-primary/70 backdrop-blur-sm"
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${DIALOG_BACKDROP}`}
       onMouseDown={onBackdropMouseDown}
       onClick={onBackdropClick}
     >
