@@ -1,6 +1,7 @@
 import { test, expect, type Frame, type Page } from '@playwright/test';
 import { installMocks } from './fixtures/mock';
 import { ev, tokens } from './fixtures/sse';
+import { cssVarColor } from './fixtures/theme';
 
 // The real viewer in a real browser: 3Dmol.js, WebGL and the sandboxed frame.
 // Only the network is mocked.
@@ -57,9 +58,13 @@ test.describe('protein viewer', () => {
     const color = viewer.getByLabel('Color');
     await expect(color).toBeFocused();
     await expect(color).toHaveClass(/outline-none/);
-    await expect(color).toHaveCSS('outline', 'rgb(88, 166, 255) solid 2px');
+    // The accent where the controls sit, so this holds in both themes, and if the
+    // viewer keeps its own dark colours it is read from there.
+    const accent = await cssVarColor(color, '--color-accent');
+    await expect(color).toHaveCSS('outline', `${accent} solid 2px`);
     await page.keyboard.press('Tab');
-    await expect(viewer.getByRole('button', { name: 'Spin' })).toHaveCSS('outline', 'rgb(88, 166, 255) solid 2px');
+    const spin = viewer.getByRole('button', { name: 'Spin' });
+    await expect(spin).toHaveCSS('outline', `${await cssVarColor(spin, '--color-accent')} solid 2px`);
   });
 
   test('renders in the message and leaves the panel closed', async ({ page }) => {

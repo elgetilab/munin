@@ -4,7 +4,22 @@ import { defineConfig, devices } from '@playwright/test';
 // production bundle served by `vite preview`, with all /api + /auth traffic
 // intercepted in-test (see e2e/fixtures/mock.ts), so no backend/GPU/auth is
 // needed and runs are deterministic.
-const PORT = 4173;
+//
+// MUNIN_E2E_PORT moves the preview server off 4173, so two runs on one machine
+// do not share (or fight over) one server: MUNIN_E2E_PORT=4180 npx playwright test
+const PORT = Number(process.env.MUNIN_E2E_PORT) || 4173;
+
+// The theme comes from the munin_theme cookie, and dark is the default without
+// one (src/lib/theme.ts). The system setting is pinned to match, so a test that
+// picks "Match system" knows what it gets. Cookies ignore ports, so this one also
+// reaches a server on MUNIN_E2E_PORT.
+const lightCookie = {
+  cookies: [{
+    name: 'munin_theme', value: 'light', domain: 'localhost', path: '/',
+    expires: -1, httpOnly: false, secure: false, sameSite: 'Lax' as const,
+  }],
+  origins: [],
+};
 
 export default defineConfig({
   testDir: './e2e',
@@ -21,7 +36,20 @@ export default defineConfig({
     actionTimeout: 10_000,
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    {
+      name: 'chromium',
+      metadata: { theme: 'dark' },
+      use: { ...devices['Desktop Chrome'], colorScheme: 'dark' },
+    },
+    {
+      // Every spec again, in light. theme.spec.ts sets the theme itself in each
+      // test, and contrast-math.spec.ts never opens a page, so both run once, above.
+      // e2e/fixtures/theme.ts reads the theme from the metadata.
+      name: 'chromium-light',
+      metadata: { theme: 'light' },
+      testIgnore: ['**/theme.spec.ts', '**/contrast-math.spec.ts'],
+      use: { ...devices['Desktop Chrome'], colorScheme: 'light', storageState: lightCookie },
+    },
   ],
   webServer: {
     command: `npm run build && npm run preview -- --port ${PORT} --strictPort`,

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { test, expect, type Page } from '@playwright/test';
 import { installMocks } from './fixtures/mock';
 import { ev, tokens } from './fixtures/sse';
+import { cssVarColor, expectProjectTheme, PALETTE } from './fixtures/theme';
 
 // Layout rules that only exist in a real browser: Tailwind's reset, the xl
 // breakpoint for the panels, and what a phone can and cannot reach.
@@ -178,24 +179,33 @@ test.describe('keyboard', () => {
     await expect(page.getByTestId('composer-attach')).toBeFocused();
   });
 
-  test('the composer draws its ring on the bubble, not across it', async ({ page }) => {
+  test('the composer draws its ring on the bubble, not across it', async ({ page }, info) => {
     await installMocks(page);
     await page.goto('/');
+    const theme = await expectProjectTheme(page, info);
     const box = page.getByTestId('composer-textarea');
     await box.focus();
     await expect(box).toHaveCSS('outline-style', 'none');
     await expect(box.locator('..')).toHaveCSS('outline-style', 'solid');
-    await expect(box.locator('..')).toHaveCSS('outline-color', 'rgb(88, 166, 255)');
+    // The accent of the theme this project runs in, pinned, so a token gone wrong
+    // fails here as well as a ring drawn in some other colour.
+    await expect(box.locator('..')).toHaveCSS('outline-color', PALETTE[theme].accent);
   });
 
   test('the composer shows one focus line, not the ring and an accent border', async ({ page }) => {
     await installMocks(page);
     await page.goto('/');
-    await page.getByTestId('composer-textarea').focus();
     const bubble = page.getByTestId('composer-textarea').locator('..');
+    const atRest = await bubble.evaluate((el) => getComputedStyle(el).borderTopColor);
+    await page.getByTestId('composer-textarea').focus();
     await bubble.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
     await expect(bubble).toHaveCSS('outline-style', 'solid');
-    await expect(bubble).not.toHaveCSS('border-top-color', 'rgb(88, 166, 255)');
+    // A negative check against a pinned dark accent would pass in light whatever
+    // the border did. So: the border keeps its resting colour, and that colour is
+    // not this theme's accent.
+    const accent = await cssVarColor(bubble, '--color-accent');
+    expect(atRest).not.toBe(accent);
+    await expect(bubble).toHaveCSS('border-top-color', atRest);
   });
 });
 
