@@ -161,3 +161,19 @@ describe('ResearchTimeline look', () => {
     expect(report.className).toContain('border-border');
   });
 });
+
+describe('ResearchTimeline finding sources', () => {
+  it('links a finding source to doi.org when it has a real DOI', () => {
+    render(<ResearchTimeline job={endedJob('done', [
+      { t: 3, type: 'note', claim: 'Linked', ref: { doi: '10.1000/xyz.1', title: 'A paper' } },
+      { t: 4, type: 'note', claim: 'Untitled', ref: { doi: 'doi:10.2000/abc' } },
+      { t: 5, type: 'note', claim: 'Bad DOI', ref: { doi: 'not-a-doi', title: 'Plain title' } },
+    ])} />);
+    const link = screen.getByRole('link', { name: 'A paper' });
+    expect(link).toHaveAttribute('href', 'https://doi.org/10.1000/xyz.1');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(screen.getByRole('link', { name: 'doi:10.2000/abc' })).toHaveAttribute('href', 'https://doi.org/10.2000/abc');
+    expect(screen.getByText(/Plain title/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Plain title' })).not.toBeInTheDocument();
+  });
+});

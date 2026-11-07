@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import type { ToolCall, AgentState, RagContext } from '../lib/types';
+import { doiUrl } from '../lib/doi';
 
 // ── SVG Icons (14x14, stroke-based, no emojis) ─────────────────────────────
 
@@ -138,15 +139,6 @@ function formatResult(result: unknown): string {
     if (typeof r.content === 'string') return plural(Math.round(r.content.length / 5), 'word');
   }
   return 'done';
-}
-
-// Not every doi field is a real DOI, and only a real one resolves.
-// Same rule as KnowledgePage's doiLink.
-function doiUrl(doi: unknown): string | null {
-  if (typeof doi !== 'string') return null;
-  const bare = doi.trim().replace(/^(https?:\/\/(dx\.)?doi\.org\/|doi:\s*)/i, '');
-  if (!/^10\.\d+\//.test(bare)) return null;
-  return `https://doi.org/${encodeURIComponent(bare).replace(/%2F/g, '/')}`;
 }
 
 function ExternalLink({ href, children }: { href: string; children: ReactNode }) {

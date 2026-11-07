@@ -142,7 +142,7 @@ describe('KnowledgePanel', () => {
       opener.focus();
       const { unmount } = render(<KnowledgePanel catalog={CATALOG} activeTags={[]} onTagsChange={vi.fn()} />);
 
-      expect(screen.getByRole('dialog', { name: 'Available Knowledge' })).toBe(screen.getByTestId('knowledge-panel'));
+      expect(screen.getByRole('dialog', { name: 'Search scope' })).toBe(screen.getByTestId('knowledge-panel'));
       expect(screen.getByRole('button', { name: 'Close knowledge panel' })).toHaveFocus();
 
       await userEvent.keyboard('{Escape}');

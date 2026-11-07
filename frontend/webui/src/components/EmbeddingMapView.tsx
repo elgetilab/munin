@@ -220,7 +220,7 @@ export function EmbeddingMapView({ mapData, loading, error, onRetry, onNavigateT
     <div className="mb-8">
       <h3 className="text-sm font-semibold text-text-primary mb-3">Paper Embedding Map</h3>
       <p className="text-xs text-text-secondary mb-3">
-        {mapData.paper_count.toLocaleString()} papers projected into 2D space. Colors represent topic clusters.
+        Paper map: each dot is a paper, and nearby dots cover similar topics. Colours show topic groups. Drag to pan, scroll to zoom, click a dot to open its topic.
       </p>
 
       {activeCluster && (
@@ -295,8 +295,7 @@ export function EmbeddingMapView({ mapData, loading, error, onRetry, onNavigateT
       {/* Cluster list */}
       <div className="mt-4">
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-xs font-medium text-text-primary">Clusters</span>
-          <span className="text-[10px] text-text-secondary">({sortedClusters.length} topics)</span>
+          <span className="text-xs font-medium text-text-primary">Clusters ({sortedClusters.length})</span>
         </div>
         <div className="flex flex-wrap gap-1.5">
           {visibleClusters.map(cluster => {
@@ -328,7 +327,7 @@ export function EmbeddingMapView({ mapData, loading, error, onRetry, onNavigateT
               onClick={() => setShowAllClusters(s => !s)}
               className="text-[11px] text-accent hover:underline px-2 py-1 cursor-pointer"
             >
-              {showAllClusters ? 'Show fewer' : `+ ${sortedClusters.length - VISIBLE_CLUSTERS} more`}
+              {showAllClusters ? 'Show less' : `+ ${sortedClusters.length - VISIBLE_CLUSTERS} more`}
             </button>
           )}
         </div>

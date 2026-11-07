@@ -126,7 +126,7 @@ export function KnowledgePanel({ catalog, activeTags, onTagsChange }: KnowledgeP
     <div {...modal.panelProps} data-testid="knowledge-panel" className="fixed inset-0 z-40 w-full flex flex-col bg-bg-secondary xl:static xl:z-auto xl:w-72 xl:flex-shrink-0 xl:border-l xl:border-border xl:h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <h3 id={modal.titleId} className="text-sm font-semibold text-text-primary">Available Knowledge</h3>
+        <h3 id={modal.titleId} className="text-sm font-semibold text-text-primary">Search scope</h3>
         <button
           ref={closeRef}
           aria-label="Close knowledge panel"

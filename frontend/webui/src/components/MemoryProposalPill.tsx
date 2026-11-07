@@ -37,7 +37,7 @@ function humaniseKey(key: string): string {
 export function MemoryProposalPill({ proposal, onDismiss }: Props) {
   const [busy, setBusy] = useState<'accept' | 'reject' | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
-  const setToast = useUiStore(s => s.setToast);
+  const showToast = useUiStore(s => s.showToast);
 
   const handleAccept = async () => {
     if (busy) return;
@@ -50,8 +50,7 @@ export function MemoryProposalPill({ proposal, onDismiss }: Props) {
       setBusy(null);
       return;
     }
-    setToast('Saved to memory');
-    setTimeout(() => setToast(null), 4000);
+    showToast('Saved to memory', 4000);
     onDismiss(proposal.id);
   };
   const handleReject = async () => {

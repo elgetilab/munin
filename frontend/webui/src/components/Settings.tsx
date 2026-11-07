@@ -309,7 +309,7 @@ print(response.choices[0].message.content)`;
   // The gateway counts only API-key traffic against the limit. `requests`
   // also counts browser chat, so the API-only figure is used when present.
   const apiRequests = usage
-    ? (usage.current_month as { api_requests?: number }).api_requests ?? usage.current_month.requests
+    ? usage.current_month.api_requests ?? usage.current_month.requests
     : 0;
   const usagePercent = usage && usage.current_month.tokens_limit > 0
     ? Math.min(100, (usage.current_month.tokens_used / usage.current_month.tokens_limit) * 100)

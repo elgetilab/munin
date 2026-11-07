@@ -163,6 +163,9 @@ export interface UsageStats {
     tokens_limit: number;
     tokens_remaining: number;
     requests: number;
+    /** API-key requests only; `requests` also counts browser chat. */
+    api_requests?: number;
+    chat_tokens?: number;
     tools_used: Record<string, number>;
   };
   api_keys: {

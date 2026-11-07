@@ -4,6 +4,7 @@ import type { DeepResearchJob, ResearchEvent } from '../stores/deepResearchStore
 import { isActive } from '../stores/deepResearchStore';
 import { cancelDeepResearch } from '../lib/api';
 import { friendlyError } from '../lib/modelError';
+import { doiUrl } from '../lib/doi';
 
 // Shared look for the action buttons on the cards in a conversation (plan,
 // memory, clarification, Continue, research). Kept the same in each card file;
@@ -28,6 +29,22 @@ interface ToolRow {
   summary?: string; outcome?: string; read_depth?: string; tier?: string; done: boolean;
 }
 interface Note { claim: string; ref?: { doi?: string; title?: string }; tier?: string }
+
+// The source of a finding: its title (or DOI when untitled), linked to
+// doi.org when the DOI is a real one.
+function NoteRef({ doi, title }: { doi?: string; title?: string }) {
+  const label = title || doi;
+  if (!label) return null;
+  const href = doiUrl(doi);
+  return (
+    <span className="text-[11px]">
+      {' · '}
+      {href
+        ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline wrap-anywhere">{label}</a>
+        : label}
+    </span>
+  );
+}
 
 function derive(events: ResearchEvent[]) {
   const plan: Record<string, PlanItem> = {};
@@ -205,7 +222,7 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
             {notes.map((n, i) => (
               <li key={i} data-testid="research-note" className="text-sm text-text-secondary">
                 <span className="text-text-primary">{n.claim}</span>
-                {n.ref?.title && <span className="text-[11px]"> · {n.ref.title}</span>}
+                <NoteRef doi={n.ref?.doi} title={n.ref?.title} />
                 <TierBadge tier={n.tier} />
               </li>
             ))}
