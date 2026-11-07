@@ -67,3 +67,27 @@ describe('DemoDeck outlook', () => {
     expect(screen.getByTestId('demo-next')).toBeDisabled();
   });
 });
+
+describe('DemoDeck theme', () => {
+  afterEach(() => document.documentElement.removeAttribute('data-theme'));
+
+  it('follows the presenter\'s theme instead of pinning one', () => {
+    document.documentElement.setAttribute('data-theme', 'light');
+    renderDeck(0);
+    expect(document.documentElement).toHaveAttribute('data-theme', 'light');
+    expect(screen.getByTestId('demo-deck')).toHaveClass('bg-bg-primary', 'text-text-primary');
+    expect(screen.getByTestId('demo-deck').closest('[data-theme]')).toBe(document.documentElement);
+  });
+
+  it('keeps a disabled Back or Next readable: tertiary text, not faded', () => {
+    renderDeck(3);
+    const next = screen.getByTestId('demo-next');
+    const back = screen.getByRole('button', { name: 'Back' });
+    expect(next).toBeDisabled();
+    expect(back).toBeEnabled();
+    for (const button of [next, back]) {
+      expect(button.className).not.toMatch(/opacity/);
+      expect(button).toHaveClass('disabled:text-text-tertiary', 'disabled:border-transparent', 'enabled:hover:text-text-primary');
+    }
+  });
+});

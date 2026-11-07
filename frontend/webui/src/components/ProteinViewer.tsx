@@ -82,13 +82,17 @@ const CONFIDENCE_BANDS = [
   { label: 'Very low (<50)', color: '#ff7d45' },
 ];
 
+// The pale swatches (light blue, yellow, orange) are under 3:1 on a light card, so
+// light mode outlines them: border-input, 4.27:1 on bg-secondary. Dark is unchanged.
+const SWATCH = 'inline-block w-2 h-2 rounded-sm ring-border-input in-data-[theme=light]:ring-1';
+
 // What the current colouring means, following widgets/proteinRuntime.js.
 function ColorLegend({ color, source, highlighted }: { color: ProteinColor; source: ProteinSpec['source']; highlighted: boolean }) {
   let scheme: ReactNode;
   if (color === 'bfactor' && source === 'alphafold') {
     scheme = CONFIDENCE_BANDS.map(band => (
       <span key={band.label} className="inline-flex items-center gap-1">
-        <span aria-hidden="true" className="inline-block w-2 h-2 rounded-sm" style={{ background: band.color }} />
+        <span aria-hidden="true" className={SWATCH} style={{ background: band.color }} />
         {band.label}
       </span>
     ));
@@ -105,7 +109,7 @@ function ColorLegend({ color, source, highlighted }: { color: ProteinColor; sour
       {scheme}
       {highlighted && (
         <span className="inline-flex items-center gap-1">
-          <span aria-hidden="true" className="inline-block w-2 h-2 rounded-sm" style={{ background: '#ff00ff' }} />
+          <span aria-hidden="true" className={SWATCH} style={{ background: '#ff00ff' }} />
           Magenta: highlighted residues
         </span>
       )}
