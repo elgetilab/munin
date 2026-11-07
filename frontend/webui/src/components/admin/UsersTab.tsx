@@ -264,8 +264,8 @@ export function UsersTab() {
 function RoleBadge({ role }: { role: AdminRole }) {
   const colors: Record<AdminRole, string> = {
     user: 'bg-text-secondary/15 text-text-secondary',
-    group_leader: 'bg-yellow-400/15 text-yellow-300',
-    admin: 'bg-accent/20 text-accent',
+    group_leader: 'bg-yellow-400/15 text-yellow-300 [[data-theme=light]_&]:text-warning',
+    admin: 'bg-accent/20 text-accent [[data-theme=light]_&]:text-accent-hover',
   };
   return (
     <span className={`inline-block whitespace-nowrap text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded ${colors[role]}`}>

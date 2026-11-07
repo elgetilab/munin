@@ -114,11 +114,11 @@ export function AdminPanel() {
         {needsLiveData && !loading && activity && usage && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
             <div className="bg-bg-secondary border border-border rounded-lg px-4 py-3">
-              <div className="text-2xl font-bold text-green-400">{activity.online.length}</div>
+              <div className="text-2xl font-bold text-green-400 [[data-theme=light]_&]:text-success">{activity.online.length}</div>
               <div className="text-xs text-text-secondary">Online now</div>
             </div>
             <div className="bg-bg-secondary border border-border rounded-lg px-4 py-3">
-              <div className="text-2xl font-bold text-yellow-400">{activity.recent.length}</div>
+              <div className="text-2xl font-bold text-yellow-400 [[data-theme=light]_&]:text-warning">{activity.recent.length}</div>
               <div className="text-xs text-text-secondary">{RECENT_LABEL}</div>
             </div>
             <div className="bg-bg-secondary border border-border rounded-lg px-4 py-3">

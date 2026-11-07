@@ -10,11 +10,11 @@
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#0f1419">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <!-- black, not black-translucent: translucent draws the page under white status
-         text with no safe-area padding, which is unreadable on the light theme and
-         covers the header in both. iOS reads this once at launch, so it cannot
-         follow the theme. -->
-    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <!-- black-translucent puts white status-bar text over the page header, which
+         is hard to read on the light theme. iOS reads it once at launch, so it
+         cannot follow the theme; changing it to black changes the dark home-screen
+         app too, so that is left as an open decision. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="apple-touch-icon" href="/icons/munin-192.png">
   </head>
   <body>
