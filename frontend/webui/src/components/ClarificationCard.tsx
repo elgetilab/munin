@@ -1,11 +1,6 @@
 import { useState } from 'react';
 import type { Clarification } from '../lib/types';
-
-// Shared look for the action buttons on the cards in a conversation (plan,
-// memory, clarification, Continue, research). Kept the same in each card file;
-// at least 36px tall on touch screens.
-const BTN = 'inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default pointer-coarse:min-h-9';
-const BTN_PRIMARY = `${BTN} bg-accent text-bg-primary hover:bg-accent-hover`;
+import { BTN_PRIMARY } from './ui/cardButton';
 
 interface ClarificationCardProps {
   clarification: Clarification;

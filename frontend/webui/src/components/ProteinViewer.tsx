@@ -79,7 +79,7 @@ function ColorLegend({ color, source, highlighted }: { color: ProteinColor; sour
   } else {
     scheme = {
       spectrum: 'Blue N-terminus to red C-terminus',
-      chain: 'One color per chain',
+      chain: 'One colour per chain',
       secondary: 'Red helices, yellow sheets, green loops',
       bfactor: 'Blue low B-factor to red high',
     }[color];

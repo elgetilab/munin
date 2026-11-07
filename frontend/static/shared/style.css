@@ -34,10 +34,10 @@
  *         <a href="https://docs.example.org">Docs</a> |
  *         <a href="mailto:support@example.org">Support</a>
  *       </p>
- *
- *   Pages with a footer also load /shared/support-widget.js.
  *     </div>
  *   </footer>
+ *
+ *   Pages with a footer also load /shared/support-widget.js.
  */
 
 /* ── CSS Variables ───────────────────────────────────────────────────────────── */

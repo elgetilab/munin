@@ -82,7 +82,7 @@ print(response.choices[0].message.content)`;
   const [fullName, setFullName] = useState(profile.full_name);
   const [nickname, setNickname] = useState(profile.nickname);
   const [avatar, setAvatar] = useState(profile.avatar);
-  // The picture as last saved, to flag a change that still needs Save changes.
+  // The picture as last saved, to flag a change that still needs Save.
   const [savedAvatar, setSavedAvatar] = useState(profile.avatar);
   const [avatarError, setAvatarError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -317,7 +317,7 @@ print(response.choices[0].message.content)`;
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="max-w-lg mx-auto px-6 py-10">
+      <div className="max-w-xl mx-auto px-6 py-10">
         {/* Header */}
         <div className="flex items-center justify-between gap-3 mb-8">
           <h2 className="text-xl font-semibold text-text-primary">Settings</h2>
@@ -375,7 +375,7 @@ print(response.choices[0].message.content)`;
           </div>
           {avatarError && <p role="alert" className="text-xs text-error mt-2">{avatarError}</p>}
           {avatar !== savedAvatar && (
-            <p className="text-xs text-warning mt-2">Not saved yet. Use Save changes below.</p>
+            <p className="text-xs text-warning mt-2">Not saved yet. Use Save below.</p>
           )}
         </div>
 
@@ -422,7 +422,9 @@ print(response.choices[0].message.content)`;
           disabled={saving}
           className="px-5 py-2 bg-accent text-bg-primary rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50"
         >
-          {saving ? 'Saving...' : saved ? 'Saved' : 'Save changes'}
+          {/* Two Save buttons share this page, so each names its section for
+              screen readers. */}
+          {saving ? 'Saving...' : saved ? 'Saved' : 'Save'}{' '}<span className="sr-only">account</span>
         </button>
         {saveError && <ErrorNotice message={saveError} className="mt-3" />}
 
@@ -527,7 +529,7 @@ print(response.choices[0].message.content)`;
             disabled={muninSaving || muninLoad !== 'ready'}
             className="px-5 py-2 bg-accent text-bg-primary rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50"
           >
-            {muninSaving ? 'Saving...' : muninSaved ? 'Saved' : 'Save profile'}
+            {muninSaving ? 'Saving...' : muninSaved ? 'Saved' : 'Save'}{' '}<span className="sr-only">Munin profile</span>
           </button>
           {muninProfile && (
             <button

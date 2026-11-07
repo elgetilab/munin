@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import type { Plan, PlanItem, PlanItemStatus } from '../lib/types';
 import { approvePlan, rejectPlan, editPlan } from '../lib/api';
 import { ErrorNotice } from './ui/ErrorNotice';
+import { BTN_PRIMARY, BTN_SECONDARY, BTN_QUIET, ICON } from './ui/cardButton';
 
 /**
  * Inline plan card (P2 #24).
@@ -29,24 +30,12 @@ interface Props {
   onAfterEdit?: () => void;
 }
 
-// Line icons in the TaskLog style (14x14, stroke) rather than emoji, which
-// differ by platform and are not all the same width.
-const ICON = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
-
 const STATUS_ICON: Record<PlanItemStatus, ReactNode> = {
   pending: <svg {...ICON}><circle cx="12" cy="12" r="9" /></svg>,
   in_progress: <svg {...ICON} className="motion-safe:animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>,
   done: <svg {...ICON}><polyline points="20 6 9 17 4 12" /></svg>,
   cancelled: <svg {...ICON}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>,
 };
-
-// Shared look for the action buttons on the cards in a conversation (plan,
-// memory, clarification, Continue, research). Kept the same in each card file;
-// at least 36px tall on touch screens.
-const BTN = 'inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default pointer-coarse:min-h-9';
-const BTN_PRIMARY = `${BTN} bg-accent text-bg-primary hover:bg-accent-hover`;
-const BTN_SECONDARY = `${BTN} border border-border text-text-secondary hover:bg-bg-tertiary hover:text-text-primary`;
-const BTN_QUIET = `${BTN} text-text-secondary hover:bg-bg-tertiary hover:text-text-primary`;
 
 const STATUS_LABEL: Record<PlanItemStatus, string> = {
   pending: 'pending',

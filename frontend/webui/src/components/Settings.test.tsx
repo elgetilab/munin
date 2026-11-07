@@ -106,14 +106,14 @@ describe('Settings', () => {
       expect(input.value).toBe('');
     });
 
-    it('says a changed picture is not saved until Save changes', async () => {
+    it('says a changed picture is not saved until Save', async () => {
       const user = userEvent.setup();
       server.use(http.patch('*/auth/me', async ({ request }) => HttpResponse.json({ ...PROFILE, ...(await request.json() as object) })));
       const { container } = renderSettings();
       const small = new File([new Uint8Array(10)], 'me.png', { type: 'image/png' });
       await user.upload(fileInput(container), small);
       expect(await screen.findByText(/Not saved yet/)).toBeInTheDocument();
-      await user.click(screen.getByRole('button', { name: 'Save changes' }));
+      await user.click(screen.getByRole('button', { name: 'Save account' }));
       await waitFor(() => expect(screen.queryByText(/Not saved yet/)).not.toBeInTheDocument());
     });
   });
@@ -196,9 +196,9 @@ describe('Settings', () => {
   });
 
   describe('Munin profile load', () => {
-    const saveButton = () => screen.getByRole('button', { name: 'Save profile' });
+    const saveButton = () => screen.getByRole('button', { name: 'Save Munin profile' });
 
-    it('keeps Save profile off and sends nothing when the load fails', async () => {
+    it('keeps the profile Save off and sends nothing when the load fails', async () => {
       const user = userEvent.setup();
       let saves = 0;
       server.use(
@@ -212,7 +212,7 @@ describe('Settings', () => {
       expect(saves).toBe(0);
     });
 
-    it('keeps Save profile off while the profile is still loading', async () => {
+    it('keeps the profile Save off while the profile is still loading', async () => {
       let finish!: () => void;
       const held = new Promise<void>(resolve => { finish = resolve; });
       server.use(http.get('/api/profile', async () => {
@@ -226,7 +226,7 @@ describe('Settings', () => {
       expect(screen.getByDisplayValue('stored')).toBeInTheDocument();
     });
 
-    it('allows Save profile when no profile exists yet', async () => {
+    it('allows the profile Save when no profile exists yet', async () => {
       server.use(http.get('/api/profile', () => new HttpResponse(null, { status: 404 })));
       renderSettings();
       await waitFor(() => expect(saveButton()).toBeEnabled());
@@ -254,7 +254,7 @@ describe('Settings', () => {
       const user = userEvent.setup();
       server.use(http.patch('*/auth/me', () => new HttpResponse(null, { status: 500 })));
       renderSettings();
-      await user.click(screen.getByRole('button', { name: 'Save changes' }));
+      await user.click(screen.getByRole('button', { name: 'Save account' }));
       expect(await screen.findByText(/Could not save your changes/)).toBeInTheDocument();
     });
 

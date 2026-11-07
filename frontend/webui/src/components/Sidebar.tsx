@@ -295,8 +295,11 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     return () => { cancelled = true; };
   }, [reloadKey, refreshKey]);
 
-  // Nothing else tells the sidebar that a background turn has ended.
-  const anyGenerating = [...chats, ...pinnedFiled, ...Object.values(projectChats).flat()].some(c => c.generating);
+  // Nothing else tells the sidebar that a background turn has ended. Only the
+  // expanded project's list is re-read by load(), so a collapsed project's
+  // cached list is left out: its stale flag would otherwise poll forever.
+  const visibleProjectChats = expandedProject ? projectChats[expandedProject] ?? [] : [];
+  const anyGenerating = [...chats, ...pinnedFiled, ...visibleProjectChats].some(c => c.generating);
   useEffect(() => {
     if (!anyGenerating) return;
     const timer = setInterval(load, GENERATING_POLL_MS);
