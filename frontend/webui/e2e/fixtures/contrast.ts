@@ -242,6 +242,19 @@ function walk({ mathSrc, root, ignore }: WalkOptions): ContrastReport {
 
   const visible = (el: Element) =>
     el.checkVisibility({ opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true });
+  // Text for screen readers only (sr-only), or inside something folded shut: a
+  // box of a pixel or less that clips what overflows it, or a clip-path that
+  // cuts it all away. Nobody sees it, so its colours do not matter.
+  const clippedAway = (el: Element) => {
+    for (let e: Element | null = el; e && e !== document.body; e = e.parentElement) {
+      const cs = getComputedStyle(e);
+      if (cs.clipPath === 'inset(50%)') return true;
+      if (cs.overflow === 'visible' && cs.clip === 'auto') continue;
+      const r = e.getBoundingClientRect();
+      if (r.width <= 1 || r.height <= 1) return true;
+    }
+    return false;
+  };
   const excluded = (el: Element) =>
     (ignore.length > 0 && el.closest(ignore.join(','))) ||
     el.closest(':disabled, [aria-disabled="true"], [inert]');
@@ -262,6 +275,7 @@ function walk({ mathSrc, root, ignore }: WalkOptions): ContrastReport {
   }
   for (const [el, texts] of byParent) {
     if (!visible(el)) continue;
+    if (clippedAway(el)) { skip('visually hidden'); continue; }
     if (excluded(el)) { skip('disabled or ignored'); continue; }
     if (inEndless(el)) { skip('animating'); continue; }
     for (const t of texts) {

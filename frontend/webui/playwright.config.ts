@@ -6,12 +6,12 @@ import { defineConfig, devices } from '@playwright/test';
 // needed and runs are deterministic.
 //
 // MUNIN_E2E_PORT moves the preview server off 4173, so two runs on one machine
-// do not share (or fight over) one server.
+// do not share (or fight over) one server: MUNIN_E2E_PORT=4180 npx playwright test
 const PORT = Number(process.env.MUNIN_E2E_PORT) || 4173;
 
 // The theme comes from the munin_theme cookie, and dark is the default without
-// one (src/lib/theme.ts). The system setting is pinned too, so a test that picks
-// "Match system" knows what it gets. Cookies ignore ports, so this one also
+// one (src/lib/theme.ts). The system setting is pinned to match, so a test that
+// picks "Match system" knows what it gets. Cookies ignore ports, so this one also
 // reaches a server on MUNIN_E2E_PORT.
 const lightCookie = {
   cookies: [{
@@ -36,12 +36,18 @@ export default defineConfig({
     actionTimeout: 10_000,
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'], colorScheme: 'dark' } },
+    {
+      name: 'chromium',
+      metadata: { theme: 'dark' },
+      use: { ...devices['Desktop Chrome'], colorScheme: 'dark' },
+    },
     {
       // Every spec again, in light. theme.spec.ts sets the theme itself in each
-      // test, so it runs once, above.
+      // test, and contrast-math.spec.ts never opens a page, so both run once, above.
+      // e2e/fixtures/theme.ts reads the theme from the metadata.
       name: 'chromium-light',
-      testIgnore: '**/theme.spec.ts',
+      metadata: { theme: 'light' },
+      testIgnore: ['**/theme.spec.ts', '**/contrast-math.spec.ts'],
       use: { ...devices['Desktop Chrome'], colorScheme: 'light', storageState: lightCookie },
     },
   ],
