@@ -3,12 +3,28 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../test/msw-server';
 import { DemoDeck } from './DemoDeck';
+import { _resetSessionForTests, isSessionEnded } from '../lib/session';
+import { AUTH_BASE } from '../lib/urls';
 
 function renderDeck(slide: number, onSlide = vi.fn(), extra: Record<string, unknown> = {}) {
   server.use(http.get('/demo/demo.json', () => HttpResponse.json({ projectId: null, savedResearchChat: null, cards: [], ...extra })));
   render(<DemoDeck slide={slide} onSlide={onSlide} offline={false} onRun={vi.fn()} onOpenChat={vi.fn()} />);
   return onSlide;
 }
+
+describe('DemoDeck and an ended session', () => {
+  afterEach(() => _resetSessionForTests());
+
+  it('reports it when demo.json is refused, so the sign-in notice shows', async () => {
+    _resetSessionForTests();
+    server.use(
+      http.get(`${AUTH_BASE}/auth/me`, () => new HttpResponse(null, { status: 401 })),
+      http.get('/demo/demo.json', () => new HttpResponse(null, { status: 401 })),
+    );
+    render(<DemoDeck slide={0} onSlide={vi.fn()} offline={false} onRun={vi.fn()} onOpenChat={vi.fn()} />);
+    await waitFor(() => expect(isSessionEnded()).toBe(true));
+  });
+});
 
 describe('DemoDeck layout', () => {
   it('keeps the top of a tall slide reachable on a short screen', () => {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { apiFetch } from '../lib/api';
 
 // Four-slide presenter deck at /demo. It is unlinked on purpose: the presenter
 // opens the URL, and the live cards on slide 3 hand over to a real chat. Prompts
@@ -50,7 +51,7 @@ export function DemoDeck({ slide, onSlide, offline, onRun, onOpenChat }: Props) 
 
   useEffect(() => {
     // The service worker serves static files cache-first; the query defeats that.
-    fetch(`/demo/demo.json?v=${Date.now()}`)
+    apiFetch(`/demo/demo.json?v=${Date.now()}`)
       .then(r => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
       .then(setConfig)
       .catch(() => setConfigError(true));
