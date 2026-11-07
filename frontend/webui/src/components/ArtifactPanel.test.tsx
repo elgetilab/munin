@@ -377,6 +377,9 @@ describe('ArtifactPanel protein artifacts', () => {
     renderPanel([summary]);
     useUiStore.setState({ selectedArtifactId: 'p1' });
     await screen.findByTestId('protein-viewer');
+    // The viewer fetches the structure itself. Let that finish first, or on a
+    // slow machine it also gets the failure below and the message shows twice.
+    await screen.findByTitle('3D structure: 1CRN structure');
     server.use(http.get('/api/chats/:cid/artifacts/:aid/structure', () => HttpResponse.json(
       { detail: { error: { message: 'no PDB entry 1CRN' } } }, { status: 502 },
     )));
