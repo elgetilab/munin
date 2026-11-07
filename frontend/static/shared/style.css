@@ -55,6 +55,34 @@
     --success: #3fb950;
     --warning: #d29922;
     --error: #f85149;
+    --text-tertiary: #808891;
+    --scrim: rgb(0 0 0 / 0.6);
+    /* The logo files are a black raven, so dark pages turn it white. */
+    --logo-filter: brightness(0) invert(1);
+    color-scheme: dark;
+}
+
+/* Light theme. The inline head script sets data-theme from the munin_theme cookie
+   before this file loads. Keep in step with webui/src/index.css, which uses
+   --color-* names for the same values. Contrast figures are in
+   docs/UI-POLISH-AND-LIGHT-MODE.md. */
+:root[data-theme="light"] {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f6f8fa;
+    --bg-tertiary: #e9edf1;
+    --text-primary: #1f2429;
+    --text-secondary: #57606a;
+    --text-tertiary: #656d76;
+    --accent: #0a5cb8;
+    --accent-hover: #084c99;
+    --border: #d0d7de;
+    --border-input: #6e7781;
+    --success: #196b2e;
+    --warning: #7a5300;
+    --error: #b81c28;
+    --scrim: rgb(31 36 41 / 0.4);
+    --logo-filter: none;
+    color-scheme: light;
 }
 
 /* ── Reset & Base ────────────────────────────────────────────────────────────── */

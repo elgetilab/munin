@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "./styles/code.css";
+@import "./styles/charts.css";
 
 @theme {
   --color-bg-primary: #0f1419;
@@ -13,6 +15,55 @@
   --color-success: #3fb950;
   --color-warning: #d29922;
   --color-error: #f85149;
+  --color-border-input: #6e7681;
+  --color-scrim: rgb(0 0 0 / 0.6);
+}
+
+/* Light theme. The inline head script in index.html sets data-theme from the
+   munin_theme cookie before CSS loads (src/lib/theme.ts). Unlayered, so it beats
+   Tailwind's theme layer. Keep in step with static/shared/style.css. Contrast
+   figures are in docs/UI-POLISH-AND-LIGHT-MODE.md. */
+:root {
+  /* The logo files are a black raven, so dark pages turn it white. */
+  --logo-filter: brightness(0) invert(1);
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f6f8fa;
+  --color-bg-tertiary: #e9edf1;
+  --color-text-primary: #1f2429;
+  --color-text-secondary: #57606a;
+  --color-text-tertiary: #656d76;
+  --color-accent: #0a5cb8;
+  --color-accent-hover: #084c99;
+  --color-border: #d0d7de;
+  --color-border-input: #6e7781;
+  --color-success: #196b2e;
+  --color-warning: #7a5300;
+  --color-error: #b81c28;
+  --color-scrim: rgb(31 36 41 / 0.4);
+  --logo-filter: none;
+  color-scheme: light;
+}
+
+/* The names static/shared/style.css uses, for code that runs on both: the support
+   widget and the feather vortex. */
+:root {
+  --bg-primary: var(--color-bg-primary);
+  --bg-secondary: var(--color-bg-secondary);
+  --bg-tertiary: var(--color-bg-tertiary);
+  --text-primary: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-tertiary: var(--color-text-tertiary);
+  --accent: var(--color-accent);
+  --accent-hover: var(--color-accent-hover);
+  --border: var(--color-border);
+  --border-input: var(--color-border-input);
+  --success: var(--color-success);
+  --warning: var(--color-warning);
+  --error: var(--color-error);
+  --scrim: var(--color-scrim);
 }
 
 body {

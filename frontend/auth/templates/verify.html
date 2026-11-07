@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <!-- Sets light or dark before any CSS loads. Keep identical to static/shared/theme-snippet.html. -->
+    <script data-munin-theme>(function(){var p="dark",d=document.documentElement;try{var m=document.cookie.match(/(?:^|;\s*)munin_theme=(light|dark|system)(?:;|$)/);if(m)p=m[1]}catch(e){}var t=p;if(p==="system"){try{t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}catch(e){t="dark"}}d.setAttribute("data-theme-pref",p);d.setAttribute("data-theme",t)})()</script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Verify Code - Munin</title>
     <link rel="stylesheet" href="/shared/style.css">

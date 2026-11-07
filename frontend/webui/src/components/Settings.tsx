@@ -8,6 +8,7 @@ import { useUserStore } from '../stores/userStore';
 import { API_PUBLIC_URL } from '../lib/urls';
 import { copyText } from '../lib/copyText';
 import { ErrorNotice } from './ui/ErrorNotice';
+import { ThemePicker } from './ThemePicker';
 
 interface SettingsProps {
   profile: UserProfile;
@@ -327,6 +328,12 @@ print(response.choices[0].message.content)`;
           >
             Back to chat
           </button>
+        </div>
+
+        {/* ── Appearance ── */}
+        <h3 className="text-lg font-semibold text-text-primary mb-6">Appearance</h3>
+        <div className="mb-10">
+          <ThemePicker />
         </div>
 
         {/* ── Account Section ── */}
