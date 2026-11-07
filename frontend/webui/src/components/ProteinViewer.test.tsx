@@ -78,15 +78,36 @@ describe('ProteinViewer', () => {
     await screen.findByTestId('widget-frame');
   });
 
+  it('explains the colouring, and follows a change of colour', async () => {
+    renderViewer({ ...SPEC, color: 'spectrum', highlight: [] });
+    const legend = screen.getByTestId('protein-legend');
+    expect(legend).toHaveTextContent('Blue N-terminus to red C-terminus');
+    expect(legend).not.toHaveTextContent('Magenta');
+    const { send } = await readyFrame();
+    send({ type: 'rendered', atoms: 3 });
+    await userEvent.selectOptions(screen.getByLabelText('Color'), 'secondary');
+    expect(legend).toHaveTextContent('Red helices, yellow sheets, green loops');
+  });
+
+  it('lists the confidence bands for an AlphaFold model, and the highlight colour', async () => {
+    renderViewer({ ...SPEC, source: 'alphafold', id: 'P69905', color: 'bfactor' });
+    const legend = screen.getByTestId('protein-legend');
+    for (const band of ['Very high (90+)', 'Confident (70-90)', 'Low (50-70)', 'Very low (<50)']) {
+      expect(legend).toHaveTextContent(band);
+    }
+    expect(legend).toHaveTextContent('Magenta: highlighted residues');
+    await screen.findByTestId('widget-frame');
+  });
+
   it('links to the entry in its database', async () => {
     renderViewer();
-    expect(screen.getByRole('link', { name: 'RCSB' })).toHaveAttribute('href', 'https://www.rcsb.org/structure/1CRN');
+    expect(screen.getByRole('link', { name: 'Open in RCSB' })).toHaveAttribute('href', 'https://www.rcsb.org/structure/1CRN');
     await screen.findByTestId('widget-frame');
   });
 
   it('encodes the id in that link', async () => {
     renderViewer({ ...SPEC, id: '../x?y' });
-    expect(screen.getByRole('link', { name: 'RCSB' })).toHaveAttribute('href', 'https://www.rcsb.org/structure/..%2Fx%3Fy');
+    expect(screen.getByRole('link', { name: 'Open in RCSB' })).toHaveAttribute('href', 'https://www.rcsb.org/structure/..%2Fx%3Fy');
     await screen.findByTestId('widget-frame');
   });
 
@@ -141,7 +162,7 @@ describe('ProteinViewer', () => {
     server.use(http.get(URL_PATH, () => new HttpResponse(null, { status: 502 })));
     renderViewer();
     const alert = await screen.findByRole('alert');
-    expect(within(alert).getByRole('link', { name: 'Open on RCSB' })).toHaveAttribute('href', 'https://www.rcsb.org/structure/1CRN');
+    expect(within(alert).getByRole('link', { name: 'Open in RCSB' })).toHaveAttribute('href', 'https://www.rcsb.org/structure/1CRN');
   });
 
   it('keeps the controls disabled until the structure is drawn, and in an error', async () => {
@@ -174,7 +195,7 @@ describe('ProteinViewer', () => {
     unmount();
     renderViewer();
     expect(screen.queryByText('Crambin')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'RCSB' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open in RCSB' })).toBeInTheDocument();
     await screen.findByTestId('widget-frame');
   });
 

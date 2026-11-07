@@ -1,6 +1,6 @@
 import { useId, useState, useRef, useEffect, useCallback } from 'react';
 import { useStatus } from '../hooks/useStatus';
-import { updateProfile, fetchApiKeys, createApiKey, revokeApiKey, fetchUsageStats, fetchAnnouncement, setAnnouncement, clearAnnouncement, fetchMuninProfile, updateMuninProfile, deleteMuninProfile } from '../lib/api';
+import { updateProfile, fetchApiKeys, createApiKey, revokeApiKey, fetchUsageStats, fetchMuninProfile, updateMuninProfile, deleteMuninProfile } from '../lib/api';
 import type { UserProfile, ApiKeyInfo, UsageStats } from '../lib/api';
 import type { MuninProfile } from '../lib/types';
 import { useUiStore } from '../stores/uiStore';
@@ -44,6 +44,11 @@ const TIMEZONES = [...new Set([
   ...(typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : COMMON_TIMEZONES),
 ])];
 
+// The picture is stored as a data URL in the profile, so it has to stay small.
+const AVATAR_LIMIT_BYTES = 150_000;
+
+type CopyState = 'idle' | 'copied' | 'failed';
+
 function deviceTimezone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
@@ -57,16 +62,29 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
   // carries it. Falls back to the reference model while loading.
   const status = useStatus(300000);
   const servedModel = status?.vllm?.model || 'qwen3.8-27b';
+  const quickStart = `from openai import OpenAI
+
+client = OpenAI(
+    api_key="sk-munin-...",
+    base_url="${API_PUBLIC_URL}"
+)
+
+response = client.chat.completions.create(
+    model="${servedModel}",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+
+print(response.choices[0].message.content)`;
   const fieldId = useId();
   const setShowSettings = useUiStore(s => s.setShowSettings);
-  const setBanner = useUiStore(s => s.setAnnouncement);
-  const setBannerDismissed = useUiStore(s => s.setAnnouncementDismissed);
   const onClose = () => setShowSettings(false);
-  const isAdmin = useUserStore(s => s.isAdmin);
   const personas = useUserStore(s => s.personas);
   const [fullName, setFullName] = useState(profile.full_name);
   const [nickname, setNickname] = useState(profile.nickname);
   const [avatar, setAvatar] = useState(profile.avatar);
+  // The picture as last saved, to flag a change that still needs Save.
+  const [savedAvatar, setSavedAvatar] = useState(profile.avatar);
+  const [avatarError, setAvatarError] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -77,7 +95,8 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
   const [newKeyName, setNewKeyName] = useState('');
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [creatingKey, setCreatingKey] = useState(false);
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const [copyState, setCopyState] = useState<CopyState>('idle');
+  const [snippetCopyState, setSnippetCopyState] = useState<CopyState>('idle');
   const [keysLoad, setKeysLoad] = useState<'loading' | 'ready' | 'failed'>('loading');
   const [keyError, setKeyError] = useState('');
 
@@ -98,13 +117,7 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
   const [muninLoad, setMuninLoad] = useState<'loading' | 'ready' | 'failed'>('loading');
   const [muninReloadKey, setMuninReloadKey] = useState(0);
 
-  // Admin announcement state
-  const [announcementText, setAnnouncementText] = useState('');
-  const [announcementLevel, setAnnouncementLevel] = useState<'info' | 'warning' | 'error'>('info');
-  const [announcementSaving, setAnnouncementSaving] = useState(false);
-  const [announcementStatus, setAnnouncementStatus] = useState('');
-
-  // Four independent reads, each owning its own failure so one server
+  // Three independent reads, each owning its own failure so one server
   // problem cannot blank the whole page. They live in the effects rather
   // than in callbacks the effects call, which means no setState runs
   // synchronously when an effect fires (react-hooks/set-state-in-effect)
@@ -149,23 +162,11 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
 
   useEffect(() => {
     let cancelled = false;
-
     fetchUsageStats()
       .then(res => { if (!cancelled) setUsage(res); })
       .catch(() => { /* silently fail */ });
-
-    if (isAdmin) {
-      fetchAnnouncement()
-        .then(a => {
-          if (cancelled || !a) return;
-          setAnnouncementText(a.message);
-          setAnnouncementLevel(a.level);
-        })
-        .catch(() => {});
-    }
-
     return () => { cancelled = true; };
-  }, [isAdmin]);
+  }, []);
 
   const retryKeysLoad = () => {
     setKeysLoad('loading');
@@ -179,11 +180,14 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // Cleared so that choosing the same file again still fires a change.
+    e.target.value = '';
     if (!file) return;
-    if (file.size > 150_000) {
-      alert('Image must be under 150KB');
+    if (file.size > AVATAR_LIMIT_BYTES) {
+      setAvatarError(`That image is ${Math.ceil(file.size / 1000)} KB. Choose one up to 150 KB.`);
       return;
     }
+    setAvatarError('');
     const reader = new FileReader();
     reader.onload = () => {
       setAvatar(reader.result as string);
@@ -202,6 +206,7 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
         avatar: avatar,
       });
       onUpdate(updated);
+      setSavedAvatar(avatar);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {
@@ -283,6 +288,15 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
     }
   };
 
+  const handleCopySnippet = async () => {
+    if (await copyText(quickStart)) {
+      setSnippetCopyState('copied');
+      setTimeout(() => setSnippetCopyState(s => (s === 'copied' ? 'idle' : s)), 2000);
+    } else {
+      setSnippetCopyState('failed');
+    }
+  };
+
   const handleKeySaved = () => {
     setCreatedKey(null);
     setCopyState('idle');
@@ -292,15 +306,20 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
   const initials = (fullName || profile.email)[0].toUpperCase();
   const activeKeys = apiKeys.filter(k => !k.revoked);
   const revokedKeys = apiKeys.filter(k => k.revoked);
+  // The gateway counts only API-key traffic against the limit. `requests`
+  // also counts browser chat, so the API-only figure is used when present.
+  const apiRequests = usage
+    ? usage.current_month.api_requests ?? usage.current_month.requests
+    : 0;
   const usagePercent = usage && usage.current_month.tokens_limit > 0
     ? Math.min(100, (usage.current_month.tokens_used / usage.current_month.tokens_limit) * 100)
     : 0;
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="max-w-lg mx-auto px-6 py-10">
+      <div className="max-w-xl mx-auto px-6 py-10">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between gap-3 mb-8">
           <h2 className="text-xl font-semibold text-text-primary">Settings</h2>
           <button
             onClick={onClose}
@@ -310,7 +329,8 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
           </button>
         </div>
 
-        {/* ── Profile Section ── */}
+        {/* ── Account Section ── */}
+        <h3 className="text-lg font-semibold text-text-primary mb-6">Account</h3>
 
         {/* Profile picture */}
         <div className="mb-8">
@@ -334,9 +354,10 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
               >
                 Upload photo
               </button>
+              <p className="text-[11px] text-text-secondary mt-1">Image up to 150 KB</p>
               {avatar && (
                 <button
-                  onClick={() => setAvatar('')}
+                  onClick={() => { setAvatar(''); setAvatarError(''); }}
                   aria-label="Remove profile picture"
                   className="block text-xs text-text-secondary hover:text-error transition-colors cursor-pointer mt-1"
                 >
@@ -352,6 +373,10 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
               className="hidden"
             />
           </div>
+          {avatarError && <p role="alert" className="text-xs text-error mt-2">{avatarError}</p>}
+          {avatar !== savedAvatar && (
+            <p className="text-xs text-warning mt-2">Not saved yet. Use Save below.</p>
+          )}
         </div>
 
         {/* Full name */}
@@ -397,7 +422,9 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
           disabled={saving}
           className="px-5 py-2 bg-accent text-bg-primary rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50"
         >
-          {saving ? 'Saving...' : saved ? 'Saved' : 'Save changes'}
+          {/* Two Save buttons share this page, so each names its section for
+              screen readers. */}
+          {saving ? 'Saving...' : saved ? 'Saved' : 'Save'}{' '}<span className="sr-only">account</span>
         </button>
         {saveError && <ErrorNotice message={saveError} className="mt-3" />}
 
@@ -405,9 +432,9 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
         <div className="border-t border-border my-10" />
 
         {/* ── Munin Profile Section ── */}
-        <h3 className="text-lg font-semibold text-text-primary mb-2">Munin Profile</h3>
+        <h3 className="text-lg font-semibold text-text-primary mb-2">How Munin works with you</h3>
         <p className="text-sm text-text-secondary mb-6">
-          Tell Munin about yourself and how you'd like it to respond. This is injected into every conversation to personalize responses.
+          Tell Munin about yourself and how you'd like it to respond. Munin reads this at the start of every chat.
         </p>
 
         {muninLoad === 'failed' && (
@@ -454,14 +481,18 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
         {personas.length > 0 && (
           <div className="mb-6">
             <label htmlFor={`${fieldId}-persona`} className="block text-sm text-text-secondary mb-2">Default persona</label>
+            <p id={`${fieldId}-persona-help`} className="text-[11px] text-text-secondary mb-2">
+              A persona is a preset way for Munin to work, such as general chat or coding. New chats start with this one. A project can set its own.
+            </p>
             <select
               id={`${fieldId}-persona`}
+              aria-describedby={`${fieldId}-persona-help`}
               value={defaultPersona}
               onChange={e => setDefaultPersona(e.target.value)}
               disabled={muninLoad !== 'ready'}
               className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent transition-colors cursor-pointer disabled:opacity-50"
             >
-              <option value="">None (use system default)</option>
+              <option value="">None (Munin picks for each chat)</option>
               {personas.map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
@@ -498,7 +529,7 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
             disabled={muninSaving || muninLoad !== 'ready'}
             className="px-5 py-2 bg-accent text-bg-primary rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50"
           >
-            {muninSaving ? 'Saving...' : muninSaved ? 'Saved' : 'Save profile'}
+            {muninSaving ? 'Saving...' : muninSaved ? 'Saved' : 'Save'}{' '}<span className="sr-only">Munin profile</span>
           </button>
           {muninProfile && (
             <button
@@ -520,7 +551,9 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
           Use API keys to access Munin from scripts, notebooks, or any OpenAI-compatible client. Keys are tied to your email ({profile.email}).
         </p>
         <div className="text-xs text-text-secondary mb-6 flex flex-wrap gap-x-4 gap-y-1">
-          <span>100M tokens/month</span>
+          {usage && usage.current_month.tokens_limit > 0 && (
+            <span>{formatTokens(usage.current_month.tokens_limit)} tokens/month</span>
+          )}
           <span>No request-rate or concurrency limit</span>
         </div>
 
@@ -528,7 +561,7 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
         {usage && (
           <div className="mb-6 p-4 bg-bg-secondary border border-border rounded-lg">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-text-secondary">Monthly usage</span>
+              <span className="text-sm text-text-secondary">Monthly API usage (browser chat is not counted)</span>
               <span className="text-sm text-text-primary">
                 {formatTokens(usage.current_month.tokens_used)} / {formatTokens(usage.current_month.tokens_limit)} tokens
               </span>
@@ -547,7 +580,7 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
               />
             </div>
             <div className="flex items-center gap-4 mt-2 text-xs text-text-secondary">
-              <span>{usage.current_month.requests} requests this month</span>
+              <span>{apiRequests} API requests this month</span>
             </div>
           </div>
         )}
@@ -675,95 +708,22 @@ export function Settings({ profile, onUpdate }: SettingsProps) {
 
         {/* Quick start snippet */}
         <div className="mb-6">
-          <h4 className="text-sm font-medium text-text-primary mb-3">Quick start</h4>
-          <pre className="bg-bg-secondary border border-border rounded-lg p-4 text-xs text-text-secondary overflow-x-auto whitespace-pre">{`from openai import OpenAI
-
-client = OpenAI(
-    api_key="sk-munin-...",
-    base_url="${API_PUBLIC_URL}"
-)
-
-response = client.chat.completions.create(
-    model="${servedModel}",
-    messages=[{"role": "user", "content": "Hello!"}]
-)
-
-print(response.choices[0].message.content)`}</pre>
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <h4 className="text-sm font-medium text-text-primary">Quick start</h4>
+            <button
+              onClick={handleCopySnippet}
+              aria-label={snippetCopyState === 'copied' ? 'Copied quick start code' : 'Copy quick start code'}
+              className="px-3 py-1 bg-bg-primary border border-border rounded-lg text-xs text-text-secondary hover:text-text-primary transition-colors cursor-pointer flex-shrink-0"
+            >
+              {snippetCopyState === 'copied' ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+          {/* Wrapped rather than scrolled, so the whole call shows on a phone. */}
+          <pre className="bg-bg-secondary border border-border rounded-lg p-4 text-xs text-text-secondary whitespace-pre-wrap wrap-anywhere">{quickStart}</pre>
+          <p role="status" className="text-xs text-error mt-2">
+            {snippetCopyState === 'failed' && 'Copy failed. Select the code above and copy it by hand.'}
+          </p>
         </div>
-
-        {/* ── Admin Section ── */}
-        {isAdmin && (
-          <>
-            <div className="border-t border-border my-10" />
-            <h3 className="text-lg font-semibold text-text-primary mb-2">Admin: Announcement</h3>
-            <p className="text-sm text-text-secondary mb-4">
-              Set a banner message for all users on the chat page. People who already have Munin open see the change after reloading. Leave empty and save to clear.
-            </p>
-
-            <div className="mb-4">
-              <textarea
-                value={announcementText}
-                onChange={e => setAnnouncementText(e.target.value)}
-                placeholder="e.g. Cluster maintenance scheduled for tomorrow 8:00 AM"
-                aria-label="Announcement message"
-                rows={2}
-                className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-accent transition-colors resize-none"
-              />
-            </div>
-
-            <div role="group" aria-labelledby={`${fieldId}-level`} className="flex items-center gap-3 mb-4">
-              <span id={`${fieldId}-level`} className="text-sm text-text-secondary">Level:</span>
-              {(['info', 'warning', 'error'] as const).map(level => (
-                <button
-                  key={level}
-                  onClick={() => setAnnouncementLevel(level)}
-                  aria-pressed={announcementLevel === level}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
-                    announcementLevel === level
-                      ? level === 'error' ? 'bg-error/20 text-error border border-error'
-                        : level === 'warning' ? 'bg-warning/20 text-warning border border-warning'
-                        : 'bg-accent/20 text-accent border border-accent'
-                      : 'bg-bg-tertiary text-text-secondary border border-border hover:border-text-secondary'
-                  }`}
-                >
-                  {level}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex items-center gap-3">
-              <button
-                onClick={async () => {
-                  setAnnouncementSaving(true);
-                  setAnnouncementStatus('');
-                  try {
-                    if (announcementText.trim()) {
-                      await setAnnouncement(announcementText.trim(), announcementLevel);
-                      setBanner({ message: announcementText.trim(), level: announcementLevel, updated_at: new Date().toISOString() });
-                      setBannerDismissed(false);
-                      setAnnouncementStatus('Announcement set');
-                    } else {
-                      await clearAnnouncement();
-                      setBanner(null);
-                      setAnnouncementStatus('Announcement cleared');
-                    }
-                    setTimeout(() => setAnnouncementStatus(''), 3000);
-                  } catch {
-                    setAnnouncementStatus('Failed');
-                  }
-                  setAnnouncementSaving(false);
-                }}
-                disabled={announcementSaving}
-                className="px-5 py-2 bg-accent text-bg-primary rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50"
-              >
-                {announcementSaving ? 'Saving...' : announcementText.trim() ? 'Set announcement' : 'Clear announcement'}
-              </button>
-              {announcementStatus && (
-                <span className="text-sm text-text-secondary">{announcementStatus}</span>
-              )}
-            </div>
-          </>
-        )}
       </div>
     </div>
   );

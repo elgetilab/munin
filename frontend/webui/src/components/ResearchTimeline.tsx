@@ -4,6 +4,11 @@ import type { DeepResearchJob, ResearchEvent } from '../stores/deepResearchStore
 import { isActive } from '../stores/deepResearchStore';
 import { cancelDeepResearch } from '../lib/api';
 import { friendlyError } from '../lib/modelError';
+import { doiUrl } from '../lib/doi';
+import { BTN_SECONDARY, BTN_QUIET, ICON } from './ui/cardButton';
+
+const SEARCH_ICON = <svg {...ICON}><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>;
+const PAGE_ICON = <svg {...ICON}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>;
 
 // Renders a Deep Research job's durable event log inline in the conversation:
 // a plan checklist, a tool card per search / paper read, the notes it found, and
@@ -16,6 +21,22 @@ interface ToolRow {
   summary?: string; outcome?: string; read_depth?: string; tier?: string; done: boolean;
 }
 interface Note { claim: string; ref?: { doi?: string; title?: string }; tier?: string }
+
+// The source of a finding: its title (or DOI when untitled), linked to
+// doi.org when the DOI is a real one.
+function NoteRef({ doi, title }: { doi?: string; title?: string }) {
+  const label = title || doi;
+  if (!label) return null;
+  const href = doiUrl(doi);
+  return (
+    <span className="text-[11px]">
+      {' · '}
+      {href
+        ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline wrap-anywhere">{label}</a>
+        : label}
+    </span>
+  );
+}
 
 function derive(events: ResearchEvent[]) {
   const plan: Record<string, PlanItem> = {};
@@ -172,7 +193,7 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
             <ul className="space-y-1.5">
               {rows.map((r, i) => (
                 <li key={r.id + i} data-testid="research-tool-row" className="flex items-start gap-2 text-xs">
-                  <span className="text-text-secondary shrink-0">{r.name === 'search' ? '🔍' : '📄'}</span>
+                  <span aria-hidden="true" className="text-text-secondary shrink-0 mt-px">{r.name === 'search' ? SEARCH_ICON : PAGE_ICON}</span>
                   <span className="flex-1 min-w-0">
                     <span className="text-text-primary">{r.name === 'search' ? `Searched: ${r.query || ''}` : `Read: ${r.title || ''}`}</span>
                     {r.summary && <span className="text-text-secondary"> · {r.summary}</span>}
@@ -193,7 +214,7 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
             {notes.map((n, i) => (
               <li key={i} data-testid="research-note" className="text-sm text-text-secondary">
                 <span className="text-text-primary">{n.claim}</span>
-                {n.ref?.title && <span className="text-[11px]"> · {n.ref.title}</span>}
+                <NoteRef doi={n.ref?.doi} title={n.ref?.title} />
                 <TierBadge tier={n.tier} />
               </li>
             ))}
@@ -213,7 +234,7 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
               data-testid="research-cancel"
               onClick={handleCancel}
               disabled={cancelState === 'cancelling'}
-              className="text-accent hover:underline cursor-pointer disabled:text-text-secondary disabled:no-underline disabled:cursor-default"
+              className={BTN_QUIET}
             >
               {cancelState === 'cancelling' ? 'Cancelling…' : 'Cancel'}
             </button>
@@ -222,7 +243,7 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
             )}
           </span>
         ) : reportId ? (
-          <button data-testid="research-report-link" onClick={openReport} className="text-xs text-accent hover:underline cursor-pointer">
+          <button data-testid="research-report-link" onClick={openReport} className={BTN_SECONDARY}>
             View the full report →
           </button>
         ) : job.status === 'error' ? (

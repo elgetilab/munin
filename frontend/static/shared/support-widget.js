@@ -204,9 +204,28 @@
       #munin-support-btn {
         bottom: 16px;
         right: 16px;
-        width: 40px;
-        height: 40px;
-        font-size: 18px;
+      }
+      /* Room under the page footer, so the button does not cover its text */
+      body > footer {
+        padding-bottom: 76px;
+      }
+      #munin-support-panel .sp-close {
+        min-width: 44px;
+        min-height: 44px;
+        margin: -12px -12px -12px 0;
+        font-size: 20px;
+      }
+      #munin-support-panel .sp-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        font-size: 14px;
+      }
+      /* Under 16px, iOS Safari zooms the page when a field gets focus */
+      #munin-support-panel input,
+      #munin-support-panel textarea {
+        font-size: 16px;
       }
       #munin-support-panel {
         max-width: none;

@@ -181,3 +181,12 @@ describe('ClarificationCard', () => {
     expect(onSubmit).toHaveBeenCalledWith('Q1: Which dataset?\nA1: ImageNet');
   });
 });
+
+describe('ClarificationCard look', () => {
+  it('gives Submit the shared primary button look, with a touch height', () => {
+    render(<ClarificationCard clarification={baseClarification} onSubmit={vi.fn()} />);
+    const submit = screen.getByRole('button', { name: 'Submit' });
+    expect(submit.className).toContain('bg-accent');
+    expect(submit.className).toContain('pointer-coarse:min-h-9');
+  });
+});

@@ -110,3 +110,15 @@ describe('MemoryProposalPill', () => {
     await waitFor(() => expect(dismissed).toEqual(['p-1']));
   });
 });
+
+describe('MemoryProposalPill look', () => {
+  it('matches the other cards: Save primary, Dismiss secondary, both with a touch height', () => {
+    render(<MemoryProposalPill proposal={PROPOSAL} onDismiss={() => {}} />);
+    const save = screen.getByRole('button', { name: 'Accept memory' });
+    const dismiss = screen.getByRole('button', { name: 'Reject memory' });
+    expect(save.className).toContain('bg-accent');
+    expect(dismiss.className).not.toContain('bg-accent');
+    expect(save.className).toContain('pointer-coarse:min-h-9');
+    expect(dismiss.className).toContain('pointer-coarse:min-h-9');
+  });
+});

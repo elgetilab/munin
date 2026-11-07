@@ -5,6 +5,7 @@ import { useUiStore } from '../stores/uiStore';
 import { UsersTab } from './admin/UsersTab';
 import { GroupsTab } from './admin/GroupsTab';
 import { MetricsTab } from './admin/MetricsTab';
+import { AnnouncementTab } from './admin/AnnouncementTab';
 import { ErrorNotice } from './ui/ErrorNotice';
 
 function formatTokens(n: number): string {
@@ -25,6 +26,20 @@ function timeAgo(iso: string): string {
 
 function shortEmail(email: string): string {
   return email.split('@')[0];
+}
+
+const SOURCE_LABELS: Record<string, string> = { browser: 'Browser', api_key: 'API key' };
+
+function sourceLabel(source: string): string {
+  return SOURCE_LABELS[source] ?? source;
+}
+
+// The usage period arrives as "2026-11"; show it as "November 2026".
+function formatPeriod(period: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(period);
+  if (!m) return period;
+  const date = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, 1));
+  return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 }
 
 // P2 #26 commit 2: onClose used to be a prop; App.tsx passed
@@ -85,18 +100,18 @@ export function AdminPanel() {
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-4xl mx-auto px-6 py-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between gap-3 mb-6">
           <h2 className="text-xl font-semibold text-text-primary">Admin Dashboard</h2>
           <button
             onClick={onClose}
             className="text-text-secondary hover:text-text-primary transition-colors cursor-pointer text-sm"
           >
-            &#10005; Close
+            Back to chat
           </button>
         </div>
 
-        {/* Summary cards */}
-        {!loading && activity && usage && (
+        {/* Summary cards: only on the tabs that keep them fresh. */}
+        {needsLiveData && !loading && activity && usage && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
             <div className="bg-bg-secondary border border-border rounded-lg px-4 py-3">
               <div className="text-2xl font-bold text-green-400">{activity.online.length}</div>
@@ -104,7 +119,7 @@ export function AdminPanel() {
             </div>
             <div className="bg-bg-secondary border border-border rounded-lg px-4 py-3">
               <div className="text-2xl font-bold text-yellow-400">{activity.recent.length}</div>
-              <div className="text-xs text-text-secondary">Active today</div>
+              <div className="text-xs text-text-secondary">{RECENT_LABEL}</div>
             </div>
             <div className="bg-bg-secondary border border-border rounded-lg px-4 py-3">
               <div className="text-2xl font-bold text-accent">{usage.active_users}</div>
@@ -128,12 +143,15 @@ export function AdminPanel() {
             <TabButton current={tab} value="metrics" onClick={setTab}>Metrics</TabButton>
             <TabButton current={tab} value="users" onClick={setTab}>Users</TabButton>
             <TabButton current={tab} value="groups" onClick={setTab}>Groups</TabButton>
+            <TabButton current={tab} value="announcement" onClick={setTab}>Announcement</TabButton>
           </div>
         </div>
 
         {/* Content */}
         {tab === 'users' ? (
           <UsersTab />
+        ) : tab === 'announcement' ? (
+          <AnnouncementTab />
         ) : tab === 'groups' ? (
           <GroupsTab />
         ) : tab === 'metrics' ? (
@@ -159,7 +177,11 @@ export function AdminPanel() {
   );
 }
 
-type AdminTab = 'activity' | 'usage' | 'metrics' | 'users' | 'groups';
+type AdminTab = 'activity' | 'usage' | 'metrics' | 'users' | 'groups' | 'announcement';
+
+// The gateway's "recent" list is everyone seen in the last 24 hours who is not
+// online now. The card and the Activity filter use the same words for it.
+const RECENT_LABEL = 'Recent (24h)';
 
 function TabButton({ current, value, onClick, children }: {
   current: AdminTab;
@@ -188,77 +210,77 @@ function TabButton({ current, value, onClick, children }: {
 }
 
 
+type ActivityStatus = 'online' | 'recent' | 'offline';
+type ActivityFilter = 'all' | 'online' | 'recent';
+
+const STATUS_LABELS: Record<ActivityStatus, string> = {
+  online: 'Online',
+  recent: RECENT_LABEL,
+  offline: 'Not seen in 24h',
+};
+
+// One list of tracked users, with a filter for who is online or recent, so
+// nobody is listed twice.
 function ActivityTab({ activity }: { activity: AdminActivity }) {
+  const [filter, setFilter] = useState<ActivityFilter>('all');
+  const online = new Set(activity.online.map(u => u.email));
+  const recent = new Set(activity.recent.map(u => u.email));
+  const statusOf = (email: string): ActivityStatus =>
+    online.has(email) ? 'online' : recent.has(email) ? 'recent' : 'offline';
+  const rows = activity.all_users.filter(u => filter === 'all' || statusOf(u.email) === filter);
+  const filters: { value: ActivityFilter; label: string }[] = [
+    { value: 'all', label: `All (${activity.total})` },
+    { value: 'online', label: `Online (${activity.online.length})` },
+    { value: 'recent', label: `${RECENT_LABEL} (${activity.recent.length})` },
+  ];
+
   return (
-    <div className="space-y-6">
-      {/* Online users */}
-      {activity.online.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold text-text-primary mb-2 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />
-            Online ({activity.online.length})
-          </h3>
-          <div className="bg-bg-secondary border border-border rounded-lg divide-y divide-border">
-            {activity.online.map(u => (
-              <UserRow key={u.email} user={u} status="online" />
-            ))}
-          </div>
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <h3 className="text-sm font-semibold text-text-primary">Tracked users</h3>
+        <div role="group" aria-label="Show" className="flex flex-wrap gap-1">
+          {filters.map(f => (
+            <button
+              key={f.value}
+              onClick={() => setFilter(f.value)}
+              aria-pressed={filter === f.value}
+              className={`px-2.5 py-1 rounded-lg text-xs cursor-pointer transition-colors border ${
+                filter === f.value
+                  ? 'bg-accent/20 text-accent border-accent'
+                  : 'bg-bg-tertiary text-text-secondary border-border hover:text-text-primary'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
         </div>
-      )}
-
-      {/* Recent users */}
-      {activity.recent.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold text-text-primary mb-2 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-yellow-400 inline-block" />
-            Recent ({activity.recent.length})
-          </h3>
-          <div className="bg-bg-secondary border border-border rounded-lg divide-y divide-border">
-            {activity.recent.map(u => (
-              <UserRow key={u.email} user={u} status="recent" />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* All users */}
-      <div>
-        <h3 className="text-sm font-semibold text-text-primary mb-2">
-          All tracked users ({activity.total})
-        </h3>
-        <div className="bg-bg-secondary border border-border rounded-lg divide-y divide-border max-h-[50vh] overflow-y-auto">
-          {activity.all_users.map(u => {
-            const isOnline = activity.online.some(o => o.email === u.email);
-            const isRecent = activity.recent.some(r => r.email === u.email);
-            return (
-              <UserRow
-                key={u.email}
-                user={u}
-                status={isOnline ? 'online' : isRecent ? 'recent' : 'offline'}
-              />
-            );
-          })}
-          {activity.all_users.length === 0 && (
-            <div className="px-4 py-6 text-center text-text-secondary text-sm">No activity recorded yet</div>
-          )}
-        </div>
+      </div>
+      <div className="bg-bg-secondary border border-border rounded-lg divide-y divide-border max-h-[50vh] overflow-y-auto">
+        {rows.map(u => (
+          <UserRow key={u.email} user={u} status={statusOf(u.email)} />
+        ))}
+        {activity.all_users.length === 0 ? (
+          <div className="px-4 py-6 text-center text-text-secondary text-sm">No activity recorded yet</div>
+        ) : rows.length === 0 && (
+          <div className="px-4 py-6 text-center text-text-secondary text-sm">No users match this filter</div>
+        )}
       </div>
     </div>
   );
 }
 
-function UserRow({ user, status }: { user: { email: string; last_seen_at: string; source: string }; status: 'online' | 'recent' | 'offline' }) {
+function UserRow({ user, status }: { user: { email: string; last_seen_at: string; source: string }; status: ActivityStatus }) {
   const dotColor = status === 'online' ? 'bg-green-400' : status === 'recent' ? 'bg-yellow-400' : 'bg-text-secondary/30';
   return (
     <div className="flex items-center gap-3 px-4 py-2.5">
-      <span className={`w-2 h-2 rounded-full ${dotColor} flex-shrink-0`} />
+      <span role="img" aria-label={STATUS_LABELS[status]} title={STATUS_LABELS[status]} className={`w-2 h-2 rounded-full ${dotColor} flex-shrink-0`} />
       <div className="flex-1 min-w-0">
         <div className="text-sm text-text-primary truncate">{shortEmail(user.email)}</div>
         <div className="text-[11px] text-text-secondary truncate">{user.email}</div>
       </div>
       <div className="text-right flex-shrink-0">
         <div className="text-xs text-text-secondary">{timeAgo(user.last_seen_at)}</div>
-        <div className="text-[10px] text-text-secondary/60">{user.source}</div>
+        <div className="text-[11px] text-text-secondary">{sourceLabel(user.source)}</div>
       </div>
     </div>
   );
@@ -269,7 +291,7 @@ function UsageTab({ usage }: { usage: AdminUsage }) {
     <div className="space-y-6">
       {/* Period */}
       <div className="text-sm text-text-secondary">
-        Period: <span className="text-text-primary font-medium">{usage.period}</span>
+        Period: <span className="text-text-primary font-medium">{formatPeriod(usage.period)}</span>
         {' '}&middot;{' '}
         {usage.total_requests.toLocaleString()} requests
         {' '}&middot;{' '}

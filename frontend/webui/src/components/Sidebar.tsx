@@ -42,6 +42,9 @@ type WindowWithSupport = Window & { MuninSupport?: { open: () => void } };
 const UNFILED = '__unfiled__';
 
 const PAGE_SIZE = 50;
+// How often the lists are read again while a chat in them is generating, so its
+// dot goes out when the turn ends in the background.
+const GENERATING_POLL_MS = 12_000;
 // The API refuses a larger limit.
 const API_MAX_LIMIT = 200;
 
@@ -292,6 +295,17 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     return () => { cancelled = true; };
   }, [reloadKey, refreshKey]);
 
+  // Nothing else tells the sidebar that a background turn has ended. Only the
+  // expanded project's list is re-read by load(), so a collapsed project's
+  // cached list is left out: its stale flag would otherwise poll forever.
+  const visibleProjectChats = expandedProject ? projectChats[expandedProject] ?? [] : [];
+  const anyGenerating = [...chats, ...pinnedFiled, ...visibleProjectChats].some(c => c.generating);
+  useEffect(() => {
+    if (!anyGenerating) return;
+    const timer = setInterval(load, GENERATING_POLL_MS);
+    return () => clearInterval(timer);
+  }, [anyGenerating, load]);
+
   // One-time migration from localStorage starring to backend pinning
   useEffect(() => { migrateStarredToPinned().then(load); }, [load]);
 
@@ -448,7 +462,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   };
 
   const handleDeleteProject = async (id: string) => {
-    if (!confirm('Delete this project? Conversations will be moved to Unfiled.')) return;
+    if (!confirm('Delete this project? Chats in this project will stay in your chat list.')) return;
     try {
       await deleteProject(id);
       // Nothing may go on pointing at it: the next message would be filed into a
@@ -533,6 +547,10 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       setActionMenuId(null);
       setMoveMenuId(rowId);
     },
+    onMoveBack: () => {
+      setMoveMenuId(null);
+      setActionMenuId(rowId);
+    },
     showMoveMenu: moveMenuId === rowId,
     onMenuOpenChange: (open: boolean) => {
       setMoveMenuId(id => (id === rowId ? null : id));
@@ -553,7 +571,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     : (recentChats.length > 0 ? recentChats : chats.slice(0, 10));
   const searchGroups = groupByTime(searchList);
 
-  const projectChatList = (projectId: string) => {
+  const projectChatList = (projectId: string, archived = false) => {
     const list = projectChats[projectId];
     const failed = projectChatsFailed[projectId] && !list;
     return (
@@ -564,6 +582,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
             {...chatRowProps(chat)}
             onUnfile={() => handleUnfile(chat.id, projectId)}
             isInProject={true}
+            currentProjectId={projectId}
           />
         ))}
         {failed && (
@@ -576,7 +595,20 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
           <div className="text-[11px] text-text-secondary py-2 pl-3">Loading...</div>
         )}
         {list?.length === 0 && (
-          <div className="text-[11px] text-text-secondary py-2 pl-3">No chats</div>
+          <div className="text-xs text-text-secondary py-2 pl-3 pr-2 space-y-1">
+            <p>Projects keep chats together and can share instructions.</p>
+            {!archived && onNewChatInProject && (
+              <a
+                href={newChatPath(projectId)}
+                onClick={(e) => {
+                  if (isModifiedClick(e)) return;
+                  e.preventDefault();
+                  onNewChatInProject(projectId);
+                }}
+                className="inline-block text-accent hover:text-accent-hover no-underline"
+              >New chat in this project</a>
+            )}
+          </div>
         )}
         {list && list.length < (projectTotals[projectId] ?? 0) && (
           <ShowMoreRow busy={loadingMore === projectId} onClick={() => showMore(projectId, list.length)} />
@@ -753,7 +785,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                     className={`flex-shrink-0 ${ROW_ICON_TARGET} hover:text-text-primary cursor-pointer`}
                   ><Chevron open={expandedProject === proj.id} /></button>
                 </div>
-                {expandedProject === proj.id && projectChatList(proj.id)}
+                {expandedProject === proj.id && projectChatList(proj.id, true)}
               </div>
             ))}
           </div>
@@ -783,6 +815,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                   {...chatRowProps(chat, filedIn ? `pinned:${chat.id}` : chat.id)}
                   onUnfile={filedIn ? () => handleUnfile(chat.id, filedIn) : undefined}
                   isInProject={!!filedIn}
+                  currentProjectId={filedIn ?? undefined}
                 />
               );
             })}
@@ -1074,7 +1107,7 @@ function ProjectRow({
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0" aria-hidden="true">
             <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
           </svg>
-          <span className="flex-1 truncate font-medium">{project.name}</span>
+          <span className="flex-1 truncate font-medium" title={project.name}>{project.name}</span>
           <span className="text-xs text-text-secondary">{count}</span>
           <Chevron open={expanded} />
         </button>
@@ -1192,6 +1225,8 @@ interface ChatRowProps {
   onEditComplete: (id: string) => void;
   onEditCancel: () => void;
   onMoveMenu: () => void;
+  // Back from the list of projects to the row's actions.
+  onMoveBack: () => void;
   showMoveMenu: boolean;
   // Claude-style three-dots action menu. Move to project replaces its items, so
   // only one popover is open at a time per row.
@@ -1201,24 +1236,34 @@ interface ChatRowProps {
   onMoveToProject: (projectId: string) => void;
   onUnfile?: () => void;
   isInProject: boolean;
+  // The project the chat is filed in, which Move to leaves out.
+  currentProjectId?: string;
 }
 
 function ChatRow({
   chat, isCurrent, onSelect, onDelete, onRename, onPin,
   editing, editTitle, onEditTitleChange, onEditComplete, onEditCancel,
-  onMoveMenu, showMoveMenu,
+  onMoveMenu, onMoveBack, showMoveMenu,
   onMenuOpenChange, showActionMenu,
-  projects, onMoveToProject, onUnfile, isInProject,
+  projects, onMoveToProject, onUnfile, isInProject, currentProjectId,
 }: ChatRowProps) {
   const title = chat.title || 'Untitled';
   const menu = useMenu({ open: showActionMenu || showMoveMenu, onOpenChange: onMenuOpenChange });
   useFixedMenuPosition(menu.open, menu.triggerProps.ref, menu.menuProps.ref, showMoveMenu);
+  const moveTargets = projects.filter(p => p.id !== currentProjectId);
 
-  // The item that opened the move list has gone, and focus with it.
+  // Switching between the actions and the move list removes the focused item,
+  // so focus goes to the first project, or back to Move to project.
   const menuElement = menu.menuProps.ref;
+  const wasMoving = useRef(false);
   useEffect(() => {
-    if (showMoveMenu) menuElement.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
-  }, [showMoveMenu, menuElement]);
+    if (showMoveMenu) {
+      menuElement.current?.querySelector<HTMLElement>('[data-move-target]')?.focus();
+    } else if (wasMoving.current && showActionMenu) {
+      menuElement.current?.querySelector<HTMLElement>('[data-move-menu]')?.focus();
+    }
+    wasMoving.current = showMoveMenu;
+  }, [showMoveMenu, showActionMenu, menuElement]);
 
   return (
     <div className="relative">
@@ -1244,9 +1289,10 @@ function ChatRow({
             conversation (server-derived, refreshes with the list). */}
         {chat.generating && (
           <span
+            data-testid="chat-generating"
             className="flex-shrink-0 w-2 h-2 max-md:mr-2 rounded-full bg-accent animate-pulse"
-            title="Generating…"
-          />
+            title="Generating"
+          ><span className="sr-only">Generating</span></span>
         )}
         {editing ? (
           <RenameInput
@@ -1260,6 +1306,7 @@ function ChatRow({
           <a
             href={conversationPath(chat.id)}
             className="flex-1 min-w-0 truncate no-underline text-inherit"
+            title={title}
           >{title}</a>
         )}
 
@@ -1303,17 +1350,30 @@ function ChatRow({
         <div {...menu.menuProps} aria-label={`Actions for ${title}`} className={`${MENU_PANEL} w-44`}>
           {showMoveMenu ? (
             <>
-              {isInProject && onUnfile && (
-                <button role="menuitem" onClick={() => { menu.close(); onUnfile(); }} className={MENU_ITEM}>
-                  Remove from project
+              {/* The list replaces the actions in place, so it says what it is
+                  and has a way back. */}
+              <div role="none" className="flex items-center gap-1 px-1 py-1 border-b border-border">
+                <button
+                  role="menuitem"
+                  onClick={onMoveBack}
+                  aria-label="Back"
+                  title="Back"
+                  className="min-w-6 min-h-6 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-bg-tertiary focus-visible:bg-bg-tertiary cursor-pointer"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <polyline points="15 18 9 12 15 6" />
+                  </svg>
                 </button>
-              )}
-              {projects.map(p => (
+                <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Move to</span>
+              </div>
+              {moveTargets.map(p => (
                 <button
                   key={p.id}
                   role="menuitem"
+                  data-move-target
                   onClick={() => { menu.close(); onMoveToProject(p.id); }}
                   className={`${MENU_ITEM} truncate`}
+                  title={p.name}
                 >
                   {p.name}
                 </button>
@@ -1324,9 +1384,10 @@ function ChatRow({
               <button role="menuitem" onClick={() => { menu.close(); onRename(); }} className={MENU_ITEM}>
                 Rename
               </button>
-              {projects.length > 0 && (
+              {moveTargets.length > 0 && (
                 <button
                   role="menuitem"
+                  data-move-menu
                   onClick={onMoveMenu}
                   className={`${MENU_ITEM} !flex items-center justify-between`}
                 >

@@ -104,7 +104,18 @@ export function KnowledgePage({ initialRoute, tagCatalog, onChatWithTag }: Knowl
     );
   }
 
-  const totalPapers = mapData?.paper_count ?? catalog.topics.reduce((sum, t) => sum + t.paper_count, 0);
+  // Only the map knows the real paper count. The topic sum counts a paper once
+  // per topic, so it is shown only as an estimate, and only when the map fails.
+  const topicPaperSum = catalog.topics.reduce((sum, t) => sum + t.paper_count, 0);
+  // A map reply without a count (a partial or empty body) must not take the
+  // page down, so the count is checked rather than assumed.
+  const mapPaperCount = typeof mapData?.paper_count === 'number' ? mapData.paper_count : null;
+  const totalPapers = mapPaperCount ?? topicPaperSum;
+  const papersStat: PapersStat = mapPaperCount !== null
+    ? { value: mapPaperCount.toLocaleString(), label: 'Papers' }
+    : mapLoading
+      ? { value: '–', label: 'Papers' }
+      : { value: topicPaperSum.toLocaleString(), label: 'Papers (approx.)' };
   const catalogEmpty = !mapLoading && totalPapers === 0
     && ![...catalog.groups, ...catalog.contributors, ...catalog.topics].some(item => item.paper_count > 0);
 
@@ -140,7 +151,7 @@ export function KnowledgePage({ initialRoute, tagCatalog, onChatWithTag }: Knowl
           <div hidden={view.type !== 'overview'}>
             <OverviewView
               catalog={catalog}
-              totalPapers={totalPapers}
+              papersStat={papersStat}
               mapData={mapData}
               mapLoading={mapLoading}
               mapError={mapError}
@@ -182,9 +193,14 @@ function getBrowseTitle(kind: string, slug: string, catalog: TagCatalog): string
 
 // ── Overview ─────────────────────────────────────────────────────────────────
 
-function OverviewView({ catalog, totalPapers, mapData, mapLoading, mapError, onRetryMap, onBrowse, onChatWithTag }: {
+interface PapersStat {
+  value: string;
+  label: string;
+}
+
+function OverviewView({ catalog, papersStat, mapData, mapLoading, mapError, onRetryMap, onBrowse, onChatWithTag }: {
   catalog: TagCatalog;
-  totalPapers: number;
+  papersStat: PapersStat;
   mapData: EmbeddingMap | null;
   mapLoading: boolean;
   mapError: string | null;
@@ -196,7 +212,7 @@ function OverviewView({ catalog, totalPapers, mapData, mapLoading, mapError, onR
     <div className="px-6 py-6 max-w-4xl mx-auto">
       {/* Stats bar */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <StatCard label="Papers" value={totalPapers.toLocaleString()} />
+        <StatCard label={papersStat.label} value={papersStat.value} />
         <StatCard label="Topics" value={String(catalog.topics.length)} />
         <StatCard label="Research Groups" value={String(catalog.groups.length)} />
         <StatCard label="Contributors" value={String(catalog.contributor_count ?? catalog.contributors.length)} />
@@ -275,7 +291,7 @@ function ResearchGroupsSection({ groups, onBrowse, onChatWithTag }: {
             onClick={() => setShowAll(s => !s)}
             className="text-xs text-accent hover:underline cursor-pointer"
           >
-            {showAll ? 'Show fewer' : `Show all ${groups.length} research groups`}
+            {showAll ? 'Show less' : `Show all ${groups.length} research groups`}
           </button>
         </div>
       )}
@@ -431,7 +447,7 @@ function BrowseView({ kind, slug, catalog: _catalog, onChatWithTag }: {
   const isEmpty = total === 0 && !loading && !failed;
 
   return (
-    <div className="px-6 py-4">
+    <div className="px-6 py-4 max-w-4xl mx-auto w-full">
       {/* Controls */}
       {total !== null && !isEmpty && <div className="flex items-center gap-3 mb-4">
         <span className="text-xs text-text-secondary">{total.toLocaleString()} papers</span>
@@ -550,7 +566,7 @@ function PaperRow({ paper }: { paper: TagPaper }) {
         <div className="flex flex-wrap gap-1.5 mt-2">
           {paper.contributors.map((c, i) => (
             <span key={i} className="text-[10px] px-1.5 py-0.5 bg-accent/10 text-accent rounded">
-              {c.display_name} ({c.group_display_name})
+              {c.group_display_name ? `${c.display_name} · ${c.group_display_name}` : c.display_name}
             </span>
           ))}
         </div>

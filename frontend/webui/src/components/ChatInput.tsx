@@ -7,13 +7,15 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useChatStore } from '../stores/chatStore';
 import { useDeepResearchStore } from '../stores/deepResearchStore';
 import { useMenu } from '../hooks/useMenu';
+import { ICON } from './ui/cardButton';
 
 // Router-recognized per-turn overrides (backend parse_slash: research|code|chat).
 // These force Munin's routing for one turn; otherwise it auto-routes.
+// Icons are line SVGs in the TaskLog style (14x14, stroke) rather than emoji.
 const SLASH_COMMANDS = [
-  { command: '/research', description: 'Treat this message as research', icon: '\uD83D\uDD2C' },
-  { command: '/code', description: 'Treat this message as a coding task', icon: '\uD83D\uDCBB' },
-  { command: '/chat', description: 'Treat this message as ordinary chat', icon: '\uD83D\uDCAC' },
+  { command: '/research', description: 'Treat this message as research', icon: <svg {...ICON}><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg> },
+  { command: '/code', description: 'Treat this message as a coding task', icon: <svg {...ICON}><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></svg> },
+  { command: '/chat', description: 'Treat this message as ordinary chat', icon: <svg {...ICON}><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" /></svg> },
 ] as const;
 
 // Display order of the tag menu and the knowledge picker. Results are built in
@@ -200,6 +202,9 @@ interface FileUploadState {
 }
 
 const MAX_IMAGES = 3;
+// Ids for pending images. Date.now() could repeat within one drop, and a
+// repeated id would make removing one image remove both.
+let imageSeq = 0;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB
 
 function fileToDataUrl(file: File): Promise<string> {
@@ -368,7 +373,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     }
     try {
       const dataUrl = await fileToDataUrl(file);
-      setPendingImages(prev => [...prev, { id: `img-${Date.now()}`, dataUrl, name: file.name }]);
+      // The check above reads this render's list, which a drop of several
+      // images does not update between files, so the cap is enforced here too.
+      setPendingImages(prev => {
+        if (prev.length >= MAX_IMAGES) {
+          setImageError(`Maximum ${MAX_IMAGES} images`);
+          return prev;
+        }
+        return [...prev, { id: `img-${++imageSeq}`, dataUrl, name: file.name }];
+      });
     } catch {
       setImageError('Failed to read image');
     }
@@ -646,7 +659,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             )}
             {uploadState.status === 'done' && uploadState.result && (
               <>
-                <span className="flex-shrink-0">&#128206;</span>
+                <span className="flex-shrink-0">
+                  <svg {...ICON}><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" /></svg>
+                </span>
                 <span className="flex-1 truncate">
                   {uploadState.result.filename}{' '}
                   {uploadState.result.status === 'embedded'
@@ -747,7 +762,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   i === slashHighlight ? 'bg-bg-tertiary text-text-primary' : 'text-text-secondary hover:bg-bg-tertiary'
                 }`}
               >
-                <span>{cmd.icon}</span>
+                <span className="shrink-0">{cmd.icon}</span>
                 <span className="font-mono font-medium">{cmd.command}</span>
                 <span className="text-text-secondary text-xs">{cmd.description}</span>
               </button>
@@ -791,7 +806,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         {activeCommand && (
           <div className="flex items-center gap-2 px-5 pt-3 pb-0">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-accent/15 text-accent rounded-lg text-xs font-medium">
-              <span>{activeCommand.icon}</span>
+              <span className="shrink-0">{activeCommand.icon}</span>
               {activeCommand.command.slice(1)}
             </span>
           </div>

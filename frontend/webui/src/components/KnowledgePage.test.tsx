@@ -236,6 +236,55 @@ describe('KnowledgePage', () => {
       expect(await screen.findByRole('link', { name: 'Download PDF: A paper' })).toHaveAttribute('href', '/paper/x/pdf');
       expect(screen.getByText('Download PDF')).toBeInTheDocument();
     });
+
+    it('names a contributor and their group without nested brackets', async () => {
+      renderRows({ contributors: [{ username: 'jd', display_name: 'Jane Doe', group_slug: 'elgeti', group_display_name: 'Elgeti Lab (Leipzig)', upload_time: '' }] });
+      expect(await screen.findByText('Jane Doe · Elgeti Lab (Leipzig)')).toBeInTheDocument();
+    });
+
+    it('keeps the list as wide as the overview', async () => {
+      renderRows({});
+      const row = await screen.findByRole('heading', { name: 'A paper' });
+      expect(row.closest('.max-w-4xl')).not.toBeNull();
+    });
+  });
+
+  describe('papers stat', () => {
+    const papersTile = (label: string) => screen.getByText(label).previousElementSibling;
+
+    it('shows a dash until the map gives the count', async () => {
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      server.use(http.get('/api/embedding_map', async () => {
+        await gate;
+        return HttpResponse.json({ generated_at: '', paper_count: 99, cluster_count: 0, points: [], clusters: [] });
+      }));
+      render(<KnowledgePage tagCatalog={CATALOG} onChatWithTag={vi.fn()} />);
+      expect(papersTile('Papers')).toHaveTextContent('–');
+      release();
+      await waitFor(() => expect(papersTile('Papers')).toHaveTextContent('99'));
+    });
+
+    it('marks the topic sum as approximate when the map fails', async () => {
+      server.use(http.get('/api/embedding_map', () => new HttpResponse(null, { status: 500 })));
+      render(<KnowledgePage tagCatalog={CATALOG} onChatWithTag={vi.fn()} />);
+      await screen.findByRole('alert');
+      expect(papersTile('Papers (approx.)')).toHaveTextContent('12');
+      expect(screen.queryByText('Papers')).not.toBeInTheDocument();
+    });
+
+    it('falls back to the approximate sum when the map reply has no count', async () => {
+      server.use(http.get('/api/embedding_map', () => HttpResponse.json({ generated_at: '', cluster_count: 0, points: [], clusters: [] })));
+      render(<KnowledgePage tagCatalog={CATALOG} onChatWithTag={vi.fn()} />);
+      await waitFor(() => expect(papersTile('Papers (approx.)')).toHaveTextContent('12'));
+    });
+  });
+
+  it('says Show less once every research group is shown', async () => {
+    const user = userEvent.setup();
+    render(<KnowledgePage tagCatalog={{ ...CATALOG, groups: [...CATALOG.groups, { slug: 'empty', display_name: 'Empty Lab', paper_count: 0 }] }} onChatWithTag={vi.fn()} />);
+    await user.click(await screen.findByRole('button', { name: 'Show all 2 research groups' }));
+    expect(screen.getByRole('button', { name: 'Show less' })).toBeInTheDocument();
   });
 
   describe('routing', () => {

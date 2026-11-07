@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Clarification } from '../lib/types';
+import { BTN_PRIMARY } from './ui/cardButton';
 
 interface ClarificationCardProps {
   clarification: Clarification;
@@ -121,7 +122,7 @@ export function ClarificationCard({ clarification, onSubmit, disabled }: Clarifi
           <button
             onClick={handleSubmit}
             disabled={!allAnswered || isDisabled}
-            className="px-4 py-1.5 bg-accent text-bg-primary rounded-lg text-xs font-medium hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default"
+            className={BTN_PRIMARY}
           >
             Submit
           </button>

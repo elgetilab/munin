@@ -142,3 +142,38 @@ describe('ResearchTimeline', () => {
     expect(container.querySelector('.overflow-y-auto')).toBeNull();
   });
 });
+
+describe('ResearchTimeline look', () => {
+  it('marks activity rows with a line icon, not emoji', () => {
+    render(<ResearchTimeline job={endedJob('running')} />);
+    const row = screen.getByTestId('research-tool-row');
+    expect(row.querySelector('svg')).not.toBeNull();
+    expect(row.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
+  });
+
+  it('shows Cancel and the report link as buttons with a touch height', () => {
+    const { unmount } = render(<ResearchTimeline job={endedJob('running')} />);
+    expect(screen.getByTestId('research-cancel').className).toContain('pointer-coarse:min-h-9');
+    unmount();
+    render(<ResearchTimeline job={bigJob(1, 1)} />);
+    const report = screen.getByTestId('research-report-link');
+    expect(report.className).toContain('pointer-coarse:min-h-9');
+    expect(report.className).toContain('border-border');
+  });
+});
+
+describe('ResearchTimeline finding sources', () => {
+  it('links a finding source to doi.org when it has a real DOI', () => {
+    render(<ResearchTimeline job={endedJob('done', [
+      { t: 3, type: 'note', claim: 'Linked', ref: { doi: '10.1000/xyz.1', title: 'A paper' } },
+      { t: 4, type: 'note', claim: 'Untitled', ref: { doi: 'doi:10.2000/abc' } },
+      { t: 5, type: 'note', claim: 'Bad DOI', ref: { doi: 'not-a-doi', title: 'Plain title' } },
+    ])} />);
+    const link = screen.getByRole('link', { name: 'A paper' });
+    expect(link).toHaveAttribute('href', 'https://doi.org/10.1000/xyz.1');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(screen.getByRole('link', { name: 'doi:10.2000/abc' })).toHaveAttribute('href', 'https://doi.org/10.2000/abc');
+    expect(screen.getByText(/Plain title/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Plain title' })).not.toBeInTheDocument();
+  });
+});

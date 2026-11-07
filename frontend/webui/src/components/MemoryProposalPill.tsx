@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { MemoryProposal } from '../lib/types';
 import { acceptMemoryProposal, rejectMemoryProposal } from '../lib/api';
 import { useUiStore } from '../stores/uiStore';
+import { BTN_PRIMARY, BTN_SECONDARY } from './ui/cardButton';
 
 /**
  * Renders a single auto-extracted memory candidate (P2 #25) below
@@ -30,7 +31,7 @@ function humaniseKey(key: string): string {
 export function MemoryProposalPill({ proposal, onDismiss }: Props) {
   const [busy, setBusy] = useState<'accept' | 'reject' | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
-  const setToast = useUiStore(s => s.setToast);
+  const showToast = useUiStore(s => s.showToast);
 
   const handleAccept = async () => {
     if (busy) return;
@@ -43,8 +44,7 @@ export function MemoryProposalPill({ proposal, onDismiss }: Props) {
       setBusy(null);
       return;
     }
-    setToast('Saved to memory');
-    setTimeout(() => setToast(null), 4000);
+    showToast('Saved to memory', 4000);
     onDismiss(proposal.id);
   };
   const handleReject = async () => {
@@ -80,7 +80,7 @@ export function MemoryProposalPill({ proposal, onDismiss }: Props) {
           onClick={handleAccept}
           disabled={!!busy}
           aria-label="Accept memory"
-          className="px-2 py-1 rounded text-[12px] bg-accent text-white hover:opacity-90 disabled:opacity-50 cursor-pointer"
+          className={BTN_PRIMARY}
         >
           Save
         </button>
@@ -88,7 +88,7 @@ export function MemoryProposalPill({ proposal, onDismiss }: Props) {
           onClick={handleReject}
           disabled={!!busy}
           aria-label="Reject memory"
-          className="px-2 py-1 rounded text-[12px] border border-border text-text-secondary hover:bg-bg-tertiary disabled:opacity-50 cursor-pointer"
+          className={BTN_SECONDARY}
         >
           Dismiss
         </button>

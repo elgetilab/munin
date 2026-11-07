@@ -10,6 +10,7 @@ import { PlanCard } from './PlanCard';
 import { InlineArtifacts } from './InlineArtifacts';
 import { detectPhase } from '../lib/streamPhase';
 import { rewordInterruptedMarker } from '../lib/modelError';
+import { BTN_PRIMARY } from './ui/cardButton';
 
 interface RetryingState {
   attempt: number;
@@ -350,7 +351,7 @@ function MessageBubble({ message, conversationId, onSendClarification, onDismiss
           <button
             type="button"
             onClick={onContinue}
-            className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium text-text-primary bg-bg-tertiary border border-border hover:bg-bg-secondary transition-colors"
+            className={BTN_PRIMARY}
           >
             Continue
           </button>

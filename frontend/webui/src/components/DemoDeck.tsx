@@ -18,6 +18,14 @@ interface DemoConfig {
   projectId: string | null;
   savedResearchChat: string | null;
   cards: DemoCard[];
+  // Notes about one event's setup, such as the cluster being offline. They
+  // live here, not in the slides, so the deck makes no claim when they are unset.
+  setupNote?: string;
+  benchmarkNote?: string;
+}
+
+function note(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 interface Props {
@@ -56,8 +64,8 @@ export function DemoDeck({ slide, onSlide, offline, onRun, onOpenChat }: Props) 
       <main className="flex-1 min-h-0 overflow-y-auto px-8 md:px-16 py-10 flex flex-col">
         {/* my-auto, not justify-center: a slide taller than the screen must overflow downward, or its top can't be scrolled to. */}
         <div className="max-w-6xl w-full mx-auto my-auto">
-          {slide === 0 && <SlideWhat />}
-          {slide === 1 && <SlideWhy />}
+          {slide === 0 && <SlideWhat setupNote={note(config?.setupNote)} />}
+          {slide === 1 && <SlideWhy benchmarkNote={note(config?.benchmarkNote)} />}
           {slide === 2 && (
             <SlideLive
               config={config}
@@ -93,7 +101,7 @@ export function DemoDeck({ slide, onSlide, offline, onRun, onOpenChat }: Props) 
   );
 }
 
-function SlideWhat() {
+function SlideWhat({ setupNote }: { setupNote: string | null }) {
   return (
     <div className="grid md:grid-cols-2 gap-10 items-center">
       <div>
@@ -118,8 +126,7 @@ function SlideWhat() {
           className="w-full rounded-xl border border-border"
         />
         <figcaption className="text-sm text-text-secondary mt-3">
-          The machine Munin normally runs on. It's offline tonight, so this demo
-          runs on our fallback server with a hosted model.
+          The machine Munin normally runs on.{setupNote && ` ${setupNote}`}
         </figcaption>
       </figure>
     </div>
@@ -136,7 +143,7 @@ function Stat({ value, label, detail }: { value: string; label: string; detail: 
   );
 }
 
-function SlideWhy() {
+function SlideWhy({ benchmarkNote }: { benchmarkNote: string | null }) {
   return (
     <div>
       <h1 className="text-4xl font-semibold leading-tight mb-3">Answers you can check</h1>
@@ -162,8 +169,7 @@ function SlideWhy() {
       </div>
       <p className="text-sm text-text-secondary">
         LitQA2, 199 questions; Qwen3.8-27B on the cluster with the full collection. MuninAI paper, in
-        preparation. Tonight's live demo uses a different model and a small document set, and citations
-        are always worth checking.
+        preparation.{benchmarkNote && ` ${benchmarkNote}`} Citations are always worth checking.
       </p>
     </div>
   );
