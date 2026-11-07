@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { onTestFinished } from 'vitest';
 import { http, HttpResponse } from 'msw';
@@ -1325,5 +1325,149 @@ describe('Sidebar keyboard and folders', () => {
     renderSidebar({ currentId: 'pc1' });
 
     expect(await screen.findByText('Filed Chat')).toBeInTheDocument();
+  });
+});
+
+describe('Sidebar polish', () => {
+  beforeEach(() => _resetWorkspaceStoreForTests());
+
+  const rowFor = (title: string) => screen.getByText(title).closest('.relative') as HTMLElement;
+
+  it('shows the full title of a chat and a project on hover', async () => {
+    renderSidebar();
+    expect(await screen.findByText('Test Chat 2')).toHaveAttribute('title', 'Test Chat 2');
+    expect(screen.getByText('ML Research')).toHaveAttribute('title', 'ML Research');
+  });
+
+  describe('a chat that is generating in the background', () => {
+    afterEach(() => vi.useRealTimers());
+
+    it('has a label a screen reader can read, and its dot goes out once the turn ends', async () => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      let generating = true;
+      let reads = 0;
+      server.use(http.get('/api/chats', ({ request }) => {
+        const params = new URL(request.url).searchParams;
+        if (params.get('pinned_only') || params.get('project_id') !== '__unfiled__') {
+          return HttpResponse.json({ conversations: [], total: 0 });
+        }
+        reads += 1;
+        return HttpResponse.json({ conversations: [makeChat({ id: 'g1', title: 'Busy Chat', generating })], total: 1 });
+      }));
+      renderSidebar();
+
+      expect(await within(await waitFor(() => rowFor('Busy Chat'))).findByText('Generating')).toBeInTheDocument();
+      const before = reads;
+
+      generating = false;
+      await act(async () => { vi.advanceTimersByTime(12_000); });
+      await waitFor(() => expect(reads).toBeGreaterThan(before));
+      await waitFor(() => expect(screen.queryByTestId('chat-generating')).not.toBeInTheDocument());
+
+      // Nothing is generating, so the polling has stopped.
+      const after = reads;
+      await act(async () => { vi.advanceTimersByTime(60_000); });
+      expect(reads).toBe(after);
+    });
+
+    it('does not poll when nothing is generating', async () => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      let reads = 0;
+      server.use(http.get('/api/chats', () => {
+        reads += 1;
+        return HttpResponse.json(MOCK_CHATS);
+      }));
+      renderSidebar();
+      await screen.findByText('Test Chat 2');
+      await waitFor(() => expect(reads).toBeGreaterThan(0));
+      const settled = reads;
+
+      await act(async () => { vi.advanceTimersByTime(60_000); });
+      expect(reads).toBe(settled);
+    });
+  });
+
+  describe('Move to project', () => {
+    const filed = makeChat({ id: 'pc1', title: 'Filed Chat', project_id: 'p1' } as Partial<ConversationSummary>);
+    const mockFiled = () => server.use(http.get('/api/chats', ({ request }) => (
+      new URL(request.url).searchParams.get('project_id') === 'p1'
+        ? HttpResponse.json({ conversations: [filed], total: 1 })
+        : HttpResponse.json(MOCK_CHATS)
+    )));
+
+    it('leaves out the project the chat is in, and offers Remove from project once', async () => {
+      const user = userEvent.setup();
+      mockFiled();
+      renderSidebar();
+      await user.click(await screen.findByText('ML Research'));
+      const row = await waitFor(() => rowFor('Filed Chat'));
+
+      await user.click(within(row).getByTitle('More'));
+      expect(within(row).getAllByRole('menuitem', { name: 'Remove from project' })).toHaveLength(1);
+      await user.click(within(row).getByRole('menuitem', { name: 'Move to project' }));
+
+      const menu = within(row).getByRole('menu');
+      expect(within(menu).getByText('Move to')).toBeInTheDocument();
+      expect(within(menu).queryByRole('menuitem', { name: 'ML Research' })).not.toBeInTheDocument();
+      expect(within(menu).getByRole('menuitem', { name: 'Code Review' })).toHaveFocus();
+      expect(within(menu).queryByRole('menuitem', { name: 'Remove from project' })).not.toBeInTheDocument();
+    });
+
+    it('has no Move to project item when the chat is already in the only project', async () => {
+      const user = userEvent.setup();
+      server.use(http.get('/api/projects', () => HttpResponse.json({ projects: [MOCK_PROJECTS.projects[0]], total: 1 })));
+      mockFiled();
+      renderSidebar();
+      await user.click(await screen.findByText('ML Research'));
+      const row = await waitFor(() => rowFor('Filed Chat'));
+
+      await user.click(within(row).getByTitle('More'));
+      expect(within(row).queryByRole('menuitem', { name: 'Move to project' })).not.toBeInTheDocument();
+    });
+
+    it('Back returns to the actions, with focus on Move to project', async () => {
+      const user = userEvent.setup();
+      renderSidebar();
+      await user.click(await screen.findByRole('button', { name: 'More actions for Test Chat 2' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Move to project' }));
+
+      await user.click(screen.getByRole('menuitem', { name: 'Back' }));
+
+      expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeInTheDocument();
+      expect(screen.getByRole('menuitem', { name: 'Move to project' })).toHaveFocus();
+    });
+  });
+
+  it('deleting a project says its chats stay in the chat list', async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderSidebar();
+    await user.click(await screen.findByRole('button', { name: 'More actions for ML Research' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Delete project' }));
+
+    expect(confirm).toHaveBeenCalledWith('Delete this project? Chats in this project will stay in your chat list.');
+  });
+
+  describe('an empty project', () => {
+    const mockEmpty = () => server.use(http.get('/api/chats', ({ request }) => (
+      new URL(request.url).searchParams.get('project_id') === 'p2'
+        ? HttpResponse.json({ conversations: [], total: 0 })
+        : HttpResponse.json(MOCK_CHATS)
+    )));
+
+    it('says what a project is for and offers a new chat in it', async () => {
+      const user = userEvent.setup();
+      mockEmpty();
+      const onNewChatInProject = vi.fn();
+      renderSidebar({ onNewChatInProject });
+      await user.click(await screen.findByText('Code Review'));
+
+      expect(await screen.findByText('Projects keep chats together and can share instructions.')).toBeInTheDocument();
+      const link = screen.getByRole('link', { name: 'New chat in this project' });
+      expect(link).toHaveAttribute('href', '/?project=p2');
+
+      await user.click(link);
+      expect(onNewChatInProject).toHaveBeenCalledWith('p2');
+    });
   });
 });

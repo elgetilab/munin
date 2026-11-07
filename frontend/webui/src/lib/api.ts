@@ -1,12 +1,30 @@
 import type { Persona, ConversationSummary, Conversation, ChatRequest, SystemStatus, SSEEvent, MuninProfile, ArtifactSummary, ArtifactFull, Project, TagCatalog, TagPapersResponse, EmbeddingMap } from './types';
 import { AUTH_BASE } from './urls';
+import { classifyApiFailure, reportApiFailure } from './session';
 
 const API = '/api';
+
+/**
+ * fetch for every request below, so that a session that ended while the tab
+ * was open is noticed in one place (lib/session.ts). It only reports: what it
+ * resolves or throws is exactly what fetch did.
+ */
+async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  let res: Response;
+  try {
+    res = await fetch(input, init);
+  } catch (e) {
+    reportApiFailure(classifyApiFailure(e));
+    throw e;
+  }
+  reportApiFailure(classifyApiFailure(res));
+  return res;
+}
 
 // ── Personas ─────────────────────────────────────────────────────────────────
 
 export async function fetchPersonas(): Promise<{ personas: Persona[]; default_persona: string }> {
-  const res = await fetch(`${API}/personas`);
+  const res = await apiFetch(`${API}/personas`);
   if (!res.ok) throw new Error('Failed to fetch personas');
   return res.json();
 }
@@ -29,24 +47,24 @@ export async function fetchChats(params?: {
   if (params?.project_id) query.set('project_id', params.project_id);
   if (params?.pinned_only) query.set('pinned_only', 'true');
   const qs = query.toString();
-  const res = await fetch(`${API}/chats${qs ? '?' + qs : ''}`);
+  const res = await apiFetch(`${API}/chats${qs ? '?' + qs : ''}`);
   if (!res.ok) throw new Error('Failed to fetch chats');
   return res.json();
 }
 
 export async function fetchChat(id: string): Promise<Conversation> {
-  const res = await fetch(`${API}/chats/${id}`);
+  const res = await apiFetch(`${API}/chats/${id}`);
   if (!res.ok) throw new Error('Failed to fetch chat');
   return res.json();
 }
 
 export async function deleteChat(id: string): Promise<void> {
-  const res = await fetch(`${API}/chats/${id}`, { method: 'DELETE' });
+  const res = await apiFetch(`${API}/chats/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to delete chat');
 }
 
 export async function renameChat(id: string, title: string): Promise<void> {
-  const res = await fetch(`${API}/chats/${id}`, {
+  const res = await apiFetch(`${API}/chats/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title }),
@@ -55,12 +73,12 @@ export async function renameChat(id: string, title: string): Promise<void> {
 }
 
 export async function pinChat(id: string): Promise<void> {
-  const res = await fetch(`${API}/chats/${id}/pin`, { method: 'POST' });
+  const res = await apiFetch(`${API}/chats/${id}/pin`, { method: 'POST' });
   if (!res.ok) throw new Error('Failed to pin chat');
 }
 
 export async function unpinChat(id: string): Promise<void> {
-  const res = await fetch(`${API}/chats/${id}/pin`, { method: 'DELETE' });
+  const res = await apiFetch(`${API}/chats/${id}/pin`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to unpin chat');
 }
 
@@ -74,6 +92,8 @@ export interface UserProfile {
   avatar: string;
 }
 
+// Plain fetch: this is the request the session check makes, and App answers a
+// 401 here on page load by going to the login page.
 export async function fetchMe(): Promise<UserProfile> {
   const res = await fetch(`${AUTH_BASE}/auth/me`, { credentials: 'include' });
   if (!res.ok) throw Object.assign(new Error('Failed to fetch user info'), { status: res.status });
@@ -81,7 +101,7 @@ export async function fetchMe(): Promise<UserProfile> {
 }
 
 export async function updateProfile(data: { full_name?: string; nickname?: string; avatar?: string }): Promise<UserProfile> {
-  const res = await fetch(`${AUTH_BASE}/auth/me`, {
+  const res = await apiFetch(`${AUTH_BASE}/auth/me`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -96,14 +116,14 @@ export async function updateProfile(data: { full_name?: string; nickname?: strin
 // Resolves to null when there is no profile. Every other failure rejects, so a
 // caller can't mistake an outage for an empty profile and then save over it.
 export async function fetchMuninProfile(): Promise<MuninProfile | null> {
-  const res = await fetch(`${API}/profile`);
+  const res = await apiFetch(`${API}/profile`);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error('Failed to fetch profile');
   return res.json();
 }
 
 export async function updateMuninProfile(data: Partial<Pick<MuninProfile, 'about_me' | 'response_format' | 'default_persona' | 'default_rag_sources' | 'timezone'>>): Promise<MuninProfile> {
-  const res = await fetch(`${API}/profile`, {
+  const res = await apiFetch(`${API}/profile`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -113,7 +133,7 @@ export async function updateMuninProfile(data: Partial<Pick<MuninProfile, 'about
 }
 
 export async function deleteMuninProfile(): Promise<void> {
-  const res = await fetch(`${API}/profile`, { method: 'DELETE' });
+  const res = await apiFetch(`${API}/profile`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to delete profile');
 }
 
@@ -155,13 +175,13 @@ export interface UsageStats {
 }
 
 export async function fetchApiKeys(): Promise<{ keys: ApiKeyInfo[] }> {
-  const res = await fetch(`${API}/keys`);
+  const res = await apiFetch(`${API}/keys`);
   if (!res.ok) throw new Error('Failed to fetch API keys');
   return res.json();
 }
 
 export async function createApiKey(name: string): Promise<CreateKeyResponse> {
-  const res = await fetch(`${API}/keys`, {
+  const res = await apiFetch(`${API}/keys`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -171,12 +191,12 @@ export async function createApiKey(name: string): Promise<CreateKeyResponse> {
 }
 
 export async function revokeApiKey(id: string): Promise<void> {
-  const res = await fetch(`${API}/keys/${id}`, { method: 'DELETE' });
+  const res = await apiFetch(`${API}/keys/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to revoke API key');
 }
 
 export async function fetchUsageStats(): Promise<UsageStats> {
-  const res = await fetch(`${API}/usage/me`);
+  const res = await apiFetch(`${API}/usage/me`);
   if (!res.ok) throw new Error('Failed to fetch usage stats');
   return res.json();
 }
@@ -213,13 +233,13 @@ export interface AdminUsage {
 }
 
 export async function fetchAdminActivity(): Promise<AdminActivity> {
-  const res = await fetch(`${API}/usage/admin/activity`);
+  const res = await apiFetch(`${API}/usage/admin/activity`);
   if (!res.ok) throw new Error('Failed to fetch admin activity');
   return res.json();
 }
 
 export async function fetchAdminUsage(): Promise<AdminUsage> {
-  const res = await fetch(`${API}/usage/admin`);
+  const res = await apiFetch(`${API}/usage/admin`);
   if (!res.ok) throw new Error('Failed to fetch admin usage');
   return res.json();
 }
@@ -261,7 +281,7 @@ export interface AdminGroup {
 }
 
 async function adminRequest(path: string, init: RequestInit = {}): Promise<Response> {
-  const res = await fetch(`${AUTH_ADMIN}${path}`, {
+  const res = await apiFetch(`${AUTH_ADMIN}${path}`, {
     credentials: 'include',
     ...init,
     headers: {
@@ -460,7 +480,7 @@ export interface PromInstantResponse {
 
 /** Throws a generic Error with the upstream message on non-2xx. */
 async function metricsRequest(path: string, body: object): Promise<unknown> {
-  const res = await fetch(`${API}/admin/metrics/${path}`, {
+  const res = await apiFetch(`${API}/admin/metrics/${path}`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -513,14 +533,14 @@ export interface Announcement {
 }
 
 export async function fetchAnnouncement(): Promise<Announcement | null> {
-  const res = await fetch(`${API}/announcement`);
+  const res = await apiFetch(`${API}/announcement`);
   if (!res.ok) return null;
   const data = await res.json();
   return data.announcement || null;
 }
 
 export async function setAnnouncement(message: string, level: string = 'info'): Promise<void> {
-  const res = await fetch(`${API}/announcement`, {
+  const res = await apiFetch(`${API}/announcement`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, level }),
@@ -529,7 +549,7 @@ export async function setAnnouncement(message: string, level: string = 'info'): 
 }
 
 export async function clearAnnouncement(): Promise<void> {
-  const res = await fetch(`${API}/announcement`, { method: 'DELETE' });
+  const res = await apiFetch(`${API}/announcement`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to clear announcement');
 }
 
@@ -568,6 +588,7 @@ export async function uploadDocument(
     }
 
     xhr.onload = () => {
+      if (xhr.status === 401) reportApiFailure('unauthorized');
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           resolve(JSON.parse(xhr.responseText));
@@ -587,7 +608,11 @@ export async function uploadDocument(
         reject(new Error(msg));
       }
     };
-    xhr.onerror = () => reject(new Error('Upload failed'));
+    xhr.onerror = () => {
+      // Also what a redirect to the login page looks like (lib/session.ts).
+      reportApiFailure('network');
+      reject(new Error('Upload failed'));
+    };
     xhr.onabort = () => reject(new DOMException('Upload cancelled', 'AbortError'));
     signal?.addEventListener('abort', () => xhr.abort(), { once: true });
 
@@ -601,19 +626,19 @@ export async function uploadDocument(
 
 /** Aborting the request does not stop the server, so this removes the document too. */
 export async function cancelUpload(uploadId: string): Promise<void> {
-  const res = await fetch(`${API}/documents/upload/${encodeURIComponent(uploadId)}/cancel`, { method: 'POST' });
+  const res = await apiFetch(`${API}/documents/upload/${encodeURIComponent(uploadId)}/cancel`, { method: 'POST' });
   if (!res.ok) throw new Error('Failed to cancel upload');
 }
 
 export async function fetchDocuments(conversationId?: string): Promise<{ documents: UploadedDocument[] }> {
   const qs = conversationId ? `?conversation_id=${encodeURIComponent(conversationId)}` : '';
-  const res = await fetch(`${API}/documents${qs}`);
+  const res = await apiFetch(`${API}/documents${qs}`);
   if (!res.ok) throw new Error('Failed to fetch documents');
   return res.json();
 }
 
 export async function deleteDocument(id: string): Promise<void> {
-  const res = await fetch(`${API}/documents/${id}`, { method: 'DELETE' });
+  const res = await apiFetch(`${API}/documents/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to delete document');
 }
 
@@ -623,7 +648,7 @@ export async function reportChat(
   conversationId: string,
   reason?: string,
 ): Promise<{ reported: boolean; report_id: string }> {
-  const res = await fetch(`${API}/chats/${conversationId}/report`, {
+  const res = await apiFetch(`${API}/chats/${conversationId}/report`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ reason: reason || undefined }),
@@ -658,7 +683,7 @@ export async function startDeepResearch(
   question: string,
   budgets?: { max_subq?: number; screen_keep?: number; read_cap?: number },
 ): Promise<{ job_id: string; conversation_id: string; created_conversation: boolean; status: string }> {
-  const res = await fetch(`${API}/research/start`, {
+  const res = await apiFetch(`${API}/research/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     // Omit conversation_id for a brand-new chat; the backend creates one and
@@ -673,12 +698,12 @@ export async function startDeepResearch(
 }
 
 export async function cancelDeepResearch(jobId: string): Promise<void> {
-  const res = await fetch(`${API}/research/cancel/${encodeURIComponent(jobId)}`, { method: 'POST' });
+  const res = await apiFetch(`${API}/research/cancel/${encodeURIComponent(jobId)}`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed to cancel research (${res.status})`);
 }
 
 export async function getResearchStatus(jobId: string): Promise<ResearchStatus> {
-  const res = await fetch(`${API}/research/status/${encodeURIComponent(jobId)}`);
+  const res = await apiFetch(`${API}/research/status/${encodeURIComponent(jobId)}`);
   if (!res.ok) throw new Error(`Failed to fetch research status (${res.status})`);
   return res.json();
 }
@@ -686,7 +711,7 @@ export async function getResearchStatus(jobId: string): Promise<ResearchStatus> 
 // The conversation's most recent DR job (+ its event log), or {job: null}. Used
 // on chat open to re-load and render the inline research view.
 export async function fetchResearchForConversation(conversationId: string): Promise<{ job: ResearchStatus | null }> {
-  const res = await fetch(`${API}/research/for-conversation/${encodeURIComponent(conversationId)}`);
+  const res = await apiFetch(`${API}/research/for-conversation/${encodeURIComponent(conversationId)}`);
   if (!res.ok) return { job: null };
   return res.json();
 }
@@ -694,21 +719,21 @@ export async function fetchResearchForConversation(conversationId: string): Prom
 // ── Artifacts ───────────────────────────────────────────────────────────────
 
 export async function fetchArtifacts(conversationId: string): Promise<{ artifacts: ArtifactSummary[]; total: number }> {
-  const res = await fetch(`${API}/chats/${conversationId}/artifacts`);
+  const res = await apiFetch(`${API}/chats/${conversationId}/artifacts`);
   if (!res.ok) throw new Error('Failed to fetch artifacts');
   return res.json();
 }
 
 export async function fetchArtifact(conversationId: string, artifactId: string, version?: number): Promise<ArtifactFull> {
   const qs = version ? `?version=${version}` : '';
-  const res = await fetch(`${API}/chats/${conversationId}/artifacts/${artifactId}${qs}`);
+  const res = await apiFetch(`${API}/chats/${conversationId}/artifacts/${artifactId}${qs}`);
   if (!res.ok) throw new Error('Failed to fetch artifact');
   return res.json();
 }
 
 export async function fetchArtifactStructure(conversationId: string, artifactId: string, version?: number): Promise<{ format: string; data: string }> {
   const qs = version ? `?version=${version}` : '';
-  const res = await fetch(`${API}/chats/${conversationId}/artifacts/${artifactId}/structure${qs}`);
+  const res = await apiFetch(`${API}/chats/${conversationId}/artifacts/${artifactId}/structure${qs}`);
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error(body?.detail?.error?.message ?? body?.error?.message ?? 'Could not load the structure');
@@ -717,7 +742,7 @@ export async function fetchArtifactStructure(conversationId: string, artifactId:
 }
 
 export async function updateArtifact(conversationId: string, artifactId: string, content: string, changeSummary: string): Promise<ArtifactFull> {
-  const res = await fetch(`${API}/chats/${conversationId}/artifacts/${artifactId}`, {
+  const res = await apiFetch(`${API}/chats/${conversationId}/artifacts/${artifactId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content, change_summary: changeSummary }),
@@ -730,19 +755,19 @@ export async function updateArtifact(conversationId: string, artifactId: string,
 
 export async function fetchProjects(archived?: boolean): Promise<{ projects: Project[]; total: number }> {
   const qs = archived ? '?archived=true' : '';
-  const res = await fetch(`${API}/projects${qs}`);
+  const res = await apiFetch(`${API}/projects${qs}`);
   if (!res.ok) throw new Error('Failed to fetch projects');
   return res.json();
 }
 
 export async function fetchProject(id: string): Promise<Project> {
-  const res = await fetch(`${API}/projects/${id}`);
+  const res = await apiFetch(`${API}/projects/${id}`);
   if (!res.ok) throw new Error('Failed to fetch project');
   return res.json();
 }
 
 export async function createProject(data: { name: string; description?: string; instructions?: string; default_persona?: string }): Promise<Project> {
-  const res = await fetch(`${API}/projects`, {
+  const res = await apiFetch(`${API}/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -753,7 +778,7 @@ export async function createProject(data: { name: string; description?: string; 
 
 // null clears a field. Leaving a key out keeps its stored value.
 export async function updateProject(id: string, data: { name?: string; description?: string | null; instructions?: string | null; default_persona?: string | null; archived?: boolean }): Promise<Project> {
-  const res = await fetch(`${API}/projects/${id}`, {
+  const res = await apiFetch(`${API}/projects/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -766,17 +791,17 @@ export async function updateProject(id: string, data: { name?: string; descripti
 }
 
 export async function deleteProject(id: string): Promise<void> {
-  const res = await fetch(`${API}/projects/${id}`, { method: 'DELETE' });
+  const res = await apiFetch(`${API}/projects/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to delete project');
 }
 
 export async function fileConversation(projectId: string, conversationId: string): Promise<void> {
-  const res = await fetch(`${API}/projects/${projectId}/conversations/${conversationId}`, { method: 'POST' });
+  const res = await apiFetch(`${API}/projects/${projectId}/conversations/${conversationId}`, { method: 'POST' });
   if (!res.ok) throw new Error('Failed to file conversation');
 }
 
 export async function unfileConversation(projectId: string, conversationId: string): Promise<void> {
-  const res = await fetch(`${API}/projects/${projectId}/conversations/${conversationId}`, { method: 'DELETE' });
+  const res = await apiFetch(`${API}/projects/${projectId}/conversations/${conversationId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to unfile conversation');
 }
 
@@ -797,7 +822,7 @@ export async function fetchTags(): Promise<TagCatalog> {
   if (tagCatalogCache && Date.now() - tagCatalogCache.fetchedAt < TAG_CACHE_TTL) {
     return tagCatalogCache.data;
   }
-  const res = await fetch(`${API}/tags`);
+  const res = await apiFetch(`${API}/tags`);
   if (!res.ok) throw new Error('Failed to fetch tags');
   const data = await res.json();
   tagCatalogCache = { data, fetchedAt: Date.now() };
@@ -814,19 +839,19 @@ export async function fetchTagPapers(
   if (params?.limit) query.set('limit', String(params.limit));
   if (params?.sort) query.set('sort', params.sort);
   const qs = query.toString();
-  const res = await fetch(`${API}/tags/${kind}/${slug}/papers${qs ? '?' + qs : ''}`);
+  const res = await apiFetch(`${API}/tags/${kind}/${slug}/papers${qs ? '?' + qs : ''}`);
   if (!res.ok) throw new Error('Failed to fetch papers');
   return res.json();
 }
 
 export async function fetchEmbeddingMap(): Promise<EmbeddingMap> {
-  const res = await fetch(`${API}/embedding_map`);
+  const res = await apiFetch(`${API}/embedding_map`);
   if (!res.ok) throw new Error('Failed to fetch embedding map');
   return res.json();
 }
 
 export async function fetchPaperEnriched(doi: string): Promise<Record<string, unknown>> {
-  const res = await fetch(`/paper/${encodeURIComponent(doi)}/enriched`);
+  const res = await apiFetch(`/paper/${encodeURIComponent(doi)}/enriched`);
   if (!res.ok) throw new Error('Failed to fetch paper details');
   return res.json();
 }
@@ -834,7 +859,7 @@ export async function fetchPaperEnriched(doi: string): Promise<Record<string, un
 // ── Status ───────────────────────────────────────────────────────────────────
 
 export async function fetchStatus(): Promise<SystemStatus> {
-  const res = await fetch(`${API}/status`);
+  const res = await apiFetch(`${API}/status`);
   if (!res.ok) throw new Error('Failed to fetch status');
   return res.json();
 }
@@ -986,7 +1011,7 @@ async function _attemptResume(
   const url = `${API}/chat/completions/resume?stream_id=${encodeURIComponent(state.streamId)}`;
   let res: Response;
   try {
-    res = await fetch(url, { method: 'GET', headers, signal });
+    res = await apiFetch(url, { method: 'GET', headers, signal });
   } catch {
     return 'drop';
   }
@@ -1011,7 +1036,7 @@ export async function streamChat(
   onEvent: (event: SSEEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API}/chat/completions`, {
+  const res = await apiFetch(`${API}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -1180,7 +1205,7 @@ export async function resumeChat(
 // to completion, which is safe.
 export async function cancelChat(streamId: string): Promise<void> {
   try {
-    await fetch(
+    await apiFetch(
       `${API}/chat/completions/${encodeURIComponent(streamId)}/cancel`,
       { method: 'POST' },
     );
@@ -1190,7 +1215,7 @@ export async function cancelChat(streamId: string): Promise<void> {
 // ── Memory proposals (P2 #25) ────────────────────────────────────────────────
 
 export async function acceptMemoryProposal(proposalId: string): Promise<void> {
-  const res = await fetch(
+  const res = await apiFetch(
     `${API}/memories/proposed/${encodeURIComponent(proposalId)}/accept`,
     { method: 'POST' },
   );
@@ -1198,7 +1223,7 @@ export async function acceptMemoryProposal(proposalId: string): Promise<void> {
 }
 
 export async function rejectMemoryProposal(proposalId: string): Promise<void> {
-  const res = await fetch(
+  const res = await apiFetch(
     `${API}/memories/proposed/${encodeURIComponent(proposalId)}/reject`,
     { method: 'POST' },
   );
@@ -1211,7 +1236,7 @@ export async function approvePlan(
   conversationId: string,
   mode: 'each' | 'auto' = 'each',
 ): Promise<void> {
-  const res = await fetch(
+  const res = await apiFetch(
     `${API}/chats/${encodeURIComponent(conversationId)}/plan/approve`,
     {
       method: 'POST',
@@ -1223,7 +1248,7 @@ export async function approvePlan(
 }
 
 export async function rejectPlan(conversationId: string): Promise<void> {
-  const res = await fetch(
+  const res = await apiFetch(
     `${API}/chats/${encodeURIComponent(conversationId)}/plan/reject`,
     { method: 'POST' },
   );
@@ -1235,7 +1260,7 @@ export async function editPlan(
   items: Array<{ id?: string; title: string; status?: string; notes?: string | null }>,
   mode: 'each' | 'auto' = 'each',
 ): Promise<void> {
-  const res = await fetch(
+  const res = await apiFetch(
     `${API}/chats/${encodeURIComponent(conversationId)}/plan`,
     {
       method: 'PATCH',

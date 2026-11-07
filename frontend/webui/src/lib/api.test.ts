@@ -35,8 +35,11 @@ import {
   createAdminGroup,
   updateAdminGroup,
   deleteAdminGroup,
+  uploadDocument,
 } from './api';
 import type { AdminUser, AdminGroup } from './api';
+import { _resetSessionForTests, isSessionEnded } from './session';
+import { AUTH_BASE } from './urls';
 import type { SSEEvent, ChatRequest } from './types';
 
 // ── Personas ────────────────────────────────────────────────────────────────
@@ -521,5 +524,64 @@ describe('group CRUD', () => {
     server.use(http.delete(`${AUTH_ADMIN}/groups/elgeti`, () =>
       HttpResponse.json({ error: 'group has 2 member(s); reassign before deleting' }, { status: 409 })));
     await expect(deleteAdminGroup('elgeti')).rejects.toThrow('group has 2 member');
+  });
+});
+
+// ── Session that ended while the tab was open (lib/session.ts) ────────────
+
+describe('a failed request checks the session', () => {
+  beforeEach(() => _resetSessionForTests());
+
+  function mockMe(status: number) {
+    const calls = { count: 0 };
+    server.use(http.get(`${AUTH_BASE}/auth/me`, () => {
+      calls.count += 1;
+      return status === 200 ? HttpResponse.json({ email: 'a@b.c' }) : new HttpResponse(null, { status });
+    }));
+    return calls;
+  }
+
+  it('a network error, which is what the redirect to the login page looks like, ends it when /auth/me says 401', async () => {
+    mockMe(401);
+    server.use(http.get('/api/chats', () => HttpResponse.error()));
+
+    await expect(fetchChats()).rejects.toThrow(TypeError);
+    await vi.waitFor(() => expect(isSessionEnded()).toBe(true));
+  });
+
+  it('a 401 from the API ends it too, and the caller still gets its own error', async () => {
+    mockMe(401);
+    server.use(http.get('/api/chats', () => new HttpResponse(null, { status: 401 })));
+
+    await expect(fetchChats()).rejects.toThrow('Failed to fetch chats');
+    await vi.waitFor(() => expect(isSessionEnded()).toBe(true));
+  });
+
+  it('a network error while still signed in leaves it alone', async () => {
+    const calls = mockMe(200);
+    server.use(http.get('/api/chats', () => HttpResponse.error()));
+
+    await expect(fetchChats()).rejects.toThrow(TypeError);
+    await vi.waitFor(() => expect(calls.count).toBe(1));
+    await new Promise(r => setTimeout(r, 0));
+    expect(isSessionEnded()).toBe(false);
+  });
+
+  it('a server error does not check at all', async () => {
+    const calls = mockMe(401);
+    server.use(http.get('/api/chats', () => new HttpResponse(null, { status: 500 })));
+
+    await expect(fetchChats()).rejects.toThrow('Failed to fetch chats');
+    await new Promise(r => setTimeout(r, 20));
+    expect(calls.count).toBe(0);
+    expect(isSessionEnded()).toBe(false);
+  });
+
+  it('a failed upload checks it as well', async () => {
+    mockMe(401);
+    server.use(http.post('/api/documents/upload', () => HttpResponse.error()));
+
+    await expect(uploadDocument(new File(['x'], 'a.txt'))).rejects.toThrow('Upload failed');
+    await vi.waitFor(() => expect(isSessionEnded()).toBe(true));
   });
 });

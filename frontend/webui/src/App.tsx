@@ -27,6 +27,7 @@ import { ReportDialog } from './components/ReportDialog';
 import { KnowledgePanel } from './components/KnowledgePanel';
 import { KnowledgePage } from './components/KnowledgePage';
 import { ErrorNotice } from './components/ui/ErrorNotice';
+import { SessionNotice } from './components/SessionNotice';
 import { useModal } from './hooks/useModal';
 import type { Project } from './lib/types';
 import { AUTH_BASE, DOCS_URL, SEARCH_URL, SITE_HOME, UPLOAD_URL } from './lib/urls';
@@ -145,6 +146,7 @@ export default function App() {
   const setShowReportDialog = useUiStore(s => s.setShowReportDialog);
   const toast = useUiStore(s => s.toast);
   const setToast = useUiStore(s => s.setToast);
+  const showToast = useUiStore(s => s.showToast);
   const tagCatalog = useWorkspaceStore(s => s.tagCatalog);
   const setTagCatalog = useWorkspaceStore(s => s.setTagCatalog);
   const activeTags = useWorkspaceStore(s => s.activeTags);
@@ -568,8 +570,7 @@ export default function App() {
   const runDemoCard = useCallback(async (card: DemoCard, projectId: string | null) => {
     const phase = useChatStore.getState().streaming.phase;
     if (phase === 'thinking' || phase === 'tool_call' || phase === 'generating') {
-      setToast('The current answer is still running. Stop it or let it finish first.');
-      setTimeout(() => setToast(null), 4000);
+      showToast('The current answer is still running. Stop it or let it finish first.', 4000);
       return;
     }
     const cardProject = card.useProject ? projectId : null;
@@ -589,10 +590,9 @@ export default function App() {
         await sendMessage(card.prompt, 'munin', false, undefined, cardProject ?? undefined);
       }
     } catch (err) {
-      setToast(err instanceof Error ? err.message : 'The demo card failed to start.');
-      setTimeout(() => setToast(null), 6000);
+      showToast(err instanceof Error ? err.message : 'The demo card failed to start.', 6000);
     }
-  }, [clearConversation, loadConversation, sendMessage, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin, setToast]);
+  }, [clearConversation, loadConversation, sendMessage, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin, showToast]);
 
   const openDemoChat = useCallback((id: string) => {
     setShowDemo(false);
@@ -797,6 +797,7 @@ export default function App() {
             pushAppPath('/');
           }}
         />
+        <SessionNotice />
       </div>
     );
   }
@@ -1162,23 +1163,27 @@ export default function App() {
             // onRehydrateStorage callback.
             setShowReportDialog(false);
             addReportedChat(conversationId);
-            setToast('Chat reported — thank you for helping us improve.');
-            setTimeout(() => setToast(null), 4000);
+            showToast('Chat reported. Thank you for helping us improve.', 4000);
           }}
         />
       )}
 
-      {/* Toast */}
-      {toast && (
-        <div role="status" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 bg-bg-secondary border border-border rounded-lg shadow-lg text-sm text-text-primary flex items-center gap-3">
-          <span>{toast}</span>
-          <button
-            onClick={() => setToast(null)}
-            aria-label="Dismiss"
-            className="min-w-8 min-h-8 -my-1 flex items-center justify-center text-text-secondary hover:text-text-primary cursor-pointer text-xs"
-          ><span aria-hidden="true">&#10005;</span></button>
-        </div>
-      )}
+      {/* Toast. The status region is always there, because a screen reader may
+          not announce one that appears with its text already in it. It sits at
+          the top, clear of the composer and its Send button. */}
+      <div role="status" className="fixed top-16 left-1/2 -translate-x-1/2 z-50 max-w-[calc(100%-2rem)]">
+        {toast && (
+          <div className="px-4 py-2.5 bg-bg-secondary border border-border rounded-lg shadow-lg text-sm text-text-primary flex items-center gap-3">
+            <span>{toast}</span>
+            <button
+              onClick={() => setToast(null)}
+              aria-label="Dismiss"
+              className="min-w-8 min-h-8 -my-1 flex items-center justify-center text-text-secondary hover:text-text-primary cursor-pointer text-xs"
+            ><span aria-hidden="true">&#10005;</span></button>
+          </div>
+        )}
+      </div>
+      <SessionNotice />
     </div>
   );
 }
