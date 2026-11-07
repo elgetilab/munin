@@ -10,15 +10,20 @@
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#0f1419">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <!-- black, not black-translucent: translucent draws the page under white status
+         text with no safe-area padding, which is unreadable on the light theme and
+         covers the header in both. iOS reads this once at launch, so it cannot
+         follow the theme. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <link rel="apple-touch-icon" href="/icons/munin-192.png">
   </head>
   <body>
     <div id="root"></div>
     <!-- ?v= misses the copies held by service workers older than munin-v3, which
-         answer the first load after a deploy from their cache. -->
-    <script src="/shared/feather-vortex.js?v=3"></script>
-    <script src="/shared/support-widget.js?v=3"></script>
+         answer /shared from their cache on the first load after a deploy. Bump it
+         with the cache name in public/sw.js when these files change. -->
+    <script src="/shared/feather-vortex.js?v=4"></script>
+    <script src="/shared/support-widget.js?v=4"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

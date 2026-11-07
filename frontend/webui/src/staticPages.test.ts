@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { cookieDomain, readPref } from './lib/theme';
 
 // Outside the Vite root, so a ?raw import is refused. Vitest runs from frontend/webui.
 const readStatic = (path: string) => readFileSync(resolve(process.cwd(), '../static', path), 'utf-8');
@@ -577,5 +578,219 @@ describe('upload page', () => {
 
     expect(dashboard().textContent).toContain('not a research group leader');
     expect(dashboard().querySelector('[role="alert"]')).toBeNull();
+  });
+});
+
+// /shared/theme.js adds the Dark, Light and Match system switch to every static
+// page header, with the same cookie rules as src/lib/theme.ts.
+describe('static theme switch', () => {
+  const themeJs = readStatic('shared/theme.js');
+  const root = document.documentElement;
+  const HEADER = '<header><div class="container header-content"><a class="logo">Munin</a><nav><a>Home</a></nav></div></header>';
+  type Api = {
+    setPref(p: string): string;
+    mount(): void;
+    cookieDomain(h: string): string | null;
+    readPref(c: string): string;
+  };
+
+  // Runs theme.js against a stand-in window, so the host, the protocol and the
+  // system setting are the test's to choose.
+  function load({ hostname = 'search.muninai.org', protocol = 'https:', prefersLight = false } = {}) {
+    const listeners: Record<string, (() => void)[]> = {};
+    const system = { light: prefersLight, change: () => {} };
+    const media = {
+      get matches() { return system.light; },
+      addEventListener: (_name: string, fn: () => void) => { system.change = fn; },
+    };
+    const win: Record<string, unknown> = {
+      location: { hostname, protocol },
+      matchMedia: () => media,
+      addEventListener: (name: string, fn: () => void) => { (listeners[name] ??= []).push(fn); },
+    };
+    new Function('window', themeJs)(win);
+    return {
+      api: win.MuninTheme as Api,
+      fire: (name: string) => listeners[name]?.forEach((fn) => fn()),
+      setSystem: (light: boolean) => { system.light = light; system.change(); },
+    };
+  }
+
+  const select = () => document.querySelector<HTMLSelectElement>('header .header-content .theme-switch select')!;
+  const choose = (value: string) => {
+    select().value = value;
+    select().dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  // What the inline head script leaves behind before theme.js runs.
+  const headScript = (pref: string, theme = pref) => {
+    root.setAttribute('data-theme-pref', pref);
+    root.setAttribute('data-theme', theme);
+  };
+
+  let events: { pref: string; theme: string }[];
+  const record = (e: Event) => events.push((e as CustomEvent).detail);
+
+  beforeEach(() => {
+    document.head.innerHTML = '';
+    document.body.innerHTML = HEADER;
+    events = [];
+    document.addEventListener('munin-themechange', record);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.removeEventListener('munin-themechange', record);
+    document.cookie = 'munin_theme=; Max-Age=0; Path=/';
+    document.cookie = 'munin_theme=; Max-Age=0; Path=/; Domain=muninai.org';
+    root.removeAttribute('data-theme');
+    root.removeAttribute('data-theme-pref');
+  });
+
+  it('adds one labelled switch to the header, showing the saved choice', () => {
+    document.cookie = 'munin_theme=light; Path=/';
+    headScript('light');
+    const { api } = load();
+    api.mount();
+
+    expect(document.querySelectorAll('.theme-switch')).toHaveLength(1);
+    expect(select().getAttribute('aria-label')).toBe('Theme');
+    expect([...select().options].map((o) => [o.value, o.textContent])).toEqual([
+      ['dark', 'Dark'], ['light', 'Light'], ['system', 'Match system'],
+    ]);
+    expect(select().value).toBe('light');
+    // Loading changed nothing, so nothing was announced.
+    expect(events).toEqual([]);
+  });
+
+  it('defaults to Dark with no cookie', () => {
+    headScript('dark');
+    load();
+    expect(select().value).toBe('dark');
+    expect(root.getAttribute('data-theme')).toBe('dark');
+  });
+
+  it('stores a choice on the shared domain for a year, and applies it at once', () => {
+    headScript('dark');
+    const set = vi.spyOn(document, 'cookie', 'set');
+    load({ hostname: 'search.muninai.org', protocol: 'https:' });
+    choose('light');
+
+    expect(set).toHaveBeenCalledWith('munin_theme=light; Path=/; Max-Age=31536000; SameSite=Lax; Domain=muninai.org; Secure');
+    expect(root.getAttribute('data-theme')).toBe('light');
+    expect(root.getAttribute('data-theme-pref')).toBe('light');
+    expect(events).toEqual([{ pref: 'light', theme: 'light' }]);
+  });
+
+  it('uses a host-only cookie, without Secure, on localhost over http', () => {
+    headScript('dark');
+    const set = vi.spyOn(document, 'cookie', 'set');
+    load({ hostname: 'localhost', protocol: 'http:' });
+    choose('system');
+
+    expect(set).toHaveBeenCalledWith('munin_theme=system; Path=/; Max-Age=31536000; SameSite=Lax');
+  });
+
+  it('works out the cookie domain and reads the cookie exactly as theme.ts does', () => {
+    const { api } = load();
+    for (const host of ['chat.muninai.org', 'upload.muninai.org', 'research.muninai.org', 'muninai.org',
+      'docs.munin.uni-example.de', 'munin.uni-example.de', 'www.muninai.org', 'localhost', '127.0.0.1', '::1', 'intranet']) {
+      expect(api.cookieDomain(host), host).toBe(cookieDomain(host));
+    }
+    for (const cookie of ['', 'munin_theme=light', 'a=1; munin_theme=system; b=2', 'a=1;munin_theme=dark',
+      'munin_theme=purple', 'xmunin_theme=light', 'munin_theme=lightish']) {
+      expect(api.readPref(cookie), cookie).toBe(readPref(cookie));
+    }
+  });
+
+  it('picks up a choice made in another tab or site when this tab comes back', () => {
+    headScript('dark');
+    const { fire } = load();
+
+    document.cookie = 'munin_theme=light; Path=/';
+    fire('focus');
+    expect(root.getAttribute('data-theme')).toBe('light');
+    expect(select().value).toBe('light');
+
+    fire('focus');
+    fire('pageshow');
+    expect(events).toEqual([{ pref: 'light', theme: 'light' }]);
+  });
+
+  it('follows the system while set to Match system, and only then', () => {
+    // On the shared domain, as theme.js writes it, so the later choice replaces it.
+    document.cookie = 'munin_theme=system; Path=/; Domain=muninai.org';
+    headScript('system', 'dark');
+    const { setSystem } = load({ prefersLight: false });
+
+    setSystem(true);
+    expect(root.getAttribute('data-theme')).toBe('light');
+    expect(root.getAttribute('data-theme-pref')).toBe('system');
+    expect(events).toEqual([{ pref: 'system', theme: 'light' }]);
+
+    choose('dark');
+    setSystem(false);
+    setSystem(true);
+    expect(root.getAttribute('data-theme')).toBe('dark');
+  });
+
+  it('still sets the theme on a page without a header', () => {
+    document.body.innerHTML = '<main></main>';
+    headScript('dark');
+    const { api } = load();
+    expect(document.querySelector('.theme-switch')).toBeNull();
+    expect(api.setPref('light')).toBe('light');
+    expect(root.getAttribute('data-theme')).toBe('light');
+  });
+
+  const pages = ['landing/index.html', 'search/index.html', 'research/index.html', 'upload/index.html',
+    'maintenance/index.html', 'docs/index.html', 'docs/architecture.html', 'docs/guide.html'];
+
+  it.each(pages)('%s loads the switch and has a header for it', (path) => {
+    const html = readStatic(path);
+    expect(html).toContain('<script src="/shared/theme.js" defer></script>');
+    const doc = new DOMParser().parseFromString(fillEnv(html), 'text/html');
+    expect(doc.querySelector('header .header-content > nav')).not.toBeNull();
+  });
+
+  it.each(pages)('%s keeps every Caddy directive an env lookup', (path) => {
+    const html = readStatic(path);
+    const opened = html.split('{{').length - 1;
+    const directives = html.match(/\{\{env "[A-Z_]+"\}\}/g) ?? [];
+    expect(directives).toHaveLength(opened);
+  });
+
+  it('has nothing Caddy templates would read as a directive', () => {
+    expect(themeJs).not.toContain('{{');
+  });
+});
+
+describe('upload page theme', () => {
+  const root = document.documentElement;
+
+  beforeEach(() => { vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    root.removeAttribute('data-theme');
+  });
+
+  it.each(['light', 'dark'])('starts Uppy in the %s theme the page is in, and follows the switch', async (theme) => {
+    root.setAttribute('data-theme', theme);
+    const dashboard = { setOptions: vi.fn() };
+    const use = vi.fn();
+    const Uppy = {
+      Uppy: vi.fn(function () {
+        return { use, on: vi.fn(), getPlugin: (id: string) => (id === 'Dashboard' ? dashboard : undefined) };
+      }),
+      Dashboard: { name: 'Dashboard' },
+      Tus: {},
+    };
+    loadPage(uploadHtml, vi.fn(() => Promise.resolve(json({ email: 'a@example.org', role: 'admin' }))), { Uppy });
+    await flush();
+
+    expect(use).toHaveBeenCalledWith(Uppy.Dashboard, expect.objectContaining({ theme }));
+
+    const other = theme === 'light' ? 'dark' : 'light';
+    root.setAttribute('data-theme', other);
+    document.dispatchEvent(new CustomEvent('munin-themechange', { detail: { pref: other, theme: other } }));
+    expect(dashboard.setOptions).toHaveBeenLastCalledWith({ theme: other });
   });
 });
