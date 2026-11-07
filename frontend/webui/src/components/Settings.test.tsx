@@ -8,8 +8,8 @@ import { useUiStore, _resetUiStoreForTests } from '../stores/uiStore';
 import { useUserStore, _resetUserStoreForTests } from '../stores/userStore';
 
 // Characterization tests written before the fetch-on-mount restructure.
-// Settings fans out to four independent reads on mount (keys, usage, the
-// Munin profile, and the announcement for admins), each handling its own
+// Settings fans out to three independent reads on mount (keys, usage and
+// the Munin profile), each handling its own
 // errors, so what matters is that one failing read does not take the others
 // down with it.
 
@@ -42,15 +42,136 @@ describe('Settings', () => {
     renderSettings();
     // The failure stays in the API keys section; the rest of the page must survive.
     await waitFor(() => expect(screen.getByText('API Keys')).toBeInTheDocument());
-    expect(screen.getByText('Munin Profile')).toBeInTheDocument();
+    expect(screen.getByText('How Munin works with you')).toBeInTheDocument();
     expect(screen.queryByText('laptop')).not.toBeInTheDocument();
   });
 
   it('still renders when the Munin profile has never been created', async () => {
     server.use(http.get('/api/profile', () => new HttpResponse(null, { status: 404 })));
     renderSettings();
-    await waitFor(() => expect(screen.getByText('Munin Profile')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('How Munin works with you')).toBeInTheDocument());
     expect(screen.getByText('API Keys')).toBeInTheDocument();
+  });
+
+  it('closes from a labelled Back to chat control', async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ showSettings: true });
+    renderSettings();
+    await user.click(screen.getByRole('button', { name: 'Back to chat' }));
+    expect(useUiStore.getState().showSettings).toBe(false);
+  });
+
+  it('heads the first block Account and explains the profile in plain words', () => {
+    renderSettings();
+    expect(screen.getByRole('heading', { name: 'Account' })).toBeInTheDocument();
+    expect(screen.getByText(/Munin reads this at the start of every chat/)).toBeInTheDocument();
+    expect(screen.queryByText(/injected/)).not.toBeInTheDocument();
+  });
+
+  it('explains what a persona is and what the empty choice does', () => {
+    useUserStore.setState({ personas: [{ id: 'chat', name: 'Chat' }] } as never);
+    renderSettings();
+    const select = screen.getByLabelText('Default persona');
+    expect(select).toHaveAccessibleDescription(/A persona is a preset way for Munin to work/);
+    expect(within(select).getByRole('option', { name: 'None (Munin picks for each chat)' })).toHaveValue('');
+  });
+
+  describe('profile picture', () => {
+    const fileInput = (container: HTMLElement) => container.querySelector('input[type="file"]') as HTMLInputElement;
+    const picture = (container: HTMLElement) => container.querySelector('img');
+
+    it('states the size limit up front', () => {
+      renderSettings();
+      expect(screen.getByText('Image up to 150 KB')).toBeInTheDocument();
+    });
+
+    it('shows a too-large image as inline text, not an alert dialog', async () => {
+      const user = userEvent.setup();
+      const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+      const { container } = renderSettings();
+      const big = new File([new Uint8Array(200_000)], 'big.png', { type: 'image/png' });
+      await user.upload(fileInput(container), big);
+      expect(screen.getByRole('alert')).toHaveTextContent('That image is 200 KB. Choose one up to 150 KB.');
+      expect(alertSpy).not.toHaveBeenCalled();
+      expect(picture(container)).toBeNull();
+    });
+
+    it('clears the file input so the same file can be picked again', async () => {
+      const user = userEvent.setup();
+      const { container } = renderSettings();
+      const input = fileInput(container);
+      const small = new File([new Uint8Array(10)], 'me.png', { type: 'image/png' });
+      await user.upload(input, small);
+      await waitFor(() => expect(picture(container)).not.toBeNull());
+      expect(input.value).toBe('');
+    });
+
+    it('says a changed picture is not saved until Save changes', async () => {
+      const user = userEvent.setup();
+      server.use(http.patch('*/auth/me', async ({ request }) => HttpResponse.json({ ...PROFILE, ...(await request.json() as object) })));
+      const { container } = renderSettings();
+      const small = new File([new Uint8Array(10)], 'me.png', { type: 'image/png' });
+      await user.upload(fileInput(container), small);
+      expect(await screen.findByText(/Not saved yet/)).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Save changes' }));
+      await waitFor(() => expect(screen.queryByText(/Not saved yet/)).not.toBeInTheDocument());
+    });
+  });
+
+  describe('API usage', () => {
+    it('shows the monthly limit from the server, not a fixed figure', async () => {
+      renderSettings();
+      expect(await screen.findByText('1.0M tokens/month')).toBeInTheDocument();
+      expect(screen.queryByText('100M tokens/month')).not.toBeInTheDocument();
+      expect(screen.getByText('Monthly API usage (browser chat is not counted)')).toBeInTheDocument();
+    });
+
+    it('hides the limit until usage has loaded', () => {
+      server.use(http.get('/api/usage/me', () => new Promise(() => { /* never resolves */ })));
+      renderSettings();
+      expect(screen.queryByText(/tokens\/month/)).not.toBeInTheDocument();
+    });
+
+    it('counts API requests only when the server reports them', async () => {
+      server.use(http.get('/api/usage/me', () => HttpResponse.json({
+        current_month: { tokens_used: 0, tokens_limit: 1000000, tokens_remaining: 1000000, requests: 40, api_requests: 3, tools_used: {} },
+        api_keys: [],
+      })));
+      renderSettings();
+      expect(await screen.findByText('3 API requests this month')).toBeInTheDocument();
+    });
+  });
+
+  describe('quick start', () => {
+    it('copies the snippet and says so', async () => {
+      const user = userEvent.setup();
+      const write = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+      renderSettings();
+      await user.click(screen.getByRole('button', { name: 'Copy quick start code' }));
+      expect(await screen.findByRole('button', { name: 'Copied quick start code' })).toHaveTextContent('Copied!');
+      expect(write).toHaveBeenCalledWith(expect.stringContaining('from openai import OpenAI'));
+    });
+
+    it('says the copy failed when the browser refuses it', async () => {
+      const user = userEvent.setup();
+      vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('denied'));
+      renderSettings();
+      await user.click(screen.getByRole('button', { name: 'Copy quick start code' }));
+      expect(await screen.findByText(/Select the code above and copy it by hand/)).toBeInTheDocument();
+    });
+
+    it('wraps long lines instead of scrolling sideways', () => {
+      renderSettings();
+      const pre = screen.getByText(/from openai import OpenAI/);
+      expect(pre).toHaveClass('whitespace-pre-wrap');
+      expect(pre).not.toHaveClass('overflow-x-auto');
+    });
+  });
+
+  it('no longer holds the admin announcement, which lives in the Admin Dashboard', () => {
+    useUserStore.setState({ isAdmin: true });
+    renderSettings();
+    expect(screen.queryByLabelText('Announcement message')).not.toBeInTheDocument();
   });
 
   describe('monthly usage bar', () => {
@@ -180,48 +301,6 @@ describe('Settings', () => {
     });
   });
 
-  describe('announcement banner', () => {
-    beforeEach(() => {
-      useUserStore.setState({ isAdmin: true });
-      server.use(
-        http.put('/api/announcement', () => HttpResponse.json({ ok: true })),
-        http.delete('/api/announcement', () => HttpResponse.json({ ok: true })),
-      );
-    });
-
-    it('shows a new announcement to the admin at once, even after dismissing the old one', async () => {
-      const user = userEvent.setup();
-      useUiStore.setState({ announcementDismissed: true });
-      renderSettings();
-      await user.type(screen.getByPlaceholderText(/Cluster maintenance/), 'Down at noon');
-      await user.click(screen.getByRole('button', { name: 'warning' }));
-      await user.click(screen.getByRole('button', { name: 'Set announcement' }));
-      await screen.findByText('Announcement set');
-      const state = useUiStore.getState();
-      expect(state.announcement).toMatchObject({ message: 'Down at noon', level: 'warning' });
-      expect(state.announcementDismissed).toBe(false);
-    });
-
-    it('removes the banner when the announcement is cleared', async () => {
-      const user = userEvent.setup();
-      useUiStore.setState({ announcement: { message: 'Old', level: 'info', updated_at: '2026-01-01T00:00:00Z' } });
-      renderSettings();
-      await user.click(screen.getByRole('button', { name: 'Clear announcement' }));
-      await screen.findByText('Announcement cleared');
-      expect(useUiStore.getState().announcement).toBeNull();
-    });
-
-    it('leaves the banner alone when saving fails', async () => {
-      const user = userEvent.setup();
-      server.use(http.put('/api/announcement', () => new HttpResponse(null, { status: 500 })));
-      renderSettings();
-      await user.type(screen.getByPlaceholderText(/Cluster maintenance/), 'Down at noon');
-      await user.click(screen.getByRole('button', { name: 'Set announcement' }));
-      await screen.findByText('Failed');
-      expect(useUiStore.getState().announcement).toBeNull();
-    });
-  });
-
   describe('newly created key', () => {
     async function createKey(user: ReturnType<typeof userEvent.setup>) {
       renderSettings();
@@ -268,18 +347,6 @@ describe('Settings', () => {
       expect(screen.getByLabelText('API key name')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Change profile picture' })).toBeInTheDocument();
       expect(await screen.findByRole('button', { name: 'Revoke laptop' })).toBeInTheDocument();
-    });
-
-    it('labels the announcement text and marks the chosen level', async () => {
-      const user = userEvent.setup();
-      useUserStore.setState({ isAdmin: true });
-      renderSettings();
-      expect(screen.getByLabelText('Announcement message').tagName).toBe('TEXTAREA');
-      const group = screen.getByRole('group', { name: 'Level:' });
-      expect(within(group).getByRole('button', { name: 'info' })).toHaveAttribute('aria-pressed', 'true');
-      await user.click(within(group).getByRole('button', { name: 'error' }));
-      expect(within(group).getByRole('button', { name: 'error' })).toHaveAttribute('aria-pressed', 'true');
-      expect(within(group).getByRole('button', { name: 'info' })).toHaveAttribute('aria-pressed', 'false');
     });
   });
 
