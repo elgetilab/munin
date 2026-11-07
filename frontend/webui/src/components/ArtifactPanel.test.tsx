@@ -561,5 +561,19 @@ describe('ArtifactPanel SVG', () => {
     useUiStore.setState({ selectedArtifactId: 'a3' });
     const img = await screen.findByRole('img', { name: 'Pathway' });
     expect(img.getAttribute('src')).toMatch(/^data:image\/svg\+xml/);
+    // Transparent drawings need an opaque backing to read in both themes.
+    expect(img).toHaveClass('bg-white');
+  });
+
+  it('colours a code artifact from the --code-* variables, so it follows the theme', async () => {
+    const code: ArtifactSummary = { ...SECOND, id: 'a5', title: 'analysis.py', content_type: 'application/python' };
+    server.use(http.get('/api/chats/:cid/artifacts/:aid', () =>
+      HttpResponse.json({ ...code, version: 1, content: '# note\nx = "hi"' })));
+    renderPanel([code]);
+    useUiStore.setState({ selectedArtifactId: 'a5' });
+    const comment = await screen.findByText('# note');
+    expect(comment.style.color).toBe('var(--code-comment)');
+    const pre = comment.closest('pre')!;
+    expect(pre.style.background).toBe('var(--code-bg)');
   });
 });

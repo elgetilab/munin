@@ -241,6 +241,24 @@ describe('Markdown code block Copy', () => {
   });
 });
 
+describe('Markdown code block colours', () => {
+  it('colours tokens from the --code-* variables, so a theme switch needs no re-render', () => {
+    const { container } = renderMd(['```python', '# note', 'x = "hi"', '```'].join('\n'));
+    const styled = Array.from(container.querySelectorAll<HTMLElement>('code span[style]'));
+    const colours = styled.map((el) => el.style.color).filter(Boolean);
+    expect(colours).toEqual(expect.arrayContaining(['var(--code-comment)', 'var(--code-string)']));
+    for (const c of colours) expect(c).toMatch(/^var\(--code-[\w-]+\)$/);
+  });
+
+  it('sits on the page bg-secondary with the themed base text colour', () => {
+    const { container } = renderMd(['```python', 'x = 1', '```'].join('\n'));
+    const code = container.querySelector<HTMLElement>('code.language-python')!;
+    expect(code.style.color).toBe('var(--code-base)');
+    const block = code.parentElement!;
+    expect(block.style.background).toBe('var(--color-bg-secondary)');
+  });
+});
+
 // ────────────────────────────────────────────────────────────────────
 // F. KaTeX math rendering
 // ────────────────────────────────────────────────────────────────────

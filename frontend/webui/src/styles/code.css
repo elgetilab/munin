@@ -1,1 +1,41 @@
-/* Syntax highlighting colours for both themes (--code-*). Imported by index.css. */
+/* Syntax highlighting colours for both themes (--code-*). Imported by index.css.
+
+   src/lib/codeTheme.ts turns oneDark's colours into var(--code-*) references, so
+   Markdown code blocks and code artifacts recolour on a theme switch without a
+   re-render, and the print window (which sets data-theme="light") gets the light
+   set. codeTheme.test.ts checks every colour here against its block background.
+
+   Block backgrounds:
+   - Markdown code blocks sit on --color-bg-secondary in both themes.
+   - Code artifacts in the side panel sit on --code-bg.
+
+   Dark keeps oneDark's values, except two that were under 4.5:1: comment
+   (was hsl(220, 10%, 40%), 2.3:1 on #282c34) and tag (was hsl(355, 65%, 65%),
+   4.38:1 on #282c34). */
+:root {
+  --code-bg: hsl(220, 13%, 18%);
+  --code-base: hsl(220, 14%, 71%);
+  --code-comment: #8e94a0;
+  --code-keyword: hsl(286, 60%, 67%);
+  --code-string: hsl(95, 38%, 62%);
+  --code-function: hsl(207, 82%, 66%);
+  --code-number: hsl(29, 54%, 61%);
+  --code-tag: #e3737c;
+  --code-url: hsl(187, 47%, 55%);
+  --code-text-shadow: 0 1px rgba(0, 0, 0, 0.3);
+}
+
+/* Light: GitHub-style hues, darkened until each passes 4.5:1 on #f6f8fa
+   (bg-secondary), which also covers white in print. */
+:root[data-theme="light"] {
+  --code-bg: var(--color-bg-secondary);
+  --code-base: #24292f;
+  --code-comment: #57606a;
+  --code-keyword: #8250df;
+  --code-string: #116329;
+  --code-function: #0550ae;
+  --code-number: #953800;
+  --code-tag: #b31d28;
+  --code-url: #0a6a74;
+  --code-text-shadow: none;
+}
