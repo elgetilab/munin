@@ -28,8 +28,9 @@
             padding: 12px 16px;
             margin-bottom: 24px;
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
-            gap: 24px;
+            gap: 8px 24px;
             font-size: 14px;
         }
 
@@ -142,6 +143,21 @@
 
         .results-count {
             color: var(--text-secondary);
+        }
+
+        @media (max-width: 480px) {
+            .results-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 4px;
+            }
+        }
+
+        .empty-state-icon svg {
+            width: 40px;
+            height: 40px;
+            display: block;
+            margin: 0 auto;
         }
 
         .results-list {
@@ -340,9 +356,9 @@
                 </div>
                 <div class="filter-group">
                     <label for="year-min">Year:</label>
-                    <input type="number" id="year-min" aria-label="Year from" placeholder="From" min="1900" max="2030" style="width: 70px;">
+                    <input type="number" id="year-min" aria-label="Year from" placeholder="From" min="1900" max="2030" style="width: 90px;">
                     <span style="color: var(--text-secondary);">-</span>
-                    <input type="number" id="year-max" aria-label="Year to" placeholder="To" min="1900" max="2030" style="width: 70px;">
+                    <input type="number" id="year-max" aria-label="Year to" placeholder="To" min="1900" max="2030" style="width: 90px;">
                 </div>
                 <div class="filter-group">
                     <label for="topk-input">Results:</label>
@@ -356,7 +372,7 @@
 
             <div id="results-container">
                 <div class="empty-state">
-                    <div class="empty-state-icon">&#128269;</div>
+                    <div class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg></div>
                     <p>Enter a search query to find relevant papers</p>
                 </div>
             </div>
@@ -366,7 +382,7 @@
     <footer>
         <div class="container">
             <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/" style="color: var(--accent);">Elgeti Lab</a></p>
-            <p style="margin-top: 8px;"><a href="{{env "MUNIN_URL_SEARCH"}}">Search</a> | <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a> | <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Get Access</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Support</a></p>
+            <p style="margin-top: 8px;"><a href="{{env "MUNIN_URL_SEARCH"}}">Search</a> | <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a> | <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload</a> | <a href="{{env "MUNIN_URL_DOCS"}}">Docs</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Support</a></p>
         </div>
     </footer>
 
@@ -384,6 +400,15 @@
         const resultsContainer = document.getElementById('results-container');
         const errorContainer = document.getElementById('error-container');
         const resultsSummary = document.getElementById('results-summary');
+
+        // Line icons for the empty states, in the style of the support widget and chat.
+        const ICONS = {
+            search: '<circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>',
+            user: '<path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+        };
+        function emptyIcon(name) {
+            return `<div class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg></div>`;
+        }
 
         // Tells a screen reader what the results area now holds.
         function announce(message) {
@@ -556,8 +581,10 @@
                     <p id="search-loading-msg"></p>
                 </div>
             `;
-            createVortex(document.getElementById('search-vortex'), 10, 7.0);
-            createRotatingMessage(document.getElementById('search-loading-msg'), 'paper_search');
+            // Each returns a stop function. The results replace the canvas, but its
+            // animation and message timer run on until stopped.
+            const stopVortex = createVortex(document.getElementById('search-vortex'), 10, 7.0);
+            const stopMessage = createRotatingMessage(document.getElementById('search-loading-msg'), 'paper_search');
             errorContainer.innerHTML = '';
             announce('Searching');
 
@@ -621,6 +648,9 @@
                 showSearchError(error);
                 resultsContainer.innerHTML = '';
                 announce('');
+            } finally {
+                if (typeof stopVortex === 'function') stopVortex();
+                if (typeof stopMessage === 'function') stopMessage();
             }
         }
 
@@ -637,10 +667,10 @@
                     const isAvailable = await checkPdfAvailable(doi);
                     if (isAvailable) {
                         btn.href = `/paper/${encodeURIComponent(doi)}/pdf`;
-                        btn.innerHTML = '&#128196; Download PDF';
+                        btn.innerHTML = 'Download PDF';
                         btn.classList.remove('checking');
                     } else {
-                        btn.innerHTML = '&#128196; PDF not available';
+                        btn.innerHTML = 'PDF not available';
                         btn.classList.remove('checking');
                         btn.classList.add('unavailable');
                     }
@@ -668,7 +698,7 @@
             if (!data.documents || data.documents.length === 0) {
                 resultsContainer.innerHTML = `
                     <div class="empty-state">
-                        <div class="empty-state-icon">&#128533;</div>
+                        ${emptyIcon('search')}
                         <p>No results found for "${data.query}"</p>
                         <p style="font-size: 14px; margin-top: 8px;">Try different keywords or broader terms</p>
                     </div>
@@ -711,16 +741,16 @@
                         </div>
                         <div class="paper-meta">
                             <span class="paper-score">${score}% match</span>
-                            ${year ? `<span class="paper-meta-item">&#128197; ${year}</span>` : ''}
-                            <span class="paper-meta-item">&#128218; ${doc.source}</span>
+                            ${year ? `<span class="paper-meta-item">${year}</span>` : ''}
+                            <span class="paper-meta-item">${doc.source}</span>
                             ${doi ? `<span class="paper-meta-item">DOI: ${doi}</span>` : ''}
                         </div>
-                        ${authors ? `<div class="paper-authors">&#128100; ${escapeHtml(authors)}${meta.authors && meta.authors.length > 3 ? ' et al.' : ''}</div>` : ''}
+                        ${authors ? `<div class="paper-authors">${escapeHtml(authors)}${meta.authors && meta.authors.length > 3 ? ' et al.' : ''}</div>` : ''}
                         ${abstract ? `<div class="paper-abstract">${escapeHtml(abstract)}</div>` : ''}
                         ${doi ? `
                             <div class="paper-actions">
                                 <a id="${downloadBtnId}" class="download-btn checking" data-doi="${doi}">
-                                    &#128196; Checking availability...
+                                    Checking availability...
                                 </a>
                             </div>
                         ` : ''}
@@ -748,7 +778,7 @@
                 announce('Paper not found');
                 resultsContainer.innerHTML = `
                     <div class="empty-state">
-                        <div class="empty-state-icon">&#128269;</div>
+                        ${emptyIcon('search')}
                         <p>Paper not found in knowledge base for DOI: ${escapeHtml(result.doi)}</p>
                         <p style="font-size: 14px; margin-top: 8px;">Try searching by topic instead, or check the DOI is correct.</p>
                     </div>
@@ -772,15 +802,15 @@
                             <a href="https://doi.org/${doi}" target="_blank">${escapeHtml(paper.title || 'Untitled')}</a>
                         </div>
                         <div class="paper-meta">
-                            ${paper.year ? `<span class="paper-meta-item">&#128197; ${paper.year}</span>` : ''}
-                            ${paper.journal ? `<span class="paper-meta-item">&#128218; ${escapeHtml(paper.journal)}</span>` : ''}
-                            ${paper.citation_count ? `<span class="paper-meta-item">&#128202; ${paper.citation_count} citations</span>` : ''}
+                            ${paper.year ? `<span class="paper-meta-item">${paper.year}</span>` : ''}
+                            ${paper.journal ? `<span class="paper-meta-item">${escapeHtml(paper.journal)}</span>` : ''}
+                            ${paper.citation_count ? `<span class="paper-meta-item">${paper.citation_count} citations</span>` : ''}
                         </div>
-                        ${authors ? `<div class="paper-authors">&#128100; ${escapeHtml(authors)}</div>` : ''}
+                        ${authors ? `<div class="paper-authors">${escapeHtml(authors)}</div>` : ''}
                         ${paper.abstract ? `<div class="paper-abstract">${escapeHtml(paper.abstract)}</div>` : ''}
                         <div class="paper-actions">
                             <a id="${downloadBtnId}" class="download-btn checking" data-doi="${doi}">
-                                &#128196; Checking availability...
+                                Checking availability...
                             </a>
                         </div>
                     </div>
@@ -806,7 +836,7 @@
                 announce('No papers found');
                 resultsContainer.innerHTML = `
                     <div class="empty-state">
-                        <div class="empty-state-icon">&#128100;</div>
+                        ${emptyIcon('user')}
                         <p>No papers found for author: "${escapeHtml(authorQuery)}"${yearDesc}</p>
                         <p style="font-size: 14px; margin-top: 8px;">${yearRange ? `${scanNote} Try a wider year range.` : 'Try a different spelling or partial name.'}</p>
                     </div>
@@ -839,15 +869,15 @@
                             ${doi ? `<a href="https://doi.org/${doi}" target="_blank">${escapeHtml(paper.title || 'Untitled')}</a>` : escapeHtml(paper.title || 'Untitled')}
                         </div>
                         <div class="paper-meta">
-                            ${paper.year ? `<span class="paper-meta-item">&#128197; ${paper.year}</span>` : ''}
-                            ${paper.journal ? `<span class="paper-meta-item">&#128218; ${escapeHtml(paper.journal)}</span>` : ''}
+                            ${paper.year ? `<span class="paper-meta-item">${paper.year}</span>` : ''}
+                            ${paper.journal ? `<span class="paper-meta-item">${escapeHtml(paper.journal)}</span>` : ''}
                             ${doi ? `<span class="paper-meta-item">DOI: ${doi}</span>` : ''}
                         </div>
-                        ${paper.author_name ? `<div class="paper-authors">&#128100; ${escapeHtml(paper.author_name)}</div>` : ''}
+                        ${paper.author_name ? `<div class="paper-authors">${escapeHtml(paper.author_name)}</div>` : ''}
                         ${doi ? `
                             <div class="paper-actions">
                                 <a id="${downloadBtnId}" class="download-btn checking" data-doi="${doi}">
-                                    &#128196; Checking availability...
+                                    Checking availability...
                                 </a>
                             </div>
                         ` : ''}
@@ -880,7 +910,7 @@
                 announce('None of the top matches are by this author');
                 resultsContainer.innerHTML = `
                     <div class="empty-state">
-                        <div class="empty-state-icon">&#128100;</div>
+                        ${emptyIcon('user')}
                         <p>None of the top ${scanned} matches for "${escapeHtml(query)}" are by "${escapeHtml(authorFilter)}".</p>
                         <p style="font-size: 14px; margin: 8px 0 16px;">Their papers may rank lower for this topic.</p>
                         <button type="button" id="author-only-btn" class="btn btn-secondary">List papers by "${escapeHtml(authorFilter)}"</button>
@@ -898,7 +928,7 @@
                 announce('No papers found');
                 resultsContainer.innerHTML = `
                     <div class="empty-state">
-                        <div class="empty-state-icon">&#128533;</div>
+                        ${emptyIcon('search')}
                         <p>No papers found for "${escapeHtml(query)}"${escapeHtml(filterDesc)}</p>
                         <p style="font-size: 14px; margin-top: 8px;">Try broader terms or adjust the filters.</p>
                     </div>
@@ -927,16 +957,16 @@
                         </div>
                         <div class="paper-meta">
                             ${score ? `<span class="paper-score">${score}% match</span>` : ''}
-                            ${paper.year ? `<span class="paper-meta-item">&#128197; ${paper.year}</span>` : ''}
-                            ${paper.citation_count ? `<span class="paper-meta-item">&#128202; ${paper.citation_count} citations</span>` : ''}
+                            ${paper.year ? `<span class="paper-meta-item">${paper.year}</span>` : ''}
+                            ${paper.citation_count ? `<span class="paper-meta-item">${paper.citation_count} citations</span>` : ''}
                             ${doi ? `<span class="paper-meta-item">DOI: ${doi}</span>` : ''}
                         </div>
-                        ${authors ? `<div class="paper-authors">&#128100; ${escapeHtml(authors)}${paper.authors && paper.authors.length > 3 ? ' et al.' : ''}</div>` : ''}
+                        ${authors ? `<div class="paper-authors">${escapeHtml(authors)}${paper.authors && paper.authors.length > 3 ? ' et al.' : ''}</div>` : ''}
                         ${paper.abstract ? `<div class="paper-abstract">${escapeHtml(paper.abstract.substring(0, 300))}${paper.abstract.length > 300 ? '...' : ''}</div>` : ''}
                         ${doi ? `
                             <div class="paper-actions">
                                 <a id="${downloadBtnId}" class="download-btn checking" data-doi="${doi}">
-                                    &#128196; Checking availability...
+                                    Checking availability...
                                 </a>
                             </div>
                         ` : ''}
@@ -972,12 +1002,10 @@
                     if (available && paperCount > 0) {
                         document.getElementById('stats-bar').innerHTML = `
                             <div class="stat-item">
-                                <span>&#128218;</span>
                                 <span class="stat-value">${paperCount.toLocaleString()}</span>
                                 <span class="stat-label">papers in knowledge base</span>
                             </div>
                             <div class="stat-item">
-                                <span>&#128196;</span>
                                 <span class="stat-value">${pdfCount.toLocaleString()}</span>
                                 <span class="stat-label">PDFs available for download</span>
                             </div>
