@@ -10,8 +10,10 @@
             max-width: 1200px;
         }
 
-        main {
-            padding: 48px 0;
+        /* main.container, as .container in style.css would otherwise reset the padding */
+        main.container {
+            padding-top: 48px;
+            padding-bottom: 48px;
             overflow-wrap: break-word;
         }
 
@@ -152,6 +154,18 @@
             font-weight: 600;
             color: var(--text-primary);
         }
+
+        .back-link {
+            display: inline-block;
+            margin-bottom: 24px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .back-link:hover {
+            color: var(--text-primary);
+        }
     </style>
 </head>
 <body>
@@ -173,6 +187,7 @@
     </header>
 
     <main class="container">
+        <a href="." class="back-link">&larr; Back to Docs</a>
         <h1>System Architecture</h1>
         <p>Technical overview of the Munin research assistant system.</p>
 
@@ -531,8 +546,9 @@
     <footer>
         <div class="container">
             <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/" style="color: var(--accent);">Elgeti Lab</a></p>
-            <p style="margin-top: 8px;"><a href="{{env "MUNIN_URL_SEARCH"}}">Search</a> | <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a> | <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Get Access</a></p>
+            <p style="margin-top: 8px;"><a href="{{env "MUNIN_URL_SEARCH"}}">Search</a> | <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a> | <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload</a> | <a href="{{env "MUNIN_URL_DOCS"}}">Docs</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Support</a></p>
         </div>
     </footer>
+<script src="/shared/support-widget.js"></script>
 </body>
 </html>
