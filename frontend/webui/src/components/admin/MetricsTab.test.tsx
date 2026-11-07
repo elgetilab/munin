@@ -4,6 +4,19 @@ import { http, HttpResponse } from 'msw';
 import { server } from '../../test/msw-server';
 import { MetricsTab } from './MetricsTab';
 import { formatMetricValue, rateWindowFor, seriesToRows } from '../../lib/metricsSeries';
+import { cloneElement } from 'react';
+import type { ReactElement } from 'react';
+
+// jsdom measures every element as 0 by 0, so the real ResponsiveContainer draws
+// nothing. A fixed size lets one test look at the chart itself.
+vi.mock('recharts', async importOriginal => {
+  const actual = await importOriginal<typeof import('recharts')>();
+  return {
+    ...actual,
+    ResponsiveContainer: ({ children }: { children: ReactElement<{ width?: number; height?: number }> }) =>
+      cloneElement(children, { width: 400, height: 200 }),
+  };
+});
 
 /**
  * MetricsTab tests cover the pure transforms (seriesToRows,
@@ -259,5 +272,41 @@ describe('MetricsTab rendering', () => {
 
     // Another 8 calls fire after the range changes.
     await waitFor(() => expect(calls).toBe(16));
+  });
+
+  // The colours are CSS variables, so a theme switch recolours a chart that is
+  // already drawn. Their values per theme are checked in chartPalette.test.ts.
+  it('draws series, legend and frame in theme colours', async () => {
+    server.use(
+      http.post('/api/admin/metrics/query_range', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: {
+            resultType: 'matrix',
+            result: [
+              { metric: { purpose: 'chat_turn', outcome: 'ok', direction: 'in', terminal_reason: 'done', name: 'search', kind: 'paper' }, values: [[1700000000, '1'], [1700000015, '2']] },
+              { metric: { purpose: 'title', outcome: 'retry', direction: 'out', terminal_reason: 'cancelled', name: 'fetch', kind: 'artifact' }, values: [[1700000000, '3'], [1700000015, '4']] },
+            ],
+          },
+        })
+      ),
+    );
+
+    const { container } = render(<MetricsTab />);
+
+    await waitFor(() => expect(container.querySelectorAll('.recharts-line-curve').length).toBeGreaterThan(0));
+    const curves = [...container.querySelectorAll('.recharts-line-curve')];
+    expect(curves[0]).toHaveAttribute('stroke', 'var(--chart-1)');
+    expect(curves[1]).toHaveAttribute('stroke', 'var(--chart-2)');
+
+    const legend = screen.getAllByText('chat_turn')[0];
+    expect(legend.style.color).toBe('var(--chart-1)');
+
+    const bars = container.querySelectorAll('.recharts-bar-rectangle path');
+    expect(bars[0]).toHaveAttribute('fill', 'var(--chart-1)');
+
+    // No fixed dark hex is left in the drawn SVG.
+    expect(container.innerHTML).not.toMatch(/#(30363d|8b949e|1a1f26|e6edf3|58a6ff)/i);
+    expect(container.querySelector('.recharts-cartesian-grid line')).toHaveAttribute('stroke', 'var(--color-border)');
   });
 });

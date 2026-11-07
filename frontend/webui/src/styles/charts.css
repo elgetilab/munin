@@ -1,1 +1,36 @@
 /* Chart colours for both themes (--chart-*). Imported by index.css. */
+
+/* Series colours for the admin metrics charts. They colour lines, bars, the legend
+   text and the tooltip rows, so each one is text on bg-secondary and must reach
+   4.5:1 there. chartPalette.test.ts checks that. Dark is the palette the charts
+   have always used. */
+:root {
+  --chart-1: #58a6ff;
+  --chart-2: #3fb950;
+  --chart-3: #d29922;
+  --chart-4: #f85149;
+  --chart-5: #a371f7;
+  --chart-6: #e3b341;
+  --chart-7: #56d4dd;
+  --chart-8: #ff7b72;
+  --chart-9: #79c0ff;
+  --chart-10: #85e89d;
+  --chart-11: #ffa657;
+  --chart-12: #f0883e;
+}
+
+/* Lowest is 4.52:1 on #f6f8fa (--chart-10). */
+:root[data-theme="light"] {
+  --chart-1: #0b62c4;
+  --chart-2: #1a7f37;
+  --chart-3: #9a6700;
+  --chart-4: #cf222e;
+  --chart-5: #8250df;
+  --chart-6: #b35900;
+  --chart-7: #0b7480;
+  --chart-8: #c0306f;
+  --chart-9: #3b5bdb;
+  --chart-10: #5a7d00;
+  --chart-11: #bc4c00;
+  --chart-12: #626b75;
+}

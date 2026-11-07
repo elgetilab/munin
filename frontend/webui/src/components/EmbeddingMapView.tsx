@@ -4,32 +4,9 @@ import { ScatterplotLayer } from '@deck.gl/layers';
 import { OrthographicView } from '@deck.gl/core';
 import type { EmbeddingMap, EmbeddingMapCluster, EmbeddingMapPoint } from '../lib/types';
 import { ErrorNotice } from './ui/ErrorNotice';
+import { useTheme } from '../lib/theme';
+import { clusterCss, pointFill } from '../lib/chartPalette';
 
-// Color palette for clusters (20 distinct colors, repeating)
-const CLUSTER_COLORS: [number, number, number][] = [
-  [99, 102, 241],   // indigo
-  [16, 185, 129],   // emerald
-  [245, 158, 11],   // amber
-  [239, 68, 68],    // red
-  [59, 130, 246],   // blue
-  [168, 85, 247],   // purple
-  [236, 72, 153],   // pink
-  [20, 184, 166],   // teal
-  [249, 115, 22],   // orange
-  [132, 204, 22],   // lime
-  [6, 182, 212],    // cyan
-  [217, 70, 239],   // fuchsia
-  [234, 179, 8],    // yellow
-  [34, 197, 94],    // green
-  [244, 63, 94],    // rose
-  [79, 70, 229],    // violet
-  [14, 165, 233],   // sky
-  [251, 146, 60],   // orange-light
-  [163, 230, 53],   // lime-light
-  [45, 212, 191],   // teal-light
-];
-
-const UNCLUSTERED_COLOR: [number, number, number] = [100, 100, 100];
 const VISIBLE_CLUSTERS = 40;
 // Until the container has been measured, and where it cannot be.
 const DEFAULT_SIZE = { width: 600, height: 420 };
@@ -144,17 +121,16 @@ export function EmbeddingMapView({ mapData, loading, error, onRetry, onNavigateT
     [mapData],
   );
 
-  const getColor = useCallback((p: EmbeddingMapPoint): [number, number, number, number] => {
-    if (p.cluster === -1) return [...UNCLUSTERED_COLOR, 80];
-    const color = CLUSTER_COLORS[p.cluster % CLUSTER_COLORS.length];
-    return [...color, 200];
-  }, []);
+  // WebGL cannot read CSS variables, so the dots take their colours from the theme
+  // here. updateTriggers makes deck.gl recolour the points it already has.
+  const { theme } = useTheme();
 
   const layer = useMemo(() => new ScatterplotLayer<EmbeddingMapPoint>({
     id: 'embedding-scatter',
     data: filteredPoints,
     getPosition: (d: EmbeddingMapPoint) => [d.x, d.y, 0],
-    getFillColor: (d: EmbeddingMapPoint) => getColor(d),
+    getFillColor: (d: EmbeddingMapPoint) => pointFill(d.cluster, theme),
+    updateTriggers: { getFillColor: theme },
     getRadius: (d: EmbeddingMapPoint) => d.cluster === -1 ? 0.3 : 0.4,
     radiusUnits: 'common',
     radiusMinPixels: 1.5,
@@ -163,7 +139,7 @@ export function EmbeddingMapView({ mapData, loading, error, onRetry, onNavigateT
     onHover: (info: PickInfo) => {
       setHovered(info.object ? { point: info.object, x: info.x ?? 0, y: info.y ?? 0 } : null);
     },
-  }), [filteredPoints, getColor]);
+  }), [filteredPoints, theme]);
 
   // With a mouse the tooltip has already shown what a click will open. On touch
   // the first tap has to be that preview, and the tooltip carries the way on.
@@ -299,7 +275,6 @@ export function EmbeddingMapView({ mapData, loading, error, onRetry, onNavigateT
         </div>
         <div className="flex flex-wrap gap-1.5">
           {visibleClusters.map(cluster => {
-            const color = CLUSTER_COLORS[cluster.id % CLUSTER_COLORS.length];
             const isActive = activeClusterId === cluster.id;
             return (
               <button
@@ -314,7 +289,7 @@ export function EmbeddingMapView({ mapData, loading, error, onRetry, onNavigateT
               >
                 <span
                   className="w-2 h-2 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: `rgb(${color[0]}, ${color[1]}, ${color[2]})` }}
+                  style={{ backgroundColor: clusterCss(cluster.id, theme) }}
                 />
                 <span className="truncate max-w-32">{cluster.label}</span>
                 <span className="text-[10px] tabular-nums opacity-60">{cluster.size}</span>
