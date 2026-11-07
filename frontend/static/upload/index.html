@@ -6,7 +6,7 @@
     <script data-munin-theme>(function(){var p="dark",d=document.documentElement;try{var m=document.cookie.match(/(?:^|;\s*)munin_theme=(light|dark|system)(?:;|$)/);if(m)p=m[1]}catch(e){}var t=p;if(p==="system"){try{t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}catch(e){t="dark"}}d.setAttribute("data-theme-pref",p);d.setAttribute("data-theme",t)})()</script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Upload Papers - Munin</title>
-    <link rel="stylesheet" href="/shared/style.css">
+    <link rel="stylesheet" href="/shared/style.css?v=2">
     <script src="/shared/theme.js" defer></script>
     <link rel="stylesheet" href="https://releases.transloadit.com/uppy/v4.12.1/uppy.min.css"
           integrity="sha384-TV3wgScnuVcCKU94DU89lYCq5OZIlJ43HYxxlCoQKsL2C5jTi1tVPvKjYDSF+6nN" crossorigin="anonymous">
@@ -120,8 +120,9 @@
             color: var(--text-secondary) !important;
         }
 
-        /* Uppy's light theme greys (#757575) and blue (#1269cf) fall under 4.5:1
-           on these backgrounds, and white on its green button is 2.6:1. */
+        /* Uppy's light theme grey (#757575) is 4.33:1 on bg-secondary, under 4.5:1,
+           and white on its green upload button is 2.80:1. Its links move to the
+           page accent (6.10:1) so they match the rest of the page. */
         :root[data-theme="light"] .uppy-Dashboard-note,
         :root[data-theme="light"] .uppy-Dashboard-Item-status,
         :root[data-theme="light"] .uppy-StatusBar-statusSecondary {

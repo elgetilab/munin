@@ -125,6 +125,8 @@
     // A cookie change fires no event, so another tab or site's choice is picked
     // up when this tab comes back into view.
     window.addEventListener('focus', function () { apply(); });
+    // A page restored from the back-forward cache keeps the theme it was left with.
+    window.addEventListener('pageshow', function () { apply(); });
     document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') apply();
     });
