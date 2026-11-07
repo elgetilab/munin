@@ -92,7 +92,11 @@ const CLUSTER_COUNT: KnownFailure = {
   theme: 'dark', selectorEnd: 'span.text-[10px].tabular-nums.opacity-60', fg: '#5e656e', bg: '#1a1f26',
   why: 'Knowledge page topic chip count at opacity-60: 2.81:1 in dark',
 };
-const KNOWN_DARK: KnownFailure[] = [AVATAR_INITIAL, CLUSTER_COUNT];
+const ERROR_BANNER_DISMISS: KnownFailure = {
+  theme: 'dark', selectorEnd: 'button.flex-shrink-0.min-w-8.min-h-8.-my-1 > span', fg: '#ce4640', bg: '#261a1e',
+  why: 'the dismiss cross on an error announcement, text-error at opacity-80 on bg-error/10: 3.66:1 in dark',
+};
+const KNOWN_DARK: KnownFailure[] = [AVATAR_INITIAL, CLUSTER_COUNT, ERROR_BANNER_DISMISS];
 
 const isKnown = (f: ContrastFailure, k: KnownFailure) =>
   f.selector.endsWith(k.selectorEnd) && f.fg === k.fg && f.bg === k.bg;
@@ -128,6 +132,19 @@ test.describe('contrast', () => {
     await expect(panel).toBeVisible();
     await expect(panel.getByText('Mocked artifact body.')).toBeVisible();
     await expectReadable(page);
+  });
+
+  test('announcement banners at each level', async ({ page }, info) => {
+    await installMocks(page, { conversations });
+    for (const level of ['info', 'warning', 'error']) {
+      await page.route('**/api/announcement', (route) => route.fulfill({
+        json: { announcement: { message: `A ${level} announcement for everyone.`, level } },
+      }));
+      await page.goto('/');
+      await expectProjectTheme(page, info);
+      await expect(page.getByText(`A ${level} announcement for everyone.`)).toBeVisible();
+      await expectReadable(page, { seen: level === 'error' ? [ERROR_BANNER_DISMISS] : [] });
+    }
   });
 
   test('the composer with text typed, and the + menu', async ({ page }, info) => {
