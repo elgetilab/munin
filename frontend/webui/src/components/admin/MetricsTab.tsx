@@ -7,6 +7,7 @@ import { metricsQueryRange } from '../../lib/api';
 import type { PromSeries } from '../../lib/api';
 import { formatMetricValue, rateWindowFor, seriesToRows } from '../../lib/metricsSeries';
 import { ErrorNotice } from '../ui/ErrorNotice';
+import { seriesColor } from '../../lib/chartPalette';
 
 
 /**
@@ -29,13 +30,19 @@ const TIME_RANGES: Array<{ label: string; minutes: number; stepSeconds: number }
 
 const AUTO_REFRESH_MS = 30_000;
 
-// Distinct colour palette for series. Picked so adjacent series stay
-// distinguishable in colour-blind viewing (Wong palette + an accent).
-const SERIES_COLOURS = [
-  '#58a6ff', '#3fb950', '#d29922', '#f85149',
-  '#a371f7', '#e3b341', '#56d4dd', '#ff7b72',
-  '#79c0ff', '#85e89d', '#ffa657', '#f0883e',
-];
+// Series colours come from --chart-1 to --chart-12 (src/styles/charts.css), and
+// the chart's frame from the theme tokens, so a theme switch recolours the charts
+// with no re-render. Recharts writes these strings into SVG attributes and inline
+// styles, where var() resolves.
+const GRID = 'var(--color-border)';
+const AXIS = 'var(--color-text-secondary)';
+const TOOLTIP_STYLE = {
+  background: 'var(--color-bg-secondary)',
+  border: '1px solid var(--color-border)',
+  borderRadius: 6,
+  fontSize: 12,
+};
+const TOOLTIP_LABEL_STYLE = { color: 'var(--color-text-primary)' };
 
 // ── Panel definitions ──────────────────────────────────────────────────────
 
@@ -333,17 +340,17 @@ function ChartFor({
     return (
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={rows} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#30363d" vertical={false} />
-          <XAxis dataKey="time" stroke="#8b949e" fontSize={10} tickLine={false} axisLine={false} />
-          <YAxis stroke="#8b949e" fontSize={10} tickFormatter={yFormatter} tickLine={false} axisLine={false} width={45} />
+          <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
+          <XAxis dataKey="time" stroke={AXIS} fontSize={10} tickLine={false} axisLine={false} />
+          <YAxis stroke={AXIS} fontSize={10} tickFormatter={yFormatter} tickLine={false} axisLine={false} width={45} />
           <Tooltip
-            contentStyle={{ background: '#1a1f26', border: '1px solid #30363d', borderRadius: 6, fontSize: 12 }}
-            labelStyle={{ color: '#e6edf3' }}
+            contentStyle={TOOLTIP_STYLE}
+            labelStyle={TOOLTIP_LABEL_STYLE}
             formatter={tooltipFormatter}
           />
           <Legend wrapperStyle={{ fontSize: 11 }} />
           {names.map((name, i) => (
-            <Bar key={name} dataKey={name} fill={SERIES_COLOURS[i % SERIES_COLOURS.length]} />
+            <Bar key={name} dataKey={name} fill={seriesColor(i)} />
           ))}
         </BarChart>
       </ResponsiveContainer>
@@ -353,12 +360,12 @@ function ChartFor({
   return (
     <ResponsiveContainer width="100%" height="100%">
       <LineChart data={rows} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#30363d" vertical={false} />
-        <XAxis dataKey="time" stroke="#8b949e" fontSize={10} tickLine={false} axisLine={false} />
-        <YAxis stroke="#8b949e" fontSize={10} tickFormatter={yFormatter} tickLine={false} axisLine={false} width={45} />
+        <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
+        <XAxis dataKey="time" stroke={AXIS} fontSize={10} tickLine={false} axisLine={false} />
+        <YAxis stroke={AXIS} fontSize={10} tickFormatter={yFormatter} tickLine={false} axisLine={false} width={45} />
         <Tooltip
-          contentStyle={{ background: '#1a1f26', border: '1px solid #30363d', borderRadius: 6, fontSize: 12 }}
-          labelStyle={{ color: '#e6edf3' }}
+          contentStyle={TOOLTIP_STYLE}
+          labelStyle={TOOLTIP_LABEL_STYLE}
           formatter={tooltipFormatter}
         />
         <Legend wrapperStyle={{ fontSize: 11 }} />
@@ -367,7 +374,7 @@ function ChartFor({
             key={name}
             type="monotone"
             dataKey={name}
-            stroke={SERIES_COLOURS[i % SERIES_COLOURS.length]}
+            stroke={seriesColor(i)}
             dot={false}
             strokeWidth={2}
             connectNulls={false}
