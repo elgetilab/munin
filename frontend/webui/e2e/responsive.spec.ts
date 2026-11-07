@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { test, expect, type Page } from '@playwright/test';
 import { installMocks } from './fixtures/mock';
 import { ev, tokens } from './fixtures/sse';
+import { cssVarColor } from './fixtures/theme';
 
 // Layout rules that only exist in a real browser: Tailwind's reset, the xl
 // breakpoint for the panels, and what a phone can and cannot reach.
@@ -185,7 +186,8 @@ test.describe('keyboard', () => {
     await box.focus();
     await expect(box).toHaveCSS('outline-style', 'none');
     await expect(box.locator('..')).toHaveCSS('outline-style', 'solid');
-    await expect(box.locator('..')).toHaveCSS('outline-color', 'rgb(88, 166, 255)');
+    // The accent as this theme defines it, not a pinned colour, so this holds in light too.
+    await expect(box.locator('..')).toHaveCSS('outline-color', await cssVarColor(box.locator('..'), '--color-accent'));
   });
 
   test('the composer shows one focus line, not the ring and an accent border', async ({ page }) => {
@@ -195,7 +197,13 @@ test.describe('keyboard', () => {
     const bubble = page.getByTestId('composer-textarea').locator('..');
     await bubble.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
     await expect(bubble).toHaveCSS('outline-style', 'solid');
-    await expect(bubble).not.toHaveCSS('border-top-color', 'rgb(88, 166, 255)');
+    // A negative check against a pinned dark accent would pass in light whatever
+    // the border did, so read both colours from the theme and pin the border too.
+    const accent = await cssVarColor(bubble, '--color-accent');
+    const border = await cssVarColor(bubble, '--color-border');
+    expect(border).not.toBe(accent);
+    await expect(bubble).not.toHaveCSS('border-top-color', accent);
+    await expect(bubble).toHaveCSS('border-top-color', border);
   });
 });
 
