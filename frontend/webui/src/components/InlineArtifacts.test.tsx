@@ -40,6 +40,14 @@ describe('InlineArtifacts', () => {
     expect(screen.queryByTestId('artifact-card')).not.toBeInTheDocument();
   });
 
+  it('captions a preview with its name and says it opens', () => {
+    render(<InlineArtifacts toolCalls={[PLOT]} />);
+    expect(screen.getByRole('button', { name: 'Open plot.png' })).toBe(screen.getByTestId('artifact-preview'));
+    const caption = screen.getByTestId('artifact-preview-caption');
+    expect(caption).toHaveTextContent('plot.png');
+    expect(caption).toHaveTextContent('Open');
+  });
+
   it('shows a PDF as a card with its type and size', () => {
     render(<InlineArtifacts toolCalls={[PDF]} />);
     const card = screen.getByTestId('artifact-card');
@@ -85,7 +93,9 @@ describe('InlineArtifacts', () => {
       return HttpResponse.json({ id: 'art_svg', content: '<svg xmlns="http://www.w3.org/2000/svg"/>' });
     }));
     render(<InlineArtifacts toolCalls={[SVG]} conversationId="c1" />);
-    expect(screen.getByTestId('artifact-preview-loading')).toBeInTheDocument();
+    const loading = screen.getByTestId('artifact-preview-loading');
+    expect(loading).toHaveTextContent('Loading preview...');
+    expect(loading).toHaveAttribute('aria-busy', 'true');
     const img = await screen.findByRole('img', { name: 'Pathway' });
     expect(img.getAttribute('src')).toMatch(/^data:image\/svg\+xml/);
     expect(versions).toEqual(['2']);
