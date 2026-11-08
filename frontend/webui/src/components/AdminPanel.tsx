@@ -7,6 +7,7 @@ import { GroupsTab } from './admin/GroupsTab';
 import { MetricsTab } from './admin/MetricsTab';
 import { AnnouncementTab } from './admin/AnnouncementTab';
 import { ErrorNotice } from './ui/ErrorNotice';
+import { PageHeader } from './ui/PageHeader';
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -99,16 +100,7 @@ export function AdminPanel() {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-4xl mx-auto px-6 py-8">
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3 mb-6">
-          <h2 className="text-xl font-semibold text-text-primary">Admin Dashboard</h2>
-          <button
-            onClick={onClose}
-            className="text-text-secondary hover:text-text-primary transition-colors cursor-pointer text-sm"
-          >
-            Back to chat
-          </button>
-        </div>
+        <PageHeader title="Admin Dashboard" onBack={onClose} className="mb-6" />
 
         {/* Summary cards: only on the tabs that keep them fresh. */}
         {needsLiveData && !loading && activity && usage && (

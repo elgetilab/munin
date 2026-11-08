@@ -4,6 +4,7 @@ import type { TagCatalog, TagChip } from '../lib/types';
 import { isModifiedClick } from '../lib/nav';
 import { useUiStore } from '../stores/uiStore';
 import { useBelowXl, useModal } from '../hooks/useModal';
+import { CloseIcon } from './ui/icons';
 
 interface KnowledgePanelProps {
   catalog: TagCatalog;
@@ -14,14 +15,6 @@ interface KnowledgePanelProps {
 
 // Topics are a long list. Above this many, a filter beats paging through them.
 const TOPIC_FILTER_THRESHOLD = 20;
-
-function CloseIcon({ size = 12 }: { size?: number }) {
-  return (
-    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-      <path d="M6 6l12 12M18 6L6 18" />
-    </svg>
-  );
-}
 
 function Section({ title, defaultOpen, children }: { title: string; defaultOpen?: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(defaultOpen ?? false);

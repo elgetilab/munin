@@ -8,14 +8,15 @@ import { useChatStore } from '../stores/chatStore';
 import { useDeepResearchStore } from '../stores/deepResearchStore';
 import { useMenu } from '../hooks/useMenu';
 import { ICON } from './ui/cardButton';
+import { BookIcon, ChatIcon, FlaskIcon, PageIcon, SearchIcon, SpinnerIcon } from './ui/icons';
 
 // Router-recognized per-turn overrides (backend parse_slash: research|code|chat).
 // These force Munin's routing for one turn; otherwise it auto-routes.
 // Icons are line SVGs in the TaskLog style (14x14, stroke) rather than emoji.
 const SLASH_COMMANDS = [
-  { command: '/research', description: 'Treat this message as research', icon: <svg {...ICON}><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg> },
+  { command: '/research', description: 'Treat this message as research', icon: <SearchIcon /> },
   { command: '/code', description: 'Treat this message as a coding task', icon: <svg {...ICON}><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></svg> },
-  { command: '/chat', description: 'Treat this message as ordinary chat', icon: <svg {...ICON}><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" /></svg> },
+  { command: '/chat', description: 'Treat this message as ordinary chat', icon: <ChatIcon /> },
 ] as const;
 
 // Display order of the tag menu and the knowledge picker. Results are built in
@@ -726,10 +727,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           <div className="bg-bg-secondary border border-border rounded-xl shadow-lg overflow-hidden">
             {/* Search header */}
             <div className="px-4 py-2 border-b border-border flex items-center gap-2">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary flex-shrink-0">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
+              <SearchIcon className="text-text-secondary flex-shrink-0" />
               <span className="text-xs text-text-secondary">
                 {tagQuery ? <>Searching: <span className="text-text-primary font-medium">{tagQuery}</span></> : 'Type to search knowledge...'}
               </span>
@@ -861,9 +859,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             a background research job rather than a chat turn. */}
         {deepResearchMode && !drActive && (
           <div data-testid="dr-armed" className={`px-5 pt-2 flex items-center gap-2 text-xs ${deepResearchBlocked ? 'text-warning' : 'text-accent'}`}>
-            <svg className="shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 3h6M10 3v6.5L5.5 18a2 2 0 0 0 1.8 3h9.4a2 2 0 0 0 1.8-3L14 9.5V3" />
-            </svg>
+            <FlaskIcon size={13} className="shrink-0" />
             <span className="flex-1 min-w-0">
               {deepResearchBlocked
                 ? 'Deep Research cannot use attachments. Remove them or turn Deep Research off.'
@@ -941,10 +937,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                     isEphemeral ? 'text-text-secondary cursor-not-allowed' : 'text-text-primary hover:bg-bg-tertiary'
                   }`}
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                  </svg>
+                  <PageIcon size={16} />
                   <span className="flex-1 min-w-0">
                     <span className="block">Upload file</span>
                     {isEphemeral && <span className="block text-[11px]">Not available in temporary chats</span>}
@@ -967,10 +960,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   onClick={() => { attachMenu.close(); setKnowledgePickerOpen(true); setKnowledgeSearch(''); setKnowledgeHighlight(0); }}
                   className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary transition-colors cursor-pointer"
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z" />
-                    <path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" />
-                  </svg>
+                  <BookIcon size={16} />
                   Attach knowledge
                 </button>
 
@@ -993,9 +983,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                     drResearchUnavailable ? 'text-text-secondary cursor-not-allowed' : 'text-text-primary hover:bg-bg-tertiary'
                   }`}
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 3h6M10 3v6.5L5.5 18a2 2 0 0 0 1.8 3h9.4a2 2 0 0 0 1.8-3L14 9.5V3" />
-                  </svg>
+                  <FlaskIcon size={16} />
                   <span className="flex-1 min-w-0">
                     <span className="block">Deep Research</span>
                     <span className="block text-[11px] text-text-secondary">
@@ -1095,14 +1083,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               }
             >
               {drStarting ? (
-                <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                </svg>
+                <SpinnerIcon size={16} strokeWidth={2.5} className="animate-spin" />
               ) : deepResearchMode ? (
                 /* flask: sending will start a research job */
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 3h6M10 3v6.5L5.5 18a2 2 0 0 0 1.8 3h9.4a2 2 0 0 0 1.8-3L14 9.5V3" />
-                </svg>
+                <FlaskIcon size={16} strokeWidth={2.5} />
               ) : (
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="12" y1="19" x2="12" y2="5" />

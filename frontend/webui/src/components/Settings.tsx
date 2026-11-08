@@ -9,6 +9,7 @@ import { API_PUBLIC_URL } from '../lib/urls';
 import { copyText } from '../lib/copyText';
 import { ErrorNotice } from './ui/ErrorNotice';
 import { ThemePicker } from './ThemePicker';
+import { PageHeader } from './ui/PageHeader';
 
 interface SettingsProps {
   profile: UserProfile;
@@ -319,16 +320,7 @@ print(response.choices[0].message.content)`;
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-xl mx-auto px-6 py-10">
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3 mb-8">
-          <h2 className="text-xl font-semibold text-text-primary">Settings</h2>
-          <button
-            onClick={onClose}
-            className="text-text-secondary hover:text-text-primary transition-colors cursor-pointer text-sm"
-          >
-            Back to chat
-          </button>
-        </div>
+        <PageHeader title="Settings" onBack={onClose} className="mb-8" />
 
         {/* ── Appearance ── */}
         <h3 className="text-lg font-semibold text-text-primary mb-6">Appearance</h3>

@@ -5,10 +5,11 @@ import { isActive } from '../stores/deepResearchStore';
 import { cancelDeepResearch } from '../lib/api';
 import { friendlyError } from '../lib/modelError';
 import { doiUrl } from '../lib/doi';
-import { BTN_SECONDARY, BTN_QUIET, ICON } from './ui/cardButton';
+import { BTN_SECONDARY, BTN_QUIET } from './ui/cardButton';
+import { FlaskIcon, PageIcon, SearchIcon, SpinnerIcon } from './ui/icons';
 
-const SEARCH_ICON = <svg {...ICON}><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>;
-const PAGE_ICON = <svg {...ICON}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>;
+const SEARCH_ICON = <SearchIcon />;
+const PAGE_ICON = <PageIcon />;
 
 // Renders a Deep Research job's durable event log inline in the conversation:
 // a plan checklist, a tool card per search / paper read, the notes it found, and
@@ -17,7 +18,7 @@ const PAGE_ICON = <svg {...ICON}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12
 
 interface PlanItem { id: string; text: string; status: string }
 interface ToolRow {
-  id: string; name: string; query?: string; title?: string;
+  id: string; name: string; query?: string; title?: string; doi?: string;
   summary?: string; outcome?: string; read_depth?: string; tier?: string; done: boolean;
 }
 interface Note { claim: string; ref?: { doi?: string; title?: string }; tier?: string }
@@ -35,6 +36,19 @@ function NoteRef({ doi, title }: { doi?: string; title?: string }) {
         ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline wrap-anywhere">{label}</a>
         : label}
     </span>
+  );
+}
+
+// A paper the research read: its title, linked to doi.org when the DOI is a real one.
+function ReadTitle({ doi, title }: { doi?: string; title?: string }) {
+  const href = doiUrl(doi);
+  return (
+    <>
+      {'Read: '}
+      {href
+        ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline wrap-anywhere">{title || doi}</a>
+        : title || ''}
+    </>
   );
 }
 
@@ -68,7 +82,7 @@ function derive(events: ResearchEvent[]) {
         const args = (e.arguments as Record<string, unknown>) || {};
         const row: ToolRow = {
           id: s(e.id) || String(rows.length), name: s(e.name) || 'tool',
-          query: s(args.query), title: s(args.title) || s(args.doi), done: false,
+          query: s(args.query), title: s(args.title) || s(args.doi), doi: s(args.doi), done: false,
         };
         rows.push(row);
         rowById[row.id] = row;
@@ -145,9 +159,7 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
     // or height cap, which would nest a second scrollbar inside the chat area.
     <div data-testid="research-timeline" className="mx-auto max-w-3xl w-full my-4 rounded-xl border border-border bg-bg-secondary overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent">
-          <path d="M9 3h6M10 3v6.5L5.5 18a2 2 0 0 0 1.8 3h9.4a2 2 0 0 0 1.8-3L14 9.5V3" />
-        </svg>
+        <FlaskIcon size={16} className="text-accent" />
         <span className="text-sm font-semibold text-text-primary flex-1">Deep Research</span>
         <span data-testid="research-status" className={`text-[11px] px-2 py-0.5 rounded-full ${
           job.status === 'done' ? 'bg-success/15 text-success'
@@ -195,7 +207,7 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
                 <li key={r.id + i} data-testid="research-tool-row" className="flex items-start gap-2 text-xs">
                   <span aria-hidden="true" className="text-text-secondary shrink-0 mt-px">{r.name === 'search' ? SEARCH_ICON : PAGE_ICON}</span>
                   <span className="flex-1 min-w-0">
-                    <span className="text-text-primary">{r.name === 'search' ? `Searched: ${r.query || ''}` : `Read: ${r.title || ''}`}</span>
+                    <span className="text-text-primary">{r.name === 'search' ? `Searched: ${r.query || ''}` : <ReadTitle doi={r.doi} title={r.title} />}</span>
                     {r.summary && <span className="text-text-secondary"> · {r.summary}</span>}
                     {!r.done && active && <span className="text-accent"> …</span>}
                   </span>
@@ -228,7 +240,7 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
       <div className="border-t border-border px-4 py-3 flex items-center gap-2">
         {active ? (
           <span className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
-            <svg className="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+            <SpinnerIcon size={12} strokeWidth={2.5} className="animate-spin" />
             {job.status === 'queued' ? 'Waiting for another research job to finish…' : 'Researching in the background…'}
             <button
               data-testid="research-cancel"
