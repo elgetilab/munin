@@ -193,11 +193,12 @@ below are what it was built to.
 
 ### Known limits
 
-- The installed iOS app keeps `apple-mobile-web-app-status-bar-style` at
-  `black-translucent`, so in light its white status-bar text sits over the light
-  header. iOS reads the value once at launch and cannot follow the theme, and
-  `black` or `default` would change the dark home-screen app as well. Dark is the
-  default, so it keeps the dark look.
+- The installed iOS app uses `apple-mobile-web-app-status-bar-style` `default`
+  (changed from `black-translucent` on 2026-11-08). The page no longer runs under
+  the status bar, so its text never sits over the header, which in light was
+  white on white. iOS reads the value once at launch. Whether the status bar strip
+  takes the page's theme colour or stays white is still to be checked on an
+  iPhone.
 
 ### Estimate
 
