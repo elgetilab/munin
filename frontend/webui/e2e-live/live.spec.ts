@@ -133,21 +133,23 @@ test('a small document uploads and is ready to send', async ({ page }) => {
 test('during an upload, retrieval keeps answering other requests', async ({ page }) => {
   const name = `${RUN}-busy.txt`;
   const line = 'Proteins fold into shapes that decide what they can do in a cell. ';
-  const body = Array.from({ length: 900 }, (_, i) => `${i} ${line}`).join('\n');
+  // About 260 KB, so the server is still extracting and embedding for a while
+  // after the bytes are sent. At 900 lines it was done before the first probe.
+  const body = Array.from({ length: 3600 }, (_, i) => `${i} ${line}`).join('\n');
   try {
     await page.goto('/');
     await page.locator('input[type="file"]').first().setInputFiles({
       name, mimeType: 'text/plain', buffer: Buffer.from(body),
     });
-    // The bytes are sent, and the server is extracting and embedding. When it is
-    // quick, the 100% label can be gone before it is seen, so either will do.
     const ready = page.getByText(`${name} (ready to send)`);
-    await expect(page.getByText(/\.\.\. 100%/).or(ready), 'upload sent').toBeVisible({ timeout: 30_000 });
 
-    // /api/chats goes all the way to retrieval.
+    // Probe from the moment the file is picked until it is ready, so a quick
+    // upload cannot slip past the loop. /api/chats goes all the way to retrieval.
     let worst = 0;
     let probes = 0;
-    while (await page.getByText(/Uploading /).isVisible()) {
+    const deadline = Date.now() + 180_000;
+    while (!(await ready.isVisible())) {
+      expect(Date.now(), 'upload finished within 3 minutes').toBeLessThan(deadline);
       const started = Date.now();
       const res = await page.request.get('/api/chats?limit=1', { timeout: 60_000 });
       expect(res.ok()).toBeTruthy();
@@ -156,7 +158,7 @@ test('during an upload, retrieval keeps answering other requests', async ({ page
       await page.waitForTimeout(500);
     }
     test.info().annotations.push({ type: 'slowest request during upload', description: `${worst} ms over ${probes} requests` });
-    await expect(ready, 'upload finished').toBeVisible({ timeout: 30_000 });
+    expect(probes, 'requests timed while the upload ran').toBeGreaterThan(0);
     expect(worst).toBeLessThan(10_000);
   } finally {
     await deleteDocs(page, name);
