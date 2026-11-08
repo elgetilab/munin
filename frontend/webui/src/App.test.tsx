@@ -222,6 +222,82 @@ describe('browser Back', () => {
   });
 });
 
+describe('a changed artifact draft', () => {
+  const back = async () => {
+    window.history.back();
+    await new Promise(resolve => setTimeout(resolve, 20));
+  };
+
+  // The chat at /c/c1, with the start page behind it in the history, and a1 being
+  // edited in the panel.
+  async function openChatWithDraft() {
+    window.history.replaceState(null, '', '/');
+    window.history.pushState(null, '', '/c/c1');
+    render(<App />);
+    await screen.findByText('Hi there!');
+    act(() => useUiStore.setState({ artifactPanelOpen: true, selectedArtifactId: 'a1' }));
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Edit' }));
+    await user.type(screen.getByRole('textbox', { name: 'Artifact content' }), 'x');
+    expect(useUiStore.getState().artifactDraftChanged).toBe(true);
+  }
+
+  it('Back to another page asks, and No keeps the chat and its address', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    await openChatWithDraft();
+    await back();
+
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith('Discard your changes to this artifact?'));
+    expect(window.location.pathname).toBe('/c/c1');
+    expect(useChatStore.getState().conversationId).toBe('c1');
+  });
+
+  it('Back to another page goes on Yes', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await openChatWithDraft();
+    await back();
+
+    await waitFor(() => expect(useChatStore.getState().conversationId).toBeNull());
+    expect(window.location.pathname).toBe('/');
+  });
+
+  it('Back that only closes Settings does not ask', async () => {
+    const confirm = vi.spyOn(window, 'confirm');
+    useUserStore.setState({ userProfile: { email: 'a@b.c', name: 'A' } as never });
+    await openChatWithDraft();
+    act(() => useUiStore.getState().setShowSettings(true));
+    await back();
+
+    await waitFor(() => expect(useUiStore.getState().showSettings).toBe(false));
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('a reload asks through the browser, and only while there is a draft', async () => {
+    await openChatWithDraft();
+    const unload = () => {
+      const e = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    expect(unload()).toBe(true);
+    // Taking the change back out leaves nothing to lose.
+    await userEvent.type(screen.getByRole('textbox', { name: 'Artifact content' }), '{Backspace}');
+    expect(useUiStore.getState().artifactDraftChanged).toBe(false);
+    expect(unload()).toBe(false);
+  });
+
+  it('a new artifact from the model does not take the panel off the draft', async () => {
+    await openChatWithDraft();
+    act(() => useChatStore.setState({
+      lastArtifactEvent: {
+        id: 'a2', source: 'model_written', title: 'New', content_type: 'text/markdown',
+        version: 1, conversation_id: 'c1', tool_call_id: 't',
+      },
+    }));
+    expect(useUiStore.getState().selectedArtifactId).toBe('a1');
+  });
+});
+
 describe('phone drawer as a dialog', () => {
   beforeEach(() => stubMatchMedia(390));
 
