@@ -139,19 +139,24 @@ test('during an upload, retrieval keeps answering other requests', async ({ page
     await page.locator('input[type="file"]').first().setInputFiles({
       name, mimeType: 'text/plain', buffer: Buffer.from(body),
     });
-    await expect(page.getByText(/\.\.\. 100%/)).toBeVisible({ timeout: 30_000 });
+    // The bytes are sent, and the server is extracting and embedding. When it is
+    // quick, the 100% label can be gone before it is seen, so either will do.
+    const ready = page.getByText(`${name} (ready to send)`);
+    await expect(page.getByText(/\.\.\. 100%/).or(ready), 'upload sent').toBeVisible({ timeout: 30_000 });
 
     // /api/chats goes all the way to retrieval.
     let worst = 0;
+    let probes = 0;
     while (await page.getByText(/Uploading /).isVisible()) {
       const started = Date.now();
       const res = await page.request.get('/api/chats?limit=1', { timeout: 60_000 });
       expect(res.ok()).toBeTruthy();
       worst = Math.max(worst, Date.now() - started);
+      probes += 1;
       await page.waitForTimeout(500);
     }
-    test.info().annotations.push({ type: 'slowest request during upload', description: `${worst} ms` });
-    await expect(page.getByText(`${name} (ready to send)`)).toBeVisible();
+    test.info().annotations.push({ type: 'slowest request during upload', description: `${worst} ms over ${probes} requests` });
+    await expect(ready, 'upload finished').toBeVisible({ timeout: 30_000 });
     expect(worst).toBeLessThan(10_000);
   } finally {
     await deleteDocs(page, name);
