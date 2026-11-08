@@ -20,6 +20,7 @@ import { SleepingPage } from './components/SleepingPage';
 import { MaintenancePage } from './components/MaintenancePage';
 import { Settings } from './components/Settings';
 import { ArtifactPanel } from './components/ArtifactPanel';
+import { mayDropArtifactDraft } from './lib/artifactDraft';
 import { isWidget } from './lib/artifactDisplay';
 import { ProjectSettings } from './components/ProjectSettings';
 import { AdminPanel } from './components/AdminPanel';
@@ -56,11 +57,6 @@ const PILL_OFF = 'bg-bg-tertiary border-border text-text-secondary hover:text-te
 const PILL_ACCENT = 'bg-accent/15 border-accent text-accent';
 // The ✕ stays at full strength: faded, it falls under 4.5:1 on the banner's tint.
 const DISMISS_BUTTON = 'flex-shrink-0 min-w-8 min-h-8 -my-1 flex items-center justify-center rounded hover:bg-current/10 transition-colors cursor-pointer text-xs';
-
-// From xl up the artifact panel sits beside controls that can take it away.
-function mayDropArtifactDraft(): boolean {
-  return !useUiStore.getState().artifactDraftChanged || window.confirm('Discard your changes to this artifact?');
-}
 
 export default function App() {
   const status = useStatus();
@@ -392,6 +388,8 @@ export default function App() {
   // not replace something the user is reading in the panel.
   useEffect(() => {
     if (!lastArtifactEvent) return;
+    // The user is editing: the new artifact waits in the list, the draft stays.
+    if (useUiStore.getState().artifactDraftChanged) return;
     const inMessage = 'content_type' in lastArtifactEvent && isWidget(lastArtifactEvent);
     if (lastArtifactEvent.source === 'model_written' && !inMessage) {
       setArtifactPanelOpen(true);
@@ -575,6 +573,8 @@ export default function App() {
       showToast('The current answer is still running. Stop it or let it finish first.', 4000);
       return;
     }
+    // The deck covers the chat, so a draft can still be open behind it.
+    if (!mayDropArtifactDraft()) return;
     const cardProject = card.useProject ? projectId : null;
     setShowDemo(false);
     setEditingProject(null);
@@ -597,6 +597,7 @@ export default function App() {
   }, [clearConversation, loadConversation, sendMessage, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin, showToast]);
 
   const openDemoChat = useCallback((id: string) => {
+    if (id !== useChatStore.getState().conversationId && !mayDropArtifactDraft()) return;
     setShowDemo(false);
     setEditingProject(null);
     setShowAdmin(false);
@@ -605,12 +606,41 @@ export default function App() {
     loadConversation(id);
   }, [loadConversation, setActiveProjectId, setEditingProject, setIsEphemeral, setShowAdmin]);
 
+  // Reload, closing the tab, or leaving the site: the browser asks in its own words.
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (!useUiStore.getState().artifactDraftChanged) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, []);
+
+  // For the Back/Forward handler, which is set up once.
+  const showDemoRef = useRef(showDemo);
+  useEffect(() => { showDemoRef.current = showDemo; }, [showDemo]);
+
   // Handle browser back/forward
   useEffect(() => {
+    // Whether arriving at this path takes the chat, and with it an artifact draft,
+    // off the screen. The deck only covers the chat; the Knowledge page replaces it.
+    const leavesChat = (path: string) => {
+      if (path === '/demo') return false;
+      const match = path.match(/^\/c\/(.+)$/);
+      return !match || match[1] !== useChatStore.getState().conversationId;
+    };
     const handler = () => {
       // Whoever called pushAppPath has already decided what is open.
       if (finishAppPath()) return;
       const closedOverlay = popClosedOverlay();
+      if (!closedOverlay && leavesChat(window.location.pathname) && !mayDropArtifactDraft()) {
+        // History cannot refuse a step, so the page the user stays on comes back
+        // as a new entry. A draft only exists in a saved chat, which has an id.
+        const chatId = useChatStore.getState().conversationId;
+        window.history.pushState(null, '', showDemoRef.current ? '/demo' : chatId ? conversationPath(chatId) : '/');
+        return;
+      }
       const overlay = readOverlayEntry();
       setShowSettings(overlay.view === 'settings');
       setShowAdmin(overlay.view === 'admin');

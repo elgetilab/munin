@@ -74,6 +74,20 @@ describe('InlineArtifacts', () => {
     expect(ui.knowledgePanelOpen).toBe(false);
   });
 
+  it('asks before another artifact replaces a changed draft, and keeps it on No', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    useUiStore.setState({ selectedArtifactId: 'art_other', artifactPanelOpen: true, artifactDraftChanged: true });
+    render(<InlineArtifacts toolCalls={[PDF]} />);
+    await userEvent.click(screen.getByTestId('artifact-card'));
+    expect(confirm).toHaveBeenCalledWith('Discard your changes to this artifact?');
+    expect(useUiStore.getState().selectedArtifactId).toBe('art_other');
+
+    confirm.mockReturnValue(true);
+    await userEvent.click(screen.getByTestId('artifact-card'));
+    expect(useUiStore.getState().selectedArtifactId).toBe('art_1');
+    confirm.mockRestore();
+  });
+
   it('falls back to a card when the file is gone', () => {
     render(<InlineArtifacts toolCalls={[PLOT]} />);
     fireEvent.error(screen.getByRole('img', { name: 'plot.png' }));

@@ -219,10 +219,10 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
     if (where === 'close') setArtifactPanelOpen(false);
   };
 
-  // The panel's own ways out of the editor. Beside the chat (xl and up) the controls
-  // around it can take it away too: App asks first for those, using the flag set
-  // below. Browser Back to another chat, a demo card, and a click on another
-  // artifact in the chat do not ask.
+  // The panel's own ways out of the editor. Anything else that can take it away
+  // (the sidebar and header, another artifact's link in the chat, a demo card,
+  // browser Back or Forward, a reload) asks through lib/artifactDraft.ts, using
+  // the flag set below.
   const requestLeave = (where: LeaveEditor) => {
     if (draftChanged) setConfirmLeave(where);
     else leaveEditor(where);

@@ -5,6 +5,7 @@ import { isActive } from '../stores/deepResearchStore';
 import { cancelDeepResearch } from '../lib/api';
 import { friendlyError } from '../lib/modelError';
 import { doiUrl } from '../lib/doi';
+import { mayOpenArtifact } from '../lib/artifactDraft';
 import { BTN_SECONDARY, BTN_QUIET } from './ui/cardButton';
 import { FlaskIcon, PageIcon, SearchIcon, SpinnerIcon } from './ui/icons';
 
@@ -147,7 +148,7 @@ export function ResearchTimeline({ job }: { job: DeepResearchJob }) {
   };
 
   const openReport = () => {
-    if (!reportId) return;
+    if (!reportId || !mayOpenArtifact(reportId)) return;
     setSelectedArtifactId(reportId);
     setArtifactPanelOpen(true);
   };

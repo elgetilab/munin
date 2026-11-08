@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ToolCall } from '../lib/types';
 import { fetchArtifact } from '../lib/api';
+import { mayOpenArtifact } from '../lib/artifactDraft';
 import {
   artifactRefsFromToolCalls,
   formatBytes,
@@ -44,6 +45,7 @@ function useOpenArtifact(id: string) {
   const setArtifactPanelOpen = useUiStore(s => s.setArtifactPanelOpen);
   const setKnowledgePanelOpen = useUiStore(s => s.setKnowledgePanelOpen);
   return () => {
+    if (!mayOpenArtifact(id)) return;
     setKnowledgePanelOpen(false);
     setSelectedArtifactId(id);
     setArtifactPanelOpen(true);
