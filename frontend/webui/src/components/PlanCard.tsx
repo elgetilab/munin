@@ -3,6 +3,7 @@ import type { Plan, PlanItem, PlanItemStatus } from '../lib/types';
 import { approvePlan, rejectPlan, editPlan } from '../lib/api';
 import { ErrorNotice } from './ui/ErrorNotice';
 import { BTN_PRIMARY, BTN_SECONDARY, BTN_QUIET, ICON } from './ui/cardButton';
+import { SpinnerIcon } from './ui/icons';
 
 /**
  * Inline plan card (P2 #24).
@@ -32,7 +33,7 @@ interface Props {
 
 const STATUS_ICON: Record<PlanItemStatus, ReactNode> = {
   pending: <svg {...ICON}><circle cx="12" cy="12" r="9" /></svg>,
-  in_progress: <svg {...ICON} className="motion-safe:animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>,
+  in_progress: <SpinnerIcon className="motion-safe:animate-spin" />,
   done: <svg {...ICON}><polyline points="20 6 9 17 4 12" /></svg>,
   cancelled: <svg {...ICON}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>,
 };

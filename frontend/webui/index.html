@@ -10,12 +10,11 @@
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#0f1419">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <!-- black-translucent puts white status-bar text over the page header, which
-         is hard to read on the light theme. iOS reads it once at launch, so it
-         cannot follow the theme, and black or default would change the dark
-         home-screen app too. Kept on purpose: see "Known limits" under Light mode
-         in docs/UI-POLISH-AND-LIGHT-MODE.md. -->
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <!-- default keeps the status bar out of the page, so its text never sits over
+         the header. black-translucent drew the page under it, with white text
+         that was hard to read on the light theme. iOS reads this once at launch.
+         See "Known limits" under Light mode in docs/UI-POLISH-AND-LIGHT-MODE.md. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="/icons/munin-192.png">
   </head>
   <body>

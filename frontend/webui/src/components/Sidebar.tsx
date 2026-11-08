@@ -12,6 +12,7 @@ import { conversationPath, isModifiedClick, newChatPath } from '../lib/nav';
 import { groupByTime } from '../lib/chatGrouping';
 import { ErrorNotice } from './ui/ErrorNotice';
 import { DIALOG_BACKDROP, LOGO_FILTER } from './ui/themeClasses';
+import { BookIcon, ChatIcon, FolderIcon, PageIcon, SearchIcon } from './ui/icons';
 
 // P2 #26 commit 3: user identity slots (userEmail / userName /
 // userAvatar / isAdmin) and activeProjectId pulled from stores
@@ -671,10 +672,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
           onClick={() => setSearchOpen(true)}
           className="flex items-center gap-3 px-2 py-2 rounded-lg text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors cursor-pointer w-full text-left"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
+          <SearchIcon size={18} className="flex-shrink-0" />
           <span className="text-sm">Search chats</span>
         </button>
       </div>
@@ -737,9 +735,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                 onClick={() => setShowNewProject(true)}
                 className="flex items-center gap-2 px-2 py-1.5 text-[11px] text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-                </svg>
+                <FolderIcon size={12} />
                 New project
               </button>
             )}
@@ -882,17 +878,11 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                   }}
                   className={`lg:hidden ${ACCOUNT_ITEM}`}
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
-                    <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z" />
-                    <path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" />
-                  </svg>
+                  <BookIcon size={16} className="text-text-secondary" />
                   Knowledge
                 </a>
                 <a role="menuitem" href={SEARCH_URL} className={`lg:hidden ${ACCOUNT_ITEM}`}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
-                    <circle cx="11" cy="11" r="8" />
-                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                  </svg>
+                  <SearchIcon size={16} className="text-text-secondary" />
                   Search papers
                 </a>
                 <a role="menuitem" href={UPLOAD_URL} className={`lg:hidden ${ACCOUNT_ITEM}`}>
@@ -904,17 +894,12 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                   Upload
                 </a>
                 <a role="menuitem" href={DOCS_URL} className={ACCOUNT_ITEM}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
-                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                  </svg>
+                  <PageIcon size={16} className="text-text-secondary" />
                   Docs
                 </a>
               </div>
               <button role="menuitem" onClick={openHelp} className={`border-t border-border ${ACCOUNT_ITEM}`}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
-                  <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-                </svg>
+                <ChatIcon size={16} className="text-text-secondary" />
                 Help
               </button>
               {/* A real form post, not fetch: it navigates the whole page to the
@@ -964,10 +949,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
             <h2 id={searchModal.titleId} className="sr-only">Search your chats</h2>
             {/* Search input */}
             <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary flex-shrink-0">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
+              <SearchIcon size={16} className="text-text-secondary flex-shrink-0" />
               <input
                 ref={searchInputRef}
                 type="text"
@@ -1105,9 +1087,7 @@ function ProjectRow({
           aria-label={`${project.name}, ${count} ${count === 1 ? 'chat' : 'chats'}`}
           className="flex-1 min-w-0 flex items-center gap-2 pl-2 pr-1 py-2 text-left cursor-pointer"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0" aria-hidden="true">
-            <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-          </svg>
+          <FolderIcon className="flex-shrink-0" />
           <span className="flex-1 truncate font-medium" title={project.name}>{project.name}</span>
           <span className="text-xs text-text-secondary">{count}</span>
           <Chevron open={expanded} />

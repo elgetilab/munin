@@ -2,6 +2,7 @@ import { useId, useState, useEffect, useRef } from 'react';
 import { fetchProject, updateProject } from '../lib/api';
 import type { Project, Persona } from '../lib/types';
 import { ErrorNotice } from './ui/ErrorNotice';
+import { PageHeader } from './ui/PageHeader';
 
 // What the backend accepts (backend/retrieval/project_store.py).
 const NAME_LIMIT = 200;
@@ -87,16 +88,7 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6">
       <div className="max-w-xl mx-auto space-y-6" onChange={() => { edited.current = true; }}>
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xl font-semibold text-text-primary">Project Settings</h2>
-          <button
-            onClick={onClose}
-            className="text-text-secondary hover:text-text-primary transition-colors cursor-pointer text-sm"
-          >
-            Back to chat
-          </button>
-        </div>
+        <PageHeader title="Project Settings" onBack={onClose} />
 
         {loadFailed && (
           <ErrorNotice

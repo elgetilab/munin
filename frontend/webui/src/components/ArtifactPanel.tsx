@@ -14,6 +14,7 @@ import { useChatStore } from '../stores/chatStore';
 import { useBelowXl, useModal } from '../hooks/useModal';
 import { Dialog } from './ui/Dialog';
 import { ErrorNotice } from './ui/ErrorNotice';
+import { CloseIcon } from './ui/icons';
 
 // P2 #26 commit 2: onClose / selectedArtifactId / onSelectArtifact
 // dropped from props — all three are pulled directly from uiStore.
@@ -273,9 +274,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
           onClick={() => requestLeave('close')}
           className="p-2 -m-2 text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
         >
-          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-            <path d="M6 6l12 12M18 6L6 18" />
-          </svg>
+          <CloseIcon />
         </button>
       </div>
 

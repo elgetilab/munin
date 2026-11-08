@@ -176,4 +176,14 @@ describe('ResearchTimeline finding sources', () => {
     expect(screen.getByText(/Plain title/)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Plain title' })).not.toBeInTheDocument();
   });
+
+  it('links a paper it read to doi.org, and leaves a bad DOI as text', () => {
+    render(<ResearchTimeline job={endedJob('running', [
+      { t: 3, type: 'tool_call', id: 'r1', name: 'fetch_paper', arguments: { doi: '10.1000/xyz.1', title: 'Read paper' } },
+      { t: 4, type: 'tool_call', id: 'r2', name: 'fetch_paper', arguments: { doi: 'not-a-doi', title: 'Unlinked paper' } },
+    ])} />);
+    expect(screen.getByRole('link', { name: 'Read paper' })).toHaveAttribute('href', 'https://doi.org/10.1000/xyz.1');
+    expect(screen.getByText(/Unlinked paper/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Unlinked paper' })).not.toBeInTheDocument();
+  });
 });
