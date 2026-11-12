@@ -101,7 +101,12 @@ SYSTEMD_DIR=/etc/systemd/system
 #   sudo HUGIN_ENV=/etc/munin/cluster.env ./deploy.sh all
 HUGIN_ENV=${HUGIN_ENV:-/opt/hugin/config/cluster.env}
 
-VLLM_VENV=/opt/munin/services/vllm/venv
+# The historical vLLM venv: what a profile without VLLM_VENV runs on, and the
+# home of the `hf` CLI every download here uses. A profile may name a newer
+# venv (installed by HuginSLURM `deploy.sh vllm-venv <version>`); loading that
+# profile re-points VLLM_VENV, so downloads always go through DEFAULT_VLLM_VENV.
+DEFAULT_VLLM_VENV=/opt/munin/services/vllm/venv
+VLLM_VENV=$DEFAULT_VLLM_VENV
 
 # The production backbone is named in exactly one place: the active model
 # profile (/opt/munin/config/active-model.env, a copy of config/models/<slug>.env
@@ -424,10 +429,10 @@ deploy_agents() {
 hf_cli() {
     # The HF CLI was renamed huggingface-cli -> hf. Both spellings exist in
     # the wild depending on when the venv was built; prefer the new one.
-    if [ -x "$VLLM_VENV/bin/hf" ]; then
-        echo "$VLLM_VENV/bin/hf"
-    elif [ -x "$VLLM_VENV/bin/huggingface-cli" ]; then
-        echo "$VLLM_VENV/bin/huggingface-cli"
+    if [ -x "$DEFAULT_VLLM_VENV/bin/hf" ]; then
+        echo "$DEFAULT_VLLM_VENV/bin/hf"
+    elif [ -x "$DEFAULT_VLLM_VENV/bin/huggingface-cli" ]; then
+        echo "$DEFAULT_VLLM_VENV/bin/huggingface-cli"
     fi
 }
 
@@ -464,8 +469,8 @@ deploy_models() {
     local cli
     cli=$(hf_cli)
     if [ -z "$cli" ]; then
-        echo "[WARN] no HuggingFace CLI in $VLLM_VENV - download manually:"
-        echo "       $VLLM_VENV/bin/hf download $BGE_LARGE_HF_ID \\"
+        echo "[WARN] no HuggingFace CLI in $DEFAULT_VLLM_VENV - download manually:"
+        echo "       $DEFAULT_VLLM_VENV/bin/hf download $BGE_LARGE_HF_ID \\"
         echo "           --local-dir $BGE_LARGE_DIR"
         echo "       Until then the paper encoder is fetched from HF on every"
         echo "       container start."
@@ -1266,18 +1271,28 @@ deploy_model_activate() {
         for g in $HF_EXCLUDE; do excl="$excl --exclude $g"; done
         if [ "$do_download" = "1" ]; then
             echo "[model] Downloading $MODEL_ID -> $MODEL_PATH ..."
-            run "$VLLM_VENV/bin/hf download $MODEL_ID --local-dir $MODEL_PATH $excl"
+            run "$DEFAULT_VLLM_VENV/bin/hf download $MODEL_ID --local-dir $MODEL_PATH $excl"
         else
             echo "[ERROR] checkpoint missing: $MODEL_PATH/config.json"
             echo "        Download it first (or re-run with --download):"
-            echo "        sudo $VLLM_VENV/bin/hf download $MODEL_ID --local-dir $MODEL_PATH $excl"
+            echo "        sudo $DEFAULT_VLLM_VENV/bin/hf download $MODEL_ID --local-dir $MODEL_PATH $excl"
             exit 1
         fi
     fi
+    # The profile's vLLM build must be installed before the switch: activating
+    # a profile whose venv is missing would leave the next vLLM start failing.
+    if [ ! -x "$VLLM_VENV/bin/vllm" ]; then
+        echo "[ERROR] the profile runs on $VLLM_VENV, which has no vllm."
+        echo "        Install it first (HuginSLURM): sudo ./deploy.sh vllm-venv <version>"
+        exit 1
+    fi
+    echo "[model] vLLM build: $VLLM_VENV ($("$VLLM_VENV/bin/python" -c 'import vllm; print(vllm.__version__)' 2>/dev/null || echo '?'))"
     # Parsers must exist in the pinned vLLM build; a wrong name breaks every
     # tool-using turn while plain chat keeps working (README step 14).
-    local tp_dir="$VLLM_VENV/lib/python3.12/site-packages/vllm/tool_parsers"
-    local rp_dir="$VLLM_VENV/lib/python3.12/site-packages/vllm/reasoning"
+    local site_dir
+    site_dir=$(ls -d "$VLLM_VENV"/lib/python3*/site-packages 2>/dev/null | head -1)
+    local tp_dir="$site_dir/vllm/tool_parsers"
+    local rp_dir="$site_dir/vllm/reasoning"
     if [ -d "$tp_dir" ] && ! grep -rqs "\"$VLLM_TOOL_PARSER\"" "$tp_dir"; then
         echo "[WARN] tool parser '$VLLM_TOOL_PARSER' not found by name in $tp_dir (check the registry before starting vLLM)"
     fi
@@ -1517,7 +1532,7 @@ deploy_instance_up() {
     if [ ! -f "$MODEL_PATH/config.json" ]; then
         local excl="" g; for g in $HF_EXCLUDE; do excl="$excl --exclude $g"; done
         if [ "$do_download" = "1" ]; then
-            run "$VLLM_VENV/bin/hf download $MODEL_ID --local-dir $MODEL_PATH $excl"
+            run "$DEFAULT_VLLM_VENV/bin/hf download $MODEL_ID --local-dir $MODEL_PATH $excl"
         else
             echo "[ERROR] checkpoint missing: $MODEL_PATH (re-run with --download)"; exit 1
         fi
