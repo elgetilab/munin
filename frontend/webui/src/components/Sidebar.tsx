@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
+import { useState, useEffect, useCallback, useId, useLayoutEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import { fetchChat, fetchChats, deleteChat, renameChat, pinChat, unpinChat, fetchProjects, createProject, deleteProject, updateProject, fileConversation, unfileConversation } from '../lib/api';
 import type { Conversation, ConversationSummary, Project } from '../lib/types';
@@ -91,7 +91,7 @@ async function migrateStarredToPinned() {
 // ── Menus ───────────────────────────────────────────────────────────────────
 
 const MENU_PANEL = 'fixed z-50 bg-bg-secondary border border-border rounded-lg shadow-lg overflow-y-auto';
-const MENU_ITEM = 'block w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary focus-visible:bg-bg-tertiary cursor-pointer no-underline';
+const MENU_ITEM = 'block w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-bg-tertiary focus-visible:bg-bg-tertiary cursor-pointer no-underline';
 const ACCOUNT_ITEM = 'w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary focus-visible:bg-bg-tertiary transition-colors cursor-pointer no-underline';
 // Every row in the sidebar (New chat, Search, a project, a chat) is one shape:
 // 32px tall (40px on a phone), the same 8px inset, a 14px label. Hover is a
@@ -142,6 +142,35 @@ function useFixedMenuPosition(
       window.removeEventListener('resize', place);
     };
   }, [open, triggerRef, menuRef, content]);
+}
+
+/**
+ * Keyboard for a list of chat rows, which is one Tab stop (a roving tabindex):
+ * only one row's link has tabIndex 0, and ArrowUp/ArrowDown, Home and End move
+ * focus between the rows' links. Enter opens the focused chat, as the link does.
+ * The focused row's ⋮ button is the next Tab stop after its link, and the
+ * ContextMenu key or Shift+F10 on the link opens that menu directly (see
+ * ChatRow). Keys from the rename input or an open menu are left alone.
+ */
+function moveAmongChats(e: React.KeyboardEvent<HTMLElement>) {
+  if (e.defaultPrevented) return;
+  const target = e.target as HTMLElement;
+  if (target.tagName === 'INPUT') return;
+  const row = target.closest('[data-testid="chat-row"]');
+  if (!row || !e.currentTarget.contains(row)) return;
+  const links = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[data-chat-link]'));
+  const index = links.findIndex(link => row.contains(link));
+  if (index === -1) return;
+  const moves: Record<string, number> = {
+    ArrowDown: Math.min(index + 1, links.length - 1),
+    ArrowUp: Math.max(index - 1, 0),
+    Home: 0,
+    End: links.length - 1,
+  };
+  const next = moves[e.key];
+  if (next === undefined) return;
+  e.preventDefault();
+  links[next].focus();
 }
 
 function KebabIcon() {
@@ -243,6 +272,9 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   // moveMenuId: opening one closes the other so we never stack popovers
   // on the same anchor.
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
+  // The row that last held focus, which keeps the Tab stop of its chat list.
+  const [rovingRowId, setRovingRowId] = useState<string | null>(null);
+  const groupIdPrefix = useId();
   // Same shape as actionMenuId but for the project rows. Distinct
   // state so chat-id and project-id namespaces don't accidentally
   // collide on the rare same-string-id edge case.
@@ -512,8 +544,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     }
   };
 
-  const togglePin = async (chat: ConversationSummary, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const togglePin = async (chat: ConversationSummary) => {
     try {
       if (chat.pinned) {
         await unpinChat(chat.id);
@@ -547,6 +578,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     onDelete: handleDelete,
     onRename: () => { setEditingId(rowId); setEditTitle(chat.title || ''); },
     onPin: togglePin,
+    onRowFocus: () => setRovingRowId(rowId),
     editing: editingId === rowId,
     editTitle,
     onEditTitleChange: setEditTitle,
@@ -570,7 +602,15 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     onMoveToProject: (pid: string) => handleMoveToProject(chat.id, pid),
   });
 
+  // The row of a chat list that takes Tab: the one focused last, else the open
+  // chat, else the first.
+  const tabStopOf = (rows: { rowId: string; chatId: string }[]) =>
+    (rows.find(r => r.rowId === rovingRowId) ?? rows.find(r => r.chatId === currentId) ?? rows[0])?.rowId;
+
   const groups = groupByTime(uniqueById([...chats, ...pinnedFiled]));
+  // A pinned filed chat's row in the Pinned group has an id of its own.
+  const unfiledRowId = (chat: ConversationSummary) => (chat.project_id ? `pinned:${chat.id}` : chat.id);
+  const unfiledTabStop = tabStopOf(groups.flatMap(g => g.chats).map(c => ({ rowId: unfiledRowId(c), chatId: c.id })));
   const query = searchQuery.trim();
   const searching = query !== '' && searched.query !== query;
   // With no query typed the overlay lists recent conversations; with one it
@@ -583,17 +623,24 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   const projectChatList = (projectId: string, archived = false) => {
     const list = projectChats[projectId];
     const failed = projectChatsFailed[projectId] && !list;
+    const tabStop = tabStopOf((list ?? []).map(c => ({ rowId: c.id, chatId: c.id })));
+    const name = [...projects, ...archivedProjects].find(p => p.id === projectId)?.name;
     return (
-      <div className="ml-[15px] pl-1 border-l border-border">
-        {(list ?? []).map(chat => (
-          <ChatRow
-            key={chat.id}
-            {...chatRowProps(chat)}
-            onUnfile={() => handleUnfile(chat.id, projectId)}
-            isInProject={true}
-            currentProjectId={projectId}
-          />
-        ))}
+      <div className="ml-[15px] pl-1 border-l border-border" onKeyDown={moveAmongChats}>
+        {list && list.length > 0 && (
+          <ul aria-label={name ? `Chats in ${name}` : 'Chats in this project'}>
+            {list.map(chat => (
+              <ChatRow
+                key={chat.id}
+                {...chatRowProps(chat)}
+                tabbable={chat.id === tabStop}
+                onUnfile={() => handleUnfile(chat.id, projectId)}
+                isInProject={true}
+                currentProjectId={projectId}
+              />
+            ))}
+          </ul>
+        )}
         {failed && (
           <div className="text-[11px] text-error py-2 pl-3">
             Could not load these chats.{' '}
@@ -804,25 +851,36 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
         {chatsState === 'error' && chats.length === 0 && (
           <ErrorNotice message="Could not load your chats" onRetry={retryLists} className="mb-3" />
         )}
-        {groups.map(group => (
-          <div key={group.label} className="mb-1">
-            <div className={SECTION_LABEL}>
-              {group.label}
-            </div>
-            {group.chats.map(chat => {
-              const filedIn = chat.project_id;
-              return (
-                <ChatRow
-                  key={chat.id}
-                  {...chatRowProps(chat, filedIn ? `pinned:${chat.id}` : chat.id)}
-                  onUnfile={filedIn ? () => handleUnfile(chat.id, filedIn) : undefined}
-                  isInProject={!!filedIn}
-                  currentProjectId={filedIn ?? undefined}
-                />
-              );
-            })}
-          </div>
-        ))}
+        {/* The date groups are one list for the keyboard: one Tab stop, and the
+            arrow keys run on from one group into the next. */}
+        <div onKeyDown={moveAmongChats}>
+          {groups.map(group => {
+            const labelId = `${groupIdPrefix}-${group.label.replace(/\s+/g, '-').toLowerCase()}`;
+            return (
+              <div key={group.label} className="mb-1">
+                <div id={labelId} className={SECTION_LABEL}>
+                  {group.label}
+                </div>
+                <ul aria-labelledby={labelId}>
+                  {group.chats.map(chat => {
+                    const filedIn = chat.project_id;
+                    const rowId = unfiledRowId(chat);
+                    return (
+                      <ChatRow
+                        key={chat.id}
+                        {...chatRowProps(chat, rowId)}
+                        tabbable={rowId === unfiledTabStop}
+                        onUnfile={filedIn ? () => handleUnfile(chat.id, filedIn) : undefined}
+                        isInProject={!!filedIn}
+                        currentProjectId={filedIn ?? undefined}
+                      />
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
         {chats.length > 0 && chats.length < chatsTotal && (
           <ShowMoreRow busy={loadingMore === UNFILED} onClick={() => showMore(UNFILED, chats.length)} />
         )}
@@ -967,7 +1025,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
               <button
                 onClick={() => closeSearch()}
                 aria-label="Close search"
-                className="text-text-secondary hover:text-text-primary text-xs cursor-pointer"
+                className="text-text-secondary hover:text-text-primary text-sm cursor-pointer"
               >
                 {/* A phone has no Esc key to be reminded of. */}
                 <span className="md:hidden">Close</span>
@@ -983,7 +1041,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                 </div>
               )}
               {searching ? (
-                <div role="status" className="text-center text-text-secondary text-xs py-8">
+                <div role="status" className="text-center text-text-secondary text-sm py-8">
                   Searching...
                 </div>
               ) : searchGroups.length > 0 ? (
@@ -1023,7 +1081,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                   </div>
                 ))
               ) : (
-                <div className="text-center text-text-secondary text-xs py-8">
+                <div className="text-center text-text-secondary text-sm py-8">
                   {query ? 'No matching conversations' : 'No conversations yet'}
                 </div>
               )}
@@ -1200,7 +1258,10 @@ interface ChatRowProps {
   onSelect: (id: string) => void;
   onDelete: (id: string, e: React.MouseEvent) => void;
   onRename: () => void;
-  onPin: (chat: ConversationSummary, e: React.MouseEvent) => void;
+  onPin: (chat: ConversationSummary) => void;
+  // Whether this row is its list's one Tab stop (see moveAmongChats).
+  tabbable: boolean;
+  onRowFocus: () => void;
   editing: boolean;
   editTitle: string;
   onEditTitleChange: (v: string) => void;
@@ -1223,7 +1284,7 @@ interface ChatRowProps {
 }
 
 function ChatRow({
-  chat, isCurrent, onSelect, onDelete, onRename, onPin,
+  chat, isCurrent, onSelect, onDelete, onRename, onPin, tabbable, onRowFocus,
   editing, editTitle, onEditTitleChange, onEditComplete, onEditCancel,
   onMoveMenu, onMoveBack, showMoveMenu,
   onMenuOpenChange, showActionMenu,
@@ -1248,9 +1309,10 @@ function ChatRow({
   }, [showMoveMenu, showActionMenu, menuElement]);
 
   return (
-    <div className="relative">
+    <li className="relative">
       <div
         data-testid="chat-row"
+        onFocus={onRowFocus}
         onClick={(e) => {
           // Hand modified clicks to the browser so it can open the
           // title link in a new tab or window WITHOUT this tab also
@@ -1283,6 +1345,17 @@ function ChatRow({
         ) : (
           <a
             href={conversationPath(chat.id)}
+            data-chat-link
+            tabIndex={tabbable ? 0 : -1}
+            aria-current={isCurrent ? 'page' : undefined}
+            onKeyDown={(e) => {
+              // The ContextMenu key or Shift+F10 opens the row's ⋮ menu, as it
+              // would a context menu, so the actions are a key away from the link.
+              if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+                e.preventDefault();
+                if (!menu.open) menu.triggerProps.onClick();
+              }
+            }}
             className="flex-1 min-w-0 truncate no-underline text-inherit"
             title={title}
           >{title}</a>
@@ -1291,26 +1364,15 @@ function ChatRow({
         {/* The row's actions take no room until the row is hovered or holds
             focus (or always, on a touch screen), so the title gets the width. */}
         <div className={`flex-shrink-0 items-center gap-0.5 ${menu.open ? 'flex' : 'hidden group-hover:flex group-focus-within:flex [@media(hover:none)]:flex'}`}>
-        {/* Pin */}
-        <button
-          onClick={(e) => onPin(chat, e)}
-          className={`flex-shrink-0 ${ROW_ICON_TARGET} cursor-pointer transition-colors ${
-            chat.pinned ? 'text-accent' : 'text-text-secondary hover:text-accent'
-          } p-1 rounded hover:bg-bg-primary`}
-          title={chat.pinned ? 'Unpin' : 'Pin'}
-          aria-label={`${chat.pinned ? 'Unpin' : 'Pin'} ${title}`}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill={chat.pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-          </svg>
-        </button>
-
         {/* Three-dots action menu trigger. Fades in on row hover.
             Stays visible when the menu is open so the user can click
             the toggle a second time to dismiss. */}
         <button
           {...menu.triggerProps}
           onClick={(e) => { e.stopPropagation(); menu.triggerProps.onClick(); }}
+          // Reached by Tab from its own row's link only; the other rows' buttons
+          // stay out of the Tab order, which keeps the list one stop.
+          tabIndex={tabbable ? 0 : -1}
           aria-label={`More actions for ${title}`}
           className={`flex-shrink-0 p-1 ${ROW_ICON_TARGET} rounded cursor-pointer hover:bg-bg-primary hover:text-text-primary ${
             menu.open ? 'text-text-primary' : 'text-text-secondary'
@@ -1322,8 +1384,8 @@ function ChatRow({
         </div>
       </div>
 
-      {/* Three-dots action menu (Rename / Move / Delete), or the list of projects
-          after Move to project. */}
+      {/* Three-dots action menu (Pin / Rename / Move / Delete), or the list of
+          projects after Move to project. */}
       {menu.open && (
         <div {...menu.menuProps} aria-label={`Actions for ${title}`} className={`${MENU_PANEL} w-44`}>
           {showMoveMenu ? (
@@ -1359,6 +1421,9 @@ function ChatRow({
             </>
           ) : (
             <>
+              <button role="menuitem" onClick={() => { menu.close(); onPin(chat); }} className={MENU_ITEM}>
+                {chat.pinned ? 'Unpin' : 'Pin'}
+              </button>
               <button role="menuitem" onClick={() => { menu.close(); onRename(); }} className={MENU_ITEM}>
                 Rename
               </button>
@@ -1389,6 +1454,6 @@ function ChatRow({
           )}
         </div>
       )}
-    </div>
+    </li>
   );
 }

@@ -287,6 +287,70 @@ test.describe('keyboard', () => {
       expect(seen.some((s) => s.startsWith(name)), name).toBe(true);
     }
   });
+
+  const manyChats = (n: number) => Array.from({ length: n }, (_, i) => ({
+    id: `c${i}`, title: `Chat ${i}`,
+    created_at: new Date(Date.now() - i * 60_000).toISOString(),
+    updated_at: new Date(Date.now() - i * 60_000).toISOString(),
+  }));
+  const inChatRow = (page: Page) =>
+    page.evaluate(() => !!document.activeElement?.closest('[data-testid="chat-row"]'));
+
+  test('the chat list is one Tab stop, walked with the arrow keys, with its ⋮ one Tab on', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installMocks(page, { conversations: manyChats(12) });
+    await page.goto('/');
+    const first = page.getByRole('link', { name: 'Chat 0', exact: true });
+    await expect(first).toBeVisible();
+
+    // From the control before the list, one Tab lands on the first chat.
+    await page.getByRole('button', { name: 'New project' }).focus();
+    await page.keyboard.press('Tab');
+    await expect(first).toBeFocused();
+    await expect(first).toHaveCSS('outline-style', 'solid');
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('button', { name: 'More actions for Chat 0' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    expect(await inChatRow(page)).toBe(false);
+
+    // Back in, the ⋮ is hidden until its row holds focus, so Shift+Tab lands on the chat.
+    await page.keyboard.press('Shift+Tab');
+    await expect(first).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await expect(page.getByRole('link', { name: 'Chat 2', exact: true })).toBeFocused();
+    await page.keyboard.press('End');
+    const last = page.getByRole('link', { name: 'Chat 11', exact: true });
+    await expect(last).toBeFocused();
+    await expect(last).toBeInViewport();
+
+    // Shift+F10 opens the row's menu, its items at 14px, Pin among them.
+    await page.keyboard.press('Shift+F10');
+    const pin = page.getByRole('menuitem', { name: 'Pin' });
+    await expect(pin).toBeFocused();
+    await expect(pin).toHaveCSS('font-size', '14px');
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: 'More actions for Chat 11' })).toBeFocused();
+
+    await page.keyboard.press('Shift+Tab');
+    await expect(last).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/c\/c11$/);
+  });
+
+  test.describe('on a touch phone', () => {
+    test.use({ hasTouch: true, isMobile: true });
+
+    test('a chat row shows one action, not two', async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await installMocks(page, { conversations: manyChats(3) });
+      await page.goto('/');
+      await page.getByRole('button', { name: 'Show sidebar' }).click();
+      const row = page.getByTestId('chat-row').filter({ hasText: 'Chat 1' });
+      await expect(row.getByRole('button', { name: 'More actions for Chat 1' })).toBeVisible();
+      await expect(row.getByRole('button')).toHaveCount(1);
+    });
+  });
 });
 
 test.describe('demo', () => {

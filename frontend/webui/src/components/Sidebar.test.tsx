@@ -709,7 +709,8 @@ describe('Sidebar filed chats and projects', () => {
     await user.click(await screen.findByText('ML Research'));
     await screen.findByText('Filed Chat');
 
-    await user.click(within(rowOf('Filed Chat')).getByTitle('Pin'));
+    await user.click(within(rowOf('Filed Chat')).getByTitle('More'));
+    await user.click(screen.getByRole('menuitem', { name: 'Pin' }));
 
     await waitFor(() => expect(pinned).toEqual(['pc1']));
   });
@@ -728,11 +729,14 @@ describe('Sidebar filed chats and projects', () => {
     }
 
     it('shows in the Pinned group with its folder closed', async () => {
+      const user = userEvent.setup();
       mockPinnedFiled();
       renderSidebar();
 
       await screen.findByText('Pinned');
-      expect(within(rowOf('Filed Chat')).getByTitle('Unpin')).toBeInTheDocument();
+      await user.click(within(rowOf('Filed Chat')).getByTitle('More'));
+      expect(screen.getByRole('menuitem', { name: 'Unpin' })).toBeInTheDocument();
+      await user.keyboard('{Escape}');
       expect(screen.getAllByText('Filed Chat')).toHaveLength(1);
     });
 
@@ -1285,8 +1289,10 @@ describe('Sidebar keyboard and folders', () => {
 
     await user.click(trigger);
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('menuitem', { name: 'Rename' })).toHaveFocus();
+    expect(screen.getByRole('menuitem', { name: 'Pin' })).toHaveFocus();
 
+    await user.keyboard('{ArrowDown}');
+    expect(screen.getByRole('menuitem', { name: 'Rename' })).toHaveFocus();
     await user.keyboard('{ArrowDown}');
     expect(screen.getByRole('menuitem', { name: 'Move to project' })).toHaveFocus();
 
@@ -1296,6 +1302,108 @@ describe('Sidebar keyboard and folders', () => {
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
+  });
+
+  it('a chat row has one action, its ⋮ menu, which pins and unpins', async () => {
+    const user = userEvent.setup();
+    const calls: string[] = [];
+    server.use(
+      http.post('/api/chats/:id/pin', ({ params }) => { calls.push(`pin ${params.id}`); return new HttpResponse(null, { status: 200 }); }),
+      http.delete('/api/chats/:id/pin', ({ params }) => { calls.push(`unpin ${params.id}`); return new HttpResponse(null, { status: 200 }); }),
+    );
+    renderSidebar();
+    await screen.findByText('Test Chat 2');
+    const row = screen.getByText('Test Chat 2').closest('[data-testid="chat-row"]') as HTMLElement;
+    expect(within(row).getAllByRole('button')).toHaveLength(1);
+
+    await user.click(within(row).getByRole('button', { name: 'More actions for Test Chat 2' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Pin' }));
+    await user.click(screen.getByRole('button', { name: 'More actions for Test Chat 1' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Unpin' }));
+
+    await waitFor(() => expect(calls).toEqual(['pin c2', 'unpin c1']));
+  });
+
+  it('the chat list is one Tab stop that the arrow keys, Home and End move through', async () => {
+    const user = userEvent.setup();
+    const { props } = renderSidebar({ currentId: 'c2' });
+    const first = await screen.findByRole('link', { name: 'Test Chat 1' });
+    const second = screen.getByRole('link', { name: 'Test Chat 2' });
+    const old = screen.getByRole('link', { name: 'Old Chat' });
+
+    // The open chat holds the stop, and only its row's ⋮ joins the Tab order.
+    expect(second).toHaveAttribute('tabindex', '0');
+    expect(second).toHaveAttribute('aria-current', 'page');
+    for (const el of [first, old]) expect(el).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByRole('button', { name: 'More actions for Test Chat 2' })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('button', { name: 'More actions for Old Chat' })).toHaveAttribute('tabindex', '-1');
+
+    second.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(old).toHaveFocus();
+    await user.keyboard('{ArrowDown}');
+    expect(old).toHaveFocus();
+    await user.keyboard('{Home}');
+    expect(first).toHaveFocus();
+    await user.keyboard('{ArrowUp}');
+    expect(first).toHaveFocus();
+    await user.keyboard('{End}');
+    expect(old).toHaveFocus();
+    await user.keyboard('{ArrowUp}');
+    expect(second).toHaveFocus();
+    await user.keyboard('{ArrowUp}');
+    expect(first).toHaveFocus();
+
+    // The stop follows focus, so Tab comes back to the row left last.
+    expect(first).toHaveAttribute('tabindex', '0');
+    expect(second).toHaveAttribute('tabindex', '-1');
+
+    // Tab goes to this row's ⋮ and then out of the list.
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'More actions for Test Chat 1' })).toHaveFocus();
+    await user.tab();
+    expect(document.activeElement?.closest('[data-testid="chat-row"]')).toBeNull();
+
+    first.focus();
+    await user.keyboard('{Enter}');
+    expect(props.onSelect).toHaveBeenCalledWith('c1');
+  });
+
+  it('the arrow keys from a row\'s ⋮ button move to the next row', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    const trigger = await screen.findByRole('button', { name: 'More actions for Test Chat 1' });
+    trigger.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(screen.getByRole('link', { name: 'Test Chat 2' })).toHaveFocus();
+  });
+
+  it('Shift+F10 or the ContextMenu key on a chat opens its menu, and Escape returns to the row', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    const link = await screen.findByRole('link', { name: 'Test Chat 2' });
+    link.focus();
+
+    await user.keyboard('{Shift>}{F10}{/Shift}');
+    expect(screen.getByRole('menu')).toHaveAccessibleName('Actions for Test Chat 2');
+    expect(screen.getByRole('menuitem', { name: 'Pin' })).toHaveFocus();
+    // The arrow keys inside the menu stay in the menu.
+    await user.keyboard('{ArrowDown}');
+    expect(screen.getByRole('menuitem', { name: 'Rename' })).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'More actions for Test Chat 2' })).toHaveFocus();
+
+    link.focus();
+    await user.keyboard('{ContextMenu}');
+    expect(screen.getByRole('menu')).toHaveAccessibleName('Actions for Test Chat 2');
+  });
+
+  it('lists each date group as a list named by its label', async () => {
+    renderSidebar();
+    await screen.findByText('Test Chat 1');
+    expect(within(screen.getByRole('list', { name: 'Pinned' })).getByRole('link', { name: 'Test Chat 1' })).toBeInTheDocument();
+    expect(within(screen.getByRole('list', { name: 'Yesterday' })).getAllByRole('listitem')).toHaveLength(1);
   });
 
   it('a row menu near the bottom of the window opens upward, outside the scrolling list', async () => {
