@@ -2,8 +2,10 @@
 
 Status: written 2026-11-12 from the reports of six work lanes (A merge tool, B
 cluster catch-up, C vLLM + Sage-A1.5, D1 Strata, D2 Basalt, E Haiku fallback),
-with spot checks re-run by the integrator. Nothing in this runbook has been
-executed against production. Every command here is for the operator.
+with spot checks re-run by the integrator. Updated the same day after the
+engine bake-off and the branch merges: see "Done after this runbook was
+written". Steps 0 and 2 onwards have not been executed against production.
+Every command here is for the operator.
 
 Conventions:
 
@@ -16,14 +18,14 @@ Conventions:
 
 ## Local values
 
-Set these once per shell. The committed copy of this runbook carries
-placeholders.
+Set these once per shell. This is the committed copy, with placeholders; the
+operator keeps a copy with the real values.
 
 ```bash
 REPO=<path to the munin checkout on main>          # deploy source for munin
 R=$REPO/backend
-HS=<path to a HuginSLURM checkout or worktree on main>
-STAGING=<operator home>/munin-staging              # staged venvs, weights, packs
+HS=<path to the Hugin checkout on main>            # cluster layer (formerly HuginSLURM)
+STAGING=<operator home>/munin-staging              # staged venvs, weights, packs, secrets
 BAKEOFF=<scratch dir>/bakeoff                      # PROTOCOL.md, bench.py, sample.sh, *.md
 VPS=<vps-user>@<vps-host>
 KEY=<ssh-key>
@@ -50,8 +52,8 @@ clean card) and "GPU1 engine" means gres `gpu:batch` (the shared card).
 | D3 | vLLM serving mode | **single on `gpu:vllm`** | Frees the batch card for the GPU1 engine. TP=2 blocks step 4 entirely. Qwen3.8 single measured at 80 tok/s decode, 206,802-token KV pool. |
 | D4 | Sage tool parser | **qwen3_coder** (model card, profile default) | Both qwen3_coder and qwen3_xml scored 13/14 on the probe. |
 | D5 | Sage concurrency at 64k | **max-num-seqs 3** (committed: 2) | KV pool fits 3.98 requests at 64k; peak use in the eval was 18.5%. 4 leaves no margin. |
-| D6 | Run the downloaded Strata / Basalt code for the bake-off | **Yes, approve both, then run PROTOCOL.md** | Both lanes were blocked by the permission classifier; no engine number exists. |
-| D7 | GPU1 engine pick | **None until measured; provisional lean Strata** (see step 4) | Operational reasons only. |
+| D6 | Run the downloaded Strata / Basalt code for the bake-off | **Done 2026-11-12** (user approved) | Both measured; see step 4. |
+| D7 | GPU1 engine pick | **Decided 2026-11-12: Basalt** | API key moved off the command line (Hugin `3ff9c01`), reserve 3072 by default (`6ba5abe`). |
 | D8 | Qwen Community License 1.0 for Qwen3.8-Flash-Next | **Confirm no commercial munin use before production** | Gateway API keys fit its "Model as a Service" wording. |
 | D9 | Merge the four v1.1 branches before the retrieval rebuild | **Yes** | One rebuild instead of two. |
 | D10 | Rebuild the sandbox | **Yes, after retrieval** (2.3 min build measured) | No behaviour change, keeps deployed equal to main. |
@@ -86,6 +88,50 @@ and `munin-sandbox:laneb-catchup-fcc4dd1` exist and warmed the BuildKit cache.
 
 ---
 
+## Done after this runbook was written (2026-11-12)
+
+- **R1 (tunnel):** `munin-tunnel` disabled and stopped on hugin. Step 6.5 is
+  now only a check; step 6.10 must `sudo systemctl enable --now munin-tunnel`.
+- **R3 (gateway token):** `MUNIN_GATEWAY_TOKEN` set on the VPS frontend
+  (api-gateway + caddy recreated), on Lite retrieval and on cluster retrieval
+  (recreated on the unchanged image). Verified on both backends: identity
+  header without or with a wrong token gives 401, the right token 200; live
+  gateway traffic kept answering 200. Source of truth:
+  `$STAGING/secrets/gateway-token` (0600). The step 2 retrieval
+  rebuild keeps it (it lives in cluster.env).
+- **Clients:** eval, smoke and stress scripts send the token from
+  `MUNIN_GATEWAY_TOKEN` or `MUNIN_GATEWAY_TOKEN_FILE`; `check-context-window.sh`
+  reads it from cluster.env (merged and pushed, munin `a0f560b`). The installed
+  copy of `check-context-window.sh` updates with step 3's `deploy.sh vllm`.
+  For eval runs: `export MUNIN_GATEWAY_TOKEN_FILE=$STAGING/secrets/gateway-token`.
+- **vLLM holds still in place:** `/opt/munin/logs/vllm-health.hold` exists and
+  the 06:00 start is commented out (`# HOLD-2026-11-12`); step 3.4 removes both.
+- **Bake-off (D6):** both engines measured, step 4 has the table.
+- **R10 (reasoning effort):** fixed and pushed (munin `957f8bd`): compose uses
+  `${LLM_REASONING_EFFORT-medium}`, so an empty profile value reaches retrieval
+  as "send no effort"; unset still means medium. Before the step 2 deploy run
+  `sudo grep -n '^LLM_REASONING_EFFORT=' /opt/hugin/config/cluster.env`: if it
+  shows an EMPTY value, delete that line (or set medium), or a manual
+  `docker compose up` would switch qwen3.8 from medium to no effort.
+- **Step 1 done (all merged and pushed, 2026-11-12):**
+  - Hugin `main` `1d12546`: `feat/gpu1-basalt` (with the key wrapper and the
+    3072 reserve default) and `feat/vllm-sage-a15`. `feat/gpu1-strata` stays
+    unmerged (Basalt was picked).
+  - munin `main` `5a0b732`: gateway-token clients, `feat/sage-a15-profile`,
+    the R10 compose fix, `feat/lite-merge`, `feat/haiku-fallback`,
+    `chore/cluster-catchup`, the four `v1.1-*-rebased` branches, the suite.txt
+    classification (`67ff41f`) and this runbook. Branches that carried local
+    paths or hosts were merged from scrubbed copies (`*-scrubbed`); the
+    unscrubbed originals stay local and must not be pushed.
+  - R9 done: on `5a0b732` the hermetic retrieval tier passed 99/99 files,
+    `run_suite --check` 100 classified, llm-failover 32, gateway 29,
+    monitoring 13, llm-claude 56, merge tool + benchmarks 104 (2 skipped),
+    model-env 4/4, web UI 1,060 tests (tsc and eslint clean), check_compose
+    27/27, check_commit_refs 69/69, every `deploy.sh --dry-run` mode rc=0
+    (`sudoers` needs `MUNIN_OPERATOR`).
+- **Repo rename:** HuginSLURM is now Hugin (`$HS`);
+  the Hugin worktrees were repaired (`git worktree repair`).
+
 ## 0. Pre-flight backups
 
 Cluster downtime: none. User downtime: none. Est. 10 min.
@@ -116,7 +162,8 @@ One ssh login per command batch. fail2ban: use the known user and key only.
 
 ## 1. Merge order
 
-All branches are local, none pushed. Commit messages stay single-line.
+**Done 2026-11-12** (see "Done after this runbook was written"). Kept as the
+record of how the branches were combined.
 
 ### munin
 
@@ -331,9 +378,32 @@ Rollback (Sage to Qwen3.8):
 
 ## 4. GPU1 engine: Strata vs Basalt (lanes D1, D2)
 
-**No engine number exists.** Both lanes were stopped by the permission
-classifier before running downloaded third-party code, and neither tried to
-get around it. The table compares what is known; the pick is the user's.
+**Measured 2026-11-12** in the main session after the user approved running
+the downloaded code (D6 done). Same protocol (`PROTOCOL.md`), same Unsloth
+UD-Q4_K_XL weights, same card (`gpu:batch`, nvidia-smi 0, which also carries
+about 2.3 GiB of paper pipeline and remote desktop), 64k context, 4 slots,
+int8 KV, thinking off for the speed tests, weights warm in the page cache.
+Basalt's first run crashed on every 8k+ prompt (`cuBLAS status 14` in the
+prefill GEMM, VRAM peak 31.4 GiB); the numbers below are its rerun with
+`BASALT_VRAM_RESERVE_MIB=3072` (Hugin `afd74fe`), zero engine crashes.
+Raw results: `bakeoff/{strata,basalt}-results.json`, memory traces
+`bakeoff/*-mem.tsv`; run 1 kept as `basalt-*-run1.*`. The pick is the user's.
+
+| Measured | Strata v0.2.13 | Basalt v0.3.2 (reserve 3072) |
+|---|---|---|
+| Prefill, 8k prompt (median of 3) | 3,918 tok/s | 4,010 tok/s |
+| Prefill, 32k prompt (median of 3) | 5,668 tok/s | **7,332 tok/s** |
+| Decode, 1 stream (median of 3) | 78 tok/s (67-81) | **92 tok/s** (86-92) |
+| Decode, 2 streams | 51 each, 88 total | 56 each, 96 total |
+| Decode, 4 streams | 31 each, 108 total | 33 each, 116 total |
+| Tool calls (20) + forced shapes (2) | 20/20, 2/2 | 20/20, 2/2 |
+| Reasoning in `reasoning_content`, no `<think>` leak, off works | yes | yes |
+| Munin request shapes accepted | 12/13 (`response_format: json_object` refused) | **13/13** |
+| Peak host RAM (job cgroup) | 98.6 GiB | **77.3 GiB** |
+| Peak VRAM (incl. ~2.3 GiB others) | 31.0 GiB | 29.1 GiB |
+| Weights on the GPU | not reported | 23.5 GiB (53.3 GiB in RAM) |
+| Drafting | off (drafter fetched during prepare, not active in this run) | engine default, MTP drafter in the pack |
+| Stability | no errors | run 1: crashed every 8k+ prefill at reserve 700; rerun: no errors |
 
 | | Strata (D1) | Basalt (D2) |
 |---|---|---|
@@ -345,18 +415,27 @@ get around it. The table compares what is known; the pick is the user's.
 | `sbatch --test-only` | accepted (integrator, 2026-11-12) | accepted (lane D2) |
 | Production placement | **llm-batch has MaxTime 04:00:00 and gputraining caps 128000M (< 150G)**: no current partition can run it 24x7 as written | gputraining (no time cap) fits 120G; script sets `--time=20:00:00`; the shelved 128 GB branch would break it |
 | Port / key | 127.0.0.1:8201, key via `--api-key-env` | 127.0.0.1:8202, key only on the command line (visible in `ps`) |
-| Tool calls | not known | grammar-constrained tool calls in the server code (read, not run) |
 | Upstream claims (not ours) | 63-88 tok/s decode, 1,110-1,320 tok/s at 32k on a 32 GB R9700 | KLD 0.0496, top-1 92.63% for this pack |
-| Cold start, RAM/VRAM, prefill, decode 1/2/4, tools, reasoning, compat | **not measured** | **not measured** |
 | Licence | Qwen Community License 1.0 (weights), D8 | engine MIT; weights same as Strata, D8 |
 | Munin wiring | none (no profile, health check or routing) | none |
 
-Recommendation: measure before choosing. With equal numbers, lean **Strata**
-for operations (prebuilt signed binaries, key not on the command line, offline
-reinstall), but its job needs a partition decision (a 24x7 partition with
->=150G, or `--mem` lowered after measuring the real peak). Basalt is the
-simpler SLURM fit today but is very young and needs a source build. Neither
-lane wired the engine into munin; that is follow-up work whichever wins.
+Recommendation, now that both are measured:
+- **On the numbers, Basalt is ahead**: about 18% faster single-stream decode,
+  29% faster 32k prefill, 21 GiB less host RAM, and it accepted every request
+  shape munin sends. Tool calling and reasoning are tied.
+- **Against Basalt operationally**: its API key sits on the command line
+  (visible in `ps` to every hugin account, review R3 class), it crashed at
+  its default VRAM reserve on this shared card, and it is days old.
+  Promote it only with the key moved off the command line (a wrapper that
+  passes it another way, or an upstream option) and `BASALT_VRAM_RESERVE_MIB`
+  set in the production job.
+- **Strata** is the lower-risk choice (signed prebuilt binaries, key from
+  the environment, no crash at defaults) at roughly 15-20% lower speed and
+  needs a partition with >=150G or a lower `--mem` (its real peak is 98.6 GiB,
+  so `--mem=110G` would fit gputraining's 128000M cap).
+- Not measured for either: drafting on vs off, a long soak, behaviour with
+  vLLM loaded on the other card at the same time. Neither engine is wired
+  into munin yet (profile, health check, routing); that is follow-up work.
 
 ### 4.1 Measure (after D6)
 
@@ -380,15 +459,28 @@ Basalt:
 B=$STAGING/basalt; W=<worktree of feat/gpu1-basalt>/scripts/llm/basalt
 $W/install-basalt.sh engine $B/engine
 cd $W && sbatch -o ~/basalt-%j.out -e ~/basalt-%j.err --time=01:30:00 --export=ALL,BASALT_PREFIX=$B/engine,BASALT_MODEL_DIR=$B/models,BASALT_KEY_FILE=$B/api-key start-basalt.sh
-$BAKEOFF/sample.sh <jobid> <batch-card UUID> $BAKEOFF/basalt-mem.tsv &
+$BAKEOFF/sample.sh <jobid> <batch GPU UUID> $BAKEOFF/basalt-mem.tsv &
 python3 -I $BAKEOFF/bench.py --base http://127.0.0.1:8202/v1 --key-file $B/api-key --model qwen3.8-flash-next --out $BAKEOFF/basalt-results.json all
 scancel <jobid>
 ```
 
-Expect first-run fixes in both job scripts (never executed). Fill the
-"not measured" row of the table from `strata.md` / `basalt.md`.
+Done 2026-11-12 (results above). Strata's scripts ran as written; Basalt
+needed `BASALT_VRAM_RESERVE_MIB=3072` on this shared card.
 
 ### 4.2 Promote the pick
+
+**Decided: Basalt.** Merge Hugin `feat/gpu1-basalt` (now 4 commits, tip
+`6ba5abe`). Since the bake-off it also:
+- starts the server through `scripts/llm/basalt/basalt-serve.py`, so the API
+  key is read from `BASALT_API_KEY_FILE` and never appears in `ps` or
+  `/proc/<pid>/cmdline`. Verified live (job 1066): no process on the host
+  had the key on its command line, the engine child did not inherit the
+  variable, no or wrong key 401, right key 200, a real completion answered;
+- defaults `BASALT_VRAM_RESERVE_MIB=3072` in `basalt.env` (the measured
+  setting; the engine default crashed on this shared card).
+Skip the Strata command below. The Strata staging tree
+(`$STAGING/strata`, about 106 GiB) and branch
+`feat/gpu1-strata` can go once Basalt is live; nothing deletes them yet.
 
 Strata (merge `feat/gpu1-strata` into HuginSLURM first; decide its partition):
 
@@ -399,7 +491,7 @@ cd <HuginSLURM worktree> && sudo ./deploy.sh strata --seed $STAGING/strata/pkgs 
 Basalt (merge `feat/gpu1-basalt`; build the engine into the stage dir first):
 
 ```bash
-cd <HuginSLURM worktree> && sudo ./deploy.sh basalt $STAGING/basalt          # [sudo] verifies against basalt.env, engine to /opt/cluster/engines/basalt/v0.3.2, pack to /opt/munin/data/models/basalt, key to /opt/munin/config/basalt-api-key (0600); est. 5-15 min
+cd $HS && sudo ./deploy.sh basalt $STAGING/basalt          # [sudo] verifies against basalt.env, engine to /opt/cluster/engines/basalt/v0.3.2, pack to /opt/munin/data/models/basalt, key to /opt/munin/config/basalt-api-key (0600); est. 5-15 min
 ```
 
 Cluster and user downtime: none (a new service beside vLLM). Delete the
@@ -648,3 +740,165 @@ api-gateway; the gateway then behaves exactly as before.
 - Layer 1 against a real vLLM failure under load, a real Anthropic 402, real
   Claude latency and cost; layer 2 against the real tunnel and Lite.
 - Which ingest setting was changed on the VPS for Lite (6.9).
+
+## Review findings
+
+Adversarial review, 2026-11-12 about 15:40, against the branches, `/opt/munin`,
+systemd and cron on hugin, and two read-only logins to the VPS (key names,
+lengths and hash comparisons only; no values printed). Ranked by severity.
+
+### High
+
+**R1. The tunnel can take 18080 before the merge, today and on any day until 6.10.**
+`munin-tunnel` is enabled, `Restart=always`, `ExitOnForwardFailure=yes`, and
+autossh retries every 30 s (journal: "remote port forwarding failed for listen
+port 18080", count 438 at 15:36). The moment Lite releases VPS 127.0.0.1:18080
+(Lite crash or OOM restart on the 7.5 GiB VPS, a Lite retrieval redeploy per
+LITE-DEPLOY.md, a docker or VPS restart), the tunnel binds it within 30 s: users
+land on the half-upgraded cluster (no LLM before step 3) and write there, and
+Lite cannot rebind ("port is already allocated"). Step 6.5 only stops the
+service, so hugin's Monday 05:00 safe-reboot or any `deploy.sh tunnel` brings it
+back.
+Fix: in step 0, `sudo systemctl disable --now munin-tunnel` [sudo]. Turn 6.5
+into a check (`systemctl is-enabled munin-tunnel` prints disabled,
+`is-active` prints inactive). In 6.10 run `sudo systemctl enable --now munin-tunnel`.
+In Rollback B, use `disable --now`.
+
+**R2. Uploads made between 6.4 and 6.6 are lost (data loss).**
+The maintenance flag only feeds `/api/status` (`backend/retrieval/maintenance.py`)
+and refuses Deep Research (`research_routes.py:42`). Chat, upload and API-key
+writes still go through. Step 6.7 takes the DB again, cold, but the `user_docs`
+files and the Qdrant points still come from the hot fetch in 6.4. A document
+uploaded in that window ends up with a DB row but no file or points, or with a
+file but only some of its points.
+Fix: after 6.6, take the files and points again from a stopped Lite. Lite's Qdrant keeps
+running and is published on VPS 127.0.0.1:6333, and the VPS has python3 3.12:
+```bash
+ssh -i $KEY $VPS 'python3 - qdrant-export --url http://127.0.0.1:6333 --collection user_docs --out -' \
+    < $R/scripts/maintenance/merge_state.py > $STAGE/user_docs.points.jsonl
+rsync -a --chmod=D700,F600 -e "ssh -i $KEY" "$VPS:munin-lite/.runtime/data/user_docs/" $STAGE/user_docs/
+```
+Then compare the counts with `manifest.json`. One more login is fine (correct
+key and user).
+
+**R3. Returning to hugin re-exposes every user's data to every hugin account (security).**
+Live cluster retrieval has `MUNIN_GATEWAY_TOKEN` length 0, as do the VPS
+frontend `.env` and Lite's `.env`. Retrieval trusts `X-Munin-Email`/`-Role`
+headers on 127.0.0.1:8080, and hugin has 11 login accounts in /home plus SLURM
+jobs from all of them. Any of them can act as any munin user, admins included,
+and read all chats. On Lite only the VPS operator and tunnel accounts could
+reach the port, so for exposure this is a regression, even though the config
+matches the state before the outage. D11 defers the fix with no date.
+Fix: flip D11. Do it in the 6.3-6.10 window, while users are frozen anyway.
+`openssl rand -hex 32` into `MUNIN_GATEWAY_TOKEN` in cluster.env (then
+`deploy.sh retrieval`, recreate only) and in `~/munin/frontend/.env`. Then
+`docker compose up -d --no-deps api-gateway caddy` [VPS]. Caddy reads
+`{$MUNIN_GATEWAY_TOKEN}` from the container env, so `caddy reload` is not
+enough. Validate with `caddy adapt ... > /dev/null`, because it prints the token.
+`deploy.sh verify` already sends the token (deploy.sh, `gw_hdr`). Same class:
+the Basalt key is on the command line, so every hugin user sees it in `ps`.
+Treat that as a blocker for promoting Basalt.
+
+### Medium
+
+**R4. Step 2 rollback misses files that step 2 changes.** The step 0 tar holds only
+`docker/docker-compose.yml services/retrieval services/sandbox`. Step 2 also
+rewrites `/opt/munin/personas` (retire-tools changes persona JSON),
+`/opt/munin/config` (models, faq, active-model.env via `model activate`),
+`/opt/cluster/scripts` (vllm, maintenance, ci) and systemd units (health and
+nightly timers). Fix: add `personas config` to the `-C /opt/munin` tar and take a
+second tar of `/opt/cluster/scripts /etc/systemd/system/munin-*`.
+
+**R5. The Qdrant snapshot in step 0 does not last.** munin-qdrant mounts only
+`/opt/munin/knowledge/qdrant_storage -> /qdrant/storage`. Snapshots go to
+`/qdrant/snapshots`, which lives in the container layer and is lost on any
+recreate. Rollback A depends on it. Fix: after the POST, download the snapshot to `/data/backups/`
+from inside retrieval (`urlretrieve('http://qdrant:6333/collections/user_docs/snapshots/<name>', '/data/backups/user_docs.pre-reconnect.snapshot')`).
+
+**R6. Rollback B is incomplete and in the wrong order.** It reverse-merges only the
+DB, after Lite is already serving. Do it in this order: freeze the cluster
+(maintenance flag), `systemctl disable --now munin-tunnel`, reverse-merge DB,
+files and points (`merge_state.py files` and `qdrant` too) into the stopped
+Lite, and only then start Lite and remove its flag. Otherwise users continue
+conversations on stale Lite history, and the later merge refuses on
+(conversation_id, index) slot collisions.
+
+**R7. Steps 6.10 and 6.6 can stretch the outage.**
+- 6.10 allows a frontend deploy (`npm ci` build, asset copy) inside the user
+  downtime window. Do the a702931/528943f/03512e4/95279af check in the D14
+  rehearsal and deploy before 6.2.
+- 6.6 kills Deep Research runs and background turns that last longer than the
+  1-2 min wait. Before 6.6, wait until `docker logs --since 3m munin-llm-claude | grep 'usage model'`
+  is empty [VPS] and no DR job is running.
+- Name the variable to check in 6.10: the gateway reads `CLUSTER_TUNNEL`
+  (`frontend/gateway/main.py:31`), which compose fills from `BACKEND_URL`.
+  Verified: the frontend `.env` leaves both unset (default
+  http://127.0.0.1:18080), and the hook-service has
+  `CLUSTER_INGEST_URL=http://127.0.0.1:18080/api/admin/ingest`.
+
+**R8. Scheduling hazards are not mentioned.** `/etc/cron.d/hugin-cluster` runs
+`safe-reboot.sh` on Monday at 05:00 (warning at Sunday 04:00) and the vLLM stop
+at 02:00. Keep the cutover and any bake-off session out of those windows. The
+reboot drains SLURM jobs and, without R1, starts the tunnel again.
+
+**R9. Repo facts are stale.** HuginSLURM is now `$HS`
+(renamed). Its main is 9004038, clean and equal to origin: the gromacs change
+was committed as 7ce1dc7, so the "uncommitted change, 1 ahead" warning no
+longer applies. The worktrees are `scratchpad/wt/huginslurm-{sage,strata,basalt}`.
+munin main moved to 05ad6bc, which touches `backend/deploy.sh`,
+`retrieval/main.py` and `check-vllm-health.sh`. `git merge-tree` of each of the 8
+munin branches and 3 Hugin branches against the current main is clean, but the
+integrated rehearsal (99/99 hermetic, vitest, dry runs) ran on fcc4dd1. Run it
+again on 05ad6bc.
+
+### Low
+
+**R10. Sage reasoning effort.** The compose file has `LLM_REASONING_EFFORT=${LLM_REASONING_EFFORT:-medium}`.
+`:-` turns the profile's deliberate empty value ("send none") into `medium`.
+The lane C eval set it explicitly, so production would not match what was
+measured. After `model activate`, check `/api/status` for
+`reasoning_effort: null`. If it is not null, change the compose file to
+`${LLM_REASONING_EFFORT-medium}`.
+
+**R11. cluster.env is sourced by bash after the profile.**
+`start-vllm-service.sh` (`set -e`) sources cluster.env after
+`munin_load_model_env`. As a result:
+- Any `VLLM_*`, `LLM_*` or `SAMPLING_*` key in cluster.env silently overrides
+  the Sage profile. The template has none; the live file is unreadable to
+  this review. Check with
+  `sudo grep -oE '^(VLLM|LLM|SAMPLING|MODEL)_[A-Z_]*=' /opt/hugin/config/cluster.env`.
+- In step 5, write `CLAUDE_FALLBACK_MODEL=` with nothing after it. Pasting the
+  "(D15: no Sonnet retries)" note in as a value breaks `source`, and with it
+  the vLLM start.
+
+**R12. Copies in 6.7 and stray user data.**
+- 6.7's `chats.db*` glob also copies the step 0 file `chats.db.pre-reconnect`,
+  which sits in the same Lite data dir. Copy `chats.db chats.db-wal chats.db-shm`
+  by name, and remove the stray backup from the Lite data dir later.
+- `$STAGE` and `/data/backups/merge` hold full copies of user data. Give them a
+  deletion date.
+- In 6.11, open a Lite-era user document, not only a fresh upload, in case
+  retrieval caches the doc list. If it is missing, restart retrieval (about 1
+  min).
+
+**R13. 6.9 is already satisfied.** The VPS frontend `.env`, the running
+hook-service and cluster retrieval carry the same ADMIN_INGEST_TOKEN (matching
+sha256 prefix). Lite's is empty, which is why uploads queue.
+`/mnt/uploads/complete` has 12 entries (tusd `.info` sidecars included). No
+restore is needed; keep only the check.
+
+### Checked and fine
+- The cron sed in 3.4 matches the live HOLD line.
+- Every deploy.sh mode the runbook uses exists on its branch. `deploy.sh agents`
+  copes with agents.yml being gone after retire-tools.
+- retrieval `depends_on` and the qdrant/neo4j/grobid/searxng/sandbox
+  definitions are unchanged against the live compose, so `up -d retrieval` does
+  not recreate them.
+- No chats.db schema change since bc1ee62 on any branch.
+- The sandbox stays on the internal `sandbox-net`. llm-claude/llm-failover are
+  only on `default`. ANTHROPIC_API_KEY reaches only llm-claude.
+- VPS Caddy is directory-mounted.
+- Lite is compose project `munin` in `~/munin-lite/backend/docker` with
+  `restart: unless-stopped`, so `compose stop` survives a reboot.
+- The GPU UUID in 4.1 is the gpu:batch card (index 0).
+- SLURM queue empty and GPU1 at 4 MiB at 15:36 (the cancelled job has left CG).
