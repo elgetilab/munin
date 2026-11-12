@@ -179,9 +179,22 @@ check_batch_gpu() {
     holders=$(squeue -h -o '%i %j %u %T %b' 2>/dev/null | grep 'gpu:batch' | grep -v " vllm-inst-$NAME " || true)
     if [ -n "$holders" ]; then
         log "jobs holding gres gpu:batch:"; echo "$holders" | sed 's/^/    /' | tee -a "$LOG"
-        basalt=$(echo "$holders" | grep -i basalt | awk '{print $1}' | head -1)
-        [ -n "$basalt" ] && die "Basalt (job $basalt) holds gpu:batch; the eval instance needs that card. Stop it for the run: sudo scancel $basalt; restart it afterwards: sudo sbatch /opt/cluster/scripts/basalt/start-basalt.sh"
+        basalt=$(echo "$holders" | grep -i basalt | awk '{print $1}' | tr '\n' ' ')
+        basalt=${basalt% }
+        if [ -n "$basalt" ]; then
+            # With the keeper installed a bare scancel is undone within 5 min.
+            local keeper=/opt/cluster/scripts/basalt/basalt-keeper.sh
+            if [ -x "$keeper" ]; then
+                die "Basalt (job(s) $basalt) holds gpu:batch; the eval instance needs that card. Stop it with its hold for the run: sudo $keeper stop; afterwards: sudo $keeper start"
+            fi
+            die "Basalt (job(s) $basalt) holds gpu:batch; the eval instance needs that card. Stop it for the run: sudo scancel $basalt; restart it afterwards: sudo sbatch /opt/cluster/scripts/basalt/start-basalt.sh"
+        fi
         die "another job holds gpu:batch (above); the eval instance would pend behind it. Wait for it or cancel it, then re-run"
+    fi
+    # Our own eval instance (a re-entrant re-run) legitimately fills the card.
+    if squeue -h -n "vllm-inst-$NAME" -o %i 2>/dev/null | grep -q .; then
+        log "batch GPU: our vllm-inst-$NAME job is already there; skipping the memory check"
+        return 0
     fi
     idx=$(batch_gpu_index)
     read -r total reserved used < <(nvidia-smi -i "$idx" --query-gpu=memory.total,memory.reserved,memory.used \
@@ -508,7 +521,12 @@ if [ "$TEARDOWN" = "1" ] && ! phase_done 4; then
         log "production job still there ($prodjob); not touching it"
     else
         log "production job is gone (walltime or a crash during the run); starting it on the '$want_profile' profile preflight found ..."
-        run_logged $VLLM_SERVICE start "$want_profile" || die "vllm-service start $want_profile failed; production is DOWN"
+        if ! run_logged $VLLM_SERVICE start "$want_profile"; then
+            # The hourly health timer may have resubmitted it in between.
+            squeue -h -n vllm-service,vllm-service-tp2 -o %i | grep -q . \
+                || die "vllm-service start $want_profile failed; production is DOWN"
+            log "start refused but a production job is now queued (health timer); continuing"
+        fi
         newjob=$(squeue -h -n vllm-service,vllm-service-tp2 -o %i | head -1)
         [ -n "$newjob" ] || die "no production job after start; production is DOWN: sudo vllm-service start $want_profile"
         log "production job $newjob submitted; waiting for vLLM (up to 20 min) ..."
