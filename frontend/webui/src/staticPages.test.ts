@@ -479,9 +479,12 @@ describe('docs and landing pages', () => {
     expect(doc.querySelector('.arch')?.textContent).toContain('Retrieval API');
   });
 
-  it('points the internal paper collection at the Knowledge browser', () => {
-    const link = [...landing().querySelectorAll('a')].find((a) => a.textContent === 'internal paper collection')!;
-    expect(link.getAttribute('href')).toBe('https://munin_url_chat.example.org/knowledge');
+  it('points the knowledge base at the Knowledge browser', () => {
+    const doc = landing();
+    const browse = [...doc.querySelectorAll('main a')].find((a) => a.textContent === 'Browse')!;
+    expect(browse.getAttribute('href')).toBe('https://munin_url_chat.example.org/knowledge');
+    const nav = [...doc.querySelectorAll('header nav a')].find((a) => a.textContent === 'Knowledge')!;
+    expect(nav.getAttribute('href')).toBe('https://munin_url_chat.example.org/knowledge');
   });
 
   it('numbers no feature cards, and speaks of one assistant', () => {
@@ -492,8 +495,9 @@ describe('docs and landing pages', () => {
   });
 
   it('says who can upload, wherever it invites uploads', () => {
-    const card = [...landing().querySelectorAll('.howto-card')].find((c) => c.querySelector('h3')?.textContent === 'Upload Papers')!;
-    expect(card.textContent).toContain('Group leaders');
+    const row = [...landing().querySelectorAll('.mode')].find((c) => c.querySelector('h3')?.textContent === 'Contribute')!;
+    expect(row.textContent).toContain('Group leaders');
+    expect(row.querySelector('a')?.getAttribute('href')).toBe('https://munin_url_upload.example.org');
     const text = guide().body.textContent!;
     expect(text).toContain('Research group leaders can grow');
     expect(text).not.toContain('Upload your papers');

@@ -2,281 +2,134 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <!-- Sets light or dark before any CSS loads. Keep identical to static/shared/theme-snippet.html. -->
     <script data-munin-theme>(function(){var p="system",d=document.documentElement;try{var m=document.cookie.match(/(?:^|;\s*)munin_theme=(light|dark|system)(?:;|$)/);if(m)p=m[1]}catch(e){}var t=p;if(p==="system"){try{t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}catch(e){t="dark"}}d.setAttribute("data-theme-pref",p);d.setAttribute("data-theme",t)})()</script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Munin - Research Assistant</title>
+    <title>Munin Research Assistant</title>
+    <link rel="icon" type="image/webp" href="/shared/munin_logo_without_script.webp">
     <link rel="stylesheet" href="/shared/style.css?v=3">
+    <link rel="stylesheet" href="/shared/site.css?v=1">
     <script src="/shared/theme.js?v=2" defer></script>
     <style>
-        /* Landing page overrides and page-specific styles */
-        .container {
-            max-width: 1200px;
-        }
-
-        header {
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-
         /* Hero */
-        .hero {
-            text-align: center;
-            padding: 80px 0;
-            background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
-        }
+        .hero { position: relative; overflow: hidden; padding: 80px 0 104px; background: radial-gradient(800px 420px at 75% 25%, var(--glow), transparent 70%), linear-gradient(180deg, var(--ink-2), var(--ink) 80%); }
+        .horizon { position: absolute; left: 0; right: 0; bottom: 0; height: 180px; color: var(--text); opacity: .07; pointer-events: none; }
+        .hero-grid { position: relative; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 56px; align-items: center; }
+        .hero h1 { font-size: clamp(38px, 4.6vw, 56px); font-weight: 600; line-height: 1.05; letter-spacing: -0.035em; margin-bottom: 18px; }
+        .hero .lede { font-size: 18px; color: var(--text-2); margin-bottom: 28px; max-width: 30em; }
+        .quick { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--line); }
+        .quick a { display: inline-flex; align-items: center; gap: 7px; font-size: 14.5px; font-weight: 500; color: var(--text-2); text-decoration: none; }
+        .quick a:hover { color: var(--text); }
+        .quick svg { width: 16px; height: 16px; }
+        .window { border: 1px solid var(--line-2); border-radius: 14px; overflow: hidden; background: var(--surface); box-shadow: 0 30px 80px -30px rgb(0 0 0 / .55); }
+        .window .bar { height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+        .window .bar i { width: 10px; height: 10px; border-radius: 50%; background: var(--line-2); }
+        .window img { display: block; width: 100%; height: auto; }
+        .window .shot-dark { display: var(--shot-dark); }
+        .window .shot-light { display: var(--shot-light); }
 
-        .hero h1 {
-            font-size: 48px;
-            margin-bottom: 16px;
-            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
 
-        .hero p {
-            font-size: 20px;
-            color: var(--text-secondary);
-            max-width: 600px;
-            margin: 0 auto 32px;
-        }
+        /* A thin strip, after mockup B: one line of quiet facts, each with a small icon. */
+        .facts { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--ink-2); }
+        .facts .wrap { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .facts .wrap > div { display: flex; align-items: center; gap: 9px; padding: 11px 0; font-size: 13.5px; color: var(--text-3); }
+        .facts .wrap > div + div { padding-left: 20px; border-left: 1px solid var(--line); }
+        .facts b { color: var(--text-2); font-weight: 500; }
+        .facts svg { color: var(--text-3); flex-shrink: 0; }
+        /* The source tiles lift on hover like the shared .panel. */
+        .src { position: relative; transition: border-color .2s; }
+        .src::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .25s; background: radial-gradient(420px 120px at 50% 0%, var(--glow), transparent 70%); }
+        .src:hover { border-color: var(--line-2); }
+        .src:hover::before { opacity: 1; }
 
-        .hero-buttons {
-            display: flex;
-            gap: 16px;
-            justify-content: center;
-        }
+        /* Where answers come from */
+        .sources-h { margin: 56px 0 16px; font-size: 18px; }
+        .srcs { display: grid; grid-template-columns: minmax(0, 6fr) repeat(3, minmax(0, 2fr)); gap: 16px; align-items: stretch; }
+        .src-main .dbs { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+        .src-main .name { margin-bottom: 6px; }
+        .src-ext { justify-content: center; align-items: center; text-align: center; }
+        .src-ext .name { flex-direction: column; gap: 10px; font-size: 15px; }
+        .src-ext .fav-lg { width: 28px; height: 28px; }
+        a.src { text-decoration: none; color: var(--text); }
+        a.src:hover { color: var(--text); }
+        .src-ext .ext { position: absolute; top: 14px; right: 14px; color: var(--text-3); transition: color .15s, transform .15s; }
+        a.src:hover .ext { color: var(--brass); transform: translate(1px, -1px); }
+        .src-ext .name small { display: block; font-size: 12.5px; font-weight: 400; color: var(--text-3); margin-top: -6px; }
+        .db-link { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; font-size: 13.5px; font-weight: 500; color: var(--text-2); text-decoration: none; }
+        .db-link:hover { color: var(--brass); }
+        .src { border: 1px solid var(--line); border-radius: 16px; background: var(--surface); padding: 22px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+        .src .name { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 16.5px; color: var(--text); }
+        .src .name svg { color: var(--brass); }
+        .src p { margin: 0; color: var(--text-2); font-size: 14.5px; }
+        .fav-lg { width: 22px; height: 22px; border-radius: 5px; }
+        :root:not([data-theme="light"]) .fav-mono { filter: invert(1); }
 
-        /* How To Section */
-        .howto {
-            padding: 80px 0;
-        }
+        /* Meet Munin: Chat, with its three modes, beside Knowledge base and Contribute. */
+        .caps { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 16px; }
+        .kb-rows { margin: 6px 0 0; }
+        .kb-rows h3 { font-size: 16px; margin-bottom: 2px; }
+        .kb-rows .mode:last-child { border-bottom: 0; padding-bottom: 0; }
+        .modes h3 { font-size: 16px; }
+        /* The mode rows share the card's height, so it has no empty foot beside the two stacked cards. */
+        .cap-chat .modes { margin: 6px 0 22px; }
+        .meet { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 56px; align-items: start; }
+        .modes { display: grid; gap: 0; border-top: 1px solid var(--line); }
+        .mode { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--line); }
+        .mode .t { margin-bottom: 2px; }
+        .mode p { margin: 0; color: var(--text-2); font-size: 15px; }
 
-        .howto h2 {
-            text-align: center;
-            font-size: 32px;
-            margin-bottom: 48px;
-        }
+        /* Results */
+        .results { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 16px; }
+        .tabs { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--ink-2); margin-bottom: 22px; flex-wrap: wrap; align-self: flex-start; }
+        .tabs button { height: 30px; padding: 0 12px; border: 0; border-radius: 7px; background: none; color: var(--text-2); font: 500 13.5px var(--font); cursor: pointer; }
+        .tabs button[aria-selected="true"] { background: var(--surface-2); color: var(--text); box-shadow: 0 0 0 1px var(--line-2); }
+        .chart { display: grid; gap: 14px; }
+        .row { display: grid; grid-template-columns: 150px minmax(0, 1fr) 52px; align-items: center; gap: 14px; }
+        .row .label { font-size: 14px; color: var(--text-2); line-height: 1.3; }
+        .row .label b { display: block; color: var(--text); font-weight: 500; }
+        .track { position: relative; height: 26px; border-radius: 6px; background: var(--ink-2); border: 1px solid var(--line); }
+        .fill { position: absolute; inset: 0 auto 0 0; border-radius: 5px; background: var(--line-2); transition: width .6s cubic-bezier(.2,.7,.2,1); }
+        .row.munin .fill { background: var(--brass); }
+        .row .val { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+        .ref-line { position: absolute; top: -6px; bottom: -6px; border-left: 1.5px dashed var(--text-3); pointer-events: none; }
+        .ref-label { font-size: 12.5px; color: var(--text-3); margin: 16px 0 0; }
+        .big { font-size: 44px; font-weight: 600; letter-spacing: -0.03em; line-height: 1; margin-bottom: 8px; font-variant-numeric: tabular-nums; }
+        .big span { color: var(--text-3); font-size: 28px; }
+        .side { display: grid; gap: 16px; }
+        .paper .kicker { font-size: 13px; color: var(--text-3); margin-bottom: 6px; }
+        .paper .title { font-size: 17px; font-weight: 600; color: var(--text); text-decoration: none; line-height: 1.35; display: block; margin-bottom: 4px; }
+        .paper .title:hover { color: var(--brass); }
+        .paper .authors { font-size: 14.5px; color: var(--text-2); margin-bottom: 16px; }
 
-        .howto-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 24px;
-        }
+        /* Open source on top, the two acknowledgements as logo rows below a hairline. */
+        .oss { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 40px; border-bottom: 1px solid var(--line); }
+        .oss h2 { margin-bottom: 4px; }
+        .oss p { margin: 0; }
+        .ack-h { margin: 36px 0 18px; font-size: 13px; font-weight: 600; color: var(--text-3); letter-spacing: 0; }
+        .ack { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+        .ack-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 20px; align-items: center; }
+        .ack .logo { display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-weight: 600; font-size: 15px; line-height: 1.2; }
+        .ack .hypmol img { height: 30px; }
+        .ack .elgeti svg { height: 44px; width: auto; flex-shrink: 0; }
+        .ack p { font-size: 14px; margin: 0; }
 
-        .howto-card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 24px;
-            transition: border-color 0.2s, background 0.2s;
-        }
-
-        .howto-card:hover {
-            border-color: var(--accent);
-            background: var(--bg-tertiary);
-        }
-
-        .howto-card h3 {
-            font-size: 18px;
-            margin-bottom: 12px;
-        }
-
-        .howto-card p {
-            color: var(--text-secondary);
-            font-size: 14px;
-            margin-bottom: 12px;
-        }
-
-        .howto-card ul {
-            list-style: none;
-            color: var(--text-secondary);
-            font-size: 14px;
-        }
-
-        .howto-card li {
-            padding: 4px 0;
-        }
-
-        .howto-card li::before {
-            content: "-";
-            color: var(--accent);
-            margin-right: 8px;
-        }
-
-        /* Personas Section */
-        .personas {
-            padding: 80px 0;
-            background: var(--bg-secondary);
-        }
-
-        .personas h2 {
-            text-align: center;
-            font-size: 32px;
-            margin-bottom: 16px;
-        }
-
-        .personas > .container > p {
-            text-align: center;
-            color: var(--text-secondary);
-            margin-bottom: 48px;
-            max-width: 600px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-
-        .persona-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            gap: 24px;
-        }
-
-        .persona-card {
-            background: var(--bg-primary);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 24px;
-            transition: border-color 0.2s, background 0.2s;
-            text-decoration: none;
-            color: inherit;
-            display: block;
-        }
-
-        .persona-card:hover {
-            border-color: var(--accent);
-            background: var(--bg-tertiary);
-        }
-
-        .persona-header {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            margin-bottom: 16px;
-        }
-
-        .persona-img {
-            width: 64px;
-            height: 64px;
-            border-radius: 12px;
-            object-fit: cover;
-        }
-
-        .persona-title {
-            flex: 1;
-        }
-
-        .persona-name {
-            font-size: 20px;
-            font-weight: 600;
-            margin-bottom: 4px;
-        }
-
-        .persona-tag {
-            background: var(--bg-tertiary);
-            color: var(--accent);
-            padding: 4px 12px;
-            border-radius: 16px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-
-        .persona-description {
-            color: var(--text-secondary);
-            margin-bottom: 16px;
-        }
-
-        .persona-uses {
-            list-style: none;
-        }
-
-        .persona-uses li {
-            padding: 8px 0;
-            border-top: 1px solid var(--border);
-            color: var(--text-secondary);
-            font-size: 14px;
-        }
-
-        .persona-uses li::before {
-            content: ">";
-            color: var(--success);
-            margin-right: 8px;
-        }
-
-        /* Meet Munin */
-        .munin-intro {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 40px;
-            margin: 32px 0;
-            flex-wrap: wrap;
-        }
-        .munin-mark {
-            width: 120px;
-            height: 120px;
-            border-radius: 50%;
-            background: #fff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-        }
-        /* On the light page a white disc needs an edge to show. */
-        :root[data-theme="light"] .munin-mark {
-            box-shadow: inset 0 0 0 1px var(--border);
-        }
-        .munin-mark img {
-            width: 84px;
-            height: 84px;
-            object-fit: contain;
-        }
-        .munin-modes {
-            max-width: 460px;
-            text-align: left;
-        }
-        .munin-mode-list {
-            list-style: none;
-            margin: 12px 0;
-        }
-        .munin-mode-list li {
-            padding: 6px 0;
-            color: var(--text-secondary);
-        }
-        .munin-mode-list strong {
-            color: var(--text-primary);
-        }
-        .munin-hint {
-            color: var(--text-secondary);
-            font-size: 14px;
-        }
-        .munin-hint code {
-            background: var(--bg-tertiary);
-            color: var(--accent);
-            padding: 2px 6px;
-            border-radius: 6px;
-        }
-        /* Knowledge Sources */
-        .knowledge {
-            padding: 48px 0;
-        }
-
-        /* Footer override */
-        footer {
-            padding: 48px 0;
-        }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-            .hero h1 {
-                font-size: 32px;
-            }
-
-            .hero-buttons {
-                flex-direction: column;
-                align-items: center;
-            }
+        @media (prefers-reduced-motion: reduce) { .fill { transition: none; } }
+        @media (max-width: 900px) {
+            .hero { padding: 48px 0 88px; }
+            .hero-grid, .results, .ack, .meet, .caps { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+            .caps { gap: 16px; }
+            .srcs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .src-main { grid-column: 1 / -1; }
+            .src-main .dbs { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+            /* On a phone the facts flow as short lines, without dividers. */
+            .facts .wrap { display: flex; flex-wrap: wrap; gap: 2px 14px; padding-top: 10px; padding-bottom: 10px; }
+            .facts .wrap > div, .facts .wrap > div + div { padding: 0; border: 0; font-size: 13px; }
+            .facts svg { display: none; }
+            .row { grid-template-columns: 104px minmax(0, 1fr) 46px; gap: 10px; }
+            .mode { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+            .mode code { justify-self: start; }
+            .ack { gap: 28px; }
+            .ack-row { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+            .kb-rows .mode .btn { justify-self: start; }
         }
     </style>
 </head>
@@ -298,88 +151,238 @@
         </div>
     </header>
 
-    <section class="hero">
-        <div class="container">
+<div class="hero">
+    <svg class="horizon" viewBox="0 0 1440 180" preserveAspectRatio="none" aria-hidden="true">
+        <g fill="none" stroke="currentColor" stroke-width="1.2">
+            <path d="M0 120 C180 90 300 140 480 110 S820 60 1000 100 1300 130 1440 90"/>
+            <path d="M0 140 C200 115 320 160 500 132 S840 88 1020 122 1320 150 1440 116"/>
+            <path d="M0 160 C220 140 340 178 520 154 S860 116 1040 144 1340 170 1440 142"/>
+        </g>
+    </svg>
+    <div class="wrap hero-grid">
+        <div>
             <h1>Munin Research Assistant</h1>
-            <p>AI-powered research assistant with access to your papers and the web. Munin automatically routes each question to the right mode: chat, coding, or research.</p>
-            <div class="hero-buttons">
-                <a href="{{env "MUNIN_URL_CHAT"}}" class="btn btn-primary">Open Chat</a>
-                <a href="{{env "MUNIN_URL_SEARCH"}}" class="btn btn-secondary">Search Papers</a>
+            <p class="lede">Self-hosted research assistant with access to our papers and the web. It routes each question to chat, code or research mode, and cites its sources.</p>
+            <div class="btns">
+                <a class="btn btn-primary" href="{{env "MUNIN_URL_CHAT"}}">Open Chat</a>
+                <a class="btn btn-secondary" href="{{env "MUNIN_URL_SEARCH"}}">Search Papers</a>
+                <a class="btn btn-ghost" id="get-access" href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}?subject=Access%20request">Get access</a>
             </div>
+            <nav class="quick" aria-label="Project links">
+                <a href="https://arxiv.org/abs/2610.23480"><img class="fav" src="assets/fav/arxiv.png" alt="" width="16" height="16"> Paper</a>
+                <a href="https://github.com/elgetilab/munin"><img class="fav" src="assets/fav/github.png" alt="" width="16" height="16"><img class="fav fav-dark" src="assets/fav/github-dark.png" alt="" width="16" height="16"> GitHub</a>
+                <a href="https://doi.org/10.5281/zenodo.23191403"><img class="fav" src="assets/fav/zenodo.png" alt="" width="16" height="16"> Archive</a>
+                <a href="{{env "MUNIN_URL_DOCS"}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></svg> Docs</a>
+            </nav>
         </div>
-    </section>
+        <div class="window">
+            <div class="bar" aria-hidden="true"><i></i><i></i><i></i></div>
+            <img class="shot-dark" src="assets/app-dark.webp" width="1280" height="760" alt="The Munin chat after sign-in: a sidebar of conversations, and an answer on protein folding with a web search, a table and code.">
+            <img class="shot-light" src="assets/app-light.webp" width="1280" height="760" alt="The Munin chat after sign-in: a sidebar of conversations, and an answer on protein folding with a web search, a table and code.">
+        </div>
+    </div>
+</div>
 
-    <section id="howto" class="howto">
-        <div class="container">
-            <h2>What You Can Do</h2>
-            <div class="howto-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
-                <a href="{{env "MUNIN_URL_CHAT"}}" class="howto-card" style="text-decoration: none; color: inherit;">
-                    <h3>Chat with AI</h3>
-                    <p>Ask questions, write text, get help with code, or explore research topics. Munin automatically routes each turn to the right mode, or steer it yourself with /research, /code, or /chat.</p>
-                    <ul>
-                        <li>General questions and writing</li>
-                        <li>Programming and debugging</li>
-                        <li>Literature search and analysis</li>
-                    </ul>
-                </a>
-                <a href="{{env "MUNIN_URL_SEARCH"}}" class="howto-card" style="text-decoration: none; color: inherit;">
-                    <h3>Search Papers</h3>
-                    <p>Search our paper database by topic or DOI, narrow by author and year, or list an author's papers. Results are ranked by meaning and citations, not just keywords, so you find conceptually related work.</p>
-                    <ul>
-                        <li>Semantic search by topic</li>
-                        <li>Filter by author and year</li>
-                        <li>DOI lookup and PDF download</li>
-                    </ul>
-                </a>
-                <a href="{{env "MUNIN_URL_UPLOAD"}}" class="howto-card" style="text-decoration: none; color: inherit;">
-                    <h3>Upload Papers</h3>
-                    <p>Group leaders can contribute papers to the shared database; ask yours or contact support. Uploaded PDFs are indexed and become searchable for everyone. Supports large batches with resumable uploads.</p>
-                    <ul>
-                        <li>Add papers to the shared database</li>
-                        <li>Upload up to 1,000 PDFs at once</li>
-                        <li>Resumes automatically if interrupted</li>
-                    </ul>
-                </a>
+<div class="facts">
+    <div class="wrap">
+        <div><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span><b>Open source</b>, Apache 2.0</span></div>
+        <div><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2.5" y="3" width="11" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="2.5" y="9" width="11" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/></svg><span><b>Self-hosted</b> on your servers</span></div>
+        <div><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="1.8" fill="currentColor"/></svg><span><b>Any OpenAI-compatible</b> model</span></div>
+        <div><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 3.5h4a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 0-1.5-1.5h-4zM13.5 3.5h-4A1.5 1.5 0 0 0 8 5v8a1.5 1.5 0 0 1 1.5-1.5h4z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg><span><b>Your own</b> paper collection</span></div>
+    </div>
+</div>
+
+<main>
+    <section class="band" aria-labelledby="meet">
+        <div class="wrap">
+            <div class="s-head">
+                <h2 id="meet">Meet Munin</h2>
+                <p class="muted">After each answer, a citation audit flags citations the sources don't support. For a question that needs a cited report, use <a href="{{env "MUNIN_URL_DOCS"}}/guide.html#deep-research">Deep Research</a>.</p>
             </div>
-        </div>
-    </section>
+            <div class="caps">
+                <div class="panel cap-chat">
+                    <div class="t"><span class="icon"><span class="raven" aria-hidden="true"></span></span><h3>Ask Munin</h3></div>
+                    <p>Munin picks the mode for each turn, or you set it with the command.</p>
+                    <div class="modes">
+                        <div class="mode"><div><div class="t"><span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span><h3>Chat</h3></div><p>Writing, web search, quick lookups, and brainstorming.</p></div><code>/chat</code></div>
+                        <div class="mode"><div><div class="t"><span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6l-6 6 6 6M16 6l6 6-6 6"/></svg></span><h3>Code</h3></div><p>Programming, scientific computing, debugging, and code review.</p></div><code>/code</code></div>
+                        <div class="mode"><div><div class="t"><span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6M10 3v6.5L5.5 18a2 2 0 001.8 3h9.4a2 2 0 001.8-3L14 9.5V3"/></svg></span><h3>Research</h3></div><p>Literature search, paper analysis, and citation exploration.</p></div><code>/research</code></div>
+                    </div>
 
-    <section id="personas" class="personas">
-        <div class="container">
-            <h2>Meet Munin</h2>
-            <p>Ask anything, and Munin automatically routes your question to the right mode.</p>
-            <div class="munin-intro">
-                <div class="munin-mark">
-                    <img src="/shared/munin_logo_without_script.webp" alt="Munin">
+                    <div class="btns"><a class="btn btn-secondary btn-sm" href="{{env "MUNIN_URL_CHAT"}}">Open Chat</a></div>
                 </div>
-                <div class="munin-modes">
-                    <p>Behind the scenes, Munin selects the best mode for each turn:</p>
-                    <ul class="munin-mode-list">
-                        <li><strong>Chat</strong> for writing, web search, quick lookups, and brainstorming.</li>
-                        <li><strong>Code</strong> for programming, scientific computing, debugging, and code review.</li>
-                        <li><strong>Research</strong> for literature search, paper analysis, and citation exploration.</li>
-                    </ul>
-                    <p class="munin-hint">Focus your work with <code>/research</code>, <code>/code</code>, or <code>/chat</code>.</p>
-                    <p class="munin-hint" style="margin-top: 8px;">For a question that needs a cited report, use <a href="{{env "MUNIN_URL_DOCS"}}/guide.html#deep-research" style="color: var(--accent);">Deep Research</a>.</p>
+                <div class="panel">
+                    <div class="t"><span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg></span><h3>Knowledge base</h3></div>
+                    <p>Our shared paper collection.</p>
+                    <div class="modes kb-rows">
+                        <div class="mode"><div><h3>Search</h3><p>By topic, DOI, author or year.</p></div><a class="btn btn-secondary btn-sm" href="{{env "MUNIN_URL_SEARCH"}}">Search papers</a></div>
+                        <div class="mode"><div><h3>Browse</h3><p>By topic and research group, with a map of how the papers relate.</p></div><a class="btn btn-secondary btn-sm" href="{{env "MUNIN_URL_CHAT"}}/knowledge">Browse</a></div>
+                        <div class="mode"><div><h3>Contribute</h3><p>Group leaders upload up to 1,000 PDFs at once; they become searchable for everyone.</p></div><a class="btn btn-secondary btn-sm" href="{{env "MUNIN_URL_UPLOAD"}}">Upload papers</a></div>
+                    </div>
                 </div>
             </div>
+
+            <h3 class="sources-h" id="sources">Where answers come from</h3>
+            <div class="srcs">
+                <div class="src src-main">
+                    <div class="dbs">
+                        <div><div class="name"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg> Vector database</div><p>Our papers and uploads, embedded and searched by meaning, not just keywords.</p><a class="db-link" href="https://qdrant.tech/">Qdrant <svg class="ext" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a></div>
+                        <div><div class="name"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.5 6h9M6.3 8.2l4.4 7.6M17.7 8.2l-4.4 7.6"/></svg> Graph database</div><p>The citations between our papers, so Munin can follow who cites whom.</p><a class="db-link" href="https://neo4j.com/">Neo4j <svg class="ext" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a></div>
+                    </div>
+                </div>
+                <a class="src src-ext" href="https://www.semanticscholar.org/"><div class="name"><img class="fav fav-lg" src="assets/fav/semanticscholar.png" alt="" width="22" height="22"> Semantic Scholar</div><svg class="ext" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
+                <a class="src src-ext" href="https://openalex.org/"><div class="name"><img class="fav fav-lg fav-mono" src="assets/fav/openalex.png" alt="" width="22" height="22"> OpenAlex</div><svg class="ext" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
+                <a class="src src-ext" href="https://search.brave.com/"><div class="name"><img class="fav fav-lg" src="assets/fav/brave.png" alt="" width="22" height="22"> Web search<small>Brave Search</small></div><svg class="ext" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
+            </div>
         </div>
     </section>
 
-    <section id="knowledge" class="knowledge">
-        <div class="container">
-            <p style="text-align: center; color: var(--text-secondary); max-width: 700px; margin: 0 auto; font-size: 15px;">
-                Munin draws from <strong style="color: var(--text-primary);">web search</strong>, <strong style="color: var(--text-primary);">academic databases</strong> (Semantic Scholar, OpenAlex), and our <strong style="color: var(--text-primary);"><a href="{{env "MUNIN_URL_CHAT"}}/knowledge" style="color: var(--accent);">internal paper collection</a></strong>, searchable by meaning, not just keywords.
-            </p>
+
+    <section class="band band-alt" aria-labelledby="results">
+        <div class="wrap">
+            <div class="s-head">
+                <h2 id="results">Results</h2>
+                <p class="muted">From the paper: accuracy on LitQA2, 199 literature questions, with the same open model alone and inside Munin.</p>
+            </div>
+            <div class="results">
+                <div class="panel">
+                    <div class="tabs" role="tablist" aria-label="Model">
+                        <button role="tab" aria-selected="true" data-model="0">Qwen3.8-27B</button>
+                        <button role="tab" aria-selected="false" data-model="1">Qwen3.6-35B-A3B</button>
+                        <button role="tab" aria-selected="false" data-model="2">gpt-oss-20b</button>
+                    </div>
+                    <div class="chart" id="chart" role="tabpanel">
+                        <div class="row"><div class="label"><b>Model alone</b></div><div class="track"><div class="fill"></div></div><div class="val"></div></div>
+                        <div class="row"><div class="label"><b>Naive RAG</b>top-5 abstracts</div><div class="track"><div class="fill"></div></div><div class="val"></div></div>
+                        <div class="row munin"><div class="label"><b>Munin, no web</b>own corpus only</div><div class="track"><div class="fill"></div><div class="ref-line" style="left:66%"></div></div><div class="val"></div></div>
+                        <div class="row munin"><div class="label"><b>Munin + web</b></div><div class="track"><div class="fill"></div><div class="ref-line" style="left:66%"></div></div><div class="val"></div></div>
+                    </div>
+                    <p class="ref-label">Dashed line: PaperQA2's published 66.0%, trained on LitQA2 and quoted, not re-measured. Measured on the lab's 68k-paper corpus; a fresh install will not reproduce these numbers.</p>
+                </div>
+                <div class="side">
+                    <div class="panel">
+                        <div class="big">54%<span> vs 28%</span></div>
+                        <p style="margin:0">of answer claims supported by the retrieved evidence, Munin against naive RAG (Qwen3.8-27B).</p>
+                    </div>
+                    <div class="panel paper">
+                        <a class="title" href="https://arxiv.org/abs/2610.23480">MuninAI: A Self-Hosted Agentic Framework for independent Research Groups</a>
+                        <div class="authors">M. Fischer, J. Meiler, M. Elgeti</div>
+                        <div class="btns">
+                            <a class="btn btn-primary btn-sm" href="https://arxiv.org/abs/2610.23480"><img class="fav" src="assets/fav/arxiv.png" alt="" width="16" height="16"> Read on arXiv</a>
+                            <a class="btn btn-secondary btn-sm" href="https://doi.org/10.5281/zenodo.23191403"><img class="fav" src="assets/fav/zenodo.png" alt="" width="16" height="16"> Zenodo</a>
+                            <a class="btn btn-secondary btn-sm" href="https://github.com/elgetilab/munin/blob/main/CITATION.cff"><img class="fav" src="assets/fav/github.png" alt="" width="16" height="16"><img class="fav fav-dark" src="assets/fav/github-dark.png" alt="" width="16" height="16"> Cite</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </section>
 
-    <footer>
-        <div class="container">
-            <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/" style="color: var(--accent);">Elgeti Lab</a></p>
-            <p style="margin-top: 8px;"><a href="{{env "MUNIN_URL_SEARCH"}}">Search papers</a> | <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a> | <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload</a> | <a href="{{env "MUNIN_URL_DOCS"}}">Docs</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Support</a></p>
+    <section class="band" aria-labelledby="open">
+        <div class="wrap">
+            <div class="oss">
+                <div>
+                    <h2 id="open">Open source</h2>
+                    <p class="muted">Apache 2.0. Runs on your own servers with any OpenAI-compatible model.</p>
+                </div>
+                <div class="btns">
+                    <a class="btn btn-primary" href="https://github.com/elgetilab/munin"><img class="fav" src="assets/fav/github.png" alt="" width="16" height="16"><img class="fav fav-dark" src="assets/fav/github-dark.png" alt="" width="16" height="16"> GitHub</a>
+                    <a class="btn btn-secondary" href="https://github.com/elgetilab/munin/blob/main/INSTALL.md"><img class="fav" src="assets/fav/github.png" alt="" width="16" height="16"><img class="fav fav-dark" src="assets/fav/github-dark.png" alt="" width="16" height="16"> Installation guide</a>
+                </div>
+            </div>
+            <h3 class="ack-h" id="ack">Acknowledgements</h3>
+            <div class="ack">
+                <div class="ack-row">
+                    <a class="logo hypmol" href="https://www.hypmol.net/"><img src="assets/hypmol-logo.svg" alt="HYP*MOL"></a>
+                    <p class="muted">Funded by the Deutsche Forschungsgemeinschaft (DFG, German Research Foundation) – Project-ID 514664767 – TRR 386 (HYP*MOL).</p>
+                </div>
+                <div class="ack-row">
+                    <a class="logo elgeti" href="https://elgetilab.github.io/"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 458 490" role="img" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M213.99,483.12C201.54,479.06 194.82,468.50 194.82,453.00C194.82,439.75 199.97,429.74 209.36,424.72C212.89,422.83 215.07,422.50 224.08,422.50C234.11,422.50 234.91,422.66 239.58,425.53C245.08,428.92 250.39,436.03 252.07,442.28C253.70,448.32 253.41,459.28 251.46,465.48C249.41,472.02 244.31,478.28 238.64,481.22C235.49,482.86 232.36,483.44 225.50,483.66C220.55,483.81 215.37,483.57 213.99,483.12ZM230.93,472.54C237.95,468.91 241.56,460.78 240.74,450.47C239.84,439.04 233.40,432.00 223.84,432.00C218.62,432.00 212.01,435.90 209.71,440.33C205.75,447.96 206.48,461.52 211.16,467.48C216.00,473.63 224.57,475.82 230.93,472.54ZM263.19,411.96C260.46,409.42 260.38,405.62 263.00,403.00C266.95,399.05 274.00,401.91 274.00,407.46C274.00,410.42 270.44,414.00 267.50,414.00C266.33,414.00 264.39,413.08 263.19,411.96ZM216.00,388.50L216.00,368.00L223.50,368.00L231.00,368.00L231.00,388.50L231.00,409.00L223.50,409.00L216.00,409.00L216.00,388.50ZM199.00,325.00L199.00,295.00L205.32,295.00L211.64,295.00L223.57,314.51L235.50,334.03L235.77,314.51L236.04,295.00L242.02,295.00L248.00,295.00L248.00,325.00L248.00,355.00L241.58,355.00L235.16,355.00L223.33,335.85L211.50,316.70L211.23,335.85L210.96,355.00L204.98,355.00L199.00,355.00L199.00,325.00ZM14.97,303.60C13.08,300.05 11.74,296.96 12.01,296.74C12.28,296.53 33.88,285.20 60.00,271.56C86.12,257.93 107.86,246.45 108.31,246.03C108.75,245.62 88.84,228.52 64.06,208.02C39.28,187.53 19.00,170.42 19.00,170.01C19.00,169.00 27.19,159.00 28.02,159.00C28.39,159.00 48.60,176.15 72.94,197.11C97.28,218.06 117.54,234.83 117.97,234.36C118.40,233.89 121.51,224.95 124.87,214.50C128.24,204.05 136.11,179.88 142.37,160.79L153.74,126.09L123.57,73.79L93.40,21.50L49.70,21.87L6.00,22.24L6.00,14.77L6.00,7.31L53.49,6.59C79.61,6.19 101.38,6.12 101.86,6.41C102.35,6.71 116.86,31.94 134.12,62.47L165.50,117.99L230.75,117.99C266.64,118.00 296.00,118.24 296.00,118.53C296.00,119.13 329.70,232.68 330.55,234.95C330.91,235.92 344.69,222.81 372.53,194.97L413.97,153.54L419.01,158.51C421.78,161.24 423.93,163.95 423.78,164.53C423.62,165.11 410.68,177.91 395.00,192.97C379.32,208.04 360.59,226.13 353.36,233.17L340.22,245.99L370.86,255.92C387.71,261.38 412.83,269.50 426.67,273.97L451.84,282.09L449.79,288.29C448.66,291.71 447.38,294.90 446.93,295.39C446.48,295.88 420.76,287.68 388.04,276.59C355.26,265.49 329.42,257.24 328.73,257.66C328.05,258.08 314.10,268.00 297.72,279.71C281.34,291.42 267.61,300.99 267.22,300.97C266.82,300.96 264.62,298.30 262.31,295.06L258.13,289.17L288.20,268.34C304.74,256.88 318.65,247.25 319.12,246.95C319.92,246.43 285.57,135.23 284.17,133.83C283.80,133.46 257.21,133.03 225.07,132.87L166.64,132.59L147.94,188.69L129.24,244.78L154.81,263.14C168.88,273.24 182.32,282.88 184.69,284.57L188.99,287.64L184.42,293.79L179.84,299.95L165.17,288.75C157.10,282.60 143.82,272.46 135.65,266.23L120.80,254.89L71.15,281.88C43.84,296.73 20.81,309.14 19.96,309.46C18.84,309.89 17.48,308.29 14.97,303.60ZM189.00,164.50L189.00,157.00L225.00,157.00L261.00,157.00L261.00,164.50L261.00,172.00L225.00,172.00L189.00,172.00L189.00,164.50Z"/></svg><span>The Elgeti Lab</span></a>
+                    <p class="muted">Developed at Leipzig University Medical Faculty.</p>
+                </div>
+            </div>
         </div>
-    </footer>
+    </section>
+</main>
+
+<footer class="site-footer">
+    <div class="wrap">
+        <div class="f-grid">
+            <div>
+                <div class="f-brand"><img src="/shared/munin_logo_without_script.webp" alt="">Munin</div>
+                <p>An open-source research assistant by the <a href="https://elgetilab.github.io/">Elgeti Lab</a>, Leipzig University Medical Faculty.</p>
+            </div>
+            <div class="f-col">
+                <h4>Use</h4>
+                <ul>
+                    <li><a href="{{env "MUNIN_URL_CHAT"}}">Chat</a></li>
+                    <li><a href="{{env "MUNIN_URL_SEARCH"}}">Search papers</a></li>
+                    <li><a href="{{env "MUNIN_URL_CHAT"}}/knowledge">Knowledge base</a></li>
+                    <li><a href="{{env "MUNIN_URL_UPLOAD"}}">Contribute</a></li>
+                </ul>
+            </div>
+            <div class="f-col">
+                <h4>Learn</h4>
+                <ul>
+                    <li><a href="{{env "MUNIN_URL_DOCS"}}">Docs</a></li>
+                    <li><a href="{{env "MUNIN_URL_DOCS"}}/guide.html#deep-research">Deep Research</a></li>
+                    <li><a href="https://arxiv.org/abs/2610.23480">Paper</a></li>
+                    <li><a href="https://github.com/elgetilab/munin/blob/main/CITATION.cff">Cite Munin</a></li>
+                </ul>
+            </div>
+            <div class="f-col">
+                <h4>Project</h4>
+                <ul>
+                    <li><a href="https://github.com/elgetilab/munin">GitHub</a></li>
+                    <li><a href="https://elgetilab.github.io/">Elgeti Lab</a></li>
+                    <li><a href="https://www.hypmol.net/">HYP*MOL</a></li>
+                    <li><a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Support</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="f-base">
+            <span>Apache-2.0 licensed</span>
+            <span>Munin can make mistakes. Verify important information.</span>
+        </div>
+    </div>
+</footer>
+
+<script>
+    // LitQA2 accuracy, from PAPER.md: model alone, naive RAG, Munin with egress off, Munin full.
+    var DATA = [[0.387, 0.211, 0.663, 0.874], [0.337, 0.126, 0.704, 0.869], [0.407, 0.101, 0.482, 0.563]];
+    var rows = document.querySelectorAll('#chart .row');
+    var tabs = document.querySelectorAll('.tabs [role="tab"]');
+    function show(m) {
+        tabs.forEach(function (t, i) { t.setAttribute('aria-selected', String(i === m)); t.tabIndex = i === m ? 0 : -1; });
+        rows.forEach(function (r, i) {
+            var v = DATA[m][i];
+            r.querySelector('.fill').style.width = (v * 100) + '%';
+            r.querySelector('.val').textContent = Math.round(v * 100) + '%';
+        });
+    }
+    tabs.forEach(function (t, i) {
+        t.addEventListener('click', function () { show(i); });
+        t.addEventListener('keydown', function (e) {
+            var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+            if (!d) return;
+            var n = (i + d + tabs.length) % tabs.length; show(n); tabs[n].focus();
+        });
+    });
+    show(0);
+
+    // Get access opens the support panel (the ? button), where a signed-in user
+    // writes to the admin and a visitor without an account gets the address. The
+    // link stays a plain email if the widget is not there.
+    document.getElementById('get-access').addEventListener('click', function (e) {
+        if (!window.MuninSupport) return;
+        e.preventDefault();
+        window.MuninSupport.open();
+        var subject = document.getElementById('munin-sp-subject');
+        if (subject) subject.value = 'Access request';
+        var message = document.getElementById('munin-sp-message');
+        if (message) message.placeholder = 'Your name, your research group, and what you would like to use Munin for.';
+    });
+</script>
 <script src="/shared/support-widget.js?v=4"></script>
 </body>
 </html>

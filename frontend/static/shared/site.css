@@ -1,0 +1,127 @@
+/* The look of the static sites (landing, search, docs, upload, research,
+   maintenance) and the auth service's sign-in pages: Geist, the ink and
+   brass palette, buttons, panels, the header's colours and the footer.
+   Loaded after style.css, which still carries the header, the support
+   widget's tokens and the palette the chat SPA shares (see themeSync.test.ts).
+   Page-specific rules stay in each page. */
+
+/* Geist, self-hosted (SIL Open Font License 1.1, see fonts/OFL.txt), so no
+   page asks a third party for a font. One variable file per script range
+   covers every weight. */
+@font-face {
+    font-family: 'Geist';
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url(fonts/geist-latin-ext.woff2) format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+    font-family: 'Geist';
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url(fonts/geist-latin.woff2) format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+    --ink: #0d1217; --ink-2: #131a21; --surface: #151c23; --surface-2: #1c252e;
+    --text: #ece5d6; --text-2: #a9b1ba; --text-3: #8d959e;
+    --brass: #d9b56f; --brass-2: #e8c98e; --brass-soft: rgb(217 181 111 / .12);
+    --line: #252f39; --line-2: #34404c;
+    --btn-bg: #ece5d6; --btn-text: #0d1217;
+    --glow: rgb(217 181 111 / 0.07);
+    /* The inverted band: parchment on the dark page. */
+    --inv-bg: #ece5d6; --inv-text: #0d1217; --inv-text-2: #3d4650; --inv-line: #cfc2a8; --inv-btn: #0d1217; --inv-btn-text: #ece5d6;
+    --font: 'Geist', -apple-system, 'Segoe UI', 'Noto Sans', sans-serif;
+    --mono: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+    --shot-dark: block; --shot-light: none; --gh-light: inline; --gh-dark: none;
+}
+:root[data-theme="light"] {
+    --ink: #f6f1e7; --ink-2: #efe8da; --surface: #fbf8f1; --surface-2: #efe8da;
+    --text: #182029; --text-2: #4a535d; --text-3: #555e68;
+    --brass: #7a5512; --brass-2: #5f420c; --brass-soft: rgb(122 85 18 / .1);
+    --line: #e2d8c5; --line-2: #cfc2a8;
+    --btn-bg: #182029; --btn-text: #f6f1e7;
+    --glow: rgb(122 85 18 / 0.06);
+    --inv-bg: #182029; --inv-text: #ece5d6; --inv-text-2: #b9c0c8; --inv-line: #34404c; --inv-btn: #ece5d6; --inv-btn-text: #182029;
+    --shot-dark: none; --shot-light: block;
+}
+:root:not([data-theme="light"]) { --gh-light: none; --gh-dark: inline; }
+/* Stays in view on wider screens; on a phone the header is two rows, too tall to pin. */
+@media (min-width: 700px) { header { position: sticky; top: 0; z-index: 50; } }
+header { --bg-secondary: var(--ink-2); --border: var(--line); --text-secondary: var(--text-2); --text-primary: var(--text); --bg-tertiary: var(--surface-2); --accent: var(--brass); }
+
+body { background: var(--ink); color: var(--text); font-family: var(--font); font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
+a { color: var(--brass); text-underline-offset: 3px; }
+a:hover { color: var(--brass-2); }
+h1, h2, h3 { margin: 0; color: var(--text); letter-spacing: -0.02em; }
+h2 { font-size: clamp(26px, 3vw, 34px); font-weight: 600; line-height: 1.15; margin-bottom: 10px; }
+h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 6px; }
+p { margin: 0 0 12px; }
+.muted { color: var(--text-2); }
+.note { font-size: 13.5px; color: var(--text-3); }
+code { font-family: var(--mono); font-size: 13px; padding: 2px 7px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text); }
+ul { margin: 0 0 18px; padding-left: 18px; color: var(--text-2); }
+li { margin: 3px 0; }
+li::marker { color: var(--text-3); }
+
+.btn { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 9px; font-weight: 500; font-size: 15px; text-decoration: none; border: 1px solid transparent; transition: background-color .15s, border-color .15s, color .15s, transform .15s; white-space: nowrap; }
+.btn-primary { background: var(--btn-bg); color: var(--btn-text); }
+.btn-primary:hover { color: var(--btn-text); transform: translateY(-1px); }
+.btn-secondary { border-color: var(--line-2); color: var(--text); background: var(--surface); }
+.btn-secondary:hover { border-color: var(--text-3); color: var(--text); }
+.btn-ghost { color: var(--text-2); }
+.btn-ghost:hover { color: var(--text); background: var(--surface); border-color: var(--line); }
+.btn-sm { height: 34px; padding: 0 12px; font-size: 14px; border-radius: 8px; }
+.btns { display: flex; flex-wrap: wrap; gap: 10px; }
+.fav { width: 16px; height: 16px; border-radius: 3px; flex-shrink: 0; }
+img.fav[src*="github.png"] { display: var(--gh-light); }
+img.fav-dark { display: var(--gh-dark); }
+/* A primary button is the inverse of the page, so it takes the other mark. */
+.btn-primary img.fav[src*="github.png"] { display: var(--gh-dark); }
+.btn-primary img.fav-dark { display: var(--gh-light); }
+
+.band { padding: 88px 0; }
+.band-alt { background: var(--ink-2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.s-head { margin-bottom: 32px; max-width: 40em; }
+.panel { border: 1px solid var(--line); border-radius: 16px; background: var(--surface); padding: 26px; display: flex; flex-direction: column; min-width: 0; }
+.panel p { color: var(--text-2); }
+/* The border lifts and a soft light sits on the top edge on hover. */
+.panel { position: relative; transition: border-color .2s; }
+.panel::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .25s; background: radial-gradient(420px 120px at 50% 0%, var(--glow), transparent 70%); }
+.panel:hover { border-color: var(--line-2); }
+.panel:hover::before { opacity: 1; }
+:root { --glow-strong: rgb(217 181 111 / .10); }
+
+/* Footer, after mockup B. */
+.site-footer { border-top: 1px solid var(--line); padding: 56px 0 36px; margin-top: 0; color: var(--text-2); background: var(--ink-2); text-align: left; }   /* the shared style.css centres every footer */
+.f-grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 32px; }
+.f-brand { display: flex; align-items: center; gap: 10px; font-weight: 600; color: var(--text); font-size: 16px; margin-bottom: 12px; }
+.f-brand img { height: 22px; width: auto; filter: brightness(0) invert(1); }
+:root[data-theme="light"] .f-brand img { filter: none; }
+.f-grid p { font-size: 14px; line-height: 1.6; max-width: 26em; color: var(--text-2); }
+.f-grid p a { color: var(--text); }
+.f-col h4 { font-size: 13px; font-weight: 600; color: var(--text); margin: 0 0 12px; }
+.f-col ul { list-style: none; display: grid; gap: 8px; margin: 0; padding: 0; }
+.f-col li { margin: 0; }
+.f-col a { color: var(--text-2); text-decoration: none; font-size: 14px; transition: color .15s; }
+.f-col a:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.f-base { margin-top: 44px; padding-top: 20px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--text-3); }
+.panel .btns { margin-top: auto; }
+.icon { display: inline-flex; color: var(--brass); flex-shrink: 0; }
+/* The raven, filled with the accent like the line icons beside it. */
+.icon .raven { width: 20px; height: 20px; background: var(--brass); -webkit-mask: url(/shared/munin_logo_without_script.webp) center / contain no-repeat; mask: url(/shared/munin_logo_without_script.webp) center / contain no-repeat; }
+.t { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.t h3 { margin: 0; }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+
+@media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+@media (max-width: 900px) {
+    .grid3 { grid-template-columns: minmax(0, 1fr); }
+    .f-grid { grid-template-columns: 1fr 1fr; }
+    .f-grid > div:first-child { grid-column: 1 / -1; }
+    .band { padding: 64px 0; }
+}
