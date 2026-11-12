@@ -52,4 +52,6 @@ and shares the host's kernel, so a kernel exploit would reach the VM.
 
 Point the frontend back by stopping retrieval here and bringing the tunnel up.
 Chats made here are in this `chats.db`, not the cluster's, so decide what to keep
-before switching. Uploads still in `complete/` then ingest on the next retry.
+before switching. [lite-merge.md](lite-merge.md) merges them, with uploaded
+documents and their search index, into the cluster first. Uploads still in
+`complete/` then ingest on the next retry.
