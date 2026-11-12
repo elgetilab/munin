@@ -308,6 +308,9 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
         return;
       }
       if (!isSearchShortcut(e, searchButtonRef.current)) return;
+      // The report dialog is not an aria-modal one, and its own Escape would
+      // close it along with search, so the key stays with it while it is open.
+      if (useUiStore.getState().showReportDialog) return;
       e.preventDefault();
       setSearchOpen(true);
     };

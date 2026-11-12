@@ -267,6 +267,30 @@ test.describe('keyboard', () => {
     await expect(composer).toBeFocused();
   });
 
+  test('in forced colours the search box keeps its ring, as its line cannot change colour there', async ({ page }) => {
+    await installMocks(page);
+    await page.emulateMedia({ forcedColors: 'active' });
+    await page.goto('/');
+    await expect(page.getByRole('button', { name: 'Search chats' })).toBeVisible();
+    await page.keyboard.press('ControlOrMeta+K');
+    const search = page.getByRole('textbox', { name: 'Search conversations' });
+    await expect(search).toBeFocused();
+    await expect(search).toHaveCSS('outline-style', 'solid');
+  });
+
+  test('Ctrl+K leaves an open report form alone', async ({ page }) => {
+    await installMocks(page, { chatScript: [ev.conversation('conv-e2e'), ev.routing('chat'), ...tokens('Hello'), ev.done()] });
+    await page.goto('/');
+    await send(page);
+    await page.getByRole('button', { name: 'Report this chat' }).click();
+    const reason = page.getByPlaceholder('Describe the issue...');
+    await reason.fill('wrong answer');
+    await reason.press('ControlOrMeta+K');
+    await expect(page.getByRole('dialog', { name: 'Search your chats' })).toHaveCount(0);
+    await expect(reason).toBeFocused();
+    await expect(reason).toHaveValue('wrong answer');
+  });
+
   test('a click in the composer tints it instead of drawing the ring', async ({ page }) => {
     await installMocks(page);
     await page.goto('/');

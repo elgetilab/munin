@@ -515,6 +515,15 @@ describe('Sidebar open-in-new-tab links', () => {
       expect(screen.queryByRole('dialog', { name: 'Search your chats' })).not.toBeInTheDocument();
     });
 
+    it('leaves the key to the report dialog while it is open', () => {
+      useUiStore.setState({ showReportDialog: true });
+      onTestFinished(() => useUiStore.setState({ showReportDialog: false }));
+      renderSidebar();
+
+      expect(press({ ctrlKey: true }).defaultPrevented).toBe(false);
+      expect(screen.queryByRole('dialog', { name: 'Search your chats' })).not.toBeInTheDocument();
+    });
+
     it('opens from inside the phone drawer that holds the sidebar', async () => {
       render(
         <div role="dialog" aria-modal="true" aria-label="Menu">
