@@ -19,6 +19,10 @@ from __future__ import annotations
 import json
 import time
 import urllib.request
+try:
+    from ..gateway import gateway_headers
+except ImportError:  # loaded with munin_bench/ itself on sys.path (tests, scripts)
+    from gateway import gateway_headers
 
 # Tools whose results are retrieved EVIDENCE the answer may ground on.
 RETRIEVAL_TOOLS = {
@@ -83,7 +87,7 @@ def capture_answer(base_url: str, email: str, question: str,
     req = urllib.request.Request(
         base_url.rstrip("/") + "/api/chat/completions",
         data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", "X-Munin-Email": email,
+        headers={"Content-Type": "application/json", **gateway_headers(), "X-Munin-Email": email,
                  "X-Munin-Ephemeral": "true", "Accept": "text/event-stream"},
         method="POST")
 

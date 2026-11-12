@@ -38,6 +38,10 @@ from .. import config
 from ..scorecard import corpus_snapshot
 from . import runs_dir
 from . import vllm_answer as V
+try:
+    from ..gateway import gateway_headers
+except ImportError:  # loaded with munin_bench/ itself on sys.path (tests, scripts)
+    from gateway import gateway_headers
 
 _HERE = os.path.dirname(__file__)
 _QSET = os.path.join(_HERE, "d_questions.json")
@@ -135,7 +139,7 @@ def _agentic_one(q: dict, base_url: str, email: str, deadline: int = 900) -> dic
             "messages": [{"role": "user", "content": mcq["prompt"]}]}
     req = urllib.request.Request(
         base_url.rstrip("/") + "/api/chat/completions", data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", "X-Munin-Email": email,
+        headers={"Content-Type": "application/json", **gateway_headers(), "X-Munin-Email": email,
                  "X-Munin-Ephemeral": "true", "Accept": "text/event-stream",
                  # cost guard: eval never touches the paid Brave key / S2 API.
                  # Set MUNIN_EVAL_EGRESS=full to opt back in for a live run.

@@ -15,6 +15,10 @@ import time
 import urllib.request
 
 from . import vllm_answer as V
+try:
+    from ..gateway import gateway_headers
+except ImportError:  # loaded with munin_bench/ itself on sys.path (tests, scripts)
+    from gateway import gateway_headers
 
 
 async def solve_bare(prompt: str, **kw) -> str:
@@ -43,7 +47,7 @@ async def solve_agentic(prompt: str, *, base_url: str = "http://127.0.0.1:8080",
         req = urllib.request.Request(
             base_url.rstrip("/") + "/api/chat/completions",
             data=json.dumps(body).encode(),
-            headers={"Content-Type": "application/json", "X-Munin-Email": email,
+            headers={"Content-Type": "application/json", **gateway_headers(), "X-Munin-Email": email,
                      "X-Munin-Ephemeral": "true", "Accept": "text/event-stream"},
             method="POST")
         content, ev = "", None

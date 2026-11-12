@@ -22,13 +22,29 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 
 import httpx
 
+# With MUNIN_GATEWAY_TOKEN set on retrieval, identity headers must carry the
+# gateway token too (gateway_token_guard.py). Token from MUNIN_GATEWAY_TOKEN or
+# the file named by MUNIN_GATEWAY_TOKEN_FILE; neither set sends no header.
+def _gateway_headers():
+    token = os.environ.get("MUNIN_GATEWAY_TOKEN", "").strip()
+    path = os.environ.get("MUNIN_GATEWAY_TOKEN_FILE", "").strip()
+    if not token and path:
+        with open(path, encoding="utf-8") as fh:
+            token = fh.read().strip()
+    return {"X-Munin-Gateway-Token": token} if token else {}
+
+
+GATEWAY_HEADERS = _gateway_headers()
+
+
 BASE = "http://127.0.0.1:8080"
 EMAIL = "resume-probe@munin.invalid"          # deliberately not a real user
-HEADERS = {"X-Munin-Email": EMAIL, "X-Munin-Egress": "off"}
+HEADERS = {**GATEWAY_HEADERS, "X-Munin-Email": EMAIL, "X-Munin-Egress": "off"}
 # Long enough to still be streaming when we cut the connection, and phrased to
 # keep the model off tools so the event stream is plain content.
 PROMPT = ("Explain, in at least 500 words and without using any tools, "

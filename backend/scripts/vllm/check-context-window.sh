@@ -19,9 +19,18 @@
 set -u
 EXPECTED="${1:?usage: check-context-window.sh EXPECTED_WINDOW}"
 BACKEND_URL="${BACKEND_URL:-http://127.0.0.1:8080}"
+# With MUNIN_GATEWAY_TOKEN set on retrieval, this probe's identity header must
+# carry the gateway token (gateway_token_guard.py), or it gets a 401 and raises
+# a false drift warning. The vLLM job runs as root and sources cluster.env
+# without exporting it, so fall back to reading the key from the file.
+HUGIN_ENV="${HUGIN_ENV:-/opt/hugin/config/cluster.env}"
+if [ -z "${MUNIN_GATEWAY_TOKEN:-}" ] && [ -r "$HUGIN_ENV" ]; then
+    MUNIN_GATEWAY_TOKEN=$(grep -E '^MUNIN_GATEWAY_TOKEN=' "$HUGIN_ENV" | tail -n1 | cut -d= -f2- | tr -d '"')
+fi
+export MUNIN_GATEWAY_TOKEN="${MUNIN_GATEWAY_TOKEN:-}"
 
 python3 - "$EXPECTED" "$BACKEND_URL" <<'PY'
-import json, sys, urllib.request
+import json, os, sys, urllib.request
 
 expected = int(sys.argv[1])
 url = sys.argv[2].rstrip("/") + "/api/chat/completions"
@@ -39,9 +48,12 @@ prompt = ("Below is filler text to IGNORE.\n\n" + filler +
 
 body = {"persona": "munin", "ephemeral": True,
         "messages": [{"role": "user", "content": prompt}]}
+_gw = os.environ.get("MUNIN_GATEWAY_TOKEN", "").strip()
+gw_headers = {"X-Munin-Gateway-Token": _gw} if _gw else {}
 req = urllib.request.Request(
     url, data=json.dumps(body).encode(),
     headers={"Content-Type": "application/json",
+             **gw_headers,
              "X-Munin-Email": "ctx-probe@localhost",
              "X-Munin-Ephemeral": "true",
              "Accept": "text/event-stream"},

@@ -50,6 +50,21 @@ import time
 import urllib.error
 import urllib.request
 
+# With MUNIN_GATEWAY_TOKEN set on retrieval, identity headers must carry the
+# gateway token too (gateway_token_guard.py). Token from MUNIN_GATEWAY_TOKEN or
+# the file named by MUNIN_GATEWAY_TOKEN_FILE; neither set sends no header.
+def _gateway_headers():
+    token = os.environ.get("MUNIN_GATEWAY_TOKEN", "").strip()
+    path = os.environ.get("MUNIN_GATEWAY_TOKEN_FILE", "").strip()
+    if not token and path:
+        with open(path, encoding="utf-8") as fh:
+            token = fh.read().strip()
+    return {"X-Munin-Gateway-Token": token} if token else {}
+
+
+GATEWAY_HEADERS = _gateway_headers()
+
+
 RESULTS: dict[str, dict] = {}
 FAILED = False
 
@@ -346,7 +361,7 @@ def gate_tool_call(api: str, email: str, deadline: int = 420) -> None:
                           "and years. Do not use web search."}]}
     req = urllib.request.Request(
         api.rstrip("/") + "/api/chat/completions", data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", "X-Munin-Email": email,
+        headers={"Content-Type": "application/json", **GATEWAY_HEADERS, "X-Munin-Email": email,
                  "X-Munin-Ephemeral": "true", "Accept": "text/event-stream",
                  "X-Munin-Egress": "off"}, method="POST")
     content, n_calls, n_errors, tools = "", 0, 0, []

@@ -30,6 +30,21 @@ from typing import Optional
 
 import httpx
 
+# With MUNIN_GATEWAY_TOKEN set on retrieval, identity headers must carry the
+# gateway token too (gateway_token_guard.py). Token from MUNIN_GATEWAY_TOKEN or
+# the file named by MUNIN_GATEWAY_TOKEN_FILE; neither set sends no header.
+def _gateway_headers():
+    token = os.environ.get("MUNIN_GATEWAY_TOKEN", "").strip()
+    path = os.environ.get("MUNIN_GATEWAY_TOKEN_FILE", "").strip()
+    if not token and path:
+        with open(path, encoding="utf-8") as fh:
+            token = fh.read().strip()
+    return {"X-Munin-Gateway-Token": token} if token else {}
+
+
+GATEWAY_HEADERS = _gateway_headers()
+
+
 BASE = os.environ.get("RETRIEVAL_BASE", "http://127.0.0.1:8080")
 EMAIL = os.environ.get("STRESS_EMAIL", "stress-test@munin.local")
 HTTP_TIMEOUT = 400.0  # individual chat call budget
@@ -156,7 +171,7 @@ async def send_chat(
     if tags:
         body["tags"] = tags
     headers = {
-        "X-Munin-Email": email or EMAIL,
+        **GATEWAY_HEADERS, "X-Munin-Email": email or EMAIL,
         "Content-Type": "application/json",
     }
     text_buf: list[str] = []
@@ -313,7 +328,7 @@ async def test_empty_message(client):
         "conversation_id": None,
         "messages": [{"role": "user", "content": ""}],
     }
-    headers = {"X-Munin-Email": EMAIL, "Content-Type": "application/json"}
+    headers = {**GATEWAY_HEADERS, "X-Munin-Email": EMAIL, "Content-Type": "application/json"}
     response = await client.post(
         f"{BASE}/api/chat/completions",
         json=body,
@@ -354,7 +369,7 @@ async def test_malformed_json(client):
     """Missing the required `messages` field. Expect HTTP 400."""
     t = TestResult(name="")
     body = {"persona": "chat", "conversation_id": None}  # no messages
-    headers = {"X-Munin-Email": EMAIL, "Content-Type": "application/json"}
+    headers = {**GATEWAY_HEADERS, "X-Munin-Email": EMAIL, "Content-Type": "application/json"}
     response = await client.post(
         f"{BASE}/api/chat/completions",
         json=body,
@@ -1085,7 +1100,7 @@ async def test_style_curie_academic_writing(client):
 async def _list_chats(client) -> list[dict]:
     r = await client.get(
         f"{BASE}/api/chats",
-        headers={"X-Munin-Email": EMAIL},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": EMAIL},
         params={"limit": 200, "offset": 0},
         timeout=30,
     )
@@ -1155,7 +1170,7 @@ async def test_ephemeral_no_persistence(client):
     if eph_id:
         r = await client.get(
             f"{BASE}/api/chats/{eph_id}",
-            headers={"X-Munin-Email": EMAIL},
+            headers={**GATEWAY_HEADERS, "X-Munin-Email": EMAIL},
             timeout=10,
         )
         if r.status_code == 200:
@@ -1283,7 +1298,7 @@ async def test_autotitle_on_retry(client):
             # Check via API in case the SSE didn't carry it
             r = await client.get(
                 f"{BASE}/api/chats/{conv_id}",
-                headers={"X-Munin-Email": AUTOTITLE_EMAIL},
+                headers={**GATEWAY_HEADERS, "X-Munin-Email": AUTOTITLE_EMAIL},
                 timeout=10,
             )
             if r.status_code == 200:
@@ -1319,7 +1334,7 @@ async def test_report_chat(client):
         r = await client.post(
             f"{BASE}/api/chats/{conv_id}/report",
             headers={
-                "X-Munin-Email": REPORT_EMAIL,
+                **GATEWAY_HEADERS, "X-Munin-Email": REPORT_EMAIL,
                 "Content-Type": "application/json",
             },
             json={"reason": "stress test report"},
@@ -1344,7 +1359,7 @@ async def test_report_chat(client):
         r2 = await client.post(
             f"{BASE}/api/chats/{conv_id}/report",
             headers={
-                "X-Munin-Email": REPORT_EMAIL,
+                **GATEWAY_HEADERS, "X-Munin-Email": REPORT_EMAIL,
                 "Content-Type": "application/json",
             },
             json={"reason": "re-report for idempotency check"},
@@ -1366,7 +1381,7 @@ PROFILE_EMAIL = "profile-test@munin.local"
 async def _profile_get(client, email: str = PROFILE_EMAIL) -> tuple[int, dict]:
     r = await client.get(
         f"{BASE}/api/profile",
-        headers={"X-Munin-Email": email},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email},
         timeout=10,
     )
     try:
@@ -1378,7 +1393,7 @@ async def _profile_get(client, email: str = PROFILE_EMAIL) -> tuple[int, dict]:
 async def _profile_put(client, body: dict, email: str = PROFILE_EMAIL) -> tuple[int, dict]:
     r = await client.put(
         f"{BASE}/api/profile",
-        headers={"X-Munin-Email": email, "Content-Type": "application/json"},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email, "Content-Type": "application/json"},
         json=body,
         timeout=10,
     )
@@ -1391,7 +1406,7 @@ async def _profile_put(client, body: dict, email: str = PROFILE_EMAIL) -> tuple[
 async def _profile_delete(client, email: str = PROFILE_EMAIL) -> int:
     r = await client.delete(
         f"{BASE}/api/profile",
-        headers={"X-Munin-Email": email},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email},
         timeout=10,
     )
     return r.status_code
@@ -1474,7 +1489,7 @@ async def test_profile_default_persona_override(client):
             "POST",
             f"{BASE}/api/chat/completions",
             json=body,
-            headers={"X-Munin-Email": PROFILE_EMAIL, "Content-Type": "application/json"},
+            headers={**GATEWAY_HEADERS, "X-Munin-Email": PROFILE_EMAIL, "Content-Type": "application/json"},
             timeout=HTTP_TIMEOUT,
         ) as response:
             if response.status_code != 200:
@@ -1490,7 +1505,7 @@ async def test_profile_default_persona_override(client):
             return t
         r = await client.get(
             f"{BASE}/api/chats/{conv_id}",
-            headers={"X-Munin-Email": PROFILE_EMAIL},
+            headers={**GATEWAY_HEADERS, "X-Munin-Email": PROFILE_EMAIL},
             timeout=10,
         )
         if r.status_code != 200:
@@ -1546,7 +1561,7 @@ async def test_profile_injected_behavioural(client):
             "POST",
             f"{BASE}/api/chat/completions",
             json=body,
-            headers={"X-Munin-Email": PROFILE_EMAIL, "Content-Type": "application/json"},
+            headers={**GATEWAY_HEADERS, "X-Munin-Email": PROFILE_EMAIL, "Content-Type": "application/json"},
             timeout=HTTP_TIMEOUT,
         ) as response:
             if response.status_code != 200:
@@ -1598,7 +1613,7 @@ async def test_profile_user_isolation(client):
 async def _pin_chat(client, conv_id: str, email: str) -> tuple[int, dict]:
     r = await client.post(
         f"{BASE}/api/chats/{conv_id}/pin",
-        headers={"X-Munin-Email": email},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email},
         timeout=10,
     )
     try:
@@ -1610,7 +1625,7 @@ async def _pin_chat(client, conv_id: str, email: str) -> tuple[int, dict]:
 async def _unpin_chat(client, conv_id: str, email: str) -> tuple[int, dict]:
     r = await client.delete(
         f"{BASE}/api/chats/{conv_id}/pin",
-        headers={"X-Munin-Email": email},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email},
         timeout=10,
     )
     try:
@@ -1622,7 +1637,7 @@ async def _unpin_chat(client, conv_id: str, email: str) -> tuple[int, dict]:
 async def _list_chats_for(client, email: str, params: Optional[dict] = None) -> dict:
     r = await client.get(
         f"{BASE}/api/chats",
-        headers={"X-Munin-Email": email},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email},
         params={"limit": 200, "offset": 0, **(params or {})},
         timeout=30,
     )
@@ -1637,7 +1652,7 @@ async def _list_chats_for(client, email: str, params: Optional[dict] = None) -> 
 async def _delete_chat(client, conv_id: str, email: str) -> int:
     r = await client.delete(
         f"{BASE}/api/chats/{conv_id}",
-        headers={"X-Munin-Email": email},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email},
         timeout=10,
     )
     return r.status_code
@@ -1841,7 +1856,7 @@ async def _mcp_call(
     email: str,
     conversation_id: Optional[str] = None,
 ) -> tuple[int, dict]:
-    headers = {"X-Munin-Email": email, "Content-Type": "application/json"}
+    headers = {**GATEWAY_HEADERS, "X-Munin-Email": email, "Content-Type": "application/json"}
     if conversation_id:
         headers["X-Munin-Conversation-Id"] = conversation_id
     r = await client.post(
@@ -2381,7 +2396,7 @@ async def test_sandbox_plot_artifact(client):
         # Owner can fetch.
         r = await client.get(
             f"{BASE}/api/artifacts/{conv_id}/{aid}",
-            headers={"X-Munin-Email": SANDBOX_EMAIL},
+            headers={**GATEWAY_HEADERS, "X-Munin-Email": SANDBOX_EMAIL},
             timeout=15,
         )
         t.metrics = {
@@ -2402,7 +2417,7 @@ async def test_sandbox_plot_artifact(client):
         # Cross-user fetch must 404.
         r2 = await client.get(
             f"{BASE}/api/artifacts/{conv_id}/{aid}",
-            headers={"X-Munin-Email": "other-sandbox-user@munin.local"},
+            headers={**GATEWAY_HEADERS, "X-Munin-Email": "other-sandbox-user@munin.local"},
             timeout=15,
         )
         if r2.status_code != 404:
@@ -2848,7 +2863,7 @@ async def test_plot_simple_via_chat(client):
             return t
         r = await client.get(
             f"{BASE}{external_url}",
-            headers={"X-Munin-Email": "plot-test@munin.local"},
+            headers={**GATEWAY_HEADERS, "X-Munin-Email": "plot-test@munin.local"},
             timeout=15,
         )
         t.metrics["fetch_status"] = r.status_code
@@ -2916,7 +2931,7 @@ async def test_plot_xlsx_via_chat(client):
             return t
         r = await client.get(
             f"{BASE}{external_url}",
-            headers={"X-Munin-Email": "plot-test@munin.local"},
+            headers={**GATEWAY_HEADERS, "X-Munin-Email": "plot-test@munin.local"},
             timeout=15,
         )
         t.metrics["fetch_status"] = r.status_code
@@ -3044,7 +3059,7 @@ async def test_vision_document_upload(client):
     }
     up = await client.post(
         f"{BASE}/api/documents/upload",
-        headers={"X-Munin-Email": VISION_EMAIL},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": VISION_EMAIL},
         files=files,
         timeout=30,
     )
@@ -3083,7 +3098,7 @@ async def test_vision_document_upload(client):
         try:
             await client.delete(
                 f"{BASE}/api/documents/{doc_id}",
-                headers={"X-Munin-Email": VISION_EMAIL},
+                headers={**GATEWAY_HEADERS, "X-Munin-Email": VISION_EMAIL},
                 timeout=10,
             )
         except Exception:
@@ -3302,7 +3317,7 @@ PROJECT_EMAIL = "project-test@munin.local"
 async def _project_create(client, payload: dict, email: str = PROJECT_EMAIL) -> tuple[int, dict]:
     r = await client.post(
         f"{BASE}/api/projects",
-        headers={"X-Munin-Email": email, "Content-Type": "application/json"},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email, "Content-Type": "application/json"},
         json=payload,
         timeout=10,
     )
@@ -3315,7 +3330,7 @@ async def _project_create(client, payload: dict, email: str = PROJECT_EMAIL) -> 
 async def _project_get(client, pid: str, email: str = PROJECT_EMAIL) -> tuple[int, dict]:
     r = await client.get(
         f"{BASE}/api/projects/{pid}",
-        headers={"X-Munin-Email": email},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email},
         timeout=10,
     )
     try:
@@ -3327,7 +3342,7 @@ async def _project_get(client, pid: str, email: str = PROJECT_EMAIL) -> tuple[in
 async def _project_list(client, email: str = PROJECT_EMAIL, params: Optional[dict] = None) -> dict:
     r = await client.get(
         f"{BASE}/api/projects",
-        headers={"X-Munin-Email": email},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email},
         params=params or {},
         timeout=10,
     )
@@ -3340,7 +3355,7 @@ async def _project_list(client, email: str = PROJECT_EMAIL, params: Optional[dic
 async def _project_patch(client, pid: str, payload: dict, email: str = PROJECT_EMAIL) -> tuple[int, dict]:
     r = await client.patch(
         f"{BASE}/api/projects/{pid}",
-        headers={"X-Munin-Email": email, "Content-Type": "application/json"},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email, "Content-Type": "application/json"},
         json=payload,
         timeout=10,
     )
@@ -3353,7 +3368,7 @@ async def _project_patch(client, pid: str, payload: dict, email: str = PROJECT_E
 async def _project_delete(client, pid: str, email: str = PROJECT_EMAIL) -> int:
     r = await client.delete(
         f"{BASE}/api/projects/{pid}",
-        headers={"X-Munin-Email": email},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email},
         timeout=10,
     )
     return r.status_code
@@ -3362,7 +3377,7 @@ async def _project_delete(client, pid: str, email: str = PROJECT_EMAIL) -> int:
 async def _file_conversation(client, pid: str, cid: str, email: str = PROJECT_EMAIL) -> tuple[int, dict]:
     r = await client.post(
         f"{BASE}/api/projects/{pid}/conversations/{cid}",
-        headers={"X-Munin-Email": email},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email},
         timeout=10,
     )
     try:
@@ -3384,7 +3399,7 @@ async def _upload_text_doc(
         data["project_id"] = project_id
     r = await client.post(
         f"{BASE}/api/documents/upload",
-        headers={"X-Munin-Email": email},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email},
         files=files,
         data=data,
         timeout=60,
@@ -3772,7 +3787,7 @@ async def test_project_persona_precedence(client):
     t = TestResult(name="")
     r = await client.put(
         f"{BASE}/api/profile",
-        headers={"X-Munin-Email": PROJECT_EMAIL, "Content-Type": "application/json"},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": PROJECT_EMAIL, "Content-Type": "application/json"},
         json={"default_persona": "chat"},
         timeout=10,
     )
@@ -3802,7 +3817,7 @@ async def test_project_persona_precedence(client):
             f"{BASE}/api/chat/completions",
             json=body,
             headers={
-                "X-Munin-Email": PROJECT_EMAIL,
+                **GATEWAY_HEADERS, "X-Munin-Email": PROJECT_EMAIL,
                 "Content-Type": "application/json",
             },
             timeout=HTTP_TIMEOUT,
@@ -3820,7 +3835,7 @@ async def test_project_persona_precedence(client):
             return t
         r = await client.get(
             f"{BASE}/api/chats/{conv_id}",
-            headers={"X-Munin-Email": PROJECT_EMAIL},
+            headers={**GATEWAY_HEADERS, "X-Munin-Email": PROJECT_EMAIL},
             timeout=10,
         )
         conv = r.json() if r.status_code == 200 else {}
@@ -3842,7 +3857,7 @@ async def test_project_persona_precedence(client):
         await _project_delete(client, pid)
         await client.delete(
             f"{BASE}/api/profile",
-            headers={"X-Munin-Email": PROJECT_EMAIL},
+            headers={**GATEWAY_HEADERS, "X-Munin-Email": PROJECT_EMAIL},
             timeout=10,
         )
     return t
@@ -3863,7 +3878,7 @@ async def test_view_attachment_mcp_call(client):
     files = {"file": ("red.png", png, "image/png")}
     up = await client.post(
         f"{BASE}/api/documents/upload",
-        headers={"X-Munin-Email": VIEW_ATTACHMENT_EMAIL},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": VIEW_ATTACHMENT_EMAIL},
         files=files,
         timeout=30,
     )
@@ -3908,7 +3923,7 @@ async def test_view_attachment_mcp_call(client):
         try:
             await client.delete(
                 f"{BASE}/api/documents/{doc_id}",
-                headers={"X-Munin-Email": VIEW_ATTACHMENT_EMAIL},
+                headers={**GATEWAY_HEADERS, "X-Munin-Email": VIEW_ATTACHMENT_EMAIL},
                 timeout=10,
             )
         except Exception:
@@ -3922,7 +3937,7 @@ async def test_view_attachment_mcp_rejects_non_image(client):
     files = {"file": ("notes.txt", b"hello world", "text/plain")}
     up = await client.post(
         f"{BASE}/api/documents/upload",
-        headers={"X-Munin-Email": VIEW_ATTACHMENT_EMAIL},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": VIEW_ATTACHMENT_EMAIL},
         files=files,
         timeout=30,
     )
@@ -3953,7 +3968,7 @@ async def test_view_attachment_mcp_rejects_non_image(client):
         try:
             await client.delete(
                 f"{BASE}/api/documents/{doc_id}",
-                headers={"X-Munin-Email": VIEW_ATTACHMENT_EMAIL},
+                headers={**GATEWAY_HEADERS, "X-Munin-Email": VIEW_ATTACHMENT_EMAIL},
                 timeout=10,
             )
         except Exception:
@@ -4072,7 +4087,7 @@ async def test_equation_ocr_basic(client):
     files = {"file": ("equation.png", png, "image/png")}
     up = await client.post(
         f"{BASE}/api/documents/upload",
-        headers={"X-Munin-Email": EQUATION_EMAIL},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": EQUATION_EMAIL},
         files=files,
         timeout=30,
     )
@@ -4124,7 +4139,7 @@ async def test_equation_ocr_basic(client):
         try:
             await client.delete(
                 f"{BASE}/api/documents/{doc_id}",
-                headers={"X-Munin-Email": EQUATION_EMAIL},
+                headers={**GATEWAY_HEADERS, "X-Munin-Email": EQUATION_EMAIL},
                 timeout=10,
             )
         except Exception:
@@ -4138,7 +4153,7 @@ async def test_equation_ocr_rejects_non_image(client):
     files = {"file": ("notes.txt", b"not an equation", "text/plain")}
     up = await client.post(
         f"{BASE}/api/documents/upload",
-        headers={"X-Munin-Email": EQUATION_EMAIL},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": EQUATION_EMAIL},
         files=files,
         timeout=30,
     )
@@ -4169,7 +4184,7 @@ async def test_equation_ocr_rejects_non_image(client):
         try:
             await client.delete(
                 f"{BASE}/api/documents/{doc_id}",
-                headers={"X-Munin-Email": EQUATION_EMAIL},
+                headers={**GATEWAY_HEADERS, "X-Munin-Email": EQUATION_EMAIL},
                 timeout=10,
             )
         except Exception:
@@ -4539,7 +4554,7 @@ async def _artifact_list_http(
 ) -> tuple[int, dict]:
     r = await client.get(
         f"{BASE}/api/chats/{conv_id}/artifacts",
-        headers={"X-Munin-Email": email},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email},
         timeout=10,
     )
     try:
@@ -4558,7 +4573,7 @@ async def _artifact_get_http(
     params = {"version": version} if version is not None else None
     r = await client.get(
         f"{BASE}/api/chats/{conv_id}/artifacts/{artifact_id}",
-        headers={"X-Munin-Email": email},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email},
         params=params,
         timeout=10,
     )
@@ -4581,7 +4596,7 @@ async def _artifact_patch_http(
         body["change_summary"] = change_summary
     r = await client.patch(
         f"{BASE}/api/chats/{conv_id}/artifacts/{artifact_id}",
-        headers={"X-Munin-Email": email, "Content-Type": "application/json"},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email, "Content-Type": "application/json"},
         json=body,
         timeout=10,
     )
@@ -5385,7 +5400,7 @@ async def test_save_model_written_to_documents(client):
         try:
             await client.delete(
                 f"{BASE}/api/documents/{doc_id}",
-                headers={"X-Munin-Email": ARTIFACT_EMAIL},
+                headers={**GATEWAY_HEADERS, "X-Munin-Email": ARTIFACT_EMAIL},
                 timeout=10,
             )
         except Exception:
@@ -5453,7 +5468,7 @@ async def test_save_sandbox_to_documents(client):
         try:
             await client.delete(
                 f"{BASE}/api/documents/{saved['document_id']}",
-                headers={"X-Munin-Email": ARTIFACT_EMAIL},
+                headers={**GATEWAY_HEADERS, "X-Munin-Email": ARTIFACT_EMAIL},
                 timeout=10,
             )
         except Exception:
@@ -6627,7 +6642,7 @@ async def test_rolling_conversation_compaction(client):
     try:
         conv_resp = await client.get(
             f"{BASE}/api/chats/{conv_id}",
-            headers={"X-Munin-Email": EMAIL},
+            headers={**GATEWAY_HEADERS, "X-Munin-Email": EMAIL},
             timeout=30,
         )
     except Exception as e:

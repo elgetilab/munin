@@ -16,6 +16,10 @@ import time
 import urllib.request
 
 from ..benchmarks.litqa2_runner import load_litqa2, build_mcq
+try:
+    from ..gateway import gateway_headers
+except ImportError:  # loaded with munin_bench/ itself on sys.path (tests, scripts)
+    from gateway import gateway_headers
 
 _HERE = os.path.dirname(__file__)
 BASE = "http://127.0.0.1:8080"
@@ -29,7 +33,7 @@ def _capture_focus(prompt: str, deadline: int = 300) -> list[dict]:
             "messages": [{"role": "user", "content": prompt}]}
     req = urllib.request.Request(
         BASE + "/api/chat/completions", data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", "X-Munin-Email": EMAIL,
+        headers={"Content-Type": "application/json", **gateway_headers(), "X-Munin-Email": EMAIL,
                  "X-Munin-Ephemeral": "true", "Accept": "text/event-stream"}, method="POST")
     ev, reads = None, []
     t0 = time.time()
