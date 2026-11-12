@@ -46,6 +46,11 @@
 #   sudo ./deploy.sh searxng        - searxng settings.yml + restart container
 #   sudo ./deploy.sh sandbox        - run_python sandbox image + container
 #   sudo ./deploy.sh monitoring     - prometheus on the metrics endpoint
+#   sudo ./deploy.sh fallback       - llm-claude + llm-failover containers (Claude
+#                                     Haiku behind vLLM; docs/ops/HAIKU-FALLBACK.md).
+#                                     Retrieval uses them once cluster.env has
+#                                     LLM_BASE_URL=http://llm-failover:8000 and
+#                                     `deploy.sh retrieval` has run.
 #   sudo ./deploy.sh verify         - smoke-test /api/status, /api/personas,
 #                                     the paper encoder/collection pairing and
 #                                     the deep research router
@@ -66,7 +71,7 @@ fi
 MODE=${1:-}
 if [ -z "$MODE" ]; then
     echo "Usage: sudo $0 [--dry-run] <mode>"
-    echo "Modes: all dirs compose personas agents models vllm model instance sudoers maintenance tunnel knowledge pipeline retrieval sandbox searxng monitoring verify"
+    echo "Modes: all dirs compose personas agents models vllm model instance sudoers maintenance tunnel knowledge pipeline retrieval sandbox searxng monitoring fallback verify"
     exit 1
 fi
 shift
@@ -94,6 +99,8 @@ MUNIN_DOCKER=$MUNIN_ROOT/docker
 MUNIN_RETRIEVAL=$MUNIN_ROOT/services/retrieval
 MUNIN_SEARXNG=$MUNIN_ROOT/services/searxng
 MUNIN_SANDBOX=$MUNIN_ROOT/services/sandbox
+MUNIN_LLM_CLAUDE=$MUNIN_ROOT/services/llm-claude
+MUNIN_LLM_FAILOVER=$MUNIN_ROOT/services/llm-failover
 
 CLUSTER_SCRIPTS=/opt/cluster/scripts/llm
 SYSTEMD_DIR=/etc/systemd/system
@@ -989,6 +996,65 @@ stage_tokenizer() {
         echo "       (checkpoint not downloaded yet) - retrieval will use"
         echo "       the char-heuristic fallback until a later deploy."
     fi
+}
+
+# ------------------------------------------------------------------------------
+# fallback: llm-claude (Claude API front) + llm-failover (vLLM first, Claude
+# when vLLM is down). Starts only those two containers; retrieval is not
+# touched. Retrieval switches to the proxy on its next deploy once cluster.env
+# has LLM_BASE_URL=http://llm-failover:8000 (VLLM_URL stays on the real vLLM,
+# which the proxy uses as its primary). See docs/ops/HAIKU-FALLBACK.md.
+# ------------------------------------------------------------------------------
+deploy_fallback() {
+    check_compose_project || exit 1
+    need_file "$REPO_DIR/llm-claude"
+    need_file "$REPO_DIR/llm-failover"
+    if [ -r "$HUGIN_ENV" ] && [ -z "$(clusterenv_get ANTHROPIC_API_KEY)" ]; then
+        echo "[ERROR] ANTHROPIC_API_KEY is not set in $HUGIN_ENV."
+        echo "        Use a key from a dedicated Console workspace with a spend limit."
+        [ "$DRY_RUN" = "1" ] || exit 1
+    fi
+    # The proxy's primary model name must match retrieval's VLLM_MODEL_NAME.
+    load_model_env
+
+    local src dst
+    for pair in "llm-claude:$MUNIN_LLM_CLAUDE" "llm-failover:$MUNIN_LLM_FAILOVER"; do
+        src=${pair%%:*}; dst=${pair#*:}
+        echo "[fallback] Syncing $src to $dst..."
+        run "install -d -m 0755 $dst"
+        run "rsync -a --delete \
+            --exclude='__pycache__' --exclude='*.pyc' --exclude='.pytest_cache' \
+            --exclude='tests' \
+            $REPO_DIR/$src/ $dst/"
+    done
+    run "install -m 0644 $REPO_DIR/docker/docker-compose.yml $MUNIN_DOCKER/docker-compose.yml"
+    run "install -d -m 0755 $MUNIN_DOCKER/prometheus"
+    run "install -m 0644 $REPO_DIR/docker/prometheus/prometheus.yml $MUNIN_DOCKER/prometheus/prometheus.yml"
+
+    local profiles="--profile llm-claude --profile llm-failover"
+    echo "[fallback] Building images..."
+    run "cd $MUNIN_DOCKER && docker compose $profiles build llm-claude llm-failover"
+    echo "[fallback] Starting llm-claude and llm-failover (nothing else)..."
+    run "cd $MUNIN_DOCKER && docker compose $profiles up -d --no-deps llm-claude llm-failover"
+
+    [ "$DRY_RUN" = "1" ] && return 0
+    local i status=""
+    for i in $(seq 1 20); do
+        status=$(docker exec ${MUNIN_PREFIX:-munin}-llm-failover python -c \
+            "import json,urllib.request as u; s=json.load(u.urlopen('http://localhost:8000/status',timeout=3)); print(s['route'], 'primary_ok=%s' % s['primary']['ok'], 'secondary_ok=%s' % s['secondary']['ok'])" \
+            2>/dev/null) && break
+        sleep 1
+    done
+    if [ -z "$status" ]; then
+        echo "[WARN] llm-failover did not answer /status: docker logs --tail 100 ${MUNIN_PREFIX:-munin}-llm-failover"
+        return 1
+    fi
+    echo "[OK] llm-failover: $status"
+    if [ "$(clusterenv_get LLM_BASE_URL)" != "http://llm-failover:8000" ]; then
+        echo "     Retrieval is NOT using it yet. Add LLM_BASE_URL=http://llm-failover:8000"
+        echo "     to $HUGIN_ENV, then: sudo ./deploy.sh retrieval"
+    fi
+    echo "     Prometheus scrapes it after: sudo ./deploy.sh monitoring"
 }
 
 deploy_retrieval() {
@@ -1892,7 +1958,7 @@ preflight_cluster_env() {
 }
 
 case "$MODE" in
-    all|compose|retrieval|searxng|sandbox|monitoring|knowledge|pipeline|instance)
+    all|compose|retrieval|searxng|sandbox|monitoring|fallback|knowledge|pipeline|instance)
         preflight_cluster_env ;;
 esac
 
@@ -1910,6 +1976,7 @@ case "$MODE" in
     searxng)      deploy_searxng ;;
     sandbox)      deploy_sandbox ;;
     monitoring)   deploy_monitoring ;;
+    fallback)     deploy_fallback ;;
     retrieval)    deploy_retrieval ;;
     verify)       deploy_verify ;;
     model)        deploy_model ;;
@@ -1934,7 +2001,7 @@ case "$MODE" in
         ;;
     *)
         echo "[ERROR] Unknown mode: $MODE"
-        echo "Modes: all dirs compose personas agents models vllm model instance sudoers maintenance tunnel knowledge pipeline retrieval sandbox searxng monitoring verify"
+        echo "Modes: all dirs compose personas agents models vllm model instance sudoers maintenance tunnel knowledge pipeline retrieval sandbox searxng monitoring fallback verify"
         exit 1
         ;;
 esac
