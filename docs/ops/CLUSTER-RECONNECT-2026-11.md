@@ -411,10 +411,10 @@ Raw results: `bakeoff/{strata,basalt}-results.json`, memory traces
 | Delivery | Prebuilt binaries from a signed release feed; complete local feed mirrored, offline install | Built from source (cmake, est. 5 min) |
 | Pack | Unsloth Qwen3.8-Flash-Next-GGUF UD-Q4_K_XL @ 38bb39ee, 4 shards, 111.3 GB | Same quant converted to `.basalt` @ 65de5a9e, 115,307,561,176 bytes, keeps the original MTP drafter |
 | Staged + verified | 11/11 files SHA-256 ALL_OK (105 GiB) | pack sha256 OK (MODEL_OK), engine source unbuilt |
-| SLURM job | `strata-gpu1.sbatch`: partition llm-batch, 8 CPU, `--mem=150G`, 90 min | `start-basalt.sh`: partition gputraining, 8 CPU, `--mem=120G`, `--propagate=NONE` |
+| SLURM job | `strata-gpu1.sbatch`: partition llm-batch, 8 CPU, `--mem=150G`, 90 min | `start-basalt.sh`: partition gputraining, 8 CPU, `--mem=80G` (was 120G during the bake-off; set 2026-11-12 from the RAM runs, Hugin `docs/BASALT.md`), `--propagate=NONE` |
 | `sbatch --test-only` | accepted (integrator, 2026-11-12) | accepted (lane D2) |
-| Production placement | **llm-batch has MaxTime 04:00:00 and gputraining caps 128000M (< 150G)**: no current partition can run it 24x7 as written | gputraining (no time cap) fits 120G; script sets `--time=20:00:00`; the shelved 128 GB branch would break it |
-| Port / key | 127.0.0.1:8201, key via `--api-key-env` | 127.0.0.1:8202, key only on the command line (visible in `ps`) |
+| Production placement | **llm-batch has MaxTime 04:00:00 and gputraining caps 128000M (< 150G)**: no current partition can run it 24x7 as written | gputraining (no time cap) fits 80G; script sets `--time=20:00:00`; fits hugin's 128 GB budget (Hugin `docs/TWO-NODE-PLAN.md`) |
+| Port / key | 127.0.0.1:8201, key via `--api-key-env` | 127.0.0.1:8202, key read from `BASALT_API_KEY_FILE` by Hugin `basalt-serve.py`, never on a command line (the engine itself only takes `--api-key`) |
 | Upstream claims (not ours) | 63-88 tok/s decode, 1,110-1,320 tok/s at 32k on a 32 GB R9700 | KLD 0.0496, top-1 92.63% for this pack |
 | Licence | Qwen Community License 1.0 (weights), D8 | engine MIT; weights same as Strata, D8 |
 | Munin wiring | none (no profile, health check or routing) | none |
