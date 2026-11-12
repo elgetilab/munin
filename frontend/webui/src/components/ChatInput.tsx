@@ -501,6 +501,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         return;
       }
       if (e.key === 'Escape') {
+        // Kept here, so it closes only this list and not a side panel too.
+        e.preventDefault();
         setInput(input + ' ');
         return;
       }

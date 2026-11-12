@@ -345,6 +345,124 @@ describe('side panels', () => {
   });
 });
 
+describe('Escape on a side panel from xl up', () => {
+  const CATALOG = {
+    topics: [{ slug: 'nmr', label: 'NMR spectroscopy', paper_count: 12 }],
+    groups: [], contributors: [], contributor_count: 0,
+  };
+
+  it('closes Artifacts and hands focus back to its toggle', async () => {
+    const user = userEvent.setup();
+    openAt('/');
+    const toggle = await screen.findByTestId('artifacts-button');
+    await user.click(toggle);
+    act(() => screen.getByRole('button', { name: 'Close artifacts' }).focus());
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByTestId('artifact-panel')).not.toBeInTheDocument();
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(toggle).toHaveFocus();
+  });
+
+  it('closes Sources and hands focus back to its toggle', async () => {
+    server.use(http.get('/api/tags', () => HttpResponse.json(CATALOG)));
+    const user = userEvent.setup();
+    openAt('/');
+    const toggle = await screen.findByRole('button', { name: 'Sources' });
+    await user.click(toggle);
+    await user.click(screen.getByTestId('composer-textarea'));
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByTestId('knowledge-panel')).not.toBeInTheDocument();
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(toggle).toHaveFocus();
+  });
+
+  it('closes a menu first, and the panel on the next Escape', async () => {
+    const user = userEvent.setup();
+    openAt('/');
+    await user.click(await screen.findByTestId('artifacts-button'));
+    await user.click(screen.getByTestId('composer-attach'));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.getByTestId('artifact-panel')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByTestId('artifact-panel')).not.toBeInTheDocument();
+  });
+
+  it('closes a menu opened before the panel first', async () => {
+    const user = userEvent.setup();
+    openAt('/');
+    await screen.findByTestId('artifacts-button');
+    await user.click(screen.getByTestId('composer-attach'));
+    act(() => useUiStore.getState().setArtifactPanelOpen(true));
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.getByTestId('artifact-panel')).toBeInTheDocument();
+  });
+
+  it("leaves the panel alone when it closes the composer's / list", async () => {
+    const user = userEvent.setup();
+    openAt('/');
+    await user.click(await screen.findByTestId('artifacts-button'));
+    await user.type(screen.getByTestId('composer-textarea'), '/');
+    expect(screen.getByRole('button', { name: /\/research/ })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('button', { name: /\/research/ })).not.toBeInTheDocument();
+    expect(screen.getByTestId('artifact-panel')).toBeInTheDocument();
+  });
+
+  it('leaves the panel alone when it closes the report dialog', async () => {
+    const user = userEvent.setup();
+    openAt('/c/c1');
+    await screen.findByText('Hi there!');
+    act(() => useUiStore.getState().setArtifactPanelOpen(true));
+    await user.click(screen.getByRole('button', { name: 'Report this chat' }));
+    expect(useUiStore.getState().showReportDialog).toBe(true);
+
+    await user.keyboard('{Escape}');
+
+    expect(useUiStore.getState().showReportDialog).toBe(false);
+    expect(screen.getByTestId('artifact-panel')).toBeInTheDocument();
+  });
+
+  it('asks before it drops a changed draft, and keeps it on No', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const user = userEvent.setup();
+    openAt('/');
+    await user.click(await screen.findByTestId('artifacts-button'));
+    act(() => useUiStore.getState().setArtifactDraftChanged(true));
+
+    await user.keyboard('{Escape}');
+
+    expect(confirm).toHaveBeenCalledWith('Discard your changes to this artifact?');
+    expect(screen.getByTestId('artifact-panel')).toBeInTheDocument();
+  });
+
+  it('is left to the panel itself below xl, where it is a dialog', async () => {
+    stubMatchMedia(1024);
+    const user = userEvent.setup();
+    openAt('/');
+    const toggle = await screen.findByTestId('artifacts-button');
+    await user.click(toggle);
+    expect(screen.getByRole('dialog', { name: 'Artifacts' })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByTestId('artifact-panel')).not.toBeInTheDocument();
+    expect(toggle).toHaveFocus();
+  });
+});
+
 describe('header', () => {
   it('the Chat link closes Settings in place, and is highlighted only then', async () => {
     const user = userEvent.setup();

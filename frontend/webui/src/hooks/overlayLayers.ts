@@ -1,6 +1,6 @@
 /**
- * The stack of open overlays, shared by useModal and useMenu. Internal to those
- * two hooks.
+ * The stack of open overlays, shared by useModal, useMenu and useEscape. Internal
+ * to those hooks.
  *
  * It exists so one Escape closes one thing: a menu open inside a dialog closes
  * the menu and leaves the dialog alone. A key handler inside an overlay can keep
@@ -10,6 +10,9 @@
 export interface Layer {
   modal: boolean;
   onEscape: () => void;
+  /** Part of the page, such as a side column: it stays under every overlay,
+   *  even one opened before it. */
+  base?: boolean;
 }
 
 const layers: Layer[] = [];
@@ -25,7 +28,8 @@ function onKeyDown(e: KeyboardEvent) {
 /** Puts a layer on top of the stack and returns the function that removes it. */
 export function pushLayer(layer: Layer): () => void {
   if (layers.length === 0) document.addEventListener('keydown', onKeyDown);
-  layers.push(layer);
+  if (layer.base) layers.unshift(layer);
+  else layers.push(layer);
   return () => {
     layers.splice(layers.indexOf(layer), 1);
     if (layers.length === 0) document.removeEventListener('keydown', onKeyDown);

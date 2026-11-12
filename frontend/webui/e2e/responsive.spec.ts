@@ -71,6 +71,28 @@ test.describe('panels', () => {
     expect((await panel.boundingBox())?.width).toBe(576);
     await expect(page.getByTestId('composer-textarea')).toBeInViewport();
   });
+
+  test('from xl up, Escape closes the side column and returns to its toggle', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installMocks(page, { chatScript: script() });
+    await page.goto('/');
+    await send(page);
+    const panel = page.getByTestId('artifact-panel');
+    const toggle = page.getByTestId('artifacts-button');
+    await panel.getByRole('button', { name: 'Back to artifact list' }).focus();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+    // A menu above the column closes first.
+    await page.getByTestId('composer-attach').click();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('attach-deep-research')).toBeHidden();
+    await expect(panel).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(toggle).toBeFocused();
+  });
 });
 
 test.describe('header', () => {

@@ -33,7 +33,8 @@ import { BookIcon, FlagIcon, GhostIcon, LayersIcon, MenuIcon } from './component
 import { ThemeToggle } from './components/ThemeToggle';
 import { SessionNotice } from './components/SessionNotice';
 import { DegradedBanner } from './components/DegradedBanner';
-import { useModal } from './hooks/useModal';
+import { useEscape } from './hooks/useEscape';
+import { useBelowXl, useModal } from './hooks/useModal';
 import type { Project } from './lib/types';
 import { AUTH_BASE, DOCS_URL, SEARCH_URL, SITE_HOME, UPLOAD_URL } from './lib/urls';
 import { conversationPath, correctChatPath, dropStaleOverlayEntry, finishAppPath, isModifiedClick, popClosedOverlay, pushAppPath, readOverlayEntry, syncChatPath, syncOverlayHistory } from './lib/nav';
@@ -319,6 +320,23 @@ export default function App() {
     document.body.classList.toggle('munin-side-panel-open', sidePanelShowing);
     return () => document.body.classList.remove('munin-side-panel-open');
   }, [sidePanelShowing]);
+
+  // Escape closes the side column from xl up, as its header toggle would, and
+  // hands focus back to that toggle. Below xl the panel is a dialog and handles
+  // Escape itself. The report dialog listens for Escape outside the layer stack,
+  // so the panel waits while it is open.
+  const artifactsToggleRef = useRef<HTMLButtonElement>(null);
+  const sourcesToggleRef = useRef<HTMLButtonElement>(null);
+  const belowXl = useBelowXl();
+  useEscape(() => {
+    if (useUiStore.getState().knowledgePanelOpen) {
+      setKnowledgePanelOpen(false);
+      sourcesToggleRef.current?.focus();
+    } else if (mayDropArtifactDraft()) {
+      setArtifactPanelOpen(false);
+      artifactsToggleRef.current?.focus();
+    }
+  }, sidePanelShowing && !belowXl && !showReportDialog);
 
   // The button would sit over the rows of a Knowledge browse page (see index.css).
   const browsingKnowledge = typeof showKnowledgePage === 'string';
@@ -938,6 +956,7 @@ export default function App() {
               A temporary chat keeps no artifacts, so it has none to show. */}
           {!isEphemeral && (
             <button
+              ref={artifactsToggleRef}
               data-testid="artifacts-button"
               onClick={() => { if (mayDropArtifactDraft()) setArtifactPanelOpen(!artifactPanelOpen); }}
               aria-pressed={artifactPanelOpen}
@@ -954,6 +973,7 @@ export default function App() {
           {/* Knowledge panel toggle */}
           {tagCatalog && (
             <button
+              ref={sourcesToggleRef}
               onClick={() => { if (mayDropArtifactDraft()) setKnowledgePanelOpen(!knowledgePanelOpen); }}
               aria-pressed={knowledgePanelOpen}
               aria-label={activeTags.length > 0 ? `Sources (${activeTags.length})` : 'Sources'}
