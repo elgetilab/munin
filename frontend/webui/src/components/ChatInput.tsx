@@ -7,6 +7,7 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useChatStore } from '../stores/chatStore';
 import { useDeepResearchStore } from '../stores/deepResearchStore';
 import { useMenu } from '../hooks/useMenu';
+import { lastInputWasKeyboard, trackFocusModality } from '../lib/focusModality';
 import { ICON } from './ui/cardButton';
 import { BookIcon, ChatIcon, FlaskIcon, PageIcon, SearchIcon, SpinnerIcon } from './ui/icons';
 
@@ -258,6 +259,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   // Caret position while it is known; null means the end of the input.
   const [cursor, setCursor] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Reached from the keyboard: the bubble draws the full ring (index.css).
+  const [keyboardFocus, setKeyboardFocus] = useState(false);
+  useEffect(trackFocusModality, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const uploadAbortRef = useRef<AbortController | null>(null);
@@ -772,7 +776,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       )}
 
       {/* Input bubble */}
-      <div className="max-w-3xl mx-auto bg-bg-secondary border border-border rounded-2xl">
+      <div id="composer-bubble" className="max-w-3xl mx-auto bg-bg-secondary border border-border rounded-2xl">
         {/* Active tag chips */}
         {activeTags.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 px-5 pt-3 pb-0">
@@ -905,6 +909,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             setTagHighlight(0);
           }}
           onKeyDown={handleKeyDown}
+          onFocus={() => setKeyboardFocus(lastInputWasKeyboard())}
+          onBlur={() => setKeyboardFocus(false)}
+          data-keyboard-focus={keyboardFocus || undefined}
           disabled={researchActive}
           aria-label="Message Munin"
           placeholder={researchActive ? undefined : 'Ask Munin anything… (/research, /code, /chat to steer)'}

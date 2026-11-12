@@ -17,6 +17,10 @@
   --color-error: #f85149;
   --color-border-input: #6e7681;
   --color-scrim: rgb(0 0 0 / 0.6);
+  /* The one keyboard focus ring. The accent's value, but its own name, so a ring
+     never picks up a change meant for links and buttons. At least 3:1 against
+     every background it sits on (src/focusRing.test.ts). */
+  --color-focus-ring: #58a6ff;
 }
 
 /* Light theme. The inline head script in index.html sets data-theme from the
@@ -43,6 +47,7 @@
   --color-warning: #7a5300;
   --color-error: #b81c28;
   --color-scrim: rgb(31 36 41 / 0.4);
+  --color-focus-ring: #0a5cb8;
   --logo-filter: none;
   color-scheme: light;
 }
@@ -64,6 +69,7 @@
   --warning: var(--color-warning);
   --error: var(--color-error);
   --scrim: var(--color-scrim);
+  --focus-ring: var(--color-focus-ring);
 }
 
 body {
@@ -80,20 +86,44 @@ body {
   flex-direction: column;
 }
 
+/* The ring's colour at rest too, so transition-colors (which lists outline-color)
+   has nothing to fade: without this the ring fades in from the text colour, and
+   items with and without that utility show different rings for 150ms. In the
+   base layer, so an outline-* utility still wins. */
+@layer base {
+  *, ::before, ::after {
+    outline-color: var(--color-focus-ring);
+  }
+}
+
 /* Keyboard focus. Unlayered on purpose: Tailwind's utilities live in a cascade
    layer, and an unlayered rule beats any layer, so this wins over outline-none. */
 :focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
 }
 
 /* The composer's textarea fills most of its rounded bubble, so a ring on the
-   textarea cuts across the bubble. Draw the same ring on the bubble instead. */
+   textarea cuts across the bubble. The bubble shows focus instead: a tinted
+   border and a soft glow for any focus inside it, a click included, and the
+   full ring only when the textarea was reached from the keyboard. A text field
+   matches :focus-visible however it was focused, so ChatInput sets
+   data-keyboard-focus from the last input (src/lib/focusModality.ts). */
 #composer-textarea:focus-visible {
   outline: none;
 }
-:has(> #composer-textarea:focus-visible) {
-  outline: 2px solid var(--color-accent);
+#composer-bubble {
+  transition: border-color 150ms, box-shadow 150ms;
+}
+#composer-bubble:focus-within {
+  border-color: color-mix(in srgb, var(--color-focus-ring) 45%, var(--color-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-focus-ring) 12%, transparent),
+    0 4px 16px rgb(0 0 0 / 0.12);
+}
+/* One focus line: the ring, with the border back at rest under it. */
+#composer-bubble:has(> #composer-textarea[data-keyboard-focus]) {
+  border-color: var(--color-border);
+  outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
 }
 

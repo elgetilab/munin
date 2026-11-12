@@ -57,6 +57,8 @@
     --error: #f85149;
     --text-tertiary: #808891;
     --scrim: rgb(0 0 0 / 0.6);
+    /* The one keyboard focus ring: the accent's value under its own name. */
+    --focus-ring: #58a6ff;
     /* Second stop of the landing page's heading gradient. */
     --accent-2: #a371f7;
     /* The logo files are a black raven, so dark pages turn it white. */
@@ -83,6 +85,7 @@
     --warning: #7a5300;
     --error: #b81c28;
     --scrim: rgb(31 36 41 / 0.4);
+    --focus-ring: #0a5cb8;
     --accent-2: #8250df;
     --logo-filter: none;
     color-scheme: light;
@@ -104,8 +107,14 @@ body {
     min-height: 100vh;
 }
 
+/* The ring's colour at rest too, so a transition on all (.btn) has no colour
+   to fade the ring in from. */
+*, ::before, ::after {
+    outline-color: var(--focus-ring);
+}
+
 :focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
 }
 

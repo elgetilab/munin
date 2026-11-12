@@ -16,7 +16,7 @@ export function ThemePicker() {
         {OPTIONS.map(o => (
           <label
             key={o.value}
-            className={`px-3 py-1.5 text-sm rounded-md cursor-pointer transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent ${
+            className={`px-3 py-1.5 text-sm rounded-md cursor-pointer transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-focus-ring ${
               pref === o.value
                 ? 'bg-bg-tertiary text-text-primary font-medium'
                 : 'text-text-secondary hover:text-text-primary'

@@ -201,16 +201,23 @@ test.describe('keyboard', () => {
     await expect(page.getByTestId('composer-attach')).toBeFocused();
   });
 
+  // Reached from the keyboard: Shift+Tab back from the + button.
+  async function tabIntoComposer(page: Page) {
+    await page.getByTestId('composer-attach').focus();
+    await page.keyboard.press('Shift+Tab');
+    await expect(page.getByTestId('composer-textarea')).toBeFocused();
+  }
+
   test('the composer draws its ring on the bubble, not across it', async ({ page }, info) => {
     await installMocks(page);
     await page.goto('/');
     const theme = await expectProjectTheme(page, info);
     const box = page.getByTestId('composer-textarea');
-    await box.focus();
+    await tabIntoComposer(page);
     await expect(box).toHaveCSS('outline-style', 'none');
     await expect(box.locator('..')).toHaveCSS('outline-style', 'solid');
-    // The accent of the theme this project runs in, pinned, so a token gone wrong
-    // fails here as well as a ring drawn in some other colour.
+    // The ring colour of the theme this project runs in, pinned, so a token gone
+    // wrong fails here as well as a ring drawn in some other colour.
     await expect(box.locator('..')).toHaveCSS('outline-color', PALETTE[theme].accent);
   });
 
@@ -219,7 +226,7 @@ test.describe('keyboard', () => {
     await page.goto('/');
     const bubble = page.getByTestId('composer-textarea').locator('..');
     const atRest = await bubble.evaluate((el) => getComputedStyle(el).borderTopColor);
-    await page.getByTestId('composer-textarea').focus();
+    await tabIntoComposer(page);
     await bubble.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
     await expect(bubble).toHaveCSS('outline-style', 'solid');
     // A negative check against a pinned dark accent would pass in light whatever
@@ -228,6 +235,57 @@ test.describe('keyboard', () => {
     const accent = await cssVarColor(bubble, '--color-accent');
     expect(atRest).not.toBe(accent);
     await expect(bubble).toHaveCSS('border-top-color', atRest);
+  });
+
+  test('a click in the composer tints it instead of drawing the ring', async ({ page }) => {
+    await installMocks(page);
+    await page.goto('/');
+    const box = page.getByTestId('composer-textarea');
+    const bubble = box.locator('..');
+    const atRest = await bubble.evaluate((el) => getComputedStyle(el).borderTopColor);
+    await box.click();
+    await expect(box).toBeFocused();
+    await bubble.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+    await expect(bubble).toHaveCSS('outline-style', 'none');
+    expect(await bubble.evaluate((el) => getComputedStyle(el).borderTopColor)).not.toBe(atRest);
+    expect(await bubble.evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe('none');
+    // Typing keeps it gentle: the ring is decided when focus arrives.
+    await page.keyboard.type('Hello');
+    await expect(bubble).toHaveCSS('outline-style', 'none');
+    // Leaving and coming back by keyboard brings the ring.
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Shift+Tab');
+    await expect(box).toBeFocused();
+    await expect(bubble).toHaveCSS('outline-style', 'solid');
+  });
+
+  test('every focus ring is one colour from its first frame', async ({ page }, info) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installMocks(page, { conversations: [{ id: 'c1', title: 'A chat', created_at: new Date(0).toISOString(), updated_at: new Date(0).toISOString() }] });
+    await page.goto('/');
+    const ring = PALETTE[await expectProjectTheme(page, info)].accent;
+    await expect(page.getByRole('link', { name: 'A chat' })).toBeVisible();
+    const seen: string[] = [];
+    // Header items, sidebar rows and the account button: read at once after each
+    // Tab, as a transition on outline-color once faded the ring in from the text
+    // colour, and only on the items that had transition-colors.
+    for (let i = 0; i < 30; i++) {
+      await page.keyboard.press('Tab');
+      const now = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement;
+        if (el.id === 'composer-textarea') return null;
+        const cs = getComputedStyle(el);
+        return { name: el.getAttribute('aria-label') ?? el.textContent?.trim().slice(0, 24) ?? el.tagName, style: cs.outlineStyle, color: cs.outlineColor };
+      });
+      if (!now) break;
+      expect(now.style, now.name).toBe('solid');
+      expect(now.color, now.name).toBe(ring);
+      seen.push(now.name);
+    }
+    // The account button is named by the signed-in user.
+    for (const name of ['New chat', 'A chat', 'EE2E Tester', 'Sources', 'Docs']) {
+      expect(seen.some((s) => s.startsWith(name)), name).toBe(true);
+    }
   });
 });
 

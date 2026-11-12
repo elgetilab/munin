@@ -157,7 +157,7 @@
     #munin-support-panel button:focus-visible,
     #munin-support-panel input:focus-visible,
     #munin-support-panel textarea:focus-visible {
-      outline: 2px solid var(--accent, #58a6ff);
+      outline: 2px solid var(--focus-ring, var(--accent, #58a6ff));
       outline-offset: 2px;
     }
     #munin-support-panel input::placeholder,
