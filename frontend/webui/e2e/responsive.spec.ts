@@ -248,6 +248,24 @@ test.describe('demo', () => {
       await expect(page).toHaveURL(/\/demo$/);
     });
   }
+
+  test('Escape on the slides leaves the artifact column under them alone', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installMocks(page, { chatScript: script() });
+    await page.goto('/demo');
+    await page.getByTestId('demo-next').click();
+    await page.getByTestId('demo-next').click();
+    await page.getByTestId('demo-run-chat').click();
+    await expect(page.getByTestId('artifact-panel')).toBeVisible();
+    await page.getByTestId('demo-slides').click();
+    await expect(page.getByTestId('demo-deck')).toBeVisible();
+
+    await page.keyboard.press('Escape');
+
+    const toggle = page.getByTestId('artifacts-button');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(toggle).not.toBeFocused();
+  });
 });
 
 test.describe('busy header', () => {

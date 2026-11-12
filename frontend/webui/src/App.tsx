@@ -324,7 +324,7 @@ export default function App() {
   // Escape closes the side column from xl up, as its header toggle would, and
   // hands focus back to that toggle. Below xl the panel is a dialog and handles
   // Escape itself. The report dialog listens for Escape outside the layer stack,
-  // so the panel waits while it is open.
+  // so the panel waits while it is open, and the demo slides cover the panel.
   const artifactsToggleRef = useRef<HTMLButtonElement>(null);
   const sourcesToggleRef = useRef<HTMLButtonElement>(null);
   const belowXl = useBelowXl();
@@ -336,7 +336,7 @@ export default function App() {
       setArtifactPanelOpen(false);
       artifactsToggleRef.current?.focus();
     }
-  }, sidePanelShowing && !belowXl && !showReportDialog);
+  }, sidePanelShowing && !belowXl && !showReportDialog && !showDemo);
 
   // The button would sit over the rows of a Knowledge browse page (see index.css).
   const browsingKnowledge = typeof showKnowledgePage === 'string';
