@@ -1020,7 +1020,13 @@ distinguish them. §18 `compile_latex` returns two sandbox artifacts
 per successful call: the `.tex` source (always) and the compiled
 `.pdf` (on success only); on compile failure only the `.tex`
 artifact is surfaced so users can still download and edit the
-source manually.
+source manually. `compile_latex` takes either `source` (full LaTeX) or
+`artifact_id` (recompile that artifact's latest content), optionally
+with `edits` (same `{old_str, new_str}` format and errors as
+`update_artifact`, applied before compiling; a failed edit compiles
+nothing). The older `artifact_id` + `diff` (unified diff) mode is
+**deprecated**: it still works for this release and its result carries
+a `deprecation` note. `edits` and `diff` together are rejected.
 
 Model-written artifacts are versioned and editable; sandbox-generated
 artifacts are always `latest_version: 1` and read-only (`update_artifact`
@@ -1087,16 +1093,34 @@ side. 400 if `content` is missing or exceeds the 500 KB cap.
 
 **MCP tools**: `create_artifact`, `read_artifact`, `update_artifact`,
 `list_artifacts`. All four refused in ephemeral chats. `create_artifact`
-requires `title`, `content`, `content_type`. `update_artifact` supports
-two modes - full-content replacement (default) and unified-diff
-application (`is_diff=true`, Stage B). Both modes accept an optional
-`base_version` that the backend checks against `latest_version`; a
+requires `title`, `content`, `content_type`. `update_artifact` takes
+`artifact_id` plus exactly one of `content` (full-content replacement)
+or `edits` (search/replace pairs, v1.1, the preferred way to change part
+of a document). The unified-diff mode (`is_diff=true` with a diff in
+`content`, Stage B) is **deprecated**: it still works for this release
+and its result carries a `deprecation` note pointing at `edits`. All
+modes accept an optional `base_version` that the backend checks against `latest_version`; a
 mismatch is rejected as stale so concurrent edits from the user's
 side-panel PATCH don't get silently clobbered. The model discovers
 existing artifacts from the `=== ACTIVE ARTIFACTS ===` block injected
 into the system prompt on every persistent turn.
 
-**Diff format** (Stage B): standard unified diff with `@@ -old_start,old_len
+**Edits format** (v1.1): `"edits": [{"old_str": "...", "new_str": "..."}, ...]`,
+applied in order to the content of `base_version` (or the latest
+version). Each `old_str` must occur exactly once in the text as it
+stands after the previous edits; `new_str` replaces it (empty string
+deletes). Any miss or ambiguous match rejects the whole update with an
+error naming the edit (`"edit 2: 'old_str' not found ..."` with the
+closest source lines, or `"edit 1: 'old_str' matches 3 places ..."`)
+and a shape example; nothing is saved. Edits that leave the content
+unchanged are rejected. Sending `content` and `edits` together, or
+`edits` with `is_diff`, is rejected. Same core as `edit_python`
+(`text_edits.py`), which spells the pair `old`/`new`; the executor maps
+`old`/`new`, `old_string`/`new_string`, `find`/`replace`, a single
+top-level pair, or a `replacements` list onto `old_str`/`new_str`.
+The 500 KB cap is enforced against the result.
+
+**Diff format** (Stage B, deprecated): standard unified diff with `@@ -old_start,old_len
 +new_start,new_len @@` hunk headers and ` `/`-`/`+`-prefixed body lines.
 Optional `--- a/ +++ b/` file headers are accepted and ignored. Strict
 matching only: context lines and removal lines must match the source
@@ -1120,13 +1144,17 @@ itself.
   "created_by": "assistant",
   "updated_at": "...",
   "base_version": 3,
-  "applied_hunks": 2,
+  "applied_hunks": null,
+  "edits_applied": 2,
   "lines_added": 12,
   "lines_removed": 4
 }
 ```
 
-For full-content updates, `applied_hunks` is `null` and `lines_added`/
+`applied_hunks` is set only for a (deprecated) diff update and
+`edits_applied` only for an edits update; both are `null` otherwise.
+A diff update also returns `deprecation` (a one-line note). For
+full-content updates, `lines_added`/
 `lines_removed` are computed from `difflib.ndiff(prev, new)` so the
 frontend can display a uniform `+12 −4` chip regardless of which
 update mode was used.
@@ -1149,7 +1177,7 @@ written or updated:
     image rendering). Read-only; no version picker.
 - `artifact_updated`: `{id, source, title, version, change_summary,
   created_by, conversation_id, tool_call_id, applied_hunks,
-  lines_added, lines_removed, base_version}`. Only fires for
+  edits_applied, lines_added, lines_removed, base_version}`. Only fires for
   model-written artifacts, sandbox-generated rows are read-only.
 
 **§22 Stage C unified the sandbox output path**: the legacy
@@ -1666,7 +1694,7 @@ data: <minified json>
 | `tool_call` | `{"id": "tc-1", "name": "paper_search", "arguments": {...}}` | Once per finalized tool call the main model asks for. Emitted after the vLLM delta for that turn finishes, not mid-arguments |
 | `tool_result` | `{"id": "tc-1", "name": "paper_search", "result": {...}, "duration_ms": 800}` | After the tool actually finishes. Matches `tool_call.id` |
 | `artifact_created` | `{"id": "art_...", "source": "model_written" \| "sandbox_generated", "title": "...", "content_type": "...", "version": 1, "conversation_id": "...", "tool_call_id": "...", "language": "...", "filename": "...", "size_bytes": N, "external_url": "/api/artifacts/{cid}/{sandbox_aid}"}` | §22. Fired after both `create_artifact` (model-written) and `run_python` (sandbox-generated) produce a new artifact. Frontend routes by the `source` discriminator: model-written → side-panel entry with version picker and editable content; sandbox-generated → download chip or inline image using `external_url`. The `language` field is only present for model-written rows; `filename`, `size_bytes`, and `external_url` are only present for sandbox-generated rows |
-| `artifact_updated` | `{"id": "art_...", "source": "...", "title": "...", "version": N, "change_summary": "...", "created_by": "assistant" \| "user", "conversation_id": "...", "tool_call_id": "...", "applied_hunks": N \| null, "lines_added": N, "lines_removed": N, "base_version": N}` | §22. After a successful `update_artifact` tool call (or a user PATCH reflected back on the next streaming turn). Bumps the side panel's version picker and refreshes content. Only fires for model-written artifacts - sandbox-generated rows are read-only |
+| `artifact_updated` | `{"id": "art_...", "source": "...", "title": "...", "version": N, "change_summary": "...", "created_by": "assistant" \| "user", "conversation_id": "...", "tool_call_id": "...", "applied_hunks": N \| null, "edits_applied": N \| null, "lines_added": N, "lines_removed": N, "base_version": N}` | §22. After a successful `update_artifact` tool call (or a user PATCH reflected back on the next streaming turn). Bumps the side panel's version picker and refreshes content. Only fires for model-written artifacts - sandbox-generated rows are read-only |
 | ~~`artifact`~~ | ~~*deprecated, removed in §22 Stage C*~~ | ~~The old standalone sandbox-artifact event has been removed. Consume `artifact_created` with `source: "sandbox_generated"` instead.~~ |
 | `clarification` | `{"tool_call_id": "tc-1", "conversation_id": "...", "what_i_understood": "...", "questions": [{"id": "q1", "text": "...", "options": ["a","b","c"], "allow_custom": true}, ...]}` | §14. Fires exactly once per turn when the model calls `ask_clarification` on an ambiguous request. The turn is short-circuited: no `tool_result`, no wrap-up synthesis, no other tool calls from the same turn run, and `done` follows immediately with `finish_reason: "clarification"`. Frontend renders an inline card with 1-5 multiple-choice questions (2-6 options each, plus optional free-text field when `allow_custom: true`). The user's answers should be posted as a normal follow-up user message on the next `/api/chat/completions` request - no special-case API |
 | `agent_start` | `{"agent": "research_orchestrator", "query": "..."}` | When the model invokes an agent via the `invoke_agent` tool |

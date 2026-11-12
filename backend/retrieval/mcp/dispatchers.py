@@ -295,10 +295,11 @@ async def _read_artifact(arguments: dict) -> dict:
 async def _update_artifact(arguments: dict) -> dict:
     return await update_artifact(
         artifact_id=arguments.get("artifact_id", ""),
-        content=arguments.get("content", ""),
+        content=arguments.get("content"),
         change_summary=arguments.get("change_summary"),
         is_diff=bool(arguments.get("is_diff", False)),
         base_version=arguments.get("base_version"),
+        edits=arguments.get("edits"),
     )
 
 
@@ -439,6 +440,7 @@ async def _compile_latex(arguments: dict) -> dict:
         source=arguments.get("source"),
         artifact_id=arguments.get("artifact_id"),
         diff=arguments.get("diff"),
+        edits=arguments.get("edits"),
         bibliography=arguments.get("bibliography"),
         extra_files=arguments.get("extra_files"),
         timeout_s=arguments.get("timeout_s", 60),

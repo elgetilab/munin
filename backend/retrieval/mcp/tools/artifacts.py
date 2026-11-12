@@ -10,7 +10,8 @@ Stage A scope:
 
 - Text content only. Binary artifacts (PNG plots, PDFs) still flow
   through the §2/§3 sandbox path for now; Stage C will unify them.
-- Full-content updates only. Diff-based updates are Stage B.
+- Updates take full content or search/replace ``edits``; the unified-diff
+  mode (``is_diff``) is deprecated and kept for one release.
 - Conversation-scoped. An artifact belongs to exactly one
   conversation; there's no sharing across chats.
 - Refused in ephemeral chats (matches §9 memory, §25 profile, §2
@@ -26,7 +27,19 @@ from __future__ import annotations
 
 from typing import Optional
 
+from text_edits import ARTIFACT_EDITS_EXAMPLE
+
 from ..context import current_user_email, current_conversation_id
+
+
+# Attached to every result of the deprecated unified-diff path (update_artifact
+# is_diff, compile_latex diff). The diff path still works for one release;
+# the note is how the model learns the replacement without a failed call.
+DIFF_DEPRECATION = (
+    "unified diffs are deprecated and will be removed in the next release. "
+    'Next time pass "edits": [{"old_str": "<exact snippet>", "new_str": '
+    '"<replacement>"}] instead: no line numbers or hunk headers needed.'
+)
 
 
 def _require_persistent_conversation() -> tuple[Optional[str], Optional[str], Optional[dict]]:
@@ -111,18 +124,23 @@ async def read_artifact(
 
 async def update_artifact(
     artifact_id: str,
-    content: str,
+    content: Optional[str] = None,
     change_summary: Optional[str] = None,
     is_diff: bool = False,
     base_version: Optional[int] = None,
+    edits: Optional[list] = None,
 ) -> dict:
     """
     Append a new version to an existing artifact.
 
-    Two modes:
+    Three modes:
       * Full content (default): ``content`` is the complete new text.
-      * Diff (``is_diff=True``): ``content`` is a unified diff to
-        apply to ``base_version`` (or the current latest if omitted).
+      * Edits: ``edits`` is a list of ``{old_str, new_str}`` pairs
+        applied to ``base_version`` (or the current latest if omitted).
+        The preferred way to change part of a document.
+      * Diff (``is_diff=True``, deprecated): ``content`` is a unified
+        diff applied to the same base. Still works for one release; the
+        result carries a ``deprecation`` note pointing at ``edits``.
 
     Optional ``base_version`` guards against concurrent edits: if it
     does not match the artifact's current latest_version the call is
@@ -137,21 +155,34 @@ async def update_artifact(
     assert user_email is not None and conv_id is not None
     if not isinstance(artifact_id, str) or not artifact_id.strip():
         return {"error": "artifact_id must be a non-empty string"}
+    # An empty string is a legitimate full-content update (clearing the
+    # document), so only a missing `content` counts as absent.
+    if edits is None and content is None:
+        return {
+            "error": (
+                "pass 'edits' (search/replace pairs, preferred for changing "
+                "part of the artifact) or 'content' (the complete new text). "
+                + ARTIFACT_EDITS_EXAMPLE
+            )
+        }
     try:
         row = await artifact_store.update_artifact(
             user_email=user_email,
             conversation_id=conv_id,
             artifact_id=artifact_id,
-            content=content,
+            content=content if content is not None else "",
             change_summary=change_summary,
             created_by="assistant",
             is_diff=bool(is_diff),
             base_version=base_version,
+            edits=edits,
         )
     except artifact_store.ArtifactError as exc:
         return {"error": str(exc)}
     if row is None:
         return {"error": f"artifact not found: {artifact_id!r}"}
+    if is_diff:
+        row["deprecation"] = DIFF_DEPRECATION
     return row
 
 

@@ -632,7 +632,7 @@ MCP_TOOLS = {
     "update_artifact": {
         "name": "update_artifact",
         "is_concurrency_safe": False,
-        "description": "Append a new version to an existing artifact. Two modes: (1) default full-content mode sends the COMPLETE new document in `content` - use this for new drafts, heavy restructures, or small documents where the whole thing is cheap to re-send; (2) `is_diff=True` mode sends a unified diff in `content` that the backend applies to `base_version` - use this for small edits to long documents to save tokens (e.g. a one-paragraph tweak to a 50 KB paper draft becomes a ~1 KB diff). In diff mode, the diff must be a standard unified diff (`@@ -old,len +new,len @@` hunks with space/minus/plus-prefixed lines), line numbers must be correct, and context/removal lines must match the source exactly - strict matching only, no fuzz. Always pass `base_version` to whichever version you just read via read_artifact; if someone else has updated the artifact since then, you'll get a clear stale-base error and should re-read and retry instead of clobbering. change_summary is a short description of WHAT changed in this version. Returns {id, version, base_version, applied_hunks, lines_added, lines_removed, ...}. Not available in ephemeral chats.",
+        "description": "Append a new version to an existing artifact. To change PART of an artifact (fix a typo, reword a paragraph, add a section), pass `edits`: a list of search/replace pairs applied in order to `base_version`. Each `old_str` is a snippet copied verbatim from the version you read and must appear EXACTLY ONCE (include a few surrounding words or lines if it would otherwise be ambiguous); `new_str` replaces it (empty string deletes). No line numbers, no diff syntax. Send several edits in one call when you are changing several places. If an `old_str` does not match, nothing is saved and the error names the failing edit and the closest lines - fix that edit and retry rather than re-sending the whole document. To replace the WHOLE document (new draft, heavy restructure, or a short artifact), pass the complete new text in `content` instead. Pass one of `edits` or `content`, not both. DEPRECATED: `is_diff=true` with a unified diff in `content` still works for this release but will be removed; use `edits`. Always pass `base_version` to whichever version you just read via read_artifact; if someone else has updated the artifact since then, you'll get a clear stale-base error and should re-read and retry instead of clobbering. change_summary is a short description of WHAT changed in this version. Returns {id, version, base_version, edits_applied, lines_added, lines_removed, ...}. Not available in ephemeral chats.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -640,25 +640,43 @@ MCP_TOOLS = {
                     "type": "string",
                     "description": "The id of the artifact to update."
                 },
+                "edits": {
+                    "type": "array",
+                    "description": "Preferred for partial changes. Search/replace pairs applied in order to the base version, e.g. [{\"old_str\": \"the results were significant\", \"new_str\": \"the results were not significant\"}]. All apply or none do.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "old_str": {
+                                "type": "string",
+                                "description": "Exact snippet to replace, copied from the current version. Must occur exactly once."
+                            },
+                            "new_str": {
+                                "type": "string",
+                                "description": "Replacement text. Empty string deletes the snippet."
+                            }
+                        },
+                        "required": ["old_str", "new_str"]
+                    }
+                },
                 "content": {
                     "type": "string",
-                    "description": "Either the full new content (default, `is_diff=False`) OR a unified diff to apply to the base version (`is_diff=True`). Max 500 KB either way; in diff mode the cap is checked against the RESULT of applying the diff, not the diff text itself."
+                    "description": "The complete new text of the artifact, replacing the old one. Omit when you pass `edits`. Max 500 KB. (Deprecated: with `is_diff=true` this holds a unified diff instead.)"
                 },
                 "is_diff": {
                     "type": "boolean",
-                    "description": "If true, `content` is a unified diff to apply; if false (default), `content` is the complete replacement text.",
+                    "description": "DEPRECATED, use `edits`. If true, `content` is a unified diff to apply to the base version. Still accepted for this release.",
                     "default": False
                 },
                 "base_version": {
                     "type": "integer",
-                    "description": "Optional but strongly recommended: the version number you just read and are basing this update on. If this differs from the artifact's current latest_version, the call is rejected with a stale-base error so you can re-read and retry instead of silently overwriting a concurrent edit. In diff mode, the diff is applied against this version's content."
+                    "description": "Optional but strongly recommended: the version number you just read and are basing this update on. If this differs from the artifact's current latest_version, the call is rejected with a stale-base error so you can re-read and retry instead of silently overwriting a concurrent edit. `edits` are applied against this version's content."
                 },
                 "change_summary": {
                     "type": "string",
                     "description": "Short one-line description of what changed in this version (max 500 chars). Helps the user and future-you navigate the version history."
                 }
             },
-            "required": ["artifact_id", "content"]
+            "required": ["artifact_id"]
         }
     },
     "list_artifacts": {
@@ -949,21 +967,23 @@ MCP_TOOLS = {
             "exact same artifact recompiled (rare). Pass the id from a "
             "previous compile_latex result; the tool reads its latest "
             "version content as the source.\n"
-            "3. `artifact_id` + `diff` (THE ITERATION FLOW — use this "
+            "3. `artifact_id` + `edits` (THE ITERATION FLOW: use this "
             "for almost every follow-up turn like \"make it 16:9\", "
             "\"change the colour to red\", \"fix this typo\"): pass "
             "the .tex artifact id from the previous compile_latex "
-            "result plus a unified diff in `diff`. The tool resolves "
-            "the source server-side, applies the diff, then compiles. "
-            "This saves thousands of tokens vs re-emitting the full "
-            "body — a one-line aspectratio tweak becomes a ~150-byte "
-            "diff. Diff format mirrors the standard unified diff "
-            "(`@@ -old_start,old_len +new_start,new_len @@` hunks "
-            "with space/minus/plus-prefixed lines); context and "
-            "removal lines must match the source EXACTLY (no fuzz). "
-            "If you're not sure of the exact line content, call "
-            "read_artifact first to see the latest version, then "
-            "build the diff against it.\n\n"
+            "result plus `edits`, a list of search/replace pairs like "
+            "[{\"old_str\": \"\\\\documentclass{beamer}\", \"new_str\": "
+            "\"\\\\documentclass[aspectratio=169]{beamer}\"}]. The tool "
+            "reads the source server-side, applies the edits in order, "
+            "then compiles. This saves thousands of tokens vs "
+            "re-emitting the full body. Each `old_str` is copied "
+            "verbatim from the current source and must appear EXACTLY "
+            "ONCE; no line numbers or diff syntax. If an edit does not "
+            "match, nothing is compiled and the error names the "
+            "failing edit and the closest lines; if you're not sure of "
+            "the exact text, call read_artifact first. DEPRECATED: "
+            "`diff` (a unified diff) still works for this release but "
+            "will be removed; use `edits`.\n\n"
             "Iterate on failure: read the `errors` list (structured "
             "file/line/message entries) or `log_tail` (last 50 lines "
             "of main.log), fix the source, and call compile_latex "
@@ -998,15 +1018,33 @@ MCP_TOOLS = {
             "properties": {
                 "source": {
                     "type": "string",
-                    "description": "Full contents of main.tex. Must be a complete, compilable document (\\documentclass, body, \\end{document}). Use this for brand-new documents only — for follow-up edits to an existing artifact, use `artifact_id` + `diff` instead so you don't burn tokens re-emitting the body.",
+                    "description": "Full contents of main.tex. Must be a complete, compilable document (\\documentclass, body, \\end{document}). Use this for brand-new documents only; for follow-up edits to an existing artifact, use `artifact_id` + `edits` instead so you don't burn tokens re-emitting the body.",
                 },
                 "artifact_id": {
                     "type": "string",
-                    "description": "Id of an existing .tex artifact (returned by a previous compile_latex call as `tex_artifact.registered_artifact_id`, or visible in the === ACTIVE ARTIFACTS === block). The tool reads its latest version content as the base source. Pass alone for an unchanged recompile, or pair with `diff` to apply a unified-diff edit before compiling.",
+                    "description": "Id of an existing .tex artifact (returned by a previous compile_latex call as `tex_artifact.registered_artifact_id`, or visible in the === ACTIVE ARTIFACTS === block). The tool reads its latest version content as the base source. Pass alone for an unchanged recompile, or pair with `edits` to apply search/replace edits before compiling.",
+                },
+                "edits": {
+                    "type": "array",
+                    "description": "Optional search/replace pairs applied in order to the artifact's latest version before compiling. Only valid alongside `artifact_id`. Each `old_str` must match the source EXACTLY ONCE; `new_str` replaces it (empty string deletes). All apply or none do.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "old_str": {
+                                "type": "string",
+                                "description": "Exact snippet to replace, copied from the current source. Must occur exactly once.",
+                            },
+                            "new_str": {
+                                "type": "string",
+                                "description": "Replacement text. Empty string deletes the snippet.",
+                            },
+                        },
+                        "required": ["old_str", "new_str"],
+                    },
                 },
                 "diff": {
                     "type": "string",
-                    "description": "Optional unified diff to apply to the artifact's latest version before compiling. Only valid alongside `artifact_id`. Standard format: `@@ -old_start,old_len +new_start,new_len @@` hunks with space/minus/plus-prefixed lines. Context and removal lines must match the source EXACTLY — no fuzz. If a hunk fails to apply, read_artifact the latest version and rebuild the diff. Saves thousands of tokens vs re-emitting the full body for small edits.",
+                    "description": "DEPRECATED, use `edits`. A unified diff to apply to the artifact's latest version before compiling; still accepted for this release. Only valid alongside `artifact_id`.",
                 },
                 "bibliography": {
                     "type": "string",

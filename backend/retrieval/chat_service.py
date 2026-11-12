@@ -2878,6 +2878,7 @@ async def stream_chat_completion(
                                 "conversation_id": tr.get("conversation_id"),
                                 "tool_call_id": res["id"],
                                 "applied_hunks": tr.get("applied_hunks"),
+                                "edits_applied": tr.get("edits_applied"),
                                 "lines_added": tr.get("lines_added"),
                                 "lines_removed": tr.get("lines_removed"),
                                 "base_version": tr.get("base_version"),
