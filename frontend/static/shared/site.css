@@ -100,8 +100,7 @@ img.fav-dark { display: var(--gh-dark); }
 .site-footer { border-top: 1px solid var(--line); padding: 56px 0 36px; margin-top: 0; color: var(--text-2); background: var(--ink-2); text-align: left; }   /* the shared style.css centres every footer */
 .f-grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 32px; }
 .f-brand { display: flex; align-items: center; gap: 10px; font-weight: 600; color: var(--text); font-size: 16px; margin-bottom: 12px; }
-.f-brand img { height: 22px; width: auto; filter: brightness(0) invert(1); }
-:root[data-theme="light"] .f-brand img { filter: none; }
+.f-brand img { height: 22px; width: auto; filter: var(--logo-filter); }
 .f-grid p { font-size: 14px; line-height: 1.6; max-width: 26em; color: var(--text-2); }
 .f-grid p a { color: var(--text); }
 .f-col h4 { font-size: 13px; font-weight: 600; color: var(--text); margin: 0 0 12px; }

@@ -34,6 +34,8 @@ describe('no hard-coded logo filter or error tint', () => {
     'src/components/Sidebar.tsx',
     '../auth/templates/login.html',
     '../auth/templates/verify.html',
+    '../static/shared/auth.css',
+    '../static/shared/site.css',
   ];
 
   it.each(sources)('%s has no fixed white logo filter', (path) => {
@@ -41,12 +43,21 @@ describe('no hard-coded logo filter or error tint', () => {
     expect(text).not.toMatch(/brightness-0 invert|invert\(1\)/);
   });
 
-  it.each(sources.slice(2))('%s tints its error box from --error and the logo from --logo-filter', (path) => {
-    const text = read(path);
-    expect(text).toContain('filter: var(--logo-filter);');
-    // The rgba line stays first as a fallback for browsers without color-mix.
-    expect(text).toMatch(
-      /background: rgba\(248, 81, 73, 0\.1\);\s+background: color-mix\(in srgb, var\(--error\) 10%, transparent\);/,
+  // The sign-in pages share /shared/auth.css: the raven is a mask filled with
+  // the theme's accent, and the error row takes its red from --danger, which
+  // each theme sets.
+  it.each(['../auth/templates/login.html', '../auth/templates/verify.html'])('%s loads the shared sign-in styles', (path) => {
+    expect(read(path)).toMatch(/<link rel="stylesheet" href="\/shared\/auth\.css\?v=\d+">/);
+  });
+
+  it('auth.css fills the logo and tints the error box from the theme', () => {
+    const css = read('../static/shared/auth.css');
+    expect(css).toMatch(/\.auth-mark \{[^}]*background: var\(--brass\);[^}]*mask: url\(\/shared\/munin_logo_without_script\.webp\)/);
+    expect(css).toMatch(/:root \{[^}]*--danger: #[0-9a-f]{6};/);
+    expect(css).toMatch(/:root\[data-theme="light"\] \{[^}]*--danger: #[0-9a-f]{6};/);
+    // The plain border stays first as a fallback for browsers without color-mix.
+    expect(css).toMatch(
+      /\.auth-error \{[^}]*border: 1px solid var\(--danger\); border: 1px solid color-mix\(in srgb, var\(--danger\) 45%, transparent\);[^}]*background: var\(--danger-soft\);/,
     );
   });
 });

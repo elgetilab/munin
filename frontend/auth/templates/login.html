@@ -6,126 +6,16 @@
     <script data-munin-theme>(function(){var p="system",d=document.documentElement;try{var m=document.cookie.match(/(?:^|;\s*)munin_theme=(light|dark|system)(?:;|$)/);if(m)p=m[1]}catch(e){}var t=p;if(p==="system"){try{t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}catch(e){t="dark"}}d.setAttribute("data-theme-pref",p);d.setAttribute("data-theme",t)})()</script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign In - Munin</title>
+    <link rel="icon" type="image/webp" href="/shared/munin_logo_without_script.webp">
     <link rel="stylesheet" href="/shared/style.css?v=3">
+    <link rel="stylesheet" href="/shared/site.css?v=1">
+    <link rel="stylesheet" href="/shared/auth.css?v=1">
     <script src="/shared/theme.js?v=2" defer></script>
-    <style>
-        .auth-container {
-            max-width: 400px;
-            margin: 120px auto;
-            padding: 0 24px;
-        }
-
-        .auth-card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 40px 32px;
-            text-align: center;
-        }
-
-        .auth-logo {
-            height: 48px;
-            width: auto;
-            filter: var(--logo-filter);
-            margin-bottom: 24px;
-        }
-
-        .auth-title {
-            font-size: 24px;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-
-        .auth-subtitle {
-            color: var(--text-secondary);
-            font-size: 14px;
-            margin-bottom: 32px;
-        }
-
-        .auth-form {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-
-        .auth-field {
-            text-align: left;
-        }
-
-        .auth-field label {
-            display: block;
-            margin-bottom: 6px;
-            font-size: 13px;
-            color: var(--text-secondary);
-        }
-
-        .auth-form input[type="email"] {
-            width: 100%;
-            padding: 14px 16px;
-            font-size: 16px;
-            text-align: center;
-        }
-
-        .auth-form button {
-            width: 100%;
-            padding: 14px;
-            font-size: 16px;
-        }
-
-        .auth-error {
-            background: rgba(248, 81, 73, 0.1);
-            background: color-mix(in srgb, var(--error) 10%, transparent);
-            border: 1px solid var(--error);
-            border-radius: 8px;
-            padding: 12px;
-            color: var(--error);
-            font-size: 14px;
-            margin-bottom: 16px;
-            overflow-wrap: anywhere;
-        }
-
-        .auth-error a {
-            color: inherit;
-            text-decoration: underline;
-        }
-
-        .auth-footer {
-            margin-top: 24px;
-            font-size: 13px;
-            color: var(--text-secondary);
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .auth-footer a {
-            color: var(--accent);
-            text-decoration: none;
-        }
-
-        .auth-sending {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 12px;
-            padding: 14px;
-        }
-
-        .auth-sending canvas {
-            width: 40px;
-            height: 40px;
-        }
-
-        .auth-sending span {
-            color: var(--text-secondary);
-            font-size: 14px;
-        }
-    </style>
 </head>
 <body>
-    <div class="auth-container">
+    <main class="auth-container">
         <div class="auth-card">
-            <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="auth-logo">
+            <span class="auth-mark" role="img" aria-label="Munin"></span>
             <h1 class="auth-title">Sign in to Munin</h1>
             <p class="auth-subtitle">Enter your email to receive a login code.</p>
 
@@ -142,29 +32,28 @@
                     <input id="login-email" type="email" name="email" value="{{ email }}" placeholder="you@example.com" required autofocus autocomplete="email">
                 </div>
                 <button id="login-btn" type="submit" class="btn btn-primary">Send code</button>
-                <div id="login-sending" class="auth-sending" role="status" style="display: none;">
-                    <canvas id="login-vortex" width="128" height="128"></canvas>
+                {# A plain ring while the code is sent: the feather vortex is the chat's. #}
+                <div id="login-sending" class="auth-busy" role="status" style="display: none;">
+                    <span class="ring" aria-hidden="true"></span>
                     <span>Sending code...</span>
                 </div>
             </form>
 
-            <div class="auth-footer">
+            <div class="auth-links">
                 {% if support_email %}
                 <a href="mailto:{{ support_email }}">Need help? {{ support_email }}</a>
                 {% endif %}
                 <a href="{{ site_url or '/' }}">&larr; Back to Munin</a>
             </div>
         </div>
-    </div>
+    </main>
 
-    <script src="/shared/feather-vortex.js?v=4"></script>
     <script>
         (function() {
             var form = document.getElementById('login-form');
             var button = document.getElementById('login-btn');
             var sending = document.getElementById('login-sending');
             var submitted = false;
-            var stopVortex = null;
 
             form.addEventListener('submit', function(event) {
                 if (submitted) {
@@ -175,7 +64,6 @@
                 button.disabled = true;
                 button.style.display = 'none';
                 sending.style.display = 'flex';
-                stopVortex = createVortex(document.getElementById('login-vortex'), 10, 7.0);
             });
 
             // Coming back with the browser's back button restores this page
@@ -186,7 +74,6 @@
                 button.disabled = false;
                 button.style.display = '';
                 sending.style.display = 'none';
-                if (stopVortex) stopVortex();
             });
         })();
     </script>
