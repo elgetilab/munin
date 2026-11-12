@@ -127,6 +127,13 @@ body {
   outline-offset: 2px;
 }
 
+/* The search-chats box is the one field of its dialog and has focus from the
+   moment the dialog opens, so a ring inside the panel only boxes the caret in.
+   Sidebar.tsx gives the line under it the ring's colour instead. */
+#search-chats-input:focus-visible {
+  outline: none;
+}
+
 /* The support widget's floating button covers Send on phones, where Help lives
    in the profile menu instead. !important because the widget injects its own
    #munin-support-btn rule after this stylesheet has loaded. */

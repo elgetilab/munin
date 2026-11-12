@@ -237,6 +237,36 @@ test.describe('keyboard', () => {
     await expect(bubble).toHaveCSS('border-top-color', atRest);
   });
 
+  test('Ctrl+K opens search chats from the composer, with no ring inside it, and Escape goes back', async ({ page }, info) => {
+    await installMocks(page);
+    await page.goto('/');
+    const ring = PALETTE[await expectProjectTheme(page, info)].accent;
+    const button = page.getByRole('button', { name: 'Search chats' });
+    await expect(button).toHaveAttribute('aria-keyshortcuts', /^(Control|Meta)\+K$/);
+    await expect(button).toHaveAttribute('title', /^Search chats \((Ctrl\+K|⌘K)\)$/);
+
+    const composer = page.getByTestId('composer-textarea');
+    await tabIntoComposer(page);
+    await page.keyboard.type('half a thought');
+    await page.keyboard.press('ControlOrMeta+K');
+
+    const search = page.getByRole('textbox', { name: 'Search conversations' });
+    await expect(search).toBeFocused();
+    // The browser's own Ctrl+K went nowhere: the draft is as it was.
+    await expect(composer).toHaveValue('half a thought');
+    // Focus shows on the line under the box, not as a box inside the panel.
+    await expect(search).toHaveCSS('outline-style', 'none');
+    await expect(search.locator('..')).toHaveCSS('border-bottom-color', ring);
+    // Tab on to Close: that one has the ring, and the line rests.
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('button', { name: 'Close search' })).toHaveCSS('outline-style', 'solid');
+    await expect(search.locator('..')).not.toHaveCSS('border-bottom-color', ring);
+
+    await page.keyboard.press('Escape');
+    await expect(search).toHaveCount(0);
+    await expect(composer).toBeFocused();
+  });
+
   test('a click in the composer tints it instead of drawing the ring', async ({ page }) => {
     await installMocks(page);
     await page.goto('/');

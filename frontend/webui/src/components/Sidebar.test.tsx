@@ -396,6 +396,137 @@ describe('Sidebar open-in-new-tab links', () => {
     expect(linkFor('Hello')).toHaveAttribute('href', '/c/c1');
   });
 
+  it('leaves out a preview that only repeats the title', async () => {
+    const user = userEvent.setup();
+    server.use(http.get('/api/chats', () => HttpResponse.json({
+      conversations: [
+        makeChat({ id: 'same', title: 'Kinase  inhibitors', preview: ' Kinase inhibitors\n' }),
+        makeChat({ id: 'differs', title: 'Folding', preview: 'How does AlphaFold work?' }),
+      ],
+      total: 2,
+    })));
+    renderSidebar();
+    await user.click(screen.getByText('Search chats'));
+    const dialog = await screen.findByRole('dialog', { name: 'Search your chats' });
+
+    await waitFor(() => expect(within(dialog).getByText('How does AlphaFold work?')).toBeInTheDocument());
+    const row = within(dialog).getByRole('link', { name: /^Kinase/ });
+    expect(row).toHaveTextContent(/^Kinase inhibitors$/);
+  });
+
+  it('marks the search box for the line under it, not a ring of its own', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    await user.click(screen.getByText('Search chats'));
+    const input = await screen.findByRole('textbox', { name: 'Search conversations' });
+    expect(input).toHaveFocus();
+    // index.css drops the ring on #search-chats-input; the row draws focus instead.
+    expect(input).toHaveAttribute('id', 'search-chats-input');
+    expect(input.parentElement).toHaveClass('has-[#search-chats-input:focus]:border-focus-ring');
+  });
+
+  describe('Ctrl+K', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    const press = (init: KeyboardEventInit, target: EventTarget = document.activeElement ?? document.body) => {
+      const e = new KeyboardEvent('keydown', { key: 'k', bubbles: true, cancelable: true, ...init });
+      act(() => { target.dispatchEvent(e); });
+      return e;
+    };
+
+    it('names the shortcut on the Search button', () => {
+      renderSidebar();
+      const button = screen.getByRole('button', { name: 'Search chats' });
+      expect(button).toHaveAttribute('aria-keyshortcuts', 'Control+K');
+      expect(button).toHaveAttribute('title', 'Search chats (Ctrl+K)');
+    });
+
+    it('names ⌘K on a Mac', () => {
+      vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+      renderSidebar();
+      const button = screen.getByRole('button', { name: 'Search chats' });
+      expect(button).toHaveAttribute('aria-keyshortcuts', 'Meta+K');
+      expect(button).toHaveAttribute('title', 'Search chats (⌘K)');
+    });
+
+    it('opens search from a text field, focused, and keeps the key from the browser', async () => {
+      renderSidebar();
+      const outside = document.createElement('textarea');
+      document.body.appendChild(outside);
+      onTestFinished(() => outside.remove());
+      outside.focus();
+
+      const e = press({ ctrlKey: true });
+      expect(e.defaultPrevented).toBe(true);
+      const input = await screen.findByRole('textbox', { name: 'Search conversations' });
+      expect(input).toHaveFocus();
+
+      // Pressed again inside, it stays here rather than going to the browser.
+      expect(press({ ctrlKey: true }).defaultPrevented).toBe(true);
+      expect(input).toHaveFocus();
+
+      // Escape gives focus back to where the key was pressed.
+      await userEvent.keyboard('{Escape}');
+      expect(screen.queryByRole('dialog', { name: 'Search your chats' })).not.toBeInTheDocument();
+      expect(outside).toHaveFocus();
+    });
+
+    it('opens with ⌘K and with K in capitals (Caps Lock)', async () => {
+      renderSidebar();
+      press({ metaKey: true, key: 'K' });
+      expect(await screen.findByRole('dialog', { name: 'Search your chats' })).toBeInTheDocument();
+    });
+
+    it('leaves other K chords alone', () => {
+      renderSidebar();
+      for (const init of [{}, { ctrlKey: true, shiftKey: true }, { ctrlKey: true, altKey: true }, { ctrlKey: true, metaKey: true }]) {
+        expect(press(init).defaultPrevented).toBe(false);
+      }
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('on a Mac leaves Ctrl+K to a text field, where it deletes to the end of the line', async () => {
+      vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+      renderSidebar();
+      const outside = document.createElement('textarea');
+      document.body.appendChild(outside);
+      onTestFinished(() => outside.remove());
+      outside.focus();
+
+      expect(press({ ctrlKey: true }).defaultPrevented).toBe(false);
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+      expect(press({ metaKey: true }).defaultPrevented).toBe(true);
+      expect(await screen.findByRole('dialog', { name: 'Search your chats' })).toBeInTheDocument();
+    });
+
+    it('does not open over another dialog', () => {
+      renderSidebar();
+      const other = document.createElement('div');
+      other.setAttribute('role', 'dialog');
+      other.setAttribute('aria-modal', 'true');
+      const field = document.createElement('input');
+      other.appendChild(field);
+      document.body.appendChild(other);
+      onTestFinished(() => other.remove());
+      field.focus();
+
+      expect(press({ ctrlKey: true }).defaultPrevented).toBe(false);
+      expect(screen.queryByRole('dialog', { name: 'Search your chats' })).not.toBeInTheDocument();
+    });
+
+    it('opens from inside the phone drawer that holds the sidebar', async () => {
+      render(
+        <div role="dialog" aria-modal="true" aria-label="Menu">
+          <Sidebar currentId={null} onSelect={vi.fn()} onNewChat={vi.fn()} refreshKey={0} onOpenSettings={vi.fn()} />
+        </div>,
+      );
+      screen.getByRole('button', { name: 'Search chats' }).focus();
+      expect(press({ ctrlKey: true }).defaultPrevented).toBe(true);
+      expect(await screen.findByRole('dialog', { name: 'Search your chats' })).toBeInTheDocument();
+    });
+  });
+
   it('"New chat in project" links to /?project=<id>', async () => {
     const user = userEvent.setup();
     const onNewChatInProject = vi.fn();

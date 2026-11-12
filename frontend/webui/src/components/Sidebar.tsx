@@ -10,6 +10,7 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { AUTH_BASE, DOCS_URL, SEARCH_URL, SITE_HOME, UPLOAD_URL } from '../lib/urls';
 import { conversationPath, isModifiedClick, newChatPath } from '../lib/nav';
 import { groupByTime } from '../lib/chatGrouping';
+import { isApplePlatform, isSearchKey, isSearchShortcut, searchShortcutAria, searchShortcutLabel } from '../lib/searchShortcut';
 import { ErrorNotice } from './ui/ErrorNotice';
 import { DIALOG_BACKDROP, LOGO_FILTER } from './ui/themeClasses';
 import { BookIcon, ChatIcon, FolderIcon, PageIcon, PlusIcon, SearchIcon } from './ui/icons';
@@ -293,6 +294,26 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     setSearchQuery('');
   }, []);
   const searchModal = useModal({ onClose: closeSearch, active: searchOpen, initialFocusRef: searchInputRef });
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Ctrl+K / ⌘K opens search (lib/searchShortcut.ts says when it does not). With
+  // search open it goes back to the box, rather than to the browser's own
+  // search bar, which is what the key does there.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (searchOpen) {
+        if (!isSearchKey(e) || (e.ctrlKey && isApplePlatform())) return;
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+      if (!isSearchShortcut(e, searchButtonRef.current)) return;
+      e.preventDefault();
+      setSearchOpen(true);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [searchOpen]);
 
   const currentListedIn = currentId
     ? Object.keys(projectChats).find(pid => projectChats[pid].some(c => c.id === currentId))
@@ -736,7 +757,10 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
 
         {/* Search */}
         <button
+          ref={searchButtonRef}
           onClick={() => setSearchOpen(true)}
+          aria-keyshortcuts={searchShortcutAria()}
+          title={`Search chats (${searchShortcutLabel()})`}
           className={`${SIDEBAR_ROW} ${ROW_IDLE}`}
         >
           <SearchIcon size={16} className="flex-shrink-0" />
@@ -1026,10 +1050,14 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
           <div {...searchModal.panelProps} className="relative w-full max-w-xl mx-4 bg-bg-secondary border border-border rounded-xl shadow-2xl overflow-hidden max-h-[60vh] flex flex-col outline-none">
             <h2 id={searchModal.titleId} className="sr-only">Search your chats</h2>
             {/* Search input */}
-            <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
+            {/* The box draws no ring of its own: it is the dialog's one field and
+                has focus from the moment it opens, with the caret in it. The line
+                under it takes the ring's colour while it has focus instead. */}
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-border has-[#search-chats-input:focus]:border-focus-ring">
               <SearchIcon size={16} className="text-text-secondary flex-shrink-0" />
               <input
                 ref={searchInputRef}
+                id="search-chats-input"
                 type="text"
                 aria-label="Search conversations"
                 placeholder="Search conversations..."
@@ -1086,7 +1114,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                         <div className="text-sm text-text-primary truncate">
                           {chat.title || 'Untitled'}
                         </div>
-                        {chat.preview && (
+                        {chat.preview && !sameText(chat.preview, chat.title || '') && (
                           <div className="text-xs text-text-secondary mt-0.5 truncate">
                             {chat.preview}
                           </div>
@@ -1106,6 +1134,12 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       )}
     </aside>
   );
+}
+
+// A preview that only repeats the title, give or take spacing, says nothing new.
+function sameText(a: string, b: string): boolean {
+  const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
+  return norm(a) === norm(b);
 }
 
 function Chevron({ open }: { open: boolean }) {
