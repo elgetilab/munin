@@ -81,3 +81,7 @@ export function LayersIcon(p: IconProps) {
 export function FlagIcon({ filled, ...p }: IconProps & { filled?: boolean }) {
   return <Svg {...p}><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" fill={filled ? 'currentColor' : 'none'} /><path d="M4 22v-7" /></Svg>;
 }
+
+export function PlusIcon(p: IconProps) {
+  return <Svg {...p}><path d="M12 5v14M5 12h14" /></Svg>;
+}

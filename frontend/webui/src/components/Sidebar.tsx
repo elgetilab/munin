@@ -12,7 +12,7 @@ import { conversationPath, isModifiedClick, newChatPath } from '../lib/nav';
 import { groupByTime } from '../lib/chatGrouping';
 import { ErrorNotice } from './ui/ErrorNotice';
 import { DIALOG_BACKDROP, LOGO_FILTER } from './ui/themeClasses';
-import { BookIcon, ChatIcon, FolderIcon, PageIcon, SearchIcon } from './ui/icons';
+import { BookIcon, ChatIcon, FolderIcon, PageIcon, PlusIcon, SearchIcon } from './ui/icons';
 
 // P2 #26 commit 3: user identity slots (userEmail / userName /
 // userAvatar / isAdmin) and activeProjectId pulled from stores
@@ -93,6 +93,13 @@ async function migrateStarredToPinned() {
 const MENU_PANEL = 'fixed z-50 bg-bg-secondary border border-border rounded-lg shadow-lg overflow-y-auto';
 const MENU_ITEM = 'block w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary focus-visible:bg-bg-tertiary cursor-pointer no-underline';
 const ACCOUNT_ITEM = 'w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary focus-visible:bg-bg-tertiary transition-colors cursor-pointer no-underline';
+// Every row in the sidebar (New chat, Search, a project, a chat) is one shape:
+// 32px tall (40px on a phone), the same 8px inset, a 14px label. Hover is a
+// lighter tint than the current row, so the two can be told apart.
+const SIDEBAR_ROW = 'flex items-center gap-2.5 w-full h-8 max-md:h-10 px-2 rounded-md text-sm text-left no-underline transition-colors cursor-pointer';
+const ROW_IDLE = 'text-text-secondary hover:bg-bg-tertiary/60 hover:text-text-primary';
+const ROW_CURRENT = 'bg-bg-tertiary text-text-primary';
+const SECTION_LABEL = 'px-2 pt-3 pb-1 text-xs font-medium text-text-tertiary';
 // A 32px target below md, with negative margin so the row does not grow.
 const ROW_ICON_TARGET = 'max-md:p-[9px] max-md:-my-[9px]';
 
@@ -577,7 +584,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     const list = projectChats[projectId];
     const failed = projectChatsFailed[projectId] && !list;
     return (
-      <div className="ml-4 border-l border-border">
+      <div className="ml-[15px] pl-1 border-l border-border">
         {(list ?? []).map(chat => (
           <ChatRow
             key={chat.id}
@@ -622,14 +629,15 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   return (
     <aside className="w-64 flex-shrink-0 bg-bg-secondary border-r border-border flex flex-col h-full relative">
       {/* Logo */}
-      <div className="px-4 pt-4 pb-3 flex items-center justify-between">
-        <a href={SITE_HOME} className="flex items-center gap-2.5 no-underline">
+      {/* As tall as the chat header beside it, so their bottom borders meet. */}
+      <div className="h-[49px] flex-shrink-0 px-4 flex items-center justify-between border-b border-border">
+        <a href={SITE_HOME} className="flex items-center gap-2 no-underline">
           <img
             src="/shared/munin_logo_without_script.webp"
             alt="Munin"
-            className={`h-7 ${LOGO_FILTER}`}
+            className={`h-6 ${LOGO_FILTER}`}
           />
-          <span className="text-lg font-semibold text-text-primary">Munin</span>
+          <span className="text-[15px] font-semibold text-text-primary">Munin</span>
         </a>
         {onCloseDrawer && (
           <button
@@ -644,7 +652,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       </div>
 
       {/* New chat + Search row */}
-      <div className="px-3 pb-3 flex flex-col gap-1">
+      <div className="px-2 pt-2 pb-1 flex flex-col gap-0.5">
         {/* New chat */}
         <a
           href={newChatPath()}
@@ -658,22 +666,19 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
             e.preventDefault();
             onNewChat();
           }}
-          className="flex items-center gap-3 px-2 py-2 rounded-lg text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors cursor-pointer w-full text-left no-underline"
+          className={`${SIDEBAR_ROW} text-text-primary font-medium hover:bg-bg-tertiary/60`}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-          <span className="text-sm">New chat</span>
+          <PlusIcon size={16} className="flex-shrink-0" />
+          <span>New chat</span>
         </a>
 
         {/* Search */}
         <button
           onClick={() => setSearchOpen(true)}
-          className="flex items-center gap-3 px-2 py-2 rounded-lg text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors cursor-pointer w-full text-left"
+          className={`${SIDEBAR_ROW} ${ROW_IDLE}`}
         >
-          <SearchIcon size={18} className="flex-shrink-0" />
-          <span className="text-sm">Search chats</span>
+          <SearchIcon size={16} className="flex-shrink-0" />
+          <span>Search chats</span>
         </button>
       </div>
 
@@ -685,18 +690,18 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
 
         {/* Projects section */}
         {projects.length > 0 && (
-          <div className="mb-3">
-            <div className="px-2 py-1 text-[11px] font-semibold text-text-secondary uppercase tracking-wider flex items-center">
+          <div className="mb-1">
+            <div className={`${SECTION_LABEL} flex items-center`}>
               <span className="flex-1">Projects</span>
               <button
                 // Keeps focus in an empty input, whose blur would close it
                 // just before this click opened it again.
                 onMouseDown={e => e.preventDefault()}
                 onClick={() => setShowNewProject(!showNewProject)}
-                className="text-text-secondary hover:text-accent cursor-pointer text-sm max-md:px-3 max-md:py-2 max-md:-my-2 max-md:-mr-2"
+                className="-my-1 -mr-1 p-1 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-tertiary/60 cursor-pointer max-md:p-2.5 max-md:-my-2.5 max-md:-mr-2.5"
                 title="New project"
                 aria-label="New project"
-              >+</button>
+              ><PlusIcon size={14} /></button>
             </div>
 
             {/* New project input */}
@@ -733,9 +738,9 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
             ) : (
               <button
                 onClick={() => setShowNewProject(true)}
-                className="flex items-center gap-2 px-2 py-1.5 text-[11px] text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
+                className={`${SIDEBAR_ROW} ${ROW_IDLE}`}
               >
-                <FolderIcon size={12} />
+                <FolderIcon size={16} className="flex-shrink-0" />
                 New project
               </button>
             )}
@@ -750,7 +755,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
               type="button"
               aria-expanded={archivedOpen}
               onClick={() => setArchivedOpen(!archivedOpen)}
-              className="w-full flex items-center px-2 py-1 text-[11px] font-semibold text-text-secondary hover:text-text-primary uppercase tracking-wider cursor-pointer text-left"
+              className={`${SECTION_LABEL} w-full flex items-center hover:text-text-primary cursor-pointer text-left`}
             >
               <span className="flex-1">Archived ({archivedProjects.length})</span>
               <Chevron open={archivedOpen} />
@@ -800,8 +805,8 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
           <ErrorNotice message="Could not load your chats" onRetry={retryLists} className="mb-3" />
         )}
         {groups.map(group => (
-          <div key={group.label} className="mb-3">
-            <div className="px-2 py-1 text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
+          <div key={group.label} className="mb-1">
+            <div className={SECTION_LABEL}>
               {group.label}
             </div>
             {group.chats.map(chat => {
@@ -830,7 +835,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
 
       {/* User profile */}
       {userEmail && (
-        <div className="relative border-t border-border px-3 py-3">
+        <div className="relative border-t border-border px-2 py-2">
           {/* Profile menu popup */}
           {profileMenu.open && (
             <div
@@ -921,7 +926,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
 
           <button
             {...profileMenu.triggerProps}
-            className="w-full flex items-center gap-3 px-2 py-2 rounded-lg text-left hover:bg-bg-tertiary transition-colors cursor-pointer"
+            className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md text-left hover:bg-bg-tertiary/60 transition-colors cursor-pointer"
           >
             <div className="w-7 h-7 rounded-full bg-accent/20 text-accent-hover flex items-center justify-center text-xs font-semibold flex-shrink-0 overflow-hidden">
               {userAvatar ? (
@@ -1074,22 +1079,18 @@ function ProjectRow({
   return (
     <div className="relative">
       <div
-        className={`group flex items-center pr-2 rounded-md text-sm transition-colors ${
-          active
-            ? 'bg-bg-tertiary text-text-primary'
-            : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary'
-        }`}
+        className={`group flex items-center pr-1 rounded-md text-sm transition-colors ${active ? ROW_CURRENT : ROW_IDLE}`}
       >
         <button
           type="button"
           onClick={onToggle}
           aria-expanded={expanded}
           aria-label={`${project.name}, ${count} ${count === 1 ? 'chat' : 'chats'}`}
-          className="flex-1 min-w-0 flex items-center gap-2 pl-2 pr-1 py-2 text-left cursor-pointer"
+          className="flex-1 min-w-0 flex items-center gap-2.5 pl-2 pr-1 h-8 max-md:h-10 text-left cursor-pointer"
         >
-          <FolderIcon className="flex-shrink-0" />
-          <span className="flex-1 truncate font-medium" title={project.name}>{project.name}</span>
-          <span className="text-xs text-text-secondary">{count}</span>
+          <FolderIcon size={16} className="flex-shrink-0" />
+          <span className="flex-1 truncate" title={project.name}>{project.name}</span>
+          <span className="text-xs text-text-tertiary tabular-nums">{count}</span>
           <Chevron open={expanded} />
         </button>
 
@@ -1260,11 +1261,7 @@ function ChatRow({
           e.preventDefault();
           onSelect(chat.id);
         }}
-        className={`group flex items-center gap-2 max-md:gap-0 px-2 py-2 rounded-md cursor-pointer text-sm transition-colors ${
-          isCurrent
-            ? 'bg-bg-tertiary text-text-primary'
-            : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary'
-        }`}
+        className={`group flex items-center gap-2 max-md:gap-0 pl-2 pr-1 h-8 max-md:h-10 rounded-md cursor-pointer text-sm transition-colors ${isCurrent ? ROW_CURRENT : ROW_IDLE}`}
       >
         {/* Background turns: a live stream is generating in this
             conversation (server-derived, refreshes with the list). */}
@@ -1291,14 +1288,15 @@ function ChatRow({
           >{title}</a>
         )}
 
+        {/* The row's actions take no room until the row is hovered or holds
+            focus (or always, on a touch screen), so the title gets the width. */}
+        <div className={`flex-shrink-0 items-center gap-0.5 ${menu.open ? 'flex' : 'hidden group-hover:flex group-focus-within:flex [@media(hover:none)]:flex'}`}>
         {/* Pin */}
         <button
           onClick={(e) => onPin(chat, e)}
           className={`flex-shrink-0 ${ROW_ICON_TARGET} cursor-pointer transition-colors ${
-            chat.pinned
-              ? 'text-accent'
-              : 'text-transparent group-hover:text-text-secondary group-focus-within:text-text-secondary focus-visible:text-text-secondary [@media(hover:none)]:text-text-secondary hover:!text-accent'
-          }`}
+            chat.pinned ? 'text-accent' : 'text-text-secondary hover:text-accent'
+          } p-1 rounded hover:bg-bg-primary`}
           title={chat.pinned ? 'Unpin' : 'Pin'}
           aria-label={`${chat.pinned ? 'Unpin' : 'Pin'} ${title}`}
         >
@@ -1314,15 +1312,14 @@ function ChatRow({
           {...menu.triggerProps}
           onClick={(e) => { e.stopPropagation(); menu.triggerProps.onClick(); }}
           aria-label={`More actions for ${title}`}
-          className={`flex-shrink-0 p-1 ${ROW_ICON_TARGET} rounded cursor-pointer transition-opacity hover:bg-bg-primary hover:text-text-primary ${
-            menu.open
-              ? 'opacity-100 text-text-primary'
-              : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 text-text-secondary'
+          className={`flex-shrink-0 p-1 ${ROW_ICON_TARGET} rounded cursor-pointer hover:bg-bg-primary hover:text-text-primary ${
+            menu.open ? 'text-text-primary' : 'text-text-secondary'
           }`}
           title="More"
         >
           <KebabIcon />
         </button>
+        </div>
       </div>
 
       {/* Three-dots action menu (Rename / Move / Delete), or the list of projects
