@@ -799,6 +799,13 @@ deploy_tunnel() {
     # the literal string __MUNIN_VPS_HOST__, so fail loudly instead.
     local vps_host
     vps_host=$(clusterenv_get MUNIN_VPS_HOST)
+    # A dry run as a normal user cannot read the 0600 env file, which is not
+    # the same as the key being absent: say so and show the rest of the plan
+    # instead of stopping `--dry-run all` here.
+    if [ -z "$vps_host" ] && [ "$DRY_RUN" = "1" ] && [ ! -r "$HUGIN_ENV" ]; then
+        echo "  [warn] cannot read $HUGIN_ENV (not root?); MUNIN_VPS_HOST unchecked"
+        vps_host="<MUNIN_VPS_HOST>"
+    fi
     if [ -z "$vps_host" ]; then
         echo "[ERROR] MUNIN_VPS_HOST is not set in $HUGIN_ENV."
         echo "        Add it (the VPS hostname or IP the tunnel connects to):"
