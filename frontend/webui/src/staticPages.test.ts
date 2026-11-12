@@ -335,7 +335,7 @@ describe('search page, usability', () => {
 
   it('describes what the page actually does', () => {
     load(() => json({}));
-    const intro = document.querySelector('.search-section p')!.textContent!;
+    const intro = document.querySelector('.page-head .lede')!.textContent!;
     expect(intro).toContain('Author alone');
     expect(intro).not.toContain('or year');
   });
@@ -526,7 +526,7 @@ describe('upload page', () => {
     await flush();
 
     const box = document.getElementById('user-box')!;
-    expect(box.textContent).toContain('Signed in as: member@example.org');
+    expect(box.textContent).toContain('Signed in as member@example.org');
     expect(box.textContent).not.toContain('Uploading as');
     expect(box.textContent).not.toContain('tagged');
     expect((document.getElementById('upload-notice') as HTMLElement).hidden).toBe(true);
