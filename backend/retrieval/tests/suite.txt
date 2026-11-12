@@ -49,6 +49,7 @@ test_gateway_token_guard.py              hermetic
 test_hooks.py                            hermetic
 test_legacy_dr_routes.py                 hermetic
 test_llm_endpoint_config.py              hermetic        pytest
+test_llm_fallback_status.py              hermetic
 test_llm_headers.py                      hermetic
 test_local_model_or_hub.py               hermetic
 test_logging_config.py                   hermetic
@@ -87,6 +88,7 @@ test_search_expansion.py                 hermetic
 test_search_queries_arg.py               hermetic
 test_search_ranking.py                   hermetic
 test_search_relevance.py                 hermetic
+test_search_replace_edits.py             hermetic
 test_self_description.py                 hermetic
 test_show_protein.py                     hermetic
 test_site_config.py                      hermetic
