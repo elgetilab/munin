@@ -275,6 +275,10 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   // The row that last held focus, which keeps the Tab stop of its chat list.
   const [rovingRowId, setRovingRowId] = useState<string | null>(null);
   const groupIdPrefix = useId();
+  // Pin and Unpin move a chat to another group, which remounts its row and drops
+  // the focus its menu gave back to the ⋮ button. Once the lists re-read, focus
+  // goes to the chat's link in its new place, so the keyboard keeps its spot.
+  const refocusChat = useRef<string | null>(null);
   // Same shape as actionMenuId but for the project rows. Distinct
   // state so chat-id and project-id namespaces don't accidentally
   // collide on the rare same-string-id edge case.
@@ -335,6 +339,14 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       .catch(() => { if (!cancelled) setProjectsState('error'); });
     return () => { cancelled = true; };
   }, [reloadKey, refreshKey]);
+
+  useEffect(() => {
+    const id = refocusChat.current;
+    // Still on the ⋮ button: this re-read has not moved the row yet.
+    if (!id || (document.activeElement && document.activeElement !== document.body)) return;
+    refocusChat.current = null;
+    document.querySelector<HTMLElement>(`[data-chat-link][href="${CSS.escape(conversationPath(id))}"]`)?.focus();
+  }, [chats, pinnedFiled, projectChats]);
 
   // Nothing else tells the sidebar that a background turn has ended. Only the
   // expanded project's list is re-read by load(), so a collapsed project's
@@ -551,6 +563,9 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       } else {
         await pinChat(chat.id);
       }
+      refocusChat.current = chat.id;
+      // Focus the user moves on their own cancels the hand-back.
+      document.addEventListener('focusin', () => { refocusChat.current = null; }, { once: true });
       load();
     } catch {
       showToast(chat.pinned ? 'Could not unpin the chat' : 'Could not pin the chat');

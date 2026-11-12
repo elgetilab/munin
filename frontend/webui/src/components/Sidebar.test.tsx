@@ -1399,6 +1399,25 @@ describe('Sidebar keyboard and folders', () => {
     expect(screen.getByRole('menu')).toHaveAccessibleName('Actions for Test Chat 2');
   });
 
+  it('pinning from the keyboard leaves focus on the chat in its new group', async () => {
+    const user = userEvent.setup();
+    let pinned = false;
+    server.use(
+      http.post('/api/chats/:id/pin', () => { pinned = true; return new HttpResponse(null, { status: 200 }); }),
+      http.get('/api/chats', () => HttpResponse.json({
+        ...MOCK_CHATS,
+        conversations: MOCK_CHATS.conversations.map(c => (c.id === 'c3' ? { ...c, pinned } : c)),
+      })),
+    );
+    renderSidebar();
+    const link = await screen.findByRole('link', { name: 'Old Chat' });
+    link.focus();
+    await user.keyboard('{Shift>}{F10}{/Shift}');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => expect(within(screen.getByRole('list', { name: 'Pinned' })).getByRole('link', { name: 'Old Chat' })).toHaveFocus());
+  });
+
   it('lists each date group as a list named by its label', async () => {
     renderSidebar();
     await screen.findByText('Test Chat 1');
