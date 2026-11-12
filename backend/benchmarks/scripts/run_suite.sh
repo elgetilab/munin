@@ -41,7 +41,10 @@
 #                  --gpu-util); checkpoint present; disk; shadow corpus built
 #                  + leak-free
 #   1 instances    instance up <slug> --name eval; instance up ... --corpus shadow
-#   2 smoke        run_all --limit 20 on :8082, gated against the Qwen3.8 arm
+#   2 smoke        run_all --limit 20 on :8082, gated against the Qwen3.8 arm;
+#                  --accept-gate <name> (repeatable) lets a named smoke gate
+#                  fail without stopping the run; it is logged as ACCEPTED,
+#                  kept in smoke.json and recorded in scorecard provenance
 #   3 suite        Track D (3 arms, n=199) + agentic arm at egress=off (the
 #                  corpus-only decomposition, standard since 2026-09-17) + C1
 #                  (100) + standalone answer (199) + C2b pair (2x50) +
@@ -94,6 +97,7 @@ GPU_UTIL=0.80
 TRACKS="trackd,egressoff,c1,answer,c2b,faith,derived"
 COPY_ARMS_FROM=""
 ABL_TAG=""
+ACCEPT_GATES=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --date) DATE=$2; shift 2 ;;
@@ -109,6 +113,7 @@ while [ $# -gt 0 ]; do
         --tracks) TRACKS=$2; shift 2 ;;
         --copy-arms-from) COPY_ARMS_FROM=$2; shift 2 ;;
         --ablation-tag) ABL_TAG=$2; shift 2 ;;
+        --accept-gate) ACCEPT_GATES="${ACCEPT_GATES:+$ACCEPT_GATES,}$2"; shift 2 ;;
         *) echo "unknown flag $1"; exit 1 ;;
     esac
 done
@@ -160,6 +165,7 @@ PROV=(--provenance "backbone=$MODEL_SLUG" --provenance "checkpoint=$MODEL_ID"
       --provenance "sampling_code=$SAMPLING_CODE" --provenance "serving_profile=single-gpu-instance"
       --provenance "max_num_seqs=$VLLM_MAX_NUM_SEQS_SINGLE" --provenance "gpu_mem_util=$GPU_UTIL" --provenance "concurrency=1"
       --provenance "deadline_s=900" --provenance "driver=run_suite.sh")
+[ -n "$ACCEPT_GATES" ] && PROV+=(--provenance "accepted_smoke_gates=$ACCEPT_GATES")
 
 # The card behind gres gpu:batch, from gres.conf (index 0 on hugin).
 batch_gpu_index() {
@@ -331,7 +337,7 @@ if [ "$SMOKE" = "1" ] && ! phase_done 2; then
     run_logged $PY -m munin_bench.abstention.run_c1 --base-url "$API" --email "$EMAIL" --limit 20 \
         --concurrency 1 --deadline 900 --out-dir "$BENCH/c1_runs/$TAG-smoke" || die "smoke C1 failed"
     brave=$(brave_errors_since "$smoke_start")
-    $PY - "$BENCH/ablation_runs/$TAG-smoke" "$BENCH/ablation_runs/qwen38-27b" "$brave" <<'PYEOF' 2>&1 | tee -a "$LOG"
+    ACCEPT_GATES="$ACCEPT_GATES" $PY - "$BENCH/ablation_runs/$TAG-smoke" "$BENCH/ablation_runs/qwen38-27b" "$brave" <<'PYEOF' 2>&1 | tee -a "$LOG"
 import json, os, sys
 from collections import Counter
 new, base, brave = sys.argv[1], sys.argv[2], int(sys.argv[3])
@@ -355,10 +361,12 @@ bare_kinds = Counter(r.get("empty_kind") for r in bare if r.get("empty_kind"))
 leak_names = sum(1 for e in ev if "<|" in (e.get("name") or ""))
 mean_s = sum(r["elapsed_s"] for r in ag) / n
 web = sum(1 for e in ev if e.get("name") == "web_search")
-fails = []
+fails, accepted = [], []
+accept = {g for g in os.environ.get("ACCEPT_GATES", "").split(",") if g}
 def gate(name, ok, detail):
-    print(f"[{'PASS' if ok else 'FAIL'}] smoke/{name}: {detail}")
-    if not ok: fails.append(name)
+    status = "PASS" if ok else ("ACCEPTED" if name in accept else "FAIL")
+    print(f"[{status}] smoke/{name}: {detail}")
+    if not ok: (accepted if name in accept else fails).append(name)
 gate("tool_calls_per_query", 0.4 <= ratio <= 2.5, f"{calls:.2f} vs Qwen3.8 {base_calls:.2f} (ratio {ratio:.2f}, allowed 0.4..2.5)")
 gate("agentic_unparseable", ver["unparseable"] <= 0.25 * n, f"{ver['unparseable']}/{n} unparseable, reasons {dict(reasons)} (<= 25%)")
 gate("agentic_empty_content", reasons.get("empty_content", 0) <= 0.10 * n, f"{reasons.get('empty_content', 0)}/{n} empty (<= 10%)")
@@ -367,12 +375,16 @@ gate("tool_error_rate", err <= max(2 * base_err, 0.05), f"{err:.3f} vs Qwen3.8 {
 gate("bare_truncated", bare_trunc <= 0.10 * len(bare), f"{bare_trunc}/{len(bare)} bare answers hit the 16,384-token budget (<= 10%; a model without a reasoning-effort dial, Qwen3.6, truncates ~5% and that is reported per arm as empty_kind=truncated, not gated away); {bare_unp} unparseable in total, empty kinds {dict(bare_kinds)}")
 gate("tool_name_tokens", leak_names == 0, f"{leak_names} tool calls with a channel token in the name (== 0; the executor repair should have caught them)")
 gate("brave_402_429", brave == 0, f"{brave} Brave 402/429 lines in the instance log")
+known = {"tool_calls_per_query", "agentic_unparseable", "agentic_empty_content", "tool_markup_leaks",
+         "tool_error_rate", "bare_truncated", "tool_name_tokens", "brave_402_429"}
+if accept - known:
+    print(f"[FAIL] smoke/accept_gate: unknown gate name(s) {sorted(accept - known)}"); fails.append("accept_gate")
 print(f"[INFO] smoke/agentic: acc={ver['correct']/n:.2f} abstain={ver['abstain']/n:.2f} mean {mean_s:.0f}s/q; "
       f"web_search calls {web} (~${web*3.6*0.005:.2f}); forecast Track D agentic ~{mean_s*199/3600:.1f} h")
 json.dump({"calls_per_query": calls, "baseline_calls": base_calls, "verdicts": dict(ver), "reasons": dict(reasons),
            "markup_leaks": leaks, "tool_error_rate": err, "baseline_error_rate": base_err, "bare_unparseable": bare_unp,
            "bare_truncated": bare_trunc, "bare_empty_kinds": dict(bare_kinds), "tool_name_tokens": leak_names,
-           "brave_errors": brave, "mean_agentic_s": mean_s, "web_search_calls": web, "fails": fails},
+           "brave_errors": brave, "mean_agentic_s": mean_s, "web_search_calls": web, "fails": fails, "accepted": accepted},
           open(os.path.join(os.environ["RUNS"], "smoke.json"), "w"), indent=2)
 sys.exit(1 if fails else 0)
 PYEOF
