@@ -35,8 +35,34 @@ def load(profile: Path) -> dict[str, str]:
     return {"MODEL_NAME": model, "VLLM_MODEL_NAME": vllm_name, "exported": exported}
 
 
-def main() -> int:
+def venv_after(*profiles: Path) -> str:
+    """VLLM_VENV after loading the profiles in order, in one shell."""
+    loads = " && ".join(f"munin_load_model_env '{p}' >/dev/null" for p in profiles)
+    out = subprocess.run(["bash", "-c", f"source '{MODEL_ENV}' && {loads} && printf %s \"$VLLM_VENV\""],
+                         capture_output=True, text=True,
+                         env={"PATH": "/usr/bin:/bin", "MUNIN_ROOT": "/nonexistent"})
+    if out.returncode != 0:
+        raise RuntimeError(out.stdout + out.stderr)
+    return out.stdout
+
+
+def check_venv() -> int:
+    """A profile without VLLM_VENV runs on the default venv, even right after
+    one that names its own (the optional key must not leak between loads)."""
+    default = "/nonexistent/services/vllm/venv"
+    own = [p for p in PROFILES if "\nVLLM_VENV=" in "\n" + p.read_text()]
+    plain = [p for p in PROFILES if p not in own]
     failures = 0
+    for p in plain:
+        got = venv_after(*own, p)
+        ok = got == default
+        failures += not ok
+        print(f"[{'PASS' if ok else 'FAIL'}] {p.name} after {[o.name for o in own]}: VLLM_VENV={got}")
+    return failures
+
+
+def main() -> int:
+    failures = check_venv()
     for profile in PROFILES:
         got = load(profile)
         ok = got["MODEL_NAME"] and got["VLLM_MODEL_NAME"] == got["MODEL_NAME"] == got["exported"]

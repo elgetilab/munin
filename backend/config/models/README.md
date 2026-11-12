@@ -19,6 +19,7 @@ switch refuses a file with a missing key rather than guessing.
 | `MODEL_NAME` | `--served-model-name`, what every client sends as `model` |
 | `MODEL_DESC` | one line for banners and `instance ls` |
 | `HF_EXCLUDE` | optional, space-separated `hf download --exclude` globs |
+| `VLLM_VENV` | optional; the vLLM venv this model runs on. Blank or absent = `/opt/munin/services/vllm/venv`. A newer build is installed by HuginSLURM `deploy.sh vllm-venv <version>` under `/opt/munin/services/vllm-<version>/venv`; `model activate` refuses a profile whose venv has no `vllm`, so switching back to the previous profile also switches the engine back |
 | `VLLM_QUANTIZATION` | `--quantization` value; blank lets vLLM read the checkpoint |
 | `VLLM_KV_CACHE_DTYPE` | `fp8` on Ada or newer; `auto` on Ampere |
 | `VLLM_TOOL_PARSER`, `VLLM_REASONING_PARSER` | must exist in the pinned vLLM build |
@@ -33,3 +34,8 @@ switch refuses a file with a missing key rather than guessing.
 The sampling values are part of the system under test: every committed
 benchmark number for a backbone was produced under that backbone's profile,
 and changing a profile invalidates its numbers.
+
+Test starts before promotion: `MUNIN_MODELS_DIR` (checkpoint root, default
+`$MUNIN_ROOT/data/models`) and `MUNIN_VLLM_VENV` (overrides the profile's
+venv) let `start-vllm-instance.sh` serve a profile from staging paths, e.g.
+`sbatch --gres=gpu:vllm:1 --export=ALL,MUNIN_MODEL_PROFILE=<file>,MUNIN_MODELS_DIR=$HOME/munin-staging/models,MUNIN_VLLM_VENV=$HOME/munin-staging/vllm-0.33.0/venv,INSTANCE_HOST=127.0.0.1,INSTANCE_PORT=8100,INSTANCE_STATE_DIR=$HOME/munin-staging/state start-vllm-instance.sh`.

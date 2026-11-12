@@ -108,7 +108,14 @@ echo "CUDA compiler: $(which nvcc)"
 nvcc --version
 
 # Activate vLLM environment
-source /opt/munin/services/vllm/venv/bin/activate
+# The profile's vLLM build (VLLM_VENV, default /opt/munin/services/vllm/venv;
+# see model-env.sh). A model that needs a newer vLLM names its own venv.
+if [ ! -x "$VLLM_VENV/bin/vllm" ]; then
+    echo "[ERROR] no vllm in $VLLM_VENV (profile $MODEL_PROFILE_FILE); install it first"
+    exit 1
+fi
+source "$VLLM_VENV/bin/activate"
+echo "vLLM: $VLLM_VENV ($(python -c 'import vllm; print(vllm.__version__)' 2>/dev/null || echo '?'))"
 
 # Set environment variables
 # GPU 1 is assigned via SLURM gres type "vllm" (see gres.conf)

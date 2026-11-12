@@ -28,6 +28,14 @@
 MUNIN_ROOT=${MUNIN_ROOT:-/opt/munin}
 MUNIN_ACTIVE_MODEL_ENV=${MUNIN_ACTIVE_MODEL_ENV:-$MUNIN_ROOT/config/active-model.env}
 MUNIN_MODEL_PROFILES_DIR=${MUNIN_MODEL_PROFILES_DIR:-$MUNIN_ROOT/config/models}
+# Where checkpoints live. Production never sets this; a pre-promotion test run
+# points it at a staging tree (e.g. /home/<user>/munin-staging/models) so the
+# same profile can be served before `deploy.sh` moves the weights under /opt.
+MUNIN_MODELS_DIR=${MUNIN_MODELS_DIR:-$MUNIN_ROOT/data/models}
+# The vLLM venv a profile runs on when it does not name one (VLLM_VENV is an
+# optional profile key). Kept as the historical path so every existing profile
+# keeps starting on the build it was measured on.
+MUNIN_DEFAULT_VLLM_VENV=${MUNIN_DEFAULT_VLLM_VENV:-$MUNIN_ROOT/services/vllm/venv}
 
 # Every key a profile must define (blank values are allowed where noted in
 # config/models/README.md; ABSENT keys are not).
@@ -102,11 +110,24 @@ munin_load_model_env() {
     local file
     file=$(munin_model_env_file "${1:-}")
     munin_validate_model_env "$file" || return 1
+    # Optional keys start blank so a value from a previously loaded profile (or
+    # the caller's shell) cannot leak into this one.
+    VLLM_VENV=
     # shellcheck disable=SC1090
     set -a; . "$file"; set +a
 
     MODEL_PROFILE_FILE=$file
-    MODEL_PATH=$MUNIN_ROOT/data/models/$MODEL_DIR
+    MODEL_PATH=$MUNIN_MODELS_DIR/$MODEL_DIR
+    # VLLM_VENV is optional in a profile: blank or absent = the default venv.
+    # A model that needs a newer vLLM names its own venv, so `model activate`
+    # switches engine and checkpoint together and rolling back is activating
+    # the previous profile. MUNIN_VLLM_VENV (environment) overrides both, for a
+    # test start on a staging venv.
+    if [ -n "${MUNIN_VLLM_VENV:-}" ]; then
+        VLLM_VENV=$MUNIN_VLLM_VENV
+    elif [ -z "${VLLM_VENV:-}" ]; then
+        VLLM_VENV=$MUNIN_DEFAULT_VLLM_VENV
+    fi
     # Production's tokenizer dir keeps its historical name (compose mounts it
     # by default); a secondary instance stages its own under tokenizer-<slug>.
     if [ -z "${TOKENIZER_HOST_DIR:-}" ]; then
@@ -124,7 +145,7 @@ munin_load_model_env() {
     # and `model activate` of any other backbone left retrieval requesting a
     # model vLLM no longer served (every chat turn 404s).
     VLLM_MODEL_NAME=$MODEL_NAME
-    export MODEL_PROFILE_FILE MODEL_PATH TOKENIZER_HOST_DIR VLLM_QUANT_ARGS
+    export MODEL_PROFILE_FILE MODEL_PATH TOKENIZER_HOST_DIR VLLM_QUANT_ARGS VLLM_VENV
     local key
     for key in $MUNIN_MODEL_COMPOSE_EXPORTS; do
         export "$key"
@@ -142,4 +163,5 @@ munin_model_env_summary() {
     echo "  sampling    : default=${SAMPLING_DEFAULT:-qwen3-fallback}"
     echo "                code=${SAMPLING_CODE:-qwen3-fallback}"
     echo "  tokenizer   : ${TOKENIZER_HOST_DIR:-?}"
+    echo "  vllm venv   : ${VLLM_VENV:-?}"
 }

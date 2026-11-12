@@ -27,9 +27,15 @@
 #   MUNIN_MODEL_PROFILE   profile file or slug (required in practice)
 #   INSTANCE_NAME         short name, becomes part of log names (default: eval)
 #   INSTANCE_PORT         vLLM port (default: 8001)
+#   INSTANCE_HOST         bind address (default: 0.0.0.0, which the instance's
+#                         retrieval container needs; 127.0.0.1 for a bare
+#                         engine test that only host-network clients reach)
 #   INSTANCE_GPU_UTIL     --gpu-memory-utilization (default: the profile's)
 #   INSTANCE_MAX_NUM_SEQS --max-num-seqs (default: the profile's single-GPU cap)
 #   INSTANCE_STATE_DIR    where health/state files go (default: /opt/munin/instances/<name>)
+#   MUNIN_MODEL_ENV_SH, MUNIN_MODELS_DIR, MUNIN_VLLM_VENV
+#                         staging overrides for a test start before promotion
+#                         (config/models/README.md)
 #
 # Compared with start-vllm-service.sh this script is deliberately thin: no
 # retrieval container management, no window assertion (deploy.sh runs the
@@ -40,6 +46,7 @@ set -e
 
 INSTANCE_NAME=${INSTANCE_NAME:-eval}
 INSTANCE_PORT=${INSTANCE_PORT:-8001}
+INSTANCE_HOST=${INSTANCE_HOST:-0.0.0.0}
 INSTANCE_STATE_DIR=${INSTANCE_STATE_DIR:-/opt/munin/instances/$INSTANCE_NAME}
 
 # ------------------------------------------------------------------------------
@@ -47,7 +54,9 @@ INSTANCE_STATE_DIR=${INSTANCE_STATE_DIR:-/opt/munin/instances/$INSTANCE_NAME}
 # the install location first: SLURM runs a spool copy of this file).
 # ------------------------------------------------------------------------------
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-for _cand in /opt/cluster/scripts/llm/model-env.sh "$_SCRIPT_DIR/model-env.sh"; do
+# MUNIN_MODEL_ENV_SH (optional) names a loader to use instead, so a repo
+# checkout can be test-started before `deploy.sh vllm` installs it.
+for _cand in ${MUNIN_MODEL_ENV_SH:-} /opt/cluster/scripts/llm/model-env.sh "$_SCRIPT_DIR/model-env.sh"; do
     if [ -f "$_cand" ]; then source "$_cand"; break; fi
 done
 if ! declare -F munin_load_model_env > /dev/null; then
@@ -63,7 +72,9 @@ munin_load_model_env "$MUNIN_MODEL_PROFILE" || exit 1
 INSTANCE_GPU_UTIL=${INSTANCE_GPU_UTIL:-$VLLM_GPU_MEM_UTIL}
 INSTANCE_MAX_NUM_SEQS=${INSTANCE_MAX_NUM_SEQS:-$VLLM_MAX_NUM_SEQS_SINGLE}
 
-if [ -f /opt/hugin/config/cluster.env ]; then
+# -r, not -f: cluster.env is root-only (mode 600) since the 2026-10 lockdown,
+# and under `set -e` sourcing it from a non-root test job aborted the start.
+if [ -r /opt/hugin/config/cluster.env ]; then
     source /opt/hugin/config/cluster.env
 fi
 
@@ -74,7 +85,7 @@ echo "Job ID:     $SLURM_JOB_ID"
 echo "Node:       $SLURMD_NODENAME"
 echo "Start Time: $(date)"
 echo "GPU:        $CUDA_VISIBLE_DEVICES"
-echo "Port:       $INSTANCE_PORT"
+echo "Port:       $INSTANCE_HOST:$INSTANCE_PORT"
 echo "=============================================="
 munin_model_env_summary
 echo "  gpu util    : $INSTANCE_GPU_UTIL"
@@ -90,7 +101,14 @@ export CUDACXX=/opt/cuda/13.0.2/bin/nvcc
 export PATH=/opt/cuda/13.0.2/bin:$PATH
 export LD_LIBRARY_PATH=/opt/cuda/13.0.2/lib64:$LD_LIBRARY_PATH
 
-source /opt/munin/services/vllm/venv/bin/activate
+# The profile's vLLM build (VLLM_VENV, default /opt/munin/services/vllm/venv;
+# see model-env.sh). A model that needs a newer vLLM names its own venv.
+if [ ! -x "$VLLM_VENV/bin/vllm" ]; then
+    echo "[ERROR] no vllm in $VLLM_VENV (profile $MODEL_PROFILE_FILE); install it first"
+    exit 1
+fi
+source "$VLLM_VENV/bin/activate"
+echo "vLLM: $VLLM_VENV ($(python -c 'import vllm; print(vllm.__version__)' 2>/dev/null || echo '?'))"
 
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export NVIDIA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES}"
@@ -113,11 +131,11 @@ echo "starting" > "$INSTANCE_STATE_DIR/status"
 echo ""
 echo "Starting vLLM ($MODEL_NAME from $MODEL_PATH) on :$INSTANCE_PORT ..."
 # shellcheck disable=SC2086  # VLLM_QUANT_ARGS / VLLM_EXTRA_ARGS are word lists
-# 0.0.0.0, not 127.0.0.1: the retrieval container reaches the host through
+# 0.0.0.0 by default, not 127.0.0.1: the retrieval container reaches the host through
 # host.docker.internal (the docker bridge gateway), which a loopback-only bind
 # does not answer. Found on the first instance start (gates: served=False).
 vllm serve "$MODEL_PATH" \
-    --host 0.0.0.0 \
+    --host "$INSTANCE_HOST" \
     --port "$INSTANCE_PORT" \
     --gpu-memory-utilization "$INSTANCE_GPU_UTIL" \
     --max-model-len "$VLLM_MAX_MODEL_LEN" \
