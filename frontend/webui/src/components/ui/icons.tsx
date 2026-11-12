@@ -68,9 +68,9 @@ export function MenuIcon(p: IconProps) {
   return <Svg {...p}><path d="M4 6h16M4 12h16M4 18h16" /></Svg>;
 }
 
-/** A dashed clock: a chat that will not be kept. */
-export function TemporaryIcon(p: IconProps) {
-  return <Svg {...p}><path d="M12 7v5l3 2" /><path d="M10.1 2.2a10 10 0 0 1 3.8 0M17.6 3.9a10 10 0 0 1 2.5 2.6M21.8 10.1a10 10 0 0 1 0 3.8M20.1 17.5a10 10 0 0 1-2.6 2.6M13.9 21.8a10 10 0 0 1-3.8 0M6.4 20.1a10 10 0 0 1-2.5-2.6M2.2 13.9a10 10 0 0 1 0-3.8M3.9 6.5a10 10 0 0 1 2.6-2.6" /></Svg>;
+/** A little ghost: a temporary chat, which leaves nothing behind. */
+export function GhostIcon(p: IconProps) {
+  return <Svg {...p}><path d="M5 21V10a7 7 0 0 1 14 0v11l-2.33-2-2.34 2L12 19l-2.33 2-2.34-2z" /><path d="M9.5 10.5h.01M14.5 10.5h.01" strokeWidth={3} /></Svg>;
 }
 
 export function LayersIcon(p: IconProps) {

@@ -29,7 +29,7 @@ import { KnowledgePanel } from './components/KnowledgePanel';
 import { KnowledgePage } from './components/KnowledgePage';
 import { ErrorNotice } from './components/ui/ErrorNotice';
 import { LOGO_FILTER, SCRIM } from './components/ui/themeClasses';
-import { BookIcon, FlagIcon, LayersIcon, MenuIcon, TemporaryIcon } from './components/ui/icons';
+import { BookIcon, FlagIcon, GhostIcon, LayersIcon, MenuIcon } from './components/ui/icons';
 import { SessionNotice } from './components/SessionNotice';
 import { DegradedBanner } from './components/DegradedBanner';
 import { useModal } from './hooks/useModal';
@@ -312,7 +312,7 @@ export default function App() {
 
   // Hide the support button while a side panel is showing (see index.css).
   const sidePanelShowing = !showKnowledgePage && (
-    (knowledgePanelOpen && !!tagCatalog) || (artifactPanelOpen && !!conversationId && !isEphemeral)
+    (knowledgePanelOpen && !!tagCatalog) || (artifactPanelOpen && !isEphemeral)
   );
   useEffect(() => {
     document.body.classList.toggle('munin-side-panel-open', sidePanelShowing);
@@ -347,6 +347,9 @@ export default function App() {
       fetchArtifacts(conversationId)
         .then(res => setArtifacts(res.artifacts))
         .catch(() => {}); // may not have artifacts
+    } else {
+      // A new chat starts with none, not the list of the chat it came from.
+      setArtifacts([]);
     }
   }, [conversationId, isEphemeral, setArtifacts, setSelectedArtifactId]);
 
@@ -924,12 +927,13 @@ export default function App() {
             className={`${NAV_ITEM} ${isEphemeral ? NAV_WARN : NAV_IDLE}`}
             title={isEphemeral ? "Temporary chat is on. This chat won't be saved." : "Start a temporary chat that won't be saved"}
           >
-            <TemporaryIcon />
+            <GhostIcon />
             <span className={TOGGLE_LABEL}>Temporary chat</span>
           </button>
 
-          {/* Artifacts panel toggle */}
-          {conversationId && !isEphemeral && (
+          {/* Artifacts panel toggle: there from the first screen, beside Sources.
+              A temporary chat keeps no artifacts, so it has none to show. */}
+          {!isEphemeral && (
             <button
               data-testid="artifacts-button"
               onClick={() => { if (mayDropArtifactDraft()) setArtifactPanelOpen(!artifactPanelOpen); }}
@@ -1139,10 +1143,11 @@ export default function App() {
             ) : isOffline ? (
               <SleepingPage nextStart={status?.vllm?.next_start} />
             ) : isEmpty ? (
-              <div className="flex-1 flex flex-col items-center justify-center gap-6 px-4 pb-8">
-                <div className="flex items-center gap-3">
+              /* Sits a little above the middle, where the eye puts the centre. */
+              <div className="flex-1 flex flex-col items-center justify-center gap-4 px-4 pb-[12dvh]">
+                <div className="flex items-center gap-3 px-4">
                   <FeatherVortex size="idle" />
-                  <h1 className="text-2xl font-semibold text-text-primary">
+                  <h1 className="text-[1.75rem] md:text-3xl font-semibold tracking-tight text-text-primary text-center">
                     {greeting || 'How can I help you today?'}
                   </h1>
                 </div>
@@ -1187,10 +1192,11 @@ export default function App() {
           )}
 
           {/* Artifact panel */}
-          {artifactPanelOpen && conversationId && !isEphemeral && (
+          {/* Open on a new chat too: empty, and saying what will appear. */}
+          {artifactPanelOpen && !isEphemeral && (
             <ArtifactPanel
               artifacts={artifacts}
-              conversationId={conversationId}
+              conversationId={conversationId ?? ''}
             />
           )}
         </div>
