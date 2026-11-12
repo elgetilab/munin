@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { cookieDomain, readPref } from './lib/theme';
 
@@ -802,5 +802,25 @@ describe('upload page theme', () => {
     root.setAttribute('data-theme', other);
     document.dispatchEvent(new CustomEvent('munin-themechange', { detail: { pref: other, theme: other } }));
     expect(dashboard.setOptions).toHaveBeenLastCalledWith({ theme: other });
+  });
+});
+
+// Geist is served from /shared/fonts, so no page tells a third party who is
+// reading it.
+describe('self-hosted fonts', () => {
+  const pages = ['landing/index.html', 'search/index.html', 'research/index.html', 'upload/index.html',
+    'maintenance/index.html', 'docs/index.html', 'docs/architecture.html', 'docs/guide.html',
+    'shared/site.css', 'shared/auth.css', 'docs/docs.css', '../auth/templates/login.html', '../auth/templates/verify.html'];
+
+  it.each(pages)('%s asks no font host', (path) => {
+    expect(readStatic(path)).not.toMatch(/fonts\.googleapis\.com|fonts\.gstatic\.com/);
+  });
+
+  it('site.css points every @font-face at a file that ships', () => {
+    const css = readStatic('shared/site.css');
+    const urls = [...css.matchAll(/@font-face\s*\{[^}]*?url\(([^)]+)\)/g)].map((m) => m[1]);
+    expect(urls.length).toBeGreaterThan(0);
+    for (const url of urls) expect(existsSync(resolve(process.cwd(), '../static/shared', url)), url).toBe(true);
+    expect(existsSync(resolve(process.cwd(), '../static/shared/fonts/OFL.txt'))).toBe(true);
   });
 });
