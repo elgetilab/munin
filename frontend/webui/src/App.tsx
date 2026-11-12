@@ -30,6 +30,7 @@ import { KnowledgePage } from './components/KnowledgePage';
 import { ErrorNotice } from './components/ui/ErrorNotice';
 import { LOGO_FILTER, SCRIM } from './components/ui/themeClasses';
 import { BookIcon, FlagIcon, GhostIcon, LayersIcon, MenuIcon } from './components/ui/icons';
+import { ThemeToggle } from './components/ThemeToggle';
 import { SessionNotice } from './components/SessionNotice';
 import { DegradedBanner } from './components/DegradedBanner';
 import { useModal } from './hooks/useModal';
@@ -811,8 +812,8 @@ export default function App() {
             menu back in the chat has the rest. */}
         <header className="flex items-center gap-3 px-3 py-2 border-b border-border bg-bg-secondary">
           <a href={SITE_HOME} className="flex-shrink-0 flex items-center gap-2 px-1 no-underline whitespace-nowrap">
-            <img src="/shared/munin_logo_without_script.webp" alt="Munin" className={`w-7 h-7 ${LOGO_FILTER}`} />
-            <span className="text-text-primary font-semibold text-sm">Munin</span>
+            <img src="/shared/munin_logo_without_script.webp" alt="Munin" className={`h-6 ${LOGO_FILTER}`} />
+            <span className="text-text-primary font-semibold text-[15px]">Munin</span>
           </a>
           <div className="flex-1" />
           <nav className="flex-shrink-0 flex gap-0.5">
@@ -831,6 +832,8 @@ export default function App() {
             >Chat</a>
             <a href={UPLOAD_URL} className={`${NAV_ITEM} ${NAV_IDLE}`}>Upload</a>
           </nav>
+          <span aria-hidden="true" className="hidden md:block w-px h-4 bg-border" />
+          <ThemeToggle className="-ml-1.5" />
         </header>
         <KnowledgePage
           initialRoute={typeof showKnowledgePage === 'string' ? showKnowledgePage : undefined}
@@ -1005,6 +1008,9 @@ export default function App() {
             >Chat</a>
             <a href={UPLOAD_URL} className={`${NAV_ITEM} ${NAV_IDLE}`}>Upload</a>
           </nav>
+          {/* Shown at every width, with a hairline after the nav where there is one. */}
+          <span aria-hidden="true" className={`hidden w-px h-4 mx-1 bg-border ${sidebarOpen ? 'lg:block' : 'md:block'}`} />
+          <ThemeToggle />
         </header>
 
         {/* Degraded-service notice (LLM fallback or reduced mode) */}

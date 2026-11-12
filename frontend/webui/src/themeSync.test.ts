@@ -69,6 +69,6 @@ describe('shared scripts on the static and auth pages', () => {
   });
 
   it.each(auth)('auth/%s loads theme.js, so Match system and other tabs are followed', (path) => {
-    expect(read(`../auth/templates/${path}`)).toContain('<script src="/shared/theme.js" defer></script>');
+    expect(read(`../auth/templates/${path}`)).toMatch(/<script src="\/shared\/theme\.js\?v=\d+" defer><\/script>/);
   });
 });

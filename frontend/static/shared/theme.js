@@ -1,12 +1,13 @@
 /*
- * Theme switch for the static pages: Dark, Light or Match system.
+ * Theme toggle for the static pages: one sun/moon button that flips light and dark.
  *
  * Same rules as webui/src/lib/theme.ts, which the chat app uses: the choice is the
- * munin_theme cookie on the domain the Munin sites share, and dark is the default.
- * The inline head script (shared/theme-snippet.html) has already set data-theme
- * before any CSS loaded. This adds the control to the page header and keeps the
- * page in step when the choice changes in another tab, on another Munin site, or
- * in the system settings.
+ * munin_theme cookie on the domain the Munin sites share. Without one the page
+ * follows the system ("system"), and the first click stores light or dark; Match
+ * system can be chosen again in the chat's Settings. The inline head script
+ * (shared/theme-snippet.html) has already set data-theme before any CSS loaded.
+ * This adds the button to the page header and keeps the page in step when the
+ * choice changes in another tab, on another Munin site, or in the system settings.
  *
  * After a change it fires "munin-themechange" on document, with detail
  * { pref, theme }, for page code that cannot follow CSS variables (Uppy).
@@ -22,9 +23,8 @@
     // The subdomains Munin serves. A choice made on any of them must reach the
     // others, so the cookie goes on the domain they share.
     var SITE_SUBDOMAINS = ['chat', 'auth', 'docs', 'search', 'research', 'upload'];
-    var OPTIONS = [['dark', 'Dark'], ['light', 'Light'], ['system', 'Match system']];
     var root = document.documentElement;
-    var selects = [];
+    var buttons = [];
 
     /** The Domain attribute for the cookie, or null for a host-only cookie. */
     function cookieDomain(hostname) {
@@ -42,7 +42,7 @@
     /** The preference stored in a cookie string. */
     function readPref(cookie) {
         var m = String(cookie).match(/(?:^|;\s*)munin_theme=(light|dark|system)(?:;|$)/);
-        return m ? m[1] : 'dark';
+        return m ? m[1] : 'system';
     }
 
     function systemTheme() {
@@ -61,7 +61,7 @@
         try {
             return readPref(document.cookie);
         } catch (e) {
-            return 'dark';
+            return 'system';
         }
     }
 
@@ -73,7 +73,7 @@
             root.getAttribute('data-theme-pref') !== pref;
         root.setAttribute('data-theme-pref', pref);
         root.setAttribute('data-theme', theme);
-        for (var i = 0; i < selects.length; i++) selects[i].value = pref;
+        for (var i = 0; i < buttons.length; i++) label(buttons[i], theme);
         // The browser's own UI follows the page, where the page asks for that.
         var meta = document.querySelector('meta[name="theme-color"]');
         if (meta) {
@@ -94,32 +94,36 @@
         return apply(pref);
     }
 
-    var ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-        'stroke-width="2" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/>' +
-        '<path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>';
+    var SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">';
+    // The button shows where a click goes: a sun on a dark page, a moon on a light one.
+    var SUN = SVG + '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41' +
+        'M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+    var MOON = SVG + '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></svg>';
 
-    /** Adds the switch to the page header, after the nav. */
+    /** Draws the button for the theme now showing, naming what a click does. */
+    function label(button, theme) {
+        var next = theme === 'dark' ? 'light' : 'dark';
+        var text = 'Switch to ' + next + ' theme';
+        button.innerHTML = theme === 'dark' ? SUN : MOON;
+        button.setAttribute('aria-label', text);
+        button.title = text;
+    }
+
+    /** Adds the toggle to the page header, after the nav. */
     function mount() {
         var host = document.querySelector('header .header-content');
-        if (!host || host.querySelector('.theme-switch')) return;
-        var label = document.createElement('label');
-        label.className = 'theme-switch';
-        label.innerHTML = ICON;
-        var select = document.createElement('select');
-        select.setAttribute('aria-label', 'Theme');
-        select.title = 'Theme';
-        for (var i = 0; i < OPTIONS.length; i++) {
-            var option = document.createElement('option');
-            option.value = OPTIONS[i][0];
-            option.textContent = OPTIONS[i][1];
-            select.appendChild(option);
-        }
-        select.value = currentPref();
-        select.addEventListener('change', function () { setPref(select.value); });
-        label.appendChild(select);
-        host.appendChild(label);
-        host.classList.add('has-theme-switch');
-        selects.push(select);
+        if (!host || host.querySelector('.theme-toggle')) return;
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'theme-toggle';
+        label(button, resolveTheme(currentPref()));
+        button.addEventListener('click', function () {
+            setPref(root.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+        });
+        host.appendChild(button);
+        host.classList.add('has-theme-toggle');
+        buttons.push(button);
     }
 
     // A cookie change fires no event, so another tab or site's choice is picked

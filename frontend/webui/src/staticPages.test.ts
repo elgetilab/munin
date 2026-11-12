@@ -581,9 +581,9 @@ describe('upload page', () => {
   });
 });
 
-// /shared/theme.js adds the Dark, Light and Match system switch to every static
-// page header, with the same cookie rules as src/lib/theme.ts.
-describe('static theme switch', () => {
+// /shared/theme.js adds a light/dark toggle to every static page header, with
+// the same cookie rules as src/lib/theme.ts.
+describe('static theme toggle', () => {
   const themeJs = readStatic('shared/theme.js');
   const root = document.documentElement;
   const HEADER = '<header><div class="container header-content"><a class="logo">Munin</a><nav><a>Home</a></nav></div></header>';
@@ -616,11 +616,7 @@ describe('static theme switch', () => {
     };
   }
 
-  const select = () => document.querySelector<HTMLSelectElement>('header .header-content .theme-switch select')!;
-  const choose = (value: string) => {
-    select().value = value;
-    select().dispatchEvent(new Event('change', { bubbles: true }));
-  };
+  const toggle = () => document.querySelector<HTMLButtonElement>('header .header-content > .theme-toggle')!;
   // What the inline head script leaves behind before theme.js runs.
   const headScript = (pref: string, theme = pref) => {
     root.setAttribute('data-theme-pref', pref);
@@ -645,48 +641,57 @@ describe('static theme switch', () => {
     root.removeAttribute('data-theme-pref');
   });
 
-  it('adds one labelled switch to the header, showing the saved choice', () => {
+  it('adds one button after the nav, named for what a click does', () => {
     document.cookie = 'munin_theme=light; Path=/';
     headScript('light');
     const { api } = load();
     api.mount();
 
-    expect(document.querySelectorAll('.theme-switch')).toHaveLength(1);
-    expect(select().getAttribute('aria-label')).toBe('Theme');
-    expect([...select().options].map((o) => [o.value, o.textContent])).toEqual([
-      ['dark', 'Dark'], ['light', 'Light'], ['system', 'Match system'],
-    ]);
-    expect(select().value).toBe('light');
+    expect(document.querySelectorAll('.theme-toggle')).toHaveLength(1);
+    expect(toggle().previousElementSibling?.tagName).toBe('NAV');
+    expect(toggle().type).toBe('button');
+    expect(toggle().getAttribute('aria-label')).toBe('Switch to dark theme');
     // Loading changed nothing, so nothing was announced.
     expect(events).toEqual([]);
   });
 
-  it('defaults to Dark with no cookie', () => {
-    headScript('dark');
-    load();
-    expect(select().value).toBe('dark');
-    expect(root.getAttribute('data-theme')).toBe('dark');
+  it('follows the system with no cookie', () => {
+    headScript('system', 'light');
+    load({ prefersLight: true });
+    expect(root.getAttribute('data-theme')).toBe('light');
+    expect(root.getAttribute('data-theme-pref')).toBe('system');
+    expect(toggle().getAttribute('aria-label')).toBe('Switch to dark theme');
   });
 
-  it('stores a choice on the shared domain for a year, and applies it at once', () => {
+  it('a click stores the other theme on the shared domain for a year, and applies it at once', () => {
+    document.cookie = 'munin_theme=dark; Path=/';
     headScript('dark');
     const set = vi.spyOn(document, 'cookie', 'set');
     load({ hostname: 'search.muninai.org', protocol: 'https:' });
-    choose('light');
+    toggle().click();
 
     expect(set).toHaveBeenCalledWith('munin_theme=light; Path=/; Max-Age=31536000; SameSite=Lax; Domain=muninai.org; Secure');
     expect(root.getAttribute('data-theme')).toBe('light');
     expect(root.getAttribute('data-theme-pref')).toBe('light');
+    expect(toggle().getAttribute('aria-label')).toBe('Switch to dark theme');
     expect(events).toEqual([{ pref: 'light', theme: 'light' }]);
+  });
+
+  it('flips what is showing, when that came from the system', () => {
+    headScript('system', 'light');
+    load({ prefersLight: true });
+    toggle().click();
+    expect(root.getAttribute('data-theme')).toBe('dark');
+    expect(root.getAttribute('data-theme-pref')).toBe('dark');
   });
 
   it('uses a host-only cookie, without Secure, on localhost over http', () => {
     headScript('dark');
     const set = vi.spyOn(document, 'cookie', 'set');
     load({ hostname: 'localhost', protocol: 'http:' });
-    choose('system');
+    toggle().click();
 
-    expect(set).toHaveBeenCalledWith('munin_theme=system; Path=/; Max-Age=31536000; SameSite=Lax');
+    expect(set).toHaveBeenCalledWith('munin_theme=light; Path=/; Max-Age=31536000; SameSite=Lax');
   });
 
   it('works out the cookie domain and reads the cookie exactly as theme.ts does', () => {
@@ -702,20 +707,21 @@ describe('static theme switch', () => {
   });
 
   it('picks up a choice made in another tab or site when this tab comes back', () => {
+    document.cookie = 'munin_theme=dark; Path=/';
     headScript('dark');
     const { fire } = load();
 
     document.cookie = 'munin_theme=light; Path=/';
     fire('focus');
     expect(root.getAttribute('data-theme')).toBe('light');
-    expect(select().value).toBe('light');
+    expect(toggle().getAttribute('aria-label')).toBe('Switch to dark theme');
 
     fire('focus');
     fire('pageshow');
     expect(events).toEqual([{ pref: 'light', theme: 'light' }]);
   });
 
-  it('follows the system while set to Match system, and only then', () => {
+  it('follows the system while set to Match system, and stops once toggled', () => {
     // On the shared domain, as theme.js writes it, so the later choice replaces it.
     document.cookie = 'munin_theme=system; Path=/; Domain=muninai.org';
     headScript('system', 'dark');
@@ -726,7 +732,7 @@ describe('static theme switch', () => {
     expect(root.getAttribute('data-theme-pref')).toBe('system');
     expect(events).toEqual([{ pref: 'system', theme: 'light' }]);
 
-    choose('dark');
+    toggle().click();
     setSystem(false);
     setSystem(true);
     expect(root.getAttribute('data-theme')).toBe('dark');
@@ -736,7 +742,7 @@ describe('static theme switch', () => {
     document.body.innerHTML = '<main></main>';
     headScript('dark');
     const { api } = load();
-    expect(document.querySelector('.theme-switch')).toBeNull();
+    expect(document.querySelector('.theme-toggle')).toBeNull();
     expect(api.setPref('light')).toBe('light');
     expect(root.getAttribute('data-theme')).toBe('light');
   });
@@ -744,9 +750,9 @@ describe('static theme switch', () => {
   const pages = ['landing/index.html', 'search/index.html', 'research/index.html', 'upload/index.html',
     'maintenance/index.html', 'docs/index.html', 'docs/architecture.html', 'docs/guide.html'];
 
-  it.each(pages)('%s loads the switch and has a header for it', (path) => {
+  it.each(pages)('%s loads the toggle and has a header for it', (path) => {
     const html = readStatic(path);
-    expect(html).toContain('<script src="/shared/theme.js" defer></script>');
+    expect(html).toMatch(/<script src="\/shared\/theme\.js\?v=\d+" defer><\/script>/);
     const doc = new DOMParser().parseFromString(fillEnv(html), 'text/html');
     expect(doc.querySelector('header .header-content > nav')).not.toBeNull();
   });

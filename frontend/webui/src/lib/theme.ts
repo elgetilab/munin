@@ -1,4 +1,5 @@
-// Light, dark or follow the system. Dark is the default.
+// Light, dark or follow the system. With no stored choice the system decides, and
+// the header's light/dark toggle stores one (see ThemeToggle).
 //
 // The choice lives in a cookie, not localStorage, because chat, auth, docs, search,
 // research and upload are separate subdomains in production and localStorage is
@@ -32,7 +33,7 @@ export function cookieDomain(hostname: string): string | null {
 /** Pure, for tests: the preference stored in a cookie string. */
 export function readPref(cookie: string): ThemePref {
   const m = cookie.match(/(?:^|;\s*)munin_theme=(light|dark|system)(?:;|$)/);
-  return m ? (m[1] as ThemePref) : 'dark';
+  return m ? (m[1] as ThemePref) : 'system';
 }
 
 function systemTheme(): Theme {
@@ -51,7 +52,7 @@ function currentPref(): ThemePref {
   try {
     return readPref(document.cookie);
   } catch {
-    return 'dark';
+    return 'system';
   }
 }
 

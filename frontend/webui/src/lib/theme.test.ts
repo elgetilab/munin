@@ -26,11 +26,11 @@ describe('cookieDomain', () => {
 });
 
 describe('readPref', () => {
-  it('defaults to dark', () => {
-    expect(readPref('')).toBe('dark');
-    expect(readPref('munin_session=abc')).toBe('dark');
-    expect(readPref('munin_theme=purple')).toBe('dark');
-    expect(readPref('xmunin_theme=light')).toBe('dark');
+  it('follows the system without a stored choice', () => {
+    expect(readPref('')).toBe('system');
+    expect(readPref('munin_session=abc')).toBe('system');
+    expect(readPref('munin_theme=purple')).toBe('system');
+    expect(readPref('xmunin_theme=light')).toBe('system');
   });
 
   it('reads each value wherever the cookie sits', () => {
@@ -106,10 +106,12 @@ describe('the inline head script', () => {
   };
 
   it('agrees with theme.ts', () => {
-    expect(run('')).toEqual(['dark', 'dark']);
+    expect(run('')).toEqual(['system', 'dark']);
+    expect(run('', true)).toEqual(['system', 'light']);
     expect(run('a=1; munin_theme=light')).toEqual(['light', 'light']);
+    expect(run('munin_theme=dark', true)).toEqual(['dark', 'dark']);
     expect(run('munin_theme=system', true)).toEqual(['system', 'light']);
     expect(run('munin_theme=system', false)).toEqual(['system', 'dark']);
-    expect(run('munin_theme=purple')).toEqual(['dark', 'dark']);
+    expect(run('munin_theme=purple', true)).toEqual(['system', 'light']);
   });
 });
