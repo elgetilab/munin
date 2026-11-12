@@ -41,6 +41,9 @@
 #   sudo ./deploy.sh maintenance    - maintenance-mode toggle → munin-maintenance
 #   sudo ./deploy.sh tunnel         - munin-tunnel.service (+ daemon-reload + restart)
 #   sudo ./deploy.sh knowledge      - §15 embedding-map script + nightly timer
+#   sudo ./deploy.sh nightly-tests  - nightly retrieval test runner + 02:30 timer
+#                                     (not in `all`; needs a `retrieval` deploy
+#                                     first so the image ships tests/run_suite.py)
 #   sudo ./deploy.sh pipeline       - paper_pipeline.py → /opt/cluster/scripts/pipeline/ (§28)
 #   sudo ./deploy.sh retrieval      - retrieval/ code, rebuild + restart container
 #   sudo ./deploy.sh searxng        - searxng settings.yml + restart container
@@ -71,7 +74,7 @@ fi
 MODE=${1:-}
 if [ -z "$MODE" ]; then
     echo "Usage: sudo $0 [--dry-run] <mode>"
-    echo "Modes: all dirs compose personas agents models vllm model instance sudoers maintenance tunnel knowledge pipeline retrieval sandbox searxng monitoring fallback verify"
+    echo "Modes: all dirs compose personas agents models vllm model instance sudoers maintenance tunnel knowledge nightly-tests pipeline retrieval sandbox searxng monitoring fallback verify"
     exit 1
 fi
 shift
@@ -782,6 +785,33 @@ deploy_knowledge() {
     echo "[OK] knowledge - nightly timer enabled (01:30 local, see munin-embedding-map.timer)"
     echo "      First run manually with:  systemctl start munin-embedding-map.service"
     echo "      Watch progress with:       journalctl -fu munin-embedding-map.service"
+}
+
+# ------------------------------------------------------------------------------
+# nightly-tests: the live tier of backend/retrieval/tests, nightly at 02:30
+# ------------------------------------------------------------------------------
+# Not part of `all`: the runner tests the DEPLOYED image, which only ships
+# tests/run_suite.py + suite.txt from the first `retrieval` deploy after they
+# were added. Until then the script exits 2 on a precondition failure.
+deploy_nightly_tests() {
+    echo "[nightly-tests] Installing nightly_live_tests.sh + timer..."
+    need_file "$REPO_DIR/scripts/ci/nightly_live_tests.sh"
+    need_file "$REPO_DIR/config/munin-nightly-tests.service"
+    need_file "$REPO_DIR/config/munin-nightly-tests.timer"
+    run "install -d -m 0755 $CLUSTER_SCRIPTS/../ci"
+    run "install -m 0755 $REPO_DIR/scripts/ci/nightly_live_tests.sh \
+        /opt/cluster/scripts/ci/nightly_live_tests.sh"
+    run "install -d -m 0755 $MUNIN_DATA/nightly-tests"
+    run "install -m 0644 $REPO_DIR/config/munin-nightly-tests.service \
+        $SYSTEMD_DIR/munin-nightly-tests.service"
+    run "install -m 0644 $REPO_DIR/config/munin-nightly-tests.timer \
+        $SYSTEMD_DIR/munin-nightly-tests.timer"
+    run "systemctl daemon-reload"
+    run "systemctl enable munin-nightly-tests.timer"
+    run "systemctl restart munin-nightly-tests.timer"
+    echo "[OK] nightly-tests - timer enabled (02:30 local, done by 05:45)"
+    echo "     Results: $MUNIN_DATA/nightly-tests/<date>/status (PASS|FAIL) + per-file logs"
+    echo "     Dry run: sudo /opt/cluster/scripts/ci/nightly_live_tests.sh --force --dry-run"
 }
 
 
@@ -1993,6 +2023,7 @@ case "$MODE" in
     maintenance)  deploy_maintenance ;;
     tunnel)       deploy_tunnel ;;
     knowledge)    deploy_knowledge ;;
+    nightly-tests) deploy_nightly_tests ;;
     pipeline)     deploy_pipeline ;;
     searxng)      deploy_searxng ;;
     sandbox)      deploy_sandbox ;;
@@ -2022,7 +2053,7 @@ case "$MODE" in
         ;;
     *)
         echo "[ERROR] Unknown mode: $MODE"
-        echo "Modes: all dirs compose personas agents models vllm model instance sudoers maintenance tunnel knowledge pipeline retrieval sandbox searxng monitoring fallback verify"
+        echo "Modes: all dirs compose personas agents models vllm model instance sudoers maintenance tunnel knowledge nightly-tests pipeline retrieval sandbox searxng monitoring fallback verify"
         exit 1
         ;;
 esac

@@ -110,6 +110,35 @@ jobs:
           pip install pytest aiosqlite -c backend/retrieval/constraints.txt
           pytest backend/scripts/maintenance/tests/test_merge_state.py -q
 
+  retrieval-tests:
+    name: retrieval tests (hermetic tier, no network) [${{ matrix.os }}]
+    # Every push and PR. The suite runs in a ~1 GB image (the production
+    # dependency set minus torch and sentence-transformers) with
+    # --network none: no Qdrant, Neo4j, vLLM, encoder weights or internet.
+    # Which files belong here is backend/retrieval/tests/suite.txt; the live
+    # tier runs nightly on hugin (backend/scripts/ci/nightly_live_tests.sh).
+    # Pinned: ubuntu-latest moves to 26.04 on 2026-10-19. 24.04 is the
+    # supported image; 26.04 runs alongside as an early warning and may fail
+    # without failing the run.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'ubuntu-26.04' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Every test file is classified (suite.txt)
+        # Stdlib only, so it fails in seconds, before the image build.
+        run: python3 backend/retrieval/tests/run_suite.py --check
+      - name: Build the hermetic test image
+        run: |
+          docker build -t munin-retrieval-tests:ci \
+            -f backend/scripts/ci/retrieval-tests.Dockerfile backend/retrieval
+      - name: Hermetic tier (the same command reproduces this locally)
+        run: backend/scripts/ci/run_retrieval_tests.sh
+
   compose:
     name: compose invariants (single-host + cluster) [${{ matrix.os }}]
     # Pinned: ubuntu-latest moves to 26.04 on 2026-10-19. 24.04 is the
@@ -334,9 +363,10 @@ jobs:
         if: always()
         run: docker compose down -v || true
 
-# Note: the retrieval service unit tests (backend/retrieval/tests) need heavy
-# deps (torch, qdrant-client) + a running vLLM/Qdrant/Neo4j for some, so they run
-# on the cluster, not in CI. The `single-host-smoke` job above now boots that
-# image against a stub, which covers the import/startup path; the tests
-# themselves still run on the cluster. The behavioral evals (evals/run_eval.py,
-# munin_bench) are live-service and stay out of CI.
+# Note: the retrieval service unit tests (backend/retrieval/tests) are split
+# into tiers by backend/retrieval/tests/suite.txt. The hermetic tier runs in the
+# `retrieval-tests` job above on every push; the live tier (real Qdrant index
+# and encoders) runs nightly on hugin, not here. The `single-host-smoke` job
+# boots the full image against a stub, which covers the import/startup path.
+# The behavioral evals (evals/run_eval.py, munin_bench) are live-service and
+# stay out of CI.

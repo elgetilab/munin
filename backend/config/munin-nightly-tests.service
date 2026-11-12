@@ -1,0 +1,41 @@
+[Unit]
+Description=Munin nightly retrieval tests (live tier + hermetic tier in the deployed image)
+Documentation=backend/retrieval/tests/README.md
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+
+# Runs the `live` files of backend/retrieval/tests/suite.txt against the real
+# Qdrant index and staged encoders, and the `hermetic` files inside the
+# deployed image. Throwaway containers only: it never starts, stops or execs
+# into a munin-* service, mounts personas/config/models read-only and does
+# not mount /data. vLLM is not used (the run sits in the 02:00-06:00 vLLM
+# maintenance window, and the live tier points LLM_BASE_URL at a closed port).
+#
+# Installed by `sudo ./deploy.sh nightly-tests` (not part of `all`), which
+# puts the script at the ExecStart path below.
+ExecStart=/opt/cluster/scripts/ci/nightly_live_tests.sh
+
+# The script stops starting test files once less than one file's timeout
+# (FILE_TIMEOUT) remains before END_BY, and hard-stops at END_BY.
+Environment="END_BY=05:45"
+Environment="FILE_TIMEOUT=900"
+Environment="LOG_ROOT=/opt/munin/data/nightly-tests"
+# Backstop only: latest start 02:40 (timer + jitter) + 3h = 05:40.
+TimeoutStartSec=3h
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=munin-nightly-tests
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+# mkdir before the sandbox applies: ReadWritePaths needs the path to exist.
+ExecStartPre=+/bin/mkdir -p /opt/munin/data/nightly-tests
+ReadWritePaths=/opt/munin/data/nightly-tests
+ProtectHome=yes
+PrivateTmp=yes

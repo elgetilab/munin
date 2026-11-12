@@ -1,0 +1,121 @@
+# Test tiers for backend/retrieval/tests, read by run_suite.py.
+#
+# Every test_*.py and smoke_*.py in this directory MUST have a line here:
+# run_suite.py refuses to run (exit 2) while a file is unclassified, so a new
+# test cannot silently fall out of CI.
+#
+# Columns: file, tiers (comma-separated), optional runner.
+#
+#   hermetic  runs with --network none: no Qdrant, Neo4j, vLLM, encoder
+#             weights or internet. GitHub CI runs this tier on every push
+#             (.github/workflows/ci.yml, job retrieval-tests).
+#   live      needs the real Qdrant index and encoders on munin-network, but
+#             NOT vLLM (the nightly run sits inside the 02:00-06:00 vLLM
+#             maintenance window). Run nightly on hugin by
+#             backend/scripts/ci/nightly_live_tests.sh. A file in both tiers
+#             has a hermetic half and a live half that SKIPs (or stubs) when
+#             the services are absent.
+#   manual    hits vLLM and live web search (paid quota); never scheduled.
+#
+#   runner `pytest`: the file needs pytest fixtures or parametrize, so it is
+#   run with `python -m pytest` when pytest is importable. Without pytest
+#   (the production image) it runs under plain python and SKIPs what it can't.
+#
+test_api_contract.py                     hermetic
+test_artifact_dedup.py                   hermetic
+test_background_streams.py               hermetic
+test_bibref.py                           hermetic
+test_browse_tools.py                     hermetic
+test_build_full_system_prompt.py         hermetic
+test_calculator.py                       hermetic
+test_chat_context_fit.py                 hermetic
+test_citation_audit.py                   hermetic
+test_clarification_persistence.py        hermetic
+test_compaction.py                       hermetic
+test_compile_latex_args.py               hermetic
+test_config_schemas.py                   hermetic
+test_contributors_sync.py                hermetic        pytest
+test_disconnect_cleanup.py               hermetic
+test_dispatch_registry.py                hermetic
+test_document_attachment.py              hermetic
+test_document_id_guard.py                hermetic
+test_docx_extraction.py                  hermetic
+test_dr_decompose.py                     hermetic        pytest
+test_dr_report.py                        hermetic        pytest
+test_edit_python.py                      hermetic
+test_executor_outcome_classification.py  hermetic
+test_fts_query_escape.py                 hermetic
+test_gateway_token_guard.py              hermetic
+test_hooks.py                            hermetic
+test_legacy_dr_routes.py                 hermetic
+test_llm_endpoint_config.py              hermetic        pytest
+test_llm_headers.py                      hermetic
+test_local_model_or_hub.py               hermetic
+test_logging_config.py                   hermetic
+test_maintenance_flag.py                 hermetic
+test_memory_proposals.py                 hermetic
+test_metrics.py                          hermetic
+test_metrics_proxy.py                    hermetic
+test_multimodal_turn_text.py             hermetic
+test_munin_frame_shared.py               hermetic
+test_no_corpus_mode.py                   hermetic
+test_openalex_fallback.py                hermetic
+test_paper_search_merge.py               hermetic,live
+test_paper_space.py                      hermetic
+test_pdf_ocr.py                          hermetic
+test_pdf_path_resolution.py              hermetic
+test_persona_handoff.py                  hermetic
+test_persona_max_turns.py                hermetic
+test_persona_prompt_split.py             hermetic
+test_persona_render.py                   hermetic
+test_persona_tool_error_rule.py          hermetic
+test_phantom_artifact_audit.py           hermetic
+test_phantom_paper_audit.py              hermetic
+test_plan_approval_hook.py               hermetic
+test_plan_dispatchers.py                 hermetic
+test_plan_store.py                       hermetic
+test_prose_action_recovery.py            hermetic
+test_query_tags.py                       hermetic
+test_raw_mode.py                         hermetic
+test_research_resume.py                  hermetic
+test_resume_endpoint.py                  hermetic
+test_router.py                           hermetic
+test_sampling_profile.py                 hermetic        pytest
+test_sandbox_peer_guard.py               hermetic
+test_search_agent_hygiene.py             hermetic
+test_search_expansion.py                 hermetic
+test_search_queries_arg.py               hermetic
+test_search_ranking.py                   hermetic
+test_search_relevance.py                 hermetic
+test_self_description.py                 hermetic
+test_show_protein.py                     hermetic
+test_site_config.py                      hermetic
+test_source_evidence.py                  hermetic,live
+test_source_robustness.py                hermetic
+test_stop_hook_event_order.py            hermetic
+test_stream_error_persistence.py         hermetic
+test_stream_registry.py                  hermetic
+test_stream_resume_gate.py               hermetic
+test_structure_route.py                  hermetic
+test_tag_catalog.py                      hermetic
+test_token_counting.py                   hermetic
+test_tool_arg_coercion.py                hermetic
+test_tool_arg_shape_repair.py            hermetic
+test_tool_concurrency.py                 hermetic
+test_tool_result.py                      hermetic
+test_tool_search.py                      hermetic
+test_tool_validation.py                  hermetic
+test_upload_cancel.py                    hermetic
+test_upload_doi_hint.py                  hermetic
+test_url_guard.py                        hermetic
+test_usage_tracking.py                   hermetic
+test_vision_synthesis.py                 hermetic
+test_vllm_maintenance_window.py          hermetic
+test_vllm_retry.py                       hermetic
+test_vllm_window_consistency.py          hermetic
+test_web_brave.py                        hermetic
+test_web_fetch_allowset_all_tools.py     hermetic
+test_web_fetch_url_gate.py               hermetic
+test_web_pmc_fetch.py                    hermetic
+test_web_search_failsafe.py              hermetic
+smoke_dr_breadth.py                      manual

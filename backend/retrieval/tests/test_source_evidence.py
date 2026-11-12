@@ -16,6 +16,10 @@ attributions reached users).
 
     docker exec munin-retrieval python /app/tests/test_source_evidence.py
 
+The judge-flag checks stub the chunk index as well as the judge, so the whole
+file runs with no network (the CI hermetic tier). MUNIN_TEST_LIVE=1 points
+those checks at the real index instead (the nightly live tier).
+
 To run UNDEPLOYED code, mount the repo over /app, but join the compose NETWORK
 rather than the container's namespace: `--network container:munin-retrieval`
 shares the netns without the DNS that resolves `qdrant`, so every test touching
@@ -125,19 +129,60 @@ def test_bracket_tolerance_does_not_swallow_prose():
 # back announcing scored=true with every passage carrying score=null. The result
 # was cosine-ordered and looked judged, at the call site and in the trace.
 
+class _Vec(list):
+    def tolist(self):
+        return list(self)
+
+
+class _StubEncoder:
+    def encode(self, text):
+        return _Vec([0.0] * 8)
+
+
+class _Hit:
+    def __init__(self, i):
+        self.score = 0.9 - i * 0.01
+        self.payload = {"chunk_text": f"Synthetic passage {i}: the transition occurs at {300 + i} K.",
+                        "doi": f"10.0000/synthetic.{i}", "paper_id": f"p{i}",
+                        "title": f"Synthetic paper {i}", "chunk_index": 0, "total_chunks": 1}
+
+
+class _StubQdrant:
+    """Enough of QdrantClient for _mode_evidence: the collection exists and a
+    query returns synthetic chunks, one per paper so the per-paper cap keeps
+    them all."""
+    def get_collection(self, name):
+        return object()
+
+    def query_points(self, collection_name, query, limit, query_filter=None):
+        return type("R", (), {"points": [_Hit(i) for i in range(min(limit, 12))]})()
+
+
 def _with_stub_judge(reply=None, error=None):
-    """Run evidence mode against the live index with a canned judge reply."""
+    """Run evidence mode with a canned judge reply.
+
+    The index is stubbed too, so these run with no network: what they pin is
+    how the judge reply maps onto `scored` / `judge`, which does not depend on
+    what the index holds. With MUNIN_TEST_LIVE=1 (the nightly live tier) they
+    run against the real chunk index instead, as they did originally."""
     import asyncio
+    import os
+    import database as _db
 
     async def fake(system, user, **kw):
         return {"error": error} if error else {"content": reply}
 
+    live = os.environ.get("MUNIN_TEST_LIVE") == "1"
     real = S._vllm_answer
+    real_db = (_db.get_qdrant, _db.get_paper_encoder)
     S._vllm_answer = fake
+    if not live:
+        _db.get_qdrant, _db.get_paper_encoder = _StubQdrant, _StubEncoder
     try:
         return asyncio.run(S.source(refs=[], mode="evidence", question="what is the transition temperature"))
     finally:
         S._vllm_answer = real
+        _db.get_qdrant, _db.get_paper_encoder = real_db
 
 
 def test_scored_true_only_when_scores_parsed():
