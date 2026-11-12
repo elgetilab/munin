@@ -688,6 +688,11 @@ Multipart form upload.
 - `file` (required), PDF / TXT / MD / DOCX / PNG / JPG / JPEG / WEBP
 - `conversation_id` (optional), associates the upload with a conversation
   for the `payload.conversation_id` filter
+- `upload_id` (optional, added 2026-11-06), a browser-chosen id
+  (`[A-Za-z0-9_-]{8,64}`, else **400**) that lets the user cancel this
+  upload with §4.9a. If the cancel arrived while the upload was running,
+  the stored document is removed again and the upload answers **409**
+  `{"error": {"message": "Upload was cancelled"}}`.
 
 **Server-side limit**: 50 MB, same as the frontend. **413** if exceeded.
 
@@ -745,6 +750,26 @@ character. Embeddings via BGE-base (768-dim, cosine).
 
 File storage: `/data/user_docs/{sha256(email)[:16]}/{document_id}/{filename}`
 inside the container (`/opt/munin/data/user_docs/...` on the host).
+
+### 4.9a `POST /api/documents/upload/{upload_id}/cancel`
+
+Cancels the upload the browser named with `upload_id` in §4.9 and removes
+its document, whenever the request lands. The gateway does not pass a
+browser disconnect on to retrieval, so aborting the upload request alone
+leaves it running here.
+
+- Cancel before or during the upload: the upload removes its own document
+  when it finishes and answers 409.
+- Cancel after the upload finished (its reply lost or still on the way):
+  the document is deleted here.
+
+The record is kept in memory for an hour per user and `upload_id`; a
+retrieval restart forgets it, and a document that finished before the
+restart then stays.
+
+**Response (200)**: `{"cancelled": true, "deleted": <bool>}`, `deleted`
+true when this request removed a finished document. **400** for an
+`upload_id` that does not match `[A-Za-z0-9_-]{8,64}`.
 
 ### 4.10 `GET /api/documents`
 
