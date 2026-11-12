@@ -88,6 +88,14 @@ jobs:
         run: |
           pip install -r backend/llm-claude/requirements.txt -c backend/llm-claude/constraints.txt pytest
           pytest backend/llm-claude/tests -q
+      - name: llm-failover proxy tests
+        run: |
+          pip install -r backend/llm-failover/requirements.txt -c backend/llm-failover/constraints.txt pytest
+          pytest backend/llm-failover/tests -q
+      - name: api gateway tests
+        run: |
+          pip install -r frontend/gateway/requirements.txt -c frontend/gateway/constraints.txt pytest
+          pytest frontend/gateway/tests -q
       - name: benchmarks unit tests (pure functions)
         run: |
           pip install -r backend/benchmarks/requirements-ci.txt

@@ -634,6 +634,20 @@ async def _probe_http(client: httpx.AsyncClient, url: str) -> str:
         return "unavailable"
 
 
+def llm_fallback_block(models_payload: dict) -> Optional[dict]:
+    """The llm-failover proxy's `munin_llm` object, reduced to what the UI and
+    API clients need, or None when the endpoint is not that proxy."""
+    info = models_payload.get("munin_llm") if isinstance(models_payload, dict) else None
+    if not isinstance(info, dict):
+        return None
+    active = bool(info.get("fallback_active"))
+    return {
+        "active": active,
+        "model": info.get("model") if active else None,
+        "since": info.get("since") if active else None,
+    }
+
+
 @app.get("/api/models")
 async def api_models():
     """The backbone THIS instance serves, in OpenAI `/v1/models` list shape.
@@ -661,12 +675,17 @@ async def api_models():
             r = await client.get(f"{VLLM_URL}/v1/models", timeout=3.0,
                                  headers=LLM_HEADERS)
         if r.status_code == 200:
-            for m in (r.json().get("data") or []):
+            payload = r.json()
+            for m in (payload.get("data") or []):
                 if m.get("id") == VLLM_MODEL_NAME:
                     entry.update({"served": True, "created": m.get("created", 0),
                                   "max_model_len": m.get("max_model_len"),
                                   "model_path": m.get("root")})
                     break
+            fallback = llm_fallback_block(payload)
+            if fallback is not None:
+                # API clients see who is answering while the id stays stable.
+                entry["fallback"] = fallback
     except Exception:
         pass
     return {"object": "list", "data": [entry]}
@@ -687,6 +706,7 @@ async def api_status():
     vllm_status = "offline"
     vllm_model: Optional[str] = None
     next_start: Optional[str] = None
+    llm_fallback: Optional[dict] = None
 
     qdrant_url = f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections"
     neo4j_http_url = NEO4J_URI.replace("bolt://", "http://").replace(":7687", ":7474")
@@ -704,6 +724,7 @@ async def api_status():
                 models = data.get("data") or []
                 if models:
                     vllm_model = models[0].get("id")
+                llm_fallback = llm_fallback_block(data)
         except Exception:
             vllm_status = "offline"
 
@@ -743,6 +764,10 @@ async def api_status():
     return {
         "maintenance": read_maintenance(),
         "vllm": vllm_block,
+        # Set only when LLM_BASE_URL is the llm-failover proxy. `active` means
+        # the local model is down and a hosted Claude model is answering; the
+        # UI shows a banner, since messages then leave the cluster.
+        "llm_fallback": llm_fallback,
         "services": services,
         # Which paper vector space is actually serving search. Surfaced so a
         # deploy (and any eval run) can assert the encoder/collection pair

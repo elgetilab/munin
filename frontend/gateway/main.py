@@ -19,11 +19,15 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+import asyncio
+
 import httpx
 import yaml
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
+import backend_failover
+from backend_failover import NORMAL, REDUCED
 from models import CreateKeyRequest, CreateKeyResponse, KeyInfo
 
 # ── Configuration ────────────────────────────────────────────────────────────
@@ -74,6 +78,109 @@ http_client = httpx.AsyncClient(
     base_url=CLUSTER_TUNNEL, timeout=300.0,
     headers={"X-Munin-Gateway-Token": MUNIN_GATEWAY_TOKEN} if MUNIN_GATEWAY_TOKEN else None,
 )
+
+
+def _env_num(name: str, default: float) -> float:
+    raw = (os.environ.get(name) or "").strip()
+    return float(raw) if raw else default
+
+
+# ── Standby backend (layer 2 of docs/ops/HAIKU-FALLBACK.md) ─────────────────
+# Unset: no standby, no probe, every request goes to CLUSTER_TUNNEL as before.
+# Set (the Lite backend on this VPS, e.g. http://127.0.0.1:18081, a different
+# port from the tunnel's 18080): the gateway probes both and serves from the
+# standby while the cluster is unreachable. See backend_failover.py.
+BACKEND_STANDBY_URL = os.environ.get("BACKEND_STANDBY_URL", "").strip()
+standby_client = httpx.AsyncClient(
+    base_url=BACKEND_STANDBY_URL, timeout=300.0,
+    headers={"X-Munin-Gateway-Token": MUNIN_GATEWAY_TOKEN} if MUNIN_GATEWAY_TOKEN else None,
+) if BACKEND_STANDBY_URL else None
+BACKEND_PROBE_INTERVAL_S = _env_num("BACKEND_PROBE_INTERVAL_S", 5)
+backend_state = backend_failover.BackendFailover(
+    fail_after=int(_env_num("BACKEND_FAIL_AFTER", 3)),
+    recover_after=int(_env_num("BACKEND_RECOVER_AFTER", 12)),
+    min_hold_s=_env_num("BACKEND_MIN_HOLD_S", 300),
+    auto_failback=os.environ.get("BACKEND_FAILBACK", "auto").strip().lower() != "manual",
+)
+REDUCED_NOTE = os.environ.get(
+    "BACKEND_REDUCED_NOTE",
+    "Reduced mode: the main Munin server cannot be reached, so a standby is "
+    "answering. Chats from before {since} are not shown and will be back when "
+    "the main server returns. Paper search is off, and uploads wait in the "
+    "queue until then.",
+)
+
+
+def backend_client() -> httpx.AsyncClient:
+    """The client for the backend that owns requests right now."""
+    if standby_client is not None and backend_state.use_standby():
+        return standby_client
+    return http_client
+
+
+def reduced_block() -> dict | None:
+    if standby_client is None or not backend_state.use_standby():
+        return None
+    since = backend_failover.iso(backend_state.since_wall)
+    shown = since[:16].replace("T", " ") + " UTC" if since else "the outage"
+    return {"mode": REDUCED, "since": since, "history_note": REDUCED_NOTE.format(since=shown)}
+
+
+def with_backend_block(content: bytes) -> bytes:
+    """/api/status from the standby, with the `backend` block the UI's
+    reduced-mode banner reads. Unchanged if it is not a JSON object."""
+    block = reduced_block()
+    if block is None:
+        return content
+    try:
+        payload = json.loads(content)
+    except (ValueError, UnicodeDecodeError):
+        return content
+    if not isinstance(payload, dict):
+        return content
+    payload["backend"] = block
+    return json.dumps(payload).encode()
+
+
+async def _probe(client: httpx.AsyncClient) -> tuple[bool, str | None]:
+    try:
+        r = await client.get("/health", timeout=3.0)
+        return r.status_code == 200, (None if r.status_code == 200 else f"HTTP {r.status_code}")
+    except httpx.HTTPError as exc:
+        return False, type(exc).__name__
+
+
+def _persist_backend_state(moved: str | None) -> None:
+    if moved == REDUCED:
+        log.warning("backend failover: REDUCED mode, serving from standby %s (reason: %s)",
+                    BACKEND_STANDBY_URL, backend_state.reason)
+    elif moved == NORMAL:
+        log.warning("backend failover: NORMAL mode, cluster serving again. Merge the standby's "
+                    "chats since %s into the cluster (docs/ops/HAIKU-FALLBACK.md)",
+                    backend_failover.iso(backend_state.since_wall))
+    if backend_state.events or moved:
+        conn = get_db()
+        try:
+            backend_failover.save(conn, backend_state)
+        finally:
+            conn.close()
+
+
+async def backend_probe_once() -> None:
+    (p_ok, p_err), (s_ok, _) = await asyncio.gather(_probe(http_client), _probe(standby_client))
+    moved = backend_state.observe_standby(s_ok)
+    moved = backend_state.observe_primary(p_ok, p_err) or moved
+    moved = backend_state.tick() or moved
+    _persist_backend_state(moved)
+
+
+async def backend_probe_loop() -> None:
+    while True:
+        try:
+            await backend_probe_once()
+        except Exception:
+            log.exception("backend probe loop error")
+        await asyncio.sleep(BACKEND_PROBE_INTERVAL_S)
 
 # Requests-per-minute and concurrent-request limits were REMOVED 2026-08-25.
 # They existed because vLLM served only --max-num-seqs 2, so a single scripted
@@ -320,6 +427,17 @@ def track_activity(email: str, source: str):
 async def startup():
     init_db()
     load_quotas()
+    if standby_client is not None:
+        conn = get_db()
+        try:
+            backend_failover.init_schema(conn)
+            backend_failover.load(conn, backend_state)
+        finally:
+            conn.close()
+        log.info("backend failover on: cluster %s, standby %s, mode %s",
+                 CLUSTER_TUNNEL, BACKEND_STANDBY_URL, backend_state.mode)
+        if os.environ.get("BACKEND_PROBE_DISABLED") != "1":  # tests drive probes by hand
+            app.state.backend_probe = asyncio.create_task(backend_probe_loop())
 
 
 # ── API Key CRUD ─────────────────────────────────────────────────────────────
@@ -613,6 +731,53 @@ async def clear_announcement(request: Request):
     return {"ok": True}
 
 
+# ── Backend mode (layer 2 failover) ──────────────────────────────────────────
+
+@app.get("/api/backend-mode")
+async def get_backend_mode(request: Request):
+    """Which backend serves this user. Admins also get the probe state and the
+    reduced episodes, whose start times are the merge cutoffs."""
+    email, _source, _key = resolve_auth(request)
+    if not email:
+        return JSONResponse(status_code=401, content={"error": {"code": "unauthorized", "message": "Authentication required."}})
+    if standby_client is None:
+        return {"mode": NORMAL, "standby_configured": False}
+    out = {"standby_configured": True, **(reduced_block() or {"mode": NORMAL})}
+    if is_admin(request):
+        conn = get_db()
+        try:
+            out["detail"] = backend_state.status()
+            out["episodes"] = backend_failover.episodes(conn)
+        finally:
+            conn.close()
+    return out
+
+
+@app.put("/api/backend-mode")
+async def set_backend_mode(request: Request):
+    """Admin override: {"mode": "reduced" | "normal"} pins the mode, {"mode":
+    "auto"} hands it back to the probes. With BACKEND_FAILBACK=manual this is
+    how the gateway returns to the cluster, after the merge."""
+    email = request.headers.get("X-Munin-Email")
+    if not email or not is_admin(request):
+        return JSONResponse(status_code=403, content={"error": {"code": "forbidden", "message": "Admin access required."}})
+    if standby_client is None:
+        return JSONResponse(status_code=409, content={"error": {"code": "no_standby", "message": "BACKEND_STANDBY_URL is not set."}})
+    try:
+        mode = (await request.json()).get("mode")
+    except (ValueError, AttributeError):
+        mode = None
+    if mode == "auto":
+        moved = backend_state.release()
+    elif mode in (NORMAL, REDUCED):
+        moved = backend_state.force(mode, f"set by admin {email}")
+    else:
+        return JSONResponse(status_code=400, content={"error": {"code": "bad_mode", "message": "mode must be normal, reduced or auto."}})
+    log.warning("backend mode %s requested by %s, now %s", mode, email, backend_state.mode)
+    _persist_backend_state(moved)
+    return {"ok": True, **backend_state.status()}
+
+
 # ── Public Proxy (no auth) ───────────────────────────────────────────────────
 # Endpoints that are public on the cluster and don't need user authentication.
 
@@ -625,11 +790,14 @@ ROOT_FALLBACK_PREFIXES = ("search/", "retrieve", "author/", "sources")
 
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def proxy_api(request: Request, path: str):
+    # One backend per request, chosen once: a stream keeps the backend it
+    # started on even if the mode changes while it runs.
+    client = backend_client()
     # Allow public endpoints without auth
     if request.method == "GET" and any(path == p or path.startswith(p + "/") for p in PUBLIC_API_PREFIXES):
         try:
             query_string = f"?{request.url.query}" if request.url.query else ""
-            upstream_resp = await http_client.request(request.method, f"/api/{path}{query_string}")
+            upstream_resp = await client.request(request.method, f"/api/{path}{query_string}")
             return Response(content=upstream_resp.content, status_code=upstream_resp.status_code, headers=dict(upstream_resp.headers))
         except Exception as e:
             log.error(
@@ -703,7 +871,7 @@ async def proxy_api(request: Request, path: str):
             except (json.JSONDecodeError, AttributeError):
                 pass
 
-        upstream_req = http_client.build_request(
+        upstream_req = client.build_request(
             method=request.method,
             url=url,
             headers=headers,
@@ -711,7 +879,7 @@ async def proxy_api(request: Request, path: str):
         )
 
         if is_streaming:
-            upstream_resp = await http_client.send(upstream_req, stream=True)
+            upstream_resp = await client.send(upstream_req, stream=True)
 
             async def stream_and_log():
                 tokens_total = 0
@@ -756,7 +924,7 @@ async def proxy_api(request: Request, path: str):
                 media_type=upstream_resp.headers.get("content-type", "text/event-stream"),
             )
         else:
-            upstream_resp = await http_client.send(upstream_req)
+            upstream_resp = await client.send(upstream_req)
 
             # Fallback: if /api/{path} returns 404, retry as /{path}, only for
             # the root-level routes the search page calls. Unrestricted, it
@@ -764,11 +932,11 @@ async def proxy_api(request: Request, path: str):
             # the legacy /deepresearch/* reports and /mcp/call.
             if upstream_resp.status_code == 404 and path.startswith(ROOT_FALLBACK_PREFIXES):
                 fallback_url = f"/{path}{query_string}"
-                fallback_req = http_client.build_request(
+                fallback_req = client.build_request(
                     method=request.method, url=fallback_url,
                     headers=headers, content=body if body else None,
                 )
-                upstream_resp = await http_client.send(fallback_req)
+                upstream_resp = await client.send(fallback_req)
 
             duration_ms = int((time.time() - start_time) * 1000)
 
@@ -792,6 +960,12 @@ async def proxy_api(request: Request, path: str):
                     status_code=upstream_resp.status_code, model=model,
                 )
 
+            if (path == "status" and request.method == "GET"
+                    and upstream_resp.status_code == 200 and reduced_block() is not None):
+                headers_out = {k: v for k, v in upstream_resp.headers.items()
+                               if k.lower() not in ("content-length", "content-encoding", "transfer-encoding")}
+                return Response(content=with_backend_block(upstream_resp.content),
+                                status_code=200, headers=headers_out)
             return Response(
                 content=upstream_resp.content,
                 status_code=upstream_resp.status_code,
@@ -812,6 +986,7 @@ async def proxy_api(request: Request, path: str):
 @app.api_route("/v1/{path:path}", methods=["GET", "POST"])
 async def proxy_v1(request: Request, path: str):
     """Proxy /v1/* requests, mapping to /api/* on the cluster."""
+    client = backend_client()
     email, source, api_key_id = resolve_auth(request)
     if not email:
         return JSONResponse(status_code=401, content={"error": {"code": "unauthorized", "message": "Invalid API key."}})
@@ -829,7 +1004,7 @@ async def proxy_v1(request: Request, path: str):
     # succeeds while the tunnel is down. Does not count against rate/quota.
     if request.method == "GET" and path == "models":
         try:
-            r = await http_client.get("/api/models", timeout=5.0)
+            r = await client.get("/api/models", timeout=5.0)
             if r.status_code == 200:
                 d = r.json()
                 data = [{"id": m.get("id"), "object": "model",
@@ -874,12 +1049,12 @@ async def proxy_v1(request: Request, path: str):
     body = await request.body()
 
     try:
-        upstream_req = http_client.build_request(method=request.method, url=upstream_path, headers=headers, content=body if body else None)
+        upstream_req = client.build_request(method=request.method, url=upstream_path, headers=headers, content=body if body else None)
 
         if request.method == "POST":
             # Chat completions may return SSE (with persona) or JSON (raw/no persona).
             # Use streaming to handle both; accumulate body to parse JSON if not SSE.
-            upstream_resp = await http_client.send(upstream_req, stream=True)
+            upstream_resp = await client.send(upstream_req, stream=True)
             content_type = upstream_resp.headers.get("content-type", "")
             is_sse = "text/event-stream" in content_type
 
@@ -921,7 +1096,7 @@ async def proxy_v1(request: Request, path: str):
                 return Response(content=resp_body, status_code=upstream_resp.status_code,
                                 headers={k: v for k, v in upstream_resp.headers.items() if k.lower() != "transfer-encoding"})
         else:
-            upstream_resp = await http_client.send(upstream_req)
+            upstream_resp = await client.send(upstream_req)
             tokens_total = 0
             try:
                 u = upstream_resp.json().get("usage", {})

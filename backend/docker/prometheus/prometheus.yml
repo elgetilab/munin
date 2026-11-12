@@ -26,6 +26,17 @@ scrape_configs:
         labels:
           service: retrieval
 
+  # LLM failover proxy (profile llm-failover): route, upstream health,
+  # secondary token spend. Down target = profile not enabled on this host.
+  # Alert on munin_llm_failover_active == 1 (users are on Claude) and on
+  # munin_llm_failover_secondary_blocked{reason="spend_cap"} == 1.
+  - job_name: munin-llm-failover
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['munin-llm-failover:8000']
+        labels:
+          service: llm-failover
+
   # Self: keep Prometheus's own internal metrics around so we can spot
   # ingestion stalls before they hide upstream outages.
   - job_name: prometheus

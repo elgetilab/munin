@@ -189,6 +189,18 @@ Notes:
   when the two widths disagree.
 - `services.grobid` may read `unavailable` in the container-DNS form; it's
   probed at `http://grobid:8070/api/isalive`.
+- `llm_fallback` (added 2026-11) is `null` unless retrieval's LLM endpoint is
+  the `llm-failover` proxy (docs/ops/HAIKU-FALLBACK.md). Then it is
+  `{"active": false, "model": null, "since": null}` while vLLM answers, and
+  `{"active": true, "model": "claude-haiku-5-5", "since": "<ISO8601>"}` while
+  the hosted Claude model answers instead. `vllm.status` stays `running` in
+  that state (chat works), so the frontend must not show `SleepingPage`; it
+  shows a banner, because messages then go to the Anthropic API.
+- `backend` is **added by the VPS gateway**, not by retrieval, and only while
+  the gateway serves from its standby (Lite) backend because the cluster is
+  unreachable: `{"mode": "reduced", "since": "<ISO8601>", "history_note":
+  "..."}`. In that state chats from before `since` are not visible, paper
+  search is off and uploads stay queued. Absent in normal operation.
 
 ### 4.1a `GET /api/models`
 
@@ -225,6 +237,10 @@ routed through the gateway.
 - `served` is true only when vLLM currently lists that id.
 - `thinking_mode` / `reasoning_effort` are the profile's sub-task reasoning
   policy and user-turn effort; informational.
+- `fallback` is present only behind the `llm-failover` proxy, with the same
+  shape as `/api/status`'s `llm_fallback`. `id` does not change during a
+  failover, so API clients keep sending the same `model`; responses then
+  carry the Claude model's name in their own `model` field.
 
 ### 4.2 `GET /api/personas`
 

@@ -1,5 +1,9 @@
 # Cluster outage: running chat without the cluster
 
+> The automatic version of this, a standby Lite backend the VPS gateway fails
+> over to, plus Claude behind vLLM on the cluster itself, is
+> [ops/HAIKU-FALLBACK.md](ops/HAIKU-FALLBACK.md).
+
 Status: findings only, nothing deployed. Written 2026-10-21, when the cluster
 went down with a faulty PSU and the paper corpus (Qdrant + Neo4j) was assumed
 lost. The question: what can come back on a separate VPS with a hosted

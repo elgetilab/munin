@@ -28,6 +28,10 @@ Then check it against the real API, which costs well under a cent:
 
     docker compose exec llm-claude python smoke.py
 
+To use it only while a local vLLM is down, put `llm-failover` in front of both
+instead (`LLM_BASE_URL=http://llm-failover:8000`, profiles `llm-claude` and
+`llm-failover`); see docs/ops/HAIKU-FALLBACK.md.
+
 ## Settings
 
 | Variable | Default | Meaning |

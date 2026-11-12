@@ -118,3 +118,29 @@ in `backend/docs/archive/CLUSTER-USAGE-TRACKING.md`)
   non-zero priority **400s** unless the server was started with
   `--scheduling-policy priority`, so the serve flag must land
   before anything sends the field.
+
+## Q2. Degraded-service signals: `llm_fallback` and `backend` on `/api/status`  (decided)
+
+**From:** backend
+**Date:** 2026-11-12
+**Question / decision / context:**
+
+  Two-layer Claude Haiku fallback, design in
+  [`docs/ops/HAIKU-FALLBACK.md`](../../docs/ops/HAIKU-FALLBACK.md),
+  branch `feat/haiku-fallback`, not deployed. Both sides change:
+
+  - retrieval adds `llm_fallback` to `/api/status` (and `fallback` to
+    `/api/models`) when it runs behind the `llm-failover` proxy;
+  - the VPS gateway, when `BACKEND_STANDBY_URL` is set, fails over to
+    the Lite backend while the cluster is unreachable and adds a
+    `backend` block to `/api/status` in that state; new
+    `GET`/`PUT /api/backend-mode`;
+  - the web UI shows one banner for either state
+    (`DegradedBanner`).
+
+**Answer / outcome:**
+
+  Contract in [`BACKEND-API.md`](BACKEND-API.md) 4.1 / 4.1a. Deploy
+  order: cluster first (fields are optional, an old UI ignores them),
+  then the VPS after the Lite -> cluster merge, because moving Lite off
+  port 18080 hands that port back to the tunnel.

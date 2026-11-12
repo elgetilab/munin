@@ -33,6 +33,7 @@
 #   MUNIN_RETRIEVAL_SRC   /opt/munin/services/retrieval  retrieval build context
 #   MUNIN_SANDBOX_SRC     /opt/munin/services/sandbox    sandbox build context
 #   MUNIN_LLM_CLAUDE_SRC  /opt/munin/services/llm-claude llm-claude build context
+#   MUNIN_LLM_FAILOVER_SRC /opt/munin/services/llm-failover llm-failover build context
 #   MUNIN_PIPELINE_SRC    /opt/cluster/scripts/pipeline  pipeline mounted into retrieval
 #   MUNIN_PERSONAS_SRC    /opt/munin/personas            persona JSON + logos
 #   MUNIN_AGENT_CONFIG    /opt/munin/config              agents.yml, faq.yml
@@ -563,6 +564,58 @@ services:
       - default
     profiles:
       - llm-claude
+
+  # ============================================================================
+  # LLM-FAILOVER (profile: llm-failover) - OPTIONAL, vLLM first, Claude second
+  # ============================================================================
+  # Sits between retrieval and the two LLMs: the local vLLM (primary) and
+  # llm-claude (secondary, so enable the llm-claude profile too). Probes both,
+  # moves to the secondary when vLLM stops answering (job ended, model switch,
+  # OOM) and back once it is healthy again, with hysteresis. Point retrieval at
+  # it with LLM_BASE_URL=http://llm-failover:8000 and leave VLLM_URL on the
+  # real vLLM, which is what the primary defaults to. Holds no key. See
+  # docs/ops/HAIKU-FALLBACK.md.
+  llm-failover:
+    build:
+      context: ${MUNIN_LLM_FAILOVER_SRC:-/opt/munin/services/llm-failover}
+      dockerfile: Dockerfile
+    image: ${MUNIN_PREFIX:-munin}-llm-failover:latest
+    container_name: ${MUNIN_PREFIX:-munin}-llm-failover
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # the host's vLLM
+    environment:
+      - FAILOVER_PRIMARY_URL=${LLM_PRIMARY_URL:-${VLLM_URL:-http://host.docker.internal:8000}}
+      - FAILOVER_SECONDARY_URL=${LLM_SECONDARY_URL:-http://llm-claude:8000}
+      # Must equal what retrieval sends as `model` (VLLM_MODEL_NAME there): a
+      # vLLM serving another name is treated as down, as it is for retrieval.
+      - FAILOVER_PRIMARY_MODEL=${LLM_MODEL_NAME:-${VLLM_MODEL_NAME:-qwen3.8-27b}}
+      - FAILOVER_SECONDARY_MODEL=${CLAUDE_MODEL:-claude-haiku-5-5}
+      - LLM_THINKING_MODE=${LLM_THINKING_MODE:-enable_thinking}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - FAILOVER_SECONDARY_ENABLED=${FAILOVER_SECONDARY_ENABLED:-1}
+      - FAILOVER_SECONDARY_DAILY_TOKENS=${FAILOVER_SECONDARY_DAILY_TOKENS:-20000000}
+      - FAILOVER_SPEND_CAP_COOLDOWN_S=${FAILOVER_SPEND_CAP_COOLDOWN_S:-3600}
+      - FAILOVER_PROBE_INTERVAL_S=${FAILOVER_PROBE_INTERVAL_S:-5}
+      - FAILOVER_FAIL_AFTER=${FAILOVER_FAIL_AFTER:-2}
+      - FAILOVER_RECOVER_AFTER=${FAILOVER_RECOVER_AFTER:-6}
+      - FAILOVER_MIN_HOLD_S=${FAILOVER_MIN_HOLD_S:-120}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    networks:
+      - default
+    profiles:
+      - llm-failover
 
   # ============================================================================
   # vLLM (profile: gpu) - OPTIONAL, and off by default
