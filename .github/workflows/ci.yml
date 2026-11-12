@@ -96,6 +96,11 @@ jobs:
         run: |
           pip install -r frontend/gateway/requirements.txt -c frontend/gateway/constraints.txt pytest
           pytest frontend/gateway/tests -q
+      - name: monitoring scripts (vLLM health check, VPS cluster probe)
+        run: |
+          bash backend/scripts/vllm/tests/test_check_vllm_health.sh
+          pip install pytest
+          pytest frontend/monitoring/tests -q
       - name: benchmarks unit tests (pure functions)
         run: |
           pip install -r backend/benchmarks/requirements-ci.txt

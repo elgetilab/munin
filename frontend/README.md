@@ -207,6 +207,7 @@ frontend/                    # VPS-side of the monorepo
 │   └── maintenance/         # Maintenance page (reads /api/status)
 ├── docs/                    # Live design notes (+ docs/archive/ for shipped specs)
 ├── scripts/                 # backfill_contributed.py, build helpers
+├── monitoring/              # Off-host cluster probe + systemd timer (see shared/docs/MONITORING.md)
 ├── bootstrap.sh             # VPS provisioning script
 ├── .env.template            # Reference VPS env (copy to .env)
 └── docker-compose.yml       # The 5 services + webui-build (profile webui)

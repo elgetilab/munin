@@ -1,0 +1,14 @@
+[Unit]
+Description=Munin off-host cluster probe every 2 minutes
+
+[Timer]
+# Every 2 minutes. The script posts only after PROBE_DOWN_AFTER_S (600 s)
+# of consecutive failures, so a tunnel reconnect or a retrieval restart does
+# not page anyone.
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=15s
+Unit=munin-cluster-probe.service
+
+[Install]
+WantedBy=timers.target
