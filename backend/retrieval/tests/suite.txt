@@ -40,6 +40,7 @@ test_dispatch_registry.py                hermetic
 test_document_attachment.py              hermetic
 test_document_id_guard.py                hermetic
 test_docx_extraction.py                  hermetic
+test_dr_decompose.py                     hermetic        pytest
 test_dr_report.py                        hermetic        pytest
 test_edit_python.py                      hermetic
 test_executor_outcome_classification.py  hermetic
@@ -57,6 +58,8 @@ test_metrics.py                          hermetic
 test_metrics_proxy.py                    hermetic
 test_multimodal_turn_text.py             hermetic
 test_munin_frame_shared.py               hermetic
+test_no_corpus_mode.py                   hermetic
+test_openalex_fallback.py                hermetic
 test_paper_search_merge.py               hermetic,live
 test_paper_space.py                      hermetic
 test_pdf_ocr.py                          hermetic
@@ -85,6 +88,7 @@ test_search_queries_arg.py               hermetic
 test_search_ranking.py                   hermetic
 test_search_relevance.py                 hermetic
 test_self_description.py                 hermetic
+test_show_protein.py                     hermetic
 test_site_config.py                      hermetic
 test_source_evidence.py                  hermetic,live
 test_source_robustness.py                hermetic
@@ -92,6 +96,7 @@ test_stop_hook_event_order.py            hermetic
 test_stream_error_persistence.py         hermetic
 test_stream_registry.py                  hermetic
 test_stream_resume_gate.py               hermetic
+test_structure_route.py                  hermetic
 test_tag_catalog.py                      hermetic
 test_token_counting.py                   hermetic
 test_tool_arg_coercion.py                hermetic
@@ -100,6 +105,7 @@ test_tool_concurrency.py                 hermetic
 test_tool_result.py                      hermetic
 test_tool_search.py                      hermetic
 test_tool_validation.py                  hermetic
+test_upload_cancel.py                    hermetic
 test_upload_doi_hint.py                  hermetic
 test_url_guard.py                        hermetic
 test_usage_tracking.py                   hermetic
