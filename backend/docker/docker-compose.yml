@@ -331,7 +331,9 @@ services:
       - VLLM_MODEL_NAME=${LLM_MODEL_NAME:-${VLLM_MODEL_NAME:-qwen3.8-27b}}
       - LLM_THINKING_TOGGLE=${LLM_THINKING_TOGGLE:-1}
       - LLM_THINKING_MODE=${LLM_THINKING_MODE:-enable_thinking}
-      - LLM_REASONING_EFFORT=${LLM_REASONING_EFFORT:-medium}
+      # "-" not ":-": a profile that sets it EMPTY (sage-a1.5, qwen3.6) means
+      # "send no effort" (database.py), so only an UNSET value falls back.
+      - LLM_REASONING_EFFORT=${LLM_REASONING_EFFORT-medium}
       # Sampling profile per persona class (JSON objects; blank = Qwen3 set).
       - SAMPLING_DEFAULT=${SAMPLING_DEFAULT:-}
       - SAMPLING_CODE=${SAMPLING_CODE:-}
