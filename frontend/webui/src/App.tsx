@@ -29,6 +29,7 @@ import { KnowledgePanel } from './components/KnowledgePanel';
 import { KnowledgePage } from './components/KnowledgePage';
 import { ErrorNotice } from './components/ui/ErrorNotice';
 import { LOGO_FILTER, SCRIM } from './components/ui/themeClasses';
+import { BookIcon, FlagIcon, LayersIcon, MenuIcon, TemporaryIcon } from './components/ui/icons';
 import { SessionNotice } from './components/SessionNotice';
 import { DegradedBanner } from './components/DegradedBanner';
 import { useModal } from './hooks/useModal';
@@ -53,9 +54,18 @@ function isBelowMd() {
 // Set once per browser tab session; see the isEphemeral reset below.
 const SESSION_STARTED_KEY = 'munin_session_started';
 
-const PILL_BASE = 'text-xs px-2.5 py-1 rounded-full whitespace-nowrap md:whitespace-normal transition-colors cursor-pointer border';
-const PILL_OFF = 'bg-bg-tertiary border-border text-text-secondary hover:text-text-primary';
-const PILL_ACCENT = 'bg-accent/15 border-accent text-accent';
+// One look for everything in the header, the chat toggles on the left and the
+// site links on the right: a borderless 32px item that tints on hover. "On" (a
+// pressed toggle, the current page) is the accent tint; a temporary or reported
+// chat is the warning tint.
+const NAV_ITEM = 'inline-flex flex-shrink-0 items-center gap-1.5 h-8 px-2.5 rounded-md text-[13px] font-medium leading-none whitespace-nowrap no-underline transition-colors cursor-pointer';
+const NAV_IDLE = 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary';
+const NAV_ON = 'bg-accent/15 text-accent';
+const NAV_WARN = 'bg-warning/15 text-warning';
+// The chat toggles drop to their icon when the header (not the window: the
+// sidebar takes its share) is narrower than 64rem. The aria-label keeps the name.
+const TOGGLE_LABEL = 'hidden @5xl:inline';
+const COUNT_BADGE = 'min-w-4 px-1 rounded bg-bg-primary text-[11px] leading-4 text-center tabular-nums';
 // The ✕ stays at full strength: faded, it falls under 4.5:1 on the banner's tint.
 const DISMISS_BUTTON = 'flex-shrink-0 min-w-8 min-h-8 -my-1 flex items-center justify-center rounded hover:bg-current/10 transition-colors cursor-pointer text-xs';
 
@@ -796,17 +806,17 @@ export default function App() {
         {/* Standalone header for knowledge page */}
         {/* On a phone only the links that fit: the logo goes Home, and the account
             menu back in the chat has the rest. */}
-        <header className="flex items-center gap-3 px-4 py-2.5 border-b border-border bg-bg-secondary">
-          <a href={SITE_HOME} className="flex-shrink-0 flex items-center gap-2 no-underline whitespace-nowrap">
+        <header className="flex items-center gap-3 px-3 py-2 border-b border-border bg-bg-secondary">
+          <a href={SITE_HOME} className="flex-shrink-0 flex items-center gap-2 px-1 no-underline whitespace-nowrap">
             <img src="/shared/munin_logo_without_script.webp" alt="Munin" className={`w-7 h-7 ${LOGO_FILTER}`} />
             <span className="text-text-primary font-semibold text-sm">Munin</span>
           </a>
           <div className="flex-1" />
-          <nav className="flex-shrink-0 flex gap-4 text-sm whitespace-nowrap">
-            <a href={SITE_HOME} className="hidden md:inline text-text-secondary hover:text-accent no-underline transition-colors">Home</a>
-            <a href={SEARCH_URL} className="hidden md:inline text-text-secondary hover:text-accent no-underline transition-colors">Search papers</a>
-            <a href={DOCS_URL} className="hidden md:inline text-text-secondary hover:text-accent no-underline transition-colors">Docs</a>
-            <span className="text-accent" aria-current="page">Knowledge</span>
+          <nav className="flex-shrink-0 flex gap-0.5">
+            <a href={SITE_HOME} className={`hidden md:inline-flex ${NAV_ITEM} ${NAV_IDLE}`}>Home</a>
+            <a href={SEARCH_URL} className={`hidden md:inline-flex ${NAV_ITEM} ${NAV_IDLE}`}>Search papers</a>
+            <a href={DOCS_URL} className={`hidden md:inline-flex ${NAV_ITEM} ${NAV_IDLE}`}>Docs</a>
+            <span className={`${NAV_ITEM} ${NAV_ON} cursor-default`} aria-current="page">Knowledge</span>
             <a
               href="/"
               onClick={(e) => {
@@ -814,9 +824,9 @@ export default function App() {
                 e.preventDefault();
                 leaveKnowledgePage();
               }}
-              className="text-text-secondary hover:text-accent no-underline transition-colors cursor-pointer text-sm"
+              className={`${NAV_ITEM} ${NAV_IDLE}`}
             >Chat</a>
-            <a href={UPLOAD_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Upload</a>
+            <a href={UPLOAD_URL} className={`${NAV_ITEM} ${NAV_IDLE}`}>Upload</a>
           </nav>
         </header>
         <KnowledgePage
@@ -894,14 +904,15 @@ export default function App() {
         {/* Never wider than the main area: on a phone the pills can be swiped when
             they do not fit, and the page itself never scrolls sideways. From md up
             nothing can scroll, so the pill text wraps and the header grows. */}
-        <header className="flex items-center gap-2 md:gap-3 px-4 py-2.5 border-b border-border bg-bg-secondary overflow-x-auto md:overflow-x-clip [scrollbar-width:none]">
+        <header className="@container flex items-center gap-1 px-3 py-2 border-b border-border bg-bg-secondary overflow-x-auto md:overflow-x-clip [scrollbar-width:none]">
+          {/* 44px to the finger on a phone, the same 32px as its neighbours from md up. */}
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2.5 -m-2.5 text-text-secondary hover:text-text-primary text-lg cursor-pointer"
+            className={`${NAV_ITEM} ${NAV_IDLE} justify-center !px-0 w-11 h-11 -my-1.5 md:w-8 md:h-8 md:my-0 mr-1`}
             title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
             aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
           >
-            {'\u2630'}
+            <MenuIcon size={18} />
           </button>
 
           {/* Ephemeral toggle */}
@@ -909,10 +920,12 @@ export default function App() {
             data-testid="ephemeral-toggle"
             onClick={handleToggleEphemeral}
             aria-pressed={isEphemeral}
-            className={`${PILL_BASE} ${isEphemeral ? 'bg-warning/15 border-warning text-warning' : PILL_OFF}`}
+            aria-label="Temporary chat"
+            className={`${NAV_ITEM} ${isEphemeral ? NAV_WARN : NAV_IDLE}`}
             title={isEphemeral ? "Temporary chat is on. This chat won't be saved." : "Start a temporary chat that won't be saved"}
           >
-            Temporary chat
+            <TemporaryIcon />
+            <span className={TOGGLE_LABEL}>Temporary chat</span>
           </button>
 
           {/* Artifacts panel toggle */}
@@ -921,10 +934,13 @@ export default function App() {
               data-testid="artifacts-button"
               onClick={() => { if (mayDropArtifactDraft()) setArtifactPanelOpen(!artifactPanelOpen); }}
               aria-pressed={artifactPanelOpen}
-              className={`${PILL_BASE} ${artifactPanelOpen ? PILL_ACCENT : PILL_OFF}`}
+              aria-label={artifacts.length > 0 ? `Artifacts (${artifacts.length})` : 'Artifacts'}
+              className={`${NAV_ITEM} ${artifactPanelOpen ? NAV_ON : NAV_IDLE}`}
               title={artifactPanelOpen ? 'Hide artifacts' : 'Show artifacts'}
             >
-              {artifacts.length > 0 ? `Artifacts (${artifacts.length})` : 'Artifacts'}
+              <LayersIcon />
+              <span className={TOGGLE_LABEL}>Artifacts</span>
+              {artifacts.length > 0 && <span className={COUNT_BADGE}>{artifacts.length}</span>}
             </button>
           )}
 
@@ -933,12 +949,13 @@ export default function App() {
             <button
               onClick={() => { if (mayDropArtifactDraft()) setKnowledgePanelOpen(!knowledgePanelOpen); }}
               aria-pressed={knowledgePanelOpen}
-              className={`${PILL_BASE} ${knowledgePanelOpen || activeTags.length > 0 ? PILL_ACCENT : PILL_OFF}`}
+              aria-label={activeTags.length > 0 ? `Sources (${activeTags.length})` : 'Sources'}
+              className={`${NAV_ITEM} ${knowledgePanelOpen || activeTags.length > 0 ? NAV_ON : NAV_IDLE}`}
               title={knowledgePanelOpen ? 'Hide sources' : 'Choose which sources to search'}
             >
-              {activeTags.length > 0
-                ? `Sources (${activeTags.length})`
-                : 'Sources'}
+              <BookIcon />
+              <span className={TOGGLE_LABEL}>Sources</span>
+              {activeTags.length > 0 && <span className={COUNT_BADGE}>{activeTags.length}</span>}
             </button>
           )}
 
@@ -946,28 +963,21 @@ export default function App() {
           {conversationId && !isEphemeral && messages.length > 0 && (
             <button
               onClick={() => setShowReportDialog(true)}
-              className={`text-xs px-2.5 py-1 rounded-full whitespace-nowrap md:whitespace-normal transition-colors cursor-pointer border ${
-                reportedChats.has(conversationId)
-                  ? 'bg-warning/15 border-warning text-warning'
-                  : 'bg-bg-tertiary border-border text-text-secondary hover:text-text-primary'
-              }`}
+              className={`${NAV_ITEM} ${reportedChats.has(conversationId) ? NAV_WARN : NAV_IDLE}`}
               title={reportedChats.has(conversationId) ? 'Chat reported' : 'Report this chat'}
               aria-label={reportedChats.has(conversationId) ? 'Chat reported' : 'Report this chat'}
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill={reportedChats.has(conversationId) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="inline-block -mt-0.5 md:mr-1">
-                <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-                <line x1="4" y1="22" x2="4" y2="15" />
-              </svg>
-              <span className="hidden md:inline">{reportedChats.has(conversationId) ? 'Reported' : 'Report'}</span>
+              <FlagIcon filled={reportedChats.has(conversationId)} />
+              <span className={TOGGLE_LABEL}>{reportedChats.has(conversationId) ? 'Reported' : 'Report'}</span>
             </button>
           )}
 
-          <div className="flex-1" />
+          <div className="flex-1 min-w-2" />
 
-          <nav className={`hidden gap-4 text-sm ${sidebarOpen ? 'lg:flex' : 'md:flex'}`}>
-            <a href={SITE_HOME} className="text-text-secondary hover:text-accent no-underline transition-colors">Home</a>
-            <a href={SEARCH_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Search papers</a>
-            <a href={DOCS_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Docs</a>
+          <nav className={`hidden gap-0.5 ${sidebarOpen ? 'lg:flex' : 'md:flex'}`}>
+            <a href={SITE_HOME} className={`${NAV_ITEM} ${NAV_IDLE}`}>Home</a>
+            <a href={SEARCH_URL} className={`${NAV_ITEM} ${NAV_IDLE}`}>Search papers</a>
+            <a href={DOCS_URL} className={`${NAV_ITEM} ${NAV_IDLE}`}>Docs</a>
             <a
               href="/knowledge"
               onClick={(e) => {
@@ -975,7 +985,7 @@ export default function App() {
                 e.preventDefault();
                 handleOpenKnowledgePage();
               }}
-              className="text-text-secondary hover:text-accent no-underline transition-colors cursor-pointer text-sm"
+              className={`${NAV_ITEM} ${NAV_IDLE}`}
             >Knowledge</a>
             <a
               href={conversationId ? conversationPath(conversationId) : '/'}
@@ -987,9 +997,9 @@ export default function App() {
                 setEditingProject(null);
               }}
               aria-current={overlayView ? undefined : 'page'}
-              className={`${overlayView ? 'text-text-secondary hover:text-accent' : 'text-accent'} no-underline transition-colors cursor-pointer`}
+              className={`${NAV_ITEM} ${overlayView ? NAV_IDLE : NAV_ON}`}
             >Chat</a>
-            <a href={UPLOAD_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Upload</a>
+            <a href={UPLOAD_URL} className={`${NAV_ITEM} ${NAV_IDLE}`}>Upload</a>
           </nav>
         </header>
 

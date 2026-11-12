@@ -164,7 +164,7 @@ test.describe('regressions', () => {
 
     // Open conversation A and select its artifact (detail view).
     await page.getByTestId('chat-row').filter({ hasText: 'Conversation A' }).click();
-    await expect(page.getByTestId('artifacts-button')).toContainText('Artifacts (1)');
+    await expect(page.getByTestId('artifacts-button')).toHaveAccessibleName('Artifacts (1)');
     await page.getByTestId('artifacts-button').click();
     await page.getByTestId('artifact-item').filter({ hasText: 'Report A' }).click();
     await expect(page.getByTestId('artifact-panel').getByRole('heading', { name: 'Report A' })).toBeVisible();

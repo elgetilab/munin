@@ -63,3 +63,21 @@ export function SpinnerIcon(p: IconProps) {
 export function CloseIcon({ size = 12, strokeWidth = 2.5, ...p }: IconProps) {
   return <Svg size={size} strokeWidth={strokeWidth} {...p}><path d="M6 6l12 12M18 6L6 18" /></Svg>;
 }
+
+export function MenuIcon(p: IconProps) {
+  return <Svg {...p}><path d="M4 6h16M4 12h16M4 18h16" /></Svg>;
+}
+
+/** A dashed clock: a chat that will not be kept. */
+export function TemporaryIcon(p: IconProps) {
+  return <Svg {...p}><path d="M12 7v5l3 2" /><path d="M10.1 2.2a10 10 0 0 1 3.8 0M17.6 3.9a10 10 0 0 1 2.5 2.6M21.8 10.1a10 10 0 0 1 0 3.8M20.1 17.5a10 10 0 0 1-2.6 2.6M13.9 21.8a10 10 0 0 1-3.8 0M6.4 20.1a10 10 0 0 1-2.5-2.6M2.2 13.9a10 10 0 0 1 0-3.8M3.9 6.5a10 10 0 0 1 2.6-2.6" /></Svg>;
+}
+
+export function LayersIcon(p: IconProps) {
+  return <Svg {...p}><path d="M12 2 2 7l10 5 10-5z" /><path d="m2 17 10 5 10-5" /><path d="m2 12 10 5 10-5" /></Svg>;
+}
+
+/** Filled when `filled` is set: the chat has been reported. */
+export function FlagIcon({ filled, ...p }: IconProps & { filled?: boolean }) {
+  return <Svg {...p}><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" fill={filled ? 'currentColor' : 'none'} /><path d="M4 22v-7" /></Svg>;
+}

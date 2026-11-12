@@ -74,14 +74,14 @@ test.describe('panels', () => {
 });
 
 test.describe('header', () => {
-  test('on a phone the pills stay on one line and the page does not scroll sideways', async ({ page }) => {
+  test('on a phone the header items stay on one line and the page does not scroll sideways', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await installMocks(page, { chatScript: script() });
     await page.goto('/');
     await send(page);
     await page.getByTestId('artifact-panel').getByRole('button', { name: 'Close artifacts' }).click();
 
-    await expect(page.getByTestId('artifacts-button')).toHaveCSS('height', '26px');
+    await expect(page.getByTestId('artifacts-button')).toHaveCSS('height', '32px');
     expect(await horizontalOverflow(page)).toBe(0);
     const report = page.getByRole('button', { name: 'Report this chat' });
     await expect(report).toBeVisible();
