@@ -529,7 +529,7 @@ deploy_vllm() {
     echo "         $CLUSTER_SCRIPTS/start-vllm-service-tp2.sh"
 
     # Health check. A systemd TIMER rather than a /etc/cron.d entry because the
-    # cron file is written by HuginSLURM setup/07-scheduling-setup.sh, which
+    # cron file is written by Hugin setup/07-scheduling-setup.sh, which
     # runs once per node and would never reach an already-provisioned cluster.
     echo "[vllm] Installing the health-check timer..."
     run "install -m 0644 $REPO_DIR/config/munin-vllm-health.service \

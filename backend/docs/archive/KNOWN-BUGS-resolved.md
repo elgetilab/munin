@@ -13,7 +13,7 @@ Do NOT treat anything here as current. The live list is
 | 1 | Deleting a conversation orphaned its `proposed_memories` | 2026-09-02 | The rows were not inert residue: they still rendered as pills and consumed the 10-slot budget. One user sat at 10/10 from deleted chats. |
 | 2 | SSE stream-resume failed for every user | 2026-09-02 (closed, reopened, closed) | Three of its four factual claims were stale when re-checked. Closed on a verified round trip, then reopened hours later by a user: the check had covered a short turn and a 3s reconnect, while the buffer could not hold one real turn. Both bounds were then MEASURED rather than guessed, and the measurement inverted the assumption twice. |
 | 3 | Persona switch dropped identity, faked memory loss | 2026-06-10 | The "I have no memory of previous conversations" line was pure confabulation, present in no prompt. |
-| 4 | NVIDIA module drifted behind the kernel, GPUs vanished on reboot | 2026-08-31 | The guard that would have prevented it already existed in HuginSLURM and had simply never been deployed. |
+| 4 | NVIDIA module drifted behind the kernel, GPUs vanished on reboot | 2026-08-31 | The guard that would have prevented it already existed in Hugin and had simply never been deployed. |
 | 5 | `slurmd` died permanently on a missing `/dev/nvidia0` | 2026-08-31 | No `Restart=` in the packaged unit turned a recoverable driver problem into a six-hour outage nobody was told about. |
 | 6 | `build_chunk_index.py` could not use both GPUs | 2026-09-02 | The plan recorded in the entry was itself unsafe: position striding across processes silently loses papers. Hashing was implemented instead, and running two shards for the first time found a create-collection race no unit test could reach. |
 | 7 | Host-only tests crashed instead of skipping | 2026-09-03 | One of the three was not host-only at all: it would have PASSED in the deployed container and had been crashing at import for months on a path that walks off the top of the filesystem. |
@@ -724,7 +724,7 @@ and `nvidia-smi` should list both cards after any reboot.
 ### Update 2026-08-31: the guard already existed, undeployed
 
 The "suggested fix" above was already written and committed, in the OTHER
-repo. `HuginSLURM/scripts/maintenance/lib-reboot.sh` defines
+repo. `Hugin/scripts/maintenance/lib-reboot.sh` defines
 `check_reboot_safety()`, and `safe-reboot.sh` wires it in with an abort, a
 `wall` broadcast and `exit 2`. It resolves the next-boot kernel and refuses
 to reboot when its NVIDIA modules are missing, which is this outage exactly.
@@ -736,16 +736,16 @@ feature.**
 
 Correcting the record: an earlier version of this entry said `slurm.conf`
 was untracked. That was wrong, and came from running `git ls-files` in munin
-only. HuginSLURM owns and tracks `slurm.conf`, `gres.conf`, `cgroup.conf` and
+only. Hugin owns and tracks `slurm.conf`, `gres.conf`, `cgroup.conf` and
 the maintenance scripts, and deploys them with its own
 `deploy.sh config|scripts`.
 
-Fixed in HuginSLURM `b5f334c`, which also backports two live-only changes
+Fixed in Hugin `b5f334c`, which also backports two live-only changes
 that deploying would otherwise have REVERTED (`MaxCPUsPerNode=12` and the
 tp2-aware job cancel), and switches the module probe from `dpkg-query` to
 `modinfo -k` so DKMS sites are not blocked.
 
-[DONE 2026-09-01] Deployed via `HuginSLURM/deploy.sh scripts`, and the
+[DONE 2026-09-01] Deployed via `Hugin/deploy.sh scripts`, and the
 guard was run read-only against the live machine afterwards:
 `status=ok-same`, current and next-boot kernel both `7.0.0-30-generic`.
 A later change (`833ced5`) also gave the guard an off-machine alert, so
@@ -840,9 +840,9 @@ handles the timing race.
   reaches only logged-in terminals and nobody was logged in that
   morning. Documented in `shared/docs/MONITORING.md`.
 
-### Update 2026-08-31: implemented in HuginSLURM
+### Update 2026-08-31: implemented in Hugin
 
-`config/slurmd-restart.conf` in HuginSLURM `b5f334c`, installed by
+`config/slurmd-restart.conf` in Hugin `b5f334c`, installed by
 `deploy.sh config` to `/etc/systemd/system/slurmd.service.d/restart.conf`.
 It lives in `deploy_config` rather than `setup/03-slurm-install.sh` because
 setup runs once per node and would never reach an already-provisioned
@@ -855,7 +855,7 @@ drained until someone resumed it by hand. The restart policy addresses the
 cause; the dependency is worth revisiting if slurmd ever stays down for a
 reason the drop-in cannot retry past.
 
-[DONE 2026-09-01] Deployed via `HuginSLURM/deploy.sh config`; `systemctl show slurmd` confirms `Restart=on-failure`, `RestartUSec=30s`, `StartLimitBurst=10`.
+[DONE 2026-09-01] Deployed via `Hugin/deploy.sh config`; `systemctl show slurmd` confirms `Restart=on-failure`, `RestartUSec=30s`, `StartLimitBurst=10`.
 
 ---
 

@@ -78,7 +78,7 @@ mkdir -p static/landing
 ### 2.3 — Copy files from current source
 
 ```bash
-SRC=~/PycharmProjects/HuginSLURM/vps
+SRC=~/PycharmProjects/Hugin/vps
 
 # Core
 cp "$SRC/bootstrap.sh"           ./bootstrap.sh
@@ -446,12 +446,12 @@ rm -rf ~/munin-old
 
 The `auth.muninai.org` subdomain is still used — it now serves the login page from munin-auth instead of Authentik UI. Keep the DNS record.
 
-### 5.3 — Remove VPS files from HuginSLURM
+### 5.3 — Remove VPS files from Hugin
 
 On your local machine:
 
 ```bash
-cd ~/PycharmProjects/HuginSLURM
+cd ~/PycharmProjects/Hugin
 rm -rf vps/
 rm -f CURRENT-STATUS.md
 # Update README to point to munin-vps
@@ -491,5 +491,5 @@ Authentik's PostgreSQL data is in a named Docker volume — it survives director
 - [ ] Cluster tunnel still connecting (port 18080)
 - [ ] Old Authentik containers stopped
 - [ ] `.env` on VPS with HostEurope SMTP credentials
-- [ ] `vps/` and `authentik/` removed from HuginSLURM
+- [ ] `vps/` and `authentik/` removed from Hugin
 - [ ] Old backup retained for 30 days

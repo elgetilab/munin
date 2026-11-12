@@ -23,7 +23,7 @@ HOLD_FILE="/opt/munin/logs/vllm-health.hold"
 SCHEDULE_VLLM="/opt/cluster/scripts/llm/schedule-vllm.sh"
 HEALTH_URL="${VLLM_HEALTH_URL:-http://127.0.0.1:8000/v1/models}"
 
-# Serving window, matching the cron in HuginSLURM setup/07-scheduling-setup.sh
+# Serving window, matching the cron in Hugin setup/07-scheduling-setup.sh
 # (start 06:00, stop 02:00). Outside it vLLM is MEANT to be down and the GPUs
 # belong to batch work, so a restart here would steal the nightly window that
 # the chunk-index embed pass runs in.

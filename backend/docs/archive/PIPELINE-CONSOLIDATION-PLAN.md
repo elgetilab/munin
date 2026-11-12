@@ -48,7 +48,7 @@ this plan must not break.
 | `munin-embedding-map.timer` | 01:30 daily | `build_embedding_map.py` | §15 nightly rebuild of the 2D paper-embedding map + HDBSCAN clusters. Reads Qdrant, writes `/opt/munin/knowledge/embedding_map.json`. |
 | `munin-paper-cleanup.timer` | 04:00 daily | `paper_cleanup.py repair-and-clean --max-check 200 --auto-remove --limit 20` | Nightly metadata-quality sweep. Re-enriches up to 200 papers, auto-removes up to 20 whose metadata can't be verified by any of OpenAlex / Semantic Scholar / Crossref. **This is the only auto-remove path that currently runs.** |
 
-### HuginSLURM cron jobs (cluster-level, in `/etc/cron.d/hugin-cluster`)
+### Hugin cron jobs (cluster-level, in `/etc/cron.d/hugin-cluster`)
 
 | Schedule | What runs | Purpose |
 |---|---|---|
@@ -58,7 +58,7 @@ this plan must not break.
 | Daily 02:00 | `schedule-vllm.sh stop` | `scancel` the vLLM SLURM job (frees the GPU for batch). |
 | Daily 03:00 | `check-hdd-health.sh` | SMART check + alert. |
 
-None of the HuginSLURM cron jobs touch the paper corpus. Listed for
+None of the Hugin cron jobs touch the paper corpus. Listed for
 completeness.
 
 ### What the operator runs manually today

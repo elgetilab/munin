@@ -311,7 +311,7 @@ Build the React chat frontend at `chat.muninai.org`, replacing Open WebUI. Uses 
 ## Connection to Other Repositories
 
 ```
-munin-vps (this repo)          munin-backend (cluster)         HuginSLURM (cluster base)
+munin-vps (this repo)          munin-backend (cluster)         Hugin (cluster base)
 ─────────────────────          ────────────────────────         ─────────────────────────
 Caddy + munin-auth             vLLM (port 8000)                SLURM setup
 Static pages (all kept)        Retrieval API (port 8080)       CUDA/drivers

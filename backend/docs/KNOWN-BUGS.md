@@ -68,17 +68,17 @@ write-up in [`archive/KNOWN-BUGS-resolved.md`](archive/KNOWN-BUGS-resolved.md).
 
 ## 4. NVIDIA kernel module drifts behind the kernel (RESOLVED 2026-08-31)
 
-The pre-flight guard already existed in HuginSLURM (the reference
+The pre-flight guard already existed in Hugin (the reference
 cluster's provisioning repo, not public) and was simply never
 deployed; deploying it plus `modinfo -k` hardening closed it. Lives in
-`HuginSLURM/scripts/maintenance/lib-reboot.sh`. Full write-up in
+`Hugin/scripts/maintenance/lib-reboot.sh`. Full write-up in
 [`archive/KNOWN-BUGS-resolved.md`](archive/KNOWN-BUGS-resolved.md).
 
 ---
 
 ## 5. `slurmd` dies permanently when `/dev/nvidia0` is missing (RESOLVED 2026-08-31)
 
-Fixed by `HuginSLURM/config/slurmd-restart.conf`
+Fixed by `Hugin/config/slurmd-restart.conf`
 (`Restart=on-failure`). Full write-up in
 [`archive/KNOWN-BUGS-resolved.md`](archive/KNOWN-BUGS-resolved.md).
 

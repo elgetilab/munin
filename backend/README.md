@@ -371,5 +371,5 @@ restart is needed to toggle: the flag takes effect on the next
   (gateway, auth, chat UI; calls this service via the SSH tunnel).
 - [`../shared/`](../shared): cross-cut artifacts (personas,
   `contributors.yml`, contract docs in `shared/docs/`).
-- HuginSLURM (separate repo, not public): the reference cluster's base
+- Hugin (separate repo, not public): the reference cluster's base
   setup (SLURM, CUDA, users). Not a code dependency.

@@ -72,7 +72,7 @@ misses fail quietly.
 | 18 | `retrieval/chat_service.py:586,643,2433` | Qwen-shaped fallbacks | untouched; parse failures logged separately so they read as what they are |
 
 Compose's `.env` is a symlink to `/opt/hugin/config/cluster.env`
-(HuginSLURM-owned, root-only). The start scripts already `export` window
+(Hugin-owned, root-only). The start scripts already `export` window
 variables before `docker compose up` so compose substitutes them; the model
 variables ride the same mechanism. `cluster.env` is not touched.
 

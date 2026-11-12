@@ -372,7 +372,7 @@ reproduce instructions stale, and two release blockers. Decisions taken:
 | CITATION.cff author | The lab as an entity: **Elgeti Lab, Leipzig University Medical Faculty**; paper as preferred-citation once it has a DOI. |
 | DOI repair (921 mis-keyed papers) | Internal: not mentioned in the release. Checked 2026-10-05: no mis-keyed DOI ships (only as test fixtures of the bug). One LitQA2/C2 paper (tenascin review, C2 qid b8ec372b) has a duplicate under its mangled key that stayed in the C2 shadow; only the Qwen3.6 09-17 pair answered it in the absent arm. **Left as is.** |
 | Per-query data behind the paired tests | **Publish verdict tables** (qid, arm, verdict, letter; no question or answer text) for Track D, C2b and faithfulness, so the "every paired test can be regenerated" claim is true. |
-| Reference-deployment names (hugin, SLURM partitions, Hetzner, the lab corpus tag) | **Keep** as the documented example; **remove links to private repos** (HuginSLURM, munin-vps), describing that layer in a sentence instead. |
+| Reference-deployment names (hugin, SLURM partitions, Hetzner, the lab corpus tag) | **Keep** as the documented example; **remove links to private repos** (Hugin, munin-vps), describing that layer in a sentence instead. |
 
 Defaults taken without a separate question: SINGLE-HOST-PLAN.md archived with
 a stub; CHANGELOG 0.9.0 written as the first public release with a short

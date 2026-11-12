@@ -14,7 +14,7 @@ Cluster-side of the Munin monorepo (`backend/`). Everything AI on
 the university cluster: LLM serving (vLLM), RAG retrieval,
 knowledge bases (Qdrant, Neo4j), MCP tooling, deep research,
 paper pipeline, chat persistence, document embedding, and agentic
-orchestration. Assumes HuginSLURM Phase 1 is complete.
+orchestration. Assumes Hugin Phase 1 is complete.
 
 ---
 
@@ -42,7 +42,7 @@ Deep Research Daemon (systemd) → SLURM jobs on GPU 0
 
 ## What Exists (Running Now)
 
-These are already deployed from HuginSLURM Phase 2:
+These are already deployed from Hugin Phase 2:
 
 - Docker Compose: Qdrant, Neo4j, GROBID, SearXNG, retrieval service, sandbox sidecar (Cloudflared and the legacy status page were since removed)
 - Retrieval service: `/retrieve`, `/search/hybrid`, `/citations/{doi}`, `/references/{doi}`, MCP endpoints (`/mcp/sse`, `/mcp/call`)
@@ -298,7 +298,7 @@ for removal have been excised:
 ## Related
 
 ```
-HuginSLURM (separate repo, complete)
+Hugin (separate repo, complete)
   └── SLURM, CUDA, users, storage, partitions
 
 munin (this monorepo)

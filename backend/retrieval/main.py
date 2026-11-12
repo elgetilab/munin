@@ -499,7 +499,7 @@ async def health_check():
 # ==============================================================================
 # --- nightly vLLM maintenance window -----------------------------------------
 #
-# The cluster stops vLLM overnight to free both GPUs (HuginSLURM cron:
+# The cluster stops vLLM overnight to free both GPUs (Hugin cron:
 # `schedule-vllm.sh stop` at 02:00, `start` at 06:00). Those cron times are
 # CLUSTER-LOCAL, but this container runs in UTC, so the schedule has to be
 # evaluated in an explicit zone. Reading `hour=6` in container-local time
