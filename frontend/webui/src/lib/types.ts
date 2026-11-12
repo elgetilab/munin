@@ -306,6 +306,19 @@ export interface SystemStatus {
   };
   services: Record<string, 'ok' | 'error' | 'unavailable'>;
   timestamp: string;
+  // Set by retrieval behind the llm-failover proxy: active while a hosted
+  // Claude model answers because the local model is down.
+  llm_fallback?: {
+    active: boolean;
+    model?: string | null;
+    since?: string | null;
+  } | null;
+  // Added by the VPS gateway while it serves from the standby backend.
+  backend?: {
+    mode: 'reduced';
+    since?: string | null;
+    history_note?: string;
+  };
 }
 
 // ── Projects ─────────────────────────────────────────────────────────────────

@@ -132,6 +132,16 @@ services:
       # CLUSTER_TUNNEL is the old name and still works.
       CLUSTER_TUNNEL: ${BACKEND_URL:-${CLUSTER_TUNNEL:-http://127.0.0.1:18080}}
       MUNIN_GATEWAY_TOKEN: ${MUNIN_GATEWAY_TOKEN:-}
+      # Standby backend (a Lite install on this host, on a port other than
+      # the tunnel's). Empty: no failover, behaviour as before. Caddy's
+      # /paper/* and the upload hook stay on BACKEND_URL on purpose: papers
+      # and ingest need the cluster, and uploads wait in the queue meanwhile.
+      # See docs/ops/HAIKU-FALLBACK.md.
+      BACKEND_STANDBY_URL: ${BACKEND_STANDBY_URL:-}
+      BACKEND_FAILBACK: ${BACKEND_FAILBACK:-auto}
+      BACKEND_FAIL_AFTER: ${BACKEND_FAIL_AFTER:-3}
+      BACKEND_RECOVER_AFTER: ${BACKEND_RECOVER_AFTER:-12}
+      BACKEND_MIN_HOLD_S: ${BACKEND_MIN_HOLD_S:-300}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
 
   # ── webui-build - build the chat SPA without a host Node toolchain ─────────

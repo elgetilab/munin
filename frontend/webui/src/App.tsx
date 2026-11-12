@@ -30,6 +30,7 @@ import { KnowledgePage } from './components/KnowledgePage';
 import { ErrorNotice } from './components/ui/ErrorNotice';
 import { LOGO_FILTER, SCRIM } from './components/ui/themeClasses';
 import { SessionNotice } from './components/SessionNotice';
+import { DegradedBanner } from './components/DegradedBanner';
 import { useModal } from './hooks/useModal';
 import type { Project } from './lib/types';
 import { AUTH_BASE, DOCS_URL, SEARCH_URL, SITE_HOME, UPLOAD_URL } from './lib/urls';
@@ -991,6 +992,9 @@ export default function App() {
             <a href={UPLOAD_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Upload</a>
           </nav>
         </header>
+
+        {/* Degraded-service notice (LLM fallback or reduced mode) */}
+        <DegradedBanner status={status} />
 
         {/* Announcement banner */}
         {announcement && !announcementDismissed && (
