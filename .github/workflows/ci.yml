@@ -92,6 +92,10 @@ jobs:
         run: |
           pip install -r backend/benchmarks/requirements-ci.txt
           pytest backend/benchmarks/tests -q
+      - name: state merge tool tests (chats.db + user_docs; Qdrant part skips)
+        run: |
+          pip install pytest aiosqlite -c backend/retrieval/constraints.txt
+          pytest backend/scripts/maintenance/tests/test_merge_state.py -q
 
   compose:
     name: compose invariants (single-host + cluster) [${{ matrix.os }}]
