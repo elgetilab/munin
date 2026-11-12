@@ -13,7 +13,6 @@ import type { ToolCall } from './types';
 export function detectPhase(streaming: { toolCalls: ToolCall[] }): string {
   if (streaming.toolCalls.length > 0) {
     const last = streaming.toolCalls[streaming.toolCalls.length - 1];
-    if (last.name === 'invoke_agent') return 'deep_research';
     if (['paper_search', 'semantic_scholar_search', 'paper_lookup', 'get_citations', 'get_references', 'get_author_papers', 'check_papers_availability'].includes(last.name)) {
       return 'paper_search';
     }

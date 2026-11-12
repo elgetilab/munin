@@ -271,7 +271,7 @@ RETURN p.doi, p.title, groups
 ## Deploy
 
 ```bash
-sudo ./deploy.sh agents       # syncs faq.yml + agents.yml; seeds contributors.yml only if absent
+sudo ./deploy.sh agents       # syncs faq.yml; seeds contributors.yml only if absent
 sudo ./deploy.sh pipeline     # syncs paper_pipeline.py → /opt/cluster/scripts/pipeline/
 sudo ./deploy.sh compose      # new volume mounts (:rw on /papers, pipeline mount)
 sudo ./deploy.sh retrieval    # rebuild container with the endpoint + `requests` dep

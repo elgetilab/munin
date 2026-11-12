@@ -110,17 +110,6 @@ export interface ToolCall {
   arguments: Record<string, unknown>;
   result?: unknown;
   duration_ms?: number;
-  // Populated for invoke_agent tool calls
-  agent?: AgentState | null;
-}
-
-export interface AgentState {
-  name: string;
-  query: string;
-  thinking: string;
-  toolCalls: ToolCall[];
-  stoppedReason?: string;
-  durationSeconds?: number;
 }
 
 export interface RagContext {
@@ -219,11 +208,6 @@ export type SSEEvent =
   | { type: 'clarification'; data: Clarification }
   | { type: 'artifact_created'; data: ArtifactCreatedEvent }
   | { type: 'artifact_updated'; data: ArtifactUpdatedEvent }
-  | { type: 'agent_start'; data: { agent: string; query: string } }
-  | { type: 'agent_thinking'; data: { content: string } }
-  | { type: 'agent_tool_call'; data: { id: string; name: string; arguments: Record<string, unknown> } }
-  | { type: 'agent_tool_result'; data: { id: string; name: string; result: unknown; duration_ms?: number } }
-  | { type: 'agent_done'; data: { agent: string; tool_calls: number; duration_seconds: number; stopped_reason: string } }
   | { type: 'routing'; data: { profile: string; pin: string | null; method: string; confidence?: number } }
   | { type: 'retrying'; data: { attempt: number; max_attempts: number; delay_s: number; reason: string } }
   | { type: 'reconnecting'; data: { attempt: number; max_attempts: number; delay_s: number } }

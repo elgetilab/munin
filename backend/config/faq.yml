@@ -63,15 +63,15 @@ topics:
   agents:
     question: "What are agents?"
     answer: |
-      Agents are bounded tool-calling workflows the main model can
-      delegate to via `invoke_agent(agent, query)`. They run their own
-      nested tool loop under a dedicated system prompt with guardrails
-      (max iterations, max tool calls, wall-clock timeout) and return a
-      structured answer. Use them for work that is substantially more
-      than a single tool call - deep literature reviews, structured
-      code reviews, long-form writing with citations. See the
-      `=== AVAILABLE AGENTS ===` block in the system prompt for the
-      currently-registered agents.
+      Munin's specialised agents are tools the main model calls
+      directly: `search` finds papers and web sources across the local
+      corpus, Semantic Scholar and the web; `source` reads a paper or
+      page and answers grounded questions about it (or compares
+      several); `compute` turns a specification into verified code and
+      runs it. Long, multi-source investigations run as Deep Research:
+      open the "+" menu next to the message box, turn on "Deep
+      Research", and send the question. It runs in the background and
+      delivers a cited report as an artifact in the conversation.
 
   ephemeral_chats:
     question: "What is incognito / ephemeral mode?"
@@ -135,9 +135,10 @@ topics:
         Fields like `about_me`, `response_format`, `default_persona`,
         `timezone`. Cap of 1500 chars per field. Applied to every
         persistent chat automatically.
-      - **User memory** (the model curates): the model calls
-        `remember(key, value)` when you tell it something it should
-        retain across sessions. Capped at 20 entries, 200 chars per
-        value, LRU eviction on overflow. Call `recall()` to see what
-        the model currently remembers, or `forget(key)` to delete one.
+      - **User memory** (you confirm): after a turn, Munin may propose
+        a fact worth keeping across sessions, shown as a pill under the
+        reply with accept and reject buttons. Accepted facts are stored
+        (capped at 20 entries, 200 chars per value, LRU eviction on
+        overflow); rejected keys are not proposed again. Ask the model
+        what it remembers about you and it can list them with `recall()`.
       Both stores are skipped in ephemeral chats.

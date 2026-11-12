@@ -60,19 +60,15 @@ def _install_recorder(delay_s: float = 0.05) -> _Recorder:
     rec = _Recorder(delay_s)
     # Patch the symbol both modules pulled in at import time.
     import chat_service  # noqa: E402
-    import agents.parallel as agents_parallel  # noqa: E402
     mcp_executor.execute_mcp_tool = rec  # type: ignore[assignment]
     chat_service.execute_mcp_tool = rec  # type: ignore[assignment]
-    agents_parallel.execute_mcp_tool = rec  # type: ignore[assignment]
     return rec
 
 
 def _uninstall_recorder() -> None:
     import chat_service  # noqa: E402
-    import agents.parallel as agents_parallel  # noqa: E402
     mcp_executor.execute_mcp_tool = _real_execute  # type: ignore[assignment]
     chat_service.execute_mcp_tool = _real_execute  # type: ignore[assignment]
-    agents_parallel.execute_mcp_tool = _real_execute  # type: ignore[assignment]
 
 
 def _intervals_overlap(
@@ -88,14 +84,13 @@ def _intervals_overlap(
 def test_partition_marks_known_mutators_unsafe() -> bool:
     mutators = [
         "create_artifact", "update_artifact", "save_artifact_to_documents",
-        "remember", "forget",
-        "run_python", "sandbox_reset", "compile_latex",
+        "edit_python", "run_python", "sandbox_reset", "compile_latex",
     ]
     calls = [{"id": f"tc{i}", "name": n, "arguments": {}}
              for i, n in enumerate(mutators)]
     safe, unsafe = partition_by_concurrency_safety(calls)
     return _check(
-        "partition: all 8 known mutators land in the unsafe bucket",
+        "partition: all 7 known mutators land in the unsafe bucket",
         len(safe) == 0 and len(unsafe) == len(mutators)
         and [tc["name"] for _, tc in unsafe] == mutators,
         f"safe={[tc['name'] for _, tc in safe]}, unsafe={[tc['name'] for _, tc in unsafe]}",
@@ -131,7 +126,7 @@ def test_partition_preserves_index() -> bool:
         {"id": "tc0", "name": "paper_search", "arguments": {}},
         {"id": "tc1", "name": "update_artifact", "arguments": {}},
         {"id": "tc2", "name": "web_search", "arguments": {}},
-        {"id": "tc3", "name": "remember", "arguments": {}},
+        {"id": "tc3", "name": "sandbox_reset", "arguments": {}},
     ]
     safe, unsafe = partition_by_concurrency_safety(calls)
     safe_indices = [idx for idx, _ in safe]
@@ -262,7 +257,7 @@ def test_single_unsafe_tool_works() -> bool:
     try:
         from chat_service import _run_tool_calls
 
-        calls = [{"id": "tc0", "name": "remember", "arguments": {}}]
+        calls = [{"id": "tc0", "name": "sandbox_reset", "arguments": {}}]
         results = asyncio.run(_run_tool_calls(calls))
     finally:
         _uninstall_recorder()
@@ -270,39 +265,7 @@ def test_single_unsafe_tool_works() -> bool:
         "single unsafe tool dispatches normally",
         len(results) == 1
         and results[0]["id"] == "tc0"
-        and results[0]["name"] == "remember",
-    )
-
-
-# ---------------------------------------------------------------------------
-# run_tools_parallel (agents/parallel)
-# ---------------------------------------------------------------------------
-
-def test_agents_parallel_partitions_too() -> bool:
-    """Same policy must apply on the sub-agent path."""
-    rec = _install_recorder(delay_s=0.04)
-    try:
-        from agents.parallel import run_tools_parallel
-
-        calls = [
-            {"id": "atc0", "name": "remember", "arguments": {"k": 0}},
-            {"id": "atc1", "name": "paper_search", "arguments": {"k": 1}},
-            {"id": "atc2", "name": "remember", "arguments": {"k": 2}},
-        ]
-        allowed = ["remember", "paper_search"]
-        results = asyncio.run(run_tools_parallel(calls, allowed))
-    finally:
-        _uninstall_recorder()
-
-    unsafe_log = [(s, e) for n, s, e, _ in rec.log if n == "remember"]
-    unsafe_serial = (
-        len(unsafe_log) == 2 and unsafe_log[0][1] <= unsafe_log[1][0] + 1e-6
-    )
-    ids_in_order = [r["id"] for r in results]
-    return _check(
-        "agents/parallel: unsafe serialised, output in declared order",
-        ids_in_order == ["atc0", "atc1", "atc2"] and unsafe_serial,
-        f"ids={ids_in_order}, unsafe_log={unsafe_log}",
+        and results[0]["name"] == "sandbox_reset",
     )
 
 
@@ -320,7 +283,6 @@ TESTS = [
     test_mixed_batch_preserves_output_order,
     test_empty_batch_returns_empty,
     test_single_unsafe_tool_works,
-    test_agents_parallel_partitions_too,
 ]
 
 

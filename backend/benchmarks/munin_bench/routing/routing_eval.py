@@ -457,7 +457,10 @@ SEED_ITEMS: list[RoutingEvalItem] = [
                   "mandates it). Tests mode selection, not just tool selection.",
     ),
 
-    # --- deep_research: substantive question -> deep_research FIRST -------
+    # --- deep_research: substantive question -> search FIRST -------------
+    # The category keeps its name for scorecard continuity. The legacy
+    # deep_research TOOL was retired (2026-10); the in-chat path is `search`,
+    # and the background Deep Research report is a user-facing toggle.
     RoutingEvalItem(
         id="sota_phip",
         category="deep_research",
@@ -465,15 +468,15 @@ SEED_ITEMS: list[RoutingEvalItem] = [
               "polarization for in-vivo imaging?",
         expected=Expected(
             profile="research",
-            first_tool="deep_research",
+            first_tool="search",
             forbidden_tools=[],  # firing paper_search/web_search separately is the wrong PRIMARY path
-            soft_max_calls=8,    # A5: deep_research fans out internally; a turn with many
+            soft_max_calls=8,    # A5: search fans out internally; a turn with many
                                  # separate searches is the over-tooling anti-pattern (diagnostic)
             reward_basis=["first_tool"],
         ),
-        rationale="Substantive 'state of the art' research -> deep_research first "
-                  "(chat.json TOOL USAGE STRATEGY). It fans out internally; doing it "
-                  "by hand with separate searches is the anti-pattern.",
+        rationale="Substantive 'state of the art' research -> search first "
+                  "(research.json: the default opening move is `search`). It fans out "
+                  "internally; doing it by hand with separate searches is the anti-pattern.",
     ),
 
     # --- corpus_qa: tag-scoped local corpus, not Semantic Scholar --------
@@ -592,21 +595,21 @@ SEED_ITEMS: list[RoutingEvalItem] = [
                   "compare_papers. deep_research over-routes for two known papers.",
     ),
 
-    # --- memory: store a durable fact ------------------------------------
+    # --- memory: a durable fact is acknowledged, not researched -----------
+    # The remember/forget tools were retired (2026-10): the post-turn memory
+    # extraction hook proposes the fact as an accept/reject pill instead. The
+    # id is kept so the frozen paraphrase set still attaches to this anchor.
     RoutingEvalItem(
         id="remember_research_area",
         category="memory",
         query="Just so you know going forward, I work on dissolution-DNP.",
         expected=Expected(
-            required_tools=[ToolExpectation(
-                name="remember",
-                arg_predicates=[Predicate(path="value", op=PredOp.REGEX, value="(?i)dnp")],
-                via_tool_search_ok=True,
-            )],
-            forbidden_tools=["web_search", "paper_search"],
-            reward_basis=["required", "forbidden"],
+            forbidden_tools=["web_search", "paper_search", "search",
+                             "semantic_scholar_search", "ask_clarification"],
+            reward_basis=["forbidden"],
         ),
-        rationale="A durable user fact 'going forward' -> remember. Not a search.",
+        rationale="A durable user fact 'going forward' is acknowledged; the memory "
+                  "extraction hook proposes it after the turn. Not a search.",
     ),
 
     # --- citation_export: BibTeX for several DOIs ------------------------

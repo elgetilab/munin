@@ -135,7 +135,7 @@ _PARAPHRASES: dict[str, list[str]] = {
         "How many nanoseconds is 2 microseconds?",
     ],
 
-    # deep_research -- substantive 'state of the art' -> deep_research FIRST.
+    # deep_research -- substantive 'state of the art' -> search FIRST.
     "sota_phip": [
         "Give me a comprehensive overview of the state of the art in dissolution DNP for clinical imaging.",
         "Do a thorough survey of recent advances in SABRE catalyst design.",
@@ -223,8 +223,8 @@ _PARAPHRASES: dict[str, list[str]] = {
         "Fetch and read 10.1021/jacs.0c01234, then summarise the findings.",
     ],
 
-    # memory -- durable user fact -> remember. Predicate: value REGEX (?i)dnp.
-    # KEEP "DNP" in every paraphrase.
+    # memory -- durable user fact -> acknowledged, no search (the remember tool
+    # was retired; the extraction hook proposes it). KEEP "DNP" in every paraphrase.
     "remember_research_area": [
         "For future reference, my work centres on dissolution DNP.",
         "Please remember that I specialise in DNP.",

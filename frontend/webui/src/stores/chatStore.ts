@@ -44,7 +44,6 @@ import {
   streamChat,
 } from '../lib/api';
 import type {
-  AgentState,
   ArtifactCreatedEvent,
   ArtifactSummary,
   ArtifactUpdatedEvent,
@@ -206,19 +205,18 @@ const _attemptedResumes = new Set<string>();
 
 
 /**
- * Deep-clone the turn-scoped toolCalls accumulator before handing
- * it to immer.
+ * Clone the turn-scoped toolCalls accumulator before handing it
+ * to immer.
  *
  * Why: immer auto-freezes every value that lands in store state.
  * The handleEvent function holds a LOCAL `toolCalls: ToolCall[]`
  * accumulator and mutates it in place (`tc.result = ...` on
- * tool_result, `activeAgent.thinking += content` on agent_thinking).
- * If we passed the live references into immer via
+ * tool_result). If we passed the live references into immer via
  * `state.streaming.toolCalls = toolCalls`, immer would freeze our
  * accumulator and subsequent in-place mutations would silently
- * fail. The fix is to snapshot the array AND its nested `agent`
- * sub-tree before each set() so immer's copy is independent of
- * the live accumulator.
+ * fail. The fix is to snapshot the array and each call before
+ * each set() so immer's copy is independent of the live
+ * accumulator.
  *
  * Identified via useChat.test.ts "populates streaming.toolCalls
  * from tool_call and tool_result events" — the test sequence was
@@ -227,15 +225,7 @@ const _attemptedResumes = new Set<string>();
  * had `tool_calls[0].result === undefined`.
  */
 function _snapshotToolCalls(tcs: ToolCall[]): ToolCall[] {
-  return tcs.map(t => ({
-    ...t,
-    agent: t.agent
-      ? {
-          ...t.agent,
-          toolCalls: t.agent.toolCalls.map(a => ({ ...a })),
-        }
-      : t.agent,
-  }));
+  return tcs.map(t => ({ ...t }));
 }
 
 
@@ -408,7 +398,6 @@ export const useChatStore = create<ChatState>()(
       let thinkingText = '';
       let contentText = '';
       let ragCtx: RagContext | null = null;
-      let activeAgent: AgentState | null = null;
       let clarification: Clarification | null = null;
 
       // Answer pacer (DEFAULT_CHARS_PER_SEC). Buffers 'token' text and
@@ -700,63 +689,6 @@ export const useChatStore = create<ChatState>()(
               }
               state.lastArtifactEvent = event.data;
             });
-            break;
-          case 'agent_start': {
-            activeAgent = {
-              name: event.data.agent,
-              query: event.data.query,
-              thinking: '',
-              toolCalls: [],
-            };
-            // Attach to the last invoke_agent tool call.
-            const parentTc = [...toolCalls].reverse().find(t => t.name === 'invoke_agent');
-            if (parentTc) parentTc.agent = activeAgent;
-            set(state => {
-              state.streaming.toolCalls = _snapshotToolCalls(toolCalls);
-            });
-            break;
-          }
-          case 'agent_thinking':
-            if (activeAgent) {
-              activeAgent.thinking += event.data.content;
-              set(state => {
-                state.streaming.toolCalls = _snapshotToolCalls(toolCalls);
-              });
-            }
-            break;
-          case 'agent_tool_call':
-            if (activeAgent) {
-              activeAgent.toolCalls.push({
-                id: event.data.id,
-                name: event.data.name,
-                arguments: event.data.arguments,
-              });
-              set(state => {
-                state.streaming.toolCalls = _snapshotToolCalls(toolCalls);
-              });
-            }
-            break;
-          case 'agent_tool_result':
-            if (activeAgent) {
-              const atc = activeAgent.toolCalls.find(t => t.id === event.data.id);
-              if (atc) {
-                atc.result = event.data.result;
-                atc.duration_ms = event.data.duration_ms;
-              }
-              set(state => {
-                state.streaming.toolCalls = _snapshotToolCalls(toolCalls);
-              });
-            }
-            break;
-          case 'agent_done':
-            if (activeAgent) {
-              activeAgent.stoppedReason = event.data.stopped_reason;
-              activeAgent.durationSeconds = event.data.duration_seconds;
-              activeAgent = null;
-              set(state => {
-                state.streaming.toolCalls = _snapshotToolCalls(toolCalls);
-              });
-            }
             break;
           case 'routing':
             // Per-turn router picked an internal profile

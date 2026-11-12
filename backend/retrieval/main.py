@@ -93,7 +93,6 @@ import personas as persona_module
 import chat_service
 import document_store
 from upload_tracker import UploadTracker
-import agents as agents_pkg
 import user_profile_store
 import project_store
 import artifact_store
@@ -4303,13 +4302,6 @@ async def startup():
                     pass  # already exists or collection not present yet
     except Exception as e:
         logger.warning("Failed to ensure papers payload indexes: %s", e)
-
-    # Load agent registry
-    try:
-        loaded_agents = agents_pkg.load_agents()
-        logger.info("Loaded %d agents", len(loaded_agents))
-    except Exception:
-        logger.exception("Failed to load agents")
 
     # Load hooks (P2 #23). Auto-imports every hooks/*.py so module-
     # level @register decorators populate the registry. Hook

@@ -191,13 +191,9 @@ function refsFromResult(name: string, result: unknown): ArtifactRef[] {
 /** One ref per artifact, in order of first appearance, at its newest version. */
 export function artifactRefsFromToolCalls(toolCalls: ToolCall[] | null | undefined): ArtifactRef[] {
   const refs = new Map<string, ArtifactRef>();
-  const walk = (calls: ToolCall[]) => {
-    for (const call of calls) {
-      for (const ref of refsFromResult(call.name, call.result)) refs.set(ref.id, ref);
-      if (call.agent?.toolCalls) walk(call.agent.toolCalls);
-    }
-  };
-  walk(toolCalls ?? []);
+  for (const call of toolCalls ?? []) {
+    for (const ref of refsFromResult(call.name, call.result)) refs.set(ref.id, ref);
+  }
   return [...refs.values()];
 }
 

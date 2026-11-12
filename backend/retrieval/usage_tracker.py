@@ -3,7 +3,7 @@ Per-request token usage aggregator.
 
 A single chat request fires many vLLM calls — the main streaming turn (up
 to MAX_TURNS), forced-clarification / forced-required retries, the wrap-up
-synthesis, an agent's own internal loop (via invoke_agent), and the
+synthesis, the specialised agents' internal vLLM calls, and the
 non-streaming title + summary calls in chat_context. Before this module
 existed, ``done.usage`` carried only the last call's usage and the rest
 were invisible to quota accounting.
@@ -20,8 +20,6 @@ Purpose tags currently in use:
     wrap_up               final synthesis after the main loop ends
     forced_clarification  recovery retry that forces ask_clarification
     forced_required       recovery retry that forces any tool call
-    agent_turn            non-streaming call inside agents/executor's loop
-    agent_wrap_up         non-streaming wrap-up inside agents/executor
     summary               history compaction (chat_context.summarize_messages)
     title                 conversation auto-title (chat_context.generate_title)
 

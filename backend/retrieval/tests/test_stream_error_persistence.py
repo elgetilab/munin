@@ -4,7 +4,9 @@ error mid-turn (`stream_chat_completion` in chat_service.py).
 
 Regression guard for the failure pattern observed in chat 676a3238 on
 2026-05-05: the user asked the chat persona to "try again with the
-research orchestrator", the model emitted invoke_agent and the agent
+research orchestrator", the model emitted invoke_agent (since retired;
+the fixtures below use the `search` agent tool, which has the same
+shape) and the agent
 ran (visible to the user as live SSE events), but on the model's
 next streaming call (where it would have summarised the agent
 result) vLLM yielded an "Error in input stream" event. Before this
@@ -36,7 +38,7 @@ Three layers of coverage:
 
 2. Behavioural tests that drive `stream_chat_completion` end-to-end
    with `_stream_vllm_once` monkey-patched to a fixture that mimics
-   the real bug shape: turn 0 emits thinking + invoke_agent
+   the real bug shape: turn 0 emits thinking + an agent-tool (`search`)
    tool_call, the executor is stubbed to return a real-looking agent
    result dict, then turn 1 emits a stream `error` event before any
    content. We capture `chat_store.add_message` calls and assert the
@@ -167,10 +169,10 @@ def _make_stub_persona() -> dict:
         "id": "chat",
         "name": "Test Chat",
         "params": {"system": "You are a test assistant."},
-        # Allowlist contains invoke_agent so the test fixture's tool_call
+        # Allowlist contains search so the test fixture's tool_call
         # passes the persona's tool gate without triggering a synthetic
         # rejection.
-        "tools": ["invoke_agent"],
+        "tools": ["search"],
     }
 
 
@@ -196,42 +198,37 @@ def _drain(events: list[dict], gen) -> Any:
     return asyncio.run(_run())
 
 
-async def _fake_stream_after_invoke_agent(
+async def _fake_stream_after_agent_tool(
     *args: Any, **kwargs: Any
 ) -> AsyncIterator[tuple]:
     """
     Fixture for the actual bug shape from chat 676a3238.
-    Turn 0: model emits a brief thinking trace + the invoke_agent tool call.
+    Turn 0: model emits a brief thinking trace + the agent tool call.
     Turn 1: vLLM yields an `error` event before any content (the model was
     about to summarise the agent's result).
     """
-    turn = _fake_stream_after_invoke_agent.turn  # type: ignore[attr-defined]
-    _fake_stream_after_invoke_agent.turn = turn + 1  # type: ignore[attr-defined]
+    turn = _fake_stream_after_agent_tool.turn  # type: ignore[attr-defined]
+    _fake_stream_after_agent_tool.turn = turn + 1  # type: ignore[attr-defined]
     if turn == 0:
         acc = _StreamAccumulator()
-        acc.thinking_parts.append("I should call the research orchestrator.")
+        acc.thinking_parts.append("I should search for this.")
         acc.tool_calls[0] = {
-            "id": "tc-invoke-1",
-            "name": "invoke_agent",
-            "arguments_raw": (
-                '{"agent": "research_orchestrator", "query": "luthiers"}'
-            ),
+            "id": "tc-agent-1",
+            "name": "search",
+            "arguments_raw": '{"query": "luthiers"}',
         }
         acc.finish_reason = "tool_calls"
         yield (
             "thinking",
-            {"content": "I should call the research orchestrator."},
+            {"content": "I should search for this."},
             acc,
         )
         yield (
             "tool_call",
             {
-                "id": "tc-invoke-1",
-                "name": "invoke_agent",
-                "arguments": {
-                    "agent": "research_orchestrator",
-                    "query": "luthiers",
-                },
+                "id": "tc-agent-1",
+                "name": "search",
+                "arguments": {"query": "luthiers"},
             },
             acc,
         )
@@ -300,21 +297,19 @@ async def _fake_stream_always_empty(
     yield  # unreachable; makes this an (empty) async generator
 
 
-async def _fake_run_tool_calls_invoke_agent(
+async def _fake_run_tool_calls_agent_tool(
     tool_calls: list[dict], **kwargs: Any
 ) -> list[dict]:
     """Stub for chat_service._run_tool_calls. Returns a realistic-looking
-    agent result for invoke_agent so the loop continues to a second
+    agent result for the search tool so the loop continues to a second
     streaming iteration."""
     out = []
     for tc in tool_calls:
-        if tc["name"] == "invoke_agent":
+        if tc["name"] == "search":
             result = {
-                "agent": "research_orchestrator",
-                "result": "Luthiers are stringed-instrument makers ...",
+                "summary": "Luthiers are stringed-instrument makers ...",
+                "results": [],
                 "tool_calls": 4,
-                "duration_seconds": 18,
-                "stopped_reason": "done",
             }
         else:
             result = {"ok": True}
@@ -461,24 +456,24 @@ def _drive_stream_chat(
     return events
 
 
-def test_invoke_agent_then_stream_error_persists_tool_call_and_marker() -> bool:
+def test_agent_tool_then_stream_error_persists_tool_call_and_marker() -> bool:
     """
-    The exact shape of chat 676a3238: invoke_agent fires + completes, then
+    The exact shape of chat 676a3238: an agent tool fires + completes, then
     the next streaming call errors out. After the fix, the assistant
-    message that gets persisted MUST carry the invoke_agent tool_call (so
+    message that gets persisted MUST carry the agent tool_call (so
     the agent doesn't 'vanish') AND a stream-interrupted marker (so the
     user sees why the turn is incomplete).
     """
     capture: dict = {}
     try:
         events = _drive_stream_chat(
-            _fake_stream_after_invoke_agent,
-            _fake_run_tool_calls_invoke_agent,
+            _fake_stream_after_agent_tool,
+            _fake_run_tool_calls_agent_tool,
             capture,
         )
     except Exception as exc:
         return _check(
-            "invoke_agent + mid-stream error -> persisted with tool_call + marker",
+            "agent tool + mid-stream error -> persisted with tool_call + marker",
             False,
             f"driver raised: {exc!r}",
         )
@@ -489,19 +484,19 @@ def test_invoke_agent_then_stream_error_persists_tool_call_and_marker() -> bool:
     ]
     if len(assistant_calls) != 1:
         return _check(
-            "invoke_agent + mid-stream error -> exactly one assistant persisted",
+            "agent tool + mid-stream error -> exactly one assistant persisted",
             False,
             f"got {len(assistant_calls)} assistant add_message calls; "
             f"all roles: {[c.get('role') for c in capture['calls']]}",
         )
     saved = assistant_calls[0]
 
-    # tool_calls field must contain invoke_agent.
+    # tool_calls field must contain the agent tool.
     tcs = saved.get("tool_calls") or []
-    has_invoke = any(tc.get("name") == "invoke_agent" for tc in tcs)
+    has_invoke = any(tc.get("name") == "search" for tc in tcs)
     if not has_invoke:
         return _check(
-            "invoke_agent tool_call survives stream error",
+            "agent tool_call survives stream error",
             False,
             f"persisted tool_calls={tcs!r}",
         )
@@ -525,7 +520,7 @@ def test_invoke_agent_then_stream_error_persists_tool_call_and_marker() -> bool:
         )
 
     return _check(
-        "invoke_agent + mid-stream error -> persisted with tool_call + marker",
+        "agent tool + mid-stream error -> persisted with tool_call + marker",
         True,
     )
 
@@ -1109,10 +1104,10 @@ def test_unhandled_exception_in_tool_call_persists_marker() -> bool:
     async def _raises_on_tool_dispatch(*args: Any, **kwargs: Any) -> list[dict]:
         raise RuntimeError("simulated tool execution failure")
 
-    # Use the invoke-agent stream fixture so a tool call IS attempted.
+    # Use the agent-tool stream fixture so a tool call IS attempted.
     try:
         events = _drive_stream_chat(
-            _fake_stream_after_invoke_agent,
+            _fake_stream_after_agent_tool,
             _raises_on_tool_dispatch,
             capture,
         )
@@ -1528,7 +1523,7 @@ TESTS = [
     test_marker_strips_trailing_whitespace,
     test_marker_with_empty_error_message_degrades_gracefully,
     # Behavioural (existing)
-    test_invoke_agent_then_stream_error_persists_tool_call_and_marker,
+    test_agent_tool_then_stream_error_persists_tool_call_and_marker,
     test_stream_error_on_turn_zero_persists_marker,
     test_empty_completion_retries_and_recovers,
     test_empty_completion_twice_gives_up_with_marker,

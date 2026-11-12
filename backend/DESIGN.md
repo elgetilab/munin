@@ -262,6 +262,9 @@ The frontend accumulates `thinking` events into a string, matches `tool_result` 
 
 ## Agentic Orchestration
 
+> Retired 2026-10: `invoke_agent`, `config/agents.yml` and `retrieval/agents/`
+> were removed (see shared/docs/DECISIONS.md). Kept as design history.
+
 Agent registry in `config/agents.yml`. Three initial agents: research_orchestrator, code_checker, writing_agent.
 
 Invoked via `invoke_agent` MCP tool (model-triggered or user-triggered via `/research`, `/write`, `/analyze` slash commands).

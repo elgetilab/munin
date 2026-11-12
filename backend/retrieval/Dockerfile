@@ -70,9 +70,6 @@ COPY mcp /app/mcp/
 # docker exec; see §5.8).
 COPY tests /app/tests/
 
-# Copy agents module
-COPY agents /app/agents/
-
 # Copy hooks module (P2 #23). The auto-loader walks this directory
 # at startup; missing it would silently disable every hook.
 COPY hooks /app/hooks/

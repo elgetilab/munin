@@ -92,7 +92,7 @@ async def expand_queries(
             to 4, clamped to [2, 8].
         context_hint: Optional short string of prior conversation context
             that may help the expander pick better variants. Not used today
-            but reserved for future callers (e.g. deep_research).
+            but reserved for future callers.
 
     Returns:
         A list of distinct query strings starting with the base query. If the

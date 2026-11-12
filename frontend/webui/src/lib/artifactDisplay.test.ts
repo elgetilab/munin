@@ -104,15 +104,6 @@ describe('artifactRefsFromToolCalls', () => {
     ]);
     expect(refs.map(r => [r.id, r.version])).toEqual([['art_doc', 3], ['art_plot', undefined]]);
   });
-
-  it('finds files made inside a sub-agent', () => {
-    const parent: ToolCall = {
-      name: 'invoke_agent',
-      arguments: {},
-      agent: { name: 'coder', query: 'q', thinking: '', toolCalls: [call('run_python', { artifacts: [plot] })] },
-    };
-    expect(artifactRefsFromToolCalls([parent]).map(r => r.id)).toEqual(['art_plot']);
-  });
 });
 
 describe('isInlinePreview', () => {

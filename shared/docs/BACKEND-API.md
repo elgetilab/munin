@@ -846,16 +846,17 @@ auto-proposed candidates from the post-turn extraction hook.
 }
 ```
 
-Accepted entries come from `user_memory` (20-entry LRU cap, model-
-curated via `remember`/`forget` tools or via the accept endpoint
-below). Pending entries come from `proposed_memories` (10-entry
+Accepted entries come from `user_memory` (20-entry LRU cap, written
+only through the accept endpoint below; the model reads them via the
+`recall` tool, and the `remember`/`forget` tools were retired in
+2026-10). Pending entries come from `proposed_memories` (10-entry
 FIFO cap per user; populated by the `stop` hook).
 
 ### 4.11b `POST /api/memories/proposed/{id}/accept`
 
 Upserts the proposed (key, value) into `user_memory` and deletes
-the proposal row. Triggers the same 20-entry LRU eviction as a
-`remember` tool call.
+the proposal row. Triggers the 20-entry LRU eviction when the store
+is full.
 
 **Response (200)**: `{"accepted": {"remembered": true, "key": "...",
 "value": "...", "evicted": [...], "total_memories": N, "max_memories": 20}}`
@@ -1697,13 +1698,8 @@ data: <minified json>
 | `artifact_updated` | `{"id": "art_...", "source": "...", "title": "...", "version": N, "change_summary": "...", "created_by": "assistant" \| "user", "conversation_id": "...", "tool_call_id": "...", "applied_hunks": N \| null, "edits_applied": N \| null, "lines_added": N, "lines_removed": N, "base_version": N}` | §22. After a successful `update_artifact` tool call (or a user PATCH reflected back on the next streaming turn). Bumps the side panel's version picker and refreshes content. Only fires for model-written artifacts - sandbox-generated rows are read-only |
 | ~~`artifact`~~ | ~~*deprecated, removed in §22 Stage C*~~ | ~~The old standalone sandbox-artifact event has been removed. Consume `artifact_created` with `source: "sandbox_generated"` instead.~~ |
 | `clarification` | `{"tool_call_id": "tc-1", "conversation_id": "...", "what_i_understood": "...", "questions": [{"id": "q1", "text": "...", "options": ["a","b","c"], "allow_custom": true}, ...]}` | §14. Fires exactly once per turn when the model calls `ask_clarification` on an ambiguous request. The turn is short-circuited: no `tool_result`, no wrap-up synthesis, no other tool calls from the same turn run, and `done` follows immediately with `finish_reason: "clarification"`. Frontend renders an inline card with 1-5 multiple-choice questions (2-6 options each, plus optional free-text field when `allow_custom: true`). The user's answers should be posted as a normal follow-up user message on the next `/api/chat/completions` request - no special-case API |
-| `agent_start` | `{"agent": "research_orchestrator", "query": "..."}` | When the model invokes an agent via the `invoke_agent` tool |
-| `agent_thinking` | `{"content": "..."}` | Nested reasoning stream from the agent's own vLLM loop |
-| `agent_tool_call` | `{"id": "atc-1", "name": "paper_search", "arguments": {...}}` | Each tool the agent fires |
-| `agent_tool_result` | `{"id": "atc-1", "name": "paper_search", "result": {...}, "duration_ms": 42}` | Paired with `agent_tool_call` by id |
-| `agent_done` | `{"agent": "...", "tool_calls": 8, "duration_seconds": 34, "stopped_reason": "done"}` | When the agent returns. `stopped_reason` ∈ `done`/`max_iterations`/`max_tool_calls`/`timeout`/`error` |
 | `token` | `{"content": "partial response text"}` | Many. Accumulate into the visible answer. Sourced from vLLM `delta.content` |
-| `done` | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}, "usage_by_purpose": {"main_turn": {...}, "wrap_up": {...}, ...}, "finish_reason": "stop", "terminal_reason": "done"}` | Always the last event on success. `usage` is the **aggregate across every vLLM call this turn**, not just the last one - the gateway records `total_tokens` from here for quota. `usage_by_purpose` is the same numbers broken down by call site for debugging: `main_turn`, `wrap_up`, `forced_clarification`, `forced_required`, `agent_turn`, `agent_wrap_up`, `summary`, `title`. Purposes with zero calls are omitted. `terminal_reason` ∈ `done` / `max_turns` / `stream_error` / `cancelled` - distinct from `finish_reason` (which is `stop` even after the turn-budget wrap-up). The frontend uses `terminal_reason == "max_turns"` to render a **Continue** affordance so the user can resume a task that hit its (auto-extended) tool-use budget without retyping "keep going" |
+| `done` | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}, "usage_by_purpose": {"main_turn": {...}, "wrap_up": {...}, ...}, "finish_reason": "stop", "terminal_reason": "done"}` | Always the last event on success. `usage` is the **aggregate across every vLLM call this turn**, not just the last one - the gateway records `total_tokens` from here for quota. `usage_by_purpose` is the same numbers broken down by call site for debugging: `main_turn`, `wrap_up`, `forced_clarification`, `forced_required`, `summary`, `title`. Purposes with zero calls are omitted. `terminal_reason` ∈ `done` / `max_turns` / `stream_error` / `cancelled` - distinct from `finish_reason` (which is `stop` even after the turn-budget wrap-up). The frontend uses `terminal_reason == "max_turns"` to render a **Continue** affordance so the user can resume a task that hit its (auto-extended) tool-use budget without retyping "keep going" |
 | `retrying` | `{"attempt": N, "max_attempts": M, "delay_s": 1.0, "reason": "vllm 503"}` | A vLLM call hit a transient error (5xx / 429 / connection drop / pre-first-byte stream drop) and is about to retry. Fires before the backoff sleep. `attempt` is 1-indexed. `reason` is a short tag (e.g. `vllm 503`, `vllm ConnectError`). Multiple may fire per turn. Frontend should render a transient "reconnecting" indicator and reset it once any other event resumes |
 | `reconnecting` | `{"attempt": N, "max_attempts": M, "delay_s": 1.0}` | **Synthetic, client-side only** (P1 #10). Not emitted by the server - the frontend's SSE consumer dispatches it when an SSE connection drops and a `GET /api/chat/completions/resume` is being attempted with `Last-Event-ID`. Renders the same "reconnecting" indicator as `retrying`; cleared on the first real event from the resumed connection |
 | `stream_gone` | `{"reason": "..."}` (fields optional) | **Synthetic, client-side only** (background turns). Dispatched by `resumeChat` when a resume GET returns `410 Gone`. Because the turn's outcome - completed answer or save-always partial - is already persisted, the store reacts by **reloading the conversation transcript**, not by showing an error banner. The mid-stream reconnect loop in `streamChat` deliberately does NOT use this: there the user is watching a live bubble die, and an error banner is the honest signal |
@@ -1720,18 +1716,11 @@ routing → conversation → thinking* → tool_call → tool_result
              → thinking* → token* → done
 ```
 
-Ordering when the model invokes an agent:
-
-```
-routing → conversation → tool_call(invoke_agent)
-             → agent_start → agent_thinking* → agent_tool_call → agent_tool_result
-             → agent_done → tool_result(invoke_agent)
-             → token* → done
-```
-
-The parent `tool_result` for `invoke_agent` still lands after `agent_done`,
-so the `TaskLog` in the frontend can either render it as a nested workflow
-or as a single tool entry, both views are supported by the stream.
+The agent tools (`search`, `source`, `compute`) run their inner loops
+server-side and report through the same single `tool_call` /
+`tool_result` pair. The `agent_*` events (`agent_start`,
+`agent_thinking`, `agent_tool_call`, `agent_tool_result`, `agent_done`)
+that the retired `invoke_agent` tool emitted are no longer sent.
 
 ## 6. Persona context injection
 
@@ -1753,15 +1742,12 @@ top to bottom:
 {user profile}           (persistent chats, §4.13)
 {layered persona prompt}
 {current date}
-{agent summaries}        (one bullet per agent in config/agents.yml, invoke_agent hint)
 {capabilities}           (persistent chats)
 {active #tag scope}      (when the request carries tags)
 ```
 
 Ephemeral chats skip the profile, memory, artifact, plan, project and
-capabilities blocks. The agent summaries come from `config/agents.yml`
-and re-load on every service restart. Frontend does not need to touch
-this.
+capabilities blocks. Frontend does not need to touch this.
 
 ## 7. Context budgeting & summarization
 
@@ -1803,7 +1789,7 @@ holds every tool the main model can call (name, description,
 subset. This section describes the shape of the set rather than copying
 it; read `MCP_TOOLS` for the current list and arguments.
 
-**Primary surface: the agent tools.** Most work goes through four
+**Primary surface: the agent tools.** Most work goes through three
 agent-style tools, each running its own multi-step loop and returning
 a grounded result:
 
@@ -1815,10 +1801,6 @@ a grounded result:
   hit tagged with its `source_type`.
 - `compute`: turn a natural-language spec into code, run it in the
   network-off sandbox and return a reproducible bundle.
-- `deep_research`: a one-shot composite tool (decompose, fan out across
-  corpus, Semantic Scholar and the web, summarise). Deferred, so it is
-  reached through `tool_search`. It is distinct from the long-running
-  Deep Research agent behind `/api/research/*` (§4.23).
 
 **The rest, by category** (deferred unless listed in `CORE_TOOLS`):
 
@@ -1828,19 +1810,18 @@ a grounded result:
 | Web | `web_search` (Brave Search API first when `BRAVE_API_KEY` is set, SearXNG multi-query fan-out as supplement), `web_fetch` |
 | User documents and attachments | `search_user_docs` (auto-filters by `X-Munin-Email` via contextvar, never pass a user id), `list_documents`, `view_attachment`, `transcribe_equation` |
 | Artifacts | `create_artifact`, `read_artifact`, `update_artifact`, `list_artifacts`, `save_artifact_to_documents` |
-| Memory, projects, history | `remember`, `forget`, `recall`, `list_projects`, `get_current_project`, `search_past_conversations` |
+| Memory, projects, history | `recall`, `list_projects`, `get_current_project`, `search_past_conversations` |
 | Code and sandbox | `run_python`, `edit_python`, `sandbox_reset`, `compile_latex`, `calculate` |
-| Control flow and planning | `ask_clarification`, `tool_search`, `set_plan`, `update_plan_item`, `invoke_agent` |
+| Control flow and planning | `ask_clarification`, `tool_search`, `set_plan`, `update_plan_item` |
 | Helpers | `llm_summarize`, `faq` (admin-curated answers about the Munin UI) |
 
-**`invoke_agent` workflows.** `invoke_agent` (input
-`{"agent": "...", "query": "..."}`) delegates to the older named
-workflows `research_orchestrator`, `code_checker` and `writing_agent`,
-defined in `config/agents.yml` and run by `mcp/tools/agents.py` with
-their own tool lists, iteration limits, and wall-clock timeouts. Agents
-cannot invoke each other. These are what the `agent_*` SSE events (§5)
-report; the four agent tools above report through ordinary
-`tool_call` / `tool_result` pairs.
+**Retired tools (2026-10).** `invoke_agent` (with its `config/agents.yml`
+registry), the one-shot `deep_research` composite tool, and the
+`remember` / `forget` memory tools are gone from `MCP_TOOLS`. The
+long-running Deep Research agent behind `/api/research/*` (§4.23) is
+unaffected; it is started from the composer toggle, not by a tool call.
+Facts enter user memory only through an accepted proposal (§4.11b).
+Persisted conversations can still carry these names in `tool_calls`.
 
 **Deferred tool schema (P1 #7).** The `tools` array sent to vLLM does
 **not** carry every registered tool. It carries the core set, exactly
@@ -1875,9 +1856,9 @@ these differently - they appear as normal tool_result events and the
 model self-corrects on its next turn. Permissive on extra unknown keys.
 
 Concurrency policy: tools that declare `is_concurrency_safe: False` in
-`mcp/schemas.py` (the artifact / memory / sandbox mutators -
+`mcp/schemas.py` (the artifact / sandbox mutators -
 `create_artifact`, `update_artifact`, `save_artifact_to_documents`,
-`remember`, `forget`, `run_python`, `sandbox_reset`, `compile_latex`)
+`edit_python`, `run_python`, `sandbox_reset`, `compile_latex`)
 run **serially in declared order** when the model emits multiple of
 them in one turn. Every other tool fans out via `asyncio.gather`. The
 two groups run concurrently with each other since safe tools by
@@ -1894,13 +1875,12 @@ match-by-id rendering keeps working unchanged.
 2. **Two `conversation` events per new chat.** The first carries
    `is_new: true` and a null title; the second lands after auto-title.
    Accumulator model: match on `id`, replace the title field, don't clear.
-3. **Tool calls use the OpenAI tool_call ID format** (`"tc-1"`, `"atc-1"`).
+3. **Tool calls use the OpenAI tool_call ID format** (`"tc-1"`).
    Match `tool_result.id` against `tool_call.id` to pair them.
-4. **Agent events are mid-stream.** While a `tool_call` with name
-   `invoke_agent` is executing, the stream will emit `agent_*` events
-   *before* the matching `tool_result`. The TaskLog needs to render them
-   nested (or as a chronological list) without assuming tool_result comes
-   straight after tool_call.
+4. **Agent tools are single entries.** `search`, `source` and `compute`
+   run their inner loops server-side, so no nested events arrive between
+   their `tool_call` and `tool_result`. The `agent_*` events of the
+   retired `invoke_agent` tool are no longer sent.
 5. **Thinking text can be huge.** Qwen3 reasoning traces can exceed the
    visible answer. Collapse by default, show a "Reasoning" toggle.
 6. **Document upload returns synchronously.** There's no `"processing"`
@@ -1972,7 +1952,7 @@ end in `_total`, histograms end in `_seconds`. The default
 
 | Metric | Type | Labels | What it counts |
 |---|---|---|---|
-| `munin_vllm_request_total` | Counter | `purpose`, `outcome` | Every vLLM HTTP call. `outcome` is one of `success` / `transient_retry` (per retry attempt) / `transport_error` (exhausted) / `permanent` (non-retryable status). `purpose` is the call site: `chat_turn`, `chat_wrap_up`, `forced_clarification`, `forced_required`, `summary`, `title`, `agent_turn`, `agent_wrap_up`. |
+| `munin_vllm_request_total` | Counter | `purpose`, `outcome` | Every vLLM HTTP call. `outcome` is one of `success` / `transient_retry` (per retry attempt) / `transport_error` (exhausted) / `permanent` (non-retryable status). `purpose` is the call site: `chat_turn`, `chat_wrap_up`, `forced_clarification`, `forced_required`, `summary`, `title`. |
 | `munin_vllm_request_duration_seconds` | Histogram | `purpose` | Wall time of a successful call only (retries excluded). Streaming purposes record time-to-first-byte. |
 | `munin_vllm_tokens_total` | Counter | `purpose`, `kind` | Token counts mirrored from `record_usage`. `kind` is `prompt` or `completion`. |
 | `munin_mcp_tool_total` | Counter | `name`, `outcome` | Every `execute_mcp_tool` dispatch. `outcome` is `success` / `error` / `validation_error` / `unknown_tool`. |

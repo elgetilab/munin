@@ -1,10 +1,9 @@
 """
 Demo hook (P2 #23): structured audit-log line for sensitive tools.
 
-Targets ``run_python``, ``compile_latex``, and ``deep_research`` —
-the three tools that either execute user code (run_python),
-compile arbitrary LaTeX in the isolated sandbox (compile_latex), or burn the
-most vLLM time + external HTTP calls (deep_research). Emits one
+Targets ``run_python`` and ``compile_latex``, the two tools that
+execute user code (run_python) or compile arbitrary LaTeX in the
+isolated sandbox (compile_latex). Emits one
 structured log line per invocation that operators can grep:
 
     audit_tool user=foo@bar.org tool=run_python duration_ms=420 ok=True
@@ -22,7 +21,7 @@ from . import register, HookContext
 logger = logging.getLogger("munin.audit")
 
 
-_SENSITIVE = {"run_python", "compile_latex", "deep_research"}
+_SENSITIVE = {"run_python", "compile_latex"}
 
 
 @register("postToolUse", match_tools=_SENSITIVE)

@@ -69,8 +69,8 @@ _BROAD = [
     "calculate", "ask_clarification", "create_artifact", "read_artifact",
     "update_artifact", "list_artifacts", "save_artifact_to_documents", "show_protein",
     "search_user_docs", "search_past_conversations", "list_projects",
-    "get_current_project", "remember", "forget", "recall", "invoke_agent",
-    "deep_research", "view_attachment", "transcribe_equation", "faq",
+    "get_current_project", "recall", "view_attachment", "transcribe_equation",
+    "faq",
 ]
 
 
@@ -210,11 +210,11 @@ def test_tool_search_surfaces_gate_tools_natural_phrasing() -> bool:
     """A2 regression: the IDF-weighted matcher must surface the genuinely-
     relevant deferred tool for NATURAL queries, where the old substring
     scorer crowded it out with generic-term matches. These are the routing-
-    eval gate tools (export_citations, get_citations) + remember."""
+    eval gate tools (export_citations, get_citations) + recall."""
     cases = [
         ("give me BibTeX for these DOIs", "export_citations"),
         ("find papers that cite a given DOI", "get_citations"),
-        ("remember that I work on dissolution-DNP going forward", "remember"),
+        ("what do you remember about me", "recall"),
     ]
     missing = [(q, t) for q, t in cases if not _surfaces(q, t)]
     return _check(

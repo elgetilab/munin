@@ -14,7 +14,7 @@
 #   sudo ./deploy.sh compose        - docker/docker-compose.yml
 #   sudo ./deploy.sh personas       - persona JSON + logos (loaded when
 #                                     retrieval starts: follow with `retrieval`)
-#   sudo ./deploy.sh agents         - config/agents.yml + munin.env.template
+#   sudo ./deploy.sh agents         - config/faq.yml + munin.env.template
 #   sudo ./deploy.sh models         - stage embedding models (bge-large etc.)
 #   sudo ./deploy.sh vllm           - scripts/vllm/*.sh → /opt/cluster/scripts/llm/,
 #                                     config/models/*.env → /opt/munin/config/models/
@@ -383,22 +383,21 @@ deploy_personas() {
 }
 
 # ------------------------------------------------------------------------------
-# agents: copy agents.yml + munin.env.template into the mounted config dir
+# agents: copy faq.yml + munin.env.template into the mounted config dir.
+# The target keeps its historical name; the agents.yml registry it used to
+# install was retired with the invoke_agent tool.
 # ------------------------------------------------------------------------------
 deploy_agents() {
-    echo "[agents] Installing agent registry + env template..."
-    need_file "$REPO_DIR/config/agents.yml"
+    echo "[agents] Installing FAQ + env template..."
     run "install -d -m 0755 $MUNIN_CONFIG"
-    run "install -m 0644 $REPO_DIR/config/agents.yml $MUNIN_CONFIG/agents.yml"
 
     if [ -f "$REPO_DIR/config/munin.env.template" ]; then
         run "install -m 0644 $REPO_DIR/config/munin.env.template $MUNIN_CONFIG/munin.env.template"
     fi
 
     # §4: the faq tool reads /app/config/faq.yml inside the retrieval
-    # container (mounted from $MUNIN_CONFIG). Sync it alongside
-    # agents.yml so `./deploy.sh agents` picks up admin-curated
-    # how-to answers in one step.
+    # container (mounted from $MUNIN_CONFIG), so `./deploy.sh agents`
+    # picks up admin-curated how-to answers in one step.
     if [ -f "$REPO_DIR/config/faq.yml" ]; then
         run "install -m 0644 $REPO_DIR/config/faq.yml $MUNIN_CONFIG/faq.yml"
     fi

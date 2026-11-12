@@ -41,7 +41,7 @@ current_unlocked_tools: ContextVar[Optional[set]] = ContextVar(
 # §28 Sprint B: tag-scoped search. chat_service.stream_chat_completion
 # reads the `tags` field from the request body and sets this ContextVar
 # before dispatching tool calls. Search tools (paper_search,
-# semantic_scholar_search, deep_research) read it to scope their Qdrant
+# semantic_scholar_search, search) read it to scope their Qdrant
 # queries. Shape: a list of {"kind": "topic"|"group"|"contributor",
 # "value": str}; empty list or None means unfiltered.
 current_query_tags: ContextVar[Optional[list[dict]]] = ContextVar(

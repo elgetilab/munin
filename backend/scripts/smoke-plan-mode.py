@@ -457,7 +457,7 @@ PHASE2_GATE_PROMPT = (
     "I need a polished short brief on the kinetics of polymer "
     "crystallisation from melt. WORKFLOW (must follow exactly): "
     "(1) call set_plan with the steps; "
-    "(2) optionally call deep_research to gather material; "
+    "(2) optionally call search to gather material; "
     "(3) you MUST then call delegate_to_persona with persona_id='chat' "
     "and reason='write the polished brief' so the writing-capable "
     "persona produces the final prose. Do NOT write the final brief "

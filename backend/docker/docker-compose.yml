@@ -36,7 +36,7 @@
 #   MUNIN_LLM_FAILOVER_SRC /opt/munin/services/llm-failover llm-failover build context
 #   MUNIN_PIPELINE_SRC    /opt/cluster/scripts/pipeline  pipeline mounted into retrieval
 #   MUNIN_PERSONAS_SRC    /opt/munin/personas            persona JSON + logos
-#   MUNIN_AGENT_CONFIG    /opt/munin/config              agents.yml, faq.yml
+#   MUNIN_AGENT_CONFIG    /opt/munin/config              faq.yml
 #   MUNIN_SEARXNG_CONFIG  /opt/munin/services/searxng    searxng settings.yml
 #   MUNIN_DOCKER_CONFIG   /opt/munin/docker              grobid.yaml, prometheus.yml
 #
@@ -245,7 +245,7 @@ services:
       - ${MUNIN_ROOT:-/opt/munin}/data/papers/processed:/papers-processed:rw
       # Persona definitions (chat personas + logos)
       - ${MUNIN_PERSONAS_SRC:-/opt/munin/personas}:/app/personas:ro
-      # Agent registry (agents.yml)
+      # Runtime config (faq.yml)
       - ${MUNIN_AGENT_CONFIG:-/opt/munin/config}:/app/config:ro
       # Chat persistence (SQLite) and user document store
       - ${MUNIN_ROOT:-/opt/munin}/data:/data:rw
@@ -427,7 +427,6 @@ services:
       - DEFAULT_PERSONA=${DEFAULT_PERSONA:-chat}
       - AUTO_PERSONA=${AUTO_PERSONA:-munin}
       - PERSONAS_DIR=${PERSONAS_DIR:-/app/personas}
-      - AGENTS_CONFIG=${AGENTS_CONFIG:-/app/config/agents.yml}
       - FAQ_PATH=${FAQ_PATH:-/app/config/faq.yml}
       # read_paper full-text cache. PAPERS_CACHE_WARN_GB only warns; there
       # is no eviction, and the cache stood at 2.0 GB on 2026-08-04.

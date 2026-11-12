@@ -147,8 +147,9 @@ SLURM becomes an optional extra: its only job is serving vLLM, and
     for the model (replaces the "three files" step).
   - `BACKEND_URL` in frontend mode.
 - **Mounted files** for group content, each shipped as `*.example` with the
-  real file gitignored: personas, `contributors.yml`, `agents.yml`,
-  `whitelist.csv` (first-boot seed).
+  real file gitignored: personas, `contributors.yml`, `whitelist.csv`
+  (first-boot seed). (`agents.yml` was dropped when `invoke_agent` was
+  retired in 2026-10.)
 - **`scripts/configure.sh`** asks mode, domain, LLM endpoint, admin email;
   generates every `openssl rand` token; writes `.env`. In a split install it
   prints the tokens that must be copied to the other side, which removes the
