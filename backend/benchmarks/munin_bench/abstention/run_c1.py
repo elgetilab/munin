@@ -25,6 +25,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..metrics.bootstrap import single_bootstrap
 from .detect import classify
+try:
+    from ..gateway import gateway_headers
+except ImportError:  # loaded with munin_bench/ itself on sys.path (tests, scripts)
+    from gateway import gateway_headers
 
 _HERE = os.path.dirname(__file__)
 _SET = os.path.join(_HERE, "fabricated_abstention.json")
@@ -45,7 +49,7 @@ def _ask(base_url: str, email: str, question: str, deadline: int = 900) -> dict:
     req = urllib.request.Request(
         base_url.rstrip("/") + "/api/chat/completions",
         data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", "X-Munin-Email": email,
+        headers={"Content-Type": "application/json", **gateway_headers(), "X-Munin-Email": email,
                  "X-Munin-Ephemeral": "true", "Accept": "text/event-stream",
                  # Egress must be EXPLICIT. Until 2026-07-27 this runner sent no
                  # header at all, so it silently inherited the server-side

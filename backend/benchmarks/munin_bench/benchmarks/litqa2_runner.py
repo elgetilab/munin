@@ -35,6 +35,10 @@ from ..retrievers import (
     CitationRerankRetriever,
     SpecterDenseRetriever,
 )
+try:
+    from ..gateway import gateway_headers
+except ImportError:  # loaded with munin_bench/ itself on sys.path (tests, scripts)
+    from gateway import gateway_headers
 
 LAB_BENCH_REPO = "futurehouse/lab-bench"
 LITQA2_PARQUET = "LitQA2/train-00000-of-00001.parquet"
@@ -314,7 +318,7 @@ def _ask_chat(base_url: str, email: str, prompt: str, sock_timeout=60,
     req = urllib.request.Request(
         base_url.rstrip("/") + "/api/chat/completions",
         data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", "X-Munin-Email": email,
+        headers={"Content-Type": "application/json", **gateway_headers(), "X-Munin-Email": email,
                  "X-Munin-Ephemeral": "true", "Accept": "text/event-stream",
                  # cost guard: default OFF so routine runs never spend the paid
                  # Brave key / trip S2. For the intentional clean answer-track

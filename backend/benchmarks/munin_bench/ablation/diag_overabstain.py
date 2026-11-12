@@ -24,6 +24,10 @@ from ..abstention.corpus import normalize_doi
 from .. import config
 from .run_arm import _bge
 from ..clients import get_qdrant
+try:
+    from ..gateway import gateway_headers
+except ImportError:  # loaded with munin_bench/ itself on sys.path (tests, scripts)
+    from gateway import gateway_headers
 
 _HERE = os.path.dirname(__file__)
 BASE = "http://127.0.0.1:8080"
@@ -58,7 +62,7 @@ def _run_capture(q: dict, deadline: int = 300) -> dict:
             "messages": [{"role": "user", "content": mcq["prompt"]}]}
     req = urllib.request.Request(
         BASE + "/api/chat/completions", data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", "X-Munin-Email": EMAIL,
+        headers={"Content-Type": "application/json", **gateway_headers(), "X-Munin-Email": EMAIL,
                  "X-Munin-Ephemeral": "true", "Accept": "text/event-stream"}, method="POST")
     content, ev = "", None
     calls: list[tuple[str, list[str]]] = []  # (name, [dois it touched])

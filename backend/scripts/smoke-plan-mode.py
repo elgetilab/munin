@@ -61,6 +61,21 @@ from typing import Any, Optional
 
 import httpx
 
+# With MUNIN_GATEWAY_TOKEN set on retrieval, identity headers must carry the
+# gateway token too (gateway_token_guard.py). Token from MUNIN_GATEWAY_TOKEN or
+# the file named by MUNIN_GATEWAY_TOKEN_FILE; neither set sends no header.
+def _gateway_headers():
+    token = os.environ.get("MUNIN_GATEWAY_TOKEN", "").strip()
+    path = os.environ.get("MUNIN_GATEWAY_TOKEN_FILE", "").strip()
+    if not token and path:
+        with open(path, encoding="utf-8") as fh:
+            token = fh.read().strip()
+    return {"X-Munin-Gateway-Token": token} if token else {}
+
+
+GATEWAY_HEADERS = _gateway_headers()
+
+
 BASE = os.environ.get("RETRIEVAL_BASE", "http://127.0.0.1:8080")
 EMAIL = os.environ.get("SMOKE_EMAIL", "smoke-plan@munin.local")
 RUN_PHASE2 = os.environ.get("SMOKE_PHASE2", "").strip() in ("1", "true", "yes")
@@ -141,7 +156,7 @@ async def send_chat(
         "ephemeral": ephemeral,
     }
     headers = {
-        "X-Munin-Email": email or EMAIL,
+        **GATEWAY_HEADERS, "X-Munin-Email": email or EMAIL,
         "Content-Type": "application/json",
     }
     text_buf: list[str] = []

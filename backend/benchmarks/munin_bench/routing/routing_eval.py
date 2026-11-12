@@ -50,6 +50,10 @@ from enum import Enum
 from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+try:
+    from ..gateway import gateway_headers
+except ImportError:  # loaded with munin_bench/ itself on sys.path (tests, scripts)
+    from gateway import gateway_headers
 
 
 # ===========================================================================
@@ -920,7 +924,7 @@ async def run_item(
         "messages": _build_messages(item),
         "ephemeral": True,
     }
-    headers = {"X-Munin-Email": email, "Content-Type": "application/json"}
+    headers = {**gateway_headers(), "X-Munin-Email": email, "Content-Type": "application/json"}
 
     text_buf: list[str] = []
     async with client.stream(

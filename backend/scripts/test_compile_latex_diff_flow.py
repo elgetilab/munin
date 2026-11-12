@@ -34,12 +34,28 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 import time
 import uuid
 from typing import Any, Optional
 
 import httpx
+
+# With MUNIN_GATEWAY_TOKEN set on retrieval, identity headers must carry the
+# gateway token too (gateway_token_guard.py). Token from MUNIN_GATEWAY_TOKEN or
+# the file named by MUNIN_GATEWAY_TOKEN_FILE; neither set sends no header.
+def _gateway_headers():
+    token = os.environ.get("MUNIN_GATEWAY_TOKEN", "").strip()
+    path = os.environ.get("MUNIN_GATEWAY_TOKEN_FILE", "").strip()
+    if not token and path:
+        with open(path, encoding="utf-8") as fh:
+            token = fh.read().strip()
+    return {"X-Munin-Gateway-Token": token} if token else {}
+
+
+GATEWAY_HEADERS = _gateway_headers()
+
 
 BASE = "http://127.0.0.1:8080"
 HTTP_TIMEOUT = 600.0
@@ -64,7 +80,7 @@ async def _send_chat(
         "ephemeral": False,
     }
     headers = {
-        "X-Munin-Email": email,
+        **GATEWAY_HEADERS, "X-Munin-Email": email,
         "Content-Type": "application/json",
     }
     tool_calls: list[dict] = []
@@ -143,7 +159,7 @@ async def _delete_conv(
     try:
         await client.delete(
             f"{BASE}/api/chats/{conv_id}",
-            headers={"X-Munin-Email": email},
+            headers={**GATEWAY_HEADERS, "X-Munin-Email": email},
             timeout=10.0,
         )
     except Exception as e:

@@ -30,6 +30,17 @@ FAIL=0
 FAILED_NAMES=()
 
 H_EMAIL="X-Munin-Email: $SMOKE_EMAIL"
+# With MUNIN_GATEWAY_TOKEN set on retrieval, identity headers must carry the
+# gateway token too (gateway_token_guard.py). Token from MUNIN_GATEWAY_TOKEN or
+# the file named by MUNIN_GATEWAY_TOKEN_FILE; neither set sends no header.
+GW_TOKEN=${MUNIN_GATEWAY_TOKEN:-}
+if [ -z "$GW_TOKEN" ] && [ -n "${MUNIN_GATEWAY_TOKEN_FILE:-}" ]; then
+    GW_TOKEN=$(<"$MUNIN_GATEWAY_TOKEN_FILE") || exit 1
+fi
+H_ID=(-H "$H_EMAIL")
+if [ -n "$GW_TOKEN" ]; then
+    H_ID+=(-H "X-Munin-Gateway-Token: $GW_TOKEN")
+fi
 
 pass() { echo "  [PASS] $1"; PASS=$((PASS + 1)); }
 fail() { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); FAILED_NAMES+=("$1"); }
@@ -94,7 +105,7 @@ fi
 # ------------------------------------------------------------------------------
 echo ""
 echo "[3/8] /api/personas"
-PERSONAS_BODY=$(curl -fsS -m 5 -H "$H_EMAIL" "$RETRIEVAL_BASE/api/personas" 2>/dev/null || echo "")
+PERSONAS_BODY=$(curl -fsS -m 5 "${H_ID[@]}" "$RETRIEVAL_BASE/api/personas" 2>/dev/null || echo "")
 if [ -z "$PERSONAS_BODY" ]; then
     fail "/api/personas returned no body"
 else
@@ -126,7 +137,7 @@ if [ "$SKIP_CHAT" = "0" ]; then
     # Fire a short, no-RAG request. vLLM's reasoning/tool machinery still
     # gets exercised because auto tool choice is on in chat_service.
     curl -sS -N -m 120 \
-        -H "$H_EMAIL" \
+        "${H_ID[@]}" \
         -H "Content-Type: application/json" \
         -d '{"persona":"chat","conversation_id":null,"messages":[{"role":"user","content":"Reply with just the number: what is 2+2?"}],"rag":{"enabled":false},"stream":true}' \
         "$RETRIEVAL_BASE/api/chat/completions" > "$SSE_OUT" 2>/dev/null || true
@@ -172,7 +183,7 @@ if [ "$SKIP_CHAT" = "0" ]; then
     echo ""
     echo "[5/8] /api/chats list + load + rename + delete"
     if [ -n "$CONVERSATION_ID" ]; then
-        CHATS_BODY=$(curl -fsS -m 5 -H "$H_EMAIL" "$RETRIEVAL_BASE/api/chats?limit=50" 2>/dev/null || echo "")
+        CHATS_BODY=$(curl -fsS -m 5 "${H_ID[@]}" "$RETRIEVAL_BASE/api/chats?limit=50" 2>/dev/null || echo "")
         if pycheck "$CHATS_BODY" "any(c['id']=='$CONVERSATION_ID' for c in d.get('conversations',[]))"; then
             pass "new conversation appears in /api/chats"
         else
@@ -180,7 +191,7 @@ if [ "$SKIP_CHAT" = "0" ]; then
         fi
 
         # /api/chats/{id} — full load should include at least 2 messages
-        LOADED=$(curl -fsS -m 5 -H "$H_EMAIL" "$RETRIEVAL_BASE/api/chats/$CONVERSATION_ID" 2>/dev/null || echo "")
+        LOADED=$(curl -fsS -m 5 "${H_ID[@]}" "$RETRIEVAL_BASE/api/chats/$CONVERSATION_ID" 2>/dev/null || echo "")
         if pycheck "$LOADED" "len(d.get('messages',[])) >= 2"; then
             MSG_COUNT=$(pyget "$LOADED" "len(d['messages'])")
             pass "conversation loaded with $MSG_COUNT message(s)"
@@ -189,7 +200,7 @@ if [ "$SKIP_CHAT" = "0" ]; then
         fi
 
         # PATCH — rename
-        RENAMED=$(curl -fsS -m 5 -X PATCH -H "$H_EMAIL" \
+        RENAMED=$(curl -fsS -m 5 -X PATCH "${H_ID[@]}" \
             -H "Content-Type: application/json" \
             -d '{"title":"Smoke test chat"}' \
             "$RETRIEVAL_BASE/api/chats/$CONVERSATION_ID" 2>/dev/null || echo "")
@@ -200,7 +211,7 @@ if [ "$SKIP_CHAT" = "0" ]; then
         fi
 
         # DELETE
-        DELETED=$(curl -fsS -m 5 -X DELETE -H "$H_EMAIL" \
+        DELETED=$(curl -fsS -m 5 -X DELETE "${H_ID[@]}" \
             "$RETRIEVAL_BASE/api/chats/$CONVERSATION_ID" 2>/dev/null || echo "")
         if pycheck "$DELETED" "d.get('deleted') is True"; then
             pass "DELETE /api/chats/{id} acknowledged"
@@ -209,7 +220,7 @@ if [ "$SKIP_CHAT" = "0" ]; then
         fi
 
         # Confirm it's gone
-        GONE=$(curl -s -o /dev/null -w "%{http_code}" -H "$H_EMAIL" "$RETRIEVAL_BASE/api/chats/$CONVERSATION_ID")
+        GONE=$(curl -s -o /dev/null -w "%{http_code}" "${H_ID[@]}" "$RETRIEVAL_BASE/api/chats/$CONVERSATION_ID")
         if [ "$GONE" = "404" ]; then
             pass "deleted conversation is 404"
         else
@@ -239,7 +250,7 @@ cooling rate. This is a tiny synthetic document for exercising the chunk +
 embed pipeline end-to-end.
 EOF
 
-UPLOAD=$(curl -fsS -m 60 -H "$H_EMAIL" \
+UPLOAD=$(curl -fsS -m 60 "${H_ID[@]}" \
     -F "file=@$DOC_FILE;filename=smoke-test.txt" \
     "$RETRIEVAL_BASE/api/documents/upload" 2>/dev/null || echo "")
 rm -f "$DOC_FILE"
@@ -256,7 +267,7 @@ fi
 
 echo ""
 echo "[7/8] /api/documents list"
-LIST=$(curl -fsS -m 5 -H "$H_EMAIL" "$RETRIEVAL_BASE/api/documents" 2>/dev/null || echo "")
+LIST=$(curl -fsS -m 5 "${H_ID[@]}" "$RETRIEVAL_BASE/api/documents" 2>/dev/null || echo "")
 if [ -n "$DOC_ID" ] && pycheck "$LIST" "any(x.get('document_id')=='$DOC_ID' for x in d.get('documents',[]))"; then
     pass "uploaded document appears in list"
 else
@@ -266,7 +277,7 @@ fi
 echo ""
 echo "[8/8] /api/documents delete"
 if [ -n "$DOC_ID" ]; then
-    DEL=$(curl -fsS -m 5 -X DELETE -H "$H_EMAIL" \
+    DEL=$(curl -fsS -m 5 -X DELETE "${H_ID[@]}" \
         "$RETRIEVAL_BASE/api/documents/$DOC_ID" 2>/dev/null || echo "")
     if pycheck "$DEL" "d.get('deleted') is True"; then
         pass "document delete acknowledged"

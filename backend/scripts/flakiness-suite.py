@@ -73,6 +73,21 @@ PAPER_HOST = urlparse(
 
 import httpx
 
+# With MUNIN_GATEWAY_TOKEN set on retrieval, identity headers must carry the
+# gateway token too (gateway_token_guard.py). Token from MUNIN_GATEWAY_TOKEN or
+# the file named by MUNIN_GATEWAY_TOKEN_FILE; neither set sends no header.
+def _gateway_headers():
+    token = os.environ.get("MUNIN_GATEWAY_TOKEN", "").strip()
+    path = os.environ.get("MUNIN_GATEWAY_TOKEN_FILE", "").strip()
+    if not token and path:
+        with open(path, encoding="utf-8") as fh:
+            token = fh.read().strip()
+    return {"X-Munin-Gateway-Token": token} if token else {}
+
+
+GATEWAY_HEADERS = _gateway_headers()
+
+
 # ----------------------------------------------------------------------------
 # Import shared helpers from stress-test.py (which has a dash in the name)
 # ----------------------------------------------------------------------------
@@ -1134,7 +1149,7 @@ async def _project_setup(client: httpx.AsyncClient, email: str, state: dict) -> 
     r = await client.post(
         f"{BASE}/api/projects",
         json=body,
-        headers={"X-Munin-Email": email, "Content-Type": "application/json"},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email, "Content-Type": "application/json"},
         timeout=HTTP_TIMEOUT,
     )
     r.raise_for_status()
@@ -1149,7 +1164,7 @@ async def _project_teardown(client: httpx.AsyncClient, email: str, state: dict) 
     try:
         await client.delete(
             f"{BASE}/api/projects/{pid}",
-            headers={"X-Munin-Email": email},
+            headers={**GATEWAY_HEADERS, "X-Munin-Email": email},
             timeout=HTTP_TIMEOUT,
         )
     except Exception:
@@ -1293,7 +1308,7 @@ async def _profile_setup(client: httpx.AsyncClient, email: str, state: dict) -> 
     await client.put(
         f"{BASE}/api/profile",
         json=body,
-        headers={"X-Munin-Email": email, "Content-Type": "application/json"},
+        headers={**GATEWAY_HEADERS, "X-Munin-Email": email, "Content-Type": "application/json"},
         timeout=HTTP_TIMEOUT,
     )
 
@@ -1302,7 +1317,7 @@ async def _profile_teardown(client: httpx.AsyncClient, email: str, state: dict) 
     try:
         await client.delete(
             f"{BASE}/api/profile",
-            headers={"X-Munin-Email": email},
+            headers={**GATEWAY_HEADERS, "X-Munin-Email": email},
             timeout=HTTP_TIMEOUT,
         )
     except Exception:
