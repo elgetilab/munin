@@ -53,10 +53,12 @@ the cluster database is a separate task; do it only after step 6.
 - The retrieval image build re-downloads torch and the CUDA wheels (about
   4 GB). `main` added a `RUN` step before the pip layer, which invalidates the
   Docker cache. Over hugin's link that ran at 0.2 to 0.4 MB/s on 2026-11-12,
-  so a cold build takes about an hour. A test build of the same Dockerfile
-  (`munin-retrieval:laneb-catchup-fcc4dd1`) warms the BuildKit cache. Do not
-  prune the builder cache before step 6, and the production build then reuses
-  those layers.
+  and the cold test build of the same Dockerfile
+  (`munin-retrieval:laneb-catchup-fcc4dd1`) took 27.5 min; the sandbox image
+  took 2.3 min. Those test builds warmed the BuildKit cache. Do not prune the
+  builder cache before step 6, and the production build then reuses those
+  layers. The hermetic test tier passes inside that test image (step 6 runs
+  the same code).
 - Keep vLLM in whatever state the GPU experiments need. None of these steps
   starts or stops it. The `vllm` step only installs scripts.
 
