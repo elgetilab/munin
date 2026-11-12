@@ -6,65 +6,31 @@
     <script data-munin-theme>(function(){var p="system",d=document.documentElement;try{var m=document.cookie.match(/(?:^|;\s*)munin_theme=(light|dark|system)(?:;|$)/);if(m)p=m[1]}catch(e){}var t=p;if(p==="system"){try{t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}catch(e){t="dark"}}d.setAttribute("data-theme-pref",p);d.setAttribute("data-theme",t)})()</script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Documentation - Munin</title>
+    <link rel="icon" type="image/webp" href="/shared/munin_logo_without_script.webp">
     <link rel="stylesheet" href="/shared/style.css?v=3">
+    <link rel="stylesheet" href="/shared/site.css?v=1">
+    <link rel="stylesheet" href="docs.css?v=1">
     <script src="/shared/theme.js?v=2" defer></script>
-    <style>
-        .container {
-            max-width: 800px;
-        }
-
-        /* main.container, as .container in style.css would otherwise reset the padding */
-        main.container {
-            padding-top: 48px;
-            padding-bottom: 48px;
-        }
-
-        h1 {
-            font-size: 32px;
-            margin-bottom: 16px;
-        }
-
-        .subtitle {
-            color: var(--text-secondary);
-            margin-bottom: 48px;
-        }
-
-        .doc-list {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-
-        .doc-card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 24px;
-            text-decoration: none;
-            color: inherit;
-            transition: border-color 0.2s;
-        }
-
-        .doc-card:hover {
-            border-color: var(--accent);
-        }
-
-        .doc-card h2 {
-            font-size: 20px;
-            margin-bottom: 8px;
-            color: var(--accent);
-        }
-
-        .doc-card p {
-            color: var(--text-secondary);
-            font-size: 14px;
+    <style>        /* The index: one column of hairline rows, each with its own button. */
+        .doc-index > * { max-width: 800px; }
+        .doc-index .lede { margin-bottom: 44px; }
+        .group-h { font-size: 13px; font-weight: 600; color: var(--text-3); margin: 0 0 4px; letter-spacing: 0; }
+        .doc-rows { list-style: none; margin: 0 0 40px; padding: 0; border-top: 1px solid var(--line); }
+        .doc-rows li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; margin: 0; padding: 20px 0; border-bottom: 1px solid var(--line); }
+        .doc-rows h2 { font-size: 19px; letter-spacing: -0.01em; margin: 0 0 4px; }
+        .doc-rows h2 a { color: var(--text); text-decoration: none; }
+        .doc-rows h2 a:hover { color: var(--brass); }
+        .doc-rows p { margin: 0; color: var(--text-2); font-size: 15px; line-height: 1.6; max-width: 38em; }
+        @media (max-width: 900px) {
+            .doc-rows li { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+            .doc-rows .btn { justify-self: start; }
         }
     </style>
 </head>
 <body>
     <header>
         <div class="container header-content">
-            <a href="{{env "MUNIN_URL_HOME"}}" class="logo">
+            <a href="/" class="logo">
                 <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="logo-img">
                 <span class="logo-text">Munin</span>
             </a>
@@ -79,39 +45,89 @@
         </div>
     </header>
 
-    <main class="container">
+<main class="doc">
+    <div class="wrap doc-index">
         <h1>Documentation</h1>
-        <p class="subtitle">Technical documentation for the Munin research assistant.</p>
+        <p class="lede">Technical documentation for the Munin research assistant.</p>
 
-        <div class="doc-list">
-            <a href="guide.html" class="doc-card">
-                <h2>User Guide</h2>
-                <p>How to use Chat, Paper Search, Knowledge Browser, and Upload. Covers how Munin auto-routes, slash commands, tag filters, knowledge sources, and how to contribute papers.</p>
-            </a>
+        <h2 class="group-h">Guides</h2>
+        <ul class="doc-rows">
+            <li>
+                <div>
+                    <h2><a href="guide.html">User Guide</a></h2>
+                    <p>How to use Chat, Paper Search, Knowledge Browser, and Upload. Covers how Munin auto-routes, slash commands, tag filters, knowledge sources, and how to contribute papers.</p>
+                </div>
+                <a class="btn btn-secondary btn-sm" href="guide.html">Read the guide</a>
+            </li>
+            <li>
+                <div>
+                    <h2><a href="architecture.html">System Architecture</a></h2>
+                    <p>Overview of the Munin system components, data flow, and technology stack. Includes diagrams of the LLM pipeline, knowledge base integration, and infrastructure.</p>
+                </div>
+                <a class="btn btn-secondary btn-sm" href="architecture.html">Read the overview</a>
+            </li>
+        </ul>
 
-            <a href="architecture.html" class="doc-card">
-                <h2>System Architecture</h2>
-                <p>Overview of the Munin system components, data flow, and technology stack. Includes diagrams of the LLM pipeline, knowledge base integration, and infrastructure.</p>
-            </a>
-
-            <a href="guide.html#api-access" class="doc-card">
-                <h2>API Access</h2>
-                <p>REST API at api.{{env "MUNIN_DOMAIN"}} with SSE streaming responses. Create keys in chat settings. Includes Python, curl, and TypeScript examples.</p>
-            </a>
-
-            <a href="guide.html#opencode" class="doc-card">
-                <h2>opencode Setup</h2>
-                <p>Use Munin as the backend for opencode, the open-source terminal coding agent. Step-by-step config for the OpenAI-compatible provider.</p>
-            </a>
+        <h2 class="group-h">Developers</h2>
+        <ul class="doc-rows">
+            <li>
+                <div>
+                    <h2><a href="guide.html#api-access">API Access</a></h2>
+                    <p>REST API at api.{{env "MUNIN_DOMAIN"}} with SSE streaming responses. Create keys in chat settings. Includes Python and curl examples.</p>
+                </div>
+                <a class="btn btn-secondary btn-sm" href="guide.html#api-access">API reference</a>
+            </li>
+            <li>
+                <div>
+                    <h2><a href="guide.html#opencode">opencode Setup</a></h2>
+                    <p>Use Munin as the backend for opencode, the open-source terminal coding agent. Step-by-step config for the OpenAI-compatible provider.</p>
+                </div>
+                <a class="btn btn-secondary btn-sm" href="guide.html#opencode">Set up opencode</a>
+            </li>
+        </ul>
+    </div>
+</main>
+<footer class="site-footer">
+    <div class="wrap">
+        <div class="f-grid">
+            <div>
+                <div class="f-brand"><img src="/shared/munin_logo_without_script.webp" alt="">Munin</div>
+                <p>An open-source research assistant by the <a href="https://elgetilab.github.io/">Elgeti Lab</a>, Leipzig University Medical Faculty.</p>
+            </div>
+            <div class="f-col">
+                <h4>Use</h4>
+                <ul>
+                    <li><a href="{{env "MUNIN_URL_CHAT"}}">Chat</a></li>
+                    <li><a href="{{env "MUNIN_URL_SEARCH"}}">Search papers</a></li>
+                    <li><a href="{{env "MUNIN_URL_CHAT"}}/knowledge">Knowledge base</a></li>
+                    <li><a href="{{env "MUNIN_URL_UPLOAD"}}">Contribute</a></li>
+                </ul>
+            </div>
+            <div class="f-col">
+                <h4>Learn</h4>
+                <ul>
+                    <li><a href="{{env "MUNIN_URL_DOCS"}}">Docs</a></li>
+                    <li><a href="{{env "MUNIN_URL_DOCS"}}/guide.html#deep-research">Deep Research</a></li>
+                    <li><a href="https://arxiv.org/abs/2610.23480">Paper</a></li>
+                    <li><a href="https://github.com/elgetilab/munin/blob/main/CITATION.cff">Cite Munin</a></li>
+                </ul>
+            </div>
+            <div class="f-col">
+                <h4>Project</h4>
+                <ul>
+                    <li><a href="https://github.com/elgetilab/munin">GitHub</a></li>
+                    <li><a href="https://elgetilab.github.io/">Elgeti Lab</a></li>
+                    <li><a href="https://www.hypmol.net/">HYP*MOL</a></li>
+                    <li><a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Support</a></li>
+                </ul>
+            </div>
         </div>
-    </main>
-
-    <footer>
-        <div class="container">
-            <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/" style="color: var(--accent);">Elgeti Lab</a></p>
-            <p style="margin-top: 8px;"><a href="{{env "MUNIN_URL_SEARCH"}}">Search papers</a> | <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a> | <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload</a> | <a href="{{env "MUNIN_URL_DOCS"}}">Docs</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Support</a></p>
+        <div class="f-base">
+            <span>Apache-2.0 licensed</span>
+            <span>Munin can make mistakes. Verify important information.</span>
         </div>
-    </footer>
+    </div>
+</footer>
 <script src="/shared/support-widget.js?v=4"></script>
 </body>
 </html>

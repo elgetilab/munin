@@ -1,0 +1,91 @@
+/* Shared by the docs pages (index, guide, architecture), after /shared/site.css. */
+        /* ── Docs: shared by index, guide and architecture ── */
+        main { overflow-wrap: break-word; }
+        .doc { padding: 56px 0 96px; }
+        .prose .crumbs { display: flex; flex-wrap: wrap; gap: 6px; font-size: 13.5px; color: var(--text-3); margin-bottom: 14px; }
+        .prose .crumbs a { color: var(--text-2); text-decoration: none; }
+        .crumbs a:hover { color: var(--text); text-decoration: underline; }
+        .crumbs span[aria-hidden] { color: var(--line-2); }
+        .doc h1 { font-size: clamp(32px, 4vw, 42px); font-weight: 600; line-height: 1.1; letter-spacing: -0.03em; margin-bottom: 14px; }
+        .lede { font-size: 18px; color: var(--text-2); max-width: 36em; margin-bottom: 0; }
+
+        /* Two columns: a sticky contents list beside the article. */
+        .doc-grid { display: grid; grid-template-columns: 216px minmax(0, 1fr); gap: 64px; align-items: start; }
+        .toc { position: sticky; top: 81px; max-height: calc(100vh - 100px); overflow-y: auto; font-size: 14px; }
+        .toc summary { display: none; }
+        .toc-h { font-size: 12.5px; font-weight: 600; color: var(--text-3); margin: 0 0 8px; }
+        .toc ol { list-style: none; margin: 0 0 28px; padding: 0; border-left: 1px solid var(--line); }
+        .toc li { margin: 0; }
+        .toc a { display: block; padding: 5px 0 5px 14px; margin-left: -1px; border-left: 1px solid transparent; color: var(--text-2); text-decoration: none; line-height: 1.35; }
+        .toc a:hover { color: var(--text); }
+        .toc a[aria-current] { color: var(--text); border-left-color: var(--brass); }
+
+        /* Prose */
+        .prose { max-width: 720px; min-width: 0; }
+        .prose h2 { font-size: 26px; margin: 64px 0 14px; padding-top: 28px; border-top: 1px solid var(--line); scroll-margin-top: 72px; }
+        .prose .lede + h2, .prose h2.first { margin-top: 48px; }
+        .prose h3 { font-size: 18px; margin: 36px 0 10px; scroll-margin-top: 72px; }
+        .prose p, .prose li { color: var(--text-2); font-size: 16.5px; line-height: 1.7; }
+        .prose p { margin: 0 0 16px; }
+        .prose strong { color: var(--text); font-weight: 600; }
+        .prose ul, .prose ol { margin: 0 0 20px; padding-left: 22px; }
+        .prose li { margin: 6px 0; padding-left: 2px; }
+        .prose ol li::marker { color: var(--text-3); font-variant-numeric: tabular-nums; }
+        .prose a { text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--brass) 45%, transparent); }
+        .prose a:hover { text-decoration-color: currentColor; }
+        .prose code { font-size: 0.84em; padding: 1px 6px; overflow-wrap: anywhere; }
+
+        /* Code blocks: a hairline panel that scrolls on its own. */
+        pre.code { margin: 0 0 20px; padding: 16px 18px; background: var(--ink-2); border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; font: 13px/1.6 var(--mono); color: var(--text); white-space: pre; tab-size: 4; }
+        :root[data-theme="light"] pre.code { background: var(--surface); }
+
+        /* Term and description, as hairline rows. */
+        .defs { margin: 8px 0 24px; border-top: 1px solid var(--line); }
+        .defs > div { display: grid; grid-template-columns: minmax(0, 13em) minmax(0, 1fr); gap: 8px 24px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+        .defs dt { color: var(--text); font-weight: 600; font-size: 15.5px; line-height: 1.5; }
+        .defs dd { margin: 0; color: var(--text-2); font-size: 15.5px; line-height: 1.65; }
+        .defs dd p { font-size: 15.5px; margin: 0 0 8px; }
+        .defs dd p:last-child { margin: 0; }
+        .defs dt code { font-size: 13px; }
+        .defs.wide > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+
+        /* A short aside, marked with the accent on its left edge. */
+        .callout { margin: 0 0 20px; padding: 2px 0 2px 16px; border-left: 2px solid var(--brass); }
+        .callout p { margin: 0; }
+
+        /* Tables: hairline rows; a wide one scrolls inside its box. */
+        .table-scroll { overflow-x: auto; margin: 8px 0 24px; }
+        .prose table { width: 100%; border-collapse: collapse; font-size: 15px; }
+        .prose th { text-align: left; font-size: 13px; font-weight: 600; color: var(--text-3); padding: 0 16px 10px 0; border-bottom: 1px solid var(--line-2); background: none; white-space: nowrap; }
+        .prose td { padding: 12px 16px 12px 0; border-bottom: 1px solid var(--line); color: var(--text-2); vertical-align: top; line-height: 1.55; }
+        .prose td:first-child { color: var(--text); font-weight: 500; }
+        .prose tr:last-child td { border-bottom: 0; }
+
+        @media (max-width: 900px) {
+            .doc { padding: 36px 0 72px; }
+            .doc-grid { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+            /* On a phone the contents fold into one row above the article. */
+            .toc { position: static; max-height: none; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+            .toc summary { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; cursor: pointer; font-weight: 500; color: var(--text); list-style: none; }
+            .toc summary::-webkit-details-marker { display: none; }
+            .toc summary::after { content: ''; width: 8px; height: 8px; border-right: 1.5px solid var(--text-3); border-bottom: 1.5px solid var(--text-3); transform: rotate(45deg) translateY(-3px); transition: transform .15s; }
+            .toc[open] summary::after { transform: rotate(-135deg) translate(-2px, -1px); }
+            .toc .toc-body { padding: 0 16px 6px; }
+            .toc ol { margin-bottom: 16px; }
+            .prose h2 { margin-top: 48px; padding-top: 24px; font-size: 23px; }
+            .prose p, .prose li { font-size: 16px; }
+            .defs > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+            .wrap { padding: 0 16px; }
+        }
+        /* On a phone each table row becomes a short block: the first cell as its title, then label and value pairs. */
+        @media (max-width: 600px) {
+            .prose table, .prose tbody, .prose tr, .prose td { display: block; }
+            .prose thead { display: none; }
+            .prose tr { padding: 12px 0; border-bottom: 1px solid var(--line); }
+            .prose tr:last-child { border-bottom: 0; }
+            .prose td, .prose tr:last-child td { border: 0; padding: 2px 0; }
+            .prose td:first-child { padding-bottom: 6px; }
+            .prose td + td { display: grid; grid-template-columns: minmax(0, 7.5em) minmax(0, 1fr); gap: 12px; font-size: 14.5px; }
+            .prose td + td::before { content: attr(data-label); color: var(--text-3); font-size: 13px; padding-top: 1px; }
+            .table-scroll { overflow: visible; border-top: 1px solid var(--line-2); }
+        }
