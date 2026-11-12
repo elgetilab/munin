@@ -26,6 +26,7 @@ import argparse
 import collections
 import asyncio
 import json
+import os
 import sys
 import time
 from typing import Any, Callable, Optional
@@ -33,6 +34,24 @@ from typing import Any, Callable, Optional
 import httpx
 
 EVAL_USER = "eval-pong@munin.local"
+
+
+# With MUNIN_GATEWAY_TOKEN set on retrieval, identity headers must carry the
+# gateway token too (gateway_token_guard.py), or every request is a 401 and
+# run_all --with-reliability records pong as FAIL. Token from
+# MUNIN_GATEWAY_TOKEN or the file named by MUNIN_GATEWAY_TOKEN_FILE; neither
+# set sends no header.
+def _gateway_headers() -> dict[str, str]:
+    token = os.environ.get("MUNIN_GATEWAY_TOKEN", "").strip()
+    path = os.environ.get("MUNIN_GATEWAY_TOKEN_FILE", "").strip()
+    if not token and path:
+        with open(path, encoding="utf-8") as fh:
+            token = fh.read().strip()
+    return {"X-Munin-Gateway-Token": token} if token else {}
+
+
+def _identity() -> dict[str, str]:
+    return {**_gateway_headers(), "X-Munin-Email": EVAL_USER}
 HTTP_TIMEOUT = httpx.Timeout(600.0)
 
 # Registered tool names, for the hallucinated-tool detector (router-era pong
@@ -154,7 +173,7 @@ async def _post_turn(
     }
     if conversation_id:
         body["conversation_id"] = conversation_id
-    headers = {"X-Munin-Email": EVAL_USER, "Content-Type": "application/json"}
+    headers = {**_identity(), "Content-Type": "application/json"}
     cid = conversation_id
     cur_event = ""
     async with client.stream(
@@ -343,7 +362,7 @@ async def run_once(client: httpx.AsyncClient, base: str, scenario: dict) -> RunR
         # Fetch persisted conversation for final content (phantom warning +
         # duplicate-answer checks read the saved assistant messages).
         if cid:
-            headers = {"X-Munin-Email": EVAL_USER}
+            headers = _identity()
             resp = await client.get(f"{base}/api/chats/{cid}", headers=headers)
             if resp.status_code == 200:
                 conv = resp.json()
@@ -359,7 +378,7 @@ async def run_once(client: httpx.AsyncClient, base: str, scenario: dict) -> RunR
             try:
                 await client.delete(
                     f"{base}/api/chats/{r.conversation_id}",
-                    headers={"X-Munin-Email": EVAL_USER},
+                    headers=_identity(),
                 )
             except Exception:
                 pass  # cleanup is best-effort

@@ -28,9 +28,18 @@
 # rule installed by `deploy.sh sudoers` allows without a password. The bench
 # itself runs as the invoking user, exactly as every committed run did.
 #
+# The bench clients send MUNIN_GATEWAY_TOKEN (or the file named by
+# MUNIN_GATEWAY_TOKEN_FILE) with every identity header; retrieval, and the
+# instances that extend it, refuse identity headers without it. Export one of
+# the two before launching; preflight probes production and stops if the
+# guard is on and the token is missing or wrong.
+#
 # Phases:
 #   0 preflight    sudo works; production on the single-GPU profile; 24x7 on;
-#                  checkpoint present; disk; shadow corpus built + leak-free
+#                  gateway token accepted; the batch GPU free (no Basalt or
+#                  other job on gres gpu:batch, enough free memory for
+#                  --gpu-util); checkpoint present; disk; shadow corpus built
+#                  + leak-free
 #   1 instances    instance up <slug> --name eval; instance up ... --corpus shadow
 #   2 smoke        run_all --limit 20 on :8082, gated against the Qwen3.8 arm
 #   3 suite        Track D (3 arms, n=199) + agentic arm at egress=off (the
@@ -44,7 +53,9 @@
 #                  3e faith, 3f derived); --copy-arms-from <tag> supplies the
 #                  bare/rag arms for egressoff when 3a is not in the run.
 #   4 teardown     instances down, shadow dropped, 24x7 restored, production
-#                  back on TP=2
+#                  checked against the profile preflight recorded (the suite
+#                  never stops production; it is only started again, on that
+#                  profile, if it is gone by the end of the run)
 # ==============================================================================
 set -u
 
@@ -76,6 +87,9 @@ SMOKE=1
 # remote-desktop session sit on it. 0.90 OOM'd during CUDA-graph warmup on the
 # second instance start (2026-09-15); 0.80 leaves ~3 GiB of slack and still
 # ~800k KV tokens for gpt-oss (12x at 64k). Recorded in provenance.
+# The right value is per model: Sage-A1.5 (24.8 GiB weights + non-torch, 1.3
+# GiB activation peak) gets NO KV pool at 0.80 and needs --gpu-util 0.89 to
+# pass the kv_pool gate (2 x 64k).
 GPU_UTIL=0.80
 TRACKS="trackd,egressoff,c1,answer,c2b,faith,derived"
 COPY_ARMS_FROM=""
@@ -147,6 +161,54 @@ PROV=(--provenance "backbone=$MODEL_SLUG" --provenance "checkpoint=$MODEL_ID"
       --provenance "max_num_seqs=$VLLM_MAX_NUM_SEQS_SINGLE" --provenance "gpu_mem_util=$GPU_UTIL" --provenance "concurrency=1"
       --provenance "deadline_s=900" --provenance "driver=run_suite.sh")
 
+# The card behind gres gpu:batch, from gres.conf (index 0 on hugin).
+batch_gpu_index() {
+    local dev
+    dev=$(grep -E '^[^#]*Name=gpu.*Type=batch.*File=/dev/nvidia[0-9]+' /etc/slurm/gres.conf 2>/dev/null \
+          | sed -E 's#.*File=/dev/nvidia([0-9]+).*#\1#' | head -1)
+    echo "${dev:-0}"
+}
+
+# The eval instance is sbatch'd on gres gpu:batch. Any other job holding that
+# gres (Basalt, since 2026-11-12) would leave it pending until `instance up`
+# times out, and processes outside SLURM (pipeline watcher, remote desktop)
+# eat into the memory --gpu-util asks for. Refuse, never cancel: stopping
+# another job is the operator's call.
+check_batch_gpu() {
+    local holders basalt idx total reserved used free need
+    holders=$(squeue -h -o '%i %j %u %T %b' 2>/dev/null | grep 'gpu:batch' | grep -v " vllm-inst-$NAME " || true)
+    if [ -n "$holders" ]; then
+        log "jobs holding gres gpu:batch:"; echo "$holders" | sed 's/^/    /' | tee -a "$LOG"
+        basalt=$(echo "$holders" | grep -i basalt | awk '{print $1}' | tr '\n' ' ')
+        basalt=${basalt% }
+        if [ -n "$basalt" ]; then
+            # With the keeper installed a bare scancel is undone within 5 min.
+            local keeper=/opt/cluster/scripts/basalt/basalt-keeper.sh
+            if [ -x "$keeper" ]; then
+                die "Basalt (job(s) $basalt) holds gpu:batch; the eval instance needs that card. Stop it with its hold for the run: sudo $keeper stop; afterwards: sudo $keeper start"
+            fi
+            die "Basalt (job(s) $basalt) holds gpu:batch; the eval instance needs that card. Stop it for the run: sudo scancel $basalt; restart it afterwards: sudo sbatch /opt/cluster/scripts/basalt/start-basalt.sh"
+        fi
+        die "another job holds gpu:batch (above); the eval instance would pend behind it. Wait for it or cancel it, then re-run"
+    fi
+    # Our own eval instance (a re-entrant re-run) legitimately fills the card.
+    if squeue -h -n "vllm-inst-$NAME" -o %i 2>/dev/null | grep -q .; then
+        log "batch GPU: our vllm-inst-$NAME job is already there; skipping the memory check"
+        return 0
+    fi
+    idx=$(batch_gpu_index)
+    read -r total reserved used < <(nvidia-smi -i "$idx" --query-gpu=memory.total,memory.reserved,memory.used \
+        --format=csv,noheader,nounits 2>/dev/null | tr -d ' ' | tr ',' ' ')
+    if [ -z "${used:-}" ]; then log "WARN: nvidia-smi gave no memory figures for GPU $idx; skipping the memory check"; return 0; fi
+    # vLLM budgets util x (total - reserved) and refuses to start with less
+    # free; +1024 MiB covers its own CUDA context (~0.6 GiB) plus slack for
+    # the resident processes to grow.
+    free=$((total - reserved - used))
+    need=$(python3 -c 'import sys; print(int(float(sys.argv[1]) * (int(sys.argv[2]) - int(sys.argv[3])) + 1024))' "$GPU_UTIL" "$total" "$reserved")
+    log "batch GPU $idx: ${used} MiB in use, ${free} MiB free; --gpu-util $GPU_UTIL needs ~${need} MiB"
+    [ "$free" -ge "$need" ] || die "batch GPU $idx has ${free} MiB free, --gpu-util $GPU_UTIL needs ~${need} MiB (nvidia-smi); free the card or lower --gpu-util"
+}
+
 gates_field() {   # $1 = gates.json, $2 = gate, $3 = field
     python3 -c 'import json,sys; g=json.load(open(sys.argv[1]))["gates"].get(sys.argv[2],{}); v=g.get(sys.argv[3]); print("" if v is None else v)' "$1" "$2" "$3" 2>/dev/null
 }
@@ -167,6 +229,29 @@ if ! phase_done 0; then
     [ "$profile_file" = "single" ] || die "persisted profile is '$profile_file', not single: the 06:00 cron would bring TP=2 back and pend it behind the instance. Fix: sudo vllm-service start single"
     log "production: single-GPU profile RUNNING, persisted=$profile_file"
     echo "$profile_file" > "$RUNS/prod-profile-at-start"
+    # gateway token: production's guard is the instances' guard (same env).
+    # Prints two status codes, never the token.
+    gw_probe=$($PY -c '
+import urllib.error, urllib.request
+from munin_bench.gateway import gateway_headers
+def code(h):
+    req = urllib.request.Request("http://127.0.0.1:8080/api/personas",
+                                 headers={**h, "X-Munin-Email": "litqa2-eval@localhost"})
+    try:
+        return urllib.request.urlopen(req, timeout=10).status
+    except urllib.error.HTTPError as e:
+        return e.code
+h = gateway_headers()
+print(code({}), code(h) if h else "none")
+' 2>&1 | tail -1)
+    log "gateway probe (status without token, with token): $gw_probe"
+    case "$gw_probe" in
+        "200 "*) log "gateway guard off on production; no token needed" ;;
+        "401 200") log "gateway guard on; token accepted" ;;
+        "401 none") die "retrieval enforces MUNIN_GATEWAY_TOKEN and none is set: export MUNIN_GATEWAY_TOKEN_FILE=<file> and re-run" ;;
+        *) die "gateway probe failed ($gw_probe): a wrong token, an unreadable MUNIN_GATEWAY_TOKEN_FILE, or retrieval down" ;;
+    esac
+    check_batch_gpu
     # 24x7 for the window: the 02:00 stop would take production down mid-run (users)
     if $VLLM_SERVICE status 2>/dev/null | grep -q "Mode: 24/7"; then
         log "vLLM schedule: already 24/7"; echo no > "$RUNS/restore-schedule"
@@ -195,6 +280,7 @@ if ! phase_done 1; then
     log "--- phase 1: instances up ---"
     if [ ! -f "/opt/munin/instances/$NAME/gates.json" ] || \
        ! curl -sf --max-time 3 "$API/health" > /dev/null 2>&1; then
+        check_batch_gpu
         run_logged $DEPLOY instance up "$SLUG" --name "$NAME" --vllm-port "$VLLM_PORT" --api-port "$API_PORT" --gpu-util "$GPU_UTIL" \
             || die "instance up $NAME failed (see /opt/munin/instances/$NAME/gates.json)"
     else
@@ -419,28 +505,40 @@ if [ "$TEARDOWN" = "1" ] && ! phase_done 4; then
     if [ "$(cat "$RUNS/restore-schedule" 2>/dev/null)" = "yes" ]; then
         run_logged $VLLM_SERVICE disable-24x7 || log "WARN: disable-24x7 failed"
     fi
-    log "restoring production to the TP=2 profile ..."
-    run_logged $VLLM_SERVICE stop || true
-    # Wait for the old job to LEAVE the queue. `vllm-service start` refuses while
-    # a production job is still COMPLETING ("already running"), and the dying
-    # job keeps answering /health for a while, so the first version of this
-    # step declared victory over a job that was on its way out and production
-    # stayed down from 06:03 until a human noticed at 08:03 on 2026-09-16.
-    for i in $(seq 1 60); do
-        squeue -h -n vllm-service,vllm-service-tp2 -o %i | grep -q . || break; sleep 5
-    done
-    squeue -h -n vllm-service,vllm-service-tp2 -o %i | grep -q . && die "old production job still in the queue after 5 min; start TP=2 by hand: sudo vllm-service start tp2"
-    run_logged $VLLM_SERVICE start tp2 || die "vllm-service start tp2 failed; production is DOWN"
-    newjob=$(squeue -h -n vllm-service-tp2 -o %i | head -1)
-    [ -n "$newjob" ] || die "no vllm-service-tp2 job after start; production is DOWN: sudo vllm-service start tp2"
-    log "production job $newjob submitted; waiting for vLLM (up to 20 min) ..."
-    for i in $(seq 1 240); do
-        curl -sf --max-time 3 http://127.0.0.1:8000/health > /dev/null 2>&1 && break
-        squeue -h -j "$newjob" -o %T | grep -q . || die "production job $newjob left the queue before serving; see /opt/munin/logs/vllm-service-$newjob.out"
-        sleep 5
-    done
-    curl -sf --max-time 3 http://127.0.0.1:8000/health > /dev/null 2>&1 && log "production vLLM healthy on TP=2 (job $newjob)" \
-        || die "production vLLM not healthy after 20 min; check squeue / vllm-service status"
+    # Production was never stopped (preflight only checks it), so there is
+    # nothing to switch back. Until 2026-11-12 production lived on TP=2 and
+    # preflight needed a hand switch to single, so this step stopped single
+    # and started tp2. Production is single-GPU on purpose now (Basalt or the
+    # eval instance owns the other card), and that restart would have taken
+    # both GPUs. Restore only what preflight recorded, and only if needed.
+    want_profile=$(cat "$RUNS/prod-profile-at-start" 2>/dev/null | tr -d '[:space:]')
+    want_profile=${want_profile:-single}
+    now_profile=$(cat /opt/munin/logs/vllm_profile 2>/dev/null | tr -d '[:space:]')
+    [ "$now_profile" = "$want_profile" ] \
+        || log "WARN: persisted profile is '$now_profile', preflight found '$want_profile'; changed during the run, leaving it alone"
+    prodjob=$(squeue -h -n vllm-service,vllm-service-tp2 -o '%i %j %T end=%e' | head -1)
+    if [ -n "$prodjob" ]; then
+        log "production job still there ($prodjob); not touching it"
+    else
+        log "production job is gone (walltime or a crash during the run); starting it on the '$want_profile' profile preflight found ..."
+        if ! run_logged $VLLM_SERVICE start "$want_profile"; then
+            # The hourly health timer may have resubmitted it in between.
+            squeue -h -n vllm-service,vllm-service-tp2 -o %i | grep -q . \
+                || die "vllm-service start $want_profile failed; production is DOWN"
+            log "start refused but a production job is now queued (health timer); continuing"
+        fi
+        newjob=$(squeue -h -n vllm-service,vllm-service-tp2 -o %i | head -1)
+        [ -n "$newjob" ] || die "no production job after start; production is DOWN: sudo vllm-service start $want_profile"
+        log "production job $newjob submitted; waiting for vLLM (up to 20 min) ..."
+        for i in $(seq 1 240); do
+            curl -sf --max-time 3 http://127.0.0.1:8000/health > /dev/null 2>&1 && break
+            squeue -h -j "$newjob" -o %T | grep -q . || die "production job $newjob left the queue before serving; see /opt/munin/logs/vllm-service-$newjob.out"
+            sleep 5
+        done
+    fi
+    curl -sf --max-time 3 http://127.0.0.1:8000/health > /dev/null 2>&1 \
+        && log "production vLLM healthy (profile $want_profile)" \
+        || die "production vLLM not healthy at teardown; check squeue / vllm-service status"
     mark_done 4
 fi
 
