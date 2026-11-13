@@ -294,7 +294,8 @@ function TaskLogRows({ id, thinking, toolCalls, ragContext, thinkingDuration, is
 }
 
 function ThinkingRow({ content, duration, isActive }: { content: string; duration?: number; isActive?: boolean }) {
-  const [expanded, setExpanded] = useState(false);
+  // Opening the activity line shows everything; each part can still be closed.
+  const [expanded, setExpanded] = useState(true);
 
   return (
     <div className="border-b border-border last:border-0 py-1.5">
@@ -320,7 +321,7 @@ function ThinkingRow({ content, duration, isActive }: { content: string; duratio
 }
 
 function ToolCallRow({ call, isActive }: { call: ToolCall; isActive?: boolean }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const icon = getIcon(call.name);
   const resultSummary = call.result ? formatResult(call.result) : null;
 
@@ -372,7 +373,7 @@ function ToolCallRow({ call, isActive }: { call: ToolCall; isActive?: boolean })
 }
 
 function RagContextRow({ context }: { context: RagContext }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const sourceCount = context.sources_used.length;
 
   return (

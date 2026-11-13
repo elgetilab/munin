@@ -36,8 +36,7 @@ describe('TaskLog result summary', () => {
   });
 
   it('lets long unbroken values wrap in the expanded view', () => {
-    const button = row({ error: 'x' });
-    fireEvent.click(button);
+    row({ error: 'x' });
     const pres = document.querySelectorAll('pre');
     expect(pres.length).toBeGreaterThan(0);
     pres.forEach(p => expect(p.className).toContain('wrap-anywhere'));
@@ -90,19 +89,21 @@ describe('TaskLog tool icons', () => {
 });
 
 describe('TaskLog rows', () => {
-  it('are real buttons that report whether they are expanded', () => {
+  // Opening the activity line shows everything; each part can still be closed.
+  it('are real buttons, all open once the line is opened, each closable', () => {
     render(<TaskLog thinking="Mulling it over" toolCalls={[{ id: 't1', name: 'web_search', arguments: {} }]} />);
     fireEvent.click(screen.getByTestId('activity-line'));
     const rows = screen.getAllByRole('button').slice(1);
     expect(rows).toHaveLength(2);
     for (const row of rows) {
       expect(row).toHaveAttribute('type', 'button');
-      expect(row).toHaveAttribute('aria-expanded', 'false');
+      expect(row).toHaveAttribute('aria-expanded', 'true');
     }
+    expect(screen.getByText('Mulling it over')).toBeInTheDocument();
 
     fireEvent.click(rows[0]);
-    expect(rows[0]).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('Mulling it over')).toBeInTheDocument();
+    expect(rows[0]).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Mulling it over')).not.toBeInTheDocument();
   });
 });
 
@@ -110,7 +111,6 @@ describe('TaskLog expanded rows', () => {
   const open = (call: ToolCall) => {
     const view = render(<TaskLog toolCalls={[call]} />);
     fireEvent.click(screen.getByTestId('activity-line'));
-    fireEvent.click(screen.getAllByRole('button')[1]);
     return view;
   };
 
@@ -170,7 +170,6 @@ describe('TaskLog expanded rows', () => {
       ],
     }} />);
     fireEvent.click(screen.getByTestId('activity-line'));
-    fireEvent.click(screen.getAllByRole('button')[1]);
     expect(screen.getByRole('link', { name: '10.5555/xyz' })).toHaveAttribute('href', 'https://doi.org/10.5555/xyz');
     expect(screen.queryByRole('link', { name: 'not-a-doi' })).toBeNull();
     expect(screen.getByText(/not-a-doi/)).toBeInTheDocument();
