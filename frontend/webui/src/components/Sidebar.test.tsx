@@ -654,7 +654,6 @@ describe('Sidebar data loading', () => {
 
   it('re-reads the chat list after a conversation is deleted', async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     let deleted = false;
     server.use(
       http.get(ADMIN_CHATS, ({ request }) => {
@@ -677,6 +676,7 @@ describe('Sidebar data loading', () => {
     const row = screen.getByText('Test Chat 1').closest('.relative')!;
     await user.click(within(row as HTMLElement).getByTitle('More'));
     await user.click(within(row as HTMLElement).getByText('Delete'));
+    await user.click(screen.getByRole('button', { name: 'Delete chat' }));
 
     await waitFor(() => expect(screen.queryByText('Test Chat 1')).not.toBeInTheDocument());
   });
@@ -945,7 +945,6 @@ describe('Sidebar filed chats and projects', () => {
 
   it('deleting the active project clears it and any open settings for it', async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     useWorkspaceStore.setState({ activeProjectId: 'p1', editingProject: { id: 'p1' } as unknown as Project });
     renderSidebar();
     await screen.findByText('ML Research');
@@ -953,6 +952,7 @@ describe('Sidebar filed chats and projects', () => {
     const row = rowOf('ML Research');
     await user.click(within(row).getByTitle('More'));
     await user.click(within(row).getByText('Delete project'));
+    await user.click(screen.getByRole('button', { name: 'Delete project' }));
 
     await waitFor(() => expect(useWorkspaceStore.getState().activeProjectId).toBeNull());
     expect(useWorkspaceStore.getState().editingProject).toBeNull();
@@ -1157,7 +1157,6 @@ describe('Sidebar loading and feedback', () => {
 
     it('a chat a refresh removed during the wait does not come back', async () => {
       const user = userEvent.setup();
-      vi.spyOn(window, 'confirm').mockReturnValue(true);
       let all = rows(120);
       let release = () => {};
       const gate = new Promise<void>(resolve => { release = resolve; });
@@ -1185,6 +1184,7 @@ describe('Sidebar loading and feedback', () => {
       const row = screen.getByText('Chat 3').closest('.relative') as HTMLElement;
       await user.click(within(row).getByTitle('More'));
       await user.click(within(row).getByText('Delete'));
+      await user.click(screen.getByRole('button', { name: 'Delete chat' }));
       await waitFor(() => expect(screen.queryByText('Chat 3')).not.toBeInTheDocument());
 
       release();
@@ -1230,7 +1230,6 @@ describe('Sidebar loading and feedback', () => {
 
   it('a failed delete says so instead of rejecting unhandled', async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     server.use(http.delete('/api/chats/:id', () => new HttpResponse(null, { status: 500 })));
     renderSidebar();
     await screen.findByText('Test Chat 2');
@@ -1238,8 +1237,12 @@ describe('Sidebar loading and feedback', () => {
     const row = screen.getByText('Test Chat 2').closest('.relative') as HTMLElement;
     await user.click(within(row).getByTitle('More'));
     await user.click(within(row).getByText('Delete'));
+    await user.click(screen.getByRole('button', { name: 'Delete chat' }));
 
     await waitFor(() => expect(useUiStore.getState().toast).toBe('Could not delete the chat'));
+    // The chat is still there, and so is the ⋮ button the menu opened from.
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'More actions for Test Chat 2' })).toHaveFocus();
   });
 
   it('Escape cancels a rename without saving, and so does the blur that follows', async () => {
@@ -1722,14 +1725,107 @@ describe('Sidebar polish', () => {
     });
   });
 
-  it('deleting a project says its chats stay in the chat list', async () => {
-    const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    renderSidebar();
-    await user.click(await screen.findByRole('button', { name: 'More actions for ML Research' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Delete project' }));
+  describe('the delete confirmation', () => {
+    it('asks about a project in an alertdialog that says its chats stay in the chat list', async () => {
+      const user = userEvent.setup();
+      const deleted: string[] = [];
+      server.use(http.delete('/api/projects/:id', ({ params }) => {
+        deleted.push(params.id as string);
+        return new HttpResponse(null, { status: 204 });
+      }));
+      renderSidebar();
+      await user.click(await screen.findByRole('button', { name: 'More actions for ML Research' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Delete project' }));
 
-    expect(confirm).toHaveBeenCalledWith('Delete this project? Chats in this project will stay in your chat list.');
+      const dialog = screen.getByRole('alertdialog', { name: 'Delete project?' });
+      expect(dialog).toHaveAttribute('aria-modal', 'true');
+      expect(dialog).toHaveAccessibleDescription('“ML Research” will be deleted. Chats in this project will stay in your chat list.');
+      expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+      expect(within(dialog).getByRole('button', { name: 'Delete project' })).toBeInTheDocument();
+      expect(deleted).toEqual([]);
+    });
+
+    it('asks about a chat by its title, and Cancel deletes nothing and goes back to the ⋮ button', async () => {
+      const user = userEvent.setup();
+      const deleted: string[] = [];
+      server.use(http.delete('/api/chats/:id', ({ params }) => {
+        deleted.push(params.id as string);
+        return new HttpResponse(null, { status: 204 });
+      }));
+      renderSidebar();
+      const more = await screen.findByRole('button', { name: 'More actions for Test Chat 2' });
+      await user.click(more);
+      await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
+
+      const dialog = screen.getByRole('alertdialog', { name: 'Delete chat?' });
+      expect(dialog).toHaveAccessibleDescription('“Test Chat 2” and all its messages will be deleted. This cannot be undone.');
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(more).toHaveFocus();
+      expect(deleted).toEqual([]);
+    });
+
+    it('keeps Tab inside, and Escape cancels', async () => {
+      const user = userEvent.setup();
+      renderSidebar();
+      const more = await screen.findByRole('button', { name: 'More actions for Test Chat 2' });
+      await user.click(more);
+      await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
+
+      const dialog = screen.getByRole('alertdialog');
+      const cancel = within(dialog).getByRole('button', { name: 'Cancel' });
+      const confirm = within(dialog).getByRole('button', { name: 'Delete chat' });
+      await user.tab();
+      expect(confirm).toHaveFocus();
+      await user.tab();
+      expect(cancel).toHaveFocus();
+      await user.tab({ shift: true });
+      expect(confirm).toHaveFocus();
+
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(screen.getByText('Test Chat 2')).toBeInTheDocument();
+      expect(more).toHaveFocus();
+    });
+
+    it('after deleting a chat, focus goes to the next chat in the list', async () => {
+      const user = userEvent.setup();
+      let deleted = false;
+      server.use(
+        http.get('/api/chats', ({ request }) => {
+          if (new URL(request.url).searchParams.get('project_id') === 'p1') {
+            return HttpResponse.json({ conversations: [], total: 0 });
+          }
+          const list = MOCK_CHATS.conversations.filter(c => !deleted || c.id !== 'c1');
+          return HttpResponse.json({ conversations: list, total: list.length });
+        }),
+        http.delete('/api/chats/:id', () => { deleted = true; return new HttpResponse(null, { status: 204 }); }),
+      );
+      renderSidebar();
+      await user.click(await screen.findByRole('button', { name: 'More actions for Test Chat 1' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
+      await user.click(screen.getByRole('button', { name: 'Delete chat' }));
+
+      await waitFor(() => expect(screen.queryByText('Test Chat 1')).not.toBeInTheDocument());
+      expect(screen.getByRole('link', { name: 'Test Chat 2' })).toHaveFocus();
+    });
+
+    it('after deleting the last project, focus goes to New chat', async () => {
+      const user = userEvent.setup();
+      let projects = [MOCK_PROJECTS.projects[0]];
+      server.use(
+        http.get('/api/projects', () => HttpResponse.json({ projects, total: projects.length })),
+        http.delete('/api/projects/:id', () => { projects = []; return new HttpResponse(null, { status: 204 }); }),
+      );
+      renderSidebar();
+      await user.click(await screen.findByRole('button', { name: 'More actions for ML Research' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Delete project' }));
+      await user.click(screen.getByRole('button', { name: 'Delete project' }));
+
+      await waitFor(() => expect(screen.queryByText('ML Research')).not.toBeInTheDocument());
+      expect(screen.getByRole('link', { name: 'New chat' })).toHaveFocus();
+    });
   });
 
   describe('an empty project', () => {

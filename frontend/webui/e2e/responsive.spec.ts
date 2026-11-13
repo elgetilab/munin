@@ -392,6 +392,51 @@ test.describe('keyboard', () => {
     await expect(page).toHaveURL(/\/c\/c11$/);
   });
 
+  test('Delete asks in a dialog that holds focus, and focus lands on the next chat after', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const mocks = await installMocks(page, { conversations: manyChats(3) });
+    await page.goto('/');
+    const chat1 = page.getByRole('link', { name: 'Chat 1', exact: true });
+    await chat1.focus();
+    const more = page.getByRole('button', { name: 'More actions for Chat 1' });
+
+    const openDelete = async () => {
+      await page.keyboard.press('Shift+F10');
+      await page.keyboard.press('End');
+      await expect(page.getByRole('menuitem', { name: 'Delete' })).toBeFocused();
+      await page.keyboard.press('Enter');
+    };
+
+    await openDelete();
+    const dialog = page.getByRole('alertdialog', { name: 'Delete chat?' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toHaveAccessibleDescription(/“Chat 1” and all its messages will be deleted/);
+    const cancel = dialog.getByRole('button', { name: 'Cancel' });
+    const confirm = dialog.getByRole('button', { name: 'Delete chat' });
+    await expect(cancel).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(confirm).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(cancel).toBeFocused();
+
+    // Escape cancels and goes back to the ⋮ button, which stays on show for it.
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(more).toBeFocused();
+    await expect(more).toBeVisible();
+    expect(mocks.conversations).toHaveLength(3);
+
+    await page.keyboard.press('Shift+Tab');
+    await expect(chat1).toBeFocused();
+    await openDelete();
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Enter');
+
+    await expect(chat1).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Chat 2', exact: true })).toBeFocused();
+    expect(mocks.conversations.map((c) => c.id)).toEqual(['c0', 'c2']);
+  });
+
   test.describe('on a touch phone', () => {
     test.use({ hasTouch: true, isMobile: true });
 

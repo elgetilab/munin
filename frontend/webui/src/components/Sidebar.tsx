@@ -11,6 +11,7 @@ import { AUTH_BASE, DOCS_URL, SEARCH_URL, SITE_HOME, UPLOAD_URL } from '../lib/u
 import { conversationPath, isModifiedClick, newChatPath } from '../lib/nav';
 import { groupByTime } from '../lib/chatGrouping';
 import { isApplePlatform, isSearchKey, isSearchShortcut, searchShortcutAria, searchShortcutLabel } from '../lib/searchShortcut';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 import { ErrorNotice } from './ui/ErrorNotice';
 import { DIALOG_BACKDROP, LOGO_FILTER } from './ui/themeClasses';
 import { BookIcon, ChatIcon, FolderIcon, PageIcon, PlusIcon, SearchIcon } from './ui/icons';
@@ -174,6 +175,20 @@ function moveAmongChats(e: React.KeyboardEvent<HTMLElement>) {
   links[next].focus();
 }
 
+/**
+ * Where focus goes once a delete has removed the row it came from: the next of
+ * `items` that is not going, else the nearest one before, else `fallback`.
+ */
+function nextSurvivor(items: HTMLElement[], going: (el: HTMLElement) => boolean, fallback: HTMLElement | null) {
+  const first = items.findIndex(going);
+  if (first === -1) return fallback;
+  return items.slice(first).find(el => !going(el))
+    ?? items.slice(0, first).reverse().find(el => !going(el))
+    ?? fallback;
+}
+
+type PendingDelete = { kind: 'chat' | 'project'; id: string; name: string };
+
 function KebabIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -275,6 +290,17 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
   // The row that last held focus, which keeps the Tab stop of its chat list.
   const [rovingRowId, setRovingRowId] = useState<string | null>(null);
+  // The chat or project the delete confirmation is asking about.
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  // The chat row whose menu asked for it. Its ⋮ button stays on show until focus
+  // is back in a row: it is hidden while the row has no focus, and a hidden
+  // button cannot take the focus the closing dialog gives back to it.
+  const [deleteRowId, setDeleteRowId] = useState<string | null>(null);
+  // Where focus goes when the confirmation closes after a delete, as the row it
+  // came from is about to go.
+  const deleteReturnFocus = useRef<HTMLElement | null>(null);
+  const asideRef = useRef<HTMLElement>(null);
+  const newChatRef = useRef<HTMLAnchorElement>(null);
   const groupIdPrefix = useId();
   // Pin and Unpin move a chat to another group, which remounts its row and drops
   // the focus its menu gave back to the ⋮ button. Once the lists re-read, focus
@@ -491,16 +517,23 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     }
   };
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm('Delete this conversation?')) return;
+  const requestDelete = (pending: PendingDelete) => {
+    deleteReturnFocus.current = null;
+    setPendingDelete(pending);
+  };
+
+  const handleDelete = async (id: string) => {
     try {
       await deleteChat(id);
+      // Read before the lists re-read, while the chat's rows are still there.
+      const links = Array.from(asideRef.current?.querySelectorAll<HTMLElement>('[data-chat-link]') ?? []);
+      deleteReturnFocus.current = nextSurvivor(links, el => el.getAttribute('href') === conversationPath(id), newChatRef.current);
       load();
       if (id === currentId) onNewChat();
     } catch {
       showToast('Could not delete the chat');
     }
+    setPendingDelete(null);
   };
 
   const handleRename = async (id: string) => {
@@ -539,9 +572,10 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   };
 
   const handleDeleteProject = async (id: string) => {
-    if (!confirm('Delete this project? Chats in this project will stay in your chat list.')) return;
     try {
       await deleteProject(id);
+      const toggles = Array.from(asideRef.current?.querySelectorAll<HTMLElement>('[data-project-toggle]') ?? []);
+      deleteReturnFocus.current = nextSurvivor(toggles, el => el.dataset.projectToggle === id, newChatRef.current);
       // Nothing may go on pointing at it: the next message would be filed into a
       // project that no longer exists, and the backend answers that with a 404.
       const workspace = useWorkspaceStore.getState();
@@ -551,6 +585,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     } catch {
       showToast('Could not delete the project');
     }
+    setPendingDelete(null);
   };
 
   const handleUnarchive = async (id: string) => {
@@ -614,10 +649,18 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     chat,
     isCurrent: chat.id === currentId,
     onSelect,
-    onDelete: handleDelete,
+    onDelete: (e: React.MouseEvent) => {
+      e.stopPropagation();
+      requestDelete({ kind: 'chat', id: chat.id, name: chat.title || 'Untitled' });
+      setDeleteRowId(rowId);
+    },
+    confirmingDelete: deleteRowId === rowId,
     onRename: () => { setEditingId(rowId); setEditTitle(chat.title || ''); },
     onPin: togglePin,
-    onRowFocus: () => setRovingRowId(rowId),
+    onRowFocus: () => {
+      setRovingRowId(rowId);
+      setDeleteRowId(null);
+    },
     editing: editingId === rowId,
     editTitle,
     onEditTitleChange: setEditTitle,
@@ -713,7 +756,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   };
 
   return (
-    <aside className="w-64 flex-shrink-0 bg-bg-secondary border-r border-border flex flex-col h-full relative">
+    <aside ref={asideRef} className="w-64 flex-shrink-0 bg-bg-secondary border-r border-border flex flex-col h-full relative">
       {/* Logo */}
       {/* As tall as the chat header beside it, so their bottom borders meet. */}
       <div className="h-[49px] flex-shrink-0 px-4 flex items-center justify-between border-b border-border">
@@ -741,6 +784,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       <div className="px-2 pt-2 pb-1 flex flex-col gap-0.5">
         {/* New chat */}
         <a
+          ref={newChatRef}
           href={newChatPath()}
           onClick={(e) => {
             // Ctrl/cmd/shift-click and middle-click belong to the
@@ -809,7 +853,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                   onMenuOpenChange={(open) => setProjectActionMenuId(id => (open ? proj.id : id === proj.id ? null : id))}
                   onNewChatInProject={onNewChatInProject}
                   onOpenProjectSettings={onOpenProjectSettings}
-                  onDelete={() => handleDeleteProject(proj.id)}
+                  onDelete={() => requestDelete({ kind: 'project', id: proj.id, name: proj.name })}
                 />
 
                 {/* Expanded project chats */}
@@ -1135,6 +1179,20 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
           </div>
         </div>
       )}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title={pendingDelete.kind === 'chat' ? 'Delete chat?' : 'Delete project?'}
+          confirmLabel={pendingDelete.kind === 'chat' ? 'Delete chat' : 'Delete project'}
+          onConfirm={() => (pendingDelete.kind === 'chat' ? handleDelete(pendingDelete.id) : handleDeleteProject(pendingDelete.id))}
+          onCancel={() => setPendingDelete(null)}
+          returnFocusRef={deleteReturnFocus}
+        >
+          {pendingDelete.kind === 'chat'
+            ? <>“{pendingDelete.name}” and all its messages will be deleted. This cannot be undone.</>
+            : <>“{pendingDelete.name}” will be deleted. Chats in this project will stay in your chat list.</>}
+        </ConfirmDialog>
+      )}
     </aside>
   );
 }
@@ -1193,6 +1251,7 @@ function ProjectRow({
       >
         <button
           type="button"
+          data-project-toggle={project.id}
           onClick={onToggle}
           aria-expanded={expanded}
           aria-label={`${project.name}, ${count} ${count === 1 ? 'chat' : 'chats'}`}
@@ -1308,7 +1367,10 @@ interface ChatRowProps {
   chat: ConversationSummary;
   isCurrent: boolean;
   onSelect: (id: string) => void;
-  onDelete: (id: string, e: React.MouseEvent) => void;
+  onDelete: (e: React.MouseEvent) => void;
+  // Its delete confirmation is open, or has closed with focus on its way back, so
+  // its ⋮ button stays on show to take that focus.
+  confirmingDelete: boolean;
   onRename: () => void;
   onPin: (chat: ConversationSummary) => void;
   // Whether this row is its list's one Tab stop (see moveAmongChats).
@@ -1336,7 +1398,7 @@ interface ChatRowProps {
 }
 
 function ChatRow({
-  chat, isCurrent, onSelect, onDelete, onRename, onPin, tabbable, onRowFocus,
+  chat, isCurrent, onSelect, onDelete, confirmingDelete, onRename, onPin, tabbable, onRowFocus,
   editing, editTitle, onEditTitleChange, onEditComplete, onEditCancel,
   onMoveMenu, onMoveBack, showMoveMenu,
   onMenuOpenChange, showActionMenu,
@@ -1415,7 +1477,7 @@ function ChatRow({
 
         {/* The row's actions take no room until the row is hovered or holds
             focus (or always, on a touch screen), so the title gets the width. */}
-        <div className={`flex-shrink-0 items-center gap-0.5 ${menu.open ? 'flex' : 'hidden group-hover:flex group-focus-within:flex [@media(hover:none)]:flex'}`}>
+        <div className={`flex-shrink-0 items-center gap-0.5 ${menu.open || confirmingDelete ? 'flex' : 'hidden group-hover:flex group-focus-within:flex [@media(hover:none)]:flex'}`}>
         {/* Three-dots action menu trigger. Fades in on row hover.
             Stays visible when the menu is open so the user can click
             the toggle a second time to dismiss. */}
@@ -1497,7 +1559,7 @@ function ChatRow({
               )}
               <button
                 role="menuitem"
-                onClick={(e) => { menu.close(); onDelete(chat.id, e); }}
+                onClick={(e) => { menu.close(); onDelete(e); }}
                 className={`${MENU_ITEM} !text-error`}
               >
                 Delete

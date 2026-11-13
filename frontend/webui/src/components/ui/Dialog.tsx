@@ -13,7 +13,9 @@
  * - footer: stays on-screen while the body scrolls. For Enter to submit, put
  *   <form id="x"> in children and <button type="submit" form="x"> in footer.
  * - closeOnBackdrop (default true): pass false while a form has unsaved input.
- * - initialFocusRef: what to focus on open, see useModal.
+ * - initialFocusRef, returnFocusRef: what to focus on open and on close, see useModal.
+ * - role: 'alertdialog' for a question that interrupts, see useModal.
+ * - descriptionId: the id of an element in children that describes the dialog.
  *
  * For a panel with its own layout, use useModal directly.
  */
@@ -32,6 +34,9 @@ export interface DialogProps {
   footer?: ReactNode;
   closeOnBackdrop?: boolean;
   initialFocusRef?: RefObject<HTMLElement | null>;
+  returnFocusRef?: RefObject<HTMLElement | null>;
+  role?: 'dialog' | 'alertdialog';
+  descriptionId?: string;
 }
 
 export function Dialog({
@@ -41,8 +46,11 @@ export function Dialog({
   footer,
   closeOnBackdrop = true,
   initialFocusRef,
+  returnFocusRef,
+  role,
+  descriptionId,
 }: DialogProps) {
-  const { panelProps, titleId } = useModal({ onClose, initialFocusRef });
+  const { panelProps, titleId } = useModal({ onClose, initialFocusRef, returnFocusRef, role });
 
   // A click must also start on the backdrop: dragging a text selection out of a
   // field and letting go over the backdrop would otherwise discard the form.
@@ -64,6 +72,7 @@ export function Dialog({
     >
       <div
         {...panelProps}
+        aria-describedby={descriptionId}
         className="w-full max-w-md max-h-full flex flex-col bg-bg-secondary border border-border rounded-xl shadow-2xl overflow-hidden"
       >
         <h2 id={titleId} className="flex-shrink-0 px-5 py-4 border-b border-border text-sm font-semibold text-text-primary">
