@@ -386,6 +386,25 @@ def _all_prose_sequences_grounded(r: "RunResult", allow_tails: bool = False) -> 
 
 PRIMER_TOOL_BUDGET = 12
 
+# Cumulative prompt tokens for the turn. Observed on sage-a1.5 when the model
+# hand-rolls the task in the sandbox instead of calling the tool: 327,815 and
+# 291,440 across 10-11 `run_python` calls. A turn that calls `design_primers`
+# should land one or two orders of magnitude below that, because the tool
+# answers in one call. This is a COST guard, and it is the check that
+# separates "used the tool" from "reinvented it", independently of the tool
+# name appearing in the trace.
+PRIMER_PROMPT_BUDGET = 120_000
+
+# If the model says it designed primers, it has to state them. Without this,
+# `_all_prose_sequences_grounded` passes VACUOUSLY on an answer that contains
+# no DNA at all, which is exactly what an errored or hedging turn produces.
+# Two sequences, because a PCR answer is a pair.
+MIN_STATED_OLIGOS = 2
+
+
+def _stated_oligos(r: "RunResult") -> int:
+    return sum(len(_DNA_TOKEN.findall(c.upper())) for c in r.assistant_contents)
+
 
 def _primer_checks(allow_tails: bool = False):
     """Checks shared by the primer scenarios that SUPPLY a template."""
@@ -404,10 +423,15 @@ def _primer_checks(allow_tails: bool = False):
             # The one that matters.
             ("called design_primers (did not do it by hand)",
              lambda r: "design_primers" in r.tool_calls_emitted),
+            # Non-vacuity: grounding means nothing if nothing was stated.
+            (f"stated at least {MIN_STATED_OLIGOS} primer sequences",
+             lambda r: _stated_oligos(r) >= MIN_STATED_OLIGOS),
             ("EVERY DNA sequence in the answer exists in the template",
              lambda r: _all_prose_sequences_grounded(r, allow_tails)),
             ("did not use the python sandbox to fake a primer tool",
              lambda r: "run_python" not in r.tool_calls_emitted),
+            (f"turn prompt tokens < {PRIMER_PROMPT_BUDGET:,}  (reinvention cost)",
+             lambda r: 0 < r.total_prompt_tokens < PRIMER_PROMPT_BUDGET),
         ]
     return build
 
