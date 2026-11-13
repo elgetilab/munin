@@ -93,7 +93,8 @@ const _defaultSidebarOpen = (): boolean => {
   // SSR / jsdom fallback — window may not exist or innerWidth
   // may be zero. Default to open on "desktop-ish" widths.
   try {
-    return typeof window !== 'undefined' && window.innerWidth >= 768;
+    // Open inline from lg; below it the sidebar is a drawer, closed at start.
+    return typeof window !== 'undefined' && window.innerWidth >= 1024;
   } catch {
     return true;
   }

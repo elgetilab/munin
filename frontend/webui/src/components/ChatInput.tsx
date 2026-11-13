@@ -1109,7 +1109,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         </div>
       </div>
 
-      <p className="text-center text-[11px] text-text-secondary mt-2">
+      {/* A little more air under the composer on a phone. */}
+      <p className="text-center text-[11px] text-text-secondary mt-3 md:mt-2">
         Munin can make mistakes. Verify important information.
       </p>
     </div>

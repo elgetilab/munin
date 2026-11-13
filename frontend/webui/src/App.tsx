@@ -25,6 +25,8 @@ import { isWidget } from './lib/artifactDisplay';
 import { ProjectSettings } from './components/ProjectSettings';
 import { AdminPanel } from './components/AdminPanel';
 import { ReportDialog } from './components/ReportDialog';
+import { PhoneHeader } from './components/PhoneHeader';
+import { CHAT_COLUMN } from './components/ui/chatColumn';
 import { canResend } from './lib/resend';
 import { KnowledgePanel } from './components/KnowledgePanel';
 import { KnowledgePage } from './components/KnowledgePage';
@@ -40,18 +42,20 @@ import type { Project } from './lib/types';
 import { AUTH_BASE, DOCS_URL, SEARCH_URL, SITE_HOME, UPLOAD_URL } from './lib/urls';
 import { conversationPath, correctChatPath, dropStaleOverlayEntry, finishAppPath, isModifiedClick, popClosedOverlay, pushAppPath, readOverlayEntry, syncChatPath, syncOverlayHistory } from './lib/nav';
 
-// Tailwind's md breakpoint, below which the sidebar is a drawer over the page.
-const BELOW_MD = '(width < 48rem)';
+// Tailwind's lg breakpoint, below which the sidebar is a drawer over the page.
+// A tablet gets the drawer too, so the header keeps its full width and its
+// site links instead of losing them beside an inline sidebar (2026-11).
+const BELOW_LG = '(width < 64rem)';
 
-function subscribeBelowMd(onChange: () => void) {
+function subscribeBelowLg(onChange: () => void) {
   if (typeof window.matchMedia !== 'function') return () => {};
-  const query = window.matchMedia(BELOW_MD);
+  const query = window.matchMedia(BELOW_LG);
   query.addEventListener('change', onChange);
   return () => query.removeEventListener('change', onChange);
 }
 
-function isBelowMd() {
-  return typeof window.matchMedia === 'function' && window.matchMedia(BELOW_MD).matches;
+function isBelowLg() {
+  return typeof window.matchMedia === 'function' && window.matchMedia(BELOW_LG).matches;
 }
 
 // Set once per browser tab session; see the isEphemeral reset below.
@@ -82,6 +86,7 @@ export default function App() {
   const setPersonas = useUserStore(s => s.setPersonas);
   const personaFromUrl = new URLSearchParams(window.location.search).get('persona');
   const selectedPersona = useUserStore(s => s.selectedPersona);
+  const conversationTitle = useChatStore(s => s.conversationTitle);
   const setSelectedPersona = useUserStore(s => s.setSelectedPersona);
   const hadPersonaParam = useRef(!!personaFromUrl);
   const greeting = useUserStore(s => s.greeting);
@@ -298,8 +303,8 @@ export default function App() {
   }, [conversationId, showDemo]);
 
   // Overlays and the phone drawer in the browser history (see lib/nav.ts).
-  const belowMd = useSyncExternalStore(subscribeBelowMd, isBelowMd);
-  const drawerOpen = sidebarOpen && belowMd && !showKnowledgePage;
+  const belowLg = useSyncExternalStore(subscribeBelowLg, isBelowLg);
+  const drawerOpen = sidebarOpen && belowLg && !showKnowledgePage;
   const overlayView = showAdmin ? 'admin' : editingProject ? 'project' : showSettings ? 'settings' : null;
   const overlayProject = overlayView === 'project' ? editingProject : null;
   const overlayHistoryStarted = useRef(false);
@@ -453,7 +458,7 @@ export default function App() {
   }, [streaming.phase, messages.length, isEphemeral, activeProjectId, conversationId, bumpSidebarRefresh, setActiveProjectId]);
 
   const closeDrawerOnPhone = useCallback(() => {
-    if (window.innerWidth < 768) setSidebarOpen(false);
+    if (window.innerWidth < 1024) setSidebarOpen(false);
   }, [setSidebarOpen]);
 
   // The three handlers below return false when the user kept an artifact draft,
@@ -692,7 +697,7 @@ export default function App() {
       setShowSettings(overlay.view === 'settings');
       setShowAdmin(overlay.view === 'admin');
       setEditingProject(overlay.view === 'project' ? overlay.project as Project : null);
-      if (isBelowMd()) setSidebarOpen(overlay.drawer);
+      if (isBelowLg()) setSidebarOpen(overlay.drawer);
 
       const path = window.location.pathname;
       if (path === '/demo') {
@@ -909,16 +914,16 @@ export default function App() {
           Slides
         </button>
       )}
-      {/* Sidebar — overlay on mobile, inline on desktop */}
+      {/* Sidebar: a drawer over the page below lg (phones and tablets), inline from lg */}
       {sidebarOpen && (
         <>
           {/* Backdrop on mobile */}
           <div
-            className={`fixed inset-0 ${SCRIM} z-40 md:hidden`}
+            className={`fixed inset-0 ${SCRIM} z-40 lg:hidden`}
             aria-hidden="true"
             onClick={() => setSidebarOpen(false)}
           />
-          <div {...drawerModal.panelProps} className="fixed inset-y-0 left-0 z-50 md:relative md:z-auto outline-none">
+          <div {...drawerModal.panelProps} className="fixed inset-y-0 left-0 z-50 lg:relative lg:z-auto outline-none">
             {drawerOpen && <h2 id={drawerModal.titleId} className="sr-only">Menu</h2>}
             <Sidebar
               currentId={conversationId}
@@ -939,10 +944,11 @@ export default function App() {
       {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header — minimal, just sidebar toggle and nav links */}
-        {/* Never wider than the main area: on a phone the pills can be swiped when
-            they do not fit, and the page itself never scrolls sideways. From md up
-            nothing can scroll, so the pill text wraps and the header grows. */}
-        <header className="@container flex items-center gap-1 px-3 py-2 border-b border-border bg-bg-secondary overflow-x-auto md:overflow-x-clip [scrollbar-width:none]">
+        {/* Never wider than the main area, and the page itself never scrolls
+            sideways. Clipped rather than scrolled sideways, so menus can still
+            drop down out of it: on a phone it holds only the menu, the title, New
+            chat and ⋯; from md up the pill text wraps and the header grows. */}
+        <header className="@container flex items-center gap-1 px-3 py-2 border-b border-border bg-bg-secondary overflow-x-clip">
           {/* 44px to the finger on a phone, the same 32px as its neighbours from md up. */}
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -953,6 +959,19 @@ export default function App() {
             <MenuIcon size={18} />
           </button>
 
+          {/* Phone: the chat's title, New chat and a labelled ⋯ menu. */}
+          <PhoneHeader
+            title={conversationTitle ?? (isEphemeral ? 'Temporary chat' : messages.length > 0 ? 'Untitled chat' : 'New chat')}
+            onNewChat={() => { handleNewChat(); }}
+            isEphemeral={isEphemeral}
+            onToggleEphemeral={handleToggleEphemeral}
+            artifacts={!isEphemeral ? { open: artifactPanelOpen, count: artifacts.length, onToggle: () => { if (mayDropArtifactDraft()) setArtifactPanelOpen(!artifactPanelOpen); } } : undefined}
+            sources={tagCatalog ? { open: knowledgePanelOpen, count: activeTags.length, onToggle: () => { if (mayDropArtifactDraft()) setKnowledgePanelOpen(!knowledgePanelOpen); } } : undefined}
+            report={conversationId && !isEphemeral && messages.length > 0 ? { reported: reportedChats.has(conversationId), onReport: () => setShowReportDialog(true) } : undefined}
+          />
+
+          {/* From md up, the toggles sit in the header itself. */}
+          <div className="hidden md:contents">
           {/* Ephemeral toggle */}
           <button
             data-testid="ephemeral-toggle"
@@ -1012,8 +1031,9 @@ export default function App() {
               <span className={TOGGLE_LABEL}>{reportedChats.has(conversationId) ? 'Reported' : 'Report'}</span>
             </button>
           )}
+          </div>
 
-          <div className="flex-1 min-w-2" />
+          <div className="hidden md:block flex-1 min-w-2" />
 
           <nav className={`hidden gap-0.5 ${sidebarOpen ? 'lg:flex' : 'md:flex'}`}>
             <a href={SITE_HOME} className={`${NAV_ITEM} ${NAV_IDLE}`}>Home</a>
@@ -1044,7 +1064,8 @@ export default function App() {
           </nav>
           {/* Shown at every width, with a hairline after the nav where there is one. */}
           <span aria-hidden="true" className={`hidden w-px h-4 mx-1 bg-border ${sidebarOpen ? 'lg:block' : 'md:block'}`} />
-          <ThemeToggle />
+          {/* On a phone the theme is in the ⋯ menu. */}
+          <span className="hidden md:contents"><ThemeToggle /></span>
         </header>
 
         {/* Degraded-service notice (LLM fallback or reduced mode) */}
@@ -1068,11 +1089,13 @@ export default function App() {
           </div>
         )}
 
-        {/* Ephemeral banner */}
+        {/* Ephemeral banner, as wide as the reading column. */}
         {isEphemeral && (
-          <div className="mx-4 mt-3 px-4 py-2 bg-warning/10 border border-warning rounded-lg text-xs text-warning flex items-center gap-2">
-            <span className="flex-1">This chat won't be saved. Messages are lost on refresh.</span>
-            <button onClick={handleToggleEphemeral} className="flex-shrink-0 underline cursor-pointer">Turn off</button>
+          <div className="px-4 mt-3">
+            <div className={`${CHAT_COLUMN} px-4 py-2 bg-warning/10 border border-warning rounded-lg text-xs text-warning flex items-center gap-2`}>
+              <span className="flex-1">This chat won't be saved. Messages are lost on refresh.</span>
+              <button onClick={handleToggleEphemeral} className="flex-shrink-0 underline cursor-pointer">Turn off</button>
+            </div>
           </div>
         )}
 
@@ -1091,8 +1114,9 @@ export default function App() {
           </div>
         )}
 
-        {/* PWA install banner */}
-        {showInstallBanner && (
+        {/* PWA install banner: on the empty screen only, never pushing a
+            conversation down mid-read. */}
+        {showInstallBanner && isEmpty && (
           <div className="mx-4 mt-3 px-4 py-3 bg-accent/10 border border-accent rounded-lg text-sm flex items-center gap-3 text-accent">
             <span className="flex-1">
               {canInstall

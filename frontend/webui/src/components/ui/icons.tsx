@@ -47,6 +47,11 @@ export function BookIcon(p: IconProps) {
   return <Svg {...p}><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z" /><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" /></Svg>;
 }
 
+/** A house: the homepage. */
+export function HomeIcon(p: IconProps) {
+  return <Svg {...p}><path d="M3 10.5L12 3l9 7.5" /><path d="M5 9.5V21h14V9.5" /></Svg>;
+}
+
 /** A prompt: code. */
 export function CodeIcon(p: IconProps) {
   return <Svg {...p}><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></Svg>;

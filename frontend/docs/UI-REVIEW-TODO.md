@@ -171,33 +171,33 @@ Effort: S under half a day, M one to two days, L more.
 
 ## 3. Phone and tablet
 
-- [ ] **Phone header like Claude's** (M)
-  - **Decided 2026-11-13: do.**
+- [x] **Phone header like Claude's** (M)
+  - **Done 2026-11-13: ☰, the chat's title, New chat, and Temporary chat, Artifacts, Sources, Report and the theme in a labelled ⋯ menu.**
   - **Problem:** On a phone the header is four or five unlabelled icons.
     Their titles never show on touch, and there is no New chat outside the
     drawer.
   - **Fix:** ☰, the chat title, and a New chat (pencil) icon. Temporary,
     Artifacts, Sources and Report move into a labelled "⋯" menu.
-- [ ] **Site links at tablet width** (M)
-  - **Decided 2026-11-13: do.**
+- [x] **Site links at tablet width** (M)
+  - **Done 2026-11-13: below lg the sidebar is a drawer over the page (it was below md), so the header keeps its links.**
   - **Problem:** At 820px with the sidebar open, the site nav disappears
     completely (`App.tsx`, `sidebarOpen ? 'lg:flex' : 'md:flex'`).
   - **Fix:** Below `lg`, open the sidebar as an overlay so the header keeps its
     links.
-- [ ] **Site links on a phone** (S)
-  - **Decided 2026-11-13: do.**
+- [x] **Site links on a phone** (S)
+  - **Done 2026-11-13: Home added to the account menu.**
   - **Problem:** Knowledge, Search papers and Upload are reachable only through
     the account menu, which has no Home link.
   - **Fix:** Add Home to the account menu.
-- [ ] **PWA install banner** (S)
-  - **Decided 2026-11-13: do.**
+- [x] **PWA install banner** (S)
+  - **Done 2026-11-13: on the empty screen only.**
   - **Problem:** It appears mid-conversation and pushes content.
   - **Fix:** Show it on the empty state only, or once after the first reply.
-- [ ] **Temporary-chat banner** (S)
-  - **Decided 2026-11-13: do.**
+- [x] **Temporary-chat banner** (S)
+  - **Done 2026-11-13: as wide as the reading column.**
   - **Problem:** It spans the whole main area instead of the reading column.
-- [ ] **Disclaimer spacing** (S)
-  - **Decided 2026-11-13: do.**
+- [x] **Disclaimer spacing** (S)
+  - **Done 2026-11-13: 12px above the disclaimer on a phone (was 8px).**
   - **Fix:** 4-6px more space between the disclaimer and the composer on
     phones.
 

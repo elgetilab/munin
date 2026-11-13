@@ -14,7 +14,7 @@ import { isApplePlatform, isSearchKey, isSearchShortcut, searchShortcutAria, sea
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { ErrorNotice } from './ui/ErrorNotice';
 import { DIALOG_BACKDROP, LOGO_FILTER } from './ui/themeClasses';
-import { BookIcon, ChatIcon, FolderIcon, PageIcon, PlusIcon, SearchIcon } from './ui/icons';
+import { BookIcon, ChatIcon, FolderIcon, PageIcon, PlusIcon, SearchIcon, HomeIcon } from './ui/icons';
 
 // P2 #26 commit 3: user identity slots (userEmail / userName /
 // userAvatar / isAdmin) and activeProjectId pulled from stores
@@ -775,7 +775,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
             type="button"
             onClick={onCloseDrawer}
             aria-label="Close menu"
-            className="md:hidden min-w-8 min-h-8 flex items-center justify-center -mr-2 text-text-secondary hover:text-text-primary cursor-pointer"
+            className="lg:hidden min-w-8 min-h-8 flex items-center justify-center -mr-2 text-text-secondary hover:text-text-primary cursor-pointer"
           >
             <span aria-hidden="true">&#10005;</span>
           </button>
@@ -1018,6 +1018,10 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
               <div className="border-t border-border" role="none">
                 {/* The header nav only appears from lg while the sidebar is open,
                     so below that these are the way to these pages. */}
+                <a role="menuitem" href={SITE_HOME} className={`lg:hidden ${ACCOUNT_ITEM}`}>
+                  <HomeIcon size={16} className="text-text-secondary" />
+                  Home
+                </a>
                 <a
                   role="menuitem"
                   href="/knowledge"

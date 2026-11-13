@@ -153,6 +153,8 @@ interface ChatState {
   messages: Message[];
   conversationId: string | null;
   conversationPersona: string | null;
+  // The open chat's title, for the phone header; null for a new or untitled chat.
+  conversationTitle: string | null;
   streaming: StreamingState;
   error: string | null;
   // Whether `error` is about a chat that could not be read, not about a reply.
@@ -239,6 +241,7 @@ export const useChatStore = create<ChatState>()(
     messages: [],
     conversationId: null,
     conversationPersona: null,
+    conversationTitle: null,
     streaming: INITIAL_STREAMING,
     error: null,
     loadFailed: false,
@@ -292,6 +295,7 @@ export const useChatStore = create<ChatState>()(
           state.messages = messagesIn;
           state.conversationId = chat.id;
           state.conversationPersona = chat.persona || null;
+          state.conversationTitle = chat.title || null;
         });
         // Background turns: the server says a stream is still
         // generating for this conversation — re-attach and watch it
@@ -331,6 +335,7 @@ export const useChatStore = create<ChatState>()(
         state.messages = [];
         state.conversationId = null;
         state.conversationPersona = null;
+        state.conversationTitle = null;
         state.streaming = INITIAL_STREAMING;
         state.error = null;
         state.loadFailed = false;
@@ -605,6 +610,10 @@ export const useChatStore = create<ChatState>()(
             set(state => {
               if (!ephemeral && !state.conversationId) {
                 state.conversationId = event.data.id;
+              }
+              // The second event of a new chat carries its generated title.
+              if (!ephemeral && event.data.title && state.conversationId === event.data.id) {
+                state.conversationTitle = event.data.title;
               }
               if (event.data.stream_id) {
                 state.streaming.streamId = event.data.stream_id;
@@ -1030,6 +1039,7 @@ export function _resetChatStoreForTests(): void {
     messages: [],
     conversationId: null,
     conversationPersona: null,
+    conversationTitle: null,
     streaming: INITIAL_STREAMING,
     error: null,
     loadFailed: false,

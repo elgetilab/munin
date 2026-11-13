@@ -52,7 +52,13 @@ test.describe('panels', () => {
       await artifacts.getByRole('button', { name: 'Close artifacts' }).click();
       await expect(artifacts).toBeHidden();
 
-      await page.getByRole('button', { name: 'Sources', exact: true }).click();
+      // On a phone Sources is in the header's ⋯ menu.
+      if (width < 768) {
+        await page.getByRole('button', { name: 'Chat options' }).click();
+        await page.getByRole('menuitemcheckbox', { name: /Sources/ }).click();
+      } else {
+        await page.getByRole('button', { name: 'Sources', exact: true }).click();
+      }
       const knowledge = page.getByTestId('knowledge-panel');
       await expect(knowledge).toHaveCSS('position', 'fixed');
       expect((await knowledge.boundingBox())?.width).toBe(width);
@@ -96,20 +102,43 @@ test.describe('panels', () => {
 });
 
 test.describe('header', () => {
-  test('on a phone the header items stay on one line and the page does not scroll sideways', async ({ page }) => {
+  // As in Claude: the menu, the chat's title, New chat, and the chat's toggles
+  // in one labelled menu instead of a row of bare icons.
+  test('on a phone the header is the menu, the title, New chat and a labelled ⋯ menu', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await installMocks(page, { chatScript: script() });
     await page.goto('/');
     await send(page);
     await page.getByTestId('artifact-panel').getByRole('button', { name: 'Close artifacts' }).click();
 
-    await expect(page.getByTestId('artifacts-button')).toHaveCSS('height', '32px');
     expect(await horizontalOverflow(page)).toBe(0);
-    const report = page.getByRole('button', { name: 'Report this chat' });
-    await expect(report).toBeVisible();
-    await expect(report.getByText('Report')).toBeHidden();
-    const hamburger = await page.getByRole('button', { name: 'Show sidebar' }).boundingBox();
-    expect(hamburger?.height).toBeGreaterThanOrEqual(44);
+    await expect(page.getByTestId('phone-title')).toBeVisible();
+    await expect(page.getByTestId('artifacts-button')).toBeHidden();
+    await expect(page.getByTestId('ephemeral-toggle')).toBeHidden();
+    for (const name of ['Show sidebar', 'New chat', 'Chat options']) {
+      const box = await page.getByRole('button', { name, exact: true }).first().boundingBox();
+      expect(box?.height, name).toBeGreaterThanOrEqual(44);
+    }
+
+    await page.getByRole('button', { name: 'Chat options' }).click();
+    for (const item of [/Temporary chat/, /Artifacts/, /Report this chat/, /Switch to (light|dark) theme/]) {
+      await expect(page.getByRole('menu', { name: 'Chat options' }).getByText(item)).toBeVisible();
+    }
+    await page.getByRole('menuitem', { name: 'Report this chat' }).click();
+    await expect(page.getByText('Report this chat').last()).toBeVisible();
+  });
+
+  test('on a tablet the header keeps its site links and the sidebar opens over the page', async ({ page }) => {
+    await page.setViewportSize({ width: 820, height: 1180 });
+    await installMocks(page, { chatScript: script() });
+    await page.goto('/');
+    await expect(page.getByRole('link', { name: 'Search papers' }).first()).toBeVisible();
+    await page.getByRole('button', { name: 'Show sidebar' }).click();
+    const drawer = page.locator('aside').first();
+    await expect(drawer).toBeVisible();
+    expect(await drawer.evaluate(e => getComputedStyle(e.parentElement!).position)).toBe('fixed');
+    await page.getByRole('button', { name: 'Close menu' }).click();
+    await expect(drawer).toBeHidden();
   });
 
   test('beside an open sidebar on a tablet the page does not scroll sideways', async ({ page }) => {
@@ -123,14 +152,14 @@ test.describe('header', () => {
 });
 
 test.describe('profile menu', () => {
-  test('gives a phone Help, Knowledge, Docs and Upload', async ({ page }) => {
+  test('gives a phone Help, Home, Knowledge, Docs and Upload', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await installMocks(page);
     await page.goto('/');
     await page.getByRole('button', { name: 'Show sidebar' }).click();
     await page.getByText('e2e@test.local').click();
     await expect(page.getByRole('menuitem', { name: 'Help' })).toBeVisible();
-    for (const name of ['Knowledge', 'Search papers', 'Docs', 'Upload']) {
+    for (const name of ['Home', 'Knowledge', 'Search papers', 'Docs', 'Upload']) {
       await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
     }
     await page.getByRole('menuitem', { name: 'Knowledge', exact: true }).click();

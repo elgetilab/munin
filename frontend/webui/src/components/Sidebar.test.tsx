@@ -9,7 +9,7 @@ import { useUserStore, _resetUserStoreForTests } from '../stores/userStore';
 import { useWorkspaceStore, _resetWorkspaceStoreForTests } from '../stores/workspaceStore';
 import { Sidebar } from './Sidebar';
 import { groupByTime } from '../lib/chatGrouping';
-import { AUTH_BASE, DOCS_URL, SEARCH_URL } from '../lib/urls';
+import { AUTH_BASE, DOCS_URL, SEARCH_URL, SITE_HOME } from '../lib/urls';
 import type { ConversationSummary, Project } from '../lib/types';
 import type { UserProfile } from '../lib/api';
 
@@ -757,6 +757,7 @@ describe('Sidebar profile menu', () => {
     expect(screen.queryByText('Learn more')).not.toBeInTheDocument();
     expect(screen.queryByText('English')).not.toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Search papers' })).toHaveAttribute('href', SEARCH_URL);
+    expect(screen.getByRole('menuitem', { name: 'Home' })).toHaveAttribute('href', SITE_HOME);
   });
 
   it('Escape closes the menu and returns focus to its trigger', async () => {
