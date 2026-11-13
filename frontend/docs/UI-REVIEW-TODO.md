@@ -61,8 +61,8 @@ Effort: S under half a day, M one to two days, L more.
 
 ### Palette
 
-- [ ] **Warm token swap** (M)
-  - **Decided 2026-11-13: deferred to the frontend redesign; the chat keeps its current palette.**
+- [x] **Warm token swap** (M)
+  - **Done 2026-11-13, differently: the chat took the sites' ink and brass palette and Geist instead of a warm Claude palette.**
   - **Problem:** The palette is GitHub's (cool slate greys, blue `#58a6ff` /
     `#0a5cb8`).
   - **Where:** `src/index.css` 5-45, kept in step with
@@ -203,7 +203,7 @@ Effort: S under half a day, M one to two days, L more.
 ## 4. Empty state
 
 - [ ] **Static mark in the greeting** (S)
-  - **Open: to compare side by side as artifacts before deciding.**
+  - **Decided 2026-11-13: dropped; the greeting keeps the feather spinner.**
   - **Problem:** The greeting uses the feather spinner, which is also the
     streaming indicator, so the page looks like it is still loading. The spinner
     belongs to the chat's working states only.
