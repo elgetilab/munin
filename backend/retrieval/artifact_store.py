@@ -518,6 +518,12 @@ async def register_sandbox_artifact(
     # Use the filename as the artifact title - that's what the user
     # will see in the side panel ("plot.png", "data.xlsx", etc.).
     title = filename.strip()[:MAX_TITLE_CHARS]
+    # A re-saved file is a new, immutable artifact (2026-11). Its title says
+    # which version it is, so the side panel and list_artifacts can tell
+    # fit.png from fit.png (v2); downloads use the `filename` column.
+    if version and int(version) > 1:
+        suffix = f" (v{int(version)})"
+        title = filename.strip()[:MAX_TITLE_CHARS - len(suffix)] + suffix
     external_url = f"/api/artifacts/{conversation_id}/{sandbox_artifact_id}"
 
     # Placeholder content string so artifact_versions isn't empty

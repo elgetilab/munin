@@ -597,3 +597,68 @@ describe('ArtifactPanel SVG', () => {
     expect(pre.style.background).toBe('var(--code-bg)');
   });
 });
+
+// Download bundles (docs/agent-track/LAB-ANALYSIS-PLAN.md, Phase 0): a zip of
+// files made by code with their inputs, code and checksums.
+describe('ArtifactPanel bundles', () => {
+  beforeEach(() => _resetUiStoreForTests());
+  afterEach(() => vi.restoreAllMocks());
+
+  const SANDBOX_ID = '9f2c4e0a1b';
+  function hexSandboxFile() {
+    const file = sandboxFile('fit.png', 'image/png');
+    const external_url = `/api/artifacts/c1/${SANDBOX_ID}`;
+    return {
+      summary: { ...file.summary, external_url },
+      full: { ...file.full, external_url, content: file.full.content.replace(file.external_url, external_url) },
+    };
+  }
+
+  it('offers no bundle when the chat has no files made by code', () => {
+    renderPanel();
+    expect(screen.queryByTestId('download-bundle')).not.toBeInTheDocument();
+  });
+
+  it('downloads every file of the chat as one zip from the list', async () => {
+    const saved = captureDownloads();
+    let asked = '';
+    server.use(http.get('/api/bundles/:cid', ({ request }) => {
+      asked = request.url;
+      return new HttpResponse('ZIPBYTES', { headers: { 'Content-Type': 'application/zip' } });
+    }));
+    renderPanel([hexSandboxFile().summary]);
+    await userEvent.click(screen.getByTestId('download-bundle'));
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0].name).toBe('analysis-with-code.zip');
+    expect(await saved[0].blob.text()).toBe('ZIPBYTES');
+    expect(new URL(asked).search).toBe('');
+  });
+
+  it('bundles a single file with its code from the viewer', async () => {
+    const saved = captureDownloads();
+    const file = hexSandboxFile();
+    let ids: string | null = null;
+    server.use(
+      http.get('/api/chats/:cid/artifacts/:aid', () => HttpResponse.json(file.full)),
+      http.get('/api/bundles/:cid', ({ request }) => {
+        ids = new URL(request.url).searchParams.get('ids');
+        return new HttpResponse('Z', { headers: { 'Content-Type': 'application/zip' } });
+      }),
+    );
+    renderPanel([file.summary]);
+    useUiStore.setState({ selectedArtifactId: 'sb1' });
+    await userEvent.click(await screen.findByRole('button', { name: 'With code and data' }));
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(ids).toBe(SANDBOX_ID);
+    expect(saved[0].name).toBe('fit-with-code.zip');
+  });
+
+  it('shows why a bundle failed', async () => {
+    captureDownloads();
+    server.use(http.get('/api/bundles/:cid', () => HttpResponse.json(
+      { detail: { error: { message: 'selection is 2000 MB, over the 1536 MB bundle limit' } } }, { status: 413 })));
+    renderPanel([hexSandboxFile().summary]);
+    await userEvent.click(screen.getByTestId('download-bundle'));
+    expect(await screen.findByText(/over the 1536 MB bundle limit/)).toBeInTheDocument();
+  });
+});
