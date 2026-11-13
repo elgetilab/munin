@@ -106,11 +106,11 @@ export function AdminPanel() {
         {needsLiveData && !loading && activity && usage && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
             <div className="bg-bg-secondary border border-border rounded-lg px-4 py-3">
-              <div className="text-2xl font-bold text-green-400 [[data-theme=light]_&]:text-success">{activity.online.length}</div>
+              <div className="text-2xl font-bold text-success">{activity.online.length}</div>
               <div className="text-xs text-text-secondary">Online now</div>
             </div>
             <div className="bg-bg-secondary border border-border rounded-lg px-4 py-3">
-              <div className="text-2xl font-bold text-yellow-400 [[data-theme=light]_&]:text-warning">{activity.recent.length}</div>
+              <div className="text-2xl font-bold text-text-primary">{activity.recent.length}</div>
               <div className="text-xs text-text-secondary">{RECENT_LABEL}</div>
             </div>
             <div className="bg-bg-secondary border border-border rounded-lg px-4 py-3">
@@ -262,7 +262,7 @@ function ActivityTab({ activity }: { activity: AdminActivity }) {
 }
 
 function UserRow({ user, status }: { user: { email: string; last_seen_at: string; source: string }; status: ActivityStatus }) {
-  const dotColor = status === 'online' ? 'bg-green-400' : status === 'recent' ? 'bg-yellow-400' : 'bg-text-secondary/30';
+  const dotColor = status === 'online' ? 'bg-success' : status === 'recent' ? 'bg-text-secondary' : 'bg-text-secondary/30';
   return (
     <div className="flex items-center gap-3 px-4 py-2.5">
       <span role="img" aria-label={STATUS_LABELS[status]} title={STATUS_LABELS[status]} className={`w-2 h-2 rounded-full ${dotColor} flex-shrink-0`} />

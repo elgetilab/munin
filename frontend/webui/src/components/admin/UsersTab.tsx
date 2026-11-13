@@ -264,7 +264,7 @@ export function UsersTab() {
 function RoleBadge({ role }: { role: AdminRole }) {
   const colors: Record<AdminRole, string> = {
     user: 'bg-text-secondary/15 text-text-secondary',
-    group_leader: 'bg-yellow-400/15 text-yellow-300 [[data-theme=light]_&]:text-warning',
+    group_leader: 'bg-success/15 text-success',
     admin: 'bg-accent/20 text-accent [[data-theme=light]_&]:text-accent-hover',
   };
   return (
