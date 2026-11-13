@@ -146,6 +146,32 @@ describe('InlineArtifacts widgets', () => {
     expect(useUiStore.getState().artifactPanelOpen).toBe(true);
   });
 
+  it('shows a primer design in the message, by the kind in its spec', async () => {
+    const spec = {
+      kind: 'primer_design',
+      version: 1,
+      mode: 'pcr',
+      template: { name: 'pUC19', length: 2686, circular: true },
+      target: [400, 450],
+      pairs: [{
+        name: 'pair_1',
+        forward: { sequence: 'TGTAAAACGACGGCCAGT', display: 'tgtaaAACGACGGCCAGT', anneal: 'AACGACGGCCAGT', tail: 'tgtaa', strand: '+', start: 377, end: 395, length: 18, tm: 60.2, gc_percent: 50 },
+        reverse: { sequence: 'CAGGAAACAGCTATGAC', display: 'CAGGAAACAGCTATGAC', anneal: 'CAGGAAACAGCTATGAC', tail: '', strand: '-', start: 483, end: 500, length: 17, tm: 58.1, gc_percent: 47.1 },
+        product_size: 123,
+        amplicon: 'ACGT',
+        checks: [],
+        verified: { outcome: 'single_product', product_count: 1, product_sizes: [123], single_clean_product: true },
+      }],
+      summary: { total: 0, passed: 0, hard_failures: 0, soft_failures: 0, not_computed: 0, usable: true },
+      notes: [],
+    };
+    server.use(http.get('/api/chats/c1/artifacts/art_p', () => HttpResponse.json({ id: 'art_p', content: JSON.stringify(spec) })));
+    render(<InlineArtifacts toolCalls={[{ ...VIEWER, name: 'design_primers' }]} conversationId="c1" />);
+    const viewer = await screen.findByTestId('primer-design-viewer');
+    expect(viewer).toHaveTextContent('Single clean product');
+    expect(screen.queryByTestId('protein-viewer')).not.toBeInTheDocument();
+  });
+
   it('falls back to a card when the spec is not usable', async () => {
     server.use(http.get('/api/chats/c1/artifacts/art_p', () => HttpResponse.json({ id: 'art_p', content: 'broken' })));
     render(<InlineArtifacts toolCalls={[VIEWER]} conversationId="c1" />);
@@ -155,6 +181,6 @@ describe('InlineArtifacts widgets', () => {
   it('falls back to a card when the spec cannot be loaded', async () => {
     server.use(http.get('/api/chats/c1/artifacts/art_p', () => new HttpResponse(null, { status: 404 })));
     render(<InlineArtifacts toolCalls={[VIEWER]} conversationId="c1" />);
-    expect(await screen.findByTestId('artifact-card')).toHaveTextContent('3D structure');
+    expect(await screen.findByTestId('artifact-card')).toHaveTextContent('Interactive view');
   });
 });

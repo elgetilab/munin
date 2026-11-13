@@ -79,7 +79,11 @@ const CONTENT_TYPE_LABELS: Record<string, string> = {
   'image/jpeg': 'Image',
   'image/webp': 'Image',
   'image/gif': 'Image',
-  [WIDGET_CONTENT_TYPE]: '3D structure',
+  // Several widgets share this content type (3D structures, primer designs),
+  // so the label has to be neutral: it is only ever shown on the fallback
+  // card for a spec no renderer could parse, where naming one of them would
+  // be actively misleading.
+  [WIDGET_CONTENT_TYPE]: 'Interactive view',
 };
 
 export function getContentTypeIcon(ct: string): string {
@@ -160,7 +164,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function refsFromResult(name: string, result: unknown): ArtifactRef[] {
   if (!isRecord(result)) return [];
 
-  if (name === 'create_artifact' || name === 'update_artifact' || name === 'show_protein') {
+  // design_primers returns the artifact record inside its envelope, the same
+  // keys create_artifact does, so one widget artifact comes back per call.
+  if (name === 'create_artifact' || name === 'update_artifact' || name === 'show_protein' || name === 'design_primers') {
     if (result.error || typeof result.id !== 'string') return [];
     return [{
       id: result.id,

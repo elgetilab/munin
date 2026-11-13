@@ -23,6 +23,7 @@ from .tools import (
     compile_latex,
     compute,
     create_artifact,
+    design_primers,
     export_citations,
     faq,
     get_author_papers,
@@ -313,6 +314,26 @@ async def _show_protein(arguments: dict) -> dict:
         color=arguments.get("color", "spectrum"),
         highlight=arguments.get("highlight"),
         title=arguments.get("title"),
+    )
+
+
+@register_tool("design_primers")
+async def _design_primers(arguments: dict) -> dict:
+    return await design_primers(
+        mode=arguments.get("mode", "pcr"),
+        template=arguments.get("template"),
+        target=arguments.get("target"),
+        product_size_range=arguments.get("product_size_range"),
+        circular=arguments.get("circular", False),
+        n=arguments.get("n", 3),
+        enzymes=arguments.get("enzymes"),
+        fragments=arguments.get("fragments"),
+        overlap_length=arguments.get("overlap_length"),
+        feature_position=arguments.get("feature_position"),
+        direction=arguments.get("direction", "forward"),
+        offset=arguments.get("offset"),
+        primer_length=arguments.get("primer_length"),
+        template_name=arguments.get("template_name"),
     )
 
 
