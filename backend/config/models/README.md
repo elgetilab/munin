@@ -19,7 +19,7 @@ switch refuses a file with a missing key rather than guessing.
 | `MODEL_NAME` | `--served-model-name`, what every client sends as `model` |
 | `MODEL_DESC` | one line for banners and `instance ls` |
 | `HF_EXCLUDE` | optional, space-separated `hf download --exclude` globs |
-| `VLLM_VENV` | optional; the vLLM venv this model runs on. Blank or absent = `/opt/munin/services/vllm/venv`. A newer build is installed by HuginSLURM `deploy.sh vllm-venv <version>` under `/opt/munin/services/vllm-<version>/venv`; `model activate` refuses a profile whose venv has no `vllm`, so switching back to the previous profile also switches the engine back |
+| `VLLM_VENV` | optional; the vLLM venv this model runs on. Blank or absent = `/opt/munin/services/vllm/venv`. A newer build is installed by Hugin `deploy.sh vllm-venv <version>` under `/opt/munin/services/vllm-<version>/venv`; `model activate` refuses a profile whose venv has no `vllm`, so switching back to the previous profile also switches the engine back |
 | `VLLM_QUANTIZATION` | `--quantization` value; blank lets vLLM read the checkpoint |
 | `VLLM_KV_CACHE_DTYPE` | `fp8` on Ada or newer; `auto` on Ampere |
 | `VLLM_TOOL_PARSER`, `VLLM_REASONING_PARSER` | must exist in the pinned vLLM build |

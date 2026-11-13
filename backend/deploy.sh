@@ -113,7 +113,7 @@ HUGIN_ENV=${HUGIN_ENV:-/opt/hugin/config/cluster.env}
 
 # The historical vLLM venv: what a profile without VLLM_VENV runs on, and the
 # home of the `hf` CLI every download here uses. A profile may name a newer
-# venv (installed by HuginSLURM `deploy.sh vllm-venv <version>`); loading that
+# venv (installed by Hugin `deploy.sh vllm-venv <version>`); loading that
 # profile re-points VLLM_VENV, so downloads always go through DEFAULT_VLLM_VENV.
 DEFAULT_VLLM_VENV=/opt/munin/services/vllm/venv
 VLLM_VENV=$DEFAULT_VLLM_VENV
@@ -1389,7 +1389,7 @@ deploy_model_activate() {
     # a profile whose venv is missing would leave the next vLLM start failing.
     if [ ! -x "$VLLM_VENV/bin/vllm" ]; then
         echo "[ERROR] the profile runs on $VLLM_VENV, which has no vllm."
-        echo "        Install it first (HuginSLURM): sudo ./deploy.sh vllm-venv <version>"
+        echo "        Install it first (Hugin): sudo ./deploy.sh vllm-venv <version>"
         exit 1
     fi
     echo "[model] vLLM build: $VLLM_VENV ($("$VLLM_VENV/bin/python" -c 'import vllm; print(vllm.__version__)' 2>/dev/null || echo '?'))"
