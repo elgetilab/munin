@@ -9,7 +9,7 @@ Modules land in the build order set by the plan:
   thermo.py       nearest-neighbour thermodynamics, Tm, IUPAC handling  [built]
   rules.py        the rule table, thresholds with citations             [built]
   verify.py       in-silico PCR: the self-check AND the eval oracle     [built]
-  structure.py    hairpin / homodimer / heterodimer, 3' end stability
+  structure.py    hairpin / homodimer / heterodimer, 3' end stability   [built]
   select.py       candidate enumeration + penalty scoring
   tails.py        overlap-assembly and restriction tails
   specificity.py  BLAST+ against a reference, Primer-BLAST settings
@@ -25,6 +25,19 @@ from .rules import (
     evaluate_primer,
     normalise_mode,
     summarise,
+)
+from .structure import (
+    NO_STRUCTURE_TM,
+    Structure,
+    StructureRange,
+    end_stability,
+    end_stability_range,
+    hairpin,
+    hairpin_range,
+    heterodimer,
+    heterodimer_range,
+    homodimer,
+    homodimer_range,
 )
 from .thermo import (
     IUPAC_CODES,
@@ -81,6 +94,18 @@ __all__ = [
     "evaluate_primer",
     "normalise_mode",
     "summarise",
+    # structure
+    "NO_STRUCTURE_TM",
+    "Structure",
+    "StructureRange",
+    "end_stability",
+    "end_stability_range",
+    "hairpin",
+    "hairpin_range",
+    "heterodimer",
+    "heterodimer_range",
+    "homodimer",
+    "homodimer_range",
     # verify
     "MINUS",
     "MULTIPLE_PRODUCTS",
