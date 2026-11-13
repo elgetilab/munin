@@ -112,7 +112,10 @@
         @media (max-width: 600px) {
             .wrap { padding: 0 16px; }
             .page-head { padding: 36px 0 28px; }
-            .search-box .btn { padding: 0 16px; }
+            /* The topic box gets the whole width; Search goes under it. */
+            .search-box { flex-direction: column; }
+            .search-box .search-input { flex: none; }
+            .search-box .btn { width: 100%; justify-content: center; }
             .filters { gap: 10px 16px; }
             .filter-group { flex-wrap: nowrap; }
             .filter-group:first-child { width: 100%; }

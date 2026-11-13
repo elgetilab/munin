@@ -432,10 +432,16 @@ td {
         row-gap: 4px;
     }
 
+    /* The links scroll sideways on a phone; the right edge fades out so the
+       row reads as one that goes on, and the padding lets the last link
+       scroll clear of the fade. */
     nav {
         width: 100%;
         overflow-x: auto;
-        scrollbar-width: thin;
+        scrollbar-width: none;
+        padding-right: 28px;
+        -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
+        mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
     }
 
     /* 44px to the finger. */
