@@ -5,6 +5,8 @@ import { copyText } from '../lib/copyText';
 import { downloadFilename, saveBlob } from '../lib/artifactDownload';
 import { fileSizeBytes, formatBytes, getContentTypeIcon, getContentTypeLabel, isFilePlaceholder, isWidget, parseProteinSpec, svgDataUrl } from '../lib/artifactDisplay';
 import { ProteinViewer } from './ProteinViewer';
+import { PrimerDesignViewer } from './PrimerDesignViewer';
+import { parsePrimerDesignSpec } from '../lib/primerDesign';
 import { printArtifactAsPdf } from '../lib/printPdf';
 import { Markdown } from './Markdown';
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -262,7 +264,9 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
   const canPdf = !!loadedArtifact && !isFile && ct !== 'application/pdf' && !ct.startsWith('image/') && !isWidget(loadedArtifact);
   // A spec this panel cannot draw falls through to showing, and copying, its text.
   const proteinSpec = loadedArtifact && isWidget(loadedArtifact) ? parseProteinSpec(loadedArtifact.content) : null;
-  const canCopy = !isFile && !proteinSpec;
+  const primerSpec = loadedArtifact && isWidget(loadedArtifact)
+    ? parsePrimerDesignSpec(loadedArtifact.content) : null;
+  const canCopy = !isFile && !proteinSpec && !primerSpec;
   const showFileCard = !!loadedArtifact && isFile && !hasFilePreview(loadedArtifact);
   const draftChanged = editing && !!loadedArtifact && editContent !== loadedArtifact.content;
   useEffect(() => {
@@ -631,6 +635,11 @@ function ArtifactContent({ artifact, conversationId, downloading, onDownload, on
   }
 
   if (isWidget(artifact)) {
+    // One content type, several widgets, so the stored spec decides which.
+    const primerSpec = parsePrimerDesignSpec(artifact.content);
+    if (primerSpec) {
+      return <PrimerDesignViewer spec={primerSpec} title={artifact.title} />;
+    }
     const spec = parseProteinSpec(artifact.content);
     if (spec) {
       return (

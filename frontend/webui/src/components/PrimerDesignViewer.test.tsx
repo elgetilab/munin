@@ -329,10 +329,10 @@ describe('PrimerDesignViewer', () => {
       expect(saved[0].name).toBe('pUC19_primers.csv');
       expect(await saved[0].blob.text()).toBe([
         'name,sequence,length,tm,gc_percent,strand,start,end,pair,product_size',
-        'pair_1_F,TGTAAAACGACGGCCAGT,18,60.2,50,+,377,395,pair_1,123',
-        'pair_1_R,CAGGAAACAGCTATGAC,17,58.1,47.1,-,483,500,pair_1,123',
-        'pair_2_F,TGCCACCTGACGTCTAAGAA,20,59.4,50,+,2600,2620,pair_2,845',
-        'pair_2_R,ATTACCGCCTTTGAGTGAGC,20,61,50,-,739,759,pair_2,845',
+        'pUC19_pair_1_F,TGTAAAACGACGGCCAGT,18,60.2,50,+,377,395,pair_1,123',
+        'pUC19_pair_1_R,CAGGAAACAGCTATGAC,17,58.1,47.1,-,483,500,pair_1,123',
+        'pUC19_pair_2_F,TGCCACCTGACGTCTAAGAA,20,59.4,50,+,2600,2620,pair_2,845',
+        'pUC19_pair_2_R,ATTACCGCCTTTGAGTGAGC,20,61,50,-,739,759,pair_2,845',
         '',
       ].join('\n'));
     });
@@ -344,9 +344,9 @@ describe('PrimerDesignViewer', () => {
       expect(saved[0].name).toBe('pUC19_primers.fasta');
       const text = await saved[0].blob.text();
       expect(text.split('\n').slice(0, 4)).toEqual([
-        '>pair_1_F strand=+ 377-395 len=18 Tm=60.2 GC=50 template=pUC19',
+        '>pUC19_pair_1_F strand=+ 377-395 len=18 Tm=60.2 GC=50 template=pUC19',
         'TGTAAAACGACGGCCAGT',
-        '>pair_1_R strand=- 483-500 len=17 Tm=58.1 GC=47.1 template=pUC19',
+        '>pUC19_pair_1_R strand=- 483-500 len=17 Tm=58.1 GC=47.1 template=pUC19',
         'CAGGAAACAGCTATGAC',
       ]);
       expect(text.endsWith('\n')).toBe(true);
@@ -378,7 +378,7 @@ describe('PrimerDesignViewer', () => {
 
     it('quotes a field that would otherwise break the table', () => {
       const spec = parsed({ ...RAW, pairs: [{ ...RAW.pairs[0], name: 'pair,"one"' }] });
-      expect(primersCsv(spec).split('\n')[1]).toMatch(/^"pair,""one""_F"/);
+      expect(primersCsv(spec).split('\n')[1]).toMatch(/^"pUC19_pair,""one""_F"/);
     });
 
     it('builds the files from the spec alone, so they can be checked without the DOM', () => {
@@ -454,7 +454,7 @@ describe('PrimerDesignViewer', () => {
       renderViewer(SEQUENCING);
       expect(screen.queryByRole('button', { name: 'Amplicons (FASTA)' })).not.toBeInTheDocument();
       expect(primersCsv(parsed(SEQUENCING)).split('\n')[1])
-        .toBe('seq_primer_R,CAGGAAACAGCTATGAC,17,58.1,47.1,-,483,500,seq_primer,0');
+        .toBe('pUC19_seq_primer_R,CAGGAAACAGCTATGAC,17,58.1,47.1,-,483,500,seq_primer,0');
     });
 
     it('draws an assembly whose coordinates run past the stated template length', () => {

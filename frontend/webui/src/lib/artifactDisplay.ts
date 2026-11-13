@@ -79,7 +79,11 @@ const CONTENT_TYPE_LABELS: Record<string, string> = {
   'image/jpeg': 'Image',
   'image/webp': 'Image',
   'image/gif': 'Image',
-  [WIDGET_CONTENT_TYPE]: '3D structure',
+  // Several widgets share this content type (3D structures, primer designs),
+  // so the label has to be neutral: it is only ever shown on the fallback
+  // card for a spec no renderer could parse, where naming one of them would
+  // be actively misleading.
+  [WIDGET_CONTENT_TYPE]: 'Interactive view',
 };
 
 export function getContentTypeIcon(ct: string): string {

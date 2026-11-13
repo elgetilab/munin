@@ -181,6 +181,6 @@ describe('InlineArtifacts widgets', () => {
   it('falls back to a card when the spec cannot be loaded', async () => {
     server.use(http.get('/api/chats/c1/artifacts/art_p', () => new HttpResponse(null, { status: 404 })));
     render(<InlineArtifacts toolCalls={[VIEWER]} conversationId="c1" />);
-    expect(await screen.findByTestId('artifact-card')).toHaveTextContent('3D structure');
+    expect(await screen.findByTestId('artifact-card')).toHaveTextContent('Interactive view');
   });
 });

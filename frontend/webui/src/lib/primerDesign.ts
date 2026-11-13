@@ -261,14 +261,30 @@ function plain(value: number | null): string {
   return value === null ? '' : String(value);
 }
 
+/** A filename-safe, collision-resistant prefix taken from the template name.
+ *
+ *  The contract names pairs, not oligos, and a pair is only ever `pair_1`
+ *  within one design. Someone ordering primers has designs from several
+ *  templates in one basket, where three different `pair_1_F` rows are a
+ *  genuine mix-up. Qualifying by template costs nothing and prevents it.
+ *  An unnamed template (overlap assembly sends `""`) just omits the prefix. */
+function namePrefix(spec: PrimerDesignSpec): string {
+  const raw = (spec.template.name || '').trim();
+  if (!raw) return '';
+  const safe = raw.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '');
+  return safe ? `${safe.slice(0, 24)}_` : '';
+}
+
 /** One row per oligo. The contract names pairs, not oligos, so the oligo names
- *  are the pair's with _F and _R, which is also how they get ordered. */
+ *  are the pair's with _F and _R, qualified by the template, which is also how
+ *  they get ordered. */
 export function primerRows(spec: PrimerDesignSpec): PrimerRow[] {
+  const prefix = namePrefix(spec);
   return spec.pairs.flatMap(pair => ([
     [pair.forward, 'F'] as const,
     [pair.reverse, 'R'] as const,
   ].flatMap(([oligo, suffix]) => (oligo ? [{
-    name: `${pair.name}_${suffix}`,
+    name: `${prefix}${pair.name}_${suffix}`,
     sequence: oligo.sequence,
     length: oligo.length,
     tm: oligo.tm,
