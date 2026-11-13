@@ -90,11 +90,14 @@
         .download-btn.checking:hover, .download-btn.unavailable:hover { border-color: var(--line-2); color: var(--text-3); }
 
         /* Empty and loading states */
-        .empty-state { padding: 56px 16px; text-align: center; color: var(--text-2); font-size: 15px; }
+        /* Left-aligned with the search box and the stats line above it. */
+        .empty-state { padding: 8px 0 0; text-align: left; color: var(--text-2); font-size: 15px; display: grid; grid-template-columns: auto 1fr; column-gap: 12px; align-items: center; }
+        .empty-state > :not(.empty-state-icon) { grid-column: 2; }
         .empty-state p { margin: 0; }
-        .empty-state p + p { color: var(--text-3); }
-        .empty-state-icon { color: var(--text-3); margin-bottom: 14px; }
-        .empty-state-icon svg { width: 32px; height: 32px; display: block; margin: 0 auto; }
+        .empty-state p + p { color: var(--text-3); margin-top: 4px; }
+        .empty-state .btn { justify-self: start; margin-top: 12px; }
+        .empty-state-icon { color: var(--text-3); grid-row: 1; margin: 0; font-size: 0; }
+        .empty-state-icon svg { width: 20px; height: 20px; display: block; }
         .empty-state .btn { cursor: pointer; font-family: var(--font); }
         .loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 56px 0; color: var(--text-2); font-size: 14.5px; }
         .loading-spinner { width: 16px; height: 16px; margin: 0; border-width: 2px; border-color: var(--line-2); border-top-color: var(--brass); }

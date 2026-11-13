@@ -27,25 +27,25 @@
 
 :root {
     --ink: #0d1217; --ink-2: #131a21; --surface: #151c23; --surface-2: #1c252e;
-    --text: #ece5d6; --text-2: #a9b1ba; --text-3: #8d959e;
+    --text: #e6edf3; --text-2: #a9b1ba; --text-3: #8d959e;
     --brass: #d9b56f; --brass-2: #e8c98e; --brass-soft: rgb(217 181 111 / .12);
     --line: #252f39; --line-2: #34404c;
-    --btn-bg: #ece5d6; --btn-text: #0d1217;
+    --btn-bg: #e6edf3; --btn-text: #0d1217;
     --glow: rgb(217 181 111 / 0.07);
     /* The inverted band: parchment on the dark page. */
-    --inv-bg: #ece5d6; --inv-text: #0d1217; --inv-text-2: #3d4650; --inv-line: #cfc2a8; --inv-btn: #0d1217; --inv-btn-text: #ece5d6;
+    --inv-bg: #e6edf3; --inv-text: #0d1217; --inv-text-2: #3d4650; --inv-line: #d0d7de; --inv-btn: #0d1217; --inv-btn-text: #e6edf3;
     --font: 'Geist', -apple-system, 'Segoe UI', 'Noto Sans', sans-serif;
     --mono: ui-monospace, 'SFMono-Regular', Consolas, monospace;
     --shot-dark: block; --shot-light: none; --gh-light: inline; --gh-dark: none;
 }
 :root[data-theme="light"] {
-    --ink: #f6f1e7; --ink-2: #efe8da; --surface: #fbf8f1; --surface-2: #efe8da;
+    --ink: #f6f8fa; --ink-2: #eef1f4; --surface: #ffffff; --surface-2: #e9edf1;
     --text: #182029; --text-2: #4a535d; --text-3: #555e68;
     --brass: #7a5512; --brass-2: #5f420c; --brass-soft: rgb(122 85 18 / .1);
-    --line: #e2d8c5; --line-2: #cfc2a8;
-    --btn-bg: #182029; --btn-text: #f6f1e7;
+    --line: #dde3e9; --line-2: #d0d7de;
+    --btn-bg: #182029; --btn-text: #f6f8fa;
     --glow: rgb(122 85 18 / 0.06);
-    --inv-bg: #182029; --inv-text: #ece5d6; --inv-text-2: #b9c0c8; --inv-line: #34404c; --inv-btn: #ece5d6; --inv-btn-text: #182029;
+    --inv-bg: #182029; --inv-text: #e6edf3; --inv-text-2: #b9c0c8; --inv-line: #34404c; --inv-btn: #e6edf3; --inv-btn-text: #182029;
     --shot-dark: none; --shot-light: block;
 }
 :root:not([data-theme="light"]) { --gh-light: none; --gh-dark: inline; }
