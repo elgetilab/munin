@@ -100,8 +100,8 @@ Built and tested, not deployed:
 | 7 packages | `requirements.txt` + refrozen `constraints.txt`; compute allowlist and prompts updated | import check in the image |
 | 8 background turns | item 8 already resolved; item 2 already persists the partial answer; a queue needs Phase 6 | see STREAM-RELIABILITY-TODO.md |
 
-pymol-open-source and molviewspec are not on PyPI in a form that installs
-cleanly here; they move to Phase 5 with the viewer work. CI runs the
+pymol-open-source and molviewspec were not added; they belong with the
+viewer work in Phase 5. CI runs the
 artifact suite in a standalone container (`sandbox-live` job,
 `backend/scripts/ci/run_sandbox_live_tests.sh`).
 
