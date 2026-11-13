@@ -1,7 +1,11 @@
 # Lab analysis: harness, helpers and eval suites
 
-Status: APPROVED 2026-11-13. Phase 0 built and tested 2026-11-13, not yet
-deployed (see "Phase 0 status" below).
+Status: APPROVED 2026-11-13. Phase 0 backend DEPLOYED 2026-11-13 (sandbox,
+retrieval, llm-claude/failover) from branch `deploy/lab-phase0` (=
+`design/site-redesign`, which production already ran, + Phase 0). Live check
+15/15 through the real API. VPS gateway and webui NOT deployed yet: the VPS
+is behind main (gateway before 1e85e73, webui bundle of 2026-11-08), so either
+deploy ships other undeployed work; decision pending.
 
 Several research groups use GraphPad Prism (and some ChimeraX) for fitting and
 plotting. We want Munin to replace that through chat: users upload instrument
@@ -87,7 +91,7 @@ bundle download.
 
 ### Phase 0 status (2026-11-13)
 
-Built and tested, not deployed:
+Backend deployed and live-checked; VPS gateway and webui pending:
 
 | Item | Where | Tests |
 |---|---|---|
@@ -104,6 +108,12 @@ pymol-open-source and molviewspec were not added; they belong with the
 viewer work in Phase 5. CI runs the
 artifact suite in a standalone container (`sandbox-live` job,
 `backend/scripts/ci/run_sandbox_live_tests.sh`).
+
+Found during the deploy and fixed in the same pass: the production backbone
+Sage-A1.5 is text-only, and plot feedback sent it the plot image, so vLLM
+answered 400 and every plotting turn failed (`vision.model_sees_images`,
+`LLM_VISION` in the model profile); and the Haiku fallback failed every tool
+turn on `compile_latex`'s top-level `oneOf` (llm-claude `convert_tools`).
 
 ## Phase 1: fixtures and eval harness
 
