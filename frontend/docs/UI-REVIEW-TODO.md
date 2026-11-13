@@ -23,8 +23,8 @@ Effort: S under half a day, M one to two days, L more.
 
 ## 1. Chat behaviour (highest user impact)
 
-- [ ] **The reply streams out of view after send** (M)
-  - **Decided 2026-11-13: do.**
+- [x] **The reply streams out of view after send** (M)
+  - **Done 2026-11-13.**
   - **Problem:** The user's message is scrolled to the bottom edge, and
     streaming never auto-scrolls. On desktop only the mode chip and the jump
     button are visible while the answer builds below the fold. On a phone

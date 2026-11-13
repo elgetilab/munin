@@ -400,16 +400,95 @@ describe('MessageList', () => {
       expect(scrollSpy).not.toHaveBeenCalled();
     });
 
-    it('smooth-scrolls to bottom when a new user message is added', () => {
-      const { rerender } = render(
-        <MessageList messages={[assistantMsg]} streaming={makeStreaming()} />,
-      );
-      scrollSpy.mockClear();
+    // A just-sent message goes to the top of the view, as in Claude, and the
+    // reply streams into the space under it (2026-11). jsdom has no layout,
+    // so the rectangles are stubbed: the scroll area starts at y=100, the
+    // transcript ends at y=760 and the sent message starts at y=700.
+    describe('a sent message goes to the top', () => {
+      const rectAt = (top: number, bottom = top) => ({ top, bottom, left: 0, right: 0, width: 0, height: bottom - top, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+      let scrollToSpy: ReturnType<typeof vi.fn>;
+      let rectSpy: ReturnType<typeof vi.spyOn>;
 
-      rerender(
-        <MessageList messages={[assistantMsg, userMsg]} streaming={makeStreaming()} />,
-      );
-      expect(scrollSpy).toHaveBeenCalledWith({ behavior: 'smooth' });
+      beforeEach(() => {
+        scrollToSpy = vi.fn();
+        (Element.prototype as unknown as { scrollTo: unknown }).scrollTo = scrollToSpy;
+        rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+          if (this.classList.contains('overflow-y-auto')) return rectAt(100, 900);
+          if (this.getAttribute('data-message-id') === userMsg.id) return rectAt(700, 740);
+          if (this.classList.contains('space-y-6')) return rectAt(100, 760);
+          return rectAt(0);
+        });
+      });
+      afterEach(() => {
+        rectSpy.mockRestore();
+        delete (Element.prototype as unknown as { scrollTo?: unknown }).scrollTo;
+      });
+
+      const geometry = (container: HTMLElement) => {
+        const el = findScrollContainer(container);
+        setScrollGeometry(el, { scrollTop: 300, clientHeight: 800, scrollHeight: 1100 });
+        return el;
+      };
+
+      it('scrolls the new user message to the top of the view, once and smoothly', () => {
+        const { container, rerender } = render(
+          <MessageList messages={[assistantMsg]} streaming={makeStreaming()} conversationId="c1" />,
+        );
+        geometry(container);
+        scrollSpy.mockClear();
+
+        rerender(<MessageList messages={[assistantMsg, userMsg]} streaming={makeStreaming()} conversationId="c1" />);
+        // 300 scrolled + (700 - 100) down the view - the 24px gap above it.
+        expect(scrollToSpy).toHaveBeenCalledTimes(1);
+        expect(scrollToSpy).toHaveBeenCalledWith({ top: 876, behavior: 'smooth' });
+        expect(scrollSpy).not.toHaveBeenCalled();
+      });
+
+      it('leaves room below so the message can reach the top', () => {
+        const { container, rerender } = render(
+          <MessageList messages={[assistantMsg]} streaming={makeStreaming()} conversationId="c1" />,
+        );
+        geometry(container);
+        rerender(<MessageList messages={[assistantMsg, userMsg]} streaming={makeStreaming()} conversationId="c1" />);
+        // 800 tall - 24 gap - 60 from the message to the end of the transcript.
+        expect(screen.getByTestId('sent-message-spacer').style.height).toBe('716px');
+      });
+
+      it('does not scroll again while the reply streams in', () => {
+        const { container, rerender } = render(
+          <MessageList messages={[assistantMsg]} streaming={makeStreaming()} conversationId="c1" />,
+        );
+        geometry(container);
+        rerender(<MessageList messages={[assistantMsg, userMsg]} streaming={makeStreaming({ phase: 'generating', content: 'a' })} conversationId="c1" />);
+        scrollToSpy.mockClear();
+        scrollSpy.mockClear();
+        rerender(<MessageList messages={[assistantMsg, userMsg]} streaming={makeStreaming({ phase: 'generating', content: 'ab' })} conversationId="c1" />);
+        rerender(<MessageList messages={[assistantMsg, userMsg]} streaming={makeStreaming({ phase: 'generating', content: 'abc' })} conversationId="c1" />);
+        expect(scrollToSpy).not.toHaveBeenCalled();
+        expect(scrollSpy).not.toHaveBeenCalled();
+      });
+
+      it("pins a new chat's first message, and keeps it there when the chat gets its id", () => {
+        const { container, rerender } = render(
+          <MessageList messages={[userMsg]} streaming={makeStreaming({ phase: 'thinking' })} conversationId={null} />,
+        );
+        expect(scrollToSpy).toHaveBeenCalledTimes(1);
+        const el = geometry(container);
+        rerender(<MessageList messages={[userMsg]} streaming={makeStreaming({ phase: 'thinking' })} conversationId="new-id" />);
+        // No jump to the bottom: the message stays where it was put.
+        expect(el.scrollTop).toBe(300);
+      });
+
+      it('opens another conversation at the bottom with no room left below', () => {
+        const { container, rerender } = render(
+          <MessageList messages={[assistantMsg]} streaming={makeStreaming()} conversationId="c1" />,
+        );
+        const el = geometry(container);
+        rerender(<MessageList messages={[assistantMsg, userMsg]} streaming={makeStreaming()} conversationId="c1" />);
+        rerender(<MessageList messages={[assistantMsg]} streaming={makeStreaming()} conversationId="c2" />);
+        expect(el.scrollTop).toBe(1100);
+        expect(screen.getByTestId('sent-message-spacer').style.height).toBe('0px');
+      });
     });
 
     it('does NOT smooth-scroll when a new assistant message lands (only user messages trigger it)', () => {
@@ -485,7 +564,7 @@ describe('MessageList', () => {
 
       scrollSpy.mockClear();
       await user.click(screen.getByLabelText('Scroll to bottom'));
-      expect(scrollSpy).toHaveBeenCalledWith({ behavior: 'smooth' });
+      expect(scrollSpy).toHaveBeenCalledWith({ behavior: 'smooth', block: 'end' });
     });
   });
 

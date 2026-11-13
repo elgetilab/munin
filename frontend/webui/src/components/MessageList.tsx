@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Message, ToolCall, RagContext, Clarification } from '../lib/types';
 import { TaskLog } from './TaskLog';
 import { FeatherVortex } from './FeatherVortex';
@@ -91,10 +91,21 @@ function cleanContent(raw: string): string {
 // enough that they don't need the affordance.
 const JUMP_BUTTON_HIDE_THRESHOLD_PX = 96;
 
+// Where a just-sent message sits below the top of the scroll area: the
+// container's own top padding (py-6), so it lines up with the first message.
+const SENT_MESSAGE_TOP_GAP_PX = 24;
+
 export function MessageList({ messages, streaming, onSendClarification, onDismissMemoryProposal, conversationId, onPlanApproved, onPlanRejected, onPlanEdited, onContinue, researchTimeline }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const columnRef = useRef<HTMLDivElement>(null);
+  // Room below the transcript so a just-sent message can sit at the top while
+  // the reply streams into the space under it. Sized through the DOM, not
+  // state, so a growing reply never re-renders the list.
+  const spacerRef = useRef<HTMLDivElement>(null);
+  // The user message pinned to the top since it was sent; null when the view
+  // is a loaded conversation, which opens at the bottom as before.
+  const anchorIdRef = useRef<string | null>(null);
   // Drives the floating "jump to bottom" button. True when the user
   // has scrolled up far enough from the bottom that the button is
   // worth showing.
@@ -110,31 +121,65 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
   //
   //   1. Conversation switch (conversationId change) -> jump to bottom
   //      instantly so the user lands at the latest message.
-  //   2. New user message added -> smooth-scroll so the user sees
-  //      their own bubble land at the bottom after pressing Enter.
+  //   2. New user message added -> one smooth scroll that puts it at the
+  //      top of the view, with a spacer below so it can get there; the
+  //      reply then streams into the visible space under it (2026-11,
+  //      as Claude does). The spacer shrinks as the reply grows, so the
+  //      page never moves on its own.
   //   3. Streaming tokens, thinking, tool calls -> NO scroll. The
   //      user reads at their own pace.
   //   4. Floating jump-to-bottom button when they want to catch up.
 
-  // (1) Conversation switch.
+  // Size the spacer so the pinned message can reach the top: the view's
+  // height less what already sits from that message down.
+  const sizeSpacer = useCallback(() => {
+    const el = containerRef.current, column = columnRef.current, spacer = spacerRef.current;
+    if (!el || !column || !spacer) return;
+    const id = anchorIdRef.current;
+    const anchor = id ? column.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`) : null;
+    if (!anchor) { spacer.style.height = '0px'; return; }
+    const below = column.getBoundingClientRect().bottom - anchor.getBoundingClientRect().top;
+    const padBottom = parseFloat(getComputedStyle(el).paddingBottom) || 0;
+    const room = Math.max(0, el.clientHeight - SENT_MESSAGE_TOP_GAP_PX - below - padBottom);
+    spacer.style.height = `${Math.round(room)}px`;
+  }, []);
+
+  // (1) Conversation switch. A new chat gets its id only after its first
+  // message is sent, so keep that message pinned when the id first arrives.
+  const prevConversationRef = useRef<string | null | undefined>(undefined);
+  const mountedRef = useRef(false);
   useEffect(() => {
+    const prev = prevConversationRef.current;
+    const firstRun = !mountedRef.current;
+    prevConversationRef.current = conversationId;
+    mountedRef.current = true;
+    if (anchorIdRef.current && (firstRun || prev == null)) return;
+    anchorIdRef.current = null;
+    sizeSpacer();
     const el = containerRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [conversationId]);
+  }, [conversationId, sizeSpacer]);
 
   // (2) New user message. We track the previous count with a ref so
-  // we only fire on the increment-with-user-tail edge.
-  const prevLengthRef = useRef(messages.length);
-  useEffect(() => {
+  // we only fire on the increment-with-user-tail edge. The list mounts
+  // with a new chat's first message already in it, so that one counts too.
+  const prevLengthRef = useRef(messages.length === 1 && messages[0].role === 'user' ? 0 : messages.length);
+  useLayoutEffect(() => {
     const prev = prevLengthRef.current;
     prevLengthRef.current = messages.length;
     if (messages.length <= prev) return;
     const last = messages[messages.length - 1];
-    if (last?.role === 'user') {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages]);
+    if (last?.role !== 'user') return;
+    anchorIdRef.current = last.id;
+    sizeSpacer();
+    const el = containerRef.current;
+    const anchor = columnRef.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(last.id)}"]`);
+    if (!el || !anchor) return;
+    const top = el.scrollTop + anchor.getBoundingClientRect().top - el.getBoundingClientRect().top - SENT_MESSAGE_TOP_GAP_PX;
+    const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollTo?.({ top, behavior: reduce ? 'auto' : 'smooth' });
+  }, [messages, sizeSpacer]);
 
   // (4) Update jump-button visibility on scroll. Coalesced naturally
   // by the browser; no rAF/throttle needed at typical scroll
@@ -142,7 +187,9 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
   const updateJumpButton = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    // Measured to the end of the transcript, not of the spacer under it.
+    const spacer = spacerRef.current?.offsetHeight ?? 0;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight - spacer;
     const farFromBottom = distanceFromBottom > JUMP_BUTTON_HIDE_THRESHOLD_PX;
     setShowJumpButton(prev => (prev === farFromBottom ? prev : farFromBottom));
   }, []);
@@ -152,13 +199,17 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
   useEffect(() => {
     const column = columnRef.current;
     if (!column || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(updateJumpButton);
+    // The spacer shrinks as the reply grows, and follows the view's height.
+    const observer = new ResizeObserver(() => { sizeSpacer(); updateJumpButton(); });
     observer.observe(column);
+    if (containerRef.current) observer.observe(containerRef.current);
     return () => observer.disconnect();
-  }, [updateJumpButton]);
+  }, [updateJumpButton, sizeSpacer]);
 
   const scrollToBottom = () => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // 'end': the spacer sits below this marker, so 'start' would lift the
+    // last lines out of view.
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   };
 
   const isActive = streaming.phase !== 'idle' && streaming.phase !== 'done' && streaming.phase !== 'error';
@@ -177,7 +228,7 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
             streaming.phase === 'tool_call' ||
             streaming.phase === 'generating';
           return (
-          <div key={msg.id}>
+          <div key={msg.id} data-message-id={msg.id}>
             {/* P2 #22: render the boundary divider ABOVE the
                 assistant message that triggered compaction so the
                 visible order matches the conversation flow. */}
@@ -277,6 +328,7 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
 
         <div ref={bottomRef} />
       </div>
+      <div ref={spacerRef} aria-hidden="true" data-testid="sent-message-spacer" />
     </div>
       {/* Floating jump-to-bottom button. Appears once the user has
           scrolled more than JUMP_BUTTON_HIDE_THRESHOLD_PX above the
