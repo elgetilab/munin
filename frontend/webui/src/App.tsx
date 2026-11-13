@@ -970,8 +970,9 @@ export default function App() {
             report={conversationId && !isEphemeral && messages.length > 0 ? { reported: reportedChats.has(conversationId), onReport: () => setShowReportDialog(true) } : undefined}
           />
 
-          {/* From md up, the toggles sit in the header itself. */}
-          <div className="hidden md:contents">
+          {/* From md up, the toggles sit in the header itself; Settings, Admin
+              and a project's page are not a chat, so they show none. */}
+          {!overlayView && <div className="hidden md:contents">
           {/* Ephemeral toggle */}
           <button
             data-testid="ephemeral-toggle"
@@ -1031,7 +1032,7 @@ export default function App() {
               <span className={TOGGLE_LABEL}>{reportedChats.has(conversationId) ? 'Reported' : 'Report'}</span>
             </button>
           )}
-          </div>
+          </div>}
 
           <div className="hidden md:block flex-1 min-w-2" />
 
