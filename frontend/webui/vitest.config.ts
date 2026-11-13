@@ -1,6 +1,12 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
+// From Node 25 the runtime has its own global localStorage, which hides jsdom's,
+// so every test that touches storage fails with "setItem is not a function".
+// Turn it off there; CI and the Docker build run Node 22, which leaves it off.
+const nodeMajor = Number(process.versions.node.split('.')[0]);
+const execArgv = nodeMajor >= 25 ? ['--no-experimental-webstorage'] : [];
+
 export default defineConfig({
   plugins: [react()],
   test: {
@@ -13,5 +19,6 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
     css: false,
+    execArgv,
   },
 });
