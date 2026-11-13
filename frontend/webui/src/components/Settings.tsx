@@ -322,8 +322,8 @@ print(response.choices[0].message.content)`;
 
   return (
     <div className="flex-1 overflow-y-auto">
+      <PageHeader title="Settings" onBack={onClose} />
       <div className="max-w-xl mx-auto px-6 py-10">
-        <PageHeader title="Settings" onBack={onClose} className="mb-8" />
 
         {/* ── Appearance ── */}
         <h3 className="text-lg font-semibold text-text-primary mb-6">Appearance</h3>

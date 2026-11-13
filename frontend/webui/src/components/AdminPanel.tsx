@@ -99,8 +99,8 @@ export function AdminPanel() {
 
   return (
     <div className="flex-1 overflow-y-auto">
+      <PageHeader title="Admin Dashboard" onBack={onClose} width="max-w-4xl" />
       <div className="max-w-4xl mx-auto px-6 py-8">
-        <PageHeader title="Admin Dashboard" onBack={onClose} className="mb-6" />
 
         {/* Summary cards: only on the tabs that keep them fresh. */}
         {needsLiveData && !loading && activity && usage && (

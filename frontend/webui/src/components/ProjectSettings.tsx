@@ -86,9 +86,9 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
   };
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-6">
-      <div className="max-w-xl mx-auto space-y-6" onChange={() => { edited.current = true; }}>
-        <PageHeader title="Project Settings" onBack={onClose} />
+    <div className="flex-1 overflow-y-auto">
+      <PageHeader title="Project Settings" onBack={onClose} />
+      <div className="max-w-xl mx-auto space-y-6 px-6 py-6" onChange={() => { edited.current = true; }}>
 
         {loadFailed && (
           <ErrorNotice
