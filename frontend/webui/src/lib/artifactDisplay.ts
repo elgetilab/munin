@@ -160,7 +160,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function refsFromResult(name: string, result: unknown): ArtifactRef[] {
   if (!isRecord(result)) return [];
 
-  if (name === 'create_artifact' || name === 'update_artifact' || name === 'show_protein') {
+  // design_primers returns the artifact record inside its envelope, the same
+  // keys create_artifact does, so one widget artifact comes back per call.
+  if (name === 'create_artifact' || name === 'update_artifact' || name === 'show_protein' || name === 'design_primers') {
     if (result.error || typeof result.id !== 'string') return [];
     return [{
       id: result.id,

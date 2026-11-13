@@ -36,6 +36,7 @@ test_compile_latex_args.py               hermetic
 test_config_schemas.py                   hermetic
 test_contributors_sync.py                hermetic        pytest
 test_disconnect_cleanup.py               hermetic
+test_design_primers.py                   hermetic
 test_dispatch_registry.py                hermetic
 test_document_attachment.py              hermetic
 test_document_id_guard.py                hermetic

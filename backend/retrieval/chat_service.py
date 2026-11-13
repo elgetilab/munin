@@ -2927,7 +2927,12 @@ async def stream_chat_completion(
                 # the sandbox registrations above - both model-written and
                 # sandbox-generated artifacts use `artifact_created` (Stage
                 # C unification). Only emitted on successful tool results.
-                if res.get("name") in ("create_artifact", "show_protein"):
+                # Tools that spread an artifact record into their result and
+                # so need the artifact_created event pushed to the frontend.
+                # Without a tool's name here its artifact is stored but never
+                # rendered, which looks like the widget is broken.
+                if res.get("name") in ("create_artifact", "show_protein",
+                                       "design_primers"):
                     tr = res.get("result") or {}
                     if isinstance(tr, dict) and not tr.get("error"):
                         yield _sse(

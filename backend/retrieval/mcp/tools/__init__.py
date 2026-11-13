@@ -29,6 +29,7 @@ from .source import source
 from .search_agent import search
 from .compute_agent import compute
 from .structures import show_protein
+from .primers import design_primers
 from .s2_citations import s2_get_citations, s2_get_references
 from .chats import search_past_conversations
 from .memory import recall
@@ -82,6 +83,7 @@ __all__ = [
     "list_artifacts",
     "save_artifact_to_documents",
     "show_protein",
+    "design_primers",
     "list_projects",
     "get_current_project",
     "export_citations",

@@ -67,6 +67,19 @@ class CheckResult:
     threshold: str          # the bound, as text, e.g. "18-25" or "<= 47 C"
     source: str             # citation
     detail: str = ""        # why it failed, when it failed
+    # False when the rule could not be evaluated at all, because its input was
+    # never supplied (a structure temperature nobody computed, a Tm that has
+    # no single value because the primer is degenerate).
+    #
+    # This is a FIELD and not a prose convention on purpose. It used to be
+    # inferred from `detail == "not computed"`, which was both fragile for any
+    # consumer and quietly wrong here: one site writes a longer explanation,
+    # so exact-matching missed it and `summarise` under-reported. An
+    # uncomputed check keeps `passed=True` so it cannot disqualify a primer,
+    # which makes conflating the two states the most dangerous mistake a
+    # caller can make: it reads as "we checked this and it was fine" when
+    # nothing was checked. Consumers MUST branch on `computed`, not on text.
+    computed: bool = True
 
     def as_dict(self) -> dict:
         return {
@@ -78,6 +91,7 @@ class CheckResult:
             "threshold": self.threshold,
             "source": self.source,
             "detail": self.detail,
+            "computed": self.computed,
         }
 
 
@@ -238,9 +252,10 @@ def end_gc_count(seq: str, window: int = 5) -> int:
 # --------------------------------------------------------------------------
 
 
-def _r(rule, label, severity, passed, value, threshold, source, detail=""):
+def _r(rule, label, severity, passed, value, threshold, source, detail="",
+       computed=True):
     return CheckResult(rule, label, severity, passed, value, threshold,
-                       source, detail)
+                       source, detail, computed)
 
 
 def evaluate_primer(
@@ -361,7 +376,7 @@ def evaluate_primer(
         checks.append(_r(
             "end_stability", "3' end stability", SOFT, True, None,
             f"|dG| <= {c.max_end_stability} kcal/mol", "Rychlik 1990",
-            "not computed",
+            "not computed", computed=False,
         ))
     else:
         ok = abs(end_stability_dg) <= c.max_end_stability
@@ -379,7 +394,7 @@ def _structure_check(rule, label, value, limit, source) -> CheckResult:
     """A Primer3-convention structure check: the melting temp of the structure."""
     if value is None:
         return _r(rule, label, HARD, True, None, f"<= {limit} C", source,
-                  "not computed")
+                  "not computed", computed=False)
     ok = value <= limit
     return _r(rule, label, HARD, ok, round(value, 2), f"<= {limit} C", source,
               "" if ok else f"{value:.1f} C exceeds {limit} C")
@@ -421,6 +436,7 @@ def evaluate_pair(
             "pair_tm_diff", "pair Tm difference", HARD, True, None,
             f"<= {c.pair_tm_diff_max:.0f} C", "IDT; Thermo",
             "not computed: a degenerate primer has a Tm range, not a value",
+            computed=False,
         ))
 
     checks.append(_structure_check(
@@ -432,7 +448,7 @@ def evaluate_pair(
             checks.append(_r(
                 "product_size", "product size", HARD, True, None,
                 f"{c.product_min}-{c.product_max} bp", "design choice",
-                "not computed",
+                "not computed", computed=False,
             ))
         else:
             ok = c.product_min <= product_size <= c.product_max
@@ -449,10 +465,12 @@ def summarise(checks: list[CheckResult]) -> dict:
     """Envelope-shaped summary: counts plus the failures, worst first."""
     hard_failed = [c for c in checks if not c.passed and c.severity == HARD]
     soft_failed = [c for c in checks if not c.passed and c.severity == SOFT]
-    not_computed = [c for c in checks if c.detail == "not computed"]
+    not_computed = [c for c in checks if not c.computed]
     return {
         "total": len(checks),
-        "passed": sum(1 for c in checks if c.passed),
+        # An uncomputed check is NOT a pass. Counting it as one made the
+        # header contradict the per-check rows it summarised.
+        "passed": sum(1 for c in checks if c.passed and c.computed),
         "hard_failures": len(hard_failed),
         "soft_failures": len(soft_failed),
         "not_computed": len(not_computed),

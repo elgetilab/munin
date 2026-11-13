@@ -17,6 +17,8 @@ import {
 } from '../lib/artifactDisplay';
 import { useUiStore } from '../stores/uiStore';
 import { ProteinViewer } from './ProteinViewer';
+import { PrimerDesignViewer } from './PrimerDesignViewer';
+import { parsePrimerDesignSpec, type PrimerDesignSpec } from '../lib/primerDesign';
 
 interface InlineArtifactsProps {
   toolCalls: ToolCall[] | null | undefined;
@@ -76,9 +78,22 @@ function ArtifactCard({ artifact, note }: { artifact: ArtifactRef; note?: string
   );
 }
 
+// One content type carries every widget, so the stored spec says which one it
+// is: a protein spec names its widget, a primer design its kind.
+type WidgetSpec =
+  | { widget: 'protein'; spec: ProteinSpec }
+  | { widget: 'primer_design'; spec: PrimerDesignSpec };
+
+function parseWidgetSpec(content: string): WidgetSpec | null {
+  const primer = parsePrimerDesignSpec(content);
+  if (primer) return { widget: 'primer_design', spec: primer };
+  const protein = parseProteinSpec(content);
+  return protein ? { widget: 'protein', spec: protein } : null;
+}
+
 function ArtifactWidget({ artifact, conversationId }: { artifact: ArtifactRef; conversationId?: string | null }) {
   const open = useOpenArtifact(artifact.id);
-  const [spec, setSpec] = useState<ProteinSpec | null>(null);
+  const [widget, setWidget] = useState<WidgetSpec | null>(null);
   const [failed, setFailed] = useState(false);
   const { id, version } = artifact;
 
@@ -88,8 +103,8 @@ function ArtifactWidget({ artifact, conversationId }: { artifact: ArtifactRef; c
     fetchArtifact(conversationId, id, version)
       .then(full => {
         if (cancelled) return;
-        const parsed = parseProteinSpec(full.content);
-        if (parsed) setSpec(parsed);
+        const parsed = parseWidgetSpec(full.content);
+        if (parsed) setWidget(parsed);
         else setFailed(true);
       })
       .catch(() => { if (!cancelled) setFailed(true); });
@@ -97,10 +112,15 @@ function ArtifactWidget({ artifact, conversationId }: { artifact: ArtifactRef; c
   }, [conversationId, id, version]);
 
   if (failed) return <ArtifactCard artifact={artifact} note="preview unavailable" />;
-  if (!spec || !conversationId) return <PreviewLoading />;
+  if (!widget || !conversationId) return <PreviewLoading />;
+  // The primer widget needs nothing from the host but its spec, which is
+  // already here, so it draws in the page rather than in a sandboxed frame.
+  if (widget.widget === 'primer_design') {
+    return <PrimerDesignViewer spec={widget.spec} title={artifact.title} />;
+  }
   return (
     <ProteinViewer
-      spec={spec}
+      spec={widget.spec}
       title={artifact.title}
       conversationId={conversationId}
       artifactId={id}

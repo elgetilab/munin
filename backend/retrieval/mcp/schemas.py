@@ -611,6 +611,78 @@ MCP_TOOLS = {
             }
         }
     },
+    "design_primers": {
+        "name": "design_primers",
+        "is_concurrency_safe": False,
+        "description": "Design PCR, cloning or sequencing primers against a DNA sequence, and return them already verified. This tool COMPUTES the primers deterministically: it enumerates real windows of the template you pass, scores them against a cited rule table, and then simulates the reaction to confirm the design before returning it. Use it whenever the user asks for primers or oligos, for an overlap (Gibson / NEBuilder HiFi) assembly, for restriction-cloning ends, or for a sequencing or colony-check primer.\n\nNEVER write, guess, extend, trim or 'tidy' a primer sequence yourself, and never adjust one this tool returned. Primers written by a language model routinely do not occur in the template at all, sit on the wrong strand, or make junctions that do not join - that documented failure mode is the entire reason this tool exists. Report what comes back verbatim: sequence, coordinates, Tm, GC, product size. If a number is not in the result, say it was not computed; do not supply one.\n\nEvery call returns an `outcome`: `designed`, or one of `no_candidates`, `template_too_short`, `ambiguous_target`, `verification_failed`, `invalid_input`, each with a `detail` saying why. Anything other than `designed` returns NO designs at all, so you can never report a success the engine did not grant: pass the `detail` on to the user and offer no primers of your own. Every returned design has already passed every HARD rule and the in-silico PCR.\n\nGround every claim about quality in the result, not in impression. `checks` lists each rule evaluated with its measured value, threshold, severity (hard/soft) and literature source; `verified` is the in-silico PCR verdict (product count and sizes); `summary` counts passes, failures and checks that could not be computed. Specificity against a genome or a vector backbone is NOT checked - `notes` says so, and you should repeat it to the user.\n\nModes. `pcr` (default): pass `template`, optionally `target` (the region the product must contain) and `product_size_range`; `n` asks for several alternative pairs. `overlap_assembly`: pass `fragments`, the ordered sequences to be joined, and the tool designs the homology tails and simulates the assembly; `gibson` is accepted as an alias and normalises to `overlap_assembly` ('Gibson Assembly' is a registered trademark, so the generic name is canonical). `restriction`: pass `template` and `enzymes`. `sequencing`: pass `template`, `feature_position` and `direction`. Set `circular: true` for a plasmid, or for an assembly that closes into one. All coordinates are 0-based and half-open, like a Python slice. In a persistent chat the result also puts an interactive primer viewer in your message; do not link to it or describe it as a file.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["pcr", "overlap_assembly", "gibson", "restriction", "sequencing"],
+                    "description": "What the primers are for. 'pcr' (default) for amplification, genotyping or a colony PCR product; 'overlap_assembly' for homology-tailed assembly primers ('gibson' is an accepted alias and normalises to 'overlap_assembly'); 'restriction' to add a restriction site to each end; 'sequencing' for a single read-toward-a-feature primer."
+                },
+                "template": {
+                    "type": "string",
+                    "description": "The DNA sequence to design against, pasted as plain sequence or FASTA (a header line becomes the name, digits and whitespace are ignored). Required for every mode except overlap_assembly, which takes `fragments` instead."
+                },
+                "target": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Optional [start, end) region, 0-based and half-open. In 'pcr' mode the product must contain it; in 'restriction' mode it is the insert to clone. Required in 'pcr' mode for templates over 3,000 bp, which are otherwise too big to search without a target."
+                },
+                "product_size_range": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Optional [minimum, maximum] product size in bp for 'pcr' mode. Defaults to 100-1000."
+                },
+                "circular": {
+                    "type": "boolean",
+                    "description": "True if the template is a plasmid or other circle, so primers and products may cross the origin, or (in overlap_assembly) if the finished construct closes into a circle. Default false."
+                },
+                "n": {
+                    "type": "integer",
+                    "description": "How many alternative designs to return, 1-5. Applies to 'pcr' mode; the other modes are determined by their inputs and return one design. Default 3."
+                },
+                "enzymes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "For 'restriction' mode: one or two restriction enzyme names, the forward end first (e.g. ['EcoRI', 'HindIII']). Known enzymes: EcoRI, BamHI, HindIII, XhoI, NdeI, NcoI, SalI, XbaI, NotI, KpnI, SacI, PstI, SphI, SmaI, AccI. The tool refuses an enzyme that also cuts inside the insert."
+                },
+                "fragments": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "For 'overlap_assembly' mode: at least two DNA sequences, in the order they appear in the finished construct. The tool designs the homology tails, then simulates joining the products to check the junctions really match."
+                },
+                "overlap_length": {
+                    "type": "integer",
+                    "description": "Optional homology length in nt for 'overlap_assembly'. Omit to use the published guidance (15-20 nt for 2-3 fragments, 20-30 for 4-6), extended for an AT-rich junction."
+                },
+                "feature_position": {
+                    "type": "integer",
+                    "description": "For 'sequencing' mode: the 0-based coordinate of the region to read. For a forward primer this is the first base of interest; for a reverse primer, the end of it."
+                },
+                "direction": {
+                    "type": "string",
+                    "enum": ["forward", "reverse"],
+                    "description": "For 'sequencing' mode: which way the read travels toward the feature. Default forward."
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "For 'sequencing' mode: how many bases before the feature the primer sits, so the low-quality start of the read falls short of it. Default 100; 50-150 is the usual window."
+                },
+                "primer_length": {
+                    "type": "integer",
+                    "description": "For 'sequencing' mode: an exact primer length in nt. Omit to use the mode's optimum."
+                },
+                "template_name": {
+                    "type": "string",
+                    "description": "Optional name for the template or construct, used as the viewer's label. Defaults to the FASTA header if one was pasted."
+                }
+            }
+        }
+    },
     "read_artifact": {
         "name": "read_artifact",
         "description": "Load the full current (or a specific past) version of an artifact in the current conversation. Use this when you need to see the actual content of an artifact to reason about it, quote it, or decide how to update it. The === ACTIVE ARTIFACTS === block in your system prompt shows only titles and word counts to keep context overhead bounded - this tool is the on-demand fetch for the content itself. For the current draft, omit the version argument; for a historical version, pass version=N where N is between 1 and the artifact's latest_version.",

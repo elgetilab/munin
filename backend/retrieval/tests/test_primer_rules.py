@@ -171,10 +171,37 @@ def test_uncomputed_structure_is_reported_not_hidden() -> bool:
     checks = rules.evaluate_primer(M13F21, rules.PCR)
     hairpin = _by_rule(checks, "hairpin_tm")
     ok = hairpin.value is None and hairpin.detail == "not computed"
+    # The authoritative signal is the FIELD, not the prose. Consumers branch
+    # on this; a detail string would drift and turn an unchecked rule green.
+    ok &= hairpin.computed is False
+    ok &= hairpin.passed is True      # it must not disqualify the primer
     summary = rules.summarise(checks)
     ok &= summary["not_computed"] >= 1
-    return _check("uncomputed structure checks are flagged, not hidden", ok,
-                  f"not_computed={summary['not_computed']}")
+    # And an uncomputed check must NOT be counted as a pass, or the header
+    # contradicts the rows it summarises.
+    ok &= summary["passed"] == sum(
+        1 for c in checks if c.passed and c.computed)
+    ok &= summary["passed"] + summary["not_computed"] <= summary["total"]
+    return _check("uncomputed checks are flagged by field, and not counted "
+                  "as passes", ok,
+                  f"passed={summary['passed']} "
+                  f"not_computed={summary['not_computed']} "
+                  f"total={summary['total']}")
+
+
+def test_long_form_not_computed_is_still_counted() -> bool:
+    """
+    Regression: `summarise` used to match `detail == "not computed"` exactly,
+    so the degenerate-pair check, whose detail carries an explanation after
+    that prefix, was silently missed and the summary under-reported.
+    """
+    checks = rules.evaluate_pair(DEGENERATE, M13R, rules.PCR)
+    diff = _by_rule(checks, "pair_tm_diff")
+    ok = diff.computed is False
+    ok &= diff.detail != "not computed"          # it is the long form
+    ok &= rules.summarise(checks)["not_computed"] >= 1
+    return _check("a not-computed check with a long detail is still counted",
+                  ok, f"detail={diff.detail[:45]!r}")
 
 
 def test_supplied_structure_values_are_applied() -> bool:
@@ -280,6 +307,7 @@ def main() -> int:
         test_poly_run_boundary_and_severity,
         test_hard_failure_makes_unusable_soft_does_not,
         test_uncomputed_structure_is_reported_not_hidden,
+        test_long_form_not_computed_is_still_counted,
         test_supplied_structure_values_are_applied,
         test_end_stability_uses_magnitude,
         test_degenerate_primer_reported_as_population,
