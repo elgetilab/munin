@@ -1,6 +1,7 @@
 # Lab analysis: harness, helpers and eval suites
 
-Status: APPROVED 2026-11-13, Phase 0 in progress.
+Status: APPROVED 2026-11-13. Phase 0 built and tested 2026-11-13, not yet
+deployed (see "Phase 0 status" below).
 
 Several research groups use GraphPad Prism (and some ChimeraX) for fitting and
 plotting. We want Munin to replace that through chat: users upload instrument
@@ -83,6 +84,26 @@ Write the S0 suite (below) first; it should fail on today's code. Then fix:
 
 Acceptance: S0 green in CI, deployed, live smoke test of upload, overwrite and
 bundle download.
+
+### Phase 0 status (2026-11-13)
+
+Built and tested, not deployed:
+
+| Item | Where | Tests |
+|---|---|---|
+| 1 uploads into the sandbox | `document_store.is_data_file`, `chat_service._attach_to_sandbox`, sandbox `POST /inputs`, `store.sync_inputs`, webui ChatInput | `test_lab_plumbing.py`, `test_artifacts_live.py`, ChatInput tests |
+| 2 immutable artifacts | `sandbox/app/store.py` (blobs, versions, recursive scan, LaTeX outputs too) | `test_artifacts_live.py`, `test_isolation_live.py` |
+| 3 persistence | compose volumes under `data/sandbox/`, `deploy.sh dirs`, purge on chat delete, Lite tmpfs resized | `check_compose.py`, purge checks in the live suite |
+| 4 downloads | streamed proxy, `GET /api/bundles/{cid}`, `GET /api/artifacts/{cid}`, gateway streams downloads, "Download all" and "With code and data" in the panel | live suite (bundle verify + reproduce), `test_download_stream.py`, ArtifactPanel tests |
+| 5 figure manifest | `sandbox/app/fighook.py` (savefig and inline), `store.summarize_figure` | live suite |
+| 6 feedback | `figure_summary` in tool results, plot feedback and `artifact_created` for `run_python`, `edit_python`, `compute` | `test_lab_plumbing.py` |
+| 7 packages | `requirements.txt` + refrozen `constraints.txt`; compute allowlist and prompts updated | import check in the image |
+| 8 background turns | item 8 already resolved; item 2 already persists the partial answer; a queue needs Phase 6 | see STREAM-RELIABILITY-TODO.md |
+
+pymol-open-source and molviewspec are not on PyPI in a form that installs
+cleanly here; they move to Phase 5 with the viewer work. CI runs the
+artifact suite in a standalone container (`sandbox-live` job,
+`backend/scripts/ci/run_sandbox_live_tests.sh`).
 
 ## Phase 1: fixtures and eval harness
 

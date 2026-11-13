@@ -73,6 +73,15 @@ GPU cost. Preferred direction is to persist the partial answer before
 cancelling, so a cancelled turn still leaves something in the conversation
 rather than a silent gap.
 
+**Status 2026-11-13:** the preferred direction is in place. A cap cancellation
+sets `cancel_reason = "cancelled: too many background turns running"` and the
+save-always path persists the partial answer with that marker (covered by
+`test_stream_error_persistence.py` and `test_stream_registry.py`). Queuing
+instead of cancelling would mean pausing a turn that is already generating,
+which the chat loop cannot do; long-running analysis moves to jobs on
+sleipnir instead (LAB-ANALYSIS-PLAN.md, Phase 6). Whether to raise
+`MAX_BACKGROUND_PER_USER` above 2 is a GPU-budget decision, still open.
+
 ## 3. Why the connection drops in the first place  [UNKNOWN, do not guess]
 
 Not established. What has been **ruled out**:
@@ -133,7 +142,11 @@ rather than new plumbing.
 **Not the cause of the stream failures**: failure rate 0.169 with tags vs 0.134
 without, consistent with tagged conversations simply being longer.
 
-## 8. `test_background_streams.py` hangs, so it provides no coverage  [PRE-EXISTING]
+## 8. `test_background_streams.py` hangs, so it provides no coverage  [RESOLVED]
+
+**Resolved (checked 2026-11-13):** the file completes in 0.7 s in the hermetic
+tier (`backend/scripts/ci/run_retrieval_tests.sh`, 100/100 files green) and runs
+in CI on every push. The history below is kept for context.
 
 Verified 2026-08-27 by A/B against the pre-fix commit: the suite fails to
 complete within 180s on `3bea54d~1` and within 600s on `9b78aec`, so the hang
