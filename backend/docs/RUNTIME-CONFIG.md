@@ -156,6 +156,8 @@ first use, so an existing cluster is unaffected either way.
 | `data/reported/rpt_*.json` | report route | rare | manual triage |
 | `data/papers_cached/` | `read_paper` | **2.0 GB as of 2026-08-03**, unbounded | none; only a warning above `PAPERS_CACHE_WARN_GB` |
 | `data/agent_traces/` | `agent_trace.py` | ~4 MB, one file per traced turn | none |
+| `data/sandbox/scratch/{cid}/` | user code in the sandbox (mounted at `/scratch`) | per conversation, files only | deleted with the chat |
+| `data/sandbox/meta/{cid}/` | sandbox service (mounted at `/scratch-meta`): immutable artifact blobs, uploaded inputs, code of every run | per conversation, capped by `SANDBOX_STORE_MAX_BYTES` (2 GB) plus 1 GB of inputs | deleted with the chat |
 | `data/agent_extracts/ex_*.json` | source agent | ~120 KB | none |
 | `data/deep_research/dr_*.json` | in-process DR | ~480 KB, one per job | none |
 | `data/papers/pdf/` | pipeline + ingest | large, corpus-sized | quarantine layout, see INGEST.md |

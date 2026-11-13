@@ -14,8 +14,11 @@ Wraps jupyter_client.AsyncKernelManager so that:
   succeeds, instead of killing the kernel entirely.
 - iopub messages are demultiplexed into stdout / stderr / display_data /
   result / error so the caller never has to touch the raw protocol.
-- display_data ``image/png`` payloads are persisted to the conversation's
-  scratch directory and surfaced as artifact metadata.
+- display_data ``image/png`` payloads and every file user code writes to the
+  scratch directory become immutable, content-addressed artifacts
+  (store.ConversationStore). A figure hook (fighook.py) run at kernel start
+  publishes a JSON description of every saved or displayed matplotlib figure,
+  which is attached to the artifact it became.
 
 The handle also tracks ``last_used_at`` so the idle reaper in main.py can
 shut down kernels that have been quiet for too long.
@@ -25,11 +28,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import json
-import mimetypes
 import os
 import time
-import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -37,11 +37,26 @@ from jupyter_client.manager import AsyncKernelManager
 
 from . import isolation
 from .output_cap import CappedBuffer
+from .store import ConversationStore
 
 
-# The manifest lives in isolation.META_ROOT, out of the kernel's reach: in the
-# scratch dir the kernel could rewrite it and point entries at other files.
-_ARTIFACT_MANIFEST_FILENAME = "_artifacts.json"
+# Published by the in-kernel figure hook; never shown to the user as output.
+FIGURE_MIME = "application/vnd.munin.figure+json"
+
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "fighook.py")) as _f:
+    _FIGHOOK_SOURCE = _f.read()
+
+# Runs the hook in its own module namespace so none of its names land in the
+# user's globals.
+_FIGHOOK_SETUP = (
+    "def __munin_setup(src):\n"
+    "    import sys, types\n"
+    "    m = types.ModuleType('_munin_fighook')\n"
+    "    exec(compile(src, '<munin-figure-hook>', 'exec'), m.__dict__)\n"
+    "    sys.modules[m.__name__] = m\n"
+    f"__munin_setup({_FIGHOOK_SOURCE!r})\n"
+    "del __munin_setup\n"
+)
 
 
 # Stock mimetypes.guess_type misses a lot of formats common in scientific
@@ -118,6 +133,9 @@ class ExecutionResult:
     truncated_stdout: bool = False
     truncated_stderr: bool = False
     timed_out: bool = False
+    warnings: list[str] = field(default_factory=list)
+    exec_seq: Optional[int] = None
+    code_sha: Optional[str] = None
 
 
 class KernelHandle:
@@ -141,17 +159,7 @@ class KernelHandle:
         self._lock = asyncio.Lock()
         self.created_at: float = time.time()
         self.last_used_at: float = time.time()
-        # Per-kernel artifact bookkeeping. The manifest is the cumulative list
-        # of artifacts surfaced from this conversation; the served filenames
-        # set is a fast lookup so the post-execute scan doesn't re-emit files
-        # that were already turned into artifacts on a previous turn.
-        self._manifest_path = os.path.join(
-            isolation.meta_dir(conversation_id), _ARTIFACT_MANIFEST_FILENAME
-        )
-        self._manifest: list[dict] = self._load_manifest()
-        self._known_files: set[str] = {
-            entry["filename"] for entry in self._manifest
-        }
+        self.store = ConversationStore(conversation_id, self.scratch_dir)
 
     # ---- lifecycle -------------------------------------------------------
 
@@ -191,6 +199,7 @@ class KernelHandle:
             "import matplotlib\n"
             "matplotlib.use('module://matplotlib_inline.backend_inline')\n"
         )
+        await self._silent_setup(_FIGHOOK_SETUP)
 
     async def _silent_setup(self, code: str) -> None:
         """Execute a setup snippet and drain its messages without surfacing them."""
@@ -244,12 +253,17 @@ class KernelHandle:
             self.last_used_at = time.time()
             started = time.monotonic()
 
+            exec_rec = self.store.begin_exec(code)
+            # Put uploaded inputs back exactly as uploaded, read-only.
+            self.store.sync_inputs()
             state: dict = {
                 "stdout": CappedBuffer(),
                 "stderr": CappedBuffer(),
                 "result": None,
                 "error": None,
                 "artifacts": [],
+                "figures": {},   # absolute path -> description, from savefig
+                "exec": exec_rec,
             }
 
             msg_id = self._kc.execute(code, store_history=False)
@@ -279,9 +293,14 @@ class KernelHandle:
             # this turn as artifacts, alongside the inline images that the
             # iopub handler already captured. Done after the timeout branch
             # so partial outputs from interrupted runs still get exposed.
-            self._scan_for_new_files(state["artifacts"])
+            new, warnings = self.store.scan(exec_rec, state["figures"])
+            state["artifacts"].extend(new)
 
             duration_ms = int((time.monotonic() - started) * 1000)
+            self.store.end_exec(
+                exec_rec, ok=state["error"] is None, timed_out=timed_out,
+                duration_ms=duration_ms, artifact_ids=[a["id"] for a in state["artifacts"]],
+            )
             stdout: CappedBuffer = state["stdout"]
             stderr: CappedBuffer = state["stderr"]
 
@@ -295,6 +314,9 @@ class KernelHandle:
                 truncated_stdout=stdout.truncated,
                 truncated_stderr=stderr.truncated,
                 timed_out=timed_out,
+                warnings=warnings,
+                exec_seq=exec_rec["seq"],
+                code_sha=exec_rec["code_sha"],
             )
 
     # ---- iopub plumbing --------------------------------------------------
@@ -310,7 +332,6 @@ class KernelHandle:
         assert self._kc is not None
         stdout: CappedBuffer = state["stdout"]
         stderr: CappedBuffer = state["stderr"]
-        artifacts: list = state["artifacts"]
         while True:
             msg = await self._kc.get_iopub_msg(timeout=None)
             parent = msg.get("parent_header") or {}
@@ -332,11 +353,11 @@ class KernelHandle:
                 txt = data.get("text/plain")
                 if txt is not None:
                     state["result"] = txt
-                self._extract_image(data, artifacts)
+                self._extract_display(data, state)
 
             elif msg_type == "display_data":
                 data = content.get("data") or {}
-                self._extract_image(data, artifacts)
+                self._extract_display(data, state)
 
             elif msg_type == "error":
                 tb = content.get("traceback") or []
@@ -354,7 +375,6 @@ class KernelHandle:
         assert self._kc is not None
         stdout: CappedBuffer = state["stdout"]
         stderr: CappedBuffer = state["stderr"]
-        artifacts: list = state["artifacts"]
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline:
             try:
@@ -376,93 +396,29 @@ class KernelHandle:
                 elif name == "stderr":
                     stderr.write(content.get("text", ""))
             elif mt in ("execute_result", "display_data"):
-                self._extract_image(content.get("data") or {}, artifacts)
+                self._extract_display(content.get("data") or {}, state)
             elif mt == "status" and content.get("execution_state") == "idle":
                 return
 
-    def _extract_image(self, data: dict, artifacts: list[dict]) -> None:
-        """Persist any image/png payload to the scratch dir as an artifact."""
+    def _extract_display(self, data: dict, state: dict) -> None:
+        """Turn a display bundle into an artifact (inline image) or, for a
+        figure description published by savefig, remember it so the file
+        artifact found by the post-run scan can carry it."""
+        figure = data.get(FIGURE_MIME)
+        if not isinstance(figure, dict):
+            figure = None
         png_b64 = data.get("image/png")
         if not png_b64:
+            if figure and isinstance(figure.get("path"), str):
+                state["figures"][figure["path"]] = figure
             return
         try:
             png_bytes = base64.b64decode(png_b64)
         except Exception:
             return
-        artifact_id = uuid.uuid4().hex
-        filename = f"{artifact_id}.png"
-        try:
-            isolation.write_new_file(os.path.join(self.scratch_dir, filename), png_bytes)
-        except OSError:
-            return
-        entry = {
-            "id": artifact_id,
-            "filename": filename,
-            "content_type": "image/png",
-            "size_bytes": len(png_bytes),
-        }
-        artifacts.append(entry)
-        self._register_artifact(entry)
-
-    # ---- artifact manifest -------------------------------------------------
-
-    def _load_manifest(self) -> list[dict]:
-        """Load the cumulative artifact manifest from disk if present."""
-        try:
-            with open(self._manifest_path) as f:
-                data = json.load(f)
-            return data if isinstance(data, list) else []
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            return []
-
-    def _save_manifest(self) -> None:
-        try:
-            tmp = self._manifest_path + ".tmp"
-            with open(tmp, "w") as f:
-                json.dump(self._manifest, f)
-            os.replace(tmp, self._manifest_path)
-        except OSError:
-            pass
-
-    def _register_artifact(self, entry: dict) -> None:
-        self._manifest.append(entry)
-        self._known_files.add(entry["filename"])
-        self._save_manifest()
-
-    def _scan_for_new_files(self, artifacts: list[dict]) -> None:
-        """
-        Walk the scratch dir for files the user code wrote during this
-        execution and surface each one as a fresh artifact. Files already
-        in the manifest (from earlier turns or from the inline-image path)
-        are skipped. Internal bookkeeping files (the manifest itself) are
-        ignored. New files get a uuid id, an extension-sniffed content
-        type, and a size_bytes from the filesystem.
-        """
-        try:
-            entries = os.listdir(self.scratch_dir)
-        except OSError:
-            return
-        for fname in sorted(entries):
-            if fname in self._known_files:
-                continue
-            full = os.path.join(self.scratch_dir, fname)
-            # lstat: a symlink the kernel planted is never surfaced
-            if not isolation.is_regular_nofollow(full):
-                continue
-            try:
-                size = os.lstat(full).st_size
-            except OSError:
-                continue
-            ctype, _ = mimetypes.guess_type(fname)
-            ctype = ctype or "application/octet-stream"
-            entry = {
-                "id": uuid.uuid4().hex,
-                "filename": fname,
-                "content_type": ctype,
-                "size_bytes": size,
-            }
-            artifacts.append(entry)
-            self._register_artifact(entry)
+        entry = self.store.add_inline_image(png_bytes, state.get("exec"), figure)
+        if entry is not None:
+            state["artifacts"].append(entry)
 
 
 def _strip_ansi(line: str) -> str:

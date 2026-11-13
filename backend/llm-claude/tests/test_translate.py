@@ -300,3 +300,17 @@ def test_store_is_bounded():
     for name in "abc":
         store.put(name, "p", [])
     assert store.get("a") is None and store.get("c") is not None
+
+
+def test_top_level_combinators_are_dropped_from_tool_schemas():
+    # compile_latex says "source OR artifact_id" with a top-level oneOf, which
+    # the Anthropic API rejects for the whole request (2026-11-13).
+    from translate import convert_tools
+    tools = [{"type": "function", "function": {
+        "name": "compile_latex", "description": "d",
+        "parameters": {"type": "object",
+                       "properties": {"source": {"type": "string"}, "artifact_id": {"type": "string"}},
+                       "oneOf": [{"required": ["source"]}, {"required": ["artifact_id"]}]}}}]
+    schema = convert_tools(tools)[0]["input_schema"]
+    assert not any(k in schema for k in ("oneOf", "allOf", "anyOf"))
+    assert set(schema["properties"]) == {"source", "artifact_id"}

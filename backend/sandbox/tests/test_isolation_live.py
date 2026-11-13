@@ -88,7 +88,11 @@ check("artifact keeps its download filename",
       r.headers.get("content-disposition", ""))
 run(A, "import os; os.remove('data.csv'); os.symlink('/etc/shadow', 'data.csv')")
 r = c.get(f"/artifacts/{A}/{csv['id']}")
-check("artifact swapped for a symlink is refused", r.status_code == 404, f"{r.status_code} {r.text[:80]}")
+# Since 2026-11 artifacts are served from an immutable copy taken when they
+# were created, so swapping the file afterwards changes nothing: the link keeps
+# serving the original bytes and never follows the planted link.
+check("artifact swapped for a symlink still serves its original bytes",
+      r.status_code == 200 and r.content == b"a,b\n1,2\n", f"{r.status_code} {r.text[:80]}")
 
 check("bad conversation id refused", c.post("/exec/..", json={"code": "1"}).status_code in (400, 404))
 

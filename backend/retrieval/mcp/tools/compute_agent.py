@@ -50,6 +50,10 @@ from mcp.tools.source import EXTRACT_DIR
 ALLOWED_IMPORTS = {
     "numpy", "np", "scipy", "pandas", "pd", "matplotlib", "mpl", "seaborn", "sns",
     "sympy", "sklearn", "statsmodels",
+    # Lab analysis packages (sandbox requirements.txt, 2026-11). Before then
+    # statsmodels was allowed and recommended here but not installed.
+    "lmfit", "pingouin", "scikit_posthocs", "lifelines", "nmrglue", "pynmrstar",
+    "xlrd", "openpyxl", "tifffile", "gemmi", "Bio", "freesasa", "brokenaxes",
     "math", "cmath", "statistics", "random", "itertools", "functools", "collections",
     "json", "csv", "io", "re", "datetime", "decimal", "fractions", "string",
 }
@@ -61,7 +65,9 @@ MAX_ATTEMPTS = 3
 
 _CODE_RULES = (
     "Write a SINGLE standalone Python script. Rules: use ONLY numpy, scipy, "
-    "pandas, matplotlib, seaborn, sympy, sklearn, statsmodels and the standard "
+    "pandas, matplotlib, seaborn, sympy, sklearn, statsmodels, lmfit, pingouin, "
+    "scikit_posthocs, lifelines, nmrglue, pynmrstar, openpyxl, xlrd, tifffile, "
+    "gemmi, Bio (biopython), freesasa, brokenaxes and the standard "
     "library (no pip installs, no network). Set the matplotlib backend to Agg "
     "('matplotlib.use(\"Agg\")'). Seed all RNG (np.random.seed(0); "
     "import random; random.seed(0)). If input data is needed, read 'data.csv' "

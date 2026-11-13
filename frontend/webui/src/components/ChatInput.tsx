@@ -190,9 +190,15 @@ export interface ChatInputHandle {
   focus: () => void;
 }
 
-const ACCEPTED_TYPES = '.pdf,.txt,.md,.docx';
 const ACCEPTED_IMAGE_TYPES = '.png,.jpg,.jpeg,.webp';
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+// Documents are read and searched; every other file type is a data file
+// (instrument export, spreadsheet, zipped NMR experiment, ...) that goes to the
+// code sandbox under inputs/. Same split as document_store.is_data_file.
+const DOC_EXTS = ['pdf', 'txt', 'md', 'docx'];
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB, documents
+const MAX_DATA_FILE_SIZE = 100 * 1024 * 1024; // 100 MB, data files
+const fileExt = (f: File) => (f.name.includes('.') ? f.name.split('.').pop()?.toLowerCase() ?? '' : '');
+const maxUploadBytes = (f: File) => (DOC_EXTS.includes(fileExt(f)) ? MAX_FILE_SIZE : MAX_DATA_FILE_SIZE);
 
 interface FileUploadState {
   file: File;
@@ -536,8 +542,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   };
 
   const handleFileSelect = async (file: File) => {
-    if (file.size > MAX_FILE_SIZE) {
-      setUploadState({ file, progress: 0, status: 'error', error: 'File too large (max 50 MB)' });
+    const limit = maxUploadBytes(file);
+    if (file.size > limit) {
+      setUploadState({ file, progress: 0, status: 'error', error: `File too large (max ${limit / (1024 * 1024)} MB)` });
       return;
     }
 
@@ -589,19 +596,17 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const handleDroppedFiles = async (files: FileList | File[]) => {
     const list = Array.from(files);
     if (list.length === 0) return;
-    const ext = (f: File) => f.name.split('.').pop()?.toLowerCase() ?? '';
     const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'webp'];
-    const DOC_EXTS = ['pdf', 'txt', 'md', 'docx'];
 
+    // Images the model can look at go to the image pipeline; everything else
+    // (documents and data files alike) is uploaded. A TIFF or other image
+    // type the model cannot view is a data file for code.
     const docs: File[] = [];
-    let skipped = 0;
     for (const f of list) {
-      if (f.type.startsWith('image/') || IMAGE_EXTS.includes(ext(f))) {
+      if (IMAGE_EXTS.includes(fileExt(f))) {
         await addImage(f);  // enforces type/size/count, sets imageError on reject
-      } else if (DOC_EXTS.includes(ext(f))) {
-        docs.push(f);
       } else {
-        skipped++;
+        docs.push(f);
       }
     }
     // Documents upload one at a time (the banner tracks a single upload).
@@ -612,9 +617,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         break;
       }
       await handleFileSelect(f);
-    }
-    if (skipped > 0) {
-      setImageError('Some files were skipped. Supported: PDF, TXT, MD, DOCX, PNG, JPG, WEBP');
     }
   };
 
@@ -709,7 +711,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       <input
         ref={fileInputRef}
         type="file"
-        accept={ACCEPTED_TYPES}
         className="hidden"
         onChange={handleFileInputChange}
       />

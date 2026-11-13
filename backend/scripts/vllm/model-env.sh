@@ -46,9 +46,10 @@ LLM_THINKING_MODE LLM_REASONING_EFFORT KV_KIB_PER_TOKEN SAMPLING_DEFAULT SAMPLIN
 
 # Variables the retrieval container reads via ${VAR:-default} substitution in
 # docker-compose.yml. Exported so `docker compose up` in the same shell sees them.
+# LLM_VISION is optional in a profile (blank: decided from VLLM_EXTRA_ARGS).
 MUNIN_MODEL_COMPOSE_EXPORTS="VLLM_MODEL_NAME LLM_THINKING_MODE LLM_REASONING_EFFORT \
 SAMPLING_DEFAULT SAMPLING_CODE VLLM_TOOL_PARSER VLLM_REASONING_PARSER VLLM_EXTRA_ARGS \
-VLLM_MAX_MODEL_LEN TOKENIZER_HOST_DIR"
+VLLM_MAX_MODEL_LEN TOKENIZER_HOST_DIR LLM_VISION"
 
 munin_model_env_file() {
     # Resolve an argument to a profile path: a path, or a slug under the

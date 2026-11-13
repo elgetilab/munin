@@ -193,6 +193,12 @@ def convert_tools(tools: Optional[list[dict]]) -> list[dict]:
             continue
         schema = dict(fn.get("parameters") or {})
         schema.setdefault("type", "object")
+        # Anthropic rejects oneOf/allOf/anyOf at the top level of input_schema
+        # with a 400 for the whole request, and compile_latex declares
+        # "source OR artifact_id" that way, so every fallback turn offering it
+        # failed (seen 2026-11-13). The tool checks that rule itself.
+        for key in ("oneOf", "allOf", "anyOf"):
+            schema.pop(key, None)
         entry = {"name": name, "input_schema": schema}
         if fn.get("description"):
             entry["description"] = fn["description"]

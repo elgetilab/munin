@@ -182,6 +182,9 @@ def replace_typed_text(content: Any, new_text: str) -> Any:
 # for the rest.
 MAX_DOC_INLINE_CHARS = 50_000
 
+# Tools whose results carry sandbox artifacts (same payload shape).
+SANDBOX_ARTIFACT_TOOLS = ("run_python", "edit_python", "compute", "compile_latex")
+
 # Over-tooling backstop: hard ceiling on the CUMULATIVE tool calls in one user
 # message's agentic loop. Prompt-level bounds (persona depth / follow-up
 # guidance) proved insufficient - the harness eval (2026-07-09) showed 28-32-call
@@ -195,6 +198,43 @@ MAX_DOC_INLINE_CHARS = 50_000
 # SAFETY ceiling, not a tuned efficiency knob - the optimal needs a
 # quality-vs-calls sweep. Env-overridable via CHAT_MAX_TOOL_CALLS.
 MAX_TOOL_CALLS_PER_MESSAGE = int(os.getenv("CHAT_MAX_TOOL_CALLS", "30"))
+
+
+def _human_size(n: int) -> str:
+    for unit in ("bytes", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n} {unit}" if unit == "bytes" else f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n} bytes"
+
+
+async def _attach_to_sandbox(user_email: str, conversation_id: str, ephemeral: bool,
+                             doc_id: str, filename: str) -> str:
+    """Copy an attached file into the conversation's sandbox inputs and say
+    where code finds it. Never fails the turn: a problem becomes a note."""
+    if ephemeral or not conversation_id:
+        return ""
+    import document_store
+    from mcp.tools import sandbox as sandbox_tool
+
+    path = document_store.get_document_file_path(user_email, doc_id)
+    if not path:
+        return ""
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return "It could not be copied to the code sandbox."
+    res = await sandbox_tool.put_input(conversation_id, os.path.basename(path), data)
+    if res.get("error"):
+        logger.warning("attaching %s to sandbox failed: %s", doc_id, res["error"])
+        return f"It could not be copied to the code sandbox ({res['error']})."
+    paths = res.get("paths") or []
+    if len(paths) == 1:
+        return f"Code can read it at {paths[0]!r} (read-only)."
+    shown = ", ".join(repr(p) for p in paths[:20])
+    more = f" and {len(paths) - 20} more" if len(paths) > 20 else ""
+    return f"It was unpacked for code under inputs/ (read-only): {shown}{more}."
 
 
 async def _resolve_user_content_images(
@@ -248,9 +288,37 @@ async def _resolve_user_content_images(
             # so a reload keeps the doc in context.
             doc_id = block.get("document_id") or ""
             filename = block.get("filename") or doc_id
+            # Every attached file is also handed to the code sandbox as a
+            # read-only input, so code can parse it (instrument exports,
+            # spreadsheets, zipped NMR experiments, or a .txt export).
+            sandbox_note = await _attach_to_sandbox(
+                user_email, conversation_id, ephemeral, doc_id, filename
+            )
+            stored_path = document_store.get_document_file_path(user_email, doc_id)
+            if stored_path and document_store.is_data_file(stored_path):
+                # Data files are never inlined: they can be large or binary,
+                # and the model must read them with code, not by eye.
+                size = os.path.getsize(stored_path)
+                resolved_blocks.append(vision.text_block(
+                    f"[Attached data file: {filename} ({_human_size(size)}). Its "
+                    f"contents are not shown here; read it with run_python. "
+                    f"{sandbox_note}]"
+                ))
+                attachments.append({
+                    "document_id": doc_id,
+                    "filename": filename,
+                    "content_type": block.get("content_type") or "application/octet-stream",
+                    "source": "document",
+                    "kind": "data",
+                })
+                continue
             text = await document_store.get_document_text(user_email, doc_id)
             if text is None:
                 raise vision.VisionError(f"document not found: {doc_id!r}")
+            if sandbox_note:
+                filename_note = f"{filename}. {sandbox_note}"
+            else:
+                filename_note = filename
             if text.strip():
                 if len(text) > MAX_DOC_INLINE_CHARS:
                     text = (
@@ -258,7 +326,7 @@ async def _resolve_user_content_images(
                         + "\n\n[document truncated to fit the context window]"
                     )
                 resolved_blocks.append(
-                    vision.text_block(f"[Attached document: {filename}]\n\n{text}")
+                    vision.text_block(f"[Attached document: {filename_note}]\n\n{text}")
                 )
             else:
                 # File exists but yields no extractable text (empty, scanned
@@ -266,7 +334,7 @@ async def _resolve_user_content_images(
                 # model doesn't proceed as if it had read the file.
                 resolved_blocks.append(
                     vision.text_block(
-                        f"[Attached document: {filename} - no extractable text "
+                        f"[Attached document: {filename_note} - no extractable text "
                         f"could be read from this file]"
                     )
                 )
@@ -342,7 +410,20 @@ async def _resolve_user_content_images(
                 f"unsupported image_url scheme: {url[:32]!r}"
             )
 
-        if data_url:
+        if data_url and not vision.model_sees_images():
+            # A text-only backbone answers an image with a 400 that fails the
+            # whole turn. Say so instead, and give the image to code.
+            name = (attachment_meta or {}).get("filename") or "image"
+            note = ""
+            if attachment_meta and attachment_meta.get("document_id"):
+                note = await _attach_to_sandbox(
+                    user_email, conversation_id, ephemeral,
+                    attachment_meta["document_id"], name,
+                )
+            resolved_blocks.append(vision.text_block(
+                f"[Attached image: {name}. {vision.NO_VISION_NOTE} {note}]".replace(" ]", "]")
+            ))
+        elif data_url:
             resolved_blocks.append(vision.image_url_block(data_url))
         if attachment_meta:
             attachments.append(attachment_meta)
@@ -2815,7 +2896,11 @@ async def stream_chat_completion(
                 # same payload shape - it returns a `.tex` artifact
                 # always and a `.pdf` artifact on success, both via the
                 # same `artifacts` list.
-                if res.get("name") in ("run_python", "compile_latex"):
+                # edit_python and compute run through run_python and return
+                # the same artifact list (before 2026-11 only run_python and
+                # compile_latex emitted this, so edited plots never reached
+                # the side panel live).
+                if res.get("name") in SANDBOX_ARTIFACT_TOOLS:
                     tool_result = res.get("result") or {}
                     for art in (tool_result.get("artifacts") or []):
                         registered_id = art.get("registered_artifact_id")
@@ -2831,7 +2916,8 @@ async def stream_chat_completion(
                                 "filename": art.get("filename"),
                                 "size_bytes": art.get("size_bytes"),
                                 "external_url": art.get("external_url"),
-                                "version": 1,
+                                "version": art.get("version") or 1,
+                                "sha256": art.get("sha256"),
                                 "conversation_id": tool_result.get("conversation_id"),
                                 "tool_call_id": res["id"],
                             },

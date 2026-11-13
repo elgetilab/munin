@@ -338,6 +338,11 @@ services:
       # Sampling profile per persona class (JSON objects; blank = Qwen3 set).
       - SAMPLING_DEFAULT=${SAMPLING_DEFAULT:-}
       - SAMPLING_CODE=${SAMPLING_CODE:-}
+      # Whether the backbone takes images (vision.model_sees_images): the
+      # profile's LLM_VISION when set, else text-only when vLLM runs with
+      # --language-model-only. A text-only model sent an image fails the turn.
+      - LLM_VISION=${LLM_VISION:-}
+      - VLLM_EXTRA_ARGS=${VLLM_EXTRA_ARGS:-}
       # Context window: the vLLM start scripts `export` these before
       # `docker compose up` to match the running mode (single-GPU 65536/60000,
       # TP=2 131072/125000) so the backend uses the right window. Compose
@@ -491,8 +496,20 @@ services:
       # 2026-09-30). They were unconfined for firejail, which never sandboxed
       # anything inside the container.
       - SYS_ADMIN
+    volumes:
+      # Persistent since 2026-11 (docs/agent-track/LAB-ANALYSIS-PLAN.md):
+      # scratch holds the files user code writes, meta the immutable artifact
+      # store, uploaded inputs and the code of every run. Before, both lived
+      # in the container overlay and every artifact link 404ed after a
+      # rebuild. A conversation's dirs are deleted with the chat
+      # (DELETE /conversations/{cid}). The service re-asserts the root modes
+      # at start (isolation.ensure_roots).
+      - ${MUNIN_ROOT:-/opt/munin}/data/sandbox/scratch:/scratch
+      - ${MUNIN_ROOT:-/opt/munin}/data/sandbox/meta:/scratch-meta
     environment:
       - SANDBOX_SCRATCH_DIR=/scratch
+      # Per conversation: artifact store 2 GB, inputs 1 GB, 100 MB per upload.
+      - SANDBOX_STORE_MAX_BYTES=${SANDBOX_STORE_MAX_BYTES:-2147483648}
       - SANDBOX_IDLE_TTL_S=900
       - SANDBOX_REAPER_INTERVAL_S=60
       - SANDBOX_MAX_TIMEOUT_S=120

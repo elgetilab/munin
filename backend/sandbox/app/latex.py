@@ -52,6 +52,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from . import isolation
+from .store import ConversationStore
 
 
 _LATEX_MANIFEST_FILENAME = "_latex_artifacts.json"
@@ -275,6 +276,7 @@ async def compile_latex(
     conv_dir = os.path.join(scratch_root, conversation_id)
     os.makedirs(conv_dir, exist_ok=True)
     meta = isolation.meta_dir(conversation_id)
+    conv_store = ConversationStore(conversation_id, os.path.join(scratch_root, conversation_id))
     try:
         uid = await isolation.pool.acquire(conversation_id)
     except isolation.SandboxBusy as exc:
@@ -352,6 +354,9 @@ async def compile_latex(
                 "filename": tex_artifact.filename,
                 "content_type": tex_artifact.content_type,
                 "size_bytes": tex_artifact.size_bytes,
+                # Immutable copy: the conversation's uid owns conv_dir and
+                # could overwrite the file later; the link serves this blob.
+                "sha256": conv_store.blob_from_file(conv_dir, out_tex_name),
             })
 
             # --- hand the work dir to the conversation's uid, then pass 1 ---
@@ -450,6 +455,7 @@ async def compile_latex(
                 "filename": pdf_artifact.filename,
                 "content_type": pdf_artifact.content_type,
                 "size_bytes": pdf_artifact.size_bytes,
+                "sha256": conv_store.blob_from_file(conv_dir, out_pdf_name),
             })
 
             success = True
