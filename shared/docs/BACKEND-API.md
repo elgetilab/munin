@@ -225,7 +225,8 @@ routed through the gateway.
     "model_path": "/opt/munin/data/models/qwen3.8-27b-awq-int4",
     "context_window": 65536,
     "thinking_mode": "enable_thinking",
-    "reasoning_effort": "medium"
+    "reasoning_effort": "medium",
+    "thinking_token_budget": null
   }]
 }
 ```
@@ -236,7 +237,9 @@ routed through the gateway.
   `model_path` null).
 - `served` is true only when vLLM currently lists that id.
 - `thinking_mode` / `reasoning_effort` are the profile's sub-task reasoning
-  policy and user-turn effort; informational.
+  policy and user-turn effort; informational. `thinking_token_budget` is the
+  profile's cap on the reasoning trace in tokens (`null` = none; sage-a1.5
+  sets 8192), applied to every thinking-on turn and to raw mode below.
 - `fallback` is present only behind the `llm-failover` proxy, with the same
   shape as `/api/status`'s `llm_fallback`. `id` does not change during a
   failover, so API clients keep sending the same `model`; responses then
@@ -593,6 +596,14 @@ HTTP status** (e.g. `400`) with vLLM's error body for failures detected
 before the stream opens, instead of a `200` carrying an `event: error`
 frame. OpenAI clients expect HTTP-level errors, so the old 200-wrapped
 form surfaced to them as an opaque "error making request".
+
+**Reasoning defaults.** Raw mode adds the profile's user-turn effort
+(`chat_template_kwargs.reasoning_effort`) only when the client sends no
+`chat_template_kwargs`, and the profile's `thinking_token_budget` (vLLM's
+per-request reasoning cap, never more than half the request's `max_tokens`)
+only when the client sends none. A client that sends either keeps full
+control of it. When the budget runs out the server ends the reasoning trace
+and the model answers from what it has.
 
 **`503` while vLLM is stopped.** The cluster shuts vLLM down nightly to
 free the GPUs (02:00-06:00 cluster-local by default). Requests arriving in

@@ -206,6 +206,51 @@ def reasoning_effort_fields(effort: str = None, enabled: bool = None) -> dict:
     return {"chat_template_kwargs": {"reasoning_effort": value}}
 
 
+# Hard cap on the reasoning trace of a thinking-on request, in tokens, sent as
+# vLLM's per-request `thinking_token_budget` (vLLM >= 0.33; the server forces
+# its reasoning end string once the budget is spent and the model answers).
+# For a backbone with no effort dial, Sage-A1.5 on 2026-11-12: at a 16,384
+# output cap 80/199 LitQA2 bare answers ran out of tokens still inside
+# <think> (median finished trace 9.2k tokens vs Qwen3.6's 3.0k). At 8192 all
+# 8 re-asked questions answered. 0 or unset = send nothing (the default, so a
+# profile without it, or a non-vLLM endpoint, is byte-identical to before).
+def _env_int(name: str, default: int = 0, env=None) -> int:
+    env = os.environ if env is None else env
+    raw = (env.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        val = int(raw)
+    except ValueError as e:
+        raise ValueError(f"{name}={raw!r} is not an integer") from e
+    if val < 0:
+        raise ValueError(f"{name}={raw!r} must be >= 0")
+    return val
+
+
+LLM_THINKING_BUDGET = _env_int("LLM_THINKING_BUDGET")
+
+
+def thinking_budget_fields(budget: int = None, enabled: bool = None,
+                           max_tokens: int = None) -> dict:
+    """`{"thinking_token_budget": N}` for a thinking-on request, or `{}`.
+
+    Splat next to `reasoning_effort_fields()`. Gated by LLM_THINKING_TOGGLE
+    (the same non-OpenAI passthrough gate) and off when the budget is 0.
+    `max_tokens`, when given, caps the budget at half of it so a call with a
+    small output cap still keeps room for the answer after a forced stop.
+    `budget` / `enabled` exist so a test can pin the branches.
+    """
+    if not (LLM_THINKING_TOGGLE if enabled is None else enabled):
+        return {}
+    value = LLM_THINKING_BUDGET if budget is None else budget
+    if not value:
+        return {}
+    if max_tokens:
+        value = min(value, max(1, max_tokens // 2))
+    return {"thinking_token_budget": int(value)}
+
+
 def thinking_off(body: dict, enabled: bool = None) -> dict:
     """Mutating form of `thinking_off_fields`, for a body built up in steps."""
     body.update(thinking_off_fields(enabled))

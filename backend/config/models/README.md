@@ -28,6 +28,8 @@ switch refuses a file with a missing key rather than guessing.
 | `VLLM_MAX_NUM_SEQS_SINGLE`, `VLLM_MAX_NUM_SEQS_TP2` | admission cap per profile; the KV gate at start confirms the pool covers it |
 | `LLM_THINKING_MODE` | how sub-tasks turn reasoning off: `enable_thinking`, `effort_low`, `none` |
 | `LLM_REASONING_EFFORT` | user-facing turn effort; blank = do not send |
+| `LLM_THINKING_BUDGET` | optional; cap on the reasoning trace in tokens, sent as vLLM's per-request `thinking_token_budget` (vLLM >= 0.33) on thinking-on calls, never more than half of that call's `max_tokens`. Blank or absent = none. For a backbone without an effort dial (sage-a1.5) |
+| `VLLM_REASONING_END_STR` | optional; the text vLLM forces when a thinking budget runs out, passed as `--reasoning-config` by the start scripts. `\n` escapes are decoded. Blank or absent = vLLM's default (the parser's bare end token) |
 | `KV_KIB_PER_TOKEN` | fp8 KV bytes per token, for the memory arithmetic and the gate |
 | `SAMPLING_DEFAULT`, `SAMPLING_CODE` | JSON, the vendor's recommended sampling per persona class |
 | `LLM_VISION` | optional; `0` for a text-only backbone (Sage-A1.5, gpt-oss), which the backend then sends no images: plot feedback relies on the text `figure_summary`, attached images become a note and an input file for code. Blank decides from `VLLM_EXTRA_ARGS` (`--language-model-only` means text-only) |

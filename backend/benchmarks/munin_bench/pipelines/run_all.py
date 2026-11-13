@@ -63,6 +63,8 @@ def main() -> int:
     ap.add_argument("--base-url", default="http://127.0.0.1:8080",
                     help="live chat for faithfulness/abstention/ablation")
     ap.add_argument("--email", default="litqa2-eval@localhost")
+    ap.add_argument("--concurrency", type=int, default=1,
+                    help="Track D: questions in flight at once (<= the server's max-num-seqs)")
     ap.add_argument("--limit", type=int, default=0,
                     help="cap questions for the live tracks (0 = full; use to smoke-test wiring)")
     ap.add_argument("--with-reliability", action="store_true",
@@ -173,7 +175,8 @@ def main() -> int:
         n = args.limit or 100
         abl_tag = args.ablation_tag or args.tag
         for arm in ("bare", "rag", "agentic"):
-            run_arm_fn(arm, n, base_url=args.base_url, email=args.email, tag=abl_tag)
+            run_arm_fn(arm, n, base_url=args.base_url, email=args.email, tag=abl_tag,
+                       concurrency=args.concurrency)
         sc = compare_arms(date=None, tag=abl_tag)
         tasks["ablation"] = {arm: {
             "metrics": {"accuracy": _metric(pa["accuracy"]),

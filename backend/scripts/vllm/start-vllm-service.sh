@@ -208,6 +208,7 @@ vllm serve "$MODEL_PATH" \
     --enable-auto-tool-choice \
     --tool-call-parser $VLLM_TOOL_PARSER \
     --reasoning-parser $VLLM_REASONING_PARSER \
+    "${VLLM_REASONING_ARGS[@]+"${VLLM_REASONING_ARGS[@]}"}" \
     $VLLM_EXTRA_ARGS &
 
 VLLM_PID=$!

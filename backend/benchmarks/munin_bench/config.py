@@ -9,6 +9,7 @@ lives here.
 
 from __future__ import annotations
 
+import json
 import os
 
 # --- Qdrant -----------------------------------------------------------------
@@ -97,6 +98,44 @@ VLLM_MODEL_NAME = os.getenv("VLLM_MODEL_NAME", "qwen3.8-27b")
 # that has nothing to do with the harness.
 LLM_REASONING_EFFORT = os.getenv("LLM_REASONING_EFFORT", "medium").strip()
 MAX_OUTPUT_TOKENS = int(os.getenv("VLLM_MAX_OUTPUT_TOKENS", "16384"))
+#   LLM_THINKING_BUDGET    <- backend database.LLM_THINKING_BUDGET
+# A backbone with no effort dial (Sage-A1.5) caps its trace with vLLM's
+# thinking_token_budget instead; blank/0 = send nothing, as before.
+LLM_THINKING_BUDGET = int(os.getenv("LLM_THINKING_BUDGET", "") or 0)
+
+# Sampling of the direct (bare / RAG) arms. "legacy" (the default, and how every
+# scorecard up to 2026-11-12 ran) sends only temperature 0.7, so the server
+# samples with top_p 1.0 and no top_k: a checkpoint whose generation_config
+# carries no defaults (the cyankiwi AWQ ones) then samples further from its
+# card than the agentic arm, which gets the profile sampling from retrieval.
+# "profile" sends SAMPLING_DEFAULT (the profile's card set), matching the arms.
+# On Sage-A1.5 that alone cut 16K truncations on 8 hard questions from 8 to 2.
+DIRECT_ARM_SAMPLING = os.getenv("BENCH_DIRECT_SAMPLING", "legacy").strip() or "legacy"
+if DIRECT_ARM_SAMPLING not in ("legacy", "profile"):
+    raise ValueError(f"BENCH_DIRECT_SAMPLING={DIRECT_ARM_SAMPLING!r}; expected legacy|profile")
+
+
+def direct_arm_sampling() -> dict:
+    """Sampling fields for a bare/RAG request (see DIRECT_ARM_SAMPLING)."""
+    if DIRECT_ARM_SAMPLING == "legacy":
+        return {"temperature": 0.7}
+    raw = os.getenv("SAMPLING_DEFAULT", "").strip()
+    if not raw:
+        raise ValueError("BENCH_DIRECT_SAMPLING=profile needs SAMPLING_DEFAULT (the model profile's)")
+    val = json.loads(raw)
+    if not isinstance(val, dict):
+        raise ValueError("SAMPLING_DEFAULT must be a JSON object")
+    return val
+
+
+def thinking_budget_fields(max_tokens: int = None) -> dict:
+    """`{"thinking_token_budget": N}` or `{}`, at most half of max_tokens."""
+    if not LLM_THINKING_BUDGET:
+        return {}
+    value = LLM_THINKING_BUDGET
+    if max_tokens:
+        value = min(value, max(1, max_tokens // 2))
+    return {"thinking_token_budget": value}
 
 # How a mechanical sub-task turns reasoning OFF for the served backbone. Mirrors
 # backend database.LLM_THINKING_MODE (same env name, same values):

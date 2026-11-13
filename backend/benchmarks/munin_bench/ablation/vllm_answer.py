@@ -34,7 +34,7 @@ _RAG_SYSTEM = (
 
 
 def complete(prompt: str, *, system: str, max_tokens: int = None,
-             temperature: float = 0.7, timeout: int = 900) -> dict:
+             temperature: float = None, timeout: int = 900) -> dict:
     """One vLLM chat completion. Returns {content, prompt_tokens,
     completion_tokens, elapsed_s}.
 
@@ -50,9 +50,15 @@ def complete(prompt: str, *, system: str, max_tokens: int = None,
         "messages": [{"role": "system", "content": system},
                      {"role": "user", "content": prompt}],
         "max_tokens": config.MAX_OUTPUT_TOKENS if max_tokens is None else max_tokens,
-        "temperature": temperature,
         "stream": False,
     }
+    # Sampling (config.DIRECT_ARM_SAMPLING: legacy temperature 0.7, or the
+    # profile's card set) and the thinking budget, which the agentic arm gets
+    # from retrieval; both are arm-matching, recorded in the scorecard.
+    body.update(config.direct_arm_sampling())
+    if temperature is not None:
+        body["temperature"] = temperature
+    body.update(config.thinking_budget_fields(body["max_tokens"]))
     if config.LLM_REASONING_EFFORT:
         body["chat_template_kwargs"] = {
             "reasoning_effort": config.LLM_REASONING_EFFORT}
