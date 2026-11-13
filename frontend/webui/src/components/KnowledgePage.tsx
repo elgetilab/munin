@@ -5,6 +5,8 @@ import { UPLOAD_URL } from '../lib/urls';
 import { useUiStore } from '../stores/uiStore';
 import { EmbeddingMapView } from './EmbeddingMapView';
 import { ErrorNotice } from './ui/ErrorNotice';
+import { PageIcon, TagIcon, UserIcon, UsersIcon } from './ui/icons';
+import type { ReactNode } from 'react';
 
 interface KnowledgePageProps {
   // The part of the path after /knowledge, e.g. "group/zeitler". App keeps it in
@@ -217,10 +219,10 @@ function OverviewView({ catalog, papersStat, mapData, mapLoading, mapError, onRe
     <div className="px-6 py-6 max-w-4xl mx-auto">
       {/* Stats bar */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <StatCard label={papersStat.label} value={papersStat.value} />
-        <StatCard label="Topics" value={String(catalog.topics.length)} />
-        <StatCard label="Research Groups" value={String(catalog.groups.length)} />
-        <StatCard label="Contributors" value={String(catalog.contributor_count ?? catalog.contributors.length)} />
+        <StatCard icon={<PageIcon size={16} />} label={papersStat.label} value={papersStat.value} />
+        <StatCard icon={<TagIcon size={16} />} label="Topics" value={String(catalog.topics.length)} />
+        <StatCard icon={<UsersIcon size={16} />} label="Research Groups" value={String(catalog.groups.length)} />
+        <StatCard icon={<UserIcon size={16} />} label="Contributors" value={String(catalog.contributor_count ?? catalog.contributors.length)} />
       </div>
 
       {/* Embedding Map */}
@@ -246,11 +248,15 @@ function OverviewView({ catalog, papersStat, mapData, mapLoading, mapError, onRe
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+// A figure with its brass symbol, in the sites' panel shape.
+function StatCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
-    <div className="bg-bg-secondary border border-border rounded-xl px-4 py-3">
-      <div className="text-xl font-semibold text-text-primary tabular-nums">{value}</div>
-      <div className="text-xs text-text-secondary mt-1">{label}</div>
+    <div className="bg-bg-secondary border border-border rounded-2xl px-4 py-3.5 flex items-start gap-3">
+      <span className="flex-shrink-0 mt-0.5 inline-flex items-center justify-center w-8 h-8 rounded-lg bg-accent/10 text-accent">{icon}</span>
+      <div className="min-w-0">
+        <div className="text-xl font-semibold tracking-[-0.02em] text-text-primary tabular-nums">{value}</div>
+        <div className="text-xs text-text-secondary mt-0.5">{label}</div>
+      </div>
     </div>
   );
 }

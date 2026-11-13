@@ -53,7 +53,7 @@
     --border: #252f39;
     --border-input: #6e7681; /* form controls: 4.03:1 on bg-primary, 3.61:1 on bg-secondary, 3.14:1 on bg-tertiary */
     --success: #3fb950;
-    --warning: #d29922;
+    --warning: #f0883e;
     --error: #f85149;
     --text-tertiary: #8d959e;
     --scrim: rgb(0 0 0 / 0.6);
@@ -82,7 +82,7 @@
     --border: #dde3e9;
     --border-input: #6e7781;
     --success: #196b2e;
-    --warning: #7a5300;
+    --warning: #953f00;
     --error: #b81c28;
     --scrim: rgb(31 36 41 / 0.4);
     --focus-ring: #7a5512;
