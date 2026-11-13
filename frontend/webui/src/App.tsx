@@ -25,6 +25,7 @@ import { isWidget } from './lib/artifactDisplay';
 import { ProjectSettings } from './components/ProjectSettings';
 import { AdminPanel } from './components/AdminPanel';
 import { ReportDialog } from './components/ReportDialog';
+import { canResend } from './lib/resend';
 import { KnowledgePanel } from './components/KnowledgePanel';
 import { KnowledgePage } from './components/KnowledgePage';
 import { ErrorNotice } from './components/ui/ErrorNotice';
@@ -543,6 +544,12 @@ export default function App() {
     sendMessage(content, selectedPersona, isEphemeral, undefined, projectIdForNewChat, activeTags.length > 0 ? activeTags : undefined);
   }, [sendMessage, selectedPersona, isEphemeral, projectIdForNewChat, activeTags]);
 
+  // Retry and Edit: send `content` in place of the saved user message
+  // `messageId`; it and everything after it go, here and on the server.
+  const handleResend = useCallback((messageId: string, content: string) => {
+    sendMessage(content, selectedPersona, false, undefined, undefined, activeTags.length > 0 ? activeTags : undefined, undefined, messageId);
+  }, [sendMessage, selectedPersona, activeTags]);
+
   // P2 #24 Phase 2: after the user clicks Approve / Approve-all on
   // the PlanCard, the REST call has already landed (approved_at is
   // set in the DB). To get the model out of "waiting" and back into
@@ -559,6 +566,13 @@ export default function App() {
 
   const handleRetryReply = () => {
     if (!lastUserMessage) return;
+    // Replace the saved attempt on the server too, so the model doesn't see
+    // the question twice. Only a message that never came back saved (no id
+    // from `done`) falls back to trimming here alone.
+    if (!isEphemeral && canResend(lastUserMessage)) {
+      handleResend(lastUserMessage.id, lastUserMessage.content);
+      return;
+    }
     // sendMessage adds the user's message again, so take this attempt away first.
     useChatStore.setState({ messages: messages.slice(0, messages.lastIndexOf(lastUserMessage)) });
     handleSend(lastUserMessage.content);
@@ -1191,7 +1205,7 @@ export default function App() {
               </div>
             ) : (
               <>
-                <MessageList messages={messages} streaming={streaming} onSendClarification={handleSend} onDismissMemoryProposal={dismissMemoryProposal} conversationId={conversationId} onPlanApproved={handlePlanApproved} onPlanRejected={() => { /* user types follow-up themselves */ }} onPlanEdited={handlePlanEdited} onContinue={handleContinue} canReport={Boolean(conversationId) && !isEphemeral} researchTimeline={drJob && drJob.conversationId === conversationId ? <ResearchTimeline job={drJob} /> : null} />
+                <MessageList messages={messages} streaming={streaming} onSendClarification={handleSend} onDismissMemoryProposal={dismissMemoryProposal} conversationId={conversationId} onPlanApproved={handlePlanApproved} onPlanRejected={() => { /* user types follow-up themselves */ }} onPlanEdited={handlePlanEdited} onContinue={handleContinue} canReport={Boolean(conversationId) && !isEphemeral} onResend={conversationId && !isEphemeral ? handleResend : undefined} researchTimeline={drJob && drJob.conversationId === conversationId ? <ResearchTimeline job={drJob} /> : null} />
                 <ChatInput
                   ref={chatInputRef}
                   onSend={handleSend}

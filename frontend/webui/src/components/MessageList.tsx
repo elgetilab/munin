@@ -13,6 +13,8 @@ import { rewordInterruptedMarker } from '../lib/modelError';
 import { BTN_PRIMARY } from './ui/cardButton';
 import { CHAT_COLUMN } from './ui/chatColumn';
 import { ReplyActions } from './ReplyActions';
+import { UserMessage } from './UserMessage';
+import { canResend } from '../lib/resend';
 
 interface RetryingState {
   attempt: number;
@@ -61,6 +63,10 @@ interface MessageListProps {
   // Whether this chat can be reported (saved, not temporary): shows Report
   // under each reply.
   canReport?: boolean;
+  // Retry and Edit: send `content` again in place of the saved user message
+  // `messageId`, dropping it and everything after it. Absent where that
+  // can't be done (temporary chats).
+  onResend?: (messageId: string, content: string) => void;
 }
 
 // Small muted pill showing the internal profile the per-turn router
@@ -99,7 +105,7 @@ const JUMP_BUTTON_HIDE_THRESHOLD_PX = 96;
 // container's own top padding (py-6), so it lines up with the first message.
 const SENT_MESSAGE_TOP_GAP_PX = 24;
 
-export function MessageList({ messages, streaming, onSendClarification, onDismissMemoryProposal, conversationId, onPlanApproved, onPlanRejected, onPlanEdited, onContinue, researchTimeline, canReport = false }: MessageListProps) {
+export function MessageList({ messages, streaming, onSendClarification, onDismissMemoryProposal, conversationId, onPlanApproved, onPlanRejected, onPlanEdited, onContinue, researchTimeline, canReport = false, onResend }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const columnRef = useRef<HTMLDivElement>(null);
@@ -222,6 +228,16 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
   const replyNumbers = new Map<string, number>();
   for (const m of messages) if (m.role === 'assistant') replyNumbers.set(m.id, replyNumbers.size + 1);
   const latestReplyId = [...messages].reverse().find(m => m.role === 'assistant')?.id;
+  // Retry and Edit only while nothing streams, and only for messages whose
+  // text can be sent again as it was (see lib/resend).
+  const resend = !isActive ? onResend : undefined;
+  const lastUserIndex = messages.map(m => m.role).lastIndexOf('user');
+  // Retry on the latest reply sends the user message before it again.
+  const latestReplyIndex = latestReplyId ? messages.findIndex(m => m.id === latestReplyId) : -1;
+  const askedBefore = [...messages.slice(0, Math.max(0, latestReplyIndex))].reverse().find(m => m.role === 'user');
+  const onRetryLatest = resend && askedBefore && canResend(askedBefore)
+    ? () => resend(askedBefore.id, askedBefore.content)
+    : undefined;
 
   return (
     <div className="flex-1 relative min-h-0 flex flex-col">
@@ -258,7 +274,9 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
               />
             ) : null}
             <MessageBubble message={msg} conversationId={conversationId} onSendClarification={onSendClarification} onDismissMemoryProposal={onDismissMemoryProposal} onContinue={isLast && !streamingActive ? onContinue : undefined}
-              actions={msg.role === 'assistant' ? { replyNumber: replyNumbers.get(msg.id) ?? 0, latest: msg.id === latestReplyId && !isActive, canReport } : undefined} />
+              actions={msg.role === 'assistant' ? { replyNumber: replyNumbers.get(msg.id) ?? 0, latest: msg.id === latestReplyId && !isActive, canReport, onRetry: msg.id === latestReplyId ? onRetryLatest : undefined } : undefined}
+              onEdit={msg.role === 'user' && resend && canResend(msg) ? (text: string) => resend(msg.id, text) : undefined}
+              dropsLaterTurns={msg.role === 'user' && i < lastUserIndex} />
           </div>
           );
         })}
@@ -361,15 +379,9 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
   );
 }
 
-function MessageBubble({ message, conversationId, onSendClarification, onDismissMemoryProposal, onContinue, actions }: { message: Message; conversationId?: string | null; onSendClarification?: (answer: string) => void; onDismissMemoryProposal?: (proposalId: string) => void; onContinue?: () => void; actions?: { replyNumber: number; latest: boolean; canReport: boolean } }) {
+function MessageBubble({ message, conversationId, onSendClarification, onDismissMemoryProposal, onContinue, actions, onEdit, dropsLaterTurns = false }: { message: Message; conversationId?: string | null; onSendClarification?: (answer: string) => void; onDismissMemoryProposal?: (proposalId: string) => void; onContinue?: () => void; actions?: { replyNumber: number; latest: boolean; canReport: boolean; onRetry?: () => void }; onEdit?: (text: string) => void; dropsLaterTurns?: boolean }) {
   if (message.role === 'user') {
-    return (
-      <div className="flex gap-3 justify-end">
-        <div className="max-w-[80%] bg-bg-tertiary border border-transparent rounded-2xl px-4 py-3 text-base text-text-primary leading-relaxed whitespace-pre-wrap wrap-anywhere">
-          {message.content}
-        </div>
-      </div>
-    );
+    return <UserMessage content={message.content} onEdit={onEdit} dropsLaterTurns={dropsLaterTurns} />;
   }
 
   return (
@@ -423,7 +435,7 @@ function MessageBubble({ message, conversationId, onSendClarification, onDismiss
 
       {/* Copy and Report, under a reply that has text. */}
       {actions && cleanContent(message.content) && (
-        <ReplyActions content={cleanContent(message.content)} replyNumber={actions.replyNumber} latest={actions.latest} canReport={actions.canReport} />
+        <ReplyActions content={cleanContent(message.content)} replyNumber={actions.replyNumber} latest={actions.latest} canReport={actions.canReport} onRetry={actions.onRetry} />
       )}
 
       {/* P2 #25: auto-extracted memory candidates. Rendered below the

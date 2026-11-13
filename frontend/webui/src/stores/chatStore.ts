@@ -183,6 +183,9 @@ interface ChatState {
     // content/persona/etc args are ignored on the resume path; the
     // entire event handler downstream is identical.
     resumeOpts?: { streamId: string; lastEventId?: string },
+    // Retry and Edit: the saved user message this one takes the place of.
+    // It and everything after it go, here and on the server (replace_from).
+    replaceFrom?: string,
   ) => Promise<void>;
   stopGenerating: () => void;
   dismissMemoryProposal: (proposalId: string) => void;
@@ -343,13 +346,23 @@ export const useChatStore = create<ChatState>()(
       projectId,
       tags,
       resumeOpts,
+      replaceFrom,
     ) => {
       set(state => {
         state.error = null;
         state.loadFailed = false;
       });
 
+      // The stand-in id of this turn's user message, swapped for the saved
+      // one when `done` brings it.
+      let sentUserId: string | null = null;
       if (!resumeOpts) {
+        if (replaceFrom) {
+          set(state => {
+            const at = state.messages.findIndex(m => m.id === replaceFrom);
+            if (at >= 0) state.messages.splice(at);
+          });
+        }
         const userMessage: Message = {
           id: `temp-${Date.now()}`,
           role: 'user',
@@ -360,6 +373,7 @@ export const useChatStore = create<ChatState>()(
           persona,
           created_at: new Date().toISOString(),
         };
+        sentUserId = userMessage.id;
         set(state => {
           state.messages.push(userMessage);
         });
@@ -470,8 +484,11 @@ export const useChatStore = create<ChatState>()(
 
       const processDoneInline = (event: SSEEvent): void => {
         if (event.type !== 'done') return;
+        // The saved ids of this turn's two messages, so a later Retry or
+        // Edit can name them. Absent on ephemeral chats and older servers.
+        const savedIds = (event.data.message_ids ?? {}) as { user?: string; assistant?: string };
         const assistantMessage: Message = {
-          id: `msg-${Date.now()}`,
+          id: savedIds.assistant ?? `msg-${Date.now()}`,
           role: 'assistant',
           content: contentText,
           thinking: thinkingText || null,
@@ -496,6 +513,10 @@ export const useChatStore = create<ChatState>()(
           created_at: new Date().toISOString(),
         };
         set(state => {
+          if (savedIds.user && sentUserId) {
+            const sent = state.messages.find(m => m.id === sentUserId);
+            if (sent) sent.id = savedIds.user;
+          }
           state.messages.push(assistantMessage);
           state.streaming = INITIAL_STREAMING;
         });
@@ -905,6 +926,7 @@ export const useChatStore = create<ChatState>()(
               rag: { enabled: true },
               tags: tags && tags.length > 0 ? tags : undefined,
               ephemeral: ephemeral || undefined,
+              replace_from: replaceFrom,
               stream: true,
             },
             handleEvent,

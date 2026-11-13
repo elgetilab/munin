@@ -47,6 +47,16 @@ export function BookIcon(p: IconProps) {
   return <Svg {...p}><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z" /><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" /></Svg>;
 }
 
+/** A circular arrow: try again. */
+export function RetryIcon(p: IconProps) {
+  return <Svg {...p}><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 102.13-9.36L1 10" /></Svg>;
+}
+
+/** A pencil: edit. */
+export function PencilIcon(p: IconProps) {
+  return <Svg {...p}><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5z" /></Svg>;
+}
+
 /** Two overlapping sheets: copy. */
 export function CopyIcon(p: IconProps) {
   return <Svg {...p}><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></Svg>;

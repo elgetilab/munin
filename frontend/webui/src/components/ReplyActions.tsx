@@ -2,22 +2,24 @@ import { useEffect, useState } from 'react';
 import { copyText } from '../lib/copyText';
 import { useUiStore } from '../stores/uiStore';
 import { replyExcerpt } from '../lib/replyReport';
-import { CheckIcon, CopyIcon, FlagIcon } from './ui/icons';
+import { CheckIcon, CopyIcon, FlagIcon, RetryIcon } from './ui/icons';
 
 const BUTTON =
   'inline-flex items-center justify-center w-8 h-8 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors cursor-pointer';
 
 /**
- * The quiet row under a finished reply: Copy, and Report when the chat can be
+ * The quiet row under a finished reply: Copy, Retry on the latest reply, and Report when the chat can be
  * reported. Always shown on the latest reply; on older ones it appears on hover
  * or keyboard focus, and always where there is no hover (touch screens).
  */
-export function ReplyActions({ content, replyNumber, latest, canReport }: {
+export function ReplyActions({ content, replyNumber, latest, canReport, onRetry }: {
   /** The reply's markdown, as copied. */
   content: string;
   replyNumber: number;
   latest: boolean;
   canReport: boolean;
+  /** Present on the latest reply when its question can be sent again. */
+  onRetry?: () => void;
 }) {
   const openReportForReply = useUiStore(s => s.openReportForReply);
   const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -37,6 +39,11 @@ export function ReplyActions({ content, replyNumber, latest, canReport }: {
       <button type="button" onClick={onCopy} className={BUTTON} aria-label="Copy reply" title={copy === 'failed' ? "Couldn't copy" : 'Copy'}>
         {copy === 'copied' ? <CheckIcon size={15} /> : <CopyIcon size={15} />}
       </button>
+      {onRetry && (
+        <button type="button" onClick={onRetry} className={BUTTON} aria-label="Retry" title="Retry">
+          <RetryIcon size={15} />
+        </button>
+      )}
       {canReport && (
         <button
           type="button"

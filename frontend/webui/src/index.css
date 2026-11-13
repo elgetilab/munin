@@ -142,19 +142,24 @@ body {
    full ring only when the textarea was reached from the keyboard. A text field
    matches :focus-visible however it was focused, so ChatInput sets
    data-keyboard-focus from the last input (src/lib/focusModality.ts). */
-#composer-textarea:focus-visible {
+/* The same for a message being edited in place (UserMessage.tsx). */
+#composer-textarea:focus-visible,
+.edit-bubble > textarea:focus-visible {
   outline: none;
 }
-#composer-bubble {
+#composer-bubble,
+.edit-bubble {
   transition: border-color 150ms, box-shadow 150ms;
 }
-#composer-bubble:focus-within {
+#composer-bubble:focus-within,
+.edit-bubble:has(> textarea:focus) {
   border-color: color-mix(in srgb, var(--color-focus-ring) 45%, var(--color-border));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-focus-ring) 12%, transparent),
     0 4px 16px rgb(0 0 0 / 0.12);
 }
 /* One focus line: the ring, with the border back at rest under it. */
-#composer-bubble:has(> #composer-textarea[data-keyboard-focus]) {
+#composer-bubble:has(> #composer-textarea[data-keyboard-focus]),
+.edit-bubble:has(> textarea[data-keyboard-focus]) {
   border-color: var(--color-border);
   outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;

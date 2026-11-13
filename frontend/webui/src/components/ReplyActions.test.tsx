@@ -116,3 +116,65 @@ describe('replyExcerpt', () => {
     expect(replyExcerpt('word '.repeat(50), 20)).toBe('word word word word…');
   });
 });
+
+describe('Retry and Edit in the message list', () => {
+  const mk = (id: string, role: Message['role'], content: string): Message => ({ id, role, content, created_at: new Date().toISOString() });
+  const idle = { phase: 'idle', content: '', thinking: '', toolCalls: [], ragContext: null } as never;
+  const busy = { phase: 'generating', content: 'x', thinking: '', toolCalls: [], ragContext: null } as never;
+  const convo = [mk('u1', 'user', 'first'), mk('a1', 'assistant', 'one'), mk('u2', 'user', 'second'), mk('a2', 'assistant', 'two')];
+
+  it('offers Retry on the latest reply only, sending its question in its place', async () => {
+    const user = userEvent.setup();
+    const onResend = vi.fn();
+    render(<MessageList messages={convo} streaming={idle} onResend={onResend} />);
+    const retries = screen.getAllByRole('button', { name: 'Retry' });
+    expect(retries).toHaveLength(1);
+    await user.click(retries[0]);
+    expect(onResend).toHaveBeenCalledWith('u2', 'second');
+  });
+
+  it('edits a message in place: Enter sends the new text, Escape keeps the old', async () => {
+    const user = userEvent.setup();
+    const onResend = vi.fn();
+    render(<MessageList messages={convo} streaming={idle} onResend={onResend} />);
+    const pencils = screen.getAllByRole('button', { name: 'Edit message' });
+    expect(pencils).toHaveLength(2);
+
+    await user.click(pencils[1]);
+    const box = screen.getByRole('textbox', { name: 'Edit your message' });
+    expect(box).toHaveValue('second');
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('textbox', { name: 'Edit your message' })).not.toBeInTheDocument();
+    expect(onResend).not.toHaveBeenCalled();
+
+    await user.click(screen.getAllByRole('button', { name: 'Edit message' })[1]);
+    await user.clear(screen.getByRole('textbox', { name: 'Edit your message' }));
+    await user.type(screen.getByRole('textbox', { name: 'Edit your message' }), 'second, better{Enter}');
+    expect(onResend).toHaveBeenCalledWith('u2', 'second, better');
+  });
+
+  it('warns when an edit would drop later turns, and not for the last message', async () => {
+    const user = userEvent.setup();
+    render(<MessageList messages={convo} streaming={idle} onResend={vi.fn()} />);
+    await user.click(screen.getAllByRole('button', { name: 'Edit message' })[0]);
+    expect(screen.getByText('Sending replaces this message and everything after it.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    await user.click(screen.getAllByRole('button', { name: 'Edit message' })[1]);
+    expect(screen.queryByText('Sending replaces this message and everything after it.')).not.toBeInTheDocument();
+  });
+
+  it('offers neither while a reply streams, in a temporary chat, or for unsaved or attachment messages', () => {
+    const { rerender } = render(<MessageList messages={convo} streaming={busy} onResend={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit message' })).not.toBeInTheDocument();
+
+    rerender(<MessageList messages={convo} streaming={idle} />);
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit message' })).not.toBeInTheDocument();
+
+    const odd = [mk('temp-1', 'user', 'unsaved'), mk('a1', 'assistant', 'one'), { ...mk('u2', 'user', 'see file'), attachments: [{ type: 'document' }] }, mk('a2', 'assistant', 'two')];
+    rerender(<MessageList messages={odd} streaming={idle} onResend={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit message' })).not.toBeInTheDocument();
+  });
+});

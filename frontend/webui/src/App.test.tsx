@@ -538,7 +538,9 @@ describe('error banner', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('Retry sends the question again without a second bubble', async () => {
+  // A saved question is replaced on the server too (replace_from), so the model
+  // never sees it twice; sendMessage drops the failed attempt from the list.
+  it('Retry sends a saved question again in its own place', async () => {
     const user = userEvent.setup();
     const send = vi.fn();
     const realSend = useChatStore.getState().sendMessage;
@@ -550,6 +552,24 @@ describe('error banner', () => {
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0][0]).toBe('Question');
+    expect(send.mock.calls[0][7]).toBe('u');
+  });
+
+  it('Retry of a question that never came back saved trims it here and sends it again', async () => {
+    const user = userEvent.setup();
+    const send = vi.fn();
+    const realSend = useChatStore.getState().sendMessage;
+    const turn = failedTurn('Question');
+    turn.messages[0].id = 'temp-1';
+    useChatStore.setState({ ...turn, sendMessage: send });
+    onTestFinished(() => useChatStore.setState({ sendMessage: realSend }));
+    openAt('/');
+
+    await user.click(within(await screen.findByRole('alert')).getByRole('button', { name: 'Retry' }));
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][0]).toBe('Question');
+    expect(send.mock.calls[0][7]).toBeUndefined();
     expect(useChatStore.getState().messages).toEqual([]);
   });
 

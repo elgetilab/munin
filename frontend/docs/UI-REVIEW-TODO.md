@@ -34,9 +34,9 @@ Effort: S under half a day, M one to two days, L more.
     viewport and give the column a spacer of about the viewport height, so the
     reply streams into visible space without per-token scrolling. Keep the
     jump button.
-- [ ] **Message actions** (M)
+- [x] **Message actions** (M)
   - **Decided 2026-11-13: do, including Edit and resend (needs backend support).**
-  - **Done 2026-11-13: Copy and Report this reply.** Retry and Edit are open: the server keeps the history and a turn sends only the new message, so both need a backend way to drop the turns after a message.
+  - **Done 2026-11-13: Copy and Report this reply; Retry on the latest reply and Edit on your own messages,** through `replace_from` on the backend (deployed to hugin and checked live), which drops the message and everything after it. Retry is on the latest reply only, because it deletes rather than branches.
   - **Problem:** A reply can't be copied, retried or regenerated, and a user
     message can't be edited and resent. Only code blocks have Copy, and Report
     covers the whole chat from the header.

@@ -66,6 +66,9 @@ export interface Message {
   tool_calls?: ToolCall[] | null;
   rag_context?: RagContext | null;
   clarification?: Clarification | null;
+  // Files sent with a user message, as the server stores them. Present only
+  // on a loaded conversation; Retry and Edit resend text, so they skip these.
+  attachments?: unknown[] | null;
   // True when the assistant turn was cut short by a stream error or
   // client disconnect. The content carries an inline `_(stream
   // interrupted: <reason>)_` marker matching the backend's
@@ -221,7 +224,8 @@ export type SSEEvent =
   // already persisted server-side, so the consumer reloads the
   // transcript instead of surfacing an error banner.
   | { type: 'stream_gone'; data: { reason?: string } }
-  | { type: 'done'; data: { usage?: { prompt_tokens: number; completion_tokens: number }; finish_reason: string; terminal_reason?: string } };
+  // message_ids: saved ids of the turn's user message and reply; empty when ephemeral.
+  | { type: 'done'; data: { usage?: { prompt_tokens: number; completion_tokens: number }; finish_reason: string; terminal_reason?: string; message_ids?: { user?: string; assistant?: string } } };
 
 // ── Compaction (P2 #22) ──────────────────────────────────────────────────────
 
@@ -436,5 +440,8 @@ export interface ChatRequest {
   rag?: { enabled: boolean; sources?: string[] };
   tags?: TagChip[];
   ephemeral?: boolean;
+  // Retry and Edit: a saved user message this turn replaces, with everything
+  // after it (see shared/docs/BACKEND-API.md, replace_from).
+  replace_from?: string;
   stream: boolean;
 }
