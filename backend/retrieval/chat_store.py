@@ -854,6 +854,47 @@ async def add_message(
     }
 
 
+async def delete_messages_from(conversation_id: str, message_id: str) -> Optional[int]:
+    """Delete a user message and every message after it, for Retry and Edit.
+
+    The turn that follows re-sends that message (Retry) or a new text in its
+    place (Edit), so the model sees the conversation as it was before it. The
+    caller has already checked the conversation belongs to the user.
+
+    Returns how many messages went, or None when ``message_id`` is not a user
+    message of this conversation (nothing is deleted then). A summary that
+    covers any deleted message is cleared, so the next compaction rebuilds it
+    from what is left. The FTS index follows through messages_fts_delete.
+    """
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT index_in_conversation, role FROM messages "
+        "WHERE id = ? AND conversation_id = ?",
+        (message_id, conversation_id),
+    )
+    row = await cursor.fetchone()
+    if row is None or row["role"] != "user":
+        return None
+    from_index = int(row["index_in_conversation"])
+
+    cursor = await db.execute(
+        "DELETE FROM messages WHERE conversation_id = ? AND index_in_conversation >= ?",
+        (conversation_id, from_index),
+    )
+    deleted = cursor.rowcount
+    await db.execute(
+        "UPDATE conversations SET summary = NULL, summary_through_index = NULL "
+        "WHERE id = ? AND summary_through_index IS NOT NULL AND summary_through_index >= ?",
+        (conversation_id, from_index),
+    )
+    await db.execute(
+        "UPDATE conversations SET updated_at = ? WHERE id = ?",
+        (_iso_now(), conversation_id),
+    )
+    await db.commit()
+    return deleted
+
+
 async def get_messages_after_index(conversation_id: str, index: int) -> list[dict]:
     db = await get_db()
     cursor = await db.execute(

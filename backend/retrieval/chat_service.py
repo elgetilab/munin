@@ -2256,14 +2256,18 @@ async def stream_chat_completion(
     persisted_text = content_text(resolved_content)
 
     # --- 4. Persist the user message ---
+    # The ids the saved rows got, returned in `done` so the client can name
+    # them later (Retry and Edit send `replace_from`).
+    saved_ids: dict[str, str] = {}
     if not ephemeral:
-        await chat_store.add_message(
+        _saved_user = await chat_store.add_message(
             conversation_id=conversation["id"],
             role="user",
             content=persisted_text,
             attachments=user_attachments or None,
             persona=persona_id,
         )
+        saved_ids["user"] = _saved_user["id"]
         # Reload so the new message is part of the context assembly.
         conversation = await chat_store.get_conversation(conversation["id"], user_email)
         assert conversation is not None
@@ -2674,7 +2678,7 @@ async def stream_chat_completion(
                 })
 
                 if not ephemeral:
-                    await chat_store.add_message(
+                    _saved_clar = await chat_store.add_message(
                         conversation_id=conversation["id"],
                         role="assistant",
                         content=final_content,
@@ -2683,6 +2687,7 @@ async def stream_chat_completion(
                         rag_context=rag_context,
                         persona=persona_id,
                     )
+                    saved_ids["assistant"] = _saved_clar["id"]
                     # Without this, the finally block's save-always re-persists
                     # the same turn (chat 9dd753e5, 2026-05-29: two assistant
                     # rows 12ms apart, second one carrying a spurious
@@ -2726,6 +2731,7 @@ async def stream_chat_completion(
                         "usage": aggregate_totals(usage_agg),
                         "usage_by_purpose": usage_agg,
                         "finish_reason": "clarification",
+                        "message_ids": saved_ids,
                     },
                 )
                 return
@@ -3062,7 +3068,7 @@ async def stream_chat_completion(
         observe_citation_claims(_grounded_cites, len(_ungrounded_cites))
 
         if not ephemeral:
-            await chat_store.add_message(
+            _saved_reply = await chat_store.add_message(
                 conversation_id=conversation["id"],
                 role="assistant",
                 content=final_content,
@@ -3071,6 +3077,7 @@ async def stream_chat_completion(
                 rag_context=rag_context,
                 persona=persona_id,
             )
+            saved_ids["assistant"] = _saved_reply["id"]
             assistant_persisted = True
 
         # --- 7. Auto-title on untitled conversations ---
@@ -3156,6 +3163,8 @@ async def stream_chat_completion(
                 # turn-budget wrap-up). Lets the client tell a budget-capped
                 # turn apart from a clean finish and offer a Continue button.
                 "terminal_reason": terminal_reason,
+                # Saved ids of this turn's two messages; empty when ephemeral.
+                "message_ids": saved_ids,
             },
         )
 

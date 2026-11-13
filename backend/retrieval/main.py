@@ -1717,6 +1717,28 @@ async def api_chat_completions(request: Request):
     # §28: #tag chips from the composer, normalised by chat_service.
     query_tags = body.get("tags")
 
+    # Retry and Edit: `replace_from` names a saved user message of this
+    # conversation. It and everything after it go before the turn runs, so the
+    # trailing user message (the same text for Retry, a new one for Edit) takes
+    # its place and the model never sees the replaced turns. Done here rather
+    # than in the stream so a bad id is a plain 4xx, not a failed stream.
+    replace_from = body.get("replace_from")
+    if replace_from is not None:
+        if not isinstance(replace_from, str) or not replace_from:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": {"message": "replace_from must be a message id"}},
+            )
+        if ephemeral or not conversation_id:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": {"message": "replace_from needs a saved conversation"}},
+            )
+        if await chat_store.get_conversation(conversation_id, user_email) is None:
+            raise _error_404("Conversation not found")
+        if await chat_store.delete_messages_from(conversation_id, replace_from) is None:
+            raise _error_404("Message not found in this conversation")
+
     # P1 #10: the listener and the work are decoupled via a Stream in
     # the registry. The chat_service generator runs as its own task,
     # appending events to the stream's log. A grace timer (default 60s)
