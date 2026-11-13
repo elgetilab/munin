@@ -95,7 +95,7 @@ PAIR_KEYS = {"name", "forward", "reverse", "product_size", "amplicon",
 PRIMER_KEYS = {"sequence", "display", "anneal", "tail", "strand", "start",
                "end", "length", "tm", "gc_percent"}
 CHECK_KEYS = {"rule", "label", "severity", "passed", "value", "threshold",
-              "source", "detail"}
+              "source", "detail", "computed"}
 VERIFIED_KEYS = {"outcome", "product_count", "product_sizes",
                  "single_clean_product"}
 SUMMARY_KEYS = {"total", "passed", "hard_failures", "soft_failures",
@@ -255,6 +255,16 @@ check("exactly one widget artifact is stored", len(specs) == 1)
 problems = validate_spec(specs[0]) if specs else ["no spec stored"]
 check("the widget spec matches the frontend contract", not problems,
       "; ".join(problems[:3]))
+# A rule whose input was never supplied carries passed=True so it cannot
+# disqualify a primer. If `computed` is dropped on the way to the widget, the
+# renderer can only tell "checked and fine" from "never checked" by matching
+# prose in `detail`, and a wording change would silently turn an unevaluated
+# rule into a green tick. It was dropped once; this is the guard.
+check("every widget check carries the `computed` field",
+      bool(specs) and all(
+          "computed" in c and isinstance(c["computed"], bool)
+          for p in specs[0]["pairs"] for c in p["checks"]))
+
 check("the widget carries the whole amplicon the envelope only previewed",
       specs[0]["pairs"][0]["amplicon"]
       == verify.simulate_pcr(specs[0]["pairs"][0]["forward"]["sequence"],

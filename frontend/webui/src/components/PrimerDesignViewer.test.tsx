@@ -14,18 +14,20 @@ import {
 // origin, which is the case that breaks a flat-string implementation.
 const AMPLICON = 'ACGT'.repeat(30) + 'ACG';
 
+// The tool namespaces every rule id with its scope and repeats the word in the
+// label, because a pair carries the same rule once per primer.
 const CHECKS = [
   {
-    rule: 'tm_range', label: 'Tm within 57-63 C', severity: 'soft', passed: true,
+    rule: 'forward.tm_range', label: 'forward primer: Tm within 57-63 C', severity: 'soft', passed: true,
     value: 60.2, threshold: '57-63 C', source: 'Dieffenbach 1993', detail: '',
   },
   {
-    rule: 'gc_clamp', label: 'GC clamp at the 3 prime end', severity: 'hard', passed: false,
+    rule: 'reverse.gc_clamp', label: 'reverse primer: GC clamp at the 3 prime end', severity: 'hard', passed: false,
     value: 'no G or C', threshold: 'at least one', source: 'Innis and Gelfand 1990',
     detail: 'the last five bases are A or T',
   },
   {
-    rule: 'specificity', label: 'Genome specificity', severity: 'hard', passed: null,
+    rule: 'pair.specificity', label: 'pair: Genome specificity', severity: 'hard', passed: null,
     value: null, threshold: '1 hit', source: 'Ye et al. 2012',
     detail: 'not computed: no BLAST database is available',
   },
@@ -156,24 +158,24 @@ describe('PrimerDesignViewer', () => {
     const checks = within(screen.getAllByTestId('primer-pair')[0]).getAllByTestId('primer-check');
     const byRule = Object.fromEntries(checks.map(c => [c.getAttribute('data-rule'), c]));
 
-    expect(byRule.tm_range).toHaveAttribute('data-status', 'pass');
-    expect(byRule.gc_clamp).toHaveAttribute('data-status', 'fail');
-    expect(byRule.specificity).toHaveAttribute('data-status', 'not-computed');
+    expect(byRule['forward.tm_range']).toHaveAttribute('data-status', 'pass');
+    expect(byRule['reverse.gc_clamp']).toHaveAttribute('data-status', 'fail');
+    expect(byRule['pair.specificity']).toHaveAttribute('data-status', 'not-computed');
 
     const pill = (row: HTMLElement) => row.firstElementChild!;
-    expect(pill(byRule.gc_clamp)).toHaveTextContent('Fail');
-    expect(pill(byRule.gc_clamp).className).toContain('text-error');
-    expect(pill(byRule.specificity)).toHaveTextContent('Not computed');
-    expect(pill(byRule.specificity).className).toContain('border-dashed');
-    expect(pill(byRule.specificity).className).not.toContain('text-success');
-    expect(pill(byRule.tm_range).className).toContain('text-success');
+    expect(pill(byRule['reverse.gc_clamp'])).toHaveTextContent('Fail');
+    expect(pill(byRule['reverse.gc_clamp']).className).toContain('text-error');
+    expect(pill(byRule['pair.specificity'])).toHaveTextContent('Not computed');
+    expect(pill(byRule['pair.specificity']).className).toContain('border-dashed');
+    expect(pill(byRule['pair.specificity']).className).not.toContain('text-success');
+    expect(pill(byRule['forward.tm_range']).className).toContain('text-success');
   });
 
   it('shows the severity and the source of every check', () => {
     renderViewer();
     const row = within(screen.getAllByTestId('primer-pair')[0])
       .getAllByTestId('primer-check')
-      .find(c => c.getAttribute('data-rule') === 'gc_clamp')!;
+      .find(c => c.getAttribute('data-rule') === 'reverse.gc_clamp')!;
     expect(row).toHaveAttribute('data-severity', 'hard');
     expect(row).toHaveTextContent('(hard)');
     expect(row).toHaveTextContent('Innis and Gelfand 1990');
@@ -387,6 +389,145 @@ describe('PrimerDesignViewer', () => {
     });
   });
 
+  describe('the modes that are not plain PCR', () => {
+    // A sequencing design is one oligo: the other slot is null, product_size is
+    // 0, amplicon is "", penalty is null, and `verified` counts priming sites.
+    const SEQUENCING = {
+      kind: 'primer_design',
+      version: 1,
+      mode: 'sequencing',
+      template: { name: 'pUC19', length: 2686, circular: true },
+      target: null,
+      pairs: [{
+        name: 'seq_primer',
+        forward: null,
+        reverse: {
+          sequence: 'CAGGAAACAGCTATGAC', display: 'CAGGAAACAGCTATGAC', anneal: 'CAGGAAACAGCTATGAC',
+          tail: '', strand: '-', start: 483, end: 500, length: 17, tm: 58.1, gc_percent: 47.1,
+        },
+        product_size: 0,
+        amplicon: '',
+        tm_difference: null,
+        penalty: null,
+        checks: [{
+          rule: 'primer.primer_length', label: 'primer: length 18-25 nt', severity: 'soft',
+          passed: true, value: 17, threshold: '18-25 nt', source: 'Dieffenbach 1993', detail: '',
+        }],
+        verified: { outcome: 'single_product', product_count: 1, product_sizes: [], single_clean_product: true },
+      }],
+      summary: { total: 1, passed: 1, hard_failures: 0, soft_failures: 0, not_computed: 0, usable: true },
+      notes: ['verified here counts PRIMING SITES on this template, not PCR products.'],
+    };
+
+    it('renders a single-primer sequencing design with the empty slot left out', () => {
+      renderViewer(SEQUENCING);
+      const oligos = screen.getAllByTestId('primer-oligo');
+      expect(oligos).toHaveLength(1);
+      expect(oligos[0]).toHaveAttribute('data-direction', 'reverse');
+      expect(screen.getByTestId('primer-pair')).toHaveTextContent('single primer, no product');
+      expect(screen.getByTestId('primer-pair')).not.toHaveTextContent('0 bp product');
+      expect(screen.getByTestId('primer-pair')).not.toHaveTextContent('penalty');
+    });
+
+    it('draws no product bar for a design that has no product', () => {
+      renderViewer(SEQUENCING);
+      expect(screen.queryAllByTestId('primer-map-amplicon')).toHaveLength(0);
+      expect(screen.queryAllByTestId('primer-arrow-forward')).toHaveLength(0);
+      // The primer is still zoomed in on, or it would be a sliver of 2686 bp.
+      const maps = screen.getAllByTestId('primer-map');
+      expect(maps).toHaveLength(2);
+      expect(within(maps[1]).getAllByTestId('primer-arrow-reverse').length).toBe(1);
+    });
+
+    it('counts priming sites rather than products in sequencing mode', () => {
+      renderViewer(SEQUENCING);
+      const verified = screen.getByTestId('primer-verified');
+      expect(verified).toHaveTextContent('Binds in one place');
+      expect(verified).toHaveTextContent('1 priming site');
+      expect(verified).not.toHaveTextContent('in-silico product');
+      // The outcome word is the tool's, so it is shown with what it means here.
+      expect(within(verified).getByTitle(/counts priming sites/))
+        .toHaveTextContent('outcome: single_product');
+    });
+
+    it('offers no amplicon download when the design makes no amplicon', () => {
+      renderViewer(SEQUENCING);
+      expect(screen.queryByRole('button', { name: 'Amplicons (FASTA)' })).not.toBeInTheDocument();
+      expect(primersCsv(parsed(SEQUENCING)).split('\n')[1])
+        .toBe('seq_primer_R,CAGGAAACAGCTATGAC,17,58.1,47.1,-,483,500,seq_primer,0');
+    });
+
+    it('draws an assembly whose coordinates run past the stated template length', () => {
+      // overlap_assembly: coordinates are on the assembled construct, the
+      // target is null and the template may have no name.
+      renderViewer({
+        ...RAW,
+        mode: 'overlap_assembly',
+        template: { name: '', length: 900, circular: false },
+        target: null,
+        pairs: [{
+          ...RAW.pairs[0],
+          forward: { ...RAW.pairs[0].forward, start: 880, end: 898 },
+          reverse: { ...RAW.pairs[0].reverse, start: 1100, end: 1117 },
+          product_size: 237,
+        }],
+      });
+      const map = screen.getAllByTestId('primer-map')[0];
+      expect(map).toHaveAttribute('data-wrapped', 'false');
+      // Both primers are on the axis, so neither is clipped out of sight.
+      expect(within(map).getByTestId('primer-arrow-forward')).toBeInTheDocument();
+      expect(within(map).getByTestId('primer-arrow-reverse')).toBeInTheDocument();
+      expect(within(map).queryAllByTestId('primer-map-target')).toHaveLength(0);
+      expect(map.querySelector('svg')!.outerHTML).not.toMatch(/NaN|Infinity/);
+      expect(screen.getByTestId('primer-design-viewer')).toHaveTextContent('Overlap assembly');
+    });
+  });
+
+  describe('the grouped checks', () => {
+    it('groups the checks by the scope in the rule id and drops the repeated word', () => {
+      renderViewer();
+      const groups = within(screen.getAllByTestId('primer-pair')[0]).getAllByTestId('primer-check-group');
+      expect(groups.map(g => g.getAttribute('data-scope'))).toEqual(['forward', 'reverse', 'pair']);
+      expect(groups[0]).toHaveTextContent('Forward primer');
+      // The heading carries the scope, so the row does not repeat it.
+      expect(groups[1]).toHaveTextContent('GC clamp at the 3 prime end');
+      expect(within(groups[1]).getByTestId('primer-check').textContent)
+        .not.toContain('reverse primer:');
+    });
+
+    it('tells apart the same rule on each primer of a pair', () => {
+      renderViewer({
+        ...RAW,
+        pairs: [{
+          ...RAW.pairs[0],
+          checks: [
+            { rule: 'forward.primer_length', label: 'forward primer: length 18-25 nt', severity: 'soft', passed: true, value: 18, threshold: '18-25 nt', source: 'Dieffenbach 1993', detail: '' },
+            { rule: 'reverse.primer_length', label: 'reverse primer: length 18-25 nt', severity: 'soft', passed: false, value: 17, threshold: '18-25 nt', source: 'Dieffenbach 1993', detail: '17 nt is short' },
+          ],
+        }],
+      });
+      const rows = screen.getAllByTestId('primer-check');
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toHaveAttribute('data-status', 'pass');
+      expect(rows[1]).toHaveAttribute('data-status', 'fail');
+      expect(screen.getAllByTestId('primer-check-group').map(g => g.getAttribute('data-scope')))
+        .toEqual(['forward', 'reverse']);
+    });
+
+    it('still shows a check whose scope this build does not know', () => {
+      renderViewer({
+        ...RAW,
+        pairs: [{
+          ...RAW.pairs[0],
+          checks: [{ rule: 'newscope.some_rule', label: 'newscope: a rule from a later tool', severity: 'soft', passed: true, value: 1, threshold: 'x', source: 's', detail: '' }],
+        }],
+      });
+      const group = screen.getByTestId('primer-check-group');
+      expect(group).toHaveAttribute('data-scope', '');
+      expect(group).toHaveTextContent('newscope: a rule from a later tool');
+    });
+  });
+
   describe('a spec it cannot use', () => {
     it('refuses what is not a primer design, and what is not JSON', () => {
       expect(parsePrimerDesignSpec('not json')).toBeNull();
@@ -424,6 +565,33 @@ describe('PrimerDesignViewer', () => {
       expect(screen.queryByTestId('primer-notes')).not.toBeInTheDocument();
       // No target and no coordinates, so there is nothing to draw on the map.
       expect(screen.queryAllByTestId('primer-map-target')).toHaveLength(0);
+    });
+
+    it('renders nulls in forward, reverse, penalty and the rest as absent, not as text', () => {
+      const { container } = renderViewer({
+        ...RAW,
+        pairs: [{
+          name: 'half_pair',
+          forward: null,
+          reverse: RAW.pairs[0].reverse,
+          product_size: null,
+          amplicon: '',
+          tm_difference: null,
+          penalty: null,
+          checks: [],
+          verified: null,
+        }],
+      });
+      const pair = screen.getByTestId('primer-pair');
+      expect(screen.getAllByTestId('primer-oligo')).toHaveLength(1);
+      expect(screen.getByTestId('primer-oligo')).toHaveAttribute('data-direction', 'reverse');
+      expect(pair).not.toHaveTextContent('penalty');
+      expect(pair).not.toHaveTextContent('ΔTm');
+      expect(pair).not.toHaveTextContent('bp product');
+      expect(screen.getByTestId('primer-verified')).toHaveAttribute('data-clean', 'unknown');
+      expect(screen.queryByTestId('primer-checks')).not.toBeInTheDocument();
+      expect(container.textContent).not.toMatch(/null|undefined|NaN/);
+      expect(container.querySelector('svg')!.outerHTML).not.toMatch(/NaN|undefined/);
     });
 
     it('says a design with no pairs found nothing, and offers no empty download', () => {

@@ -114,8 +114,13 @@ _SCOPE_LABELS = {
     "cloning": "cloning",
 }
 
+# `computed` must be here. A rule whose input was never supplied carries
+# passed=True so it cannot disqualify a primer, so without this field the
+# renderer cannot tell "checked and fine" from "never checked" except by
+# pattern-matching the prose in `detail`. That distinction is the most
+# consequential one in the whole widget, and it must not ride on wording.
 _WIDGET_CHECK_KEYS = ("rule", "label", "severity", "passed", "value",
-                      "threshold", "source", "detail")
+                      "threshold", "source", "detail", "computed")
 _WIDGET_VERIFIED_KEYS = ("outcome", "product_count", "product_sizes",
                          "single_clean_product")
 _WIDGET_SUMMARY_KEYS = ("total", "passed", "hard_failures", "soft_failures",

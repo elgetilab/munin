@@ -366,10 +366,21 @@ function VerifiedBlock({ verified, mode }: { verified: PrimerVerified | null; mo
           ? [
             count === null || count === undefined ? '' : `${count} ${unit}${count === 1 ? '' : 's'}`,
             sizes,
-            verified.outcome ? `outcome: ${verified.outcome}` : '',
           ].filter(Boolean).join(' · ')
           : 'the tool returned no in-silico result for this design'}
       </span>
+      {/* The outcome word is the tool's own, and in sequencing mode its
+          "product" counts priming sites, so it says so on hover. */}
+      {verified?.outcome && (
+        <span
+          className="text-text-tertiary"
+          title={sequencing
+            ? `In sequencing mode the outcome counts priming sites: ${verified.outcome} means the primer binds in exactly one place.`
+            : 'The in-silico PCR verdict from the tool.'}
+        >
+          outcome: {verified.outcome}
+        </span>
+      )}
     </div>
   );
 }

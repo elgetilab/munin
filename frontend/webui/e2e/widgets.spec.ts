@@ -143,8 +143,10 @@ const PRIMER_SPEC = {
       tm_difference: 2.1,
       penalty: 2.58,
       checks: [
-        { rule: 'tm_range', label: 'Tm within 57-63 C', severity: 'soft', passed: true, value: 60.2, threshold: '57-63 C', source: 'Dieffenbach 1993', detail: '' },
-        { rule: 'specificity', label: 'Genome specificity', severity: 'hard', passed: null, value: null, threshold: '1 hit', source: 'Ye et al. 2012', detail: 'not computed: no BLAST database is available' },
+        { rule: 'forward.tm_range', label: 'forward primer: Tm within 57-63 C', severity: 'soft', passed: true, value: 60.2, threshold: '57-63 C', source: 'Dieffenbach 1993', detail: '' },
+        // The tool gives a check it could not run passed: true and says so in
+        // `detail`, so the widget must read the detail, not the flag.
+        { rule: 'pair.specificity', label: 'pair: Genome specificity', severity: 'hard', passed: true, value: null, threshold: '1 hit', source: 'Ye et al. 2012', detail: 'not computed: no BLAST database is available' },
       ],
       verified: { outcome: 'single_product', product_count: 1, product_sizes: [123], single_clean_product: true },
     },
@@ -163,7 +165,7 @@ const PRIMER_SPEC = {
       amplicon: '',
       tm_difference: 1.6,
       penalty: 4.1,
-      checks: [{ rule: 'gc_clamp', label: 'GC clamp at the 3 prime end', severity: 'hard', passed: false, value: 'no G or C', threshold: 'at least one', source: 'Innis and Gelfand 1990', detail: 'the last five bases are A or T' }],
+      checks: [{ rule: 'reverse.gc_clamp', label: 'reverse primer: GC clamp at the 3 prime end', severity: 'hard', passed: false, value: 'no G or C', threshold: 'at least one', source: 'Innis and Gelfand 1990', detail: 'the last five bases are A or T' }],
       verified: { outcome: 'multiple_products', product_count: 2, product_sizes: [845, 183], single_clean_product: false },
     },
   ],
@@ -216,6 +218,8 @@ test.describe('primer design widget', () => {
     const notComputed = pairs.first().getByTestId('primer-check').filter({ hasText: 'Not computed' });
     await expect(notComputed).toHaveCount(1);
     await expect(notComputed).toContainText('Ye et al. 2012');
+    // Checks are gathered under the scope their rule id is namespaced with.
+    await expect(pairs.first().getByTestId('primer-check-group').first()).toHaveAttribute('data-scope', 'forward');
     expect(errors).toEqual([]);
   });
 
@@ -250,6 +254,56 @@ test.describe('primer design widget', () => {
       'TGTAAAACGACGGCCAGT',
     ]);
     expect(text.match(/^>/gm)).toHaveLength(4);
+  });
+
+  test('renders a single-primer sequencing design without inventing a product', async ({ page }) => {
+    const result = { id: PRIMER_ID, title: 'Sequencing primer for pUC19', content_type: WIDGET_TYPE, version: 1, source: 'model_written' };
+    const spec = {
+      kind: 'primer_design',
+      version: 1,
+      mode: 'sequencing',
+      template: { name: 'pUC19', length: 2686, circular: true },
+      target: null,
+      pairs: [{
+        name: 'seq_primer',
+        forward: null,
+        reverse: {
+          sequence: 'CAGGAAACAGCTATGAC', display: 'CAGGAAACAGCTATGAC', anneal: 'CAGGAAACAGCTATGAC',
+          tail: '', strand: '-', start: 483, end: 500, length: 17, tm: 58.1, gc_percent: 47.1,
+        },
+        product_size: 0,
+        amplicon: '',
+        tm_difference: null,
+        penalty: null,
+        checks: [{ rule: 'primer.primer_length', label: 'primer: length 18-25 nt', severity: 'soft', passed: true, value: 17, threshold: '18-25 nt', source: 'Dieffenbach 1993', detail: '' }],
+        verified: { outcome: 'single_product', product_count: 1, product_sizes: [], single_clean_product: true },
+      }],
+      summary: { total: 1, passed: 1, hard_failures: 0, soft_failures: 0, not_computed: 0, usable: true },
+      notes: ['verified here counts PRIMING SITES on this template, not PCR products.'],
+    };
+    const errors: string[] = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await installMocks(page, {
+      chatScript: [
+        ev.conversation('conv-e2e'),
+        ev.toolCall('design_primers', { mode: 'sequencing' }, 'tc-seq'),
+        ev.toolResult('tc-seq', result),
+        ev.artifactCreated(result),
+        ev.done(),
+      ],
+    });
+    await page.route(PRIMER_URL, route => route.fulfill({ json: { ...result, content: JSON.stringify(spec) } }));
+    await page.goto('/');
+    await page.getByTestId('composer-textarea').fill('a sequencing primer please');
+    await page.getByTestId('composer-send').click();
+
+    const viewer = page.getByTestId('primer-design-viewer');
+    await expect(viewer).toBeVisible();
+    await expect(viewer.getByTestId('primer-oligo')).toHaveCount(1);
+    await expect(viewer.getByTestId('primer-map-amplicon')).toHaveCount(0);
+    await expect(viewer.getByTestId('primer-verified')).toContainText('1 priming site');
+    await expect(viewer.getByRole('button', { name: 'Amplicons (FASTA)' })).toHaveCount(0);
+    expect(errors).toEqual([]);
   });
 
   test('falls back to a card when the spec is for a version this build does not know', async ({ page }) => {
