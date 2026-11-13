@@ -410,7 +410,20 @@ async def _resolve_user_content_images(
                 f"unsupported image_url scheme: {url[:32]!r}"
             )
 
-        if data_url:
+        if data_url and not vision.model_sees_images():
+            # A text-only backbone answers an image with a 400 that fails the
+            # whole turn. Say so instead, and give the image to code.
+            name = (attachment_meta or {}).get("filename") or "image"
+            note = ""
+            if attachment_meta and attachment_meta.get("document_id"):
+                note = await _attach_to_sandbox(
+                    user_email, conversation_id, ephemeral,
+                    attachment_meta["document_id"], name,
+                )
+            resolved_blocks.append(vision.text_block(
+                f"[Attached image: {name}. {vision.NO_VISION_NOTE} {note}]".replace(" ]", "]")
+            ))
+        elif data_url:
             resolved_blocks.append(vision.image_url_block(data_url))
         if attachment_meta:
             attachments.append(attachment_meta)

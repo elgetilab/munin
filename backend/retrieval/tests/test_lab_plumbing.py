@@ -161,6 +161,70 @@ def test_plot_feedback_covers_every_code_tool():
     assert set(vision.PLOT_FEEDBACK_TOOLS) <= set(cs.SANDBOX_ARTIFACT_TOOLS)
 
 
+def _with_env(**env):
+    saved = {k: os.environ.get(k) for k in env}
+    os.environ.update({k: v for k, v in env.items()})
+    return saved
+
+
+def _restore_env(saved):
+    for k, v in saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+
+
+def test_text_only_model_is_detected():
+    cases = [({"LLM_VISION": "", "VLLM_EXTRA_ARGS": "--language-model-only"}, False),
+             ({"LLM_VISION": "", "VLLM_EXTRA_ARGS": ""}, True),
+             ({"LLM_VISION": "0", "VLLM_EXTRA_ARGS": ""}, False),
+             ({"LLM_VISION": "1", "VLLM_EXTRA_ARGS": "--language-model-only"}, True)]
+    for env, expected in cases:
+        saved = _with_env(**env)
+        try:
+            assert vision.model_sees_images() is expected, env
+        finally:
+            _restore_env(saved)
+
+
+def test_text_only_model_gets_no_plot_image():
+    # Sage-A1.5 (text-only) answered the plot image with a 400 that ended every
+    # plotting turn (production, 2026-11-13). The figure_summary is the feedback.
+    saved = _with_env(LLM_VISION="0")
+    try:
+        tr = [{"name": "run_python", "result": {"artifacts": [{"id": "a1", "content_type": "image/png"}]}}]
+        assert asyncio.run(vision.build_tool_result_followup(tr, "conv-1")) is None
+    finally:
+        _restore_env(saved)
+
+
+def test_text_only_model_gets_a_note_instead_of_an_attached_image():
+    import base64
+    png = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 64).decode()
+    content = [{"type": "text", "text": "quantify this gel"},
+               {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{png}"}}]
+    calls = []
+
+    async def fake_put(cid, name, payload):
+        calls.append(name)
+        return {"paths": [f"inputs/{name}"]}
+
+    saved_env = _with_env(LLM_VISION="0")
+    saved_put = sandbox.put_input
+    sandbox.put_input = fake_put
+    try:
+        blocks, atts = asyncio.run(cs._resolve_user_content_images(
+            content=content, user_email="u@x", conversation_id="conv-1", ephemeral=False))
+    finally:
+        sandbox.put_input = saved_put
+        _restore_env(saved_env)
+    assert not any(b.get("type") == "image_url" for b in blocks)
+    joined = _text_of(blocks)
+    assert "cannot view images" in joined and "inputs/pasted-" in joined
+    assert len(calls) == 1 and atts and atts[0]["source"] == "inline"
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for t in tests:

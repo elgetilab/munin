@@ -252,6 +252,29 @@ def _view_attachment_requests_from_results(
     return out
 
 
+def model_sees_images() -> bool:
+    """Whether the backbone accepts image input.
+
+    LLM_VISION (from the model profile: 0 or 1) decides when set. Otherwise a
+    vLLM started with --language-model-only, a text-only checkpoint such as
+    Sage-A1.5, cannot: vLLM answers any image with a 400 ("At most 0 image(s)
+    may be provided in one prompt") and the whole turn fails. Seen in
+    production 2026-11-13 after the switch to Sage: every plot ended its turn,
+    because the plot feedback below sent the image back to the model.
+    """
+    v = os.getenv("LLM_VISION", "").strip().lower()
+    if v in ("0", "false", "no", "off"):
+        return False
+    if v in ("1", "true", "yes", "on"):
+        return True
+    return "--language-model-only" not in os.getenv("VLLM_EXTRA_ARGS", "")
+
+
+NO_VISION_NOTE = (
+    "The current model cannot view images, so it is not shown here."
+)
+
+
 def build_view_attachment_followup(
     tool_results: list[dict],
     user_email: str,
@@ -273,6 +296,14 @@ def build_view_attachment_followup(
         return None
     if not user_email:
         return None
+    if not model_sees_images():
+        return {
+            "role": "user",
+            "content": (
+                f"(view_attachment: {NO_VISION_NOTE} Ask the user to describe "
+                "it, or analyse the file with run_python from inputs/.)"
+            ),
+        }
 
     data_urls: list[str] = []
     for doc_id, _filename in requests:
@@ -356,6 +387,10 @@ async def build_tool_result_followup(
         }
     """
     if not tool_results:
+        return None
+    # A text-only model gets no image; the tool result already carries the
+    # figure_summary, which describes the plot in words.
+    if not model_sees_images():
         return None
 
     data_urls: list[str] = []

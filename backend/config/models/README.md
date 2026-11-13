@@ -30,6 +30,7 @@ switch refuses a file with a missing key rather than guessing.
 | `LLM_REASONING_EFFORT` | user-facing turn effort; blank = do not send |
 | `KV_KIB_PER_TOKEN` | fp8 KV bytes per token, for the memory arithmetic and the gate |
 | `SAMPLING_DEFAULT`, `SAMPLING_CODE` | JSON, the vendor's recommended sampling per persona class |
+| `LLM_VISION` | optional; `0` for a text-only backbone (Sage-A1.5, gpt-oss), which the backend then sends no images: plot feedback relies on the text `figure_summary`, attached images become a note and an input file for code. Blank decides from `VLLM_EXTRA_ARGS` (`--language-model-only` means text-only) |
 
 The sampling values are part of the system under test: every committed
 benchmark number for a backbone was produced under that backbone's profile,
