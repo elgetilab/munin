@@ -104,12 +104,16 @@ def user_env(home: str) -> dict[str, str]:
     return env
 
 
-def chown_tree(path: str, uid: int) -> None:
+def chown_tree(path: str, uid: int, skip_top: tuple[str, ...] = ()) -> None:
     """Give a conversation's dir to its current uid. Never follows symlinks,
-    so a link planted in the dir cannot redirect the chown."""
+    so a link planted in the dir cannot redirect the chown. Top-level entries
+    in `skip_top` stay as they are (the root-owned, read-only inputs dir)."""
     os.chown(path, uid, uid, follow_symlinks=False)
     os.chmod(path, 0o700)
     for root, dirs, files in os.walk(path, followlinks=False):
+        if root == path and skip_top:
+            dirs[:] = [d for d in dirs if d not in skip_top]
+            files = [f for f in files if f not in skip_top]
         for name in dirs + files:
             try:
                 os.chown(os.path.join(root, name), uid, uid, follow_symlinks=False)
@@ -171,7 +175,7 @@ class UidPool:
             uid = self._free.pop(0)
             kill_uid(uid)  # nothing may survive from a previous lease
             os.makedirs(scratch_dir(cid), exist_ok=True)
-            chown_tree(scratch_dir(cid), uid)
+            chown_tree(scratch_dir(cid), uid, skip_top=("inputs",))
             self._held[cid] = [uid, 1]
             return uid
 

@@ -571,6 +571,10 @@ export interface UploadedDocument {
   // (operational). Images store with no reason, since that is the correct
   // outcome for them. See BACKEND-API.md 4.9.
   reason?: 'no_text_layer' | 'no_text_extracted' | 'no_chunks' | 'index_unavailable';
+  // 'data': any non-document type (instrument export, spreadsheet, zip). Never
+  // embedded; attached to a message it is copied to the code sandbox's inputs/.
+  kind?: 'data';
+  size_bytes?: number;
   upload_time: string;
 }
 
@@ -733,6 +737,27 @@ export async function fetchArtifact(conversationId: string, artifactId: string, 
   const res = await apiFetch(`${API}/chats/${conversationId}/artifacts/${artifactId}${qs}`);
   if (!res.ok) throw new Error('Failed to fetch artifact');
   return res.json();
+}
+
+/** The sandbox artifact id inside a `/api/artifacts/{cid}/{aid}` URL. */
+export function sandboxArtifactId(externalUrl?: string | null): string | null {
+  const m = externalUrl?.match(/^\/api\/artifacts\/[^/]+\/([0-9a-f]+)$/);
+  return m ? m[1] : null;
+}
+
+/**
+ * A zip of the chat's code outputs (all of them, or the given sandbox
+ * artifact ids) with the input files, the code that produced them, the
+ * package versions and a SHA256SUMS file to verify it against.
+ */
+export async function fetchBundle(conversationId: string, sandboxIds?: string[]): Promise<Blob> {
+  const qs = sandboxIds && sandboxIds.length ? `?ids=${sandboxIds.join(',')}` : '';
+  const res = await apiFetch(`${API}/bundles/${encodeURIComponent(conversationId)}${qs}`, { credentials: 'include' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail?.error?.message ?? body?.error?.message ?? `Download failed (${res.status})`);
+  }
+  return res.blob();
 }
 
 export async function fetchArtifactStructure(conversationId: string, artifactId: string, version?: number): Promise<{ format: string; data: string }> {

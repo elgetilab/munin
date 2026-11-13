@@ -47,6 +47,7 @@ test_executor_outcome_classification.py  hermetic
 test_fts_query_escape.py                 hermetic
 test_gateway_token_guard.py              hermetic
 test_hooks.py                            hermetic
+test_lab_plumbing.py                     hermetic
 test_legacy_dr_routes.py                 hermetic
 test_llm_endpoint_config.py              hermetic        pytest
 test_llm_fallback_status.py              hermetic

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ArtifactSummary, ArtifactFull } from '../lib/types';
-import { apiFetch, fetchArtifact, fetchArtifactStructure, updateArtifact } from '../lib/api';
+import { apiFetch, fetchArtifact, fetchArtifactStructure, fetchBundle, sandboxArtifactId, updateArtifact } from '../lib/api';
 import { copyText } from '../lib/copyText';
 import { downloadFilename, saveBlob } from '../lib/artifactDownload';
 import { fileSizeBytes, formatBytes, getContentTypeIcon, getContentTypeLabel, isFilePlaceholder, isWidget, parseProteinSpec, svgDataUrl } from '../lib/artifactDisplay';
@@ -172,6 +172,29 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
     setDownloading(false);
   };
 
+  // Zip of the chat's code outputs: every file, or just this one, together with
+  // the inputs and the code that made it, so the analysis can be re-run.
+  const [bundling, setBundling] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
+  const hasSandboxFiles = artifacts.some(a => a.source === 'sandbox_generated');
+  const handleBundle = async (artifact?: ArtifactFull) => {
+    const sid = artifact ? sandboxArtifactId(getBinaryArtifactUrl(artifact)) : null;
+    if (artifact && !sid) return;
+    setBundling(true);
+    if (artifact) setActionError(null); else setListError(null);
+    try {
+      const blob = await fetchBundle(conversationId, sid ? [sid] : undefined);
+      const stem = artifact ? downloadFilename(artifact).replace(/\.[^.]+$/, '') : 'analysis';
+      saveBlob(blob, `${stem}-with-code.zip`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Could not download the files';
+      if (artifact) setActionError(msg); else setListError(msg);
+    }
+    setBundling(false);
+  };
+  const canBundle = !!loadedArtifact && loadedArtifact.source === 'sandbox_generated'
+    && !!sandboxArtifactId(getBinaryArtifactUrl(loadedArtifact));
+
   const handleDownloadPdf = () => {
     if (!loadedArtifact || !contentRef.current) return;
     const ok = printArtifactAsPdf(contentRef.current.innerHTML, loadedArtifact.title);
@@ -288,6 +311,24 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
             </div>
           ) : (
             <div className="py-1">
+              {hasSandboxFiles && (
+                <div className="flex items-center gap-2 px-4 py-2 border-b border-border">
+                  <span className="text-[11px] text-text-secondary flex-1">
+                    Files made by code, with their inputs, code and checksums
+                  </span>
+                  <button
+                    data-testid="download-bundle"
+                    onClick={() => handleBundle()}
+                    disabled={bundling}
+                    className="px-2 py-1 text-xs text-text-secondary hover:text-accent transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {bundling ? 'Preparing...' : 'Download all (zip)'}
+                  </button>
+                </div>
+              )}
+              {listError && (
+                <ErrorNotice message={listError} onDismiss={() => setListError(null)} className="mx-4 my-2" />
+              )}
               {artifacts.map(art => (
                 <button
                   key={art.id}
@@ -377,6 +418,16 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
                 >
                   {downloading ? 'Downloading...' : 'Download'}
                 </button>
+                {canBundle && (
+                  <button
+                    onClick={() => handleBundle(loadedArtifact ?? undefined)}
+                    disabled={bundling}
+                    title="This file with its input files, the code that made it and checksums"
+                    className="px-2 py-1 text-xs text-text-secondary hover:text-accent transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {bundling ? 'Preparing...' : 'With code and data'}
+                  </button>
+                )}
                 {canPdf && (
                   <button
                     onClick={handleDownloadPdf}
@@ -433,6 +484,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
                     conversationId={conversationId}
                     downloading={downloading}
                     onDownload={handleDownload}
+                    onDownloadBundle={canBundle ? () => handleBundle(loadedArtifact ?? undefined) : undefined}
                   />
                 </div>
               )}
@@ -528,7 +580,12 @@ function hasFilePreview(artifact: ArtifactFull): boolean {
   return (ct.startsWith('image/') || ct === 'application/pdf') && !!getBinaryArtifactUrl(artifact);
 }
 
-function FileCard({ artifact, downloading, onDownload }: { artifact: ArtifactFull; downloading: boolean; onDownload: () => void }) {
+function FileCard({ artifact, downloading, onDownload, onDownloadBundle }: {
+  artifact: ArtifactFull;
+  downloading: boolean;
+  onDownload: () => void;
+  onDownloadBundle?: () => void;
+}) {
   const size = fileSizeBytes(artifact);
   const details = [getContentTypeLabel(artifact.content_type), size ? formatBytes(size) : null].filter(Boolean).join(' · ');
   return (
@@ -548,20 +605,29 @@ function FileCard({ artifact, downloading, onDownload }: { artifact: ArtifactFul
           {downloading ? 'Downloading...' : 'Download'}
         </button>
       )}
+      {onDownloadBundle && (
+        <button
+          onClick={onDownloadBundle}
+          className="px-3 py-1.5 text-xs text-text-secondary hover:text-accent transition-colors cursor-pointer"
+        >
+          With code and data (zip)
+        </button>
+      )}
     </div>
   );
 }
 
-function ArtifactContent({ artifact, conversationId, downloading, onDownload }: {
+function ArtifactContent({ artifact, conversationId, downloading, onDownload, onDownloadBundle }: {
   artifact: ArtifactFull;
   conversationId: string;
   downloading: boolean;
   onDownload: () => void;
+  onDownloadBundle?: () => void;
 }) {
   const ct = artifact.content_type;
 
   if (isFilePlaceholder(artifact) && !hasFilePreview(artifact)) {
-    return <FileCard artifact={artifact} downloading={downloading} onDownload={onDownload} />;
+    return <FileCard artifact={artifact} downloading={downloading} onDownload={onDownload} onDownloadBundle={onDownloadBundle} />;
   }
 
   if (isWidget(artifact)) {

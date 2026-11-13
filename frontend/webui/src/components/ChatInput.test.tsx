@@ -426,11 +426,35 @@ describe('ChatInput drag-and-drop routing (handleDroppedFiles)', () => {
     expect(uploadDocumentMock).not.toHaveBeenCalled();
   });
 
-  it('skips unsupported types with an error and no upload', async () => {
+  // Since 2026-11 any type uploads: non-documents are data files for the code
+  // sandbox (instrument exports, spreadsheets, zipped NMR experiments).
+  it('uploads data files of any type instead of skipping them', async () => {
     const ref = renderChatInput();
-    await act(async () => { await ref.current!.handleDroppedFiles([file('archive.zip', 'application/zip')]); });
-    expect(screen.getByText(/Some files were skipped/i)).toBeInTheDocument();
-    expect(uploadDocumentMock).not.toHaveBeenCalled();
+    await act(async () => {
+      await ref.current!.handleDroppedFiles([
+        file('bruker.zip', 'application/zip'),
+        file('plate.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
+        file('gel.tif', 'image/tiff'),
+      ]);
+    });
+    expect(uploadDocumentMock.mock.calls.map(c => (c[0] as File).name)).toEqual(['bruker.zip', 'plate.xlsx', 'gel.tif']);
+    expect(screen.queryByText(/Some files were skipped/i)).not.toBeInTheDocument();
+  });
+
+  it('caps data files at 100 MB and documents at 50 MB', async () => {
+    const big = (name: string, mb: number) => {
+      const f = new File(['x'], name);
+      Object.defineProperty(f, 'size', { value: mb * 1024 * 1024 });
+      return f;
+    };
+    const ref = renderChatInput();
+    await act(async () => { await ref.current!.handleDroppedFiles([big('spectra.zip', 80)]); });
+    expect(uploadDocumentMock).toHaveBeenCalledTimes(1);
+    await act(async () => { await ref.current!.handleDroppedFiles([big('paper.pdf', 80)]); });
+    expect(screen.getByText(/max 50 MB/i)).toBeInTheDocument();
+    await act(async () => { await ref.current!.handleDroppedFiles([big('huge.h5', 120)]); });
+    expect(screen.getByText(/max 100 MB/i)).toBeInTheDocument();
+    expect(uploadDocumentMock).toHaveBeenCalledTimes(1);
   });
 
   it('blocks document upload in temporary chats', async () => {

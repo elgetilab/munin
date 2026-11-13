@@ -139,6 +139,20 @@ jobs:
       - name: Hermetic tier (the same command reproduces this locally)
         run: backend/scripts/ci/run_retrieval_tests.sh
 
+  sandbox-live:
+    name: sandbox live suite (artifacts, inputs, bundles)
+    # The code sandbox in a standalone container with no network: artifacts
+    # are immutable and versioned, figure descriptions match what was drawn,
+    # inputs are read-only, bundles verify and reproduce
+    # (docs/agent-track/LAB-ANALYSIS-PLAN.md, S0). Built without TeX to keep
+    # it fast; the isolation suite (needs TeX) runs with WITH_TEX=1 locally.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Artifact suite in a standalone sandbox container
+        run: backend/scripts/ci/run_sandbox_live_tests.sh
+
   compose:
     name: compose invariants (single-host + cluster) [${{ matrix.os }}]
     # Pinned: ubuntu-latest moves to 26.04 on 2026-10-19. 24.04 is the

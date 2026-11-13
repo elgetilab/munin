@@ -209,6 +209,10 @@ deploy_dirs() {
     # Retired research queue: nothing writes here now, kept so old reports resolve.
     run "mkdir -p $MUNIN_DEEPRESEARCH/queue $MUNIN_DEEPRESEARCH/jobs"
     run "mkdir -p $MUNIN_DOCKER $MUNIN_RETRIEVAL $MUNIN_SANDBOX"
+    #   sandbox/scratch, sandbox/meta  the sandbox's persistent volumes (files
+    #   user code writes; immutable artifact store, inputs and run code).
+    #   Root-owned; the sandbox sets their modes itself at start.
+    run "mkdir -p $MUNIN_DATA/sandbox/scratch $MUNIN_DATA/sandbox/meta"
     run "mkdir -p $CLUSTER_SCRIPTS"
 
     # Deep research queue needs docker group write access

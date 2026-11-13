@@ -712,7 +712,11 @@ Multipart form upload.
 
 **Form fields**:
 
-- `file` (required), PDF / TXT / MD / DOCX / PNG / JPG / JPEG / WEBP
+- `file` (required), any file type (since 2026-11). PDF / TXT / MD / DOCX
+  are extracted and embedded as below; PNG / JPG / JPEG / WEBP are stored;
+  every other type is a **data file** (instrument export, spreadsheet, a
+  zipped NMR experiment, ...): stored as uploaded, never embedded, and
+  answered with `"kind": "data"` and `size_bytes`.
 - `conversation_id` (optional), associates the upload with a conversation
   for the `payload.conversation_id` filter
 - `upload_id` (optional, added 2026-11-06), a browser-chosen id
@@ -721,7 +725,15 @@ Multipart form upload.
   the stored document is removed again and the upload answers **409**
   `{"error": {"message": "Upload was cancelled"}}`.
 
-**Server-side limit**: 50 MB, same as the frontend. **413** if exceeded.
+**Server-side limit**: 50 MB for documents and images, 100 MB for data
+files, same as the frontend. **413** if exceeded.
+
+**Attaching to a message**: a `{"type": "document", "document_id": ...}`
+content block (§4.8) also copies the file into the conversation's code
+sandbox as a read-only input under `inputs/` (a `.zip` is unpacked into
+`inputs/<zip name>/`), and the model is told the path. A data file's
+contents are never inlined into the prompt; text documents still are.
+Not available in temporary chats, which have no sandbox.
 
 **Response (200)**:
 
@@ -770,6 +782,7 @@ Extraction strategy:
 | `.txt`, `.md` | direct read (`utf-8` → `latin-1` fallback) | |
 | `.docx` | `python-docx` paragraph walk | |
 | `.png`, `.jpg`, `.jpeg`, `.webp` | none | file saved, `status: "stored"` |
+| anything else | none | data file: saved, `status: "stored"`, `kind: "data"` |
 
 Chunking: ~512 tokens (2048 chars) per chunk, ~50-token overlap, respects
 paragraph boundaries, splits oversized paragraphs on sentence then on
@@ -1344,6 +1357,42 @@ sandbox sidecar is unreachable.
 `display_url` on the `artifact` SSE event always points at this route.
 The frontend can drop it straight into an `<img>` `src` for images or
 into a download anchor for non-image artifacts.
+
+**Immutable since 2026-11**: every artifact is a content-addressed copy
+taken when it was created. Saving a file under the same name again creates
+a NEW artifact (new id, `version` n+1, `previous_id` pointing back); the old
+id keeps serving the old bytes. Responses carry `X-Munin-Sha256` and an
+`ETag` of the sha256, and are cacheable as immutable. The body is streamed,
+so large files no longer hit the old 15 s buffering timeout. Files written
+in subfolders are artifacts too; their `filename` is the relative path.
+
+### 4.17a `GET /api/artifacts/{conversation_id}` (sandbox listing)
+
+Every sandbox artifact of the conversation, all versions, oldest first:
+
+```json
+{"artifacts": [{"id": "9f2c...", "filename": "fit.png", "kind": "file",
+  "content_type": "image/png", "size_bytes": 48211, "sha256": "...",
+  "version": 2, "previous_id": "1a7e...", "exec_seq": 4, "code_sha": "...",
+  "created_at": 1763030000.1, "figure_summary": "85x60 mm, 300 dpi, png, 1 axes\n..."}]}
+```
+
+`kind` is `file` (written by code), `inline` (a `plt.show()` image) or
+`latex`. `figure_summary` is present for matplotlib figures. Same auth as
+§4.17; an unreachable sandbox answers `{"artifacts": []}`.
+
+### 4.17b `GET /api/bundles/{conversation_id}` (download bundle)
+
+Query `ids=a,b` (optional). A zip of the conversation's artifacts (all of them, or the comma-separated
+sandbox artifact ids), streamed. Layout: `outputs/` (several versions of a
+file are named `name.vN.ext`), `inputs/` (the uploaded inputs,
+byte-identical), `analysis.py` (every successful run up to the last
+selected artifact, in order; reproduces the outputs when run from the
+bundle directory), `code/run_NNN.py` (every run as executed),
+`figures/*.json` (figure descriptions), `environment.txt`,
+`MANIFEST.json` and `SHA256SUMS` (`sha256sum -c SHA256SUMS` verifies the
+bundle). Same auth as §4.17. **400** for malformed ids, **404** for unknown
+ids or nothing to bundle, **413** over the 1.5 GB bundle limit.
 
 ### 4.18 `POST /api/chats/{id}/report`: report a chat for review
 

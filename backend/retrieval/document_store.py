@@ -39,6 +39,15 @@ GROBID_URL = os.getenv("GROBID_URL", "http://grobid:8070")
 SUPPORTED_TEXT_EXT = {".pdf", ".txt", ".md", ".docx"}
 SUPPORTED_IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp"}
 
+
+def is_data_file(filename: str) -> bool:
+    """Any other file type is a data file (instrument export, spreadsheet,
+    zip of an NMR experiment, ...): stored as uploaded, never embedded or
+    inlined into the prompt, and handed to the code sandbox as an input when
+    it is attached to a message."""
+    ext = os.path.splitext(filename or "")[1].lower()
+    return ext not in SUPPORTED_TEXT_EXT and ext not in SUPPORTED_IMAGE_EXT
+
 # Chunking parameters (approximate tokens, ~4 chars/token)
 CHUNK_TOKENS = 512
 CHUNK_OVERLAP = 50
@@ -589,8 +598,6 @@ async def upload_document(
     project_id: Optional[str] = None,
 ) -> dict:
     ext = os.path.splitext(filename)[1].lower()
-    if ext not in SUPPORTED_TEXT_EXT and ext not in SUPPORTED_IMAGE_EXT:
-        raise ValueError(f"Unsupported file type: {ext}")
 
     document_id = f"doc_{uuid.uuid4().hex[:12]}"
     target_dir = _doc_dir(user_email, document_id)
@@ -608,6 +615,17 @@ async def upload_document(
             "filename": safe_filename,
             "chunks": 0,
             "status": "stored",
+            "upload_time": upload_time,
+        }
+
+    if is_data_file(safe_filename):
+        return {
+            "document_id": document_id,
+            "filename": safe_filename,
+            "chunks": 0,
+            "status": "stored",
+            "kind": "data",
+            "size_bytes": len(file_bytes),
             "upload_time": upload_time,
         }
 
