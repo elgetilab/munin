@@ -37,7 +37,6 @@ domain beyond DNS. The reference deployment uses `muninai.org`.
 | `chat.<domain>` | Session cookie | React chat UI → gateway → backend |
 | `docs.<domain>` | Session cookie | Static documentation |
 | `search.<domain>` | Session cookie | Static + gateway → backend |
-| `research.<domain>` | Session cookie | Retired standalone Deep Research; shows an "unavailable" page (Deep Research now runs inside chat) |
 | `upload.<domain>` | Session cookie | Static + tusd |
 | `api.<domain>` | API key (Bearer) | gateway → backend (OpenAI-compatible) |
 
@@ -205,7 +204,6 @@ frontend/                    # VPS-side of the monorepo
 │   ├── landing/             # Public landing page
 │   ├── docs/                # Documentation pages
 │   ├── search/              # Paper search
-│   ├── research/            # Retired Deep Research page ("unavailable")
 │   ├── upload/              # Upload UI
 │   └── maintenance/         # Maintenance page (reads /api/status)
 ├── docs/                    # Live design notes (+ docs/archive/ for shipped specs)

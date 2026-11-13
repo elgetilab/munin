@@ -700,7 +700,7 @@ describe('static theme toggle', () => {
 
   it('works out the cookie domain and reads the cookie exactly as theme.ts does', () => {
     const { api } = load();
-    for (const host of ['chat.muninai.org', 'upload.muninai.org', 'research.muninai.org', 'muninai.org',
+    for (const host of ['chat.muninai.org', 'upload.muninai.org', 'muninai.org',
       'docs.munin.uni-example.de', 'munin.uni-example.de', 'www.muninai.org', 'localhost', '127.0.0.1', '::1', 'intranet']) {
       expect(api.cookieDomain(host), host).toBe(cookieDomain(host));
     }
@@ -751,7 +751,7 @@ describe('static theme toggle', () => {
     expect(root.getAttribute('data-theme')).toBe('light');
   });
 
-  const pages = ['landing/index.html', 'search/index.html', 'research/index.html', 'upload/index.html',
+  const pages = ['landing/index.html', 'search/index.html', 'upload/index.html',
     'maintenance/index.html', 'docs/index.html', 'docs/architecture.html', 'docs/guide.html'];
 
   it.each(pages)('%s loads the toggle and has a header for it', (path) => {
@@ -808,7 +808,7 @@ describe('upload page theme', () => {
 // Geist is served from /shared/fonts, so no page tells a third party who is
 // reading it.
 describe('self-hosted fonts', () => {
-  const pages = ['landing/index.html', 'search/index.html', 'research/index.html', 'upload/index.html',
+  const pages = ['landing/index.html', 'search/index.html', 'upload/index.html',
     'maintenance/index.html', 'docs/index.html', 'docs/architecture.html', 'docs/guide.html',
     'shared/site.css', 'shared/auth.css', 'docs/docs.css', '../auth/templates/login.html', '../auth/templates/verify.html'];
 

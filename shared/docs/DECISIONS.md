@@ -22,6 +22,14 @@ planned before deletion was not run.
 Kept: the read-only, admin-only `/deepresearch/*` routes and
 `/opt/munin/deepresearch`, because past reports are user data.
 
+The `research.<domain>` site, which only said "unavailable", went next
+(2026-11-13): its page, its Caddy site, `MUNIN_URL_RESEARCH`, its CORS origin in
+munin-auth, and the `research.` DNS record from the install instructions. The
+frontend has no way to reach the routes above any more; an admin who needs an
+old report calls them on the backend directly. An existing deployment can drop
+the `research.` A record; until then the name resolves to a host that no
+longer serves it.
+
 Nothing here touches a running cluster. An existing head node keeps its disabled
 unit, its installed scripts and the weights until an operator removes them:
 

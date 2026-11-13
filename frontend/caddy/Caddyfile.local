@@ -19,7 +19,7 @@
 # and build the chat UI with VITE_AUTH_BASE=http://localhost so the SPA calls
 # this origin rather than the production auth service.
 #
-# The subdomain sites that have no path here (search, research, docs, landing)
+# The subdomain sites that have no path here (search, docs, landing)
 # are reachable on their own ports at the bottom of this file.
 # ==============================================================================
 
