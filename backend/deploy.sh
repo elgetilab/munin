@@ -1766,7 +1766,13 @@ print("MOUNTS:" + " ".join(sorted(t for t in set(pv) | set(iv) if pv.get(t) != i
     done
     if [ -n "$bad" ]; then echo "[FAIL] unexpected env differences:$bad"; [ "$DRY_RUN" = "1" ] || exit 1; fi
     [ "$DRY_RUN" = "1" ] && return 0
-    python3 "$GATES_PY" --vllm "http://127.0.0.1:$vllm_port" --api "http://127.0.0.1:$api_port" \
+    # The instance's retrieval extends production's, so it inherits the
+    # MUNIN_GATEWAY_TOKEN guard; the tool_call gate sends an identity header
+    # and needs the token. sudo drops the caller's env, so read it here
+    # (environment only, never argv), as `verify` does.
+    local gw_token
+    gw_token=$(clusterenv_get MUNIN_GATEWAY_TOKEN | tr -d '"')
+    MUNIN_GATEWAY_TOKEN="$gw_token" python3 "$GATES_PY" --vllm "http://127.0.0.1:$vllm_port" --api "http://127.0.0.1:$api_port" \
         --model "$MODEL_NAME" --thinking-mode "$LLM_THINKING_MODE" --reasoning-effort "$LLM_REASONING_EFFORT" \
         --max-num-seqs "${INSTANCE_MAX_NUM_SEQS:-$VLLM_MAX_NUM_SEQS_SINGLE}" --max-model-len "$VLLM_MAX_MODEL_LEN" \
         ${job_out:+--job-out "$job_out"} --tokenizer "$TOKENIZER_HOST_DIR/tokenizer.json" --checkpoint "$MODEL_PATH" \
