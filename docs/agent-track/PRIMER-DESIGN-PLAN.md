@@ -471,6 +471,53 @@ Checks:
 - did not claim specificity when the envelope says it was unchecked
 - refused cleanly when the template is too short
 
+#### What layer 4 found on its first live run (2026-11-13)
+
+Run against an isolated sidecar (`munin-retrieval-primer`, port 8083,
+production image with the worktree's primer files bind-mounted read-only, its
+own `CHATS_DB_PATH`), backbone `sage-a1.5`.
+
+**Discovery is not the problem.** `tool_search` returns `design_primers` for
+every phrasing tried ("design PCR primers", "primer design", "PCR", "amplify a
+DNA sequence", "cloning primers Gibson"), and the capabilities block in the
+system prompt already advertises it. An instrumented run confirmed the model
+finds it: `tool_search` -> `design_primers` x3.
+
+**The tool overflowed the context window.** The turn then died on a vLLM
+`400 Bad Request`, the documented context-overflow signature, before producing
+an answer. Measured cause: the envelope sent all 26 evaluated rules per
+design, each with label, threshold, citation and detail.
+
+| designs | envelope before | after |
+|---|---|---|
+| 1 | 2,663 tokens | **735** |
+| 3 (default) | 7,524 | **1,748** |
+| 5 | 12,379 | **2,755** |
+
+At the default, three calls in one turn spent ~22,500 tokens on tool results
+alone, against a 60,000 budget already holding a 600 bp sequence, the system
+prompt and other tool output.
+
+Fixed by sending `summary` plus only the checks that FAILED or could not be
+computed, with a note saying the full list is in the widget. The honesty
+contract is unchanged: `summary` still counts every rule, so the model cannot
+claim a clean design while `hard_failures` or `not_computed` is non-zero. A
+token-budget assertion guards the regression.
+
+**Why this justifies the layer.** Every unit test passed, the tool was correct
+in isolation, and the feature was still unusable in a real conversation. No
+amount of offline testing would have surfaced it.
+
+**Two things to carry forward:**
+
+- A research-profile turn reached 174k cumulative prompt tokens, 378 s and 8
+  tool calls. That is a backbone/profile cost issue independent of this tool.
+- The grounding check passes VACUOUSLY when the answer contains no DNA, which
+  is what an errored turn produces. It must only ever be read alongside the
+  liveness checks (`no error SSE`, `non-empty final assistant content`), never
+  alone. Observed: 2/2 "every DNA sequence grounded" on runs that produced no
+  output at all.
+
 ### Layer 5: scored benchmark track
 
 A `primer` track in `munin_bench`, with a committed scorecard and a
