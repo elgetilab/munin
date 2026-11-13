@@ -405,6 +405,17 @@ treatment for `update_artifact`'s unused diff mode is the next cheap experiment.
 Residual 20.9% still re-pastes; similarity gate held pending production data.
 Plan + results: `CODE-EDIT-TOOL-PLAN.md`.
 
+## 6. Lab analysis: replacing Prism by chat  (PLANNED 2026-11-13)
+Harness fixes (uploads into the sandbox, immutable content-addressed artifacts,
+bundle downloads, figure manifest), the `labkit` helper library, and eval suites
+S0-S7 for fitting, instrument parsing, iterative plot editing, long jobs,
+reproducibility, NMR workflows and structures. Plan: `LAB-ANALYSIS-PLAN.md`.
+
+**HEAVY TODO, required before any model-capability claim:** the lab-analysis
+suites are first measured on the production backbone only. Re-run S1-S7, both
+arms (ad hoc and `labkit`), on **every backbone we can serve**, starting with
+gpt-oss, paired against the backbone results. Haiku is excluded (fallback only).
+
 ---
 
 ## Still-current reference (kept at top level)
