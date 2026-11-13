@@ -236,10 +236,10 @@ test.describe('primer design widget', () => {
     expect(csv.suggestedFilename()).toBe('pUC19_primers.csv');
     expect(readFileSync(await csv.path(), 'utf-8')).toBe([
       'name,sequence,length,tm,gc_percent,strand,start,end,pair,product_size',
-      'pair_1_F,TGTAAAACGACGGCCAGT,18,60.2,50,+,377,395,pair_1,123',
-      'pair_1_R,CAGGAAACAGCTATGAC,17,58.1,47.1,-,483,500,pair_1,123',
-      'pair_2_F,TGCCACCTGACGTCTAAGAA,20,59.4,50,+,2600,2620,pair_2,845',
-      'pair_2_R,ATTACCGCCTTTGAGTGAGC,20,61,50,-,739,759,pair_2,845',
+      'pUC19_pair_1_F,TGTAAAACGACGGCCAGT,18,60.2,50,+,377,395,pair_1,123',
+      'pUC19_pair_1_R,CAGGAAACAGCTATGAC,17,58.1,47.1,-,483,500,pair_1,123',
+      'pUC19_pair_2_F,TGCCACCTGACGTCTAAGAA,20,59.4,50,+,2600,2620,pair_2,845',
+      'pUC19_pair_2_R,ATTACCGCCTTTGAGTGAGC,20,61,50,-,739,759,pair_2,845',
       '',
     ].join('\n'));
 
@@ -250,7 +250,7 @@ test.describe('primer design widget', () => {
     expect(fasta.suggestedFilename()).toBe('pUC19_primers.fasta');
     const text = readFileSync(await fasta.path(), 'utf-8');
     expect(text.split('\n').slice(0, 2)).toEqual([
-      '>pair_1_F strand=+ 377-395 len=18 Tm=60.2 GC=50 template=pUC19',
+      '>pUC19_pair_1_F strand=+ 377-395 len=18 Tm=60.2 GC=50 template=pUC19',
       'TGTAAAACGACGGCCAGT',
     ]);
     expect(text.match(/^>/gm)).toHaveLength(4);
