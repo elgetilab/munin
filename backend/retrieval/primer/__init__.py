@@ -11,7 +11,7 @@ Modules land in the build order set by the plan:
   verify.py       in-silico PCR: the self-check AND the eval oracle     [built]
   structure.py    hairpin / homodimer / heterodimer, 3' end stability   [built]
   select.py       candidate enumeration + penalty scoring           [built]
-  tails.py        overlap-assembly and restriction tails
+  tails.py        overlap-assembly and restriction tails            [built]
   specificity.py  BLAST+ against a reference, Primer-BLAST settings
 """
 
@@ -47,6 +47,27 @@ from .structure import (
     homodimer,
     homodimer_range,
 )
+from .tails import (
+    DEFAULT_SPACER_BP,
+    ENZYMES,
+    OVERLAP_MIN_NT,
+    OVERLAP_PREFERRED_NT,
+    AssemblyError,
+    Enzyme,
+    OverlapDesign,
+    RestrictionDesign,
+    SequencingDesign,
+    TailedPrimer,
+    assemble,
+    check_internal_sites,
+    design_overlap_tails,
+    design_restriction_tails,
+    design_sequencing_primer,
+    longest_exact_overlap,
+    lookup_enzyme,
+    recommended_overlap,
+    validate_overlap,
+)
 from .thermo import (
     IUPAC_CODES,
     SaltCorrection,
@@ -78,6 +99,26 @@ from .verify import (
 )
 
 __all__ = [
+    # tails
+    "DEFAULT_SPACER_BP",
+    "ENZYMES",
+    "OVERLAP_MIN_NT",
+    "OVERLAP_PREFERRED_NT",
+    "AssemblyError",
+    "Enzyme",
+    "OverlapDesign",
+    "RestrictionDesign",
+    "SequencingDesign",
+    "TailedPrimer",
+    "assemble",
+    "check_internal_sites",
+    "design_overlap_tails",
+    "design_restriction_tails",
+    "design_sequencing_primer",
+    "longest_exact_overlap",
+    "lookup_enzyme",
+    "recommended_overlap",
+    "validate_overlap",
     # thermo
     "IUPAC_CODES",
     "SaltCorrection",
