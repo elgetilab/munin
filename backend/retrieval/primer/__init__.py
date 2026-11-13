@@ -10,7 +10,7 @@ Modules land in the build order set by the plan:
   rules.py        the rule table, thresholds with citations             [built]
   verify.py       in-silico PCR: the self-check AND the eval oracle     [built]
   structure.py    hairpin / homodimer / heterodimer, 3' end stability   [built]
-  select.py       candidate enumeration + penalty scoring
+  select.py       candidate enumeration + penalty scoring           [built]
   tails.py        overlap-assembly and restriction tails
   specificity.py  BLAST+ against a reference, Primer-BLAST settings
 """
@@ -25,6 +25,14 @@ from .rules import (
     evaluate_primer,
     normalise_mode,
     summarise,
+)
+from .select import (
+    Candidate,
+    PairCandidate,
+    Weights,
+    best_pair,
+    design_pairs,
+    enumerate_candidates,
 )
 from .structure import (
     NO_STRUCTURE_TM,
@@ -94,6 +102,13 @@ __all__ = [
     "evaluate_primer",
     "normalise_mode",
     "summarise",
+    # select
+    "Candidate",
+    "PairCandidate",
+    "Weights",
+    "best_pair",
+    "design_pairs",
+    "enumerate_candidates",
     # structure
     "NO_STRUCTURE_TM",
     "Structure",
