@@ -390,7 +390,7 @@ print(response.choices[0].message.content)`;
             value={fullName}
             onChange={e => setFullName(e.target.value)}
             placeholder="Your full name"
-            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-accent transition-colors"
+            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-text-secondary transition-colors"
           />
         </div>
 
@@ -403,7 +403,7 @@ print(response.choices[0].message.content)`;
             value={nickname}
             onChange={e => setNickname(e.target.value)}
             placeholder="A name, nickname, whatever you like"
-            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-accent transition-colors"
+            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-text-secondary transition-colors"
           />
           <p className="text-[11px] text-text-secondary mt-1.5">
             This is used in greetings like "Good morning, {nickname || fullName || 'you'}"
@@ -447,7 +447,7 @@ print(response.choices[0].message.content)`;
             placeholder="e.g. I'm a biophysics PhD candidate working on lipid bilayers. I use molecular dynamics simulations."
             rows={3}
             maxLength={1500}
-            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-accent transition-colors resize-none disabled:opacity-50"
+            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-text-secondary transition-colors resize-none disabled:opacity-50"
           />
           <p className="text-[11px] text-text-secondary mt-1 text-right">{aboutMe.length} / 1500</p>
         </div>
@@ -463,7 +463,7 @@ print(response.choices[0].message.content)`;
             placeholder="e.g. Always cite DOIs. Use British spelling. Keep answers concise. Prefer equations over prose."
             rows={3}
             maxLength={1500}
-            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-accent transition-colors resize-none disabled:opacity-50"
+            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-text-secondary transition-colors resize-none disabled:opacity-50"
           />
           <p className="text-[11px] text-text-secondary mt-1 text-right">{responseFormat.length} / 1500</p>
         </div>
@@ -476,7 +476,7 @@ print(response.choices[0].message.content)`;
             value={timezone}
             onChange={e => setTimezone(e.target.value)}
             disabled={muninLoad !== 'ready'}
-            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent transition-colors cursor-pointer disabled:opacity-50"
+            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary outline-none focus:border-text-secondary transition-colors cursor-pointer disabled:opacity-50"
           >
             <option value="">Not set</option>
             {deviceZone && <option value={deviceZone}>{deviceZone} (this device)</option>}
@@ -564,7 +564,7 @@ print(response.choices[0].message.content)`;
               onKeyDown={e => e.key === 'Enter' && handleCreateKey()}
               placeholder="Key name (e.g. my laptop, research script)"
               aria-label="API key name"
-              className="flex-1 px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-accent transition-colors"
+              className="flex-1 px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-text-secondary transition-colors"
             />
             <button
               onClick={handleCreateKey}

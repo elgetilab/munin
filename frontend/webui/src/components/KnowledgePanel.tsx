@@ -161,7 +161,7 @@ export function KnowledgePanel({ catalog, activeTags, onTagsChange }: KnowledgeP
                     label={g.display_name}
                     count={g.paper_count}
                     active={activeKeys.has(`group:${g.slug}`)}
-                    activeClass="bg-accent/15 text-accent"
+                    activeClass="bg-bg-tertiary text-text-primary"
                     onToggle={() => toggleTag('group', g.slug)}
                   />
                 ))}
@@ -194,7 +194,7 @@ export function KnowledgePanel({ catalog, activeTags, onTagsChange }: KnowledgeP
                     value={topicQuery}
                     onChange={e => setTopicQuery(e.target.value)}
                     placeholder="Filter topics..."
-                    className="mb-1 px-2.5 py-1.5 bg-bg-tertiary border border-border rounded-lg text-xs text-text-primary placeholder:text-text-secondary outline-none focus:border-accent"
+                    className="mb-1 px-2.5 py-1.5 bg-bg-tertiary border border-border rounded-lg text-xs text-text-primary placeholder:text-text-secondary outline-none focus:border-text-secondary"
                   />
                 )}
                 {shownTopics.map(t => (
@@ -243,7 +243,7 @@ export function KnowledgePanel({ catalog, activeTags, onTagsChange }: KnowledgeP
                 <span
                   key={`${tag.kind}:${tag.value}`}
                   className={`inline-flex items-center gap-1 pl-2 rounded text-[10px] font-medium ${
-                    tag.kind === 'group' ? 'bg-accent/15 text-accent' :
+                    tag.kind === 'group' ? 'bg-bg-tertiary text-text-primary' :
                     tag.kind === 'contributor' ? 'bg-success/15 text-success' :
                     'bg-warning/15 text-warning'
                   }`}

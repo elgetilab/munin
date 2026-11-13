@@ -136,7 +136,7 @@ function TagResultList({ result, highlight, onSelect, gutter, empty }: {
                     }`}
                   >
                     <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                      item.kind === 'group' ? 'bg-accent/15 text-accent' :
+                      item.kind === 'group' ? 'bg-bg-tertiary text-text-primary' :
                       item.kind === 'contributor' ? 'bg-success/15 text-success' :
                       'bg-warning/15 text-warning'
                     }`}>
@@ -799,7 +799,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                 key={`${tag.kind}:${tag.value}`}
                 title={`#${tag.kind === 'contributor' ? '@' : ''}${tag.value}`}
                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium ${
-                  tag.kind === 'group' ? 'bg-accent/15 text-accent' :
+                  tag.kind === 'group' ? 'bg-bg-tertiary text-text-primary' :
                   tag.kind === 'contributor' ? 'bg-success/15 text-success' :
                   'bg-warning/15 text-warning'
                 }`}
@@ -1015,7 +1015,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                     </span>
                   </span>
                   {/* on/off pill */}
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${deepResearchMode ? 'bg-accent/15 text-accent' : 'bg-bg-tertiary text-text-secondary'}`}>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${deepResearchMode ? 'bg-bg-tertiary text-text-primary' : 'bg-bg-tertiary text-text-secondary'}`}>
                     {deepResearchMode ? 'On' : 'Off'}
                   </span>
                 </button>
@@ -1043,7 +1043,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                     onKeyDown={handleKnowledgeSearchKeyDown}
                     aria-label="Search groups, topics, contributors"
                     placeholder="Search groups, topics, contributors..."
-                    className="w-full text-xs px-2.5 py-1.5 bg-bg-tertiary border border-border rounded-lg text-text-primary placeholder:text-text-secondary outline-none focus:border-accent transition-colors"
+                    className="w-full text-xs px-2.5 py-1.5 bg-bg-tertiary border border-border rounded-lg text-text-primary placeholder:text-text-secondary outline-none focus:border-text-secondary transition-colors"
                     autoFocus
                   />
                 </div>

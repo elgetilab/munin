@@ -62,7 +62,7 @@ export function ModeChip({ mode, onChange, typed, deepResearch }: {
         data-testid="mode-chip"
         aria-label={`Mode: ${label}${typed ? ', set by the typed command' : ''}`}
         title={typed ? 'Set by the command you typed' : 'Choose the mode'}
-        className={`inline-flex items-center gap-1.5 h-8 px-2 rounded-lg text-sm transition-colors cursor-pointer hover:bg-bg-tertiary ${shown === 'auto' ? 'text-text-secondary hover:text-text-primary' : 'text-accent'}`}
+        className={`inline-flex items-center gap-1.5 h-8 px-2 rounded-lg text-sm transition-colors cursor-pointer hover:bg-bg-tertiary ${shown === 'auto' ? 'text-text-secondary hover:text-text-primary' : 'text-text-primary bg-bg-tertiary'}`}
       >
         <ModeIcon mode={shown} />
         <span>{label}</span>

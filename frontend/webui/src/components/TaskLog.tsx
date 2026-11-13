@@ -198,7 +198,7 @@ function ResultBody({ result }: { result: unknown }) {
         type="button"
         aria-expanded={showRaw}
         onClick={() => setShowRaw(!showRaw)}
-        className="mt-2 text-text-secondary hover:text-accent cursor-pointer"
+        className="mt-2 text-text-secondary hover:text-text-primary cursor-pointer"
       >
         {showRaw ? 'Hide raw' : 'Show raw'}
       </button>
@@ -303,7 +303,7 @@ function ThinkingRow({ content, duration, isActive }: { content: string; duratio
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
-        className={`w-full text-left flex items-center gap-2 cursor-pointer hover:text-accent transition-colors ${isActive ? 'text-text-primary' : 'text-text-secondary'}`}
+        className={`w-full text-left flex items-center gap-2 cursor-pointer hover:text-text-primary transition-colors ${isActive ? 'text-text-primary' : 'text-text-secondary'}`}
       >
         <span className="flex-shrink-0">{Icons.thinking}</span>
         <span className="flex-1">
@@ -331,7 +331,7 @@ function ToolCallRow({ call, isActive }: { call: ToolCall; isActive?: boolean })
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
-        className={`w-full text-left flex items-center gap-2 cursor-pointer hover:text-accent transition-colors ${isActive ? 'text-text-primary' : 'text-text-secondary'}`}
+        className={`w-full text-left flex items-center gap-2 cursor-pointer hover:text-text-primary transition-colors ${isActive ? 'text-text-primary' : 'text-text-secondary'}`}
       >
         <span className="flex-shrink-0">{icon}</span>
         <span className="flex-1">
@@ -382,7 +382,7 @@ function RagContextRow({ context }: { context: RagContext }) {
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
-        className="w-full text-left flex items-center gap-2 cursor-pointer hover:text-accent transition-colors text-text-secondary"
+        className="w-full text-left flex items-center gap-2 cursor-pointer hover:text-text-primary transition-colors text-text-secondary"
       >
         <span className="flex-shrink-0">{Icons.sources}</span>
         <span className="flex-1">

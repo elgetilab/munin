@@ -67,7 +67,9 @@ const SESSION_STARTED_KEY = 'munin_session_started';
 // chat is the warning tint.
 const NAV_ITEM = 'inline-flex flex-shrink-0 items-center gap-1.5 h-8 px-2.5 rounded-md text-[13px] font-medium leading-none whitespace-nowrap no-underline transition-colors cursor-pointer';
 const NAV_IDLE = 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary';
-const NAV_ON = 'bg-accent/15 text-accent';
+// Brass marks only where you are (the current page); a pressed toggle is neutral.
+const NAV_CURRENT = 'bg-accent/15 text-accent';
+const NAV_ON = 'bg-bg-tertiary text-text-primary';
 const NAV_WARN = 'bg-warning/15 text-warning';
 // The chat toggles drop to their icon when the header (not the window: the
 // sidebar takes its share) is narrower than 64rem. The aria-label keeps the name.
@@ -1060,7 +1062,7 @@ export default function App() {
                 setEditingProject(null);
               }}
               aria-current={overlayView ? undefined : 'page'}
-              className={`${NAV_ITEM} ${overlayView ? NAV_IDLE : NAV_ON}`}
+              className={`${NAV_ITEM} ${overlayView ? NAV_IDLE : NAV_CURRENT}`}
             >Chat</a>
             <a href={UPLOAD_URL} className={`${NAV_ITEM} ${NAV_IDLE}`}>Upload</a>
           </nav>
@@ -1103,7 +1105,7 @@ export default function App() {
 
         {/* Project context banner */}
         {activeProjectId && !isEphemeral && !overlayView && (
-          <div className="mx-4 mt-3 px-4 py-2 bg-accent/10 border border-accent rounded-lg text-xs text-accent flex items-center gap-2">
+          <div className="mx-4 mt-3 px-4 py-2 bg-bg-secondary border border-border rounded-lg text-xs text-text-secondary flex items-center gap-2">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
             </svg>

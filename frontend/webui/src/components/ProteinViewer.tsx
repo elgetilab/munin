@@ -206,7 +206,7 @@ export function ProteinViewer({ spec, title, conversationId, artifactId, version
             href={databaseUrl(spec)}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-text-secondary hover:text-accent transition-colors shrink-0"
+            className="text-xs text-text-secondary hover:text-text-primary transition-colors shrink-0"
           >
             Open in {databaseName}<ExternalLinkIcon />
           </a>
@@ -215,7 +215,7 @@ export function ProteinViewer({ spec, title, conversationId, artifactId, version
           <button
             type="button"
             onClick={onExpand}
-            className="text-xs text-text-secondary hover:text-accent transition-colors cursor-pointer shrink-0"
+            className="text-xs text-text-secondary hover:text-text-primary transition-colors cursor-pointer shrink-0"
           >
             Expand
           </button>
@@ -248,7 +248,7 @@ export function ProteinViewer({ spec, title, conversationId, artifactId, version
                 href={databaseUrl(spec)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-text-secondary hover:text-accent transition-colors underline"
+                className="text-xs text-text-secondary hover:text-text-primary transition-colors underline"
               >
                 Open in {databaseName}<ExternalLinkIcon />
               </a>

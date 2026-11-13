@@ -110,7 +110,7 @@ export function ClarificationCard({ clarification, onSubmit, disabled }: Clarifi
                 aria-label={`Your answer to question ${i + 1}`}
                 placeholder="Type your answer..."
                 disabled={isDisabled}
-                className="mt-2 w-full px-3 py-1.5 bg-bg-tertiary border border-border rounded-lg text-xs text-text-primary placeholder-text-secondary outline-none focus:border-accent transition-colors"
+                className="mt-2 w-full px-3 py-1.5 bg-bg-tertiary border border-border rounded-lg text-xs text-text-primary placeholder-text-secondary outline-none focus:border-text-secondary transition-colors"
               />
             )}
           </div>

@@ -357,7 +357,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
                 {canEdit && (
                   <button
                     onClick={handleEdit}
-                    className="px-2 py-1 text-xs text-text-secondary hover:text-accent transition-colors cursor-pointer"
+                    className="px-2 py-1 text-xs text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
                   >
                     Edit
                   </button>
@@ -365,7 +365,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
                 {canCopy && (
                   <button
                     onClick={handleCopy}
-                    className="px-2 py-1 text-xs text-text-secondary hover:text-accent transition-colors cursor-pointer"
+                    className="px-2 py-1 text-xs text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
                   >
                     {copied ? 'Copied!' : 'Copy'}
                   </button>
@@ -373,14 +373,14 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
                 <button
                   onClick={handleDownload}
                   disabled={downloading}
-                  className="px-2 py-1 text-xs text-text-secondary hover:text-accent transition-colors cursor-pointer disabled:opacity-50"
+                  className="px-2 py-1 text-xs text-text-secondary hover:text-text-primary transition-colors cursor-pointer disabled:opacity-50"
                 >
                   {downloading ? 'Downloading...' : 'Download'}
                 </button>
                 {canPdf && (
                   <button
                     onClick={handleDownloadPdf}
-                    className="px-2 py-1 text-xs text-text-secondary hover:text-accent transition-colors cursor-pointer"
+                    className="px-2 py-1 text-xs text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
                   >
                     Save as PDF
                   </button>
@@ -406,7 +406,7 @@ export function ArtifactPanel({ artifacts, conversationId }: ArtifactPanelProps)
                       value={editSummary}
                       onChange={e => setEditSummary(e.target.value)}
                       placeholder="Change summary (optional)"
-                      className="w-full px-3 py-1.5 bg-bg-tertiary border border-border rounded text-xs text-text-primary placeholder-text-secondary outline-none focus:border-accent"
+                      className="w-full px-3 py-1.5 bg-bg-tertiary border border-border rounded text-xs text-text-primary placeholder-text-secondary outline-none focus:border-text-secondary"
                     />
                     <div className="flex gap-2">
                       <button

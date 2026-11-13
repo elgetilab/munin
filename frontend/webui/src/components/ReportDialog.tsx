@@ -103,7 +103,7 @@ export function ReportDialog({ conversationId, onReported }: ReportDialogProps) 
             onChange={e => setReason(e.target.value.slice(0, maxReason))}
             placeholder="Describe the issue..."
             rows={4}
-            className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-secondary outline-none resize-none focus:border-accent"
+            className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-secondary outline-none resize-none focus:border-text-secondary"
           />
           <div className="flex items-center justify-between">
             <span className={`text-[11px] ${reason.length >= maxReason ? 'text-error' : 'text-text-secondary'}`}>

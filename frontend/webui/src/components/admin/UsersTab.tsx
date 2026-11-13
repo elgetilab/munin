@@ -173,7 +173,7 @@ export function UsersTab() {
           aria-label="Filter users by first or last name, email, or group"
           value={filter}
           onChange={e => setFilter(e.target.value)}
-          className="w-full sm:w-auto sm:flex-1 min-w-0 bg-bg-secondary border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent"
+          className="w-full sm:w-auto sm:flex-1 min-w-0 bg-bg-secondary border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-text-secondary"
         />
         <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer select-none whitespace-nowrap">
           <input
@@ -528,7 +528,7 @@ function UserEditModal({ user, groups, onClose, onReload, onSaved }: {
                       type="button"
                       onClick={() => setPrimary(em)}
                       disabled={!!busy}
-                      className="text-[11px] text-text-secondary hover:text-accent cursor-pointer disabled:opacity-50"
+                      className="text-[11px] text-text-secondary hover:text-text-primary cursor-pointer disabled:opacity-50"
                     >Make primary</button>
                   )}
                   <button

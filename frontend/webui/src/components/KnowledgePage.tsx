@@ -377,7 +377,7 @@ function TopicSearch({ topics, onBrowse }: { topics: TopicTag[]; onBrowse: (kind
           value={query}
           onChange={e => setQuery(e.target.value)}
           placeholder="Search topics..."
-          className="flex-1 max-w-64 text-xs px-3 py-1.5 bg-bg-secondary border border-border rounded-lg text-text-primary placeholder:text-text-secondary outline-none focus:border-accent transition-colors"
+          className="flex-1 max-w-64 text-xs px-3 py-1.5 bg-bg-secondary border border-border rounded-lg text-text-primary placeholder:text-text-secondary outline-none focus:border-text-secondary transition-colors"
         />
         <span className="text-[10px] text-text-secondary">
           {query.trim() ? `${filtered.length} results` : `${topics.length} total`}
@@ -546,7 +546,7 @@ function PaperRow({ paper }: { paper: TagPaper }) {
         <div className="flex-1 min-w-0">
           <h4 className="text-sm font-medium text-text-primary leading-snug">
             {doiUrl ? (
-              <a href={doiUrl} target="_blank" rel="noopener noreferrer" className="hover:text-accent hover:underline">{paper.title}</a>
+              <a href={doiUrl} target="_blank" rel="noopener noreferrer" className="hover:text-text-primary hover:underline">{paper.title}</a>
             ) : paper.title}
           </h4>
           <div className="flex flex-wrap items-center gap-2 mt-1.5">
@@ -575,7 +575,7 @@ function PaperRow({ paper }: { paper: TagPaper }) {
             target="_blank"
             rel="noopener noreferrer"
             aria-label={`Download PDF: ${paper.title}`}
-            className="flex-shrink-0 whitespace-nowrap text-xs px-2.5 py-1.5 bg-bg-tertiary border border-border rounded-lg text-text-secondary hover:text-accent hover:border-accent transition-colors"
+            className="flex-shrink-0 whitespace-nowrap text-xs px-2.5 py-1.5 bg-bg-tertiary border border-border rounded-lg text-text-secondary hover:text-text-primary hover:border-accent transition-colors"
           >
             Download PDF
           </a>

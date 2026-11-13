@@ -351,7 +351,7 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
       {showJumpButton && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-6 right-6 w-10 h-10 rounded-full bg-bg-tertiary border border-border shadow-lg flex items-center justify-center text-text-secondary hover:text-accent hover:border-accent transition-colors cursor-pointer"
+          className="absolute bottom-6 right-6 w-10 h-10 rounded-full bg-bg-tertiary border border-border shadow-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:border-accent transition-colors cursor-pointer"
           title="Scroll to bottom"
           aria-label="Scroll to bottom"
         >
