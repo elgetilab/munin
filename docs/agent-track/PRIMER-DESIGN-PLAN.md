@@ -296,7 +296,8 @@ are ready to encode as fixtures:
 |---|---|---|---|
 | pUC19 L09137 | M13 Fwd(-21) x M13/pUC Rev | **123 bp** | the canonical case |
 | pUC19 L09137 | M13 Fwd(-40) x M13/pUC Rev | **142 bp** | |
-| pBluescript II SK(+) X52328 | T7 x T3 | **168 bp** | |
+| pBluescript II SK(+) X52328 | T7 x T3 **20-mer** `ATTAACCCTCACTAAAGGGA` | **165 bp** | corrected 2026-11-13, see below |
+| pBluescript II SK(+) X52328 | T7 x T3 **21-mer** `GCAATTAACCCTCACTAAAGG` | **168 bp** | the original table value |
 | pGEM-3Zf(-) X65307 | T7 x SP6 | **103 bp** | **wraps the origin**, the circular edge case |
 | pGEX-4T-1 U13853 | pGEX 5' x pGEX 3' | **173 bp** | |
 | pEGFP-N1 U55762 | CMV Fwd x EGFP-N | **227 bp** | |
@@ -321,10 +322,21 @@ Three sharp edge cases fall out, all worth explicit tests:
   inside BBa_B0010/B0015 and yields a 183 bp artefact alongside the expected
   508 bp band. That is a ready-made negative control with a published outcome.
 
-Sequence caveat to honour: the commonly circulated T3 primer
-`GCAATTAACCCTCACTAAAGG` does **not** match the T3 genome NC_003298; only its
-18-mer core does. The variant `ATTAACCCTCACTAAAGGGA` matches both NC_003298 and
-pBluescript, so prefer that one.
+**T3 primer caveat, and the amplicon-size correction it caused.** The commonly
+circulated T3 primer `GCAATTAACCCTCACTAAAGG` (21-mer) does **not** match the T3
+genome NC_003298; only its 18-mer core does. The variant
+`ATTAACCCTCACTAAAGGGA` (20-mer) matches both NC_003298 and pBluescript, so it
+is the better general-purpose choice.
+
+The two primers anneal at **different offsets on pBluescript**, so they give
+different products, and the original single table entry of 168 bp conflated
+them. Verified twice on 2026-11-13, once by `verify.py` and once by an
+independent plain string search over X52328: T7 sits at 625..645, the 20-mer's
+footprint at 770..790 giving **165 bp**, and the 21-mer's at 772..793 giving
+**168 bp**. Both numbers are correct, for different reactions. The fixtures pin
+both rather than choosing, which also makes the pair a regression test against
+exactly this class of mix-up. The two pUC19 goldens reproduced exactly, which
+is what confirmed the conventions were sound and the discrepancy real.
 
 Note on provenance honesty: for M13 the originating papers (Heidecker, Messing
 & Gronenborn 1980; Anderson et al. 1980) could not be retrieved, so the practical
