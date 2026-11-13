@@ -19,11 +19,11 @@
   --chart-12: #e89bc4;
 }
 
-/* Lowest is 4.52:1 on #f6f8fa (--chart-10). */
+/* The light accent is blue, so blue leads here. Lowest is 4.52:1 on #f6f8fa (--chart-10). */
 :root[data-theme="light"] {
-  --chart-1: #7a5512;
+  --chart-1: #0b62c4;
   --chart-2: #1a7f37;
-  --chart-3: #0b62c4;
+  --chart-3: #9a6700;
   --chart-4: #cf222e;
   --chart-5: #8250df;
   --chart-6: #b35900;

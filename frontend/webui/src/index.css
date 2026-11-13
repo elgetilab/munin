@@ -58,15 +58,16 @@
   --color-text-primary: #182029;
   --color-text-secondary: #4a535d;
   --color-text-tertiary: #656d76;
-  --color-accent: #7a5512;
-  --color-accent-hover: #5f420c;
+  /* Blue, not brass, on the light theme: brass reads poorly on white. */
+  --color-accent: #0a5cb8;
+  --color-accent-hover: #084c99;
   --color-border: #dde3e9;
   --color-border-input: #6e7781;
   --color-success: #196b2e;
   --color-warning: #953f00;
   --color-error: #b81c28;
   --color-scrim: rgb(31 36 41 / 0.4);
-  --color-focus-ring: #7a5512;
+  --color-focus-ring: #0a5cb8;
   --logo-filter: none;
   color-scheme: light;
 }

@@ -77,15 +77,15 @@
     --text-primary: #182029;
     --text-secondary: #4a535d;
     --text-tertiary: #656d76;
-    --accent: #7a5512;
-    --accent-hover: #5f420c;
+    --accent: #0a5cb8;
+    --accent-hover: #084c99;
     --border: #dde3e9;
     --border-input: #6e7781;
     --success: #196b2e;
     --warning: #953f00;
     --error: #b81c28;
     --scrim: rgb(31 36 41 / 0.4);
-    --focus-ring: #7a5512;
+    --focus-ring: #0a5cb8;
     --accent-2: #8250df;
     --logo-filter: none;
     color-scheme: light;

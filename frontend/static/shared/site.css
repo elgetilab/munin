@@ -41,10 +41,12 @@
 :root[data-theme="light"] {
     --ink: #f6f8fa; --ink-2: #eef1f4; --surface: #ffffff; --surface-2: #e9edf1;
     --text: #182029; --text-2: #4a535d; --text-3: #555e68;
-    --brass: #7a5512; --brass-2: #5f420c; --brass-soft: rgb(122 85 18 / .1);
+    /* Light mode takes a blue accent: brass reads poorly on white. The tokens
+       keep their name. */
+    --brass: #0a5cb8; --brass-2: #084c99; --brass-soft: rgb(10 92 184 / .1);
     --line: #dde3e9; --line-2: #d0d7de;
     --btn-bg: #182029; --btn-text: #f6f8fa;
-    --glow: rgb(122 85 18 / 0.06);
+    --glow: rgb(10 92 184 / 0.06);
     --inv-bg: #182029; --inv-text: #e6edf3; --inv-text-2: #b9c0c8; --inv-line: #34404c; --inv-btn: #e6edf3; --inv-btn-text: #182029;
     --shot-dark: none; --shot-light: block;
 }

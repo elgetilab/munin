@@ -33,8 +33,8 @@ export const PRINT_OVERRIDE_CSS = `
   --color-text-secondary: #444444;
   --color-text-tertiary: #555555;
   --color-border: #cccccc;
-  --color-accent: #7a5512;
-  --color-accent-hover: #7a5512;
+  --color-accent: #0a5cb8;
+  --color-accent-hover: #0a5cb8;
   --color-success: #196b2e;
   --color-warning: #953f00;
   --color-error: #b81c28;

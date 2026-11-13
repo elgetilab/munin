@@ -73,17 +73,16 @@ describe('code.css palette', () => {
     expect(Object.keys(lightCode).sort()).toEqual(Object.keys(darkCode).sort());
   });
 
-  it('keeps the dark oneDark colours other than the two that failed contrast', () => {
-    const unchanged = ['code-base', 'code-keyword', 'code-string', 'code-function', 'code-number', 'code-url'];
-    for (const name of unchanged) {
-      expect(Object.keys(ONE_DARK_TO_VAR)).toContain(darkCode[name]);
-    }
-    expect(darkCode['code-bg']).toBe('hsl(220, 13%, 18%)');
+  // 2026-11: dark code sits on the ink grey with softer hues that suit the accent,
+  // in place of oneDark's own colours and its blue-grey #282c34.
+  it('puts dark code artifacts on the ink grey, like Markdown blocks', () => {
+    expect(darkCode['code-bg']).toBe('var(--color-bg-secondary)');
     expect(darkCode['code-text-shadow']).toBe('0 1px rgba(0, 0, 0, 0.3)');
   });
 
-  // Dark: code artifacts sit on --code-bg, Markdown blocks on bg-secondary.
-  const darkGrounds = { 'code-bg': darkCode['code-bg'], 'bg-secondary': darkTheme['color-bg-secondary'] };
+  // Dark: code artifacts and Markdown blocks both sit on bg-secondary, inside
+  // the page's bg-primary.
+  const darkGrounds = { 'bg-secondary': darkTheme['color-bg-secondary'], 'bg-primary': darkTheme['color-bg-primary'] };
   // Light: --code-bg is bg-secondary, and print puts code on white.
   const lightGrounds = { 'bg-secondary': lightTheme['color-bg-secondary'], 'print white': '#ffffff' };
 

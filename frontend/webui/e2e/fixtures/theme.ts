@@ -24,7 +24,7 @@ export const PALETTE: Record<Theme, { accent: string; border: string; bgPrimary:
     textPrimary: 'rgb(230, 237, 243)',
   },
   light: {
-    accent: 'rgb(122, 85, 18)',
+    accent: 'rgb(10, 92, 184)',
     border: 'rgb(221, 227, 233)',
     bgPrimary: 'rgb(255, 255, 255)',
     textPrimary: 'rgb(24, 32, 41)',

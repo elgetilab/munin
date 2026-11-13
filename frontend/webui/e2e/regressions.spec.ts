@@ -69,9 +69,9 @@ test.describe('overlays and Back', () => {
     }
 
     await page.setViewportSize({ width: 390, height: 844 });
-    // The sidebar left open on desktop is a drawer over the page on a phone.
-    const close = page.getByRole('button', { name: 'Close menu' });
-    if (await close.isVisible()) await close.click();
+    // The sidebar left open on desktop becomes a drawer over the page on a
+    // phone; close it as a person would before reaching the header.
+    await page.getByRole('button', { name: 'Close menu' }).click();
     await page.getByRole('button', { name: 'Chat options' }).click();
     const menu = page.getByRole('menu', { name: 'Chat options' });
     await expect(menu.getByText(/Switch to (light|dark) theme/)).toBeVisible();
