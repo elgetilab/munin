@@ -44,7 +44,7 @@ import stream_registry
 import capabilities as capabilities_module
 import vision
 import site_config
-from database import VLLM_MODEL_NAME, reasoning_effort_fields
+from database import VLLM_MODEL_NAME, reasoning_effort_fields, thinking_budget_fields
 from vllm_client import vllm_post_json, vllm_post_stream, VLLMRequestError
 from usage_tracker import (
     current_usage_aggregator,
@@ -956,6 +956,11 @@ async def _stream_vllm_once(
 
     refit_attempts = 0
     while True:
+        # Cap the <think> trace (database.LLM_THINKING_BUDGET, vLLM's
+        # thinking_token_budget). Re-applied on every attempt because a refit
+        # below can shrink max_tokens, and the budget never takes more than
+        # half of it, so a forced stop still leaves room for the answer.
+        body.update(thinking_budget_fields(max_tokens=body.get("max_tokens")))
         try:
             async with vllm_post_stream(body, purpose=purpose) as line_iter:
                 emitted_tool_ids: set[int] = set()

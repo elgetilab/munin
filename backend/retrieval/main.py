@@ -71,6 +71,7 @@ from database import (
     DEEPRESEARCH_QUEUE_DIR, DEEPRESEARCH_JOBS_DIR, SLURM_QUEUE_FILE,
     VLLM_URL, VLLM_MODEL_NAME, LLM_HEADERS,
     reasoning_effort_fields,
+    thinking_budget_fields,
     get_qdrant, get_neo4j, get_specter, get_bge,
     is_specter_loaded, is_bge_loaded,
 )
@@ -668,6 +669,7 @@ async def api_models():
         "context_window": int(os.getenv("VLLM_MAX_MODEL_LEN", "65536")),
         "thinking_mode": database.LLM_THINKING_MODE,
         "reasoning_effort": database.LLM_REASONING_EFFORT or None,
+        "thinking_token_budget": database.LLM_THINKING_BUDGET or None,
     }
     try:
         async with httpx.AsyncClient() as client:
@@ -1328,6 +1330,10 @@ async def _raw_chat_proxy(
     # instead of silently keeping an effort key beside it.
     if "chat_template_kwargs" not in forward:
         forward.update(reasoning_effort_fields())
+    # Same reasoning: a backbone with no effort dial (Sage-A1.5) is bounded by
+    # a thinking-token budget instead. A client's own budget wins.
+    if "thinking_token_budget" not in forward:
+        forward.update(thinking_budget_fields(max_tokens=forward.get("max_tokens")))
     if not isinstance(forward.get("messages"), list) or not forward["messages"]:
         raise HTTPException(
             status_code=400,

@@ -131,3 +131,97 @@ def test_thinking_off_fields_rejects_unknown_mode(monkeypatch):
         cfg.thinking_off_fields()
     monkeypatch.delenv("LLM_THINKING_MODE")
     importlib.reload(config)
+
+
+# --- concurrency, direct-arm sampling and the thinking budget (2026-11-13) ---
+# Sage-A1.5 ran out of its 16K output cap inside <think> on 80/199 bare
+# questions; the direct arms gained the profile's sampling and vLLM's
+# thinking_token_budget, and Track D gained --concurrency for the re-run.
+
+def test_concurrent_run_keeps_question_order_and_runs_each_once(tmp_path, monkeypatch):
+    import threading
+    import time as _t
+    monkeypatch.setattr(ablation, "ABLATION_ROOT", str(tmp_path))
+    qs = [{"qid": f"q{i}", "question": f"Q{i}?"} for i in range(12)]
+    monkeypatch.setattr(run_arm, "_questions", lambda n: qs[:n])
+    monkeypatch.setattr(run_arm, "build_mcq", lambda q: {**_mcq(), "prompt": q["question"]})
+    monkeypatch.setattr(run_arm, "_served_model", lambda: "stub-model")
+    calls, lock, live, peak = [], threading.Lock(), [0], [0]
+
+    def fake_bare(prompt):
+        with lock:
+            calls.append(prompt); live[0] += 1; peak[0] = max(peak[0], live[0])
+        _t.sleep(0.02 * (12 - int(prompt[1:-1])) / 12)   # later questions finish first
+        with lock:
+            live[0] -= 1
+        return {"content": "B", "elapsed_s": 0.1, "prompt_tokens": 10, "completion_tokens": 1}
+    monkeypatch.setattr(run_arm.V, "bare_answer", fake_bare)
+
+    run_arm.run("bare", 12, tag="c", concurrency=3)
+    work = ablation.runs_dir("c")
+    assert sorted(calls) == sorted(q["question"] for q in qs) and len(calls) == 12
+    assert 1 < peak[0] <= 3, "parallel, but never more than --concurrency in flight"
+    out = json.load(open(os.path.join(work, "bare.json")))
+    assert [r["qid"] for r in out["per_q"]] == [q["qid"] for q in qs]
+    lines = [json.loads(l) for l in open(os.path.join(work, "bare.capture.jsonl"))]
+    assert len(lines) == 12, "one capture line per question, none torn"
+    assert json.load(open(os.path.join(work, "bare.meta.json")))["concurrency"] == 3
+
+
+def _reload_cfg(monkeypatch, **env):
+    from munin_bench import config
+    for k in ("LLM_THINKING_BUDGET", "BENCH_DIRECT_SAMPLING", "SAMPLING_DEFAULT"):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    return importlib.reload(config)
+
+
+def test_direct_arm_defaults_are_the_legacy_body(monkeypatch):
+    """Old scorecards stay reproducible: no env = temperature 0.7, no budget."""
+    cfg = _reload_cfg(monkeypatch)
+    assert cfg.direct_arm_sampling() == {"temperature": 0.7}
+    assert cfg.thinking_budget_fields(16384) == {}
+    importlib.reload(cfg)
+
+
+def test_direct_arm_profile_sampling_and_budget(monkeypatch):
+    card = {"temperature": 1.0, "top_p": 0.95, "top_k": 20, "min_p": 0.0, "presence_penalty": 1.5}
+    cfg = _reload_cfg(monkeypatch, BENCH_DIRECT_SAMPLING="profile",
+                      SAMPLING_DEFAULT=json.dumps(card), LLM_THINKING_BUDGET="8192")
+    assert cfg.direct_arm_sampling() == card
+    assert cfg.thinking_budget_fields(16384) == {"thinking_token_budget": 8192}
+    assert cfg.thinking_budget_fields(4096) == {"thinking_token_budget": 2048}, "half of max_tokens at most"
+    _reload_cfg(monkeypatch)
+
+
+def test_direct_arm_profile_sampling_needs_the_profile(monkeypatch):
+    cfg = _reload_cfg(monkeypatch, BENCH_DIRECT_SAMPLING="profile")
+    with pytest.raises(ValueError):
+        cfg.direct_arm_sampling()
+    with pytest.raises(ValueError):
+        _reload_cfg(monkeypatch, BENCH_DIRECT_SAMPLING="card")
+    _reload_cfg(monkeypatch)
+
+
+def test_vllm_answer_body_carries_sampling_and_budget(monkeypatch):
+    card = {"temperature": 1.0, "top_p": 0.95, "top_k": 20, "min_p": 0.0, "presence_penalty": 1.5}
+    _reload_cfg(monkeypatch, BENCH_DIRECT_SAMPLING="profile",
+                SAMPLING_DEFAULT=json.dumps(card), LLM_THINKING_BUDGET="8192")
+    from munin_bench.ablation import vllm_answer as V
+    seen = {}
+
+    class _Resp:
+        def __init__(self, body): self.body = body
+        def read(self): return json.dumps({"choices": [{"message": {"content": "A"}, "finish_reason": "stop"}],
+                                           "usage": {}}).encode()
+    def fake_urlopen(req, timeout=None):
+        seen.update(json.loads(req.data)); return _Resp(seen)
+    monkeypatch.setattr(V.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(V.json, "load", lambda r: json.loads(r.read()))
+    V.bare_answer("Q?")
+    assert {k: seen[k] for k in card} == card
+    assert seen["thinking_token_budget"] == 8192 and seen["max_tokens"] == 16384
+    V.complete("Q?", system="s", max_tokens=4096, temperature=0.2)
+    assert seen["temperature"] == 0.2 and seen["thinking_token_budget"] == 2048
+    _reload_cfg(monkeypatch)

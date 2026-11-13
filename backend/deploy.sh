@@ -1573,6 +1573,7 @@ instance_render_compose() {
         echo "      - $(_yaml_sq "VLLM_MODEL_NAME=$MODEL_NAME")"
         echo "      - $(_yaml_sq "LLM_THINKING_MODE=$LLM_THINKING_MODE")"
         echo "      - $(_yaml_sq "LLM_REASONING_EFFORT=$LLM_REASONING_EFFORT")"
+        echo "      - $(_yaml_sq "LLM_THINKING_BUDGET=${LLM_THINKING_BUDGET:-}")"
         echo "      - $(_yaml_sq "SAMPLING_DEFAULT=$SAMPLING_DEFAULT")"
         echo "      - $(_yaml_sq "SAMPLING_CODE=$SAMPLING_CODE")"
         echo "      - MUNIN_INSTANCE=$name"
@@ -1759,7 +1760,7 @@ iv = {m["target"]: m["source"] for m in d["retrieval-" + name].get("volumes", []
 print("MOUNTS:" + " ".join(sorted(t for t in set(pv) | set(iv) if pv.get(t) != iv.get(t))))
 ' "$name" 2>/dev/null) || diffkeys="(compose config failed)"
     echo "  $diffkeys"
-    local allowed="VLLM_URL VLLM_MODEL_NAME LLM_THINKING_MODE LLM_REASONING_EFFORT SAMPLING_DEFAULT SAMPLING_CODE MUNIN_INSTANCE PAPERS_COLLECTION CHUNKS_COLLECTION"
+    local allowed="VLLM_URL VLLM_MODEL_NAME LLM_THINKING_MODE LLM_REASONING_EFFORT LLM_THINKING_BUDGET SAMPLING_DEFAULT SAMPLING_CODE MUNIN_INSTANCE PAPERS_COLLECTION CHUNKS_COLLECTION"
     local k bad=""
     for k in $(printf '%s' "$diffkeys" | head -1); do
         case " $allowed " in *" $k "*) ;; *) bad="$bad $k" ;; esac

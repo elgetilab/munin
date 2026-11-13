@@ -335,6 +335,8 @@ services:
       # "-" not ":-": a profile that sets it EMPTY (sage-a1.5, qwen3.6) means
       # "send no effort" (database.py), so only an UNSET value falls back.
       - LLM_REASONING_EFFORT=${LLM_REASONING_EFFORT-medium}
+      # Reasoning-trace cap in tokens (vLLM thinking_token_budget; blank = none).
+      - LLM_THINKING_BUDGET=${LLM_THINKING_BUDGET:-}
       # Sampling profile per persona class (JSON objects; blank = Qwen3 set).
       - SAMPLING_DEFAULT=${SAMPLING_DEFAULT:-}
       - SAMPLING_CODE=${SAMPLING_CODE:-}

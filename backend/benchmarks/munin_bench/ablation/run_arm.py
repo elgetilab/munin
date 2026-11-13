@@ -30,7 +30,9 @@ import json
 import os
 import random
 import subprocess
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..benchmarks.litqa2_runner import load_litqa2, build_mcq, parse_letter
 from ..abstention.corpus import in_corpus
@@ -242,7 +244,7 @@ def _served_model() -> str:
 
 def run(arm: str, n: int, *, top_k: int = 5, base_url: str = "http://127.0.0.1:8080",
         email: str = "litqa2-eval@localhost", tag: str | None = None,
-        deadline: int = 900) -> dict:
+        deadline: int = 900, concurrency: int = 1) -> dict:
     qs = _questions(n)
     work = runs_dir(tag, create=True)
     cap_path = os.path.join(work, f"{arm}.capture.jsonl")
@@ -256,30 +258,53 @@ def run(arm: str, n: int, *, top_k: int = 5, base_url: str = "http://127.0.0.1:8
     print(f"[d:{arm}] {len(qs)} questions -> {work} "
           f"({len(done)} already captured, {len(todo)} to run)")
     t0 = time.time()
+
+    def one(q: dict) -> dict:
+        mcq = build_mcq(q)
+        if arm == "bare":
+            r = V.bare_answer(mcq["prompt"])
+            row = {"qid": q["qid"], **_verdict(mcq, r["content"]), "tool_calls": 0,
+                   "elapsed_s": r["elapsed_s"], "prompt_tokens": r["prompt_tokens"],
+                   "completion_tokens": r["completion_tokens"], "n_contexts": 0,
+                   "answer": r["content"], **_direct_extras(r)}
+        elif arm == "rag":
+            ctx = _retrieve(q["question"], top_k)
+            r = V.rag_answer(mcq["prompt"], ctx)
+            row = {"qid": q["qid"], **_verdict(mcq, r["content"]), "tool_calls": 0,
+                   "elapsed_s": r["elapsed_s"], "prompt_tokens": r["prompt_tokens"],
+                   "completion_tokens": r["completion_tokens"], "n_contexts": len(ctx),
+                   "answer": r["content"], "contexts": ctx, **_direct_extras(r)}
+        elif arm == "agentic":
+            row = _agentic_one(q, base_url, email, deadline=deadline)
+        else:
+            raise SystemExit(f"unknown arm {arm}")
+        return row
+
+    # concurrency > 1 runs questions in parallel (the server's max-num-seqs is
+    # the ceiling). Rows go to the capture file as they finish, under a lock;
+    # the result file below is re-sorted into question order. elapsed_s is then
+    # wall time under load, not a single-stream latency: the meta records it.
+    if arm == "rag" and todo:
+        _bge()  # load the encoder once, before any worker thread wants it
+    lock = threading.Lock()
+    finished = 0
     with open(cap_path, "a", buffering=1) as fh:
-        for i, q in enumerate(todo, 1):
-            mcq = build_mcq(q)
-            if arm == "bare":
-                r = V.bare_answer(mcq["prompt"])
-                row = {"qid": q["qid"], **_verdict(mcq, r["content"]), "tool_calls": 0,
-                       "elapsed_s": r["elapsed_s"], "prompt_tokens": r["prompt_tokens"],
-                       "completion_tokens": r["completion_tokens"], "n_contexts": 0,
-                       "answer": r["content"], **_direct_extras(r)}
-            elif arm == "rag":
-                ctx = _retrieve(q["question"], top_k)
-                r = V.rag_answer(mcq["prompt"], ctx)
-                row = {"qid": q["qid"], **_verdict(mcq, r["content"]), "tool_calls": 0,
-                       "elapsed_s": r["elapsed_s"], "prompt_tokens": r["prompt_tokens"],
-                       "completion_tokens": r["completion_tokens"], "n_contexts": len(ctx),
-                       "answer": r["content"], "contexts": ctx, **_direct_extras(r)}
-            elif arm == "agentic":
-                row = _agentic_one(q, base_url, email, deadline=deadline)
-            else:
-                raise SystemExit(f"unknown arm {arm}")
-            fh.write(json.dumps(row) + "\n")
-            done[q["qid"]] = row
-            if i % 10 == 0 or i == len(todo):
-                print(f"  {i}/{len(todo)} ({time.time()-t0:.0f}s)")
+        def record(q: dict, row: dict) -> None:
+            nonlocal finished
+            with lock:
+                fh.write(json.dumps(row) + "\n")
+                done[q["qid"]] = row
+                finished += 1
+                if finished % 10 == 0 or finished == len(todo):
+                    print(f"  {finished}/{len(todo)} ({time.time()-t0:.0f}s)", flush=True)
+        if concurrency <= 1:
+            for q in todo:
+                record(q, one(q))
+        else:
+            with ThreadPoolExecutor(max_workers=concurrency) as pool:
+                futs = {pool.submit(one, q): q for q in todo}
+                for fut in as_completed(futs):
+                    record(futs[fut], fut.result())
 
     # Question order, not completion order, so per-query arrays align across arms.
     per = [done[q["qid"]] for q in qs if q["qid"] in done]
@@ -296,6 +321,9 @@ def run(arm: str, n: int, *, top_k: int = 5, base_url: str = "http://127.0.0.1:8
             "deadline_s": deadline if arm == "agentic" else None,
             "reasoning_effort": config.LLM_REASONING_EFFORT or None,
             "max_output_tokens": config.MAX_OUTPUT_TOKENS,
+            "thinking_token_budget": config.LLM_THINKING_BUDGET or None,
+            "direct_sampling": (config.direct_arm_sampling() if arm != "agentic" else None),
+            "concurrency": concurrency,
             # Which corpus this arm actually searched, counted now rather than
             # at scoring time. The bare arm makes no tool calls and reads no
             # collection, so it is stamped for the record but means nothing there.
@@ -323,6 +351,8 @@ def main() -> int:
     ap.add_argument("--tag", default=None,
                     help="ablation_runs/<tag>/ (or env MUNIN_ABLATION_TAG). Required "
                          "for a write: never reuse a committed run's tag")
+    ap.add_argument("--concurrency", type=int, default=1,
+                    help="questions in flight at once (<= the server's max-num-seqs)")
     ap.add_argument("--deadline", type=int, default=900,
                     help="agentic arm per-question wall-clock deadline, seconds")
     args = ap.parse_args()
@@ -330,7 +360,7 @@ def main() -> int:
         raise SystemExit("--tag (or MUNIN_ABLATION_TAG) is required so a run can "
                          "never overwrite a committed run's per-query arrays")
     run(args.arm, args.n, top_k=args.top_k, base_url=args.base_url, email=args.email,
-        tag=args.tag, deadline=args.deadline)
+        tag=args.tag, deadline=args.deadline, concurrency=args.concurrency)
     return 0
 
 

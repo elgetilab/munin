@@ -5,7 +5,7 @@
 # Brings a backbone up as an eval-only instance beside production (GPU 0,
 # vLLM :8001, retrieval :8082, plus a shadow-corpus instance :8083 for the C2b
 # absent arm), gates it, smokes it, runs every generation track at
-# concurrency 1, derives the offline metrics, tears the instance down and
+# --concurrency (default 1), derives the offline metrics, tears the instance down and
 # restores the production profile. docs/paper-track/BACKBONE-SWITCH-AND-EVAL-PLAN.md
 # is the plan this implements.
 #
@@ -14,6 +14,14 @@
 #                                    [--vllm-port 8001] [--no-teardown] [--no-smoke]
 #                                    [--gpu-util U] [--tracks trackd,egressoff,c1,answer,c2b,faith,derived]
 #                                    [--copy-arms-from TAG] [--ablation-tag TAG]
+#                                    [--concurrency N] [--direct-sampling profile|legacy]
+#   --concurrency N runs N questions at once in every generation track (default
+#   1; at most the profile's VLLM_MAX_NUM_SEQS_SINGLE). Accuracy is unaffected;
+#   per-question elapsed_s becomes wall time under load, so latency columns are
+#   not comparable with a concurrency-1 run. Recorded in provenance.
+#   --direct-sampling: the bare/RAG arms send the profile's SAMPLING_DEFAULT
+#   ("profile", the default since 2026-11-13) or only temperature 0.7
+#   ("legacy", how every earlier scorecard ran). See munin_bench/config.py.
 #   --tag names the run (runs/<tag>/ markers and log); --ablation-tag names the
 #   ablation_runs/<tag>/ arm dir (default: the run tag), so one track can be
 #   re-run later under a fresh run tag against the original arms.
@@ -98,6 +106,8 @@ TRACKS="trackd,egressoff,c1,answer,c2b,faith,derived"
 COPY_ARMS_FROM=""
 ABL_TAG=""
 ACCEPT_GATES=""
+CONC=1
+DIRECT_SAMPLING=profile
 while [ $# -gt 0 ]; do
     case "$1" in
         --date) DATE=$2; shift 2 ;;
@@ -114,6 +124,8 @@ while [ $# -gt 0 ]; do
         --copy-arms-from) COPY_ARMS_FROM=$2; shift 2 ;;
         --ablation-tag) ABL_TAG=$2; shift 2 ;;
         --accept-gate) ACCEPT_GATES="${ACCEPT_GATES:+$ACCEPT_GATES,}$2"; shift 2 ;;
+        --concurrency) CONC=$2; shift 2 ;;
+        --direct-sampling) DIRECT_SAMPLING=$2; shift 2 ;;
         *) echo "unknown flag $1"; exit 1 ;;
     esac
 done
@@ -150,6 +162,14 @@ source "$BACKEND/scripts/vllm/model-env.sh"
 MUNIN_MODEL_PROFILES_DIR="$BACKEND/config/models"
 munin_load_model_env "$SLUG" || exit 1
 export VLLM_URL="$VLLM" VLLM_MODEL_NAME="$MODEL_NAME" LLM_THINKING_MODE LLM_REASONING_EFFORT
+# The bare/RAG arms call vLLM directly: same thinking budget and (by default)
+# the same sampling the agentic arm gets from retrieval (munin_bench/config.py).
+export LLM_THINKING_BUDGET="${LLM_THINKING_BUDGET:-}" SAMPLING_DEFAULT BENCH_DIRECT_SAMPLING="$DIRECT_SAMPLING"
+case "$DIRECT_SAMPLING" in profile|legacy) ;; *) echo "--direct-sampling must be profile or legacy"; exit 1 ;; esac
+case "$CONC" in ''|*[!0-9]*|0) echo "--concurrency must be a positive integer"; exit 1 ;; esac
+if [ "$CONC" -gt "$VLLM_MAX_NUM_SEQS_SINGLE" ]; then
+    echo "--concurrency $CONC exceeds the profile's VLLM_MAX_NUM_SEQS_SINGLE=$VLLM_MAX_NUM_SEQS_SINGLE"; exit 1
+fi
 export MUNIN_EVAL_EGRESS=full
 export MUNIN_BENCH_ENTAILMENT_DEVICE=${MUNIN_BENCH_ENTAILMENT_DEVICE:-cpu}
 export MUNIN_ABLATION_TAG="$ABL_TAG"
@@ -163,9 +183,12 @@ PROV=(--provenance "backbone=$MODEL_SLUG" --provenance "checkpoint=$MODEL_ID"
       --provenance "tool_parser=$VLLM_TOOL_PARSER" --provenance "reasoning_parser=$VLLM_REASONING_PARSER"
       --provenance "thinking_mode=$LLM_THINKING_MODE" --provenance "sampling_default=$SAMPLING_DEFAULT"
       --provenance "sampling_code=$SAMPLING_CODE" --provenance "serving_profile=single-gpu-instance"
-      --provenance "max_num_seqs=$VLLM_MAX_NUM_SEQS_SINGLE" --provenance "gpu_mem_util=$GPU_UTIL" --provenance "concurrency=1"
+      --provenance "max_num_seqs=$VLLM_MAX_NUM_SEQS_SINGLE" --provenance "gpu_mem_util=$GPU_UTIL" --provenance "concurrency=$CONC"
       --provenance "deadline_s=900" --provenance "driver=run_suite.sh")
 [ -n "$ACCEPT_GATES" ] && PROV+=(--provenance "accepted_smoke_gates=$ACCEPT_GATES")
+PROV+=(--provenance "thinking_token_budget=${LLM_THINKING_BUDGET:-none}"
+       --provenance "reasoning_end_str=${VLLM_REASONING_END_STR:+set}"
+       --provenance "direct_arm_sampling=$DIRECT_SAMPLING")
 
 # The card behind gres gpu:batch, from gres.conf (index 0 on hugin).
 batch_gpu_index() {
@@ -333,9 +356,9 @@ if [ "$SMOKE" = "1" ] && ! phase_done 2; then
     log "--- phase 2: smoke (20 questions x 3 arms + 20 C1 items) ---"
     smoke_start=$(ts)
     run_logged $PY -m munin_bench.pipelines.run_all --tag "$TAG-smoke" --tracks ablation --limit 20 \
-        --base-url "$API" --email "$EMAIL" --date "$DATE" "${PROV[@]}" || die "smoke run_all failed"
+        --concurrency "$CONC" --base-url "$API" --email "$EMAIL" --date "$DATE" "${PROV[@]}" || die "smoke run_all failed"
     run_logged $PY -m munin_bench.abstention.run_c1 --base-url "$API" --email "$EMAIL" --limit 20 \
-        --concurrency 1 --deadline 900 --out-dir "$BENCH/c1_runs/$TAG-smoke" || die "smoke C1 failed"
+        --concurrency "$CONC" --deadline 900 --out-dir "$BENCH/c1_runs/$TAG-smoke" || die "smoke C1 failed"
     brave=$(brave_errors_since "$smoke_start")
     ACCEPT_GATES="$ACCEPT_GATES" $PY - "$BENCH/ablation_runs/$TAG-smoke" "$BENCH/ablation_runs/qwen38-27b" "$brave" <<'PYEOF' 2>&1 | tee -a "$LOG"
 import json, os, sys
@@ -394,7 +417,7 @@ fi
 stop_if_until 2
 
 # ==============================================================================
-# Phase 3: the suite, concurrency 1 throughout
+# Phase 3: the suite, at --concurrency (default 1) throughout
 # ==============================================================================
 if ! phase_done 3; then
     log "--- phase 3: suite (tracks: $TRACKS) ---"
@@ -403,7 +426,7 @@ if ! phase_done 3; then
     if want trackd && ! phase_done 3a; then
         log "3a Track D, 3 arms, n=199 (resumable), egress=full"
         run_logged $PY -m munin_bench.pipelines.run_all --tag "$TAG" --ablation-tag "$ABL_TAG" --tracks ablation --limit 199 \
-            --with-reliability --certify --base-url "$API" --email "$EMAIL" --date "$DATE" "${PROV[@]}"
+            --with-reliability --certify --concurrency "$CONC" --base-url "$API" --email "$EMAIL" --date "$DATE" "${PROV[@]}"
         rc=$?; [ $rc -le 1 ] || die "run_all ablation failed (rc=$rc)"   # rc 1 = certification FAIL, a finding
         [ $rc -eq 1 ] && log "NOTE: certification gate FAIL on this backbone (thresholds are Qwen3.6-derived); recorded, not acted on"
         run_logged $PY -m munin_bench.ablation.compare --date "$DATE" --tag "$ABL_TAG" || die "ablation compare failed"
@@ -421,7 +444,7 @@ if ! phase_done 3; then
         echo "bare/rag copied from ablation_runs/$src (they make no tool calls, so egress does not touch them); agentic captured at MUNIN_EVAL_EGRESS=off $(ts)" \
             > "$BENCH/ablation_runs/$ABL_TAG-egressoff/README"
         MUNIN_EVAL_EGRESS=off run_logged $PY -m munin_bench.ablation.run_arm --arm agentic --n 199 --tag "$ABL_TAG-egressoff" \
-            --base-url "$API" --email "$EMAIL" || die "egress=off agentic arm failed"
+            --concurrency "$CONC" --base-url "$API" --email "$EMAIL" || die "egress=off agentic arm failed"
         run_logged $PY -m munin_bench.ablation.compare --date "$DATE" --tag "$ABL_TAG-egressoff" || die "egressoff compare failed"
         mv "$BENCH/scorecards/${DATE}_harness-ablation.json" "$BENCH/scorecards/${DATE}_harness-ablation-agentic-egressoff-$SLUG.json" 2>/dev/null || true
         run_logged $PY -m munin_bench.toolreliability.score "$BENCH/ablation_runs/$ABL_TAG-egressoff/agentic.json" \
@@ -448,21 +471,21 @@ PYEOF
     fi
     if want c1 && ! phase_done 3b; then
         log "3b C1 fabricated, n=100, egress=full (resumable)"
-        run_logged $PY -m munin_bench.abstention.run_c1 --base-url "$API" --email "$EMAIL" --concurrency 1 \
+        run_logged $PY -m munin_bench.abstention.run_c1 --base-url "$API" --email "$EMAIL" --concurrency "$CONC" \
             --deadline 900 --date "$DATE" --out-dir "$BENCH/c1_runs/$TAG" "--out-suffix=-$SLUG" || die "C1 failed"
         mark_done 3b
     fi
     if want answer && ! phase_done 3c; then
         log "3c LitQA2 standalone answer track, n=199, egress=full (resumable)"
         run_logged $PY -m munin_bench.pipelines.run_litqa2 --track answer --base-url "$API" --email "$EMAIL" \
-            --concurrency 1 --tag "$TAG" || die "answer track failed"
+            --concurrency "$CONC" --tag "$TAG" || die "answer track failed"
         cp "$BENCH/results/litqa2/answer.$TAG.json" "$BENCH/scorecards/${DATE}_answer-$SLUG-900s.json"
         mark_done 3c
     fi
     if want c2b && ! phase_done 3d; then
         log "3d C2b pair, n=50 x 2, egress=off (present :$API_PORT, absent :$SHADOW_API_PORT)"
         MUNIN_EVAL_EGRESS=off run_logged $PY -m munin_bench.abstention.run_c2 --arm present --base-url "$API" \
-            --email "$EMAIL" --concurrency 1 --work-dir "$BENCH/c2_runs/$TAG" || die "C2 present failed"
+            --email "$EMAIL" --concurrency "$CONC" --work-dir "$BENCH/c2_runs/$TAG" || die "C2 present failed"
         # The absent arm searches the shadow pair, so its corpus stamp must name
         # those collections; without the override it would record the production
         # counts for the one arm defined by NOT searching production.
@@ -470,7 +493,7 @@ PYEOF
         MUNIN_EVAL_PAPERS_COLLECTION=papers_shadow \
         MUNIN_EVAL_CHUNKS_COLLECTION=papers_chunks_shadow \
         run_logged $PY -m munin_bench.abstention.run_c2 --arm absent --base-url "$SHADOW_API" \
-            --email "$EMAIL" --concurrency 1 --work-dir "$BENCH/c2_runs/$TAG" --date "$DATE" \
+            --email "$EMAIL" --concurrency "$CONC" --work-dir "$BENCH/c2_runs/$TAG" --date "$DATE" \
             --out-tag "abstention-c2-shadow-$SLUG" --vs-dir "$BENCH/c2_runs" --vs-suffix "" || die "C2 absent failed"
         mark_done 3d
     fi

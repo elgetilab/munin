@@ -61,8 +61,49 @@ def check_venv() -> int:
     return failures
 
 
+def reasoning_after(*profiles: Path) -> tuple[str, list[str]]:
+    """(exported LLM_THINKING_BUDGET as a child sees it, VLLM_REASONING_ARGS)
+    after loading the profiles in order, in one shell."""
+    loads = " && ".join(f"munin_load_model_env '{p}' >/dev/null" for p in profiles)
+    script = (f"source '{MODEL_ENV}' && {loads} && "
+              "bash -c 'printf %s \"$LLM_THINKING_BUDGET\"' && printf '\\0' && "
+              "printf '%s\\0' \"${VLLM_REASONING_ARGS[@]}\"")
+    out = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+                         env={"PATH": "/usr/bin:/bin", "MUNIN_ROOT": "/nonexistent"})
+    if out.returncode != 0:
+        raise RuntimeError(out.stdout + out.stderr)
+    parts = out.stdout.split("\0")
+    return parts[0], [x for x in parts[1:] if x]
+
+
+def check_reasoning() -> int:
+    """A profile with LLM_THINKING_BUDGET / VLLM_REASONING_END_STR exports the
+    budget to children and builds one JSON `--reasoning-config` argument with
+    real newlines; a profile without them, loaded after, gets neither."""
+    import json
+    failures = 0
+    with_rc = [p for p in PROFILES if "\nVLLM_REASONING_END_STR=" in "\n" + p.read_text()]
+    plain = [p for p in PROFILES if p not in with_rc]
+    for p in with_rc:
+        budget, args = reasoning_after(p)
+        try:
+            end = json.loads(args[1])["reasoning_end_str"] if len(args) == 2 else ""
+        except ValueError:
+            end = ""
+        ok = (budget.isdigit() and args[:1] == ["--reasoning-config"]
+              and end.endswith("</think>\n\n") and "\\n" not in end)
+        failures += not ok
+        print(f"[{'PASS' if ok else 'FAIL'}] {p.name}: budget={budget} reasoning args={args}")
+    for p in plain:
+        budget, args = reasoning_after(*with_rc, p)
+        ok = budget == "" and args == []
+        failures += not ok
+        print(f"[{'PASS' if ok else 'FAIL'}] {p.name} after {[o.name for o in with_rc]}: budget={budget!r} args={args}")
+    return failures
+
+
 def main() -> int:
-    failures = check_venv()
+    failures = check_venv() + check_reasoning()
     for profile in PROFILES:
         got = load(profile)
         ok = got["MODEL_NAME"] and got["VLLM_MODEL_NAME"] == got["MODEL_NAME"] == got["exported"]

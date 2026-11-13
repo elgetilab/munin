@@ -48,6 +48,8 @@ from database import (
     thinking_off,
     thinking_off_fields,
     reasoning_effort_fields,
+    thinking_budget_fields,
+    _env_int,
 )
 
 FIELD = {"chat_template_kwargs": {"enable_thinking": False}}
@@ -185,6 +187,51 @@ def test_does_not_collide_with_the_thinking_field():
     into one literal would silently keep only the last, so nothing in the tree
     may do that; these are merged, never splatted together."""
     assert set(thinking_off_fields()) == set(reasoning_effort_fields())
+
+
+# --- thinking budget ---------------------------------------------------------
+# Sage-A1.5 has no effort dial: at a 16K output cap 80/199 LitQA2 bare answers
+# ended inside <think> with nothing to show (2026-11-12). The cap is vLLM's
+# per-request thinking_token_budget, set per profile.
+
+def test_budget_off_by_default():
+    """A profile without LLM_THINKING_BUDGET sends a byte-identical body."""
+    assert thinking_budget_fields(budget=0) == {}
+
+
+def test_budget_sent_when_set():
+    assert thinking_budget_fields(budget=8192) == {"thinking_token_budget": 8192}
+
+
+def test_budget_never_takes_more_than_half_of_max_tokens():
+    """A forced stop must still leave room for the answer, also after a
+    context refit shrinks max_tokens."""
+    assert thinking_budget_fields(budget=8192, max_tokens=16384) == {"thinking_token_budget": 8192}
+    assert thinking_budget_fields(budget=8192, max_tokens=4096) == {"thinking_token_budget": 2048}
+    assert thinking_budget_fields(budget=8192, max_tokens=1) == {"thinking_token_budget": 1}
+    assert thinking_budget_fields(budget=1000, max_tokens=16384) == {"thinking_token_budget": 1000}
+
+
+def test_budget_rides_the_thinking_toggle():
+    """vLLM-only field: an endpoint behind LLM_THINKING_TOGGLE=0 must not get it."""
+    assert thinking_budget_fields(budget=8192, enabled=False) == {}
+
+
+def test_budget_does_not_collide_with_chat_template_kwargs():
+    """Unlike the two helpers above it writes its own top-level key, so it is
+    safe to splat next to either of them."""
+    assert not set(thinking_budget_fields(budget=8192)) & set(reasoning_effort_fields())
+
+
+@pytest.mark.parametrize("raw,expected", [("", 0), ("  ", 0), ("8192", 8192), ("0", 0)])
+def test_env_int_parses(raw, expected):
+    assert _env_int("X", env={"X": raw}) == expected
+
+
+@pytest.mark.parametrize("raw", ["8k", "-1", "1.5"])
+def test_env_int_rejects_garbage_at_boot(raw):
+    with pytest.raises(ValueError):
+        _env_int("X", env={"X": raw})
 
 
 if __name__ == "__main__":

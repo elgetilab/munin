@@ -62,7 +62,7 @@ VLLM_ONLY_FIELDS = (
     "guided_json", "guided_regex", "guided_choice", "guided_grammar",
     "guided_decoding_backend", "structured_outputs", "priority", "request_id",
     "logits_processors", "return_tokens_as_token_ids", "seed", "logit_bias",
-    "logprobs", "top_logprobs", "n",
+    "logprobs", "top_logprobs", "n", "thinking_token_budget",
 )
 
 

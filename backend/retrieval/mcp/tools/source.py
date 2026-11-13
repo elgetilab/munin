@@ -44,7 +44,7 @@ import httpx
 import provenance as P
 from agent_trace import AgentTrace
 from url_guard import BlockedURL, guarded_client, read_text_capped
-from database import VLLM_MODEL_NAME, VLLM_URL, thinking_off, LLM_HEADERS
+from database import VLLM_MODEL_NAME, VLLM_URL, thinking_off, thinking_budget_fields, LLM_HEADERS
 import site_config
 
 logger = logging.getLogger(__name__)
@@ -346,6 +346,10 @@ async def _vllm_answer(system: str, user: str, *, max_tokens: int = 4096,
     }
     if not enable_thinking:
         thinking_off(body)
+    else:
+        # At most half of max_tokens, so a long full-text trace is cut off
+        # with room left for the answer instead of returning nothing.
+        body.update(thinking_budget_fields(max_tokens=max_tokens))
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
             r = await client.post(f"{VLLM_URL}/v1/chat/completions", json=body,

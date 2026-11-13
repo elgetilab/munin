@@ -46,7 +46,7 @@ LLM_THINKING_MODE LLM_REASONING_EFFORT KV_KIB_PER_TOKEN SAMPLING_DEFAULT SAMPLIN
 
 # Variables the retrieval container reads via ${VAR:-default} substitution in
 # docker-compose.yml. Exported so `docker compose up` in the same shell sees them.
-MUNIN_MODEL_COMPOSE_EXPORTS="VLLM_MODEL_NAME LLM_THINKING_MODE LLM_REASONING_EFFORT \
+MUNIN_MODEL_COMPOSE_EXPORTS="VLLM_MODEL_NAME LLM_THINKING_MODE LLM_REASONING_EFFORT LLM_THINKING_BUDGET \
 SAMPLING_DEFAULT SAMPLING_CODE VLLM_TOOL_PARSER VLLM_REASONING_PARSER VLLM_EXTRA_ARGS \
 VLLM_MAX_MODEL_LEN TOKENIZER_HOST_DIR"
 
@@ -95,6 +95,11 @@ munin_validate_model_env() {
         enable_thinking|effort_low|none) ;;
         *) echo "[model-env] $file: LLM_THINKING_MODE=$v (expected enable_thinking|effort_low|none)"; rc=1 ;;
     esac
+    # Optional thinking budget: a non-negative integer (blank = none).
+    v=$(bash -c ". '$file'; printf '%s' \"\$LLM_THINKING_BUDGET\"" 2>/dev/null)
+    case "$v" in
+        ''|*[!0-9]*) [ -z "$v" ] || { echo "[model-env] $file: LLM_THINKING_BUDGET=$v (expected a non-negative integer)"; rc=1; } ;;
+    esac
     # The two sampling profiles must be JSON objects (or blank = Qwen fallback).
     for key in SAMPLING_DEFAULT SAMPLING_CODE; do
         v=$(bash -c ". '$file'; printf '%s' \"\$$key\"" 2>/dev/null)
@@ -113,6 +118,8 @@ munin_load_model_env() {
     # Optional keys start blank so a value from a previously loaded profile (or
     # the caller's shell) cannot leak into this one.
     VLLM_VENV=
+    LLM_THINKING_BUDGET=
+    VLLM_REASONING_END_STR=
     # shellcheck disable=SC1090
     set -a; . "$file"; set +a
 
@@ -145,6 +152,14 @@ munin_load_model_env() {
     # and `model activate` of any other backbone left retrieval requesting a
     # model vLLM no longer served (every chat turn 404s).
     VLLM_MODEL_NAME=$MODEL_NAME
+    # `--reasoning-config` for vLLM, when the profile sets a forced reasoning
+    # end string (what the server emits when a thinking_token_budget runs
+    # out). A JSON argument with spaces, so it is a bash array, not part of
+    # the word-split VLLM_EXTRA_ARGS: start scripts pass "${VLLM_REASONING_ARGS[@]}".
+    VLLM_REASONING_ARGS=()
+    if [ -n "${VLLM_REASONING_END_STR:-}" ]; then
+        VLLM_REASONING_ARGS=(--reasoning-config "$(python3 -c 'import json,sys; print(json.dumps({"reasoning_end_str": sys.argv[1].encode().decode("unicode_escape")}))' "$VLLM_REASONING_END_STR")")
+    fi
     export MODEL_PROFILE_FILE MODEL_PATH TOKENIZER_HOST_DIR VLLM_QUANT_ARGS VLLM_VENV
     local key
     for key in $MUNIN_MODEL_COMPOSE_EXPORTS; do
@@ -159,7 +174,7 @@ munin_model_env_summary() {
     echo "  checkpoint  : ${MODEL_PATH:-?}  [${MODEL_ID:-?}]"
     echo "  parsers     : tool=${VLLM_TOOL_PARSER:-?} reasoning=${VLLM_REASONING_PARSER:-?}"
     echo "  quant/kv    : ${VLLM_QUANTIZATION:-auto} / ${VLLM_KV_CACHE_DTYPE:-?}  extra: ${VLLM_EXTRA_ARGS:-none}"
-    echo "  thinking    : mode=${LLM_THINKING_MODE:-?} effort=${LLM_REASONING_EFFORT:-none}"
+    echo "  thinking    : mode=${LLM_THINKING_MODE:-?} effort=${LLM_REASONING_EFFORT:-none} budget=${LLM_THINKING_BUDGET:-none}${VLLM_REASONING_END_STR:+ (forced end string set)}"
     echo "  sampling    : default=${SAMPLING_DEFAULT:-qwen3-fallback}"
     echo "                code=${SAMPLING_CODE:-qwen3-fallback}"
     echo "  tokenizer   : ${TOKENIZER_HOST_DIR:-?}"

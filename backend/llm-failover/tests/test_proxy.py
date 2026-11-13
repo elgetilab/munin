@@ -213,13 +213,15 @@ def test_metrics_and_status(env):
     (None, "enable_thinking", None),
 ])
 def test_claude_safe_thinking_markers(kwargs, mode, expected):
-    body = {"model": "x", "messages": [], "top_k": 1, "seed": 3}
+    body = {"model": "x", "messages": [], "top_k": 1, "seed": 3,
+            "thinking_token_budget": 8192}
     if kwargs is not None:
         body["chat_template_kwargs"] = kwargs
     out = main.claude_safe(body, "claude-haiku-5-5", mode)
     assert out.get("chat_template_kwargs") == expected
     assert out["model"] == "claude-haiku-5-5"
     assert "top_k" not in out and "seed" not in out
+    assert "thinking_token_budget" not in out, "vLLM-only, never sent to Claude"
     assert body["top_k"] == 1, "input not mutated"
 
 
