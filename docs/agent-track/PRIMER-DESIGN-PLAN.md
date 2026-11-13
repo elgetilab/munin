@@ -568,13 +568,45 @@ confirmed against Supplementary Data 1 before the join means anything.*
 doi:10.5061/dryad.41ns1rnb7, **CC0-1.0** (no attribution obligation at all),
 one 119,687-byte zip. Paper: So, Fong, Lam & Dudgeon, Ecosphere 2020;11(7):e03193.
 
+**BUILT 2026-11-13, and deliberately NOT committed.** The dataset is not ours
+to redistribute: the labels are CC0 but the primer sequences come from a
+CC BY 4.0 paper, and the derived set is built from both. So it is **locally
+reproducible instead of vendored**, which also respects
+`backend/benchmarks/.gitignore`'s existing blanket `data/` rule rather than
+carving the first exception into it.
+
+What IS committed is the machinery:
+
+| Path | Role |
+|---|---|
+| `backend/benchmarks/scripts/build_primer_edna_dataset.py` | the extractor; both input paths are required arguments with no defaults |
+| `backend/benchmarks/tests/test_primer_edna_dataset.py` | 19 gold-value tests that SKIP when the data is absent |
+
+```
+python backend/benchmarks/scripts/build_primer_edna_dataset.py \
+    --dryad <dir holding Table S1/S2/S3 .xlsx> \
+    --paper-txt <pdftotext -layout output of the paper>
+```
+
+Both inputs are downloaded by hand because neither can be fetched
+automatically: Dryad gates downloads behind OAuth and the publisher 403s
+automated clients. The script's docstring carries the full acquisition
+instructions including the archive checksum, since the generated README lives
+under the gitignored `data/` and so is not in the repository.
+
+A fresh clone therefore has a green suite with all 19 tests skipped, and
+`MUNIN_PRIMER_EDNA_DIR` points them at the data once built. Verified: the
+build is deterministic, reproducing three of four CSVs byte-identically on a
+clean rebuild, with the fourth differing only in the two columns that the
+optional `--templates-fasta` network step fills in.
+
 **Downloaded and verified 2026-11-13.** Inner file sha256
 `b205efb7b36b642e6f77c437a203908573ea70fe4fa2822551f87648aeabd7bd`, matching the
 Dryad API, 119,687 bytes. Three xlsx files, all machine-readable, no figures:
 
 | File | Contents |
 |---|---|
-| Table S1 | 120 GenBank accessions (species, abbreviation, taxa group, accession, gene), so **every template is recoverable from NCBI** |
+| Table S1 | **105** GenBank accessions (species, abbreviation, taxa group, accession, gene), so **every template is recoverable from NCBI**. The 120 first recorded here was the spreadsheet row count, 15 of which are blank |
 | Table S2 | the test matrix, primer pair against each tested species |
 | Table S3 | **the labeled reactions**, two sheets |
 
