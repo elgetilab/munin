@@ -52,6 +52,11 @@ export function CodeIcon(p: IconProps) {
   return <Svg {...p}><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></Svg>;
 }
 
+/** A small chevron pointing right: opens a section. */
+export function ChevronRightIcon(p: IconProps) {
+  return <Svg {...p}><polyline points="9 18 15 12 9 6" /></Svg>;
+}
+
 /** A small chevron pointing down: opens a menu. */
 export function ChevronDownIcon(p: IconProps) {
   return <Svg {...p}><polyline points="6 9 12 15 18 9" /></Svg>;

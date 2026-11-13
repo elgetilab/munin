@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import type { ToolCall, RagContext } from '../lib/types';
 import { doiUrl } from '../lib/doi';
-import { BookIcon, FolderIcon, PageIcon, SearchIcon } from './ui/icons';
+import { BookIcon, ChevronRightIcon, FolderIcon, PageIcon, SearchIcon } from './ui/icons';
+import { activityLine } from '../lib/activity';
 
 // ── SVG Icons (14x14, stroke-based, no emojis) ─────────────────────────────
 
@@ -230,12 +231,51 @@ interface TaskLogProps {
   isStreaming?: boolean;
 }
 
+/**
+ * A reply's tool activity as one quiet line, as in Claude ("Searched the web ·
+ * 1 result", "Searching papers…"), which opens the detailed rows: each step's
+ * arguments and result, the reasoning, and the retrieved documents.
+ */
 export function TaskLog({ thinking, toolCalls, ragContext, thinkingDuration, isStreaming }: TaskLogProps) {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
   const hasContent = thinking || (toolCalls && toolCalls.length > 0) || ragContext;
   if (!hasContent) return null;
 
+  const line = activityLine({ thinking, toolCalls, ragContext, thinkingDuration, isStreaming, summarise: formatResult });
+  const last = toolCalls?.length ? toolCalls[toolCalls.length - 1] : null;
+  const icon = last ? getIcon(last.name) : ragContext ? Icons.sources : Icons.thinking;
+
   return (
-    <div className="bg-bg-secondary border border-border rounded-xl p-3 mb-3 text-xs font-mono">
+    <div className="mb-3">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        data-testid="activity-line"
+        onClick={() => setOpen(o => !o)}
+        className="group/act inline-flex max-w-full items-center gap-2 text-sm text-text-secondary hover:text-text-primary transition-colors cursor-pointer text-left"
+      >
+        <span className={`flex-shrink-0 ${line.active ? 'text-accent motion-safe:animate-pulse' : ''}`}>{icon}</span>
+        <span className="min-w-0 truncate">{line.text}</span>
+        {line.failed > 0 && (
+          <span className="flex-shrink-0 inline-flex items-center gap-1 text-warning">
+            {Icons.warning}
+            {line.failed} failed
+          </span>
+        )}
+        <ChevronRightIcon size={14} className={`flex-shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+      </button>
+      {open && (
+        <TaskLogRows id={panelId} thinking={thinking} toolCalls={toolCalls} ragContext={ragContext} thinkingDuration={thinkingDuration} isStreaming={isStreaming} />
+      )}
+    </div>
+  );
+}
+
+function TaskLogRows({ id, thinking, toolCalls, ragContext, thinkingDuration, isStreaming }: TaskLogProps & { id: string }) {
+  return (
+    <div id={id} className="mt-2 bg-bg-secondary border border-border rounded-xl p-3 text-xs font-mono">
       {ragContext && ragContext.documents.length > 0 && (
         <RagContextRow context={ragContext} />
       )}

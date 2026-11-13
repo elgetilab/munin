@@ -129,8 +129,8 @@ Effort: S under half a day, M one to two days, L more.
   - **Problem:** It has a border and a "chat tail" corner (`rounded-br-sm`,
     `MessageList.tsx` ~305).
   - **Fix:** No border, a warm `bg-tertiary`, `rounded-2xl` on every corner.
-- [ ] **Tool activity as one line** (M)
-  - **Decided 2026-11-13: do.**
+- [x] **Tool activity as one line** (M)
+  - **Done 2026-11-13: one sans line ("Searched the web · 1 result", "Searching papers…" while running, steps counted, failures in the warning colour) that opens the detailed rows.**
   - **Problem:** Tool calls show as a bordered monospace box (`TaskLog.tsx`
     ~238).
   - **Fix:** One sans line, collapsed by default ("Searched the web · 1 result
