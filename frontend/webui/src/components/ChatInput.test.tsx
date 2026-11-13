@@ -139,6 +139,25 @@ describe('Composer accessibility', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove tag Zeitler Group' }));
     expect(setActiveTags).toHaveBeenCalledWith([]);
   });
+
+  // index.css draws the full ring on the bubble only for this attribute; any
+  // other focus gets the gentle tint. A textarea is :focus-visible either way.
+  it('marks focus that came from the keyboard, and not focus from a click', () => {
+    renderChatInput();
+    fireEvent.pointerDown(document.body);
+    act(() => composer().focus());
+    expect(composer()).not.toHaveAttribute('data-keyboard-focus');
+    act(() => composer().blur());
+
+    fireEvent.keyDown(document.body, { key: 'Tab' });
+    act(() => composer().focus());
+    expect(composer()).toHaveAttribute('data-keyboard-focus');
+    // Typing a reply is not a reason to change how focus looks.
+    fireEvent.pointerDown(composer());
+    expect(composer()).toHaveAttribute('data-keyboard-focus');
+    act(() => composer().blur());
+    expect(composer()).not.toHaveAttribute('data-keyboard-focus');
+  });
 });
 
 describe('Disabled menu items explain themselves', () => {

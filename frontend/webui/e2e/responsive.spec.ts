@@ -71,6 +71,28 @@ test.describe('panels', () => {
     expect((await panel.boundingBox())?.width).toBe(576);
     await expect(page.getByTestId('composer-textarea')).toBeInViewport();
   });
+
+  test('from xl up, Escape closes the side column and returns to its toggle', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installMocks(page, { chatScript: script() });
+    await page.goto('/');
+    await send(page);
+    const panel = page.getByTestId('artifact-panel');
+    const toggle = page.getByTestId('artifacts-button');
+    await panel.getByRole('button', { name: 'Back to artifact list' }).focus();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+    // A menu above the column closes first.
+    await page.getByTestId('composer-attach').click();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('attach-deep-research')).toBeHidden();
+    await expect(panel).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(toggle).toBeFocused();
+  });
 });
 
 test.describe('header', () => {
@@ -179,16 +201,23 @@ test.describe('keyboard', () => {
     await expect(page.getByTestId('composer-attach')).toBeFocused();
   });
 
+  // Reached from the keyboard: Shift+Tab back from the + button.
+  async function tabIntoComposer(page: Page) {
+    await page.getByTestId('composer-attach').focus();
+    await page.keyboard.press('Shift+Tab');
+    await expect(page.getByTestId('composer-textarea')).toBeFocused();
+  }
+
   test('the composer draws its ring on the bubble, not across it', async ({ page }, info) => {
     await installMocks(page);
     await page.goto('/');
     const theme = await expectProjectTheme(page, info);
     const box = page.getByTestId('composer-textarea');
-    await box.focus();
+    await tabIntoComposer(page);
     await expect(box).toHaveCSS('outline-style', 'none');
     await expect(box.locator('..')).toHaveCSS('outline-style', 'solid');
-    // The accent of the theme this project runs in, pinned, so a token gone wrong
-    // fails here as well as a ring drawn in some other colour.
+    // The ring colour of the theme this project runs in, pinned, so a token gone
+    // wrong fails here as well as a ring drawn in some other colour.
     await expect(box.locator('..')).toHaveCSS('outline-color', PALETTE[theme].accent);
   });
 
@@ -197,7 +226,7 @@ test.describe('keyboard', () => {
     await page.goto('/');
     const bubble = page.getByTestId('composer-textarea').locator('..');
     const atRest = await bubble.evaluate((el) => getComputedStyle(el).borderTopColor);
-    await page.getByTestId('composer-textarea').focus();
+    await tabIntoComposer(page);
     await bubble.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
     await expect(bubble).toHaveCSS('outline-style', 'solid');
     // A negative check against a pinned dark accent would pass in light whatever
@@ -206,6 +235,220 @@ test.describe('keyboard', () => {
     const accent = await cssVarColor(bubble, '--color-accent');
     expect(atRest).not.toBe(accent);
     await expect(bubble).toHaveCSS('border-top-color', atRest);
+  });
+
+  test('Ctrl+K opens search chats from the composer, with no ring inside it, and Escape goes back', async ({ page }, info) => {
+    await installMocks(page);
+    await page.goto('/');
+    const ring = PALETTE[await expectProjectTheme(page, info)].accent;
+    const button = page.getByRole('button', { name: 'Search chats' });
+    await expect(button).toHaveAttribute('aria-keyshortcuts', /^(Control|Meta)\+K$/);
+    await expect(button).toHaveAttribute('title', /^Search chats \((Ctrl\+K|⌘K)\)$/);
+
+    const composer = page.getByTestId('composer-textarea');
+    await tabIntoComposer(page);
+    await page.keyboard.type('half a thought');
+    await page.keyboard.press('ControlOrMeta+K');
+
+    const search = page.getByRole('textbox', { name: 'Search conversations' });
+    await expect(search).toBeFocused();
+    // The browser's own Ctrl+K went nowhere: the draft is as it was.
+    await expect(composer).toHaveValue('half a thought');
+    // Focus shows on the line under the box, not as a box inside the panel.
+    await expect(search).toHaveCSS('outline-style', 'none');
+    await expect(search.locator('..')).toHaveCSS('border-bottom-color', ring);
+    // Tab on to Close: that one has the ring, and the line rests.
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('button', { name: 'Close search' })).toHaveCSS('outline-style', 'solid');
+    await expect(search.locator('..')).not.toHaveCSS('border-bottom-color', ring);
+
+    await page.keyboard.press('Escape');
+    await expect(search).toHaveCount(0);
+    await expect(composer).toBeFocused();
+  });
+
+  test('in forced colours the search box keeps its ring, as its line cannot change colour there', async ({ page }) => {
+    await installMocks(page);
+    await page.emulateMedia({ forcedColors: 'active' });
+    await page.goto('/');
+    await expect(page.getByRole('button', { name: 'Search chats' })).toBeVisible();
+    await page.keyboard.press('ControlOrMeta+K');
+    const search = page.getByRole('textbox', { name: 'Search conversations' });
+    await expect(search).toBeFocused();
+    await expect(search).toHaveCSS('outline-style', 'solid');
+  });
+
+  test('Ctrl+K leaves an open report form alone', async ({ page }) => {
+    await installMocks(page, { chatScript: [ev.conversation('conv-e2e'), ev.routing('chat'), ...tokens('Hello'), ev.done()] });
+    await page.goto('/');
+    await send(page);
+    await page.getByRole('button', { name: 'Report this chat' }).click();
+    const reason = page.getByPlaceholder('Describe the issue...');
+    await reason.fill('wrong answer');
+    await reason.press('ControlOrMeta+K');
+    await expect(page.getByRole('dialog', { name: 'Search your chats' })).toHaveCount(0);
+    await expect(reason).toBeFocused();
+    await expect(reason).toHaveValue('wrong answer');
+  });
+
+  test('a click in the composer tints it instead of drawing the ring', async ({ page }) => {
+    await installMocks(page);
+    await page.goto('/');
+    const box = page.getByTestId('composer-textarea');
+    const bubble = box.locator('..');
+    const atRest = await bubble.evaluate((el) => getComputedStyle(el).borderTopColor);
+    await box.click();
+    await expect(box).toBeFocused();
+    await bubble.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+    await expect(bubble).toHaveCSS('outline-style', 'none');
+    expect(await bubble.evaluate((el) => getComputedStyle(el).borderTopColor)).not.toBe(atRest);
+    expect(await bubble.evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe('none');
+    // Typing keeps it gentle: the ring is decided when focus arrives.
+    await page.keyboard.type('Hello');
+    await expect(bubble).toHaveCSS('outline-style', 'none');
+    // Leaving and coming back by keyboard brings the ring.
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Shift+Tab');
+    await expect(box).toBeFocused();
+    await expect(bubble).toHaveCSS('outline-style', 'solid');
+  });
+
+  test('every focus ring is one colour from its first frame', async ({ page }, info) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installMocks(page, { conversations: [{ id: 'c1', title: 'A chat', created_at: new Date(0).toISOString(), updated_at: new Date(0).toISOString() }] });
+    await page.goto('/');
+    const ring = PALETTE[await expectProjectTheme(page, info)].accent;
+    await expect(page.getByRole('link', { name: 'A chat' })).toBeVisible();
+    const seen: string[] = [];
+    // Header items, sidebar rows and the account button: read at once after each
+    // Tab, as a transition on outline-color once faded the ring in from the text
+    // colour, and only on the items that had transition-colors.
+    for (let i = 0; i < 30; i++) {
+      await page.keyboard.press('Tab');
+      const now = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement;
+        if (el.id === 'composer-textarea') return null;
+        const cs = getComputedStyle(el);
+        return { name: el.getAttribute('aria-label') ?? el.textContent?.trim().slice(0, 24) ?? el.tagName, style: cs.outlineStyle, color: cs.outlineColor };
+      });
+      if (!now) break;
+      expect(now.style, now.name).toBe('solid');
+      expect(now.color, now.name).toBe(ring);
+      seen.push(now.name);
+    }
+    // The account button is named by the signed-in user.
+    for (const name of ['New chat', 'A chat', 'EE2E Tester', 'Sources', 'Docs']) {
+      expect(seen.some((s) => s.startsWith(name)), name).toBe(true);
+    }
+  });
+
+  const manyChats = (n: number) => Array.from({ length: n }, (_, i) => ({
+    id: `c${i}`, title: `Chat ${i}`,
+    created_at: new Date(Date.now() - i * 60_000).toISOString(),
+    updated_at: new Date(Date.now() - i * 60_000).toISOString(),
+  }));
+  const inChatRow = (page: Page) =>
+    page.evaluate(() => !!document.activeElement?.closest('[data-testid="chat-row"]'));
+
+  test('the chat list is one Tab stop, walked with the arrow keys, with its ⋮ one Tab on', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installMocks(page, { conversations: manyChats(12) });
+    await page.goto('/');
+    const first = page.getByRole('link', { name: 'Chat 0', exact: true });
+    await expect(first).toBeVisible();
+
+    // From the control before the list, one Tab lands on the first chat.
+    await page.getByRole('button', { name: 'New project' }).focus();
+    await page.keyboard.press('Tab');
+    await expect(first).toBeFocused();
+    await expect(first).toHaveCSS('outline-style', 'solid');
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('button', { name: 'More actions for Chat 0' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    expect(await inChatRow(page)).toBe(false);
+
+    // Back in, the ⋮ is hidden until its row holds focus, so Shift+Tab lands on the chat.
+    await page.keyboard.press('Shift+Tab');
+    await expect(first).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await expect(page.getByRole('link', { name: 'Chat 2', exact: true })).toBeFocused();
+    await page.keyboard.press('End');
+    const last = page.getByRole('link', { name: 'Chat 11', exact: true });
+    await expect(last).toBeFocused();
+    await expect(last).toBeInViewport();
+
+    // Shift+F10 opens the row's menu, its items at 14px, Pin among them.
+    await page.keyboard.press('Shift+F10');
+    const pin = page.getByRole('menuitem', { name: 'Pin' });
+    await expect(pin).toBeFocused();
+    await expect(pin).toHaveCSS('font-size', '14px');
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: 'More actions for Chat 11' })).toBeFocused();
+
+    await page.keyboard.press('Shift+Tab');
+    await expect(last).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/c\/c11$/);
+  });
+
+  test('Delete asks in a dialog that holds focus, and focus lands on the next chat after', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const mocks = await installMocks(page, { conversations: manyChats(3) });
+    await page.goto('/');
+    const chat1 = page.getByRole('link', { name: 'Chat 1', exact: true });
+    await chat1.focus();
+    const more = page.getByRole('button', { name: 'More actions for Chat 1' });
+
+    const openDelete = async () => {
+      await page.keyboard.press('Shift+F10');
+      await page.keyboard.press('End');
+      await expect(page.getByRole('menuitem', { name: 'Delete' })).toBeFocused();
+      await page.keyboard.press('Enter');
+    };
+
+    await openDelete();
+    const dialog = page.getByRole('alertdialog', { name: 'Delete chat?' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toHaveAccessibleDescription(/“Chat 1” and all its messages will be deleted/);
+    const cancel = dialog.getByRole('button', { name: 'Cancel' });
+    const confirm = dialog.getByRole('button', { name: 'Delete chat' });
+    await expect(cancel).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(confirm).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(cancel).toBeFocused();
+
+    // Escape cancels and goes back to the ⋮ button, which stays on show for it.
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(more).toBeFocused();
+    await expect(more).toBeVisible();
+    expect(mocks.conversations).toHaveLength(3);
+
+    await page.keyboard.press('Shift+Tab');
+    await expect(chat1).toBeFocused();
+    await openDelete();
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Enter');
+
+    await expect(chat1).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Chat 2', exact: true })).toBeFocused();
+    expect(mocks.conversations.map((c) => c.id)).toEqual(['c0', 'c2']);
+  });
+
+  test.describe('on a touch phone', () => {
+    test.use({ hasTouch: true, isMobile: true });
+
+    test('a chat row shows one action, not two', async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await installMocks(page, { conversations: manyChats(3) });
+      await page.goto('/');
+      await page.getByRole('button', { name: 'Show sidebar' }).click();
+      const row = page.getByTestId('chat-row').filter({ hasText: 'Chat 1' });
+      await expect(row.getByRole('button', { name: 'More actions for Chat 1' })).toBeVisible();
+      await expect(row.getByRole('button')).toHaveCount(1);
+    });
   });
 });
 
@@ -226,6 +469,24 @@ test.describe('demo', () => {
       await expect(page).toHaveURL(/\/demo$/);
     });
   }
+
+  test('Escape on the slides leaves the artifact column under them alone', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installMocks(page, { chatScript: script() });
+    await page.goto('/demo');
+    await page.getByTestId('demo-next').click();
+    await page.getByTestId('demo-next').click();
+    await page.getByTestId('demo-run-chat').click();
+    await expect(page.getByTestId('artifact-panel')).toBeVisible();
+    await page.getByTestId('demo-slides').click();
+    await expect(page.getByTestId('demo-deck')).toBeVisible();
+
+    await page.keyboard.press('Escape');
+
+    const toggle = page.getByTestId('artifacts-button');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(toggle).not.toBeFocused();
+  });
 });
 
 test.describe('busy header', () => {
