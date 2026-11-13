@@ -755,8 +755,10 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     );
   };
 
+  // 288px, chosen 2026-11-13 so long chat titles fit; at most 85% of a phone's
+  // width, so the drawer always leaves some of the chat in view.
   return (
-    <aside ref={asideRef} className="w-64 flex-shrink-0 bg-bg-secondary border-r border-border flex flex-col h-full relative">
+    <aside ref={asideRef} className="w-72 max-w-[85vw] flex-shrink-0 bg-bg-secondary border-r border-border flex flex-col h-full relative">
       {/* Logo */}
       {/* As tall as the chat header beside it, so their bottom borders meet. */}
       <div className="h-[49px] flex-shrink-0 px-4 flex items-center justify-between border-b border-border">

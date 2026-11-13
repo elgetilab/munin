@@ -164,8 +164,8 @@ Effort: S under half a day, M one to two days, L more.
   - **Problem:** Menu items are 12px (`MENU_ITEM` uses `text-xs`,
     `Sidebar.tsx` ~94).
   - **Fix:** 14px for menu items and the search modal.
-- [ ] **A wider sidebar** (S)
-  - **Decided 2026-11-13: do; pick the width by comparing side by side.**
+- [x] **A wider sidebar** (S)
+  - **Done 2026-11-13: 288px, picked from 256/272/288/304 side by side; at most 85% of a phone's width.**
   - **Problem:** The sidebar is 256px (`Sidebar.tsx` ~630, `w-64`).
   - **Fix:** About 272-288px.
 
