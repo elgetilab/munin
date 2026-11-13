@@ -1,6 +1,6 @@
 # Lab analysis: harness, helpers and eval suites
 
-Status: PLAN, awaiting go-ahead (2026-11-13).
+Status: APPROVED 2026-11-13, Phase 0 in progress.
 
 Several research groups use GraphPad Prism (and some ChimeraX) for fitting and
 plotting. We want Munin to replace that through chat: users upload instrument
@@ -48,8 +48,8 @@ Write the S0 suite (below) first; it should fail on today's code. Then fix:
 1. **Uploads into the sandbox.** Accept any file type for chat data uploads
    (already approved in the v1.1 review). Data files bypass RAG and land
    read-only in `/scratch/{cid}/inputs/`. A `.zip` is extracted there, which is
-   how Bruker experiment folders arrive. The model is told the path. Size cap
-   raised for data uploads (see open questions).
+   how Bruker experiment folders arrive. The model is told the path. Data uploads
+   are capped at 100 MB each.
 2. **Immutable, content-addressed artifacts.** After each exec, scan
    `/scratch/{cid}` recursively (depth and count limits) and key by
    `(path, sha256)`. A changed file becomes a new artifact version; the bytes of
@@ -192,19 +192,16 @@ through the same content-addressed store. Then run S4.
 The vision judge (local backbone) only scores readability and overall
 appearance, is reported separately, and never overrides a mechanical check.
 
-## Open questions (with defaults)
+## Resolved questions
 
-1. **Before sleipnir exists**, should anything run longer than 120 s? Default:
-   no. S4 waits for Phase 6; until then S1-S6 tasks are sized to fit, and one
-   S3 case checks the model handles the limit gracefully (chunks the work or
-   says so).
-2. **Data upload cap.** 2D/3D NMR `ser` files reach hundreds of MB. Default:
-   500 MB per data upload, with a per-chat quota.
-3. **Artifact retention.** Default: every version kept for the life of the
-   chat, deleted with it.
-4. **Held-out set location.** Default: under `/opt/munin/data/evals/` on hugin,
-   outside git.
-5. **`labkit` name and home.** Default: `backend/sandbox/labkit/`, Apache-2.0.
+1. **Before sleipnir exists**, nothing runs longer than 120 s. S4 waits for
+   Phase 6; until then tasks are sized to fit, and one S3 case checks the model
+   handles the limit gracefully (chunks the work or says so).
+2. **Data upload cap**: 100 MB per upload, with a per-chat quota.
+3. **Artifact retention**: every version kept for the life of the chat,
+   deleted with it.
+4. **Held-out set**: under `/opt/munin/data/evals/` on hugin, outside git.
+5. **`labkit`**: `backend/sandbox/labkit/`, Apache-2.0.
 
 ## Heavy TODO: re-run on every available model
 
