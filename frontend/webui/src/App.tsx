@@ -859,7 +859,7 @@ export default function App() {
             <a href={SITE_HOME} className={`hidden md:inline-flex ${NAV_ITEM} ${NAV_IDLE}`}>Home</a>
             <a href={SEARCH_URL} className={`hidden md:inline-flex ${NAV_ITEM} ${NAV_IDLE}`}>Search papers</a>
             <a href={DOCS_URL} className={`hidden md:inline-flex ${NAV_ITEM} ${NAV_IDLE}`}>Docs</a>
-            <span className={`${NAV_ITEM} ${NAV_ON} cursor-default`} aria-current="page">Knowledge</span>
+            <span className={`${NAV_ITEM} ${NAV_CURRENT} cursor-default`} aria-current="page">Knowledge</span>
             <a
               href="/"
               onClick={(e) => {
