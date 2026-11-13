@@ -24,11 +24,21 @@ import { immer } from 'zustand/middleware/immer';
 import type { Announcement } from '../lib/api';
 
 
+/** The reply a report is about, when it came from that reply's own button. */
+export interface ReportReplyTarget {
+  /** 1-based position among the conversation's replies. */
+  number: number;
+  /** The opening of the reply, to recognise it by. */
+  excerpt: string;
+}
+
 interface UiState {
   // Modals / panels
   showSettings: boolean;
   showAdmin: boolean;
   showReportDialog: boolean;
+  // Set while the report dialog is about one reply; null for the whole chat.
+  reportReply: ReportReplyTarget | null;
   showInstallBanner: boolean;
   artifactPanelOpen: boolean;
   selectedArtifactId: string | null;
@@ -56,6 +66,7 @@ interface UiState {
   setShowSettings: (open: boolean) => void;
   setShowAdmin: (open: boolean) => void;
   setShowReportDialog: (open: boolean) => void;
+  openReportForReply: (target: ReportReplyTarget) => void;
   setShowInstallBanner: (open: boolean) => void;
   // The two side panels share one place on screen, so opening either closes the
   // other. That keeps a header pill's state in step with what is showing.
@@ -82,7 +93,8 @@ const _defaultSidebarOpen = (): boolean => {
   // SSR / jsdom fallback — window may not exist or innerWidth
   // may be zero. Default to open on "desktop-ish" widths.
   try {
-    return typeof window !== 'undefined' && window.innerWidth >= 768;
+    // Open inline from lg; below it the sidebar is a drawer, closed at start.
+    return typeof window !== 'undefined' && window.innerWidth >= 1024;
   } catch {
     return true;
   }
@@ -98,6 +110,7 @@ export const useUiStore = create<UiState>()(
       showSettings: false,
       showAdmin: false,
       showReportDialog: false,
+      reportReply: null,
       showInstallBanner: false,
       artifactPanelOpen: false,
       selectedArtifactId: null,
@@ -115,7 +128,9 @@ export const useUiStore = create<UiState>()(
 
       setShowSettings: (open) => set(state => { state.showSettings = open; }),
       setShowAdmin: (open) => set(state => { state.showAdmin = open; }),
-      setShowReportDialog: (open) => set(state => { state.showReportDialog = open; }),
+      // Opening from the header, or closing, is about the whole chat again.
+      setShowReportDialog: (open) => set(state => { state.showReportDialog = open; state.reportReply = null; }),
+      openReportForReply: (target) => set(state => { state.showReportDialog = true; state.reportReply = target; }),
       setShowInstallBanner: (open) => set(state => { state.showInstallBanner = open; }),
       setArtifactPanelOpen: (open) => set(state => {
         state.artifactPanelOpen = open;
@@ -162,6 +177,7 @@ export function _resetUiStoreForTests(): void {
     showSettings: false,
     showAdmin: false,
     showReportDialog: false,
+    reportReply: null,
     showInstallBanner: false,
     artifactPanelOpen: false,
     selectedArtifactId: null,

@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import type { ToolCall, RagContext } from '../lib/types';
 import { doiUrl } from '../lib/doi';
-import { BookIcon, FolderIcon, PageIcon, SearchIcon } from './ui/icons';
+import { BookIcon, ChevronRightIcon, FolderIcon, PageIcon, SearchIcon } from './ui/icons';
+import { activityLine } from '../lib/activity';
 
 // ── SVG Icons (14x14, stroke-based, no emojis) ─────────────────────────────
 
@@ -197,7 +198,7 @@ function ResultBody({ result }: { result: unknown }) {
         type="button"
         aria-expanded={showRaw}
         onClick={() => setShowRaw(!showRaw)}
-        className="mt-2 text-text-secondary hover:text-accent cursor-pointer"
+        className="mt-2 text-text-secondary hover:text-text-primary cursor-pointer"
       >
         {showRaw ? 'Hide raw' : 'Show raw'}
       </button>
@@ -230,12 +231,51 @@ interface TaskLogProps {
   isStreaming?: boolean;
 }
 
+/**
+ * A reply's tool activity as one quiet line, as in Claude ("Searched the web ·
+ * 1 result", "Searching papers…"), which opens the detailed rows: each step's
+ * arguments and result, the reasoning, and the retrieved documents.
+ */
 export function TaskLog({ thinking, toolCalls, ragContext, thinkingDuration, isStreaming }: TaskLogProps) {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
   const hasContent = thinking || (toolCalls && toolCalls.length > 0) || ragContext;
   if (!hasContent) return null;
 
+  const line = activityLine({ thinking, toolCalls, ragContext, thinkingDuration, isStreaming, summarise: formatResult });
+  const last = toolCalls?.length ? toolCalls[toolCalls.length - 1] : null;
+  const icon = last ? getIcon(last.name) : ragContext ? Icons.sources : Icons.thinking;
+
   return (
-    <div className="bg-bg-secondary border border-border rounded-xl p-3 mb-3 text-xs font-mono">
+    <div className="mb-3">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        data-testid="activity-line"
+        onClick={() => setOpen(o => !o)}
+        className="group/act inline-flex max-w-full items-center gap-2 text-sm text-text-secondary hover:text-text-primary transition-colors cursor-pointer text-left"
+      >
+        <span className={`flex-shrink-0 ${line.active ? 'text-accent motion-safe:animate-pulse' : ''}`}>{icon}</span>
+        <span className="min-w-0 truncate">{line.text}</span>
+        {line.failed > 0 && (
+          <span className="flex-shrink-0 inline-flex items-center gap-1 text-warning">
+            {Icons.warning}
+            {line.failed} failed
+          </span>
+        )}
+        <ChevronRightIcon size={14} className={`flex-shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+      </button>
+      {open && (
+        <TaskLogRows id={panelId} thinking={thinking} toolCalls={toolCalls} ragContext={ragContext} thinkingDuration={thinkingDuration} isStreaming={isStreaming} />
+      )}
+    </div>
+  );
+}
+
+function TaskLogRows({ id, thinking, toolCalls, ragContext, thinkingDuration, isStreaming }: TaskLogProps & { id: string }) {
+  return (
+    <div id={id} className="mt-2 bg-bg-secondary border border-border rounded-xl p-3 text-xs font-mono">
       {ragContext && ragContext.documents.length > 0 && (
         <RagContextRow context={ragContext} />
       )}
@@ -254,7 +294,8 @@ export function TaskLog({ thinking, toolCalls, ragContext, thinkingDuration, isS
 }
 
 function ThinkingRow({ content, duration, isActive }: { content: string; duration?: number; isActive?: boolean }) {
-  const [expanded, setExpanded] = useState(false);
+  // Opening the activity line shows everything; each part can still be closed.
+  const [expanded, setExpanded] = useState(true);
 
   return (
     <div className="border-b border-border last:border-0 py-1.5">
@@ -262,7 +303,7 @@ function ThinkingRow({ content, duration, isActive }: { content: string; duratio
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
-        className={`w-full text-left flex items-center gap-2 cursor-pointer hover:text-accent transition-colors ${isActive ? 'text-text-primary' : 'text-text-secondary'}`}
+        className={`w-full text-left flex items-center gap-2 cursor-pointer hover:text-text-primary transition-colors ${isActive ? 'text-text-primary' : 'text-text-secondary'}`}
       >
         <span className="flex-shrink-0">{Icons.thinking}</span>
         <span className="flex-1">
@@ -280,7 +321,7 @@ function ThinkingRow({ content, duration, isActive }: { content: string; duratio
 }
 
 function ToolCallRow({ call, isActive }: { call: ToolCall; isActive?: boolean }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const icon = getIcon(call.name);
   const resultSummary = call.result ? formatResult(call.result) : null;
 
@@ -290,7 +331,7 @@ function ToolCallRow({ call, isActive }: { call: ToolCall; isActive?: boolean })
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
-        className={`w-full text-left flex items-center gap-2 cursor-pointer hover:text-accent transition-colors ${isActive ? 'text-text-primary' : 'text-text-secondary'}`}
+        className={`w-full text-left flex items-center gap-2 cursor-pointer hover:text-text-primary transition-colors ${isActive ? 'text-text-primary' : 'text-text-secondary'}`}
       >
         <span className="flex-shrink-0">{icon}</span>
         <span className="flex-1">
@@ -332,7 +373,7 @@ function ToolCallRow({ call, isActive }: { call: ToolCall; isActive?: boolean })
 }
 
 function RagContextRow({ context }: { context: RagContext }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const sourceCount = context.sources_used.length;
 
   return (
@@ -341,7 +382,7 @@ function RagContextRow({ context }: { context: RagContext }) {
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
-        className="w-full text-left flex items-center gap-2 cursor-pointer hover:text-accent transition-colors text-text-secondary"
+        className="w-full text-left flex items-center gap-2 cursor-pointer hover:text-text-primary transition-colors text-text-secondary"
       >
         <span className="flex-shrink-0">{Icons.sources}</span>
         <span className="flex-1">

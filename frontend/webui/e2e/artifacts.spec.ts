@@ -23,7 +23,7 @@ test.describe('artifacts', () => {
     await installMocks(page, { chatScript: artifactReply({ id: 'a-html', title: 'Pong Game', content_type: 'text/html' }) });
     await page.goto('/');
     await sendFor(page, 'make me pong');
-    await expect(page.getByTestId('artifacts-button')).toContainText('Artifacts (1)');
+    await expect(page.getByTestId('artifacts-button')).toHaveAccessibleName('Artifacts (1)');
     await openArtifacts(page);
     const panel = page.getByTestId('artifact-panel');
     await expect(panel.getByRole('heading', { name: 'Pong Game' })).toBeVisible();
@@ -34,7 +34,7 @@ test.describe('artifacts', () => {
     await installMocks(page, { chatScript: artifactReply({ id: 'a-pdf', title: 'paper.pdf', content_type: 'application/pdf', filename: 'paper.pdf', external_url: '/api/artifacts/conv-e2e/a-pdf', source: 'sandbox_generated' }) });
     await page.goto('/');
     await sendFor(page, 'compile my latex');
-    await expect(page.getByTestId('artifacts-button')).toContainText('Artifacts (1)');
+    await expect(page.getByTestId('artifacts-button')).toHaveAccessibleName('Artifacts (1)');
     await openArtifacts(page);
     const panel = page.getByTestId('artifact-panel');
     await expect(panel.getByRole('heading', { name: 'paper.pdf' })).toBeVisible();

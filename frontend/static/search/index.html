@@ -3,334 +3,140 @@
 <head>
     <meta charset="UTF-8">
     <!-- Sets light or dark before any CSS loads. Keep identical to static/shared/theme-snippet.html. -->
-    <script data-munin-theme>(function(){var p="dark",d=document.documentElement;try{var m=document.cookie.match(/(?:^|;\s*)munin_theme=(light|dark|system)(?:;|$)/);if(m)p=m[1]}catch(e){}var t=p;if(p==="system"){try{t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}catch(e){t="dark"}}d.setAttribute("data-theme-pref",p);d.setAttribute("data-theme",t)})()</script>
+    <script data-munin-theme>(function(){var p="system",d=document.documentElement;try{var m=document.cookie.match(/(?:^|;\s*)munin_theme=(light|dark|system)(?:;|$)/);if(m)p=m[1]}catch(e){}var t=p;if(p==="system"){try{t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}catch(e){t="dark"}}d.setAttribute("data-theme-pref",p);d.setAttribute("data-theme",t)})()</script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Paper Search - Munin</title>
-    <link rel="stylesheet" href="/shared/style.css?v=2">
-    <script src="/shared/theme.js" defer></script>
+    <link rel="icon" type="image/svg+xml" href="/shared/munin_logo_without_script.svg">
+    <link rel="stylesheet" href="/shared/style.css?v=3">
+    <link rel="stylesheet" href="/shared/site.css?v=1">
+    <script src="/shared/theme.js?v=2" defer></script>
     <style>
-        /* Search Section */
-        .search-section {
-            padding: 48px 0;
+        /* The shared style.css names, mapped onto the Nordic palette, so its
+           inputs, focus ring, .error and .empty-state follow it. */
+        body {
+            --bg-primary: var(--ink); --bg-secondary: var(--surface); --bg-tertiary: var(--surface-2);
+            --text-primary: var(--text); --text-secondary: var(--text-2); --text-tertiary: var(--text-3);
+            --accent: var(--brass); --accent-hover: var(--brass-2); --border: var(--line);
+            /* Form control edges: 3.15:1 on --surface (dark), 3.66:1 (light). */
+            --field: #5f6b77; --border-input: var(--field);
         }
+        :root[data-theme="light"] body { --field: #8c806a; }
 
-        .search-section h1 {
-            font-size: 32px;
-            margin-bottom: 8px;
-        }
+        .narrow { max-width: 880px; }
+        /* The footer sits at the foot of a short page. */
+        body { display: flex; flex-direction: column; }
+        main { flex: 1 0 auto; }
 
-        .search-section p {
-            color: var(--text-secondary);
-            margin-bottom: 16px;
-        }
+        /* Page head: the hero's gradient, shorter. */
+        .page-head { padding: 56px 0 40px; background: radial-gradient(700px 320px at 80% 0%, var(--glow), transparent 70%), linear-gradient(180deg, var(--ink-2), var(--ink)); border-bottom: 1px solid var(--line); }
+        .page-head h1 { font-size: clamp(32px, 4vw, 44px); font-weight: 600; line-height: 1.1; letter-spacing: -0.03em; margin-bottom: 12px; }
+        .page-head .lede { font-size: 16.5px; color: var(--text-2); max-width: 40em; margin-bottom: 28px; }
 
-        .stats-bar {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 12px 16px;
-            margin-bottom: 24px;
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 8px 24px;
-            font-size: 14px;
-        }
+        /* Fields */
+        input[type="text"], input[type="number"] { height: 40px; padding: 0 12px; font: 15px var(--font); background: var(--surface); border: 1px solid var(--field); border-radius: 9px; color: var(--text); }
+        input::placeholder { color: var(--text-3); }
+        /* No spin buttons: they crowd a 4-digit year out of its field. */
+        input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+        input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input:focus:not(:focus-visible) { border-color: var(--brass); }
+        :focus-visible { outline-color: var(--brass); }
 
-        .stats-bar .stat-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
+        .search-box { display: flex; gap: 10px; margin-bottom: 14px; }
+        .search-input { flex: 1; min-width: 0; height: 48px !important; padding: 0 16px !important; font-size: 16px !important; }
+        /* style.css tints a hovered primary with --accent-hover; keep the homepage's. */
+        .btn-primary:hover { background: var(--btn-bg); }
+        .search-box .btn { height: 48px; padding: 0 22px; font: 500 15px var(--font); cursor: pointer; }
 
-        .stats-bar .stat-value {
-            font-weight: 600;
-            color: var(--accent);
-        }
+        .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px; }
+        .filter-group { display: flex; align-items: center; gap: 8px; }
+        .filter-group label { font-size: 14px; color: var(--text-2); }
+        .filter-group .dash { color: var(--text-3); }
+        #author-input { width: 200px; }
+        #year-min, #year-max { width: 84px; }
+        #topk-input { width: 68px; }
 
-        .stats-bar .stat-label {
-            color: var(--text-secondary);
-        }
+        /* Knowledge base counts, as the homepage's facts strip. */
+        .stats-bar { display: flex; flex-wrap: wrap; gap: 4px 0; padding: 11px 0; font-size: 13.5px; color: var(--text-3); min-height: 44px; align-items: center; }
+        .stats-bar .stat-item { display: flex; align-items: baseline; gap: 6px; }
+        .stats-bar .stat-item + .stat-item { margin-left: 20px; padding-left: 20px; border-left: 1px solid var(--line); }
+        .stats-bar .stat-value { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+        .stats-strip { background: var(--ink-2); border-bottom: 1px solid var(--line); }
 
-        .search-box {
-            display: flex;
-            gap: 12px;
-            margin-bottom: 24px;
-        }
+        .results-band { padding: 32px 0 80px; }
+        #error-container .error { border-radius: 10px; font-size: 14.5px; padding: 14px 16px; }
 
-        .search-input {
-            flex: 1;
-            min-width: 0;
-            padding: 14px 18px;
-            font-size: 16px;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-input);
-            border-radius: 8px;
-            color: var(--text-primary);
-            transition: border-color 0.2s;
-        }
+        /* Results: hairline rows, not cards. */
+        .results-header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line-2); }
+        .results-count { font-weight: 500; color: var(--text); }
+        .results-header > span:last-child { color: var(--text-3) !important; font-size: 13.5px !important; }
+        .results-list { display: grid; }
+        .paper-card { padding: 22px 0; border-bottom: 1px solid var(--line); }
+        .paper-title { font-size: 17.5px; font-weight: 600; line-height: 1.35; letter-spacing: -0.01em; margin-bottom: 6px; color: var(--text); }
+        .paper-title a { color: inherit; text-decoration: none; }
+        .paper-title a:hover { color: var(--brass); }
+        .paper-meta { display: flex; flex-wrap: wrap; gap: 2px 0; font-size: 13.5px; color: var(--text-3); margin-bottom: 6px; }
+        .paper-meta > span + span::before { content: "·"; margin: 0 8px; color: var(--text-3); }
+        .paper-meta-item { overflow-wrap: anywhere; }
+        .paper-score { color: var(--brass); font-weight: 500; font-variant-numeric: tabular-nums; }
+        .paper-authors { font-size: 14.5px; color: var(--text-2); margin-bottom: 8px; }
+        .paper-abstract { font-size: 14.5px; line-height: 1.65; color: var(--text-2); max-width: 46em; }
+        .paper-actions { margin-top: 14px; }
 
-        .search-input:focus:not(:focus-visible) {
-            border-color: var(--accent);
-        }
+        /* The download link, as the homepage's small secondary button. */
+        .download-btn { display: inline-flex; align-items: center; height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface); color: var(--text); font-size: 14px; font-weight: 500; text-decoration: none; cursor: pointer; transition: border-color .15s; }
+        .download-btn:hover { border-color: var(--text-3); color: var(--text); }
+        .download-btn.checking { color: var(--text-3); cursor: wait; }
+        .download-btn.unavailable { color: var(--text-3); background: none; border-style: dashed; cursor: not-allowed; }
+        .download-btn.checking:hover, .download-btn.unavailable:hover { border-color: var(--line-2); color: var(--text-3); }
 
-        .search-input::placeholder {
-            color: var(--text-secondary);
-        }
+        /* Empty and loading states */
+        /* Left-aligned with the search box and the stats line above it. */
+        .empty-state { padding: 8px 0 0; text-align: left; color: var(--text-2); font-size: 15px; display: grid; grid-template-columns: auto 1fr; column-gap: 12px; align-items: center; }
+        .empty-state > :not(.empty-state-icon) { grid-column: 2; }
+        .empty-state p { margin: 0; }
+        .empty-state p + p { color: var(--text-3); margin-top: 4px; }
+        .empty-state .btn { justify-self: start; margin-top: 12px; }
+        .empty-state-icon { color: var(--text-3); grid-row: 1; margin: 0; font-size: 0; }
+        .empty-state-icon svg { width: 20px; height: 20px; display: block; }
+        .empty-state .btn { cursor: pointer; font-family: var(--font); }
+        .loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 56px 0; color: var(--text-2); font-size: 14.5px; }
+        .loading-spinner { width: 16px; height: 16px; margin: 0; border-width: 2px; border-color: var(--line-2); border-top-color: var(--brass); }
+        @media (prefers-reduced-motion: reduce) { .loading-spinner { animation-duration: 3s; } }
 
-        .search-btn {
-            padding: 14px 28px;
-            font-size: 16px;
-            font-family: inherit;
-            font-weight: 600;
-            background: var(--accent);
-            color: var(--bg-primary);
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
+        .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+        .error a { color: inherit; text-decoration: underline; }
+        .error small { display: block; margin-top: 4px; opacity: 0.8; }
+        /* Faded, the light red drops under 4.5:1 on its tint. */
+        :root[data-theme="light"] .error small { opacity: 1; }
 
-        .search-btn:hover {
-            background: var(--accent-hover);
-        }
-
-        .search-btn:disabled {
-            background: var(--bg-tertiary);
-            color: var(--text-secondary);
-            cursor: not-allowed;
-        }
-
-        /* Filters */
-        .filters {
-            display: flex;
-            gap: 16px;
-            flex-wrap: wrap;
-            margin-bottom: 24px;
-        }
-
-        .filter-group {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .filter-group label {
-            color: var(--text-secondary);
-            font-size: 14px;
-        }
-
-        .filter-group select,
-        .filter-group input {
-            padding: 8px 12px;
-            font-size: 14px;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-input);
-            border-radius: 6px;
-            color: var(--text-primary);
-        }
-
-        .filter-group input[type="number"] {
-            width: 80px;
-        }
-
-        /* Results */
-        .results-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 16px 0;
-            border-bottom: 1px solid var(--border);
-            margin-bottom: 16px;
-        }
-
-        .results-count {
-            color: var(--text-secondary);
-        }
-
-        @media (max-width: 480px) {
-            .results-header {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 4px;
-            }
-        }
-
-        .empty-state-icon svg {
-            width: 40px;
-            height: 40px;
-            display: block;
-            margin: 0 auto;
-        }
-
-        .results-list {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-
-        .paper-card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 20px;
-            transition: border-color 0.2s;
-        }
-
-        .paper-card:hover {
-            border-color: var(--accent);
-        }
-
-        .paper-title {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 8px;
-            color: var(--text-primary);
-        }
-
-        .paper-title a {
-            color: inherit;
-            text-decoration: none;
-        }
-
-        .paper-title a:hover {
-            color: var(--accent);
-        }
-
-        .paper-meta {
-            display: flex;
-            gap: 16px;
-            flex-wrap: wrap;
-            margin-bottom: 12px;
-            font-size: 14px;
-            color: var(--text-secondary);
-        }
-
-        .paper-meta-item {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .paper-authors {
-            color: var(--text-secondary);
-            font-size: 14px;
-            margin-bottom: 12px;
-        }
-
-        .paper-abstract {
-            color: var(--text-secondary);
-            font-size: 14px;
-            line-height: 1.7;
-        }
-
-        .paper-score {
-            display: inline-block;
-            background: var(--bg-tertiary);
-            color: var(--success);
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-
-        .paper-actions {
-            margin-top: 12px;
-            padding-top: 12px;
-            border-top: 1px solid var(--border);
-        }
-
-        .download-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 8px 16px;
-            font-size: 14px;
-            font-weight: 500;
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            text-decoration: none;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .download-btn:hover {
-            background: var(--accent);
-            color: var(--bg-primary);
-            border-color: var(--accent);
-        }
-
-        .download-btn.checking {
-            opacity: 0.6;
-            cursor: wait;
-        }
-
-        .sr-only {
-            position: absolute;
-            width: 1px;
-            height: 1px;
-            padding: 0;
-            margin: -1px;
-            overflow: hidden;
-            clip: rect(0, 0, 0, 0);
-            white-space: nowrap;
-            border: 0;
-        }
-
-        .error a {
-            color: inherit;
-            text-decoration: underline;
-        }
-
-        .error small {
-            display: block;
-            margin-top: 4px;
-            opacity: 0.8;
-        }
-
-        /* Faded, the light red drops to 4.09:1 on its tint. Full, it is 5.48:1. */
-        :root[data-theme="light"] .error small {
-            opacity: 1;
-        }
-
-        .download-btn.unavailable {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
-
-        /* Feather Vortex Loading */
-        .vortex-loading {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 16px;
-            padding: 48px;
-        }
-
-        .vortex-loading canvas {
-            width: 40px;
-            height: 40px;
-        }
-
-        .vortex-loading p {
-            color: var(--text-secondary);
-            font-size: 14px;
-            font-style: italic;
+        @media (max-width: 600px) {
+            .wrap { padding: 0 16px; }
+            .page-head { padding: 36px 0 28px; }
+            /* The topic box gets the whole width; Search goes under it. */
+            .search-box { flex-direction: column; }
+            .search-box .search-input { flex: none; }
+            .search-box .btn { width: 100%; justify-content: center; }
+            .filters { gap: 10px 16px; }
+            .filter-group { flex-wrap: nowrap; }
+            .filter-group:first-child { width: 100%; }
+            #author-input { flex: 1; width: auto; min-width: 0; }
+            #year-min, #year-max { width: 72px; }
+            #topk-input { width: 56px; }
+            .stats-bar .stat-item + .stat-item { margin-left: 0; padding-left: 0; border-left: 0; }
+            .stats-bar { flex-direction: column; align-items: flex-start; }
         }
     </style>
 </head>
 <body>
     <header>
         <div class="container header-content">
-            <a href="{{env "MUNIN_URL_HOME"}}" class="logo">
-                <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="logo-img">
+            <a href="/" class="logo">
+                <img src="/shared/munin_logo_horizon_moon.svg" alt="Munin" class="logo-img">
                 <span class="logo-text">Munin</span>
             </a>
             <nav>
                 <a href="{{env "MUNIN_URL_HOME"}}">Home</a>
-                <a href="{{env "MUNIN_URL_SEARCH"}}" class="active">Search</a>
+                <a href="{{env "MUNIN_URL_SEARCH"}}" class="active">Search papers</a>
                 <a href="{{env "MUNIN_URL_DOCS"}}">Docs</a>
                 <a href="{{env "MUNIN_URL_CHAT"}}/knowledge">Knowledge</a>
                 <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a>
@@ -339,62 +145,107 @@
         </div>
     </header>
 
-    <main class="container">
-        <section class="search-section">
-            <h1>Paper Search</h1>
-            <p>Search by topic or paste a DOI. Use Author and Year to narrow results, or Author alone to list someone's papers.</p>
+    <main>
+        <section class="page-head">
+            <div class="wrap"><div class="narrow">
+                <h1>Paper Search</h1>
+                <p class="lede">Search by topic or paste a DOI. Use Author and Year to narrow results, or Author alone to list someone's papers.</p>
 
-            <div class="stats-bar" id="stats-bar">
-                <span id="paper-count">Loading paper count...</span>
-            </div>
-
-            <form id="search-form" role="search">
-            <div class="search-box">
-                <label for="search-input" class="sr-only">Search papers by topic or DOI</label>
-                <input type="text" id="search-input" class="search-input"
-                       placeholder="Topic or DOI"
-                       autocomplete="off">
-                <button id="search-btn" type="submit" class="search-btn">Search</button>
-            </div>
-
-            <div class="filters">
-                <div class="filter-group">
-                    <label for="author-input">Author:</label>
-                    <input type="text" id="author-input" placeholder="Filter by author name" style="width: 180px;">
+                <form id="search-form" role="search">
+                <div class="search-box">
+                    <label for="search-input" class="sr-only">Search papers by topic or DOI</label>
+                    <input type="text" id="search-input" class="search-input"
+                           placeholder="Topic or DOI"
+                           autocomplete="off">
+                    <button id="search-btn" type="submit" class="btn btn-primary">Search</button>
                 </div>
-                <div class="filter-group">
-                    <label for="year-min">Year:</label>
-                    <input type="number" id="year-min" aria-label="Year from" placeholder="From" min="1900" max="2030" style="width: 90px;">
-                    <span style="color: var(--text-secondary);">-</span>
-                    <input type="number" id="year-max" aria-label="Year to" placeholder="To" min="1900" max="2030" style="width: 90px;">
-                </div>
-                <div class="filter-group">
-                    <label for="topk-input">Results:</label>
-                    <input type="number" id="topk-input" value="10" min="1" max="50">
-                </div>
-            </div>
-            </form>
 
-            <div id="error-container"></div>
-            <div id="results-summary" class="sr-only" role="status" aria-live="polite"></div>
-
-            <div id="results-container">
-                <div class="empty-state">
-                    <div class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg></div>
-                    <p>Enter a search query to find relevant papers</p>
+                <div class="filters">
+                    <div class="filter-group">
+                        <label for="author-input">Author</label>
+                        <input type="text" id="author-input" placeholder="Name or part of it">
+                    </div>
+                    <div class="filter-group">
+                        <label for="year-min">Year</label>
+                        <input type="number" id="year-min" aria-label="Year from" placeholder="From" min="1900" max="2030">
+                        <span class="dash" aria-hidden="true">–</span>
+                        <input type="number" id="year-max" aria-label="Year to" placeholder="To" min="1900" max="2030">
+                    </div>
+                    <div class="filter-group">
+                        <label for="topk-input">Results</label>
+                        <input type="number" id="topk-input" value="10" min="1" max="50">
+                    </div>
                 </div>
-            </div>
+                </form>
+            </div></div>
+        </section>
+
+        <div class="stats-strip">
+            <div class="wrap"><div class="narrow">
+                <div class="stats-bar" id="stats-bar">
+                    <span id="paper-count">Loading paper count...</span>
+                </div>
+            </div></div>
+        </div>
+
+        <section class="results-band">
+            <div class="wrap"><div class="narrow">
+                <div id="error-container"></div>
+                <div id="results-summary" class="sr-only" role="status" aria-live="polite"></div>
+
+                <div id="results-container">
+                    <div class="empty-state">
+                        <div class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg></div>
+                        <p>Enter a search query to find relevant papers</p>
+                    </div>
+                </div>
+            </div></div>
         </section>
     </main>
 
-    <footer>
-        <div class="container">
-            <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/" style="color: var(--accent);">Elgeti Lab</a></p>
-            <p style="margin-top: 8px;"><a href="{{env "MUNIN_URL_SEARCH"}}">Search</a> | <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a> | <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload</a> | <a href="{{env "MUNIN_URL_DOCS"}}">Docs</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Support</a></p>
+<footer class="site-footer">
+    <div class="wrap">
+        <div class="f-grid">
+            <div>
+                <div class="f-brand"><img src="/shared/munin_logo_horizon_moon.svg" alt="">Munin</div>
+                <p>An open-source research assistant by the <a href="https://elgetilab.github.io/">Elgeti Lab</a>, Leipzig University Medical Faculty.</p>
+            </div>
+            <div class="f-col">
+                <h4>Use</h4>
+                <ul>
+                    <li><a href="{{env "MUNIN_URL_CHAT"}}">Chat</a></li>
+                    <li><a href="{{env "MUNIN_URL_SEARCH"}}">Search papers</a></li>
+                    <li><a href="{{env "MUNIN_URL_CHAT"}}/knowledge">Knowledge base</a></li>
+                    <li><a href="{{env "MUNIN_URL_UPLOAD"}}">Contribute</a></li>
+                </ul>
+            </div>
+            <div class="f-col">
+                <h4>Learn</h4>
+                <ul>
+                    <li><a href="{{env "MUNIN_URL_DOCS"}}">Docs</a></li>
+                    <li><a href="{{env "MUNIN_URL_DOCS"}}/guide.html#deep-research">Deep Research</a></li>
+                    <li><a href="https://arxiv.org/abs/2610.23480">Paper</a></li>
+                    <li><a href="https://github.com/elgetilab/munin/blob/main/CITATION.cff">Cite Munin</a></li>
+                </ul>
+            </div>
+            <div class="f-col">
+                <h4>Project</h4>
+                <ul>
+                    <li><a href="https://github.com/elgetilab/munin">GitHub</a></li>
+                    <li><a href="https://elgetilab.github.io/">Elgeti Lab</a></li>
+                    <li><a href="https://www.hypmol.net/">HYP*MOL</a></li>
+                    <li><a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Support</a></li>
+                </ul>
+            </div>
         </div>
-    </footer>
+        <div class="f-base">
+            <span>Apache-2.0 licensed</span>
+            <span>Munin can make mistakes. Verify important information.</span>
+        </div>
+    </div>
+</footer>
 
-    <script src="/shared/feather-vortex.js?v=4"></script>
+
     <script>
         // API URL - /api prefix, stripped by Caddy before forwarding to backend
         const RETRIEVAL_API_URL = '/api';
@@ -582,17 +433,13 @@
             activeSearch = controller;
             const signal = controller.signal;
 
-            // Show loading
+            // Show loading. A plain spinner: the feather vortex is the chat's.
             resultsContainer.innerHTML = `
-                <div class="vortex-loading">
-                    <canvas id="search-vortex" width="128" height="128"></canvas>
-                    <p id="search-loading-msg"></p>
+                <div class="loading">
+                    <span class="loading-spinner" aria-hidden="true"></span>
+                    <span>Searching</span>
                 </div>
             `;
-            // Each returns a stop function. The results replace the canvas, but its
-            // animation and message timer run on until stopped.
-            const stopVortex = createVortex(document.getElementById('search-vortex'), 10, 7.0);
-            const stopMessage = createRotatingMessage(document.getElementById('search-loading-msg'), 'paper_search');
             errorContainer.innerHTML = '';
             announce('Searching');
 
@@ -656,9 +503,6 @@
                 showSearchError(error);
                 resultsContainer.innerHTML = '';
                 announce('');
-            } finally {
-                if (typeof stopVortex === 'function') stopVortex();
-                if (typeof stopMessage === 'function') stopMessage();
             }
         }
 

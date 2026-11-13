@@ -25,37 +25,56 @@ import { isWidget } from './lib/artifactDisplay';
 import { ProjectSettings } from './components/ProjectSettings';
 import { AdminPanel } from './components/AdminPanel';
 import { ReportDialog } from './components/ReportDialog';
+import { PhoneHeader } from './components/PhoneHeader';
+import { CHAT_COLUMN } from './components/ui/chatColumn';
+import { canResend } from './lib/resend';
 import { KnowledgePanel } from './components/KnowledgePanel';
 import { KnowledgePage } from './components/KnowledgePage';
 import { ErrorNotice } from './components/ui/ErrorNotice';
 import { LOGO_FILTER, SCRIM } from './components/ui/themeClasses';
+import { BookIcon, FlagIcon, GhostIcon, LayersIcon, MenuIcon } from './components/ui/icons';
+import { ThemeToggle } from './components/ThemeToggle';
 import { SessionNotice } from './components/SessionNotice';
 import { DegradedBanner } from './components/DegradedBanner';
-import { useModal } from './hooks/useModal';
+import { useEscape } from './hooks/useEscape';
+import { useBelowXl, useModal } from './hooks/useModal';
 import type { Project } from './lib/types';
 import { AUTH_BASE, DOCS_URL, SEARCH_URL, SITE_HOME, UPLOAD_URL } from './lib/urls';
 import { conversationPath, correctChatPath, dropStaleOverlayEntry, finishAppPath, isModifiedClick, popClosedOverlay, pushAppPath, readOverlayEntry, syncChatPath, syncOverlayHistory } from './lib/nav';
 
-// Tailwind's md breakpoint, below which the sidebar is a drawer over the page.
-const BELOW_MD = '(width < 48rem)';
+// Tailwind's lg breakpoint, below which the sidebar is a drawer over the page.
+// A tablet gets the drawer too, so the header keeps its full width and its
+// site links instead of losing them beside an inline sidebar (2026-11).
+const BELOW_LG = '(width < 64rem)';
 
-function subscribeBelowMd(onChange: () => void) {
+function subscribeBelowLg(onChange: () => void) {
   if (typeof window.matchMedia !== 'function') return () => {};
-  const query = window.matchMedia(BELOW_MD);
+  const query = window.matchMedia(BELOW_LG);
   query.addEventListener('change', onChange);
   return () => query.removeEventListener('change', onChange);
 }
 
-function isBelowMd() {
-  return typeof window.matchMedia === 'function' && window.matchMedia(BELOW_MD).matches;
+function isBelowLg() {
+  return typeof window.matchMedia === 'function' && window.matchMedia(BELOW_LG).matches;
 }
 
 // Set once per browser tab session; see the isEphemeral reset below.
 const SESSION_STARTED_KEY = 'munin_session_started';
 
-const PILL_BASE = 'text-xs px-2.5 py-1 rounded-full whitespace-nowrap md:whitespace-normal transition-colors cursor-pointer border';
-const PILL_OFF = 'bg-bg-tertiary border-border text-text-secondary hover:text-text-primary';
-const PILL_ACCENT = 'bg-accent/15 border-accent text-accent';
+// One look for everything in the header, the chat toggles on the left and the
+// site links on the right: a borderless 32px item that tints on hover. "On" (a
+// pressed toggle, the current page) is the accent tint; a temporary or reported
+// chat is the warning tint.
+const NAV_ITEM = 'inline-flex flex-shrink-0 items-center gap-1.5 h-8 px-2.5 rounded-md text-[13px] font-medium leading-none whitespace-nowrap no-underline transition-colors cursor-pointer';
+const NAV_IDLE = 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary';
+// Brass marks only where you are (the current page); a pressed toggle is neutral.
+const NAV_CURRENT = 'bg-accent/15 text-accent';
+const NAV_ON = 'bg-bg-tertiary text-text-primary';
+const NAV_WARN = 'bg-warning/15 text-warning';
+// The chat toggles drop to their icon when the header (not the window: the
+// sidebar takes its share) is narrower than 64rem. The aria-label keeps the name.
+const TOGGLE_LABEL = 'hidden @5xl:inline';
+const COUNT_BADGE = 'min-w-4 px-1 rounded bg-bg-primary text-[11px] leading-4 text-center tabular-nums';
 // The ✕ stays at full strength: faded, it falls under 4.5:1 on the banner's tint.
 const DISMISS_BUTTON = 'flex-shrink-0 min-w-8 min-h-8 -my-1 flex items-center justify-center rounded hover:bg-current/10 transition-colors cursor-pointer text-xs';
 
@@ -69,6 +88,7 @@ export default function App() {
   const setPersonas = useUserStore(s => s.setPersonas);
   const personaFromUrl = new URLSearchParams(window.location.search).get('persona');
   const selectedPersona = useUserStore(s => s.selectedPersona);
+  const conversationTitle = useChatStore(s => s.conversationTitle);
   const setSelectedPersona = useUserStore(s => s.setSelectedPersona);
   const hadPersonaParam = useRef(!!personaFromUrl);
   const greeting = useUserStore(s => s.greeting);
@@ -221,7 +241,7 @@ export default function App() {
             id: 'munin',
             name: 'Munin',
             description: 'Munin routes each question automatically.',
-            icon_url: '/shared/munin_logo_without_script.webp',
+            icon_url: '/shared/munin_logo_without_script.svg',
             tags: [],
             capabilities: {},
             prompt_suggestions: [],
@@ -285,8 +305,8 @@ export default function App() {
   }, [conversationId, showDemo]);
 
   // Overlays and the phone drawer in the browser history (see lib/nav.ts).
-  const belowMd = useSyncExternalStore(subscribeBelowMd, isBelowMd);
-  const drawerOpen = sidebarOpen && belowMd && !showKnowledgePage;
+  const belowLg = useSyncExternalStore(subscribeBelowLg, isBelowLg);
+  const drawerOpen = sidebarOpen && belowLg && !showKnowledgePage;
   const overlayView = showAdmin ? 'admin' : editingProject ? 'project' : showSettings ? 'settings' : null;
   const overlayProject = overlayView === 'project' ? editingProject : null;
   const overlayHistoryStarted = useRef(false);
@@ -302,12 +322,29 @@ export default function App() {
 
   // Hide the support button while a side panel is showing (see index.css).
   const sidePanelShowing = !showKnowledgePage && (
-    (knowledgePanelOpen && !!tagCatalog) || (artifactPanelOpen && !!conversationId && !isEphemeral)
+    (knowledgePanelOpen && !!tagCatalog) || (artifactPanelOpen && !isEphemeral)
   );
   useEffect(() => {
     document.body.classList.toggle('munin-side-panel-open', sidePanelShowing);
     return () => document.body.classList.remove('munin-side-panel-open');
   }, [sidePanelShowing]);
+
+  // Escape closes the side column from xl up, as its header toggle would, and
+  // hands focus back to that toggle. Below xl the panel is a dialog and handles
+  // Escape itself. The report dialog listens for Escape outside the layer stack,
+  // so the panel waits while it is open, and the demo slides cover the panel.
+  const artifactsToggleRef = useRef<HTMLButtonElement>(null);
+  const sourcesToggleRef = useRef<HTMLButtonElement>(null);
+  const belowXl = useBelowXl();
+  useEscape(() => {
+    if (useUiStore.getState().knowledgePanelOpen) {
+      setKnowledgePanelOpen(false);
+      sourcesToggleRef.current?.focus();
+    } else if (mayDropArtifactDraft()) {
+      setArtifactPanelOpen(false);
+      artifactsToggleRef.current?.focus();
+    }
+  }, sidePanelShowing && !belowXl && !showReportDialog && !showDemo);
 
   // The button would sit over the rows of a Knowledge browse page (see index.css).
   const browsingKnowledge = typeof showKnowledgePage === 'string';
@@ -337,6 +374,9 @@ export default function App() {
       fetchArtifacts(conversationId)
         .then(res => setArtifacts(res.artifacts))
         .catch(() => {}); // may not have artifacts
+    } else {
+      // A new chat starts with none, not the list of the chat it came from.
+      setArtifacts([]);
     }
   }, [conversationId, isEphemeral, setArtifacts, setSelectedArtifactId]);
 
@@ -420,7 +460,7 @@ export default function App() {
   }, [streaming.phase, messages.length, isEphemeral, activeProjectId, conversationId, bumpSidebarRefresh, setActiveProjectId]);
 
   const closeDrawerOnPhone = useCallback(() => {
-    if (window.innerWidth < 768) setSidebarOpen(false);
+    if (window.innerWidth < 1024) setSidebarOpen(false);
   }, [setSidebarOpen]);
 
   // The three handlers below return false when the user kept an artifact draft,
@@ -511,6 +551,12 @@ export default function App() {
     sendMessage(content, selectedPersona, isEphemeral, undefined, projectIdForNewChat, activeTags.length > 0 ? activeTags : undefined);
   }, [sendMessage, selectedPersona, isEphemeral, projectIdForNewChat, activeTags]);
 
+  // Retry and Edit: send `content` in place of the saved user message
+  // `messageId`; it and everything after it go, here and on the server.
+  const handleResend = useCallback((messageId: string, content: string) => {
+    sendMessage(content, selectedPersona, false, undefined, undefined, activeTags.length > 0 ? activeTags : undefined, undefined, messageId);
+  }, [sendMessage, selectedPersona, activeTags]);
+
   // P2 #24 Phase 2: after the user clicks Approve / Approve-all on
   // the PlanCard, the REST call has already landed (approved_at is
   // set in the DB). To get the model out of "waiting" and back into
@@ -527,6 +573,13 @@ export default function App() {
 
   const handleRetryReply = () => {
     if (!lastUserMessage) return;
+    // Replace the saved attempt on the server too, so the model doesn't see
+    // the question twice. Only a message that never came back saved (no id
+    // from `done`) falls back to trimming here alone.
+    if (!isEphemeral && canResend(lastUserMessage)) {
+      handleResend(lastUserMessage.id, lastUserMessage.content);
+      return;
+    }
     // sendMessage adds the user's message again, so take this attempt away first.
     useChatStore.setState({ messages: messages.slice(0, messages.lastIndexOf(lastUserMessage)) });
     handleSend(lastUserMessage.content);
@@ -646,7 +699,7 @@ export default function App() {
       setShowSettings(overlay.view === 'settings');
       setShowAdmin(overlay.view === 'admin');
       setEditingProject(overlay.view === 'project' ? overlay.project as Project : null);
-      if (isBelowMd()) setSidebarOpen(overlay.drawer);
+      if (isBelowLg()) setSidebarOpen(overlay.drawer);
 
       const path = window.location.pathname;
       if (path === '/demo') {
@@ -796,17 +849,17 @@ export default function App() {
         {/* Standalone header for knowledge page */}
         {/* On a phone only the links that fit: the logo goes Home, and the account
             menu back in the chat has the rest. */}
-        <header className="flex items-center gap-3 px-4 py-2.5 border-b border-border bg-bg-secondary">
-          <a href={SITE_HOME} className="flex-shrink-0 flex items-center gap-2 no-underline whitespace-nowrap">
-            <img src="/shared/munin_logo_without_script.webp" alt="Munin" className={`w-7 h-7 ${LOGO_FILTER}`} />
-            <span className="text-text-primary font-semibold text-sm">Munin</span>
+        <header className="flex items-center gap-3 px-3 py-2 border-b border-border bg-bg-secondary">
+          <a href={SITE_HOME} className="flex-shrink-0 flex items-center gap-2 px-1 no-underline whitespace-nowrap">
+            <img src="/shared/munin_logo_horizon_moon.svg" alt="Munin" className={`h-7 ${LOGO_FILTER}`} />
+            <span className="text-text-primary font-semibold text-[15px]">Munin</span>
           </a>
           <div className="flex-1" />
-          <nav className="flex-shrink-0 flex gap-4 text-sm whitespace-nowrap">
-            <a href={SITE_HOME} className="hidden md:inline text-text-secondary hover:text-accent no-underline transition-colors">Home</a>
-            <a href={SEARCH_URL} className="hidden md:inline text-text-secondary hover:text-accent no-underline transition-colors">Search papers</a>
-            <a href={DOCS_URL} className="hidden md:inline text-text-secondary hover:text-accent no-underline transition-colors">Docs</a>
-            <span className="text-accent" aria-current="page">Knowledge</span>
+          <nav className="flex-shrink-0 flex gap-0.5">
+            <a href={SITE_HOME} className={`hidden md:inline-flex ${NAV_ITEM} ${NAV_IDLE}`}>Home</a>
+            <a href={SEARCH_URL} className={`hidden md:inline-flex ${NAV_ITEM} ${NAV_IDLE}`}>Search papers</a>
+            <a href={DOCS_URL} className={`hidden md:inline-flex ${NAV_ITEM} ${NAV_IDLE}`}>Docs</a>
+            <span className={`${NAV_ITEM} ${NAV_CURRENT} cursor-default`} aria-current="page">Knowledge</span>
             <a
               href="/"
               onClick={(e) => {
@@ -814,10 +867,12 @@ export default function App() {
                 e.preventDefault();
                 leaveKnowledgePage();
               }}
-              className="text-text-secondary hover:text-accent no-underline transition-colors cursor-pointer text-sm"
+              className={`${NAV_ITEM} ${NAV_IDLE}`}
             >Chat</a>
-            <a href={UPLOAD_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Upload</a>
+            <a href={UPLOAD_URL} className={`${NAV_ITEM} ${NAV_IDLE}`}>Upload</a>
           </nav>
+          <span aria-hidden="true" className="hidden md:block w-px h-4 bg-border" />
+          <ThemeToggle className="-ml-1.5" />
         </header>
         <KnowledgePage
           initialRoute={typeof showKnowledgePage === 'string' ? showKnowledgePage : undefined}
@@ -861,16 +916,16 @@ export default function App() {
           Slides
         </button>
       )}
-      {/* Sidebar — overlay on mobile, inline on desktop */}
+      {/* Sidebar: a drawer over the page below lg (phones and tablets), inline from lg */}
       {sidebarOpen && (
         <>
           {/* Backdrop on mobile */}
           <div
-            className={`fixed inset-0 ${SCRIM} z-40 md:hidden`}
+            className={`fixed inset-0 ${SCRIM} z-40 lg:hidden`}
             aria-hidden="true"
             onClick={() => setSidebarOpen(false)}
           />
-          <div {...drawerModal.panelProps} className="fixed inset-y-0 left-0 z-50 md:relative md:z-auto outline-none">
+          <div {...drawerModal.panelProps} className="fixed inset-y-0 left-0 z-50 lg:relative lg:z-auto outline-none">
             {drawerOpen && <h2 id={drawerModal.titleId} className="sr-only">Menu</h2>}
             <Sidebar
               currentId={conversationId}
@@ -891,54 +946,80 @@ export default function App() {
       {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header — minimal, just sidebar toggle and nav links */}
-        {/* Never wider than the main area: on a phone the pills can be swiped when
-            they do not fit, and the page itself never scrolls sideways. From md up
-            nothing can scroll, so the pill text wraps and the header grows. */}
-        <header className="flex items-center gap-2 md:gap-3 px-4 py-2.5 border-b border-border bg-bg-secondary overflow-x-auto md:overflow-x-clip [scrollbar-width:none]">
+        {/* Never wider than the main area, and the page itself never scrolls
+            sideways. Clipped rather than scrolled sideways, so menus can still
+            drop down out of it: on a phone it holds only the menu, the title, New
+            chat and ⋯; from md up the pill text wraps and the header grows. */}
+        <header className="@container flex items-center gap-1 px-3 py-2 border-b border-border bg-bg-secondary overflow-x-clip">
+          {/* 44px to the finger on a phone, the same 32px as its neighbours from md up. */}
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2.5 -m-2.5 text-text-secondary hover:text-text-primary text-lg cursor-pointer"
+            className={`${NAV_ITEM} ${NAV_IDLE} justify-center !px-0 w-11 h-11 -my-1.5 md:w-8 md:h-8 md:my-0 mr-1`}
             title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
             aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
           >
-            {'\u2630'}
+            <MenuIcon size={18} />
           </button>
 
+          {/* Phone: the chat's title, New chat and a labelled ⋯ menu. */}
+          <PhoneHeader
+            title={conversationTitle ?? (isEphemeral ? 'Temporary chat' : messages.length > 0 ? 'Untitled chat' : 'New chat')}
+            onNewChat={() => { handleNewChat(); }}
+            isEphemeral={isEphemeral}
+            onToggleEphemeral={handleToggleEphemeral}
+            artifacts={!isEphemeral ? { open: artifactPanelOpen, count: artifacts.length, onToggle: () => { if (mayDropArtifactDraft()) setArtifactPanelOpen(!artifactPanelOpen); } } : undefined}
+            sources={tagCatalog ? { open: knowledgePanelOpen, count: activeTags.length, onToggle: () => { if (mayDropArtifactDraft()) setKnowledgePanelOpen(!knowledgePanelOpen); } } : undefined}
+            report={conversationId && !isEphemeral && messages.length > 0 ? { reported: reportedChats.has(conversationId), onReport: () => setShowReportDialog(true) } : undefined}
+            chatItems={!overlayView}
+          />
+
+          {/* From md up, the toggles sit in the header itself; Settings, Admin
+              and a project's page are not a chat, so they show none. */}
+          {!overlayView && <div className="hidden md:contents">
           {/* Ephemeral toggle */}
           <button
             data-testid="ephemeral-toggle"
             onClick={handleToggleEphemeral}
             aria-pressed={isEphemeral}
-            className={`${PILL_BASE} ${isEphemeral ? 'bg-warning/15 border-warning text-warning' : PILL_OFF}`}
+            aria-label="Temporary chat"
+            className={`${NAV_ITEM} ${isEphemeral ? NAV_WARN : NAV_IDLE}`}
             title={isEphemeral ? "Temporary chat is on. This chat won't be saved." : "Start a temporary chat that won't be saved"}
           >
-            Temporary chat
+            <GhostIcon />
+            <span className={TOGGLE_LABEL}>Temporary chat</span>
           </button>
 
-          {/* Artifacts panel toggle */}
-          {conversationId && !isEphemeral && (
+          {/* Artifacts panel toggle: there from the first screen, beside Sources.
+              A temporary chat keeps no artifacts, so it has none to show. */}
+          {!isEphemeral && (
             <button
+              ref={artifactsToggleRef}
               data-testid="artifacts-button"
               onClick={() => { if (mayDropArtifactDraft()) setArtifactPanelOpen(!artifactPanelOpen); }}
               aria-pressed={artifactPanelOpen}
-              className={`${PILL_BASE} ${artifactPanelOpen ? PILL_ACCENT : PILL_OFF}`}
+              aria-label={artifacts.length > 0 ? `Artifacts (${artifacts.length})` : 'Artifacts'}
+              className={`${NAV_ITEM} ${artifactPanelOpen ? NAV_ON : NAV_IDLE}`}
               title={artifactPanelOpen ? 'Hide artifacts' : 'Show artifacts'}
             >
-              {artifacts.length > 0 ? `Artifacts (${artifacts.length})` : 'Artifacts'}
+              <LayersIcon />
+              <span className={TOGGLE_LABEL}>Artifacts</span>
+              {artifacts.length > 0 && <span className={COUNT_BADGE}>{artifacts.length}</span>}
             </button>
           )}
 
           {/* Knowledge panel toggle */}
           {tagCatalog && (
             <button
+              ref={sourcesToggleRef}
               onClick={() => { if (mayDropArtifactDraft()) setKnowledgePanelOpen(!knowledgePanelOpen); }}
               aria-pressed={knowledgePanelOpen}
-              className={`${PILL_BASE} ${knowledgePanelOpen || activeTags.length > 0 ? PILL_ACCENT : PILL_OFF}`}
+              aria-label={activeTags.length > 0 ? `Sources (${activeTags.length})` : 'Sources'}
+              className={`${NAV_ITEM} ${knowledgePanelOpen || activeTags.length > 0 ? NAV_ON : NAV_IDLE}`}
               title={knowledgePanelOpen ? 'Hide sources' : 'Choose which sources to search'}
             >
-              {activeTags.length > 0
-                ? `Sources (${activeTags.length})`
-                : 'Sources'}
+              <BookIcon />
+              <span className={TOGGLE_LABEL}>Sources</span>
+              {activeTags.length > 0 && <span className={COUNT_BADGE}>{activeTags.length}</span>}
             </button>
           )}
 
@@ -946,28 +1027,22 @@ export default function App() {
           {conversationId && !isEphemeral && messages.length > 0 && (
             <button
               onClick={() => setShowReportDialog(true)}
-              className={`text-xs px-2.5 py-1 rounded-full whitespace-nowrap md:whitespace-normal transition-colors cursor-pointer border ${
-                reportedChats.has(conversationId)
-                  ? 'bg-warning/15 border-warning text-warning'
-                  : 'bg-bg-tertiary border-border text-text-secondary hover:text-text-primary'
-              }`}
+              className={`${NAV_ITEM} ${reportedChats.has(conversationId) ? NAV_WARN : NAV_IDLE}`}
               title={reportedChats.has(conversationId) ? 'Chat reported' : 'Report this chat'}
               aria-label={reportedChats.has(conversationId) ? 'Chat reported' : 'Report this chat'}
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill={reportedChats.has(conversationId) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="inline-block -mt-0.5 md:mr-1">
-                <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-                <line x1="4" y1="22" x2="4" y2="15" />
-              </svg>
-              <span className="hidden md:inline">{reportedChats.has(conversationId) ? 'Reported' : 'Report'}</span>
+              <FlagIcon filled={reportedChats.has(conversationId)} />
+              <span className={TOGGLE_LABEL}>{reportedChats.has(conversationId) ? 'Reported' : 'Report'}</span>
             </button>
           )}
+          </div>}
 
-          <div className="flex-1" />
+          <div className="hidden md:block flex-1 min-w-2" />
 
-          <nav className={`hidden gap-4 text-sm ${sidebarOpen ? 'lg:flex' : 'md:flex'}`}>
-            <a href={SITE_HOME} className="text-text-secondary hover:text-accent no-underline transition-colors">Home</a>
-            <a href={SEARCH_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Search papers</a>
-            <a href={DOCS_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Docs</a>
+          <nav className={`hidden gap-0.5 ${sidebarOpen ? 'lg:flex' : 'md:flex'}`}>
+            <a href={SITE_HOME} className={`${NAV_ITEM} ${NAV_IDLE}`}>Home</a>
+            <a href={SEARCH_URL} className={`${NAV_ITEM} ${NAV_IDLE}`}>Search papers</a>
+            <a href={DOCS_URL} className={`${NAV_ITEM} ${NAV_IDLE}`}>Docs</a>
             <a
               href="/knowledge"
               onClick={(e) => {
@@ -975,7 +1050,7 @@ export default function App() {
                 e.preventDefault();
                 handleOpenKnowledgePage();
               }}
-              className="text-text-secondary hover:text-accent no-underline transition-colors cursor-pointer text-sm"
+              className={`${NAV_ITEM} ${NAV_IDLE}`}
             >Knowledge</a>
             <a
               href={conversationId ? conversationPath(conversationId) : '/'}
@@ -987,10 +1062,14 @@ export default function App() {
                 setEditingProject(null);
               }}
               aria-current={overlayView ? undefined : 'page'}
-              className={`${overlayView ? 'text-text-secondary hover:text-accent' : 'text-accent'} no-underline transition-colors cursor-pointer`}
+              className={`${NAV_ITEM} ${overlayView ? NAV_IDLE : NAV_CURRENT}`}
             >Chat</a>
-            <a href={UPLOAD_URL} className="text-text-secondary hover:text-accent no-underline transition-colors">Upload</a>
+            <a href={UPLOAD_URL} className={`${NAV_ITEM} ${NAV_IDLE}`}>Upload</a>
           </nav>
+          {/* Shown at every width, with a hairline after the nav where there is one. */}
+          <span aria-hidden="true" className={`hidden w-px h-4 mx-1 bg-border ${sidebarOpen ? 'lg:block' : 'md:block'}`} />
+          {/* On a phone the theme is in the ⋯ menu. */}
+          <span className="hidden md:contents"><ThemeToggle /></span>
         </header>
 
         {/* Degraded-service notice (LLM fallback or reduced mode) */}
@@ -1014,17 +1093,19 @@ export default function App() {
           </div>
         )}
 
-        {/* Ephemeral banner */}
+        {/* Ephemeral banner, as wide as the reading column. */}
         {isEphemeral && (
-          <div className="mx-4 mt-3 px-4 py-2 bg-warning/10 border border-warning rounded-lg text-xs text-warning flex items-center gap-2">
-            <span className="flex-1">This chat won't be saved. Messages are lost on refresh.</span>
-            <button onClick={handleToggleEphemeral} className="flex-shrink-0 underline cursor-pointer">Turn off</button>
+          <div className="px-4 mt-3">
+            <div className={`${CHAT_COLUMN} px-4 py-2 bg-warning/10 border border-warning rounded-lg text-xs text-warning flex items-center gap-2`}>
+              <span className="flex-1">This chat won't be saved. Messages are lost on refresh.</span>
+              <button onClick={handleToggleEphemeral} className="flex-shrink-0 underline cursor-pointer">Turn off</button>
+            </div>
           </div>
         )}
 
         {/* Project context banner */}
         {activeProjectId && !isEphemeral && !overlayView && (
-          <div className="mx-4 mt-3 px-4 py-2 bg-accent/10 border border-accent rounded-lg text-xs text-accent flex items-center gap-2">
+          <div className="mx-4 mt-3 px-4 py-2 bg-bg-secondary border border-border rounded-lg text-xs text-text-secondary flex items-center gap-2">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
             </svg>
@@ -1037,8 +1118,9 @@ export default function App() {
           </div>
         )}
 
-        {/* PWA install banner */}
-        {showInstallBanner && (
+        {/* PWA install banner: on the empty screen only, never pushing a
+            conversation down mid-read. */}
+        {showInstallBanner && isEmpty && (
           <div className="mx-4 mt-3 px-4 py-3 bg-accent/10 border border-accent rounded-lg text-sm flex items-center gap-3 text-accent">
             <span className="flex-1">
               {canInstall
@@ -1129,10 +1211,11 @@ export default function App() {
             ) : isOffline ? (
               <SleepingPage nextStart={status?.vllm?.next_start} />
             ) : isEmpty ? (
-              <div className="flex-1 flex flex-col items-center justify-center gap-6 px-4 pb-8">
-                <div className="flex items-center gap-3">
+              /* Sits a little above the middle, where the eye puts the centre. */
+              <div className="flex-1 flex flex-col items-center justify-center gap-4 px-4 pb-[12dvh]">
+                <div className="flex items-center gap-3 px-4">
                   <FeatherVortex size="idle" />
-                  <h1 className="text-2xl font-semibold text-text-primary">
+                  <h1 className="text-[1.75rem] md:text-3xl font-semibold tracking-tight text-text-primary text-center">
                     {greeting || 'How can I help you today?'}
                   </h1>
                 </div>
@@ -1150,7 +1233,7 @@ export default function App() {
               </div>
             ) : (
               <>
-                <MessageList messages={messages} streaming={streaming} onSendClarification={handleSend} onDismissMemoryProposal={dismissMemoryProposal} conversationId={conversationId} onPlanApproved={handlePlanApproved} onPlanRejected={() => { /* user types follow-up themselves */ }} onPlanEdited={handlePlanEdited} onContinue={handleContinue} researchTimeline={drJob && drJob.conversationId === conversationId ? <ResearchTimeline job={drJob} /> : null} />
+                <MessageList messages={messages} streaming={streaming} onSendClarification={handleSend} onDismissMemoryProposal={dismissMemoryProposal} conversationId={conversationId} onPlanApproved={handlePlanApproved} onPlanRejected={() => { /* user types follow-up themselves */ }} onPlanEdited={handlePlanEdited} onContinue={handleContinue} canReport={Boolean(conversationId) && !isEphemeral} onResend={conversationId && !isEphemeral ? handleResend : undefined} researchTimeline={drJob && drJob.conversationId === conversationId ? <ResearchTimeline job={drJob} /> : null} />
                 <ChatInput
                   ref={chatInputRef}
                   onSend={handleSend}
@@ -1177,10 +1260,11 @@ export default function App() {
           )}
 
           {/* Artifact panel */}
-          {artifactPanelOpen && conversationId && !isEphemeral && (
+          {/* Open on a new chat too: empty, and saying what will appear. */}
+          {artifactPanelOpen && !isEphemeral && (
             <ArtifactPanel
               artifacts={artifacts}
-              conversationId={conversationId}
+              conversationId={conversationId ?? ''}
             />
           )}
         </div>
@@ -1197,9 +1281,10 @@ export default function App() {
             // setItem('munin_reported_chats', ...) is gone;
             // existing entries are migrated by the store's
             // onRehydrateStorage callback.
+            const aboutReply = useUiStore.getState().reportReply !== null;
             setShowReportDialog(false);
             addReportedChat(conversationId);
-            showToast('Chat reported. Thank you for helping us improve.', 4000);
+            showToast(`${aboutReply ? 'Reply' : 'Chat'} reported. Thank you for helping us improve.`, 4000);
           }}
         />
       )}

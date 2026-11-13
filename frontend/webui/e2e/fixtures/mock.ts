@@ -108,6 +108,11 @@ export async function installMocks(page: Page, init: Partial<MockState> = {}): P
       }
       return json(route, S.emptyConversation(cid));
     }
+    if (/^\/api\/chats\/[^/]+$/.test(p) && m === 'DELETE') {
+      const cid = p.split('/').pop();
+      state.conversations = state.conversations.filter((c) => c.id !== cid);
+      return route.fulfill({ status: 204 });
+    }
     if (/^\/api\/chats\/[^/]+$/.test(p)) return json(route, {});
 
     // chat completions (SSE)

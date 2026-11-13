@@ -3,148 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <!-- Sets light or dark before any CSS loads. Keep identical to static/shared/theme-snippet.html. -->
-    <script data-munin-theme>(function(){var p="dark",d=document.documentElement;try{var m=document.cookie.match(/(?:^|;\s*)munin_theme=(light|dark|system)(?:;|$)/);if(m)p=m[1]}catch(e){}var t=p;if(p==="system"){try{t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}catch(e){t="dark"}}d.setAttribute("data-theme-pref",p);d.setAttribute("data-theme",t)})()</script>
+    <script data-munin-theme>(function(){var p="system",d=document.documentElement;try{var m=document.cookie.match(/(?:^|;\s*)munin_theme=(light|dark|system)(?:;|$)/);if(m)p=m[1]}catch(e){}var t=p;if(p==="system"){try{t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}catch(e){t="dark"}}d.setAttribute("data-theme-pref",p);d.setAttribute("data-theme",t)})()</script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Verify Code - Munin</title>
-    <link rel="stylesheet" href="/shared/style.css?v=2">
-    <script src="/shared/theme.js" defer></script>
+    <link rel="icon" type="image/svg+xml" href="/shared/munin_logo_without_script.svg">
+    <link rel="stylesheet" href="/shared/style.css?v=3">
+    <link rel="stylesheet" href="/shared/site.css?v=1">
+    <link rel="stylesheet" href="/shared/auth.css?v=1">
+    <script src="/shared/theme.js?v=2" defer></script>
     <style>
-        .auth-container {
-            max-width: 400px;
-            margin: 120px auto;
-            padding: 0 24px;
-        }
-
-        .auth-card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 40px 32px;
-            text-align: center;
-        }
-
-        .auth-logo {
-            height: 48px;
-            width: auto;
-            filter: var(--logo-filter);
-            margin-bottom: 24px;
-        }
-
-        .auth-title {
-            font-size: 24px;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-
-        .auth-subtitle {
-            color: var(--text-secondary);
-            font-size: 14px;
-            margin-bottom: 8px;
-            overflow-wrap: anywhere;
-        }
-
-        .auth-subtitle strong {
-            color: var(--text-primary);
-        }
-
-        .auth-hint {
-            color: var(--text-secondary);
-            font-size: 13px;
-            margin-bottom: 24px;
-            overflow-wrap: anywhere;
-        }
-
-        .auth-form {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-
-        .auth-field {
-            text-align: left;
-        }
-
-        .auth-field label {
-            display: block;
-            margin-bottom: 6px;
-            font-size: 13px;
-            color: var(--text-secondary);
-        }
-
-        .auth-form input[type="text"] {
-            width: 100%;
-            padding: 14px 16px;
-            font-size: 28px;
-            text-align: center;
-            letter-spacing: 8px;
-            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-        }
-
-        .auth-form button,
-        .auth-resend button {
-            width: 100%;
-            padding: 14px;
-            font-size: 16px;
-        }
-
-        .auth-form button:disabled,
-        .auth-resend button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .auth-error {
-            background: rgba(248, 81, 73, 0.1);
-            background: color-mix(in srgb, var(--error) 10%, transparent);
-            border: 1px solid var(--error);
-            border-radius: 8px;
-            padding: 12px;
-            color: var(--error);
-            font-size: 14px;
-            margin-bottom: 16px;
-        }
-
-        .auth-resend {
-            margin-top: 16px;
-        }
-
-        .auth-links {
-            margin-top: 24px;
-            font-size: 13px;
-            color: var(--text-secondary);
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .auth-links a {
-            color: var(--accent);
-            text-decoration: none;
-        }
-
-        .auth-verifying {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 12px;
-            padding: 14px;
-        }
-
-        .auth-verifying canvas {
-            width: 40px;
-            height: 40px;
-        }
-
-        .auth-verifying span {
-            color: var(--text-secondary);
-            font-size: 14px;
-        }
+        .auth-hint { color: var(--text-3); font-size: 14px; margin: -14px 0 24px; overflow-wrap: anywhere; }
+        /* Six digits, in the page's one family with even figures. */
+        .auth-field input#verify-code { height: 60px; font-size: 28px; font-weight: 500; text-align: center; letter-spacing: 0.4em; padding-left: calc(14px + 0.4em); font-variant-numeric: tabular-nums; }
+        .auth-resend { margin-top: 10px; }
     </style>
 </head>
 <body>
-    <div class="auth-container">
+    <svg class="horizon" viewBox="0 0 1440 180" preserveAspectRatio="none" aria-hidden="true">
+        <g fill="none" stroke="currentColor" stroke-width="1.2">
+            <path d="M0 120 C180 90 300 140 480 110 S820 60 1000 100 1300 130 1440 90"/>
+            <path d="M0 140 C200 115 320 160 500 132 S840 88 1020 122 1320 150 1440 116"/>
+            <path d="M0 160 C220 140 340 178 520 154 S860 116 1040 144 1340 170 1440 142"/>
+        </g>
+    </svg>
+    <main class="auth-container">
         <div id="auth-card" class="auth-card" data-send-id="{{ send_id }}" data-send-state="{{ send_state }}">
-            <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="auth-logo">
+            <span class="auth-mark" role="img" aria-label="Munin"></span>
             {% if locked %}
             <h1 class="auth-title">Sign-in is paused</h1>
             <p class="auth-subtitle auth-hint"><strong>{{ email }}</strong></p>
@@ -186,8 +70,9 @@
                     <input id="verify-code" type="text" name="code" pattern="\D*(\d\D*){6}" title="The 6-digit code from the email" required autocomplete="one-time-code" inputmode="numeric" autofocus>
                 </div>
                 <button id="verify-btn" type="submit" class="btn {% if send_state == 'failed' %}btn-secondary{% else %}btn-primary{% endif %}">Verify</button>
-                <div id="verify-loading" class="auth-verifying" role="status" style="display: none;">
-                    <canvas id="verify-vortex" width="128" height="128"></canvas>
+                {# A plain ring while the code is checked: the feather vortex is the chat's. #}
+                <div id="verify-loading" class="auth-busy" role="status" style="display: none;">
+                    <span class="ring" aria-hidden="true"></span>
                     <span>Verifying...</span>
                 </div>
             </form>
@@ -207,10 +92,9 @@
                 <a href="{{ site_url or '/' }}">&larr; Back to Munin</a>
             </div>
         </div>
-    </div>
+    </main>
 
     {% if not locked %}
-    <script src="/shared/feather-vortex.js?v=4"></script>
     <script>
         (function() {
             var form = document.getElementById('verify-form');
@@ -222,7 +106,6 @@
             var resendLabel = resendButton.textContent;
             var countdown = null;
             var submitted = false;
-            var stopVortex = null;
 
             form.addEventListener('submit', function(event) {
                 if (submitted) {
@@ -232,7 +115,6 @@
                 submitted = true;
                 button.style.display = 'none';
                 loading.style.display = 'flex';
-                stopVortex = createVortex(document.getElementById('verify-vortex'), 10, 7.0);
             });
 
             // Typed or pasted: digits only, at most 6, and 6 submits the form.
@@ -250,7 +132,6 @@
                 input.value = '';
                 button.style.display = '';
                 loading.style.display = 'none';
-                if (stopVortex) stopVortex();
                 freeResend();
                 followSend();
             });

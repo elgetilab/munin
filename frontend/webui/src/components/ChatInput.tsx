@@ -7,7 +7,11 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useChatStore } from '../stores/chatStore';
 import { useDeepResearchStore } from '../stores/deepResearchStore';
 import { useMenu } from '../hooks/useMenu';
+import { lastInputWasKeyboard, trackFocusModality } from '../lib/focusModality';
 import { ICON } from './ui/cardButton';
+import { CHAT_COLUMN } from './ui/chatColumn';
+import { ModeChip } from './ModeChip';
+import { typedMode, withMode, type Mode } from '../lib/modes';
 import { BookIcon, ChatIcon, FlaskIcon, PageIcon, SearchIcon, SpinnerIcon } from './ui/icons';
 
 // Router-recognized per-turn overrides (backend parse_slash: research|code|chat).
@@ -132,7 +136,7 @@ function TagResultList({ result, highlight, onSelect, gutter, empty }: {
                     }`}
                   >
                     <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                      item.kind === 'group' ? 'bg-accent/15 text-accent' :
+                      item.kind === 'group' ? 'bg-bg-tertiary text-text-primary' :
                       item.kind === 'contributor' ? 'bg-success/15 text-success' :
                       'bg-warning/15 text-warning'
                     }`}>
@@ -224,7 +228,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   isStreaming,
   researchActive = false,
   suggestions: _suggestions,
-  showSuggestions: _showSuggestions,
+  showSuggestions,
   conversationId,
   onFileUploaded,
 }: ChatInputProps, ref) {
@@ -239,6 +243,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const drQueued = useDeepResearchStore(s => s.job?.status === 'queued');
   const [drStarting, setDrStarting] = useState(false);
   const [deepResearchMode, setDeepResearchMode] = useState(false);
+  // The mode chip's choice. It holds for this chat and goes back to Auto in
+  // another one (adjusted during render, React's pattern for state derived
+  // from a prop, so the chip never shows the old chat's mode for a frame).
+  const [mode, setMode] = useState<Mode>('auto');
+  const [modeChat, setModeChat] = useState(conversationId);
+  if (modeChat !== conversationId) {
+    setModeChat(conversationId);
+    if (conversationId == null || modeChat != null) setMode('auto');
+  }
   const [input, setInput] = useState('');
   const attachMenu = useMenu();
   const [knowledgePickerOpen, setKnowledgePickerOpen] = useState(false);
@@ -258,6 +271,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   // Caret position while it is known; null means the end of the input.
   const [cursor, setCursor] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Reached from the keyboard: the bubble draws the full ring (index.css).
+  const [keyboardFocus, setKeyboardFocus] = useState(false);
+  useEffect(trackFocusModality, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const uploadAbortRef = useRef<AbortController | null>(null);
@@ -437,7 +453,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     if (hasAttachments && onSendMultimodal) {
       const content: Array<{ type: string; text?: string; image_url?: { url: string }; document_id?: string; filename?: string }> = [];
       if (trimmed) {
-        content.push({ type: 'text', text: trimmed });
+        content.push({ type: 'text', text: withMode(trimmed, mode) });
       }
       for (const img of pendingImages) {
         content.push({ type: 'image_url', image_url: { url: img.dataUrl } });
@@ -449,7 +465,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       setPendingImages([]);
       setPendingDocs([]);
     } else if (trimmed) {
-      onSend(trimmed);
+      onSend(withMode(trimmed, mode));
     }
     setInput('');
     setImageError(null);
@@ -501,6 +517,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         return;
       }
       if (e.key === 'Escape') {
+        // Kept here, so it closes only this list and not a side panel too.
+        e.preventDefault();
         setInput(input + ' ');
         return;
       }
@@ -624,7 +642,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     <div className="px-4 py-4 bg-bg-primary w-full">
       {/* Prompt suggestions — hidden for now, pending design review */}
       {/* {showSuggestions && suggestions && suggestions.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-3 justify-center max-w-3xl mx-auto">
+        <div className={`flex flex-wrap gap-2 mb-3 justify-center ${CHAT_COLUMN}`}>
           {suggestions.map((s, i) => (
             <button
               key={i}
@@ -641,7 +659,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
       {/* Upload status banner */}
       {uploadState && (
-        <div className="max-w-3xl mx-auto mb-2">
+        <div className={`${CHAT_COLUMN} mb-2`}>
           <div className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm ${
             uploadState.status === 'error'
               ? 'bg-error/10 border border-error text-error'
@@ -723,7 +741,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
       {/* Tag autocomplete dropdown */}
       {tagQuery !== null && tagCatalog && (
-        <div className="max-w-3xl mx-auto mb-2">
+        <div className={`${CHAT_COLUMN} mb-2`}>
           <div className="bg-bg-secondary border border-border rounded-xl shadow-lg overflow-hidden">
             {/* Search header */}
             <div className="px-4 py-2 border-b border-border flex items-center gap-2">
@@ -750,7 +768,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
       {/* Slash command autocomplete */}
       {slashMatches.length > 0 && (
-        <div className="max-w-3xl mx-auto mb-2">
+        <div className={`${CHAT_COLUMN} mb-2`}>
           <div className="bg-bg-secondary border border-border rounded-xl shadow-lg overflow-hidden">
             {slashMatches.map((cmd, i) => (
               <button
@@ -770,7 +788,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       )}
 
       {/* Input bubble */}
-      <div className="max-w-3xl mx-auto bg-bg-secondary border border-border rounded-2xl">
+      <div id="composer-bubble" className={`${CHAT_COLUMN} bg-bg-secondary border border-border rounded-2xl`}>
         {/* Active tag chips */}
         {activeTags.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 px-5 pt-3 pb-0">
@@ -781,7 +799,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                 key={`${tag.kind}:${tag.value}`}
                 title={`#${tag.kind === 'contributor' ? '@' : ''}${tag.value}`}
                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium ${
-                  tag.kind === 'group' ? 'bg-accent/15 text-accent' :
+                  tag.kind === 'group' ? 'bg-bg-tertiary text-text-primary' :
                   tag.kind === 'contributor' ? 'bg-success/15 text-success' :
                   'bg-warning/15 text-warning'
                 }`}
@@ -903,11 +921,14 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             setTagHighlight(0);
           }}
           onKeyDown={handleKeyDown}
+          onFocus={() => setKeyboardFocus(lastInputWasKeyboard())}
+          onBlur={() => setKeyboardFocus(false)}
+          data-keyboard-focus={keyboardFocus || undefined}
           disabled={researchActive}
           aria-label="Message Munin"
-          placeholder={researchActive ? undefined : 'Ask Munin anything… (/research, /code, /chat to steer)'}
+          placeholder={researchActive ? undefined : 'Ask Munin…'}
           rows={1}
-          className="w-full resize-none bg-transparent px-5 pt-4 pb-2 text-sm text-text-primary placeholder-text-secondary outline-none disabled:opacity-50"
+          className="w-full resize-none bg-transparent px-5 pt-4 pb-3 text-base text-text-primary placeholder-text-secondary outline-none disabled:opacity-50"
         />
 
         {/* Bottom bar: attach, spacer, Munin mark, send */}
@@ -961,7 +982,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary transition-colors cursor-pointer"
                 >
                   <BookIcon size={16} />
-                  Attach knowledge
+                  <span className="flex-1">Choose sources</span>
+                  <kbd className="text-[11px] font-mono text-text-secondary border border-border rounded px-1.5 py-0.5">#</kbd>
                 </button>
 
                 {/* Deep Research toggle. When on, the next send starts a
@@ -993,7 +1015,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                     </span>
                   </span>
                   {/* on/off pill */}
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${deepResearchMode ? 'bg-accent/15 text-accent' : 'bg-bg-tertiary text-text-secondary'}`}>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${deepResearchMode ? 'bg-bg-tertiary text-text-primary' : 'bg-bg-tertiary text-text-secondary'}`}>
                     {deepResearchMode ? 'On' : 'Off'}
                   </span>
                 </button>
@@ -1004,7 +1026,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             {knowledgePickerOpen && (
               <div
                 {...knowledgePicker.menuProps}
-                aria-label="Attach knowledge"
+                aria-label="Choose sources"
                 onKeyDown={e => {
                   if (e.key !== 'Escape') return;
                   // Handled here so that focus goes back to the + button.
@@ -1021,7 +1043,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                     onKeyDown={handleKnowledgeSearchKeyDown}
                     aria-label="Search groups, topics, contributors"
                     placeholder="Search groups, topics, contributors..."
-                    className="w-full text-xs px-2.5 py-1.5 bg-bg-tertiary border border-border rounded-lg text-text-primary placeholder:text-text-secondary outline-none focus:border-accent transition-colors"
+                    className="w-full text-xs px-2.5 py-1.5 bg-bg-tertiary border border-border rounded-lg text-text-primary placeholder:text-text-secondary outline-none focus:border-text-secondary transition-colors"
                     autoFocus
                   />
                 </div>
@@ -1042,27 +1064,17 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
           <div className="flex-1" />
 
-          {/* Munin identity mark - non-interactive. The model now
-              auto-routes per turn, so there's no persona to pick. The black
-              raven logo sits centered in a white circle so it reads cleanly on
-              the dark composer. */}
-          <div className="flex items-center gap-1.5 px-2 select-none" aria-hidden>
-            <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-white">
-              <img
-                src="/shared/munin_logo_without_script.webp"
-                alt="Munin"
-                className="h-4 w-4 object-contain"
-              />
-            </span>
-            <span className="text-sm text-text-secondary">Munin</span>
-          </div>
+          {/* The mode the next message goes in, where Claude has its model
+              picker. A typed /command shows here too and wins on send. */}
+          <ModeChip mode={mode} onChange={m => { setMode(m); textareaRef.current?.focus(); }} typed={typedMode(input)} deepResearch={deepResearchMode} />
 
           {/* Send / Stop button */}
           {isStreaming ? (
             <button
               data-testid="composer-stop"
               onClick={onStop}
-              className="p-2.5 bg-error rounded-full text-bg-primary cursor-pointer hover:opacity-90 transition-opacity"
+              aria-label="Stop generating"
+              className="p-2.5 bg-bg-tertiary border border-border rounded-full text-text-primary cursor-pointer hover:border-text-secondary transition-colors"
               title="Stop generating"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -1074,7 +1086,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               data-testid="composer-send"
               onClick={handleSubmit}
               disabled={(!input.trim() && !hasAttachments) || drStarting || researchActive || deepResearchBlocked || uploading}
-              className="p-2.5 bg-accent rounded-full text-bg-primary cursor-pointer hover:bg-accent-hover transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-2.5 bg-accent rounded-full text-bg-primary cursor-pointer enabled:hover:bg-accent-hover transition-colors disabled:bg-bg-tertiary disabled:text-text-secondary disabled:cursor-not-allowed"
               title={
                 uploading ? 'Waiting for upload to finish'
                 : deepResearchBlocked ? 'Deep Research cannot use attachments'
@@ -1098,7 +1110,14 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         </div>
       </div>
 
-      <p className="text-center text-[11px] text-text-secondary mt-2">
+      {/* The empty screen teaches the two shortcuts once, quietly. */}
+      {showSuggestions && (
+        <p className="text-center text-xs text-text-secondary mt-3" data-testid="composer-hint">
+          Type <kbd className="font-mono text-text-primary border border-border rounded px-1 py-px">#</kbd> to choose which sources Munin searches, or <kbd className="font-mono text-text-primary border border-border rounded px-1 py-px">/</kbd> for a mode.
+        </p>
+      )}
+      {/* A little more air under the composer on a phone. */}
+      <p className="text-center text-[11px] text-text-secondary mt-3 md:mt-2">
         Munin can make mistakes. Verify important information.
       </p>
     </div>

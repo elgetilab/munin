@@ -37,7 +37,6 @@ domain beyond DNS. The reference deployment uses `muninai.org`.
 | `chat.<domain>` | Session cookie | React chat UI → gateway → backend |
 | `docs.<domain>` | Session cookie | Static documentation |
 | `search.<domain>` | Session cookie | Static + gateway → backend |
-| `research.<domain>` | Session cookie | Retired standalone Deep Research; shows an "unavailable" page (Deep Research now runs inside chat) |
 | `upload.<domain>` | Session cookie | Static + tusd |
 | `api.<domain>` | API key (Bearer) | gateway → backend (OpenAI-compatible) |
 
@@ -172,9 +171,12 @@ What's running today:
 - **api-gateway**: proxy, API keys, rate limiting, usage logging.
 - **Chat UI**: React + TypeScript + Tailwind, SSE streaming, task
   execution log, feather vortex animation, PWA.
-- **Shared style guide**: common stylesheet under
-  `static/shared/style.css`, served at `/shared/*` across every
-  subdomain by Caddy's `(shared-assets)` snippet.
+- **Shared style guide**: common stylesheets under `static/shared/`,
+  served at `/shared/*` across every subdomain by Caddy's
+  `(shared-assets)` snippet: `style.css` (the palette the chat shares,
+  the header), `site.css` (the static sites' look: self-hosted Geist
+  from `shared/fonts/`, buttons, panels, footer) and `auth.css` (the
+  sign-in pages).
 - **Sleeping page**: off-hours display when vLLM is down (2 to 6 AM).
 - **Maintenance page**: shown while the cluster is in maintenance
   mode (the `munin-maintenance` flag on the backend, reported by
@@ -202,7 +204,6 @@ frontend/                    # VPS-side of the monorepo
 │   ├── landing/             # Public landing page
 │   ├── docs/                # Documentation pages
 │   ├── search/              # Paper search
-│   ├── research/            # Retired Deep Research page ("unavailable")
 │   ├── upload/              # Upload UI
 │   └── maintenance/         # Maintenance page (reads /api/status)
 ├── docs/                    # Live design notes (+ docs/archive/ for shipped specs)
@@ -258,8 +259,10 @@ an `sk-munin-...` key.
 **Check usage:** `GET /api/usage/me` returns monthly token usage
 and breakdown.
 
-**Update styling:** edit `static/shared/style.css`, applies to all
-pages on next load.
+**Update styling:** edit `static/shared/style.css` or `site.css`
+(`auth.css` for the sign-in pages), then bump the `?v=` on every page
+that links it (the auth templates included), so no browser keeps a
+cached copy.
 
 **Rebuild chat UI:** `cd webui && npm run build`, outputs to
 `static/chat/`. Then rsync to VPS. (Or `docker compose up --build

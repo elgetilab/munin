@@ -60,11 +60,13 @@ describe('chart series colours', () => {
     }
   });
 
-  it('keeps the dark colours the charts have always had', () => {
+  // 2026-11: the dark palette leads with the accent; no series is a second
+  // yellow beside it or the warning colour.
+  it('leads the dark palette with the accent', () => {
     expect(series.map(n => darkCharts[n])).toEqual([
-      '#58a6ff', '#3fb950', '#d29922', '#f85149',
-      '#a371f7', '#e3b341', '#56d4dd', '#ff7b72',
-      '#79c0ff', '#85e89d', '#ffa657', '#f0883e',
+      '#d9b56f', '#3fb950', '#58a6ff', '#f85149',
+      '#a371f7', '#d4a5e8', '#56d4dd', '#ff7b72',
+      '#79c0ff', '#85e89d', '#ffa657', '#e89bc4',
     ]);
   });
 

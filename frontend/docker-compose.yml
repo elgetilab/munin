@@ -33,7 +33,6 @@ services:
       MUNIN_URL_SEARCH: ${VITE_SEARCH_URL:-https://search.${MUNIN_DOMAIN}}
       MUNIN_URL_DOCS: ${VITE_DOCS_URL:-https://docs.${MUNIN_DOMAIN}}
       MUNIN_URL_UPLOAD: ${VITE_UPLOAD_URL:-https://upload.${MUNIN_DOMAIN}}
-      MUNIN_URL_RESEARCH: ${MUNIN_URL_RESEARCH:-https://research.${MUNIN_DOMAIN}}
       MUNIN_URL_API: ${VITE_API_PUBLIC_URL:-https://api.${MUNIN_DOMAIN}/v1}
       MUNIN_SUPPORT_EMAIL: ${SUPPORT_EMAIL:-support@${MUNIN_DOMAIN}}
       # Where the backend answers, and the token it expects (see api-gateway).

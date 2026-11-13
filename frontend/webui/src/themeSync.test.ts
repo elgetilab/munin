@@ -50,7 +50,7 @@ describe('the two palettes stay in step', () => {
 });
 
 describe('shared scripts on the static and auth pages', () => {
-  const statics = ['landing/index.html', 'search/index.html', 'research/index.html', 'upload/index.html',
+  const statics = ['landing/index.html', 'search/index.html', 'upload/index.html',
     'maintenance/index.html', 'docs/index.html', 'docs/architecture.html', 'docs/guide.html'];
   const auth = ['login.html', 'verify.html'];
   const pages = [
@@ -69,6 +69,6 @@ describe('shared scripts on the static and auth pages', () => {
   });
 
   it.each(auth)('auth/%s loads theme.js, so Match system and other tabs are followed', (path) => {
-    expect(read(`../auth/templates/${path}`)).toContain('<script src="/shared/theme.js" defer></script>');
+    expect(read(`../auth/templates/${path}`)).toMatch(/<script src="\/shared\/theme\.js\?v=\d+" defer><\/script>/);
   });
 });

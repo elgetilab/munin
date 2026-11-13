@@ -10,7 +10,7 @@ export function Field({ label, children }: { label: string; children: React.Reac
   );
 }
 
-const CONTROL = 'w-full bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent';
+const CONTROL = 'w-full bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-text-secondary';
 
 export function Input({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (

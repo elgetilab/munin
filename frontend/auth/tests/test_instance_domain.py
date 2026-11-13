@@ -31,8 +31,8 @@ def test_reference_domain_reproduces_the_old_values(monkeypatch, tmp_path):
     cors = next(mw for mw in m.app.user_middleware if "CORS" in str(mw.cls))
     assert set(cors.kwargs["allow_origins"]) == {
         "https://muninai.org", "https://chat.muninai.org",
-        "https://search.muninai.org", "https://research.muninai.org",
-        "https://docs.muninai.org", "https://upload.muninai.org"}
+        "https://search.muninai.org", "https://docs.muninai.org",
+        "https://upload.muninai.org"}
 
 
 def test_empty_cookie_domain_means_host_only(monkeypatch, tmp_path):

@@ -6,7 +6,8 @@ describe('TaskLog result summary', () => {
   const row = (result: unknown) => {
     const call: ToolCall = { id: 't', name: 'web_fetch', arguments: {}, result } as ToolCall;
     render(<TaskLog toolCalls={[call]} />);
-    return screen.getByRole('button');
+    fireEvent.click(screen.getByTestId('activity-line'));
+    return screen.getAllByRole('button')[1];
   };
 
   it('shows a tool that returned an error as failed, not done', () => {
@@ -35,8 +36,7 @@ describe('TaskLog result summary', () => {
   });
 
   it('lets long unbroken values wrap in the expanded view', () => {
-    const button = row({ error: 'x' });
-    fireEvent.click(button);
+    row({ error: 'x' });
     const pres = document.querySelectorAll('pre');
     expect(pres.length).toBeGreaterThan(0);
     pres.forEach(p => expect(p.className).toContain('wrap-anywhere'));
@@ -89,25 +89,28 @@ describe('TaskLog tool icons', () => {
 });
 
 describe('TaskLog rows', () => {
-  it('are real buttons that report whether they are expanded', () => {
+  // Opening the activity line shows everything; each part can still be closed.
+  it('are real buttons, all open once the line is opened, each closable', () => {
     render(<TaskLog thinking="Mulling it over" toolCalls={[{ id: 't1', name: 'web_search', arguments: {} }]} />);
-    const rows = screen.getAllByRole('button');
+    fireEvent.click(screen.getByTestId('activity-line'));
+    const rows = screen.getAllByRole('button').slice(1);
     expect(rows).toHaveLength(2);
     for (const row of rows) {
       expect(row).toHaveAttribute('type', 'button');
-      expect(row).toHaveAttribute('aria-expanded', 'false');
+      expect(row).toHaveAttribute('aria-expanded', 'true');
     }
+    expect(screen.getByText('Mulling it over')).toBeInTheDocument();
 
     fireEvent.click(rows[0]);
-    expect(rows[0]).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('Mulling it over')).toBeInTheDocument();
+    expect(rows[0]).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Mulling it over')).not.toBeInTheDocument();
   });
 });
 
 describe('TaskLog expanded rows', () => {
   const open = (call: ToolCall) => {
     const view = render(<TaskLog toolCalls={[call]} />);
-    fireEvent.click(screen.getAllByRole('button')[0]);
+    fireEvent.click(screen.getByTestId('activity-line'));
     return view;
   };
 
@@ -166,9 +169,36 @@ describe('TaskLog expanded rows', () => {
         { title: 'Doc B', source: 'papers', score: 0.8, doi: 'not-a-doi' },
       ],
     }} />);
-    fireEvent.click(screen.getByRole('button'));
+    fireEvent.click(screen.getByTestId('activity-line'));
     expect(screen.getByRole('link', { name: '10.5555/xyz' })).toHaveAttribute('href', 'https://doi.org/10.5555/xyz');
     expect(screen.queryByRole('link', { name: 'not-a-doi' })).toBeNull();
     expect(screen.getByText(/not-a-doi/)).toBeInTheDocument();
+  });
+});
+
+describe('TaskLog activity line', () => {
+  const call = (name: string, result?: unknown): ToolCall => ({ id: name + String(Math.random()), name, arguments: {}, result } as ToolCall);
+
+  it('sums a finished reply up in one line, closed until asked', () => {
+    render(<TaskLog toolCalls={[call('web_search', { results: [{}] })]} />);
+    const line = screen.getByTestId('activity-line');
+    expect(line).toHaveTextContent('Searched the web · 1 result');
+    expect(line).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText(/web search/)).not.toBeInTheDocument();
+    fireEvent.click(line);
+    expect(line).toHaveAttribute('aria-expanded', 'true');
+    expect(document.getElementById(line.getAttribute('aria-controls')!)).toHaveTextContent('web search');
+  });
+
+  it('says what is running while the reply streams', () => {
+    render(<TaskLog isStreaming toolCalls={[call('paper_search', { papers: [] }), call('web_fetch')]} />);
+    expect(screen.getByTestId('activity-line')).toHaveTextContent('Reading a web page…');
+  });
+
+  it('counts the steps of a longer turn and names failures apart', () => {
+    render(<TaskLog toolCalls={[call('web_search', { results: [] }), call('web_fetch', { error: 'timeout' }), call('web_fetch', { ok: true })]} />);
+    const line = screen.getByTestId('activity-line');
+    expect(line).toHaveTextContent('Searched the web and read web pages · 3 steps');
+    expect(line).toHaveTextContent('1 failed');
   });
 });

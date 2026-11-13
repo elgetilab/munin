@@ -3,184 +3,52 @@
 <head>
     <meta charset="UTF-8">
     <!-- Sets light or dark before any CSS loads. Keep identical to static/shared/theme-snippet.html. -->
-    <script data-munin-theme>(function(){var p="dark",d=document.documentElement;try{var m=document.cookie.match(/(?:^|;\s*)munin_theme=(light|dark|system)(?:;|$)/);if(m)p=m[1]}catch(e){}var t=p;if(p==="system"){try{t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}catch(e){t="dark"}}d.setAttribute("data-theme-pref",p);d.setAttribute("data-theme",t)})()</script>
+    <script data-munin-theme>(function(){var p="system",d=document.documentElement;try{var m=document.cookie.match(/(?:^|;\s*)munin_theme=(light|dark|system)(?:;|$)/);if(m)p=m[1]}catch(e){}var t=p;if(p==="system"){try{t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}catch(e){t="dark"}}d.setAttribute("data-theme-pref",p);d.setAttribute("data-theme",t)})()</script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Architecture - Munin</title>
-    <link rel="stylesheet" href="/shared/style.css?v=2">
-    <script src="/shared/theme.js" defer></script>
-    <style>
-        .container {
-            max-width: 1200px;
-        }
+    <link rel="icon" type="image/svg+xml" href="/shared/munin_logo_without_script.svg">
+    <link rel="stylesheet" href="/shared/style.css?v=3">
+    <link rel="stylesheet" href="/shared/site.css?v=1">
+    <link rel="stylesheet" href="docs.css?v=1">
+    <script src="/shared/theme.js?v=2" defer></script>
+    <style>        /* The overview diagram: hairline boxes joined by thin lines. */
+        .arch { margin: 8px 0 24px; }
+        .arch-node { border: 1px solid var(--line-2); border-radius: 10px; background: var(--surface); padding: 12px 16px; text-align: center; font-size: 14px; line-height: 1.5; max-width: 340px; margin: 0 auto; color: var(--text-2); }
+        .arch-node strong { display: block; color: var(--text); font-weight: 600; font-size: 15px; }
+        .arch-node span { display: block; }
+        .arch-link { display: flex; flex-direction: column; align-items: center; font-size: 13px; color: var(--text-3); padding: 0; }
+        .arch-link::before { content: ''; width: 1px; height: 28px; background: var(--line-2); }
+        .arch-link span { line-height: 1; padding-bottom: 6px; }
+        .arch-cluster { border: 1px dashed var(--line-2); border-radius: 14px; padding: 18px; background: var(--ink-2); }
+        .arch-cluster-title, .arch-cluster-foot { text-align: center; font-size: 13.5px; color: var(--text-3); }
+        .arch-cluster-title { font-weight: 600; color: var(--text); margin-bottom: 14px; }
+        .arch-cluster-foot { margin-top: 14px; }
+        .arch-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+        .arch-grid .arch-node { max-width: none; margin: 0; }
 
-        /* main.container, as .container in style.css would otherwise reset the padding */
-        main.container {
-            padding-top: 48px;
-            padding-bottom: 48px;
-            overflow-wrap: break-word;
-        }
-
-        h1 {
-            font-size: 32px;
-            margin-bottom: 24px;
-        }
-
-        h2 {
-            font-size: 24px;
-            margin: 48px 0 24px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        h3 {
-            font-size: 18px;
-            margin: 24px 0 12px;
-            color: var(--accent);
-        }
-
-        p {
-            margin-bottom: 16px;
-            color: var(--text-secondary);
-        }
-
-        .arch {
-            margin: 24px 0;
-        }
-
-        .arch-node {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 12px 16px;
-            text-align: center;
-            font-size: 14px;
-            max-width: 360px;
-            margin: 0 auto;
-        }
-
-        .arch-node strong,
-        .arch-node span {
-            display: block;
-        }
-
-        .arch-node span {
-            color: var(--text-secondary);
-        }
-
-        .arch-link {
-            text-align: center;
-            color: var(--text-secondary);
-            font-size: 14px;
-            padding: 8px 0;
-        }
-
-        .arch-cluster {
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 16px;
-        }
-
-        .arch-cluster-title,
-        .arch-cluster-foot {
-            text-align: center;
-            font-size: 14px;
-            color: var(--text-secondary);
-        }
-
-        .arch-cluster-title {
-            font-weight: 600;
-            margin-bottom: 12px;
-        }
-
-        .arch-cluster-foot {
-            margin-top: 12px;
-        }
-
-        .arch-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 12px;
-        }
-
-        .arch-grid .arch-node {
-            max-width: none;
-            margin: 0;
-            width: 100%;
-        }
-
-        /* A wide table scrolls inside this, not the whole page. */
-        .table-scroll {
-            overflow-x: auto;
-            margin: 24px 0;
-        }
-
-        table {
-            font-size: 14px;
-        }
-
-        th, td {
-            padding: 12px 16px;
-        }
-
-        th {
-            background: var(--bg-secondary);
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        td {
-            color: var(--text-secondary);
-        }
-
-        .flow-step {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 16px;
-            margin: 12px 0;
-        }
-
-        .flow-step-num {
-            display: inline-block;
-            width: 28px;
-            height: 28px;
-            background: var(--accent);
-            color: var(--bg-primary);
-            border-radius: 50%;
-            text-align: center;
-            line-height: 28px;
-            font-weight: 600;
-            margin-right: 12px;
-        }
-
-        .flow-step-title {
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .back-link {
-            display: inline-block;
-            margin-bottom: 24px;
-            color: var(--text-secondary);
-            text-decoration: none;
-            font-size: 14px;
-        }
-
-        .back-link:hover {
-            color: var(--text-primary);
+        /* The request flow: numbered hairline rows. */
+        .prose .flow { list-style: none; counter-reset: step; margin: 8px 0 24px; padding: 0; border-top: 1px solid var(--line); }
+        .prose .flow li { counter-increment: step; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 0 14px; margin: 0; padding: 14px 0; border-bottom: 1px solid var(--line); }
+        .flow li::before { content: counter(step); grid-row: span 2; width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line-2); color: var(--brass); font-size: 13px; font-weight: 600; display: grid; place-items: center; font-variant-numeric: tabular-nums; margin-top: 1px; }
+        .flow-step-title { color: var(--text); font-weight: 600; font-size: 15.5px; }
+        .prose .flow p { margin: 2px 0 0; font-size: 15.5px; }
+        @media (max-width: 900px) {
+            .arch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .arch-cluster { padding: 12px; }
+            .arch-node { padding: 10px 12px; font-size: 13.5px; }
         }
     </style>
 </head>
 <body>
     <header>
         <div class="container header-content">
-            <a href="{{env "MUNIN_URL_HOME"}}" class="logo">
-                <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="logo-img">
+            <a href="/" class="logo">
+                <img src="/shared/munin_logo_horizon_moon.svg" alt="Munin" class="logo-img">
                 <span class="logo-text">Munin</span>
             </a>
             <nav>
                 <a href="{{env "MUNIN_URL_HOME"}}">Home</a>
-                <a href="{{env "MUNIN_URL_SEARCH"}}">Search</a>
+                <a href="{{env "MUNIN_URL_SEARCH"}}">Search papers</a>
                 <a href="{{env "MUNIN_URL_DOCS"}}" class="active">Docs</a>
                 <a href="{{env "MUNIN_URL_CHAT"}}/knowledge">Knowledge</a>
                 <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a>
@@ -189,369 +57,243 @@
         </div>
     </header>
 
-    <main class="container">
-        <a href="." class="back-link">&larr; Back to Docs</a>
-        <h1>System Architecture</h1>
-        <p>Technical overview of the Munin research assistant system.</p>
+<main class="doc">
+    <div class="wrap doc-grid">
+        <!-- Contents. A <details> so it folds into one row on a phone; on a wide screen the summary is hidden and it stays open. -->
+        <details class="toc" open>
+            <summary>On this page</summary>
+            <div class="toc-body">
+                <p class="toc-h">Docs</p>
+                <ol>
+                    <li><a href="guide.html">User Guide</a></li>
+                    <li><a href="architecture.html" aria-current="page">System Architecture</a></li>
+                </ol>
+                <p class="toc-h">On this page</p>
+                <ol>
+                    <li><a href="#overview">High-Level Overview</a></li>
+                    <li><a href="#routing">Routing Profiles</a></li>
+                    <li><a href="#rag-flow">RAG Flow</a></li>
+                    <li><a href="#knowledge-bases">Knowledge Bases</a></li>
+                    <li><a href="#model">Model Configuration</a></li>
+                    <li><a href="#ports">Service Ports</a></li>
+                    <li><a href="#stack">Technology Stack</a></li>
+                    <li><a href="#user-types">User Types</a></li>
+                </ol>
+            </div>
+        </details>
 
-        <h2>High-Level Overview</h2>
-        <div class="arch">
-            <div class="arch-node">
-                <strong>Users</strong>
-            </div>
-            <div class="arch-link"><span aria-hidden="true">&darr;</span></div>
-            <div class="arch-node">
-                <strong>Hetzner VPS</strong>
-                <span>Caddy + munin-auth</span>
-                <span>React Chat UI</span>
-                <span>API Gateway</span>
-            </div>
-            <div class="arch-link"><span aria-hidden="true">&darr;</span> SSH tunnel</div>
-            <div class="arch-cluster">
-                <div class="arch-cluster-title">Munin Cluster</div>
-                <div class="arch-grid">
-                    <div class="arch-node">
-                        <strong>Retrieval API</strong>
-                        <span>RAG Layer, port 8080</span>
-                        <span>Calls Qdrant, Neo4j and SearXNG</span>
-                    </div>
-                    <div class="arch-node">
-                        <strong>Qdrant</strong>
-                        <span>Vector DB, port 6333</span>
-                    </div>
-                    <div class="arch-node">
-                        <strong>Neo4j</strong>
-                        <span>Citations, port 7474</span>
-                    </div>
-                    <div class="arch-node">
-                        <strong>SearXNG</strong>
-                        <span>Web Search, port 8888</span>
-                    </div>
-                    <div class="arch-node">
-                        <strong>vLLM</strong>
-                        <span>Port 8000</span>
-                        <span>Qwen3.8-27B (dense 27B)</span>
-                    </div>
-                    <div class="arch-node">
-                        <strong>Munin (auto-route)</strong>
-                        <span>chat, code and research profiles</span>
-                    </div>
+        <article class="prose">
+            <p class="crumbs"><a href=".">Docs</a><span aria-hidden="true">/</span><span>System Architecture</span></p>
+            <h1>System Architecture</h1>
+            <p class="lede">Technical overview of the Munin research assistant system.</p>
+
+            <h2 id="overview">High-Level Overview</h2>
+            <div class="arch">
+                <div class="arch-node">
+                    <strong>Users</strong>
                 </div>
-                <div class="arch-cluster-foot">GPU 1 (RTX 5090) - 90% VRAM</div>
+                <div class="arch-link"><span aria-hidden="true"></span></div>
+                <div class="arch-node">
+                    <strong>Hetzner VPS</strong>
+                    <span>Caddy + munin-auth</span>
+                    <span>React Chat UI</span>
+                    <span>API Gateway</span>
+                </div>
+                <div class="arch-link"><span>SSH tunnel</span></div>
+                <div class="arch-cluster">
+                    <div class="arch-cluster-title">Munin Cluster</div>
+                    <div class="arch-grid">
+                        <div class="arch-node">
+                            <strong>Retrieval API</strong>
+                            <span>RAG Layer, port 8080</span>
+                            <span>Calls Qdrant, Neo4j and SearXNG</span>
+                        </div>
+                        <div class="arch-node">
+                            <strong>Qdrant</strong>
+                            <span>Vector DB, port 6333</span>
+                        </div>
+                        <div class="arch-node">
+                            <strong>Neo4j</strong>
+                            <span>Citations, port 7474</span>
+                        </div>
+                        <div class="arch-node">
+                            <strong>SearXNG</strong>
+                            <span>Web Search, port 8888</span>
+                        </div>
+                        <div class="arch-node">
+                            <strong>vLLM</strong>
+                            <span>Port 8000</span>
+                            <span>Qwen3.8-27B (dense 27B)</span>
+                        </div>
+                        <div class="arch-node">
+                            <strong>Munin (auto-route)</strong>
+                            <span>chat, code and research profiles</span>
+                        </div>
+                    </div>
+                    <div class="arch-cluster-foot">GPU 1 (RTX 5090) - 90% VRAM</div>
+                </div>
+            </div>
+
+            <h2 id="routing">Routing Profile Comparison</h2>
+            <p>Munin is one user-facing assistant. An up-front router picks one of three internal profiles per turn from the query (slash commands <code>/chat</code>, <code>/code</code>, <code>/research</code> force a profile). Each profile shares the same Munin base prompt and differs only in its task guidance, sampling, and surfaced tools.</p>
+            <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr><th>Profile</th><th>Purpose</th><th>Thinking Mode</th><th>Tools Available</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>chat</td><td>General-purpose chat, writing, web search, quick lookups</td><td>Enabled</td><td>Paper Search, Web Search, Date/Time</td></tr>
+                    <tr><td>code</td><td>Code assistant, scientific Python, debugging, code review</td><td>Enabled</td><td>Web Search, Date/Time</td></tr>
+                    <tr><td>research</td><td>Research assistant, literature search, paper analysis, citations</td><td>Enabled</td><td>Paper Search, Citations, Academic Search (Semantic Scholar, OpenAlex), Web Search</td></tr>
+                </tbody>
+            </table>
+            </div>
+            <p>All profiles use the same underlying model: <code>Qwen3.8-27B</code> (dense 27B, hybrid Gated DeltaNet + attention, thinking on by default).</p>
+            <p><strong>Workflow:</strong> just ask, and Munin routes to research for discovery and analysis, code for implementation, and chat for general tasks and writing.</p>
+
+            <h2 id="rag-flow">RAG (Retrieval-Augmented Generation) Flow</h2>
+            <p>When you ask a question with RAG enabled, here's what happens:</p>
+
+            <ol class="flow">
+                <li><span class="flow-step-title">Query Received</span><p>The chat UI receives your question and routes it to the API gateway.</p></li>
+                <li><span class="flow-step-title">Parallel Retrieval</span><p>The retrieval service queries all selected sources simultaneously (papers, web).</p></li>
+                <li><span class="flow-step-title">Semantic Search</span><p>Your query is embedded using SPECTER (papers) and compared against stored vectors in Qdrant.</p></li>
+                <li><span class="flow-step-title">Context Assembly</span><p>Top matching documents are ranked and assembled into context for the LLM, with source attribution.</p></li>
+                <li><span class="flow-step-title">LLM Generation</span><p>The LLM receives your question + retrieved context and generates a grounded response with citations.</p></li>
+            </ol>
+
+            <h2 id="knowledge-bases">Knowledge Bases</h2>
+            <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr><th>Source</th><th>Content</th><th>Embeddings</th><th>Update Frequency</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Papers</td><td>Scientific PDFs (title, abstract, metadata)</td><td>SPECTER (768 dim)</td><td>Manual upload</td></tr>
+                    <tr><td>Web</td><td>Live web search results</td><td>N/A (real-time)</td><td>Real-time</td></tr>
+                    <tr><td>Academic DBs</td><td>Semantic Scholar, OpenAlex</td><td>N/A (API queries)</td><td>Real-time</td></tr>
+                </tbody>
+            </table>
+            </div>
+
+            <h2 id="model">Model Configuration</h2>
+            <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr><th>Parameter</th><th>Value</th><th>Notes</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Model</td><td>Qwen3.8-27B-AWQ-INT4</td><td>Dense, hybrid Gated DeltaNet + attention; thinking on by default</td></tr>
+                    <tr><td>Total Parameters</td><td>27B</td><td>Dense: every parameter active per forward pass</td></tr>
+                    <tr><td>Quantization</td><td>AWQ 4-bit</td><td>~17GB model size</td></tr>
+                    <tr><td>Context Window</td><td>65,536 tokens</td><td>Constrained by RTX 5090 VRAM</td></tr>
+                    <tr><td>Concurrent Requests</td><td>8</td><td>vLLM batch slots across both RTX 5090s (tensor-parallel). No per-user cap.</td></tr>
+                    <tr><td>Thinking Mode</td><td>Always enabled</td><td>Outputs reasoning in collapsible section</td></tr>
+                </tbody>
+            </table>
+            </div>
+
+            <h2 id="ports">Service Ports</h2>
+            <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr><th>Port</th><th>Service</th><th>Access</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>80/443</td><td>Caddy (VPS)</td><td>Public, auto TLS</td></tr>
+                    <tr><td>6333</td><td>Qdrant Vector DB</td><td>Internal only</td></tr>
+                    <tr><td>7474 / 7687</td><td>Neo4j Graph DB</td><td>Internal only</td></tr>
+                    <tr><td>8000</td><td>vLLM (all routing profiles)</td><td>Internal only</td></tr>
+                    <tr><td>8070</td><td>GROBID (PDF parsing)</td><td>Internal only</td></tr>
+                    <tr><td>8080</td><td>Retrieval Service</td><td>Internal only</td></tr>
+                    <tr><td>8888</td><td>SearXNG</td><td>Internal only</td></tr>
+                </tbody>
+            </table>
+            </div>
+
+            <h2 id="stack">Technology Stack</h2>
+            <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr><th>Layer</th><th>Technology</th><th>Purpose</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Edge</td><td>Caddy + munin-auth</td><td>Reverse proxy, email OTP auth, auto TLS</td></tr>
+                    <tr><td>UI</td><td>React + TypeScript</td><td>Custom chat interface with SSE streaming</td></tr>
+                    <tr><td>RAG</td><td>Custom FastAPI Service</td><td>Multi-source retrieval</td></tr>
+                    <tr><td>Search</td><td>SearXNG</td><td>Privacy-respecting web search</td></tr>
+                    <tr><td>Inference</td><td>vLLM</td><td>Fast LLM serving (OpenAI-compatible)</td></tr>
+                    <tr><td>Model</td><td>Qwen3.8-27B</td><td>Dense 27B, hybrid attention, natively multimodal</td></tr>
+                    <tr><td>Vectors</td><td>Qdrant</td><td>Semantic search</td></tr>
+                    <tr><td>Graph</td><td>Neo4j</td><td>Citation relationships</td></tr>
+                    <tr><td>Parsing</td><td>GROBID</td><td>Scientific PDF extraction</td></tr>
+                    <tr><td>Embeddings</td><td>SPECTER, BGE-base</td><td>Text to vectors</td></tr>
+                    <tr><td>Compute</td><td>SLURM</td><td>Job scheduling, GPU allocation</td></tr>
+                    <tr><td>Containers</td><td>Docker Compose</td><td>Service orchestration</td></tr>
+                </tbody>
+            </table>
+            </div>
+
+            <h2 id="user-types">User Types</h2>
+            <!-- Was a two-column table with "Access:", "Auth:" … prefixes in every cell; the prefixes became a row-header column. -->
+            <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr><th></th><th>WebUI Users (Remote Researchers)</th><th>Cluster Users (SLURM/SSH Access)</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Access</td><td>{{env "MUNIN_DOMAIN"}} (chat, search)</td><td>VPN, SSH, SLURM</td></tr>
+                    <tr><td>Auth</td><td>Email OTP (30-day sessions)</td><td>Linux accounts + SSH keys</td></tr>
+                    <tr><td>GPU</td><td>Via vLLM service</td><td>GPU 0 via SLURM jobs</td></tr>
+                    <tr><td>Can</td><td>Chat with Munin, search papers, upload</td><td>Submit SLURM jobs, run training/inference, SSH access</td></tr>
+                </tbody>
+            </table>
+            </div>
+        </article>
+    </div>
+</main>
+<footer class="site-footer">
+    <div class="wrap">
+        <div class="f-grid">
+            <div>
+                <div class="f-brand"><img src="/shared/munin_logo_horizon_moon.svg" alt="">Munin</div>
+                <p>An open-source research assistant by the <a href="https://elgetilab.github.io/">Elgeti Lab</a>, Leipzig University Medical Faculty.</p>
+            </div>
+            <div class="f-col">
+                <h4>Use</h4>
+                <ul>
+                    <li><a href="{{env "MUNIN_URL_CHAT"}}">Chat</a></li>
+                    <li><a href="{{env "MUNIN_URL_SEARCH"}}">Search papers</a></li>
+                    <li><a href="{{env "MUNIN_URL_CHAT"}}/knowledge">Knowledge base</a></li>
+                    <li><a href="{{env "MUNIN_URL_UPLOAD"}}">Contribute</a></li>
+                </ul>
+            </div>
+            <div class="f-col">
+                <h4>Learn</h4>
+                <ul>
+                    <li><a href="{{env "MUNIN_URL_DOCS"}}">Docs</a></li>
+                    <li><a href="{{env "MUNIN_URL_DOCS"}}/guide.html#deep-research">Deep Research</a></li>
+                    <li><a href="https://arxiv.org/abs/2610.23480">Paper</a></li>
+                    <li><a href="https://github.com/elgetilab/munin/blob/main/CITATION.cff">Cite Munin</a></li>
+                </ul>
+            </div>
+            <div class="f-col">
+                <h4>Project</h4>
+                <ul>
+                    <li><a href="https://github.com/elgetilab/munin">GitHub</a></li>
+                    <li><a href="https://elgetilab.github.io/">Elgeti Lab</a></li>
+                    <li><a href="https://www.hypmol.net/">HYP*MOL</a></li>
+                    <li><a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Support</a></li>
+                </ul>
             </div>
         </div>
-
-        <h2>Routing Profile Comparison</h2>
-        <p>Munin is one user-facing assistant. An up-front router picks one of three internal profiles per turn from the query (slash commands <code>/chat</code>, <code>/code</code>, <code>/research</code> force a profile). Each profile shares the same Munin base prompt and differs only in its task guidance, sampling, and surfaced tools.</p>
-        <div class="table-scroll">
-        <table>
-            <thead>
-                <tr>
-                    <th>Profile</th>
-                    <th>Purpose</th>
-                    <th>Thinking Mode</th>
-                    <th>Tools Available</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td><strong>chat</strong></td>
-                    <td>General-purpose chat, writing, web search, quick lookups</td>
-                    <td>Enabled</td>
-                    <td>Paper Search, Web Search, Date/Time</td>
-                </tr>
-                <tr>
-                    <td><strong>code</strong></td>
-                    <td>Code assistant, scientific Python, debugging, code review</td>
-                    <td>Enabled</td>
-                    <td>Web Search, Date/Time</td>
-                </tr>
-                <tr>
-                    <td><strong>research</strong></td>
-                    <td>Research assistant, literature search, paper analysis, citations</td>
-                    <td>Enabled</td>
-                    <td>Paper Search, Citations, Academic Search (Semantic Scholar, OpenAlex), Web Search</td>
-                </tr>
-            </tbody>
-        </table>
+        <div class="f-base">
+            <span>Apache-2.0 licensed</span>
+            <span>Munin can make mistakes. Verify important information.</span>
         </div>
-        <p>All profiles use the same underlying model: <code>Qwen3.8-27B</code> (dense 27B, hybrid Gated DeltaNet + attention, thinking on by default).</p>
-        <p><strong>Workflow:</strong> just ask, and Munin routes to research for discovery and analysis, code for implementation, and chat for general tasks and writing.</p>
-
-        <h2>RAG (Retrieval-Augmented Generation) Flow</h2>
-        <p>When you ask a question with RAG enabled, here's what happens:</p>
-
-        <div class="flow-step">
-            <span class="flow-step-num">1</span>
-            <span class="flow-step-title">Query Received</span>
-            <p style="margin: 8px 0 0 40px;">The chat UI receives your question and routes it to the API gateway.</p>
-        </div>
-
-        <div class="flow-step">
-            <span class="flow-step-num">2</span>
-            <span class="flow-step-title">Parallel Retrieval</span>
-            <p style="margin: 8px 0 0 40px;">The retrieval service queries all selected sources simultaneously (papers, web).</p>
-        </div>
-
-        <div class="flow-step">
-            <span class="flow-step-num">3</span>
-            <span class="flow-step-title">Semantic Search</span>
-            <p style="margin: 8px 0 0 40px;">Your query is embedded using SPECTER (papers) and compared against stored vectors in Qdrant.</p>
-        </div>
-
-        <div class="flow-step">
-            <span class="flow-step-num">4</span>
-            <span class="flow-step-title">Context Assembly</span>
-            <p style="margin: 8px 0 0 40px;">Top matching documents are ranked and assembled into context for the LLM, with source attribution.</p>
-        </div>
-
-        <div class="flow-step">
-            <span class="flow-step-num">5</span>
-            <span class="flow-step-title">LLM Generation</span>
-            <p style="margin: 8px 0 0 40px;">The LLM receives your question + retrieved context and generates a grounded response with citations.</p>
-        </div>
-
-        <h2>Knowledge Bases</h2>
-        <div class="table-scroll">
-        <table>
-            <thead>
-                <tr>
-                    <th>Source</th>
-                    <th>Content</th>
-                    <th>Embeddings</th>
-                    <th>Update Frequency</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>Papers</td>
-                    <td>Scientific PDFs (title, abstract, metadata)</td>
-                    <td>SPECTER (768 dim)</td>
-                    <td>Manual upload</td>
-                </tr>
-                <tr>
-                    <td>Web</td>
-                    <td>Live web search results</td>
-                    <td>N/A (real-time)</td>
-                    <td>Real-time</td>
-                </tr>
-                <tr>
-                    <td>Academic DBs</td>
-                    <td>Semantic Scholar, OpenAlex</td>
-                    <td>N/A (API queries)</td>
-                    <td>Real-time</td>
-                </tr>
-            </tbody>
-        </table>
-        </div>
-
-        <h2>Model Configuration</h2>
-        <div class="table-scroll">
-        <table>
-            <thead>
-                <tr>
-                    <th>Parameter</th>
-                    <th>Value</th>
-                    <th>Notes</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>Model</td>
-                    <td>Qwen3.8-27B-AWQ-INT4</td>
-                    <td>Dense, hybrid Gated DeltaNet + attention; thinking on by default</td>
-                </tr>
-                <tr>
-                    <td>Total Parameters</td>
-                    <td>27B</td>
-                    <td>Dense: every parameter active per forward pass</td>
-                </tr>
-                <tr>
-                    <td>Quantization</td>
-                    <td>AWQ 4-bit</td>
-                    <td>~17GB model size</td>
-                </tr>
-                <tr>
-                    <td>Context Window</td>
-                    <td>65,536 tokens</td>
-                    <td>Constrained by RTX 5090 VRAM</td>
-                </tr>
-                <tr>
-                    <td>Concurrent Requests</td>
-                    <td>8</td>
-                    <td>vLLM batch slots across both RTX 5090s (tensor-parallel). No per-user cap.</td>
-                </tr>
-                <tr>
-                    <td>Thinking Mode</td>
-                    <td>Always enabled</td>
-                    <td>Outputs reasoning in collapsible section</td>
-                </tr>
-            </tbody>
-        </table>
-        </div>
-
-        <h2>Service Ports</h2>
-        <div class="table-scroll">
-        <table>
-            <thead>
-                <tr>
-                    <th>Port</th>
-                    <th>Service</th>
-                    <th>Access</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>80/443</td>
-                    <td>Caddy (VPS)</td>
-                    <td>Public, auto TLS</td>
-                </tr>
-                <tr>
-                    <td>6333</td>
-                    <td>Qdrant Vector DB</td>
-                    <td>Internal only</td>
-                </tr>
-                <tr>
-                    <td>7474 / 7687</td>
-                    <td>Neo4j Graph DB</td>
-                    <td>Internal only</td>
-                </tr>
-                <tr>
-                    <td>8000</td>
-                    <td>vLLM (all routing profiles)</td>
-                    <td>Internal only</td>
-                </tr>
-                <tr>
-                    <td>8070</td>
-                    <td>GROBID (PDF parsing)</td>
-                    <td>Internal only</td>
-                </tr>
-                <tr>
-                    <td>8080</td>
-                    <td>Retrieval Service</td>
-                    <td>Internal only</td>
-                </tr>
-                <tr>
-                    <td>8888</td>
-                    <td>SearXNG</td>
-                    <td>Internal only</td>
-                </tr>
-            </tbody>
-        </table>
-        </div>
-
-        <h2>Technology Stack</h2>
-        <div class="table-scroll">
-        <table>
-            <thead>
-                <tr>
-                    <th>Layer</th>
-                    <th>Technology</th>
-                    <th>Purpose</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>Edge</td>
-                    <td>Caddy + munin-auth</td>
-                    <td>Reverse proxy, email OTP auth, auto TLS</td>
-                </tr>
-                <tr>
-                    <td>UI</td>
-                    <td>React + TypeScript</td>
-                    <td>Custom chat interface with SSE streaming</td>
-                </tr>
-                <tr>
-                    <td>RAG</td>
-                    <td>Custom FastAPI Service</td>
-                    <td>Multi-source retrieval</td>
-                </tr>
-                <tr>
-                    <td>Search</td>
-                    <td>SearXNG</td>
-                    <td>Privacy-respecting web search</td>
-                </tr>
-                <tr>
-                    <td>Inference</td>
-                    <td>vLLM</td>
-                    <td>Fast LLM serving (OpenAI-compatible)</td>
-                </tr>
-                <tr>
-                    <td>Model</td>
-                    <td>Qwen3.8-27B</td>
-                    <td>Dense 27B, hybrid attention, natively multimodal</td>
-                </tr>
-                <tr>
-                    <td>Vectors</td>
-                    <td>Qdrant</td>
-                    <td>Semantic search</td>
-                </tr>
-                <tr>
-                    <td>Graph</td>
-                    <td>Neo4j</td>
-                    <td>Citation relationships</td>
-                </tr>
-                <tr>
-                    <td>Parsing</td>
-                    <td>GROBID</td>
-                    <td>Scientific PDF extraction</td>
-                </tr>
-                <tr>
-                    <td>Embeddings</td>
-                    <td>SPECTER, BGE-base</td>
-                    <td>Text to vectors</td>
-                </tr>
-                <tr>
-                    <td>Compute</td>
-                    <td>SLURM</td>
-                    <td>Job scheduling, GPU allocation</td>
-                </tr>
-                <tr>
-                    <td>Containers</td>
-                    <td>Docker Compose</td>
-                    <td>Service orchestration</td>
-                </tr>
-            </tbody>
-        </table>
-        </div>
-
-        <h2>User Types</h2>
-        <div class="table-scroll">
-        <table>
-            <thead>
-                <tr>
-                    <th>WebUI Users (Remote Researchers)</th>
-                    <th>Cluster Users (SLURM/SSH Access)</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>Access: {{env "MUNIN_DOMAIN"}} (chat, search)</td>
-                    <td>Access: VPN, SSH, SLURM</td>
-                </tr>
-                <tr>
-                    <td>Auth: Email OTP (30-day sessions)</td>
-                    <td>Auth: Linux accounts + SSH keys</td>
-                </tr>
-                <tr>
-                    <td>GPU: Via vLLM service</td>
-                    <td>GPU: GPU 0 via SLURM jobs</td>
-                </tr>
-                <tr>
-                    <td>Can: Chat with Munin, search papers, upload</td>
-                    <td>Can: Submit SLURM jobs, run training/inference, SSH access</td>
-                </tr>
-            </tbody>
-        </table>
-        </div>
-    </main>
-
-    <footer>
-        <div class="container">
-            <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/" style="color: var(--accent);">Elgeti Lab</a></p>
-            <p style="margin-top: 8px;"><a href="{{env "MUNIN_URL_SEARCH"}}">Search</a> | <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a> | <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload</a> | <a href="{{env "MUNIN_URL_DOCS"}}">Docs</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Support</a></p>
-        </div>
-    </footer>
+    </div>
+</footer>
+<script src="docs.js?v=1"></script>
 <script src="/shared/support-widget.js?v=4"></script>
 </body>
 </html>

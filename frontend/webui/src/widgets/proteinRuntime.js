@@ -75,7 +75,7 @@
   function apply(state) {
     if (!viewer) {
       viewer = window.$3Dmol.createViewer(document.getElementById('viewer'), {
-        backgroundColor: '#0f1419',
+        backgroundColor: '#0d1217',
       });
       if (!viewer) throw new Error('This browser cannot show 3D graphics (WebGL is unavailable).');
     }

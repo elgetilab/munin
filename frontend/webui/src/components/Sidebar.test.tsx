@@ -9,7 +9,7 @@ import { useUserStore, _resetUserStoreForTests } from '../stores/userStore';
 import { useWorkspaceStore, _resetWorkspaceStoreForTests } from '../stores/workspaceStore';
 import { Sidebar } from './Sidebar';
 import { groupByTime } from '../lib/chatGrouping';
-import { AUTH_BASE, DOCS_URL, SEARCH_URL } from '../lib/urls';
+import { AUTH_BASE, DOCS_URL, SEARCH_URL, SITE_HOME } from '../lib/urls';
 import type { ConversationSummary, Project } from '../lib/types';
 import type { UserProfile } from '../lib/api';
 
@@ -396,6 +396,146 @@ describe('Sidebar open-in-new-tab links', () => {
     expect(linkFor('Hello')).toHaveAttribute('href', '/c/c1');
   });
 
+  it('leaves out a preview that only repeats the title', async () => {
+    const user = userEvent.setup();
+    server.use(http.get('/api/chats', () => HttpResponse.json({
+      conversations: [
+        makeChat({ id: 'same', title: 'Kinase  inhibitors', preview: ' Kinase inhibitors\n' }),
+        makeChat({ id: 'differs', title: 'Folding', preview: 'How does AlphaFold work?' }),
+      ],
+      total: 2,
+    })));
+    renderSidebar();
+    await user.click(screen.getByText('Search chats'));
+    const dialog = await screen.findByRole('dialog', { name: 'Search your chats' });
+
+    await waitFor(() => expect(within(dialog).getByText('How does AlphaFold work?')).toBeInTheDocument());
+    const row = within(dialog).getByRole('link', { name: /^Kinase/ });
+    expect(row).toHaveTextContent(/^Kinase inhibitors$/);
+  });
+
+  it('marks the search box for the line under it, not a ring of its own', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    await user.click(screen.getByText('Search chats'));
+    const input = await screen.findByRole('textbox', { name: 'Search conversations' });
+    expect(input).toHaveFocus();
+    // index.css drops the ring on #search-chats-input; the row draws focus instead.
+    expect(input).toHaveAttribute('id', 'search-chats-input');
+    expect(input.parentElement).toHaveClass('has-[#search-chats-input:focus]:border-focus-ring');
+  });
+
+  describe('Ctrl+K', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    const press = (init: KeyboardEventInit, target: EventTarget = document.activeElement ?? document.body) => {
+      const e = new KeyboardEvent('keydown', { key: 'k', bubbles: true, cancelable: true, ...init });
+      act(() => { target.dispatchEvent(e); });
+      return e;
+    };
+
+    it('names the shortcut on the Search button', () => {
+      renderSidebar();
+      const button = screen.getByRole('button', { name: 'Search chats' });
+      expect(button).toHaveAttribute('aria-keyshortcuts', 'Control+K');
+      expect(button).toHaveAttribute('title', 'Search chats (Ctrl+K)');
+    });
+
+    it('names ⌘K on a Mac', () => {
+      vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+      renderSidebar();
+      const button = screen.getByRole('button', { name: 'Search chats' });
+      expect(button).toHaveAttribute('aria-keyshortcuts', 'Meta+K');
+      expect(button).toHaveAttribute('title', 'Search chats (⌘K)');
+    });
+
+    it('opens search from a text field, focused, and keeps the key from the browser', async () => {
+      renderSidebar();
+      const outside = document.createElement('textarea');
+      document.body.appendChild(outside);
+      onTestFinished(() => outside.remove());
+      outside.focus();
+
+      const e = press({ ctrlKey: true });
+      expect(e.defaultPrevented).toBe(true);
+      const input = await screen.findByRole('textbox', { name: 'Search conversations' });
+      expect(input).toHaveFocus();
+
+      // Pressed again inside, it stays here rather than going to the browser.
+      expect(press({ ctrlKey: true }).defaultPrevented).toBe(true);
+      expect(input).toHaveFocus();
+
+      // Escape gives focus back to where the key was pressed.
+      await userEvent.keyboard('{Escape}');
+      expect(screen.queryByRole('dialog', { name: 'Search your chats' })).not.toBeInTheDocument();
+      expect(outside).toHaveFocus();
+    });
+
+    it('opens with ⌘K and with K in capitals (Caps Lock)', async () => {
+      renderSidebar();
+      press({ metaKey: true, key: 'K' });
+      expect(await screen.findByRole('dialog', { name: 'Search your chats' })).toBeInTheDocument();
+    });
+
+    it('leaves other K chords alone', () => {
+      renderSidebar();
+      for (const init of [{}, { ctrlKey: true, shiftKey: true }, { ctrlKey: true, altKey: true }, { ctrlKey: true, metaKey: true }]) {
+        expect(press(init).defaultPrevented).toBe(false);
+      }
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('on a Mac leaves Ctrl+K to a text field, where it deletes to the end of the line', async () => {
+      vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+      renderSidebar();
+      const outside = document.createElement('textarea');
+      document.body.appendChild(outside);
+      onTestFinished(() => outside.remove());
+      outside.focus();
+
+      expect(press({ ctrlKey: true }).defaultPrevented).toBe(false);
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+      expect(press({ metaKey: true }).defaultPrevented).toBe(true);
+      expect(await screen.findByRole('dialog', { name: 'Search your chats' })).toBeInTheDocument();
+    });
+
+    it('does not open over another dialog', () => {
+      renderSidebar();
+      const other = document.createElement('div');
+      other.setAttribute('role', 'dialog');
+      other.setAttribute('aria-modal', 'true');
+      const field = document.createElement('input');
+      other.appendChild(field);
+      document.body.appendChild(other);
+      onTestFinished(() => other.remove());
+      field.focus();
+
+      expect(press({ ctrlKey: true }).defaultPrevented).toBe(false);
+      expect(screen.queryByRole('dialog', { name: 'Search your chats' })).not.toBeInTheDocument();
+    });
+
+    it('leaves the key to the report dialog while it is open', () => {
+      useUiStore.setState({ showReportDialog: true });
+      onTestFinished(() => useUiStore.setState({ showReportDialog: false }));
+      renderSidebar();
+
+      expect(press({ ctrlKey: true }).defaultPrevented).toBe(false);
+      expect(screen.queryByRole('dialog', { name: 'Search your chats' })).not.toBeInTheDocument();
+    });
+
+    it('opens from inside the phone drawer that holds the sidebar', async () => {
+      render(
+        <div role="dialog" aria-modal="true" aria-label="Menu">
+          <Sidebar currentId={null} onSelect={vi.fn()} onNewChat={vi.fn()} refreshKey={0} onOpenSettings={vi.fn()} />
+        </div>,
+      );
+      screen.getByRole('button', { name: 'Search chats' }).focus();
+      expect(press({ ctrlKey: true }).defaultPrevented).toBe(true);
+      expect(await screen.findByRole('dialog', { name: 'Search your chats' })).toBeInTheDocument();
+    });
+  });
+
   it('"New chat in project" links to /?project=<id>', async () => {
     const user = userEvent.setup();
     const onNewChatInProject = vi.fn();
@@ -514,7 +654,6 @@ describe('Sidebar data loading', () => {
 
   it('re-reads the chat list after a conversation is deleted', async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     let deleted = false;
     server.use(
       http.get(ADMIN_CHATS, ({ request }) => {
@@ -537,6 +676,7 @@ describe('Sidebar data loading', () => {
     const row = screen.getByText('Test Chat 1').closest('.relative')!;
     await user.click(within(row as HTMLElement).getByTitle('More'));
     await user.click(within(row as HTMLElement).getByText('Delete'));
+    await user.click(screen.getByRole('button', { name: 'Delete chat' }));
 
     await waitFor(() => expect(screen.queryByText('Test Chat 1')).not.toBeInTheDocument());
   });
@@ -617,6 +757,7 @@ describe('Sidebar profile menu', () => {
     expect(screen.queryByText('Learn more')).not.toBeInTheDocument();
     expect(screen.queryByText('English')).not.toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Search papers' })).toHaveAttribute('href', SEARCH_URL);
+    expect(screen.getByRole('menuitem', { name: 'Home' })).toHaveAttribute('href', SITE_HOME);
   });
 
   it('Escape closes the menu and returns focus to its trigger', async () => {
@@ -709,7 +850,8 @@ describe('Sidebar filed chats and projects', () => {
     await user.click(await screen.findByText('ML Research'));
     await screen.findByText('Filed Chat');
 
-    await user.click(within(rowOf('Filed Chat')).getByTitle('Pin'));
+    await user.click(within(rowOf('Filed Chat')).getByTitle('More'));
+    await user.click(screen.getByRole('menuitem', { name: 'Pin' }));
 
     await waitFor(() => expect(pinned).toEqual(['pc1']));
   });
@@ -728,11 +870,14 @@ describe('Sidebar filed chats and projects', () => {
     }
 
     it('shows in the Pinned group with its folder closed', async () => {
+      const user = userEvent.setup();
       mockPinnedFiled();
       renderSidebar();
 
       await screen.findByText('Pinned');
-      expect(within(rowOf('Filed Chat')).getByTitle('Unpin')).toBeInTheDocument();
+      await user.click(within(rowOf('Filed Chat')).getByTitle('More'));
+      expect(screen.getByRole('menuitem', { name: 'Unpin' })).toBeInTheDocument();
+      await user.keyboard('{Escape}');
       expect(screen.getAllByText('Filed Chat')).toHaveLength(1);
     });
 
@@ -801,7 +946,6 @@ describe('Sidebar filed chats and projects', () => {
 
   it('deleting the active project clears it and any open settings for it', async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     useWorkspaceStore.setState({ activeProjectId: 'p1', editingProject: { id: 'p1' } as unknown as Project });
     renderSidebar();
     await screen.findByText('ML Research');
@@ -809,6 +953,7 @@ describe('Sidebar filed chats and projects', () => {
     const row = rowOf('ML Research');
     await user.click(within(row).getByTitle('More'));
     await user.click(within(row).getByText('Delete project'));
+    await user.click(screen.getByRole('button', { name: 'Delete project' }));
 
     await waitFor(() => expect(useWorkspaceStore.getState().activeProjectId).toBeNull());
     expect(useWorkspaceStore.getState().editingProject).toBeNull();
@@ -1013,7 +1158,6 @@ describe('Sidebar loading and feedback', () => {
 
     it('a chat a refresh removed during the wait does not come back', async () => {
       const user = userEvent.setup();
-      vi.spyOn(window, 'confirm').mockReturnValue(true);
       let all = rows(120);
       let release = () => {};
       const gate = new Promise<void>(resolve => { release = resolve; });
@@ -1041,6 +1185,7 @@ describe('Sidebar loading and feedback', () => {
       const row = screen.getByText('Chat 3').closest('.relative') as HTMLElement;
       await user.click(within(row).getByTitle('More'));
       await user.click(within(row).getByText('Delete'));
+      await user.click(screen.getByRole('button', { name: 'Delete chat' }));
       await waitFor(() => expect(screen.queryByText('Chat 3')).not.toBeInTheDocument());
 
       release();
@@ -1086,7 +1231,6 @@ describe('Sidebar loading and feedback', () => {
 
   it('a failed delete says so instead of rejecting unhandled', async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     server.use(http.delete('/api/chats/:id', () => new HttpResponse(null, { status: 500 })));
     renderSidebar();
     await screen.findByText('Test Chat 2');
@@ -1094,8 +1238,12 @@ describe('Sidebar loading and feedback', () => {
     const row = screen.getByText('Test Chat 2').closest('.relative') as HTMLElement;
     await user.click(within(row).getByTitle('More'));
     await user.click(within(row).getByText('Delete'));
+    await user.click(screen.getByRole('button', { name: 'Delete chat' }));
 
     await waitFor(() => expect(useUiStore.getState().toast).toBe('Could not delete the chat'));
+    // The chat is still there, and so is the ⋮ button the menu opened from.
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'More actions for Test Chat 2' })).toHaveFocus();
   });
 
   it('Escape cancels a rename without saving, and so does the blur that follows', async () => {
@@ -1285,8 +1433,10 @@ describe('Sidebar keyboard and folders', () => {
 
     await user.click(trigger);
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('menuitem', { name: 'Rename' })).toHaveFocus();
+    expect(screen.getByRole('menuitem', { name: 'Pin' })).toHaveFocus();
 
+    await user.keyboard('{ArrowDown}');
+    expect(screen.getByRole('menuitem', { name: 'Rename' })).toHaveFocus();
     await user.keyboard('{ArrowDown}');
     expect(screen.getByRole('menuitem', { name: 'Move to project' })).toHaveFocus();
 
@@ -1296,6 +1446,127 @@ describe('Sidebar keyboard and folders', () => {
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
+  });
+
+  it('a chat row has one action, its ⋮ menu, which pins and unpins', async () => {
+    const user = userEvent.setup();
+    const calls: string[] = [];
+    server.use(
+      http.post('/api/chats/:id/pin', ({ params }) => { calls.push(`pin ${params.id}`); return new HttpResponse(null, { status: 200 }); }),
+      http.delete('/api/chats/:id/pin', ({ params }) => { calls.push(`unpin ${params.id}`); return new HttpResponse(null, { status: 200 }); }),
+    );
+    renderSidebar();
+    await screen.findByText('Test Chat 2');
+    const row = screen.getByText('Test Chat 2').closest('[data-testid="chat-row"]') as HTMLElement;
+    expect(within(row).getAllByRole('button')).toHaveLength(1);
+
+    await user.click(within(row).getByRole('button', { name: 'More actions for Test Chat 2' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Pin' }));
+    await user.click(screen.getByRole('button', { name: 'More actions for Test Chat 1' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Unpin' }));
+
+    await waitFor(() => expect(calls).toEqual(['pin c2', 'unpin c1']));
+  });
+
+  it('the chat list is one Tab stop that the arrow keys, Home and End move through', async () => {
+    const user = userEvent.setup();
+    const { props } = renderSidebar({ currentId: 'c2' });
+    const first = await screen.findByRole('link', { name: 'Test Chat 1' });
+    const second = screen.getByRole('link', { name: 'Test Chat 2' });
+    const old = screen.getByRole('link', { name: 'Old Chat' });
+
+    // The open chat holds the stop, and only its row's ⋮ joins the Tab order.
+    expect(second).toHaveAttribute('tabindex', '0');
+    expect(second).toHaveAttribute('aria-current', 'page');
+    for (const el of [first, old]) expect(el).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByRole('button', { name: 'More actions for Test Chat 2' })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('button', { name: 'More actions for Old Chat' })).toHaveAttribute('tabindex', '-1');
+
+    second.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(old).toHaveFocus();
+    await user.keyboard('{ArrowDown}');
+    expect(old).toHaveFocus();
+    await user.keyboard('{Home}');
+    expect(first).toHaveFocus();
+    await user.keyboard('{ArrowUp}');
+    expect(first).toHaveFocus();
+    await user.keyboard('{End}');
+    expect(old).toHaveFocus();
+    await user.keyboard('{ArrowUp}');
+    expect(second).toHaveFocus();
+    await user.keyboard('{ArrowUp}');
+    expect(first).toHaveFocus();
+
+    // The stop follows focus, so Tab comes back to the row left last.
+    expect(first).toHaveAttribute('tabindex', '0');
+    expect(second).toHaveAttribute('tabindex', '-1');
+
+    // Tab goes to this row's ⋮ and then out of the list.
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'More actions for Test Chat 1' })).toHaveFocus();
+    await user.tab();
+    expect(document.activeElement?.closest('[data-testid="chat-row"]')).toBeNull();
+
+    first.focus();
+    await user.keyboard('{Enter}');
+    expect(props.onSelect).toHaveBeenCalledWith('c1');
+  });
+
+  it('the arrow keys from a row\'s ⋮ button move to the next row', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    const trigger = await screen.findByRole('button', { name: 'More actions for Test Chat 1' });
+    trigger.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(screen.getByRole('link', { name: 'Test Chat 2' })).toHaveFocus();
+  });
+
+  it('Shift+F10 or the ContextMenu key on a chat opens its menu, and Escape returns to the row', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    const link = await screen.findByRole('link', { name: 'Test Chat 2' });
+    link.focus();
+
+    await user.keyboard('{Shift>}{F10}{/Shift}');
+    expect(screen.getByRole('menu')).toHaveAccessibleName('Actions for Test Chat 2');
+    expect(screen.getByRole('menuitem', { name: 'Pin' })).toHaveFocus();
+    // The arrow keys inside the menu stay in the menu.
+    await user.keyboard('{ArrowDown}');
+    expect(screen.getByRole('menuitem', { name: 'Rename' })).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'More actions for Test Chat 2' })).toHaveFocus();
+
+    link.focus();
+    await user.keyboard('{ContextMenu}');
+    expect(screen.getByRole('menu')).toHaveAccessibleName('Actions for Test Chat 2');
+  });
+
+  it('pinning from the keyboard leaves focus on the chat in its new group', async () => {
+    const user = userEvent.setup();
+    let pinned = false;
+    server.use(
+      http.post('/api/chats/:id/pin', () => { pinned = true; return new HttpResponse(null, { status: 200 }); }),
+      http.get('/api/chats', () => HttpResponse.json({
+        ...MOCK_CHATS,
+        conversations: MOCK_CHATS.conversations.map(c => (c.id === 'c3' ? { ...c, pinned } : c)),
+      })),
+    );
+    renderSidebar();
+    const link = await screen.findByRole('link', { name: 'Old Chat' });
+    link.focus();
+    await user.keyboard('{Shift>}{F10}{/Shift}');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => expect(within(screen.getByRole('list', { name: 'Pinned' })).getByRole('link', { name: 'Old Chat' })).toHaveFocus());
+  });
+
+  it('lists each date group as a list named by its label', async () => {
+    renderSidebar();
+    await screen.findByText('Test Chat 1');
+    expect(within(screen.getByRole('list', { name: 'Pinned' })).getByRole('link', { name: 'Test Chat 1' })).toBeInTheDocument();
+    expect(within(screen.getByRole('list', { name: 'Yesterday' })).getAllByRole('listitem')).toHaveLength(1);
   });
 
   it('a row menu near the bottom of the window opens upward, outside the scrolling list', async () => {
@@ -1455,14 +1726,107 @@ describe('Sidebar polish', () => {
     });
   });
 
-  it('deleting a project says its chats stay in the chat list', async () => {
-    const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    renderSidebar();
-    await user.click(await screen.findByRole('button', { name: 'More actions for ML Research' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Delete project' }));
+  describe('the delete confirmation', () => {
+    it('asks about a project in an alertdialog that says its chats stay in the chat list', async () => {
+      const user = userEvent.setup();
+      const deleted: string[] = [];
+      server.use(http.delete('/api/projects/:id', ({ params }) => {
+        deleted.push(params.id as string);
+        return new HttpResponse(null, { status: 204 });
+      }));
+      renderSidebar();
+      await user.click(await screen.findByRole('button', { name: 'More actions for ML Research' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Delete project' }));
 
-    expect(confirm).toHaveBeenCalledWith('Delete this project? Chats in this project will stay in your chat list.');
+      const dialog = screen.getByRole('alertdialog', { name: 'Delete project?' });
+      expect(dialog).toHaveAttribute('aria-modal', 'true');
+      expect(dialog).toHaveAccessibleDescription('“ML Research” will be deleted. Chats in this project will stay in your chat list.');
+      expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+      expect(within(dialog).getByRole('button', { name: 'Delete project' })).toBeInTheDocument();
+      expect(deleted).toEqual([]);
+    });
+
+    it('asks about a chat by its title, and Cancel deletes nothing and goes back to the ⋮ button', async () => {
+      const user = userEvent.setup();
+      const deleted: string[] = [];
+      server.use(http.delete('/api/chats/:id', ({ params }) => {
+        deleted.push(params.id as string);
+        return new HttpResponse(null, { status: 204 });
+      }));
+      renderSidebar();
+      const more = await screen.findByRole('button', { name: 'More actions for Test Chat 2' });
+      await user.click(more);
+      await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
+
+      const dialog = screen.getByRole('alertdialog', { name: 'Delete chat?' });
+      expect(dialog).toHaveAccessibleDescription('“Test Chat 2” and all its messages will be deleted. This cannot be undone.');
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(more).toHaveFocus();
+      expect(deleted).toEqual([]);
+    });
+
+    it('keeps Tab inside, and Escape cancels', async () => {
+      const user = userEvent.setup();
+      renderSidebar();
+      const more = await screen.findByRole('button', { name: 'More actions for Test Chat 2' });
+      await user.click(more);
+      await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
+
+      const dialog = screen.getByRole('alertdialog');
+      const cancel = within(dialog).getByRole('button', { name: 'Cancel' });
+      const confirm = within(dialog).getByRole('button', { name: 'Delete chat' });
+      await user.tab();
+      expect(confirm).toHaveFocus();
+      await user.tab();
+      expect(cancel).toHaveFocus();
+      await user.tab({ shift: true });
+      expect(confirm).toHaveFocus();
+
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(screen.getByText('Test Chat 2')).toBeInTheDocument();
+      expect(more).toHaveFocus();
+    });
+
+    it('after deleting a chat, focus goes to the next chat in the list', async () => {
+      const user = userEvent.setup();
+      let deleted = false;
+      server.use(
+        http.get('/api/chats', ({ request }) => {
+          if (new URL(request.url).searchParams.get('project_id') === 'p1') {
+            return HttpResponse.json({ conversations: [], total: 0 });
+          }
+          const list = MOCK_CHATS.conversations.filter(c => !deleted || c.id !== 'c1');
+          return HttpResponse.json({ conversations: list, total: list.length });
+        }),
+        http.delete('/api/chats/:id', () => { deleted = true; return new HttpResponse(null, { status: 204 }); }),
+      );
+      renderSidebar();
+      await user.click(await screen.findByRole('button', { name: 'More actions for Test Chat 1' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
+      await user.click(screen.getByRole('button', { name: 'Delete chat' }));
+
+      await waitFor(() => expect(screen.queryByText('Test Chat 1')).not.toBeInTheDocument());
+      expect(screen.getByRole('link', { name: 'Test Chat 2' })).toHaveFocus();
+    });
+
+    it('after deleting the last project, focus goes to New chat', async () => {
+      const user = userEvent.setup();
+      let projects = [MOCK_PROJECTS.projects[0]];
+      server.use(
+        http.get('/api/projects', () => HttpResponse.json({ projects, total: projects.length })),
+        http.delete('/api/projects/:id', () => { projects = []; return new HttpResponse(null, { status: 204 }); }),
+      );
+      renderSidebar();
+      await user.click(await screen.findByRole('button', { name: 'More actions for ML Research' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Delete project' }));
+      await user.click(screen.getByRole('button', { name: 'Delete project' }));
+
+      await waitFor(() => expect(screen.queryByText('ML Research')).not.toBeInTheDocument());
+      expect(screen.getByRole('link', { name: 'New chat' })).toHaveFocus();
+    });
   });
 
   describe('an empty project', () => {

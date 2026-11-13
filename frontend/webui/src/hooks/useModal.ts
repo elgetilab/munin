@@ -13,6 +13,10 @@
  *   column from xl up: only the overlay is modal.
  * - initialFocusRef: what to focus on open. Otherwise an element already focused
  *   inside (autoFocus) keeps focus, then the first focusable element, then the panel.
+ * - role (default 'dialog'): 'alertdialog' for a question that interrupts, such
+ *   as confirming a delete.
+ * - returnFocusRef: where focus goes on close instead, when it is set and still
+ *   in the page, such as the next row after the one a dialog deleted.
  *
  * Focus returns to whatever had it before, if that element still exists.
  */
@@ -44,12 +48,16 @@ export interface UseModalOptions {
   onClose: () => void;
   active?: boolean;
   initialFocusRef?: RefObject<HTMLElement | null>;
+  role?: 'dialog' | 'alertdialog';
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
 export function useModal<T extends HTMLElement = HTMLDivElement>({
   onClose,
   active = true,
   initialFocusRef,
+  role = 'dialog',
+  returnFocusRef,
 }: UseModalOptions) {
   const panelRef = useRef<T>(null);
   const titleId = useId();
@@ -101,14 +109,18 @@ export function useModal<T extends HTMLElement = HTMLDivElement>({
     return () => {
       document.removeEventListener('keydown', trapTab);
       removeLayer();
-      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+      // Read now, not when the dialog opened: the caller sets it just before closing.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      const target = returnFocusRef?.current;
+      if (target?.isConnected) target.focus();
+      else if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
     };
-  }, [active, focusedAtMount, initialFocusRef]);
+  }, [active, focusedAtMount, initialFocusRef, returnFocusRef]);
 
   const panelProps = active
     ? {
         ref: panelRef,
-        role: 'dialog' as const,
+        role,
         'aria-modal': true as const,
         'aria-labelledby': titleId,
         tabIndex: -1,

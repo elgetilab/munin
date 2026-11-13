@@ -135,7 +135,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         f"https://{h}{MUNIN_DOMAIN}" for h in
-        ("", "chat.", "search.", "research.", "docs.", "upload.")
+        ("", "chat.", "search.", "docs.", "upload.")
     ] if MUNIN_DOMAIN else [],
     allow_credentials=True,
     allow_methods=["GET", "PATCH", "POST", "PUT", "DELETE"],

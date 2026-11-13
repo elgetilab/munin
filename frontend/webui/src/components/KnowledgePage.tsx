@@ -5,6 +5,8 @@ import { UPLOAD_URL } from '../lib/urls';
 import { useUiStore } from '../stores/uiStore';
 import { EmbeddingMapView } from './EmbeddingMapView';
 import { ErrorNotice } from './ui/ErrorNotice';
+import { PageIcon, TagIcon, UserIcon, UsersIcon } from './ui/icons';
+import type { ReactNode } from 'react';
 
 interface KnowledgePageProps {
   // The part of the path after /knowledge, e.g. "group/zeitler". App keeps it in
@@ -121,19 +123,24 @@ export function KnowledgePage({ initialRoute, tagCatalog, onChatWithTag }: Knowl
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Sub-header */}
-      <div className="flex items-center gap-3 px-6 py-3 border-b border-border bg-bg-primary">
-        {view.type !== 'overview' && (
-          <button
-            onClick={() => goToRoute(null)}
-            className="text-text-secondary hover:text-text-primary text-sm cursor-pointer"
-          >
-            &larr; Back
-          </button>
-        )}
-        <h2 className="text-lg font-semibold text-text-primary">
-          {view.type === 'overview' ? 'Knowledge Base' : getBrowseTitle(view.kind, view.slug, catalog)}
-        </h2>
+      {/* Title band, as the sites' page heads (static/search .page-head). */}
+      <div className="page-head border-b border-border">
+        <div className="max-w-4xl mx-auto px-6 pt-8 pb-6 md:pt-10 md:pb-7">
+          {view.type !== 'overview' && (
+            <button
+              onClick={() => goToRoute(null)}
+              className="mb-3 text-text-secondary hover:text-text-primary text-sm cursor-pointer"
+            >
+              &larr; Back
+            </button>
+          )}
+          <h2 className="text-[28px] md:text-[34px] leading-tight font-semibold tracking-[-0.03em] text-text-primary">
+            {view.type === 'overview' ? 'Knowledge Base' : getBrowseTitle(view.kind, view.slug, catalog)}
+          </h2>
+          {view.type === 'overview' && (
+            <p className="mt-2 text-[15px] text-text-secondary">The papers Munin searches, by topic, research group and contributor.</p>
+          )}
+        </div>
       </div>
 
       {/* Content */}
@@ -211,12 +218,21 @@ function OverviewView({ catalog, papersStat, mapData, mapLoading, mapError, onRe
   return (
     <div className="px-6 py-6 max-w-4xl mx-auto">
       {/* Stats bar */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <StatCard label={papersStat.label} value={papersStat.value} />
-        <StatCard label="Topics" value={String(catalog.topics.length)} />
-        <StatCard label="Research Groups" value={String(catalog.groups.length)} />
-        <StatCard label="Contributors" value={String(catalog.contributor_count ?? catalog.contributors.length)} />
-      </div>
+      {/* A figure of 0 says nothing yet, so it is left out. */}
+      {(() => {
+        const cards = [
+          { key: 'papers', icon: <PageIcon size={16} />, label: papersStat.label, value: papersStat.value, n: 1 },
+          { key: 'topics', icon: <TagIcon size={16} />, label: 'Topics', value: String(catalog.topics.length), n: catalog.topics.length },
+          { key: 'groups', icon: <UsersIcon size={16} />, label: 'Research Groups', value: String(catalog.groups.length), n: catalog.groups.length },
+          { key: 'contributors', icon: <UserIcon size={16} />, label: 'Contributors', value: String(catalog.contributor_count ?? catalog.contributors.length), n: catalog.contributor_count ?? catalog.contributors.length },
+        ].filter(c => c.n > 0);
+        const cols = cards.length >= 4 ? 'md:grid-cols-4' : cards.length === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2';
+        return (
+          <div className={`grid grid-cols-2 ${cols} gap-4 mb-8`}>
+            {cards.map(c => <StatCard key={c.key} icon={c.icon} label={c.label} value={c.value} />)}
+          </div>
+        );
+      })()}
 
       {/* Embedding Map */}
       <EmbeddingMapView
@@ -241,11 +257,15 @@ function OverviewView({ catalog, papersStat, mapData, mapLoading, mapError, onRe
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+// A figure with its brass symbol, in the sites' panel shape.
+function StatCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
-    <div className="bg-bg-secondary border border-border rounded-xl px-4 py-3">
-      <div className="text-xl font-semibold text-text-primary tabular-nums">{value}</div>
-      <div className="text-xs text-text-secondary mt-1">{label}</div>
+    <div className="bg-bg-secondary border border-border rounded-2xl px-4 py-3.5 flex items-start gap-3">
+      <span className="flex-shrink-0 mt-1.5 text-accent">{icon}</span>
+      <div className="min-w-0">
+        <div className="text-xl font-semibold tracking-[-0.02em] text-text-primary tabular-nums">{value}</div>
+        <div className="text-xs text-text-secondary mt-0.5">{label}</div>
+      </div>
     </div>
   );
 }
@@ -357,7 +377,7 @@ function TopicSearch({ topics, onBrowse }: { topics: TopicTag[]; onBrowse: (kind
           value={query}
           onChange={e => setQuery(e.target.value)}
           placeholder="Search topics..."
-          className="flex-1 max-w-64 text-xs px-3 py-1.5 bg-bg-secondary border border-border rounded-lg text-text-primary placeholder:text-text-secondary outline-none focus:border-accent transition-colors"
+          className="flex-1 max-w-64 text-xs px-3 py-1.5 bg-bg-secondary border border-border rounded-lg text-text-primary placeholder:text-text-secondary outline-none focus:border-text-secondary transition-colors"
         />
         <span className="text-[10px] text-text-secondary">
           {query.trim() ? `${filtered.length} results` : `${topics.length} total`}
@@ -526,7 +546,7 @@ function PaperRow({ paper }: { paper: TagPaper }) {
         <div className="flex-1 min-w-0">
           <h4 className="text-sm font-medium text-text-primary leading-snug">
             {doiUrl ? (
-              <a href={doiUrl} target="_blank" rel="noopener noreferrer" className="hover:text-accent hover:underline">{paper.title}</a>
+              <a href={doiUrl} target="_blank" rel="noopener noreferrer" className="hover:text-text-primary hover:underline">{paper.title}</a>
             ) : paper.title}
           </h4>
           <div className="flex flex-wrap items-center gap-2 mt-1.5">
@@ -555,7 +575,7 @@ function PaperRow({ paper }: { paper: TagPaper }) {
             target="_blank"
             rel="noopener noreferrer"
             aria-label={`Download PDF: ${paper.title}`}
-            className="flex-shrink-0 whitespace-nowrap text-xs px-2.5 py-1.5 bg-bg-tertiary border border-border rounded-lg text-text-secondary hover:text-accent hover:border-accent transition-colors"
+            className="flex-shrink-0 whitespace-nowrap text-xs px-2.5 py-1.5 bg-bg-tertiary border border-border rounded-lg text-text-secondary hover:text-text-primary hover:border-accent transition-colors"
           >
             Download PDF
           </a>

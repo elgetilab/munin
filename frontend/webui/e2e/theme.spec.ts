@@ -4,12 +4,29 @@ import { installMocks } from './fixtures/mock';
 const shots = process.env.MUNIN_THEME_SHOTS;
 
 test.describe('theme', () => {
-  test('dark is the default, whatever the system prefers', async ({ page }) => {
-    await page.emulateMedia({ colorScheme: 'light' });
+  for (const scheme of ['light', 'dark'] as const) {
+    test(`with no stored choice the system decides: ${scheme}`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await installMocks(page);
+      await page.goto('/');
+      await expect(page.locator('html')).toHaveAttribute('data-theme', scheme);
+      await expect(page.locator('html')).toHaveAttribute('data-theme-pref', 'system');
+      await expect(page.locator('body')).toHaveCSS('background-color', scheme === 'dark' ? 'rgb(13, 18, 23)' : 'rgb(255, 255, 255)');
+    });
+  }
+
+  test('the header toggle flips the theme, stores it, and names its next click', async ({ page, context }) => {
+    await page.emulateMedia({ colorScheme: 'dark' });
     await installMocks(page);
     await page.goto('/');
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(15, 20, 25)');
+    const toggle = page.getByTestId('theme-toggle');
+    await expect(toggle).toHaveAccessibleName('Switch to light theme');
+    await toggle.click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    await expect(toggle).toHaveAccessibleName('Switch to dark theme');
+    expect((await context.cookies()).find(c => c.name === 'munin_theme')?.value).toBe('light');
+    await page.reload();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   });
 
   test('choosing Light in Settings applies at once, is stored, and survives a reload', async ({ page, context }) => {

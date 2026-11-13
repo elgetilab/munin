@@ -168,3 +168,15 @@ describe('KnowledgePanel', () => {
     });
   });
 });
+
+describe('KnowledgePanel empty sections', () => {
+  beforeEach(() => _resetUiStoreForTests());
+
+  it('says None yet on an empty section, which does not open, and keeps counts on the rest', () => {
+    renderPanel([], { ...CATALOG, groups: [], contributors: [], contributor_count: 0 });
+    expect(screen.queryByRole('button', { name: /Research Groups/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Research Groups').parentElement).toHaveTextContent('None yet');
+    expect(screen.getByText('Contributors').parentElement).toHaveTextContent('None yet');
+    expect(screen.getByRole('button', { name: /Topics \(1\)/ })).toBeInTheDocument();
+  });
+});

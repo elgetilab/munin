@@ -9,12 +9,12 @@
  *   <header>
  *     <div class="container header-content">
  *       <a href="https://example.org" class="logo">
- *         <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="logo-img">
+ *         <img src="/shared/munin_logo_without_script.svg" alt="Munin" class="logo-img">
  *         <span class="logo-text">Munin</span>
  *       </a>
  *       <nav>
  *         <a href="https://example.org">Home</a>
- *         <a href="https://search.example.org">Search</a>
+ *         <a href="https://search.example.org">Search papers</a>
  *         <a href="https://docs.example.org">Docs</a>
  *         <a href="https://chat.example.org">Chat</a>
  *         <a href="https://upload.example.org">Upload</a>
@@ -28,7 +28,7 @@
  *     <div class="container">
  *       <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/">Elgeti Lab</a></p>
  *       <p style="margin-top: 8px;">
- *         <a href="https://search.example.org">Search</a> |
+ *         <a href="https://search.example.org">Search papers</a> |
  *         <a href="https://chat.example.org">Chat</a> |
  *         <a href="https://upload.example.org">Upload</a> |
  *         <a href="https://docs.example.org">Docs</a> |
@@ -43,20 +43,22 @@
 /* ── CSS Variables ───────────────────────────────────────────────────────────── */
 
 :root {
-    --bg-primary: #0f1419;
-    --bg-secondary: #1a1f26;
-    --bg-tertiary: #242a33;
+    --bg-primary: #0d1217;
+    --bg-secondary: #131a21;
+    --bg-tertiary: #1c252e;
     --text-primary: #e6edf3;
-    --text-secondary: #8b949e;
-    --accent: #58a6ff;
-    --accent-hover: #79b8ff;
-    --border: #30363d;
+    --text-secondary: #a9b1ba;
+    --accent: #d9b56f;
+    --accent-hover: #e8c98e;
+    --border: #252f39;
     --border-input: #6e7681; /* form controls: 4.03:1 on bg-primary, 3.61:1 on bg-secondary, 3.14:1 on bg-tertiary */
     --success: #3fb950;
-    --warning: #d29922;
+    --warning: #f0883e;
     --error: #f85149;
-    --text-tertiary: #808891;
+    --text-tertiary: #8d959e;
     --scrim: rgb(0 0 0 / 0.6);
+    /* The one keyboard focus ring: the accent's value under its own name. */
+    --focus-ring: #d9b56f;
     /* Second stop of the landing page's heading gradient. */
     --accent-2: #a371f7;
     /* The logo files are a black raven, so dark pages turn it white. */
@@ -72,17 +74,18 @@
     --bg-primary: #ffffff;
     --bg-secondary: #f6f8fa;
     --bg-tertiary: #e9edf1;
-    --text-primary: #1f2429;
-    --text-secondary: #57606a;
+    --text-primary: #182029;
+    --text-secondary: #4a535d;
     --text-tertiary: #656d76;
     --accent: #0a5cb8;
     --accent-hover: #084c99;
-    --border: #d0d7de;
+    --border: #dde3e9;
     --border-input: #6e7781;
     --success: #196b2e;
-    --warning: #7a5300;
+    --warning: #953f00;
     --error: #b81c28;
     --scrim: rgb(31 36 41 / 0.4);
+    --focus-ring: #0a5cb8;
     --accent-2: #8250df;
     --logo-filter: none;
     color-scheme: light;
@@ -104,8 +107,14 @@ body {
     min-height: 100vh;
 }
 
+/* The ring's colour at rest too, so a transition on all (.btn) has no colour
+   to fade the ring in from. */
+*, ::before, ::after {
+    outline-color: var(--focus-ring);
+}
+
 :focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
 }
 
@@ -119,10 +128,13 @@ body {
 
 /* ── Header ──────────────────────────────────────────────────────────────────── */
 
+/* The same bar as the chat app's header (src/App.tsx): 49px tall with its
+   border, 32px items with a 6px radius, a tint on hover, and the accent tint on
+   the current page. Keep the two in step. */
 header {
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
-    padding: 10px 16px;
+    padding: 8px 12px;
 }
 
 header .container {
@@ -134,14 +146,18 @@ header .container {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 12px;
+    min-height: 32px;
 }
 
 .logo {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
+    padding: 0 4px;
     text-decoration: none;
     color: var(--text-primary);
+    flex-shrink: 0;
 }
 
 .logo-img {
@@ -151,55 +167,73 @@ header .container {
 }
 
 .logo-text {
-    font-size: 18px;
+    font-size: 15px;
     font-weight: 600;
 }
 
 nav {
     display: flex;
-    gap: 16px;
+    gap: 2px;
 }
 
-nav a {
+nav a,
+.theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 6px;
     color: var(--text-secondary);
     text-decoration: none;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
-    transition: color 0.2s;
+    line-height: 1;
+    white-space: nowrap;
+    transition: color 0.15s, background-color 0.15s;
 }
 
-nav a:hover {
-    color: var(--accent);
+nav a:hover,
+.theme-toggle:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
 }
 
 nav a.active {
     color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
 }
 
-/* Theme switch, added to the header by /shared/theme.js. The nav moves right to
-   make room, so the switch sits at the end of the row. */
-.header-content.has-theme-switch > nav {
+/* The light/dark toggle, added to the header by /shared/theme.js after the nav,
+   with a hairline between the two. */
+.header-content.has-theme-toggle > nav {
     margin-left: auto;
 }
 
-.theme-switch {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-left: 16px;
-    flex-shrink: 0;
-    color: var(--text-secondary);
-}
-
-.theme-switch svg {
-    flex-shrink: 0;
-}
-
-.theme-switch select {
-    padding: 4px 8px;
-    font-size: 13px;
-    border-radius: 6px;
+.theme-toggle {
+    justify-content: center;
+    width: 32px;
+    padding: 0;
+    margin-left: 6px;
+    position: relative;
+    border: none;
+    background: none;
     cursor: pointer;
+    font: inherit;
+}
+
+.theme-toggle::before {
+    content: '';
+    position: absolute;
+    left: -5px;
+    top: 8px;
+    bottom: 8px;
+    width: 1px;
+    background: var(--border);
+}
+
+.theme-toggle svg {
+    flex-shrink: 0;
 }
 
 /* ── Footer ──────────────────────────────────────────────────────────────────── */
@@ -395,22 +429,24 @@ td {
 @media (max-width: 768px) {
     .header-content {
         flex-wrap: wrap;
+        row-gap: 4px;
     }
 
+    /* The links scroll sideways on a phone; the right edge fades out so the
+       row reads as one that goes on, and the padding lets the last link
+       scroll clear of the fade. */
     nav {
         width: 100%;
-        gap: 0;
         overflow-x: auto;
-        scrollbar-width: thin;
+        scrollbar-width: none;
+        padding-right: 28px;
+        -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
+        mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
     }
 
+    /* 44px to the finger. */
     nav a {
-        display: flex;
-        align-items: center;
-        flex-shrink: 0;
-        min-height: 44px;
-        padding: 0 8px;
-        white-space: nowrap;
+        height: 44px;
     }
 
     /* The scrolling row clips anything outside it, so keep the ring inside the link */
@@ -418,17 +454,19 @@ td {
         outline-offset: -2px;
     }
 
-    /* The nav takes its own row, so the switch stays up beside the logo. */
-    .header-content.has-theme-switch > nav {
+    /* The nav takes its own row, so the toggle stays up beside the logo. */
+    .header-content.has-theme-toggle > nav {
         margin-left: 0;
         order: 1;
     }
 
-    .theme-switch {
-        margin-left: auto;
+    .theme-toggle {
+        width: 44px;
+        height: 44px;
+        margin: -6px -6px -6px auto;
     }
 
-    .theme-switch select {
-        min-height: 44px;
+    .theme-toggle::before {
+        display: none;
     }
 }

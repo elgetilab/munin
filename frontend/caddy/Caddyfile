@@ -132,20 +132,6 @@ search.{$MUNIN_DOMAIN} {
 	}
 }
 
-# ── Deep Research ────────────────────────────────────────────────────────────
-research.{$MUNIN_DOMAIN} {
-	import shared-assets
-	import auth
-	handle /api/* {
-		reverse_proxy 127.0.0.1:8070
-	}
-	handle {
-		root * /srv/static/research
-		import static-templates
-		file_server
-	}
-}
-
 # ── Paper Upload ─────────────────────────────────────────────────────────────
 upload.{$MUNIN_DOMAIN} {
 	import shared-assets

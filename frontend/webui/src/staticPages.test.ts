@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { cookieDomain, readPref } from './lib/theme';
 
@@ -335,7 +335,7 @@ describe('search page, usability', () => {
 
   it('describes what the page actually does', () => {
     load(() => json({}));
-    const intro = document.querySelector('.search-section p')!.textContent!;
+    const intro = document.querySelector('.page-head .lede')!.textContent!;
     expect(intro).toContain('Author alone');
     expect(intro).not.toContain('or year');
   });
@@ -479,9 +479,12 @@ describe('docs and landing pages', () => {
     expect(doc.querySelector('.arch')?.textContent).toContain('Retrieval API');
   });
 
-  it('points the internal paper collection at the Knowledge browser', () => {
-    const link = [...landing().querySelectorAll('a')].find((a) => a.textContent === 'internal paper collection')!;
-    expect(link.getAttribute('href')).toBe('https://munin_url_chat.example.org/knowledge');
+  it('points the knowledge base at the Knowledge browser', () => {
+    const doc = landing();
+    const browse = [...doc.querySelectorAll('main a')].find((a) => a.textContent === 'Browse')!;
+    expect(browse.getAttribute('href')).toBe('https://munin_url_chat.example.org/knowledge');
+    const nav = [...doc.querySelectorAll('header nav a')].find((a) => a.textContent === 'Knowledge')!;
+    expect(nav.getAttribute('href')).toBe('https://munin_url_chat.example.org/knowledge');
   });
 
   it('numbers no feature cards, and speaks of one assistant', () => {
@@ -492,8 +495,9 @@ describe('docs and landing pages', () => {
   });
 
   it('says who can upload, wherever it invites uploads', () => {
-    const card = [...landing().querySelectorAll('.howto-card')].find((c) => c.querySelector('h3')?.textContent === 'Upload Papers')!;
-    expect(card.textContent).toContain('Group leaders');
+    const row = [...landing().querySelectorAll('.mode')].find((c) => c.querySelector('h3')?.textContent === 'Contribute')!;
+    expect(row.textContent).toContain('Group leaders');
+    expect(row.querySelector('a')?.getAttribute('href')).toBe('https://munin_url_upload.example.org');
     const text = guide().body.textContent!;
     expect(text).toContain('Research group leaders can grow');
     expect(text).not.toContain('Upload your papers');
@@ -522,7 +526,7 @@ describe('upload page', () => {
     await flush();
 
     const box = document.getElementById('user-box')!;
-    expect(box.textContent).toContain('Signed in as: member@example.org');
+    expect(box.textContent).toContain('Signed in as member@example.org');
     expect(box.textContent).not.toContain('Uploading as');
     expect(box.textContent).not.toContain('tagged');
     expect((document.getElementById('upload-notice') as HTMLElement).hidden).toBe(true);
@@ -581,9 +585,9 @@ describe('upload page', () => {
   });
 });
 
-// /shared/theme.js adds the Dark, Light and Match system switch to every static
-// page header, with the same cookie rules as src/lib/theme.ts.
-describe('static theme switch', () => {
+// /shared/theme.js adds a light/dark toggle to every static page header, with
+// the same cookie rules as src/lib/theme.ts.
+describe('static theme toggle', () => {
   const themeJs = readStatic('shared/theme.js');
   const root = document.documentElement;
   const HEADER = '<header><div class="container header-content"><a class="logo">Munin</a><nav><a>Home</a></nav></div></header>';
@@ -616,11 +620,7 @@ describe('static theme switch', () => {
     };
   }
 
-  const select = () => document.querySelector<HTMLSelectElement>('header .header-content .theme-switch select')!;
-  const choose = (value: string) => {
-    select().value = value;
-    select().dispatchEvent(new Event('change', { bubbles: true }));
-  };
+  const toggle = () => document.querySelector<HTMLButtonElement>('header .header-content > .theme-toggle')!;
   // What the inline head script leaves behind before theme.js runs.
   const headScript = (pref: string, theme = pref) => {
     root.setAttribute('data-theme-pref', pref);
@@ -645,53 +645,62 @@ describe('static theme switch', () => {
     root.removeAttribute('data-theme-pref');
   });
 
-  it('adds one labelled switch to the header, showing the saved choice', () => {
+  it('adds one button after the nav, named for what a click does', () => {
     document.cookie = 'munin_theme=light; Path=/';
     headScript('light');
     const { api } = load();
     api.mount();
 
-    expect(document.querySelectorAll('.theme-switch')).toHaveLength(1);
-    expect(select().getAttribute('aria-label')).toBe('Theme');
-    expect([...select().options].map((o) => [o.value, o.textContent])).toEqual([
-      ['dark', 'Dark'], ['light', 'Light'], ['system', 'Match system'],
-    ]);
-    expect(select().value).toBe('light');
+    expect(document.querySelectorAll('.theme-toggle')).toHaveLength(1);
+    expect(toggle().previousElementSibling?.tagName).toBe('NAV');
+    expect(toggle().type).toBe('button');
+    expect(toggle().getAttribute('aria-label')).toBe('Switch to dark theme');
     // Loading changed nothing, so nothing was announced.
     expect(events).toEqual([]);
   });
 
-  it('defaults to Dark with no cookie', () => {
-    headScript('dark');
-    load();
-    expect(select().value).toBe('dark');
-    expect(root.getAttribute('data-theme')).toBe('dark');
+  it('follows the system with no cookie', () => {
+    headScript('system', 'light');
+    load({ prefersLight: true });
+    expect(root.getAttribute('data-theme')).toBe('light');
+    expect(root.getAttribute('data-theme-pref')).toBe('system');
+    expect(toggle().getAttribute('aria-label')).toBe('Switch to dark theme');
   });
 
-  it('stores a choice on the shared domain for a year, and applies it at once', () => {
+  it('a click stores the other theme on the shared domain for a year, and applies it at once', () => {
+    document.cookie = 'munin_theme=dark; Path=/';
     headScript('dark');
     const set = vi.spyOn(document, 'cookie', 'set');
     load({ hostname: 'search.muninai.org', protocol: 'https:' });
-    choose('light');
+    toggle().click();
 
     expect(set).toHaveBeenCalledWith('munin_theme=light; Path=/; Max-Age=31536000; SameSite=Lax; Domain=muninai.org; Secure');
     expect(root.getAttribute('data-theme')).toBe('light');
     expect(root.getAttribute('data-theme-pref')).toBe('light');
+    expect(toggle().getAttribute('aria-label')).toBe('Switch to dark theme');
     expect(events).toEqual([{ pref: 'light', theme: 'light' }]);
+  });
+
+  it('flips what is showing, when that came from the system', () => {
+    headScript('system', 'light');
+    load({ prefersLight: true });
+    toggle().click();
+    expect(root.getAttribute('data-theme')).toBe('dark');
+    expect(root.getAttribute('data-theme-pref')).toBe('dark');
   });
 
   it('uses a host-only cookie, without Secure, on localhost over http', () => {
     headScript('dark');
     const set = vi.spyOn(document, 'cookie', 'set');
     load({ hostname: 'localhost', protocol: 'http:' });
-    choose('system');
+    toggle().click();
 
-    expect(set).toHaveBeenCalledWith('munin_theme=system; Path=/; Max-Age=31536000; SameSite=Lax');
+    expect(set).toHaveBeenCalledWith('munin_theme=light; Path=/; Max-Age=31536000; SameSite=Lax');
   });
 
   it('works out the cookie domain and reads the cookie exactly as theme.ts does', () => {
     const { api } = load();
-    for (const host of ['chat.muninai.org', 'upload.muninai.org', 'research.muninai.org', 'muninai.org',
+    for (const host of ['chat.muninai.org', 'upload.muninai.org', 'muninai.org',
       'docs.munin.uni-example.de', 'munin.uni-example.de', 'www.muninai.org', 'localhost', '127.0.0.1', '::1', 'intranet']) {
       expect(api.cookieDomain(host), host).toBe(cookieDomain(host));
     }
@@ -702,20 +711,21 @@ describe('static theme switch', () => {
   });
 
   it('picks up a choice made in another tab or site when this tab comes back', () => {
+    document.cookie = 'munin_theme=dark; Path=/';
     headScript('dark');
     const { fire } = load();
 
     document.cookie = 'munin_theme=light; Path=/';
     fire('focus');
     expect(root.getAttribute('data-theme')).toBe('light');
-    expect(select().value).toBe('light');
+    expect(toggle().getAttribute('aria-label')).toBe('Switch to dark theme');
 
     fire('focus');
     fire('pageshow');
     expect(events).toEqual([{ pref: 'light', theme: 'light' }]);
   });
 
-  it('follows the system while set to Match system, and only then', () => {
+  it('follows the system while set to Match system, and stops once toggled', () => {
     // On the shared domain, as theme.js writes it, so the later choice replaces it.
     document.cookie = 'munin_theme=system; Path=/; Domain=muninai.org';
     headScript('system', 'dark');
@@ -726,7 +736,7 @@ describe('static theme switch', () => {
     expect(root.getAttribute('data-theme-pref')).toBe('system');
     expect(events).toEqual([{ pref: 'system', theme: 'light' }]);
 
-    choose('dark');
+    toggle().click();
     setSystem(false);
     setSystem(true);
     expect(root.getAttribute('data-theme')).toBe('dark');
@@ -736,17 +746,17 @@ describe('static theme switch', () => {
     document.body.innerHTML = '<main></main>';
     headScript('dark');
     const { api } = load();
-    expect(document.querySelector('.theme-switch')).toBeNull();
+    expect(document.querySelector('.theme-toggle')).toBeNull();
     expect(api.setPref('light')).toBe('light');
     expect(root.getAttribute('data-theme')).toBe('light');
   });
 
-  const pages = ['landing/index.html', 'search/index.html', 'research/index.html', 'upload/index.html',
+  const pages = ['landing/index.html', 'search/index.html', 'upload/index.html',
     'maintenance/index.html', 'docs/index.html', 'docs/architecture.html', 'docs/guide.html'];
 
-  it.each(pages)('%s loads the switch and has a header for it', (path) => {
+  it.each(pages)('%s loads the toggle and has a header for it', (path) => {
     const html = readStatic(path);
-    expect(html).toContain('<script src="/shared/theme.js" defer></script>');
+    expect(html).toMatch(/<script src="\/shared\/theme\.js\?v=\d+" defer><\/script>/);
     const doc = new DOMParser().parseFromString(fillEnv(html), 'text/html');
     expect(doc.querySelector('header .header-content > nav')).not.toBeNull();
   });
@@ -792,5 +802,25 @@ describe('upload page theme', () => {
     root.setAttribute('data-theme', other);
     document.dispatchEvent(new CustomEvent('munin-themechange', { detail: { pref: other, theme: other } }));
     expect(dashboard.setOptions).toHaveBeenLastCalledWith({ theme: other });
+  });
+});
+
+// Geist is served from /shared/fonts, so no page tells a third party who is
+// reading it.
+describe('self-hosted fonts', () => {
+  const pages = ['landing/index.html', 'search/index.html', 'upload/index.html',
+    'maintenance/index.html', 'docs/index.html', 'docs/architecture.html', 'docs/guide.html',
+    'shared/site.css', 'shared/auth.css', 'docs/docs.css', '../auth/templates/login.html', '../auth/templates/verify.html'];
+
+  it.each(pages)('%s asks no font host', (path) => {
+    expect(readStatic(path)).not.toMatch(/fonts\.googleapis\.com|fonts\.gstatic\.com/);
+  });
+
+  it('site.css points every @font-face at a file that ships', () => {
+    const css = readStatic('shared/site.css');
+    const urls = [...css.matchAll(/@font-face\s*\{[^}]*?url\(([^)]+)\)/g)].map((m) => m[1]);
+    expect(urls.length).toBeGreaterThan(0);
+    for (const url of urls) expect(existsSync(resolve(process.cwd(), '../static/shared', url)), url).toBe(true);
+    expect(existsSync(resolve(process.cwd(), '../static/shared/fonts/OFL.txt'))).toBe(true);
   });
 });

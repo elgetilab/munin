@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Message, ToolCall, RagContext, Clarification } from '../lib/types';
 import { TaskLog } from './TaskLog';
 import { FeatherVortex } from './FeatherVortex';
@@ -11,6 +11,11 @@ import { InlineArtifacts } from './InlineArtifacts';
 import { detectPhase } from '../lib/streamPhase';
 import { rewordInterruptedMarker } from '../lib/modelError';
 import { BTN_PRIMARY } from './ui/cardButton';
+import { CHAT_COLUMN } from './ui/chatColumn';
+import { ReplyActions } from './ReplyActions';
+import { UserMessage } from './UserMessage';
+import { ModeLabel } from './ModeChip';
+import { canResend } from '../lib/resend';
 
 interface RetryingState {
   attempt: number;
@@ -56,25 +61,15 @@ interface MessageListProps {
   // instead of sitting pinned above the composer. App owns the DR store and
   // passes the ready-to-render node (or null).
   researchTimeline?: React.ReactNode;
+  // Whether this chat can be reported (saved, not temporary): shows Report
+  // under each reply.
+  canReport?: boolean;
+  // Retry and Edit: send `content` again in place of the saved user message
+  // `messageId`, dropping it and everything after it. Absent where that
+  // can't be done (temporary chats).
+  onResend?: (messageId: string, content: string) => void;
 }
 
-// Small muted pill showing the internal profile the per-turn router
-// selected for an assistant message ("code" / "research"). The plain
-// "chat" profile is the default and gets no chip, keeping the common
-// case visually quiet.
-function RoutedProfileChip({ profile }: { profile?: string | null }) {
-  if (!profile) return null;
-  const normalized = profile.toLowerCase();
-  if (normalized === 'chat' || normalized === 'munin') return null;
-  const label = normalized.charAt(0).toUpperCase() + normalized.slice(1);
-  return (
-    <div className="select-none">
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wider text-text-secondary bg-bg-tertiary border border-border">
-        {label}
-      </span>
-    </div>
-  );
-}
 
 /** Strip system-injected context blocks (e.g. artifact summaries) from assistant content */
 function cleanContent(raw: string): string {
@@ -90,10 +85,21 @@ function cleanContent(raw: string): string {
 // enough that they don't need the affordance.
 const JUMP_BUTTON_HIDE_THRESHOLD_PX = 96;
 
-export function MessageList({ messages, streaming, onSendClarification, onDismissMemoryProposal, conversationId, onPlanApproved, onPlanRejected, onPlanEdited, onContinue, researchTimeline }: MessageListProps) {
+// Where a just-sent message sits below the top of the scroll area: the
+// container's own top padding (py-6), so it lines up with the first message.
+const SENT_MESSAGE_TOP_GAP_PX = 24;
+
+export function MessageList({ messages, streaming, onSendClarification, onDismissMemoryProposal, conversationId, onPlanApproved, onPlanRejected, onPlanEdited, onContinue, researchTimeline, canReport = false, onResend }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const columnRef = useRef<HTMLDivElement>(null);
+  // Room below the transcript so a just-sent message can sit at the top while
+  // the reply streams into the space under it. Sized through the DOM, not
+  // state, so a growing reply never re-renders the list.
+  const spacerRef = useRef<HTMLDivElement>(null);
+  // The user message pinned to the top since it was sent; null when the view
+  // is a loaded conversation, which opens at the bottom as before.
+  const anchorIdRef = useRef<string | null>(null);
   // Drives the floating "jump to bottom" button. True when the user
   // has scrolled up far enough from the bottom that the button is
   // worth showing.
@@ -109,31 +115,65 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
   //
   //   1. Conversation switch (conversationId change) -> jump to bottom
   //      instantly so the user lands at the latest message.
-  //   2. New user message added -> smooth-scroll so the user sees
-  //      their own bubble land at the bottom after pressing Enter.
+  //   2. New user message added -> one smooth scroll that puts it at the
+  //      top of the view, with a spacer below so it can get there; the
+  //      reply then streams into the visible space under it (2026-11,
+  //      as Claude does). The spacer shrinks as the reply grows, so the
+  //      page never moves on its own.
   //   3. Streaming tokens, thinking, tool calls -> NO scroll. The
   //      user reads at their own pace.
   //   4. Floating jump-to-bottom button when they want to catch up.
 
-  // (1) Conversation switch.
+  // Size the spacer so the pinned message can reach the top: the view's
+  // height less what already sits from that message down.
+  const sizeSpacer = useCallback(() => {
+    const el = containerRef.current, column = columnRef.current, spacer = spacerRef.current;
+    if (!el || !column || !spacer) return;
+    const id = anchorIdRef.current;
+    const anchor = id ? column.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`) : null;
+    if (!anchor) { spacer.style.height = '0px'; return; }
+    const below = column.getBoundingClientRect().bottom - anchor.getBoundingClientRect().top;
+    const padBottom = parseFloat(getComputedStyle(el).paddingBottom) || 0;
+    const room = Math.max(0, el.clientHeight - SENT_MESSAGE_TOP_GAP_PX - below - padBottom);
+    spacer.style.height = `${Math.round(room)}px`;
+  }, []);
+
+  // (1) Conversation switch. A new chat gets its id only after its first
+  // message is sent, so keep that message pinned when the id first arrives.
+  const prevConversationRef = useRef<string | null | undefined>(undefined);
+  const mountedRef = useRef(false);
   useEffect(() => {
+    const prev = prevConversationRef.current;
+    const firstRun = !mountedRef.current;
+    prevConversationRef.current = conversationId;
+    mountedRef.current = true;
+    if (anchorIdRef.current && (firstRun || prev == null)) return;
+    anchorIdRef.current = null;
+    sizeSpacer();
     const el = containerRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [conversationId]);
+  }, [conversationId, sizeSpacer]);
 
   // (2) New user message. We track the previous count with a ref so
-  // we only fire on the increment-with-user-tail edge.
-  const prevLengthRef = useRef(messages.length);
-  useEffect(() => {
+  // we only fire on the increment-with-user-tail edge. The list mounts
+  // with a new chat's first message already in it, so that one counts too.
+  const prevLengthRef = useRef(messages.length === 1 && messages[0].role === 'user' ? 0 : messages.length);
+  useLayoutEffect(() => {
     const prev = prevLengthRef.current;
     prevLengthRef.current = messages.length;
     if (messages.length <= prev) return;
     const last = messages[messages.length - 1];
-    if (last?.role === 'user') {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages]);
+    if (last?.role !== 'user') return;
+    anchorIdRef.current = last.id;
+    sizeSpacer();
+    const el = containerRef.current;
+    const anchor = columnRef.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(last.id)}"]`);
+    if (!el || !anchor) return;
+    const top = el.scrollTop + anchor.getBoundingClientRect().top - el.getBoundingClientRect().top - SENT_MESSAGE_TOP_GAP_PX;
+    const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollTo?.({ top, behavior: reduce ? 'auto' : 'smooth' });
+  }, [messages, sizeSpacer]);
 
   // (4) Update jump-button visibility on scroll. Coalesced naturally
   // by the browser; no rAF/throttle needed at typical scroll
@@ -141,7 +181,9 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
   const updateJumpButton = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    // Measured to the end of the transcript, not of the spacer under it.
+    const spacer = spacerRef.current?.offsetHeight ?? 0;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight - spacer;
     const farFromBottom = distanceFromBottom > JUMP_BUTTON_HIDE_THRESHOLD_PX;
     setShowJumpButton(prev => (prev === farFromBottom ? prev : farFromBottom));
   }, []);
@@ -151,21 +193,40 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
   useEffect(() => {
     const column = columnRef.current;
     if (!column || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(updateJumpButton);
+    // The spacer shrinks as the reply grows, and follows the view's height.
+    const observer = new ResizeObserver(() => { sizeSpacer(); updateJumpButton(); });
     observer.observe(column);
+    if (containerRef.current) observer.observe(containerRef.current);
     return () => observer.disconnect();
-  }, [updateJumpButton]);
+  }, [updateJumpButton, sizeSpacer]);
 
   const scrollToBottom = () => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // 'end': the spacer sits below this marker, so 'start' would lift the
+    // last lines out of view.
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   };
 
   const isActive = streaming.phase !== 'idle' && streaming.phase !== 'done' && streaming.phase !== 'error';
 
+  // Each reply's position among the replies, for its actions and reports.
+  const replyNumbers = new Map<string, number>();
+  for (const m of messages) if (m.role === 'assistant') replyNumbers.set(m.id, replyNumbers.size + 1);
+  const latestReplyId = [...messages].reverse().find(m => m.role === 'assistant')?.id;
+  // Retry and Edit only while nothing streams, and only for messages whose
+  // text can be sent again as it was (see lib/resend).
+  const resend = !isActive ? onResend : undefined;
+  const lastUserIndex = messages.map(m => m.role).lastIndexOf('user');
+  // Retry on the latest reply sends the user message before it again.
+  const latestReplyIndex = latestReplyId ? messages.findIndex(m => m.id === latestReplyId) : -1;
+  const askedBefore = [...messages.slice(0, Math.max(0, latestReplyIndex))].reverse().find(m => m.role === 'user');
+  const onRetryLatest = resend && askedBefore && canResend(askedBefore)
+    ? () => resend(askedBefore.id, askedBefore.content)
+    : undefined;
+
   return (
     <div className="flex-1 relative min-h-0 flex flex-col">
     <div ref={containerRef} onScroll={updateJumpButton} className="flex-1 overflow-y-auto px-4 py-6">
-      <div ref={columnRef} className="max-w-2xl mx-auto space-y-6">
+      <div ref={columnRef} className={`${CHAT_COLUMN} space-y-6`}>
         {messages.map((msg, i) => {
           const isLast = i === messages.length - 1;
           // Only surface Continue on the final bubble, and only while
@@ -176,7 +237,7 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
             streaming.phase === 'tool_call' ||
             streaming.phase === 'generating';
           return (
-          <div key={msg.id}>
+          <div key={msg.id} data-message-id={msg.id}>
             {/* P2 #22: render the boundary divider ABOVE the
                 assistant message that triggered compaction so the
                 visible order matches the conversation flow. */}
@@ -196,7 +257,10 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
                 onAfterEdit={onPlanEdited}
               />
             ) : null}
-            <MessageBubble message={msg} conversationId={conversationId} onSendClarification={onSendClarification} onDismissMemoryProposal={onDismissMemoryProposal} onContinue={isLast && !streamingActive ? onContinue : undefined} />
+            <MessageBubble message={msg} conversationId={conversationId} onSendClarification={onSendClarification} onDismissMemoryProposal={onDismissMemoryProposal} onContinue={isLast && !streamingActive ? onContinue : undefined}
+              actions={msg.role === 'assistant' ? { replyNumber: replyNumbers.get(msg.id) ?? 0, latest: msg.id === latestReplyId && !isActive, canReport, onRetry: msg.id === latestReplyId ? onRetryLatest : undefined } : undefined}
+              onEdit={msg.role === 'user' && resend && canResend(msg) ? (text: string) => resend(msg.id, text) : undefined}
+              dropsLaterTurns={msg.role === 'user' && i < lastUserIndex} />
           </div>
           );
         })}
@@ -228,8 +292,9 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
               />
             )}
 
-            {/* Routed-profile chip for the in-progress turn. */}
-            <RoutedProfileChip profile={streaming.routedProfile} />
+            {/* The mode the router picked for the turn in progress, as quiet
+                text; a finished reply shows it in its action row. */}
+            <ModeLabel profile={streaming.routedProfile} />
 
             {/* Loading vortex — show when no content yet OR during tool calls */}
             {(!streaming.content.trim() || streaming.phase === 'tool_call') && (
@@ -276,6 +341,7 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
 
         <div ref={bottomRef} />
       </div>
+      <div ref={spacerRef} aria-hidden="true" data-testid="sent-message-spacer" />
     </div>
       {/* Floating jump-to-bottom button. Appears once the user has
           scrolled more than JUMP_BUTTON_HIDE_THRESHOLD_PX above the
@@ -285,7 +351,7 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
       {showJumpButton && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-6 right-6 w-10 h-10 rounded-full bg-bg-tertiary border border-border shadow-lg flex items-center justify-center text-text-secondary hover:text-accent hover:border-accent transition-colors cursor-pointer"
+          className="absolute bottom-6 right-6 w-10 h-10 rounded-full bg-bg-tertiary border border-border shadow-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:border-accent transition-colors cursor-pointer"
           title="Scroll to bottom"
           aria-label="Scroll to bottom"
         >
@@ -298,19 +364,13 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
   );
 }
 
-function MessageBubble({ message, conversationId, onSendClarification, onDismissMemoryProposal, onContinue }: { message: Message; conversationId?: string | null; onSendClarification?: (answer: string) => void; onDismissMemoryProposal?: (proposalId: string) => void; onContinue?: () => void }) {
+function MessageBubble({ message, conversationId, onSendClarification, onDismissMemoryProposal, onContinue, actions, onEdit, dropsLaterTurns = false }: { message: Message; conversationId?: string | null; onSendClarification?: (answer: string) => void; onDismissMemoryProposal?: (proposalId: string) => void; onContinue?: () => void; actions?: { replyNumber: number; latest: boolean; canReport: boolean; onRetry?: () => void }; onEdit?: (text: string) => void; dropsLaterTurns?: boolean }) {
   if (message.role === 'user') {
-    return (
-      <div className="flex gap-3 justify-end">
-        <div className="max-w-[80%] bg-bg-tertiary border border-border rounded-2xl rounded-br-sm px-4 py-3 text-base text-text-primary leading-relaxed whitespace-pre-wrap wrap-anywhere">
-          {message.content}
-        </div>
-      </div>
-    );
+    return <UserMessage content={message.content} onEdit={onEdit} dropsLaterTurns={dropsLaterTurns} />;
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 group/reply">
       {/* Task log for completed messages */}
       {(message.thinking || message.tool_calls || message.rag_context) && (
         <TaskLog
@@ -319,11 +379,6 @@ function MessageBubble({ message, conversationId, onSendClarification, onDismiss
           ragContext={message.rag_context}
         />
       )}
-
-      {/* Routed-profile chip: the internal profile the per-turn router
-          selected for this assistant turn (stored on message.persona).
-          Hidden for the default "chat" profile. */}
-      <RoutedProfileChip profile={message.persona} />
 
       {cleanContent(message.content) && (
         <div className="text-base text-text-primary leading-relaxed">
@@ -356,6 +411,11 @@ function MessageBubble({ message, conversationId, onSendClarification, onDismiss
             Continue
           </button>
         </div>
+      )}
+
+      {/* Copy and Report, under a reply that has text. */}
+      {actions && cleanContent(message.content) && (
+        <ReplyActions content={cleanContent(message.content)} replyNumber={actions.replyNumber} latest={actions.latest} canReport={actions.canReport} onRetry={actions.onRetry} mode={message.persona} />
       )}
 
       {/* P2 #25: auto-extracted memory candidates. Rendered below the

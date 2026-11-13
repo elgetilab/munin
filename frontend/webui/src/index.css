@@ -2,21 +2,44 @@
 @import "./styles/code.css";
 @import "./styles/charts.css";
 
+/* Geist, the sites' face, from the files they already ship (static/shared/fonts,
+   SIL OFL 1.1), so the chat asks no font host either. */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url(/shared/fonts/geist-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url(/shared/fonts/geist-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 @theme {
-  --color-bg-primary: #0f1419;
-  --color-bg-secondary: #1a1f26;
-  --color-bg-tertiary: #242a33;
+  --color-bg-primary: #0d1217;
+  --color-bg-secondary: #131a21;
+  --color-bg-tertiary: #1c252e;
   --color-text-primary: #e6edf3;
-  --color-text-secondary: #8b949e;
-  --color-text-tertiary: #808891;
-  --color-accent: #58a6ff;
-  --color-accent-hover: #79b8ff;
-  --color-border: #30363d;
+  --color-text-secondary: #a9b1ba;
+  --color-text-tertiary: #8d959e;
+  --color-accent: #d9b56f;
+  --color-accent-hover: #e8c98e;
+  --color-border: #252f39;
   --color-success: #3fb950;
-  --color-warning: #d29922;
+  --color-warning: #f0883e;
   --color-error: #f85149;
   --color-border-input: #6e7681;
   --color-scrim: rgb(0 0 0 / 0.6);
+  /* The one keyboard focus ring. The accent's value, but its own name, so a ring
+     never picks up a change meant for links and buttons. At least 3:1 against
+     every background it sits on (src/focusRing.test.ts). */
+  --color-focus-ring: #d9b56f;
 }
 
 /* Light theme. The inline head script in index.html sets data-theme from the
@@ -32,17 +55,19 @@
   --color-bg-primary: #ffffff;
   --color-bg-secondary: #f6f8fa;
   --color-bg-tertiary: #e9edf1;
-  --color-text-primary: #1f2429;
-  --color-text-secondary: #57606a;
+  --color-text-primary: #182029;
+  --color-text-secondary: #4a535d;
   --color-text-tertiary: #656d76;
+  /* Blue, not brass, on the light theme: brass reads poorly on white. */
   --color-accent: #0a5cb8;
   --color-accent-hover: #084c99;
-  --color-border: #d0d7de;
+  --color-border: #dde3e9;
   --color-border-input: #6e7781;
   --color-success: #196b2e;
-  --color-warning: #7a5300;
+  --color-warning: #953f00;
   --color-error: #b81c28;
   --color-scrim: rgb(31 36 41 / 0.4);
+  --color-focus-ring: #0a5cb8;
   --logo-filter: none;
   color-scheme: light;
 }
@@ -64,11 +89,12 @@
   --warning: var(--color-warning);
   --error: var(--color-error);
   --scrim: var(--color-scrim);
+  --focus-ring: var(--color-focus-ring);
 }
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+  font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
   background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
   -webkit-font-smoothing: antialiased;
@@ -80,21 +106,75 @@ body {
   flex-direction: column;
 }
 
+/* The ring's colour at rest too, so transition-colors (which lists outline-color)
+   has nothing to fade: without this the ring fades in from the text colour, and
+   items with and without that utility show different rings for 150ms. In the
+   base layer, so an outline-* utility still wins. */
+@layer base {
+  *, ::before, ::after {
+    outline-color: var(--color-focus-ring);
+  }
+}
+
+/* Headings track tight as on the sites (site.css), in the base layer so a
+   tracking-* utility still wins. */
+@layer base {
+  h1, h2, h3 { letter-spacing: -0.02em; }
+}
+
+/* A page's title band, lit like the sites' page heads: a soft accent glow at the
+   top right over the header's grey fading into the page. */
+.page-head {
+  background:
+    radial-gradient(700px 320px at 80% 0%, color-mix(in srgb, var(--color-accent) 7%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--color-bg-secondary), var(--color-bg-primary));
+}
+
 /* Keyboard focus. Unlayered on purpose: Tailwind's utilities live in a cascade
    layer, and an unlayered rule beats any layer, so this wins over outline-none. */
 :focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
 }
 
 /* The composer's textarea fills most of its rounded bubble, so a ring on the
-   textarea cuts across the bubble. Draw the same ring on the bubble instead. */
-#composer-textarea:focus-visible {
+   textarea cuts across the bubble. The bubble shows focus instead: a tinted
+   border and a soft glow for any focus inside it, a click included, and the
+   full ring only when the textarea was reached from the keyboard. A text field
+   matches :focus-visible however it was focused, so ChatInput sets
+   data-keyboard-focus from the last input (src/lib/focusModality.ts). */
+/* The same for a message being edited in place (UserMessage.tsx). */
+#composer-textarea:focus-visible,
+.edit-bubble > textarea:focus-visible {
   outline: none;
 }
-:has(> #composer-textarea:focus-visible) {
-  outline: 2px solid var(--color-accent);
+#composer-bubble,
+.edit-bubble {
+  transition: border-color 150ms, box-shadow 150ms;
+}
+#composer-bubble:focus-within,
+.edit-bubble:has(> textarea:focus) {
+  border-color: color-mix(in srgb, var(--color-focus-ring) 45%, var(--color-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-focus-ring) 12%, transparent),
+    0 4px 16px rgb(0 0 0 / 0.12);
+}
+/* One focus line: the ring, with the border back at rest under it. */
+#composer-bubble:has(> #composer-textarea[data-keyboard-focus]),
+.edit-bubble:has(> textarea[data-keyboard-focus]) {
+  border-color: var(--color-border);
+  outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
+}
+
+/* The search-chats box is the one field of its dialog and has focus from the
+   moment the dialog opens, so a ring inside the panel only boxes the caret in.
+   Sidebar.tsx gives the line under it the ring's colour instead. Forced
+   colours paint that line one system colour, focused or not, so there the
+   ring stays. */
+@media (forced-colors: none) {
+  #search-chats-input:focus-visible {
+    outline: none;
+  }
 }
 
 /* The support widget's floating button covers Send on phones, where Help lives

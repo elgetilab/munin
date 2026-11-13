@@ -92,7 +92,7 @@ export function AnnouncementTab() {
         placeholder="e.g. Cluster maintenance scheduled for tomorrow 8:00 AM"
         aria-label="Announcement message"
         rows={2}
-        className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-accent transition-colors resize-none"
+        className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-text-secondary transition-colors resize-none"
       />
 
       <div role="group" aria-labelledby={levelId} className="flex items-center gap-3">

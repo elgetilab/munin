@@ -4,7 +4,6 @@ import { updateProfile, fetchApiKeys, createApiKey, revokeApiKey, fetchUsageStat
 import type { UserProfile, ApiKeyInfo, UsageStats } from '../lib/api';
 import type { MuninProfile } from '../lib/types';
 import { useUiStore } from '../stores/uiStore';
-import { useUserStore } from '../stores/userStore';
 import { API_PUBLIC_URL } from '../lib/urls';
 import { copyText } from '../lib/copyText';
 import { ErrorNotice } from './ui/ErrorNotice';
@@ -80,7 +79,6 @@ print(response.choices[0].message.content)`;
   const fieldId = useId();
   const setShowSettings = useUiStore(s => s.setShowSettings);
   const onClose = () => setShowSettings(false);
-  const personas = useUserStore(s => s.personas);
   const [fullName, setFullName] = useState(profile.full_name);
   const [nickname, setNickname] = useState(profile.nickname);
   const [avatar, setAvatar] = useState(profile.avatar);
@@ -237,6 +235,11 @@ print(response.choices[0].message.content)`;
     setMuninSaving(false);
   };
 
+  // One Save for the whole page: the account and how Munin works with you.
+  const handleSaveAll = async () => {
+    await Promise.all([handleSave(), muninLoad === 'ready' ? handleMuninSave() : Promise.resolve()]);
+  };
+
   const handleMuninReset = async () => {
     if (!confirm('Reset your Munin profile? This clears all preferences.')) return;
     setMuninError('');
@@ -319,8 +322,8 @@ print(response.choices[0].message.content)`;
 
   return (
     <div className="flex-1 overflow-y-auto">
+      <PageHeader title="Settings" onBack={onClose} />
       <div className="max-w-xl mx-auto px-6 py-10">
-        <PageHeader title="Settings" onBack={onClose} className="mb-8" />
 
         {/* ── Appearance ── */}
         <h3 className="text-lg font-semibold text-text-primary mb-6">Appearance</h3>
@@ -387,7 +390,7 @@ print(response.choices[0].message.content)`;
             value={fullName}
             onChange={e => setFullName(e.target.value)}
             placeholder="Your full name"
-            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-accent transition-colors"
+            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-text-secondary transition-colors"
           />
         </div>
 
@@ -400,7 +403,7 @@ print(response.choices[0].message.content)`;
             value={nickname}
             onChange={e => setNickname(e.target.value)}
             placeholder="A name, nickname, whatever you like"
-            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-accent transition-colors"
+            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-text-secondary transition-colors"
           />
           <p className="text-[11px] text-text-secondary mt-1.5">
             This is used in greetings like "Good morning, {nickname || fullName || 'you'}"
@@ -415,17 +418,6 @@ print(response.choices[0].message.content)`;
           </div>
         </div>
 
-        {/* Save */}
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="px-5 py-2 bg-accent text-bg-primary rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50"
-        >
-          {/* Two Save buttons share this page, so each names its section for
-              screen readers. */}
-          {saving ? 'Saving...' : saved ? 'Saved' : 'Save'}{' '}<span className="sr-only">account</span>
-        </button>
-        {saveError && <ErrorNotice message={saveError} className="mt-3" />}
 
         {/* ── Divider ── */}
         <div className="border-t border-border my-10" />
@@ -455,7 +447,7 @@ print(response.choices[0].message.content)`;
             placeholder="e.g. I'm a biophysics PhD candidate working on lipid bilayers. I use molecular dynamics simulations."
             rows={3}
             maxLength={1500}
-            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-accent transition-colors resize-none disabled:opacity-50"
+            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-text-secondary transition-colors resize-none disabled:opacity-50"
           />
           <p className="text-[11px] text-text-secondary mt-1 text-right">{aboutMe.length} / 1500</p>
         </div>
@@ -471,33 +463,10 @@ print(response.choices[0].message.content)`;
             placeholder="e.g. Always cite DOIs. Use British spelling. Keep answers concise. Prefer equations over prose."
             rows={3}
             maxLength={1500}
-            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-accent transition-colors resize-none disabled:opacity-50"
+            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-text-secondary transition-colors resize-none disabled:opacity-50"
           />
           <p className="text-[11px] text-text-secondary mt-1 text-right">{responseFormat.length} / 1500</p>
         </div>
-
-        {/* Default persona */}
-        {personas.length > 0 && (
-          <div className="mb-6">
-            <label htmlFor={`${fieldId}-persona`} className="block text-sm text-text-secondary mb-2">Default persona</label>
-            <p id={`${fieldId}-persona-help`} className="text-[11px] text-text-secondary mb-2">
-              A persona is a preset way for Munin to work, such as general chat or coding. New chats start with this one. A project can set its own.
-            </p>
-            <select
-              id={`${fieldId}-persona`}
-              aria-describedby={`${fieldId}-persona-help`}
-              value={defaultPersona}
-              onChange={e => setDefaultPersona(e.target.value)}
-              disabled={muninLoad !== 'ready'}
-              className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent transition-colors cursor-pointer disabled:opacity-50"
-            >
-              <option value="">None (Munin picks for each chat)</option>
-              {personas.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
-        )}
 
         {/* Timezone */}
         <div className="mb-8">
@@ -507,7 +476,7 @@ print(response.choices[0].message.content)`;
             value={timezone}
             onChange={e => setTimezone(e.target.value)}
             disabled={muninLoad !== 'ready'}
-            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent transition-colors cursor-pointer disabled:opacity-50"
+            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary outline-none focus:border-text-secondary transition-colors cursor-pointer disabled:opacity-50"
           >
             <option value="">Not set</option>
             {deviceZone && <option value={deviceZone}>{deviceZone} (this device)</option>}
@@ -524,11 +493,11 @@ print(response.choices[0].message.content)`;
         {/* Munin profile save / reset */}
         <div className="flex items-center gap-3">
           <button
-            onClick={handleMuninSave}
-            disabled={muninSaving || muninLoad !== 'ready'}
+            onClick={handleSaveAll}
+            disabled={saving || muninSaving}
             className="px-5 py-2 bg-accent text-bg-primary rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50"
           >
-            {muninSaving ? 'Saving...' : muninSaved ? 'Saved' : 'Save'}{' '}<span className="sr-only">Munin profile</span>
+            {saving || muninSaving ? 'Saving...' : saved || muninSaved ? 'Saved' : 'Save'}
           </button>
           {muninProfile && (
             <button
@@ -539,6 +508,7 @@ print(response.choices[0].message.content)`;
             </button>
           )}
         </div>
+        {saveError && <ErrorNotice message={saveError} className="mt-3" />}
         {muninError && <ErrorNotice message={muninError} className="mt-3" />}
 
         {/* ── Divider ── */}
@@ -594,7 +564,7 @@ print(response.choices[0].message.content)`;
               onKeyDown={e => e.key === 'Enter' && handleCreateKey()}
               placeholder="Key name (e.g. my laptop, research script)"
               aria-label="API key name"
-              className="flex-1 px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-accent transition-colors"
+              className="flex-1 px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-secondary outline-none focus:border-text-secondary transition-colors"
             />
             <button
               onClick={handleCreateKey}

@@ -139,6 +139,25 @@ describe('Composer accessibility', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove tag Zeitler Group' }));
     expect(setActiveTags).toHaveBeenCalledWith([]);
   });
+
+  // index.css draws the full ring on the bubble only for this attribute; any
+  // other focus gets the gentle tint. A textarea is :focus-visible either way.
+  it('marks focus that came from the keyboard, and not focus from a click', () => {
+    renderChatInput();
+    fireEvent.pointerDown(document.body);
+    act(() => composer().focus());
+    expect(composer()).not.toHaveAttribute('data-keyboard-focus');
+    act(() => composer().blur());
+
+    fireEvent.keyDown(document.body, { key: 'Tab' });
+    act(() => composer().focus());
+    expect(composer()).toHaveAttribute('data-keyboard-focus');
+    // Typing a reply is not a reason to change how focus looks.
+    fireEvent.pointerDown(composer());
+    expect(composer()).toHaveAttribute('data-keyboard-focus');
+    act(() => composer().blur());
+    expect(composer()).not.toHaveAttribute('data-keyboard-focus');
+  });
 });
 
 describe('Disabled menu items explain themselves', () => {
@@ -211,7 +230,7 @@ describe('Knowledge lists', () => {
 
   function openPicker() {
     fireEvent.click(screen.getByTestId('composer-attach'));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Attach knowledge' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Choose sources/ }));
     return screen.getByRole('textbox', { name: /search groups/i });
   }
 
@@ -224,7 +243,7 @@ describe('Knowledge lists', () => {
     fireEvent.keyDown(search, { key: 'ArrowDown' });
     fireEvent.keyDown(search, { key: 'Enter' });
     expect(setActiveTags).toHaveBeenCalledWith([{ kind: 'contributor', value: 'ada' }]);
-    expect(screen.queryByRole('dialog', { name: 'Attach knowledge' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Choose sources' })).not.toBeInTheDocument();
   });
 
   it('Escape in the picker closes only it, back onto the + button', () => {
@@ -232,7 +251,7 @@ describe('Knowledge lists', () => {
     renderChatInput();
     const search = openPicker();
     fireEvent.keyDown(search, { key: 'Escape' });
-    expect(screen.queryByRole('dialog', { name: 'Attach knowledge' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Choose sources' })).not.toBeInTheDocument();
     expect(screen.getByTestId('composer-attach')).toHaveFocus();
   });
 
@@ -492,12 +511,12 @@ describe('ChatInput + menu', () => {
     renderChatInput();
     const attach = screen.getByTestId('composer-attach');
     fireEvent.click(attach);
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Attach knowledge' }));
-    expect(screen.getByRole('dialog', { name: 'Attach knowledge' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitem', { name: /Choose sources/ }));
+    expect(screen.getByRole('dialog', { name: 'Choose sources' })).toBeInTheDocument();
 
     fireEvent.mouseDown(attach);
     fireEvent.click(attach);
-    expect(screen.queryByRole('dialog', { name: 'Attach knowledge' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Choose sources' })).not.toBeInTheDocument();
     expect(screen.getByRole('menu', { name: 'Attach' })).toBeInTheDocument();
   });
 
@@ -507,5 +526,72 @@ describe('ChatInput + menu', () => {
     box.focus();
     fireEvent.keyDown(box, { key: 'Escape' });
     expect(box).toHaveFocus();
+  });
+});
+
+describe('ChatInput mode chip', () => {
+  const renderWith = (onSend = vi.fn(), conversationId: string | null = 'conv-1') => {
+    const view = render(<ChatInput onSend={onSend} onStop={() => {}} isStreaming={false} persona={null} conversationId={conversationId} />);
+    return { onSend, ...view };
+  };
+  const pick = (label: string) => {
+    fireEvent.click(screen.getByTestId('mode-chip'));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: new RegExp(`^${label}`) }));
+  };
+
+  it('starts on Auto and sends the message as typed', () => {
+    const { onSend } = renderWith();
+    expect(screen.getByTestId('mode-chip')).toHaveAccessibleName('Mode: Auto');
+    type('What is a GPCR?');
+    key('Enter');
+    expect(onSend).toHaveBeenCalledWith('What is a GPCR?');
+  });
+
+  it('sends with the chosen mode\'s command, and keeps the mode for the next message', () => {
+    const { onSend } = renderWith();
+    pick('Research');
+    expect(screen.getByTestId('mode-chip')).toHaveAccessibleName('Mode: Research');
+    type('GPCR desensitisation');
+    key('Enter');
+    expect(onSend).toHaveBeenLastCalledWith('/research GPCR desensitisation');
+    type('and arrestins?');
+    key('Enter');
+    expect(onSend).toHaveBeenLastCalledWith('/research and arrestins?');
+  });
+
+  it('marks the chosen mode in its menu', () => {
+    renderWith();
+    pick('Code');
+    fireEvent.click(screen.getByTestId('mode-chip'));
+    expect(screen.getByRole('menuitemradio', { name: /^Code/ })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('menuitemradio', { name: /^Auto/ })).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('shows a typed command, which wins over the chip on send', () => {
+    const { onSend } = renderWith();
+    pick('Research');
+    type('/code fix this loop');
+    expect(screen.getByTestId('mode-chip')).toHaveAccessibleName('Mode: Code, set by the typed command');
+    key('Enter');
+    expect(onSend).toHaveBeenCalledWith('/code fix this loop');
+  });
+
+  it('goes back to Auto in another chat, but not when a new chat gets its id', () => {
+    const onSend = vi.fn();
+    const { rerender } = render(<ChatInput onSend={onSend} onStop={() => {}} isStreaming={false} persona={null} conversationId={null} />);
+    pick('Code');
+    rerender(<ChatInput onSend={onSend} onStop={() => {}} isStreaming={false} persona={null} conversationId="new-id" />);
+    expect(screen.getByTestId('mode-chip')).toHaveAccessibleName('Mode: Code');
+    rerender(<ChatInput onSend={onSend} onStop={() => {}} isStreaming={false} persona={null} conversationId="other" />);
+    expect(screen.getByTestId('mode-chip')).toHaveAccessibleName('Mode: Auto');
+  });
+});
+
+describe('ChatInput empty-screen hint', () => {
+  it('teaches # and / on the empty screen only', () => {
+    const { rerender } = render(<ChatInput onSend={() => {}} onStop={() => {}} isStreaming={false} persona={null} conversationId={null} showSuggestions />);
+    expect(screen.getByTestId('composer-hint')).toHaveTextContent('Type # to choose which sources Munin searches, or / for a mode.');
+    rerender(<ChatInput onSend={() => {}} onStop={() => {}} isStreaming={false} persona={null} conversationId="c1" showSuggestions={false} />);
+    expect(screen.queryByTestId('composer-hint')).not.toBeInTheDocument();
   });
 });

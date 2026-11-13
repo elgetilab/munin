@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
+import { useState, useEffect, useCallback, useId, useLayoutEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import { fetchChat, fetchChats, deleteChat, renameChat, pinChat, unpinChat, fetchProjects, createProject, deleteProject, updateProject, fileConversation, unfileConversation } from '../lib/api';
 import type { Conversation, ConversationSummary, Project } from '../lib/types';
@@ -10,9 +10,11 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { AUTH_BASE, DOCS_URL, SEARCH_URL, SITE_HOME, UPLOAD_URL } from '../lib/urls';
 import { conversationPath, isModifiedClick, newChatPath } from '../lib/nav';
 import { groupByTime } from '../lib/chatGrouping';
+import { isApplePlatform, isSearchKey, isSearchShortcut, searchShortcutAria, searchShortcutLabel } from '../lib/searchShortcut';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 import { ErrorNotice } from './ui/ErrorNotice';
 import { DIALOG_BACKDROP, LOGO_FILTER } from './ui/themeClasses';
-import { BookIcon, ChatIcon, FolderIcon, PageIcon, SearchIcon } from './ui/icons';
+import { BookIcon, ChatIcon, FolderIcon, PageIcon, PlusIcon, SearchIcon, HomeIcon } from './ui/icons';
 
 // P2 #26 commit 3: user identity slots (userEmail / userName /
 // userAvatar / isAdmin) and activeProjectId pulled from stores
@@ -91,8 +93,15 @@ async function migrateStarredToPinned() {
 // ── Menus ───────────────────────────────────────────────────────────────────
 
 const MENU_PANEL = 'fixed z-50 bg-bg-secondary border border-border rounded-lg shadow-lg overflow-y-auto';
-const MENU_ITEM = 'block w-full text-left px-3 py-2 text-xs text-text-primary hover:bg-bg-tertiary focus-visible:bg-bg-tertiary cursor-pointer no-underline';
+const MENU_ITEM = 'block w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-bg-tertiary focus-visible:bg-bg-tertiary cursor-pointer no-underline';
 const ACCOUNT_ITEM = 'w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary focus-visible:bg-bg-tertiary transition-colors cursor-pointer no-underline';
+// Every row in the sidebar (New chat, Search, a project, a chat) is one shape:
+// 32px tall (40px on a phone), the same 8px inset, a 14px label. Hover is a
+// lighter tint than the current row, so the two can be told apart.
+const SIDEBAR_ROW = 'flex items-center gap-2.5 w-full h-8 max-md:h-10 px-2 rounded-md text-sm text-left no-underline transition-colors cursor-pointer';
+const ROW_IDLE = 'text-text-secondary hover:bg-bg-tertiary/60 hover:text-text-primary';
+const ROW_CURRENT = 'bg-bg-tertiary text-text-primary';
+const SECTION_LABEL = 'px-2 pt-3 pb-1 text-xs font-medium text-text-tertiary';
 // A 32px target below md, with negative margin so the row does not grow.
 const ROW_ICON_TARGET = 'max-md:p-[9px] max-md:-my-[9px]';
 
@@ -136,6 +145,49 @@ function useFixedMenuPosition(
     };
   }, [open, triggerRef, menuRef, content]);
 }
+
+/**
+ * Keyboard for a list of chat rows, which is one Tab stop (a roving tabindex):
+ * only one row's link has tabIndex 0, and ArrowUp/ArrowDown, Home and End move
+ * focus between the rows' links. Enter opens the focused chat, as the link does.
+ * The focused row's ⋮ button is the next Tab stop after its link, and the
+ * ContextMenu key or Shift+F10 on the link opens that menu directly (see
+ * ChatRow). Keys from the rename input or an open menu are left alone.
+ */
+function moveAmongChats(e: React.KeyboardEvent<HTMLElement>) {
+  if (e.defaultPrevented) return;
+  const target = e.target as HTMLElement;
+  if (target.tagName === 'INPUT') return;
+  const row = target.closest('[data-testid="chat-row"]');
+  if (!row || !e.currentTarget.contains(row)) return;
+  const links = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[data-chat-link]'));
+  const index = links.findIndex(link => row.contains(link));
+  if (index === -1) return;
+  const moves: Record<string, number> = {
+    ArrowDown: Math.min(index + 1, links.length - 1),
+    ArrowUp: Math.max(index - 1, 0),
+    Home: 0,
+    End: links.length - 1,
+  };
+  const next = moves[e.key];
+  if (next === undefined) return;
+  e.preventDefault();
+  links[next].focus();
+}
+
+/**
+ * Where focus goes once a delete has removed the row it came from: the next of
+ * `items` that is not going, else the nearest one before, else `fallback`.
+ */
+function nextSurvivor(items: HTMLElement[], going: (el: HTMLElement) => boolean, fallback: HTMLElement | null) {
+  const first = items.findIndex(going);
+  if (first === -1) return fallback;
+  return items.slice(first).find(el => !going(el))
+    ?? items.slice(0, first).reverse().find(el => !going(el))
+    ?? fallback;
+}
+
+type PendingDelete = { kind: 'chat' | 'project'; id: string; name: string };
 
 function KebabIcon() {
   return (
@@ -236,6 +288,24 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   // moveMenuId: opening one closes the other so we never stack popovers
   // on the same anchor.
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
+  // The row that last held focus, which keeps the Tab stop of its chat list.
+  const [rovingRowId, setRovingRowId] = useState<string | null>(null);
+  // The chat or project the delete confirmation is asking about.
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  // The chat row whose menu asked for it. Its ⋮ button stays on show until focus
+  // is back in a row: it is hidden while the row has no focus, and a hidden
+  // button cannot take the focus the closing dialog gives back to it.
+  const [deleteRowId, setDeleteRowId] = useState<string | null>(null);
+  // Where focus goes when the confirmation closes after a delete, as the row it
+  // came from is about to go.
+  const deleteReturnFocus = useRef<HTMLElement | null>(null);
+  const asideRef = useRef<HTMLElement>(null);
+  const newChatRef = useRef<HTMLAnchorElement>(null);
+  const groupIdPrefix = useId();
+  // Pin and Unpin move a chat to another group, which remounts its row and drops
+  // the focus its menu gave back to the ⋮ button. Once the lists re-read, focus
+  // goes to the chat's link in its new place, so the keyboard keeps its spot.
+  const refocusChat = useRef<string | null>(null);
   // Same shape as actionMenuId but for the project rows. Distinct
   // state so chat-id and project-id namespaces don't accidentally
   // collide on the rare same-string-id edge case.
@@ -250,6 +320,29 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     setSearchQuery('');
   }, []);
   const searchModal = useModal({ onClose: closeSearch, active: searchOpen, initialFocusRef: searchInputRef });
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Ctrl+K / ⌘K opens search (lib/searchShortcut.ts says when it does not). With
+  // search open it goes back to the box, rather than to the browser's own
+  // search bar, which is what the key does there.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (searchOpen) {
+        if (!isSearchKey(e) || (e.ctrlKey && isApplePlatform())) return;
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+      if (!isSearchShortcut(e, searchButtonRef.current)) return;
+      // The report dialog is not an aria-modal one, and its own Escape would
+      // close it along with search, so the key stays with it while it is open.
+      if (useUiStore.getState().showReportDialog) return;
+      e.preventDefault();
+      setSearchOpen(true);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [searchOpen]);
 
   const currentListedIn = currentId
     ? Object.keys(projectChats).find(pid => projectChats[pid].some(c => c.id === currentId))
@@ -296,6 +389,14 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       .catch(() => { if (!cancelled) setProjectsState('error'); });
     return () => { cancelled = true; };
   }, [reloadKey, refreshKey]);
+
+  useEffect(() => {
+    const id = refocusChat.current;
+    // Still on the ⋮ button: this re-read has not moved the row yet.
+    if (!id || (document.activeElement && document.activeElement !== document.body)) return;
+    refocusChat.current = null;
+    document.querySelector<HTMLElement>(`[data-chat-link][href="${CSS.escape(conversationPath(id))}"]`)?.focus();
+  }, [chats, pinnedFiled, projectChats]);
 
   // Nothing else tells the sidebar that a background turn has ended. Only the
   // expanded project's list is re-read by load(), so a collapsed project's
@@ -416,16 +517,23 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     }
   };
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm('Delete this conversation?')) return;
+  const requestDelete = (pending: PendingDelete) => {
+    deleteReturnFocus.current = null;
+    setPendingDelete(pending);
+  };
+
+  const handleDelete = async (id: string) => {
     try {
       await deleteChat(id);
+      // Read before the lists re-read, while the chat's rows are still there.
+      const links = Array.from(asideRef.current?.querySelectorAll<HTMLElement>('[data-chat-link]') ?? []);
+      deleteReturnFocus.current = nextSurvivor(links, el => el.getAttribute('href') === conversationPath(id), newChatRef.current);
       load();
       if (id === currentId) onNewChat();
     } catch {
       showToast('Could not delete the chat');
     }
+    setPendingDelete(null);
   };
 
   const handleRename = async (id: string) => {
@@ -464,9 +572,10 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   };
 
   const handleDeleteProject = async (id: string) => {
-    if (!confirm('Delete this project? Chats in this project will stay in your chat list.')) return;
     try {
       await deleteProject(id);
+      const toggles = Array.from(asideRef.current?.querySelectorAll<HTMLElement>('[data-project-toggle]') ?? []);
+      deleteReturnFocus.current = nextSurvivor(toggles, el => el.dataset.projectToggle === id, newChatRef.current);
       // Nothing may go on pointing at it: the next message would be filed into a
       // project that no longer exists, and the backend answers that with a 404.
       const workspace = useWorkspaceStore.getState();
@@ -476,6 +585,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     } catch {
       showToast('Could not delete the project');
     }
+    setPendingDelete(null);
   };
 
   const handleUnarchive = async (id: string) => {
@@ -505,14 +615,16 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     }
   };
 
-  const togglePin = async (chat: ConversationSummary, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const togglePin = async (chat: ConversationSummary) => {
     try {
       if (chat.pinned) {
         await unpinChat(chat.id);
       } else {
         await pinChat(chat.id);
       }
+      refocusChat.current = chat.id;
+      // Focus the user moves on their own cancels the hand-back.
+      document.addEventListener('focusin', () => { refocusChat.current = null; }, { once: true });
       load();
     } catch {
       showToast(chat.pinned ? 'Could not unpin the chat' : 'Could not pin the chat');
@@ -537,9 +649,18 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     chat,
     isCurrent: chat.id === currentId,
     onSelect,
-    onDelete: handleDelete,
+    onDelete: (e: React.MouseEvent) => {
+      e.stopPropagation();
+      requestDelete({ kind: 'chat', id: chat.id, name: chat.title || 'Untitled' });
+      setDeleteRowId(rowId);
+    },
+    confirmingDelete: deleteRowId === rowId,
     onRename: () => { setEditingId(rowId); setEditTitle(chat.title || ''); },
     onPin: togglePin,
+    onRowFocus: () => {
+      setRovingRowId(rowId);
+      setDeleteRowId(null);
+    },
     editing: editingId === rowId,
     editTitle,
     onEditTitleChange: setEditTitle,
@@ -563,7 +684,15 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     onMoveToProject: (pid: string) => handleMoveToProject(chat.id, pid),
   });
 
+  // The row of a chat list that takes Tab: the one focused last, else the open
+  // chat, else the first.
+  const tabStopOf = (rows: { rowId: string; chatId: string }[]) =>
+    (rows.find(r => r.rowId === rovingRowId) ?? rows.find(r => r.chatId === currentId) ?? rows[0])?.rowId;
+
   const groups = groupByTime(uniqueById([...chats, ...pinnedFiled]));
+  // A pinned filed chat's row in the Pinned group has an id of its own.
+  const unfiledRowId = (chat: ConversationSummary) => (chat.project_id ? `pinned:${chat.id}` : chat.id);
+  const unfiledTabStop = tabStopOf(groups.flatMap(g => g.chats).map(c => ({ rowId: unfiledRowId(c), chatId: c.id })));
   const query = searchQuery.trim();
   const searching = query !== '' && searched.query !== query;
   // With no query typed the overlay lists recent conversations; with one it
@@ -576,17 +705,24 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
   const projectChatList = (projectId: string, archived = false) => {
     const list = projectChats[projectId];
     const failed = projectChatsFailed[projectId] && !list;
+    const tabStop = tabStopOf((list ?? []).map(c => ({ rowId: c.id, chatId: c.id })));
+    const name = [...projects, ...archivedProjects].find(p => p.id === projectId)?.name;
     return (
-      <div className="ml-4 border-l border-border">
-        {(list ?? []).map(chat => (
-          <ChatRow
-            key={chat.id}
-            {...chatRowProps(chat)}
-            onUnfile={() => handleUnfile(chat.id, projectId)}
-            isInProject={true}
-            currentProjectId={projectId}
-          />
-        ))}
+      <div className="ml-[15px] pl-1 border-l border-border" onKeyDown={moveAmongChats}>
+        {list && list.length > 0 && (
+          <ul aria-label={name ? `Chats in ${name}` : 'Chats in this project'}>
+            {list.map(chat => (
+              <ChatRow
+                key={chat.id}
+                {...chatRowProps(chat)}
+                tabbable={chat.id === tabStop}
+                onUnfile={() => handleUnfile(chat.id, projectId)}
+                isInProject={true}
+                currentProjectId={projectId}
+              />
+            ))}
+          </ul>
+        )}
         {failed && (
           <div className="text-[11px] text-error py-2 pl-3">
             Could not load these chats.{' '}
@@ -619,24 +755,27 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
     );
   };
 
+  // 288px, chosen 2026-11-13 so long chat titles fit; at most 85% of a phone's
+  // width, so the drawer always leaves some of the chat in view.
   return (
-    <aside className="w-64 flex-shrink-0 bg-bg-secondary border-r border-border flex flex-col h-full relative">
+    <aside ref={asideRef} className="w-72 max-w-[85vw] flex-shrink-0 bg-bg-secondary border-r border-border flex flex-col h-full relative">
       {/* Logo */}
-      <div className="px-4 pt-4 pb-3 flex items-center justify-between">
-        <a href={SITE_HOME} className="flex items-center gap-2.5 no-underline">
+      {/* As tall as the chat header beside it, so their bottom borders meet. */}
+      <div className="h-[49px] flex-shrink-0 px-4 flex items-center justify-between border-b border-border">
+        <a href={SITE_HOME} className="flex items-center gap-2 no-underline">
           <img
-            src="/shared/munin_logo_without_script.webp"
+            src="/shared/munin_logo_horizon_moon.svg"
             alt="Munin"
             className={`h-7 ${LOGO_FILTER}`}
           />
-          <span className="text-lg font-semibold text-text-primary">Munin</span>
+          <span className="text-[15px] font-semibold text-text-primary">Munin</span>
         </a>
         {onCloseDrawer && (
           <button
             type="button"
             onClick={onCloseDrawer}
             aria-label="Close menu"
-            className="md:hidden min-w-8 min-h-8 flex items-center justify-center -mr-2 text-text-secondary hover:text-text-primary cursor-pointer"
+            className="lg:hidden min-w-8 min-h-8 flex items-center justify-center -mr-2 text-text-secondary hover:text-text-primary cursor-pointer"
           >
             <span aria-hidden="true">&#10005;</span>
           </button>
@@ -644,9 +783,10 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       </div>
 
       {/* New chat + Search row */}
-      <div className="px-3 pb-3 flex flex-col gap-1">
+      <div className="px-2 pt-2 pb-1 flex flex-col gap-0.5">
         {/* New chat */}
         <a
+          ref={newChatRef}
           href={newChatPath()}
           onClick={(e) => {
             // Ctrl/cmd/shift-click and middle-click belong to the
@@ -658,22 +798,22 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
             e.preventDefault();
             onNewChat();
           }}
-          className="flex items-center gap-3 px-2 py-2 rounded-lg text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors cursor-pointer w-full text-left no-underline"
+          className={`${SIDEBAR_ROW} text-text-primary font-medium hover:bg-bg-tertiary/60`}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-          <span className="text-sm">New chat</span>
+          <PlusIcon size={16} className="flex-shrink-0" />
+          <span>New chat</span>
         </a>
 
         {/* Search */}
         <button
+          ref={searchButtonRef}
           onClick={() => setSearchOpen(true)}
-          className="flex items-center gap-3 px-2 py-2 rounded-lg text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors cursor-pointer w-full text-left"
+          aria-keyshortcuts={searchShortcutAria()}
+          title={`Search chats (${searchShortcutLabel()})`}
+          className={`${SIDEBAR_ROW} ${ROW_IDLE}`}
         >
-          <SearchIcon size={18} className="flex-shrink-0" />
-          <span className="text-sm">Search chats</span>
+          <SearchIcon size={16} className="flex-shrink-0" />
+          <span>Search chats</span>
         </button>
       </div>
 
@@ -685,18 +825,18 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
 
         {/* Projects section */}
         {projects.length > 0 && (
-          <div className="mb-3">
-            <div className="px-2 py-1 text-[11px] font-semibold text-text-secondary uppercase tracking-wider flex items-center">
+          <div className="mb-1">
+            <div className={`${SECTION_LABEL} flex items-center`}>
               <span className="flex-1">Projects</span>
               <button
                 // Keeps focus in an empty input, whose blur would close it
                 // just before this click opened it again.
                 onMouseDown={e => e.preventDefault()}
                 onClick={() => setShowNewProject(!showNewProject)}
-                className="text-text-secondary hover:text-accent cursor-pointer text-sm max-md:px-3 max-md:py-2 max-md:-my-2 max-md:-mr-2"
+                className="-my-1 -mr-1 p-1 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-tertiary/60 cursor-pointer max-md:p-2.5 max-md:-my-2.5 max-md:-mr-2.5"
                 title="New project"
                 aria-label="New project"
-              >+</button>
+              ><PlusIcon size={14} /></button>
             </div>
 
             {/* New project input */}
@@ -715,7 +855,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                   onMenuOpenChange={(open) => setProjectActionMenuId(id => (open ? proj.id : id === proj.id ? null : id))}
                   onNewChatInProject={onNewChatInProject}
                   onOpenProjectSettings={onOpenProjectSettings}
-                  onDelete={() => handleDeleteProject(proj.id)}
+                  onDelete={() => requestDelete({ kind: 'project', id: proj.id, name: proj.name })}
                 />
 
                 {/* Expanded project chats */}
@@ -733,9 +873,9 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
             ) : (
               <button
                 onClick={() => setShowNewProject(true)}
-                className="flex items-center gap-2 px-2 py-1.5 text-[11px] text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
+                className={`${SIDEBAR_ROW} ${ROW_IDLE}`}
               >
-                <FolderIcon size={12} />
+                <FolderIcon size={16} className="flex-shrink-0" />
                 New project
               </button>
             )}
@@ -750,7 +890,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
               type="button"
               aria-expanded={archivedOpen}
               onClick={() => setArchivedOpen(!archivedOpen)}
-              className="w-full flex items-center px-2 py-1 text-[11px] font-semibold text-text-secondary hover:text-text-primary uppercase tracking-wider cursor-pointer text-left"
+              className={`${SECTION_LABEL} w-full flex items-center hover:text-text-primary cursor-pointer text-left`}
             >
               <span className="flex-1">Archived ({archivedProjects.length})</span>
               <Chevron open={archivedOpen} />
@@ -799,25 +939,36 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
         {chatsState === 'error' && chats.length === 0 && (
           <ErrorNotice message="Could not load your chats" onRetry={retryLists} className="mb-3" />
         )}
-        {groups.map(group => (
-          <div key={group.label} className="mb-3">
-            <div className="px-2 py-1 text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
-              {group.label}
-            </div>
-            {group.chats.map(chat => {
-              const filedIn = chat.project_id;
-              return (
-                <ChatRow
-                  key={chat.id}
-                  {...chatRowProps(chat, filedIn ? `pinned:${chat.id}` : chat.id)}
-                  onUnfile={filedIn ? () => handleUnfile(chat.id, filedIn) : undefined}
-                  isInProject={!!filedIn}
-                  currentProjectId={filedIn ?? undefined}
-                />
-              );
-            })}
-          </div>
-        ))}
+        {/* The date groups are one list for the keyboard: one Tab stop, and the
+            arrow keys run on from one group into the next. */}
+        <div onKeyDown={moveAmongChats}>
+          {groups.map(group => {
+            const labelId = `${groupIdPrefix}-${group.label.replace(/\s+/g, '-').toLowerCase()}`;
+            return (
+              <div key={group.label} className="mb-1">
+                <div id={labelId} className={SECTION_LABEL}>
+                  {group.label}
+                </div>
+                <ul aria-labelledby={labelId}>
+                  {group.chats.map(chat => {
+                    const filedIn = chat.project_id;
+                    const rowId = unfiledRowId(chat);
+                    return (
+                      <ChatRow
+                        key={chat.id}
+                        {...chatRowProps(chat, rowId)}
+                        tabbable={rowId === unfiledTabStop}
+                        onUnfile={filedIn ? () => handleUnfile(chat.id, filedIn) : undefined}
+                        isInProject={!!filedIn}
+                        currentProjectId={filedIn ?? undefined}
+                      />
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
         {chats.length > 0 && chats.length < chatsTotal && (
           <ShowMoreRow busy={loadingMore === UNFILED} onClick={() => showMore(UNFILED, chats.length)} />
         )}
@@ -830,7 +981,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
 
       {/* User profile */}
       {userEmail && (
-        <div className="relative border-t border-border px-3 py-3">
+        <div className="relative border-t border-border px-2 py-2">
           {/* Profile menu popup */}
           {profileMenu.open && (
             <div
@@ -867,6 +1018,10 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
               <div className="border-t border-border" role="none">
                 {/* The header nav only appears from lg while the sidebar is open,
                     so below that these are the way to these pages. */}
+                <a role="menuitem" href={SITE_HOME} className={`lg:hidden ${ACCOUNT_ITEM}`}>
+                  <HomeIcon size={16} className="text-text-secondary" />
+                  Home
+                </a>
                 <a
                   role="menuitem"
                   href="/knowledge"
@@ -921,7 +1076,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
 
           <button
             {...profileMenu.triggerProps}
-            className="w-full flex items-center gap-3 px-2 py-2 rounded-lg text-left hover:bg-bg-tertiary transition-colors cursor-pointer"
+            className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md text-left hover:bg-bg-tertiary/60 transition-colors cursor-pointer"
           >
             <div className="w-7 h-7 rounded-full bg-accent/20 text-accent-hover flex items-center justify-center text-xs font-semibold flex-shrink-0 overflow-hidden">
               {userAvatar ? (
@@ -948,10 +1103,14 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
           <div {...searchModal.panelProps} className="relative w-full max-w-xl mx-4 bg-bg-secondary border border-border rounded-xl shadow-2xl overflow-hidden max-h-[60vh] flex flex-col outline-none">
             <h2 id={searchModal.titleId} className="sr-only">Search your chats</h2>
             {/* Search input */}
-            <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
+            {/* The box draws no ring of its own: it is the dialog's one field and
+                has focus from the moment it opens, with the caret in it. The line
+                under it takes the ring's colour while it has focus instead. */}
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-border has-[#search-chats-input:focus]:border-focus-ring">
               <SearchIcon size={16} className="text-text-secondary flex-shrink-0" />
               <input
                 ref={searchInputRef}
+                id="search-chats-input"
                 type="text"
                 aria-label="Search conversations"
                 placeholder="Search conversations..."
@@ -962,7 +1121,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
               <button
                 onClick={() => closeSearch()}
                 aria-label="Close search"
-                className="text-text-secondary hover:text-text-primary text-xs cursor-pointer"
+                className="text-text-secondary hover:text-text-primary text-sm cursor-pointer"
               >
                 {/* A phone has no Esc key to be reminded of. */}
                 <span className="md:hidden">Close</span>
@@ -978,7 +1137,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                 </div>
               )}
               {searching ? (
-                <div role="status" className="text-center text-text-secondary text-xs py-8">
+                <div role="status" className="text-center text-text-secondary text-sm py-8">
                   Searching...
                 </div>
               ) : searchGroups.length > 0 ? (
@@ -1008,7 +1167,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                         <div className="text-sm text-text-primary truncate">
                           {chat.title || 'Untitled'}
                         </div>
-                        {chat.preview && (
+                        {chat.preview && !sameText(chat.preview, chat.title || '') && (
                           <div className="text-xs text-text-secondary mt-0.5 truncate">
                             {chat.preview}
                           </div>
@@ -1018,7 +1177,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
                   </div>
                 ))
               ) : (
-                <div className="text-center text-text-secondary text-xs py-8">
+                <div className="text-center text-text-secondary text-sm py-8">
                   {query ? 'No matching conversations' : 'No conversations yet'}
                 </div>
               )}
@@ -1026,8 +1185,28 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
           </div>
         </div>
       )}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title={pendingDelete.kind === 'chat' ? 'Delete chat?' : 'Delete project?'}
+          confirmLabel={pendingDelete.kind === 'chat' ? 'Delete chat' : 'Delete project'}
+          onConfirm={() => (pendingDelete.kind === 'chat' ? handleDelete(pendingDelete.id) : handleDeleteProject(pendingDelete.id))}
+          onCancel={() => setPendingDelete(null)}
+          returnFocusRef={deleteReturnFocus}
+        >
+          {pendingDelete.kind === 'chat'
+            ? <>“{pendingDelete.name}” and all its messages will be deleted. This cannot be undone.</>
+            : <>“{pendingDelete.name}” will be deleted. Chats in this project will stay in your chat list.</>}
+        </ConfirmDialog>
+      )}
     </aside>
   );
+}
+
+// A preview that only repeats the title, give or take spacing, says nothing new.
+function sameText(a: string, b: string): boolean {
+  const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
+  return norm(a) === norm(b);
 }
 
 function Chevron({ open }: { open: boolean }) {
@@ -1074,22 +1253,19 @@ function ProjectRow({
   return (
     <div className="relative">
       <div
-        className={`group flex items-center pr-2 rounded-md text-sm transition-colors ${
-          active
-            ? 'bg-bg-tertiary text-text-primary'
-            : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary'
-        }`}
+        className={`group flex items-center pr-1 rounded-md text-sm transition-colors ${active ? ROW_CURRENT : ROW_IDLE}`}
       >
         <button
           type="button"
+          data-project-toggle={project.id}
           onClick={onToggle}
           aria-expanded={expanded}
           aria-label={`${project.name}, ${count} ${count === 1 ? 'chat' : 'chats'}`}
-          className="flex-1 min-w-0 flex items-center gap-2 pl-2 pr-1 py-2 text-left cursor-pointer"
+          className="flex-1 min-w-0 flex items-center gap-2.5 pl-2 pr-1 h-8 max-md:h-10 text-left cursor-pointer"
         >
-          <FolderIcon className="flex-shrink-0" />
-          <span className="flex-1 truncate font-medium" title={project.name}>{project.name}</span>
-          <span className="text-xs text-text-secondary">{count}</span>
+          <FolderIcon size={16} className="flex-shrink-0" />
+          <span className="flex-1 truncate" title={project.name}>{project.name}</span>
+          <span className="text-xs text-text-tertiary tabular-nums">{count}</span>
           <Chevron open={expanded} />
         </button>
 
@@ -1197,9 +1373,15 @@ interface ChatRowProps {
   chat: ConversationSummary;
   isCurrent: boolean;
   onSelect: (id: string) => void;
-  onDelete: (id: string, e: React.MouseEvent) => void;
+  onDelete: (e: React.MouseEvent) => void;
+  // Its delete confirmation is open, or has closed with focus on its way back, so
+  // its ⋮ button stays on show to take that focus.
+  confirmingDelete: boolean;
   onRename: () => void;
-  onPin: (chat: ConversationSummary, e: React.MouseEvent) => void;
+  onPin: (chat: ConversationSummary) => void;
+  // Whether this row is its list's one Tab stop (see moveAmongChats).
+  tabbable: boolean;
+  onRowFocus: () => void;
   editing: boolean;
   editTitle: string;
   onEditTitleChange: (v: string) => void;
@@ -1222,7 +1404,7 @@ interface ChatRowProps {
 }
 
 function ChatRow({
-  chat, isCurrent, onSelect, onDelete, onRename, onPin,
+  chat, isCurrent, onSelect, onDelete, confirmingDelete, onRename, onPin, tabbable, onRowFocus,
   editing, editTitle, onEditTitleChange, onEditComplete, onEditCancel,
   onMoveMenu, onMoveBack, showMoveMenu,
   onMenuOpenChange, showActionMenu,
@@ -1247,9 +1429,10 @@ function ChatRow({
   }, [showMoveMenu, showActionMenu, menuElement]);
 
   return (
-    <div className="relative">
+    <li className="relative">
       <div
         data-testid="chat-row"
+        onFocus={onRowFocus}
         onClick={(e) => {
           // Hand modified clicks to the browser so it can open the
           // title link in a new tab or window WITHOUT this tab also
@@ -1260,11 +1443,7 @@ function ChatRow({
           e.preventDefault();
           onSelect(chat.id);
         }}
-        className={`group flex items-center gap-2 max-md:gap-0 px-2 py-2 rounded-md cursor-pointer text-sm transition-colors ${
-          isCurrent
-            ? 'bg-bg-tertiary text-text-primary'
-            : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary'
-        }`}
+        className={`group flex items-center gap-2 max-md:gap-0 pl-2 pr-1 h-8 max-md:h-10 rounded-md cursor-pointer text-sm transition-colors ${isCurrent ? ROW_CURRENT : ROW_IDLE}`}
       >
         {/* Background turns: a live stream is generating in this
             conversation (server-derived, refreshes with the list). */}
@@ -1286,47 +1465,47 @@ function ChatRow({
         ) : (
           <a
             href={conversationPath(chat.id)}
+            data-chat-link
+            tabIndex={tabbable ? 0 : -1}
+            aria-current={isCurrent ? 'page' : undefined}
+            onKeyDown={(e) => {
+              // The ContextMenu key or Shift+F10 opens the row's ⋮ menu, as it
+              // would a context menu, so the actions are a key away from the link.
+              if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+                e.preventDefault();
+                if (!menu.open) menu.triggerProps.onClick();
+              }
+            }}
             className="flex-1 min-w-0 truncate no-underline text-inherit"
             title={title}
           >{title}</a>
         )}
 
-        {/* Pin */}
-        <button
-          onClick={(e) => onPin(chat, e)}
-          className={`flex-shrink-0 ${ROW_ICON_TARGET} cursor-pointer transition-colors ${
-            chat.pinned
-              ? 'text-accent'
-              : 'text-transparent group-hover:text-text-secondary group-focus-within:text-text-secondary focus-visible:text-text-secondary [@media(hover:none)]:text-text-secondary hover:!text-accent'
-          }`}
-          title={chat.pinned ? 'Unpin' : 'Pin'}
-          aria-label={`${chat.pinned ? 'Unpin' : 'Pin'} ${title}`}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill={chat.pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-          </svg>
-        </button>
-
+        {/* The row's actions take no room until the row is hovered or holds
+            focus (or always, on a touch screen), so the title gets the width. */}
+        <div className={`flex-shrink-0 items-center gap-0.5 ${menu.open || confirmingDelete ? 'flex' : 'hidden group-hover:flex group-focus-within:flex [@media(hover:none)]:flex'}`}>
         {/* Three-dots action menu trigger. Fades in on row hover.
             Stays visible when the menu is open so the user can click
             the toggle a second time to dismiss. */}
         <button
           {...menu.triggerProps}
           onClick={(e) => { e.stopPropagation(); menu.triggerProps.onClick(); }}
+          // Reached by Tab from its own row's link only; the other rows' buttons
+          // stay out of the Tab order, which keeps the list one stop.
+          tabIndex={tabbable ? 0 : -1}
           aria-label={`More actions for ${title}`}
-          className={`flex-shrink-0 p-1 ${ROW_ICON_TARGET} rounded cursor-pointer transition-opacity hover:bg-bg-primary hover:text-text-primary ${
-            menu.open
-              ? 'opacity-100 text-text-primary'
-              : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 text-text-secondary'
+          className={`flex-shrink-0 p-1 ${ROW_ICON_TARGET} rounded cursor-pointer hover:bg-bg-primary hover:text-text-primary ${
+            menu.open ? 'text-text-primary' : 'text-text-secondary'
           }`}
           title="More"
         >
           <KebabIcon />
         </button>
+        </div>
       </div>
 
-      {/* Three-dots action menu (Rename / Move / Delete), or the list of projects
-          after Move to project. */}
+      {/* Three-dots action menu (Pin / Rename / Move / Delete), or the list of
+          projects after Move to project. */}
       {menu.open && (
         <div {...menu.menuProps} aria-label={`Actions for ${title}`} className={`${MENU_PANEL} w-44`}>
           {showMoveMenu ? (
@@ -1362,6 +1541,9 @@ function ChatRow({
             </>
           ) : (
             <>
+              <button role="menuitem" onClick={() => { menu.close(); onPin(chat); }} className={MENU_ITEM}>
+                {chat.pinned ? 'Unpin' : 'Pin'}
+              </button>
               <button role="menuitem" onClick={() => { menu.close(); onRename(); }} className={MENU_ITEM}>
                 Rename
               </button>
@@ -1383,7 +1565,7 @@ function ChatRow({
               )}
               <button
                 role="menuitem"
-                onClick={(e) => { menu.close(); onDelete(chat.id, e); }}
+                onClick={(e) => { menu.close(); onDelete(e); }}
                 className={`${MENU_ITEM} !text-error`}
               >
                 Delete
@@ -1392,6 +1574,6 @@ function ChatRow({
           )}
         </div>
       )}
-    </div>
+    </li>
   );
 }

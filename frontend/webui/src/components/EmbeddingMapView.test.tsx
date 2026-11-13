@@ -229,7 +229,7 @@ describe('EmbeddingMapView', () => {
   describe('other states', () => {
     it('explains an empty map rather than drawing a blank one', () => {
       renderMap({ mapData: { ...MAP, paper_count: 0, points: [], clusters: [] } });
-      expect(screen.getByText('No papers mapped yet.')).toHaveClass('mb-8');
+      expect(screen.getByText("The paper map hasn't been built yet. It updates nightly.")).toHaveClass('mb-8');
       expect(screen.queryByTestId('deck')).not.toBeInTheDocument();
       expect(screen.queryByText('Clusters')).not.toBeInTheDocument();
     });

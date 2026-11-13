@@ -86,9 +86,9 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
   };
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-6">
-      <div className="max-w-xl mx-auto space-y-6" onChange={() => { edited.current = true; }}>
-        <PageHeader title="Project Settings" onBack={onClose} />
+    <div className="flex-1 overflow-y-auto">
+      <PageHeader title="Project Settings" onBack={onClose} />
+      <div className="max-w-xl mx-auto space-y-6 px-6 py-6" onChange={() => { edited.current = true; }}>
 
         {loadFailed && (
           <ErrorNotice
@@ -105,7 +105,7 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
             value={name}
             onChange={e => setName(e.target.value)}
             maxLength={NAME_LIMIT}
-            className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-secondary outline-none focus:border-accent"
+            className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-secondary outline-none focus:border-text-secondary"
             placeholder="Project name"
           />
         </div>
@@ -119,7 +119,7 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
             onChange={e => setDescription(e.target.value)}
             rows={2}
             maxLength={DESCRIPTION_LIMIT}
-            className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-secondary outline-none focus:border-accent resize-none"
+            className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-secondary outline-none focus:border-text-secondary resize-none"
             placeholder="Brief description of this project"
           />
           <div className="text-[11px] text-text-secondary text-right">{description.length}/{DESCRIPTION_LIMIT}</div>
@@ -138,7 +138,7 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
             onChange={e => setInstructions(e.target.value)}
             rows={6}
             maxLength={INSTRUCTIONS_LIMIT}
-            className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-secondary outline-none focus:border-accent resize-none font-mono"
+            className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-secondary outline-none focus:border-text-secondary resize-none font-mono"
             placeholder="e.g. Always respond in formal academic English. Focus on machine learning topics."
           />
           <div className="text-[11px] text-text-secondary text-right">{instructions.length}/{INSTRUCTIONS_LIMIT}</div>
@@ -155,7 +155,7 @@ function ProjectSettingsForm({ project, personas, onClose, onUpdated }: ProjectS
             aria-describedby={`${fieldId}-persona-help`}
             value={defaultPersona}
             onChange={e => setDefaultPersona(e.target.value)}
-            className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-accent cursor-pointer"
+            className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-text-secondary cursor-pointer"
           >
             <option value="">Use my default from Settings</option>
             {personas.map(p => (

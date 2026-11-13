@@ -173,7 +173,7 @@ export function UsersTab() {
           aria-label="Filter users by first or last name, email, or group"
           value={filter}
           onChange={e => setFilter(e.target.value)}
-          className="w-full sm:w-auto sm:flex-1 min-w-0 bg-bg-secondary border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent"
+          className="w-full sm:w-auto sm:flex-1 min-w-0 bg-bg-secondary border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-text-secondary"
         />
         <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer select-none whitespace-nowrap">
           <input
@@ -264,7 +264,7 @@ export function UsersTab() {
 function RoleBadge({ role }: { role: AdminRole }) {
   const colors: Record<AdminRole, string> = {
     user: 'bg-text-secondary/15 text-text-secondary',
-    group_leader: 'bg-yellow-400/15 text-yellow-300 [[data-theme=light]_&]:text-warning',
+    group_leader: 'bg-success/15 text-success',
     admin: 'bg-accent/20 text-accent [[data-theme=light]_&]:text-accent-hover',
   };
   return (
@@ -528,7 +528,7 @@ function UserEditModal({ user, groups, onClose, onReload, onSaved }: {
                       type="button"
                       onClick={() => setPrimary(em)}
                       disabled={!!busy}
-                      className="text-[11px] text-text-secondary hover:text-accent cursor-pointer disabled:opacity-50"
+                      className="text-[11px] text-text-secondary hover:text-text-primary cursor-pointer disabled:opacity-50"
                     >Make primary</button>
                   )}
                   <button

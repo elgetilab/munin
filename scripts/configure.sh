@@ -329,8 +329,6 @@ VITE_SEARCH_URL=http://localhost:8081
 VITE_DOCS_URL=http://localhost:8082
 VITE_UPLOAD_URL=http://localhost:8084
 VITE_API_PUBLIC_URL=http://localhost:8085/v1
-# The standalone research page is retired; Deep Research lives in the chat.
-MUNIN_URL_RESEARCH=http://localhost
 EOF
 else
 cat <<EOF
@@ -374,7 +372,7 @@ case "$MODE:$LOCAL" in
         echo "  open http://localhost and log in as $ADMIN_EMAIL; the code is in"
         echo "  docker compose logs munin-auth | grep 'login code'" ;;
     all:0|frontend:0)
-        echo "  DNS: A records for $DOMAIN and auth. chat. search. docs. research."
+        echo "  DNS: A records for $DOMAIN and auth. chat. search. docs."
         echo "       upload. api.$DOMAIN pointing at this machine (Caddy gets the certificates)"
         [ "$MODE" = frontend ] && echo "  the backend must be reachable at $BACKEND_URL over a private path (tunnel or VPN)"
         echo "  docker compose up -d --build"

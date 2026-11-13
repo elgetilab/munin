@@ -359,7 +359,7 @@ function GroupEditModal({ group, onClose, onReload, onSaved }: {
                       onChange={e => setMemberRole(m, e.target.value as AdminRole)}
                       disabled={memberBusy === m.id}
                       aria-label={`Role of ${m.name || m.primary_email}`}
-                      className="bg-bg-primary border border-border rounded-lg px-2 py-1 text-xs text-text-primary cursor-pointer focus:outline-none focus:border-accent disabled:opacity-50"
+                      className="bg-bg-primary border border-border rounded-lg px-2 py-1 text-xs text-text-primary cursor-pointer focus:outline-none focus:border-text-secondary disabled:opacity-50"
                     >
                       <option value="user">User</option>
                       <option value="group_leader">Group leader</option>

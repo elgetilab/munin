@@ -40,7 +40,7 @@ Face).
 
 For a public install you need these DNS A records, all pointing at the
 frontend machine: `<domain>`, `auth.`, `chat.`, `search.`, `docs.`,
-`research.`, `upload.` and `api.<domain>`. Caddy gets the certificates itself
+`upload.` and `api.<domain>`. Caddy gets the certificates itself
 once they resolve.
 
 ## 3. One machine, local

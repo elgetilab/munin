@@ -3,89 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <!-- Sets light or dark before any CSS loads. Keep identical to static/shared/theme-snippet.html. -->
-    <script data-munin-theme>(function(){var p="dark",d=document.documentElement;try{var m=document.cookie.match(/(?:^|;\s*)munin_theme=(light|dark|system)(?:;|$)/);if(m)p=m[1]}catch(e){}var t=p;if(p==="system"){try{t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}catch(e){t="dark"}}d.setAttribute("data-theme-pref",p);d.setAttribute("data-theme",t)})()</script>
+    <script data-munin-theme>(function(){var p="system",d=document.documentElement;try{var m=document.cookie.match(/(?:^|;\s*)munin_theme=(light|dark|system)(?:;|$)/);if(m)p=m[1]}catch(e){}var t=p;if(p==="system"){try{t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}catch(e){t="dark"}}d.setAttribute("data-theme-pref",p);d.setAttribute("data-theme",t)})()</script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Maintenance - Munin</title>
-    <link rel="stylesheet" href="/shared/style.css?v=2">
-    <script src="/shared/theme.js" defer></script>
+    <link rel="icon" type="image/svg+xml" href="/shared/munin_logo_without_script.svg">
+    <link rel="stylesheet" href="/shared/style.css?v=3">
+    <link rel="stylesheet" href="/shared/site.css?v=1">
+    <script src="/shared/theme.js?v=2" defer></script>
     <style>
-        .maintenance {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 70vh;
-            gap: 20px;
-            padding: 48px 24px;
-            text-align: center;
+        /* Short single-purpose pages: a lit band with the horizon lines of the homepage hero. */
+        .stage { position: relative; overflow: hidden; padding: 88px 0 120px; min-height: calc(100vh - 49px - 180px); background: radial-gradient(800px 420px at 75% 25%, var(--glow), transparent 70%), linear-gradient(180deg, var(--ink-2), var(--ink) 80%); }
+        .stage .horizon { position: absolute; left: 0; right: 0; bottom: 0; height: 180px; width: 100%; color: var(--text); opacity: .07; pointer-events: none; }
+        .stage .wrap { position: relative; }
+        .stage h1 { font-size: clamp(32px, 4vw, 44px); font-weight: 600; line-height: 1.08; letter-spacing: -0.03em; margin-bottom: 16px; }
+        .stage .lede { font-size: 18px; color: var(--text-2); max-width: 32em; margin-bottom: 28px; }
+        /* The raven, still: the feather spinner belongs to the chat. */
+        .mark { display: block; width: 72px; height: 60px; margin-bottom: 24px; background: var(--brass); -webkit-mask: url(/shared/munin_logo_horizon_moon.svg) center / contain no-repeat; mask: url(/shared/munin_logo_horizon_moon.svg) center / contain no-repeat; }
+        @media (max-width: 900px) {
+            .wrap { padding: 0 16px; }
+            .stage { padding: 48px 0 104px; }
+            .stage .lede { font-size: 17px; }
         }
-
-        .maintenance canvas {
-            width: 96px;
-            height: 96px;
-        }
-
-        .maintenance h1 {
-            font-size: 28px;
-            font-weight: 600;
-            margin: 8px 0;
-        }
-
-        .maintenance p {
-            color: var(--text-secondary);
-            font-size: 15px;
-            max-width: 480px;
-            line-height: 1.7;
-            margin: 0;
-        }
-
-        .maintenance .date {
-            color: var(--text-primary);
-            font-weight: 600;
-        }
-
-        .maintenance-actions {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            width: 100%;
-            max-width: 320px;
-            margin-top: 16px;
-        }
-
-        .maintenance-action {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 14px 18px;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text-primary);
-            text-decoration: none;
-            font-size: 14px;
-            transition: border-color 0.2s;
-        }
-
-        .maintenance-action:hover {
-            border-color: var(--accent);
-        }
-
-        .maintenance-action .arrow {
-            color: var(--accent);
-        }
+        .m-col > * { max-width: 640px; }
+        #maintenance-message { margin-bottom: 8px; }
+        #maintenance-since { font-size: 15px; color: var(--text-3); margin: 0; }
+        #maintenance-since .date { color: var(--text); font-weight: 500; }
+        .still { margin-top: 36px; padding-top: 22px; border-top: 1px solid var(--line); }
+        .still p { color: var(--text-2); margin-bottom: 14px; }
     </style>
 </head>
 <body>
     <header>
         <div class="container header-content">
-            <a href="{{env "MUNIN_URL_HOME"}}" class="logo">
-                <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="logo-img">
+            <a href="/" class="logo">
+                <img src="/shared/munin_logo_horizon_moon.svg" alt="Munin" class="logo-img">
                 <span class="logo-text">Munin</span>
             </a>
             <nav>
                 <a href="{{env "MUNIN_URL_HOME"}}">Home</a>
-                <a href="{{env "MUNIN_URL_SEARCH"}}">Search</a>
+                <a href="{{env "MUNIN_URL_SEARCH"}}">Search papers</a>
                 <a href="{{env "MUNIN_URL_DOCS"}}">Docs</a>
                 <a href="{{env "MUNIN_URL_CHAT"}}/knowledge">Knowledge</a>
                 <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a>
@@ -94,41 +50,76 @@
         </div>
     </header>
 
-    <main class="maintenance">
-        <canvas id="maintenance-vortex" width="192" height="192"></canvas>
-
+<main class="stage">
+    <svg class="horizon" viewBox="0 0 1440 180" preserveAspectRatio="none" aria-hidden="true">
+        <g fill="none" stroke="currentColor" stroke-width="1.2">
+            <path d="M0 120 C180 90 300 140 480 110 S820 60 1000 100 1300 130 1440 90"/>
+            <path d="M0 140 C200 115 320 160 500 132 S840 88 1020 122 1320 150 1440 116"/>
+            <path d="M0 160 C220 140 340 178 520 154 S860 116 1040 144 1340 170 1440 142"/>
+        </g>
+    </svg>
+    <div class="wrap m-col">
+        <span class="mark" aria-hidden="true"></span>
         <h1>Munin is under maintenance</h1>
         <!-- Default copy; replaced at runtime by the operator's message
              from /api/status when the maintenance flag carries one. -->
-        <p id="maintenance-message">
+        <p id="maintenance-message" class="lede">
             Chat is temporarily unavailable while the cluster is being
             worked on.
         </p>
         <p id="maintenance-since" style="display: none;"></p>
 
-        <div class="maintenance-actions">
-            <a class="maintenance-action" href="{{env "MUNIN_URL_SEARCH"}}">
-                <span>Paper Search is still available</span>
-                <span class="arrow">&#8594;</span>
-            </a>
-            <a class="maintenance-action" href="{{env "MUNIN_URL_UPLOAD"}}">
-                <span>Upload papers</span>
-                <span class="arrow">&#8594;</span>
-            </a>
+        <div class="still">
+            <p>Paper Search is still available.</p>
+            <div class="btns">
+                <a class="btn btn-primary" href="{{env "MUNIN_URL_SEARCH"}}">Search papers</a>
+                <a class="btn btn-secondary" href="{{env "MUNIN_URL_UPLOAD"}}">Upload papers</a>
+            </div>
         </div>
-    </main>
-
-    <footer>
-        <div class="container">
-            <p>Munin Research Assistant | A project by the <a href="https://elgetilab.github.io/" style="color: var(--accent);">Elgeti Lab</a></p>
-            <p style="margin-top: 8px;"><a href="{{env "MUNIN_URL_SEARCH"}}">Search</a> | <a href="{{env "MUNIN_URL_CHAT"}}">Chat</a> | <a href="{{env "MUNIN_URL_UPLOAD"}}">Upload</a> | <a href="{{env "MUNIN_URL_DOCS"}}">Docs</a> | <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Support</a></p>
+    </div>
+</main>
+<footer class="site-footer">
+    <div class="wrap">
+        <div class="f-grid">
+            <div>
+                <div class="f-brand"><img src="/shared/munin_logo_horizon_moon.svg" alt="">Munin</div>
+                <p>An open-source research assistant by the <a href="https://elgetilab.github.io/">Elgeti Lab</a>, Leipzig University Medical Faculty.</p>
+            </div>
+            <div class="f-col">
+                <h4>Use</h4>
+                <ul>
+                    <li><a href="{{env "MUNIN_URL_CHAT"}}">Chat</a></li>
+                    <li><a href="{{env "MUNIN_URL_SEARCH"}}">Search papers</a></li>
+                    <li><a href="{{env "MUNIN_URL_CHAT"}}/knowledge">Knowledge base</a></li>
+                    <li><a href="{{env "MUNIN_URL_UPLOAD"}}">Contribute</a></li>
+                </ul>
+            </div>
+            <div class="f-col">
+                <h4>Learn</h4>
+                <ul>
+                    <li><a href="{{env "MUNIN_URL_DOCS"}}">Docs</a></li>
+                    <li><a href="{{env "MUNIN_URL_DOCS"}}/guide.html#deep-research">Deep Research</a></li>
+                    <li><a href="https://arxiv.org/abs/2610.23480">Paper</a></li>
+                    <li><a href="https://github.com/elgetilab/munin/blob/main/CITATION.cff">Cite Munin</a></li>
+                </ul>
+            </div>
+            <div class="f-col">
+                <h4>Project</h4>
+                <ul>
+                    <li><a href="https://github.com/elgetilab/munin">GitHub</a></li>
+                    <li><a href="https://elgetilab.github.io/">Elgeti Lab</a></li>
+                    <li><a href="https://www.hypmol.net/">HYP*MOL</a></li>
+                    <li><a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">Support</a></li>
+                </ul>
+            </div>
         </div>
-    </footer>
-
-    <script src="/shared/feather-vortex.js?v=4"></script>
+        <div class="f-base">
+            <span>Apache-2.0 licensed</span>
+            <span>Munin can make mistakes. Verify important information.</span>
+        </div>
+    </div>
+</footer>
     <script>
-        createVortex(document.getElementById('maintenance-vortex'), 10, 5.5, 0.3);
-
         // Single source of truth: the maintenance flag exposed by
         // /api/status. When the operator set a message via
         // `munin-maintenance on "..."`, show it here so this static

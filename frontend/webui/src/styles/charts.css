@@ -2,24 +2,24 @@
 
 /* Series colours for the admin metrics charts. They colour lines, bars, the legend
    text and the tooltip rows, so each one is text on bg-secondary and must reach
-   4.5:1 there. chartPalette.test.ts checks that. Dark is the palette the charts
-   have always used. */
+   4.5:1 there. chartPalette.test.ts checks that. The first series takes the brass accent; no series repeats the
+   warning colour or sits as a second yellow beside brass. */
 :root {
-  --chart-1: #58a6ff;
+  --chart-1: #d9b56f;
   --chart-2: #3fb950;
-  --chart-3: #d29922;
+  --chart-3: #58a6ff;
   --chart-4: #f85149;
   --chart-5: #a371f7;
-  --chart-6: #e3b341;
+  --chart-6: #d4a5e8;
   --chart-7: #56d4dd;
   --chart-8: #ff7b72;
   --chart-9: #79c0ff;
   --chart-10: #85e89d;
   --chart-11: #ffa657;
-  --chart-12: #f0883e;
+  --chart-12: #e89bc4;
 }
 
-/* Lowest is 4.52:1 on #f6f8fa (--chart-10). */
+/* The light accent is blue, so blue leads here. Lowest is 4.52:1 on #f6f8fa (--chart-10). */
 :root[data-theme="light"] {
   --chart-1: #0b62c4;
   --chart-2: #1a7f37;
