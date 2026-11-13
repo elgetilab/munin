@@ -66,6 +66,12 @@ COPY router_examples.json ./
 # Copy MCP module
 COPY mcp /app/mcp/
 
+# The primer-design engine (design_primers tool), a package of its own beside
+# mcp/. Without this line the image lacked it and retrieval crash-looped on
+# `No module named 'primer'` (2026-11-13); the hermetic tests mount the whole
+# tree, so they cannot see a missing COPY.
+COPY primer /app/primer/
+
 # Copy in-container test scripts (stress-test.py exec's them via
 # docker exec; see §5.8).
 COPY tests /app/tests/
