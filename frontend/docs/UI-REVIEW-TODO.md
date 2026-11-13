@@ -92,8 +92,8 @@ Effort: S under half a day, M one to two days, L more.
   - **Where:** `index.css` ~87-93.
   - **Fix:** A border tint plus a soft shadow. Keep the visible ring for
     keyboard focus only.
-- [ ] **16px input text** (S)
-  - **Decided 2026-11-13: do.**
+- [x] **16px input text** (S)
+  - **Done 2026-11-13.**
   - **Problem:** The input is 14px while replies are 16px.
   - **Where:** `ChatInput.tsx` ~910.
   - **Fix:** 16px text and a slightly taller minimum height.
@@ -105,26 +105,26 @@ Effort: S under half a day, M one to two days, L more.
   - **Where:** `ChatInput.tsx` ~1044-1058.
   - **Fix:** Replace it with something real (a mode or Deep Research chip, or
     an attachment count) or remove it.
-- [ ] **Clear send and stop buttons** (S)
-  - **Decided 2026-11-13: do.**
+- [x] **Clear send and stop buttons** (S)
+  - **Done 2026-11-13.**
   - **Problem:** The send button looks disabled even when it's active, and the
     stop button is solid red (`ChatInput.tsx` ~1062-1066).
   - **Fix:** A 32-36px send button in the accent with a clearly enabled state.
     A neutral stop button: a dark square on a mid-grey circle.
-- [ ] **One column width** (S)
-  - **Decided 2026-11-13: do.**
+- [x] **One column width** (S)
+  - **Done 2026-11-13.**
   - **Problem:** The composer is `max-w-3xl` (768px) but the messages are
     `max-w-2xl` (672px), so their edges don't line up (`MessageList.tsx` ~168).
   - **Fix:** One shared width for both.
-- [ ] **Shorter placeholder** (S)
-  - **Decided 2026-11-13: do.**
+- [x] **Shorter placeholder** (S)
+  - **Done 2026-11-13.**
   - **Problem:** The placeholder wraps to two lines on a phone.
   - **Fix:** "Ask Munin…", and teach `/` and `#` in a hint instead.
 
 ### Message layout
 
-- [ ] **User bubble** (S)
-  - **Decided 2026-11-13: do.**
+- [x] **User bubble** (S)
+  - **Done 2026-11-13.**
   - **Problem:** It has a border and a "chat tail" corner (`rounded-br-sm`,
     `MessageList.tsx` ~305).
   - **Fix:** No border, a warm `bg-tertiary`, `rounded-2xl` on every corner.

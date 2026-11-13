@@ -9,6 +9,7 @@ import { useDeepResearchStore } from '../stores/deepResearchStore';
 import { useMenu } from '../hooks/useMenu';
 import { lastInputWasKeyboard, trackFocusModality } from '../lib/focusModality';
 import { ICON } from './ui/cardButton';
+import { CHAT_COLUMN } from './ui/chatColumn';
 import { BookIcon, ChatIcon, FlaskIcon, PageIcon, SearchIcon, SpinnerIcon } from './ui/icons';
 
 // Router-recognized per-turn overrides (backend parse_slash: research|code|chat).
@@ -630,7 +631,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     <div className="px-4 py-4 bg-bg-primary w-full">
       {/* Prompt suggestions — hidden for now, pending design review */}
       {/* {showSuggestions && suggestions && suggestions.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-3 justify-center max-w-3xl mx-auto">
+        <div className={`flex flex-wrap gap-2 mb-3 justify-center ${CHAT_COLUMN}`}>
           {suggestions.map((s, i) => (
             <button
               key={i}
@@ -647,7 +648,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
       {/* Upload status banner */}
       {uploadState && (
-        <div className="max-w-3xl mx-auto mb-2">
+        <div className={`${CHAT_COLUMN} mb-2`}>
           <div className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm ${
             uploadState.status === 'error'
               ? 'bg-error/10 border border-error text-error'
@@ -729,7 +730,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
       {/* Tag autocomplete dropdown */}
       {tagQuery !== null && tagCatalog && (
-        <div className="max-w-3xl mx-auto mb-2">
+        <div className={`${CHAT_COLUMN} mb-2`}>
           <div className="bg-bg-secondary border border-border rounded-xl shadow-lg overflow-hidden">
             {/* Search header */}
             <div className="px-4 py-2 border-b border-border flex items-center gap-2">
@@ -756,7 +757,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
       {/* Slash command autocomplete */}
       {slashMatches.length > 0 && (
-        <div className="max-w-3xl mx-auto mb-2">
+        <div className={`${CHAT_COLUMN} mb-2`}>
           <div className="bg-bg-secondary border border-border rounded-xl shadow-lg overflow-hidden">
             {slashMatches.map((cmd, i) => (
               <button
@@ -776,7 +777,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       )}
 
       {/* Input bubble */}
-      <div id="composer-bubble" className="max-w-3xl mx-auto bg-bg-secondary border border-border rounded-2xl">
+      <div id="composer-bubble" className={`${CHAT_COLUMN} bg-bg-secondary border border-border rounded-2xl`}>
         {/* Active tag chips */}
         {activeTags.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 px-5 pt-3 pb-0">
@@ -914,9 +915,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           data-keyboard-focus={keyboardFocus || undefined}
           disabled={researchActive}
           aria-label="Message Munin"
-          placeholder={researchActive ? undefined : 'Ask Munin anything… (/research, /code, /chat to steer)'}
+          placeholder={researchActive ? undefined : 'Ask Munin…'}
           rows={1}
-          className="w-full resize-none bg-transparent px-5 pt-4 pb-2 text-sm text-text-primary placeholder-text-secondary outline-none disabled:opacity-50"
+          className="w-full resize-none bg-transparent px-5 pt-4 pb-3 text-base text-text-primary placeholder-text-secondary outline-none disabled:opacity-50"
         />
 
         {/* Bottom bar: attach, spacer, Munin mark, send */}
@@ -1071,7 +1072,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             <button
               data-testid="composer-stop"
               onClick={onStop}
-              className="p-2.5 bg-error rounded-full text-bg-primary cursor-pointer hover:opacity-90 transition-opacity"
+              aria-label="Stop generating"
+              className="p-2.5 bg-bg-tertiary border border-border rounded-full text-text-primary cursor-pointer hover:border-text-secondary transition-colors"
               title="Stop generating"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -1083,7 +1085,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               data-testid="composer-send"
               onClick={handleSubmit}
               disabled={(!input.trim() && !hasAttachments) || drStarting || researchActive || deepResearchBlocked || uploading}
-              className="p-2.5 bg-accent rounded-full text-bg-primary cursor-pointer hover:bg-accent-hover transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-2.5 bg-accent rounded-full text-bg-primary cursor-pointer enabled:hover:bg-accent-hover transition-colors disabled:bg-bg-tertiary disabled:text-text-secondary disabled:cursor-not-allowed"
               title={
                 uploading ? 'Waiting for upload to finish'
                 : deepResearchBlocked ? 'Deep Research cannot use attachments'

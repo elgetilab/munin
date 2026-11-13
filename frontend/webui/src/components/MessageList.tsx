@@ -11,6 +11,7 @@ import { InlineArtifacts } from './InlineArtifacts';
 import { detectPhase } from '../lib/streamPhase';
 import { rewordInterruptedMarker } from '../lib/modelError';
 import { BTN_PRIMARY } from './ui/cardButton';
+import { CHAT_COLUMN } from './ui/chatColumn';
 
 interface RetryingState {
   attempt: number;
@@ -165,7 +166,7 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
   return (
     <div className="flex-1 relative min-h-0 flex flex-col">
     <div ref={containerRef} onScroll={updateJumpButton} className="flex-1 overflow-y-auto px-4 py-6">
-      <div ref={columnRef} className="max-w-2xl mx-auto space-y-6">
+      <div ref={columnRef} className={`${CHAT_COLUMN} space-y-6`}>
         {messages.map((msg, i) => {
           const isLast = i === messages.length - 1;
           // Only surface Continue on the final bubble, and only while
@@ -302,7 +303,7 @@ function MessageBubble({ message, conversationId, onSendClarification, onDismiss
   if (message.role === 'user') {
     return (
       <div className="flex gap-3 justify-end">
-        <div className="max-w-[80%] bg-bg-tertiary border border-border rounded-2xl rounded-br-sm px-4 py-3 text-base text-text-primary leading-relaxed whitespace-pre-wrap wrap-anywhere">
+        <div className="max-w-[80%] bg-bg-tertiary border border-transparent rounded-2xl px-4 py-3 text-base text-text-primary leading-relaxed whitespace-pre-wrap wrap-anywhere">
           {message.content}
         </div>
       </div>
