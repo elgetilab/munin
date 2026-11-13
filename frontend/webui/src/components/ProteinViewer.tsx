@@ -17,7 +17,7 @@ interface ProteinViewerProps {
 
 // The 3D view stays dark in both themes: structure colours are chosen for a dark
 // background. VIEWER_BG matches backgroundColor in widgets/proteinRuntime.js.
-const VIEWER_BG = '#0f1419';
+const VIEWER_BG = '#0d1217';
 const VIEWER_CSS = `:root{color-scheme:dark}html,body,#viewer{margin:0;width:100%;height:100%;overflow:hidden;background:${VIEWER_BG}}#viewer{position:relative}`;
 
 // The loading text, errors and links drawn over the 3D view sit on its dark
@@ -27,9 +27,9 @@ const DARK_STAGE = {
   background: VIEWER_BG,
   colorScheme: 'dark',
   '--color-text-primary': '#e6edf3',
-  '--color-text-secondary': '#8b949e',
-  '--color-accent': '#58a6ff',
-  '--color-accent-hover': '#79b8ff',
+  '--color-text-secondary': '#a9b1ba',
+  '--color-accent': '#d9b56f',
+  '--color-accent-hover': '#e8c98e',
   '--color-error': '#f85149',
 } as CSSProperties;
 

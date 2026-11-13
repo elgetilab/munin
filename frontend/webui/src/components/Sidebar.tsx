@@ -762,7 +762,7 @@ export function Sidebar({ currentId, onSelect, onNewChat, onNewChatInProject, on
       <div className="h-[49px] flex-shrink-0 px-4 flex items-center justify-between border-b border-border">
         <a href={SITE_HOME} className="flex items-center gap-2 no-underline">
           <img
-            src="/shared/munin_logo_without_script.webp"
+            src="/shared/munin_logo_without_script.svg"
             alt="Munin"
             className={`h-6 ${LOGO_FILTER}`}
           />

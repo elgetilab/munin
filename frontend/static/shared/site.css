@@ -112,7 +112,7 @@ img.fav-dark { display: var(--gh-dark); }
 .panel .btns { margin-top: auto; }
 .icon { display: inline-flex; color: var(--brass); flex-shrink: 0; }
 /* The raven, filled with the accent like the line icons beside it. */
-.icon .raven { width: 20px; height: 20px; background: var(--brass); -webkit-mask: url(/shared/munin_logo_without_script.webp) center / contain no-repeat; mask: url(/shared/munin_logo_without_script.webp) center / contain no-repeat; }
+.icon .raven { width: 20px; height: 20px; background: var(--brass); -webkit-mask: url(/shared/munin_logo_without_script.svg) center / contain no-repeat; mask: url(/shared/munin_logo_without_script.svg) center / contain no-repeat; }
 .t { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .t h3 { margin: 0; }
 .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }

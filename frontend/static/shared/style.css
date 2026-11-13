@@ -9,7 +9,7 @@
  *   <header>
  *     <div class="container header-content">
  *       <a href="https://example.org" class="logo">
- *         <img src="/shared/munin_logo_without_script.webp" alt="Munin" class="logo-img">
+ *         <img src="/shared/munin_logo_without_script.svg" alt="Munin" class="logo-img">
  *         <span class="logo-text">Munin</span>
  *       </a>
  *       <nav>
@@ -43,22 +43,22 @@
 /* ── CSS Variables ───────────────────────────────────────────────────────────── */
 
 :root {
-    --bg-primary: #0f1419;
-    --bg-secondary: #1a1f26;
-    --bg-tertiary: #242a33;
+    --bg-primary: #0d1217;
+    --bg-secondary: #151c23;
+    --bg-tertiary: #1c252e;
     --text-primary: #e6edf3;
-    --text-secondary: #8b949e;
-    --accent: #58a6ff;
-    --accent-hover: #79b8ff;
-    --border: #30363d;
+    --text-secondary: #a9b1ba;
+    --accent: #d9b56f;
+    --accent-hover: #e8c98e;
+    --border: #2c3742;
     --border-input: #6e7681; /* form controls: 4.03:1 on bg-primary, 3.61:1 on bg-secondary, 3.14:1 on bg-tertiary */
     --success: #3fb950;
     --warning: #d29922;
     --error: #f85149;
-    --text-tertiary: #808891;
+    --text-tertiary: #8d959e;
     --scrim: rgb(0 0 0 / 0.6);
     /* The one keyboard focus ring: the accent's value under its own name. */
-    --focus-ring: #58a6ff;
+    --focus-ring: #d9b56f;
     /* Second stop of the landing page's heading gradient. */
     --accent-2: #a371f7;
     /* The logo files are a black raven, so dark pages turn it white. */
@@ -74,18 +74,18 @@
     --bg-primary: #ffffff;
     --bg-secondary: #f6f8fa;
     --bg-tertiary: #e9edf1;
-    --text-primary: #1f2429;
-    --text-secondary: #57606a;
+    --text-primary: #182029;
+    --text-secondary: #4a535d;
     --text-tertiary: #656d76;
-    --accent: #0a5cb8;
-    --accent-hover: #084c99;
+    --accent: #7a5512;
+    --accent-hover: #5f420c;
     --border: #d0d7de;
     --border-input: #6e7781;
     --success: #196b2e;
     --warning: #7a5300;
     --error: #b81c28;
     --scrim: rgb(31 36 41 / 0.4);
-    --focus-ring: #0a5cb8;
+    --focus-ring: #7a5512;
     --accent-2: #8250df;
     --logo-filter: none;
     color-scheme: light;

@@ -249,8 +249,8 @@ describe('ProteinViewer in a light page', () => {
       expect(stage.style.getPropertyValue(name)).toBe(dark);
     }
     // The viewer's own background, which proteinRuntime.js also uses.
-    expect(darkBlock).toContain('--color-bg-primary: #0f1419;');
-    expect(stage.style.background).toBe('rgb(15, 20, 25)');
+    expect(darkBlock).toContain('--color-bg-primary: #0d1217;');
+    expect(stage.style.background).toBe('rgb(13, 18, 23)');
     expect(stage.style.colorScheme).toBe('dark');
     expect(within(stage).getByText('Loading structure...')).toHaveClass('text-text-secondary');
     await screen.findByTestId('widget-frame');

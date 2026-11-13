@@ -18,16 +18,16 @@ export function projectTheme(info: TestInfo): Theme {
  */
 export const PALETTE: Record<Theme, { accent: string; border: string; bgPrimary: string; textPrimary: string }> = {
   dark: {
-    accent: 'rgb(88, 166, 255)',
-    border: 'rgb(48, 54, 61)',
-    bgPrimary: 'rgb(15, 20, 25)',
+    accent: 'rgb(217, 181, 111)',
+    border: 'rgb(44, 55, 66)',
+    bgPrimary: 'rgb(13, 18, 23)',
     textPrimary: 'rgb(230, 237, 243)',
   },
   light: {
-    accent: 'rgb(10, 92, 184)',
+    accent: 'rgb(122, 85, 18)',
     border: 'rgb(208, 215, 222)',
     bgPrimary: 'rgb(255, 255, 255)',
-    textPrimary: 'rgb(31, 36, 41)',
+    textPrimary: 'rgb(24, 32, 41)',
   },
 };
 

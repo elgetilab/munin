@@ -1059,7 +1059,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           <div className="flex items-center gap-1.5 px-2 select-none" aria-hidden>
             <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-white">
               <img
-                src="/shared/munin_logo_without_script.webp"
+                src="/shared/munin_logo_without_script.svg"
                 alt="Munin"
                 className="h-4 w-4 object-contain"
               />

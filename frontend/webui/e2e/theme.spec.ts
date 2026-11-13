@@ -11,7 +11,7 @@ test.describe('theme', () => {
       await page.goto('/');
       await expect(page.locator('html')).toHaveAttribute('data-theme', scheme);
       await expect(page.locator('html')).toHaveAttribute('data-theme-pref', 'system');
-      await expect(page.locator('body')).toHaveCSS('background-color', scheme === 'dark' ? 'rgb(15, 20, 25)' : 'rgb(255, 255, 255)');
+      await expect(page.locator('body')).toHaveCSS('background-color', scheme === 'dark' ? 'rgb(13, 18, 23)' : 'rgb(255, 255, 255)');
     });
   }
 
