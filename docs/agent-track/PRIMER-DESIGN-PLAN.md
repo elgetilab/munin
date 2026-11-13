@@ -155,8 +155,57 @@ permissively licensed and exact. For `CGTTCCAAAGATGTGGGCATGAGCTTAC`:
 | `Tm_NN` saltcorr 1-7 | 54.27, 54.02, 59.60, 60.64, 60.32, 59.78, 59.78 |
 | `Tm_NN` Na 50, Tris 10 | 60.79 |
 | `Tm_NN` Na 50, Tris 10, Mg 1.5 | 67.39 |
-| `Tm_NN` Na 50, Tris 10, Mg 1.5, dNTP 0.6 | 66.04 |
+| `Tm_NN` Na 50, Tris 10, Mg 1.5, dNTP 0.6 | **66.46** at the default correction; the 66.04 first recorded here is its `saltcorr=7` |
 | `salt_correction(Na=50, method=1)` | -21.60 |
+
+**Layer 1b has now run, and layer 1 is validated. 2026-11-13.** With primer3,
+BLAST+ and Biopython in the CI image, `thermo.py` was compared against three
+independent implementations and shows **no discrepancies**:
+
+| Oracle | Comparison | Worst disagreement |
+|---|---|---|
+| Biopython `Tm_NN` | 20 oligos x 2 salt corrections, 6 ion buffers | **0.0000 C** |
+| primer3 `oligotm` | same 20-oligo panel | 0.005 C |
+| primer3 `ntthal` | duplex Tm | 0.140 C |
+| primer3 `ntthal` | duplex dH | **exactly 0 cal/mol on all 20** |
+
+So the parameter table, initiation terms, concentration convention and both
+salt formulas are independently confirmed. The open question about Biopython's
+method numbering is **settled, and our labels were right**: our
+`santalucia1998` is its `saltcorr=5` and our `owczarzy2004` is its `saltcorr=6`
+(and 7, since the Owczarzy 2008 decision tree collapses onto 6 with Na+ only).
+Declining to tune constants toward a half-remembered label was the correct call.
+
+*Interop trap worth keeping on record: for a SELF-COMPLEMENTARY oligo, primer3
+reads `-d` as the TOTAL strand concentration while we and Biopython use
+`dnac1`. The aligned mapping is `tm_nn(dnac1=2C)` against `oligotm -d 2C`; the
+natural-looking `dnac1=C` reads every palindrome 0.62 to 1.66 C low. This is
+not a symmetry-term difference: both implement SantaLucia's palindrome
+treatment.*
+
+**Known limitation in `structure.py`, in the unsafe direction.** The differential
+run found our structures are systematically less stable than `ntthal` (mean
+offset: hairpin +1.58, heterodimer +1.55, homodimer +2.14 kcal/mol, less stable
+in 43 of 53 cases). Two causes, both understood:
+
+1. The hairpin loop penalty is 3.6 to 4.0 kcal/mol too destabilising. On a
+   shared test case both tools pick the *same* 8 bp stem and 4 nt loop, which
+   isolates the gap to the loop term and quantifies the module's own flagged
+   unverified constant `HAIRPIN_LOOP_DG37_REF`.
+2. `MAX_INTERNAL_LOOP = 4` stops a dimer chaining two helices across a longer
+   internal loop. Confirmed by bisection: both arms pair at a loop of 4 or
+   fewer and only one arm at 5 or more, so this is the documented cap behaving
+   as designed rather than a bug. It still costs 16 kcal/mol on a realistic
+   palindromic molecule.
+
+**Why this matters for the rule table:** `rules.py` treats dimer and hairpin
+checks as HARD. Underestimating structure stability means passing primers that
+should fail, which is a false negative on a safety check, the worse direction.
+Until a verified internal-loop energy table lands, structure-based rejections
+are trustworthy but structure-based *acceptances* are weaker than they look.
+The gap is pinned in a `KNOWN_STRUCTURE_GAPS` registry whose test asserts the
+gap is still present and prints a loud notice if it closes, so it cannot
+quietly become an excuse list.
 
 **License note, important:** Primer3's `test/oligotm.txt` and
 `thal_input`/`thal_output` are GPL-licensed test *data*. We do not copy their

@@ -21,13 +21,16 @@ from papers alone reproducing two listed values to two decimals is good
 evidence that the parameter table, the initiation terms, the effective
 concentration convention and both salt formulas are right.
 
-Honest limitation: which of Biopython's method NUMBERS corresponds to which
-formula is not asserted here, because it was not verified against Biopython
-itself (the package is not installed in this environment). The constants were
-not tuned to chase a remembered label. `test_biopython_crosscheck` below runs
-a real comparison and SKIPs when Biopython is absent; installing it in the CI
-image settles the mapping, and the differential oracle against primer3
-(plan layer 1b) settles the thermodynamics independently.
+SETTLED 2026-11-13, and the labels were right. With Biopython and primer3 in
+the CI image (`backend/scripts/ci/retrieval-tests.Dockerfile`), the mapping is
+confirmed: our `santalucia1998` is Biopython's `saltcorr=5` and our
+`owczarzy2004` is its `saltcorr=6` (and 7, which collapses onto 6 with Na+
+only). The differential run found NO discrepancy against three independent
+implementations: exact to float precision against Biopython over 20 oligos and
+6 ion buffers, within 0.005 C of primer3's `oligotm`, within 0.140 C of
+`ntthal` on duplex Tm, and exactly 0 cal/mol on `ntthal` duplex dH for all 20.
+Declining to tune the constants toward a half-remembered method number was
+the right call. See `test_primer_thermo_oracle.py` for the full panel.
 
 Run inside the retrieval container:
     docker exec munin-retrieval python /app/tests/test_primer_thermo.py
