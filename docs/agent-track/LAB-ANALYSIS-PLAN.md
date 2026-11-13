@@ -3,9 +3,10 @@
 Status: APPROVED 2026-11-13. Phase 0 backend DEPLOYED 2026-11-13 (sandbox,
 retrieval, llm-claude/failover) from branch `deploy/lab-phase0` (=
 `design/site-redesign`, which production already ran, + Phase 0). Live check
-15/15 through the real API. VPS gateway and webui NOT deployed yet: the VPS
-is behind main (gateway before 1e85e73, webui bundle of 2026-11-08), so either
-deploy ships other undeployed work; decision pending.
+15/15 through the real API. Webui DEPLOYED to the VPS the same day, built from
+`varghele/coding-improvements` (main + Phase 0; not the redesign, whose
+frontend is not live): bundle index-5Cl-2sWA.js. VPS gateway NOT deployed (it
+predates 1e85e73); downloads still work through it, buffered.
 
 Several research groups use GraphPad Prism (and some ChimeraX) for fitting and
 plotting. We want Munin to replace that through chat: users upload instrument
@@ -91,7 +92,7 @@ bundle download.
 
 ### Phase 0 status (2026-11-13)
 
-Backend deployed and live-checked; VPS gateway and webui pending:
+Backend and webui deployed and live-checked; VPS gateway pending:
 
 | Item | Where | Tests |
 |---|---|---|
