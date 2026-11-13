@@ -2,6 +2,7 @@ import { useId, useState, useRef, useEffect, useCallback } from 'react';
 import { reportChat } from '../lib/api';
 import { useUiStore } from '../stores/uiStore';
 import { DIALOG_BACKDROP } from './ui/themeClasses';
+import { replyReportPrefix } from '../lib/replyReport';
 
 interface ReportDialogProps {
   conversationId: string;
@@ -9,6 +10,7 @@ interface ReportDialogProps {
   onReported: () => void;
 }
 
+// The backend's limit on the whole reason (api_report_chat).
 const MAX_REASON = 2000;
 
 export function ReportDialog({ conversationId, onReported }: ReportDialogProps) {
@@ -18,6 +20,9 @@ export function ReportDialog({ conversationId, onReported }: ReportDialogProps) 
   // mousedown and keydown handlers on each keystroke in the textarea. The
   // store action is stable, so this is too.
   const onClose = useCallback(() => setShowReportDialog(false), [setShowReportDialog]);
+  const reply = useUiStore(s => s.reportReply);
+  const prefix = reply ? replyReportPrefix(reply) : '';
+  const maxReason = MAX_REASON - prefix.length;
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +58,7 @@ export function ReportDialog({ conversationId, onReported }: ReportDialogProps) 
     setSubmitting(true);
     setError(null);
     try {
-      await reportChat(conversationId, reason.trim() || undefined);
+      await reportChat(conversationId, (prefix + reason.trim()).trim() || undefined);
       onReported();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to send report');
@@ -74,11 +79,16 @@ export function ReportDialog({ conversationId, onReported }: ReportDialogProps) 
             <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
             <line x1="4" y1="22" x2="4" y2="15" />
           </svg>
-          <h3 className="text-sm font-semibold text-text-primary">Report this chat</h3>
+          <h3 className="text-sm font-semibold text-text-primary">{reply ? 'Report this reply' : 'Report this chat'}</h3>
         </div>
 
         {/* Body */}
         <div className="px-5 py-4 space-y-3">
+          {reply && (
+            <blockquote className="border-l-2 border-border pl-3 text-xs text-text-secondary line-clamp-3">
+              {reply.excerpt}
+            </blockquote>
+          )}
           {/* What api_report_chat in backend/retrieval/main.py stores. Keep them in step. */}
           <p className="text-xs text-text-secondary">
             Sending a report saves this whole conversation with your email address for Munin's developers to review, and it may be kept as a test case. That covers every message, the model's thinking, tool calls and retrieved context, plus the names of attached files and artifacts.
@@ -90,14 +100,14 @@ export function ReportDialog({ conversationId, onReported }: ReportDialogProps) 
             id={reasonId}
             ref={textareaRef}
             value={reason}
-            onChange={e => setReason(e.target.value.slice(0, MAX_REASON))}
+            onChange={e => setReason(e.target.value.slice(0, maxReason))}
             placeholder="Describe the issue..."
             rows={4}
             className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-secondary outline-none resize-none focus:border-accent"
           />
           <div className="flex items-center justify-between">
-            <span className={`text-[11px] ${reason.length >= MAX_REASON ? 'text-error' : 'text-text-secondary'}`}>
-              {reason.length}/{MAX_REASON}
+            <span className={`text-[11px] ${reason.length >= maxReason ? 'text-error' : 'text-text-secondary'}`}>
+              {reason.length}/{maxReason}
             </span>
             {error && <span className="text-[11px] text-error">{error}</span>}
           </div>

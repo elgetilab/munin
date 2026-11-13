@@ -1191,7 +1191,7 @@ export default function App() {
               </div>
             ) : (
               <>
-                <MessageList messages={messages} streaming={streaming} onSendClarification={handleSend} onDismissMemoryProposal={dismissMemoryProposal} conversationId={conversationId} onPlanApproved={handlePlanApproved} onPlanRejected={() => { /* user types follow-up themselves */ }} onPlanEdited={handlePlanEdited} onContinue={handleContinue} researchTimeline={drJob && drJob.conversationId === conversationId ? <ResearchTimeline job={drJob} /> : null} />
+                <MessageList messages={messages} streaming={streaming} onSendClarification={handleSend} onDismissMemoryProposal={dismissMemoryProposal} conversationId={conversationId} onPlanApproved={handlePlanApproved} onPlanRejected={() => { /* user types follow-up themselves */ }} onPlanEdited={handlePlanEdited} onContinue={handleContinue} canReport={Boolean(conversationId) && !isEphemeral} researchTimeline={drJob && drJob.conversationId === conversationId ? <ResearchTimeline job={drJob} /> : null} />
                 <ChatInput
                   ref={chatInputRef}
                   onSend={handleSend}
@@ -1239,9 +1239,10 @@ export default function App() {
             // setItem('munin_reported_chats', ...) is gone;
             // existing entries are migrated by the store's
             // onRehydrateStorage callback.
+            const aboutReply = useUiStore.getState().reportReply !== null;
             setShowReportDialog(false);
             addReportedChat(conversationId);
-            showToast('Chat reported. Thank you for helping us improve.', 4000);
+            showToast(`${aboutReply ? 'Reply' : 'Chat'} reported. Thank you for helping us improve.`, 4000);
           }}
         />
       )}

@@ -36,6 +36,7 @@ Effort: S under half a day, M one to two days, L more.
     jump button.
 - [ ] **Message actions** (M)
   - **Decided 2026-11-13: do, including Edit and resend (needs backend support).**
+  - **Done 2026-11-13: Copy and Report this reply.** Retry and Edit are open: the server keeps the history and a turn sends only the new message, so both need a backend way to drop the turns after a message.
   - **Problem:** A reply can't be copied, retried or regenerated, and a user
     message can't be edited and resent. Only code blocks have Copy, and Report
     covers the whole chat from the header.

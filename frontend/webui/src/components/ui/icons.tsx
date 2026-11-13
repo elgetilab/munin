@@ -47,6 +47,16 @@ export function BookIcon(p: IconProps) {
   return <Svg {...p}><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z" /><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" /></Svg>;
 }
 
+/** Two overlapping sheets: copy. */
+export function CopyIcon(p: IconProps) {
+  return <Svg {...p}><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></Svg>;
+}
+
+/** A tick: done. */
+export function CheckIcon(p: IconProps) {
+  return <Svg {...p}><polyline points="20 6 9 17 4 12" /></Svg>;
+}
+
 /** A price tag: a topic. */
 export function TagIcon(p: IconProps) {
   return <Svg {...p}><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" /><line x1="7" y1="7" x2="7.01" y2="7" /></Svg>;

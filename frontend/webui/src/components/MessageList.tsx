@@ -12,6 +12,7 @@ import { detectPhase } from '../lib/streamPhase';
 import { rewordInterruptedMarker } from '../lib/modelError';
 import { BTN_PRIMARY } from './ui/cardButton';
 import { CHAT_COLUMN } from './ui/chatColumn';
+import { ReplyActions } from './ReplyActions';
 
 interface RetryingState {
   attempt: number;
@@ -57,6 +58,9 @@ interface MessageListProps {
   // instead of sitting pinned above the composer. App owns the DR store and
   // passes the ready-to-render node (or null).
   researchTimeline?: React.ReactNode;
+  // Whether this chat can be reported (saved, not temporary): shows Report
+  // under each reply.
+  canReport?: boolean;
 }
 
 // Small muted pill showing the internal profile the per-turn router
@@ -95,7 +99,7 @@ const JUMP_BUTTON_HIDE_THRESHOLD_PX = 96;
 // container's own top padding (py-6), so it lines up with the first message.
 const SENT_MESSAGE_TOP_GAP_PX = 24;
 
-export function MessageList({ messages, streaming, onSendClarification, onDismissMemoryProposal, conversationId, onPlanApproved, onPlanRejected, onPlanEdited, onContinue, researchTimeline }: MessageListProps) {
+export function MessageList({ messages, streaming, onSendClarification, onDismissMemoryProposal, conversationId, onPlanApproved, onPlanRejected, onPlanEdited, onContinue, researchTimeline, canReport = false }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const columnRef = useRef<HTMLDivElement>(null);
@@ -214,6 +218,11 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
 
   const isActive = streaming.phase !== 'idle' && streaming.phase !== 'done' && streaming.phase !== 'error';
 
+  // Each reply's position among the replies, for its actions and reports.
+  const replyNumbers = new Map<string, number>();
+  for (const m of messages) if (m.role === 'assistant') replyNumbers.set(m.id, replyNumbers.size + 1);
+  const latestReplyId = [...messages].reverse().find(m => m.role === 'assistant')?.id;
+
   return (
     <div className="flex-1 relative min-h-0 flex flex-col">
     <div ref={containerRef} onScroll={updateJumpButton} className="flex-1 overflow-y-auto px-4 py-6">
@@ -248,7 +257,8 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
                 onAfterEdit={onPlanEdited}
               />
             ) : null}
-            <MessageBubble message={msg} conversationId={conversationId} onSendClarification={onSendClarification} onDismissMemoryProposal={onDismissMemoryProposal} onContinue={isLast && !streamingActive ? onContinue : undefined} />
+            <MessageBubble message={msg} conversationId={conversationId} onSendClarification={onSendClarification} onDismissMemoryProposal={onDismissMemoryProposal} onContinue={isLast && !streamingActive ? onContinue : undefined}
+              actions={msg.role === 'assistant' ? { replyNumber: replyNumbers.get(msg.id) ?? 0, latest: msg.id === latestReplyId && !isActive, canReport } : undefined} />
           </div>
           );
         })}
@@ -351,7 +361,7 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
   );
 }
 
-function MessageBubble({ message, conversationId, onSendClarification, onDismissMemoryProposal, onContinue }: { message: Message; conversationId?: string | null; onSendClarification?: (answer: string) => void; onDismissMemoryProposal?: (proposalId: string) => void; onContinue?: () => void }) {
+function MessageBubble({ message, conversationId, onSendClarification, onDismissMemoryProposal, onContinue, actions }: { message: Message; conversationId?: string | null; onSendClarification?: (answer: string) => void; onDismissMemoryProposal?: (proposalId: string) => void; onContinue?: () => void; actions?: { replyNumber: number; latest: boolean; canReport: boolean } }) {
   if (message.role === 'user') {
     return (
       <div className="flex gap-3 justify-end">
@@ -363,7 +373,7 @@ function MessageBubble({ message, conversationId, onSendClarification, onDismiss
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 group/reply">
       {/* Task log for completed messages */}
       {(message.thinking || message.tool_calls || message.rag_context) && (
         <TaskLog
@@ -409,6 +419,11 @@ function MessageBubble({ message, conversationId, onSendClarification, onDismiss
             Continue
           </button>
         </div>
+      )}
+
+      {/* Copy and Report, under a reply that has text. */}
+      {actions && cleanContent(message.content) && (
+        <ReplyActions content={cleanContent(message.content)} replyNumber={actions.replyNumber} latest={actions.latest} canReport={actions.canReport} />
       )}
 
       {/* P2 #25: auto-extracted memory candidates. Rendered below the
