@@ -76,6 +76,7 @@ test_phantom_paper_audit.py              hermetic
 test_plan_approval_hook.py               hermetic
 test_plan_dispatchers.py                 hermetic
 test_plan_store.py                       hermetic
+test_primer_eval_grounding.py            hermetic
 test_primer_rules.py                     hermetic
 test_primer_select.py                    hermetic
 test_primer_structure.py                 hermetic

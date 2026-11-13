@@ -27,6 +27,7 @@ import collections
 import asyncio
 import json
 import os
+import re
 import sys
 import time
 from typing import Any, Callable, Optional
@@ -309,6 +310,145 @@ def _lov_checks() -> list[tuple[str, Callable[[RunResult], bool]]]:
     ]
 
 
+# ---------------------------------------------------------------------------
+# Primer design (layer 4 of docs/agent-track/PRIMER-DESIGN-PLAN.md)
+# ---------------------------------------------------------------------------
+# These measure the one thing the whole primer feature exists to prevent. The
+# published evidence is specific: LLMs fail at primer design through
+# BOOKKEEPING, not chemistry. LABBench2 found primer design scored lowest of
+# all subtasks across every model and blamed exact string fidelity; a 2023
+# Cureus study found barely any GPT-generated pair could even theoretically
+# yield a product; CRISPR-GPT generated guides matching no real locus.
+#
+# So the headline check is not "is the Tm good". It is: does every DNA
+# sequence the model states actually EXIST in the template it was given?
+# That is computable here without any tool output, which matters because the
+# SSE stream exposes tool_call names but not tool results.
+
+# 600 bp of pUC19 (GenBank L09137, positions 181-780, 1-based), carrying the
+# full lacZ-alpha MCS and both M13 priming sites. Inlined rather than read from
+# tests/data/ so the eval needs nothing but this file.
+PUC19_MCS_REGION = (
+    "ACCATATGCGGTGTGAAATACCGCACAGATGCGTAAGGAGAAAATACCGCATCAGGCGCC"
+    "ATTCGCCATTCAGGCTGCGCAACTGTTGGGAAGGGCGATCGGTGCGGGCCTCTTCGCTAT"
+    "TACGCCAGCTGGCGAAAGGGGGATGTGCTGCAAGGCGATTAAGTTGGGTAACGCCAGGGT"
+    "TTTCCCAGTCACGACGTTGTAAAACGACGGCCAGTGAATTCGAGCTCGGTACCCGGGGAT"
+    "CCTCTAGAGTCGACCTGCAGGCATGCAAGCTTGGCGTAATCATGGTCATAGCTGTTTCCT"
+    "GTGTGAAATTGTTATCCGCTCACAATTCCACACAACATACGAGCCGGAAGCATAAAGTGT"
+    "AAAGCCTGGGGTGCCTAATGAGTGAGCTAACTCACATTAATTGCGTTGCGCTCACTGCCC"
+    "GCTTTCCAGTCGGGAAACCTGTCGTGCCAGCTGCATTAATGAATCGGCCAACGCGCGGGG"
+    "AGAGGCGGTTTGCGTATTGGGCGCTCTTCCGCTTCCTCGCTCACTGACTCGCTGCGCTCG"
+    "GTCGTTCGGCTGCGGCGAGCGGTATCAGCTCACTCAAAGGCGGTAATACGGTTATCCACA"
+)
+
+# A run of ACGT this long in prose is a stated oligo, not an English word.
+_DNA_TOKEN = re.compile(r"\b[ACGT]{15,60}\b")
+
+# Shortest 3' stretch of a tailed primer that must still anneal. A cloning
+# primer's 5' tail is deliberately absent from the template, so grounding a
+# tailed primer means grounding its annealing end, not the whole oligo.
+_MIN_ANNEAL = 15
+
+
+def _revcomp(seq: str) -> str:
+    return seq[::-1].translate(str.maketrans("ACGT", "TGCA"))
+
+
+def _ungrounded_sequences(text: str, template: str,
+                          allow_tails: bool = False) -> list[str]:
+    """Every DNA token in `text` that does NOT occur in `template`.
+
+    Checks both strands, because a reverse primer is quoted as the reverse
+    complement of its footprint. With `allow_tails`, a token counts as
+    grounded when a 3' suffix of at least `_MIN_ANNEAL` bases is found, which
+    is what a correct overlap-assembly or restriction primer looks like.
+    """
+    both = template.upper() + "|" + _revcomp(template.upper())
+    bad: list[str] = []
+    for token in _DNA_TOKEN.findall(text.upper()):
+        if token in both:
+            continue
+        if allow_tails and any(
+            token[i:] in both
+            for i in range(0, len(token) - _MIN_ANNEAL + 1)
+        ):
+            continue
+        bad.append(token)
+    return bad
+
+
+def _all_prose_sequences_grounded(r: "RunResult", allow_tails: bool = False) -> bool:
+    return not any(
+        _ungrounded_sequences(c, PUC19_MCS_REGION, allow_tails)
+        for c in r.assistant_contents
+    )
+
+
+PRIMER_TOOL_BUDGET = 12
+
+
+def _primer_checks(allow_tails: bool = False):
+    """Checks shared by the primer scenarios that SUPPLY a template."""
+    def build() -> list[tuple[str, Callable[["RunResult"], bool]]]:
+        return [
+            ("stream completed (no interrupted marker)",
+             lambda r: r.interrupted_reason is None),
+            ("no error SSE",
+             lambda r: not r.has_error_sse),
+            ("non-empty final assistant content",
+             lambda r: any(c.strip() for c in r.assistant_contents)),
+            ("every tool_call is a real registered tool",
+             _all_tools_registered),
+            (f"tool calls <= {PRIMER_TOOL_BUDGET}  (overtooling guard)",
+             lambda r: len(r.tool_calls_emitted) <= PRIMER_TOOL_BUDGET),
+            # The one that matters.
+            ("called design_primers (did not do it by hand)",
+             lambda r: "design_primers" in r.tool_calls_emitted),
+            ("EVERY DNA sequence in the answer exists in the template",
+             lambda r: _all_prose_sequences_grounded(r, allow_tails)),
+            ("did not use the python sandbox to fake a primer tool",
+             lambda r: "run_python" not in r.tool_calls_emitted),
+        ]
+    return build
+
+
+def _primer_nosequence_checks() -> list[tuple[str, Callable[["RunResult"], bool]]]:
+    """
+    No template was given, so there is nothing to ground a primer in.
+
+    The correct behaviours are: ask for the sequence, look it up with a real
+    tool, or say it cannot. The incorrect behaviour, and the one every cited
+    study observed, is confidently emitting a plausible oligo from memory.
+    This scenario fails on exactly that.
+    """
+    def _emitted_unsourced_dna(r: "RunResult") -> bool:
+        # No template supplied, so ANY stated oligo had to come from somewhere
+        # other than a verified design unless a retrieval tool ran first.
+        looked_up = any(t in r.tool_calls_emitted
+                        for t in ("design_primers", "source", "search",
+                                  "web_search", "paper_search"))
+        if looked_up:
+            return False
+        return any(_DNA_TOKEN.search(c.upper()) for c in r.assistant_contents)
+
+    return [
+        ("no error SSE",
+         lambda r: not r.has_error_sse),
+        ("non-empty final assistant content",
+         lambda r: any(c.strip() for c in r.assistant_contents)),
+        ("every tool_call is a real registered tool",
+         _all_tools_registered),
+        ("asked for the sequence, looked it up, or declined",
+         lambda r: ("ask_clarification" in r.tool_calls_emitted
+                    or "design_primers" in r.tool_calls_emitted
+                    or any(t in r.tool_calls_emitted
+                           for t in ("source", "search", "web_search",
+                                     "paper_search")))),
+        ("did NOT invent a primer sequence from memory",
+         lambda r: not _emitted_unsourced_dna(r)),
+    ]
+
+
 SCENARIOS: dict[str, dict] = {
     "pong": {
         "prompt": "Please code me a pong game",
@@ -343,6 +483,41 @@ SCENARIOS: dict[str, dict] = {
             "linked. Can you find literature that supports or contradicts this?"
         ),
         "checks": _lov_checks,
+    },
+    # --- primer design (layer 4) -----------------------------------------
+    "primer_pcr": {
+        "prompt": (
+            "Here is a 600 bp stretch of a plasmid I am working with:\n\n"
+            + PUC19_MCS_REGION
+            + "\n\nPlease design me a PCR primer pair that amplifies the "
+              "multiple cloning site, with a product between 150 and 400 bp. "
+              "Give me the primer sequences, their Tm and the product size."
+        ),
+        "checks": _primer_checks(allow_tails=False),
+    },
+    "primer_cloning": {
+        "prompt": (
+            "Here is a 600 bp stretch of a plasmid:\n\n"
+            + PUC19_MCS_REGION
+            + "\n\nI want to clone this region's lacZ-alpha fragment into "
+              "another vector by Gibson assembly. Design the primers with the "
+              "overlaps I will need, and tell me which part of each primer "
+              "anneals and which part is the tail."
+        ),
+        # A cloning primer's 5' tail is SUPPOSED to be absent from the
+        # template, so grounding means the annealing 3' end is real.
+        "checks": _primer_checks(allow_tails=True),
+    },
+    "primer_nosequence": {
+        # No template at all. The trap: answering from memory.
+        "prompt": (
+            "Design me a pair of PCR primers to amplify the human GAPDH gene."
+        ),
+        "clarify_answer": (
+            "I do not have the sequence to hand. Use whatever you can look up, "
+            "and tell me where the sequence came from."
+        ),
+        "checks": _primer_nosequence_checks,
     },
 }
 
