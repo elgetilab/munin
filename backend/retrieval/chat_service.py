@@ -2267,7 +2267,8 @@ async def stream_chat_completion(
             attachments=user_attachments or None,
             persona=persona_id,
         )
-        saved_ids["user"] = _saved_user["id"]
+        if _saved_user:  # a test stub may return nothing
+            saved_ids["user"] = _saved_user["id"]
         # Reload so the new message is part of the context assembly.
         conversation = await chat_store.get_conversation(conversation["id"], user_email)
         assert conversation is not None
@@ -2687,7 +2688,8 @@ async def stream_chat_completion(
                         rag_context=rag_context,
                         persona=persona_id,
                     )
-                    saved_ids["assistant"] = _saved_clar["id"]
+                    if _saved_clar:  # a test stub may return nothing
+                        saved_ids["assistant"] = _saved_clar["id"]
                     # Without this, the finally block's save-always re-persists
                     # the same turn (chat 9dd753e5, 2026-05-29: two assistant
                     # rows 12ms apart, second one carrying a spurious
@@ -3077,7 +3079,8 @@ async def stream_chat_completion(
                 rag_context=rag_context,
                 persona=persona_id,
             )
-            saved_ids["assistant"] = _saved_reply["id"]
+            if _saved_reply:  # a test stub may return nothing
+                saved_ids["assistant"] = _saved_reply["id"]
             assistant_persisted = True
 
         # --- 7. Auto-title on untitled conversations ---
