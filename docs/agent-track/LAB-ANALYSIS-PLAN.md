@@ -1,12 +1,10 @@
 # Lab analysis: harness, helpers and eval suites
 
-Status: APPROVED 2026-11-13. Phase 0 backend DEPLOYED 2026-11-13 (sandbox,
-retrieval, llm-claude/failover) from branch `deploy/lab-phase0` (=
-`design/site-redesign`, which production already ran, + Phase 0). Live check
-15/15 through the real API. Webui DEPLOYED to the VPS the same day, built from
-`varghele/coding-improvements` (main + Phase 0; not the redesign, whose
-frontend is not live): bundle index-5Cl-2sWA.js. VPS gateway NOT deployed (it
-predates 1e85e73); downloads still work through it, buffered.
+Status: APPROVED 2026-11-13. Phase 0 merged to main (8eb65fc) and DEPLOYED
+from main the same day: sandbox, retrieval, llm-claude/failover and the webui
+(VPS bundle index-5Cl-2sWA.js). Live check 15/15 through the real API against
+main. VPS gateway NOT deployed (predates 1e85e73); downloads still work
+through it, buffered. Next: Phase 1.
 
 Several research groups use GraphPad Prism (and some ChimeraX) for fitting and
 plotting. We want Munin to replace that through chat: users upload instrument
