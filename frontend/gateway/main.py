@@ -788,6 +788,36 @@ PUBLIC_API_PREFIXES = ("tags", "embedding_map")
 ROOT_FALLBACK_PREFIXES = ("search/", "retrieve", "author/", "sources")
 
 
+# Sandbox artifact and bundle downloads: streamed through instead of read into
+# memory, so a large file or analysis bundle neither fills the VPS's RAM nor
+# runs into the client timeout before the first byte reaches the browser.
+DOWNLOAD_PREFIXES = ("artifacts/", "bundles/")
+_DOWNLOAD_HEADERS = ("content-type", "content-length", "content-encoding", "content-disposition",
+                     "cache-control", "etag", "x-munin-sha256")
+
+
+def is_download_path(path: str) -> bool:
+    # /api/artifacts/{cid}/{aid} and /api/bundles/{cid}; not the JSON listing
+    # /api/artifacts/{cid}, which is small and goes the normal way.
+    if path.startswith("bundles/"):
+        return True
+    return path.startswith("artifacts/") and path.count("/") >= 2
+
+
+async def stream_download(client: httpx.AsyncClient, upstream_req: httpx.Request) -> Response:
+    upstream_resp = await client.send(upstream_req, stream=True)
+
+    async def body():
+        try:
+            async for chunk in upstream_resp.aiter_raw():
+                yield chunk
+        finally:
+            await upstream_resp.aclose()
+
+    headers = {k: v for k, v in upstream_resp.headers.items() if k.lower() in _DOWNLOAD_HEADERS}
+    return StreamingResponse(body(), status_code=upstream_resp.status_code, headers=headers)
+
+
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def proxy_api(request: Request, path: str):
     # One backend per request, chosen once: a stream keeps the backend it
@@ -816,7 +846,7 @@ async def proxy_api(request: Request, path: str):
     # Endpoints that bypass the quota check entirely:
     # - Lightweight read-only GET endpoints
     # - Chat completions (forward-auth protected, not the public API)
-    EXEMPT_PREFIXES = ("status", "personas", "sources", "deepresearch/queue", "announcement", "chats", "profile", "artifacts", "projects")
+    EXEMPT_PREFIXES = ("status", "personas", "sources", "deepresearch/queue", "announcement", "chats", "profile", "artifacts", "bundles", "projects")
     is_exempt = (
         (request.method == "GET" and any(path.startswith(p) for p in EXEMPT_PREFIXES))
         or path.startswith("chat/completions")
@@ -877,6 +907,9 @@ async def proxy_api(request: Request, path: str):
             headers=headers,
             content=body if body else None,
         )
+
+        if request.method == "GET" and is_download_path(path):
+            return await stream_download(client, upstream_req)
 
         if is_streaming:
             upstream_resp = await client.send(upstream_req, stream=True)

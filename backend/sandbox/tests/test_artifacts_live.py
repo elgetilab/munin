@@ -270,6 +270,15 @@ check("artifact served after the kernel is gone", fetch(A, v1[0]["id"]).content 
 rk = run(A, "print('fresh kernel')")
 check("a fresh kernel does not re-surface old files", rk["artifacts"] == [], rk["artifacts"])
 
+# ---- deleting the chat purges its files ----------------------------------------
+
+some_c = c.get(f"/artifacts/{C}").json()["artifacts"]
+pg = c.delete(f"/conversations/{C}")
+check("purge reports success", pg.status_code == 200 and pg.json().get("purged"), pg.text)
+check("purged artifacts are gone", some_c and fetch(C, some_c[0]["id"]).status_code == 404)
+check("purged inputs are gone", c.get(f"/inputs/{C}").json()["inputs"] == [])
+check("other conversations are untouched", fetch(A, v1[0]["id"]).content == b"x,y\n1,2\n")
+
 passed = sum(results)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)

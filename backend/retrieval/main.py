@@ -909,12 +909,12 @@ async def api_delete_chat(conversation_id: str, request: Request):
     deleted = await chat_store.delete_conversation(conversation_id, user_email)
     if not deleted:
         raise _error_404("Conversation not found")
-    # Best-effort: release the sandbox kernel for this conversation, if any.
-    # We don't await on a failure - the kernel may not exist (most chats
-    # never call run_python), and the idle reaper is a backstop anyway.
+    # Best-effort: release the sandbox kernel for this conversation and
+    # delete its files and artifacts. A failure only leaves files behind (most
+    # chats never call run_python), and the idle reaper stops the kernel.
     try:
         from mcp.tools.sandbox import sandbox_shutdown
-        await sandbox_shutdown(conversation_id)
+        await sandbox_shutdown(conversation_id, purge=True)
     except Exception as e:
         logger.warning("sandbox_shutdown for %s failed: %s", conversation_id, e)
     return {"deleted": True}

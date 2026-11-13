@@ -13,6 +13,9 @@ Endpoints:
   DELETE /kernels/{conversation_id}  - shut the kernel down (called by the
                                        retrieval container when a chat is
                                        deleted, or by the idle reaper)
+  DELETE /conversations/{cid}        - shut the kernel down AND delete the
+                                       conversation's files, artifacts, inputs
+                                       and code (the chat was deleted)
   GET    /artifacts/{cid}/{aid}      - return a file the kernel produced
                                        (immutable: served from the blob store)
   GET    /artifacts/{cid}            - list the conversation's artifacts
@@ -342,6 +345,24 @@ async def reset_kernel(conversation_id: str) -> dict:
 async def shutdown_kernel(conversation_id: str) -> dict:
     removed = await registry.shutdown(conversation_id)
     return {"shutdown": removed}
+
+
+@app.delete("/conversations/{conversation_id}")
+async def purge_conversation(conversation_id: str) -> dict:
+    """The chat was deleted: its scratch dir and its artifact store go too.
+    Scratch and store are persistent volumes since 2026-11, so without this
+    a deleted chat's files would stay on disk forever."""
+    _require_cid(conversation_id)
+    import shutil
+    await registry.shutdown(conversation_id)
+    removed = []
+    for root in (SCRATCH_ROOT, isolation.META_ROOT):
+        path = os.path.join(root, conversation_id)
+        if os.path.lexists(path):
+            # rmtree unlinks symlinks the kernel planted instead of following them.
+            await run_in_threadpool(shutil.rmtree, path, True)
+            removed.append(root)
+    return {"purged": bool(removed)}
 
 
 def _require_cid(conversation_id: str) -> None:

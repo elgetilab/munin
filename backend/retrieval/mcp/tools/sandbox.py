@@ -328,7 +328,7 @@ async def sandbox_reset() -> dict:
     return r.json()
 
 
-async def sandbox_shutdown(conversation_id: str) -> dict:
+async def sandbox_shutdown(conversation_id: str, purge: bool = False) -> dict:
     """
     Internal helper used by api_delete_chat to release a kernel when its
     conversation row is deleted. Not exposed as an MCP tool — it would let
@@ -338,7 +338,10 @@ async def sandbox_shutdown(conversation_id: str) -> dict:
         return {"shutdown": False, "reason": "no kernel for this conversation"}
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.delete(f"{SANDBOX_URL}/kernels/{conversation_id}")
+            # purge: the chat itself was deleted, so its sandbox files,
+            # artifacts and inputs (persistent volumes since 2026-11) go too.
+            path = "conversations" if purge else "kernels"
+            r = await client.delete(f"{SANDBOX_URL}/{path}/{conversation_id}")
     except httpx.RequestError as e:
         return {"shutdown": False, "error": f"{type(e).__name__}: {e}"}
     if r.status_code != 200:
