@@ -230,7 +230,7 @@ describe('Knowledge lists', () => {
 
   function openPicker() {
     fireEvent.click(screen.getByTestId('composer-attach'));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Attach knowledge' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Choose sources/ }));
     return screen.getByRole('textbox', { name: /search groups/i });
   }
 
@@ -243,7 +243,7 @@ describe('Knowledge lists', () => {
     fireEvent.keyDown(search, { key: 'ArrowDown' });
     fireEvent.keyDown(search, { key: 'Enter' });
     expect(setActiveTags).toHaveBeenCalledWith([{ kind: 'contributor', value: 'ada' }]);
-    expect(screen.queryByRole('dialog', { name: 'Attach knowledge' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Choose sources' })).not.toBeInTheDocument();
   });
 
   it('Escape in the picker closes only it, back onto the + button', () => {
@@ -251,7 +251,7 @@ describe('Knowledge lists', () => {
     renderChatInput();
     const search = openPicker();
     fireEvent.keyDown(search, { key: 'Escape' });
-    expect(screen.queryByRole('dialog', { name: 'Attach knowledge' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Choose sources' })).not.toBeInTheDocument();
     expect(screen.getByTestId('composer-attach')).toHaveFocus();
   });
 
@@ -511,12 +511,12 @@ describe('ChatInput + menu', () => {
     renderChatInput();
     const attach = screen.getByTestId('composer-attach');
     fireEvent.click(attach);
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Attach knowledge' }));
-    expect(screen.getByRole('dialog', { name: 'Attach knowledge' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitem', { name: /Choose sources/ }));
+    expect(screen.getByRole('dialog', { name: 'Choose sources' })).toBeInTheDocument();
 
     fireEvent.mouseDown(attach);
     fireEvent.click(attach);
-    expect(screen.queryByRole('dialog', { name: 'Attach knowledge' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Choose sources' })).not.toBeInTheDocument();
     expect(screen.getByRole('menu', { name: 'Attach' })).toBeInTheDocument();
   });
 
@@ -584,5 +584,14 @@ describe('ChatInput mode chip', () => {
     expect(screen.getByTestId('mode-chip')).toHaveAccessibleName('Mode: Code');
     rerender(<ChatInput onSend={onSend} onStop={() => {}} isStreaming={false} persona={null} conversationId="other" />);
     expect(screen.getByTestId('mode-chip')).toHaveAccessibleName('Mode: Auto');
+  });
+});
+
+describe('ChatInput empty-screen hint', () => {
+  it('teaches # and / on the empty screen only', () => {
+    const { rerender } = render(<ChatInput onSend={() => {}} onStop={() => {}} isStreaming={false} persona={null} conversationId={null} showSuggestions />);
+    expect(screen.getByTestId('composer-hint')).toHaveTextContent('Type # to choose which sources Munin searches, or / for a mode.');
+    rerender(<ChatInput onSend={() => {}} onStop={() => {}} isStreaming={false} persona={null} conversationId="c1" showSuggestions={false} />);
+    expect(screen.queryByTestId('composer-hint')).not.toBeInTheDocument();
   });
 });

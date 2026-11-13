@@ -77,6 +77,15 @@ describe('KnowledgePage', () => {
     await waitFor(() => expect(screen.getByText('Knowledge Base')).toBeInTheDocument());
   });
 
+  it('leaves out figures that are 0', async () => {
+    const { container } = render(<KnowledgePage tagCatalog={{ ...CATALOG, groups: [], contributors: [], contributor_count: 0 }} onChatWithTag={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('Knowledge Base')).toBeInTheDocument());
+    const figures = container.querySelector('.grid') as HTMLElement;
+    expect(figures).toHaveTextContent('Topics');
+    expect(figures).not.toHaveTextContent('Research Groups');
+    expect(figures).not.toHaveTextContent('Contributors');
+  });
+
   describe('browsing papers', () => {
     const PAPERS_PATH = '/api/tags/group/elgeti/papers';
     const paper = (n: number) => ({ title: `Paper ${n}`, doi: `10.1/${n}`, year: 2024, authors: [], journal: 'J', contributors: [] });

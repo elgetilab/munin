@@ -54,21 +54,28 @@ test.describe('overlays and Back', () => {
     await expect(page).toHaveURL(/\/c\/conv-e2e$/);
     await expect(page.getByText('First question')).toBeVisible();
   });
-  test('Temporary chat closes Settings, so Back does not reopen the old chat with it', async ({ page }) => {
+  // Settings is not a chat, so it shows none of the chat's toggles: not in the
+  // header, and not in the phone's ⋯ menu, which keeps only the theme. (This
+  // also retires the old path where Temporary chat, pressed on Settings, left
+  // Back pointing at the previous chat.)
+  test('Settings shows none of the chat\'s toggles, on desktop or in the phone menu', async ({ page }) => {
     await installMocks(page, { conversations: [conversationSummary('cA', 'Conversation A')] });
     await page.goto('/c/cA');
     await page.getByText('e2e@test.local').click();
     await page.getByRole('menuitem', { name: 'Settings' }).click();
-    const heading = page.getByRole('heading', { name: 'Settings' });
-    await expect(heading).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+    for (const name of ['Temporary chat', 'Artifacts', 'Sources']) {
+      await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0);
+    }
 
-    await page.getByRole('button', { name: 'Temporary chat' }).click();
-    await expect(heading).toBeHidden();
-    await expect(page).toHaveURL(/\/$/);
-
-    await page.goBack();
-    await expect(page).toHaveURL(/\/c\/cA$/);
-    await expect(heading).toBeHidden();
+    await page.setViewportSize({ width: 390, height: 844 });
+    // The sidebar left open on desktop is a drawer over the page on a phone.
+    const close = page.getByRole('button', { name: 'Close menu' });
+    if (await close.isVisible()) await close.click();
+    await page.getByRole('button', { name: 'Chat options' }).click();
+    const menu = page.getByRole('menu', { name: 'Chat options' });
+    await expect(menu.getByText(/Switch to (light|dark) theme/)).toBeVisible();
+    await expect(menu.getByText('Temporary chat')).toHaveCount(0);
   });
 });
 

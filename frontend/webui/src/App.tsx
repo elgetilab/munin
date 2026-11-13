@@ -968,6 +968,7 @@ export default function App() {
             artifacts={!isEphemeral ? { open: artifactPanelOpen, count: artifacts.length, onToggle: () => { if (mayDropArtifactDraft()) setArtifactPanelOpen(!artifactPanelOpen); } } : undefined}
             sources={tagCatalog ? { open: knowledgePanelOpen, count: activeTags.length, onToggle: () => { if (mayDropArtifactDraft()) setKnowledgePanelOpen(!knowledgePanelOpen); } } : undefined}
             report={conversationId && !isEphemeral && messages.length > 0 ? { reported: reportedChats.has(conversationId), onReport: () => setShowReportDialog(true) } : undefined}
+            chatItems={!overlayView}
           />
 
           {/* From md up, the toggles sit in the header itself; Settings, Admin

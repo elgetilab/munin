@@ -20,7 +20,7 @@ function MoreIcon() {
  * row of bare icons whose titles never show on touch. From md up the header
  * shows the toggles and site links itself.
  */
-export function PhoneHeader({ title, onNewChat, isEphemeral, onToggleEphemeral, artifacts, sources, report }: {
+export function PhoneHeader({ title, onNewChat, isEphemeral, onToggleEphemeral, artifacts, sources, report, chatItems = true }: {
   title: string;
   onNewChat: () => void;
   isEphemeral: boolean;
@@ -31,6 +31,9 @@ export function PhoneHeader({ title, onNewChat, isEphemeral, onToggleEphemeral, 
   sources?: { open: boolean; count: number; onToggle: () => void };
   /** Absent where the chat cannot be reported. */
   report?: { reported: boolean; onReport: () => void };
+  /** False on Settings, Admin and a project's page, which are not a chat:
+   *  the menu then holds the theme only. */
+  chatItems?: boolean;
 }) {
   const menu = useMenu();
   const { theme, setPref } = useTheme();
@@ -56,6 +59,7 @@ export function PhoneHeader({ title, onNewChat, isEphemeral, onToggleEphemeral, 
         </button>
         {menu.open && (
           <div {...menu.menuProps} aria-label="Chat options" className="absolute top-full right-0 mt-2 w-64 max-w-[calc(100vw-2rem)] bg-bg-secondary border border-border rounded-xl shadow-lg z-50 overflow-hidden py-1">
+            {chatItems && <>
             <button type="button" role="menuitemcheckbox" aria-checked={isEphemeral} onClick={pick(onToggleEphemeral)} className={ITEM}>
               <span className={isEphemeral ? 'text-warning' : 'text-text-secondary'}><GhostIcon size={16} /></span>
               <span className="flex-1">Temporary chat</span>
@@ -82,6 +86,7 @@ export function PhoneHeader({ title, onNewChat, isEphemeral, onToggleEphemeral, 
               </button>
             )}
             <div className="my-1 border-t border-border" />
+            </>}
             <button type="button" role="menuitem" onClick={pick(() => setPref(nextTheme))} className={ITEM}>
               <span className="text-text-secondary">{theme === 'dark' ? <SunIcon size={16} /> : <MoonIcon size={16} />}</span>
               <span className="flex-1">{`Switch to ${nextTheme} theme`}</span>

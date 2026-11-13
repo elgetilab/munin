@@ -68,12 +68,12 @@ describe('Settings', () => {
     expect(screen.queryByText(/injected/)).not.toBeInTheDocument();
   });
 
-  it('explains what a persona is and what the empty choice does', () => {
+  // The mode chip sets the mode now, and only one persona exists.
+  it('has no Default persona field, and one Save for the whole page', () => {
     useUserStore.setState({ personas: [{ id: 'chat', name: 'Chat' }] } as never);
     renderSettings();
-    const select = screen.getByLabelText('Default persona');
-    expect(select).toHaveAccessibleDescription(/A persona is a preset way for Munin to work/);
-    expect(within(select).getByRole('option', { name: 'None (Munin picks for each chat)' })).toHaveValue('');
+    expect(screen.queryByLabelText('Default persona')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Save' })).toHaveLength(1);
   });
 
   describe('profile picture', () => {
@@ -113,7 +113,7 @@ describe('Settings', () => {
       const small = new File([new Uint8Array(10)], 'me.png', { type: 'image/png' });
       await user.upload(fileInput(container), small);
       expect(await screen.findByText(/Not saved yet/)).toBeInTheDocument();
-      await user.click(screen.getByRole('button', { name: 'Save account' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
       await waitFor(() => expect(screen.queryByText(/Not saved yet/)).not.toBeInTheDocument());
     });
   });
@@ -196,23 +196,28 @@ describe('Settings', () => {
   });
 
   describe('Munin profile load', () => {
-    const saveButton = () => screen.getByRole('button', { name: 'Save Munin profile' });
+    // One Save for the page: it always saves the account, and the profile only
+    // once it has loaded, so a failed load can't overwrite it with blanks.
+    const saveButton = () => screen.getByRole('button', { name: 'Save' });
+    const aboutYou = () => screen.getByLabelText('About you');
 
-    it('keeps the profile Save off and sends nothing when the load fails', async () => {
+    it('saves the account but not the profile when the profile failed to load', async () => {
       const user = userEvent.setup();
-      let saves = 0;
+      let profileSaves = 0, accountSaves = 0;
       server.use(
         http.get('/api/profile', () => new HttpResponse(null, { status: 500 })),
-        http.put('/api/profile', () => { saves += 1; return HttpResponse.json({}); }),
+        http.put('/api/profile', () => { profileSaves += 1; return HttpResponse.json({}); }),
+        http.patch('*/auth/me', async ({ request }) => { accountSaves += 1; return HttpResponse.json({ ...PROFILE, ...(await request.json() as object) }); }),
       );
       renderSettings();
       expect(await screen.findByText(/Could not load your Munin profile/)).toBeInTheDocument();
-      expect(saveButton()).toBeDisabled();
+      expect(aboutYou()).toBeDisabled();
       await user.click(saveButton());
-      expect(saves).toBe(0);
+      await waitFor(() => expect(accountSaves).toBe(1));
+      expect(profileSaves).toBe(0);
     });
 
-    it('keeps the profile Save off while the profile is still loading', async () => {
+    it('keeps the profile fields off while the profile is still loading', async () => {
       let finish!: () => void;
       const held = new Promise<void>(resolve => { finish = resolve; });
       server.use(http.get('/api/profile', async () => {
@@ -220,17 +225,24 @@ describe('Settings', () => {
         return HttpResponse.json({ user_email: 'test@test.com', about_me: 'stored' });
       }));
       renderSettings();
-      expect(saveButton()).toBeDisabled();
+      expect(aboutYou()).toBeDisabled();
       finish();
-      await waitFor(() => expect(saveButton()).toBeEnabled());
+      await waitFor(() => expect(aboutYou()).toBeEnabled());
       expect(screen.getByDisplayValue('stored')).toBeInTheDocument();
     });
 
-    it('allows the profile Save when no profile exists yet', async () => {
-      server.use(http.get('/api/profile', () => new HttpResponse(null, { status: 404 })));
+    it('saves the profile when none exists yet', async () => {
+      const user = userEvent.setup();
+      let profileSaves = 0;
+      server.use(
+        http.get('/api/profile', () => new HttpResponse(null, { status: 404 })),
+        http.put('/api/profile', () => { profileSaves += 1; return HttpResponse.json({ user_email: 'test@test.com' }); }),
+      );
       renderSettings();
-      await waitFor(() => expect(saveButton()).toBeEnabled());
+      await waitFor(() => expect(aboutYou()).toBeEnabled());
       expect(screen.queryByText(/Could not load your Munin profile/)).not.toBeInTheDocument();
+      await user.click(saveButton());
+      await waitFor(() => expect(profileSaves).toBe(1));
     });
 
     it('Retry loads the stored values and turns saving back on', async () => {
@@ -243,7 +255,8 @@ describe('Settings', () => {
       const notice = (await screen.findByText(/Could not load your Munin profile/)).closest('[role="alert"]') as HTMLElement;
       fail = false;
       await user.click(within(notice).getByRole('button', { name: 'Retry' }));
-      await waitFor(() => expect(saveButton()).toBeEnabled());
+      await waitFor(() => expect(aboutYou()).toBeEnabled());
+      expect(saveButton()).toBeEnabled();
       expect(screen.getByDisplayValue('stored')).toBeInTheDocument();
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
@@ -254,7 +267,7 @@ describe('Settings', () => {
       const user = userEvent.setup();
       server.use(http.patch('*/auth/me', () => new HttpResponse(null, { status: 500 })));
       renderSettings();
-      await user.click(screen.getByRole('button', { name: 'Save account' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
       expect(await screen.findByText(/Could not save your changes/)).toBeInTheDocument();
     });
 
@@ -342,7 +355,6 @@ describe('Settings', () => {
       expect(screen.getByLabelText('What should Munin call you?')).toHaveValue('tester');
       expect(screen.getByLabelText('About you').tagName).toBe('TEXTAREA');
       expect(screen.getByLabelText('How should Munin respond?').tagName).toBe('TEXTAREA');
-      expect(screen.getByLabelText('Default persona').tagName).toBe('SELECT');
       expect(screen.getByLabelText('Timezone').tagName).toBe('SELECT');
       expect(screen.getByLabelText('API key name')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Change profile picture' })).toBeInTheDocument();

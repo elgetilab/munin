@@ -1026,7 +1026,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             {knowledgePickerOpen && (
               <div
                 {...knowledgePicker.menuProps}
-                aria-label="Attach knowledge"
+                aria-label="Choose sources"
                 onKeyDown={e => {
                   if (e.key !== 'Escape') return;
                   // Handled here so that focus goes back to the + button.

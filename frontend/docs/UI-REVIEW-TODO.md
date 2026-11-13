@@ -209,8 +209,8 @@ Effort: S under half a day, M one to two days, L more.
     streaming indicator, so the page looks like it is still loading. The spinner
     belongs to the chat's working states only.
   - **Fix:** A static raven mark.
-- [ ] **Starting points** (S, to decide)
-  - **Open: to compare side by side as artifacts before deciding.**
+- [x] **Starting points** (S, to decide)
+  - **Done 2026-11-13, picked side by side: one quiet line under the composer on the empty screen teaching # and /.**
   - **Background:** The prompt-suggestion cards were tried and rejected on
     2026-11-12.
   - **Fix:** Something lighter that teaches the product, if anything. For
@@ -218,8 +218,8 @@ Effort: S under half a day, M one to two days, L more.
 
 ## 5. Quick wins
 
-- [ ] **Undiscoverable `#` sources** (S)
-  - **Open: to compare side by side as artifacts before deciding.**
+- [x] **Undiscoverable `#` sources** (S)
+  - **Done 2026-11-13, picked side by side: the same hint line, and Choose sources with # in the + menu.**
   - **Problem:** The placeholder only mentions `/` commands.
   - **Fix:** Add "Type # to pick sources" to the + menu or a hint line.
 - [x] **Search-chats modal** (S) *(done in the a11y/keyboard-focus merge, with Ctrl/Cmd+K)*
@@ -230,8 +230,8 @@ Effort: S under half a day, M one to two days, L more.
     - Nothing opens it from the keyboard.
   - **Fixes:** Hide the preview when it equals the title, drop the inner focus
     box, and bind Ctrl/Cmd+K.
-- [ ] **Settings overlay** (S)
-  - **Open: to compare side by side as artifacts before deciding.**
+- [x] **Settings overlay** (S)
+  - **Done 2026-11-13, picked side by side: no chat toggles on overlay views (header and phone menu), one Save, the persona field gone.**
   - **Problems:**
     - The chat toggles stay in the header on Settings, and Artifacts opens over
       the form.
@@ -239,15 +239,15 @@ Effort: S under half a day, M one to two days, L more.
     - "Default persona" contradicts "Munin picks the mode".
   - **Fixes:** Hide the toggles on overlay views, keep one Save button, and
     pick one term.
-- [ ] **Knowledge page copy** (S)
-  - **Open: to compare side by side as artifacts before deciding.**
+- [x] **Knowledge page copy** (S)
+  - **Done 2026-11-13, picked side by side: "The paper map hasn't been built yet. It updates nightly.", zero figures left out.**
   - **Problem:** It shows "84 Papers (approx.)" next to "No papers mapped yet"
     (`EmbeddingMapView.tsx` ~184), plus "0 Research Groups / 0 Contributors"
     cards.
   - **Fix:** Reword to "The paper map hasn't been built yet. It updates
     nightly.", and hide cards whose count is zero.
-- [ ] **Sources panel** (S)
-  - **Open: to compare side by side as artifacts before deciding.**
+- [x] **Sources panel** (S)
+  - **Done 2026-11-13, picked side by side: an empty section says None yet and does not open.**
   - **Problem:** "Research Groups (0)" expands to nothing.
   - **Fix:** Show "No groups yet", or disable the expander.
 - [x] **Focus ring colour** (S) *(done in the a11y/keyboard-focus merge, one focus-ring token)*
@@ -259,13 +259,13 @@ Effort: S under half a day, M one to two days, L more.
 
 - [x] **The homepage redesign**, in progress separately: mockups in the design *(done on design/site-redesign)*
   thread.
-- [ ] **Search page on a phone** (S)
-  - **Open: to compare side by side as artifacts before deciding.**
+- [x] **Search page on a phone** (S)
+  - **Done 2026-11-13, picked side by side: the box takes the full width, Search under it.**
   - **Problem:** The topic input and the Search button share a row, leaving the
     input about 220px wide.
   - **Fix:** Stack them, or use an icon button.
-- [ ] **Upload page** (S)
-  - **Open: to compare side by side as artifacts before deciding.**
+- [x] **Upload page** (S)
+  - **Done before 2026-11-13 by the site redesign (brass browse link, picker fills its half); nothing left to change.**
   - **Problem:** The Uppy dashboard keeps its own cyan "browse files" link and
     is narrower than the content column.
   - **Fix:** Theme the link to `--accent` and make the dashboard full width.
@@ -276,8 +276,8 @@ Effort: S under half a day, M one to two days, L more.
   - **Problem:** The `|`-separated link rows in the search, research and upload
     footers.
   - **Fix:** One muted line.
-- [ ] **Phone nav** (S)
-  - **Open: to compare side by side as artifacts before deciding.**
+- [x] **Phone nav** (S)
+  - **Done 2026-11-13, picked side by side: the right edge fades out.**
   - **Problem:** The static nav scrolls sideways with "Upload" cut off and
     nothing to show there is more.
   - **Fix:** A fade or shadow at the edge of the scrolling nav.
