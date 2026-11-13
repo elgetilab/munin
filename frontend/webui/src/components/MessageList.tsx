@@ -14,6 +14,7 @@ import { BTN_PRIMARY } from './ui/cardButton';
 import { CHAT_COLUMN } from './ui/chatColumn';
 import { ReplyActions } from './ReplyActions';
 import { UserMessage } from './UserMessage';
+import { ModeLabel } from './ModeChip';
 import { canResend } from '../lib/resend';
 
 interface RetryingState {
@@ -69,23 +70,6 @@ interface MessageListProps {
   onResend?: (messageId: string, content: string) => void;
 }
 
-// Small muted pill showing the internal profile the per-turn router
-// selected for an assistant message ("code" / "research"). The plain
-// "chat" profile is the default and gets no chip, keeping the common
-// case visually quiet.
-function RoutedProfileChip({ profile }: { profile?: string | null }) {
-  if (!profile) return null;
-  const normalized = profile.toLowerCase();
-  if (normalized === 'chat' || normalized === 'munin') return null;
-  const label = normalized.charAt(0).toUpperCase() + normalized.slice(1);
-  return (
-    <div className="select-none">
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wider text-text-secondary bg-bg-tertiary border border-border">
-        {label}
-      </span>
-    </div>
-  );
-}
 
 /** Strip system-injected context blocks (e.g. artifact summaries) from assistant content */
 function cleanContent(raw: string): string {
@@ -308,8 +292,9 @@ export function MessageList({ messages, streaming, onSendClarification, onDismis
               />
             )}
 
-            {/* Routed-profile chip for the in-progress turn. */}
-            <RoutedProfileChip profile={streaming.routedProfile} />
+            {/* The mode the router picked for the turn in progress, as quiet
+                text; a finished reply shows it in its action row. */}
+            <ModeLabel profile={streaming.routedProfile} />
 
             {/* Loading vortex — show when no content yet OR during tool calls */}
             {(!streaming.content.trim() || streaming.phase === 'tool_call') && (
@@ -395,11 +380,6 @@ function MessageBubble({ message, conversationId, onSendClarification, onDismiss
         />
       )}
 
-      {/* Routed-profile chip: the internal profile the per-turn router
-          selected for this assistant turn (stored on message.persona).
-          Hidden for the default "chat" profile. */}
-      <RoutedProfileChip profile={message.persona} />
-
       {cleanContent(message.content) && (
         <div className="text-base text-text-primary leading-relaxed">
           <Markdown content={cleanContent(message.content)} />
@@ -435,7 +415,7 @@ function MessageBubble({ message, conversationId, onSendClarification, onDismiss
 
       {/* Copy and Report, under a reply that has text. */}
       {actions && cleanContent(message.content) && (
-        <ReplyActions content={cleanContent(message.content)} replyNumber={actions.replyNumber} latest={actions.latest} canReport={actions.canReport} onRetry={actions.onRetry} />
+        <ReplyActions content={cleanContent(message.content)} replyNumber={actions.replyNumber} latest={actions.latest} canReport={actions.canReport} onRetry={actions.onRetry} mode={message.persona} />
       )}
 
       {/* P2 #25: auto-extracted memory candidates. Rendered below the

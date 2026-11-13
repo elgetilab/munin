@@ -178,3 +178,22 @@ describe('Retry and Edit in the message list', () => {
     expect(screen.queryByRole('button', { name: 'Edit message' })).not.toBeInTheDocument();
   });
 });
+
+describe('modes in the message list', () => {
+  const mk = (id: string, role: Message['role'], content: string, persona?: string): Message => ({ id, role, content, persona, created_at: new Date().toISOString() });
+  const idle = { phase: 'idle', content: '', thinking: '', toolCalls: [], ragContext: null } as never;
+
+  it('shows a sent command as a label over the bubble, not in the text', () => {
+    render(<MessageList messages={[mk('u1', 'user', '/research GPCR desensitisation')]} streaming={idle} />);
+    expect(screen.getByText('GPCR desensitisation')).toBeInTheDocument();
+    expect(screen.queryByText(/\/research/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('sent-mode')).toHaveTextContent('Research');
+  });
+
+  it("labels a reply's routed mode in its action row, and plain chat not at all", () => {
+    render(<MessageList messages={[mk('u1', 'user', 'q'), mk('a1', 'assistant', 'one', 'code'), mk('u2', 'user', 'q2'), mk('a2', 'assistant', 'two', 'chat')]} streaming={idle} />);
+    const labels = screen.getAllByTestId('mode-label');
+    expect(labels).toHaveLength(1);
+    expect(labels[0]).toHaveTextContent('Code');
+  });
+});

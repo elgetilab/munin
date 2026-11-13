@@ -10,6 +10,8 @@ import { useMenu } from '../hooks/useMenu';
 import { lastInputWasKeyboard, trackFocusModality } from '../lib/focusModality';
 import { ICON } from './ui/cardButton';
 import { CHAT_COLUMN } from './ui/chatColumn';
+import { ModeChip } from './ModeChip';
+import { typedMode, withMode, type Mode } from '../lib/modes';
 import { BookIcon, ChatIcon, FlaskIcon, PageIcon, SearchIcon, SpinnerIcon } from './ui/icons';
 
 // Router-recognized per-turn overrides (backend parse_slash: research|code|chat).
@@ -241,6 +243,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const drQueued = useDeepResearchStore(s => s.job?.status === 'queued');
   const [drStarting, setDrStarting] = useState(false);
   const [deepResearchMode, setDeepResearchMode] = useState(false);
+  // The mode chip's choice. It holds for this chat and goes back to Auto in
+  // another one (adjusted during render, React's pattern for state derived
+  // from a prop, so the chip never shows the old chat's mode for a frame).
+  const [mode, setMode] = useState<Mode>('auto');
+  const [modeChat, setModeChat] = useState(conversationId);
+  if (modeChat !== conversationId) {
+    setModeChat(conversationId);
+    if (conversationId == null || modeChat != null) setMode('auto');
+  }
   const [input, setInput] = useState('');
   const attachMenu = useMenu();
   const [knowledgePickerOpen, setKnowledgePickerOpen] = useState(false);
@@ -442,7 +453,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     if (hasAttachments && onSendMultimodal) {
       const content: Array<{ type: string; text?: string; image_url?: { url: string }; document_id?: string; filename?: string }> = [];
       if (trimmed) {
-        content.push({ type: 'text', text: trimmed });
+        content.push({ type: 'text', text: withMode(trimmed, mode) });
       }
       for (const img of pendingImages) {
         content.push({ type: 'image_url', image_url: { url: img.dataUrl } });
@@ -454,7 +465,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       setPendingImages([]);
       setPendingDocs([]);
     } else if (trimmed) {
-      onSend(trimmed);
+      onSend(withMode(trimmed, mode));
     }
     setInput('');
     setImageError(null);
@@ -1052,20 +1063,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
           <div className="flex-1" />
 
-          {/* Munin identity mark - non-interactive. The model now
-              auto-routes per turn, so there's no persona to pick. The black
-              raven logo sits centered in a white circle so it reads cleanly on
-              the dark composer. */}
-          <div className="flex items-center gap-1.5 px-2 select-none" aria-hidden>
-            <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-white">
-              <img
-                src="/shared/munin_logo_without_script.svg"
-                alt="Munin"
-                className="h-4 w-4 object-contain"
-              />
-            </span>
-            <span className="text-sm text-text-secondary">Munin</span>
-          </div>
+          {/* The mode the next message goes in, where Claude has its model
+              picker. A typed /command shows here too and wins on send. */}
+          <ModeChip mode={mode} onChange={m => { setMode(m); textareaRef.current?.focus(); }} typed={typedMode(input)} deepResearch={deepResearchMode} />
 
           {/* Send / Stop button */}
           {isStreaming ? (

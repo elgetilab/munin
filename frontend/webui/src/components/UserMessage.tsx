@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { PencilIcon } from './ui/icons';
 import { lastInputWasKeyboard } from '../lib/focusModality';
+import { MODES, splitMode } from '../lib/modes';
+import { ModeIcon } from './ModeChip';
 
 /**
  * A user's message, with an Edit pencil when it can be sent again in place.
@@ -89,9 +91,21 @@ export function UserMessage({ content, onEdit, dropsLaterTurns }: {
     );
   }
 
+  // A leading /research, /code or /chat (typed, or added by the mode chip)
+  // shows as a small label over the bubble instead of in the text.
+  const shown = splitMode(content);
+  const forced = shown.mode ? MODES.find(m => m.id === shown.mode) : null;
+
   return (
     // The pencil sits beside the bubble, so it takes no height of its own.
-    <div className="group/user flex justify-end items-end gap-1">
+    <div className="group/user flex flex-col items-end gap-1">
+      {forced && (
+        <span className="inline-flex items-center gap-1 pr-1 text-xs text-text-secondary select-none" data-testid="sent-mode">
+          <ModeIcon mode={forced.id} size={12} />
+          {forced.label}
+        </span>
+      )}
+    <div className="flex justify-end items-end gap-1 w-full">
       {onEdit && (
         <button
           ref={pencilRef}
@@ -105,8 +119,9 @@ export function UserMessage({ content, onEdit, dropsLaterTurns }: {
         </button>
       )}
       <div className="max-w-[80%] bg-bg-tertiary border border-transparent rounded-2xl px-4 py-3 text-base text-text-primary leading-relaxed whitespace-pre-wrap wrap-anywhere">
-        {content}
+        {shown.text}
       </div>
+    </div>
     </div>
   );
 }

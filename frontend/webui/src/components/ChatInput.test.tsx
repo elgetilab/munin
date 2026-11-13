@@ -528,3 +528,61 @@ describe('ChatInput + menu', () => {
     expect(box).toHaveFocus();
   });
 });
+
+describe('ChatInput mode chip', () => {
+  const renderWith = (onSend = vi.fn(), conversationId: string | null = 'conv-1') => {
+    const view = render(<ChatInput onSend={onSend} onStop={() => {}} isStreaming={false} persona={null} conversationId={conversationId} />);
+    return { onSend, ...view };
+  };
+  const pick = (label: string) => {
+    fireEvent.click(screen.getByTestId('mode-chip'));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: new RegExp(`^${label}`) }));
+  };
+
+  it('starts on Auto and sends the message as typed', () => {
+    const { onSend } = renderWith();
+    expect(screen.getByTestId('mode-chip')).toHaveAccessibleName('Mode: Auto');
+    type('What is a GPCR?');
+    key('Enter');
+    expect(onSend).toHaveBeenCalledWith('What is a GPCR?');
+  });
+
+  it('sends with the chosen mode\'s command, and keeps the mode for the next message', () => {
+    const { onSend } = renderWith();
+    pick('Research');
+    expect(screen.getByTestId('mode-chip')).toHaveAccessibleName('Mode: Research');
+    type('GPCR desensitisation');
+    key('Enter');
+    expect(onSend).toHaveBeenLastCalledWith('/research GPCR desensitisation');
+    type('and arrestins?');
+    key('Enter');
+    expect(onSend).toHaveBeenLastCalledWith('/research and arrestins?');
+  });
+
+  it('marks the chosen mode in its menu', () => {
+    renderWith();
+    pick('Code');
+    fireEvent.click(screen.getByTestId('mode-chip'));
+    expect(screen.getByRole('menuitemradio', { name: /^Code/ })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('menuitemradio', { name: /^Auto/ })).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('shows a typed command, which wins over the chip on send', () => {
+    const { onSend } = renderWith();
+    pick('Research');
+    type('/code fix this loop');
+    expect(screen.getByTestId('mode-chip')).toHaveAccessibleName('Mode: Code, set by the typed command');
+    key('Enter');
+    expect(onSend).toHaveBeenCalledWith('/code fix this loop');
+  });
+
+  it('goes back to Auto in another chat, but not when a new chat gets its id', () => {
+    const onSend = vi.fn();
+    const { rerender } = render(<ChatInput onSend={onSend} onStop={() => {}} isStreaming={false} persona={null} conversationId={null} />);
+    pick('Code');
+    rerender(<ChatInput onSend={onSend} onStop={() => {}} isStreaming={false} persona={null} conversationId="new-id" />);
+    expect(screen.getByTestId('mode-chip')).toHaveAccessibleName('Mode: Code');
+    rerender(<ChatInput onSend={onSend} onStop={() => {}} isStreaming={false} persona={null} conversationId="other" />);
+    expect(screen.getByTestId('mode-chip')).toHaveAccessibleName('Mode: Auto');
+  });
+});

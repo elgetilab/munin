@@ -98,8 +98,8 @@ Effort: S under half a day, M one to two days, L more.
   - **Problem:** The input is 14px while replies are 16px.
   - **Where:** `ChatInput.tsx` ~910.
   - **Fix:** 16px text and a slightly taller minimum height.
-- [ ] **The "Munin" badge does nothing** (S)
-  - **Decided 2026-11-13: do, as a mode chip showing the routed mode, which can set /research etc.**
+- [x] **The "Munin" badge does nothing** (S)
+  - **Done 2026-11-13: a mode chip (Auto, Chat, Code, Research) that sends the slash command, which the router treats as absolute.**
   - **Problem:** The badge (`aria-hidden`) sits where Claude has its model
     picker but does nothing. In light mode its white circle disappears into the
     card.
@@ -135,8 +135,8 @@ Effort: S under half a day, M one to two days, L more.
     ~238).
   - **Fix:** One sans line, collapsed by default ("Searched the web · 1 result
     ›").
-- [ ] **Drop the RESEARCH / CODE pill** (S)
-  - **Decided 2026-11-13: do.**
+- [x] **Drop the RESEARCH / CODE pill** (S)
+  - **Done 2026-11-13: a quiet mode label in the reply's action row (and over a reply while it streams); a sent command shows as a label over the user's bubble.**
   - **Problem:** Every turn carries an uppercase routed-profile pill
     (`MessageList.tsx` ~72).
   - **Fix:** Drop it, or fold it into the tool line.
