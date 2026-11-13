@@ -228,7 +228,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   isStreaming,
   researchActive = false,
   suggestions: _suggestions,
-  showSuggestions: _showSuggestions,
+  showSuggestions,
   conversationId,
   onFileUploaded,
 }: ChatInputProps, ref) {
@@ -982,7 +982,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-tertiary transition-colors cursor-pointer"
                 >
                   <BookIcon size={16} />
-                  Attach knowledge
+                  <span className="flex-1">Choose sources</span>
+                  <kbd className="text-[11px] font-mono text-text-secondary border border-border rounded px-1.5 py-0.5">#</kbd>
                 </button>
 
                 {/* Deep Research toggle. When on, the next send starts a
@@ -1109,6 +1110,12 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         </div>
       </div>
 
+      {/* The empty screen teaches the two shortcuts once, quietly. */}
+      {showSuggestions && (
+        <p className="text-center text-xs text-text-secondary mt-3" data-testid="composer-hint">
+          Type <kbd className="font-mono text-text-primary border border-border rounded px-1 py-px">#</kbd> to choose which sources Munin searches, or <kbd className="font-mono text-text-primary border border-border rounded px-1 py-px">/</kbd> for a mode.
+        </p>
+      )}
       {/* A little more air under the composer on a phone. */}
       <p className="text-center text-[11px] text-text-secondary mt-3 md:mt-2">
         Munin can make mistakes. Verify important information.
