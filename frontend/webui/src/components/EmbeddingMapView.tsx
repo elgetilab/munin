@@ -181,7 +181,7 @@ export function EmbeddingMapView({ mapData, loading, error, onRetry, onNavigateT
   if (!mapData || mapData.points.length === 0) {
     return (
       <div className="mb-8 bg-bg-secondary border border-border rounded-xl p-8 text-center text-text-secondary text-sm">
-        No papers mapped yet.
+        The paper map hasn't been built yet. It updates nightly.
       </div>
     );
   }

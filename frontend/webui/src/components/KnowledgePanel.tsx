@@ -16,8 +16,17 @@ interface KnowledgePanelProps {
 // Topics are a long list. Above this many, a filter beats paging through them.
 const TOPIC_FILTER_THRESHOLD = 20;
 
-function Section({ title, defaultOpen, children }: { title: string; defaultOpen?: boolean; children: ReactNode }) {
+function Section({ title, defaultOpen, empty, children }: { title: string; defaultOpen?: boolean; empty?: string; children: ReactNode }) {
   const [open, setOpen] = useState(defaultOpen ?? false);
+  // Nothing to open: say so on the row instead of expanding to nothing.
+  if (empty) {
+    return (
+      <div className="border-b border-border last:border-b-0 flex items-center justify-between px-4 py-3 text-sm">
+        <span className="font-medium text-text-primary">{title}</span>
+        <span className="text-xs text-text-secondary">{empty}</span>
+      </div>
+    );
+  }
   return (
     <div className="border-b border-border last:border-b-0">
       <button
@@ -144,7 +153,7 @@ export function KnowledgePanel({ catalog, activeTags, onTagsChange }: KnowledgeP
           {/* Scrollable content */}
           <div className="flex-1 overflow-y-auto">
             {/* Research Groups */}
-            <Section title={`Research Groups (${catalog.groups.length})`} defaultOpen={true}>
+            <Section title={catalog.groups.length > 0 ? `Research Groups (${catalog.groups.length})` : 'Research Groups'} empty={catalog.groups.length === 0 ? 'None yet' : undefined} defaultOpen={true}>
               <div className="flex flex-col gap-1">
                 {catalog.groups.map(g => (
                   <TagRow
@@ -160,7 +169,7 @@ export function KnowledgePanel({ catalog, activeTags, onTagsChange }: KnowledgeP
             </Section>
 
             {/* Contributors */}
-            <Section title={`Contributors (${catalog.contributors.length})`}>
+            <Section title={catalog.contributors.length > 0 ? `Contributors (${catalog.contributors.length})` : 'Contributors'} empty={catalog.contributors.length === 0 ? 'None yet' : undefined}>
               <div className="flex flex-col gap-1">
                 {catalog.contributors.map(c => (
                   <TagRow
@@ -176,7 +185,7 @@ export function KnowledgePanel({ catalog, activeTags, onTagsChange }: KnowledgeP
             </Section>
 
             {/* Topics */}
-            <Section title={`Topics (${catalog.topics.length})`}>
+            <Section title={catalog.topics.length > 0 ? `Topics (${catalog.topics.length})` : 'Topics'} empty={catalog.topics.length === 0 ? 'None yet' : undefined}>
               <div className="flex flex-col gap-1">
                 {catalog.topics.length > TOPIC_FILTER_THRESHOLD && (
                   <input

@@ -218,12 +218,21 @@ function OverviewView({ catalog, papersStat, mapData, mapLoading, mapError, onRe
   return (
     <div className="px-6 py-6 max-w-4xl mx-auto">
       {/* Stats bar */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <StatCard icon={<PageIcon size={16} />} label={papersStat.label} value={papersStat.value} />
-        <StatCard icon={<TagIcon size={16} />} label="Topics" value={String(catalog.topics.length)} />
-        <StatCard icon={<UsersIcon size={16} />} label="Research Groups" value={String(catalog.groups.length)} />
-        <StatCard icon={<UserIcon size={16} />} label="Contributors" value={String(catalog.contributor_count ?? catalog.contributors.length)} />
-      </div>
+      {/* A figure of 0 says nothing yet, so it is left out. */}
+      {(() => {
+        const cards = [
+          { key: 'papers', icon: <PageIcon size={16} />, label: papersStat.label, value: papersStat.value, n: 1 },
+          { key: 'topics', icon: <TagIcon size={16} />, label: 'Topics', value: String(catalog.topics.length), n: catalog.topics.length },
+          { key: 'groups', icon: <UsersIcon size={16} />, label: 'Research Groups', value: String(catalog.groups.length), n: catalog.groups.length },
+          { key: 'contributors', icon: <UserIcon size={16} />, label: 'Contributors', value: String(catalog.contributor_count ?? catalog.contributors.length), n: catalog.contributor_count ?? catalog.contributors.length },
+        ].filter(c => c.n > 0);
+        const cols = cards.length >= 4 ? 'md:grid-cols-4' : cards.length === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2';
+        return (
+          <div className={`grid grid-cols-2 ${cols} gap-4 mb-8`}>
+            {cards.map(c => <StatCard key={c.key} icon={c.icon} label={c.label} value={c.value} />)}
+          </div>
+        );
+      })()}
 
       {/* Embedding Map */}
       <EmbeddingMapView
