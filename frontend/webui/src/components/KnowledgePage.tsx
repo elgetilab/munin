@@ -252,7 +252,7 @@ function OverviewView({ catalog, papersStat, mapData, mapLoading, mapError, onRe
 function StatCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
     <div className="bg-bg-secondary border border-border rounded-2xl px-4 py-3.5 flex items-start gap-3">
-      <span className="flex-shrink-0 mt-0.5 inline-flex items-center justify-center w-8 h-8 rounded-lg bg-accent/10 text-accent">{icon}</span>
+      <span className="flex-shrink-0 mt-1.5 text-accent">{icon}</span>
       <div className="min-w-0">
         <div className="text-xl font-semibold tracking-[-0.02em] text-text-primary tabular-nums">{value}</div>
         <div className="text-xs text-text-secondary mt-0.5">{label}</div>
