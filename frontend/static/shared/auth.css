@@ -3,10 +3,13 @@
 /* Sign-in: one narrow column on the lit page, a hairline panel, no site header. */
 :root { --danger: #ec8a80; --danger-soft: rgb(236 138 128 / .1); }
 :root[data-theme="light"] { --danger: #9e2f25; --danger-soft: rgb(158 47 37 / .07); }
-body { min-height: 100vh; background: radial-gradient(700px 380px at 50% 0%, var(--glow), transparent 70%), linear-gradient(180deg, var(--ink-2), var(--ink) 60%); background-attachment: fixed; }
+/* The homepage hero's light: the glow, the ink fall-off and its three horizon lines. */
+body { min-height: 100vh; background: radial-gradient(800px 420px at 75% 25%, var(--glow), transparent 70%), linear-gradient(180deg, var(--ink-2), var(--ink) 80%); background-attachment: fixed; }
+.horizon { position: fixed; left: 0; right: 0; bottom: 0; height: 180px; width: 100%; color: var(--text); opacity: .07; pointer-events: none; z-index: 0; }
+.auth-container { position: relative; z-index: 1; }
 .auth-container { max-width: 420px; margin: 0 auto; padding: 96px 16px 64px; }
 .auth-card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 36px 32px 28px; }
-.auth-mark { display: block; width: 36px; height: 36px; margin-bottom: 22px; background: var(--brass); -webkit-mask: url(/shared/munin_logo_without_script.svg) center / contain no-repeat; mask: url(/shared/munin_logo_without_script.svg) center / contain no-repeat; }
+.auth-mark { display: block; width: 96px; height: 80px; margin: 0 auto 24px; background: var(--brass); -webkit-mask: url(/shared/munin_logo_horizon_moon.svg) center / contain no-repeat; mask: url(/shared/munin_logo_horizon_moon.svg) center / contain no-repeat; }
 .auth-title { font-size: 26px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.15; margin-bottom: 8px; }
 .auth-subtitle { color: var(--text-2); font-size: 15px; margin-bottom: 26px; overflow-wrap: anywhere; }
 .auth-subtitle strong { color: var(--text); font-weight: 600; }

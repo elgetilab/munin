@@ -52,7 +52,7 @@ describe('no hard-coded logo filter or error tint', () => {
 
   it('auth.css fills the logo and tints the error box from the theme', () => {
     const css = read('../static/shared/auth.css');
-    expect(css).toMatch(/\.auth-mark \{[^}]*background: var\(--brass\);[^}]*mask: url\(\/shared\/munin_logo_without_script\.svg\)/);
+    expect(css).toMatch(/\.auth-mark \{[^}]*background: var\(--brass\);[^}]*mask: url\(\/shared\/munin_logo_horizon_moon\.svg\)/);
     expect(css).toMatch(/:root \{[^}]*--danger: #[0-9a-f]{6};/);
     expect(css).toMatch(/:root\[data-theme="light"\] \{[^}]*--danger: #[0-9a-f]{6};/);
     // The plain border stays first as a fallback for browsers without color-mix.

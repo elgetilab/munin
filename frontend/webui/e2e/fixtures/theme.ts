@@ -19,13 +19,13 @@ export function projectTheme(info: TestInfo): Theme {
 export const PALETTE: Record<Theme, { accent: string; border: string; bgPrimary: string; textPrimary: string }> = {
   dark: {
     accent: 'rgb(217, 181, 111)',
-    border: 'rgb(44, 55, 66)',
+    border: 'rgb(37, 47, 57)',
     bgPrimary: 'rgb(13, 18, 23)',
     textPrimary: 'rgb(230, 237, 243)',
   },
   light: {
     accent: 'rgb(122, 85, 18)',
-    border: 'rgb(208, 215, 222)',
+    border: 'rgb(221, 227, 233)',
     bgPrimary: 'rgb(255, 255, 255)',
     textPrimary: 'rgb(24, 32, 41)',
   },

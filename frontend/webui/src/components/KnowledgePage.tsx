@@ -121,19 +121,24 @@ export function KnowledgePage({ initialRoute, tagCatalog, onChatWithTag }: Knowl
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Sub-header */}
-      <div className="flex items-center gap-3 px-6 py-3 border-b border-border bg-bg-primary">
-        {view.type !== 'overview' && (
-          <button
-            onClick={() => goToRoute(null)}
-            className="text-text-secondary hover:text-text-primary text-sm cursor-pointer"
-          >
-            &larr; Back
-          </button>
-        )}
-        <h2 className="text-lg font-semibold text-text-primary">
-          {view.type === 'overview' ? 'Knowledge Base' : getBrowseTitle(view.kind, view.slug, catalog)}
-        </h2>
+      {/* Title band, as the sites' page heads (static/search .page-head). */}
+      <div className="page-head border-b border-border">
+        <div className="max-w-4xl mx-auto px-6 pt-8 pb-6 md:pt-10 md:pb-7">
+          {view.type !== 'overview' && (
+            <button
+              onClick={() => goToRoute(null)}
+              className="mb-3 text-text-secondary hover:text-text-primary text-sm cursor-pointer"
+            >
+              &larr; Back
+            </button>
+          )}
+          <h2 className="text-[28px] md:text-[34px] leading-tight font-semibold tracking-[-0.03em] text-text-primary">
+            {view.type === 'overview' ? 'Knowledge Base' : getBrowseTitle(view.kind, view.slug, catalog)}
+          </h2>
+          {view.type === 'overview' && (
+            <p className="mt-2 text-[15px] text-text-secondary">The papers Munin searches, by topic, research group and contributor.</p>
+          )}
+        </div>
       </div>
 
       {/* Content */}

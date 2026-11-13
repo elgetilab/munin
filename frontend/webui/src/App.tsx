@@ -830,7 +830,7 @@ export default function App() {
             menu back in the chat has the rest. */}
         <header className="flex items-center gap-3 px-3 py-2 border-b border-border bg-bg-secondary">
           <a href={SITE_HOME} className="flex-shrink-0 flex items-center gap-2 px-1 no-underline whitespace-nowrap">
-            <img src="/shared/munin_logo_without_script.svg" alt="Munin" className={`h-6 ${LOGO_FILTER}`} />
+            <img src="/shared/munin_logo_horizon_moon.svg" alt="Munin" className={`h-7 ${LOGO_FILTER}`} />
             <span className="text-text-primary font-semibold text-[15px]">Munin</span>
           </a>
           <div className="flex-1" />

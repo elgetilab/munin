@@ -23,14 +23,14 @@
 
 @theme {
   --color-bg-primary: #0d1217;
-  --color-bg-secondary: #151c23;
+  --color-bg-secondary: #131a21;
   --color-bg-tertiary: #1c252e;
   --color-text-primary: #e6edf3;
   --color-text-secondary: #a9b1ba;
   --color-text-tertiary: #8d959e;
   --color-accent: #d9b56f;
   --color-accent-hover: #e8c98e;
-  --color-border: #2c3742;
+  --color-border: #252f39;
   --color-success: #3fb950;
   --color-warning: #d29922;
   --color-error: #f85149;
@@ -60,7 +60,7 @@
   --color-text-tertiary: #656d76;
   --color-accent: #7a5512;
   --color-accent-hover: #5f420c;
-  --color-border: #d0d7de;
+  --color-border: #dde3e9;
   --color-border-input: #6e7781;
   --color-success: #196b2e;
   --color-warning: #7a5300;
@@ -113,6 +113,20 @@ body {
   *, ::before, ::after {
     outline-color: var(--color-focus-ring);
   }
+}
+
+/* Headings track tight as on the sites (site.css), in the base layer so a
+   tracking-* utility still wins. */
+@layer base {
+  h1, h2, h3 { letter-spacing: -0.02em; }
+}
+
+/* A page's title band, lit like the sites' page heads: a soft accent glow at the
+   top right over the header's grey fading into the page. */
+.page-head {
+  background:
+    radial-gradient(700px 320px at 80% 0%, color-mix(in srgb, var(--color-accent) 7%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--color-bg-secondary), var(--color-bg-primary));
 }
 
 /* Keyboard focus. Unlayered on purpose: Tailwind's utilities live in a cascade
