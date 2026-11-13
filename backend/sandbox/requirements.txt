@@ -29,3 +29,21 @@ openpyxl==3.1.5
 Pillow==10.4.0
 pyyaml==6.0.2
 requests==2.32.3
+
+# Lab analysis (docs/agent-track/LAB-ANALYSIS-PLAN.md, 2026-11): curve fitting
+# and statistics as Prism users need them, instrument and NMR file readers,
+# structure tools. Versions are resolved against the pins above and frozen in
+# constraints.txt.
+lmfit
+statsmodels
+pingouin
+scikit-posthocs
+lifelines
+nmrglue
+pynmrstar
+xlrd
+tifffile
+gemmi
+biopython
+freesasa
+brokenaxes
