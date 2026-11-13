@@ -337,13 +337,38 @@ def _design_record(
     }
 
 
+# The envelope carries only the checks the model has to act on. Sending all
+# of them cost ~2,600 tokens PER DESIGN, so a default call ran to ~12,400 and
+# a turn with three calls overflowed the 60k context and died on a vLLM 400
+# before answering (observed live, 2026-11-13). The full block, with every
+# label, threshold and citation, still goes to the widget, which is where a
+# human reads it; the model needs the verdict and the exceptions, not the
+# bibliography. `summary` keeps it honest: it cannot claim a clean design
+# while `hard_failures` or `not_computed` is non-zero.
+_ENVELOPE_CHECK_KEYS = ("rule", "severity", "passed", "value", "threshold",
+                        "detail", "computed")
+
+
+def _envelope_check(check) -> dict:
+    d = check.as_dict()
+    return {k: d[k] for k in _ENVELOPE_CHECK_KEYS}
+
+
 def _envelope_design(record: dict) -> dict:
-    """What the MODEL sees: everything but the raw amplicon sequence."""
+    """What the MODEL sees: no raw amplicon, and only the notable checks."""
     out = dict(record)
     amplicon = out.pop("amplicon", "")
     out["amplicon_preview"] = _amplicon_preview(amplicon)
-    out["checks"] = [c.as_dict() for c in record["checks"]]
+    notable = [c for c in record["checks"] if not c.passed or not c.computed]
+    out["checks_notable"] = [_envelope_check(c) for c in notable]
+    out.pop("checks", None)
     out["summary"] = _summary(record["checks"])
+    out["checks_note"] = (
+        f"{len(record['checks'])} rules evaluated; the "
+        f"{len(notable)} that failed or could not be computed are listed. "
+        "Every rule, with its threshold and published source, is in the "
+        "widget shown to the user."
+    )
     return out
 
 

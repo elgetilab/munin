@@ -233,19 +233,33 @@ check("the envelope tells the model to report the engine's values",
 
 no_hard = []
 for design in envelope["designs"]:
-    no_hard.extend(c for c in design["checks"]
+    no_hard.extend(c for c in design["checks_notable"]
                    if c["severity"] == rules.HARD and not c["passed"])
 check("no returned design carries an unresolved HARD failure", not no_hard,
       str(no_hard[:1]))
-check("checks are namespaced per primer so values stay distinguishable",
-      {c["rule"] for c in envelope["designs"][0]["checks"]}
-      >= {"forward.primer_length", "reverse.primer_length", "pair.pair_tm_diff"})
-check("every check names its source",
-      all(c["source"] for d in envelope["designs"] for c in d["checks"]))
-check("the summary counts the checks it was given",
+
+# The envelope lists only the checks the model must act on. Everything that
+# passed is accounted for by `summary`, so the model still cannot claim a
+# clean design that the engine did not grant.
+check("the envelope carries only failed or uncomputed checks",
+      all(not c["passed"] or not c["computed"]
+          for d in envelope["designs"] for c in d["checks_notable"]))
+check("the summary still counts EVERY rule, not just the listed ones",
       envelope["summary"]["total"]
-      == sum(len(d["checks"]) for d in envelope["designs"])
+      > sum(len(d["checks_notable"]) for d in envelope["designs"])
       and envelope["summary"]["usable"] is True)
+check("the envelope says where the full rule list went",
+      all("widget" in d["checks_note"] for d in envelope["designs"]))
+
+# THE regression guard. Sending every rule to the model cost ~2,600 tokens per
+# design, so a default call ran to ~12,400 and a turn that called the tool
+# three times overflowed the 60k context and died on a vLLM 400 before it
+# could answer. Observed live on 2026-11-13. This bound is generous against
+# the ~2,800 tokens a 5-design envelope now costs, and tight enough that
+# putting the full checks back would trip it.
+envelope_tokens = len(json.dumps(envelope)) // 3
+check("the envelope stays well inside the context budget",
+      envelope_tokens < 6000, f"~{envelope_tokens} tokens")
 check("the model is not handed kilobases of amplicon",
       all("amplicon" not in d and len(d["amplicon_preview"]) < 200
           for d in envelope["designs"]))
@@ -370,7 +384,7 @@ check("the assembly was simulated, not asserted",
 
 # The common vector + insert case, which is linear: the outer two primers
 # carry no homology because there is no junction at the ends of a line.
-linear_envelope, _ = run(mode="overlap_assembly",
+linear_envelope, linear_specs = run(mode="overlap_assembly",
                          fragments=[PUC19[:1300], PUC19[1300:]], circular=False)
 check("a two-fragment linear assembly designs",
       linear_envelope["outcome"] == "designed",
@@ -381,7 +395,10 @@ check("the outer ends of a linear assembly carry no homology tail",
       and linear_envelope["designs"][1]["forward"]["tail"] != "")
 
 # The one severity this module changes, kept visible rather than hidden.
-tm_checks = [c for c in linear_envelope["designs"][1]["checks"]
+# Read from the WIDGET spec, which keeps every rule: these checks pass, so
+# they are correctly absent from the envelope's notable-only list.
+_linear_pair_checks = linear_specs[0]["pairs"][1]["checks"]
+tm_checks = [c for c in _linear_pair_checks
              if c["rule"] == "pair.pair_tm_diff"]
 check("a tailed pair reports its Tm difference as SOFT, and says why",
       len(tm_checks) == 1 and tm_checks[0]["severity"] == rules.SOFT
@@ -389,7 +406,7 @@ check("a tailed pair reports its Tm difference as SOFT, and says why",
       str(tm_checks[:1])[:200])
 check("the primer-dimer check stays HARD for a tailed pair",
       any(c["rule"] == "pair.hetero_dimer_tm" and c["severity"] == rules.HARD
-          for c in linear_envelope["designs"][1]["checks"]))
+          for c in _linear_pair_checks))
 
 # ---- the alias, and that it normalises
 alias_envelope, alias_specs = run(mode="gibson", fragments=FRAGMENTS,
