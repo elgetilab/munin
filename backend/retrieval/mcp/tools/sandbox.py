@@ -202,6 +202,8 @@ async def run_python(code: str, timeout_s: int = 30) -> dict:
                 filename=art.get("filename") or "unnamed",
                 content_type=art.get("content_type") or "application/octet-stream",
                 size_bytes=int(art.get("size_bytes") or 0),
+                sha256=art.get("sha256"),
+                version=art.get("version"),
             )
             art["registered_artifact_id"] = registered.get("id")
             art["source"] = registered.get("source")
@@ -209,6 +211,7 @@ async def run_python(code: str, timeout_s: int = 30) -> dict:
         except Exception as e:
             logger.warning("register_sandbox_artifact failed: %s", e)
     payload["conversation_id"] = conv_id
+    _slim_artifacts(payload)
     _remember_source(conv_id, code)
     # Adoption hint. The equivalent affordance for artifacts (update_artifact's
     # is_diff mode) sits unused at 2% because nothing points at it when the
@@ -219,6 +222,57 @@ async def run_python(code: str, timeout_s: int = 30) -> dict:
         "replace. Do not re-send the whole script; the kernel state persists."
     )
     return payload
+
+
+# Keys of a sandbox artifact the model gets. The full figure description
+# (per-point data) stays in the sandbox and the download bundle; the model
+# reads the short figure_summary to check its plot against the request.
+_MODEL_ARTIFACT_KEYS = (
+    "id", "filename", "content_type", "size_bytes", "version", "previous_id",
+    "kind", "sha256", "figure_summary", "display_url", "registered_artifact_id",
+    "source", "external_url",
+)
+
+
+def _slim_artifacts(payload: dict) -> None:
+    arts = payload.get("artifacts")
+    if not isinstance(arts, list):
+        return
+    payload["artifacts"] = [
+        {k: a[k] for k in _MODEL_ARTIFACT_KEYS if k in a} for a in arts if isinstance(a, dict)
+    ]
+    if not payload.get("warnings"):
+        payload.pop("warnings", None)
+    if any(a.get("figure_summary") for a in payload["artifacts"]):
+        payload["figure_hint"] = (
+            "figure_summary describes what was actually drawn (axes, scales, "
+            "series, error bars, size, layout problems). Check it against what "
+            "the user asked for before answering."
+        )
+
+
+async def put_input(conversation_id: str, filename: str, data: bytes) -> dict:
+    """Hand an uploaded file to the conversation's sandbox as a read-only
+    input under ``inputs/``. A .zip is extracted into ``inputs/<name>/``.
+    Returns ``{"paths": [...]}`` or ``{"error": ...}``."""
+    if not conversation_id or conversation_id.startswith("ephemeral-"):
+        return {"error": "the code sandbox is not available in temporary chats"}
+    try:
+        async with httpx.AsyncClient(timeout=SANDBOX_TIMEOUT_S) as client:
+            r = await client.post(
+                f"{SANDBOX_URL}/inputs/{conversation_id}",
+                params={"name": filename}, content=data,
+            )
+    except httpx.RequestError as e:
+        return {"error": f"sandbox unreachable: {type(e).__name__}"}
+    if r.status_code != 200:
+        try:
+            detail = r.json().get("detail")
+        except ValueError:
+            detail = r.text[:200]
+        return {"error": f"sandbox refused the file: {detail}"}
+    added = r.json().get("added") or []
+    return {"paths": [f"inputs/{a['path']}" for a in added if isinstance(a, dict)]}
 
 
 async def edit_python(edits: list, timeout_s: int = 30) -> dict:

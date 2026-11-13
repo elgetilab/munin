@@ -483,6 +483,8 @@ async def register_sandbox_artifact(
     content_type: str,
     size_bytes: int,
     inline_content: Optional[str] = None,
+    sha256: Optional[str] = None,
+    version: Optional[int] = None,
 ) -> dict:
     """
     Register a sandbox-generated file in the unified artifacts table
@@ -530,9 +532,17 @@ async def register_sandbox_artifact(
         # can't squeeze past the existing model-written cap.
         version_content = _validate_content(inline_content)
     else:
+        # Sandbox artifacts are immutable (2026-11): an overwrite of the
+        # same filename is a new artifact with version n+1, and this link
+        # keeps serving the bytes with this sha256.
+        provenance = ""
+        if version:
+            provenance += f", version {int(version)}"
+        if sha256:
+            provenance += f", sha256 {sha256}"
         version_content = (
             f"[Sandbox-generated file: {filename} ({content_type}, "
-            f"{size_bytes} bytes). The actual bytes live in the sandbox "
+            f"{size_bytes} bytes{provenance}). The actual bytes live in the sandbox "
             f"container; fetch them via GET {external_url}.]"
         )
 

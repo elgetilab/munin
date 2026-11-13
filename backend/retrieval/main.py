@@ -61,7 +61,7 @@ from typing import Any, Optional
 import httpx
 import yaml
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 
 # Import from local modules
@@ -2727,6 +2727,73 @@ async def api_unfile_conversation(
 # ==============================================================================
 # Frontend Sandbox Artifacts (/api/artifacts/{cid}/{aid})
 # ==============================================================================
+async def _proxy_sandbox_stream(path: str, params: Optional[dict] = None,
+                                default_disposition: str = "attachment") -> StreamingResponse:
+    """Stream a sandbox response to the browser without buffering it.
+
+    Before 2026-11 the whole file was read into memory under a 15 s timeout,
+    so large artifacts failed to download."""
+    sandbox_url = os.environ.get("SANDBOX_URL", "http://sandbox:8090")
+    client = httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=300.0))
+    try:
+        upstream = await client.send(
+            client.build_request("GET", f"{sandbox_url}{path}", params=params), stream=True
+        )
+    except httpx.RequestError as e:
+        await client.aclose()
+        raise HTTPException(
+            status_code=502,
+            detail={"error": {"message": f"sandbox unreachable: {type(e).__name__}"}},
+        )
+    if upstream.status_code != 200:
+        try:
+            detail = (await upstream.aread()).decode(errors="replace")[:300]
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+        if upstream.status_code == 404:
+            raise _error_404("Artifact not found")
+        status = upstream.status_code if upstream.status_code in (400, 413) else 502
+        raise HTTPException(status_code=status, detail={"error": {"message": detail}})
+
+    async def _body():
+        try:
+            async for chunk in upstream.aiter_raw():
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    headers = {
+        "Content-Disposition": upstream.headers.get("content-disposition", default_disposition),
+    }
+    if "content-length" in upstream.headers:
+        headers["Content-Length"] = upstream.headers["content-length"]
+    digest = upstream.headers.get("x-munin-sha256")
+    if digest:
+        # Content-addressed and immutable: the bytes behind this URL never change.
+        headers["X-Munin-Sha256"] = digest
+        headers["ETag"] = f'"{digest}"'
+        headers["Cache-Control"] = "private, max-age=31536000, immutable"
+    else:
+        headers["Cache-Control"] = "private, max-age=300"
+    return StreamingResponse(
+        _body(),
+        media_type=upstream.headers.get("content-type", "application/octet-stream"),
+        headers=headers,
+    )
+
+
+async def _require_owned_conversation(request: Request, conversation_id: str) -> str:
+    user_email = _require_user_email(request)
+    # Ownership: the user must own the conversation row. Without this check,
+    # anyone with an id could pull files from another user's chat.
+    conv = await chat_store.get_conversation(conversation_id, user_email)
+    if conv is None:
+        raise _error_404("Artifact not found")
+    return user_email
+
+
 @app.get("/api/artifacts/{conversation_id}/{artifact_id}")
 async def api_get_artifact(
     conversation_id: str,
@@ -2736,50 +2803,46 @@ async def api_get_artifact(
     """
     Serve an artifact (plot, file) produced by the run_python sandbox tool
     inside the given conversation. Auth via X-Munin-Email + ownership of
-    the conversation. The actual file lives in the sandbox sidecar; we
-    proxy the bytes through so the host never needs to expose the sandbox
-    container's port directly.
+    the conversation. The file lives in the sandbox sidecar's immutable
+    store; we stream the bytes through so the host never needs to expose
+    the sandbox container's port directly.
     """
-    user_email = _require_user_email(request)
+    await _require_owned_conversation(request, conversation_id)
+    return await _proxy_sandbox_stream(
+        f"/artifacts/{conversation_id}/{artifact_id}",
+        default_disposition=f'inline; filename="{artifact_id}"',
+    )
 
-    # Ownership: the user must own the conversation row this artifact came
-    # from. Without this check, anyone with the artifact id could pull
-    # arbitrary files from another user's chat.
-    conv = await chat_store.get_conversation(conversation_id, user_email)
-    if conv is None:
-        raise _error_404("Artifact not found")
 
+@app.get("/api/artifacts/{conversation_id}")
+async def api_list_sandbox_artifacts(conversation_id: str, request: Request):
+    """Every sandbox artifact of a conversation, all versions, with sha256,
+    version and the figure summary (for the version history in the UI)."""
+    await _require_owned_conversation(request, conversation_id)
     sandbox_url = os.environ.get("SANDBOX_URL", "http://sandbox:8090")
-    proxy_url = f"{sandbox_url}/artifacts/{conversation_id}/{artifact_id}"
-
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get(proxy_url)
+            r = await client.get(f"{sandbox_url}/artifacts/{conversation_id}")
     except httpx.RequestError as e:
         raise HTTPException(
             status_code=502,
-            detail={"error": {"message": f"sandbox unreachable: {e}"}},
+            detail={"error": {"message": f"sandbox unreachable: {type(e).__name__}"}},
         )
-    if r.status_code == 404:
-        raise _error_404("Artifact not found")
     if r.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail={"error": {"message": f"sandbox returned {r.status_code}"}},
-        )
+        return {"artifacts": []}
+    return r.json()
 
-    # Pass through the content-type and a sensible filename. The sandbox
-    # sets these in its FileResponse; httpx surfaces them as headers.
-    return Response(
-        content=r.content,
-        media_type=r.headers.get("content-type", "application/octet-stream"),
-        headers={
-            "Content-Disposition": r.headers.get(
-                "content-disposition",
-                f'inline; filename="{artifact_id}"',
-            ),
-            "Cache-Control": "private, max-age=300",
-        },
+
+@app.get("/api/bundles/{conversation_id}")
+async def api_get_bundle(conversation_id: str, request: Request, ids: Optional[str] = None):
+    """Zip of a conversation's artifacts (all, or the comma-separated sandbox
+    artifact ids), with the input files, the code that produced them, the
+    environment, a MANIFEST.json and SHA256SUMS."""
+    await _require_owned_conversation(request, conversation_id)
+    if ids is not None and not re.fullmatch(r"[0-9a-f]{1,64}(,[0-9a-f]{1,64})*", ids):
+        raise HTTPException(status_code=400, detail={"error": {"message": "bad ids"}})
+    return await _proxy_sandbox_stream(
+        f"/bundle/{conversation_id}", params={"ids": ids} if ids else None
     )
 
 
@@ -2787,6 +2850,9 @@ async def api_get_artifact(
 # Frontend Document Routes (/api/documents)
 # ==============================================================================
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # Frontend enforces 50 MB; mirror on server.
+# Data files (instrument exports, spreadsheets, zipped NMR experiments) go to
+# the code sandbox, which takes up to 100 MB per file.
+MAX_DATA_UPLOAD_BYTES = 100 * 1024 * 1024
 _UPLOAD_ID_RE = re.compile(r"[A-Za-z0-9_-]{8,64}")
 upload_tracker = UploadTracker()
 
@@ -2834,10 +2900,12 @@ async def api_upload_document(
             status_code=400,
             detail={"error": {"message": "Uploaded file is empty"}},
         )
-    if len(contents) > MAX_UPLOAD_BYTES:
+    is_data = document_store.is_data_file(file.filename)
+    limit = MAX_DATA_UPLOAD_BYTES if is_data else MAX_UPLOAD_BYTES
+    if len(contents) > limit:
         raise HTTPException(
             status_code=413,
-            detail={"error": {"message": "File exceeds 50 MB limit"}},
+            detail={"error": {"message": f"File exceeds {limit // (1024 * 1024)} MB limit"}},
         )
 
     try:

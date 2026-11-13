@@ -304,15 +304,22 @@ def build_view_attachment_followup(
 _FEEDBACK_LOOP_LEADER = (
     "The plot you just generated (shown to you so you can judge whether "
     "axes, legends, colours, and scale match what the user asked for - "
-    "if not, call run_python again with corrections; otherwise describe "
-    "it in your answer):"
+    "if not, fix it with edit_python; otherwise describe "
+    "it in your answer). Its figure_summary in the tool result lists the "
+    "exact scales, series and layout problems:"
 )
+
+
+PLOT_FEEDBACK_TOOLS = ("run_python", "edit_python", "compute")
 
 
 def _image_artifacts_from_tool_result(tool_result: dict) -> list[dict]:
     if not isinstance(tool_result, dict):
         return []
-    if tool_result.get("name") != "run_python":
+    # Every tool that runs code in the sandbox. Before 2026-11 only
+    # run_python was here, so a plot changed with edit_python (the tool the
+    # model is told to use for changes) was never shown back to it.
+    if tool_result.get("name") not in PLOT_FEEDBACK_TOOLS:
         return []
     result = tool_result.get("result") or {}
     if not isinstance(result, dict):
