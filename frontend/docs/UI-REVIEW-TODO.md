@@ -24,6 +24,7 @@ Effort: S under half a day, M one to two days, L more.
 ## 1. Chat behaviour (highest user impact)
 
 - [ ] **The reply streams out of view after send** (M)
+  - **Decided 2026-11-13: do.**
   - **Problem:** The user's message is scrolled to the bottom edge, and
     streaming never auto-scrolls. On desktop only the mode chip and the jump
     button are visible while the answer builds below the fold. On a phone
@@ -34,6 +35,7 @@ Effort: S under half a day, M one to two days, L more.
     reply streams into visible space without per-token scrolling. Keep the
     jump button.
 - [ ] **Message actions** (M)
+  - **Decided 2026-11-13: do, including Edit and resend (needs backend support).**
   - **Problem:** A reply can't be copied, retried or regenerated, and a user
     message can't be edited and resent. Only code blocks have Copy, and Report
     covers the whole chat from the header.
@@ -43,12 +45,12 @@ Effort: S under half a day, M one to two days, L more.
       per-reply "Report this reply". Always visible on the last reply, on hover
       or focus on older ones.
     - An edit pencil on user bubbles, shown on hover.
-- [ ] **Escape closes side panels** (S)
+- [x] **Escape closes side panels** (S) *(done in the a11y/keyboard-focus merge)*
   - **Problem:** Escape doesn't close the Sources or Artifacts panel
     (`aria-pressed` stays true). Menus and the search modal already close.
   - **Fix:** Escape closes the topmost side panel and returns focus to its
     toggle.
-- [ ] **Themed delete confirmation** (S)
+- [x] **Themed delete confirmation** (S) *(done in the a11y/keyboard-focus merge)*
   - **Problem:** Deleting a chat or project uses the browser's `confirm()`,
     which is unthemed and gives no feedback afterwards.
   - **Where:** `Sidebar.tsx` ~428, ~474.
@@ -60,6 +62,7 @@ Effort: S under half a day, M one to two days, L more.
 ### Palette
 
 - [ ] **Warm token swap** (M)
+  - **Decided 2026-11-13: deferred to the frontend redesign; the chat keeps its current palette.**
   - **Problem:** The palette is GitHub's (cool slate greys, blue `#58a6ff` /
     `#0a5cb8`).
   - **Where:** `src/index.css` 5-45, kept in step with
@@ -74,24 +77,28 @@ Effort: S under half a day, M one to two days, L more.
       `#b5573a` if white text on it misses 4.5:1) and `#d97757` dark.
     - Re-run `colorContrast.test.ts` and the e2e contrast suite afterwards.
 - [ ] **Use the accent sparingly** (S)
+  - **Decided 2026-11-13: deferred to the frontend redesign.**
   - **Fix:** Accent for send, links and the active item only. Focus and pressed
     states in neutral tones rather than accent fills everywhere.
 - [ ] **Warm syntax theme for code blocks** (S, `lib/codeTheme`), and check
   `lib/chartPalette` against the new background.
+  - **Decided 2026-11-13: deferred to the frontend redesign.**
 
 ### Composer
 
-- [ ] **Gentle focus** (S)
+- [x] **Gentle focus** (S) *(done in the a11y/keyboard-focus merge)*
   - **Problem:** Any focus, including a mouse click, draws a 2px bright-blue
     outline with an offset around the whole card.
   - **Where:** `index.css` ~87-93.
   - **Fix:** A border tint plus a soft shadow. Keep the visible ring for
     keyboard focus only.
 - [ ] **16px input text** (S)
+  - **Decided 2026-11-13: do.**
   - **Problem:** The input is 14px while replies are 16px.
   - **Where:** `ChatInput.tsx` ~910.
   - **Fix:** 16px text and a slightly taller minimum height.
 - [ ] **The "Munin" badge does nothing** (S)
+  - **Decided 2026-11-13: do, as a mode chip showing the routed mode, which can set /research etc.**
   - **Problem:** The badge (`aria-hidden`) sits where Claude has its model
     picker but does nothing. In light mode its white circle disappears into the
     card.
@@ -99,44 +106,52 @@ Effort: S under half a day, M one to two days, L more.
   - **Fix:** Replace it with something real (a mode or Deep Research chip, or
     an attachment count) or remove it.
 - [ ] **Clear send and stop buttons** (S)
+  - **Decided 2026-11-13: do.**
   - **Problem:** The send button looks disabled even when it's active, and the
     stop button is solid red (`ChatInput.tsx` ~1062-1066).
   - **Fix:** A 32-36px send button in the accent with a clearly enabled state.
     A neutral stop button: a dark square on a mid-grey circle.
 - [ ] **One column width** (S)
+  - **Decided 2026-11-13: do.**
   - **Problem:** The composer is `max-w-3xl` (768px) but the messages are
     `max-w-2xl` (672px), so their edges don't line up (`MessageList.tsx` ~168).
   - **Fix:** One shared width for both.
 - [ ] **Shorter placeholder** (S)
+  - **Decided 2026-11-13: do.**
   - **Problem:** The placeholder wraps to two lines on a phone.
   - **Fix:** "Ask Munin…", and teach `/` and `#` in a hint instead.
 
 ### Message layout
 
 - [ ] **User bubble** (S)
+  - **Decided 2026-11-13: do.**
   - **Problem:** It has a border and a "chat tail" corner (`rounded-br-sm`,
     `MessageList.tsx` ~305).
   - **Fix:** No border, a warm `bg-tertiary`, `rounded-2xl` on every corner.
 - [ ] **Tool activity as one line** (M)
+  - **Decided 2026-11-13: do.**
   - **Problem:** Tool calls show as a bordered monospace box (`TaskLog.tsx`
     ~238).
   - **Fix:** One sans line, collapsed by default ("Searched the web · 1 result
     ›").
 - [ ] **Drop the RESEARCH / CODE pill** (S)
+  - **Decided 2026-11-13: do.**
   - **Problem:** Every turn carries an uppercase routed-profile pill
     (`MessageList.tsx` ~72).
   - **Fix:** Drop it, or fold it into the tool line.
 - [ ] **Tables with horizontal rules only** (S)
+  - **Decided 2026-11-13: dropped.**
   - **Problem:** Tables are drawn as a full cell grid (`Markdown.tsx` ~238).
   - **Fix:** Horizontal rules only.
 - [ ] **A reading face for replies** (M)
+  - **Decided 2026-11-13: deferred to the frontend redesign.**
   - **Problem:** Everything is set in one sans at 16px / 1.7 (`index.css` ~63).
   - **Fix:** A serif for assistant prose only, e.g. Source Serif 4, Charter or
     Georgia at 16.5-17px / 1.65. Keep the UI in sans.
 
 ### Sidebar
 
-- [ ] **Pin moves into the ⋮ menu** (M)
+- [x] **Pin moves into the ⋮ menu** (M) *(done in the a11y/keyboard-focus merge, with the roving tabindex)*
   - **Problem:** Every row has two tab stops (Pin and ⋮). It takes 31 Tabs to
     leave the sidebar. On a phone both icons are always visible and cut titles
     to about 18 characters.
@@ -144,48 +159,57 @@ Effort: S under half a day, M one to two days, L more.
     - Move Pin into the ⋮ menu, as Claude does, leaving one row action.
     - A roving tabindex with arrow keys in the chat list, so the list is one
       Tab stop.
-- [ ] **14px menu items** (S)
+- [x] **14px menu items** (S) *(done in the a11y/keyboard-focus merge)*
   - **Problem:** Menu items are 12px (`MENU_ITEM` uses `text-xs`,
     `Sidebar.tsx` ~94).
   - **Fix:** 14px for menu items and the search modal.
 - [ ] **A wider sidebar** (S)
+  - **Decided 2026-11-13: do; pick the width by comparing side by side.**
   - **Problem:** The sidebar is 256px (`Sidebar.tsx` ~630, `w-64`).
   - **Fix:** About 272-288px.
 
 ## 3. Phone and tablet
 
 - [ ] **Phone header like Claude's** (M)
+  - **Decided 2026-11-13: do.**
   - **Problem:** On a phone the header is four or five unlabelled icons.
     Their titles never show on touch, and there is no New chat outside the
     drawer.
   - **Fix:** ☰, the chat title, and a New chat (pencil) icon. Temporary,
     Artifacts, Sources and Report move into a labelled "⋯" menu.
 - [ ] **Site links at tablet width** (M)
+  - **Decided 2026-11-13: do.**
   - **Problem:** At 820px with the sidebar open, the site nav disappears
     completely (`App.tsx`, `sidebarOpen ? 'lg:flex' : 'md:flex'`).
   - **Fix:** Below `lg`, open the sidebar as an overlay so the header keeps its
     links.
 - [ ] **Site links on a phone** (S)
+  - **Decided 2026-11-13: do.**
   - **Problem:** Knowledge, Search papers and Upload are reachable only through
     the account menu, which has no Home link.
   - **Fix:** Add Home to the account menu.
 - [ ] **PWA install banner** (S)
+  - **Decided 2026-11-13: do.**
   - **Problem:** It appears mid-conversation and pushes content.
   - **Fix:** Show it on the empty state only, or once after the first reply.
 - [ ] **Temporary-chat banner** (S)
+  - **Decided 2026-11-13: do.**
   - **Problem:** It spans the whole main area instead of the reading column.
 - [ ] **Disclaimer spacing** (S)
+  - **Decided 2026-11-13: do.**
   - **Fix:** 4-6px more space between the disclaimer and the composer on
     phones.
 
 ## 4. Empty state
 
 - [ ] **Static mark in the greeting** (S)
+  - **Open: to compare side by side as artifacts before deciding.**
   - **Problem:** The greeting uses the feather spinner, which is also the
     streaming indicator, so the page looks like it is still loading. The spinner
     belongs to the chat's working states only.
   - **Fix:** A static raven mark.
 - [ ] **Starting points** (S, to decide)
+  - **Open: to compare side by side as artifacts before deciding.**
   - **Background:** The prompt-suggestion cards were tried and rejected on
     2026-11-12.
   - **Fix:** Something lighter that teaches the product, if anything. For
@@ -194,9 +218,10 @@ Effort: S under half a day, M one to two days, L more.
 ## 5. Quick wins
 
 - [ ] **Undiscoverable `#` sources** (S)
+  - **Open: to compare side by side as artifacts before deciding.**
   - **Problem:** The placeholder only mentions `/` commands.
   - **Fix:** Add "Type # to pick sources" to the + menu or a hint line.
-- [ ] **Search-chats modal** (S)
+- [x] **Search-chats modal** (S) *(done in the a11y/keyboard-focus merge, with Ctrl/Cmd+K)*
   - **Problems:**
     - When a chat's preview equals its title, it prints twice
       (`Sidebar.tsx` ~1015-1019).
@@ -205,6 +230,7 @@ Effort: S under half a day, M one to two days, L more.
   - **Fixes:** Hide the preview when it equals the title, drop the inner focus
     box, and bind Ctrl/Cmd+K.
 - [ ] **Settings overlay** (S)
+  - **Open: to compare side by side as artifacts before deciding.**
   - **Problems:**
     - The chat toggles stay in the header on Settings, and Artifacts opens over
       the form.
@@ -213,39 +239,44 @@ Effort: S under half a day, M one to two days, L more.
   - **Fixes:** Hide the toggles on overlay views, keep one Save button, and
     pick one term.
 - [ ] **Knowledge page copy** (S)
+  - **Open: to compare side by side as artifacts before deciding.**
   - **Problem:** It shows "84 Papers (approx.)" next to "No papers mapped yet"
     (`EmbeddingMapView.tsx` ~184), plus "0 Research Groups / 0 Contributors"
     cards.
   - **Fix:** Reword to "The paper map hasn't been built yet. It updates
     nightly.", and hide cards whose count is zero.
 - [ ] **Sources panel** (S)
+  - **Open: to compare side by side as artifacts before deciding.**
   - **Problem:** "Research Groups (0)" expands to nothing.
   - **Fix:** Show "No groups yet", or disable the expander.
-- [ ] **Focus ring colour** (S)
+- [x] **Focus ring colour** (S) *(done in the a11y/keyboard-focus merge, one focus-ring token)*
   - **Problem:** Header items, the sidebar and the account button each use a
     different focus colour.
   - **Fix:** One focus colour everywhere.
 
 ## 6. Static sites (modernize, don't revamp)
 
-- [ ] **The homepage redesign**, in progress separately: mockups in the design
+- [x] **The homepage redesign**, in progress separately: mockups in the design *(done on design/site-redesign)*
   thread.
 - [ ] **Search page on a phone** (S)
+  - **Open: to compare side by side as artifacts before deciding.**
   - **Problem:** The topic input and the Search button share a row, leaving the
     input about 220px wide.
   - **Fix:** Stack them, or use an icon button.
 - [ ] **Upload page** (S)
+  - **Open: to compare side by side as artifacts before deciding.**
   - **Problem:** The Uppy dashboard keeps its own cyan "browse files" link and
     is narrower than the content column.
   - **Fix:** Theme the link to `--accent` and make the dashboard full width.
-- [ ] **Docs guide** (S)
+- [x] **Docs guide** (S) *(done on design/site-redesign, sticky contents list)*
   - **Problem:** It's a 500-line page with 9 sections and no table of contents.
   - **Fix:** A sticky "On this page" table of contents from 1024px up.
-- [ ] **Footers** (S)
+- [x] **Footers** (S) *(done on design/site-redesign, shared site footer)*
   - **Problem:** The `|`-separated link rows in the search, research and upload
     footers.
   - **Fix:** One muted line.
 - [ ] **Phone nav** (S)
+  - **Open: to compare side by side as artifacts before deciding.**
   - **Problem:** The static nav scrolls sideways with "Upload" cut off and
     nothing to show there is more.
   - **Fix:** A fade or shadow at the edge of the scrolling nav.
