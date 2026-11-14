@@ -142,7 +142,7 @@ def main(argv=None) -> int:
         meta = make_run_header(tag=args.tag, encoder="n/a", extra={
             "suite": "lab-analysis", "arm": args.arm, "persona": args.persona,
             "reps": args.reps, "heldout": bool(args.heldout),
-            "cases": sorted(by_id), "vision_judge": None,
+            "cases": sorted({g["case"] for g in graded}), "vision_judge": None,
         })
         system = f"{meta.get('model', 'unknown')}/{args.arm}"
         path = write_scorecard(meta, summarize(graded, system), str(BENCH / "results"),

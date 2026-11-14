@@ -218,6 +218,25 @@ def test_manifest_diff_flags_unrequested_changes():
     assert not ok and "series" in detail
 
 
+def test_manifest_diff_ignores_series_order():
+    # A redraw can list the errorbar container before the bars (smoke run 2026-11-14).
+    reordered = _fig(yscale="log")
+    reordered["axes"][0]["series"].reverse()
+    rec = _fig_record([(1, "f.png", _fig()), (2, "f.png", reordered)])
+    ok, detail = graders.grade({"type": "manifest_diff", "file": "f.png",
+                                "allowed": ["axes.0.yscale"]}, rec, 2)
+    assert ok, detail
+
+
+def test_manifest_diff_bar_yerr_copy_is_not_a_change():
+    # bar(yerr=) also stores the error on the bar; ax.errorbar() does not.
+    via_bar = _fig()
+    via_bar["axes"][0]["series"][0]["yerr"] = [1.0, 2.0]
+    rec = _fig_record([(1, "f.png", _fig()), (2, "f.png", via_bar)])
+    ok, detail = graders.grade({"type": "manifest_diff", "file": "f.png", "allowed": []}, rec, 2)
+    assert ok, detail
+
+
 def test_immutable_detects_changed_bytes():
     rec = _fig_record([(1, "f.png", _fig()), (2, "f.png", _fig())])
     assert graders.grade({"type": "immutable"}, rec, 2)[0]

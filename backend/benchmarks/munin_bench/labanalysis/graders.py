@@ -8,6 +8,7 @@ saying why; nothing is skipped silently. The vision judge is not here
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from typing import Any, Callable, Optional
@@ -345,12 +346,32 @@ def g_manifest(c, record, turn):
 _IGNORED_LEAVES = ("path", "xticklabels", "yticklabels", "xlim", "ylim", "layout", "texts")
 
 
+def _series_key(s: dict) -> tuple:
+    return (str(s.get("kind") or ""), str(s.get("label") or ""),
+            json.dumps(s.get("values"), sort_keys=True, default=str),
+            json.dumps(s.get("positions"), sort_keys=True, default=str))
+
+
+def _canon_series(series: list[dict]) -> list[dict]:
+    """bar(yerr=...) records the error on the bar and as an errorbar series,
+    ax.errorbar() only as the latter; the drawn figure is the same, so the
+    copy on a bar is dropped when an errorbar series carries it."""
+    errs = [s.get("yerr") for s in series if s.get("kind") == "errorbar"]
+    return [{k: v for k, v in s.items() if k != "yerr"}
+            if s.get("kind") != "errorbar" and s.get("yerr") in errs else s
+            for s in series]
+
+
 def _leaves(obj: Any, prefix: str = "") -> dict[str, Any]:
     out: dict[str, Any] = {}
     if isinstance(obj, dict):
         for k, v in obj.items():
             out.update(_leaves(v, f"{prefix}.{k}" if prefix else str(k)))
     elif isinstance(obj, list) and obj and all(isinstance(x, dict) for x in obj):
+        if prefix.split(".")[-1] == "series":
+            # Artist order is not stable across redraws (matplotlib moves the
+            # errorbar containers around the bars), so index series by content.
+            obj = sorted(_canon_series(obj), key=_series_key)
         for i, v in enumerate(obj):
             out.update(_leaves(v, f"{prefix}.{i}"))
     else:
