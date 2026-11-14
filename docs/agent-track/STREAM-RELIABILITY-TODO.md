@@ -19,7 +19,12 @@ retry is them typing "resume" 35 to 175 seconds later.
 
 ---
 
-## 1. The 410 gate ignores the client's checkpoint  [BUG, fix first]
+## 1. The 410 gate ignores the client's checkpoint  [FIXED, 9b78aec]
+
+**Status:** fixed in 9b78aec and live. `Stream.can_resume_from()` decides a
+resume from the client's `Last-Event-ID`, which is now parsed before the
+check; replay from zero is still refused after an overflow. The findings below
+are kept as the record.
 
 `stream_registry.Stream.record()` caps the replay buffer at
 `MAX_LOG_EVENTS = 1000`. On overflow it drops the oldest event and sets

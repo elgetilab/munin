@@ -3,8 +3,9 @@
 Status: APPROVED 2026-11-13. Phase 0 merged to main (8eb65fc) and DEPLOYED
 from main the same day: sandbox, retrieval, llm-claude/failover and the webui
 (VPS bundle index-5Cl-2sWA.js). Live check 15/15 through the real API against
-main. VPS gateway NOT deployed (predates 1e85e73); downloads still work
-through it, buffered. Next: Phase 1.
+main. The VPS gateway (streamed downloads) followed when the stack was
+unified on main (1e30217): gateway, auth, upload and webui bundle
+index-D1dYM7oQ.js all match main. Next: Phase 1 (`LAB-PHASE1-PLAN.md`).
 
 Several research groups use GraphPad Prism (and some ChimeraX) for fitting and
 plotting. We want Munin to replace that through chat: users upload instrument
@@ -90,7 +91,7 @@ bundle download.
 
 ### Phase 0 status (2026-11-13)
 
-Backend and webui deployed and live-checked; VPS gateway pending:
+Backend, webui and VPS gateway deployed and live-checked:
 
 | Item | Where | Tests |
 |---|---|---|

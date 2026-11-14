@@ -409,7 +409,8 @@ Plan + results: `CODE-EDIT-TOOL-PLAN.md`.
 Harness fixes (uploads into the sandbox, immutable content-addressed artifacts,
 bundle downloads, figure manifest), the `labkit` helper library, and eval suites
 S0-S7 for fitting, instrument parsing, iterative plot editing, long jobs,
-reproducibility, NMR workflows and structures. Plan: `LAB-ANALYSIS-PLAN.md`.
+reproducibility, NMR workflows and structures. Plan: `LAB-ANALYSIS-PLAN.md`;
+Phase 0 live 2026-11-13, Phase 1 plan: `LAB-PHASE1-PLAN.md`.
 
 **HEAVY TODO, required before any model-capability claim:** the lab-analysis
 suites are first measured on the production backbone only. Re-run S1-S7, both
