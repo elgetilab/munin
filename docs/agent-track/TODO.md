@@ -411,7 +411,7 @@ bundle downloads, figure manifest), the `labkit` helper library, and eval suites
 S0-S7 for fitting, instrument parsing, iterative plot editing, long jobs,
 reproducibility, NMR workflows and structures. Plan: `LAB-ANALYSIS-PLAN.md`;
 Phase 0 live 2026-11-13, Phase 1 plan: `LAB-PHASE1-PLAN.md`.
-Phase 1 DONE 2026-11-14 (harness, 95 cases, smoke scorecard).
+Phase 1 DONE 2026-11-14 (harness, 95 cases, smoke scorecard). Context overflow fix: `CONTEXT-OVERFLOW-PLAN.md` (PLAN).
 
 **Open from the Phase 1 smoke run (2026-11-14):**
 - Long sandbox sessions overflow the context. In an 8-turn plot session, turn
