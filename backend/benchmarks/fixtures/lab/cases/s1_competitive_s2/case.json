@@ -1,0 +1,52 @@
+{
+ "id": "s1_competitive_s2",
+ "suite": "S1",
+ "inputs": [
+  "inhibition_2.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "inhibition_2.csv has rates at seven substrate and four inhibitor concentrations. Fit a competitive inhibition model globally, with Vmax, Km and Ki shared across all inhibitor concentrations. Report Vmax, Km and Ki, and the 95% confidence interval of Ki.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "Vmax",
+     "truth": "truth:ref.Vmax",
+     "rtol": 0.01,
+     "atol": 0
+    },
+    {
+     "type": "numeric",
+     "key": "Km",
+     "truth": "truth:ref.Km",
+     "rtol": 0.03,
+     "atol": 0
+    },
+    {
+     "type": "numeric",
+     "key": "Ki",
+     "truth": "truth:ref.Ki",
+     "rtol": 0.03,
+     "atol": 0
+    },
+    {
+     "type": "ci_close",
+     "key": "Ki_ci",
+     "truth": "truth:ref.Ki_ci",
+     "tol": 0.25
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "Vmax": "",
+  "Km": "",
+  "Ki": "",
+  "Ki_ci": ""
+ },
+ "tags": [
+  "enzyme",
+  "global"
+ ],
+ "provenance": "synthetic, s1.case_competitive seed 2"
+}

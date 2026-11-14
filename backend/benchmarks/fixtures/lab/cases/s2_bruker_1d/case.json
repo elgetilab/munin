@@ -1,0 +1,37 @@
+{
+ "id": "s2_bruker_1d",
+ "suite": "S2",
+ "inputs": [
+  "bruker_1h.zip"
+ ],
+ "turns": [
+  {
+   "prompt": "bruker_1h.zip is a Bruker 1H experiment folder (raw FID, not processed). Process it: remove the digital filter, Fourier transform, phase it, and reference the DSS signal to 0.00 ppm. Besides DSS there are three signals. Report their chemical shifts in ppm (keys 'a', 'b', 'c' in increasing ppm, under 'shifts') and their integrals relative to the highest-ppm signal set to 1 (same keys, under 'relative_integrals').",
+   "checks": [
+    {
+     "type": "numeric_map",
+     "key": "shifts",
+     "truth": "truth:shifts",
+     "atol": 0.005,
+     "min_frac": 1.0
+    },
+    {
+     "type": "numeric_map",
+     "key": "relative_integrals",
+     "truth": "truth:relative_integrals",
+     "rtol": 0.08,
+     "min_frac": 1.0
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "shifts": "",
+  "relative_integrals": ""
+ },
+ "tags": [
+  "format:bruker",
+  "nmr"
+ ],
+ "provenance": "synthetic Bruker 1D (acqus/fid/procs written directly), s2.bruker_1d"
+}

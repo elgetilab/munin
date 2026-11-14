@@ -1,0 +1,14 @@
+{
+ "generating": {
+  "k_fast": 1.19025,
+  "k_slow": 0.0824927,
+  "percent_fast": 50.4072,
+  "plateau": 58.5976
+ },
+ "ref": {
+  "k_fast": 1.21438,
+  "k_slow": 0.0836386,
+  "percent_fast": 49.9812,
+  "plateau": 60.3276
+ }
+}

@@ -1,0 +1,64 @@
+{
+ "id": "s1_nist_mgh17",
+ "suite": "S1",
+ "inputs": [
+  "mgh17.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "Fit the nonlinear model y = b1 + b2*exp[-x*b4] + b3*exp[-x*b5] to the data in mgh17.csv (columns x, y) by least squares, starting from b1 = 50, b2 = 150, b3 = -100, b4 = 1, b5 = 2. Report every parameter (b1, b2, b3, b4, b5) to at least 6 significant digits and the residual sum of squares as rss.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "b1",
+     "truth": "truth:certified.b1",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b2",
+     "truth": "truth:certified.b2",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b3",
+     "truth": "truth:certified.b3",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b4",
+     "truth": "truth:certified.b4",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b5",
+     "truth": "truth:certified.b5",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "rss",
+     "truth": "truth:rss",
+     "rtol": 0.0001,
+     "atol": 0
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "b1": "",
+  "b2": "",
+  "b3": "",
+  "b4": "",
+  "b5": "",
+  "rss": ""
+ },
+ "tags": [
+  "nist",
+  "nist:average"
+ ],
+ "provenance": "NIST StRD MGH17 (public domain), data copied verbatim"
+}

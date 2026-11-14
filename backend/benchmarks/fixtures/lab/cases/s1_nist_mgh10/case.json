@@ -1,0 +1,50 @@
+{
+ "id": "s1_nist_mgh10",
+ "suite": "S1",
+ "inputs": [
+  "mgh10.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "Fit the nonlinear model y = b1 * exp[b2/(x+b3)] to the data in mgh10.csv (columns x, y) by least squares, starting from b1 = 2, b2 = 400000, b3 = 25000. Report every parameter (b1, b2, b3) to at least 6 significant digits and the residual sum of squares as rss.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "b1",
+     "truth": "truth:certified.b1",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b2",
+     "truth": "truth:certified.b2",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b3",
+     "truth": "truth:certified.b3",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "rss",
+     "truth": "truth:rss",
+     "rtol": 0.0001,
+     "atol": 0
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "b1": "",
+  "b2": "",
+  "b3": "",
+  "rss": ""
+ },
+ "tags": [
+  "nist",
+  "nist:higher"
+ ],
+ "provenance": "NIST StRD MGH10 (public domain), data copied verbatim"
+}

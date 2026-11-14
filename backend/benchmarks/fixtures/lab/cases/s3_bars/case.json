@@ -1,0 +1,351 @@
+{
+ "id": "s3_bars",
+ "suite": "S3",
+ "inputs": [
+  "activity.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "activity.csv has enzyme activity for three genotypes, control and treated, four replicates each. Make a grouped bar chart of the mean activity per genotype with control and treated side by side, error bars showing the SD. Save it as activity.png.",
+   "checks": [
+    {
+     "type": "artifact",
+     "pattern": "activity\\.png$"
+    },
+    {
+     "type": "manifest",
+     "file": "activity.png",
+     "assert": [
+      {
+       "path": "axes.0.series",
+       "any": {
+        "kind": "bar",
+        "values": {
+         "approx_set": [
+          41.985,
+          37.54,
+          19.595
+         ],
+         "rtol": 0.01
+        }
+       }
+      },
+      {
+       "path": "axes.0.series",
+       "any": {
+        "kind": "bar",
+        "values": {
+         "approx_set": [
+          44.542500000000004,
+          70.075,
+          21.97
+         ],
+         "rtol": 0.01
+        }
+       }
+      },
+      {
+       "path": "axes.0.series",
+       "any": {
+        "kind": "errorbar",
+        "yerr": {
+         "approx_set": [
+          7.361451396746884,
+          7.232403934147116,
+          2.020140259156939
+         ],
+         "rtol": 0.02
+        }
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "prompt": "Change the error bars to SEM instead of SD.",
+   "checks": [
+    {
+     "type": "manifest",
+     "file": "activity.png",
+     "assert": [
+      {
+       "path": "axes.0.series",
+       "any": {
+        "kind": "errorbar",
+        "yerr": {
+         "approx_set": [
+          3.680725698373442,
+          3.616201967073558,
+          1.0100701295784695
+         ],
+         "rtol": 0.02
+        }
+       }
+      },
+      {
+       "path": "axes.0.series",
+       "any": {
+        "kind": "errorbar",
+        "yerr": {
+         "approx_set": [
+          1.7699782249131393,
+          2.6499009415447974,
+          1.2340853563131953
+         ],
+         "rtol": 0.02
+        }
+       }
+      },
+      {
+       "path": "axes.0.series",
+       "any": {
+        "kind": "bar",
+        "values": {
+         "approx_set": [
+          41.985,
+          37.54,
+          19.595
+         ],
+         "rtol": 0.01
+        }
+       }
+      }
+     ]
+    },
+    {
+     "type": "manifest_diff",
+     "file": "activity.png",
+     "allowed": [
+      "axes.0.series"
+     ],
+     "must_change": [
+      "axes.0.series"
+     ]
+    }
+   ]
+  },
+  {
+   "prompt": "Put the y axis on a log scale.",
+   "checks": [
+    {
+     "type": "manifest",
+     "file": "activity.png",
+     "assert": [
+      {
+       "path": "axes.0.yscale",
+       "eq": "log"
+      }
+     ]
+    },
+    {
+     "type": "manifest_diff",
+     "file": "activity.png",
+     "allowed": [
+      "axes.0.yscale"
+     ],
+     "must_change": [
+      "axes.0.yscale"
+     ]
+    }
+   ]
+  },
+  {
+   "prompt": "Go back to a linear y axis. Label the y axis 'Activity (U/mg)' and colour the bars #1b9e77 for control and #d95f02 for treated.",
+   "checks": [
+    {
+     "type": "manifest",
+     "file": "activity.png",
+     "assert": [
+      {
+       "path": "axes.0.yscale",
+       "eq": "linear"
+      },
+      {
+       "path": "axes.0.ylabel",
+       "eq": "Activity (U/mg)"
+      },
+      {
+       "path": "axes.0.series",
+       "any": {
+        "kind": "bar",
+        "colors": {
+         "contains": "#1b9e77"
+        }
+       }
+      },
+      {
+       "path": "axes.0.series",
+       "any": {
+        "kind": "bar",
+        "colors": {
+         "contains": "#d95f02"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "type": "manifest_diff",
+     "file": "activity.png",
+     "allowed": [
+      "axes.0.yscale",
+      "axes.0.ylabel",
+      "axes.0.series"
+     ]
+    }
+   ]
+  },
+  {
+   "prompt": "Make the figure 85 mm wide and 60 mm tall and save it as a 300 dpi PNG.",
+   "checks": [
+    {
+     "type": "manifest",
+     "file": "activity.png",
+     "assert": [
+      {
+       "path": "size_mm.0",
+       "approx": 85,
+       "rtol": 0.02
+      },
+      {
+       "path": "size_mm.1",
+       "approx": 60,
+       "rtol": 0.02
+      },
+      {
+       "path": "dpi",
+       "approx": 300,
+       "rtol": 0.01
+      }
+     ]
+    },
+    {
+     "type": "file_meta",
+     "pattern": "activity\\.png$",
+     "assert": [
+      {
+       "path": "dpi",
+       "approx": 300,
+       "rtol": 0.01
+      },
+      {
+       "path": "width_mm",
+       "approx": 85,
+       "atol": 2
+      },
+      {
+       "path": "height_mm",
+       "approx": 60,
+       "atol": 2
+      }
+     ]
+    },
+    {
+     "type": "manifest_diff",
+     "file": "activity.png",
+     "allowed": [
+      "size_in",
+      "size_mm",
+      "dpi"
+     ]
+    }
+   ]
+  },
+  {
+   "prompt": "Add a significance bracket between control and treated for KO1, with asterisks from a Welch's t-test (GraphPad style: * p<0.05, ** p<0.01, *** p<0.001, **** p<0.0001). Report the p-value as p_ko1.",
+   "checks": [
+    {
+     "type": "manifest",
+     "file": "activity.png",
+     "assert": [
+      {
+       "path": "axes.0.texts",
+       "item_eq": "***"
+      }
+     ]
+    },
+    {
+     "type": "numeric",
+     "key": "p_ko1",
+     "truth": "truth:p_ko1",
+     "rtol": 0.02
+    }
+   ],
+   "results_keys": {
+    "p_ko1": ""
+   }
+  },
+  {
+   "prompt": "Remove the KO2 genotype from the figure.",
+   "checks": [
+    {
+     "type": "manifest",
+     "file": "activity.png",
+     "assert": [
+      {
+       "path": "axes.0.series",
+       "any": {
+        "kind": "bar",
+        "values": {
+         "approx_set": [
+          41.985,
+          37.54
+         ],
+         "rtol": 0.01
+        }
+       }
+      }
+     ]
+    },
+    {
+     "type": "manifest_diff",
+     "file": "activity.png",
+     "allowed": [
+      "axes.0.series",
+      "axes.0.xticklabels"
+     ],
+     "must_change": [
+      "axes.0.series"
+     ]
+    }
+   ]
+  },
+  {
+   "prompt": "Export the final figure as a vector PDF with the fonts embedded, as activity.pdf.",
+   "checks": [
+    {
+     "type": "artifact",
+     "pattern": "activity\\.pdf$"
+    },
+    {
+     "type": "file_meta",
+     "pattern": "activity\\.pdf$",
+     "assert": [
+      {
+       "path": "vector",
+       "eq": true
+      },
+      {
+       "path": "fonts_embedded",
+       "eq": true
+      },
+      {
+       "path": "width_mm",
+       "approx": 85,
+       "atol": 2
+      }
+     ]
+    },
+    {
+     "type": "immutable"
+    }
+   ]
+  }
+ ],
+ "results_keys": {},
+ "tags": [
+  "plot-editing"
+ ],
+ "provenance": "synthetic, s3s5.s3_bars"
+}

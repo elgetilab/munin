@@ -1,0 +1,37 @@
+{
+ "id": "s6_noesy_buildup",
+ "suite": "S6",
+ "inputs": [
+  "01ms.txt",
+  "100ms.txt",
+  "200ms.txt",
+  "300ms.txt",
+  "500ms.txt",
+  "ligand_peaks.txt",
+  "lipid_groups.txt"
+ ],
+ "turns": [
+  {
+   "prompt": "These are TopSpin integral exports of 1H-1H NOESY MAS NMR spectra of the drug Ceritinib in POPC membranes. 01ms.txt holds the diagonal peak integrals of the lipid groups at 1 ms mixing time, in the order of lipid_groups.txt (first line is the lipid name). 100ms.txt ... 500ms.txt hold the cross-peak integrals between each drug peak (ligand_peaks.txt, first line is the drug name) and each lipid group, ordered drug peak by drug peak and, within each, lipid group by lipid group. For each drug peak / lipid group pair, fit the NOE buildup A(t) = (A_ii(0)/2)·(1 − exp(−2σt))·exp(−t/T) with t in seconds, A_ii(0) the 1 ms diagonal integral of that lipid group, and the point A(0) = 0 included, for the cross-relaxation rate σ (s⁻¹) and T. Report σ keyed as '<drug ppm>|<lipid group>' (e.g. '8.6|CH3') under 'sigma', and plot σ per lipid group as grouped bars, one group per drug peak.",
+   "checks": [
+    {
+     "type": "numeric_map",
+     "key": "sigma",
+     "truth": "truth:sigma",
+     "rtol": 0.03,
+     "atol": 0.0001,
+     "min_frac": 0.85
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "sigma": ""
+ },
+ "tags": [
+  "nmr",
+  "solid-state",
+  "user-data"
+ ],
+ "provenance": "user data, varghele/1H1H-NOESY 0e2b517 example/ (Ceritinib in POPC); reference sigma recomputed in s6.noesy"
+}

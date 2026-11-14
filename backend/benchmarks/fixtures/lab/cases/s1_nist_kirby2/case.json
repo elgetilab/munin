@@ -1,0 +1,64 @@
+{
+ "id": "s1_nist_kirby2",
+ "suite": "S1",
+ "inputs": [
+  "kirby2.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "Fit the nonlinear model y = (b1 + b2*x + b3*x**2) / (1 + b4*x + b5*x**2) to the data in kirby2.csv (columns x, y) by least squares, starting from b1 = 2, b2 = -0.1, b3 = 0.003, b4 = -0.001, b5 = 0.00001. Report every parameter (b1, b2, b3, b4, b5) to at least 6 significant digits and the residual sum of squares as rss.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "b1",
+     "truth": "truth:certified.b1",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b2",
+     "truth": "truth:certified.b2",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b3",
+     "truth": "truth:certified.b3",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b4",
+     "truth": "truth:certified.b4",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b5",
+     "truth": "truth:certified.b5",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "rss",
+     "truth": "truth:rss",
+     "rtol": 0.0001,
+     "atol": 0
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "b1": "",
+  "b2": "",
+  "b3": "",
+  "b4": "",
+  "b5": "",
+  "rss": ""
+ },
+ "tags": [
+  "nist",
+  "nist:average"
+ ],
+ "provenance": "NIST StRD Kirby2 (public domain), data copied verbatim"
+}

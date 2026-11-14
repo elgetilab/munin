@@ -1,0 +1,57 @@
+{
+ "id": "s1_nist_rat43",
+ "suite": "S1",
+ "inputs": [
+  "rat43.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "Fit the nonlinear model y = b1 / ((1+exp[b2-b3*x])**(1/b4)) to the data in rat43.csv (columns x, y) by least squares, starting from b1 = 100, b2 = 10, b3 = 1, b4 = 1. Report every parameter (b1, b2, b3, b4) to at least 6 significant digits and the residual sum of squares as rss.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "b1",
+     "truth": "truth:certified.b1",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b2",
+     "truth": "truth:certified.b2",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b3",
+     "truth": "truth:certified.b3",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b4",
+     "truth": "truth:certified.b4",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "rss",
+     "truth": "truth:rss",
+     "rtol": 0.0001,
+     "atol": 0
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "b1": "",
+  "b2": "",
+  "b3": "",
+  "b4": "",
+  "rss": ""
+ },
+ "tags": [
+  "nist",
+  "nist:higher"
+ ],
+ "provenance": "NIST StRD Rat43 (public domain), data copied verbatim"
+}

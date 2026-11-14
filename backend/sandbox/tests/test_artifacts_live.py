@@ -170,7 +170,8 @@ check("hook leaves no names in the user namespace", r_ns["stdout"].strip() == "[
 rt = run(A, "open('partial.txt','w').write('half'); import time; time.sleep(30)", timeout_s=2)
 check("timeout reported", rt["timed_out"], rt)
 check("files written before a timeout still surface", bool(by_name(rt, "partial.txt")), rt)
-check("kernel usable after timeout", run(A, "print(1+1)")["stdout"].strip() == "2")
+ru = run(A, "print(1+1)")
+check("kernel usable after timeout", ru["stdout"].strip() == "2", ru)
 
 # ---- inputs -------------------------------------------------------------------
 
@@ -208,6 +209,35 @@ rz = run(A, "import os; print(sorted(os.listdir('inputs/bruker/exp1')), os.path.
             "os.path.exists('inputs/evil.txt'))")
 check("zip members land under inputs/, no traversal or links",
       rz["stdout"].strip() == "['acqus', 'pdata'] False False", rz["stdout"])
+
+# Instrument exports as the lab-analysis fixtures have them (Phase 1): UTF-16
+# with a BOM and CRLF (NanoDrop), and a zipped Bruker experiment whose raw FID
+# the kernel's nmrglue must read from inputs/.
+nd16 = b"\xff\xfe" + "Sample Name\tNucleic Acid(ng/uL)\r\npl01\t412.7\r\n".encode("utf-16-le")
+u16 = c.post(f"/inputs/{A}", params={"name": "nanodrop_utf16.tsv"}, content=nd16)
+r16 = run(A, "import pandas as pd, hashlib\n"
+             "raw = open('inputs/nanodrop_utf16.tsv','rb').read()\n"
+             "d = pd.read_csv('inputs/nanodrop_utf16.tsv', sep='\\t', encoding='utf-16')\n"
+             "print(hashlib.sha256(raw).hexdigest(), d.iloc[0, 1])")
+check("UTF-16 export arrives byte-identical and parses",
+      u16.status_code == 200 and r16["stdout"].split() == [sha(nd16), "412.7"], r16)
+
+fid = bytearray()
+for k in range(2048):
+    fid += int(1000 * (k % 7)).to_bytes(4, "little", signed=True)
+bz_exp = io.BytesIO()
+with zipfile.ZipFile(bz_exp, "w") as zf:
+    zf.writestr("exp10/acqus", "##TITLE= Parameter file\n##$BYTORDA= 0\n##$DTYPA= 0\n##$TD= 2048\n"
+                               "##$SW_h= 12019.23\n##$SFO1= 600.13\n##$BF1= 600.13\n##$O1= 2820.6\n"
+                               "##$DECIM= 1680\n##$DSPFVS= 20\n##$GRPDLY= 76\n##$AQ_mod= 3\n##END=\n")
+    zf.writestr("exp10/fid", bytes(fid))
+    zf.writestr("exp10/pdata/1/procs", "##TITLE= Parameter file\n##$SI= 2048\n##END=\n")
+ub = c.post(f"/inputs/{A}", params={"name": "bruker_1h.zip"}, content=bz_exp.getvalue())
+rb = run(A, "import nmrglue as ng\n"
+            "dic, data = ng.bruker.read('inputs/bruker_1h/exp10')\n"
+            "print(data.shape[0], dic['acqus']['GRPDLY'])")
+check("zipped Bruker experiment is readable by nmrglue from inputs/",
+      ub.status_code == 200 and rb["stdout"].strip() == "1024 76", rb)
 
 big = c.post(f"/inputs/{A}", params={"name": "big.bin"}, content=b"\0" * (100 * 1024 * 1024 + 1))
 check("uploads over 100 MB are refused", big.status_code == 413, big.status_code)

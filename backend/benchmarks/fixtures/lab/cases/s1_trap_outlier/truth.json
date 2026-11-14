@@ -1,0 +1,12 @@
+{
+ "generating": {
+  "bottom": 2.0,
+  "hill": 1.2,
+  "logEC50": -0.3,
+  "top": 100.0
+ },
+ "ref": {
+  "logEC50": -0.267179,
+  "logEC50_naive": -0.566055
+ }
+}

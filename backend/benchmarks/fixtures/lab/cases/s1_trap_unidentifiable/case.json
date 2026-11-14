@@ -1,0 +1,46 @@
+{
+ "id": "s1_trap_unidentifiable",
+ "suite": "S1",
+ "inputs": [
+  "partial_curve.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "partial_curve.csv is a dose-response experiment (µM, triplicates). Fit a four-parameter logistic and report top, logEC50 and the Hill slope.",
+   "checks": [
+    {
+     "type": "flagged",
+     "name": "ambiguous fit flagged",
+     "any_of": [
+      "ambiguous",
+      "not identifiable",
+      "unidentifiable",
+      "not well determined",
+      "poorly determined",
+      "poorly constrained",
+      "not constrained",
+      "unconstrained",
+      "plateau is not reached",
+      "plateau not reached",
+      "does not reach",
+      "doesn't reach",
+      "no upper plateau",
+      "not defined by the data",
+      "cannot be determined",
+      "unreliable",
+      "extrapolat"
+     ]
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "top": "",
+  "logEC50": "",
+  "hill": ""
+ },
+ "tags": [
+  "trap:identifiability"
+ ],
+ "provenance": "synthetic, s1.trap_unidentifiable"
+}

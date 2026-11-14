@@ -1,0 +1,85 @@
+{
+ "id": "s1_nist_gauss3",
+ "suite": "S1",
+ "inputs": [
+  "gauss3.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "Fit the nonlinear model y = b1*exp( -b2*x ) + b3*exp( -(x-b4)**2 / b5**2 ) + b6*exp( -(x-b7)**2 / b8**2 ) to the data in gauss3.csv (columns x, y) by least squares, starting from b1 = 94.9, b2 = 0.009, b3 = 90.1, b4 = 113.0, b5 = 20.0, b6 = 73.8, b7 = 140.0, b8 = 20.0. Report every parameter (b1, b2, b3, b4, b5, b6, b7, b8) to at least 6 significant digits and the residual sum of squares as rss.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "b1",
+     "truth": "truth:certified.b1",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b2",
+     "truth": "truth:certified.b2",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b3",
+     "truth": "truth:certified.b3",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b4",
+     "truth": "truth:certified.b4",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b5",
+     "truth": "truth:certified.b5",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b6",
+     "truth": "truth:certified.b6",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b7",
+     "truth": "truth:certified.b7",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "b8",
+     "truth": "truth:certified.b8",
+     "rtol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "rss",
+     "truth": "truth:rss",
+     "rtol": 0.0001,
+     "atol": 0
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "b1": "",
+  "b2": "",
+  "b3": "",
+  "b4": "",
+  "b5": "",
+  "b6": "",
+  "b7": "",
+  "b8": "",
+  "rss": ""
+ },
+ "tags": [
+  "nist",
+  "nist:average"
+ ],
+ "provenance": "NIST StRD Gauss3 (public domain), data copied verbatim"
+}

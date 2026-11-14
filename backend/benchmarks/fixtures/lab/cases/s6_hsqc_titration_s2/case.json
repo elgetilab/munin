@@ -1,0 +1,39 @@
+{
+ "id": "s6_hsqc_titration_s2",
+ "suite": "S6",
+ "inputs": [
+  "hsqc_titration.zip"
+ ],
+ "turns": [
+  {
+   "prompt": "hsqc_titration.zip holds Sparky peak lists from a 15N-HSQC titration of a 100 µM protein with a ligand (README inside). For every assigned residue, compute the combined chemical shift perturbation between the first (0 µM) and the last (1600 µM) point as CSP = sqrt(Δδ_H² + (α·Δδ_N)²) with α = 0.14, keyed by residue (e.g. 'K12', without 'N-H'). A residue missing from either spectrum gets null; do not drop or interpolate it. Then fit a single-site binding model with ligand depletion globally (one shared Kd, a CSPmax per residue) to the CSP of every titration point, using only residues whose final CSP exceeds 0.05 ppm and that are present at every point. Report the CSP map as 'csp', the residues used as 'fit_residues' and Kd in µM as 'kd_uM'. Plot CSP per residue as a bar chart.",
+   "checks": [
+    {
+     "type": "numeric_map",
+     "key": "csp",
+     "truth": "truth:csp",
+     "atol": 0.002,
+     "min_frac": 0.95
+    },
+    {
+     "type": "numeric",
+     "key": "kd_uM",
+     "truth": "truth:kd_uM",
+     "log": true,
+     "atol": 0.05
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "csp": "",
+  "fit_residues": "",
+  "kd_uM": ""
+ },
+ "tags": [
+  "nmr",
+  "titration",
+  "trap:missing-residues"
+ ],
+ "provenance": "synthetic, s6.hsqc_titration seed 2"
+}

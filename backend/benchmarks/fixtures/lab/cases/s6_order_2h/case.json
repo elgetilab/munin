@@ -1,0 +1,38 @@
+{
+ "id": "s6_order_2h",
+ "suite": "S6",
+ "inputs": [
+  "POPC_ibuprofen10_303K.txt",
+  "POPC_pure_303K.txt"
+ ],
+ "turns": [
+  {
+   "prompt": "The two files hold smoothed 2H NMR acyl chain order parameters S_CD of POPC (sn-1 chain, carbon number n, comma-separated, no header) at 303 K: pure POPC and POPC with 10 mol% ibuprofen. Compute ΔS = S(with drug) − S(pure) per carbon (key 'delta_S', keyed by carbon number as a string), the mean ΔS over the plateau region C2 to C8 ('plateau_mean_delta'), and plot both order profiles against carbon number.",
+   "checks": [
+    {
+     "type": "numeric_map",
+     "key": "delta_S",
+     "truth": "truth:delta_S",
+     "atol": 0.0001,
+     "min_frac": 1.0
+    },
+    {
+     "type": "numeric",
+     "key": "plateau_mean_delta",
+     "truth": "truth:plateau_mean_delta",
+     "atol": 0.0001
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "delta_S": "",
+  "plateau_mean_delta": ""
+ },
+ "tags": [
+  "nmr",
+  "solid-state",
+  "user-data"
+ ],
+ "provenance": "user data, varghele/GNN2H d030950 data/2H_data/ (2IBU set)"
+}

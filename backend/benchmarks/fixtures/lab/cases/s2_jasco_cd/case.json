@@ -1,0 +1,49 @@
+{
+ "id": "s2_jasco_cd",
+ "suite": "S2",
+ "inputs": [
+  "cd_lysozyme.txt"
+ ],
+ "turns": [
+  {
+   "prompt": "cd_lysozyme.txt is a Jasco CD export (German locale). The sample is lysozyme, 14.3 kDa, 129 residues, at 0.2 mg/mL in a 0.1 cm cell. Report the CD signal in mdeg at 222 nm and 208 nm (cd_222, cd_208), the mean residue ellipticity at 222 nm in deg·cm²·dmol⁻¹ (mre_222), and the shortest wavelength at which the HT voltage is still at or below 600 V (min_wavelength_ht600), below which data should not be trusted.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "cd_222",
+     "truth": "truth:cd_222",
+     "atol": 0.001
+    },
+    {
+     "type": "numeric",
+     "key": "cd_208",
+     "truth": "truth:cd_208",
+     "atol": 0.001
+    },
+    {
+     "type": "numeric",
+     "key": "mre_222",
+     "truth": "truth:mre_222",
+     "rtol": 0.01
+    },
+    {
+     "type": "numeric",
+     "key": "min_wavelength_ht600",
+     "truth": "truth:min_wavelength_ht600",
+     "atol": 0.01
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "cd_222": "",
+  "cd_208": "",
+  "mre_222": "",
+  "min_wavelength_ht600": ""
+ },
+ "tags": [
+  "format:jasco",
+  "locale:de"
+ ],
+ "provenance": "mimic of a Jasco Spectra Manager text export, s2.jasco"
+}

@@ -14,3 +14,4 @@ scipy
 pytest
 pydantic   # munin_bench/routing/routing_eval.py imports it at module level
 httpx      # same, for the live-service runner config block
+openpyxl   # lab-analysis fixture generator (Tecan xlsx), test_labanalysis determinism check

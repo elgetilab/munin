@@ -1,0 +1,28 @@
+{
+ "means": {
+  "KO1/control": 37.54,
+  "KO1/treated": 70.075,
+  "KO2/control": 19.595,
+  "KO2/treated": 21.97,
+  "WT/control": 41.985,
+  "WT/treated": 44.5425
+ },
+ "p_ko1": 0.000513673,
+ "sd": {
+  "KO1/control": 7.2324,
+  "KO1/treated": 5.2998,
+  "KO2/control": 2.02014,
+  "KO2/treated": 2.46817,
+  "WT/control": 7.36145,
+  "WT/treated": 3.53996
+ },
+ "sem": {
+  "KO1/control": 3.6162,
+  "KO1/treated": 2.6499,
+  "KO2/control": 1.01007,
+  "KO2/treated": 1.23409,
+  "WT/control": 3.68073,
+  "WT/treated": 1.76998
+ },
+ "stars_ko1": "***"
+}

@@ -1,0 +1,34 @@
+{
+ "id": "s1_trap_replicates",
+ "suite": "S1",
+ "inputs": [
+  "replicates.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "replicates.csv has a dose-response experiment with three replicate measurements per concentration, as separate columns (one value is missing). Fit a four-parameter logistic against log10(concentration) and report logEC50 with its 95% confidence interval.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "logEC50",
+     "truth": "truth:ref.logEC50",
+     "atol": 0.02
+    },
+    {
+     "type": "ci_close",
+     "key": "logEC50_ci",
+     "truth": "truth:ref.logEC50_ci",
+     "tol": 0.25
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "logEC50": "",
+  "logEC50_ci": ""
+ },
+ "tags": [
+  "trap:wide-replicates"
+ ],
+ "provenance": "synthetic, s1.trap_replicates"
+}

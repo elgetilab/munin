@@ -1,0 +1,22 @@
+{
+ "concentration": {
+  "pl01_miniprep": 78.7,
+  "pl02_miniprep": 272.3,
+  "pl03_miniprep": 358.5,
+  "pl04_miniprep": 392.2,
+  "pl05_miniprep": 42.8,
+  "pl06_miniprep": 500.1,
+  "pl07_miniprep": 113.8,
+  "pl08_miniprep": 514.2
+ },
+ "ratio_260_280": {
+  "pl01_miniprep": 1.91,
+  "pl02_miniprep": 1.86,
+  "pl03_miniprep": 1.94,
+  "pl04_miniprep": 1.91,
+  "pl05_miniprep": 1.89,
+  "pl06_miniprep": 1.86,
+  "pl07_miniprep": 1.89,
+  "pl08_miniprep": 1.78
+ }
+}

@@ -1,0 +1,27 @@
+{
+ "id": "s1_trap_weighting",
+ "suite": "S1",
+ "inputs": [
+  "clearance.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "clearance.csv is a decay over three orders of magnitude. The measurement error is proportional to the signal (constant coefficient of variation, about 10%). Fit a single exponential decay to zero, Y = Y0*exp(-k*t), appropriately for this error structure and report k per hour.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "k",
+     "truth": "truth:ref.k",
+     "atol": 0.004603342798864119
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "k": ""
+ },
+ "tags": [
+  "trap:weighting"
+ ],
+ "provenance": "synthetic, s1.trap_weighting"
+}

@@ -1,0 +1,29 @@
+{
+ "id": "s5_anova",
+ "suite": "S5",
+ "inputs": [
+  "groups.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "groups.csv has three groups. Run a one-way ANOVA followed by Tukey's multiple comparisons, write the comparison table to tukey.csv, and save a box plot with the individual points as groups.png.",
+   "checks": [
+    {
+     "type": "bundle"
+    },
+    {
+     "type": "reproduces",
+     "outputs": [
+      "tukey.csv",
+      "groups.png"
+     ]
+    }
+   ]
+  }
+ ],
+ "results_keys": {},
+ "tags": [
+  "reproducibility"
+ ],
+ "provenance": "synthetic, s3s5.s5_cases"
+}

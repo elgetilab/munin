@@ -1,0 +1,29 @@
+{
+ "id": "s5_fit",
+ "suite": "S5",
+ "inputs": [
+  "repro_dose.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "repro_dose.csv is a dose-response experiment. Fit a four-parameter logistic against log10(concentration), save the fitted parameters to fit_params.csv (columns parameter, value) and a plot of the data with the fitted curve as fit.png.",
+   "checks": [
+    {
+     "type": "bundle"
+    },
+    {
+     "type": "reproduces",
+     "outputs": [
+      "fit_params.csv",
+      "fit.png"
+     ]
+    }
+   ]
+  }
+ ],
+ "results_keys": {},
+ "tags": [
+  "reproducibility"
+ ],
+ "provenance": "synthetic, s3s5.s5_cases"
+}

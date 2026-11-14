@@ -1,0 +1,60 @@
+{
+ "id": "s1_5pl_s4",
+ "suite": "S1",
+ "inputs": [
+  "asymmetric_4.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "asymmetric_4.csv is an asymmetric concentration-response curve (µM, duplicates). Fit a five-parameter logistic, Y = Bottom + (Top-Bottom)/(1+10^((LogXb-X)*HillSlope))^S with X = log10(concentration), to all points. Report bottom, top, the Hill slope, the asymmetry factor S, and logEC50 defined as the log10 concentration giving a response halfway between bottom and top.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "bottom",
+     "truth": "truth:ref.bottom",
+     "rtol": 0.05,
+     "atol": 1.0
+    },
+    {
+     "type": "numeric",
+     "key": "top",
+     "truth": "truth:ref.top",
+     "rtol": 0.02,
+     "atol": 1.0
+    },
+    {
+     "type": "numeric",
+     "key": "logEC50",
+     "truth": "truth:ref.logEC50",
+     "rtol": 0,
+     "atol": 0.03
+    },
+    {
+     "type": "numeric",
+     "key": "hill",
+     "truth": "truth:ref.hill",
+     "rtol": 0.05,
+     "atol": 0
+    },
+    {
+     "type": "numeric",
+     "key": "asymmetry",
+     "truth": "truth:ref.asymmetry",
+     "rtol": 0.08,
+     "atol": 0
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "bottom": "",
+  "top": "",
+  "hill": "",
+  "asymmetry": "",
+  "logEC50": ""
+ },
+ "tags": [
+  "dose-response"
+ ],
+ "provenance": "synthetic, s1.case_5pl seed 4"
+}

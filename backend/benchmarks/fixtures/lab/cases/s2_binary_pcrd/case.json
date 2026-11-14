@@ -1,0 +1,29 @@
+{
+ "id": "s2_binary_pcrd",
+ "suite": "S2",
+ "inputs": [
+  "qpcr_run.pcrd"
+ ],
+ "turns": [
+  {
+   "prompt": "Here is my Bio-Rad CFX Maestro file qpcr_run.pcrd. Report the Cq values of the GAPDH wells.",
+   "checks": [
+    {
+     "type": "asks_export"
+    },
+    {
+     "type": "no_values",
+     "keys": [
+      "cq_mean"
+     ]
+    }
+   ]
+  }
+ ],
+ "results_keys": {},
+ "tags": [
+  "format:proprietary",
+  "trap:binary"
+ ],
+ "provenance": "random bytes behind a Bio-Rad CFX Maestro-like magic number, s2.binaries"
+}

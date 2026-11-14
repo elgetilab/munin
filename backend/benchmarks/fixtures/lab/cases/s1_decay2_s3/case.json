@@ -1,0 +1,52 @@
+{
+ "id": "s1_decay2_s3",
+ "suite": "S1",
+ "inputs": [
+  "two_phase_3.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "two_phase_3.csv is a decay with two phases. Fit a two-phase exponential decay to a plateau and report the plateau, the fast and slow rate constants (per second) and the percentage of the span in the fast phase.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "plateau",
+     "truth": "truth:ref.plateau",
+     "rtol": 0.05,
+     "atol": 3
+    },
+    {
+     "type": "numeric",
+     "key": "k_fast",
+     "truth": "truth:ref.k_fast",
+     "rtol": 0.04,
+     "atol": 0
+    },
+    {
+     "type": "numeric",
+     "key": "k_slow",
+     "truth": "truth:ref.k_slow",
+     "rtol": 0.04,
+     "atol": 0
+    },
+    {
+     "type": "numeric",
+     "key": "percent_fast",
+     "truth": "truth:ref.percent_fast",
+     "rtol": 0,
+     "atol": 1.5
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "plateau": "",
+  "k_fast": "",
+  "k_slow": "",
+  "percent_fast": ""
+ },
+ "tags": [
+  "exponential"
+ ],
+ "provenance": "synthetic, s1.case_decay2 seed 3"
+}

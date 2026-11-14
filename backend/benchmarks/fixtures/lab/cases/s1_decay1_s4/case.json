@@ -1,0 +1,59 @@
+{
+ "id": "s1_decay1_s4",
+ "suite": "S1",
+ "inputs": [
+  "decay_4.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "decay_4.csv is a single-exponential decay to a non-zero plateau. Fit a one-phase decay model and report Y0, plateau, the rate constant k (per minute) with its 95% confidence interval, and the half-life in minutes.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "y0",
+     "truth": "truth:ref.y0",
+     "rtol": 0.01,
+     "atol": 0
+    },
+    {
+     "type": "numeric",
+     "key": "plateau",
+     "truth": "truth:ref.plateau",
+     "rtol": 0.03,
+     "atol": 2
+    },
+    {
+     "type": "numeric",
+     "key": "k",
+     "truth": "truth:ref.k",
+     "rtol": 0.02,
+     "atol": 0
+    },
+    {
+     "type": "numeric",
+     "key": "half_life",
+     "truth": "truth:ref.half_life",
+     "rtol": 0.02,
+     "atol": 0
+    },
+    {
+     "type": "ci_close",
+     "key": "k_ci",
+     "truth": "truth:ref.k_ci",
+     "tol": 0.25
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "y0": "",
+  "plateau": "",
+  "k": "",
+  "k_ci": "",
+  "half_life": ""
+ },
+ "tags": [
+  "exponential"
+ ],
+ "provenance": "synthetic, s1.case_decay1 seed 4"
+}

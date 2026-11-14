@@ -1,0 +1,26 @@
+User: USER
+Path: C:\Program Data\BMG LABTECH\Clariostar\User\Data
+Test ID: 1284
+Test Name: FI_485_520
+Date: 03/11/2026
+Time: 10:22:10
+ID1: run2
+Fluorescence (FI)
+
+Well,Content,Raw Data (485-12/520-20)
+A01,Sample X1,28299
+A02,Sample X2,28558
+A03,Sample X3,6387
+A04,Sample X4,26362
+B01,Sample X1,27935
+B02,Sample X2,27545
+B03,Sample X3,6358
+B04,Sample X4,28349
+C01,Sample X1,29152
+C02,Sample X2,29232
+C03,Sample X3,6663
+C04,Sample X4,26236
+D01,Blank B,780
+D02,Blank B,835
+D03,Blank B,811
+D04,Blank B,799

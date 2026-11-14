@@ -1,0 +1,28 @@
+{
+ "id": "s2_bmg_table",
+ "suite": "S2",
+ "inputs": [
+  "bmg_fi.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "bmg_fi.csv is a BMG CLARIOstar table-view export: four samples in triplicate and four blank wells. Subtract the mean of the blank wells and report the blank-corrected mean fluorescence of each sample, keyed by its content name (e.g. 'Sample X1').",
+   "checks": [
+    {
+     "type": "numeric_map",
+     "key": "means",
+     "truth": "truth:means",
+     "rtol": 0.001,
+     "min_frac": 1.0
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "means": ""
+ },
+ "tags": [
+  "format:bmg"
+ ],
+ "provenance": "mimic of a BMG MARS table-view export, s2.bmg"
+}

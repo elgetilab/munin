@@ -1,0 +1,38 @@
+{
+ "id": "s2_gen5_kinetic",
+ "suite": "S2",
+ "inputs": [
+  "kinetics.txt"
+ ],
+ "turns": [
+  {
+   "prompt": "kinetics.txt is a Gen5 kinetic export (absorbance at 405 nm every 30 s for 70 min). For wells A1 to A4, report the initial rate in OD/min from a straight-line fit to the reads from 0 to 5 minutes inclusive (key 'initial_rate'), and the first read time in minutes at which each well's OD exceeds 1.0 (key 'time_to_od1', null if it never does).",
+   "checks": [
+    {
+     "type": "numeric_map",
+     "key": "initial_rate",
+     "truth": "truth:initial_rate",
+     "rtol": 0.01,
+     "atol": 2e-05,
+     "min_frac": 1.0
+    },
+    {
+     "type": "numeric_map",
+     "key": "time_to_od1",
+     "truth": "truth:time_to_od1",
+     "atol": 0.01,
+     "min_frac": 1.0
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "initial_rate": "",
+  "time_to_od1": ""
+ },
+ "tags": [
+  "format:gen5",
+  "trap:hms-times"
+ ],
+ "provenance": "mimic of a BioTek Gen5 kinetic text export, s2.gen5"
+}

@@ -13,7 +13,7 @@ works end to end. The baseline numbers are Phase 2.
 |---|---|---|
 | D1 | How does a grader read the model's numbers? | Every prompt ends with a fixed answer-format suffix asking the model to also save `results.json` with named keys. Graders read that artifact. A fenced JSON block in the final answer is the fallback. No LLM extraction. The suffix is identical in both arms, so it does not bias the paired comparison. |
 | D2 | Commit generated fixtures or only the generators? | Both. Generators are seeded; a test regenerates every fixture and checks its sha256 against `fixtures/lab/SHA256SUMS`, so reviewers see the files and drift is caught. |
-| D3 | Where do generators that need nmrglue or lmfit run? | Inside the `munin-sandbox` image (`docker run --rm`), so fixtures are built with the same pinned versions the model uses. Pure numpy generators also run on the host. |
+| D3 | Where do generators that need nmrglue or lmfit run? | Revised while building: no generator needs them. The Bruker experiment is written directly (acqus, int32 FID, procs) and only *verified* with nmrglue in the `munin-sandbox` image. Generators need numpy, scipy and openpyxl. |
 | D4 | Vision judge | Deferred. The production backbone (Sage-A1.5) is text-only, so a local-backbone judge cannot see a figure today. Mechanical manifest checks are the grader; the judge slot stays in the scorecard as `null`. |
 | D5 | Held-out set | `/opt/munin/data/evals/lab/`, outside git. Until real exports arrive it holds perturbed synthetic variants (other seeds, other noise, renamed columns) produced by the same generators with a private seed list. Real exports are a request to the user, not a blocker. |
 | D6 | Reps | Smoke: 1 rep. Phase 2 default: 3 reps per case, temperature as in production. |

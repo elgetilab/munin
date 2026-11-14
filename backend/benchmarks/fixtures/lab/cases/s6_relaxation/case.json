@@ -1,0 +1,54 @@
+{
+ "id": "s6_relaxation",
+ "suite": "S6",
+ "inputs": [
+  "R1_intensities.csv",
+  "R2_intensities.csv",
+  "hetNOE.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "R1_intensities.csv and R2_intensities.csv hold 15N relaxation peak intensities per residue at the delays in the column headers; hetNOE.csv has saturated and reference intensities. Fit a two-parameter mono-exponential decay I = I0·exp(-R·t) per residue to get R1 and R2 in s⁻¹, and compute the heteronuclear NOE as I_sat/I_ref. Report the three per-residue maps as 'R1', 'R2' and 'hetNOE', and the mean R2/R1 over residues with hetNOE > 0.65 as 'mean_R2_R1_rigid'. Plot all three against residue number.",
+   "checks": [
+    {
+     "type": "numeric_map",
+     "key": "R1",
+     "truth": "truth:R1",
+     "rtol": 0.01,
+     "min_frac": 0.95
+    },
+    {
+     "type": "numeric_map",
+     "key": "R2",
+     "truth": "truth:R2",
+     "rtol": 0.01,
+     "min_frac": 0.95
+    },
+    {
+     "type": "numeric_map",
+     "key": "hetNOE",
+     "truth": "truth:hetNOE",
+     "atol": 0.002,
+     "min_frac": 0.95
+    },
+    {
+     "type": "numeric",
+     "key": "mean_R2_R1_rigid",
+     "truth": "truth:mean_R2_R1_rigid",
+     "rtol": 0.01
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "R1": "",
+  "R2": "",
+  "hetNOE": "",
+  "mean_R2_R1_rigid": ""
+ },
+ "tags": [
+  "nmr",
+  "relaxation"
+ ],
+ "provenance": "synthetic, s6.relaxation"
+}

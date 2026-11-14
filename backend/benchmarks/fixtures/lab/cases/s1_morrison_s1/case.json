@@ -1,0 +1,44 @@
+{
+ "id": "s1_morrison_s1",
+ "suite": "S1",
+ "inputs": [
+  "tight_binding_1.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "tight_binding_1.csv is a tight-binding inhibitor titration: rate vs inhibitor concentration (nM). The enzyme concentration in the assay is 5 nM, comparable to the inhibitor, so ligand depletion matters. Fit the Morrison equation with [E]t fixed at 5 nM and report the uninhibited rate v0 and the apparent Ki (nM) with its 95% confidence interval.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "v0",
+     "truth": "truth:ref.v0",
+     "rtol": 0.01,
+     "atol": 0
+    },
+    {
+     "type": "numeric",
+     "key": "Ki_app",
+     "truth": "truth:ref.Ki_app",
+     "rtol": 0.04,
+     "atol": 0
+    },
+    {
+     "type": "ci_close",
+     "key": "Ki_app_ci",
+     "truth": "truth:ref.Ki_app_ci",
+     "tol": 0.25
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "v0": "",
+  "Ki_app": "",
+  "Ki_app_ci": ""
+ },
+ "tags": [
+  "enzyme",
+  "tight-binding"
+ ],
+ "provenance": "synthetic, s1.case_morrison seed 1"
+}

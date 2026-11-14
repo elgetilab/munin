@@ -1,0 +1,36 @@
+{
+ "id": "s2_tecan_xlsx",
+ "suite": "S2",
+ "inputs": [
+  "plate_450nm.xlsx"
+ ],
+ "turns": [
+  {
+   "prompt": "plate_450nm.xlsx is a Tecan absorbance export of a 96-well plate. Report the absorbance of every well keyed as A1 ... H12 under 'wells'. Wells the reader marked as saturated must be null, not a number, and report how many there are as n_saturated.",
+   "checks": [
+    {
+     "type": "numeric_map",
+     "key": "wells",
+     "truth": "truth:wells",
+     "atol": 0.0001,
+     "min_frac": 1.0
+    },
+    {
+     "type": "numeric",
+     "key": "n_saturated",
+     "truth": 5,
+     "atol": 0
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "wells": "",
+  "n_saturated": ""
+ },
+ "tags": [
+  "format:tecan",
+  "trap:over"
+ ],
+ "provenance": "mimic of a Tecan i-control xlsx export, s2.tecan"
+}

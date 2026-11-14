@@ -1,0 +1,38 @@
+{
+ "id": "s2_nanodrop_utf8",
+ "suite": "S2",
+ "inputs": [
+  "nanodrop_utf8.tsv"
+ ],
+ "turns": [
+  {
+   "prompt": "nanodrop_utf8.tsv is a NanoDrop export of plasmid minipreps. Report the nucleic acid concentration in ng/µL and the A260/A280 ratio of every sample, keyed by sample name.",
+   "checks": [
+    {
+     "type": "numeric_map",
+     "key": "concentration",
+     "truth": "truth:concentration",
+     "rtol": 0.001,
+     "atol": 0.05,
+     "min_frac": 1.0
+    },
+    {
+     "type": "numeric_map",
+     "key": "ratio_260_280",
+     "truth": "truth:ratio_260_280",
+     "atol": 0.005,
+     "min_frac": 1.0
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "concentration": "",
+  "ratio_260_280": ""
+ },
+ "tags": [
+  "format:nanodrop",
+  "encoding:utf8"
+ ],
+ "provenance": "mimic of a NanoDrop One TSV export, s2.nanodrop"
+}

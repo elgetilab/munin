@@ -1,0 +1,128 @@
+{
+ "id": "s3_dose",
+ "suite": "S3",
+ "inputs": [
+  "dose.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "dose.csv has percent inhibition for two compounds at nine concentrations, triplicates. Plot mean ± SD against concentration for cmpd-A only, as points, and save as dose.png.",
+   "checks": [
+    {
+     "type": "artifact",
+     "pattern": "dose\\.png$"
+    },
+    {
+     "type": "manifest",
+     "file": "dose.png",
+     "assert": [
+      {
+       "path": "axes.0.series",
+       "any": {
+        "kind": "errorbar"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "prompt": "Use a logarithmic x axis.",
+   "checks": [
+    {
+     "type": "manifest",
+     "file": "dose.png",
+     "assert": [
+      {
+       "path": "axes.0.xscale",
+       "eq": "log"
+      }
+     ]
+    },
+    {
+     "type": "manifest_diff",
+     "file": "dose.png",
+     "allowed": [
+      "axes.0.xscale"
+     ],
+     "must_change": [
+      "axes.0.xscale"
+     ]
+    }
+   ]
+  },
+  {
+   "prompt": "Add cmpd-B to the same plot in a different colour, with a legend.",
+   "checks": [
+    {
+     "type": "manifest",
+     "file": "dose.png",
+     "assert": [
+      {
+       "path": "axes.0.series",
+       "count": {
+        "field": "kind",
+        "value": "errorbar",
+        "eq": 2
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "prompt": "Label the x axis 'Concentration (µM)' and the y axis 'Inhibition (%)', and set the y axis from 0 to 110.",
+   "checks": [
+    {
+     "type": "manifest",
+     "file": "dose.png",
+     "assert": [
+      {
+       "path": "axes.0.xlabel",
+       "eq": "Concentration (µM)"
+      },
+      {
+       "path": "axes.0.ylabel",
+       "eq": "Inhibition (%)"
+      },
+      {
+       "path": "axes.0.ylim.0",
+       "approx": 0,
+       "atol": 0.5
+      },
+      {
+       "path": "axes.0.ylim.1",
+       "approx": 110,
+       "atol": 0.5
+      }
+     ]
+    },
+    {
+     "type": "manifest_diff",
+     "file": "dose.png",
+     "allowed": [
+      "axes.0.xlabel",
+      "axes.0.ylabel"
+     ]
+    }
+   ]
+  },
+  {
+   "prompt": "Save it once more as dose.svg as well.",
+   "checks": [
+    {
+     "type": "artifact",
+     "pattern": "dose\\.svg$"
+    },
+    {
+     "type": "immutable"
+    }
+   ]
+  }
+ ],
+ "results_keys": {},
+ "tags": [
+  "plot-editing"
+ ],
+ "provenance": "synthetic, s3s5.s3_dose"
+}

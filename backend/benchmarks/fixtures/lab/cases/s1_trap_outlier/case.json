@@ -1,0 +1,40 @@
+{
+ "id": "s1_trap_outlier",
+ "suite": "S1",
+ "inputs": [
+  "outliers.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "outliers.csv is a dose-response experiment (µM, triplicates) that may contain outliers. Identify and exclude outliers in a principled way (as Prism's ROUT method would, Q = 1%), fit a four-parameter logistic to the remaining points, and report logEC50 and how many points you excluded.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "logEC50",
+     "truth": "truth:ref.logEC50",
+     "atol": 0.1195504783435326
+    },
+    {
+     "type": "numeric",
+     "key": "n_excluded",
+     "truth": 2,
+     "atol": 0
+    },
+    {
+     "type": "flagged",
+     "any_of": [
+      "outlier"
+     ]
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "logEC50": "",
+  "n_excluded": ""
+ },
+ "tags": [
+  "trap:outliers"
+ ],
+ "provenance": "synthetic, s1.trap_outlier"
+}

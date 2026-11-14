@@ -1,0 +1,11 @@
+{
+ "generating": {
+  "Y0": 1000.0,
+  "k": 0.35
+ },
+ "ref": {
+  "k": 0.348381,
+  "k_unweighted": 0.359889,
+  "k_weighted_by_fit": 0.34743
+ }
+}
