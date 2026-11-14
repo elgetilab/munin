@@ -1,0 +1,195 @@
+{
+  "track": "harness-ablation",
+  "n_paired": 199,
+  "git_sha": "685bae2",
+  "date": "2026-11-13",
+  "runs_dir": "ablation_runs/sage-a1.5-egressoff",
+  "arm_meta": {
+    "bare": {
+      "arm": "bare",
+      "n": 199,
+      "tag": "sage-a1.5",
+      "base_url": "http://127.0.0.1:8001",
+      "egress": "n/a-no-tools",
+      "model": "sage-a1.5",
+      "git_sha": "685bae2",
+      "deadline_s": null,
+      "reasoning_effort": null,
+      "max_output_tokens": 16384,
+      "thinking_token_budget": 8192,
+      "direct_sampling": {
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0.0,
+        "presence_penalty": 1.5
+      },
+      "concurrency": 2,
+      "corpus": {
+        "papers_collection": "papers_bge",
+        "chunks_collection": "papers_chunks",
+        "papers_points": 68980,
+        "chunks_points": 1426195,
+        "counted_at": "2026-11-13T16:39:09.314960+00:00"
+      },
+      "finished_at": "2026-11-13T16:39:09Z"
+    },
+    "rag": {
+      "arm": "rag",
+      "n": 199,
+      "tag": "sage-a1.5",
+      "base_url": "http://127.0.0.1:8001",
+      "egress": "n/a-no-tools",
+      "model": "sage-a1.5",
+      "git_sha": "685bae2",
+      "deadline_s": null,
+      "reasoning_effort": null,
+      "max_output_tokens": 16384,
+      "thinking_token_budget": 8192,
+      "direct_sampling": {
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0.0,
+        "presence_penalty": 1.5
+      },
+      "concurrency": 2,
+      "corpus": {
+        "papers_collection": "papers_bge",
+        "chunks_collection": "papers_chunks",
+        "papers_points": 68980,
+        "chunks_points": 1426195,
+        "counted_at": "2026-11-13T17:13:51.610093+00:00"
+      },
+      "finished_at": "2026-11-13T17:13:51Z"
+    },
+    "agentic": {
+      "arm": "agentic",
+      "n": 199,
+      "tag": "sage-a1.5-egressoff",
+      "base_url": "http://127.0.0.1:8082",
+      "egress": "off",
+      "model": "sage-a1.5",
+      "git_sha": "685bae2",
+      "deadline_s": 900,
+      "reasoning_effort": null,
+      "max_output_tokens": 16384,
+      "thinking_token_budget": 8192,
+      "direct_sampling": null,
+      "concurrency": 2,
+      "corpus": {
+        "papers_collection": "papers_bge",
+        "chunks_collection": "papers_chunks",
+        "papers_points": 68980,
+        "chunks_points": 1426195,
+        "counted_at": "2026-11-13T21:26:45.108588+00:00"
+      },
+      "finished_at": "2026-11-13T21:26:45Z"
+    }
+  },
+  "per_arm": {
+    "bare": {
+      "accuracy": 0.36180904522613067,
+      "abstain_rate": 0.1457286432160804,
+      "precision_of_attempted": 0.4675324675324675,
+      "verdicts": {
+        "correct": 72,
+        "abstain": 29,
+        "incorrect": 82,
+        "unparseable": 16
+      },
+      "unparseable_reasons": {
+        "empty_content": 9,
+        "letter_not_found": 7
+      },
+      "empty_kinds": {
+        "no_final_message": 4,
+        "truncated": 5
+      },
+      "tool_markup_in_content": 0,
+      "deadline_hits": 0,
+      "cost": {
+        "mean_prompt_tokens": 164.1,
+        "mean_completion_tokens": 6790.1,
+        "mean_elapsed_s": 43.5,
+        "mean_tool_calls": 0.0
+      }
+    },
+    "rag": {
+      "accuracy": 0.1708542713567839,
+      "abstain_rate": 0.7537688442211056,
+      "precision_of_attempted": 0.6938775510204082,
+      "verdicts": {
+        "abstain": 150,
+        "correct": 34,
+        "incorrect": 15
+      },
+      "unparseable_reasons": {},
+      "empty_kinds": {},
+      "tool_markup_in_content": 0,
+      "deadline_hits": 0,
+      "cost": {
+        "mean_prompt_tokens": 1438.1,
+        "mean_completion_tokens": 3319.9,
+        "mean_elapsed_s": 20.7,
+        "mean_tool_calls": 0.0
+      }
+    },
+    "agentic": {
+      "accuracy": 0.7487437185929648,
+      "abstain_rate": 0.21105527638190955,
+      "precision_of_attempted": 0.9551282051282052,
+      "verdicts": {
+        "correct": 149,
+        "incorrect": 7,
+        "abstain": 42,
+        "unparseable": 1
+      },
+      "unparseable_reasons": {
+        "empty_content": 1
+      },
+      "empty_kinds": {},
+      "tool_markup_in_content": 0,
+      "deadline_hits": 0,
+      "cost": {
+        "mean_prompt_tokens": null,
+        "mean_completion_tokens": null,
+        "mean_elapsed_s": 66.7,
+        "mean_tool_calls": 11.2
+      }
+    }
+  },
+  "deltas": {
+    "rag_minus_bare": {
+      "delta": -0.191,
+      "ci": [
+        -0.2613,
+        -0.1206
+      ],
+      "p": 0.0
+    },
+    "agentic_minus_rag": {
+      "delta": 0.5779,
+      "ci": [
+        0.5075,
+        0.6533
+      ],
+      "p": 0.0
+    },
+    "agentic_minus_bare": {
+      "delta": 0.3869,
+      "ci": [
+        0.3015,
+        0.4675
+      ],
+      "p": 0.0
+    }
+  },
+  "corpus": {
+    "papers_collection": "papers_bge",
+    "chunks_collection": "papers_chunks",
+    "papers_points": 68980,
+    "chunks_points": 1426195,
+    "counted_at": "2026-11-13T16:39:09.314960+00:00"
+  }
+}

@@ -1,0 +1,187 @@
+{
+  "meta": {
+    "tag": "sage-a1.5",
+    "generated_at": "2026-11-13T19:34:25.335902+00:00",
+    "git_sha": "685bae2",
+    "encoder": "specter-v1",
+    "seed": 42,
+    "packages": {
+      "numpy": "2.5.0",
+      "scipy": "1.17.1",
+      "sentence_transformers": "6.1.0",
+      "qdrant_client": "n/a"
+    },
+    "model": "sage-a1.5",
+    "model_max_len": 65536,
+    "model_path": "/opt/munin/data/models/sage-a1.5-awq-int4",
+    "corpus_collections": {
+      "papers": "papers_bge",
+      "chunks": "papers_chunks"
+    },
+    "corpus_papers": 68980,
+    "corpus_chunks": 1426195,
+    "backbone": "sage-a1.5",
+    "checkpoint": "cyankiwi/Sage-A1.5-AWQ-INT4",
+    "checkpoint_dir": "/opt/munin/data/models/sage-a1.5-awq-int4",
+    "instance": "eval",
+    "tool_parser": "qwen3_coder",
+    "reasoning_parser": "qwen3",
+    "thinking_mode": "enable_thinking",
+    "sampling_default": "{\"temperature\": 1.0, \"top_p\": 0.95, \"top_k\": 20, \"min_p\": 0.0, \"presence_penalty\": 1.5}",
+    "sampling_code": "{\"temperature\": 0.6, \"top_p\": 0.95, \"top_k\": 20, \"min_p\": 0.0, \"presence_penalty\": 0.0}",
+    "serving_profile": "single-gpu-instance",
+    "max_num_seqs": "2",
+    "gpu_mem_util": "0.89",
+    "concurrency": "2",
+    "deadline_s": "900",
+    "driver": "run_suite.sh",
+    "thinking_token_budget": "8192",
+    "reasoning_end_str": "set",
+    "direct_arm_sampling": "profile",
+    "moe_backend": "n/a",
+    "kv_tokens": "199804",
+    "decode_tok_s": "201.1",
+    "prefill_tok_s": "18434.8",
+    "thinking_off_token_ratio": "0.01",
+    "ablation_runs_dir": "ablation_runs/sage-a1.5",
+    "ablation_deltas": {
+      "rag_minus_bare": {
+        "delta": -0.191,
+        "ci": [
+          -0.2613,
+          -0.1206
+        ],
+        "p": 0.0
+      },
+      "agentic_minus_rag": {
+        "delta": 0.7337,
+        "ci": [
+          0.6783,
+          0.794
+        ],
+        "p": 0.0
+      },
+      "agentic_minus_bare": {
+        "delta": 0.5427,
+        "ci": [
+          0.4673,
+          0.6181
+        ],
+        "p": 0.0
+      }
+    },
+    "ablation_unparseable_reasons": {
+      "bare": {
+        "empty_content": 9,
+        "letter_not_found": 7
+      },
+      "rag": {},
+      "agentic": {
+        "letter_not_found": 1
+      }
+    },
+    "egress": "full",
+    "base_url": "http://127.0.0.1:8082",
+    "reasoning_effort": null,
+    "max_output_tokens": 16384,
+    "reliability": {
+      "pong": {
+        "status": "PASS",
+        "runs": 3,
+        "checks": {
+          "artifacts <= 1": "3/3 (PASS)",
+          "every artifact is text/html": "3/3 (PASS)",
+          "no phantom-URL warning": "3/3 (PASS)",
+          "clarify-before-work (no artifact before a clarification)": "3/3 (PASS)",
+          "routed to code OR produced an html game": "3/3 (PASS)",
+          "every tool_call is a real registered tool": "3/3 (PASS)",
+          "no error SSE": "3/3 (PASS)",
+          "non-empty final assistant content": "3/3 (PASS)",
+          "no duplicated answer block  (fuzzy)": "3/3 (PASS)"
+        }
+      }
+    }
+  },
+  "tasks": {
+    "ablation": {
+      "bare": {
+        "metrics": {
+          "accuracy": {
+            "mean": 0.36180904522613067
+          },
+          "precision": {
+            "mean": 0.4675324675324675
+          },
+          "abstain_rate": {
+            "mean": 0.1457286432160804
+          },
+          "mean_tool_calls": {
+            "mean": 0.0
+          },
+          "mean_elapsed_s": {
+            "mean": 43.5
+          },
+          "unparseable": {
+            "mean": 16.0
+          },
+          "tool_markup_in_content": {
+            "mean": 0.0
+          }
+        },
+        "per_query": {}
+      },
+      "rag": {
+        "metrics": {
+          "accuracy": {
+            "mean": 0.1708542713567839
+          },
+          "precision": {
+            "mean": 0.6938775510204082
+          },
+          "abstain_rate": {
+            "mean": 0.7537688442211056
+          },
+          "mean_tool_calls": {
+            "mean": 0.0
+          },
+          "mean_elapsed_s": {
+            "mean": 20.7
+          },
+          "unparseable": {
+            "mean": 0.0
+          },
+          "tool_markup_in_content": {
+            "mean": 0.0
+          }
+        },
+        "per_query": {}
+      },
+      "agentic": {
+        "metrics": {
+          "accuracy": {
+            "mean": 0.9045226130653267
+          },
+          "precision": {
+            "mean": 0.9782608695652174
+          },
+          "abstain_rate": {
+            "mean": 0.07035175879396985
+          },
+          "mean_tool_calls": {
+            "mean": 9.3
+          },
+          "mean_elapsed_s": {
+            "mean": 83.1
+          },
+          "unparseable": {
+            "mean": 1.0
+          },
+          "tool_markup_in_content": {
+            "mean": 0.0
+          }
+        },
+        "per_query": {}
+      }
+    }
+  }
+}

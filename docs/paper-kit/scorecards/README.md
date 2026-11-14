@@ -1,11 +1,11 @@
 # Scorecards behind the headline claims
 
-54 committed scorecard JSONs, copied verbatim from
+65 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
 
-The full set is 97 JSON plus 57 Markdown twins; the remainder are mostly the
+The full set is 109 JSON plus 61 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
@@ -37,7 +37,11 @@ stamped by the driver); every file dated 2026-09-17/18 with `qwen3.6-35b-a3b`
 in its name is the retired Qwen3.6 checkpoint brought back the same way and
 run through the full suite on the current harness, and the two
 `2026-09-17_*egressoff-gpt-oss-20b*` files are gpt-oss-20b's corpus-only arm
-from the same chain. See cautions 8, 9 and 10.
+from the same chain. Every file dated 2026-11-13/14 with `sage-a1.5` in its
+name is the fourth backbone, Sage-A1.5 (an agentic fine-tune of Qwen3.6-35B-A3B,
+production since 2026-11-12), run as an eval-only instance with a thinking-token
+budget, the card sampling on the bare/RAG arms and concurrency 2. See cautions
+8, 9, 10 and 12.
 
 ## Schema
 
@@ -116,6 +120,16 @@ facts live in top-level fields backfilled on 2026-09-15 (see
 | `2026-09-17_risk-coverage-qwen3.6-35b-a3b.json` | Six operating points on Qwen3.6, all from one run on one harness commit (ablation, C1, C2b of 09-17) | R3, R7 |
 | `2026-09-17_toolreliability-qwen3.6-35b-a3b_toolreliability.json` | T11 on Qwen3.6 at `egress=full`, current harness: 7.33 calls/q, error 0.065, recovery 1.000, web-heavy mix like Qwen3.8's | R6, R7 |
 | `2026-09-18_routing-qwen3.6-35b-a3b-2026-09-17.json` | Routing anchor tier on Qwen3.6: pass rate 0.816 [0.65, 0.98]. The deploy gate; not a paper number | R7 |
+| `2026-11-13_sage-a1.5.json` | **Fourth backbone, Sage-A1.5** (agentic fine-tune of Qwen3.6-35B-A3B, AWQ-INT4, vLLM 0.33) on an eval instance: `run_all` header with the driver's provenance, including `thinking_token_budget=8192`, `reasoning_end_str=set`, `direct_arm_sampling=profile` and `concurrency=2`, and the certification verdict (PASS, 0 fail, 4 skipped) | R1, R7 |
+| `2026-11-13_harness-ablation-sage-a1.5.json` | Three-arm ablation on Sage-A1.5, n=199 paired: bare 0.362, RAG 0.171, agentic 0.905; agentic − RAG +0.734 p<0.001. Bare `empty_kinds`: 5 truncated at 16K (80 before the thinking budget, see caution 12) | R1, R7 |
+| `2026-11-13_harness-ablation-agentic-egressoff-sage-a1.5.json` | Agentic arm at `egress=off` on Sage-A1.5 (0.749), same run as the `full` arm; bare/RAG copied for the paired deltas | R1 |
+| `2026-11-13_harness-ablation-faithfulness-sage-a1.5.json` | Per-arm paired faithfulness on Sage-A1.5: agentic 0.628 (n=198) vs RAG 0.278 (n=197), +0.351 [0.284, 0.417] p<0.001 (n=196) | R2, R7 |
+| `2026-11-13_answer-sage-a1.5-900s.json` | Standalone answer track on Sage-A1.5, 900 s: 0.925, precision 0.968, 184/9/6/0; per-query arrays pair with the 09-17 Qwen3.6 file | R5, R7 |
+| `2026-11-13_abstention-c1-fabricated-sage-a1.5.json` | C1 on Sage-A1.5: 96 correct abstentions, 3 ambiguous, 1 possible confabulation, 0 confabulated local cites | R3, R7 |
+| `2026-11-13_abstention-c2-shadow-sage-a1.5.json` | C2b paired shadow pair on Sage-A1.5 at `egress=off`: correct abstention 0.774 [0.61, 0.90] on 31 answerable; question-paired against the 09-15 Qwen3.8 pair −0.115 p=0.137 | R3, R7 |
+| `2026-11-13_risk-coverage-sage-a1.5.json` | Six operating points on Sage-A1.5, all from one run on one harness commit (ablation, C1, C2b of 11-13) | R3, R7 |
+| `2026-11-13_toolreliability-sage-a1.5_toolreliability.json`, `..._sage-a1.5-egressoff_toolreliability.json` | T11 on Sage-A1.5: `full` 9.29 calls/q, error 0.052, recovery 1.000; `off` 11.18 calls/q, error 0.009, recovery 1.000 | R6, R7 |
+| `2026-11-14_routing-sage-a1.5-2026-11-13.json` | Routing anchor tier on Sage-A1.5: pass rate 0.787 [0.64, 0.93]. The deploy gate; not a paper number | R7 |
 | `2026-07-27_toolreliability-clean.json` | Tool-use telemetry over the Qwen3.6 clean run. `web_fetch` error rate not comparable to 08-26 (failure definition changed between the runs) | R6 |
 
 ## Cautions when regenerating figures
@@ -196,3 +210,15 @@ facts live in top-level fields backfilled on 2026-09-15 (see
    accuracy; `precision_of_attempted` is the fairer bare/RAG number for this
    backbone, and the per-arm `empty_kinds` field separates them from
    truncation (of which there were none).
+12. **The Sage-A1.5 files ran with three settings no earlier backbone had.**
+   (a) A thinking-token budget of 8192 (vLLM `thinking_token_budget`, with a
+   forced "answer now" end string), on every arm and in production: Sage has
+   no reasoning-effort dial, and without it 80 of 199 bare answers ran out of
+   the 16K output cap inside the reasoning trace (that pre-fix run is not
+   committed). (b) The profile's card sampling on the bare and RAG arms
+   (`direct_arm_sampling=profile`); earlier backbones' bare/RAG arms sent only
+   temperature 0.7, so those two arms are not strictly like-for-like across
+   backbones. (c) Concurrency 2: accuracy is unaffected, but `elapsed_s` is wall
+   time under load and must not be compared with the concurrency-1 files. The
+   16 unparseable bare answers are mostly Sage asking to search in an arm that
+   has no tools, not truncation.

@@ -1,0 +1,1162 @@
+{
+  "track": "abstention-c1-fabricated",
+  "n": 100,
+  "git_sha": "685bae2",
+  "date": "2026-11-13",
+  "seed": 42,
+  "generator_base_url": "http://127.0.0.1:8082",
+  "egress": "full",
+  "deadline_s": 900,
+  "concurrency": 2,
+  "capture_dir": "c1_runs/sage-a1.5",
+  "set_meta": {
+    "n": 100,
+    "seed": 42,
+    "n_doi": 80,
+    "n_desc": 20,
+    "generator": "munin_bench.abstention.fabricate"
+  },
+  "verdicts": {
+    "correct_abstain": 96,
+    "ambiguous": 3,
+    "possible_confabulation": 1
+  },
+  "abstain_rate": {
+    "mean": 0.96,
+    "ci_low": 0.92,
+    "ci_high": 0.99,
+    "n": 100,
+    "n_resamples": 1000
+  },
+  "confabulation_rate": 0.01,
+  "confabulated_local_cite": 0,
+  "per_item": [
+    {
+      "id": "fab-doi-002",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.6383",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 24,
+      "answer_words": 217,
+      "answer_tail": " a **preprint or unpublished manuscript** without an assigned DOI yet.\n- It may be a **misremembered identifier**.\n\nIf you can provide additional details \u2014 such as the authors, approximate year, or subject matter \u2014 I can help track down the correct paper. Alternatively, if the DOI is close but slightly off (e.g., `10.1002/pro.638x` or another nearby variant), let me know and I'll look it up again."
+    },
+    {
+      "id": "fab-doi-001",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.7003",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 321,
+      "answer_tail": "nce of DOIs in Volume 34, Issue 2 of *Protein Science* (2025), the intended DOI is almost certainly one of:\n\n- **`10.1002/pro.70031`** (AggNet, protein aggregation analysis)\n- **`10.1002/pro.70032`** (XCL1 biology)\n- **`10.1002/pro.70030`** (AFFIPred, functional impact prediction)\n\nIf you can confirm which paper was intended, I can retrieve its full abstract and summarize the key findings for you."
+    },
+    {
+      "id": "fab-doi-004",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-025-92547",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 8,
+      "answer_words": 172,
+      "answer_tail": "`s41467` vs. `s41598`).\n\nIf you can confirm whether you meant the *Scientific Reports* paper above, or provide a corrected DOI, I will be happy to summarise it for you.\n\n---\n\n[^1^]: Xiao, H.-C., Shen, X., Li, J.-L., & Yang, X.-J. (2025). A method for filling traffic data based on feature-based combination prediction model. *Scientific Reports*, 15, 92547. https://doi.org/10.1038/s41598-025-92547-y"
+    },
+    {
+      "id": "fab-doi-005",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2022.988662",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 23,
+      "answer_words": 154,
+      "answer_tail": " for its 2022 issues (e.g., `10.1016/j.jmb.2022.167625`, `10.1016/j.jmb.2022.167579`), so `988662` falls outside the expected range for this journal.\n\nThis DOI either does not correspond to a real publication, may have been mistyped, or may refer to a different journal altogether. If you can verify the correct DOI or provide additional details about the paper, I would be happy to look it up again."
+    },
+    {
+      "id": "fab-doi-003",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2023.539898",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 402,
+      "answer_tail": " for Journal of Magnetic Resonance, Vol 352, July 2023, showing DOIs `10.1016/j.jmr.2023.107462` and others. https://www.sciencedirect.com/journal/journal-of-magnetic-resonance/vol/352/suppl/C\n[^5]: PubMed entries for JMR 2023 articles show similar DOI patterns, e.g. `10.1016/j.jmr.2023.107581`, `10.1016/j.jmr.2023.107542`, `10.1016/j.jmr.2023.107577`, etc. https://pubmed.ncbi.nlm.nih.gov/37950960"
+    },
+    {
+      "id": "fab-doi-007",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka9166",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 13,
+      "answer_words": 161,
+      "answer_tail": "ed or truncated (e.g., some NAR identifiers have longer suffixes such as `gka9166x`).\n2. The paper has been retracted or removed from the journal.\n3. The identifier corresponds to an advance-article code that has since been superseded by a different suffix.\n\nIf you can provide a corrected DOI, a title, or additional context (e.g., authors or approximate year), I would be happy to look it up again."
+    },
+    {
+      "id": "fab-doi-006",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2022.182627",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 25,
+      "answer_words": 243,
+      "answer_tail": "ond Fixes in the AMBER RNA Force Field\" [doi: 10.1021/acs.jctc.2c00200], DeepFoldRNA, and others), but none are in JMR and none carry this DOI.\n\n**I cannot provide an answer to your question without fabricating information.** If you can confirm the correct DOI or share additional context (e.g., the paper title, authors, or where you encountered this reference), I would be glad to look it up again."
+    },
+    {
+      "id": "fab-doi-008",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41592-025-95977",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 16,
+      "answer_words": 181,
+      "answer_tail": "embered. If you have partial information (e.g., an author name, the exact journal title, or a slightly different DOI string), I could track it down more effectively.\n\nWould you like me to search for the actual paper using one of these alternatives? For example, I can look for recent *Nature Methods* publications on \"hyperpolarised dissolution-DNP pyruvate\" or search by known authors in this field."
+    },
+    {
+      "id": "fab-doi-010",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.9297",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1002/prot"
+      ],
+      "tool_calls": 15,
+      "answer_words": 205,
+      "answer_tail": "The prefix may be wrong.** If you meant a different journal (e.g., *PROTEINS: Structure, Function, and Bioinformatics*, whose DOI prefix is `10.1002/prot.` rather than `10.1002/pro.`), please confirm and I can look again.\n\nIf you have additional identifying information \u2014 such as the actual title, author names, journal name, or a correct DOI \u2014 please share it and I will retrieve the paper directly."
+    },
+    {
+      "id": "fab-doi-009",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.6669",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1002/pro.3235",
+        "10.1002/prot"
+      ],
+      "tool_calls": 25,
+      "answer_words": 238,
+      "answer_tail": "refix `10.1002/pro` is specific to *Protein Science***, so if this is not from that journal, the DOI may have a different stem entirely (e.g., `10.1002/prot` for *PROTEINS: Structure, Function, and Bioinformatics*).\n\nIf you have additional context about this paper \u2014 such as a title, author name, or where you encountered the DOI \u2014 please share it, and I can help narrow down the correct publication."
+    },
+    {
+      "id": "fab-doi-012",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-023-99577",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 17,
+      "answer_words": 173,
+      "answer_tail": "onger suffix \u2014 to form a valid DOI.\n\n2. **The paper may exist under a slightly different DOI** (e.g., `10.1038/s41467-023-09957-7` or `10.1038/s41467-023-09957-x`).\n\nIf you can double-check the DOI \u2014 perhaps from the original source \u2014 I'd be happy to look up the correct paper. Alternatively, if you have other details like the title, authors, or a partial identifier, I can try searching with those."
+    },
+    {
+      "id": "fab-doi-011",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2628306011",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 29,
+      "answer_words": 461,
+      "answer_tail": "ov/articles/PMC3127190/)\n[^3^]: [Spin labeling analysis of amyloids and other protein aggregates](https://pubmed.ncbi.nlm.nih.gov/17046394/)\n[^4^]: [DEER of Singly Labelled Proteins to Evaluate Supramolecular Packing of Amyloid Fibrils](https://www.biorxiv.org/content/10.1101/2025.11.10.687719v2.full)\n\nWould you like me to search for a corrected DOI, or read one of the papers listed above in full?"
+    },
+    {
+      "id": "fab-doi-014",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.8440",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 22,
+      "answer_words": 204,
+      "answer_tail": "may be a very recent \"early view\" or \"accepted article\"** that hasn't yet been assigned a full DOI in indexing databases.\n3. **The article may have never existed** under this exact identifier.\n\nCould you double-check the source of this DOI? If you have any additional details \u2014 such as the authors, title fragments, or the context where you encountered it \u2014 I can try to track down the correct paper."
+    },
+    {
+      "id": "fab-doi-013",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-025-90771",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 206,
+      "answer_tail": "ur DOI vs. `s41598` for Scientific Reports), this could be the paper you are seeking.\n\nIf you can confirm whether the correct DOI uses `s41467` (Nature Communications) or `s41598` (Scientific Reports), I can look it up directly. Otherwise, I recommend verifying the DOI against the publisher's website or your reference list, as the exact string provided does not resolve to any paper I can identify."
+    },
+    {
+      "id": "fab-doi-016",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2023.103402",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 19,
+      "answer_words": 206,
+      "answer_tail": "rticle numbering uses higher numbers (e.g., 167994, 168021, 168160).\n\n**Bottom line:** This DOI appears to be invalid or erroneous. If you have a different identifier, a journal name, or additional context (authors, topic, a PDF or link), I can look up the correct paper. If you were aiming for one of the other `103402` articles from a different journal, let me know and I'll summarise that instead."
+    },
+    {
+      "id": "fab-doi-015",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.9148",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 27,
+      "answer_words": 437,
+      "answer_tail": "ral methodology applicable to membrane transporters.\n\n---\n\n### Recommendation\n\nIf you can confirm whether the DOI corresponds to a specific article title, author list, or journal, I can look it up more precisely. If the DOI is correct and simply very new (or pre-assigned), I would suggest checking the *Protein Science* website directly or contacting the authors' institution for the full reference."
+    },
+    {
+      "id": "fab-doi-017",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.6626",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 24,
+      "answer_words": 240,
+      "answer_tail": "3. **Not yet indexed**: Even if it exists, the metadata may simply not be discoverable through the tools available.\n\n**To help you further**, could you provide any additional context? For example:\n- Did you encounter this DOI in a citation or reference list? If so, where?\n- Do you know the author names or approximate topic?\n- Was there possibly a slight typo in the DOI (e.g., `10.1002/pro.76626`)?"
+    },
+    {
+      "id": "fab-doi-019",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2491969690",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 13,
+      "answer_words": 184,
+      "answer_tail": "through any available source.\n\nIt is possible that:\n1. The DOI is incorrect or contains a typo.\n2. The paper is very old (the PNAS numbering system changed significantly over time) and lacks digital metadata.\n3. It has been retracted or removed without redirecting.\n\nCould you double-check the DOI? If it is from a physical copy or a citation list, verifying the exact digits would help me locate it."
+    },
+    {
+      "id": "fab-doi-018",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka9805",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 292,
+      "answer_tail": "other variant, but none of these alternatives surfaced in my searches either.\n\nIn summary: I cannot summarize the key findings of this paper because I could not find it. If you have additional details about the work, please share them and I can search again.\n\n[1] Professional UHF Long Range RFID Reader With Anti-Tearoff Sticker for Parking Lot \u2014 https://www.goldsupplier.com/provide/p149592502.html"
+    },
+    {
+      "id": "fab-doi-020",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-025-94342",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 18,
+      "answer_words": 220,
+      "answer_tail": "8` rather than `s41467`, or the article number differs).\n- The paper may have been accepted or published extremely recently and not yet indexed by any of the databases I query.\n- The DOI may not yet exist for this work.\n\nIf you have the correct DOI, the title, or even just a keyword from the paper's subject matter, please share it and I will track down the methods and conclusions for you directly."
+    },
+    {
+      "id": "fab-doi-021",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2023.518373",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 18,
+      "answer_words": 210,
+      "answer_tail": " source where you saw this citation? In particular:\n- Was it possibly published in a different journal (e.g., *Journal of Biological Chemistry*)?\n- Could the DOI have been mistyped (e.g., a different issue/volume leading to a different numeric suffix)?\n\nIf you can provide additional context \u2014 authors, title fragment, or where you encountered this citation \u2014 I can help track down the correct paper."
+    },
+    {
+      "id": "fab-doi-022",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2763016614",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1073/pnas.92.1.200"
+      ],
+      "tool_calls": 18,
+      "answer_words": 150,
+      "answer_tail": "h as `10.1073/pnas.1821038116` (recent) or older volume/issue-style identifiers like `10.1073/pnas.92.1.200`. The string `2763016614` does not match any known convention I could verify.\n\nCould you double-check the identifier? If you have a slightly different version of the DOI, or additional context (e.g., author names, title, or the publication year), I can try locating the correct paper for you."
+    },
+    {
+      "id": "fab-doi-023",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41592-022-90514",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 24,
+      "answer_words": 226,
+      "answer_tail": " is `10.1038/s41586-025-09015-w`.\n\n2. **The paper may have never been published** under this identifier, or it was withdrawn so early that it left no searchable trace.\n\nIf you can confirm the DOI or provide any additional details about the paper (title, authors, or approximate journal), I can try again to locate the correct source and give you a meaningful answer about its methods and conclusions."
+    },
+    {
+      "id": "fab-doi-024",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.5c92167",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 150,
+      "answer_tail": "method the paper used or what it concluded**, because I was unable to locate or verify the existence of this paper in any accessible database. The DOI may be invalid, the paper may not yet be indexed, or it may have been published under a different identifier. If you have additional context \u2014 such as the journal issue, volume/page numbers, or author names \u2014 I can try to locate the correct article."
+    },
+    {
+      "id": "fab-doi-025",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2025.864491",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 25,
+      "answer_words": 240,
+      "answer_tail": "/ in press), though even preprints would typically be discoverable via PubMed or Semantic Scholar.\n3. **The DOI may be fabricated or erroneous**, since it returns a hard 404 from the official DOI resolver.\n\nIf you can provide an alternative identifier (a corrected DOI, PMID, arxiv ID, or the paper title), I can look it up directly. Otherwise, I'm unable to summarize a paper that I cannot identify."
+    },
+    {
+      "id": "fab-doi-026",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2024.360735",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 20,
+      "answer_words": 152,
+      "answer_tail": " not appear in any indexed records I could find across the local corpus, Semantic Scholar, Crossref, PubMed, or the web.\n\nThis strongly suggests the DOI you provided may be **invalid or mistyped** (e.g., wrong digits, or possibly confused with a different journal or source). If you can confirm the correct DOI, title, author names, or any other details about the paper, I'd be happy to search again."
+    },
+    {
+      "id": "fab-doi-027",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-024-91235",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 23,
+      "answer_words": 257,
+      "answer_tail": "nfirm About the Journal\n\n*Nature Communications* (ISSN 2041-1723) is a legitimate peer-reviewed, open-access journal published by Nature Portfolio since 2010. Volume 15 covers the year 2024, and its articles use the pattern `10.1038/s41467-024-XXXXX` for DOIs. If you can verify the DOI against the original source document (checking for a character-level typo), I would be happy to look it up again."
+    },
+    {
+      "id": "fab-doi-028",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.6681",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 29,
+      "answer_words": 213,
+      "answer_tail": "ro.4637` or `10.1002/pro.2315`.\n3. **It may be behind strict paywalls** with no open-access mirror, making it invisible to web search engines. However, even Crossref would normally resolve valid DOIs.\n\nIf you have additional context \u2014 the journal name, an author name, or a title fragment \u2014 I can try to identify the correct DOI. Would you like to provide more details so I can re-attempt the lookup?"
+    },
+    {
+      "id": "fab-doi-030",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2025.299122",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 9,
+      "answer_words": 182,
+      "answer_tail": " may not yet be assigned this DOI**, or it may be in press with a different identifier.\n3. **It may refer to a journal with similar naming conventions** rather than Elsevier's *Journal of Magnetic Resonance*.\n\nIf you have additional context \u2014 such as the title, authors, or where you encountered this DOI \u2014 I can help resolve it. If you'd like, I can also search for recent JMR articles more broadly."
+    },
+    {
+      "id": "fab-doi-031",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jbc.2022.712554",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 13,
+      "answer_words": 160,
+      "answer_tail": "ternally by JBC rather than part of the public DOI.\n- None of the major sources (PubMed, ScienceDirect table-of-contents pages for JBC volume 298, Google Scholar) returned any hit matching this identifier.\n\nIf you have a slightly different identifier \u2014 a PMID, a corrected DOI, or the full title or author list \u2014 I can track down the correct paper and summarise its findings. Would any of those help?"
+    },
+    {
+      "id": "fab-doi-029",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2022.497382",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 26,
+      "answer_words": 167,
+      "answer_tail": "ssible explanation:** The number `497382` appears in a citation for the *Journal of Infectious Diseases* (DOI `10.1086/497382`), which has a completely different publisher and DOI prefix (`10.1086` rather than `10.1016`). It is possible there was a mix-up between journals or DOIs.\n\nCould you double-check the DOI? If you have the correct DOI or the paper title, I would be happy to look it up again."
+    },
+    {
+      "id": "fab-doi-032",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2022.171849",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 20,
+      "answer_words": 223,
+      "answer_tail": "nt journal** whose abbreviation is also JMR (there are several journals using that abbreviation).\n\nI want to be upfront rather than fabricate content: I cannot summarize key findings of a paper I cannot identify or confirm as real. If you can provide additional context \u2014 such as the author names, the full title, or a link \u2014 I can try to track down the correct paper and give you a thorough summary."
+    },
+    {
+      "id": "fab-doi-033",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka7717",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 18,
+      "answer_words": 260,
+      "answer_tail": "end-to-end learning with deep geometrical potentials for ab initio RNA structure prediction. *Nature Communications* (2023). [Read online](https://www.nature.com/articles/s41467-023-41303-9)\n\n[2] Li, W.-F. & Chen, S.-J. Building RNA Coarse-Grained Force Fields: Design Principles and Training Strategies. *Biophysical Journal* (2026). [Read online](https://pmc.ncbi.nlm.nih.gov/articles/PMC13110076/)"
+    },
+    {
+      "id": "fab-doi-034",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.3c94351",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 19,
+      "answer_words": 226,
+      "answer_tail": " not exist** \u2014 no record of it appears in any indexed scientific database as of today.\n\nIf you have the correct DOI, a title, an author name, or any other identifying detail about this work, I can try again with that information. Otherwise, if you'd like, I can search for papers on *single-molecule FRET of chaperone-assisted folding* generally to point you toward relevant literature in that field."
+    },
+    {
+      "id": "fab-doi-035",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.bpj.2024.10.676",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 270,
+      "answer_tail": "retracted manuscript.\n\n**Conclusion:** I cannot tell you what method this paper used or what it concluded because I cannot identify a valid publication at this DOI. The DOI either corresponds to a paper that has not been published yet, was rejected before publication, or contains an error. If you have the correct DOI or additional identifying information (authors, title, journal), I can try again."
+    },
+    {
+      "id": "fab-doi-036",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2024.465962",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 228,
+      "answer_tail": "Go was down; Qwant/Startpage were blocked by CAPTCHA).\n\n**Bottom line:** I cannot state the method or conclusions of this paper because I could not verify its existence. It is most likely that the DOI is incorrect or contains a typo. If you can confirm the correct DOI, share the title, or provide additional context (e.g., author names), I would be happy to search again and locate the actual paper."
+    },
+    {
+      "id": "fab-doi-037",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.bpj.2024.10.779",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 16,
+      "answer_words": 170,
+      "answer_tail": " function effects of four SCN2A variants.\"*\n\nSo either the DOI you provided contains a typo (e.g., the last digits differ), or this identifier does not correspond to a published paper in *Biophysical Journal*. If you can confirm the correct DOI or share any additional identifying information (title, authors, or journal name), I can look up the actual paper and tell you its methods and conclusions."
+    },
+    {
+      "id": "fab-doi-038",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.2c99064",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 25,
+      "answer_words": 219,
+      "answer_tail": "ollow the pattern `10.1021/jacs.2xxxxxx` (where x represents digits), and the ones in the official records for JACS Volume 144 do not include `jacs.2c99064`.\n\nIf you encountered this DOI somewhere and need the actual paper, could you share where it appeared? That might help me track down the correct citation. Alternatively, if you know the title or topic of the paper, I can search for it directly."
+    },
+    {
+      "id": "fab-doi-039",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jbc.2023.629959",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 24,
+      "answer_words": 164,
+      "answer_tail": "lease double-check.\n2. **The paper may not yet be indexed.** If it is very recently published or still in press, it may not yet appear in databases I queried.\n3. **The DOI may be from a different journal.** The suffix format suggests JBC, but it's worth confirming the journal.\n\nIf you can verify the DOI or provide additional context (e.g., paper title, authors, or journal), I can look it up again."
+    },
+    {
+      "id": "fab-doi-040",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.2c92143",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 214,
+      "answer_tail": "S identifier format \"2c92143\" does not appear in any accessible record), or\n2. The paper has been retracted, removed, or otherwise delisted from all major indexing services.\n\nI cannot provide the main result or sample size because I have no evidence that this paper exists as a published article. If you have a corrected DOI or additional details (authors, title fragment), I can try searching again."
+    },
+    {
+      "id": "fab-doi-041",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2025.217308",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 26,
+      "answer_words": 193,
+      "answer_tail": "s:** either the DOI is incorrect or mistyped, or the article is not yet registered with metadata databases (in which case details would not be publicly available through these tools). I am not able to summarize findings for a paper I cannot identify. If you have the correct DOI, a different URL, or more context about the paper (title, authors, subject), please share it and I will look it up again."
+    },
+    {
+      "id": "fab-doi-042",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jbc.2023.233636",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 192,
+      "answer_tail": "l context \u2014 for example, a full DOI (the number \"233636\" might be an internal journal reference number rather than the complete DOI), the author names, or the exact publication year \u2014 please provide them, and I can attempt a more targeted search. Alternatively, if you are referring to a related well-known study on photo-CIDNP of cryptochrome radical pairs, I could summarize those findings instead."
+    },
+    {
+      "id": "fab-doi-044",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2590108532",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 9,
+      "answer_words": 155,
+      "answer_tail": "ifferent DOIs).\n\nThis DOI appears to be **invalid or non-existent**. It is possible that:\n- There is a typo in the DOI you provided.\n- The paper has been retracted or removed from PNAS.\n- The article may use a different identifier (e.g., a preprint DOI or a different journal).\n\nIf you have a corrected DOI, the title of the paper, or another way to identify it, I would be happy to look it up again."
+    },
+    {
+      "id": "fab-doi-043",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2510373808",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 26,
+      "answer_words": 188,
+      "answer_tail": " formally assigned this DOI**, or it has been removed/deleted without redirecting.\n\nIf you have additional identifying information \u2014 such as a known author name, approximate year, title fragment, or a different version of the DOI \u2014 please share it and I can try to track down the correct paper. Otherwise, I cannot provide the methods or conclusions because there is no retrievable paper to describe."
+    },
+    {
+      "id": "fab-doi-045",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.7566",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1002/prot"
+      ],
+      "tool_calls": 23,
+      "answer_words": 217,
+      "answer_tail": "th a similar DOI prefix (e.g., *Proteins: Structure, Function, and Bioinformatics* uses `10.1002/prot...`, which is sometimes confused with `pro.`).\n3. The article may not yet be indexed in the major metadata databases I queried.\n\nIf you have a corrected DOI or additional details about the paper (title, author, approximate year, or subject), I can try again to find the main result and sample size."
+    },
+    {
+      "id": "fab-doi-046",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2894246837",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 20,
+      "answer_words": 178,
+      "answer_tail": "rence number). If you can confirm the correct DOI or provide an alternative citation (PMID, article title, author), I can look it up.\n\n2. **The paper does not exist.** Some identifiers are mistakenly circulated in references or metadata and do not correspond to real publications.\n\nWould you like to double-check the identifier, or share the actual paper details (title, authors, or a corrected DOI)?"
+    },
+    {
+      "id": "fab-doi-047",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.9540",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1002/pro.3235"
+      ],
+      "tool_calls": 24,
+      "answer_words": 141,
+      "answer_tail": " The DOI may contain a typo (perhaps a digit was transposed).\n- It may be an \"Article in Press\" that has been assigned a provisional DOI but is not yet indexed.\n- It may no longer exist if it was retracted or the DOI was withdrawn.\n\nCould you verify the DOI or provide additional context (e.g., the actual paper title or authors)? I'd be happy to look it up again once we have the correct identifier."
+    },
+    {
+      "id": "fab-doi-048",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.6731",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 23,
+      "answer_words": 228,
+      "answer_tail": "ain a typo (e.g., a digit transposition or wrong character). If you can double-check the source where you encountered it, that would help.\n2. The paper may exist under a different DOI format.\n3. It may have been withdrawn or is not yet assigned a usable DOI.\n\nIf you have additional details \u2014 such as the paper's title, authors, or where you saw this DOI cited \u2014 I can try searching by those instead."
+    },
+    {
+      "id": "fab-doi-049",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka7787",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 19,
+      "answer_words": 173,
+      "answer_tail": " indexed.** If the paper was very recently accepted or assigned a DOI but has not appeared on PubMed, Semantic Scholar, or Oxford Academic, it may simply not be discoverable yet.\n\nI can try to help you resolve this if you have additional information, such as:\n- A corrected DOI or alternative identifier (PMID, arXiv ID)\n- The title or authors of the paper\n- The journal issue/volume where it appears"
+    },
+    {
+      "id": "fab-doi-050",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka6006",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 20,
+      "answer_words": 152,
+      "answer_tail": "can take time to propagate to external databases.\n3. **There may be a typo** \u2014 note that there is a known NAR paper with the very similar DOI `10.1093/nar/gkaa600` (\"DropSynth 2.0: high-fidelity multiplexed gene synthesis in emulsions,\" Sidore et al., 2020). Could you be looking for that paper instead?\n\nCould you double-check the DOI you provided, or let me know if you meant `10.1093/nar/gkaa600`?"
+    },
+    {
+      "id": "fab-doi-051",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jbc.2025.796503",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 15,
+      "answer_words": 191,
+      "answer_tail": ". If you have an alternate identifier (PMID, arXiv ID, or a corrected DOI), I can search with that.\n3. **The article is very recent or behind a paywall** that prevents indexing, though JBC articles are typically indexed shortly after online publication.\n\nCould you double-check the DOI or provide any additional details (title, authors, journal issue/volume) so I can try to locate the correct paper?"
+    },
+    {
+      "id": "fab-doi-053",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2025.745414",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 17,
+      "answer_words": 167,
+      "answer_tail": "nder their Sciencedirect Article ID (pii) rather than a published DOI.\n\nTo help further, could you provide:\n\n- The **full title** or **authors** of the paper so I can locate it by other means?\n- A check that the DOI is correct \u2014 perhaps a different issue/volume page on ScienceDirect might list it.\n\nWithout at least one verifiable identifier, I cannot summarize findings without risking fabrication."
+    },
+    {
+      "id": "fab-doi-052",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.4c96592",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 27,
+      "answer_words": 298,
+      "answer_tail": "ot yet been indexed by major bibliographic databases. In that case, it would only be discoverable on the ACS website directly behind a paywall.\n3. **The DOI may not exist**, which can happen with older manuscript IDs that were never published under that identifier.\n\nIf you can provide the paper title, authors, or an alternative identifier (PMID, arXiv ID, URL), I would be glad to look it up again."
+    },
+    {
+      "id": "fab-doi-054",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.4c99502",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 21,
+      "answer_words": 205,
+      "answer_tail": "or the DOI was retracted/reassigned. Some journal articles do receive a DOI at submission but are subsequently withdrawn.\n\n3. **The paper may exist behind a paywall** and simply hasn't been indexed by any of my sources \u2014 though a 404 from doi.org makes this unlikely.\n\nIf you can confirm the correct DOI or provide the paper title, I would be happy to look up the main result and sample size for you."
+    },
+    {
+      "id": "fab-doi-055",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2024.958179",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 26,
+      "answer_words": 184,
+      "answer_tail": "ished paper. It may be a fabricated/typo'd identifier, an unreleased preprint that never received a DOI, or a placeholder. I cannot describe a method or conclusion because no such publication exists in the sources I have access to. If you have a different DOI or additional context (e.g., a title, author names, or where you encountered this identifier), I can help verify or locate the actual paper."
+    },
+    {
+      "id": "fab-doi-057",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.6999",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 23,
+      "answer_words": 249,
+      "answer_tail": "able of contents directly would be the best next step.\n3. **The DOI may be fabricated.** Unfortunately, this happens occasionally when papers circulate as preprints with unverified identifiers.\n\nCould you provide any additional details \u2014 such as the author names, the paper's topic, or where you encountered this DOI? That would help me identify the actual article and summarize its findings for you."
+    },
+    {
+      "id": "fab-doi-056",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-022-97784",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 194,
+      "answer_tail": "022-97784`) either returned HTTP 404 errors or were blocked by tool constraints.\n\n**Bottom line:** This DOI does not resolve to a known, accessible paper. It is possible the DOI is mistyped, refers to a paper that was retracted or never assigned, or belongs to a different journal/publisher convention than expected. I cannot provide a main result or sample size without identifying the actual paper."
+    },
+    {
+      "id": "fab-doi-058",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41592-025-98486",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 6,
+      "answer_words": 194,
+      "answer_tail": "r-digit identifiers (e.g., `s41592-025-02997-5`). The number `98486` does not appear in the Nature Methods archive for 2025.\n\nCould you please confirm which paper you are referring to? If the *Scientific Reports* article above is the one you intended, I can summarise its key findings immediately. If you have a different Nature Methods paper in mind, a corrected DOI or title will help me locate it."
+    },
+    {
+      "id": "fab-doi-059",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.bpj.2023.11.709",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 169,
+      "answer_tail": "OI is incorrect or does not correspond to a published article in Biophysical Journal. If you can confirm the full title or provide additional details about the paper, I may be able to help you locate the correct source. Alternatively, if you meant a different digit in the article number, a corrected DOI might resolve the issue.\n\n**I cannot fabricate results for a paper I could not verify exists.**"
+    },
+    {
+      "id": "fab-doi-060",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka9046",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1007/s10858-010-9452-6",
+        "10.1016/j.jmr.2006.10.003"
+      ],
+      "tool_calls": 30,
+      "answer_words": 460,
+      "answer_tail": "/cb400589q](https://doi.org/10.1021/cb400589q) (PMC3870906). This introduces a TEMPO-based spin label for PRE studies of nucleic acid systems. [^5^]\n\nIf you have the full text or a link to `10.1093/nar/gka9046` that you'd like me to examine, please share it. Otherwise, I'd recommend checking the Nucleic Acids Research advance articles page or the article's entry via the journal's website directly."
+    },
+    {
+      "id": "fab-doi-062",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2760613550",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 21,
+      "answer_words": 157,
+      "answer_tail": "s surfaced any paper tied to this exact DOI string.\n\nThis could mean either (a) the DOI contains a typo or has never been registered, or (b) the article is so old or obscure that it hasn't been indexed under this identifier in modern systems. If you have additional identifying information \u2014 such as the paper title, authors, year, or an alternative DOI \u2014 I can try to find the correct paper for you."
+    },
+    {
+      "id": "fab-doi-063",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-023-96678",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 18,
+      "answer_words": 252,
+      "answer_tail": "\n**To proceed accurately, I would need:**\n- The correct DOI or a direct link to the paper (if you have one), OR\n- Confirmation of whether you meant the eLife paper above instead.\n\nI cannot summarize a paper I cannot find \u2014 doing so would risk fabrication. If you can provide a verifiable URL or additional identifying details (authors, year, topic), I'd be happy to locate and synthesize it properly."
+    },
+    {
+      "id": "fab-doi-061",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2959741412",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 191,
+      "answer_tail": "try in tumour microenvironments, and I would rather acknowledge this gap honestly than risk fabricating a summary. If you can confirm the DOI, share the full title, or provide the author names, I can try to locate the correct paper. Alternatively, if you are thinking of a related study on EPR oximetry and tumour oxygenation, I can help you identify papers from the broader literature on that topic."
+    },
+    {
+      "id": "fab-doi-064",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2818197538",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 18,
+      "answer_words": 164,
+      "answer_tail": "g `2818197538` does not map cleanly onto a known citation format.\n3. **It may be a fabricated or placeholder DOI** used in a test or reference list.\n\nIf you have additional context \u2014 e.g., the paper title, authors, year, or where you encountered this DOI \u2014 I can try to track down the correct publication. Otherwise, I'm unable to provide the main result or sample size for a paper I cannot identify."
+    },
+    {
+      "id": "fab-doi-065",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2023.330080",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 310,
+      "answer_tail": "j.jmr.2023.330080 reports, because I could not confirm that the paper exists or retrieve its metadata. If the DOI is correct, it may be a very recent preprint or a paper whose records have not yet been indexed by the databases I queried. I would recommend verifying the DOI with your source (e.g., checking whether it might be a typo or a different journal's article number scheme) before proceeding."
+    },
+    {
+      "id": "fab-doi-066",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.9766",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 286,
+      "answer_tail": "heck the DOI against your source. Verify whether the intended article might be from a different journal or have a different identifier.\n- If you have the full title or author names, I can search for the correct paper using those details.\n\nI want to be transparent rather than speculate: I could not find any traceable evidence for this specific DOI, so I cannot provide a summary of its key findings."
+    },
+    {
+      "id": "fab-doi-068",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.5c97449",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 20,
+      "answer_words": 169,
+      "answer_tail": "OI **10.1021/jacs.4c11892**, not 10.1021/jacs.5c97449.\n\n**Possible explanations:**\n- The DOI may contain a typo or may not have been assigned yet (e.g., it could be a placeholder manuscript ID).\n- The paper may not be indexed in the databases I have access to.\n\nCould you double-check the DOI, or provide additional details about the paper (title, authors, or subject area) so I can help you find it?"
+    },
+    {
+      "id": "fab-doi-067",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2022.773971",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 203,
+      "answer_tail": "in the DOI (e.g., a digit transposed in the suffix).\n- The paper may be very recent and not yet indexed, though even then the DOI usually resolves.\n- The identifier may have been fabricated or confused with another paper.\n\nIf you can provide the correct DOI, the paper title, or any other identifying detail (author names, journal volume/issue), I would be glad to search again with better precision."
+    },
+    {
+      "id": "fab-doi-069",
+      "kind": "fabricated_doi",
+      "doi": "10.1021/jacs.2c98837",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 10,
+      "answer_words": 378,
+      "answer_tail": " how halogen bonding facilitates the uptake and hydrolysis of ClONO\u2082 at aerosol surfaces, informing models of chlorine activation and ozone depletion.\n\n### Methods\n- Classical MD for solvation thermodynamics and structural organization.\n- Ab initio MD (AIMD) for bond-breaking/forming events during hydrolysis.\n- Metadynamics biasing to reconstruct free-energy profiles along the reaction coordinate."
+    },
+    {
+      "id": "fab-doi-070",
+      "kind": "fabricated_doi",
+      "doi": "10.1002/pro.9437",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 315,
+      "answer_tail": "e=\"summary\") with ref `[{\"doi\": \"10.1002/pro.9437\"}]`: \"Paper not found in local corpus, Semantic Scholar, or Crossref\".\n[^3^]: Multiple `web_search` calls (e.g., `\"10.1002/pro.9437\" -alpha fold`, `\"pro.9437\" protein science wiley 2025 OR 2026`) all returned zero matching results.\n[^4^]: `web_fetch` on the Wiley table of contents URL returned HTTP 403 with \"This publisher blocks automated access.\""
+    },
+    {
+      "id": "fab-doi-071",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-025-93571",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 26,
+      "answer_words": 283,
+      "answer_tail": "cts Enzyme Commission (EC) classes. It achieves high accuracy (F-score: 0.72) across >800 enzyme classes ([source](https://www.nature.com/articles/s41467-025-57324-5)).\n\n---\n\nNone of these three papers have the exact DOI **10.1038/s41467-025-93571**. If you can confirm or correct the DOI, or clarify which paper you are looking for, I would be happy to read its full text and summarize its findings."
+    },
+    {
+      "id": "fab-doi-073",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmb.2023.720859",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 16,
+      "answer_words": 207,
+      "answer_tail": "icated or placeholder DOI** \u2014 sometimes encountered in spam or erroneous citations.\n3. **A confusion with another journal** \u2014 the `jmb` prefix is specific to the *Journal of Molecular Biology* (Elsevier), but some other journals could be misidentified.\n\nIf you can share additional context \u2014 such as the title, authors, or where you saw this DOI \u2014 I would be happy to help identify the correct paper."
+    },
+    {
+      "id": "fab-doi-074",
+      "kind": "fabricated_doi",
+      "doi": "10.1093/nar/gka8709",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 7,
+      "answer_words": 268,
+      "answer_tail": "n solid-state \u00b2H-NMR lipid-raft studies \u2014 for example, the deuterium NMR work on ternary raft model membranes by [Vogel et al. (2014)](https://doi.org/10.1515/hsz-2013-0294) in *Biological Chemistry*, or related Biophysical Journal papers.\n\nIf you can share any additional context \u2014 author names, a title fragment, or where you originally encountered this DOI \u2014 I can help identify the correct paper."
+    },
+    {
+      "id": "fab-doi-072",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-022-91771",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 28,
+      "answer_words": 200,
+      "answer_tail": "ple size of **112 participants** and found that bimodal treatment (sound + tongue stimulation) achieved a 58.6% responder rate versus 43.2% for sound-only therapy in participants with moderate-to-severe tinnitus (p = 0.022). [Source: experts.umn.edu page summary].\n\nCould you verify whether the DOI you provided might be slightly different, or confirm whether you meant the 2024 tinnitus trial above?"
+    },
+    {
+      "id": "fab-doi-076",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41467-025-98548",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 18,
+      "answer_words": 143,
+      "answer_tail": "[10.1038/s41467-025-65912-8](https://www.nature.com/articles/s41467-025-65912-8) |\n\nThe only paper with \"98548\" in its identifier is in *Scientific Reports* (s41598), not *Nature Communications* (s41467). There may be a typo in the DOI you provided, or the paper may not yet be indexed. Would you like me to look up the Scientific Reports paper instead, or check if there's a different DOI you meant?"
+    },
+    {
+      "id": "fab-doi-075",
+      "kind": "fabricated_doi",
+      "doi": "10.1038/s41586-025-97102",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 21,
+      "answer_words": 161,
+      "answer_tail": "fferent article from the one you requested.\n\n**Possible explanations:**\n- The DOI contains a typo (e.g., a digit transposition or a missing leading zero).\n- The article may have been published so recently that it has not yet been indexed by any of the databases I queried.\n\nCould you double-check the DOI? If you meant `10.1038/s41586-025-09710-8`, I can pull its main result and sample size for you."
+    },
+    {
+      "id": "fab-doi-078",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2806936666",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 5,
+      "answer_words": 156,
+      "answer_tail": "ears to be either a **non-existent or malformed DOI**. Valid PNAS DOIs typically follow the format `10.1073/pnas.<article-number>` (e.g., `10.1073/pnas.1821038116`), but `2806936666` does not resolve to any published article in any database I have access to.\n\nIf you have the correct DOI or the title of the paper, please share it and I'll be happy to look up the main result and sample size for you."
+    },
+    {
+      "id": "fab-doi-077",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.bpj.2025.11.188",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 28,
+      "answer_words": 235,
+      "answer_tail": "other source (e.g., a preprint server, a journal table of contents, or a direct URL), please share it and I can read it directly. Otherwise, you may want to check whether the DOI prefix/suffix is slightly different (e.g., a typo in the trailing digits), as Biophysical Journal DOIs follow the pattern `10.1016/j.bpj.2025.MM.NNN` where `MM` is the month of publication and `NNN` is the article number."
+    },
+    {
+      "id": "fab-doi-079",
+      "kind": "fabricated_doi",
+      "doi": "10.1073/pnas.2677403790",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1002/anie.200803102"
+      ],
+      "tool_calls": 27,
+      "answer_words": 216,
+      "answer_tail": "es and are magnetically sensitive was presented by Maeda *et al.* (2012) in *PNAS* (`10.1073/pnas.1118959109`).\n\nIf you have additional identifying details \u2014 such as the full title, authors, year, or volume/page numbers \u2014 I would be happy to help identify the correct article and report its findings. Alternatively, if you meant a different DOI, please share it and I can look up that paper directly."
+    },
+    {
+      "id": "fab-doi-080",
+      "kind": "fabricated_doi",
+      "doi": "10.1016/j.jmr.2022.300337",
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 24,
+      "answer_words": 210,
+      "answer_tail": "ned this DOI, or the link may be broken.\n3. You may be thinking of a different journal whose abbreviated name is also \"JMR\" (there are several), though the Elsevier prefix `10.1016` points specifically to the *Journal of Magnetic Resonance*.\n\nIf you have a corrected DOI, a paper title, or additional bibliographic details (authors, year, or a partial citation), I would be happy to look it up again."
+    },
+    {
+      "id": "fab-desc-001",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 14,
+      "answer_words": 289,
+      "answer_tail": "n press and not yet indexed by major databases.\n2. The details provided may be slightly off \u2014 for example, the author name, journal, year, or exact topic. If you can provide a DOI, partial title, or a more precise author list, I could help track it down.\n3. The paper may not exist as described.\n\nIf you have any additional identifying details, please let me know and I can refine the search further."
+    },
+    {
+      "id": "fab-desc-002",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 279,
+      "answer_tail": "s but is not captured by the databases searched here (the local corpus is curated and incomplete).\n2. There is a conflation of names (e.g., confusing \"Marchetti\" with another author).\n3. The citation details provided in the prompt may be inaccurate regarding the journal or year.\n\nIf you can provide the exact title, a partial DOI, or the full author list, I may be able to locate the specific paper."
+    },
+    {
+      "id": "fab-desc-003",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "ambiguous",
+      "abstained": false,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 236,
+      "answer_tail": "ed and reconstituted with specific mRNA\u2013tRNA substrates, then vitrified for single-particle cryo-EM reconstruction at near-atomic resolution. If you are referring to a different Petrov study (e.g., Anton S. Petrov's ribosome evolution work), please clarify, as that author's primary contributions were computational/evolutionary analyses of rRNA structure rather than cryo-EM of the elongation cycle."
+    },
+    {
+      "id": "fab-desc-004",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "possible_confabulation",
+      "abstained": false,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 282,
+      "answer_tail": "ins*, *J. Biomol. NMR*, DOI: [10.1007/s10858-015-9994-8](https://doi.org/10.1007/s10858-015-9994-8).\n\nIf you can provide additional details \u2014 such as the journal, year of publication, or full author list \u2014 I may be able to locate the specific paper you are thinking of. Alternatively, if the first author's surname differs from \"Andersson,\" correcting that would help narrow the search significantly."
+    },
+    {
+      "id": "fab-desc-005",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1038/nsmb.2471"
+      ],
+      "tool_calls": 30,
+      "answer_words": 383,
+      "answer_tail": "r is thinking of a study by one of the groups listed above. If you can provide additional details \u2014 such as the approximate year, the specific transporter, the journal, or a first name \u2014 I can attempt a more targeted search.\n\nI recommend verifying the author name or providing additional identifying details so I can locate the correct study rather than risk attributing work to the wrong researcher."
+    },
+    {
+      "id": "fab-desc-006",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 354,
+      "answer_tail": "tifying information \u2014 e.g., first name of Andersson, approximate issue number or volume, or a keyword from the abstract.\n\n[1] https://pmc.ncbi.nlm.nih.gov/articles/PMC11830149/\n[2] https://scholars.duke.edu/publication/1597028\n[3] https://pmc.ncbi.nlm.nih.gov/articles/PMC11211189/\n[4] https://pubmed.ncbi.nlm.nih.gov/38548994/\n[5] https://steelelabs.mgh.harvard.edu/rakesh_jain/publications?all=true"
+    },
+    {
+      "id": "fab-desc-008",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 17,
+      "answer_words": 255,
+      "answer_tail": "ed by solid-state NMR) \u2014 but none appear under the author name \"Vasquez\" or in *Nature* in 2024.\n\nIf you have additional identifying details \u2014 a DOI, a partial title, the full author list, or the exact topic (e.g., which lipid system or what structural question was addressed) \u2014 I can attempt to resolve the reference more precisely. Otherwise, I cannot provide a summary without fabricating content."
+    },
+    {
+      "id": "fab-desc-007",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1021/jacs.1c07371"
+      ],
+      "tool_calls": 30,
+      "answer_words": 294,
+      "answer_tail": "ribe its findings without fabrication. It is possible that the paper exists under a slightly different title, authorship attribution, or journal name that my searches did not capture, or that there is a misremembering of the citation details. If you have additional identifying information (e.g., a DOI, the full first-author name, or the subject protein studied), I could try a more targeted search."
+    },
+    {
+      "id": "fab-desc-009",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 527,
+      "answer_tail": "urces page, listing \"Paul Robustelli, Alain Ibanez-de-Opakua, Cecily Campbell-Bezat...\" on a JACS publication.\n[^4^]: Search result showing Choi, T.; Li, Z.; Song, G.; Chen, H.-F. in *J. Chem. Theory Comput.* 20, 2676\u20132688 (2024).\n[^5^]: Semantic Scholar result for R\u00f6der and Pasquali, *Biophysical Reviews*, 2024.\n[^6^]: BioRxiv preprint from October 2024 evaluating RNA force fields via simulation."
+    },
+    {
+      "id": "fab-desc-010",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 298,
+      "answer_tail": "69646)).\n\n**Honest conclusion:** I could not verify the existence of this specific paper. It is possible it exists under a different first-author spelling, was published in a different journal, or the details provided do not match a real publication. If you can share additional identifying information \u2014 such as a DOI, a partial title, or the full author list \u2014 I can attempt a more targeted lookup."
+    },
+    {
+      "id": "fab-desc-011",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "ambiguous",
+      "abstained": false,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 202,
+      "answer_tail": "ter EmrE via NMR spectroscopy. DOI: [10.1038/nchembio.1999](https://doi.org/10.1038/nchembio.1999)\n\nIt is possible the paper you are thinking of uses a different author name for the corresponding author, has a slightly different title phrasing, or is less widely indexed. If you can provide additional details \u2014 such as the journal, year, or full author list \u2014 I could attempt a more targeted search."
+    },
+    {
+      "id": "fab-desc-012",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "ambiguous",
+      "abstained": false,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 381,
+      "answer_tail": " of lymphoma-bearing mice injected with 13C- and 14C-labeled pyruvate*. NMR in Biomedicine. 2018;31:e3901. doi: [10.1002/nbm.3901](https://doi.org/10.1002/nbm.3901)\n\n[^4^]: *Hyperpolarized 13C pyruvate magnetic resonance spectroscopy for in vivo metabolic phenotyping of rat HCC*. Scientific Reports. 2020;10:2868. doi: [10.1038/s41598-020-80952-4](https://www.nature.com/articles/s41598-020-80952-4)"
+    },
+    {
+      "id": "fab-desc-013",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1002/anie.202510116"
+      ],
+      "tool_calls": 30,
+      "answer_words": 447,
+      "answer_tail": "ps://www.cell.com/biophysj/fulltext/S0006-3495(25)00282-6) author listing.\n[2] PMC entry for Schmidt et al.: https://pmc.ncbi.nlm.nih.gov/articles/PMC12257599/\n[3] PubMed entry for Theiss et al.: https://pubmed.ncbi.nlm.nih.gov/40765174/\n[4] Semantic Scholar entry for Kuhn & P\u00e9rez-Trujillo: doi 10.1002/mrc.70031\n[5] bioRxiv preprint: https://www.biorxiv.org/content/10.1101/2025.04.16.649006v1.full"
+    },
+    {
+      "id": "fab-desc-014",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 472,
+      "answer_tail": "3] Database issue overview: https://academic.oup.com/nar/article/50/D1/D1/6495890\n[4] bioRxiv preprint: https://www.biorxiv.org/content/10.1101/2022.11.26.518034v1.full\n[5] Pocketome paper: https://www.nature.com/articles/s41467-022-29609-6\n[6] 2021 database issue reference list (mentioning Larkin/A.): https://bioinformatics.bc.edu/clotelab/BIOL4200/Notes/Notes/PAPERS/nar2021databaseIssueIntro.pdf"
+    },
+    {
+      "id": "fab-desc-015",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 356,
+      "answer_tail": "ion details (author name, journal, year, or topic) may differ slightly from what was provided.\n3. The paper may not yet be indexed in the sources I searched, or may have been published under a different journal or platform.\n\nIf you can provide additional identifying details \u2014 such as the full author list, a DOI, a title fragment, or a PubMed ID \u2014 I would be happy to attempt a more targeted search."
+    },
+    {
+      "id": "fab-desc-016",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1007/s10858-010-9452-6",
+        "10.1038/nature05201"
+      ],
+      "tool_calls": 29,
+      "answer_words": 350,
+      "answer_tail": " be slightly off (author name, journal, year, or exact title). If you have additional details \u2014 a DOI, PMID, or the full author list \u2014 I could try a more targeted lookup.\n3. The paper may simply not exist as described, in which case I want to flag that rather than provide fabricated content.\n\nPlease let me know if you have a DOI, PMID, or any further identifying details so I can narrow the search."
+    },
+    {
+      "id": "fab-desc-017",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 19,
+      "answer_words": 264,
+      "answer_tail": "s but is too new to be fully indexed, or uses terminology that didn't surface in my searches\n2. There may be an error in the attribution (different author surname, journal, or year)\n3. The paper may not actually exist\n\nWould you like me to try searching with different terms, or do you perhaps have additional details (a DOI, full author list, or more specific keywords) that would help me locate it?"
+    },
+    {
+      "id": "fab-desc-018",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 387,
+      "answer_tail": "[^4^]: Ramakers, J., Blum, C., K\u00f6nig, S., Harmeling, S., & Kollmann, M. (2024). De novo prediction of RNA 3D structures with deep generative models. *PLOS ONE*, 19(1): e0297105. DOI: 10.1371/journal.pone.0297105.\n\n[^5^]: Wang, J.-M., Fan, Y.-M., Hong, L., Hu, Z.-H., & Li, Y. (2025). Deep learning for RNA structure prediction. *Current Opinion in Structural Biology*. DOI: 10.1016/j.sbi.2025.102991."
+    },
+    {
+      "id": "fab-desc-019",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [
+        "10.1016/s0006-3495(97)78353-x"
+      ],
+      "tool_calls": 30,
+      "answer_words": 400,
+      "answer_tail": "X](https://doi.org/10.1016/S0006-3495(97)78353-X) (local corpus hit, score 0.803).\n\n[^2^]: Tsay K, Equbal A, Li Y, Tsui T, Han S, Fichou Y. DEER of Singly Labelled Proteins to Evaluate Supramolecular Packing of Amyloid Fibrils. bioRxiv preprint. 2025. DOI: [10.1101/2025.11.10.687719](https://doi.org/10.1101/2025.11.10.687719); PMC: [PMC12642605](https://pmc.ncbi.nlm.nih.gov/articles/PMC12642605/)."
+    },
+    {
+      "id": "fab-desc-020",
+      "kind": "nonexistent_paper",
+      "doi": null,
+      "verdict": "correct_abstain",
+      "abstained": true,
+      "cited_in_corpus": [],
+      "tool_calls": 30,
+      "answer_words": 237,
+      "answer_tail": "ce Advances*, 2024, DOI: [10.1126/sciadv.adn4397](https://doi.org/10.1126/sciadv.adn4397)).\n\nHowever, none of these involve an author named Halloran. If you can provide additional details \u2014 such as the full author list, the exact title, or a DOI \u2014 I may be able to locate the specific paper. Otherwise, I cannot confirm the existence of this particular publication based on available search evidence."
+    }
+  ]
+}

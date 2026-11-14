@@ -1,0 +1,168 @@
+{
+  "meta": {
+    "tag": "sage-a1.5-smoke",
+    "generated_at": "2026-11-13T14:47:25.200552+00:00",
+    "git_sha": "cbcf985",
+    "encoder": "specter-v1",
+    "seed": 42,
+    "packages": {
+      "numpy": "2.5.0",
+      "scipy": "1.17.1",
+      "sentence_transformers": "6.1.0",
+      "qdrant_client": "n/a"
+    },
+    "model": "sage-a1.5",
+    "model_max_len": 65536,
+    "model_path": "/opt/munin/data/models/sage-a1.5-awq-int4",
+    "corpus_collections": {
+      "papers": "papers_bge",
+      "chunks": "papers_chunks"
+    },
+    "corpus_papers": 68980,
+    "corpus_chunks": 1426195,
+    "backbone": "sage-a1.5",
+    "checkpoint": "cyankiwi/Sage-A1.5-AWQ-INT4",
+    "checkpoint_dir": "/opt/munin/data/models/sage-a1.5-awq-int4",
+    "instance": "eval",
+    "tool_parser": "qwen3_coder",
+    "reasoning_parser": "qwen3",
+    "thinking_mode": "enable_thinking",
+    "sampling_default": "{\"temperature\": 1.0, \"top_p\": 0.95, \"top_k\": 20, \"min_p\": 0.0, \"presence_penalty\": 1.5}",
+    "sampling_code": "{\"temperature\": 0.6, \"top_p\": 0.95, \"top_k\": 20, \"min_p\": 0.0, \"presence_penalty\": 0.0}",
+    "serving_profile": "single-gpu-instance",
+    "max_num_seqs": "2",
+    "gpu_mem_util": "0.89",
+    "concurrency": "2",
+    "deadline_s": "900",
+    "driver": "run_suite.sh",
+    "thinking_token_budget": "8192",
+    "reasoning_end_str": "set",
+    "direct_arm_sampling": "profile",
+    "moe_backend": "n/a",
+    "kv_tokens": "199804",
+    "decode_tok_s": "201.1",
+    "prefill_tok_s": "18434.8",
+    "thinking_off_token_ratio": "0.01",
+    "ablation_runs_dir": "ablation_runs/sage-a1.5-smoke",
+    "ablation_deltas": {
+      "rag_minus_bare": {
+        "delta": -0.2,
+        "ci": [
+          -0.45,
+          0.05
+        ],
+        "p": 0.162
+      },
+      "agentic_minus_rag": {
+        "delta": 0.7,
+        "ci": [
+          0.5,
+          0.9
+        ],
+        "p": 0.0
+      },
+      "agentic_minus_bare": {
+        "delta": 0.5,
+        "ci": [
+          0.25,
+          0.75
+        ],
+        "p": 0.002
+      }
+    },
+    "ablation_unparseable_reasons": {
+      "bare": {
+        "empty_content": 2,
+        "letter_not_found": 1
+      },
+      "rag": {},
+      "agentic": {}
+    },
+    "egress": "full",
+    "base_url": "http://127.0.0.1:8082",
+    "reasoning_effort": null,
+    "max_output_tokens": 16384
+  },
+  "tasks": {
+    "ablation": {
+      "bare": {
+        "metrics": {
+          "accuracy": {
+            "mean": 0.4
+          },
+          "precision": {
+            "mean": 0.6153846153846154
+          },
+          "abstain_rate": {
+            "mean": 0.2
+          },
+          "mean_tool_calls": {
+            "mean": 0.0
+          },
+          "mean_elapsed_s": {
+            "mean": 43.3
+          },
+          "unparseable": {
+            "mean": 3.0
+          },
+          "tool_markup_in_content": {
+            "mean": 0.0
+          }
+        },
+        "per_query": {}
+      },
+      "rag": {
+        "metrics": {
+          "accuracy": {
+            "mean": 0.2
+          },
+          "precision": {
+            "mean": 0.8
+          },
+          "abstain_rate": {
+            "mean": 0.75
+          },
+          "mean_tool_calls": {
+            "mean": 0.0
+          },
+          "mean_elapsed_s": {
+            "mean": 13.3
+          },
+          "unparseable": {
+            "mean": 0.0
+          },
+          "tool_markup_in_content": {
+            "mean": 0.0
+          }
+        },
+        "per_query": {}
+      },
+      "agentic": {
+        "metrics": {
+          "accuracy": {
+            "mean": 0.9
+          },
+          "precision": {
+            "mean": 1.0
+          },
+          "abstain_rate": {
+            "mean": 0.1
+          },
+          "mean_tool_calls": {
+            "mean": 8.9
+          },
+          "mean_elapsed_s": {
+            "mean": 72.1
+          },
+          "unparseable": {
+            "mean": 0.0
+          },
+          "tool_markup_in_content": {
+            "mean": 0.0
+          }
+        },
+        "per_query": {}
+      }
+    }
+  }
+}

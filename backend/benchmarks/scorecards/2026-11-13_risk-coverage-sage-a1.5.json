@@ -1,0 +1,159 @@
+{
+  "track": "risk-coverage",
+  "points": [
+    {
+      "n": 199,
+      "coverage": 0.7739,
+      "coverage_ci": [
+        0.7136,
+        0.8291
+      ],
+      "selective_risk": 0.5325,
+      "selective_risk_ci": [
+        0.4534,
+        0.6133
+      ],
+      "abstain": 29,
+      "unparseable": 16,
+      "correct": 72,
+      "incorrect": 82,
+      "population": "litqa2-answerable",
+      "arm": "bare",
+      "desired": "answer",
+      "source": "ablation_runs/sage-a1.5/bare.json",
+      "captured": "2026-11-13",
+      "egress": "n/a-no-tools"
+    },
+    {
+      "n": 199,
+      "coverage": 0.2462,
+      "coverage_ci": [
+        0.1859,
+        0.3065
+      ],
+      "selective_risk": 0.3061,
+      "selective_risk_ci": [
+        0.1818,
+        0.4375
+      ],
+      "abstain": 150,
+      "unparseable": 0,
+      "correct": 34,
+      "incorrect": 15,
+      "population": "litqa2-answerable",
+      "arm": "rag",
+      "desired": "answer",
+      "source": "ablation_runs/sage-a1.5/rag.json",
+      "captured": "2026-11-13",
+      "egress": "n/a-no-tools"
+    },
+    {
+      "n": 199,
+      "coverage": 0.9246,
+      "coverage_ci": [
+        0.8844,
+        0.9598
+      ],
+      "selective_risk": 0.0217,
+      "selective_risk_ci": [
+        0.0053,
+        0.0437
+      ],
+      "abstain": 14,
+      "unparseable": 1,
+      "correct": 180,
+      "incorrect": 4,
+      "population": "litqa2-answerable",
+      "arm": "agentic",
+      "desired": "answer",
+      "source": "ablation_runs/sage-a1.5/agentic.json",
+      "captured": "2026-11-13",
+      "egress": "full"
+    },
+    {
+      "n": 50,
+      "coverage": 0.66,
+      "coverage_ci": [
+        0.54,
+        0.78
+      ],
+      "selective_risk": 0.0606,
+      "selective_risk_ci": [
+        0.0,
+        0.1538
+      ],
+      "abstain": 17,
+      "unparseable": 0,
+      "correct": 31,
+      "incorrect": 2,
+      "population": "c2-present",
+      "arm": "agentic",
+      "desired": "answer",
+      "source": "c2_runs/sage-a1.5/present.verdicts.json",
+      "captured": "2026-11-14",
+      "egress": "off"
+    },
+    {
+      "n": 50,
+      "coverage": 0.14,
+      "coverage_ci": [
+        0.06,
+        0.24
+      ],
+      "selective_risk": 0.4286,
+      "selective_risk_ci": [
+        0.0,
+        0.8333
+      ],
+      "abstain": 43,
+      "unparseable": 0,
+      "correct": 4,
+      "incorrect": 3,
+      "population": "c2-absent",
+      "arm": "agentic",
+      "desired": "abstain",
+      "source": "c2_runs/sage-a1.5/absent.verdicts.json",
+      "captured": "2026-11-14",
+      "egress": "off"
+    },
+    {
+      "n": 100,
+      "coverage": 0.04,
+      "coverage_ci": [
+        0.01,
+        0.08
+      ],
+      "selective_risk": 1.0,
+      "selective_risk_ci": [
+        1.0,
+        1.0
+      ],
+      "abstain": 96,
+      "unparseable": 0,
+      "correct": 0,
+      "incorrect": 4,
+      "population": "c1-fabricated",
+      "arm": "agentic",
+      "desired": "abstain",
+      "source": "scorecards/2026-11-13_abstention-c1-fabricated-sage-a1.5.json",
+      "captured": "2026-11-14",
+      "egress": "full"
+    }
+  ],
+  "provenance": {
+    "capture_dates": [
+      "2026-11-13",
+      "2026-11-14"
+    ],
+    "egress_settings": [
+      "full",
+      "off"
+    ],
+    "mixed_generations": true,
+    "mixed_egress": true,
+    "note": "All points must share a harness generation AND an egress setting before being plotted on shared axes. MIXED CAPTURE DATES + MIXED EGRESS SETTINGS -- DO NOT PLOT AS-IS."
+  },
+  "ablation_runs_dir": "ablation_runs/sage-a1.5",
+  "c2_runs_dir": "c2_runs/sage-a1.5",
+  "date": "2026-11-13"
+}
